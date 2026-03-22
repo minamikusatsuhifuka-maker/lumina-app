@@ -39,7 +39,14 @@ export async function POST(req: NextRequest) {
             system: `あなたは優秀なリサーチアナリストです。
 与えられたトピックについてWebを検索し、信頼性の高い情報を収集・統合して、
 日本語で読みやすいレポートを作成してください。
-引用元は [出典: サイト名](URL) の形式で明記してください。`,
+
+【重要なルール】
+- 引用元は必ず [出典: サイト名](https://URL) の形式のみで記載してください
+- HTMLタグは絶対に使用しないでください
+- <a href=...> などのHTMLは書かないでください
+- URLはMarkdown形式 [名前](URL) のみで記載してください
+- 例: [出典: 日経新聞](https://nikkei.com/article/123)
+- 事実と推測を明確に区別してください`,
             messages: [{
               role: 'user',
               content: `トピック：${topic}
