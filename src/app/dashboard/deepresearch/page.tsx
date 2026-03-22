@@ -10,6 +10,17 @@ const TEMPLATES = [
   { label: 'SNSマーケ', topic: 'X(Twitter)・Instagram・TikTokを活用したコンテンツマーケティング最新手法' },
 ];
 
+async function retryFetch(url: string, options: RequestInit, maxRetries = 3): Promise<Response> {
+  for (let i = 0; i < maxRetries; i++) {
+    const res = await fetch(url, options);
+    if (res.status !== 429) return res;
+    const waitMs = (i + 1) * 3000;
+    console.log(`[retry] 429 received, waiting ${waitMs}ms... (attempt ${i + 1}/${maxRetries})`);
+    await new Promise(r => setTimeout(r, waitMs));
+  }
+  return fetch(url, options);
+}
+
 const escapeHtml = (text: string) => text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 
 const linkify = (text: string) => {
@@ -63,7 +74,7 @@ export default function DeepResearchPage() {
     const timer = setInterval(() => setElapsed(e => e + 1), 1000);
 
     try {
-      const res = await fetch('/api/deepresearch', {
+      const res = await retryFetch('/api/deepresearch', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ topic: q, depth }),
@@ -180,7 +191,7 @@ export default function DeepResearchPage() {
       {loading && (
         <div style={{ background: '#12142a', border: '1px solid rgba(108,99,255,0.2)', borderRadius: 12, padding: 32, textAlign: 'center' }}>
           <div style={{ width: 40, height: 40, border: '3px solid rgba(108,99,255,0.3)', borderTopColor: '#6c63ff', borderRadius: '50%', animation: 'spin 0.8s linear infinite', margin: '0 auto 16px' }} />
-          <div style={{ color: '#a89fff', fontWeight: 600, marginBottom: 6 }}>複数のWebソースを調査・統合中...</div>
+          <div style={{ color: '#a89fff', fontWeight: 600, marginBottom: 6 }}>複数のWebソースを調査・統合中...（混雑時は自動でリトライします）</div>
           <div style={{ color: '#5a5a7a', fontSize: 13 }}>{elapsed}秒経過 / ディープリサーチは30〜60秒かかります</div>
         </div>
       )}

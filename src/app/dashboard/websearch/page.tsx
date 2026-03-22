@@ -6,6 +6,17 @@ const QUICK_SEARCHES = [
   '小説執筆プロ作家のテクニック', '電子書籍出版方法', 'SEO対策2026年最新',
 ];
 
+async function retryFetch(url: string, options: RequestInit, maxRetries = 3): Promise<Response> {
+  for (let i = 0; i < maxRetries; i++) {
+    const res = await fetch(url, options);
+    if (res.status !== 429) return res;
+    const waitMs = (i + 1) * 3000;
+    console.log(`[retry] 429 received, waiting ${waitMs}ms... (attempt ${i + 1}/${maxRetries})`);
+    await new Promise(r => setTimeout(r, waitMs));
+  }
+  return fetch(url, options);
+}
+
 const escapeHtml = (text: string) => {
   return text
     .replace(/&/g, '&amp;')
@@ -69,7 +80,7 @@ export default function WebSearchPage() {
     setResult('');
 
     try {
-      const res = await fetch('/api/websearch', {
+      const res = await retryFetch('/api/websearch', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ query: searchQuery }),
@@ -167,7 +178,7 @@ export default function WebSearchPage() {
       {loading && (
         <div style={{ background: '#12142a', border: '1px solid rgba(0,212,184,0.2)', borderRadius: 12, padding: 24, display: 'flex', alignItems: 'center', gap: 12, color: '#7878a0' }}>
           <div style={{ width: 20, height: 20, border: '2px solid rgba(0,212,184,0.3)', borderTopColor: '#00d4b8', borderRadius: '50%', animation: 'spin 0.7s linear infinite' }} />
-          Claude がWebを調査中...
+          AIがWebを調査中...（混雑時は自動でリトライします）
         </div>
       )}
 

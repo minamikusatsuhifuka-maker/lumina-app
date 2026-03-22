@@ -23,6 +23,17 @@ const QUICK_TOPICS: Record<string, string[]> = {
   hr: ['エンジニア採用 最新手法', 'リファラル採用 成功事例', '離職防止 施策', 'ダイバーシティ採用 取り組み'],
 };
 
+async function retryFetch(url: string, options: RequestInit, maxRetries = 3): Promise<Response> {
+  for (let i = 0; i < maxRetries; i++) {
+    const res = await fetch(url, options);
+    if (res.status !== 429) return res;
+    const waitMs = (i + 1) * 3000;
+    console.log(`[retry] 429 received, waiting ${waitMs}ms... (attempt ${i + 1}/${maxRetries})`);
+    await new Promise(r => setTimeout(r, waitMs));
+  }
+  return fetch(url, options);
+}
+
 const escapeHtml = (text: string) => text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 
 const linkify = (text: string) => {
@@ -73,7 +84,7 @@ export default function IntelligencePage() {
 
     try {
       if (mode === 'academic') {
-        const res = await fetch('/api/research', {
+        const res = await retryFetch('/api/research', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ query: searchQuery }),
@@ -88,7 +99,7 @@ export default function IntelligencePage() {
         return;
       }
 
-      const res = await fetch('/api/websearch', {
+      const res = await retryFetch('/api/websearch', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ query: searchQuery, mode }),
@@ -217,7 +228,7 @@ export default function IntelligencePage() {
           {loading && (
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, color: '#7878a0', padding: '8px 0' }}>
               <div style={{ width: 16, height: 16, border: '2px solid rgba(108,99,255,0.3)', borderTopColor: '#6c63ff', borderRadius: '50%', animation: 'spin 0.7s linear infinite' }} />
-              調査中...
+              AIが調査中...（混雑時は自動でリトライします）
             </div>
           )}
           <div
