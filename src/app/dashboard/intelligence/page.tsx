@@ -160,6 +160,21 @@ export default function IntelligencePage() {
               <span style={{ fontSize: 11, color: '#7878a0', fontFamily: 'monospace' }}>{fontSize}</span>
               <button onClick={() => setFontSize(f => Math.min(20, f+1))} style={{ width: 24, height: 24, borderRadius: 4, border: '1px solid rgba(130,140,255,0.2)', background: '#1a1d36', color: '#a89fff', cursor: 'pointer', fontSize: 14 }}>＋</button>
               <button onClick={sendToAnalysis} style={{ padding: '5px 12px', background: 'rgba(245,166,35,0.15)', border: '1px solid rgba(245,166,35,0.3)', color: '#f5a623', borderRadius: 6, cursor: 'pointer', fontSize: 12, fontWeight: 600 }}>🧩 分析する</button>
+              <button
+                onClick={async () => {
+                  const group = prompt('グループ名（例：AI調査、市場分析）') || '未分類';
+                  const tags = prompt('タグ（カンマ区切り、例：AI,マーケ）') || '';
+                  await fetch('/api/library', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ type: 'research', title: query || '調査結果', content: result, tags, group_name: group }),
+                  });
+                  alert('✅ ライブラリに保存しました！');
+                }}
+                style={{ padding: '5px 12px', background: 'rgba(74,222,128,0.15)', border: '1px solid rgba(74,222,128,0.3)', color: '#4ade80', borderRadius: 6, cursor: 'pointer', fontSize: 12, fontWeight: 600 }}
+              >
+                📚 保存
+              </button>
               <button onClick={sendToWriter} style={{ padding: '5px 12px', background: 'linear-gradient(135deg, #6c63ff, #8b5cf6)', color: '#fff', border: 'none', borderRadius: 6, cursor: 'pointer', fontSize: 12, fontWeight: 600 }}>✍️ 文章作成</button>
               <button onClick={() => navigator.clipboard.writeText(result)} style={{ padding: '5px 12px', background: '#1a1d36', border: '1px solid rgba(130,140,255,0.2)', color: '#a89fff', borderRadius: 6, cursor: 'pointer', fontSize: 12 }}>📋 コピー</button>
             </div>

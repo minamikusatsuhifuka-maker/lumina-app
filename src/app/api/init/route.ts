@@ -28,6 +28,9 @@ export async function GET() {
       title TEXT NOT NULL,
       content TEXT,
       metadata TEXT,
+      is_favorite INTEGER DEFAULT 0,
+      tags TEXT DEFAULT '',
+      group_name TEXT DEFAULT '未分類',
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )`;
     await sql`CREATE TABLE IF NOT EXISTS alerts (
@@ -49,6 +52,12 @@ export async function GET() {
       is_active INTEGER DEFAULT 0,
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )`;
+
+    // 既存テーブルにカラム追加（エラーは無視）
+    try { await sql`ALTER TABLE library ADD COLUMN is_favorite INTEGER DEFAULT 0`; } catch {}
+    try { await sql`ALTER TABLE library ADD COLUMN tags TEXT DEFAULT ''`; } catch {}
+    try { await sql`ALTER TABLE library ADD COLUMN group_name TEXT DEFAULT '未分類'`; } catch {}
+
     return NextResponse.json({ success: true, message: '全テーブル初期化完了' });
   } catch (e: any) {
     return NextResponse.json({ error: e.message }, { status: 500 });

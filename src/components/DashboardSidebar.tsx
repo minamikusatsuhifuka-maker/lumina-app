@@ -14,6 +14,7 @@ const navItems = [
   { href: '/dashboard/deepresearch', label: 'ディープリサーチ', icon: '🔭' },
   { href: '/dashboard/write', label: '文章作成', icon: '✍️' },
   { href: '/dashboard/alerts', label: '定期アラート', icon: '🔔' },
+  { href: '/dashboard/genspark', label: 'Gensparkへ出力', icon: '🎯' },
   { href: '/dashboard/library', label: 'ライブラリ', icon: '📚' },
 ];
 
