@@ -205,7 +205,7 @@ export default function WritePage() {
               <button onClick={() => download('txt')} style={{ padding: '5px 12px', borderRadius: 6, border: '1px solid rgba(130,140,255,0.2)', background: '#1a1d36', color: '#a89fff', cursor: 'pointer', fontSize: 12 }}>💾 TXT</button>
             </div>
           </div>
-          <textarea value={output} onChange={e => setOutput(e.target.value)} readOnly={loading} style={{ display: preview ? 'none' : 'block', width: '100%', minHeight: 400, background: '#12142a', border: `1px solid ${loading ? '#6c63ff' : 'rgba(130,140,255,0.2)'}`, borderRadius: 12, color: '#c0c0e0', fontSize: 14, padding: 20, resize: 'vertical', outline: 'none', fontFamily: 'inherit', lineHeight: 1.9, boxSizing: 'border-box' }} />
+          <textarea value={output} onChange={e => setOutput(e.target.value)} readOnly={loading} style={{ display: preview ? 'none' : 'block', width: '100%', minHeight: 400, background: '#12142a', border: `1px solid ${loading ? '#6c63ff' : 'rgba(130,140,255,0.2)'}`, borderRadius: 12, color: '#c0c0e0', fontSize: 14, padding: 20, resize: 'vertical', outline: 'none', fontFamily: 'inherit', lineHeight: 1.8, boxSizing: 'border-box' }} />
           {preview && <div style={{ minHeight: 400, background: '#12142a', border: '1px solid rgba(130,140,255,0.2)', borderRadius: 12, padding: '20px 28px', color: '#c0c0e0', fontSize: 15, lineHeight: 1.9, whiteSpace: 'pre-wrap' }}>{output}</div>}
         </div>
       )}

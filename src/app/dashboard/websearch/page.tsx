@@ -7,37 +7,58 @@ const QUICK_SEARCHES = [
 ];
 
 const formatResult = (text: string) => {
-  return text
+  // ステップ1: Markdownのリンク記法を先に抽出・変換
+  let result = text.replace(
+    /\[出典: ([^\]]+)\]\((https?:\/\/[^)]+)\)/g,
+    '___LINK_START___$1___LINK_MID___$2___LINK_END___'
+  );
+
+  // ステップ2: HTMLエスケープ
+  result = result
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/\[出典: ([^\]]+)\]\(([^)]+)\)/g,
-      '<a href="$2" target="_blank" rel="noopener noreferrer" style="color:#00d4b8;text-decoration:underline;">[$1]</a>')
-    .replace(/(https?:\/\/[^\s<>&"]+)/g,
-      '<a href="$1" target="_blank" rel="noopener noreferrer" style="color:#00d4b8;font-size:12px;word-break:break-all;">$1</a>')
+    .replace(/>/g, '&gt;');
+
+  // ステップ3: リンクを復元
+  result = result.replace(
+    /___LINK_START___(.*?)___LINK_MID___(.*?)___LINK_END___/g,
+    '<a href="$2" target="_blank" rel="noopener noreferrer" style="color:#00d4b8;text-decoration:underline;">[$1]</a>'
+  );
+
+  // ステップ4: 裸のURLをリンク化
+  result = result.replace(
+    /(https?:\/\/[^\s<>&"')\]]+)/g,
+    '<a href="$1" target="_blank" rel="noopener noreferrer" style="color:#00d4b8;font-size:11px;word-break:break-all;">$1</a>'
+  );
+
+  // ステップ5: Markdown変換
+  result = result
     .replace(/^# (.+)$/gm,
-      '<div style="font-size:20px;font-weight:700;color:#f0f0ff;margin:20px 0 10px;padding-bottom:8px;border-bottom:1px solid rgba(130,140,255,0.2);">$1</div>')
+      '<div style="font-size:1.3em;font-weight:700;color:#f0f0ff;margin:16px 0 8px;padding-bottom:6px;border-bottom:1px solid rgba(130,140,255,0.2);">$1</div>')
     .replace(/^## (.+)$/gm,
-      '<div style="font-size:16px;font-weight:600;color:#a89fff;margin:18px 0 8px;">$1</div>')
+      '<div style="font-size:1.1em;font-weight:600;color:#a89fff;margin:14px 0 6px;">$1</div>')
     .replace(/^### (.+)$/gm,
-      '<div style="font-size:14px;font-weight:600;color:#7878a0;margin:12px 0 6px;">$1</div>')
+      '<div style="font-size:1em;font-weight:600;color:#7878a0;margin:10px 0 4px;">$1</div>')
     .replace(/\*\*(.+?)\*\*/g,
-      '<strong style="color:#e0e0f0;">$1</strong>')
+      '<strong style="color:#e0e0f0;font-weight:600;">$1</strong>')
     .replace(/^- (.+)$/gm,
-      '<div style="padding:4px 0 4px 20px;position:relative;line-height:1.7;"><span style="position:absolute;left:6px;color:#6c63ff;">•</span>$1</div>')
+      '<div style="padding:3px 0 3px 18px;position:relative;line-height:1.7;"><span style="position:absolute;left:4px;color:#6c63ff;">•</span>$1</div>')
     .replace(/^(\d+)\. (.+)$/gm,
-      '<div style="padding:4px 0 4px 20px;position:relative;line-height:1.7;"><span style="position:absolute;left:0;color:#6c63ff;font-weight:600;">$1.</span>$2</div>')
+      '<div style="padding:3px 0 3px 22px;position:relative;line-height:1.7;"><span style="position:absolute;left:0;color:#6c63ff;font-weight:600;">$1.</span>$2</div>')
     .replace(/^---+$/gm,
-      '<hr style="border:none;border-top:1px solid rgba(130,140,255,0.15);margin:16px 0;">')
+      '<hr style="border:none;border-top:1px solid rgba(130,140,255,0.12);margin:14px 0;">')
     .replace(/\n{3,}/g, '\n\n')
-    .replace(/\n\n/g, '<br><br>')
+    .replace(/\n\n/g, '<div style="height:0.8em"></div>')
     .replace(/\n/g, '<br>');
+
+  return result;
 };
 
 export default function WebSearchPage() {
   const [query, setQuery] = useState('');
   const [result, setResult] = useState('');
   const [loading, setLoading] = useState(false);
+  const [fontSize, setFontSize] = useState(14);
   const [history, setHistory] = useState<string[]>(() => {
     if (typeof window === 'undefined') return [];
     try { return JSON.parse(localStorage.getItem('lumina_search_history') || '[]'); } catch { return []; }
@@ -159,7 +180,13 @@ export default function WebSearchPage() {
         <div style={{ background: '#12142a', border: '1px solid rgba(0,212,184,0.2)', borderRadius: 12, padding: 24 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
             <span style={{ fontSize: 13, fontWeight: 600, color: '#00d4b8' }}>🌐 Web調査結果</span>
-            <div style={{ display: 'flex', gap: 8 }}>
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                <span style={{ fontSize: 11, color: '#5a5a7a' }}>文字サイズ</span>
+                <button onClick={() => setFontSize(f => Math.max(11, f - 1))} style={{ width: 24, height: 24, borderRadius: 4, border: '1px solid rgba(130,140,255,0.2)', background: '#1a1d36', color: '#a89fff', cursor: 'pointer', fontSize: 14, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>−</button>
+                <span style={{ fontSize: 12, color: '#7878a0', fontFamily: 'monospace', minWidth: 20, textAlign: 'center' }}>{fontSize}</span>
+                <button onClick={() => setFontSize(f => Math.min(20, f + 1))} style={{ width: 24, height: 24, borderRadius: 4, border: '1px solid rgba(130,140,255,0.2)', background: '#1a1d36', color: '#a89fff', cursor: 'pointer', fontSize: 14, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>＋</button>
+              </div>
               <button onClick={sendToWrite} style={{ padding: '6px 14px', background: 'linear-gradient(135deg, #6c63ff, #8b5cf6)', color: '#fff', border: 'none', borderRadius: 6, cursor: 'pointer', fontSize: 12, fontWeight: 600 }}>
                 ✍️ 文章作成に使う
               </button>
@@ -169,7 +196,7 @@ export default function WebSearchPage() {
             </div>
           </div>
           <div
-            style={{ fontSize: 14, color: '#c0c0e0', lineHeight: 1.9, wordBreak: 'break-word' as const }}
+            style={{ fontSize: fontSize, color: '#c0c0e0', lineHeight: 1.8, wordBreak: 'break-word' as const }}
             dangerouslySetInnerHTML={{ __html: formatResult(result) }}
           />
         </div>
