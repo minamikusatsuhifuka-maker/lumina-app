@@ -16,11 +16,12 @@ export default async function DashboardPage() {
   ];
 
   const cards = [
-    { icon: '🔬', title: '文献検索', desc: 'Semantic Scholarで1.38億件の学術論文を検索', href: '/dashboard/research', color: '#6c63ff' },
-    { icon: '✍️', title: '文章作成', desc: 'Claude AIが高品質な文章をストリーミング生成', href: '/dashboard/write', color: '#00d4b8' },
-    { icon: '🌐', title: 'Web情報収集', desc: 'Claude AIがWebを検索し最新情報を収集', href: '/dashboard/websearch', color: '#00d4b8' },
-    { icon: '🔭', title: 'ディープリサーチ', desc: '複数ソースを統合した徹底的なリサーチ', href: '/dashboard/deepresearch', color: '#f5a623' },
-    { icon: '📚', title: 'ライブラリ', desc: '保存した論文・記事・下書きを管理', href: '/dashboard/library', color: '#f5a623' },
+    { icon: '🧠', title: 'Intelligence Hub', desc: 'ニュース・SNS・市場・学術を統合収集', href: '/dashboard/intelligence', color: '#6c63ff' },
+    { icon: '🧩', title: 'AI分析エンジン', desc: 'SWOT・仮説・トレンド・競合分析', href: '/dashboard/analysis', color: '#f5a623' },
+    { icon: '💼', title: '経営インテリジェンス', desc: 'MVV・採用・人材育成・ブランド戦略', href: '/dashboard/strategy', color: '#4ade80' },
+    { icon: '✍️', title: '文章作成', desc: 'ブログ・note・小説・出版用文章を生成', href: '/dashboard/write', color: '#00d4b8' },
+    { icon: '🔬', title: '文献検索', desc: 'Semantic Scholarで1.38億件の論文を検索', href: '/dashboard/research', color: '#a89fff' },
+    { icon: '📚', title: 'ライブラリ', desc: '保存した調査・分析・文章を管理', href: '/dashboard/library', color: '#f87171' },
   ];
 
   const modeLabel: Record<string, string> = {

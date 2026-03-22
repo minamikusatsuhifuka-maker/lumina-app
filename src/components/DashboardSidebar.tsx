@@ -6,10 +6,11 @@ import { SignOutButton } from '@/components/SignOutButton';
 const navItems = [
   { href: '/dashboard', label: 'ダッシュボード', icon: '🏠' },
   { href: '/dashboard/intelligence', label: 'Intelligence Hub', icon: '🧠' },
+  { href: '/dashboard/analysis', label: 'AI分析エンジン', icon: '🧩' },
+  { href: '/dashboard/strategy', label: '経営インテリジェンス', icon: '💼' },
   { href: '/dashboard/research', label: '文献検索', icon: '🔬' },
   { href: '/dashboard/websearch', label: 'Web情報収集', icon: '🌐' },
   { href: '/dashboard/deepresearch', label: 'ディープリサーチ', icon: '🔭' },
-  { href: '/dashboard/analysis', label: 'AI分析エンジン', icon: '🧩' },
   { href: '/dashboard/write', label: '文章作成', icon: '✍️' },
   { href: '/dashboard/library', label: 'ライブラリ', icon: '📚' },
 ];

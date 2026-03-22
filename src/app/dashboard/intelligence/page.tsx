@@ -7,6 +7,9 @@ const SEARCH_MODES = [
   { id: 'market', label: '📊 市場・競合', desc: 'ビジネス・市場動向分析' },
   { id: 'academic', label: '🔬 学術・研究', desc: '論文・エビデンス・医療情報' },
   { id: 'web', label: '🌐 Web総合', desc: 'Claude AI による総合Web調査' },
+  { id: 'management', label: '👥 組織・人材', desc: '最新マネジメント・育成手法' },
+  { id: 'marketing', label: '📣 マーケ・ブランド', desc: '最新マーケ施策・SNS戦略' },
+  { id: 'hr', label: '🤝 採用・HR', desc: '採用トレンド・エンゲージメント' },
 ];
 
 const QUICK_TOPICS: Record<string, string[]> = {
@@ -15,6 +18,9 @@ const QUICK_TOPICS: Record<string, string[]> = {
   market: ['生成AI市場規模', 'SaaS競合比較', 'デジタルマーケ最新手法', 'EC市場動向'],
   academic: ['うつ病 最新治療', 'AI 倫理 研究', '長寿 食事 研究', 'コロナ後遺症 論文'],
   web: ['副業 AI活用 最新', 'note収益化 方法', '電子書籍 出版 手順', 'Kindle セルフ出版'],
+  management: ['心理的安全性 実践方法', 'OKR 導入 成功事例', '1on1 効果的な進め方', 'ティール組織 日本企業事例', '従業員エンゲージメント向上'],
+  marketing: ['コンテンツマーケ 2026年最新', 'SNS運用 企業事例', 'BtoBマーケ戦略', 'インフルエンサーマーケ 費用対効果'],
+  hr: ['エンジニア採用 最新手法', 'リファラル採用 成功事例', '離職防止 施策', 'ダイバーシティ採用 取り組み'],
 };
 
 export default function IntelligencePage() {
@@ -50,7 +56,7 @@ export default function IntelligencePage() {
       const res = await fetch('/api/websearch', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ query: searchQuery }),
+        body: JSON.stringify({ query: searchQuery, mode }),
       });
 
       if (!res.body) { setLoading(false); return; }
@@ -94,7 +100,7 @@ export default function IntelligencePage() {
       <p style={{ color: '#7878a0', marginBottom: 20 }}>複数ソースから情報を収集・統合するインテリジェンスセンター</p>
 
       {/* モード選択 */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 8, marginBottom: 20 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 8, marginBottom: 20 }}>
         {SEARCH_MODES.map(m => (
           <button
             key={m.id}
