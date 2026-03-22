@@ -12,6 +12,7 @@ const navItems = [
   { href: '/dashboard/websearch', label: 'Web情報収集', icon: '🌐' },
   { href: '/dashboard/deepresearch', label: 'ディープリサーチ', icon: '🔭' },
   { href: '/dashboard/write', label: '文章作成', icon: '✍️' },
+  { href: '/dashboard/alerts', label: '定期アラート', icon: '🔔' },
   { href: '/dashboard/library', label: 'ライブラリ', icon: '📚' },
 ];
 

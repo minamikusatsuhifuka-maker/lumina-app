@@ -203,6 +203,52 @@ export default function WritePage() {
               <button onClick={copy} style={{ padding: '5px 12px', borderRadius: 6, border: '1px solid rgba(130,140,255,0.2)', background: '#1a1d36', color: '#a89fff', cursor: 'pointer', fontSize: 12 }}>📋 コピー</button>
               <button onClick={() => download('md')} style={{ padding: '5px 12px', borderRadius: 6, border: '1px solid rgba(130,140,255,0.2)', background: '#1a1d36', color: '#a89fff', cursor: 'pointer', fontSize: 12 }}>💾 MD</button>
               <button onClick={() => download('txt')} style={{ padding: '5px 12px', borderRadius: 6, border: '1px solid rgba(130,140,255,0.2)', background: '#1a1d36', color: '#a89fff', cursor: 'pointer', fontSize: 12 }}>💾 TXT</button>
+              <button
+                onClick={async () => {
+                  const { exportToPdf } = await import('@/lib/exportPdf');
+                  await exportToPdf(prompt.slice(0, 40) || '文章', output);
+                }}
+                style={{ padding: '5px 12px', borderRadius: 6, border: '1px solid rgba(255,107,107,0.3)', background: '#1a1d36', color: '#ff6b6b', cursor: 'pointer', fontSize: 12 }}
+              >
+                📄 PDF
+              </button>
+              <button
+                onClick={() => {
+                  const noteContent = output
+                    .replace(/^# (.+)$/gm, '$1\n')
+                    .replace(/^## (.+)$/gm, '\n■ $1\n')
+                    .replace(/^### (.+)$/gm, '\n▶ $1\n')
+                    .replace(/\*\*(.+?)\*\*/g, '$1')
+                    .replace(/---/g, '\n---\n');
+                  navigator.clipboard.writeText(noteContent).then(() => {
+                    window.open('https://note.com/notes/new', '_blank');
+                    alert('✅ note形式でクリップボードにコピーしました！\n\nnoteのエディタで Cmd+V で貼り付けてください。');
+                  });
+                }}
+                style={{ padding: '5px 12px', borderRadius: 6, border: '1px solid rgba(0,212,184,0.3)', background: 'rgba(0,212,184,0.1)', color: '#00d4b8', cursor: 'pointer', fontSize: 12, fontWeight: 600 }}
+              >
+                📝 noteに投稿
+              </button>
+              <button
+                onClick={() => {
+                  const html = output
+                    .replace(/^# (.+)$/gm, '<h1>$1</h1>')
+                    .replace(/^## (.+)$/gm, '<h2>$1</h2>')
+                    .replace(/^### (.+)$/gm, '<h3>$1</h3>')
+                    .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+                    .replace(/\*(.+?)\*/g, '<em>$1</em>')
+                    .replace(/^- (.+)$/gm, '<li>$1</li>')
+                    .replace(/(<li>.*<\/li>\n?)+/g, '<ul>$&</ul>')
+                    .replace(/^(?!<[h1-6ul]).+$/gm, '<p>$&</p>')
+                    .replace(/---/g, '<hr>');
+                  navigator.clipboard.writeText(html).then(() => {
+                    alert('✅ HTML形式でコピーしました！\nWordPressのHTMLエディタに貼り付けてください。');
+                  });
+                }}
+                style={{ padding: '5px 12px', borderRadius: 6, border: '1px solid rgba(245,166,35,0.3)', background: 'rgba(245,166,35,0.1)', color: '#f5a623', cursor: 'pointer', fontSize: 12 }}
+              >
+                🌐 WP用HTML
+              </button>
             </div>
           </div>
           <textarea value={output} onChange={e => setOutput(e.target.value)} readOnly={loading} style={{ display: preview ? 'none' : 'block', width: '100%', minHeight: 400, background: '#12142a', border: `1px solid ${loading ? '#6c63ff' : 'rgba(130,140,255,0.2)'}`, borderRadius: 12, color: '#c0c0e0', fontSize: 14, padding: 20, resize: 'vertical', outline: 'none', fontFamily: 'inherit', lineHeight: 1.8, boxSizing: 'border-box' }} />

@@ -121,6 +121,16 @@ export default function AnalysisPage() {
                 a.href = URL.createObjectURL(new Blob([result], { type: 'text/plain' }));
                 a.download = `lumina_analysis_${Date.now()}.md`; a.click();
               }} style={{ padding: '5px 12px', background: '#1a1d36', border: '1px solid rgba(130,140,255,0.2)', color: '#a89fff', borderRadius: 6, cursor: 'pointer', fontSize: 12 }}>💾 保存</button>
+              <button
+                onClick={async () => {
+                  const { exportToPdf } = await import('@/lib/exportPdf');
+                  const t = `${ANALYSIS_TYPES.find(t2 => t2.id === analysisType)?.label}_${new Date().toLocaleDateString('ja-JP')}`;
+                  await exportToPdf(t, result);
+                }}
+                style={{ padding: '5px 12px', background: '#1a1d36', border: '1px solid rgba(255,107,107,0.3)', color: '#ff6b6b', borderRadius: 6, cursor: 'pointer', fontSize: 12 }}
+              >
+                📄 PDF
+              </button>
             </div>
           </div>
           {loading && (

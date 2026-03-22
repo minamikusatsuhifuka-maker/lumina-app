@@ -228,6 +228,16 @@ export default function StrategyPage() {
               </button>
               <button onClick={sendToWriter} style={{ padding: '5px 12px', background: 'linear-gradient(135deg, #6c63ff, #8b5cf6)', color: '#fff', border: 'none', borderRadius: 6, cursor: 'pointer', fontSize: 12, fontWeight: 600 }}>✍️ 文章化</button>
               <button onClick={download} style={{ padding: '5px 12px', background: '#1a1d36', border: '1px solid rgba(130,140,255,0.2)', color: '#a89fff', borderRadius: 6, cursor: 'pointer', fontSize: 12 }}>💾 MD保存</button>
+              <button
+                onClick={async () => {
+                  const { exportToPdf } = await import('@/lib/exportPdf');
+                  const t = `${selectedType?.label} — ${new Date().toLocaleDateString('ja-JP')}`;
+                  await exportToPdf(t, result);
+                }}
+                style={{ padding: '5px 12px', background: '#1a1d36', border: '1px solid rgba(255,107,107,0.3)', color: '#ff6b6b', borderRadius: 6, cursor: 'pointer', fontSize: 12 }}
+              >
+                📄 PDF
+              </button>
               <button onClick={() => navigator.clipboard.writeText(result)} style={{ padding: '5px 12px', background: '#1a1d36', border: '1px solid rgba(130,140,255,0.2)', color: '#a89fff', borderRadius: 6, cursor: 'pointer', fontSize: 12 }}>📋 コピー</button>
             </div>
           </div>
