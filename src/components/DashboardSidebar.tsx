@@ -8,6 +8,7 @@ const navItems = [
   { href: '/dashboard/intelligence', label: 'Intelligence Hub', icon: '🧠' },
   { href: '/dashboard/analysis', label: 'AI分析エンジン', icon: '🧩' },
   { href: '/dashboard/strategy', label: '経営インテリジェンス', icon: '💼' },
+  { href: '/dashboard/personas', label: 'AIペルソナ', icon: '🤖' },
   { href: '/dashboard/research', label: '文献検索', icon: '🔬' },
   { href: '/dashboard/websearch', label: 'Web情報収集', icon: '🌐' },
   { href: '/dashboard/deepresearch', label: 'ディープリサーチ', icon: '🔭' },
@@ -52,6 +53,9 @@ export function DashboardSidebar({ userName }: { userName: string }) {
           </span>
           {userName}
         </div>
+        <a href="/dashboard/pricing" style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 12px', borderRadius: 8, textDecoration: 'none', fontSize: 13, color: '#f5a623', background: 'rgba(245,166,35,0.08)', border: '1px solid rgba(245,166,35,0.2)', marginBottom: 4 }}>
+          💳 Pro にアップグレード
+        </a>
         <SignOutButton />
       </div>
     </nav>

@@ -60,6 +60,9 @@ export async function POST(req: NextRequest) {
 対象読者: ${audienceMap[audience] || '一般読者'}
 高品質で読者を引きつける文章を作成してください。事実誤認を避け、不確かな情報は「〜とされています」と表現してください。`;
 
+    // カスタムペルソナのsystemPromptがあれば上書き
+    const finalSystemPrompt = body.systemOverride || systemPrompt;
+
     console.log('[generate] Calling Anthropic API...');
 
     const anthropicResponse = await fetch('https://api.anthropic.com/v1/messages', {
@@ -73,7 +76,7 @@ export async function POST(req: NextRequest) {
         model: 'claude-sonnet-4-6',
         max_tokens: 4000,
         stream: true,
-        system: systemPrompt,
+        system: finalSystemPrompt,
         messages: [{ role: 'user', content: prompt }],
       }),
     });

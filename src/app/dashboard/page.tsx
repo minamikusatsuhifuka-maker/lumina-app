@@ -1,14 +1,25 @@
 import { auth } from '@/lib/auth';
 import Link from 'next/link';
-import db from '@/lib/db';
+import { sql } from '@vercel/postgres';
 
 export default async function DashboardPage() {
   const session = await auth();
   const userId = (session?.user as any)?.id;
 
-  const draftCount = userId ? (db.prepare('SELECT COUNT(*) as c FROM drafts WHERE user_id = ?').get(userId) as any)?.c || 0 : 0;
-  const libCount = userId ? (db.prepare('SELECT COUNT(*) as c FROM library WHERE user_id = ?').get(userId) as any)?.c || 0 : 0;
-  const recentDrafts = userId ? db.prepare('SELECT * FROM drafts WHERE user_id = ? ORDER BY updated_at DESC LIMIT 3').all(userId) : [];
+  let draftCount = 0;
+  let libCount = 0;
+  let recentDrafts: any[] = [];
+
+  if (userId) {
+    try {
+      const dc = await sql`SELECT COUNT(*) as c FROM drafts WHERE user_id = ${userId}`;
+      draftCount = dc.rows[0]?.c || 0;
+      const lc = await sql`SELECT COUNT(*) as c FROM library WHERE user_id = ${userId}`;
+      libCount = lc.rows[0]?.c || 0;
+      const rd = await sql`SELECT * FROM drafts WHERE user_id = ${userId} ORDER BY updated_at DESC LIMIT 3`;
+      recentDrafts = rd.rows;
+    } catch {}
+  }
 
   const stats = [
     { label: '作成した文章', value: draftCount, icon: '✍️', color: '#6c63ff' },
