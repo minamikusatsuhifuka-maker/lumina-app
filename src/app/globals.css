@@ -24,3 +24,34 @@ body {
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
 }
+
+/* モバイル対応 */
+@media (max-width: 768px) {
+  nav[style*="width: 220px"] {
+    display: none;
+  }
+}
+
+/* スクロールバーカスタマイズ */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: rgba(130,140,255,0.2); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: rgba(130,140,255,0.4); }
+
+/* フォーカスリング */
+*:focus-visible {
+  outline: 2px solid rgba(108,99,255,0.6);
+  outline-offset: 2px;
+}
+
+/* リンクのホバー効果 */
+a[href*="dashboard"]:hover {
+  opacity: 0.9;
+}
+
+/* アニメーション */
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.fade-in { animation: fadeIn 0.3s ease; }

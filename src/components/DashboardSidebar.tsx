@@ -1,0 +1,55 @@
+'use client';
+import { usePathname } from 'next/navigation';
+import Link from 'next/link';
+import { SignOutButton } from '@/components/SignOutButton';
+
+const navItems = [
+  { href: '/dashboard', label: 'ダッシュボード', icon: '🏠' },
+  { href: '/dashboard/research', label: '文献検索', icon: '🔬' },
+  { href: '/dashboard/websearch', label: 'Web情報収集', icon: '🌐' },
+  { href: '/dashboard/deepresearch', label: 'ディープリサーチ', icon: '🔭' },
+  { href: '/dashboard/write', label: '文章作成', icon: '✍️' },
+  { href: '/dashboard/library', label: 'ライブラリ', icon: '📚' },
+];
+
+export function DashboardSidebar({ userName }: { userName: string }) {
+  const pathname = usePathname();
+  return (
+    <nav style={{
+      width: 220, background: '#0d0e1a',
+      borderRight: '1px solid rgba(130,140,255,0.1)',
+      padding: '20px 12px', display: 'flex',
+      flexDirection: 'column', gap: 4,
+      position: 'sticky', top: 0, height: '100vh', overflowY: 'auto'
+    }}>
+      <Link href="/dashboard" style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', marginBottom: 16, textDecoration: 'none' }}>
+        <div style={{ width: 28, height: 28, background: 'linear-gradient(135deg, #6c63ff, #00d4b8)', borderRadius: 7, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, fontWeight: 700, color: '#fff' }}>L</div>
+        <span style={{ fontSize: 16, fontWeight: 700, color: '#f0f0ff' }}>LUMINA</span>
+      </Link>
+      {navItems.map(item => {
+        const isActive = pathname === item.href;
+        return (
+          <Link key={item.href} href={item.href} style={{
+            display: 'flex', alignItems: 'center', gap: 10,
+            padding: '9px 12px', borderRadius: 8, textDecoration: 'none',
+            fontSize: 13, fontWeight: 500, transition: 'all 0.15s',
+            background: isActive ? 'linear-gradient(135deg, rgba(108,99,255,0.2), rgba(0,212,184,0.08))' : 'transparent',
+            color: isActive ? '#f0f0ff' : '#7878a0',
+            border: isActive ? '1px solid rgba(130,140,255,0.2)' : '1px solid transparent',
+          }}>
+            <span>{item.icon}</span>{item.label}
+          </Link>
+        );
+      })}
+      <div style={{ marginTop: 'auto', paddingTop: 16, borderTop: '1px solid rgba(130,140,255,0.1)' }}>
+        <div style={{ padding: '8px 12px', fontSize: 12, color: '#5a5a7a', display: 'flex', alignItems: 'center', gap: 6 }}>
+          <span style={{ width: 24, height: 24, background: 'linear-gradient(135deg, #6c63ff, #00d4b8)', borderRadius: '50%', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, color: '#fff', fontWeight: 600 }}>
+            {userName?.charAt(0).toUpperCase()}
+          </span>
+          {userName}
+        </div>
+        <SignOutButton />
+      </div>
+    </nav>
+  );
+}
