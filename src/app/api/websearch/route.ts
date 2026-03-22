@@ -17,6 +17,10 @@ export async function POST(req: NextRequest) {
     body: JSON.stringify({
       model: 'claude-sonnet-4-6',
       max_tokens: 2000,
+      system: `あなたは優秀なリサーチアナリストです。
+Webを検索して得た情報をもとに、日本語で詳しくまとめてください。
+必ず各情報の引用元を [出典: サイト名](URL) の形式で明記してください。
+事実と推測を明確に区別してください。`,
       tools: [{ type: 'web_search_20250305', name: 'web_search' }],
       messages: [{
         role: 'user',
@@ -35,7 +39,9 @@ export async function POST(req: NextRequest) {
 ## まとめ
 （結論と活用アドバイス）
 
-テーマ：${query}`,
+テーマ：${query}
+
+各セクションの情報源となったWebサイトのURLを必ず記載してください。`,
       }],
     }),
   });

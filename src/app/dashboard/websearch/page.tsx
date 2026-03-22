@@ -6,6 +6,18 @@ const QUICK_SEARCHES = [
   '小説執筆プロ作家のテクニック', '電子書籍出版方法', 'SEO対策2026年最新',
 ];
 
+const formatResult = (text: string) => {
+  return text
+    .replace(/\[出典: ([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer" style="color:#00d4b8;text-decoration:underline;">[$1]</a>')
+    .replace(/(https?:\/\/[^\s\)]+)/g, '<a href="$1" target="_blank" rel="noopener noreferrer" style="color:#00d4b8;font-size:12px;word-break:break-all;">$1</a>')
+    .replace(/^# (.+)$/gm, '<div style="font-size:18px;font-weight:700;color:#f0f0ff;margin:16px 0 8px;">$1</div>')
+    .replace(/^## (.+)$/gm, '<div style="font-size:15px;font-weight:600;color:#a89fff;margin:14px 0 6px;">$1</div>')
+    .replace(/^### (.+)$/gm, '<div style="font-size:14px;font-weight:600;color:#7878a0;margin:10px 0 4px;">$1</div>')
+    .replace(/\*\*(.+?)\*\*/g, '<strong style="color:#e0e0f0;">$1</strong>')
+    .replace(/^---$/gm, '<hr style="border:none;border-top:1px solid rgba(130,140,255,0.15);margin:12px 0;">')
+    .replace(/\n/g, '<br>');
+};
+
 export default function WebSearchPage() {
   const [query, setQuery] = useState('');
   const [result, setResult] = useState('');
@@ -80,7 +92,10 @@ export default function WebSearchPage() {
               </button>
             </div>
           </div>
-          <div style={{ fontSize: 14, color: '#c0c0e0', lineHeight: 1.8, whiteSpace: 'pre-wrap' }}>{result}</div>
+          <div
+            style={{ fontSize: 14, color: '#c0c0e0', lineHeight: 1.8 }}
+            dangerouslySetInnerHTML={{ __html: formatResult(result) }}
+          />
         </div>
       )}
 
