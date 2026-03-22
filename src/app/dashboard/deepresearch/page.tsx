@@ -11,51 +11,27 @@ const TEMPLATES = [
 ];
 
 const formatReport = (text: string) => {
-  // ステップ1: Markdownのリンク記法を先に抽出・変換
-  let result = text.replace(
-    /\[出典: ([^\]]+)\]\((https?:\/\/[^)]+)\)/g,
-    '___LINK_START___$1___LINK_MID___$2___LINK_END___'
-  );
+  if (!text) return '';
 
-  // ステップ2: HTMLエスケープ
-  result = result
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;');
+  const lines = text.split('\n');
+  const processedLines = lines.map(line => {
+    // 見出し
+    if (line.startsWith('# ')) return `<h2 style="font-size:1.3em;font-weight:700;color:#f0f0ff;margin:16px 0 8px;padding-bottom:6px;border-bottom:1px solid rgba(130,140,255,0.2);">${line.slice(2)}</h2>`;
+    if (line.startsWith('## ')) return `<h3 style="font-size:1.1em;font-weight:600;color:#a89fff;margin:12px 0 6px;">${line.slice(3)}</h3>`;
+    if (line.startsWith('### ')) return `<h4 style="font-size:1em;font-weight:600;color:#7878a0;margin:8px 0 4px;">${line.slice(4)}</h4>`;
+    // 箇条書き
+    if (line.startsWith('- ')) return `<div style="padding:2px 0 2px 16px;position:relative;"><span style="position:absolute;left:4px;color:#6c63ff;">•</span>${line.slice(2)}</div>`;
+    // 区切り線
+    if (line.match(/^---+$/)) return '<hr style="border:none;border-top:1px solid rgba(130,140,255,0.15);margin:12px 0;">';
+    // 空行
+    if (line.trim() === '') return '<div style="height:6px"></div>';
+    // 通常行
+    return `<p style="margin:4px 0;line-height:1.8;">${line}</p>`;
+  });
 
-  // ステップ3: リンクを復元
-  result = result.replace(
-    /___LINK_START___(.*?)___LINK_MID___(.*?)___LINK_END___/g,
-    '<a href="$2" target="_blank" rel="noopener noreferrer" style="color:#00d4b8;text-decoration:underline;">[$1]</a>'
-  );
-
-  // ステップ4: 裸のURLをリンク化
-  result = result.replace(
-    /(https?:\/\/[^\s<>&"')\]]+)/g,
-    '<a href="$1" target="_blank" rel="noopener noreferrer" style="color:#00d4b8;font-size:11px;word-break:break-all;">$1</a>'
-  );
-
-  // ステップ5: Markdown変換
-  result = result
-    .replace(/^# (.+)$/gm,
-      '<div style="font-size:1.3em;font-weight:700;color:#f0f0ff;margin:16px 0 8px;padding-bottom:6px;border-bottom:1px solid rgba(130,140,255,0.2);">$1</div>')
-    .replace(/^## (.+)$/gm,
-      '<div style="font-size:1.1em;font-weight:600;color:#a89fff;margin:14px 0 6px;">$1</div>')
-    .replace(/^### (.+)$/gm,
-      '<div style="font-size:1em;font-weight:600;color:#7878a0;margin:10px 0 4px;">$1</div>')
-    .replace(/\*\*(.+?)\*\*/g,
-      '<strong style="color:#e0e0f0;font-weight:600;">$1</strong>')
-    .replace(/^- (.+)$/gm,
-      '<div style="padding:3px 0 3px 18px;position:relative;line-height:1.7;"><span style="position:absolute;left:4px;color:#6c63ff;">•</span>$1</div>')
-    .replace(/^(\d+)\. (.+)$/gm,
-      '<div style="padding:3px 0 3px 22px;position:relative;line-height:1.7;"><span style="position:absolute;left:0;color:#6c63ff;font-weight:600;">$1.</span>$2</div>')
-    .replace(/^---+$/gm,
-      '<hr style="border:none;border-top:1px solid rgba(130,140,255,0.12);margin:14px 0;">')
-    .replace(/\n{3,}/g, '\n\n')
-    .replace(/\n\n/g, '<div style="height:0.8em"></div>')
-    .replace(/\n/g, '<br>');
-
-  return result;
+  return processedLines
+    .join('')
+    .replace(/\*\*(.+?)\*\*/g, '<strong style="color:#e0e0f0;">$1</strong>');
 };
 
 export default function DeepResearchPage() {

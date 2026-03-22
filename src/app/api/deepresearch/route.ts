@@ -68,10 +68,10 @@ export async function POST(req: NextRequest) {
           .map((b: any) => b.text)
           .join('\n');
 
-        const chunks = text.match(/.{1,100}/g) || [text];
-        for (const chunk of chunks) {
-          controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'text', content: chunk })}\n\n`));
-          await new Promise(r => setTimeout(r, 10));
+        const lines = text.split('\n');
+        for (const line of lines) {
+          controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'text', content: line + '\n' })}\n\n`));
+          await new Promise(r => setTimeout(r, 5));
         }
 
         controller.enqueue(encoder.encode('data: {"type":"done"}\n\n'));
