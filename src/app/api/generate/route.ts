@@ -33,6 +33,10 @@ export async function POST(req: NextRequest) {
       blog: 'ブログ記事', note: 'note記事', novel: '小説',
       guide: '解説本・ガイド', publish: '出版用文章',
       social: 'SNS投稿', report: 'レポート',
+      homepage: 'ホームページ・ランディングページのコピー',
+      product: '商品・サービスの説明文',
+      email: 'メール文章',
+      press: 'プレスリリース',
     };
     const styleMap: Record<string, string> = {
       casual: 'カジュアルで読みやすい文体',

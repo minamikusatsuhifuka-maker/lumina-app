@@ -18,6 +18,8 @@ export default async function DashboardPage() {
   const cards = [
     { icon: '🔬', title: '文献検索', desc: 'Semantic Scholarで1.38億件の学術論文を検索', href: '/dashboard/research', color: '#6c63ff' },
     { icon: '✍️', title: '文章作成', desc: 'Claude AIが高品質な文章をストリーミング生成', href: '/dashboard/write', color: '#00d4b8' },
+    { icon: '🌐', title: 'Web情報収集', desc: 'Claude AIがWebを検索し最新情報を収集', href: '/dashboard/websearch', color: '#00d4b8' },
+    { icon: '🔭', title: 'ディープリサーチ', desc: '複数ソースを統合した徹底的なリサーチ', href: '/dashboard/deepresearch', color: '#f5a623' },
     { icon: '📚', title: 'ライブラリ', desc: '保存した論文・記事・下書きを管理', href: '/dashboard/library', color: '#f5a623' },
   ];
 

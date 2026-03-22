@@ -6,6 +6,10 @@ const MODES = [
   { id: 'novel', label: '📖 小説' }, { id: 'guide', label: '📚 解説本' },
   { id: 'publish', label: '🗞️ 出版用' }, { id: 'social', label: '📱 SNS' },
   { id: 'report', label: '📊 レポート' },
+  { id: 'homepage', label: '🌐 HP・LP' },
+  { id: 'product', label: '🛍️ 商品説明' },
+  { id: 'email', label: '📧 メール' },
+  { id: 'press', label: '📰 プレスリリース' },
 ];
 
 export default function WritePage() {

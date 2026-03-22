@@ -10,6 +10,28 @@ const TEMPLATES = [
   { label: 'SNSマーケ', topic: 'X(Twitter)・Instagram・TikTokを活用したコンテンツマーケティング最新手法' },
 ];
 
+const formatReport = (text: string) => {
+  return text
+    .replace(/\[出典: ([^\]]+)\]\(([^)]+)\)/g,
+      '<a href="$2" target="_blank" rel="noopener noreferrer" style="color:#00d4b8;text-decoration:underline;font-size:12px;">[$1]</a>')
+    .replace(/(https?:\/\/[^\s\)<>]+)/g,
+      '<a href="$1" target="_blank" rel="noopener noreferrer" style="color:#00d4b8;font-size:11px;word-break:break-all;display:inline-block;max-width:100%;">$1</a>')
+    .replace(/^# (.+)$/gm,
+      '<div style="font-size:20px;font-weight:700;color:#f0f0ff;margin:20px 0 10px;padding-bottom:8px;border-bottom:1px solid rgba(130,140,255,0.2);">$1</div>')
+    .replace(/^## (.+)$/gm,
+      '<div style="font-size:16px;font-weight:600;color:#a89fff;margin:16px 0 8px;">$1</div>')
+    .replace(/^### (.+)$/gm,
+      '<div style="font-size:14px;font-weight:600;color:#7878a0;margin:12px 0 6px;">$1</div>')
+    .replace(/\*\*(.+?)\*\*/g,
+      '<strong style="color:#e0e0f0;font-weight:600;">$1</strong>')
+    .replace(/^- (.+)$/gm,
+      '<div style="padding:3px 0 3px 16px;position:relative;"><span style="position:absolute;left:0;color:#6c63ff;">•</span>$1</div>')
+    .replace(/^---$/gm,
+      '<hr style="border:none;border-top:1px solid rgba(130,140,255,0.15);margin:14px 0;">')
+    .replace(/\n\n/g, '<br><br>')
+    .replace(/\n/g, '<br>');
+};
+
 export default function DeepResearchPage() {
   const [topic, setTopic] = useState('');
   const [depth, setDepth] = useState('standard');
@@ -134,7 +156,10 @@ export default function DeepResearchPage() {
               </button>
             </div>
           </div>
-          <div style={{ fontSize: 14, color: '#c0c0e0', lineHeight: 1.9, whiteSpace: 'pre-wrap' }}>{report}</div>
+          <div
+            style={{ fontSize: 14, color: '#c0c0e0', lineHeight: 1.9 }}
+            dangerouslySetInnerHTML={{ __html: formatReport(report) }}
+          />
         </div>
       )}
 
