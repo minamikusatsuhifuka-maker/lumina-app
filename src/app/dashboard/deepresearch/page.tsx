@@ -12,22 +12,28 @@ const TEMPLATES = [
 
 const formatReport = (text: string) => {
   return text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
     .replace(/\[出典: ([^\]]+)\]\(([^)]+)\)/g,
-      '<a href="$2" target="_blank" rel="noopener noreferrer" style="color:#00d4b8;text-decoration:underline;font-size:12px;">[$1]</a>')
-    .replace(/(https?:\/\/[^\s\)<>]+)/g,
-      '<a href="$1" target="_blank" rel="noopener noreferrer" style="color:#00d4b8;font-size:11px;word-break:break-all;display:inline-block;max-width:100%;">$1</a>')
+      '<a href="$2" target="_blank" rel="noopener noreferrer" style="color:#00d4b8;text-decoration:underline;">[$1]</a>')
+    .replace(/(https?:\/\/[^\s<>&"]+)/g,
+      '<a href="$1" target="_blank" rel="noopener noreferrer" style="color:#00d4b8;font-size:12px;word-break:break-all;">$1</a>')
     .replace(/^# (.+)$/gm,
       '<div style="font-size:20px;font-weight:700;color:#f0f0ff;margin:20px 0 10px;padding-bottom:8px;border-bottom:1px solid rgba(130,140,255,0.2);">$1</div>')
     .replace(/^## (.+)$/gm,
-      '<div style="font-size:16px;font-weight:600;color:#a89fff;margin:16px 0 8px;">$1</div>')
+      '<div style="font-size:16px;font-weight:600;color:#a89fff;margin:18px 0 8px;">$1</div>')
     .replace(/^### (.+)$/gm,
       '<div style="font-size:14px;font-weight:600;color:#7878a0;margin:12px 0 6px;">$1</div>')
     .replace(/\*\*(.+?)\*\*/g,
-      '<strong style="color:#e0e0f0;font-weight:600;">$1</strong>')
+      '<strong style="color:#e0e0f0;">$1</strong>')
     .replace(/^- (.+)$/gm,
-      '<div style="padding:3px 0 3px 16px;position:relative;"><span style="position:absolute;left:0;color:#6c63ff;">•</span>$1</div>')
-    .replace(/^---$/gm,
-      '<hr style="border:none;border-top:1px solid rgba(130,140,255,0.15);margin:14px 0;">')
+      '<div style="padding:4px 0 4px 20px;position:relative;line-height:1.7;"><span style="position:absolute;left:6px;color:#6c63ff;">•</span>$1</div>')
+    .replace(/^(\d+)\. (.+)$/gm,
+      '<div style="padding:4px 0 4px 20px;position:relative;line-height:1.7;"><span style="position:absolute;left:0;color:#6c63ff;font-weight:600;">$1.</span>$2</div>')
+    .replace(/^---+$/gm,
+      '<hr style="border:none;border-top:1px solid rgba(130,140,255,0.15);margin:16px 0;">')
+    .replace(/\n{3,}/g, '\n\n')
     .replace(/\n\n/g, '<br><br>')
     .replace(/\n/g, '<br>');
 };
@@ -188,7 +194,7 @@ export default function DeepResearchPage() {
             </div>
           </div>
           <div
-            style={{ fontSize: 14, color: '#c0c0e0', lineHeight: 1.9 }}
+            style={{ fontSize: 14, color: '#c0c0e0', lineHeight: 1.9, wordBreak: 'break-word' as const }}
             dangerouslySetInnerHTML={{ __html: formatReport(report) }}
           />
         </div>

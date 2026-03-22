@@ -51,7 +51,7 @@ export default async function DashboardPage() {
       {/* クイックスタート */}
       <div style={{ marginBottom: 28 }}>
         <div style={{ fontSize: 13, fontWeight: 600, color: '#5a5a7a', textTransform: 'uppercase' as const, letterSpacing: '0.08em', marginBottom: 12 }}>クイックスタート</div>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 14 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 14 }}>
           {cards.map(card => (
             <Link key={card.href} href={card.href} style={{ background: '#12142a', border: `1px solid ${card.color}25`, borderRadius: 14, padding: 22, textDecoration: 'none', display: 'block', transition: 'border-color 0.2s' }}>
               <div style={{ fontSize: 30, marginBottom: 10 }}>{card.icon}</div>
@@ -82,6 +82,26 @@ export default async function DashboardPage() {
           </div>
         </div>
       )}
+      {/* ワークフローガイド */}
+      <div style={{ marginTop: 28 }}>
+        <div style={{ fontSize: 13, fontWeight: 600, color: '#5a5a7a', textTransform: 'uppercase' as const, letterSpacing: '0.08em', marginBottom: 12 }}>推奨ワークフロー</div>
+        <div style={{ display: 'flex', gap: 0, alignItems: 'stretch' }}>
+          {[
+            { step: '1', title: '情報収集', desc: 'Web情報収集・ディープリサーチ', color: '#6c63ff', icon: '🌐' },
+            { step: '2', title: '文献確認', desc: '学術論文で裏付けを取る', color: '#00d4b8', icon: '🔬' },
+            { step: '3', title: '文章生成', desc: 'Claude AIで高品質な文章を作成', color: '#f5a623', icon: '✍️' },
+          ].map((w, i) => (
+            <div key={w.step} style={{ display: 'flex', alignItems: 'center' }}>
+              <div style={{ flex: 1, padding: '14px 16px', borderRadius: 10, background: `${w.color}10`, border: `1px solid ${w.color}25` }}>
+                <div style={{ fontSize: 11, color: w.color, fontFamily: 'monospace', marginBottom: 4 }}>STEP {w.step}</div>
+                <div style={{ fontSize: 14, fontWeight: 600, color: '#f0f0ff', marginBottom: 3 }}>{w.icon} {w.title}</div>
+                <div style={{ fontSize: 12, color: '#7878a0' }}>{w.desc}</div>
+              </div>
+              {i < 2 && <div style={{ padding: '0 8px', color: '#3a3a5a', fontSize: 18 }}>→</div>}
+            </div>
+          ))}
+        </div>
+      </div>
     </div>
   );
 }

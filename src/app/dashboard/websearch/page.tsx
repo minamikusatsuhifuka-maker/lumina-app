@@ -8,13 +8,29 @@ const QUICK_SEARCHES = [
 
 const formatResult = (text: string) => {
   return text
-    .replace(/\[出典: ([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer" style="color:#00d4b8;text-decoration:underline;">[$1]</a>')
-    .replace(/(https?:\/\/[^\s\)]+)/g, '<a href="$1" target="_blank" rel="noopener noreferrer" style="color:#00d4b8;font-size:12px;word-break:break-all;">$1</a>')
-    .replace(/^# (.+)$/gm, '<div style="font-size:18px;font-weight:700;color:#f0f0ff;margin:16px 0 8px;">$1</div>')
-    .replace(/^## (.+)$/gm, '<div style="font-size:15px;font-weight:600;color:#a89fff;margin:14px 0 6px;">$1</div>')
-    .replace(/^### (.+)$/gm, '<div style="font-size:14px;font-weight:600;color:#7878a0;margin:10px 0 4px;">$1</div>')
-    .replace(/\*\*(.+?)\*\*/g, '<strong style="color:#e0e0f0;">$1</strong>')
-    .replace(/^---$/gm, '<hr style="border:none;border-top:1px solid rgba(130,140,255,0.15);margin:12px 0;">')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/\[出典: ([^\]]+)\]\(([^)]+)\)/g,
+      '<a href="$2" target="_blank" rel="noopener noreferrer" style="color:#00d4b8;text-decoration:underline;">[$1]</a>')
+    .replace(/(https?:\/\/[^\s<>&"]+)/g,
+      '<a href="$1" target="_blank" rel="noopener noreferrer" style="color:#00d4b8;font-size:12px;word-break:break-all;">$1</a>')
+    .replace(/^# (.+)$/gm,
+      '<div style="font-size:20px;font-weight:700;color:#f0f0ff;margin:20px 0 10px;padding-bottom:8px;border-bottom:1px solid rgba(130,140,255,0.2);">$1</div>')
+    .replace(/^## (.+)$/gm,
+      '<div style="font-size:16px;font-weight:600;color:#a89fff;margin:18px 0 8px;">$1</div>')
+    .replace(/^### (.+)$/gm,
+      '<div style="font-size:14px;font-weight:600;color:#7878a0;margin:12px 0 6px;">$1</div>')
+    .replace(/\*\*(.+?)\*\*/g,
+      '<strong style="color:#e0e0f0;">$1</strong>')
+    .replace(/^- (.+)$/gm,
+      '<div style="padding:4px 0 4px 20px;position:relative;line-height:1.7;"><span style="position:absolute;left:6px;color:#6c63ff;">•</span>$1</div>')
+    .replace(/^(\d+)\. (.+)$/gm,
+      '<div style="padding:4px 0 4px 20px;position:relative;line-height:1.7;"><span style="position:absolute;left:0;color:#6c63ff;font-weight:600;">$1.</span>$2</div>')
+    .replace(/^---+$/gm,
+      '<hr style="border:none;border-top:1px solid rgba(130,140,255,0.15);margin:16px 0;">')
+    .replace(/\n{3,}/g, '\n\n')
+    .replace(/\n\n/g, '<br><br>')
     .replace(/\n/g, '<br>');
 };
 
@@ -22,10 +38,17 @@ export default function WebSearchPage() {
   const [query, setQuery] = useState('');
   const [result, setResult] = useState('');
   const [loading, setLoading] = useState(false);
+  const [history, setHistory] = useState<string[]>(() => {
+    if (typeof window === 'undefined') return [];
+    try { return JSON.parse(localStorage.getItem('lumina_search_history') || '[]'); } catch { return []; }
+  });
 
   const search = async (q?: string) => {
     const searchQuery = q || query;
     if (!searchQuery.trim()) return;
+    const newHistory = [searchQuery, ...history.filter(h => h !== searchQuery)].slice(0, 5);
+    setHistory(newHistory);
+    localStorage.setItem('lumina_search_history', JSON.stringify(newHistory));
     setLoading(true);
     setResult('');
 
@@ -102,6 +125,29 @@ export default function WebSearchPage() {
         ))}
       </div>
 
+      {history.length > 0 && (
+        <div style={{ marginBottom: 16 }}>
+          <div style={{ fontSize: 11, color: '#5a5a7a', marginBottom: 6, textTransform: 'uppercase' as const, letterSpacing: '0.06em' }}>最近の検索</div>
+          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' as const }}>
+            {history.map(h => (
+              <button
+                key={h}
+                onClick={() => { setQuery(h); search(h); }}
+                style={{ padding: '3px 10px', borderRadius: 20, border: '1px solid rgba(130,140,255,0.15)', background: 'rgba(130,140,255,0.05)', color: '#7878a0', cursor: 'pointer', fontSize: 11, display: 'flex', alignItems: 'center', gap: 4 }}
+              >
+                🕐 {h}
+              </button>
+            ))}
+            <button
+              onClick={() => { setHistory([]); localStorage.removeItem('lumina_search_history'); }}
+              style={{ padding: '3px 10px', borderRadius: 20, border: '1px solid rgba(255,107,107,0.2)', background: 'transparent', color: '#ff6b6b', cursor: 'pointer', fontSize: 11 }}
+            >
+              🗑 クリア
+            </button>
+          </div>
+        </div>
+      )}
+
       {loading && (
         <div style={{ background: '#12142a', border: '1px solid rgba(0,212,184,0.2)', borderRadius: 12, padding: 24, display: 'flex', alignItems: 'center', gap: 12, color: '#7878a0' }}>
           <div style={{ width: 20, height: 20, border: '2px solid rgba(0,212,184,0.3)', borderTopColor: '#00d4b8', borderRadius: '50%', animation: 'spin 0.7s linear infinite' }} />
@@ -123,7 +169,7 @@ export default function WebSearchPage() {
             </div>
           </div>
           <div
-            style={{ fontSize: 14, color: '#c0c0e0', lineHeight: 1.8 }}
+            style={{ fontSize: 14, color: '#c0c0e0', lineHeight: 1.9, wordBreak: 'break-word' as const }}
             dangerouslySetInnerHTML={{ __html: formatResult(result) }}
           />
         </div>
