@@ -34,20 +34,6 @@ async function retryFetch(url: string, options: RequestInit, maxRetries = 3): Pr
   return fetch(url, options);
 }
 
-const escapeHtml = (text: string) => text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
-
-const linkify = (text: string) => {
-  text = text.replace(
-    /\[出典[:：]\s*([^\]]+)\]\(([^)]+)\)/g,
-    '<a href="$2" target="_blank" rel="noopener noreferrer" style="color:#00d4b8;text-decoration:underline;font-size:0.9em;">[$1 ↗]</a>'
-  );
-  text = text.replace(
-    /(https?:\/\/[^\s<>"'）\]]+)/g,
-    '<a href="$1" target="_blank" rel="noopener noreferrer" style="color:#00d4b8;text-decoration:underline;font-size:0.85em;word-break:break-all;">$1 ↗</a>'
-  );
-  return text;
-};
-
 const formatResult = (text: string) => {
   if (!text) return '';
 
@@ -55,18 +41,44 @@ const formatResult = (text: string) => {
   const processedLines = lines.map(line => {
     const trimmed = line.trim();
 
-    if (trimmed.startsWith('# ')) return `<h2 style="font-size:1.3em;font-weight:700;color:#f0f0ff;margin:16px 0 8px;padding-bottom:6px;border-bottom:1px solid rgba(130,140,255,0.2);">${escapeHtml(trimmed.slice(2))}</h2>`;
-    if (trimmed.startsWith('## ')) return `<h3 style="font-size:1.1em;font-weight:600;color:#a89fff;margin:12px 0 6px;">${escapeHtml(trimmed.slice(3))}</h3>`;
-    if (trimmed.startsWith('### ')) return `<h4 style="font-size:1em;font-weight:600;color:#7878a0;margin:8px 0 4px;">${escapeHtml(trimmed.slice(4))}</h4>`;
-    if (trimmed.startsWith('- ')) return `<div style="padding:2px 0 2px 16px;position:relative;"><span style="position:absolute;left:4px;color:#6c63ff;">•</span>${linkify(escapeHtml(trimmed.slice(2)))}</div>`;
-    if (trimmed.match(/^---+$/)) return '<hr style="border:none;border-top:1px solid rgba(130,140,255,0.15);margin:12px 0;">';
-    if (trimmed === '') return '<div style="height:6px"></div>';
-    return `<p style="margin:4px 0;line-height:1.8;">${linkify(escapeHtml(trimmed))}</p>`;
+    if (trimmed.startsWith('# ')) {
+      return `<div style="font-size:1.3em;font-weight:700;color:#f0f0ff;margin:16px 0 8px;padding-bottom:6px;border-bottom:1px solid rgba(130,140,255,0.2);">${processInline(trimmed.slice(2))}</div>`;
+    }
+    if (trimmed.startsWith('## ')) {
+      return `<div style="font-size:1.1em;font-weight:600;color:#a89fff;margin:12px 0 6px;">${processInline(trimmed.slice(3))}</div>`;
+    }
+    if (trimmed.startsWith('### ')) {
+      return `<div style="font-size:1em;font-weight:600;color:#7878a0;margin:8px 0 4px;">${processInline(trimmed.slice(4))}</div>`;
+    }
+    if (trimmed.startsWith('- ')) {
+      return `<div style="padding:2px 0 2px 16px;position:relative;line-height:1.8;"><span style="position:absolute;left:4px;color:#6c63ff;">•</span>${processInline(trimmed.slice(2))}</div>`;
+    }
+    if (trimmed.match(/^---+$/)) {
+      return '<hr style="border:none;border-top:1px solid rgba(130,140,255,0.15);margin:12px 0;">';
+    }
+    if (trimmed === '') {
+      return '<div style="height:6px"></div>';
+    }
+    return `<div style="margin:4px 0;line-height:1.8;">${processInline(trimmed)}</div>`;
   });
 
-  return processedLines
-    .join('')
-    .replace(/\*\*(.+?)\*\*/g, '<strong style="color:#e0e0f0;">$1</strong>');
+  return processedLines.join('');
+};
+
+const processInline = (text: string): string => {
+  text = text.replace(/\*\*(.+?)\*\*/g, '<strong style="color:#e0e0f0;">$1</strong>');
+
+  text = text.replace(
+    /\[出典[:：]\s*([^\]]+)\]\((https?:\/\/[^)]+)\)/g,
+    (_, name, url) => `<a href="${url}" target="_blank" rel="noopener noreferrer" style="color:#00d4b8;text-decoration:underline;">[${name} ↗]</a>`
+  );
+
+  text = text.replace(
+    /(https?:\/\/[^\s<>"'）\]、。！？]+)/g,
+    (_, url) => `<a href="${url}" target="_blank" rel="noopener noreferrer" style="color:#00d4b8;text-decoration:underline;font-size:0.9em;word-break:break-all;">${url} ↗</a>`
+  );
+
+  return text;
 };
 
 export default function IntelligencePage() {
