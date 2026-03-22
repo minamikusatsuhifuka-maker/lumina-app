@@ -26,19 +26,49 @@ export default function WebSearchPage() {
   const search = async (q?: string) => {
     const searchQuery = q || query;
     if (!searchQuery.trim()) return;
-    setLoading(true); setResult('');
+    setLoading(true);
+    setResult('');
+
     try {
       const res = await fetch('/api/websearch', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ query: searchQuery }),
       });
-      const data = await res.json();
-      setResult(data.result || 'エラーが発生しました');
-    } catch {
-      setResult('エラーが発生しました。APIキーを確認してください。');
+
+      if (!res.ok || !res.body) {
+        setResult('エラーが発生しました。');
+        setLoading(false);
+        return;
+      }
+
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let accumulated = '';
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        const lines = decoder.decode(value).split('\n');
+        for (const line of lines) {
+          if (!line.startsWith('data: ')) continue;
+          try {
+            const json = JSON.parse(line.slice(6));
+            if (json.type === 'text') {
+              accumulated += json.content;
+              setResult(accumulated);
+            } else if (json.type === 'error') {
+              setResult(`エラー: ${json.message}`);
+            }
+          } catch {}
+        }
+      }
+    } catch (error: any) {
+      setResult(`通信エラー: ${error.message}`);
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
   };
 
   const sendToWrite = () => {

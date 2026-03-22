@@ -42,7 +42,9 @@ export default function DeepResearchPage() {
   const research = async (t?: string) => {
     const q = t || topic;
     if (!q.trim()) return;
-    setLoading(true); setReport(''); setElapsed(0);
+    setLoading(true);
+    setReport('');
+    setElapsed(0);
 
     const timer = setInterval(() => setElapsed(e => e + 1), 1000);
 
@@ -52,13 +54,42 @@ export default function DeepResearchPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ topic: q, depth }),
       });
-      const data = await res.json();
-      setReport(data.report || 'エラーが発生しました');
-    } catch {
-      setReport('エラーが発生しました。');
+
+      if (!res.ok || !res.body) {
+        setReport('エラーが発生しました。');
+        clearInterval(timer);
+        setLoading(false);
+        return;
+      }
+
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let accumulated = '';
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        const lines = decoder.decode(value).split('\n');
+        for (const line of lines) {
+          if (!line.startsWith('data: ')) continue;
+          try {
+            const json = JSON.parse(line.slice(6));
+            if (json.type === 'text') {
+              accumulated += json.content;
+              setReport(accumulated);
+            } else if (json.type === 'error') {
+              setReport(`エラー: ${json.message}`);
+            }
+          } catch {}
+        }
+      }
+    } catch (error: any) {
+      setReport(`通信エラー: ${error.message}`);
+    } finally {
+      clearInterval(timer);
+      setLoading(false);
     }
-    clearInterval(timer);
-    setLoading(false);
   };
 
   const sendToWrite = () => {
