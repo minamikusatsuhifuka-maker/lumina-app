@@ -1,7 +1,7 @@
 import NextAuth from 'next-auth';
 import Credentials from 'next-auth/providers/credentials';
 import bcrypt from 'bcryptjs';
-import { sql } from '@vercel/postgres';
+import { neon } from '@neondatabase/serverless';
 
 export const { handlers, signIn, signOut, auth } = NextAuth({
   providers: [
@@ -13,8 +13,9 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
       async authorize(credentials) {
         if (!credentials?.email || !credentials?.password) return null;
         try {
+          const sql = neon(process.env.DATABASE_URL!);
           const result = await sql`SELECT * FROM users WHERE email = ${credentials.email as string}`;
-          const user = result.rows[0];
+          const user = result[0];
           if (!user) return null;
           const valid = await bcrypt.compare(credentials.password as string, user.password_hash);
           if (!valid) return null;

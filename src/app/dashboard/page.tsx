@@ -1,6 +1,6 @@
 import { auth } from '@/lib/auth';
 import Link from 'next/link';
-import { sql } from '@vercel/postgres';
+import { neon } from '@neondatabase/serverless';
 
 export default async function DashboardPage() {
   const session = await auth();
@@ -12,12 +12,12 @@ export default async function DashboardPage() {
 
   if (userId) {
     try {
+      const sql = neon(process.env.DATABASE_URL!);
       const dc = await sql`SELECT COUNT(*) as c FROM drafts WHERE user_id = ${userId}`;
-      draftCount = dc.rows[0]?.c || 0;
+      draftCount = dc[0]?.c || 0;
       const lc = await sql`SELECT COUNT(*) as c FROM library WHERE user_id = ${userId}`;
-      libCount = lc.rows[0]?.c || 0;
-      const rd = await sql`SELECT * FROM drafts WHERE user_id = ${userId} ORDER BY updated_at DESC LIMIT 3`;
-      recentDrafts = rd.rows;
+      libCount = lc[0]?.c || 0;
+      recentDrafts = await sql`SELECT * FROM drafts WHERE user_id = ${userId} ORDER BY updated_at DESC LIMIT 3`;
     } catch {}
   }
 
