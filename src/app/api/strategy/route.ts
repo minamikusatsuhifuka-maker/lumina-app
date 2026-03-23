@@ -82,6 +82,9 @@ export async function POST(req: NextRequest) {
       try {
         controller.enqueue(encoder.encode('data: {"type":"start"}\n\n'));
 
+        const abortController = new AbortController();
+        const timeoutId = setTimeout(() => abortController.abort(), 55000);
+
         const response = await fetch('https://api.anthropic.com/v1/messages', {
           method: 'POST',
           headers: {
@@ -105,7 +108,10 @@ ${content}
 HTMLタグは使わず、Markdownのみで記述してください。`,
             }],
           }),
+          signal: abortController.signal,
         });
+
+        clearTimeout(timeoutId);
 
         if (!response.ok) {
           const err = await response.text();
