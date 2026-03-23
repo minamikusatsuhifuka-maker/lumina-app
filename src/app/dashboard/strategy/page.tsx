@@ -107,7 +107,13 @@ export default function StrategyPage() {
         body: JSON.stringify({ content, strategyType }),
       });
 
-      if (!res.body) { setLoading(false); return; }
+      if (!res.ok || !res.body) {
+        const err = await res.text();
+        setResult(`エラーが発生しました: ${err}`);
+        setLoading(false);
+        return;
+      }
+
       const reader = res.body.getReader();
       const decoder = new TextDecoder();
       let accumulated = '';
@@ -115,15 +121,24 @@ export default function StrategyPage() {
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
-        for (const line of decoder.decode(value).split('\n')) {
+
+        const lines = decoder.decode(value).split('\n');
+        for (const line of lines) {
           if (!line.startsWith('data: ')) continue;
           try {
             const json = JSON.parse(line.slice(6));
-            if (json.type === 'text') { accumulated += json.content; setResult(accumulated); }
+            if (json.type === 'text') {
+              accumulated += json.content;
+              setResult(accumulated);
+            } else if (json.type === 'error') {
+              setResult(`エラー: ${json.message}`);
+            }
           } catch {}
         }
       }
-    } catch (e: any) { setResult(`エラー: ${e.message}`); }
+    } catch (e: any) {
+      setResult(`通信エラー: ${e.message}`);
+    }
     setLoading(false);
   };
 
