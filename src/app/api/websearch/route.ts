@@ -28,7 +28,7 @@ export async function POST(req: NextRequest) {
           },
           body: JSON.stringify({
             model: 'claude-sonnet-4-6',
-            max_tokens: 1500,
+            max_tokens: 2000,
             tools: [{ type: 'web_search_20250305', name: 'web_search' }],
             system: `あなたは優秀なリサーチアナリストです。
 Webを検索して得た情報をもとに、日本語で詳しくまとめてください。

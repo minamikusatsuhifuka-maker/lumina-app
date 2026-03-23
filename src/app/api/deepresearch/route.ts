@@ -34,7 +34,7 @@ export async function POST(req: NextRequest) {
           },
           body: JSON.stringify({
             model: 'claude-sonnet-4-6',
-            max_tokens: 2000,
+            max_tokens: 3000,
             tools: [{ type: 'web_search_20250305', name: 'web_search' }],
             system: `あなたは優秀なリサーチアナリストです。
 与えられたトピックについてWebを検索し、信頼性の高い情報を収集・統合して、

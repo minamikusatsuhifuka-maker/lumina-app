@@ -49,16 +49,31 @@ const formatResult = (text: string) => {
 };
 
 const processInline = (text: string): string => {
+  // 太字
   text = text.replace(/\*\*(.+?)\*\*/g, '<strong style="color:#e0e0f0;">$1</strong>');
 
+  // [出典: サイト名](URL) 形式 → クリッカブルリンク
   text = text.replace(
-    /\[出典[:：]\s*([^\]]+)\]\((https?:\/\/[^)]+)\)/g,
-    (_, name, url) => `<a href="${url}" target="_blank" rel="noopener noreferrer" style="color:#00d4b8;text-decoration:underline;">[${name} ↗]</a>`
+    /\[出典[:：]\s*([^\]]+)\]\((https?:\/\/[^)\s]+)\)/g,
+    (_, name, url) => {
+      // URLからHTML属性らしき部分を除去
+      const cleanUrl = url.split('"')[0].split("'")[0].replace(/↗$/, '').trim();
+      return `<a href="${cleanUrl}" target="_blank" rel="noopener noreferrer" style="color:#00d4b8;text-decoration:none;border-bottom:1px solid #00d4b8;">${name} ↗</a>`;
+    }
   );
 
+  // " target="_blank"... のような残骸テキストを除去
+  text = text.replace(/" target="_blank"[^<]*/g, '');
+  text = text.replace(/" rel="noopener[^<]*/g, '');
+  text = text.replace(/style="color:#[0-9a-fA-F]+;[^"]*">/g, '');
+
+  // 裸のURL → クリッカブルリンク（HTMLタグ属性の中のURLは除外）
   text = text.replace(
-    /(https?:\/\/[^\s<>"'）\]、。！？]+)/g,
-    (_, url) => `<a href="${url}" target="_blank" rel="noopener noreferrer" style="color:#00d4b8;text-decoration:underline;font-size:0.9em;word-break:break-all;">${url} ↗</a>`
+    /(?<!href=")(https?:\/\/[^\s<>"'）\]、。！？↗]+?)(?=[）\]、。！？\s↗]|$)/g,
+    (_, url) => {
+      const cleanUrl = url.replace(/↗$/, '').trim();
+      return `<a href="${cleanUrl}" target="_blank" rel="noopener noreferrer" style="color:#00d4b8;text-decoration:none;border-bottom:1px solid #00d4b8;">${cleanUrl} ↗</a>`;
+    }
   );
 
   return text;
