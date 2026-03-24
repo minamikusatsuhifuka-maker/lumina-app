@@ -1,6 +1,7 @@
 import { auth } from '@/lib/auth';
 import Link from 'next/link';
 import { neon } from '@neondatabase/serverless';
+import TipsSection from '@/components/TipsSection';
 
 export default async function DashboardPage() {
   const session = await auth();
@@ -115,93 +116,7 @@ export default async function DashboardPage() {
         </div>
       </div>
 
-      {/* AI Tips コーナー */}
-      <div style={{ marginTop: 48 }}>
-        <h2 style={{ fontSize: 18, fontWeight: 700, color: '#f0f0ff', marginBottom: 4 }}>
-          💡 AI活用・コーディング裏技Tips
-        </h2>
-        <p style={{ color: '#7878a0', fontSize: 13, marginBottom: 20 }}>
-          毎日更新。AIをもっとうまく使うための厳選テクニック。
-        </p>
-
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: 16 }}>
-          {[
-            {
-              category: '🤖 Claude活用',
-              tip: 'プロンプトの冒頭に「あなたは〇〇の専門家です」と役割を与えると、回答の質が大幅に向上します。',
-              tag: '初級',
-              tagColor: '#4ade80',
-            },
-            {
-              category: '⚡ 時短テクニック',
-              tip: '長文を要約させるときは「3行で」「箇条書き5つで」と形式を指定すると、使いやすいアウトプットが得られます。',
-              tag: '初級',
-              tagColor: '#4ade80',
-            },
-            {
-              category: '🧠 思考整理',
-              tip: '迷ったときは「メリット・デメリットをそれぞれ5つ挙げて」と依頼すると、意思決定が格段に早くなります。',
-              tag: '中級',
-              tagColor: '#f5a623',
-            },
-            {
-              category: '💻 コーディング',
-              tip: 'バグ修正を依頼するときは「エラーメッセージ」「該当コード」「期待する動作」の3点をセットで伝えると一発で解決しやすくなります。',
-              tag: '中級',
-              tagColor: '#f5a623',
-            },
-            {
-              category: '🚀 上級テクニック',
-              tip: '複雑なタスクは「まずステップに分解して」と先に計画を立てさせてから実行させると、精度が飛躍的に上がります。',
-              tag: '上級',
-              tagColor: '#f87171',
-            },
-            {
-              category: '📋 プロンプト設計',
-              tip: '出力形式をJSON・Markdown・表など具体的に指定すると、後処理が不要になり開発効率が大幅に上がります。',
-              tag: '中級',
-              tagColor: '#f5a623',
-            },
-            {
-              category: '🔁 反復改善',
-              tip: '一度の回答に満足せず「もっと具体的に」「別のアプローチで」と追加指示することで、理想のアウトプットに近づけられます。',
-              tag: '初級',
-              tagColor: '#4ade80',
-            },
-            {
-              category: '🛡️ セキュリティ',
-              tip: 'APIキーや個人情報はプロンプトに直接含めず、環境変数で管理しましょう。AIに渡す情報は最小限に。',
-              tag: '重要',
-              tagColor: '#a89fff',
-            },
-            {
-              category: '📊 データ分析',
-              tip: 'CSVやJSONデータをそのまま貼り付けて「このデータから示唆を3つ教えて」と依頼すると、即座に洞察が得られます。',
-              tag: '中級',
-              tagColor: '#f5a623',
-            },
-          ].map((item, i) => (
-            <div key={i} style={{
-              background: 'rgba(255,255,255,0.03)',
-              border: '1px solid rgba(255,255,255,0.08)',
-              borderRadius: 12,
-              padding: '16px 20px',
-              transition: 'border-color 0.2s',
-            }}
-            >
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
-                <span style={{ fontSize: 13, fontWeight: 700, color: '#a89fff' }}>{item.category}</span>
-                <span style={{
-                  fontSize: 11, fontWeight: 700, color: item.tagColor,
-                  background: `${item.tagColor}22`, padding: '2px 8px', borderRadius: 20,
-                  border: `1px solid ${item.tagColor}44`,
-                }}>{item.tag}</span>
-              </div>
-              <p style={{ fontSize: 13, color: '#c0c0d8', lineHeight: 1.7, margin: 0 }}>{item.tip}</p>
-            </div>
-          ))}
-        </div>
-      </div>
+      <TipsSection />
     </div>
   );
 }
