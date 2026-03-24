@@ -9,6 +9,7 @@ type Term = {
   detail: string;
   example: string;
   analogy: string;
+  fullName?: string;
 };
 
 const TERMS: Term[] = [
@@ -16,6 +17,7 @@ const TERMS: Term[] = [
     word: 'AI（人工知能）',
     reading: 'エーアイ',
     category: 'AI基礎',
+    fullName: 'Artificial Intelligence',
     simple: 'コンピューターが人間のように考えたり、学んだりする技術のこと。',
     detail: '大量のデータを学習することで、文章を書いたり、画像を認識したり、質問に答えたりできるようになります。LUMINAもAIを使って情報収集や文章作成を行っています。',
     example: 'ChatGPT、Claude、Geminiなどが有名なAIサービスです。',
@@ -34,6 +36,7 @@ const TERMS: Term[] = [
     word: 'LLM',
     reading: 'えるえるえむ',
     category: 'AI基礎',
+    fullName: 'Large Language Model（大規模言語モデル）',
     simple: '大量の文章を学習した、会話や文章作成が得意なAIモデルのこと。',
     detail: 'Large Language Model（大規模言語モデル）の略。GPT-4やClaudeなどがLLMです。インターネット上の膨大なテキストを学習しており、自然な文章の生成や理解が得意です。',
     example: 'LUMINAはClaude（Anthropic社のLLM）を使って文章生成や分析を行っています。',
@@ -43,6 +46,7 @@ const TERMS: Term[] = [
     word: 'API',
     reading: 'えーぴーあい',
     category: '技術用語',
+    fullName: 'Application Programming Interface',
     simple: 'アプリ同士がデータをやり取りするための「窓口」のこと。',
     detail: 'Application Programming Interface の略。LUMINAはAnthropicのAPIを通じてClaudeと通信し、PerplexityのAPIで最新情報を検索しています。APIキーは「入館証」のようなもので、権限のある人だけがサービスを使えます。',
     example: 'LUMINAが「AIで文章を生成する」とき、裏側でAnthropicのAPIを呼び出しています。',
@@ -61,6 +65,7 @@ const TERMS: Term[] = [
     word: 'RAG',
     reading: 'らぐ',
     category: 'AI応用',
+    fullName: 'Retrieval-Augmented Generation（検索拡張生成）',
     simple: 'AIが外部の情報を検索してから回答する技術のこと。',
     detail: 'Retrieval-Augmented Generation（検索拡張生成）の略。AIの知識は学習時点で止まっているため、最新情報をリアルタイムで検索して回答に組み込む仕組みです。LUMINAのWeb情報収集機能がRAGの一種です。',
     example: 'LUMINAが「2026年のAIトレンド」を検索して回答するとき、RAGの仕組みを使っています。',
@@ -70,6 +75,7 @@ const TERMS: Term[] = [
     word: 'SWOT分析',
     reading: 'すわっとぶんせき',
     category: 'ビジネス',
+    fullName: 'Strengths・Weaknesses・Opportunities・Threats',
     simple: '会社や事業の「強み・弱み・機会・脅威」を整理する分析フレームワーク。',
     detail: 'Strengths（強み）・Weaknesses（弱み）・Opportunities（機会）・Threats（脅威）の頭文字。新規事業の検討や競合分析に広く使われます。LUMINAのAI分析エンジンで自動生成できます。',
     example: '新しいサービスを始める前に「競合より優れている点は？」「市場の追い風は？」を整理するのに使います。',
@@ -79,6 +85,7 @@ const TERMS: Term[] = [
     word: 'MVV',
     reading: 'えむぶいぶい',
     category: 'ビジネス',
+    fullName: 'Mission（使命）・Vision（将来像）・Values（価値観）',
     simple: '会社の「ミッション・ビジョン・バリュー」のこと。会社の存在意義と目指す姿。',
     detail: 'Mission（使命）・Vision（将来像）・Values（価値観）の略。会社の方向性を全員で共有するための羅針盤です。LUMINAの経営インテリジェンス機能でAIがMVVの策定を支援します。',
     example: 'ミッション：「世界中の情報を整理する」、ビジョン：「誰もが情報にアクセスできる世界」（Google的な例）',
@@ -133,6 +140,7 @@ const TERMS: Term[] = [
     word: 'DNS',
     reading: 'でぃーえぬえす',
     category: '技術用語',
+    fullName: 'Domain Name System（ドメインネームシステム）',
     simple: 'ドメイン名（xlumina.jp）をIPアドレス（数字）に変換する仕組み。',
     detail: 'Domain Name System の略。人間が覚えやすいドメイン名と、コンピューターが使うIPアドレスを対応付けます。xlumina.jpをVercelのサーバーに繋げるためにDNS設定を行いました。',
     example: 'xlumina.jpにアクセスすると、DNSが「76.76.21.21」というサーバーに案内してくれます。',
@@ -402,12 +410,21 @@ export default function GlossaryPage() {
                   <span style={{ fontSize: 12, color: '#7878a0', marginLeft: 8 }}>
                     ({term.reading})
                   </span>
+                  {term.fullName && (
+                    <div style={{
+                      fontSize: 11, color: '#00d4b8', marginTop: 3,
+                      fontStyle: 'italic',
+                    }}>
+                      📝 {term.fullName}
+                    </div>
+                  )}
                 </div>
                 <span style={{
                   fontSize: 11, color: '#6c63ff',
                   background: 'rgba(108,99,255,0.15)',
                   padding: '2px 8px', borderRadius: 99,
                   border: '1px solid rgba(108,99,255,0.3)',
+                  whiteSpace: 'nowrap',
                 }}>
                   {term.category}
                 </span>
