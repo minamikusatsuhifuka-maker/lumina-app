@@ -85,7 +85,7 @@ export default async function DashboardPage() {
                   <span style={{ fontSize: 16 }}>{modeLabel[d.mode]?.split(' ')[0] || '✍️'}</span>
                   <div>
                     <div style={{ fontSize: 13, fontWeight: 500, color: '#e0e0f0' }}>{d.title || '無題'}</div>
-                    <div style={{ fontSize: 11, color: '#5a5a7a', fontFamily: 'monospace' }}>{d.updated_at?.slice(0, 10)}</div>
+                    <div style={{ fontSize: 11, color: '#5a5a7a', fontFamily: 'monospace' }}>{d.updated_at ? new Date(d.updated_at).toLocaleDateString('ja-JP') : ''}</div>
                   </div>
                 </div>
                 <span style={{ fontSize: 11, padding: '3px 8px', borderRadius: 4, background: 'rgba(108,99,255,0.1)', color: '#a89fff' }}>{modeLabel[d.mode] || '文章'}</span>
