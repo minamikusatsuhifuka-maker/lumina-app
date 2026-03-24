@@ -25,7 +25,7 @@ export function DashboardSidebar({ userName }: { userName: string }) {
   const pathname = usePathname();
   return (
     <nav style={{
-      width: 220, background: '#0d0e1a',
+      width: 220, background: 'var(--sidebar-bg)',
       borderRight: '1px solid rgba(130,140,255,0.1)',
       padding: '20px 12px', display: 'flex',
       flexDirection: 'column', gap: 4,

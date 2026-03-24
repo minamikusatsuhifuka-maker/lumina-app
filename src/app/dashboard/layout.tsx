@@ -6,9 +6,9 @@ export default async function DashboardLayout({ children }: { children: React.Re
   const session = await auth();
   if (!session) redirect('/auth');
   return (
-    <div style={{ display: 'flex', minHeight: '100vh', background: '#07080f' }}>
+    <div style={{ display: 'flex', minHeight: '100vh', background: 'var(--bg-primary)' }}>
       <DashboardSidebar userName={session.user?.name || ''} />
-      <main style={{ flex: 1, padding: 28, overflowY: 'auto', maxWidth: 'calc(100vw - 220px)' }}>{children}</main>
+      <main style={{ flex: 1, padding: 28, overflowY: 'auto', maxWidth: 'calc(100vw - 220px)', color: 'var(--text-primary)' }}>{children}</main>
     </div>
   );
 }
