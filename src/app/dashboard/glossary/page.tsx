@@ -155,8 +155,52 @@ export default function GlossaryPage() {
   const [search, setSearch] = useState('');
   const [category, setCategory] = useState('すべて');
   const [openTerm, setOpenTerm] = useState<string | null>(null);
+  const [customTerms, setCustomTerms] = useState<Term[]>(() => {
+    try {
+      return JSON.parse(localStorage.getItem('lumina_glossary') || '[]');
+    } catch { return []; }
+  });
+  const [showAddForm, setShowAddForm] = useState(false);
+  const [newWord, setNewWord] = useState('');
+  const [generating, setGenerating] = useState(false);
+  const [generatedTerm, setGeneratedTerm] = useState<Term | null>(null);
+  const [generateError, setGenerateError] = useState('');
 
-  const filtered = TERMS.filter(t => {
+  const generateTerm = async () => {
+    if (!newWord.trim()) return;
+    setGenerating(true);
+    setGeneratedTerm(null);
+    setGenerateError('');
+    try {
+      const res = await fetch('/api/glossary', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ word: newWord }),
+      });
+      const data = await res.json();
+      if (data.term) {
+        setGeneratedTerm(data.term);
+      } else {
+        setGenerateError('解説の生成に失敗しました。もう一度お試しください。');
+      }
+    } catch {
+      setGenerateError('通信エラーが発生しました。');
+    } finally {
+      setGenerating(false);
+    }
+  };
+
+  const saveTerm = (term: Term) => {
+    const updated = [...customTerms, term];
+    setCustomTerms(updated);
+    localStorage.setItem('lumina_glossary', JSON.stringify(updated));
+    setGeneratedTerm(null);
+    setNewWord('');
+    setShowAddForm(false);
+  };
+
+  const allTerms = [...TERMS, ...customTerms];
+  const filtered = allTerms.filter(t => {
     const matchCat = category === 'すべて' || t.category === category;
     const matchSearch = search === '' ||
       t.word.includes(search) ||
@@ -167,14 +211,124 @@ export default function GlossaryPage() {
 
   return (
     <div style={{ maxWidth: 900, margin: '0 auto', paddingBottom: 60 }}>
-      <div style={{ marginBottom: 32 }}>
-        <h1 style={{ fontSize: 28, fontWeight: 700, color: '#f0f0ff', marginBottom: 4 }}>
-          📖 専門用語解説
-        </h1>
-        <p style={{ color: '#7878a0' }}>
-          AI・ビジネス・技術用語をやさしく解説。たとえ話付きで誰でもわかります。
-        </p>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 32 }}>
+        <div>
+          <h1 style={{ fontSize: 28, fontWeight: 700, color: '#f0f0ff', marginBottom: 4 }}>
+            📘 専門用語解説
+          </h1>
+          <p style={{ color: '#7878a0' }}>
+            AI・ビジネス・技術用語をやさしく解説。たとえ話付きで誰でもわかります。
+          </p>
+        </div>
+        <button
+          onClick={() => setShowAddForm(!showAddForm)}
+          style={{
+            padding: '8px 16px', background: 'rgba(0,212,184,0.1)',
+            border: '1px solid rgba(0,212,184,0.3)', borderRadius: 20,
+            color: '#00d4b8', fontSize: 13, fontWeight: 600, cursor: 'pointer',
+            whiteSpace: 'nowrap',
+          }}
+        >
+          ＋ 用語を追加
+        </button>
       </div>
+
+      {/* AI生成フォーム */}
+      {showAddForm && (
+        <div style={{
+          background: 'rgba(0,212,184,0.05)',
+          border: '1px solid rgba(0,212,184,0.2)',
+          borderRadius: 12, padding: 20, marginBottom: 20,
+        }}>
+          <p style={{ fontSize: 14, color: '#00d4b8', fontWeight: 700, marginBottom: 12 }}>
+            🤖 AIが用語を自動解説
+          </p>
+          <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
+            <input
+              type="text"
+              placeholder="調べたい用語を入力（例：ファインチューニング）"
+              value={newWord}
+              onChange={e => setNewWord(e.target.value)}
+              onKeyDown={e => e.key === 'Enter' && generateTerm()}
+              style={{
+                flex: 1, padding: '10px 14px',
+                background: 'rgba(255,255,255,0.05)',
+                border: '1px solid rgba(255,255,255,0.15)',
+                borderRadius: 8, color: '#e0e0f0', fontSize: 13,
+              }}
+            />
+            <button
+              onClick={generateTerm}
+              disabled={generating || !newWord.trim()}
+              style={{
+                padding: '10px 20px',
+                background: generating ? 'rgba(255,255,255,0.05)' : 'linear-gradient(135deg, #6c63ff, #8b5cf6)',
+                border: 'none', borderRadius: 8, color: generating ? '#5a5a7a' : '#fff',
+                fontSize: 13, fontWeight: 600,
+                cursor: generating || !newWord.trim() ? 'not-allowed' : 'pointer',
+              }}
+            >
+              {generating ? '生成中...' : '🔍 解説を生成'}
+            </button>
+          </div>
+
+          {generateError && (
+            <p style={{ fontSize: 13, color: '#f87171', marginBottom: 12 }}>{generateError}</p>
+          )}
+
+          {generatedTerm && (
+            <div style={{
+              background: 'rgba(255,255,255,0.03)',
+              border: '1px solid rgba(108,99,255,0.3)',
+              borderRadius: 10, padding: 16, marginTop: 12,
+            }}>
+              <div style={{ marginBottom: 10 }}>
+                <span style={{ fontSize: 16, fontWeight: 700, color: '#f0f0ff' }}>{generatedTerm.word}</span>
+                <span style={{ fontSize: 12, color: '#7878a0', marginLeft: 8 }}>({generatedTerm.reading})</span>
+                <span style={{
+                  fontSize: 11, color: '#6c63ff', marginLeft: 8,
+                  background: 'rgba(108,99,255,0.15)', padding: '2px 8px',
+                  borderRadius: 99, border: '1px solid rgba(108,99,255,0.3)',
+                }}>{generatedTerm.category}</span>
+              </div>
+              <p style={{ fontSize: 13, color: '#c0c0d8', lineHeight: 1.7, marginBottom: 10 }}>
+                {generatedTerm.simple}
+              </p>
+              <div style={{
+                background: 'rgba(245,166,35,0.05)', border: '1px solid rgba(245,166,35,0.2)',
+                borderRadius: 8, padding: '8px 12px', marginBottom: 12,
+              }}>
+                <p style={{ fontSize: 12, color: '#c0c0d8', lineHeight: 1.7, margin: 0 }}>
+                  {generatedTerm.analogy}
+                </p>
+              </div>
+              <div style={{ display: 'flex', gap: 8 }}>
+                <button
+                  onClick={() => saveTerm(generatedTerm)}
+                  style={{
+                    padding: '8px 18px',
+                    background: 'linear-gradient(135deg, #6c63ff, #8b5cf6)',
+                    border: 'none', borderRadius: 8, color: '#fff',
+                    fontSize: 13, fontWeight: 600, cursor: 'pointer',
+                  }}
+                >
+                  ✅ 用語集に追加
+                </button>
+                <button
+                  onClick={() => { setGeneratedTerm(null); setNewWord(''); }}
+                  style={{
+                    padding: '8px 18px', background: 'rgba(255,255,255,0.05)',
+                    border: '1px solid rgba(255,255,255,0.1)', borderRadius: 8,
+                    color: '#7878a0', fontSize: 13, cursor: 'pointer',
+                  }}
+                >
+                  キャンセル
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* 検索 */}
       <input
