@@ -87,6 +87,9 @@ export default function WebSearchPage() {
   const [loading, setLoading] = useState(false);
   const [fontSize, setFontSize] = useState(14);
   const [maxTokens, setMaxTokens] = useState(2000);
+  const [toast, setToast] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [period, setPeriod] = useState('');
   const [history, setHistory] = useState<string[]>(() => {
     if (typeof window === 'undefined') return [];
     try { return JSON.parse(localStorage.getItem('lumina_search_history') || '[]'); } catch { return []; }
@@ -105,7 +108,7 @@ export default function WebSearchPage() {
       const res = await retryFetch('/api/websearch', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ query: searchQuery, maxTokens }),
+        body: JSON.stringify({ query: searchQuery, maxTokens, period }),
       });
 
       if (!res.ok || !res.body) {
@@ -140,6 +143,37 @@ export default function WebSearchPage() {
       setResult(`通信エラー: ${error.message}`);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const saveToLibrary = async () => {
+    if (!result) return;
+    setSaving(true);
+    try {
+      const res = await fetch('/api/library', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          type: 'web',
+          title: `Web調査: ${query}`,
+          content: result,
+          metadata: { query, searchedAt: new Date().toISOString() },
+          tags: 'Web情報収集',
+          group_name: 'Web調査',
+        }),
+      });
+      if (res.ok) {
+        setToast('✅ ライブラリに保存しました！');
+        setTimeout(() => setToast(''), 2000);
+      } else {
+        setToast('❌ 保存に失敗しました');
+        setTimeout(() => setToast(''), 2000);
+      }
+    } catch {
+      setToast('❌ 保存に失敗しました');
+      setTimeout(() => setToast(''), 2000);
+    } finally {
+      setSaving(false);
     }
   };
 
@@ -189,6 +223,30 @@ export default function WebSearchPage() {
             }}
           >
             {opt.label}（{opt.value}トークン）
+          </button>
+        ))}
+      </div>
+
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginTop: 10 }}>
+        <span style={{ color: '#7878a0', fontSize: 13 }}>検索期間：</span>
+        {[
+          { label: '指定なし', value: '' },
+          { label: '最近1週間', value: '1week' },
+          { label: '最近1ヶ月', value: '1month' },
+          { label: '最近3ヶ月', value: '3months' },
+        ].map(opt => (
+          <button
+            key={opt.value}
+            onClick={() => setPeriod(opt.value)}
+            style={{
+              padding: '6px 14px',
+              background: period === opt.value ? 'linear-gradient(135deg, #6c63ff, #8b5cf6)' : 'rgba(255,255,255,0.05)',
+              color: period === opt.value ? '#fff' : '#9090b0',
+              border: `1px solid ${period === opt.value ? '#6c63ff' : 'rgba(255,255,255,0.1)'}`,
+              borderRadius: 20, cursor: 'pointer', fontSize: 12, fontWeight: 600,
+            }}
+          >
+            {opt.label}
           </button>
         ))}
       </div>
@@ -245,8 +303,21 @@ export default function WebSearchPage() {
               <button onClick={sendToWrite} style={{ padding: '6px 14px', background: 'linear-gradient(135deg, #6c63ff, #8b5cf6)', color: '#fff', border: 'none', borderRadius: 6, cursor: 'pointer', fontSize: 12, fontWeight: 600 }}>
                 ✍️ 文章作成に使う
               </button>
-              <button onClick={() => navigator.clipboard.writeText(result)} style={{ padding: '6px 14px', background: '#1a1d36', border: '1px solid rgba(130,140,255,0.2)', color: '#a89fff', borderRadius: 6, cursor: 'pointer', fontSize: 12 }}>
+              <button onClick={() => { navigator.clipboard.writeText(result); setToast('✅ コピーしました！'); setTimeout(() => setToast(''), 2000); }} style={{ padding: '6px 14px', background: '#1a1d36', border: '1px solid rgba(130,140,255,0.2)', color: '#a89fff', borderRadius: 6, cursor: 'pointer', fontSize: 12 }}>
                 📋 コピー
+              </button>
+              <button
+                onClick={saveToLibrary}
+                disabled={saving}
+                style={{
+                  padding: '8px 16px',
+                  background: saving ? '#333' : 'linear-gradient(135deg, #1a5c4a, #0d9973)',
+                  color: '#fff', border: 'none', borderRadius: 8,
+                  cursor: saving ? 'not-allowed' : 'pointer',
+                  fontSize: 13, fontWeight: 600
+                }}
+              >
+                {saving ? '保存中...' : '📚 ライブラリに保存'}
               </button>
             </div>
           </div>
@@ -254,6 +325,18 @@ export default function WebSearchPage() {
             style={{ fontSize: fontSize, color: '#c0c0e0', lineHeight: 1.8, wordBreak: 'break-word' as const }}
             dangerouslySetInnerHTML={{ __html: formatResult(result) }}
           />
+        </div>
+      )}
+
+      {toast && (
+        <div style={{
+          position: 'fixed', bottom: 32, right: 32, zIndex: 9999,
+          background: '#1a1a2e', border: '1px solid #6c63ff',
+          color: '#e0e0f0', padding: '12px 24px', borderRadius: 12,
+          fontSize: 14, fontWeight: 600, boxShadow: '0 4px 24px rgba(108,99,255,0.3)',
+          transition: 'opacity 0.3s'
+        }}>
+          {toast}
         </div>
       )}
 
