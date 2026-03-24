@@ -17,7 +17,7 @@ async function retryFetch(url: string, options: RequestInit, maxRetries = 3): Pr
   return fetch(url, options);
 }
 
-const processInline = (text: string): string => {
+const processInline = (text: string, hitUrls?: Set<string>): string => {
   // すでに<a href=...>タグが含まれている場合はそのまま返す
   if (text.includes('<a href=')) return text;
 
@@ -34,13 +34,19 @@ const processInline = (text: string): string => {
   // 裸のURL
   text = text.replace(
     /(?<![="'(])(https?:\/\/[^\s）\]。、！？\n"'<>]+)/g,
-    '<a href="$1" target="_blank" rel="noopener noreferrer" style="color:#00d4b8;text-decoration:underline;font-size:0.9em;">$1 ↗</a>'
+    (match) => {
+      const isHit = hitUrls?.has(match);
+      const badge = isHit
+        ? ' <span style="font-size:10px;background:#6c63ff33;color:#a89fff;border:1px solid #6c63ff55;border-radius:10px;padding:1px 6px;margin-left:4px;">📌 過去に登場</span>'
+        : '';
+      return `<a href="${match}" target="_blank" rel="noopener noreferrer" style="color:#00d4b8;text-decoration:underline;font-size:0.9em;">${match} ↗</a>${badge}`;
+    }
   );
 
   return text;
 };
 
-const formatResult = (text: string): string => {
+const formatResult = (text: string, hitUrls?: Set<string>): string => {
   if (!text) return '';
 
   const lines = text.split('\n');
@@ -48,24 +54,24 @@ const formatResult = (text: string): string => {
     const t = line.trim();
 
     // 見出し
-    if (t.startsWith('# ')) return `<div style="font-size:1.25em;font-weight:700;color:#f0f0ff;margin:20px 0 10px;padding-bottom:8px;border-bottom:2px solid rgba(108,99,255,0.3);">${processInline(t.slice(2))}</div>`;
-    if (t.startsWith('## ')) return `<div style="font-size:1.1em;font-weight:600;color:#a89fff;margin:16px 0 8px;padding-left:8px;border-left:3px solid #6c63ff;">${processInline(t.slice(3))}</div>`;
-    if (t.startsWith('### ')) return `<div style="font-size:1em;font-weight:600;color:#7878a0;margin:10px 0 4px;">${processInline(t.slice(4))}</div>`;
+    if (t.startsWith('# ')) return `<div style="font-size:1.25em;font-weight:700;color:#f0f0ff;margin:20px 0 10px;padding-bottom:8px;border-bottom:2px solid rgba(108,99,255,0.3);">${processInline(t.slice(2), hitUrls)}</div>`;
+    if (t.startsWith('## ')) return `<div style="font-size:1.1em;font-weight:600;color:#a89fff;margin:16px 0 8px;padding-left:8px;border-left:3px solid #6c63ff;">${processInline(t.slice(3), hitUrls)}</div>`;
+    if (t.startsWith('### ')) return `<div style="font-size:1em;font-weight:600;color:#7878a0;margin:10px 0 4px;">${processInline(t.slice(4), hitUrls)}</div>`;
 
     // 番号付きリスト
     if (t.match(/^\d+\.\s/)) {
       const match = t.match(/^(\d+)\.\s(.+)/);
-      if (match) return `<div style="display:flex;gap:8px;padding:4px 0;line-height:1.7;"><span style="color:#6c63ff;font-weight:700;min-width:20px;">${match[1]}.</span><span>${processInline(match[2])}</span></div>`;
+      if (match) return `<div style="display:flex;gap:8px;padding:4px 0;line-height:1.7;"><span style="color:#6c63ff;font-weight:700;min-width:20px;">${match[1]}.</span><span>${processInline(match[2], hitUrls)}</span></div>`;
     }
 
     // 箇条書き
     if (t.startsWith('- ') || t.startsWith('• ')) {
-      return `<div style="display:flex;gap:8px;padding:3px 0;line-height:1.7;"><span style="color:#6c63ff;margin-top:2px;">•</span><span>${processInline(t.slice(2))}</span></div>`;
+      return `<div style="display:flex;gap:8px;padding:3px 0;line-height:1.7;"><span style="color:#6c63ff;margin-top:2px;">•</span><span>${processInline(t.slice(2), hitUrls)}</span></div>`;
     }
 
     // 出典行（「出典:」で始まる行）
     if (t.startsWith('出典') || t.startsWith('【出典】') || t.startsWith('参考')) {
-      return `<div style="font-size:0.85em;color:#5a5a7a;padding:4px 0 4px 12px;border-left:2px solid rgba(0,212,184,0.3);margin:4px 0;">${processInline(t)}</div>`;
+      return `<div style="font-size:0.85em;color:#5a5a7a;padding:4px 0 4px 12px;border-left:2px solid rgba(0,212,184,0.3);margin:4px 0;">${processInline(t, hitUrls)}</div>`;
     }
 
     // 区切り線
@@ -75,7 +81,7 @@ const formatResult = (text: string): string => {
     if (t === '') return '<div style="height:8px"></div>';
 
     // 通常のテキスト
-    return `<div style="line-height:1.85;margin:3px 0;">${processInline(t)}</div>`;
+    return `<div style="line-height:1.85;margin:3px 0;">${processInline(t, hitUrls)}</div>`;
   });
 
   return html.join('');
@@ -90,10 +96,29 @@ export default function WebSearchPage() {
   const [toast, setToast] = useState('');
   const [saving, setSaving] = useState(false);
   const [period, setPeriod] = useState('');
+  const [hitUrls, setHitUrls] = useState<Set<string>>(() => {
+    try {
+      const stored = localStorage.getItem('lumina_hit_urls');
+      return new Set(JSON.parse(stored || '[]'));
+    } catch { return new Set(); }
+  });
   const [history, setHistory] = useState<string[]>(() => {
     if (typeof window === 'undefined') return [];
     try { return JSON.parse(localStorage.getItem('lumina_search_history') || '[]'); } catch { return []; }
   });
+
+  const saveHitUrls = (text: string) => {
+    const urlMatches = text.match(/https?:\/\/[^\s）\]。、！？\n"'<>&]+/g) || [];
+    if (urlMatches.length === 0) return;
+
+    setHitUrls(prev => {
+      const next = new Set(prev);
+      urlMatches.forEach(url => next.add(url));
+      const arr = Array.from(next).slice(-200);
+      try { localStorage.setItem('lumina_hit_urls', JSON.stringify(arr)); } catch {}
+      return new Set(arr);
+    });
+  };
 
   const search = async (q?: string) => {
     const searchQuery = q || query;
@@ -139,6 +164,7 @@ export default function WebSearchPage() {
           } catch {}
         }
       }
+      saveHitUrls(accumulated);
     } catch (error: any) {
       setResult(`通信エラー: ${error.message}`);
     } finally {
@@ -323,7 +349,7 @@ export default function WebSearchPage() {
           </div>
           <div
             style={{ fontSize: fontSize, color: '#c0c0e0', lineHeight: 1.8, wordBreak: 'break-word' as const }}
-            dangerouslySetInnerHTML={{ __html: formatResult(result) }}
+            dangerouslySetInnerHTML={{ __html: formatResult(result, hitUrls) }}
           />
         </div>
       )}
