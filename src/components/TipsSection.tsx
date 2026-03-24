@@ -74,6 +74,16 @@ export default function TipsSection() {
   const [newCategory, setNewCategory] = useState('');
   const [showAdd, setShowAdd] = useState(false);
   const [updating, setUpdating] = useState(false);
+  const [openGroups, setOpenGroups] = useState<Set<string>>(new Set());
+
+  const toggleGroup = (category: string) => {
+    setOpenGroups(prev => {
+      const next = new Set(prev);
+      if (next.has(category)) next.delete(category);
+      else next.add(category);
+      return next;
+    });
+  };
 
   useEffect(() => {
     try {
@@ -203,49 +213,155 @@ export default function TipsSection() {
         </div>
       )}
 
-      {/* Tipsグリッド */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: 16 }}>
-        {tips.map((item, i) => (
-          <div
-            key={i}
-            onClick={() => setSelectedTip(selectedTip === i ? null : i)}
-            style={{
-              background: selectedTip === i ? 'rgba(108,99,255,0.1)' : 'rgba(255,255,255,0.03)',
-              border: `1px solid ${selectedTip === i ? 'rgba(108,99,255,0.4)' : 'rgba(255,255,255,0.08)'}`,
-              borderRadius: 12, padding: '16px 20px', cursor: 'pointer', transition: 'all 0.2s',
-            }}
-          >
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
-              <span style={{ fontSize: 13, fontWeight: 700, color: '#a89fff' }}>{item.category}</span>
-              <span style={{
-                fontSize: 11, fontWeight: 700, color: item.tagColor,
-                background: `${item.tagColor}22`, padding: '2px 8px', borderRadius: 20,
-                border: `1px solid ${item.tagColor}44`,
-              }}>{item.tag}</span>
-            </div>
-            {item.addedAt && (
-              <div style={{ fontSize: 10, color: '#5a5a7a', marginBottom: 8 }}>
-                📅 {item.addedAt}
-              </div>
-            )}
-            <p style={{ fontSize: 13, color: '#c0c0d8', lineHeight: 1.7, margin: 0 }}>{item.tip}</p>
-            {selectedTip === i && item.detail && (
-              <div style={{
-                marginTop: 12, paddingTop: 12, borderTop: '1px solid rgba(108,99,255,0.2)',
-                fontSize: 12, color: '#9090b8', lineHeight: 1.7,
-              }}>
-                {item.detail}
-              </div>
-            )}
-            {selectedTip === i && (
-              <div style={{ marginTop: 8, fontSize: 11, color: '#6c63ff' }}>▲ 閉じる</div>
-            )}
-            {selectedTip !== i && (
-              <div style={{ marginTop: 8, fontSize: 11, color: '#5a5a7a' }}>▼ 詳細を見る</div>
-            )}
+      {/* Tipsアコーディオン */}
+      {(() => {
+        const groupedTips = tips.reduce((acc, tip, idx) => {
+          const key = tip.category;
+          if (!acc[key]) acc[key] = [];
+          acc[key].push({ ...tip, originalIdx: idx });
+          return acc;
+        }, {} as Record<string, (Tip & { originalIdx: number })[]>);
+
+        Object.keys(groupedTips).forEach(key => {
+          groupedTips[key].sort((a, b) => {
+            const da = a.addedAt || '2000-01-01';
+            const db = b.addedAt || '2000-01-01';
+            return db.localeCompare(da);
+          });
+        });
+
+        return (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            {Object.entries(groupedTips).map(([category, groupTips]) => {
+              const isOpen = openGroups.has(category);
+              const newest = groupTips[0];
+              const hasMultiple = groupTips.length > 1;
+
+              return (
+                <div key={category} style={{
+                  background: 'rgba(255,255,255,0.03)',
+                  border: '1px solid rgba(255,255,255,0.08)',
+                  borderRadius: 12,
+                  overflow: 'hidden',
+                }}>
+                  {/* アコーディオンヘッダー */}
+                  <div
+                    onClick={() => toggleGroup(category)}
+                    style={{
+                      display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                      padding: '14px 18px', cursor: 'pointer',
+                      background: isOpen ? 'rgba(108,99,255,0.08)' : 'transparent',
+                      transition: 'background 0.2s',
+                    }}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 10, flex: 1 }}>
+                      <span style={{ fontSize: 13, fontWeight: 700, color: '#a89fff' }}>{category}</span>
+                      {hasMultiple && (
+                        <span style={{
+                          fontSize: 11, color: '#5a5a7a',
+                          background: 'rgba(255,255,255,0.05)',
+                          padding: '1px 8px', borderRadius: 99,
+                          border: '1px solid rgba(255,255,255,0.08)',
+                        }}>
+                          {groupTips.length}件
+                        </span>
+                      )}
+                      {!isOpen && (
+                        <span style={{
+                          fontSize: 12, color: '#7878a0',
+                          overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                          maxWidth: 300,
+                        }}>
+                          {newest.tip.slice(0, 40)}...
+                        </span>
+                      )}
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <span style={{
+                        fontSize: 11, fontWeight: 700,
+                        color: newest.tagColor,
+                        background: `${newest.tagColor}22`,
+                        padding: '2px 8px', borderRadius: 20,
+                        border: `1px solid ${newest.tagColor}44`,
+                      }}>{newest.tag}</span>
+                      <span style={{ color: '#5a5a7a', fontSize: 12 }}>{isOpen ? '▲' : '▼'}</span>
+                    </div>
+                  </div>
+
+                  {/* アコーディオン本体 */}
+                  {isOpen && (
+                    <div style={{ borderTop: '1px solid rgba(255,255,255,0.06)' }}>
+                      {groupTips.map((tip, i) => {
+                        const isNewest = i === 0 && hasMultiple;
+                        const isOld = i > 0 && hasMultiple;
+
+                        return (
+                          <div
+                            key={i}
+                            onClick={(e) => { e.stopPropagation(); setSelectedTip(selectedTip === tip.originalIdx ? null : tip.originalIdx); }}
+                            style={{
+                              padding: '14px 18px',
+                              borderBottom: i < groupTips.length - 1
+                                ? '1px solid rgba(255,255,255,0.04)' : 'none',
+                              cursor: 'pointer',
+                              opacity: isOld ? 0.55 : 1,
+                              background: selectedTip === tip.originalIdx
+                                ? 'rgba(108,99,255,0.08)' : 'transparent',
+                              transition: 'background 0.15s',
+                            }}
+                          >
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+                              {isNewest && (
+                                <span style={{
+                                  fontSize: 10, fontWeight: 700, color: '#00d4b8',
+                                  background: 'rgba(0,212,184,0.1)',
+                                  padding: '1px 7px', borderRadius: 99,
+                                  border: '1px solid rgba(0,212,184,0.3)',
+                                }}>✨ 最新</span>
+                              )}
+                              {isOld && (
+                                <span style={{
+                                  fontSize: 10, color: '#5a5a7a',
+                                  background: 'rgba(255,255,255,0.04)',
+                                  padding: '1px 7px', borderRadius: 99,
+                                  border: '1px solid rgba(255,255,255,0.08)',
+                                }}>旧バージョン</span>
+                              )}
+                              {tip.addedAt && (
+                                <span style={{ fontSize: 10, color: '#5a5a7a' }}>
+                                  📅 {tip.addedAt}
+                                </span>
+                              )}
+                            </div>
+                            <p style={{
+                              fontSize: 13, color: isOld ? '#6a6a8a' : '#c0c0d8',
+                              lineHeight: 1.7, margin: 0,
+                            }}>
+                              {tip.tip}
+                            </p>
+                            {selectedTip === tip.originalIdx && tip.detail && (
+                              <div style={{
+                                marginTop: 12, paddingTop: 12,
+                                borderTop: '1px solid rgba(108,99,255,0.2)',
+                                fontSize: 12, color: '#9090b8', lineHeight: 1.7,
+                              }}>
+                                {tip.detail}
+                              </div>
+                            )}
+                            <div style={{ marginTop: 6, fontSize: 11, color: '#5a5a7a' }}>
+                              {selectedTip === tip.originalIdx ? '▲ 閉じる' : '▼ 詳細を見る'}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
           </div>
-        ))}
-      </div>
+        );
+      })()}
     </div>
   );
 }
