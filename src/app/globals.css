@@ -25,6 +25,87 @@ body {
   font-family: Arial, Helvetica, sans-serif;
 }
 
+/* ─── テーマ変数 ─── */
+[data-theme="dark"] {
+  --bg-primary: #07080f;
+  --bg-secondary: #0d0e1a;
+  --bg-card: rgba(255,255,255,0.03);
+  --bg-card-hover: rgba(255,255,255,0.06);
+  --text-primary: #f0f0ff;
+  --text-secondary: #a0a0c0;
+  --text-muted: #7878a0;
+  --accent: #6c63ff;
+  --accent-soft: rgba(108,99,255,0.15);
+  --accent-secondary: #00d4b8;
+  --border: rgba(255,255,255,0.08);
+  --border-accent: rgba(108,99,255,0.3);
+  --sidebar-bg: #0d0e1a;
+}
+
+[data-theme="midnight"] {
+  --bg-primary: #0a0a1a;
+  --bg-secondary: #12123a;
+  --bg-card: rgba(139,92,246,0.05);
+  --bg-card-hover: rgba(139,92,246,0.1);
+  --text-primary: #f0f0ff;
+  --text-secondary: #b0a0d8;
+  --text-muted: #7060a0;
+  --accent: #8b5cf6;
+  --accent-soft: rgba(139,92,246,0.15);
+  --accent-secondary: #ec4899;
+  --border: rgba(139,92,246,0.12);
+  --border-accent: rgba(139,92,246,0.4);
+  --sidebar-bg: #0d0d2a;
+}
+
+[data-theme="light"] {
+  --bg-primary: #f5f5f0;
+  --bg-secondary: #ffffff;
+  --bg-card: rgba(0,0,0,0.03);
+  --bg-card-hover: rgba(0,0,0,0.06);
+  --text-primary: #1a1a2e;
+  --text-secondary: #4a4a6a;
+  --text-muted: #8a8aaa;
+  --accent: #6c63ff;
+  --accent-soft: rgba(108,99,255,0.1);
+  --accent-secondary: #0d9e75;
+  --border: rgba(0,0,0,0.08);
+  --border-accent: rgba(108,99,255,0.3);
+  --sidebar-bg: #ffffff;
+}
+
+[data-theme="nature"] {
+  --bg-primary: #0d1a0f;
+  --bg-secondary: #0f2012;
+  --bg-card: rgba(29,158,117,0.05);
+  --bg-card-hover: rgba(29,158,117,0.1);
+  --text-primary: #e8f5e9;
+  --text-secondary: #a8d5b0;
+  --text-muted: #6a9a72;
+  --accent: #1d9e75;
+  --accent-soft: rgba(29,158,117,0.15);
+  --accent-secondary: #86efac;
+  --border: rgba(29,158,117,0.12);
+  --border-accent: rgba(29,158,117,0.35);
+  --sidebar-bg: #0a1a0c;
+}
+
+:root {
+  --bg-primary: #07080f;
+  --bg-secondary: #0d0e1a;
+  --bg-card: rgba(255,255,255,0.03);
+  --bg-card-hover: rgba(255,255,255,0.06);
+  --text-primary: #f0f0ff;
+  --text-secondary: #a0a0c0;
+  --text-muted: #7878a0;
+  --accent: #6c63ff;
+  --accent-soft: rgba(108,99,255,0.15);
+  --accent-secondary: #00d4b8;
+  --border: rgba(255,255,255,0.08);
+  --border-accent: rgba(108,99,255,0.3);
+  --sidebar-bg: #0d0e1a;
+}
+
 /* ─── モバイル対応 ─── */
 @media (max-width: 768px) {
   nav {

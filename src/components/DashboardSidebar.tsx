@@ -2,6 +2,7 @@
 import { usePathname } from 'next/navigation';
 import Link from 'next/link';
 import { SignOutButton } from '@/components/SignOutButton';
+import { ThemeSelector } from './ThemeSelector';
 
 const navItems = [
   { href: '/dashboard', label: 'ダッシュボード', icon: '🏠' },
@@ -59,6 +60,7 @@ export function DashboardSidebar({ userName }: { userName: string }) {
         <a href="/dashboard/pricing" style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 12px', borderRadius: 8, textDecoration: 'none', fontSize: 13, color: '#f5a623', background: 'rgba(245,166,35,0.08)', border: '1px solid rgba(245,166,35,0.2)', marginBottom: 4 }}>
           💳 Pro にアップグレード
         </a>
+        <ThemeSelector />
         <SignOutButton />
       </div>
     </nav>
