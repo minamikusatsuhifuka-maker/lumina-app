@@ -86,6 +86,7 @@ export default function WebSearchPage() {
   const [result, setResult] = useState('');
   const [loading, setLoading] = useState(false);
   const [fontSize, setFontSize] = useState(14);
+  const [maxTokens, setMaxTokens] = useState(2000);
   const [history, setHistory] = useState<string[]>(() => {
     if (typeof window === 'undefined') return [];
     try { return JSON.parse(localStorage.getItem('lumina_search_history') || '[]'); } catch { return []; }
@@ -104,7 +105,7 @@ export default function WebSearchPage() {
       const res = await retryFetch('/api/websearch', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ query: searchQuery }),
+        body: JSON.stringify({ query: searchQuery, maxTokens }),
       });
 
       if (!res.ok || !res.body) {
@@ -163,6 +164,33 @@ export default function WebSearchPage() {
         <button onClick={() => search()} disabled={loading} style={{ padding: '12px 24px', background: 'linear-gradient(135deg, #00d4b8, #00b4d8)', color: '#0a0e12', border: 'none', borderRadius: 10, fontWeight: 700, cursor: 'pointer', fontSize: 14 }}>
           {loading ? '調査中...' : '🔍 調査'}
         </button>
+      </div>
+
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16 }}>
+        <span style={{ fontSize: 12, color: '#7878a0' }}>回答の長さ:</span>
+        {([
+          { label: '簡潔', value: 1000 },
+          { label: '標準', value: 2000 },
+          { label: '詳細', value: 4000 },
+        ] as const).map(opt => (
+          <button
+            key={opt.value}
+            onClick={() => setMaxTokens(opt.value)}
+            style={{
+              padding: '4px 14px',
+              borderRadius: 20,
+              border: `1px solid ${maxTokens === opt.value ? 'rgba(0,212,184,0.6)' : 'rgba(130,140,255,0.15)'}`,
+              background: maxTokens === opt.value ? 'rgba(0,212,184,0.15)' : 'transparent',
+              color: maxTokens === opt.value ? '#00d4b8' : '#7878a0',
+              cursor: 'pointer',
+              fontSize: 12,
+              fontWeight: maxTokens === opt.value ? 600 : 400,
+              transition: 'all 0.2s',
+            }}
+          >
+            {opt.label}（{opt.value}トークン）
+          </button>
+        ))}
       </div>
 
       <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 24 }}>

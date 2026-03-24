@@ -3,7 +3,7 @@ import { NextRequest } from 'next/server';
 export const maxDuration = 60;
 
 export async function POST(req: NextRequest) {
-  const { query, mode } = await req.json();
+  const { query, mode, maxTokens } = await req.json();
 
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey || apiKey === 'your_api_key_here') {
@@ -28,7 +28,7 @@ export async function POST(req: NextRequest) {
           },
           body: JSON.stringify({
             model: 'claude-sonnet-4-6',
-            max_tokens: 4000,
+            max_tokens: maxTokens ?? 2000,
             tools: [{ type: 'web_search_20250305', name: 'web_search' }],
             system: `あなたは優秀なリサーチアナリストです。
 Webを検索して得た情報をもとに、日本語で詳しくまとめてください。
