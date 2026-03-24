@@ -1,15 +1,42 @@
 'use client';
 import { useState, useEffect } from 'react';
 
-const MODES = [
-  { id: 'blog', label: '📝 ブログ' }, { id: 'note', label: '✏️ note' },
-  { id: 'novel', label: '📖 小説' }, { id: 'guide', label: '📚 解説本' },
-  { id: 'publish', label: '🗞️ 出版用' }, { id: 'social', label: '📱 SNS' },
-  { id: 'report', label: '📊 レポート' },
-  { id: 'homepage', label: '🌐 HP・LP' },
-  { id: 'product', label: '🛍️ 商品説明' },
-  { id: 'email', label: '📧 メール' },
-  { id: 'press', label: '📰 プレスリリース' },
+const MODE_CATEGORIES = [
+  {
+    label: '文章',
+    modes: [
+      { id: 'blog', label: '📝 ブログ' },
+      { id: 'note', label: '✏️ note' },
+      { id: 'press', label: '📰 プレスリリース' },
+      { id: 'email', label: '📧 メール' },
+      { id: 'homepage', label: '🌐 HP・LP' },
+      { id: 'product', label: '🛍️ 商品説明' },
+      { id: 'report', label: '📊 レポート' },
+    ],
+  },
+  {
+    label: 'SNS',
+    modes: [
+      { id: 'sns_twitter', label: '🐦 X投稿文' },
+      { id: 'sns_instagram', label: '📸 Instagram' },
+      { id: 'sns_note', label: '📝 noteリード文' },
+      { id: 'social', label: '📱 SNS汎用' },
+    ],
+  },
+  {
+    label: '小説・書籍',
+    modes: [
+      { id: 'novel', label: '📖 小説' },
+      { id: 'guide', label: '📚 解説本' },
+      { id: 'publish', label: '🗞️ 出版用' },
+    ],
+  },
+  {
+    label: 'AI活用',
+    modes: [
+      { id: 'image_prompt', label: '🎨 画像プロンプト' },
+    ],
+  },
 ];
 
 export default function WritePage() {
@@ -147,11 +174,18 @@ export default function WritePage() {
         </a>
       </div>
       <p style={{ color: '#7878a0', marginBottom: 24 }}>Claude Sonnet 4.6 — 高精度ストリーミング生成</p>
-      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 20 }}>
-        {MODES.map(m => (
-          <button key={m.id} onClick={() => setMode(m.id)} style={{ padding: '6px 14px', borderRadius: 6, border: mode === m.id ? 'none' : '1px solid rgba(130,140,255,0.15)', cursor: 'pointer', fontSize: 13, fontWeight: 600, background: mode === m.id ? '#6c63ff' : '#12142a', color: mode === m.id ? '#fff' : '#7878a0' }}>
-            {m.label}
-          </button>
+      <div style={{ marginBottom: 20 }}>
+        {MODE_CATEGORIES.map(cat => (
+          <div key={cat.label} style={{ marginBottom: 10 }}>
+            <div style={{ fontSize: 10, color: '#5a5a7a', marginBottom: 5, textTransform: 'uppercase', letterSpacing: '0.08em', fontWeight: 600 }}>{cat.label}</div>
+            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+              {cat.modes.map(m => (
+                <button key={m.id} onClick={() => setMode(m.id)} style={{ padding: '5px 12px', borderRadius: 6, border: mode === m.id ? 'none' : '1px solid rgba(130,140,255,0.15)', cursor: 'pointer', fontSize: 12, fontWeight: 600, background: mode === m.id ? '#6c63ff' : '#12142a', color: mode === m.id ? '#fff' : '#7878a0' }}>
+                  {m.label}
+                </button>
+              ))}
+            </div>
+          </div>
         ))}
       </div>
       <div style={{ background: '#12142a', border: '1px solid rgba(130,140,255,0.15)', borderRadius: 14, padding: 20, marginBottom: 16 }}>

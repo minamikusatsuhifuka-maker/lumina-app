@@ -40,13 +40,13 @@ export async function POST(req: NextRequest) {
 与えられたトピックについてWebを検索し、信頼性の高い情報を収集・統合して、
 日本語で読みやすいレポートを作成してください。
 
-【重要なルール】
-- 引用元は必ず [出典: サイト名](https://URL) の形式のみで記載してください
-- HTMLタグは絶対に使用しないでください
-- <a href=...> などのHTMLは書かないでください
-- URLはMarkdown形式 [名前](URL) のみで記載してください
-- 例: [出典: 日経新聞](https://nikkei.com/article/123)
-- 事実と推測を明確に区別してください`,
+絶対に守るルール：
+1. URLは生のURLのみ記載（例: https://example.com）
+2. HTMLタグは一切使用禁止（<a href=...>など）
+3. Markdownのリンク記法も禁止（[テキスト](URL)形式も使わない）
+4. 出典は「出典: サイト名 https://URL」の形式のみ
+5. URLの後に属性やスタイルは絶対に書かない
+6. 事実と推測を明確に区別してください`,
             messages: [{
               role: 'user',
               content: `トピック：${topic}
@@ -58,7 +58,9 @@ export async function POST(req: NextRequest) {
 ## 詳細分析
 ## まとめと活用アドバイス
 
-各情報の引用元URLを必ず記載してください。`,
+各情報の引用元URLを必ず記載してください。
+重要: URLは生のURL（https://...）のみ記載し、HTMLやMarkdownリンク記法は使わないでください。
+出典の形式: 「出典: サイト名 https://URL」`,
             }],
           }),
         });

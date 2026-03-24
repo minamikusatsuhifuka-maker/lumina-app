@@ -34,66 +34,65 @@ async function retryFetch(url: string, options: RequestInit, maxRetries = 3): Pr
   return fetch(url, options);
 }
 
-const formatResult = (text: string) => {
-  if (!text) return '';
-
-  const lines = text.split('\n');
-  const processedLines = lines.map(line => {
-    const trimmed = line.trim();
-
-    if (trimmed.startsWith('# ')) {
-      return `<div style="font-size:1.3em;font-weight:700;color:#f0f0ff;margin:16px 0 8px;padding-bottom:6px;border-bottom:1px solid rgba(130,140,255,0.2);">${processInline(trimmed.slice(2))}</div>`;
-    }
-    if (trimmed.startsWith('## ')) {
-      return `<div style="font-size:1.1em;font-weight:600;color:#a89fff;margin:12px 0 6px;">${processInline(trimmed.slice(3))}</div>`;
-    }
-    if (trimmed.startsWith('### ')) {
-      return `<div style="font-size:1em;font-weight:600;color:#7878a0;margin:8px 0 4px;">${processInline(trimmed.slice(4))}</div>`;
-    }
-    if (trimmed.startsWith('- ')) {
-      return `<div style="padding:2px 0 2px 16px;position:relative;line-height:1.8;"><span style="position:absolute;left:4px;color:#6c63ff;">•</span>${processInline(trimmed.slice(2))}</div>`;
-    }
-    if (trimmed.match(/^---+$/)) {
-      return '<hr style="border:none;border-top:1px solid rgba(130,140,255,0.15);margin:12px 0;">';
-    }
-    if (trimmed === '') {
-      return '<div style="height:6px"></div>';
-    }
-    return `<div style="margin:4px 0;line-height:1.8;">${processInline(trimmed)}</div>`;
-  });
-
-  return processedLines.join('');
-};
-
 const processInline = (text: string): string => {
   // 太字
-  text = text.replace(/\*\*(.+?)\*\*/g, '<strong style="color:#e0e0f0;">$1</strong>');
+  text = text.replace(/\*\*(.+?)\*\*/g,
+    '<strong style="color:#e0e0f0;font-weight:600;">$1</strong>');
 
-  // [出典: サイト名](URL) 形式 → クリッカブルリンク
+  // 「出典: サイト名 https://URL」形式
   text = text.replace(
-    /\[出典[:：]\s*([^\]]+)\]\((https?:\/\/[^)\s]+)\)/g,
-    (_, name, url) => {
-      // URLからHTML属性らしき部分を除去
-      const cleanUrl = url.split('"')[0].split("'")[0].replace(/↗$/, '').trim();
-      return `<a href="${cleanUrl}" target="_blank" rel="noopener noreferrer" style="color:#00d4b8;text-decoration:none;border-bottom:1px solid #00d4b8;">${name} ↗</a>`;
-    }
+    /出典[:：]\s*([^\s]+)\s+(https?:\/\/[^\s）\]。、！？\n]+)/g,
+    '出典: <a href="$2" target="_blank" rel="noopener noreferrer" style="color:#00d4b8;text-decoration:underline;">$1 ↗</a>'
   );
 
-  // " target="_blank"... のような残骸テキストを除去
-  text = text.replace(/" target="_blank"[^<]*/g, '');
-  text = text.replace(/" rel="noopener[^<]*/g, '');
-  text = text.replace(/style="color:#[0-9a-fA-F]+;[^"]*">/g, '');
-
-  // 裸のURL → クリッカブルリンク（HTMLタグ属性の中のURLは除外）
+  // 裸のURL（前後に余分なものがないもの）
   text = text.replace(
-    /(?<!href=")(https?:\/\/[^\s<>"'）\]、。！？↗]+?)(?=[）\]、。！？\s↗]|$)/g,
-    (_, url) => {
-      const cleanUrl = url.replace(/↗$/, '').trim();
-      return `<a href="${cleanUrl}" target="_blank" rel="noopener noreferrer" style="color:#00d4b8;text-decoration:none;border-bottom:1px solid #00d4b8;">${cleanUrl} ↗</a>`;
-    }
+    /(?<![="'(])(https?:\/\/[^\s）\]。、！？\n"'<>]+)/g,
+    '<a href="$1" target="_blank" rel="noopener noreferrer" style="color:#00d4b8;text-decoration:underline;font-size:0.9em;">$1 ↗</a>'
   );
 
   return text;
+};
+
+const formatResult = (text: string): string => {
+  if (!text) return '';
+
+  const lines = text.split('\n');
+  const html = lines.map(line => {
+    const t = line.trim();
+
+    // 見出し
+    if (t.startsWith('# ')) return `<div style="font-size:1.25em;font-weight:700;color:#f0f0ff;margin:20px 0 10px;padding-bottom:8px;border-bottom:2px solid rgba(108,99,255,0.3);">${processInline(t.slice(2))}</div>`;
+    if (t.startsWith('## ')) return `<div style="font-size:1.1em;font-weight:600;color:#a89fff;margin:16px 0 8px;padding-left:8px;border-left:3px solid #6c63ff;">${processInline(t.slice(3))}</div>`;
+    if (t.startsWith('### ')) return `<div style="font-size:1em;font-weight:600;color:#7878a0;margin:10px 0 4px;">${processInline(t.slice(4))}</div>`;
+
+    // 番号付きリスト
+    if (t.match(/^\d+\.\s/)) {
+      const match = t.match(/^(\d+)\.\s(.+)/);
+      if (match) return `<div style="display:flex;gap:8px;padding:4px 0;line-height:1.7;"><span style="color:#6c63ff;font-weight:700;min-width:20px;">${match[1]}.</span><span>${processInline(match[2])}</span></div>`;
+    }
+
+    // 箇条書き
+    if (t.startsWith('- ') || t.startsWith('• ')) {
+      return `<div style="display:flex;gap:8px;padding:3px 0;line-height:1.7;"><span style="color:#6c63ff;margin-top:2px;">•</span><span>${processInline(t.slice(2))}</span></div>`;
+    }
+
+    // 出典行（「出典:」で始まる行）
+    if (t.startsWith('出典') || t.startsWith('【出典】') || t.startsWith('参考')) {
+      return `<div style="font-size:0.85em;color:#5a5a7a;padding:4px 0 4px 12px;border-left:2px solid rgba(0,212,184,0.3);margin:4px 0;">${processInline(t)}</div>`;
+    }
+
+    // 区切り線
+    if (t.match(/^---+$/)) return '<hr style="border:none;border-top:1px solid rgba(130,140,255,0.15);margin:14px 0;">';
+
+    // 空行
+    if (t === '') return '<div style="height:8px"></div>';
+
+    // 通常のテキスト
+    return `<div style="line-height:1.85;margin:3px 0;">${processInline(t)}</div>`;
+  });
+
+  return html.join('');
 };
 
 export default function IntelligencePage() {

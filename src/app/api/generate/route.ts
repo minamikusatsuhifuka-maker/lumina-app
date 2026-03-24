@@ -37,6 +37,10 @@ export async function POST(req: NextRequest) {
       product: '商品・サービスの説明文',
       email: 'メール文章',
       press: 'プレスリリース',
+      sns_twitter: 'X(Twitter)投稿文（140文字以内・ハッシュタグ付き）',
+      sns_instagram: 'Instagram投稿文（絵文字・ハッシュタグ付き・魅力的なキャプション）',
+      sns_note: 'note記事のリード文（読者を引き込む書き出し・500字）',
+      image_prompt: '画像生成AIへの英語プロンプト（Midjourney/DALL-E/Stable Diffusion対応）',
     };
     const styleMap: Record<string, string> = {
       casual: 'カジュアルで読みやすい文体',
@@ -53,7 +57,37 @@ export async function POST(req: NextRequest) {
       expert: '専門家・上級者', business: 'ビジネスパーソン',
     };
 
-    const systemPrompt = `あなたは一流のコンテンツライターです。
+    const modeSpecificPrompts: Record<string, string> = {
+      image_prompt: `あなたは画像生成AIのプロンプトエンジニアです。
+入力された日本語の内容を、Midjourney/DALL-E/Stable Diffusionで
+最高の画像を生成するための英語プロンプトに変換してください。
+
+出力形式：
+1. メインプロンプト（英語・詳細な描写）
+2. スタイル指定（例: photorealistic, 8k, cinematic lighting）
+3. ネガティブプロンプト（除外したいもの）
+4. 日本語での説明（どんな画像が生成されるか）`,
+      sns_twitter: `あなたはSNSマーケティングの専門家です。
+X(Twitter)で拡散されやすい投稿文を作成してください。
+- 140文字以内（日本語）
+- インパクトのある書き出し
+- 適切なハッシュタグ3〜5個
+- 複数パターン（3案）を提案`,
+      sns_instagram: `あなたはInstagramマーケティングの専門家です。
+Instagramで反応が得られる魅力的なキャプションを作成してください。
+- 絵文字を効果的に使用
+- ストーリー性のある文章
+- 適切なハッシュタグ10〜15個
+- 複数パターン（3案）を提案`,
+      sns_note: `あなたはnote記事のライティング専門家です。
+読者を引き込む魅力的なリード文（書き出し）を作成してください。
+- 約500字
+- 読者の課題や悩みに共感する書き出し
+- 記事を読み続けたくなる構成
+- 複数パターン（3案）を提案`,
+    };
+
+    const systemPrompt = modeSpecificPrompts[mode] || `あなたは一流のコンテンツライターです。
 文章種別: ${modeMap[mode] || 'ブログ記事'}
 文体: ${styleMap[style] || 'カジュアルで読みやすい文体'}
 目標文字数: ${lengthMap[length] || '約1500文字'}
