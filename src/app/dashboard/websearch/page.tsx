@@ -18,19 +18,22 @@ async function retryFetch(url: string, options: RequestInit, maxRetries = 3): Pr
 }
 
 const processInline = (text: string): string => {
-  // 太字
+  // 1. 既存のHTMLタグを一時的にエスケープ（二重処理防止）
+  text = text.replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
+  // 2. 太字
   text = text.replace(/\*\*(.+?)\*\*/g,
     '<strong style="color:#e0e0f0;font-weight:600;">$1</strong>');
 
-  // 「出典: サイト名 https://URL」形式
+  // 3. 「出典: サイト名 https://URL」形式
   text = text.replace(
-    /出典[:：]\s*([^\s]+)\s+(https?:\/\/[^\s）\]。、！？\n]+)/g,
+    /出典[:：]\s*([^\s]+)\s+(https?:\/\/[^\s）\]。、！？\n&]+)/g,
     '出典: <a href="$2" target="_blank" rel="noopener noreferrer" style="color:#00d4b8;text-decoration:underline;">$1 ↗</a>'
   );
 
-  // 裸のURL（前後に余分なものがないもの）
+  // 4. 裸のURL（<a>タグの外にあるもののみ）
   text = text.replace(
-    /(?<![="'(])(https?:\/\/[^\s）\]。、！？\n"'<>]+)/g,
+    /(https?:\/\/[^\s）\]。、！？\n"'<>&]+)/g,
     '<a href="$1" target="_blank" rel="noopener noreferrer" style="color:#00d4b8;text-decoration:underline;font-size:0.9em;">$1 ↗</a>'
   );
 
