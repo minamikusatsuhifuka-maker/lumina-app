@@ -17,6 +17,7 @@ const navItems = [
   { href: '/dashboard/genspark', label: 'Gensparkへ出力', icon: '🎯' },
   { href: '/dashboard/library', label: 'ライブラリ', icon: '📚' },
   { href: '/dashboard/guide', label: '活用ガイド', icon: '📖' },
+  { href: '/dashboard/glossary', label: '用語解説', icon: '📘' },
 ];
 
 export function DashboardSidebar({ userName }: { userName: string }) {
