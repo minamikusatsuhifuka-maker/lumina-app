@@ -246,7 +246,7 @@ export default function GuidePage() {
         <h1 style={{ fontSize: 26, fontWeight: 700, color: '#f0f0ff', marginBottom: 4 }}>
           📖 LUMINA 活用ガイド
         </h1>
-        <p style={{ color: '#7878a0', fontSize: 13 }}>
+        <p style={{ color: 'var(--text-muted)', fontSize: 13 }}>
           中学生でもわかるやさしい解説。具体例・手順・よくある質問付き。
         </p>
       </div>
@@ -254,7 +254,7 @@ export default function GuidePage() {
       {/* タブナビゲーション */}
       <div style={{
         display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 28,
-        borderBottom: '1px solid rgba(130,140,255,0.15)', paddingBottom: 16,
+        borderBottom: '1px solid var(--border)', paddingBottom: 16,
       }}>
         {sections.map(s => (
           <button
@@ -266,7 +266,7 @@ export default function GuidePage() {
               background: activeSection === s.id
                 ? 'linear-gradient(135deg, #6c63ff, #8b5cf6)'
                 : 'rgba(255,255,255,0.05)',
-              color: activeSection === s.id ? '#fff' : '#7878a0',
+              color: activeSection === s.id ? '#fff' : 'var(--text-muted)',
             }}
           >
             {s.emoji} {s.title}
@@ -312,15 +312,15 @@ export default function GuidePage() {
 
         {/* ステップ */}
         <div style={{ marginBottom: 24 }}>
-          <h3 style={{ fontSize: 14, fontWeight: 700, color: '#a89fff', marginBottom: 12 }}>
+          <h3 style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-secondary)', marginBottom: 12 }}>
             📋 使い方ステップ
           </h3>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
             {current.steps.map((step, i) => (
               <div key={i} style={{
                 display: 'flex', gap: 12, alignItems: 'flex-start',
-                background: 'rgba(108,99,255,0.05)',
-                border: '1px solid rgba(108,99,255,0.15)',
+                background: 'var(--accent-soft)',
+                border: '1px solid var(--accent-soft)',
                 borderRadius: 10, padding: '12px 16px',
               }}>
                 <span style={{
@@ -343,7 +343,7 @@ export default function GuidePage() {
         {/* 入力例 */}
         {current.inputExample && (
           <div style={{ marginBottom: 24 }}>
-            <h3 style={{ fontSize: 14, fontWeight: 700, color: '#a89fff', marginBottom: 12 }}>
+            <h3 style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-secondary)', marginBottom: 12 }}>
               💬 入力例（コピーして使えます）
             </h3>
             <div style={{
@@ -366,7 +366,7 @@ export default function GuidePage() {
 
         {/* Tips */}
         <div style={{ marginBottom: 24 }}>
-          <h3 style={{ fontSize: 14, fontWeight: 700, color: '#a89fff', marginBottom: 12 }}>
+          <h3 style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-secondary)', marginBottom: 12 }}>
             💡 プロのコツ
           </h3>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
@@ -390,7 +390,7 @@ export default function GuidePage() {
         {/* よくある質問 */}
         {current.faqs && current.faqs.length > 0 && (
           <div>
-            <h3 style={{ fontSize: 14, fontWeight: 700, color: '#a89fff', marginBottom: 12 }}>
+            <h3 style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-secondary)', marginBottom: 12 }}>
               ❓ よくある質問
             </h3>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>

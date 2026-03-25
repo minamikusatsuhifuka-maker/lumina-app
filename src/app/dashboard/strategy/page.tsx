@@ -172,10 +172,10 @@ export default function StrategyPage() {
 
   return (
     <div>
-      <h1 style={{ fontSize: 28, fontWeight: 700, color: '#f0f0ff', marginBottom: 4 }}>
+      <h1 style={{ fontSize: 28, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 4 }}>
         💼 経営インテリジェンス
       </h1>
-      <p style={{ color: '#7878a0', marginBottom: 20 }}>
+      <p style={{ color: 'var(--text-muted)', marginBottom: 20 }}>
         MVV策定・組織設計・人材育成・マーケ・ブランド・採用戦略をAIが支援します
       </p>
 
@@ -185,20 +185,20 @@ export default function StrategyPage() {
           <button key={t.id} onClick={() => { setStrategyType(t.id); setResult(''); }} style={{
             padding: '12px 10px', borderRadius: 10, cursor: 'pointer',
             textAlign: 'left' as const, transition: 'all 0.15s',
-            border: strategyType === t.id ? `2px solid ${t.color}` : '1px solid rgba(130,140,255,0.15)',
-            background: strategyType === t.id ? `${t.color}15` : '#12142a',
-            color: strategyType === t.id ? t.color : '#7878a0',
+            border: strategyType === t.id ? `2px solid ${t.color}` : '1px solid var(--border)',
+            background: strategyType === t.id ? `${t.color}15` : 'var(--bg-secondary)',
+            color: strategyType === t.id ? t.color : 'var(--text-muted)',
           }}>
             <div style={{ fontSize: 15, marginBottom: 3 }}>{t.label}</div>
-            <div style={{ fontSize: 10, color: '#5a5a7a', lineHeight: 1.4 }}>{t.desc}</div>
+            <div style={{ fontSize: 10, color: 'var(--text-muted)', lineHeight: 1.4 }}>{t.desc}</div>
           </button>
         ))}
       </div>
 
       {/* 入力エリア */}
-      <div style={{ background: '#12142a', border: `1px solid ${selectedType?.color}30`, borderRadius: 12, padding: 16, marginBottom: 16 }}>
+      <div style={{ background: 'var(--bg-secondary)', border: `1px solid ${selectedType?.color}30`, borderRadius: 12, padding: 16, marginBottom: 16 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-          <div style={{ fontSize: 12, color: '#7878a0' }}>
+          <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>
             {selectedType?.label}に必要な情報を入力してください
           </div>
           {TEMPLATES[strategyType] && (
@@ -211,10 +211,10 @@ export default function StrategyPage() {
           value={content}
           onChange={e => setContent(e.target.value)}
           placeholder={`${selectedType?.label}の生成に必要な情報を入力してください。\n情報が少なくても一般的なベストプラクティスをもとに提案します。\n「テンプレートを使う」で入力フォームを表示できます。`}
-          style={{ width: '100%', minHeight: 180, background: '#07080f', border: '1px solid rgba(130,140,255,0.2)', borderRadius: 8, color: '#f0f0ff', fontSize: 13, padding: 14, resize: 'vertical', outline: 'none', fontFamily: 'inherit', lineHeight: 1.7, boxSizing: 'border-box' as const }}
+          style={{ width: '100%', minHeight: 180, background: 'var(--bg-primary)', border: '1px solid var(--border)', borderRadius: 8, color: 'var(--text-primary)', fontSize: 13, padding: 14, resize: 'vertical', outline: 'none', fontFamily: 'inherit', lineHeight: 1.7, boxSizing: 'border-box' as const }}
         />
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 12 }}>
-          <div style={{ fontSize: 11, color: '#5a5a7a' }}>{content.length.toLocaleString()}文字入力</div>
+          <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>{content.length.toLocaleString()}文字入力</div>
           <button onClick={generate} disabled={loading} style={{
             padding: '11px 32px',
             background: `linear-gradient(135deg, ${selectedType?.color}, ${selectedType?.color}cc)`,
@@ -229,16 +229,16 @@ export default function StrategyPage() {
 
       {/* 結果エリア */}
       {(result || loading) && (
-        <div style={{ background: '#12142a', border: `1px solid ${selectedType?.color}30`, borderRadius: 12, padding: 20 }}>
+        <div style={{ background: 'var(--bg-secondary)', border: `1px solid ${selectedType?.color}30`, borderRadius: 12, padding: 20 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14, flexWrap: 'wrap' as const, gap: 8 }}>
             <span style={{ fontSize: 13, fontWeight: 600, color: selectedType?.color }}>
               {selectedType?.label} 結果
             </span>
             <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' as const }}>
-              <button onClick={() => setFontSize(f => Math.max(11, f-1))} style={{ width: 24, height: 24, borderRadius: 4, border: '1px solid rgba(130,140,255,0.2)', background: '#1a1d36', color: '#a89fff', cursor: 'pointer', fontSize: 14 }}>−</button>
-              <span style={{ fontSize: 11, color: '#7878a0', fontFamily: 'monospace' }}>{fontSize}</span>
-              <button onClick={() => setFontSize(f => Math.min(20, f+1))} style={{ width: 24, height: 24, borderRadius: 4, border: '1px solid rgba(130,140,255,0.2)', background: '#1a1d36', color: '#a89fff', cursor: 'pointer', fontSize: 14 }}>＋</button>
-              <button onClick={saveDraft} style={{ padding: '5px 12px', background: saved ? 'rgba(74,222,128,0.15)' : '#1a1d36', border: `1px solid ${saved ? '#4ade80' : 'rgba(130,140,255,0.2)'}`, color: saved ? '#4ade80' : '#a89fff', borderRadius: 6, cursor: 'pointer', fontSize: 12 }}>
+              <button onClick={() => setFontSize(f => Math.max(11, f-1))} style={{ width: 24, height: 24, borderRadius: 4, border: '1px solid var(--border)', background: 'var(--bg-secondary)', color: 'var(--text-secondary)', cursor: 'pointer', fontSize: 14 }}>−</button>
+              <span style={{ fontSize: 11, color: 'var(--text-muted)', fontFamily: 'monospace' }}>{fontSize}</span>
+              <button onClick={() => setFontSize(f => Math.min(20, f+1))} style={{ width: 24, height: 24, borderRadius: 4, border: '1px solid var(--border)', background: 'var(--bg-secondary)', color: 'var(--text-secondary)', cursor: 'pointer', fontSize: 14 }}>＋</button>
+              <button onClick={saveDraft} style={{ padding: '5px 12px', background: saved ? 'rgba(74,222,128,0.15)' : 'var(--bg-secondary)', border: `1px solid ${saved ? '#4ade80' : 'var(--border)'}`, color: saved ? '#4ade80' : 'var(--text-secondary)', borderRadius: 6, cursor: 'pointer', fontSize: 12 }}>
                 {saved ? '✅ 保存済み' : '📚 保存'}
               </button>
               <button
@@ -257,27 +257,27 @@ export default function StrategyPage() {
                 📚 ライブラリ保存
               </button>
               <button onClick={sendToWriter} style={{ padding: '5px 12px', background: 'linear-gradient(135deg, #6c63ff, #8b5cf6)', color: '#fff', border: 'none', borderRadius: 6, cursor: 'pointer', fontSize: 12, fontWeight: 600 }}>✍️ 文章化</button>
-              <button onClick={download} style={{ padding: '5px 12px', background: '#1a1d36', border: '1px solid rgba(130,140,255,0.2)', color: '#a89fff', borderRadius: 6, cursor: 'pointer', fontSize: 12 }}>💾 MD保存</button>
+              <button onClick={download} style={{ padding: '5px 12px', background: 'var(--bg-secondary)', border: '1px solid var(--border)', color: 'var(--text-secondary)', borderRadius: 6, cursor: 'pointer', fontSize: 12 }}>💾 MD保存</button>
               <button
                 onClick={async () => {
                   const { exportToPdf } = await import('@/lib/exportPdf');
                   const t = `${selectedType?.label} — ${new Date().toLocaleDateString('ja-JP')}`;
                   await exportToPdf(t, result);
                 }}
-                style={{ padding: '5px 12px', background: '#1a1d36', border: '1px solid rgba(255,107,107,0.3)', color: '#ff6b6b', borderRadius: 6, cursor: 'pointer', fontSize: 12 }}
+                style={{ padding: '5px 12px', background: 'var(--bg-secondary)', border: '1px solid rgba(255,107,107,0.3)', color: '#ff6b6b', borderRadius: 6, cursor: 'pointer', fontSize: 12 }}
               >
                 📄 PDF
               </button>
-              <button onClick={() => navigator.clipboard.writeText(result)} style={{ padding: '5px 12px', background: '#1a1d36', border: '1px solid rgba(130,140,255,0.2)', color: '#a89fff', borderRadius: 6, cursor: 'pointer', fontSize: 12 }}>📋 コピー</button>
+              <button onClick={() => navigator.clipboard.writeText(result)} style={{ padding: '5px 12px', background: 'var(--bg-secondary)', border: '1px solid var(--border)', color: 'var(--text-secondary)', borderRadius: 6, cursor: 'pointer', fontSize: 12 }}>📋 コピー</button>
             </div>
           </div>
           {loading && (
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10, color: '#7878a0', padding: '8px 0' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, color: 'var(--text-muted)', padding: '8px 0' }}>
               <div style={{ width: 16, height: 16, border: `2px solid ${selectedType?.color}40`, borderTopColor: selectedType?.color, borderRadius: '50%', animation: 'spin 0.7s linear infinite' }} />
               生成中...
             </div>
           )}
-          <div style={{ fontSize: fontSize, color: '#c0c0e0', lineHeight: 1.9, whiteSpace: 'pre-wrap', wordBreak: 'break-word' as const }}>
+          <div style={{ fontSize: fontSize, color: 'var(--text-secondary)', lineHeight: 1.9, whiteSpace: 'pre-wrap', wordBreak: 'break-word' as const }}>
             {result}
           </div>
         </div>

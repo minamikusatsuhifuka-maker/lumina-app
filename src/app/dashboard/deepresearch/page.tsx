@@ -24,7 +24,7 @@ async function retryFetch(url: string, options: RequestInit, maxRetries = 3): Pr
 const processInline = (text: string): string => {
   // 太字
   text = text.replace(/\*\*(.+?)\*\*/g,
-    '<strong style="color:#e0e0f0;font-weight:600;">$1</strong>');
+    '<strong style="color:var(--text-primary);font-weight:600;">$1</strong>');
 
   // 「出典: サイト名 https://URL」形式
   text = text.replace(
@@ -49,28 +49,28 @@ const formatReport = (text: string): string => {
     const t = line.trim();
 
     // 見出し
-    if (t.startsWith('# ')) return `<div style="font-size:1.25em;font-weight:700;color:#f0f0ff;margin:20px 0 10px;padding-bottom:8px;border-bottom:2px solid rgba(108,99,255,0.3);">${processInline(t.slice(2))}</div>`;
-    if (t.startsWith('## ')) return `<div style="font-size:1.1em;font-weight:600;color:#a89fff;margin:16px 0 8px;padding-left:8px;border-left:3px solid #6c63ff;">${processInline(t.slice(3))}</div>`;
-    if (t.startsWith('### ')) return `<div style="font-size:1em;font-weight:600;color:#7878a0;margin:10px 0 4px;">${processInline(t.slice(4))}</div>`;
+    if (t.startsWith('# ')) return `<div style="font-size:1.25em;font-weight:700;color:var(--text-primary);margin:20px 0 10px;padding-bottom:8px;border-bottom:2px solid var(--border-accent);">${processInline(t.slice(2))}</div>`;
+    if (t.startsWith('## ')) return `<div style="font-size:1.1em;font-weight:600;color:var(--text-secondary);margin:16px 0 8px;padding-left:8px;border-left:3px solid var(--accent);">${processInline(t.slice(3))}</div>`;
+    if (t.startsWith('### ')) return `<div style="font-size:1em;font-weight:600;color:var(--text-muted);margin:10px 0 4px;">${processInline(t.slice(4))}</div>`;
 
     // 番号付きリスト
     if (t.match(/^\d+\.\s/)) {
       const match = t.match(/^(\d+)\.\s(.+)/);
-      if (match) return `<div style="display:flex;gap:8px;padding:4px 0;line-height:1.7;"><span style="color:#6c63ff;font-weight:700;min-width:20px;">${match[1]}.</span><span>${processInline(match[2])}</span></div>`;
+      if (match) return `<div style="display:flex;gap:8px;padding:4px 0;line-height:1.7;"><span style="color:var(--accent);font-weight:700;min-width:20px;">${match[1]}.</span><span>${processInline(match[2])}</span></div>`;
     }
 
     // 箇条書き
     if (t.startsWith('- ') || t.startsWith('• ')) {
-      return `<div style="display:flex;gap:8px;padding:3px 0;line-height:1.7;"><span style="color:#6c63ff;margin-top:2px;">•</span><span>${processInline(t.slice(2))}</span></div>`;
+      return `<div style="display:flex;gap:8px;padding:3px 0;line-height:1.7;"><span style="color:var(--accent);margin-top:2px;">•</span><span>${processInline(t.slice(2))}</span></div>`;
     }
 
     // 出典行（「出典:」で始まる行）
     if (t.startsWith('出典') || t.startsWith('【出典】') || t.startsWith('参考')) {
-      return `<div style="font-size:0.85em;color:#5a5a7a;padding:4px 0 4px 12px;border-left:2px solid rgba(0,212,184,0.3);margin:4px 0;">${processInline(t)}</div>`;
+      return `<div style="font-size:0.85em;color:var(--text-muted);padding:4px 0 4px 12px;border-left:2px solid rgba(0,212,184,0.3);margin:4px 0;">${processInline(t)}</div>`;
     }
 
     // 区切り線
-    if (t.match(/^---+$/)) return '<hr style="border:none;border-top:1px solid rgba(130,140,255,0.15);margin:14px 0;">';
+    if (t.match(/^---+$/)) return '<hr style="border:none;border-top:1px solid var(--border);margin:14px 0;">';
 
     // 空行
     if (t === '') return '<div style="height:8px"></div>';
@@ -157,17 +157,17 @@ export default function DeepResearchPage() {
 
   return (
     <div>
-      <h1 style={{ fontSize: 28, fontWeight: 700, color: '#f0f0ff', marginBottom: 8 }}>🔭 ディープリサーチ</h1>
-      <p style={{ color: '#7878a0', marginBottom: 24 }}>Claude AIが複数ソースを統合し、徹底的なリサーチレポートを生成します</p>
+      <h1 style={{ fontSize: 28, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 8 }}>🔭 ディープリサーチ</h1>
+      <p style={{ color: 'var(--text-muted)', marginBottom: 24 }}>Claude AIが複数ソースを統合し、徹底的なリサーチレポートを生成します</p>
 
-      <div style={{ background: '#12142a', border: '1px solid rgba(108,99,255,0.2)', borderRadius: 14, padding: 20, marginBottom: 20 }}>
+      <div style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 14, padding: 20, marginBottom: 20 }}>
         <div style={{ marginBottom: 12 }}>
-          <div style={{ fontSize: 11, color: '#7878a0', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.06em' }}>リサーチトピック</div>
+          <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.06em' }}>リサーチトピック</div>
           <textarea
             value={topic}
             onChange={e => setTopic(e.target.value)}
             placeholder={'調査したいテーマを詳しく入力してください\n例：AIを活用したブログ記事の自動生成と収益化の最新事例'}
-            style={{ width: '100%', minHeight: 80, background: '#07080f', border: '1px solid rgba(130,140,255,0.2)', borderRadius: 8, color: '#f0f0ff', fontSize: 14, padding: 12, resize: 'vertical', outline: 'none', fontFamily: 'inherit', lineHeight: 1.7, boxSizing: 'border-box' }}
+            style={{ width: '100%', minHeight: 80, background: 'var(--bg-primary)', border: '1px solid var(--border)', borderRadius: 8, color: 'var(--text-primary)', fontSize: 14, padding: 12, resize: 'vertical', outline: 'none', fontFamily: 'inherit', lineHeight: 1.7, boxSizing: 'border-box' }}
           />
         </div>
 
@@ -180,7 +180,7 @@ export default function DeepResearchPage() {
             <button
               key={d.value}
               onClick={() => setDepth(d.value)}
-              style={{ flex: 1, padding: '10px 8px', borderRadius: 8, border: depth === d.value ? '2px solid #6c63ff' : '1px solid rgba(130,140,255,0.2)', cursor: 'pointer', background: depth === d.value ? 'rgba(108,99,255,0.15)' : '#07080f', color: depth === d.value ? '#a89fff' : '#7878a0', fontSize: 13, fontWeight: 600, textAlign: 'center' as const }}
+              style={{ flex: 1, padding: '10px 8px', borderRadius: 8, border: depth === d.value ? '2px solid var(--accent)' : '1px solid var(--border)', cursor: 'pointer', background: depth === d.value ? 'var(--accent-soft)' : 'var(--bg-primary)', color: depth === d.value ? 'var(--text-secondary)' : 'var(--text-muted)', fontSize: 13, fontWeight: 600, textAlign: 'center' as const }}
             >
               <div>{d.label}</div>
               <div style={{ fontSize: 11, marginTop: 2, fontWeight: 400 }}>{d.desc}</div>
@@ -200,13 +200,13 @@ export default function DeepResearchPage() {
       </div>
 
       <div style={{ marginBottom: 20 }}>
-        <div style={{ fontSize: 11, color: '#7878a0', marginBottom: 8, textTransform: 'uppercase', letterSpacing: '0.06em' }}>クイックテンプレート</div>
+        <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 8, textTransform: 'uppercase', letterSpacing: '0.06em' }}>クイックテンプレート</div>
         <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
           {TEMPLATES.map(t => (
             <button
               key={t.label}
               onClick={() => { setTopic(t.topic); research(t.topic); }}
-              style={{ padding: '6px 14px', borderRadius: 20, border: '1px solid rgba(108,99,255,0.2)', background: 'rgba(108,99,255,0.05)', color: '#a89fff', cursor: 'pointer', fontSize: 12 }}
+              style={{ padding: '6px 14px', borderRadius: 20, border: '1px solid var(--border)', background: 'var(--accent-soft)', color: 'var(--text-secondary)', cursor: 'pointer', fontSize: 12 }}
             >
               {t.label}
             </button>
@@ -215,37 +215,37 @@ export default function DeepResearchPage() {
       </div>
 
       {loading && (
-        <div style={{ background: '#12142a', border: '1px solid rgba(108,99,255,0.2)', borderRadius: 12, padding: 32, textAlign: 'center' }}>
-          <div style={{ width: 40, height: 40, border: '3px solid rgba(108,99,255,0.3)', borderTopColor: '#6c63ff', borderRadius: '50%', animation: 'spin 0.8s linear infinite', margin: '0 auto 16px' }} />
-          <div style={{ color: '#a89fff', fontWeight: 600, marginBottom: 6 }}>複数のWebソースを調査・統合中...（混雑時は自動でリトライします）</div>
-          <div style={{ color: '#5a5a7a', fontSize: 13 }}>{elapsed}秒経過 / ディープリサーチは30〜60秒かかります</div>
+        <div style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 12, padding: 32, textAlign: 'center' }}>
+          <div style={{ width: 40, height: 40, border: '3px solid var(--border-accent)', borderTopColor: 'var(--accent)', borderRadius: '50%', animation: 'spin 0.8s linear infinite', margin: '0 auto 16px' }} />
+          <div style={{ color: 'var(--text-secondary)', fontWeight: 600, marginBottom: 6 }}>複数のWebソースを調査・統合中...（混雑時は自動でリトライします）</div>
+          <div style={{ color: 'var(--text-muted)', fontSize: 13 }}>{elapsed}秒経過 / ディープリサーチは30〜60秒かかります</div>
         </div>
       )}
 
       {report && !loading && (
-        <div style={{ background: '#12142a', border: '1px solid rgba(108,99,255,0.2)', borderRadius: 12, padding: 24 }}>
+        <div style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 12, padding: 24 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-            <span style={{ fontSize: 13, fontWeight: 600, color: '#a89fff' }}>🔭 リサーチレポート</span>
+            <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-secondary)' }}>🔭 リサーチレポート</span>
             <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                <span style={{ fontSize: 11, color: '#5a5a7a' }}>文字サイズ</span>
-                <button onClick={() => setFontSize(f => Math.max(11, f - 1))} style={{ width: 24, height: 24, borderRadius: 4, border: '1px solid rgba(130,140,255,0.2)', background: '#1a1d36', color: '#a89fff', cursor: 'pointer', fontSize: 14, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>−</button>
-                <span style={{ fontSize: 12, color: '#7878a0', fontFamily: 'monospace', minWidth: 20, textAlign: 'center' }}>{fontSize}</span>
-                <button onClick={() => setFontSize(f => Math.min(20, f + 1))} style={{ width: 24, height: 24, borderRadius: 4, border: '1px solid rgba(130,140,255,0.2)', background: '#1a1d36', color: '#a89fff', cursor: 'pointer', fontSize: 14, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>＋</button>
+                <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>文字サイズ</span>
+                <button onClick={() => setFontSize(f => Math.max(11, f - 1))} style={{ width: 24, height: 24, borderRadius: 4, border: '1px solid var(--border)', background: 'var(--bg-secondary)', color: 'var(--text-secondary)', cursor: 'pointer', fontSize: 14, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>−</button>
+                <span style={{ fontSize: 12, color: 'var(--text-muted)', fontFamily: 'monospace', minWidth: 20, textAlign: 'center' }}>{fontSize}</span>
+                <button onClick={() => setFontSize(f => Math.min(20, f + 1))} style={{ width: 24, height: 24, borderRadius: 4, border: '1px solid var(--border)', background: 'var(--bg-secondary)', color: 'var(--text-secondary)', cursor: 'pointer', fontSize: 14, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>＋</button>
               </div>
               <button onClick={sendToWrite} style={{ padding: '6px 14px', background: 'linear-gradient(135deg, #6c63ff, #8b5cf6)', color: '#fff', border: 'none', borderRadius: 6, cursor: 'pointer', fontSize: 12, fontWeight: 600 }}>
                 ✍️ 文章作成に使う
               </button>
-              <button onClick={download} style={{ padding: '6px 14px', background: '#1a1d36', border: '1px solid rgba(130,140,255,0.2)', color: '#a89fff', borderRadius: 6, cursor: 'pointer', fontSize: 12 }}>
+              <button onClick={download} style={{ padding: '6px 14px', background: 'var(--bg-secondary)', border: '1px solid var(--border)', color: 'var(--text-secondary)', borderRadius: 6, cursor: 'pointer', fontSize: 12 }}>
                 💾 MD保存
               </button>
-              <button onClick={() => navigator.clipboard.writeText(report)} style={{ padding: '6px 14px', background: '#1a1d36', border: '1px solid rgba(130,140,255,0.2)', color: '#a89fff', borderRadius: 6, cursor: 'pointer', fontSize: 12 }}>
+              <button onClick={() => navigator.clipboard.writeText(report)} style={{ padding: '6px 14px', background: 'var(--bg-secondary)', border: '1px solid var(--border)', color: 'var(--text-secondary)', borderRadius: 6, cursor: 'pointer', fontSize: 12 }}>
                 📋 コピー
               </button>
             </div>
           </div>
           <div
-            style={{ fontSize: fontSize, color: '#c0c0e0', lineHeight: 1.8, wordBreak: 'break-word' as const }}
+            style={{ fontSize: fontSize, color: 'var(--text-secondary)', lineHeight: 1.8, wordBreak: 'break-word' as const }}
             dangerouslySetInnerHTML={{ __html: formatReport(report) }}
           />
         </div>

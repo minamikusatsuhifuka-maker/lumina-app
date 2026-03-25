@@ -5,7 +5,7 @@ const PLANS = [
   {
     name: 'Free',
     price: '無料',
-    color: '#7878a0',
+    color: 'var(--text-muted)',
     features: [
       '文章作成（月20回）',
       'Web情報収集（月10回）',
@@ -52,7 +52,7 @@ export default function PricingPage() {
   return (
     <div>
       <h1 style={{ fontSize: 28, fontWeight: 700, color: '#f0f0ff', marginBottom: 4 }}>💳 プランを選ぶ</h1>
-      <p style={{ color: '#7878a0', marginBottom: 32 }}>あなたのビジネスに最適なプランで、LUMINAをフル活用してください</p>
+      <p style={{ color: 'var(--text-muted)', marginBottom: 32 }}>あなたのビジネスに最適なプランで、LUMINAをフル活用してください</p>
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 20, maxWidth: 800 }}>
         {PLANS.map(plan => (
@@ -84,7 +84,7 @@ export default function PricingPage() {
                 width: '100%', padding: '12px',
                 background: plan.disabled ? '#1a1d36' : `linear-gradient(135deg, ${plan.color}, ${plan.color}cc)`,
                 color: plan.disabled ? '#5a5a7a' : '#fff',
-                border: plan.disabled ? '1px solid rgba(130,140,255,0.2)' : 'none',
+                border: plan.disabled ? '1px solid var(--border)' : 'none',
                 borderRadius: 8, fontWeight: 700, fontSize: 14,
                 cursor: plan.disabled ? 'default' : 'pointer',
                 opacity: loading ? 0.7 : 1,

@@ -62,19 +62,19 @@ export default function AlertsPage() {
 
   return (
     <div>
-      <h1 style={{ fontSize: 28, fontWeight: 700, color: '#f0f0ff', marginBottom: 4 }}>🔔 定期リサーチアラート</h1>
-      <p style={{ color: '#7878a0', marginBottom: 24 }}>登録したトピックの最新情報を自動収集します</p>
+      <h1 style={{ fontSize: 28, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 4 }}>🔔 定期リサーチアラート</h1>
+      <p style={{ color: 'var(--text-muted)', marginBottom: 24 }}>登録したトピックの最新情報を自動収集します</p>
 
       {/* 新規追加 */}
-      <div style={{ background: '#12142a', border: '1px solid rgba(108,99,255,0.2)', borderRadius: 12, padding: 20, marginBottom: 20 }}>
-        <div style={{ fontSize: 13, fontWeight: 600, color: '#a89fff', marginBottom: 14 }}>＋ 新しいアラートを追加</div>
+      <div style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 12, padding: 20, marginBottom: 20 }}>
+        <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-secondary)', marginBottom: 14 }}>＋ 新しいアラートを追加</div>
 
         <div style={{ display: 'flex', gap: 10, marginBottom: 12 }}>
           <input
             value={topic}
             onChange={e => setTopic(e.target.value)}
             placeholder="監視したいトピック（例：AI最新動向、競合他社の動向）"
-            style={{ flex: 1, padding: '10px 14px', background: '#07080f', border: '1px solid rgba(130,140,255,0.2)', borderRadius: 8, color: '#f0f0ff', fontSize: 14, outline: 'none' }}
+            style={{ flex: 1, padding: '10px 14px', background: 'var(--bg-primary)', border: '1px solid var(--border)', borderRadius: 8, color: 'var(--text-primary)', fontSize: 14, outline: 'none' }}
             onKeyDown={e => e.key === 'Enter' && addAlert()}
           />
         </div>
@@ -83,7 +83,7 @@ export default function AlertsPage() {
         <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' as const, marginBottom: 14 }}>
           {PRESETS.map(p => (
             <button key={p} onClick={() => setTopic(p)}
-              style={{ padding: '3px 10px', borderRadius: 20, border: '1px solid rgba(108,99,255,0.2)', background: 'rgba(108,99,255,0.05)', color: '#a89fff', cursor: 'pointer', fontSize: 11 }}>
+              style={{ padding: '3px 10px', borderRadius: 20, border: '1px solid var(--border)', background: 'var(--accent-soft)', color: 'var(--text-secondary)', cursor: 'pointer', fontSize: 11 }}>
               {p}
             </button>
           ))}
@@ -94,12 +94,12 @@ export default function AlertsPage() {
           {FREQUENCIES.map(f => (
             <button key={f.id} onClick={() => setFrequency(f.id)} style={{
               flex: 1, padding: '10px', borderRadius: 8, cursor: 'pointer',
-              border: frequency === f.id ? '2px solid #6c63ff' : '1px solid rgba(130,140,255,0.15)',
-              background: frequency === f.id ? 'rgba(108,99,255,0.15)' : '#07080f',
-              color: frequency === f.id ? '#a89fff' : '#7878a0', textAlign: 'center' as const,
+              border: frequency === f.id ? '2px solid var(--accent)' : '1px solid var(--border)',
+              background: frequency === f.id ? 'var(--accent-soft)' : 'var(--bg-primary)',
+              color: frequency === f.id ? 'var(--text-secondary)' : 'var(--text-muted)', textAlign: 'center' as const,
             }}>
               <div style={{ fontSize: 13, fontWeight: 600 }}>{f.label}</div>
-              <div style={{ fontSize: 10, marginTop: 2, color: '#5a5a7a' }}>{f.desc}</div>
+              <div style={{ fontSize: 10, marginTop: 2, color: 'var(--text-muted)' }}>{f.desc}</div>
             </button>
           ))}
         </div>
@@ -115,7 +115,7 @@ export default function AlertsPage() {
 
       {/* アラート一覧 */}
       {alerts.length === 0 ? (
-        <div style={{ textAlign: 'center', padding: 40, color: '#5a5a7a' }}>
+        <div style={{ textAlign: 'center', padding: 40, color: 'var(--text-muted)' }}>
           <div style={{ fontSize: 36, marginBottom: 12 }}>🔔</div>
           <div>アラートが登録されていません</div>
           <div style={{ fontSize: 12, marginTop: 6 }}>監視したいトピックを上から追加してください</div>
@@ -123,13 +123,13 @@ export default function AlertsPage() {
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
           {alerts.map(alert => (
-            <div key={alert.id} style={{ background: '#12142a', border: '1px solid rgba(130,140,255,0.1)', borderRadius: 12, padding: '16px 20px' }}>
+            <div key={alert.id} style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 12, padding: '16px 20px' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: results[alert.id] ? 12 : 0 }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                   <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 20, background: `${freqColors[alert.frequency]}20`, color: freqColors[alert.frequency], fontWeight: 600 }}>
                     {freqLabels[alert.frequency]}
                   </span>
-                  <span style={{ fontSize: 14, fontWeight: 600, color: '#f0f0ff' }}>{alert.topic}</span>
+                  <span style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-primary)' }}>{alert.topic}</span>
                 </div>
                 <div style={{ display: 'flex', gap: 6 }}>
                   <button
@@ -143,7 +143,7 @@ export default function AlertsPage() {
                 </div>
               </div>
               {results[alert.id] && (
-                <div style={{ marginTop: 12, padding: 14, background: '#07080f', borderRadius: 8, fontSize: 13, color: '#c0c0e0', lineHeight: 1.8, whiteSpace: 'pre-wrap' }}>
+                <div style={{ marginTop: 12, padding: 14, background: 'var(--bg-primary)', borderRadius: 8, fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.8, whiteSpace: 'pre-wrap' }}>
                   {results[alert.id]}
                 </div>
               )}

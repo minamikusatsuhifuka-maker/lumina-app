@@ -58,8 +58,8 @@ export default function ResearchPage() {
 
   return (
     <div>
-      <h1 style={{ fontSize: 28, fontWeight: 700, color: '#f0f0ff', marginBottom: 8 }}>🔬 文献検索</h1>
-      <p style={{ color: '#7878a0', marginBottom: 24 }}>Semantic Scholar — 1.38億件以上の学術論文（日本語・英語対応）</p>
+      <h1 style={{ fontSize: 28, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 8 }}>🔬 文献検索</h1>
+      <p style={{ color: 'var(--text-muted)', marginBottom: 24 }}>Semantic Scholar — 1.38億件以上の学術論文（日本語・英語対応）</p>
 
       <div style={{ display: 'flex', gap: 10, marginBottom: 12 }}>
         <input
@@ -67,7 +67,7 @@ export default function ResearchPage() {
           onChange={e => setQuery(e.target.value)}
           onKeyDown={e => e.key === 'Enter' && search()}
           placeholder="例：人工知能, 機械学習, climate change, ChatGPT"
-          style={{ flex: 1, padding: '12px 16px', background: '#12142a', border: '1px solid rgba(130,140,255,0.2)', borderRadius: 10, color: '#f0f0ff', fontSize: 15, outline: 'none' }}
+          style={{ flex: 1, padding: '12px 16px', background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 10, color: 'var(--text-primary)', fontSize: 15, outline: 'none' }}
         />
         <button
           onClick={() => search()}
@@ -84,7 +84,7 @@ export default function ResearchPage() {
           <button
             key={q}
             onClick={() => { setQuery(q); search(q); }}
-            style={{ padding: '4px 12px', borderRadius: 20, border: '1px solid rgba(130,140,255,0.2)', background: 'rgba(130,140,255,0.05)', color: '#a89fff', cursor: 'pointer', fontSize: 12 }}
+            style={{ padding: '4px 12px', borderRadius: 20, border: '1px solid var(--border)', background: 'var(--accent-soft)', color: 'var(--text-secondary)', cursor: 'pointer', fontSize: 12 }}
           >
             {q}
           </button>
@@ -93,8 +93,8 @@ export default function ResearchPage() {
 
       {/* ローディング */}
       {loading && (
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12, color: '#7878a0', padding: 20 }}>
-          <div style={{ width: 20, height: 20, border: '2px solid rgba(108,99,255,0.3)', borderTopColor: '#6c63ff', borderRadius: '50%', animation: 'spin 0.7s linear infinite' }} />
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, color: 'var(--text-muted)', padding: 20 }}>
+          <div style={{ width: 20, height: 20, border: '2px solid var(--border-accent)', borderTopColor: 'var(--accent)', borderRadius: '50%', animation: 'spin 0.7s linear infinite' }} />
           Semantic Scholar を検索中...
         </div>
       )}
@@ -109,13 +109,13 @@ export default function ResearchPage() {
       {/* 結果 */}
       <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
         {papers.map(p => (
-          <div key={p.paperId} style={{ background: '#12142a', border: '1px solid rgba(130,140,255,0.1)', borderRadius: 12, padding: '18px 20px' }}>
-            <div style={{ fontSize: 15, fontWeight: 600, color: '#f0f0ff', marginBottom: 6, lineHeight: 1.4 }}>{p.title}</div>
+          <div key={p.paperId} style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 12, padding: '18px 20px' }}>
+            <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 6, lineHeight: 1.4 }}>{p.title}</div>
             <div style={{ fontSize: 12, color: '#00d4b8', marginBottom: 8, fontFamily: 'monospace' }}>
               👤 {p.authors?.slice(0, 3).map(a => a.name).join(', ')}{(p.authors?.length || 0) > 3 ? ' ほか' : ''}
             </div>
             {p.abstract && (
-              <div style={{ fontSize: 13, color: '#7878a0', lineHeight: 1.6, marginBottom: 10, display: '-webkit-box', WebkitLineClamp: 3, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
+              <div style={{ fontSize: 13, color: 'var(--text-muted)', lineHeight: 1.6, marginBottom: 10, display: '-webkit-box', WebkitLineClamp: 3, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
                 {p.abstract}
               </div>
             )}
@@ -124,7 +124,7 @@ export default function ResearchPage() {
               {p.citationCount != null && <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 4, background: 'rgba(74,222,128,0.1)', color: '#4ade80', fontFamily: 'monospace' }}>📊 被引用 {p.citationCount.toLocaleString()}</span>}
               {p.externalIds?.DOI && (
                 <a href={`https://doi.org/${p.externalIds.DOI}`} target="_blank" rel="noopener noreferrer"
-                  style={{ fontSize: 11, padding: '2px 8px', borderRadius: 4, background: 'rgba(130,140,255,0.1)', color: '#a89fff', textDecoration: 'none' }}>
+                  style={{ fontSize: 11, padding: '2px 8px', borderRadius: 4, background: 'var(--border)', color: 'var(--text-secondary)', textDecoration: 'none' }}>
                   🔗 DOI
                 </a>
               )}

@@ -124,17 +124,17 @@ export default function PersonasPage() {
 
   return (
     <div>
-      <h1 style={{ fontSize: 28, fontWeight: 700, color: '#f0f0ff', marginBottom: 4 }}>🤖 カスタムAIペルソナ</h1>
-      <p style={{ color: '#7878a0', marginBottom: 20 }}>業界・職種に特化したAIアドバイザーを設定してください</p>
+      <h1 style={{ fontSize: 28, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 4 }}>🤖 カスタムAIペルソナ</h1>
+      <p style={{ color: 'var(--text-muted)', marginBottom: 20 }}>業界・職種に特化したAIアドバイザーを設定してください</p>
 
       {/* アクティブなペルソナ */}
       {activePersona && (
-        <div style={{ background: 'rgba(108,99,255,0.1)', border: '2px solid #6c63ff', borderRadius: 12, padding: 16, marginBottom: 20, display: 'flex', alignItems: 'center', gap: 12 }}>
+        <div style={{ background: 'var(--accent-soft)', border: '2px solid #6c63ff', borderRadius: 12, padding: 16, marginBottom: 20, display: 'flex', alignItems: 'center', gap: 12 }}>
           <div style={{ width: 40, height: 40, background: 'linear-gradient(135deg, #6c63ff, #00d4b8)', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18 }}>🤖</div>
           <div>
-            <div style={{ fontSize: 14, fontWeight: 600, color: '#a89fff' }}>現在のアクティブペルソナ</div>
-            <div style={{ fontSize: 16, fontWeight: 700, color: '#f0f0ff' }}>{activePersona.name}</div>
-            <div style={{ fontSize: 12, color: '#7878a0' }}>{activePersona.industry} / {activePersona.role}</div>
+            <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-secondary)' }}>現在のアクティブペルソナ</div>
+            <div style={{ fontSize: 16, fontWeight: 700, color: 'var(--text-primary)' }}>{activePersona.name}</div>
+            <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>{activePersona.industry} / {activePersona.role}</div>
           </div>
           <button onClick={() => { setChatPersona(activePersona); setChatHistory([]); }}
             style={{ marginLeft: 'auto', padding: '8px 16px', background: 'linear-gradient(135deg, #6c63ff, #8b5cf6)', color: '#fff', border: 'none', borderRadius: 8, cursor: 'pointer', fontSize: 13, fontWeight: 600 }}>
@@ -145,14 +145,14 @@ export default function PersonasPage() {
 
       {/* チャットUI */}
       {chatPersona && (
-        <div style={{ background: '#12142a', border: '1px solid rgba(108,99,255,0.2)', borderRadius: 12, padding: 20, marginBottom: 20 }}>
+        <div style={{ background: 'var(--bg-secondary)', border: '1px solid var(--accent-soft)', borderRadius: 12, padding: 20, marginBottom: 20 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
-            <span style={{ fontSize: 14, fontWeight: 600, color: '#a89fff' }}>💬 {chatPersona.name} とチャット</span>
-            <button onClick={() => setChatPersona(null)} style={{ background: 'none', border: 'none', color: '#7878a0', cursor: 'pointer', fontSize: 18 }}>✕</button>
+            <span style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-secondary)' }}>💬 {chatPersona.name} とチャット</span>
+            <button onClick={() => setChatPersona(null)} style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', fontSize: 18 }}>✕</button>
           </div>
           <div style={{ minHeight: 200, maxHeight: 400, overflowY: 'auto', marginBottom: 12, display: 'flex', flexDirection: 'column', gap: 10 }}>
             {chatHistory.length === 0 && (
-              <div style={{ color: '#5a5a7a', fontSize: 13, textAlign: 'center', padding: 20 }}>
+              <div style={{ color: 'var(--text-muted)', fontSize: 13, textAlign: 'center', padding: 20 }}>
                 {chatPersona.name}に何でも質問してください
               </div>
             )}
@@ -160,20 +160,20 @@ export default function PersonasPage() {
               <div key={i} style={{ display: 'flex', justifyContent: msg.role === 'user' ? 'flex-end' : 'flex-start' }}>
                 <div style={{
                   maxWidth: '80%', padding: '10px 14px', borderRadius: 10, fontSize: 13, lineHeight: 1.7,
-                  background: msg.role === 'user' ? 'linear-gradient(135deg, #6c63ff, #8b5cf6)' : '#1a1d36',
-                  color: msg.role === 'user' ? '#fff' : '#c0c0e0',
+                  background: msg.role === 'user' ? 'linear-gradient(135deg, #6c63ff, #8b5cf6)' : 'var(--bg-secondary)',
+                  color: msg.role === 'user' ? '#fff' : 'var(--text-secondary)',
                   whiteSpace: 'pre-wrap',
                 }}>
                   {msg.content}
                 </div>
               </div>
             ))}
-            {chatLoading && <div style={{ color: '#7878a0', fontSize: 12, padding: '4px 14px' }}>考え中...</div>}
+            {chatLoading && <div style={{ color: 'var(--text-muted)', fontSize: 12, padding: '4px 14px' }}>考え中...</div>}
           </div>
           <div style={{ display: 'flex', gap: 8 }}>
             <input value={chatInput} onChange={e => setChatInput(e.target.value)} onKeyDown={e => e.key === 'Enter' && !e.shiftKey && chat()}
               placeholder={`${chatPersona.name}に質問する...`}
-              style={{ flex: 1, padding: '10px 14px', background: '#07080f', border: '1px solid rgba(108,99,255,0.2)', borderRadius: 8, color: '#f0f0ff', fontSize: 13, outline: 'none' }} />
+              style={{ flex: 1, padding: '10px 14px', background: 'var(--bg-primary)', border: '1px solid var(--accent-soft)', borderRadius: 8, color: 'var(--text-primary)', fontSize: 13, outline: 'none' }} />
             <button onClick={chat} disabled={chatLoading || !chatInput.trim()} style={{ padding: '10px 20px', background: 'linear-gradient(135deg, #6c63ff, #8b5cf6)', color: '#fff', border: 'none', borderRadius: 8, cursor: 'pointer', fontWeight: 600, fontSize: 13 }}>送信</button>
           </div>
         </div>
@@ -182,21 +182,21 @@ export default function PersonasPage() {
       {/* プリセット選択 */}
       {!showForm && (
         <div style={{ marginBottom: 20 }}>
-          <div style={{ fontSize: 13, fontWeight: 600, color: '#7878a0', marginBottom: 12 }}>業界プリセットから選ぶ</div>
+          <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-muted)', marginBottom: 12 }}>業界プリセットから選ぶ</div>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 10 }}>
             {INDUSTRY_PRESETS.map(p => (
               <button key={p.industry} onClick={() => selectPreset(p)} style={{
                 padding: '14px 10px', borderRadius: 10, cursor: 'pointer', textAlign: 'center' as const,
-                border: '1px solid rgba(130,140,255,0.15)', background: '#12142a', color: '#c0c0e0',
+                border: '1px solid var(--border)', background: 'var(--bg-secondary)', color: 'var(--text-secondary)',
                 transition: 'all 0.15s',
               }}>
                 <div style={{ fontSize: 24, marginBottom: 6 }}>{p.icon}</div>
                 <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 2 }}>{p.industry}</div>
-                <div style={{ fontSize: 10, color: '#5a5a7a' }}>{p.desc}</div>
+                <div style={{ fontSize: 10, color: 'var(--text-muted)' }}>{p.desc}</div>
               </button>
             ))}
           </div>
-          <button onClick={() => setShowForm(true)} style={{ marginTop: 10, width: '100%', padding: '10px', background: '#1a1d36', border: '1px dashed rgba(130,140,255,0.3)', borderRadius: 8, color: '#7878a0', cursor: 'pointer', fontSize: 13 }}>
+          <button onClick={() => setShowForm(true)} style={{ marginTop: 10, width: '100%', padding: '10px', background: 'var(--bg-secondary)', border: '1px dashed var(--border)', borderRadius: 8, color: 'var(--text-muted)', cursor: 'pointer', fontSize: 13 }}>
             ＋ カスタムペルソナを作成
           </button>
         </div>
@@ -204,36 +204,36 @@ export default function PersonasPage() {
 
       {/* カスタム作成フォーム */}
       {showForm && (
-        <div style={{ background: '#12142a', border: '1px solid rgba(108,99,255,0.2)', borderRadius: 12, padding: 20, marginBottom: 20 }}>
-          <div style={{ fontSize: 14, fontWeight: 600, color: '#a89fff', marginBottom: 14 }}>ペルソナを設定</div>
+        <div style={{ background: 'var(--bg-secondary)', border: '1px solid var(--accent-soft)', borderRadius: 12, padding: 20, marginBottom: 20 }}>
+          <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-secondary)', marginBottom: 14 }}>ペルソナを設定</div>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 10 }}>
             <div>
-              <div style={{ fontSize: 11, color: '#7878a0', marginBottom: 4 }}>ペルソナ名</div>
+              <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 4 }}>ペルソナ名</div>
               <input value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))}
                 placeholder="例：医療経営AIアドバイザー"
-                style={{ width: '100%', padding: '9px 12px', background: '#07080f', border: '1px solid rgba(130,140,255,0.2)', borderRadius: 6, color: '#f0f0ff', fontSize: 13, outline: 'none', boxSizing: 'border-box' as const }} />
+                style={{ width: '100%', padding: '9px 12px', background: 'var(--bg-primary)', border: '1px solid var(--border)', borderRadius: 6, color: 'var(--text-primary)', fontSize: 13, outline: 'none', boxSizing: 'border-box' as const }} />
             </div>
             <div>
-              <div style={{ fontSize: 11, color: '#7878a0', marginBottom: 4 }}>業界</div>
+              <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 4 }}>業界</div>
               <input value={form.industry} onChange={e => setForm(f => ({ ...f, industry: e.target.value }))}
                 placeholder="例：医療・クリニック"
-                style={{ width: '100%', padding: '9px 12px', background: '#07080f', border: '1px solid rgba(130,140,255,0.2)', borderRadius: 6, color: '#f0f0ff', fontSize: 13, outline: 'none', boxSizing: 'border-box' as const }} />
+                style={{ width: '100%', padding: '9px 12px', background: 'var(--bg-primary)', border: '1px solid var(--border)', borderRadius: 6, color: 'var(--text-primary)', fontSize: 13, outline: 'none', boxSizing: 'border-box' as const }} />
             </div>
           </div>
           <div style={{ marginBottom: 10 }}>
-            <div style={{ fontSize: 11, color: '#7878a0', marginBottom: 4 }}>役割・職種</div>
+            <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 4 }}>役割・職種</div>
             <input value={form.role} onChange={e => setForm(f => ({ ...f, role: e.target.value }))}
               placeholder="例：院長・経営者"
-              style={{ width: '100%', padding: '9px 12px', background: '#07080f', border: '1px solid rgba(130,140,255,0.2)', borderRadius: 6, color: '#f0f0ff', fontSize: 13, outline: 'none', boxSizing: 'border-box' as const }} />
+              style={{ width: '100%', padding: '9px 12px', background: 'var(--bg-primary)', border: '1px solid var(--border)', borderRadius: 6, color: 'var(--text-primary)', fontSize: 13, outline: 'none', boxSizing: 'border-box' as const }} />
           </div>
           <div style={{ marginBottom: 14 }}>
-            <div style={{ fontSize: 11, color: '#7878a0', marginBottom: 4 }}>システムプロンプト（AIへの指示）</div>
+            <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 4 }}>システムプロンプト（AIへの指示）</div>
             <textarea value={form.system_prompt} onChange={e => setForm(f => ({ ...f, system_prompt: e.target.value }))}
               placeholder="このAIがどのように振る舞うか指示を入力..."
-              style={{ width: '100%', minHeight: 120, padding: '9px 12px', background: '#07080f', border: '1px solid rgba(130,140,255,0.2)', borderRadius: 6, color: '#f0f0ff', fontSize: 13, outline: 'none', resize: 'vertical', fontFamily: 'inherit', lineHeight: 1.7, boxSizing: 'border-box' as const }} />
+              style={{ width: '100%', minHeight: 120, padding: '9px 12px', background: 'var(--bg-primary)', border: '1px solid var(--border)', borderRadius: 6, color: 'var(--text-primary)', fontSize: 13, outline: 'none', resize: 'vertical', fontFamily: 'inherit', lineHeight: 1.7, boxSizing: 'border-box' as const }} />
           </div>
           <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
-            <button onClick={() => setShowForm(false)} style={{ padding: '9px 16px', background: '#1a1d36', border: '1px solid rgba(130,140,255,0.2)', color: '#7878a0', borderRadius: 6, cursor: 'pointer', fontSize: 13 }}>キャンセル</button>
+            <button onClick={() => setShowForm(false)} style={{ padding: '9px 16px', background: 'var(--bg-secondary)', border: '1px solid var(--border)', color: 'var(--text-muted)', borderRadius: 6, cursor: 'pointer', fontSize: 13 }}>キャンセル</button>
             <button onClick={createPersona} style={{ padding: '9px 24px', background: 'linear-gradient(135deg, #6c63ff, #8b5cf6)', color: '#fff', border: 'none', borderRadius: 6, cursor: 'pointer', fontSize: 13, fontWeight: 600 }}>🤖 作成・有効化</button>
           </div>
         </div>
@@ -242,20 +242,20 @@ export default function PersonasPage() {
       {/* 既存ペルソナ一覧 */}
       {personas.length > 0 && (
         <div>
-          <div style={{ fontSize: 13, fontWeight: 600, color: '#7878a0', marginBottom: 10 }}>作成済みペルソナ</div>
+          <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-muted)', marginBottom: 10 }}>作成済みペルソナ</div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
             {personas.map(p => (
-              <div key={p.id} style={{ background: '#12142a', border: `1px solid ${p.is_active ? '#6c63ff' : 'rgba(130,140,255,0.1)'}`, borderRadius: 10, padding: '12px 16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div key={p.id} style={{ background: 'var(--bg-secondary)', border: `1px solid ${p.is_active ? '#6c63ff' : 'var(--border)'}`, borderRadius: 10, padding: '12px 16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
-                  {p.is_active && <span style={{ fontSize: 10, padding: '2px 8px', borderRadius: 20, background: 'rgba(108,99,255,0.2)', color: '#a89fff', fontWeight: 600 }}>アクティブ</span>}
+                  {p.is_active && <span style={{ fontSize: 10, padding: '2px 8px', borderRadius: 20, background: 'var(--accent-soft)', color: 'var(--text-secondary)', fontWeight: 600 }}>アクティブ</span>}
                   <div>
-                    <div style={{ fontSize: 14, fontWeight: 600, color: '#f0f0ff' }}>{p.name}</div>
-                    <div style={{ fontSize: 11, color: '#7878a0' }}>{p.industry} / {p.role}</div>
+                    <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-primary)' }}>{p.name}</div>
+                    <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>{p.industry} / {p.role}</div>
                   </div>
                 </div>
                 <div style={{ display: 'flex', gap: 6 }}>
                   <button onClick={() => { setChatPersona(p); setChatHistory([]); }}
-                    style={{ padding: '5px 12px', background: 'rgba(108,99,255,0.1)', border: '1px solid rgba(108,99,255,0.2)', color: '#a89fff', borderRadius: 6, cursor: 'pointer', fontSize: 12 }}>
+                    style={{ padding: '5px 12px', background: 'var(--accent-soft)', border: '1px solid var(--accent-soft)', color: 'var(--text-secondary)', borderRadius: 6, cursor: 'pointer', fontSize: 12 }}>
                     💬 チャット
                   </button>
                   <button onClick={async () => {

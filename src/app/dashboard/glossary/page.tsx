@@ -575,7 +575,7 @@ export default function GlossaryPage() {
           <h1 style={{ fontSize: 28, fontWeight: 700, color: '#f0f0ff', marginBottom: 4 }}>
             📘 専門用語解説
           </h1>
-          <p style={{ color: '#7878a0' }}>
+          <p style={{ color: 'var(--text-muted)' }}>
             AI・ビジネス・技術用語をやさしく解説。たとえ話付きで誰でもわかります。
           </p>
         </div>
@@ -638,16 +638,16 @@ export default function GlossaryPage() {
           {generatedTerm && (
             <div style={{
               background: 'rgba(255,255,255,0.03)',
-              border: '1px solid rgba(108,99,255,0.3)',
+              border: '1px solid var(--border-accent)',
               borderRadius: 10, padding: 16, marginTop: 12,
             }}>
               <div style={{ marginBottom: 10 }}>
                 <span style={{ fontSize: 16, fontWeight: 700, color: '#f0f0ff' }}>{generatedTerm.word}</span>
-                <span style={{ fontSize: 12, color: '#7878a0', marginLeft: 8 }}>({generatedTerm.reading})</span>
+                <span style={{ fontSize: 12, color: 'var(--text-muted)', marginLeft: 8 }}>({generatedTerm.reading})</span>
                 <span style={{
                   fontSize: 11, color: '#6c63ff', marginLeft: 8,
-                  background: 'rgba(108,99,255,0.15)', padding: '2px 8px',
-                  borderRadius: 99, border: '1px solid rgba(108,99,255,0.3)',
+                  background: 'var(--accent-soft)', padding: '2px 8px',
+                  borderRadius: 99, border: '1px solid var(--border-accent)',
                 }}>{generatedTerm.category}</span>
               </div>
               <p style={{ fontSize: 13, color: '#c0c0d8', lineHeight: 1.7, marginBottom: 10 }}>
@@ -678,7 +678,7 @@ export default function GlossaryPage() {
                   style={{
                     padding: '8px 18px', background: 'rgba(255,255,255,0.05)',
                     border: '1px solid rgba(255,255,255,0.1)', borderRadius: 8,
-                    color: '#7878a0', fontSize: 13, cursor: 'pointer',
+                    color: 'var(--text-muted)', fontSize: 13, cursor: 'pointer',
                   }}
                 >
                   キャンセル
@@ -716,7 +716,7 @@ export default function GlossaryPage() {
               background: category === cat
                 ? 'linear-gradient(135deg, #6c63ff, #8b5cf6)'
                 : 'rgba(255,255,255,0.05)',
-              color: category === cat ? '#fff' : '#7878a0',
+              color: category === cat ? '#fff' : 'var(--text-muted)',
             }}
           >
             {cat}
@@ -739,7 +739,7 @@ export default function GlossaryPage() {
                 ? 'rgba(108,99,255,0.08)'
                 : 'rgba(255,255,255,0.03)',
               border: `1px solid ${openTerm === term.word
-                ? 'rgba(108,99,255,0.3)'
+                ? 'var(--border-accent)'
                 : 'rgba(255,255,255,0.08)'}`,
               borderRadius: 12, overflow: 'hidden',
             }}
@@ -758,7 +758,7 @@ export default function GlossaryPage() {
                   <span style={{ fontSize: 15, fontWeight: 700, color: '#f0f0ff' }}>
                     {term.word}
                   </span>
-                  <span style={{ fontSize: 12, color: '#7878a0', marginLeft: 8 }}>
+                  <span style={{ fontSize: 12, color: 'var(--text-muted)', marginLeft: 8 }}>
                     ({term.reading})
                   </span>
                   {term.fullName && (
@@ -772,9 +772,9 @@ export default function GlossaryPage() {
                 </div>
                 <span style={{
                   fontSize: 11, color: '#6c63ff',
-                  background: 'rgba(108,99,255,0.15)',
+                  background: 'var(--accent-soft)',
                   padding: '2px 8px', borderRadius: 99,
-                  border: '1px solid rgba(108,99,255,0.3)',
+                  border: '1px solid var(--border-accent)',
                   whiteSpace: 'nowrap',
                 }}>
                   {term.category}
@@ -796,7 +796,7 @@ export default function GlossaryPage() {
             {openTerm === term.word && (
               <div style={{
                 padding: '16px 18px',
-                borderTop: '1px solid rgba(108,99,255,0.15)',
+                borderTop: '1px solid var(--accent-soft)',
                 display: 'flex', flexDirection: 'column', gap: 12,
               }}>
                 <div>

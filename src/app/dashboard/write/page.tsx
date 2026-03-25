@@ -168,19 +168,19 @@ export default function WritePage() {
   return (
     <div>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-        <h1 style={{ fontSize: 28, fontWeight: 700, color: '#f0f0ff' }}>✍️ AI文章作成</h1>
-        <a href="/dashboard/library" style={{ padding: '6px 14px', background: '#1a1d36', border: '1px solid rgba(130,140,255,0.2)', color: '#a89fff', borderRadius: 6, fontSize: 12, textDecoration: 'none' }}>
+        <h1 style={{ fontSize: 28, fontWeight: 700, color: 'var(--text-primary)' }}>✍️ AI文章作成</h1>
+        <a href="/dashboard/library" style={{ padding: '6px 14px', background: 'var(--bg-secondary)', border: '1px solid var(--border)', color: 'var(--text-secondary)', borderRadius: 6, fontSize: 12, textDecoration: 'none' }}>
           📚 下書き一覧
         </a>
       </div>
-      <p style={{ color: '#7878a0', marginBottom: 24 }}>Claude Sonnet 4.6 — 高精度ストリーミング生成</p>
+      <p style={{ color: 'var(--text-muted)', marginBottom: 24 }}>Claude Sonnet 4.6 — 高精度ストリーミング生成</p>
       <div style={{ marginBottom: 20 }}>
         {MODE_CATEGORIES.map(cat => (
           <div key={cat.label} style={{ marginBottom: 10 }}>
-            <div style={{ fontSize: 10, color: '#5a5a7a', marginBottom: 5, textTransform: 'uppercase', letterSpacing: '0.08em', fontWeight: 600 }}>{cat.label}</div>
+            <div style={{ fontSize: 10, color: 'var(--text-muted)', marginBottom: 5, textTransform: 'uppercase', letterSpacing: '0.08em', fontWeight: 600 }}>{cat.label}</div>
             <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
               {cat.modes.map(m => (
-                <button key={m.id} onClick={() => setMode(m.id)} style={{ padding: '5px 12px', borderRadius: 6, border: mode === m.id ? 'none' : '1px solid rgba(130,140,255,0.15)', cursor: 'pointer', fontSize: 12, fontWeight: 600, background: mode === m.id ? '#6c63ff' : '#12142a', color: mode === m.id ? '#fff' : '#7878a0' }}>
+                <button key={m.id} onClick={() => setMode(m.id)} style={{ padding: '5px 12px', borderRadius: 6, border: mode === m.id ? 'none' : '1px solid var(--border)', cursor: 'pointer', fontSize: 12, fontWeight: 600, background: mode === m.id ? 'var(--accent)' : 'var(--bg-secondary)', color: mode === m.id ? '#fff' : 'var(--text-muted)' }}>
                   {m.label}
                 </button>
               ))}
@@ -188,8 +188,8 @@ export default function WritePage() {
           </div>
         ))}
       </div>
-      <div style={{ background: '#12142a', border: '1px solid rgba(130,140,255,0.15)', borderRadius: 14, padding: 20, marginBottom: 16 }}>
-        <textarea value={prompt} onChange={e => setPrompt(e.target.value)} placeholder={'テーマ・指示を入力\n例：AIが日常生活を変える5つの方法について初心者向けに2000文字で書いてください'} style={{ width: '100%', minHeight: 100, background: '#07080f', border: '1px solid rgba(130,140,255,0.2)', borderRadius: 8, color: '#f0f0ff', fontSize: 14, padding: 14, resize: 'vertical', outline: 'none', fontFamily: 'inherit', lineHeight: 1.7, boxSizing: 'border-box' }} />
+      <div style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 14, padding: 20, marginBottom: 16 }}>
+        <textarea value={prompt} onChange={e => setPrompt(e.target.value)} placeholder={'テーマ・指示を入力\n例：AIが日常生活を変える5つの方法について初心者向けに2000文字で書いてください'} style={{ width: '100%', minHeight: 100, background: 'var(--bg-primary)', border: '1px solid var(--border)', borderRadius: 8, color: 'var(--text-primary)', fontSize: 14, padding: 14, resize: 'vertical', outline: 'none', fontFamily: 'inherit', lineHeight: 1.7, boxSizing: 'border-box' }} />
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 10, marginTop: 12 }}>
           {[
             { label: '文体', value: style, set: setStyle, options: [['casual','カジュアル'],['formal','フォーマル'],['literary','文学的'],['academic','学術的']] },
@@ -197,15 +197,15 @@ export default function WritePage() {
             { label: '対象読者', value: audience, set: setAudience, options: [['general','一般'],['beginner','初心者'],['expert','専門家'],['business','ビジネス']] },
           ].map(sel => (
             <div key={sel.label}>
-              <div style={{ fontSize: 11, color: '#7878a0', marginBottom: 4 }}>{sel.label}</div>
-              <select value={sel.value} onChange={e => sel.set(e.target.value)} style={{ width: '100%', padding: '8px 10px', background: '#07080f', border: '1px solid rgba(130,140,255,0.2)', borderRadius: 6, color: '#f0f0ff', fontSize: 13, outline: 'none' }}>
+              <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 4 }}>{sel.label}</div>
+              <select value={sel.value} onChange={e => sel.set(e.target.value)} style={{ width: '100%', padding: '8px 10px', background: 'var(--bg-primary)', border: '1px solid var(--border)', borderRadius: 6, color: 'var(--text-primary)', fontSize: 13, outline: 'none' }}>
                 {sel.options.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
               </select>
             </div>
           ))}
         </div>
         <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 14 }}>
-          <button onClick={() => { setOutput(''); setPrompt(''); setTranslated(''); }} style={{ padding: '9px 16px', background: '#1a1d36', border: '1px solid rgba(130,140,255,0.2)', borderRadius: 8, color: '#7878a0', cursor: 'pointer', fontSize: 13 }}>🗑 クリア</button>
+          <button onClick={() => { setOutput(''); setPrompt(''); setTranslated(''); }} style={{ padding: '9px 16px', background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 8, color: 'var(--text-muted)', cursor: 'pointer', fontSize: 13 }}>🗑 クリア</button>
           <button onClick={generate} disabled={loading} style={{ padding: '9px 24px', background: 'linear-gradient(135deg, #6c63ff, #8b5cf6)', color: '#fff', border: 'none', borderRadius: 8, fontWeight: 600, fontSize: 14, cursor: loading ? 'not-allowed' : 'pointer', opacity: loading ? 0.7 : 1 }}>
             {loading ? '⏳ 生成中...' : '✨ 文章を生成'}
           </button>
@@ -215,11 +215,11 @@ export default function WritePage() {
         <div>
           <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
             <div style={{ display: 'flex', gap: 6 }}>
-              <button onClick={() => setPreview(false)} style={{ padding: '5px 12px', borderRadius: 6, border: 'none', cursor: 'pointer', fontSize: 12, background: !preview ? '#6c63ff' : '#1a1d36', color: !preview ? '#fff' : '#7878a0' }}>✏️ 編集</button>
-              <button onClick={() => setPreview(true)} style={{ padding: '5px 12px', borderRadius: 6, border: 'none', cursor: 'pointer', fontSize: 12, background: preview ? '#6c63ff' : '#1a1d36', color: preview ? '#fff' : '#7878a0' }}>👁 プレビュー</button>
+              <button onClick={() => setPreview(false)} style={{ padding: '5px 12px', borderRadius: 6, border: 'none', cursor: 'pointer', fontSize: 12, background: !preview ? 'var(--accent)' : 'var(--bg-secondary)', color: !preview ? '#fff' : 'var(--text-muted)' }}>✏️ 編集</button>
+              <button onClick={() => setPreview(true)} style={{ padding: '5px 12px', borderRadius: 6, border: 'none', cursor: 'pointer', fontSize: 12, background: preview ? 'var(--accent)' : 'var(--bg-secondary)', color: preview ? '#fff' : 'var(--text-muted)' }}>👁 プレビュー</button>
             </div>
             <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-              <span style={{ fontSize: 12, color: '#5a5a7a', fontFamily: 'monospace' }}>{output.length.toLocaleString()}字</span>
+              <span style={{ fontSize: 12, color: 'var(--text-muted)', fontFamily: 'monospace' }}>{output.length.toLocaleString()}字</span>
               <button
                 onClick={async () => {
                   if (!output) return;
@@ -234,15 +234,15 @@ export default function WritePage() {
               >
                 📚 保存
               </button>
-              <button onClick={copy} style={{ padding: '5px 12px', borderRadius: 6, border: '1px solid rgba(130,140,255,0.2)', background: '#1a1d36', color: '#a89fff', cursor: 'pointer', fontSize: 12 }}>📋 コピー</button>
-              <button onClick={() => download('md')} style={{ padding: '5px 12px', borderRadius: 6, border: '1px solid rgba(130,140,255,0.2)', background: '#1a1d36', color: '#a89fff', cursor: 'pointer', fontSize: 12 }}>💾 MD</button>
-              <button onClick={() => download('txt')} style={{ padding: '5px 12px', borderRadius: 6, border: '1px solid rgba(130,140,255,0.2)', background: '#1a1d36', color: '#a89fff', cursor: 'pointer', fontSize: 12 }}>💾 TXT</button>
+              <button onClick={copy} style={{ padding: '5px 12px', borderRadius: 6, border: '1px solid var(--border)', background: 'var(--bg-secondary)', color: 'var(--text-secondary)', cursor: 'pointer', fontSize: 12 }}>📋 コピー</button>
+              <button onClick={() => download('md')} style={{ padding: '5px 12px', borderRadius: 6, border: '1px solid var(--border)', background: 'var(--bg-secondary)', color: 'var(--text-secondary)', cursor: 'pointer', fontSize: 12 }}>💾 MD</button>
+              <button onClick={() => download('txt')} style={{ padding: '5px 12px', borderRadius: 6, border: '1px solid var(--border)', background: 'var(--bg-secondary)', color: 'var(--text-secondary)', cursor: 'pointer', fontSize: 12 }}>💾 TXT</button>
               <button
                 onClick={async () => {
                   const { exportToPdf } = await import('@/lib/exportPdf');
                   await exportToPdf(prompt.slice(0, 40) || '文章', output);
                 }}
-                style={{ padding: '5px 12px', borderRadius: 6, border: '1px solid rgba(255,107,107,0.3)', background: '#1a1d36', color: '#ff6b6b', cursor: 'pointer', fontSize: 12 }}
+                style={{ padding: '5px 12px', borderRadius: 6, border: '1px solid rgba(255,107,107,0.3)', background: 'var(--bg-secondary)', color: '#ff6b6b', cursor: 'pointer', fontSize: 12 }}
               >
                 📄 PDF
               </button>
@@ -285,17 +285,17 @@ export default function WritePage() {
               </button>
             </div>
           </div>
-          <textarea value={output} onChange={e => setOutput(e.target.value)} readOnly={loading} style={{ display: preview ? 'none' : 'block', width: '100%', minHeight: 400, background: '#12142a', border: `1px solid ${loading ? '#6c63ff' : 'rgba(130,140,255,0.2)'}`, borderRadius: 12, color: '#c0c0e0', fontSize: 14, padding: 20, resize: 'vertical', outline: 'none', fontFamily: 'inherit', lineHeight: 1.8, boxSizing: 'border-box' }} />
-          {preview && <div style={{ minHeight: 400, background: '#12142a', border: '1px solid rgba(130,140,255,0.2)', borderRadius: 12, padding: '20px 28px', color: '#c0c0e0', fontSize: 15, lineHeight: 1.9, whiteSpace: 'pre-wrap' }}>{output}</div>}
+          <textarea value={output} onChange={e => setOutput(e.target.value)} readOnly={loading} style={{ display: preview ? 'none' : 'block', width: '100%', minHeight: 400, background: 'var(--bg-secondary)', border: `1px solid ${loading ? 'var(--accent)' : 'var(--border)'}`, borderRadius: 12, color: 'var(--text-secondary)', fontSize: 14, padding: 20, resize: 'vertical', outline: 'none', fontFamily: 'inherit', lineHeight: 1.8, boxSizing: 'border-box' }} />
+          {preview && <div style={{ minHeight: 400, background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 12, padding: '20px 28px', color: 'var(--text-secondary)', fontSize: 15, lineHeight: 1.9, whiteSpace: 'pre-wrap' }}>{output}</div>}
         </div>
       )}
 
       {/* 翻訳セクション */}
       {output && !loading && (
-        <div style={{ marginTop: 16, background: '#12142a', border: '1px solid rgba(0,212,184,0.15)', borderRadius: 12, padding: 20 }}>
+        <div style={{ marginTop: 16, background: 'var(--bg-secondary)', border: '1px solid rgba(0,212,184,0.15)', borderRadius: 12, padding: 20 }}>
           <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 12 }}>
             <span style={{ fontSize: 13, fontWeight: 600, color: '#00d4b8' }}>🌍 翻訳</span>
-            <select value={targetLang} onChange={e => setTargetLang(e.target.value)} style={{ padding: '5px 10px', background: '#07080f', border: '1px solid rgba(0,212,184,0.2)', borderRadius: 6, color: '#f0f0ff', fontSize: 13, outline: 'none' }}>
+            <select value={targetLang} onChange={e => setTargetLang(e.target.value)} style={{ padding: '5px 10px', background: 'var(--bg-primary)', border: '1px solid rgba(0,212,184,0.2)', borderRadius: 6, color: 'var(--text-primary)', fontSize: 13, outline: 'none' }}>
               <option value="en">🇺🇸 英語</option>
               <option value="zh">🇨🇳 中国語</option>
               <option value="ko">🇰🇷 韓国語</option>
@@ -307,11 +307,11 @@ export default function WritePage() {
               {translating ? '翻訳中...' : '翻訳する'}
             </button>
             {translated && (
-              <button onClick={() => navigator.clipboard.writeText(translated)} style={{ padding: '5px 12px', background: '#1a1d36', border: '1px solid rgba(0,212,184,0.2)', color: '#00d4b8', borderRadius: 6, cursor: 'pointer', fontSize: 12 }}>📋 コピー</button>
+              <button onClick={() => navigator.clipboard.writeText(translated)} style={{ padding: '5px 12px', background: 'var(--bg-secondary)', border: '1px solid rgba(0,212,184,0.2)', color: '#00d4b8', borderRadius: 6, cursor: 'pointer', fontSize: 12 }}>📋 コピー</button>
             )}
           </div>
           {translated && (
-            <div style={{ fontSize: 14, color: '#c0c0e0', lineHeight: 1.9, whiteSpace: 'pre-wrap', borderTop: '1px solid rgba(0,212,184,0.1)', paddingTop: 12 }}>{translated}</div>
+            <div style={{ fontSize: 14, color: 'var(--text-secondary)', lineHeight: 1.9, whiteSpace: 'pre-wrap', borderTop: '1px solid rgba(0,212,184,0.1)', paddingTop: 12 }}>{translated}</div>
           )}
         </div>
       )}

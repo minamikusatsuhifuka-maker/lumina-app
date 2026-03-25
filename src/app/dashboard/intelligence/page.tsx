@@ -37,7 +37,7 @@ async function retryFetch(url: string, options: RequestInit, maxRetries = 3): Pr
 const processInline = (text: string): string => {
   // 太字
   text = text.replace(/\*\*(.+?)\*\*/g,
-    '<strong style="color:#e0e0f0;font-weight:600;">$1</strong>');
+    '<strong style="color:var(--text-primary);font-weight:600;">$1</strong>');
 
   // 「出典: サイト名 https://URL」形式
   text = text.replace(
@@ -62,28 +62,28 @@ const formatResult = (text: string): string => {
     const t = line.trim();
 
     // 見出し
-    if (t.startsWith('# ')) return `<div style="font-size:1.25em;font-weight:700;color:#f0f0ff;margin:20px 0 10px;padding-bottom:8px;border-bottom:2px solid rgba(108,99,255,0.3);">${processInline(t.slice(2))}</div>`;
-    if (t.startsWith('## ')) return `<div style="font-size:1.1em;font-weight:600;color:#a89fff;margin:16px 0 8px;padding-left:8px;border-left:3px solid #6c63ff;">${processInline(t.slice(3))}</div>`;
-    if (t.startsWith('### ')) return `<div style="font-size:1em;font-weight:600;color:#7878a0;margin:10px 0 4px;">${processInline(t.slice(4))}</div>`;
+    if (t.startsWith('# ')) return `<div style="font-size:1.25em;font-weight:700;color:var(--text-primary);margin:20px 0 10px;padding-bottom:8px;border-bottom:2px solid var(--border-accent);">${processInline(t.slice(2))}</div>`;
+    if (t.startsWith('## ')) return `<div style="font-size:1.1em;font-weight:600;color:var(--text-secondary);margin:16px 0 8px;padding-left:8px;border-left:3px solid var(--accent);">${processInline(t.slice(3))}</div>`;
+    if (t.startsWith('### ')) return `<div style="font-size:1em;font-weight:600;color:var(--text-muted);margin:10px 0 4px;">${processInline(t.slice(4))}</div>`;
 
     // 番号付きリスト
     if (t.match(/^\d+\.\s/)) {
       const match = t.match(/^(\d+)\.\s(.+)/);
-      if (match) return `<div style="display:flex;gap:8px;padding:4px 0;line-height:1.7;"><span style="color:#6c63ff;font-weight:700;min-width:20px;">${match[1]}.</span><span>${processInline(match[2])}</span></div>`;
+      if (match) return `<div style="display:flex;gap:8px;padding:4px 0;line-height:1.7;"><span style="color:var(--accent);font-weight:700;min-width:20px;">${match[1]}.</span><span>${processInline(match[2])}</span></div>`;
     }
 
     // 箇条書き
     if (t.startsWith('- ') || t.startsWith('• ')) {
-      return `<div style="display:flex;gap:8px;padding:3px 0;line-height:1.7;"><span style="color:#6c63ff;margin-top:2px;">•</span><span>${processInline(t.slice(2))}</span></div>`;
+      return `<div style="display:flex;gap:8px;padding:3px 0;line-height:1.7;"><span style="color:var(--accent);margin-top:2px;">•</span><span>${processInline(t.slice(2))}</span></div>`;
     }
 
     // 出典行（「出典:」で始まる行）
     if (t.startsWith('出典') || t.startsWith('【出典】') || t.startsWith('参考')) {
-      return `<div style="font-size:0.85em;color:#5a5a7a;padding:4px 0 4px 12px;border-left:2px solid rgba(0,212,184,0.3);margin:4px 0;">${processInline(t)}</div>`;
+      return `<div style="font-size:0.85em;color:var(--text-muted);padding:4px 0 4px 12px;border-left:2px solid rgba(0,212,184,0.3);margin:4px 0;">${processInline(t)}</div>`;
     }
 
     // 区切り線
-    if (t.match(/^---+$/)) return '<hr style="border:none;border-top:1px solid rgba(130,140,255,0.15);margin:14px 0;">';
+    if (t.match(/^---+$/)) return '<hr style="border:none;border-top:1px solid var(--border);margin:14px 0;">';
 
     // 空行
     if (t === '') return '<div style="height:8px"></div>';
@@ -168,8 +168,8 @@ export default function IntelligencePage() {
 
   return (
     <div>
-      <h1 style={{ fontSize: 28, fontWeight: 700, color: '#f0f0ff', marginBottom: 4 }}>🧠 Intelligence Hub</h1>
-      <p style={{ color: '#7878a0', marginBottom: 20 }}>複数ソースから情報を収集・統合するインテリジェンスセンター</p>
+      <h1 style={{ fontSize: 28, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 4 }}>🧠 Intelligence Hub</h1>
+      <p style={{ color: 'var(--text-muted)', marginBottom: 20 }}>複数ソースから情報を収集・統合するインテリジェンスセンター</p>
 
       {/* モード選択 */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 8, marginBottom: 20 }}>
@@ -179,14 +179,14 @@ export default function IntelligencePage() {
             onClick={() => setMode(m.id)}
             style={{
               padding: '12px 8px', borderRadius: 10, cursor: 'pointer', textAlign: 'center' as const,
-              border: mode === m.id ? '2px solid #6c63ff' : '1px solid rgba(130,140,255,0.15)',
-              background: mode === m.id ? 'rgba(108,99,255,0.15)' : '#12142a',
-              color: mode === m.id ? '#a89fff' : '#7878a0', transition: 'all 0.15s',
+              border: mode === m.id ? '2px solid var(--accent)' : '1px solid var(--border)',
+              background: mode === m.id ? 'var(--accent-soft)' : 'var(--bg-secondary)',
+              color: mode === m.id ? 'var(--text-secondary)' : 'var(--text-muted)', transition: 'all 0.15s',
             }}
           >
             <div style={{ fontSize: 16, marginBottom: 4 }}>{m.label.split(' ')[0]}</div>
             <div style={{ fontSize: 12, fontWeight: 600 }}>{m.label.split(' ').slice(1).join(' ')}</div>
-            <div style={{ fontSize: 10, marginTop: 2, color: '#5a5a7a' }}>{m.desc}</div>
+            <div style={{ fontSize: 10, marginTop: 2, color: 'var(--text-muted)' }}>{m.desc}</div>
           </button>
         ))}
       </div>
@@ -198,7 +198,7 @@ export default function IntelligencePage() {
           onChange={e => setQuery(e.target.value)}
           onKeyDown={e => e.key === 'Enter' && search()}
           placeholder={`${SEARCH_MODES.find(m2=>m2.id===mode)?.desc || ''}のキーワードを入力`}
-          style={{ flex: 1, padding: '12px 16px', background: '#12142a', border: '1px solid rgba(108,99,255,0.3)', borderRadius: 10, color: '#f0f0ff', fontSize: 14, outline: 'none' }}
+          style={{ flex: 1, padding: '12px 16px', background: 'var(--bg-secondary)', border: '1px solid var(--border-accent)', borderRadius: 10, color: 'var(--text-primary)', fontSize: 14, outline: 'none' }}
         />
         <button
           onClick={() => search()}
@@ -213,7 +213,7 @@ export default function IntelligencePage() {
       <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' as const, marginBottom: 20 }}>
         {topics.map(t => (
           <button key={t} onClick={() => { setQuery(t); search(t); }}
-            style={{ padding: '4px 12px', borderRadius: 20, border: '1px solid rgba(108,99,255,0.2)', background: 'rgba(108,99,255,0.05)', color: '#a89fff', cursor: 'pointer', fontSize: 12 }}>
+            style={{ padding: '4px 12px', borderRadius: 20, border: '1px solid var(--border)', background: 'var(--accent-soft)', color: 'var(--text-secondary)', cursor: 'pointer', fontSize: 12 }}>
             {t}
           </button>
         ))}
@@ -221,16 +221,16 @@ export default function IntelligencePage() {
 
       {/* 結果エリア */}
       {(result || loading) && (
-        <div style={{ background: '#12142a', border: '1px solid rgba(108,99,255,0.2)', borderRadius: 12, padding: 20 }}>
+        <div style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 12, padding: 20 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14, flexWrap: 'wrap' as const, gap: 8 }}>
-            <span style={{ fontSize: 13, fontWeight: 600, color: '#a89fff' }}>
+            <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-secondary)' }}>
               {SEARCH_MODES.find(m2=>m2.id===mode)?.label} 結果
             </span>
             <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' as const }}>
-              <span style={{ fontSize: 11, color: '#5a5a7a' }}>文字サイズ</span>
-              <button onClick={() => setFontSize(f => Math.max(11, f-1))} style={{ width: 24, height: 24, borderRadius: 4, border: '1px solid rgba(130,140,255,0.2)', background: '#1a1d36', color: '#a89fff', cursor: 'pointer', fontSize: 14 }}>−</button>
-              <span style={{ fontSize: 11, color: '#7878a0', fontFamily: 'monospace' }}>{fontSize}</span>
-              <button onClick={() => setFontSize(f => Math.min(20, f+1))} style={{ width: 24, height: 24, borderRadius: 4, border: '1px solid rgba(130,140,255,0.2)', background: '#1a1d36', color: '#a89fff', cursor: 'pointer', fontSize: 14 }}>＋</button>
+              <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>文字サイズ</span>
+              <button onClick={() => setFontSize(f => Math.max(11, f-1))} style={{ width: 24, height: 24, borderRadius: 4, border: '1px solid var(--border)', background: 'var(--bg-secondary)', color: 'var(--text-secondary)', cursor: 'pointer', fontSize: 14 }}>−</button>
+              <span style={{ fontSize: 11, color: 'var(--text-muted)', fontFamily: 'monospace' }}>{fontSize}</span>
+              <button onClick={() => setFontSize(f => Math.min(20, f+1))} style={{ width: 24, height: 24, borderRadius: 4, border: '1px solid var(--border)', background: 'var(--bg-secondary)', color: 'var(--text-secondary)', cursor: 'pointer', fontSize: 14 }}>＋</button>
               <button onClick={sendToAnalysis} style={{ padding: '5px 12px', background: 'rgba(245,166,35,0.15)', border: '1px solid rgba(245,166,35,0.3)', color: '#f5a623', borderRadius: 6, cursor: 'pointer', fontSize: 12, fontWeight: 600 }}>🧩 分析する</button>
               <button
                 onClick={async () => {
@@ -248,17 +248,17 @@ export default function IntelligencePage() {
                 📚 保存
               </button>
               <button onClick={sendToWriter} style={{ padding: '5px 12px', background: 'linear-gradient(135deg, #6c63ff, #8b5cf6)', color: '#fff', border: 'none', borderRadius: 6, cursor: 'pointer', fontSize: 12, fontWeight: 600 }}>✍️ 文章作成</button>
-              <button onClick={() => navigator.clipboard.writeText(result)} style={{ padding: '5px 12px', background: '#1a1d36', border: '1px solid rgba(130,140,255,0.2)', color: '#a89fff', borderRadius: 6, cursor: 'pointer', fontSize: 12 }}>📋 コピー</button>
+              <button onClick={() => navigator.clipboard.writeText(result)} style={{ padding: '5px 12px', background: 'var(--bg-secondary)', border: '1px solid var(--border)', color: 'var(--text-secondary)', borderRadius: 6, cursor: 'pointer', fontSize: 12 }}>📋 コピー</button>
             </div>
           </div>
           {loading && (
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10, color: '#7878a0', padding: '8px 0' }}>
-              <div style={{ width: 16, height: 16, border: '2px solid rgba(108,99,255,0.3)', borderTopColor: '#6c63ff', borderRadius: '50%', animation: 'spin 0.7s linear infinite' }} />
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, color: 'var(--text-muted)', padding: '8px 0' }}>
+              <div style={{ width: 16, height: 16, border: '2px solid var(--border-accent)', borderTopColor: 'var(--accent)', borderRadius: '50%', animation: 'spin 0.7s linear infinite' }} />
               AIが調査中...（混雑時は自動でリトライします）
             </div>
           )}
           <div
-            style={{ fontSize: fontSize, color: '#c0c0e0', lineHeight: 1.8, wordBreak: 'break-word' as const }}
+            style={{ fontSize: fontSize, color: 'var(--text-secondary)', lineHeight: 1.8, wordBreak: 'break-word' as const }}
             dangerouslySetInnerHTML={{ __html: formatResult(result) }}
           />
         </div>

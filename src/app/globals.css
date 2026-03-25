@@ -96,6 +96,20 @@
   --card-border: rgba(0,0,0,0.08);
   --input-bg: rgba(0,0,0,0.04);
   --shadow: 0 2px 12px rgba(0,0,0,0.08);
+  --title-color: #1a1a2e;
+  --subtitle-color: #4a4a6a;
+  --heading-color: #2a2a4a;
+  --card-text: #1a1a2e;
+  --input-border: rgba(0,0,0,0.15);
+  --textarea-bg: #ffffff;
+  --textarea-text: #1a1a2e;
+  --button-secondary-bg: rgba(0,0,0,0.06);
+  --button-secondary-text: #4a4a6a;
+  --tag-bg: rgba(0,0,0,0.06);
+  --tag-text: #4a4a6a;
+  --tag-border: rgba(0,0,0,0.1);
+  --result-bg: #ffffff;
+  --result-text: #1a1a2e;
 }
 
 [data-theme="nature"] {
@@ -116,6 +130,24 @@
   --card-border: rgba(180,230,185,0.12);
   --input-bg: rgba(180,230,185,0.05);
   --shadow: 0 2px 12px rgba(0,0,0,0.25);
+}
+
+/* ─── 追加テーマ変数デフォルト ─── */
+:root, [data-theme="dark"], [data-theme="midnight"], [data-theme="nature"] {
+  --title-color: var(--text-primary);
+  --subtitle-color: var(--text-secondary);
+  --heading-color: var(--text-primary);
+  --card-text: var(--text-primary);
+  --input-border: var(--border);
+  --textarea-bg: rgba(255,255,255,0.05);
+  --textarea-text: var(--text-primary);
+  --button-secondary-bg: rgba(255,255,255,0.05);
+  --button-secondary-text: var(--text-muted);
+  --tag-bg: rgba(255,255,255,0.05);
+  --tag-text: var(--text-secondary);
+  --tag-border: var(--border);
+  --result-bg: var(--bg-secondary);
+  --result-text: var(--text-primary);
 }
 
 /* ─── フォント変数 ─── */

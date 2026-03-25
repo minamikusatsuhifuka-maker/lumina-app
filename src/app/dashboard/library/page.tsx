@@ -7,9 +7,9 @@ const TYPE_ICONS: Record<string, string> = {
 };
 
 const GROUP_COLORS: Record<string, string> = {
-  '未分類': '#7878a0', '医療': '#f87171', 'マーケ': '#f5a623',
+  '未分類': 'var(--text-muted)', '医療': '#f87171', 'マーケ': '#f5a623',
   '採用': '#4ade80', '経営戦略': '#6c63ff', '調査': '#00d4b8',
-  'コンテンツ': '#a89fff', '人材育成': '#fb923c',
+  'コンテンツ': 'var(--text-secondary)', '人材育成': '#fb923c',
 };
 
 export default function LibraryPage() {
@@ -93,8 +93,8 @@ export default function LibraryPage() {
 
   return (
     <div>
-      <h1 style={{ fontSize: 28, fontWeight: 700, color: '#f0f0ff', marginBottom: 4 }}>📚 ライブラリ</h1>
-      <p style={{ color: '#7878a0', marginBottom: 20 }}>保存した調査・分析・文章を管理。お気に入り・タグ・グループ分けに対応。</p>
+      <h1 style={{ fontSize: 28, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 4 }}>📚 ライブラリ</h1>
+      <p style={{ color: 'var(--text-muted)', marginBottom: 20 }}>保存した調査・分析・文章を管理。お気に入り・タグ・グループ分けに対応。</p>
 
       {/* 検索・フィルター */}
       <div style={{ display: 'flex', gap: 10, marginBottom: 16, flexWrap: 'wrap' as const }}>
@@ -102,18 +102,18 @@ export default function LibraryPage() {
           value={search}
           onChange={e => setSearch(e.target.value)}
           placeholder="🔍 タイトル・内容・タグを検索..."
-          style={{ flex: 1, minWidth: 200, padding: '9px 14px', background: '#12142a', border: '1px solid rgba(130,140,255,0.2)', borderRadius: 8, color: '#f0f0ff', fontSize: 13, outline: 'none' }}
+          style={{ flex: 1, minWidth: 200, padding: '9px 14px', background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 8, color: 'var(--text-primary)', fontSize: 13, outline: 'none' }}
         />
         <button
           onClick={() => setFilterFav(!filterFav)}
-          style={{ padding: '9px 16px', borderRadius: 8, border: `1px solid ${filterFav ? '#f5a623' : 'rgba(130,140,255,0.2)'}`, background: filterFav ? 'rgba(245,166,35,0.1)' : '#12142a', color: filterFav ? '#f5a623' : '#7878a0', cursor: 'pointer', fontSize: 13, fontWeight: 600 }}
+          style={{ padding: '9px 16px', borderRadius: 8, border: `1px solid ${filterFav ? '#f5a623' : 'var(--border)'}`, background: filterFav ? 'rgba(245,166,35,0.1)' : 'var(--bg-secondary)', color: filterFav ? '#f5a623' : 'var(--text-muted)', cursor: 'pointer', fontSize: 13, fontWeight: 600 }}
         >
           ★ お気に入りのみ
         </button>
         <select
           value={filterGroup}
           onChange={e => setFilterGroup(e.target.value)}
-          style={{ padding: '9px 14px', background: '#12142a', border: '1px solid rgba(130,140,255,0.2)', borderRadius: 8, color: '#f0f0ff', fontSize: 13, outline: 'none' }}
+          style={{ padding: '9px 14px', background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 8, color: 'var(--text-primary)', fontSize: 13, outline: 'none' }}
         >
           {groups.map(g => <option key={g} value={g}>{g}</option>)}
         </select>
@@ -126,17 +126,17 @@ export default function LibraryPage() {
           { label: 'お気に入り', value: items.filter(i => i.is_favorite).length, color: '#f5a623' },
           { label: 'グループ数', value: new Set(items.map(i => i.group_name)).size, color: '#00d4b8' },
         ].map(s => (
-          <div key={s.label} style={{ background: '#12142a', border: `1px solid ${s.color}20`, borderRadius: 10, padding: '12px 20px', display: 'flex', gap: 10, alignItems: 'center' }}>
+          <div key={s.label} style={{ background: 'var(--bg-secondary)', border: `1px solid ${s.color}20`, borderRadius: 10, padding: '12px 20px', display: 'flex', gap: 10, alignItems: 'center' }}>
             <span style={{ fontSize: 22, fontWeight: 800, color: s.color }}>{s.value}</span>
-            <span style={{ fontSize: 12, color: '#7878a0' }}>{s.label}</span>
+            <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>{s.label}</span>
           </div>
         ))}
       </div>
 
       {loading ? (
-        <div style={{ color: '#7878a0', textAlign: 'center', padding: 40 }}>読み込み中...</div>
+        <div style={{ color: 'var(--text-muted)', textAlign: 'center', padding: 40 }}>読み込み中...</div>
       ) : filtered.length === 0 ? (
-        <div style={{ textAlign: 'center', padding: 60, color: '#5a5a7a' }}>
+        <div style={{ textAlign: 'center', padding: 60, color: 'var(--text-muted)' }}>
           <div style={{ fontSize: 48, marginBottom: 16 }}>📭</div>
           <div style={{ fontSize: 16 }}>アイテムがありません</div>
           <div style={{ fontSize: 13, marginTop: 8 }}>各ページの「保存」ボタンで追加できます</div>
@@ -146,55 +146,55 @@ export default function LibraryPage() {
           <div key={group} style={{ marginBottom: 28 }}>
             {/* グループヘッダー */}
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
-              <div style={{ width: 10, height: 10, borderRadius: '50%', background: GROUP_COLORS[group] || '#7878a0' }} />
-              <span style={{ fontSize: 13, fontWeight: 700, color: GROUP_COLORS[group] || '#7878a0', textTransform: 'uppercase' as const, letterSpacing: '0.06em' }}>{group}</span>
-              <span style={{ fontSize: 11, color: '#5a5a7a' }}>({groupItems.length}件)</span>
+              <div style={{ width: 10, height: 10, borderRadius: '50%', background: GROUP_COLORS[group] || 'var(--text-muted)' }} />
+              <span style={{ fontSize: 13, fontWeight: 700, color: GROUP_COLORS[group] || 'var(--text-muted)', textTransform: 'uppercase' as const, letterSpacing: '0.06em' }}>{group}</span>
+              <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>({groupItems.length}件)</span>
             </div>
 
             <div style={{ display: 'flex', flexDirection: 'column' as const, gap: 8 }}>
               {groupItems.map(item => (
-                <div key={item.id} style={{ background: '#12142a', border: `1px solid ${item.is_favorite ? 'rgba(245,166,35,0.3)' : 'rgba(130,140,255,0.1)'}`, borderRadius: 12, overflow: 'hidden' }}>
+                <div key={item.id} style={{ background: 'var(--bg-secondary)', border: `1px solid ${item.is_favorite ? 'rgba(245,166,35,0.3)' : 'var(--border)'}`, borderRadius: 12, overflow: 'hidden' }}>
                   {/* アイテムヘッダー */}
                   <div style={{ padding: '14px 16px', display: 'flex', alignItems: 'flex-start', gap: 10 }}>
                     <span style={{ fontSize: 18, flexShrink: 0 }}>{TYPE_ICONS[item.type] || TYPE_ICONS.default}</span>
                     <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ fontSize: 14, fontWeight: 600, color: '#f0f0ff', marginBottom: 4, cursor: 'pointer' }} onClick={() => setExpandedId(expandedId === item.id ? null : item.id)}>
+                      <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 4, cursor: 'pointer' }} onClick={() => setExpandedId(expandedId === item.id ? null : item.id)}>
                         {item.title}
                       </div>
                       <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' as const, alignItems: 'center' }}>
-                        <span style={{ fontSize: 11, color: '#5a5a7a' }}>{new Date(item.created_at).toLocaleDateString('ja-JP')}</span>
+                        <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>{new Date(item.created_at).toLocaleDateString('ja-JP')}</span>
                         {item.tags && item.tags.split(',').filter(Boolean).map((tag: string) => (
-                          <span key={tag} style={{ fontSize: 11, padding: '1px 8px', borderRadius: 20, background: 'rgba(108,99,255,0.15)', color: '#a89fff' }}>#{tag.trim()}</span>
+                          <span key={tag} style={{ fontSize: 11, padding: '1px 8px', borderRadius: 20, background: 'var(--accent-soft)', color: 'var(--text-secondary)' }}>#{tag.trim()}</span>
                         ))}
                       </div>
                     </div>
 
                     {/* アクションボタン */}
                     <div style={{ display: 'flex', gap: 4, flexShrink: 0 }}>
-                      <button onClick={() => toggleFavorite(item)} style={{ width: 28, height: 28, borderRadius: 6, border: 'none', background: item.is_favorite ? 'rgba(245,166,35,0.2)' : 'rgba(130,140,255,0.1)', color: item.is_favorite ? '#f5a623' : '#5a5a7a', cursor: 'pointer', fontSize: 14 }}>★</button>
-                      <button onClick={() => { setEditingId(item.id); setEditTags(item.tags || ''); setEditGroup(item.group_name || '未分類'); }} style={{ width: 28, height: 28, borderRadius: 6, border: 'none', background: 'rgba(130,140,255,0.1)', color: '#7878a0', cursor: 'pointer', fontSize: 12 }}>🏷</button>
-                      <button onClick={() => downloadTxt(item)} style={{ width: 28, height: 28, borderRadius: 6, border: 'none', background: 'rgba(130,140,255,0.1)', color: '#7878a0', cursor: 'pointer', fontSize: 12 }}>📄</button>
-                      <button onClick={() => downloadMd(item)} style={{ width: 28, height: 28, borderRadius: 6, border: 'none', background: 'rgba(130,140,255,0.1)', color: '#7878a0', cursor: 'pointer', fontSize: 12 }}>📝</button>
-                      <button onClick={() => { localStorage.setItem('lumina_research_context', item.content || ''); window.location.href = '/dashboard/write'; }} style={{ width: 28, height: 28, borderRadius: 6, border: 'none', background: 'rgba(108,99,255,0.15)', color: '#a89fff', cursor: 'pointer', fontSize: 12 }}>✍️</button>
+                      <button onClick={() => toggleFavorite(item)} style={{ width: 28, height: 28, borderRadius: 6, border: 'none', background: item.is_favorite ? 'rgba(245,166,35,0.2)' : 'var(--border)', color: item.is_favorite ? '#f5a623' : 'var(--text-muted)', cursor: 'pointer', fontSize: 14 }}>★</button>
+                      <button onClick={() => { setEditingId(item.id); setEditTags(item.tags || ''); setEditGroup(item.group_name || '未分類'); }} style={{ width: 28, height: 28, borderRadius: 6, border: 'none', background: 'var(--border)', color: 'var(--text-muted)', cursor: 'pointer', fontSize: 12 }}>🏷</button>
+                      <button onClick={() => downloadTxt(item)} style={{ width: 28, height: 28, borderRadius: 6, border: 'none', background: 'var(--border)', color: 'var(--text-muted)', cursor: 'pointer', fontSize: 12 }}>📄</button>
+                      <button onClick={() => downloadMd(item)} style={{ width: 28, height: 28, borderRadius: 6, border: 'none', background: 'var(--border)', color: 'var(--text-muted)', cursor: 'pointer', fontSize: 12 }}>📝</button>
+                      <button onClick={() => { localStorage.setItem('lumina_research_context', item.content || ''); window.location.href = '/dashboard/write'; }} style={{ width: 28, height: 28, borderRadius: 6, border: 'none', background: 'var(--accent-soft)', color: 'var(--text-secondary)', cursor: 'pointer', fontSize: 12 }}>✍️</button>
                       <button onClick={() => deleteItem(item.id)} style={{ width: 28, height: 28, borderRadius: 6, border: 'none', background: 'rgba(255,107,107,0.1)', color: '#ff6b6b', cursor: 'pointer', fontSize: 12 }}>🗑</button>
                     </div>
                   </div>
 
                   {/* 編集フォーム */}
                   {editingId === item.id && (
-                    <div style={{ padding: '12px 16px', background: '#0d0f20', borderTop: '1px solid rgba(130,140,255,0.1)', display: 'flex', gap: 8, flexWrap: 'wrap' as const, alignItems: 'center' }}>
+                    <div style={{ padding: '12px 16px', background: 'var(--bg-secondary)', borderTop: '1px solid var(--border)', display: 'flex', gap: 8, flexWrap: 'wrap' as const, alignItems: 'center' }}>
                       <input value={editTags} onChange={e => setEditTags(e.target.value)} placeholder="タグ（カンマ区切り例：医療,採用）"
-                        style={{ flex: 1, minWidth: 160, padding: '6px 10px', background: '#12142a', border: '1px solid rgba(130,140,255,0.2)', borderRadius: 6, color: '#f0f0ff', fontSize: 12, outline: 'none' }} />
+                        style={{ flex: 1, minWidth: 160, padding: '6px 10px', background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 6, color: 'var(--text-primary)', fontSize: 12, outline: 'none' }} />
                       <input value={editGroup} onChange={e => setEditGroup(e.target.value)} placeholder="グループ名（例：採用戦略）"
-                        style={{ flex: 1, minWidth: 140, padding: '6px 10px', background: '#12142a', border: '1px solid rgba(130,140,255,0.2)', borderRadius: 6, color: '#f0f0ff', fontSize: 12, outline: 'none' }} />
+                        style={{ flex: 1, minWidth: 140, padding: '6px 10px', background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 6, color: 'var(--text-primary)', fontSize: 12, outline: 'none' }} />
                       <button onClick={() => saveEdit(item.id)} style={{ padding: '6px 14px', background: 'linear-gradient(135deg, #6c63ff, #8b5cf6)', color: '#fff', border: 'none', borderRadius: 6, cursor: 'pointer', fontSize: 12, fontWeight: 600 }}>保存</button>
-                      <button onClick={() => setEditingId(null)} style={{ padding: '6px 10px', background: '#1a1d36', border: '1px solid rgba(130,140,255,0.2)', color: '#7878a0', borderRadius: 6, cursor: 'pointer', fontSize: 12 }}>✕</button>
+                      <button onClick={() => setEditingId(null)} style={{ padding: '6px 10px', background: 'var(--bg-secondary)', border: '1px solid var(--border)', color: 'var(--text-muted)', borderRadius: 6, cursor: 'pointer', fontSize: 12 }}>✕</button>
                     </div>
                   )}
 
                   {/* 展開コンテンツ */}
                   {expandedId === item.id && item.content && (
-                    <div style={{ padding: '12px 16px', background: '#0d0f20', borderTop: '1px solid rgba(130,140,255,0.1)', fontSize: 13, color: '#c0c0e0', lineHeight: 1.8, whiteSpace: 'pre-wrap', maxHeight: 300, overflowY: 'auto' as const }}>
+                    <div style={{ padding: '12px 16px', background: 'var(--bg-secondary)', borderTop: '1px solid var(--border)', fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.8, whiteSpace: 'pre-wrap', maxHeight: 300, overflowY: 'auto' as const }}>
                       {item.content.slice(0, 1000)}{item.content.length > 1000 ? '...' : ''}
                     </div>
                   )}
