@@ -19,6 +19,12 @@ export default function AlertsPage() {
   const [frequency, setFrequency] = useState('weekly');
   const [results, setResults] = useState<Record<string, string>>({});
   const [running, setRunning] = useState<string>('');
+  const [expandedResults, setExpandedResults] = useState<Set<string>>(new Set());
+  const [savedResults, setSavedResults] = useState<Record<string, { text: string; date: string }[]>>(() => {
+    try {
+      return JSON.parse(localStorage.getItem('lumina_alert_results') || '{}');
+    } catch { return {}; }
+  });
 
   useEffect(() => {
     fetch('/api/alerts').then(r => r.json()).then(data => {
@@ -47,14 +53,43 @@ export default function AlertsPage() {
 
   const runAlert = async (alertTopic: string, id: string) => {
     setRunning(id);
-    const res = await fetch('/api/alerts/run', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ topic: alertTopic }),
-    });
-    const data = await res.json();
-    setResults(prev => ({ ...prev, [id]: data.result }));
-    setRunning('');
+    try {
+      const res = await fetch('/api/alerts/run', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ topic: alertTopic }),
+      });
+      const data = await res.json();
+      if (data.result) {
+        setResults(prev => ({ ...prev, [id]: data.result }));
+
+        const newEntry = { text: data.result, date: new Date().toLocaleString('ja-JP') };
+        setSavedResults(prev => {
+          const existing = prev[id] || [];
+          const updated = [newEntry, ...existing].slice(0, 5);
+          const next = { ...prev, [id]: updated };
+          localStorage.setItem('lumina_alert_results', JSON.stringify(next));
+          return next;
+        });
+
+        setExpandedResults(prev => new Set([...prev, id]));
+
+        await fetch('/api/library', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            type: 'alert',
+            title: `アラート: ${alertTopic} (${new Date().toLocaleDateString('ja-JP')})`,
+            content: data.result,
+            metadata: { topic: alertTopic, collectedAt: new Date().toISOString() },
+            tags: '定期アラート',
+            group_name: 'アラート',
+          }),
+        });
+      }
+    } finally {
+      setRunning('');
+    }
   };
 
   const freqColors: Record<string, string> = { daily: '#f5a623', weekly: '#6c63ff', manual: '#7878a0' };
@@ -122,33 +157,127 @@ export default function AlertsPage() {
         </div>
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-          {alerts.map(alert => (
-            <div key={alert.id} style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 12, padding: '16px 20px' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: results[alert.id] ? 12 : 0 }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                  <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 20, background: `${freqColors[alert.frequency]}20`, color: freqColors[alert.frequency], fontWeight: 600 }}>
-                    {freqLabels[alert.frequency]}
-                  </span>
-                  <span style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-primary)' }}>{alert.topic}</span>
+          {alerts.map(alert => {
+            const isExpanded = expandedResults.has(alert.id);
+            const currentResult = results[alert.id];
+            const history = savedResults[alert.id] || [];
+            const latestSaved = history[0];
+
+            return (
+              <div key={alert.id} style={{
+                background: 'var(--bg-secondary)',
+                border: '1px solid var(--border)',
+                borderRadius: 12, overflow: 'hidden',
+              }}>
+                {/* ヘッダー */}
+                <div style={{ padding: '16px 20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10, flex: 1 }}>
+                    <span style={{
+                      fontSize: 11, padding: '2px 8px', borderRadius: 20,
+                      background: `${freqColors[alert.frequency]}20`,
+                      color: freqColors[alert.frequency], fontWeight: 600,
+                    }}>
+                      {freqLabels[alert.frequency]}
+                    </span>
+                    <span style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-primary)' }}>
+                      {alert.topic}
+                    </span>
+                    {latestSaved && (
+                      <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>
+                        最終収集: {latestSaved.date}
+                      </span>
+                    )}
+                  </div>
+                  <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                    {(currentResult || latestSaved) && (
+                      <button
+                        onClick={() => {
+                          setExpandedResults(prev => {
+                            const next = new Set(prev);
+                            if (next.has(alert.id)) next.delete(alert.id);
+                            else next.add(alert.id);
+                            return next;
+                          });
+                        }}
+                        style={{
+                          padding: '5px 10px', background: 'var(--accent-soft)',
+                          border: '1px solid var(--border-accent)', borderRadius: 6,
+                          color: 'var(--accent)', cursor: 'pointer', fontSize: 12,
+                        }}
+                      >
+                        {isExpanded ? '▲ 閉じる' : '▼ 結果を見る'}
+                      </button>
+                    )}
+                    <button
+                      onClick={() => runAlert(alert.topic, alert.id)}
+                      disabled={running === alert.id}
+                      style={{
+                        padding: '5px 14px',
+                        background: 'linear-gradient(135deg, #6c63ff, #8b5cf6)',
+                        color: '#fff', border: 'none', borderRadius: 6,
+                        cursor: 'pointer', fontSize: 12, fontWeight: 600,
+                        opacity: running === alert.id ? 0.7 : 1,
+                      }}
+                    >
+                      {running === alert.id ? '収集中...' : '▶ 今すぐ収集'}
+                    </button>
+                    <button
+                      onClick={() => deleteAlert(alert.id)}
+                      style={{
+                        padding: '5px 10px', background: 'rgba(255,107,107,0.1)',
+                        border: '1px solid rgba(255,107,107,0.2)', color: '#ff6b6b',
+                        borderRadius: 6, cursor: 'pointer', fontSize: 12,
+                      }}
+                    >
+                      削除
+                    </button>
+                  </div>
                 </div>
-                <div style={{ display: 'flex', gap: 6 }}>
-                  <button
-                    onClick={() => runAlert(alert.topic, alert.id)}
-                    disabled={running === alert.id}
-                    style={{ padding: '5px 14px', background: 'linear-gradient(135deg, #6c63ff, #8b5cf6)', color: '#fff', border: 'none', borderRadius: 6, cursor: 'pointer', fontSize: 12, fontWeight: 600, opacity: running === alert.id ? 0.7 : 1 }}
-                  >
-                    {running === alert.id ? '収集中...' : '▶ 今すぐ収集'}
-                  </button>
-                  <button onClick={() => deleteAlert(alert.id)} style={{ padding: '5px 10px', background: 'rgba(255,107,107,0.1)', border: '1px solid rgba(255,107,107,0.2)', color: '#ff6b6b', borderRadius: 6, cursor: 'pointer', fontSize: 12 }}>削除</button>
-                </div>
+
+                {/* 収集結果（展開時のみ） */}
+                {isExpanded && (currentResult || latestSaved) && (
+                  <div style={{ borderTop: '1px solid var(--border)' }}>
+                    <div style={{
+                      padding: 16, background: 'var(--bg-primary)',
+                      fontSize: 13, color: 'var(--text-secondary)',
+                      lineHeight: 1.8, whiteSpace: 'pre-wrap',
+                      maxHeight: '50vh', overflowY: 'auto',
+                    }}>
+                      {currentResult || latestSaved?.text}
+                    </div>
+
+                    {history.length > 1 && (
+                      <div style={{ padding: '8px 16px 16px', borderTop: '1px solid var(--border)' }}>
+                        <p style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 8, fontWeight: 600 }}>
+                          📚 過去の収集履歴
+                        </p>
+                        {history.slice(1).map((h, i) => (
+                          <details key={i} style={{ marginBottom: 6 }}>
+                            <summary style={{
+                              fontSize: 12, color: 'var(--text-muted)', cursor: 'pointer',
+                              padding: '4px 8px', background: 'var(--bg-card)',
+                              borderRadius: 6, listStyle: 'none',
+                            }}>
+                              📅 {h.date}
+                            </summary>
+                            <div style={{
+                              marginTop: 6, padding: 12,
+                              background: 'var(--bg-primary)', borderRadius: 8,
+                              fontSize: 12, color: 'var(--text-secondary)',
+                              lineHeight: 1.8, whiteSpace: 'pre-wrap',
+                              maxHeight: 300, overflowY: 'auto',
+                            }}>
+                              {h.text}
+                            </div>
+                          </details>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
-              {results[alert.id] && (
-                <div style={{ marginTop: 12, padding: 14, background: 'var(--bg-primary)', borderRadius: 8, fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.8, whiteSpace: 'pre-wrap' }}>
-                  {results[alert.id]}
-                </div>
-              )}
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
     </div>
