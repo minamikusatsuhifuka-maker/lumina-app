@@ -572,7 +572,7 @@ export default function GlossaryPage() {
     <div style={{ maxWidth: 900, margin: '0 auto', paddingBottom: 60 }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 32 }}>
         <div>
-          <h1 style={{ fontSize: 28, fontWeight: 700, color: '#f0f0ff', marginBottom: 4 }}>
+          <h1 style={{ fontSize: 28, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 4 }}>
             📘 専門用語解説
           </h1>
           <p style={{ color: 'var(--text-muted)' }}>
@@ -584,7 +584,7 @@ export default function GlossaryPage() {
           style={{
             padding: '8px 16px', background: 'rgba(0,212,184,0.1)',
             border: '1px solid rgba(0,212,184,0.3)', borderRadius: 20,
-            color: '#00d4b8', fontSize: 13, fontWeight: 600, cursor: 'pointer',
+            color: 'var(--accent-secondary)', fontSize: 13, fontWeight: 600, cursor: 'pointer',
             whiteSpace: 'nowrap',
           }}
         >
@@ -599,7 +599,7 @@ export default function GlossaryPage() {
           border: '1px solid rgba(0,212,184,0.2)',
           borderRadius: 12, padding: 20, marginBottom: 20,
         }}>
-          <p style={{ fontSize: 14, color: '#00d4b8', fontWeight: 700, marginBottom: 12 }}>
+          <p style={{ fontSize: 14, color: 'var(--accent-secondary)', fontWeight: 700, marginBottom: 12 }}>
             🤖 AIが用語を自動解説
           </p>
           <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
@@ -611,9 +611,9 @@ export default function GlossaryPage() {
               onKeyDown={e => e.key === 'Enter' && generateTerm()}
               style={{
                 flex: 1, padding: '10px 14px',
-                background: 'rgba(255,255,255,0.05)',
-                border: '1px solid rgba(255,255,255,0.15)',
-                borderRadius: 8, color: '#e0e0f0', fontSize: 13,
+                background: 'var(--input-bg)',
+                border: '1px solid var(--input-border)',
+                borderRadius: 8, color: 'var(--text-primary)', fontSize: 13,
               }}
             />
             <button
@@ -622,7 +622,7 @@ export default function GlossaryPage() {
               style={{
                 padding: '10px 20px',
                 background: generating ? 'rgba(255,255,255,0.05)' : 'linear-gradient(135deg, #6c63ff, #8b5cf6)',
-                border: 'none', borderRadius: 8, color: generating ? '#5a5a7a' : '#fff',
+                border: 'none', borderRadius: 8, color: generating ? 'var(--text-muted)' : '#fff',
                 fontSize: 13, fontWeight: 600,
                 cursor: generating || !newWord.trim() ? 'not-allowed' : 'pointer',
               }}
@@ -642,22 +642,22 @@ export default function GlossaryPage() {
               borderRadius: 10, padding: 16, marginTop: 12,
             }}>
               <div style={{ marginBottom: 10 }}>
-                <span style={{ fontSize: 16, fontWeight: 700, color: '#f0f0ff' }}>{generatedTerm.word}</span>
+                <span style={{ fontSize: 16, fontWeight: 700, color: 'var(--text-primary)' }}>{generatedTerm.word}</span>
                 <span style={{ fontSize: 12, color: 'var(--text-muted)', marginLeft: 8 }}>({generatedTerm.reading})</span>
                 <span style={{
-                  fontSize: 11, color: '#6c63ff', marginLeft: 8,
+                  fontSize: 11, color: 'var(--accent)', marginLeft: 8,
                   background: 'var(--accent-soft)', padding: '2px 8px',
                   borderRadius: 99, border: '1px solid var(--border-accent)',
                 }}>{generatedTerm.category}</span>
               </div>
-              <p style={{ fontSize: 13, color: '#c0c0d8', lineHeight: 1.7, marginBottom: 10 }}>
+              <p style={{ fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.7, marginBottom: 10 }}>
                 {generatedTerm.simple}
               </p>
               <div style={{
                 background: 'rgba(245,166,35,0.05)', border: '1px solid rgba(245,166,35,0.2)',
                 borderRadius: 8, padding: '8px 12px', marginBottom: 12,
               }}>
-                <p style={{ fontSize: 12, color: '#c0c0d8', lineHeight: 1.7, margin: 0 }}>
+                <p style={{ fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.7, margin: 0 }}>
                   {generatedTerm.analogy}
                 </p>
               </div>
@@ -697,9 +697,9 @@ export default function GlossaryPage() {
         onChange={e => setSearch(e.target.value)}
         style={{
           width: '100%', padding: '12px 16px', marginBottom: 16,
-          background: 'rgba(255,255,255,0.05)',
-          border: '1px solid rgba(255,255,255,0.1)',
-          borderRadius: 10, color: '#e0e0f0', fontSize: 14,
+          background: 'var(--input-bg)',
+          border: '1px solid var(--input-border)',
+          borderRadius: 10, color: 'var(--text-primary)', fontSize: 14,
           boxSizing: 'border-box',
         }}
       />
@@ -725,7 +725,7 @@ export default function GlossaryPage() {
       </div>
 
       {/* 件数 */}
-      <p style={{ fontSize: 13, color: '#5a5a7a', marginBottom: 16 }}>
+      <p style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 16 }}>
         {filtered.length}件の用語
       </p>
 
@@ -755,7 +755,7 @@ export default function GlossaryPage() {
             >
               <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
                 <div>
-                  <span style={{ fontSize: 15, fontWeight: 700, color: '#f0f0ff' }}>
+                  <span style={{ fontSize: 15, fontWeight: 700, color: 'var(--text-primary)' }}>
                     {term.word}
                   </span>
                   <span style={{ fontSize: 12, color: 'var(--text-muted)', marginLeft: 8 }}>
@@ -763,7 +763,7 @@ export default function GlossaryPage() {
                   </span>
                   {term.fullName && (
                     <div style={{
-                      fontSize: 11, color: '#00d4b8', marginTop: 3,
+                      fontSize: 11, color: 'var(--accent-secondary)', marginTop: 3,
                       fontStyle: 'italic',
                     }}>
                       📝 {term.fullName}
@@ -771,7 +771,7 @@ export default function GlossaryPage() {
                   )}
                 </div>
                 <span style={{
-                  fontSize: 11, color: '#6c63ff',
+                  fontSize: 11, color: 'var(--accent)',
                   background: 'var(--accent-soft)',
                   padding: '2px 8px', borderRadius: 99,
                   border: '1px solid var(--border-accent)',
@@ -780,14 +780,14 @@ export default function GlossaryPage() {
                   {term.category}
                 </span>
               </div>
-              <span style={{ color: '#5a5a7a', fontSize: 12 }}>
+              <span style={{ color: 'var(--text-muted)', fontSize: 12 }}>
                 {openTerm === term.word ? '▲' : '▼'}
               </span>
             </div>
 
             {/* 一言説明（常時表示） */}
             <div style={{ padding: '0 18px 14px', borderTop: '1px solid rgba(255,255,255,0.04)' }}>
-              <p style={{ fontSize: 13, color: '#c0c0d8', lineHeight: 1.7, margin: '10px 0 0' }}>
+              <p style={{ fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.7, margin: '10px 0 0' }}>
                 {term.simple}
               </p>
             </div>
@@ -800,10 +800,10 @@ export default function GlossaryPage() {
                 display: 'flex', flexDirection: 'column', gap: 12,
               }}>
                 <div>
-                  <div style={{ fontSize: 11, color: '#6c63ff', fontWeight: 700, marginBottom: 6 }}>
+                  <div style={{ fontSize: 11, color: 'var(--accent)', fontWeight: 700, marginBottom: 6 }}>
                     📝 詳しい説明
                   </div>
-                  <p style={{ fontSize: 13, color: '#c0c0d8', lineHeight: 1.8, margin: 0 }}>
+                  <p style={{ fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.8, margin: 0 }}>
                     {term.detail}
                   </p>
                 </div>
@@ -812,10 +812,10 @@ export default function GlossaryPage() {
                   border: '1px solid rgba(0,212,184,0.2)',
                   borderRadius: 8, padding: '10px 14px',
                 }}>
-                  <div style={{ fontSize: 11, color: '#00d4b8', fontWeight: 700, marginBottom: 4 }}>
+                  <div style={{ fontSize: 11, color: 'var(--accent-secondary)', fontWeight: 700, marginBottom: 4 }}>
                     💡 具体例
                   </div>
-                  <p style={{ fontSize: 13, color: '#c0c0d8', lineHeight: 1.7, margin: 0 }}>
+                  <p style={{ fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.7, margin: 0 }}>
                     {term.example}
                   </p>
                 </div>
@@ -827,7 +827,7 @@ export default function GlossaryPage() {
                   <div style={{ fontSize: 11, color: '#f5a623', fontWeight: 700, marginBottom: 4 }}>
                     🎯 たとえ話
                   </div>
-                  <p style={{ fontSize: 13, color: '#c0c0d8', lineHeight: 1.7, margin: 0 }}>
+                  <p style={{ fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.7, margin: 0 }}>
                     {term.analogy}
                   </p>
                 </div>

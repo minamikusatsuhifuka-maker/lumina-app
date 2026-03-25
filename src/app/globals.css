@@ -91,10 +91,11 @@
   --bg-card-hover: #f8f8f4;
   --text-primary: #111111;
   --text-secondary: #333333;
-  --text-muted: #666666;
+  --text-muted: #555555;
   --accent: #5b52e8;
   --accent-soft: rgba(91,82,232,0.1);
-  --accent-secondary: #0d9e75;
+  --accent-secondary: #0a7a5a;
+  --link-color: #2a5ae8;
   --border: rgba(0,0,0,0.08);
   --border-accent: rgba(91,82,232,0.35);
   --sidebar-bg: #ffffff;
@@ -144,6 +145,7 @@
 
 /* ─── 追加テーマ変数デフォルト ─── */
 :root, [data-theme="dark"], [data-theme="midnight"], [data-theme="nature"] {
+  --link-color: #00d4b8;
   --title-color: var(--text-primary);
   --subtitle-color: var(--text-secondary);
   --heading-color: var(--text-primary);

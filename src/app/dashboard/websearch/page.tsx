@@ -28,7 +28,7 @@ const processInline = (text: string, hitUrls?: Set<string>): string => {
   // 「出典: サイト名 https://URL」形式
   text = text.replace(
     /出典[:：]\s*([^\s]+)\s+(https?:\/\/[^\s）\]。、！？\n]+)/g,
-    '出典: <a href="$2" target="_blank" rel="noopener noreferrer" style="color:#00d4b8;text-decoration:underline;">$1 ↗</a>'
+    '出典: <a href="$2" target="_blank" rel="noopener noreferrer" style="color:var(--link-color, #00d4b8);text-decoration:underline;">$1 ↗</a>'
   );
 
   // 裸のURL
@@ -39,7 +39,7 @@ const processInline = (text: string, hitUrls?: Set<string>): string => {
       const badge = isHit
         ? ' <span style="font-size:10px;background:#6c63ff33;color:var(--text-secondary);border:1px solid #6c63ff55;border-radius:10px;padding:1px 6px;margin-left:4px;">📌 過去に登場</span>'
         : '';
-      return `<a href="${match}" target="_blank" rel="noopener noreferrer" style="color:#00d4b8;text-decoration:underline;font-size:0.9em;">${match} ↗</a>${badge}`;
+      return `<a href="${match}" target="_blank" rel="noopener noreferrer" style="color:var(--link-color, #00d4b8);text-decoration:underline;font-size:0.9em;">${match} ↗</a>${badge}`;
     }
   );
 
@@ -348,7 +348,7 @@ export default function WebSearchPage() {
             </div>
           </div>
           <div
-            style={{ fontSize: fontSize, color: 'var(--text-secondary)', lineHeight: 1.8, wordBreak: 'break-word' as const }}
+            style={{ fontSize: fontSize, color: 'var(--text-primary)', lineHeight: 1.8, wordBreak: 'break-word' as const }}
             dangerouslySetInnerHTML={{ __html: formatResult(result, hitUrls) }}
           />
         </div>
