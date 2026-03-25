@@ -90,6 +90,7 @@ const formatResult = (text: string, hitUrls?: Set<string>): string => {
 export default function WebSearchPage() {
   const [query, setQuery] = useState('');
   const [result, setResult] = useState('');
+  const [rawResult, setRawResult] = useState('');
   const [loading, setLoading] = useState(false);
   const [fontSize, setFontSize] = useState(14);
   const [maxTokens, setMaxTokens] = useState(2000);
@@ -128,6 +129,7 @@ export default function WebSearchPage() {
     localStorage.setItem('lumina_search_history', JSON.stringify(newHistory));
     setLoading(true);
     setResult('');
+    setRawResult('');
 
     try {
       const res = await retryFetch('/api/websearch', {
@@ -158,6 +160,7 @@ export default function WebSearchPage() {
             if (json.type === 'text') {
               accumulated += json.content;
               setResult(accumulated);
+              setRawResult(accumulated);
             } else if (json.type === 'error') {
               setResult(`エラー: ${json.message}`);
             }
@@ -176,14 +179,32 @@ export default function WebSearchPage() {
     if (!result) return;
     setSaving(true);
     try {
+      const searchDate = new Date().toLocaleDateString('ja-JP', {
+        year: 'numeric', month: 'long', day: 'numeric',
+        hour: '2-digit', minute: '2-digit'
+      });
+
+      const urlMatches = rawResult.match(/https?:\/\/[^\s）\]。、！？\n"'<>&]+/g) || [];
+      const uniqueUrls = [...new Set(urlMatches)];
+      const urlSection = uniqueUrls.length > 0
+        ? '\n\n---\n## 📎 参照URL一覧\n' + uniqueUrls.map(u => `- ${u}`).join('\n')
+        : '';
+
+      const saveContent = `# Web調査：${query}\n検索日時：${searchDate}\n\n---\n\n${rawResult}${urlSection}`;
+
       const res = await fetch('/api/library', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           type: 'web',
           title: `Web調査: ${query}`,
-          content: result,
-          metadata: { query, searchedAt: new Date().toISOString() },
+          content: saveContent,
+          metadata: {
+            query,
+            searchedAt: new Date().toISOString(),
+            urls: uniqueUrls,
+            urlCount: uniqueUrls.length,
+          },
           tags: 'Web情報収集',
           group_name: 'Web調査',
         }),
