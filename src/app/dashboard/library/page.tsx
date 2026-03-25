@@ -194,9 +194,32 @@ export default function LibraryPage() {
 
                   {/* 展開コンテンツ */}
                   {expandedId === item.id && item.content && (
-                    <div style={{ padding: '12px 16px', background: 'var(--bg-secondary)', borderTop: '1px solid var(--border)', fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.8, whiteSpace: 'pre-wrap', maxHeight: 300, overflowY: 'auto' as const }}>
-                      {item.content.slice(0, 1000)}{item.content.length > 1000 ? '...' : ''}
-                    </div>
+                    <div style={{
+                      padding: '12px 16px',
+                      borderTop: '1px solid var(--border)',
+                      fontSize: 13,
+                      color: 'var(--text-secondary)',
+                      lineHeight: 1.8,
+                      whiteSpace: 'pre-wrap',
+                      wordBreak: 'break-word',
+                      maxHeight: '60vh',
+                      overflowY: 'auto',
+                    }}
+                      dangerouslySetInnerHTML={{
+                        __html: item.content
+                          .replace(/&/g, '&amp;')
+                          .replace(/</g, '&lt;')
+                          .replace(/>/g, '&gt;')
+                          .replace(
+                            /(https?:\/\/[^\s）\]。、！？\n"'<>&]+)/g,
+                            '<a href="$1" target="_blank" rel="noopener noreferrer" style="color:var(--accent);text-decoration:underline;word-break:break-all;">$1 ↗</a>'
+                          )
+                          .replace(/^## (.+)$/gm, '<div style="font-size:14px;font-weight:700;color:var(--text-primary);margin:16px 0 8px;padding-bottom:4px;border-bottom:1px solid var(--border);">$1</div>')
+                          .replace(/^# (.+)$/gm, '<div style="font-size:16px;font-weight:700;color:var(--text-primary);margin:0 0 12px;">$1</div>')
+                          .replace(/^---$/gm, '<hr style="border:none;border-top:1px solid var(--border);margin:12px 0;">')
+                          .replace(/^- (https?:\/\/.+)$/gm, '• <a href="$1" target="_blank" rel="noopener noreferrer" style="color:var(--accent);text-decoration:underline;word-break:break-all;">$1 ↗</a>')
+                      }}
+                    />
                   )}
                 </div>
               ))}
