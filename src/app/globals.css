@@ -3,6 +3,19 @@
 :root {
   --background: #ffffff;
   --foreground: #171717;
+  --bg-primary: #07080f;
+  --bg-secondary: #0d0e1a;
+  --bg-card: rgba(255,255,255,0.03);
+  --bg-card-hover: rgba(255,255,255,0.06);
+  --text-primary: #f0f0ff;
+  --text-secondary: #a0a0c0;
+  --text-muted: #7878a0;
+  --accent: #6c63ff;
+  --accent-soft: rgba(108,99,255,0.15);
+  --accent-secondary: #00d4b8;
+  --border: rgba(255,255,255,0.08);
+  --border-accent: rgba(108,99,255,0.3);
+  --sidebar-bg: #0d0e1a;
 }
 
 @theme inline {
@@ -17,12 +30,6 @@
     --background: #0a0a0a;
     --foreground: #ededed;
   }
-}
-
-body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
 }
 
 /* ─── テーマ変数 ─── */
@@ -90,20 +97,15 @@ body {
   --sidebar-bg: #0a1a0c;
 }
 
-:root {
-  --bg-primary: #07080f;
-  --bg-secondary: #0d0e1a;
-  --bg-card: rgba(255,255,255,0.03);
-  --bg-card-hover: rgba(255,255,255,0.06);
-  --text-primary: #f0f0ff;
-  --text-secondary: #a0a0c0;
-  --text-muted: #7878a0;
-  --accent: #6c63ff;
-  --accent-soft: rgba(108,99,255,0.15);
-  --accent-secondary: #00d4b8;
-  --border: rgba(255,255,255,0.08);
-  --border-accent: rgba(108,99,255,0.3);
-  --sidebar-bg: #0d0e1a;
+html {
+  background: var(--bg-primary) !important;
+}
+
+body {
+  background: var(--bg-primary) !important;
+  color: var(--text-primary) !important;
+  transition: background 0.3s ease, color 0.3s ease;
+  font-family: Arial, Helvetica, sans-serif;
 }
 
 *, *::before, *::after {
