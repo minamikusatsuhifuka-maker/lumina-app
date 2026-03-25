@@ -20,6 +20,8 @@
   --card-border: rgba(255,255,255,0.08);
   --input-bg: rgba(255,255,255,0.05);
   --shadow: 0 2px 12px rgba(0,0,0,0.3);
+  --shadow-card: 0 2px 12px rgba(0,0,0,0.3);
+  --shadow-sidebar: 2px 0 12px rgba(0,0,0,0.2);
   --font-main: 'Outfit', sans-serif;
 }
 
@@ -56,6 +58,8 @@
   --card-border: rgba(255,255,255,0.08);
   --input-bg: rgba(255,255,255,0.05);
   --shadow: 0 2px 12px rgba(0,0,0,0.3);
+  --shadow-card: 0 2px 12px rgba(0,0,0,0.3);
+  --shadow-sidebar: 2px 0 12px rgba(0,0,0,0.2);
 }
 
 [data-theme="midnight"] {
@@ -76,40 +80,44 @@
   --card-border: rgba(139,92,246,0.15);
   --input-bg: rgba(139,92,246,0.05);
   --shadow: 0 2px 12px rgba(0,0,0,0.4);
+  --shadow-card: 0 2px 12px rgba(0,0,0,0.4);
+  --shadow-sidebar: 2px 0 12px rgba(0,0,0,0.3);
 }
 
 [data-theme="light"] {
-  --bg-primary: #f5f5f0;
+  --bg-primary: #f0efe8;
   --bg-secondary: #ffffff;
-  --bg-card: rgba(0,0,0,0.04);
-  --bg-card-hover: rgba(0,0,0,0.08);
-  --text-primary: #1a1a2e;
-  --text-secondary: #4a4a6a;
-  --text-muted: #8a8aaa;
+  --bg-card: #ffffff;
+  --bg-card-hover: #f8f8f4;
+  --text-primary: #111111;
+  --text-secondary: #333333;
+  --text-muted: #666666;
   --accent: #5b52e8;
   --accent-soft: rgba(91,82,232,0.1);
   --accent-secondary: #0d9e75;
-  --border: rgba(0,0,0,0.1);
-  --border-accent: rgba(91,82,232,0.3);
+  --border: rgba(0,0,0,0.08);
+  --border-accent: rgba(91,82,232,0.35);
   --sidebar-bg: #ffffff;
   --card-bg: #ffffff;
-  --card-border: rgba(0,0,0,0.08);
-  --input-bg: rgba(0,0,0,0.04);
-  --shadow: 0 2px 12px rgba(0,0,0,0.08);
-  --title-color: #1a1a2e;
-  --subtitle-color: #4a4a6a;
-  --heading-color: #2a2a4a;
-  --card-text: #1a1a2e;
+  --card-border: rgba(0,0,0,0.07);
+  --input-bg: #ffffff;
   --input-border: rgba(0,0,0,0.15);
+  --shadow: 0 2px 8px rgba(0,0,0,0.08), 0 0 0 1px rgba(0,0,0,0.04);
+  --shadow-card: 0 2px 12px rgba(0,0,0,0.08), 0 1px 3px rgba(0,0,0,0.05);
+  --shadow-sidebar: 2px 0 12px rgba(0,0,0,0.06);
+  --title-color: #111111;
+  --subtitle-color: #333333;
+  --heading-color: #111111;
+  --card-text: #111111;
   --textarea-bg: #ffffff;
-  --textarea-text: #1a1a2e;
-  --button-secondary-bg: rgba(0,0,0,0.06);
-  --button-secondary-text: #4a4a6a;
+  --textarea-text: #111111;
+  --button-secondary-bg: rgba(0,0,0,0.05);
+  --button-secondary-text: #333333;
   --tag-bg: rgba(0,0,0,0.06);
-  --tag-text: #4a4a6a;
+  --tag-text: #333333;
   --tag-border: rgba(0,0,0,0.1);
   --result-bg: #ffffff;
-  --result-text: #1a1a2e;
+  --result-text: #111111;
 }
 
 [data-theme="nature"] {
@@ -130,6 +138,8 @@
   --card-border: rgba(180,230,185,0.12);
   --input-bg: rgba(180,230,185,0.05);
   --shadow: 0 2px 12px rgba(0,0,0,0.25);
+  --shadow-card: 0 2px 12px rgba(0,0,0,0.25);
+  --shadow-sidebar: 2px 0 12px rgba(0,0,0,0.2);
 }
 
 /* ─── 追加テーマ変数デフォルト ─── */
@@ -233,4 +243,36 @@ a[href*="dashboard"]:hover {
 
 .fade-in {
   animation: fadeInUp 0.3s ease forwards;
+}
+
+/* ─── ライトテーマ：影・テキスト・スクロールバー ─── */
+[data-theme="light"] nav,
+[data-theme="light"] .sidebar {
+  box-shadow: var(--shadow-sidebar) !important;
+}
+
+[data-theme="light"] div[style*="border-radius"][style*="border"],
+[data-theme="light"] div[style*="borderRadius"] {
+  box-shadow: var(--shadow-card);
+}
+
+[data-theme="light"] * {
+  color: inherit;
+}
+
+[data-theme="light"] body {
+  color: #111111;
+}
+
+[data-theme="light"] nav[style] {
+  border-right: 1px solid rgba(0,0,0,0.08) !important;
+  box-shadow: 2px 0 12px rgba(0,0,0,0.06) !important;
+}
+
+[data-theme="light"] ::-webkit-scrollbar-thumb {
+  background: rgba(0,0,0,0.15);
+}
+
+[data-theme="light"] ::-webkit-scrollbar-thumb:hover {
+  background: rgba(0,0,0,0.25);
 }
