@@ -19,6 +19,8 @@ export default function AlertsPage() {
   const [frequency, setFrequency] = useState('weekly');
   const [results, setResults] = useState<Record<string, string>>({});
   const [running, setRunning] = useState<string>('');
+  const [runningAll, setRunningAll] = useState(false);
+  const [allProgress, setAllProgress] = useState({ done: 0, total: 0 });
   const [expandedResults, setExpandedResults] = useState<Set<string>>(new Set());
   const [savedResults, setSavedResults] = useState<Record<string, { text: string; date: string }[]>>(() => {
     try {
@@ -92,6 +94,52 @@ export default function AlertsPage() {
     }
   };
 
+  const runAllAlerts = async () => {
+    if (alerts.length === 0) return;
+    setRunningAll(true);
+    setAllProgress({ done: 0, total: alerts.length });
+
+    for (let i = 0; i < alerts.length; i++) {
+      const alert = alerts[i];
+      try {
+        const res = await fetch('/api/alerts/run', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ topic: alert.topic }),
+        });
+        const data = await res.json();
+        if (data.result) {
+          setResults(prev => ({ ...prev, [alert.id]: data.result }));
+          const newEntry = { text: data.result, date: new Date().toLocaleString('ja-JP') };
+          setSavedResults(prev => {
+            const existing = prev[alert.id] || [];
+            const updated = [newEntry, ...existing].slice(0, 5);
+            const next = { ...prev, [alert.id]: updated };
+            localStorage.setItem('lumina_alert_results', JSON.stringify(next));
+            return next;
+          });
+          setExpandedResults(prev => new Set([...prev, alert.id]));
+          await fetch('/api/library', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              type: 'alert',
+              title: `アラート: ${alert.topic} (${new Date().toLocaleDateString('ja-JP')})`,
+              content: data.result,
+              metadata: { topic: alert.topic, collectedAt: new Date().toISOString() },
+              tags: '定期アラート',
+              group_name: 'アラート',
+            }),
+          });
+        }
+      } catch {}
+      setAllProgress({ done: i + 1, total: alerts.length });
+    }
+
+    setRunningAll(false);
+    setAllProgress({ done: 0, total: 0 });
+  };
+
   const freqColors: Record<string, string> = { daily: '#f5a623', weekly: '#6c63ff', manual: '#7878a0' };
   const freqLabels: Record<string, string> = { daily: '毎日', weekly: '週1', manual: '手動' };
 
@@ -149,6 +197,51 @@ export default function AlertsPage() {
       </div>
 
       {/* アラート一覧 */}
+      {/* 一斉収集ボタン */}
+      {alerts.length > 0 && (
+        <div style={{
+          display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+          marginBottom: 16, padding: '12px 16px',
+          background: 'var(--bg-secondary)',
+          border: '1px solid var(--border)',
+          borderRadius: 12,
+        }}>
+          <div>
+            <p style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-primary)', margin: 0 }}>
+              🔔 登録中のアラート：{alerts.length}件
+            </p>
+            {runningAll && (
+              <p style={{ fontSize: 12, color: 'var(--accent)', margin: '4px 0 0' }}>
+                収集中... {allProgress.done}/{allProgress.total}件完了
+              </p>
+            )}
+          </div>
+          <button
+            onClick={runAllAlerts}
+            disabled={runningAll}
+            style={{
+              padding: '10px 24px',
+              background: runningAll
+                ? 'rgba(108,99,255,0.3)'
+                : 'linear-gradient(135deg, #6c63ff, #8b5cf6)',
+              color: '#fff', border: 'none', borderRadius: 8,
+              cursor: runningAll ? 'not-allowed' : 'pointer',
+              fontSize: 14, fontWeight: 700,
+              display: 'flex', alignItems: 'center', gap: 8,
+            }}
+          >
+            {runningAll ? (
+              <>
+                <span style={{ display: 'inline-block', animation: 'spin 1s linear infinite' }}>⟳</span>
+                {allProgress.done}/{allProgress.total} 収集中...
+              </>
+            ) : (
+              '⚡ 全アラートを一斉収集'
+            )}
+          </button>
+        </div>
+      )}
+
       {alerts.length === 0 ? (
         <div style={{ textAlign: 'center', padding: 40, color: 'var(--text-muted)' }}>
           <div style={{ fontSize: 36, marginBottom: 12 }}>🔔</div>

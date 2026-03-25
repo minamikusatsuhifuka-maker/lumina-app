@@ -247,6 +247,11 @@ a[href*="dashboard"]:hover {
   animation: fadeInUp 0.3s ease forwards;
 }
 
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
 /* ─── ライトテーマ：影・テキスト・スクロールバー ─── */
 [data-theme="light"] nav,
 [data-theme="light"] .sidebar {
