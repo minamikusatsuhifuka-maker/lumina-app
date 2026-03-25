@@ -217,7 +217,6 @@ export default function WebSearchPage() {
         <input
           value={query}
           onChange={e => setQuery(e.target.value)}
-          onKeyDown={e => e.key === 'Enter' && search()}
           placeholder="調べたいテーマを入力（例：2026年のAI最新動向）"
           style={{ flex: 1, padding: '12px 16px', background: 'var(--bg-secondary)', border: '1px solid rgba(0,212,184,0.3)', borderRadius: 10, color: 'var(--text-primary)', fontSize: 15, outline: 'none' }}
         />
@@ -279,7 +278,7 @@ export default function WebSearchPage() {
 
       <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 24 }}>
         {QUICK_SEARCHES.map(q => (
-          <button key={q} onClick={() => { setQuery(q); search(q); }} style={{ padding: '5px 12px', borderRadius: 20, border: '1px solid rgba(0,212,184,0.2)', background: 'rgba(0,212,184,0.05)', color: '#00d4b8', cursor: 'pointer', fontSize: 12 }}>
+          <button key={q} onClick={() => setQuery(q)} style={{ padding: '5px 12px', borderRadius: 20, border: '1px solid rgba(0,212,184,0.2)', background: 'rgba(0,212,184,0.05)', color: '#00d4b8', cursor: 'pointer', fontSize: 12 }}>
             {q}
           </button>
         ))}
@@ -292,7 +291,7 @@ export default function WebSearchPage() {
             {history.map(h => (
               <button
                 key={h}
-                onClick={() => { setQuery(h); search(h); }}
+                onClick={() => setQuery(h)}
                 style={{ padding: '3px 10px', borderRadius: 20, border: '1px solid var(--border)', background: 'var(--accent-soft)', color: 'var(--text-muted)', cursor: 'pointer', fontSize: 11, display: 'flex', alignItems: 'center', gap: 4 }}
               >
                 🕐 {h}
