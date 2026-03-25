@@ -179,18 +179,13 @@ export default function WebSearchPage() {
     if (!result) return;
     setSaving(true);
     try {
-      const searchDate = new Date().toLocaleDateString('ja-JP', {
-        year: 'numeric', month: 'long', day: 'numeric',
-        hour: '2-digit', minute: '2-digit'
-      });
-
-      const urlMatches = rawResult.match(/https?:\/\/[^\s）\]。、！？\n"'<>&]+/g) || [];
-      const uniqueUrls = [...new Set(urlMatches)];
-      const urlSection = uniqueUrls.length > 0
-        ? '\n\n---\n## 📎 参照URL一覧\n' + uniqueUrls.map(u => `- ${u}`).join('\n')
+      const searchDate = new Date().toLocaleString('ja-JP');
+      const urls = (rawResult.match(/https?:\/\/[^\s）\]。、！？\n"'<>&]+/g) || []);
+      const uniqueUrls = [...new Set(urls)];
+      const urlList = uniqueUrls.length > 0
+        ? '\n\n---\n## 参照URL一覧\n' + uniqueUrls.map(u => `- ${u}`).join('\n')
         : '';
-
-      const saveContent = `# Web調査：${query}\n検索日時：${searchDate}\n\n---\n\n${rawResult}${urlSection}`;
+      const fullContent = `# ${query}\n検索日時：${searchDate}\n\n${rawResult}${urlList}`;
 
       const res = await fetch('/api/library', {
         method: 'POST',
@@ -198,13 +193,8 @@ export default function WebSearchPage() {
         body: JSON.stringify({
           type: 'web',
           title: `Web調査: ${query}`,
-          content: saveContent,
-          metadata: {
-            query,
-            searchedAt: new Date().toISOString(),
-            urls: uniqueUrls,
-            urlCount: uniqueUrls.length,
-          },
+          content: fullContent,
+          metadata: { query, searchedAt: new Date().toISOString() },
           tags: 'Web情報収集',
           group_name: 'Web調査',
         }),
