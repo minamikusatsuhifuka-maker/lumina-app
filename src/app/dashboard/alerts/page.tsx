@@ -75,7 +75,7 @@ export default function AlertsPage() {
             onChange={e => setTopic(e.target.value)}
             placeholder="監視したいトピック（例：AI最新動向、競合他社の動向）"
             style={{ flex: 1, padding: '10px 14px', background: 'var(--bg-primary)', border: '1px solid var(--border)', borderRadius: 8, color: 'var(--text-primary)', fontSize: 14, outline: 'none' }}
-            onKeyDown={e => e.key === 'Enter' && addAlert()}
+            onKeyDown={e => e.preventDefault()}
           />
         </div>
 
