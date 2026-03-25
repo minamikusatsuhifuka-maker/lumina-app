@@ -1,5 +1,7 @@
 'use client';
 import { useState } from 'react';
+import { ProgressBar } from '@/components/ProgressBar';
+import { useProgress } from '@/components/useProgress';
 
 const TEMPLATES = [
   { label: 'AI最新動向', topic: '2026年の生成AI・大規模言語モデルの最新動向と活用事例' },
@@ -89,11 +91,13 @@ export default function DeepResearchPage() {
   const [loading, setLoading] = useState(false);
   const [fontSize, setFontSize] = useState(14);
   const [elapsed, setElapsed] = useState(0);
+  const { progress, loading: progressLoading, startProgress, completeProgress, resetProgress } = useProgress();
 
   const research = async (t?: string) => {
     const q = t || topic;
     if (!q.trim()) return;
     setLoading(true);
+    startProgress();
     setReport('');
     setElapsed(0);
 
@@ -137,9 +141,11 @@ export default function DeepResearchPage() {
       }
     } catch (error: any) {
       setReport(`通信エラー: ${error.message}`);
+      resetProgress();
     } finally {
       clearInterval(timer);
       setLoading(false);
+      completeProgress();
     }
   };
 
@@ -157,6 +163,7 @@ export default function DeepResearchPage() {
 
   return (
     <div>
+      <ProgressBar loading={progressLoading} progress={progress} label="🔭 ディープリサーチ実行中..." />
       <h1 style={{ fontSize: 28, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 8 }}>🔭 ディープリサーチ</h1>
       <p style={{ color: 'var(--text-muted)', marginBottom: 24 }}>Claude AIが複数ソースを統合し、徹底的なリサーチレポートを生成します</p>
 

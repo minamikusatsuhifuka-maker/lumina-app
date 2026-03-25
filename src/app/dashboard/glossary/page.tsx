@@ -1,5 +1,7 @@
 'use client';
 import { useState } from 'react';
+import { ProgressBar } from '@/components/ProgressBar';
+import { useProgress } from '@/components/useProgress';
 
 type Term = {
   word: string;
@@ -511,6 +513,7 @@ const TERMS: Term[] = [
 const CATEGORIES = ['すべて', 'AI基礎', 'AI応用', 'ビジネス', '技術用語', 'ツール', '技術スタック'];
 
 export default function GlossaryPage() {
+  const { progress, loading: progressLoading, startProgress, completeProgress, resetProgress } = useProgress();
   const [search, setSearch] = useState('');
   const [category, setCategory] = useState('すべて');
   const [openTerm, setOpenTerm] = useState<string | null>(null);
@@ -528,6 +531,7 @@ export default function GlossaryPage() {
   const generateTerm = async () => {
     if (!newWord.trim()) return;
     setGenerating(true);
+    startProgress();
     setGeneratedTerm(null);
     setGenerateError('');
     try {
@@ -544,8 +548,10 @@ export default function GlossaryPage() {
       }
     } catch {
       setGenerateError('通信エラーが発生しました。');
+      resetProgress();
     } finally {
       setGenerating(false);
+      completeProgress();
     }
   };
 
@@ -570,6 +576,7 @@ export default function GlossaryPage() {
 
   return (
     <div style={{ maxWidth: 900, margin: '0 auto', paddingBottom: 60 }}>
+      <ProgressBar loading={progressLoading} progress={progress} label="📘 AI解説生成中..." />
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 32 }}>
         <div>
           <h1 style={{ fontSize: 28, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 4 }}>

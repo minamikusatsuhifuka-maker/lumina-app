@@ -1,5 +1,7 @@
 'use client';
 import { useState } from 'react';
+import { ProgressBar } from '@/components/ProgressBar';
+import { useProgress } from '@/components/useProgress';
 
 const SEARCH_MODES = [
   { id: 'news', label: '📰 最新ニュース', desc: 'リアルタイムニュース・時事情報' },
@@ -101,11 +103,13 @@ export default function IntelligencePage() {
   const [result, setResult] = useState('');
   const [loading, setLoading] = useState(false);
   const [fontSize, setFontSize] = useState(14);
+  const { progress, loading: progressLoading, startProgress, completeProgress, resetProgress } = useProgress();
 
   const search = async (q?: string) => {
     const searchQuery = q || query;
     if (!searchQuery.trim()) return;
     setLoading(true);
+    startProgress();
     setResult('');
 
     try {
@@ -150,8 +154,10 @@ export default function IntelligencePage() {
       }
     } catch (e: any) {
       setResult(`エラー: ${e.message}`);
+      resetProgress();
     }
     setLoading(false);
+    completeProgress();
   };
 
   const sendToWriter = () => {
@@ -168,6 +174,7 @@ export default function IntelligencePage() {
 
   return (
     <div>
+      <ProgressBar loading={progressLoading} progress={progress} label="🧠 情報収集中..." />
       <h1 style={{ fontSize: 28, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 4 }}>🧠 Intelligence Hub</h1>
       <p style={{ color: 'var(--text-muted)', marginBottom: 20 }}>複数ソースから情報を収集・統合するインテリジェンスセンター</p>
 

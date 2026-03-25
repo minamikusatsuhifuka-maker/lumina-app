@@ -1,5 +1,7 @@
 'use client';
 import { useState, useEffect } from 'react';
+import { ProgressBar } from '@/components/ProgressBar';
+import { useProgress } from '@/components/useProgress';
 
 const FREQUENCIES = [
   { id: 'daily', label: '毎日', desc: '毎朝最新情報を収集' },
@@ -14,6 +16,7 @@ const PRESETS = [
 ];
 
 export default function AlertsPage() {
+  const { progress, loading: progressLoading, setProgress, startProgress, completeProgress, resetProgress } = useProgress();
   const [alerts, setAlerts] = useState<any[]>([]);
   const [topic, setTopic] = useState('');
   const [frequency, setFrequency] = useState('weekly');
@@ -55,6 +58,7 @@ export default function AlertsPage() {
 
   const runAlert = async (alertTopic: string, id: string) => {
     setRunning(id);
+    startProgress();
     try {
       const res = await fetch('/api/alerts/run', {
         method: 'POST',
@@ -91,12 +95,14 @@ export default function AlertsPage() {
       }
     } finally {
       setRunning('');
+      completeProgress();
     }
   };
 
   const runAllAlerts = async () => {
     if (alerts.length === 0) return;
     setRunningAll(true);
+    startProgress();
     setAllProgress({ done: 0, total: alerts.length });
 
     for (let i = 0; i < alerts.length; i++) {
@@ -134,8 +140,10 @@ export default function AlertsPage() {
         }
       } catch {}
       setAllProgress({ done: i + 1, total: alerts.length });
+      setProgress(Math.round(((i + 1) / alerts.length) * 100));
     }
 
+    completeProgress();
     setRunningAll(false);
     setAllProgress({ done: 0, total: 0 });
   };
@@ -145,6 +153,7 @@ export default function AlertsPage() {
 
   return (
     <div>
+      <ProgressBar loading={progressLoading} progress={progress} label="🔔 アラート収集中..." />
       <h1 style={{ fontSize: 28, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 4 }}>🔔 定期リサーチアラート</h1>
       <p style={{ color: 'var(--text-muted)', marginBottom: 24 }}>登録したトピックの最新情報を自動収集します</p>
 

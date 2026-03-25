@@ -1,5 +1,7 @@
 'use client';
 import { useState } from 'react';
+import { ProgressBar } from '@/components/ProgressBar';
+import { useProgress } from '@/components/useProgress';
 
 const QUICK_SEARCHES = [
   'AIの最新トレンド2026年', 'ChatGPT活用事例ビジネス', 'note ブログ収益化のコツ',
@@ -88,6 +90,7 @@ const formatResult = (text: string, hitUrls?: Set<string>): string => {
 };
 
 export default function WebSearchPage() {
+  const { progress, loading: progressLoading, startProgress, completeProgress, resetProgress } = useProgress();
   const [query, setQuery] = useState('');
   const [result, setResult] = useState('');
   const [rawResult, setRawResult] = useState('');
@@ -128,6 +131,7 @@ export default function WebSearchPage() {
     setHistory(newHistory);
     localStorage.setItem('lumina_search_history', JSON.stringify(newHistory));
     setLoading(true);
+    startProgress();
     setResult('');
     setRawResult('');
 
@@ -170,8 +174,10 @@ export default function WebSearchPage() {
       saveHitUrls(accumulated);
     } catch (error: any) {
       setResult(`通信エラー: ${error.message}`);
+      resetProgress();
     } finally {
       setLoading(false);
+      completeProgress();
     }
   };
 
@@ -221,6 +227,7 @@ export default function WebSearchPage() {
 
   return (
     <div>
+      <ProgressBar loading={progressLoading} progress={progress} label="🌐 Webを検索・分析中..." />
       <h1 style={{ fontSize: 28, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 8 }}>🌐 Web情報収集</h1>
       <p style={{ color: 'var(--text-muted)', marginBottom: 24 }}>Claude AIがWebを検索し、引用付きで最新情報をまとめます</p>
 

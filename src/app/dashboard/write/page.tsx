@@ -1,5 +1,7 @@
 'use client';
 import { useState, useEffect } from 'react';
+import { ProgressBar } from '@/components/ProgressBar';
+import { useProgress } from '@/components/useProgress';
 
 const MODE_CATEGORIES = [
   {
@@ -40,6 +42,7 @@ const MODE_CATEGORIES = [
 ];
 
 export default function WritePage() {
+  const { progress, loading: progressLoading, startProgress, completeProgress, resetProgress } = useProgress();
   const [mode, setMode] = useState('blog');
   const [prompt, setPrompt] = useState('');
   const [style, setStyle] = useState('casual');
@@ -63,6 +66,7 @@ export default function WritePage() {
   const generate = async () => {
     if (!prompt.trim()) return;
     setLoading(true);
+    startProgress();
     setOutput('');
 
     try {
@@ -136,8 +140,10 @@ export default function WritePage() {
     } catch (error) {
       console.error('[write] Fetch error:', error);
       alert('通信エラーが発生しました。ネットワークを確認してください。');
+      resetProgress();
     } finally {
       setLoading(false);
+      completeProgress();
     }
   };
 
@@ -167,6 +173,7 @@ export default function WritePage() {
 
   return (
     <div>
+      <ProgressBar loading={progressLoading} progress={progress} label="✍️ 文章生成中..." />
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
         <h1 style={{ fontSize: 28, fontWeight: 700, color: 'var(--text-primary)' }}>✍️ AI文章作成</h1>
         <a href="/dashboard/library" style={{ padding: '6px 14px', background: 'var(--bg-secondary)', border: '1px solid var(--border)', color: 'var(--text-secondary)', borderRadius: 6, fontSize: 12, textDecoration: 'none' }}>

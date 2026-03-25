@@ -1,5 +1,7 @@
 'use client';
 import { useState } from 'react';
+import { ProgressBar } from '@/components/ProgressBar';
+import { useProgress } from '@/components/useProgress';
 
 interface Paper {
   paperId: string;
@@ -17,6 +19,7 @@ const QUICK_SEARCHES = [
 ];
 
 export default function ResearchPage() {
+  const { progress, loading: progressLoading, startProgress, completeProgress, resetProgress } = useProgress();
   const [query, setQuery] = useState('');
   const [papers, setPapers] = useState<Paper[]>([]);
   const [loading, setLoading] = useState(false);
@@ -26,6 +29,7 @@ export default function ResearchPage() {
     const searchQuery = q || query;
     if (!searchQuery.trim()) return;
     setLoading(true);
+    startProgress();
     setError('');
     setPapers([]);
 
@@ -51,13 +55,16 @@ export default function ResearchPage() {
     } catch (e: any) {
       console.error('[research] Error:', e);
       setError(`エラーが発生しました: ${e.message}`);
+      resetProgress();
     } finally {
       setLoading(false);
+      completeProgress();
     }
   };
 
   return (
     <div>
+      <ProgressBar loading={progressLoading} progress={progress} label="🔬 論文検索中..." />
       <h1 style={{ fontSize: 28, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 8 }}>🔬 文献検索</h1>
       <p style={{ color: 'var(--text-muted)', marginBottom: 24 }}>Semantic Scholar — 1.38億件以上の学術論文（日本語・英語対応）</p>
 

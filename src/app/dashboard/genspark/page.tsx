@@ -1,5 +1,7 @@
 'use client';
 import { useState, useEffect } from 'react';
+import { ProgressBar } from '@/components/ProgressBar';
+import { useProgress } from '@/components/useProgress';
 
 const PRESENTATION_TYPES = [
   { id: 'business', label: '💼 ビジネス提案', desc: '提案・報告・計画書', color: '#6c63ff' },
@@ -16,6 +18,7 @@ export default function GensparkPage() {
   const [loading, setLoading] = useState(false);
   const [fontSize, setFontSize] = useState(13);
   const [copied, setCopied] = useState(false);
+  const { progress, loading: progressLoading, startProgress, completeProgress, resetProgress } = useProgress();
 
   useEffect(() => {
     const ctx = localStorage.getItem('lumina_research_context') || localStorage.getItem('lumina_analysis_source');
@@ -24,7 +27,7 @@ export default function GensparkPage() {
 
   const generate = async () => {
     if (!content.trim()) return;
-    setLoading(true); setResult('');
+    setLoading(true); startProgress(); setResult('');
 
     try {
       const res = await fetch('/api/genspark', {
@@ -49,8 +52,9 @@ export default function GensparkPage() {
           } catch {}
         }
       }
-    } catch (e: any) { setResult(`エラー: ${e.message}`); }
+    } catch (e: any) { setResult(`エラー: ${e.message}`); resetProgress(); }
     setLoading(false);
+    completeProgress();
   };
 
   const copyAndOpenGenspark = async () => {
@@ -73,6 +77,7 @@ export default function GensparkPage() {
 
   return (
     <div>
+      <ProgressBar loading={progressLoading} progress={progress} label="🎯 Genspark構成生成中..." />
       <h1 style={{ fontSize: 28, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 4 }}>🎯 Genspark プレゼン出力</h1>
       <p style={{ color: 'var(--text-muted)', marginBottom: 20 }}>調査・分析結果をGensparkで最高のプレゼン資料に変換します</p>
 

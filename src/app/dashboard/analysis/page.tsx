@@ -1,5 +1,7 @@
 'use client';
 import { useState, useEffect } from 'react';
+import { ProgressBar } from '@/components/ProgressBar';
+import { useProgress } from '@/components/useProgress';
 
 const ANALYSIS_TYPES = [
   { id: 'swot', label: '📊 SWOT分析', desc: '強み・弱み・機会・脅威を体系化' },
@@ -16,6 +18,7 @@ export default function AnalysisPage() {
   const [result, setResult] = useState('');
   const [loading, setLoading] = useState(false);
   const [fontSize, setFontSize] = useState(14);
+  const { progress, loading: progressLoading, startProgress, completeProgress, resetProgress } = useProgress();
 
   useEffect(() => {
     const ctx = localStorage.getItem('lumina_analysis_source');
@@ -24,7 +27,7 @@ export default function AnalysisPage() {
 
   const analyze = async () => {
     if (!content.trim()) return;
-    setLoading(true); setResult('');
+    setLoading(true); startProgress(); setResult('');
 
     try {
       const res = await fetch('/api/analyze', {
@@ -49,8 +52,9 @@ export default function AnalysisPage() {
           } catch {}
         }
       }
-    } catch (e: any) { setResult(`エラー: ${e.message}`); }
+    } catch (e: any) { setResult(`エラー: ${e.message}`); resetProgress(); }
     setLoading(false);
+    completeProgress();
   };
 
   const sendToWriter = () => {
@@ -60,6 +64,7 @@ export default function AnalysisPage() {
 
   return (
     <div>
+      <ProgressBar loading={progressLoading} progress={progress} label="🧩 AI分析実行中..." />
       <h1 style={{ fontSize: 28, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 4 }}>🧩 AI分析エンジン</h1>
       <p style={{ color: 'var(--text-muted)', marginBottom: 20 }}>収集した情報をAIが深く分析し、仮説・戦略・アクションプランを生成します</p>
 

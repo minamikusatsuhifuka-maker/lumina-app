@@ -1,5 +1,7 @@
 'use client';
 import { useState, useEffect } from 'react';
+import { ProgressBar } from '@/components/ProgressBar';
+import { useProgress } from '@/components/useProgress';
 
 const STRATEGY_TYPES = [
   { id: 'mvv', label: '🌟 MVV策定', desc: 'Mission・Vision・Values を策定', color: '#6c63ff' },
@@ -85,6 +87,7 @@ export default function StrategyPage() {
   const [loading, setLoading] = useState(false);
   const [fontSize, setFontSize] = useState(14);
   const [saved, setSaved] = useState(false);
+  const { progress, loading: progressLoading, startProgress, completeProgress, resetProgress } = useProgress();
 
   useEffect(() => {
     const ctx = localStorage.getItem('lumina_analysis_source');
@@ -98,7 +101,7 @@ export default function StrategyPage() {
 
   const generate = async () => {
     if (!content.trim()) return;
-    setLoading(true); setResult(''); setSaved(false);
+    setLoading(true); startProgress(); setResult(''); setSaved(false);
 
     try {
       const res = await fetch('/api/strategy', {
@@ -138,8 +141,10 @@ export default function StrategyPage() {
       }
     } catch (e: any) {
       setResult(`通信エラー: ${e.message}`);
+      resetProgress();
     }
     setLoading(false);
+    completeProgress();
   };
 
   const saveDraft = async () => {
@@ -172,6 +177,7 @@ export default function StrategyPage() {
 
   return (
     <div>
+      <ProgressBar loading={progressLoading} progress={progress} label="💼 経営戦略生成中..." />
       <h1 style={{ fontSize: 28, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 4 }}>
         💼 経営インテリジェンス
       </h1>
