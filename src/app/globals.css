@@ -99,23 +99,23 @@
 }
 
 [data-theme="nature"] {
-  --bg-primary: #0d1a0f;
-  --bg-secondary: #0f2012;
-  --bg-card: rgba(29,158,117,0.05);
-  --bg-card-hover: rgba(29,158,117,0.1);
-  --text-primary: #e8f5e9;
-  --text-secondary: #a8d5b0;
-  --text-muted: #6a9a72;
-  --accent: #1d9e75;
-  --accent-soft: rgba(29,158,117,0.15);
-  --accent-secondary: #86efac;
-  --border: rgba(29,158,117,0.12);
-  --border-accent: rgba(29,158,117,0.35);
-  --sidebar-bg: #0a1a0c;
-  --card-bg: rgba(29,158,117,0.06);
-  --card-border: rgba(29,158,117,0.15);
-  --input-bg: rgba(29,158,117,0.05);
-  --shadow: 0 2px 12px rgba(0,0,0,0.3);
+  --bg-primary: #1a2e1c;
+  --bg-secondary: #1f3522;
+  --bg-card: rgba(180,230,185,0.06);
+  --bg-card-hover: rgba(180,230,185,0.1);
+  --text-primary: #dff0e0;
+  --text-secondary: #a8cead;
+  --text-muted: #6a9470;
+  --accent: #5db870;
+  --accent-soft: rgba(93,184,112,0.15);
+  --accent-secondary: #a3d9a5;
+  --border: rgba(180,230,185,0.12);
+  --border-accent: rgba(93,184,112,0.35);
+  --sidebar-bg: #162418;
+  --card-bg: rgba(180,230,185,0.06);
+  --card-border: rgba(180,230,185,0.12);
+  --input-bg: rgba(180,230,185,0.05);
+  --shadow: 0 2px 12px rgba(0,0,0,0.25);
 }
 
 /* ─── フォント変数 ─── */
