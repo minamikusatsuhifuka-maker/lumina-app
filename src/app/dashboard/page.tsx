@@ -51,7 +51,7 @@ export default async function DashboardPage() {
       {/* 統計カード */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 14, marginBottom: 28 }}>
         {stats.map(s => (
-          <div key={s.label} style={{ background: 'var(--card-bg)', border: `1px solid ${s.borderColor}`, borderRadius: 12, padding: '18px 20px', display: 'flex', alignItems: 'center', gap: 14 }}>
+          <div key={s.label} style={{ background: 'var(--bg-card)', border: `1px solid ${s.borderColor}`, borderRadius: 12, padding: '18px 20px', display: 'flex', alignItems: 'center', gap: 14 }}>
             <span style={{ fontSize: 28 }}>{s.icon}</span>
             <div>
               <div style={{ fontSize: 28, fontWeight: 700, color: s.color, fontFamily: 'monospace' }}>{s.value}</div>
@@ -66,7 +66,7 @@ export default async function DashboardPage() {
         <div style={{ fontSize: 13, fontWeight: 600, color: '#5a5a7a', textTransform: 'uppercase' as const, letterSpacing: '0.08em', marginBottom: 12 }}>クイックスタート</div>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 14 }}>
           {cards.map(card => (
-            <Link key={card.href} href={card.href} style={{ background: 'var(--card-bg)', border: `1px solid ${card.borderColor}`, borderRadius: 14, padding: 22, textDecoration: 'none', display: 'block', transition: 'border-color 0.2s' }}>
+            <Link key={card.href} href={card.href} style={{ background: 'var(--bg-card)', border: `1px solid ${card.borderColor}`, borderRadius: 14, padding: 22, textDecoration: 'none', display: 'block', transition: 'border-color 0.2s' }}>
               <div style={{ fontSize: 30, marginBottom: 10 }}>{card.icon}</div>
               <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 5 }}>{card.title}</div>
               <div style={{ fontSize: 12, color: 'var(--text-muted)', lineHeight: 1.6 }}>{card.desc}</div>
@@ -81,7 +81,7 @@ export default async function DashboardPage() {
           <div style={{ fontSize: 13, fontWeight: 600, color: '#5a5a7a', textTransform: 'uppercase' as const, letterSpacing: '0.08em', marginBottom: 12 }}>最近の下書き</div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
             {recentDrafts.map((d: any) => (
-              <Link key={d.id} href="/dashboard/write" style={{ background: 'var(--card-bg)', border: '1px solid rgba(130,140,255,0.1)', borderRadius: 10, padding: '12px 16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', textDecoration: 'none' }}>
+              <Link key={d.id} href="/dashboard/write" style={{ background: 'var(--bg-card)', border: '1px solid rgba(130,140,255,0.1)', borderRadius: 10, padding: '12px 16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', textDecoration: 'none' }}>
                 <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
                   <span style={{ fontSize: 16 }}>{modeLabel[d.mode]?.split(' ')[0] || '✍️'}</span>
                   <div>
