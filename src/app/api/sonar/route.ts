@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 
-export const maxDuration = 60;
+export const maxDuration = 300;
 
 export async function POST(req: NextRequest) {
   try {
@@ -27,6 +27,7 @@ export async function POST(req: NextRequest) {
       },
       body: JSON.stringify({
         model: 'sonar-pro',
+        max_tokens: 4000,
         messages: [
           { role: 'system', content: systemPrompts[mode || 'news'] },
           { role: 'user', content: query },

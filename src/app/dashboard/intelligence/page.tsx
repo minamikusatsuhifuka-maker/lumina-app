@@ -2,6 +2,7 @@
 import { useState } from 'react';
 import { ProgressBar } from '@/components/ProgressBar';
 import { useProgress } from '@/components/useProgress';
+import { SaveToLibraryButton } from '@/components/SaveToLibraryButton';
 
 const SEARCH_MODES = [
   { id: 'news', label: '📰 最新ニュース', desc: 'リアルタイムニュース・時事情報' },
@@ -203,7 +204,7 @@ export default function IntelligencePage() {
         <input
           value={query}
           onChange={e => setQuery(e.target.value)}
-          onKeyDown={e => e.key === 'Enter' && search()}
+          onKeyDown={e => { if (e.key === 'Enter') e.preventDefault(); }}
           placeholder={`${SEARCH_MODES.find(m2=>m2.id===mode)?.desc || ''}のキーワードを入力`}
           style={{ flex: 1, padding: '12px 16px', background: 'var(--bg-secondary)', border: '1px solid var(--border-accent)', borderRadius: 10, color: 'var(--text-primary)', fontSize: 14, outline: 'none' }}
         />
@@ -230,9 +231,18 @@ export default function IntelligencePage() {
       {(result || loading) && (
         <div style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 12, padding: 20 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14, flexWrap: 'wrap' as const, gap: 8 }}>
-            <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-secondary)' }}>
-              {SEARCH_MODES.find(m2=>m2.id===mode)?.label} 結果
-            </span>
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+              <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-secondary)' }}>
+                {SEARCH_MODES.find(m2=>m2.id===mode)?.label} 結果
+              </span>
+              <SaveToLibraryButton
+                title={`Intelligence Hub: ${query}`}
+                content={result}
+                type="web"
+                tags="Intelligence Hub"
+                groupName="Intelligence Hub"
+              />
+            </div>
             <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' as const }}>
               <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>文字サイズ</span>
               <button onClick={() => setFontSize(f => Math.max(11, f-1))} style={{ width: 24, height: 24, borderRadius: 4, border: '1px solid var(--border)', background: 'var(--bg-secondary)', color: 'var(--text-secondary)', cursor: 'pointer', fontSize: 14 }}>−</button>
