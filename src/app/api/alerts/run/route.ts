@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
 
-export const maxDuration = 120;
+export const maxDuration = 300;
 
 export async function POST(req: NextRequest) {
   const session = await auth();
