@@ -133,6 +133,78 @@ export default function LibraryPage() {
         ))}
       </div>
 
+      {/* ⭐ お気に入りフォルダ */}
+      {items.filter(i => i.is_favorite).length > 0 && (
+        <div style={{
+          marginBottom: 32,
+          background: 'rgba(245,166,35,0.05)',
+          border: '1px solid rgba(245,166,35,0.2)',
+          borderRadius: 16, padding: 20,
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16 }}>
+            <span style={{ fontSize: 20 }}>⭐</span>
+            <h2 style={{ fontSize: 16, fontWeight: 700, color: 'var(--text-primary)', margin: 0 }}>
+              お気に入り（文章生成用）
+            </h2>
+            <span style={{
+              fontSize: 11, color: '#f5a623',
+              background: 'rgba(245,166,35,0.15)',
+              padding: '2px 8px', borderRadius: 99,
+              border: '1px solid rgba(245,166,35,0.3)',
+            }}>
+              {items.filter(i => i.is_favorite).length}件
+            </span>
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            {items.filter(i => i.is_favorite).map(item => (
+              <div key={item.id} style={{
+                background: 'var(--bg-secondary)',
+                border: '1px solid rgba(245,166,35,0.2)',
+                borderRadius: 10, padding: '12px 16px',
+                display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                cursor: 'pointer',
+              }}
+                onClick={() => setExpandedId(expandedId === item.id ? null : item.id)}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10, flex: 1, minWidth: 0 }}>
+                  <span style={{ fontSize: 16 }}>{TYPE_ICONS[item.type] || TYPE_ICONS.default}</span>
+                  <div style={{ minWidth: 0 }}>
+                    <p style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)', margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {item.title}
+                    </p>
+                    <p style={{ fontSize: 11, color: 'var(--text-muted)', margin: '2px 0 0' }}>
+                      {new Date(item.created_at).toLocaleDateString('ja-JP')} · {item.group_name}
+                    </p>
+                  </div>
+                </div>
+                <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
+                  <button
+                    onClick={e => { e.stopPropagation(); localStorage.setItem('lumina_research_context', item.content || ''); window.location.href = '/dashboard/write'; }}
+                    style={{
+                      padding: '5px 12px', background: 'linear-gradient(135deg, #6c63ff, #8b5cf6)',
+                      border: 'none', borderRadius: 6, color: '#fff', fontSize: 12, fontWeight: 600, cursor: 'pointer',
+                    }}
+                  >
+                    ✍️ 文章作成に使う
+                  </button>
+                  <button
+                    onClick={e => { e.stopPropagation(); toggleFavorite(item); }}
+                    style={{
+                      padding: '5px 10px', background: 'rgba(245,166,35,0.1)',
+                      border: '1px solid rgba(245,166,35,0.3)', borderRadius: 6,
+                      color: '#f5a623', fontSize: 12, cursor: 'pointer',
+                    }}
+                    title="お気に入りを解除"
+                  >
+                    ★ 解除
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       {loading ? (
         <div style={{ color: 'var(--text-muted)', textAlign: 'center', padding: 40 }}>読み込み中...</div>
       ) : filtered.length === 0 ? (

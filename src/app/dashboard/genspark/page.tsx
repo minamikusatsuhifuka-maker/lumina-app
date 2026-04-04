@@ -2,6 +2,7 @@
 import { useState, useEffect } from 'react';
 import { ProgressBar } from '@/components/ProgressBar';
 import { useProgress } from '@/components/useProgress';
+import { SaveToLibraryButton } from '@/components/SaveToLibraryButton';
 
 const PRESENTATION_TYPES = [
   { id: 'business', label: '💼 ビジネス提案', desc: '提案・報告・計画書', color: '#6c63ff' },
@@ -140,9 +141,18 @@ export default function GensparkPage() {
       {(result || loading) && (
         <div style={{ background: 'var(--bg-secondary)', border: `1px solid ${selectedType?.color}30`, borderRadius: 12, padding: 20 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14, flexWrap: 'wrap' as const, gap: 8 }}>
-            <span style={{ fontSize: 13, fontWeight: 600, color: selectedType?.color }}>
-              Genspark用 プレゼン構成
-            </span>
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+              <span style={{ fontSize: 13, fontWeight: 600, color: selectedType?.color }}>
+                Genspark用 プレゼン構成
+              </span>
+              <SaveToLibraryButton
+                title={`Genspark: ${title || 'プレゼンテーション'}`}
+                content={result}
+                type="genspark"
+                groupName="Genspark出力"
+                tags="プレゼン"
+              />
+            </div>
             <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' as const }}>
               <button onClick={() => setFontSize(f => Math.max(11, f-1))} style={{ width: 24, height: 24, borderRadius: 4, border: '1px solid var(--border)', background: 'var(--bg-secondary)', color: 'var(--text-secondary)', cursor: 'pointer', fontSize: 14 }}>−</button>
               <span style={{ fontSize: 11, color: 'var(--text-muted)', fontFamily: 'monospace' }}>{fontSize}</span>

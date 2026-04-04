@@ -15,12 +15,12 @@ export async function GET() {
 export async function POST(req: NextRequest) {
   const session = await auth();
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  const { type, title, content, metadata, tags, group_name } = await req.json();
+  const { type, title, content, metadata, tags, group_name, is_favorite } = await req.json();
   const sql = neon(process.env.DATABASE_URL!);
   const id = uuidv4();
   const userId = (session.user as any).id;
-  await sql`INSERT INTO library (id, user_id, type, title, content, metadata, tags, group_name)
-    VALUES (${id}, ${userId}, ${type}, ${title}, ${content || ''}, ${JSON.stringify(metadata || {})}, ${tags || ''}, ${group_name || '未分類'})`;
+  await sql`INSERT INTO library (id, user_id, type, title, content, metadata, tags, group_name, is_favorite)
+    VALUES (${id}, ${userId}, ${type}, ${title}, ${content || ''}, ${JSON.stringify(metadata || {})}, ${tags || ''}, ${group_name || '未分類'}, ${is_favorite ? 1 : 0})`;
   return NextResponse.json({ success: true, id });
 }
 

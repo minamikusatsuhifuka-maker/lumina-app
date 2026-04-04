@@ -2,6 +2,7 @@
 import { useState } from 'react';
 import { ProgressBar } from '@/components/ProgressBar';
 import { useProgress } from '@/components/useProgress';
+import { SaveToLibraryButton } from '@/components/SaveToLibraryButton';
 
 interface Paper {
   paperId: string;
@@ -110,6 +111,19 @@ export default function ResearchPage() {
       {error && (
         <div style={{ padding: 16, background: 'rgba(255,107,107,0.1)', border: '1px solid rgba(255,107,107,0.2)', borderRadius: 10, color: '#ff6b6b', fontSize: 14, marginBottom: 16 }}>
           {error}
+        </div>
+      )}
+
+      {/* ライブラリ保存ボタン */}
+      {papers.length > 0 && (
+        <div style={{ marginBottom: 12 }}>
+          <SaveToLibraryButton
+            title={`文献検索: ${query}`}
+            content={papers.map(p => `## ${p.title}\n著者: ${p.authors?.slice(0,3).map(a=>a.name).join(', ')}\n年: ${p.year || '不明'} | 被引用: ${p.citationCount || 0}\n\n${p.abstract || '要旨なし'}\n`).join('\n---\n')}
+            type="research"
+            groupName="文献検索"
+            tags="文献検索"
+          />
         </div>
       )}
 

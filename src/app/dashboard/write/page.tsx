@@ -2,6 +2,7 @@
 import { useState, useEffect } from 'react';
 import { ProgressBar } from '@/components/ProgressBar';
 import { useProgress } from '@/components/useProgress';
+import { SaveToLibraryButton } from '@/components/SaveToLibraryButton';
 
 const MODE_CATEGORIES = [
   {
@@ -227,20 +228,13 @@ export default function WritePage() {
             </div>
             <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
               <span style={{ fontSize: 12, color: 'var(--text-muted)', fontFamily: 'monospace' }}>{output.length.toLocaleString()}字</span>
-              <button
-                onClick={async () => {
-                  if (!output) return;
-                  await fetch('/api/drafts', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ title: prompt.slice(0, 50) || '無題', content: output, mode }),
-                  });
-                  alert('✅ ライブラリに保存しました！');
-                }}
-                style={{ padding: '5px 12px', borderRadius: 6, border: '1px solid rgba(0,212,184,0.3)', background: 'rgba(0,212,184,0.1)', color: '#00d4b8', cursor: 'pointer', fontSize: 12 }}
-              >
-                📚 保存
-              </button>
+              <SaveToLibraryButton
+                title={`${MODE_CATEGORIES.flatMap(c => c.modes).find(m => m.id === mode)?.label || mode}: ${prompt.slice(0, 30)}`}
+                content={output}
+                type="write"
+                groupName="文章作成"
+                tags="文章"
+              />
               <button onClick={copy} style={{ padding: '5px 12px', borderRadius: 6, border: '1px solid var(--border)', background: 'var(--bg-secondary)', color: 'var(--text-secondary)', cursor: 'pointer', fontSize: 12 }}>📋 コピー</button>
               <button onClick={() => download('md')} style={{ padding: '5px 12px', borderRadius: 6, border: '1px solid var(--border)', background: 'var(--bg-secondary)', color: 'var(--text-secondary)', cursor: 'pointer', fontSize: 12 }}>💾 MD</button>
               <button onClick={() => download('txt')} style={{ padding: '5px 12px', borderRadius: 6, border: '1px solid var(--border)', background: 'var(--bg-secondary)', color: 'var(--text-secondary)', cursor: 'pointer', fontSize: 12 }}>💾 TXT</button>

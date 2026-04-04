@@ -2,6 +2,7 @@
 import { useState, useEffect } from 'react';
 import { ProgressBar } from '@/components/ProgressBar';
 import { useProgress } from '@/components/useProgress';
+import { SaveToLibraryButton } from '@/components/SaveToLibraryButton';
 
 const ANALYSIS_TYPES = [
   { id: 'swot', label: '📊 SWOT分析', desc: '強み・弱み・機会・脅威を体系化' },
@@ -112,9 +113,18 @@ export default function AnalysisPage() {
       {(result || loading) && (
         <div style={{ background: 'var(--bg-secondary)', border: '1px solid rgba(245,166,35,0.2)', borderRadius: 12, padding: 20 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14, flexWrap: 'wrap' as const, gap: 8 }}>
-            <span style={{ fontSize: 13, fontWeight: 600, color: '#f5a623' }}>
-              {ANALYSIS_TYPES.find(t => t.id === analysisType)?.label} 結果
-            </span>
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+              <span style={{ fontSize: 13, fontWeight: 600, color: '#f5a623' }}>
+                {ANALYSIS_TYPES.find(t => t.id === analysisType)?.label} 結果
+              </span>
+              <SaveToLibraryButton
+                title={`${ANALYSIS_TYPES.find(t => t.id === analysisType)?.label || '分析'}分析: ${content.slice(0, 30)}`}
+                content={result}
+                type="analysis"
+                groupName="AI分析"
+                tags="AI分析"
+              />
+            </div>
             <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
               <button onClick={() => setFontSize(f => Math.max(11, f-1))} style={{ width: 24, height: 24, borderRadius: 4, border: '1px solid var(--border)', background: 'var(--bg-secondary)', color: 'var(--text-secondary)', cursor: 'pointer', fontSize: 14 }}>−</button>
               <span style={{ fontSize: 11, color: 'var(--text-muted)', fontFamily: 'monospace' }}>{fontSize}</span>
