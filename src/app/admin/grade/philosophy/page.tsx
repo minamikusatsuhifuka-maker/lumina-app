@@ -170,6 +170,61 @@ export default function GrowthPhilosophyPage() {
               <div style={{ textAlign: 'right', fontSize: 11, color: 'var(--text-muted)', marginTop: 8 }}>— 院長より</div>
             </div>
           </div>
+
+          {/* リードマネジメント */}
+          <div style={{ marginTop: 32, padding: 24, borderRadius: 16, border: '2px solid rgba(139,92,246,0.3)', background: 'rgba(139,92,246,0.04)' }}>
+            <h2 style={{ fontSize: 18, fontWeight: 700, color: '#8b5cf6', marginBottom: 16 }}>💎 当院のリードマネジメント</h2>
+
+            {/* 2軸の図 */}
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 16 }}>
+              <div style={{ padding: 16, background: 'var(--bg-card)', border: '1px solid rgba(139,92,246,0.2)', borderRadius: 12, textAlign: 'center' }}>
+                <div style={{ fontSize: 28, marginBottom: 6 }}>🌱</div>
+                <div style={{ fontSize: 14, fontWeight: 700, color: '#8b5cf6' }}>自己成長軸</div>
+                <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 4 }}>自己愛 → 価値観の肯定的変化 → 人格形成 → 自己実現</div>
+              </div>
+              <div style={{ padding: 16, background: 'var(--bg-card)', border: '1px solid rgba(139,92,246,0.2)', borderRadius: 12, textAlign: 'center' }}>
+                <div style={{ fontSize: 28, marginBottom: 6 }}>🌍</div>
+                <div style={{ fontSize: 14, fontWeight: 700, color: '#8b5cf6' }}>貢献軸</div>
+                <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 4 }}>身近な人 → 組織 → 地域 → 社会への貢献の拡大</div>
+              </div>
+            </div>
+
+            {/* インサイドアウト */}
+            <div style={{ padding: 14, background: 'var(--bg-card)', border: '1px solid rgba(139,92,246,0.2)', borderRadius: 12, marginBottom: 12 }}>
+              <div style={{ fontSize: 13, fontWeight: 700, color: '#8b5cf6', marginBottom: 6 }}>🔄 インサイドアウトの精神</div>
+              <div style={{ fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.7 }}>
+                変えられるのは<span style={{ fontWeight: 700, color: 'var(--text-primary)' }}>自分（思考と行為）と未来だけ</span>。外側（他者・環境・過去）を変えようとするのではなく、自分の内側から変化を起こすことで、周囲が自然と動き始める。
+              </div>
+            </div>
+
+            {/* 5大欲求 */}
+            <div style={{ padding: 14, background: 'var(--bg-card)', border: '1px solid rgba(139,92,246,0.2)', borderRadius: 12, marginBottom: 12 }}>
+              <div style={{ fontSize: 13, fontWeight: 700, color: '#8b5cf6', marginBottom: 10 }}>💫 5大欲求への配慮</div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 6, textAlign: 'center' }}>
+                {[
+                  { emoji: '💪', label: '力', desc: '承認・達成感' },
+                  { emoji: '❤️', label: '愛と所属', desc: 'つながり・仲間' },
+                  { emoji: '🎉', label: '楽しみ', desc: '成長の喜び' },
+                  { emoji: '🕊️', label: '自由', desc: '自己決定・裁量' },
+                  { emoji: '🛡️', label: '生存', desc: '安全・安心' },
+                ].map(item => (
+                  <div key={item.label} style={{ padding: 8, background: 'rgba(139,92,246,0.06)', borderRadius: 8 }}>
+                    <div style={{ fontSize: 18 }}>{item.emoji}</div>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: '#8b5cf6' }}>{item.label}</div>
+                    <div style={{ fontSize: 10, color: 'var(--text-muted)' }}>{item.desc}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* 哲学本文 */}
+            <div style={{ padding: 16, background: 'var(--bg-card)', border: '1px solid rgba(139,92,246,0.2)', borderRadius: 12 }}>
+              <div style={{ fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.8, fontStyle: 'italic', textAlign: 'center' }}>
+                「スタッフが自分の価値や可能性に気づき、自己成長と貢献の2軸で成功の原理原則を実践しながら人格形成を続け、自己実現をサポートし、幸せで豊かな人生を築けるように導く」
+              </div>
+              <div style={{ textAlign: 'right', fontSize: 11, color: 'var(--text-muted)', marginTop: 8 }}>— 院長のリードマネジメント哲学</div>
+            </div>
+          </div>
         </>
       )}
     </div>

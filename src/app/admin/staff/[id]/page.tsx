@@ -38,6 +38,15 @@ export default function StaffDetailPage({ params }: { params: Promise<{ id: stri
     lifeVision: '', personalMission: '', coreValues: '', shortTermGoals: '', longTermGoals: '',
   });
 
+  // リードマネジメント記録
+  const [lmType, setLmType] = useState('regular');
+  const [lmFacts, setLmFacts] = useState('');
+  const [lmAwareness, setLmAwareness] = useState('');
+  const [lmStrengths, setLmStrengths] = useState('');
+  const [lmNextStep, setLmNextStep] = useState('');
+  const [lmNeeds, setLmNeeds] = useState<string[]>([]);
+  const [lmSaving, setLmSaving] = useState(false);
+
   const runScoring = async () => {
     setScoreLoading(true);
     try {
@@ -400,6 +409,80 @@ export default function StaffDetailPage({ params }: { params: Promise<{ id: stri
               )}
             </div>
           )}
+
+          {/* リードマネジメント記録 */}
+          <div style={{ marginTop: 28, borderTop: '1px solid var(--border)', paddingTop: 24 }}>
+            <h3 style={{ fontSize: 16, fontWeight: 700, color: '#8b5cf6', marginBottom: 16 }}>📝 リードマネジメント記録</h3>
+
+            <div style={{ marginBottom: 12 }}>
+              <label style={{ display: 'block', fontSize: 12, color: 'var(--text-muted)', marginBottom: 4 }}>面談種別</label>
+              <select value={lmType} onChange={e => setLmType(e.target.value)} style={inputStyle}>
+                <option value="regular">定期面談</option>
+                <option value="adhoc">随時面談</option>
+                <option value="goal">目標設定</option>
+                <option value="review">振り返り</option>
+              </select>
+            </div>
+
+            <div style={{ marginBottom: 12 }}>
+              <label style={{ display: 'block', fontSize: 12, color: 'var(--text-muted)', marginBottom: 4 }}>事実ベースのフィードバック</label>
+              <textarea value={lmFacts} onChange={e => setLmFacts(e.target.value)} placeholder="具体的な出来事・行動を客観的に記載。評価や感情は含めず、事実のみ記載する。" style={{ ...inputStyle, minHeight: 70, resize: 'vertical' }} />
+            </div>
+
+            <div style={{ marginBottom: 12 }}>
+              <label style={{ display: 'block', fontSize: 12, color: 'var(--text-muted)', marginBottom: 4 }}>本人の気づき・反応</label>
+              <textarea value={lmAwareness} onChange={e => setLmAwareness(e.target.value)} placeholder="面談でどんな気づきが生まれたか。本人の言葉で記録する。" style={{ ...inputStyle, minHeight: 70, resize: 'vertical' }} />
+            </div>
+
+            <div style={{ marginBottom: 12 }}>
+              <label style={{ display: 'block', fontSize: 12, color: 'var(--text-muted)', marginBottom: 4 }}>引き出された強み・可能性</label>
+              <textarea value={lmStrengths} onChange={e => setLmStrengths(e.target.value)} placeholder="この面談でわかったこの方の強み・可能性・価値" style={{ ...inputStyle, minHeight: 70, resize: 'vertical' }} />
+            </div>
+
+            <div style={{ marginBottom: 12 }}>
+              <label style={{ display: 'block', fontSize: 12, color: 'var(--text-muted)', marginBottom: 4 }}>次のステップ（本人が決めた目標）</label>
+              <textarea value={lmNextStep} onChange={e => setLmNextStep(e.target.value)} placeholder="インサイドアウト：本人が自ら決めた行動目標" style={{ ...inputStyle, minHeight: 70, resize: 'vertical' }} />
+            </div>
+
+            <div style={{ marginBottom: 16 }}>
+              <label style={{ display: 'block', fontSize: 12, color: 'var(--text-muted)', marginBottom: 8 }}>💫 5大欲求への配慮メモ</label>
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                {[
+                  { key: 'power', emoji: '💪', label: '力（承認・達成感）' },
+                  { key: 'love', emoji: '❤️', label: '愛と所属（つながり）' },
+                  { key: 'fun', emoji: '🎉', label: '楽しみ（成長の喜び）' },
+                  { key: 'freedom', emoji: '🕊️', label: '自由（自己決定）' },
+                  { key: 'survival', emoji: '🛡️', label: '生存（安全・安心）' },
+                ].map(n => (
+                  <label key={n.key} style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12, color: 'var(--text-secondary)', padding: '4px 10px', borderRadius: 8, background: lmNeeds.includes(n.key) ? 'rgba(139,92,246,0.1)' : 'var(--bg-card)', border: `1px solid ${lmNeeds.includes(n.key) ? 'rgba(139,92,246,0.3)' : 'var(--border)'}`, cursor: 'pointer' }}>
+                    <input type="checkbox" checked={lmNeeds.includes(n.key)} onChange={e => setLmNeeds(prev => e.target.checked ? [...prev, n.key] : prev.filter(k => k !== n.key))} style={{ display: 'none' }} />
+                    <span>{n.emoji}</span> {n.label}
+                  </label>
+                ))}
+              </div>
+            </div>
+
+            <button onClick={async () => {
+              if (!lmFacts.trim()) return;
+              setLmSaving(true);
+              try {
+                await fetch(`/api/clinic/staff/${id}/notes`, {
+                  method: 'POST', headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({
+                    type: 'interview', title: `リードマネジメント記録（${({ regular: '定期面談', adhoc: '随時面談', goal: '目標設定', review: '振り返り' })[lmType]}）`,
+                    content: `【事実】\n${lmFacts}\n\n【本人の気づき】\n${lmAwareness}\n\n【強み・可能性】\n${lmStrengths}\n\n【次のステップ】\n${lmNextStep}\n\n【5大欲求配慮】\n${lmNeeds.map(k => ({ power: '💪力', love: '❤️愛と所属', fun: '🎉楽しみ', freedom: '🕊️自由', survival: '🛡️生存' })[k]).join('、')}`,
+                    author: '院長',
+                  }),
+                });
+                setMessage('リードマネジメント記録を保存しました');
+                setLmFacts(''); setLmAwareness(''); setLmStrengths(''); setLmNextStep(''); setLmNeeds([]);
+                fetchStaff();
+              } catch { setMessage('保存に失敗しました'); }
+              finally { setLmSaving(false); }
+            }} disabled={lmSaving || !lmFacts.trim()} style={{ padding: '10px 20px', borderRadius: 8, border: 'none', background: lmSaving || !lmFacts.trim() ? 'rgba(139,92,246,0.3)' : 'linear-gradient(135deg, #8b5cf6, #6c63ff)', color: '#fff', fontWeight: 700, fontSize: 13, cursor: 'pointer' }}>
+              {lmSaving ? '保存中...' : '💾 記録を保存'}
+            </button>
+          </div>
         </div>
       )}
     </div>

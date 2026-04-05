@@ -36,12 +36,15 @@ export async function getClinicContext(category?: string): Promise<string> {
   }
 
   // 成長哲学・究極ビジョン（最重要 → 先頭に配置）
-  const growthRows = await sql`SELECT win_win_vision, power_partner_definition FROM growth_philosophy LIMIT 1`;
+  const growthRows = await sql`SELECT win_win_vision, power_partner_definition, lead_management_philosophy FROM growth_philosophy LIMIT 1`;
   if (growthRows[0]?.win_win_vision) {
     parts.unshift(`【院長の究極ビジョン・組織の目指す姿】\n${growthRows[0].win_win_vision}\n\nこのビジョンを常に念頭に置き、全ての提案・評価・生成において「この内容はスタッフが自己実現しながら社会に貢献できる組織づくりにつながるか」を最優先の判断軸としてください。`);
     if (growthRows[0]?.power_partner_definition) {
       parts.push(`【パワーパートナーの定義】\n${growthRows[0].power_partner_definition}`);
     }
+  }
+  if (growthRows[0]?.lead_management_philosophy) {
+    parts.push(`【当院のリードマネジメント哲学】\n${growthRows[0].lead_management_philosophy}\n\nこのマネジメント哲学に基づき、全ての提案・フィードバック・評価において：\n・本人の成長・気づき・可能性にフォーカスする\n・インサイドアウト（自分の思考と行為から変える）を促す\n・5大欲求（生存・愛と所属・力・自由・楽しみ）に配慮する\n・事実に基づいたフィードバックで、モチベーションと成長意欲を高める\n・「あなたには価値がある・可能性がある」という前提で関わる`);
   }
 
   // 就業規則（長い場合は関連条項を自動抽出）
