@@ -1,0 +1,40 @@
+import { NextRequest, NextResponse } from 'next/server';
+import { auth } from '@/lib/auth';
+import { neon } from '@neondatabase/serverless';
+
+export async function GET() {
+  const session = await auth();
+  if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const sql = neon(process.env.DATABASE_URL!);
+  const rows = await sql`SELECT * FROM red_zone_rules ORDER BY severity ASC, category ASC, created_at DESC`;
+  return NextResponse.json(rows);
+}
+
+export async function POST(req: NextRequest) {
+  const session = await auth();
+  if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+
+  const { category, title, description, severity, consequence } = await req.json();
+  if (!category || !title || !description) {
+    return NextResponse.json({ error: 'category, title, description は必須です' }, { status: 400 });
+  }
+
+  const sql = neon(process.env.DATABASE_URL!);
+  const rows = await sql`INSERT INTO red_zone_rules (category, title, description, severity, consequence)
+    VALUES (${category}, ${title}, ${description}, ${severity || 'critical'}, ${consequence || null})
+    RETURNING id`;
+
+  return NextResponse.json({ success: true, id: rows[0].id });
+}
+
+export async function DELETE(req: NextRequest) {
+  const session = await auth();
+  if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+
+  const { id } = await req.json();
+  if (!id) return NextResponse.json({ error: 'id は必須です' }, { status: 400 });
+
+  const sql = neon(process.env.DATABASE_URL!);
+  await sql`DELETE FROM red_zone_rules WHERE id = ${id}`;
+  return NextResponse.json({ success: true });
+}

@@ -39,6 +39,12 @@ export async function getClinicContext(category?: string): Promise<string> {
   const growthRows = await sql`SELECT win_win_vision FROM growth_philosophy LIMIT 1`;
   if (growthRows[0]?.win_win_vision) parts.push(`【Win-Winビジョン】\n${growthRows[0].win_win_vision}`);
 
+  // 就業規則
+  try {
+    const rulesRows = await sql`SELECT content FROM employment_rules LIMIT 1`;
+    if (rulesRows[0]?.content) parts.push(`【就業規則】\n${rulesRows[0].content.slice(0, 3000)}`);
+  } catch { /* テーブル未作成時はスキップ */ }
+
   return parts.length > 0 ? parts.join('\n\n') : '';
 }
 
