@@ -183,42 +183,103 @@ export default function HandbookEditorPage({ params }: { params: Promise<{ id: s
               <button onClick={saveChapter} disabled={saving} style={{ padding: '8px 20px', borderRadius: 8, border: 'none', background: saving ? 'rgba(108,99,255,0.3)' : 'linear-gradient(135deg, #6c63ff, #8b5cf6)', color: '#fff', fontWeight: 700, fontSize: 13, cursor: 'pointer' }}>{saving ? '保存中...' : '💾 保存'}</button>
             </div>
 
-            {/* AI改善エリア */}
+            {/* AI文章強化エリア（4タブ） */}
             <div style={{ marginTop: 24, padding: 18, background: 'rgba(108,99,255,0.04)', border: '1px solid rgba(108,99,255,0.15)', borderRadius: 14 }}>
-              <div style={{ fontSize: 14, fontWeight: 700, color: '#6c63ff', marginBottom: 12 }}>🤖 AIと改善</div>
+              <div style={{ fontSize: 14, fontWeight: 700, color: '#6c63ff', marginBottom: 12 }}>🤖 AI文章強化</div>
 
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 10 }}>
-                {QUICK_INSTRUCTIONS.map(q => (
-                  <button key={q} onClick={() => setAiInstruction(q)} style={{ padding: '4px 10px', borderRadius: 20, border: '1px solid rgba(108,99,255,0.2)', background: 'var(--bg-card)', color: 'var(--text-muted)', fontSize: 11, cursor: 'pointer' }}>{q}</button>
+              <div style={{ display: 'flex', gap: 4, marginBottom: 14 }}>
+                {[{ k: 'evaluate', l: '📊 評価' }, { k: 'enhance', l: '✍️ 追記言語化' }, { k: 'template', l: '🎨 表現パターン' }, { k: 'rewrite', l: '💬 自由指示' }].map(t => (
+                  <button key={t.k} onClick={() => setAiInstruction(t.k === 'rewrite' ? aiInstruction : '')} style={{ padding: '5px 10px', borderRadius: 6, fontSize: 11, fontWeight: 600, cursor: 'pointer', background: 'var(--bg-card)', color: 'var(--text-muted)', border: '1px solid var(--border)' }} data-tab={t.k}>{t.l}</button>
                 ))}
               </div>
 
-              <div style={{ display: 'flex', gap: 8 }}>
-                <input value={aiInstruction} onChange={e => setAiInstruction(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); runAi(); } }} placeholder="例：新入スタッフ向けにやさしい表現にして" style={{ ...inputStyle, flex: 1 }} />
-                <button onClick={runAi} disabled={aiLoading || !aiInstruction.trim()} style={{ padding: '10px 18px', borderRadius: 8, border: 'none', background: aiLoading ? 'rgba(108,99,255,0.3)' : 'linear-gradient(135deg, #6c63ff, #8b5cf6)', color: '#fff', fontWeight: 700, fontSize: 13, cursor: 'pointer', whiteSpace: 'nowrap' }}>{aiLoading ? '改善中...' : '🤖 AIに改善してもらう'}</button>
+              {/* 評価 */}
+              <button onClick={async () => {
+                setAiLoading(true); setAiResult('');
+                try {
+                  const res = await fetch('/api/clinic/handbooks/enhance', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ mode: 'evaluate', chapterContent: editContent }) });
+                  const data = await res.json();
+                  if (data.result) setAiResult(data.result);
+                } catch {} finally { setAiLoading(false); }
+              }} disabled={aiLoading} style={{ padding: '8px 16px', borderRadius: 8, border: 'none', background: aiLoading ? 'rgba(108,99,255,0.3)' : 'linear-gradient(135deg, #6c63ff, #8b5cf6)', color: '#fff', fontWeight: 700, fontSize: 12, cursor: 'pointer', marginBottom: 10 }}>
+                {aiLoading ? '処理中...' : '🔍 この章を評価・改善アイデアを出す'}
+              </button>
+
+              {/* 追記言語化 */}
+              <div style={{ marginBottom: 10 }}>
+                <textarea value={aiInstruction} onChange={e => setAiInstruction(e.target.value)} placeholder="・患者さんへの感謝を入れたい&#10;・チームワークの大切さを強調&#10;・具体的なエピソードを追加したい" style={{ ...inputStyle, minHeight: 70, resize: 'vertical', fontSize: 12, marginBottom: 6 }} />
+                <button onClick={async () => {
+                  if (!aiInstruction.trim()) return;
+                  setAiLoading(true); setAiResult('');
+                  try {
+                    const res = await fetch('/api/clinic/handbooks/enhance', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ mode: 'enhance', chapterContent: editContent, additionalNotes: aiInstruction }) });
+                    const data = await res.json();
+                    if (data.result) { setAiResult(data.result); setAiHistory(prev => [...prev, { instruction: `追記: ${aiInstruction.slice(0, 30)}`, result: data.result }]); setAiInstruction(''); }
+                  } catch {} finally { setAiLoading(false); }
+                }} disabled={aiLoading} style={{ padding: '7px 14px', borderRadius: 8, border: 'none', background: aiLoading ? 'rgba(108,99,255,0.3)' : '#8b5cf6', color: '#fff', fontWeight: 700, fontSize: 11, cursor: 'pointer' }}>✍️ AIが言語化して本文に組み込む</button>
               </div>
 
+              {/* 表現パターン */}
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 4, marginBottom: 10 }}>
+                {[
+                  { k: 'story', l: '📖 ストーリー型', d: '物語形式で理念を伝える' },
+                  { k: 'mission', l: '🎯 ミッション宣言型', d: '力強く・記憶に残る言葉で' },
+                  { k: 'dialogue', l: '💬 対話・問いかけ型', d: '問いかけで自己内省を促す' },
+                  { k: 'warm', l: '🤝 温かみ・共感型', d: '感謝と共感を込めた文体で' },
+                  { k: 'concrete', l: '✅ 具体的行動型', d: '行動基準として使える形に' },
+                  { k: 'poetic', l: '🌸 詩的・美しい表現型', d: '読んで美しいと感じる表現に' },
+                ].map(t => (
+                  <button key={t.k} onClick={async () => {
+                    setAiLoading(true); setAiResult('');
+                    try {
+                      const res = await fetch('/api/clinic/handbooks/enhance', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ mode: 'template', template: t.k, chapterContent: editContent }) });
+                      const data = await res.json();
+                      if (data.result) { setAiResult(data.result); setAiHistory(prev => [...prev, { instruction: t.l, result: data.result }]); }
+                    } catch {} finally { setAiLoading(false); }
+                  }} disabled={aiLoading} style={{ padding: '8px 10px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--bg-card)', cursor: 'pointer', textAlign: 'left' }}>
+                    <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-primary)' }}>{t.l}</div>
+                    <div style={{ fontSize: 10, color: 'var(--text-muted)' }}>{t.d}</div>
+                  </button>
+                ))}
+              </div>
+
+              {/* 自由指示（クイックボタン付き） */}
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginBottom: 6 }}>
+                {QUICK_INSTRUCTIONS.map(q => (
+                  <button key={q} onClick={() => setAiInstruction(q)} style={{ padding: '3px 8px', borderRadius: 14, border: '1px solid rgba(108,99,255,0.2)', background: 'var(--bg-card)', color: 'var(--text-muted)', fontSize: 10, cursor: 'pointer' }}>{q}</button>
+                ))}
+              </div>
+              <div style={{ display: 'flex', gap: 6 }}>
+                <input value={aiInstruction} onChange={e => setAiInstruction(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); runAi(); } }} placeholder="自由に指示を入力" style={{ ...inputStyle, flex: 1, fontSize: 12 }} />
+                <button onClick={runAi} disabled={aiLoading || !aiInstruction.trim()} style={{ padding: '8px 14px', borderRadius: 8, border: 'none', background: aiLoading ? 'rgba(108,99,255,0.3)' : 'linear-gradient(135deg, #6c63ff, #8b5cf6)', color: '#fff', fontWeight: 700, fontSize: 11, cursor: 'pointer', whiteSpace: 'nowrap' }}>{aiLoading ? '...' : '🤖 改善'}</button>
+              </div>
+
+              {/* 結果表示 */}
               {aiResult && (
-                <div style={{ marginTop: 14 }}>
-                  <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 6, display: 'flex', alignItems: 'center', gap: 8 }}>AI提案：<ModelBadge model={getSavedModel()} /></div>
-                  <div style={{ padding: 14, background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 10, fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.8, whiteSpace: 'pre-wrap', maxHeight: 400, overflowY: 'auto' }}>{aiResult}</div>
-                  <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
-                    <button onClick={applyAi} style={{ padding: '8px 16px', borderRadius: 8, border: 'none', background: '#4ade80', color: '#000', fontWeight: 700, fontSize: 13, cursor: 'pointer' }}>✅ 本文を置き換える</button>
-                    <button onClick={() => setAiResult('')} style={{ padding: '8px 14px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--bg-card)', color: 'var(--text-muted)', fontSize: 13, cursor: 'pointer' }}>↩️ キャンセル</button>
+                <div style={{ marginTop: 12 }}>
+                  <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 4, display: 'flex', alignItems: 'center', gap: 6 }}>AI結果：<ModelBadge model={getSavedModel()} /></div>
+                  <div style={{ padding: 12, background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 10, fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.8, whiteSpace: 'pre-wrap', maxHeight: 350, overflowY: 'auto' }}>{aiResult}</div>
+                  <div style={{ display: 'flex', gap: 6, marginTop: 8 }}>
+                    <button onClick={applyAi} style={{ padding: '6px 14px', borderRadius: 8, border: 'none', background: '#4ade80', color: '#000', fontWeight: 700, fontSize: 12, cursor: 'pointer' }}>✅ 本文を置き換える</button>
+                    <button onClick={() => setAiResult('')} style={{ padding: '6px 12px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--bg-card)', color: 'var(--text-muted)', fontSize: 12, cursor: 'pointer' }}>↩️ キャンセル</button>
                   </div>
                 </div>
               )}
 
+              {/* 履歴 */}
               {aiHistory.length > 0 && (
-                <div style={{ marginTop: 14 }}>
-                  <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 6 }}>過去のAI提案</div>
-                  {aiHistory.map((h, i) => (
-                    <div key={i} style={{ marginBottom: 4 }}>
-                      <button onClick={() => setExpandedHistory(expandedHistory === i ? null : i)} style={{ width: '100%', textAlign: 'left', padding: '6px 10px', borderRadius: 6, border: '1px solid var(--border)', background: 'var(--bg-card)', color: 'var(--text-muted)', fontSize: 11, cursor: 'pointer' }}>
+                <div style={{ marginTop: 12 }}>
+                  <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 4 }}>📜 改善履歴</div>
+                  {aiHistory.slice(-3).map((h, i) => (
+                    <div key={i} style={{ marginBottom: 3 }}>
+                      <button onClick={() => setExpandedHistory(expandedHistory === i ? null : i)} style={{ width: '100%', textAlign: 'left', padding: '4px 8px', borderRadius: 4, border: '1px solid var(--border)', background: 'var(--bg-card)', color: 'var(--text-muted)', fontSize: 10, cursor: 'pointer' }}>
                         {expandedHistory === i ? '▼' : '▶'} {h.instruction}
                       </button>
                       {expandedHistory === i && (
-                        <div style={{ padding: 10, fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.6, whiteSpace: 'pre-wrap', maxHeight: 200, overflowY: 'auto', background: 'var(--bg-card)', borderRadius: '0 0 6px 6px', border: '1px solid var(--border)', borderTop: 'none' }}>{h.result}</div>
+                        <div style={{ padding: 8, fontSize: 11, color: 'var(--text-secondary)', lineHeight: 1.5, whiteSpace: 'pre-wrap', maxHeight: 150, overflowY: 'auto', background: 'var(--bg-card)', borderRadius: '0 0 4px 4px', border: '1px solid var(--border)', borderTop: 'none' }}>
+                          {h.result}
+                          <button onClick={() => { setEditContent(h.result); setAiResult(''); }} style={{ marginTop: 6, padding: '3px 8px', borderRadius: 4, border: '1px solid var(--border)', background: 'var(--bg-card)', color: '#6c63ff', fontSize: 10, cursor: 'pointer', display: 'block' }}>↩️ この版に戻す</button>
+                        </div>
                       )}
                     </div>
                   ))}
