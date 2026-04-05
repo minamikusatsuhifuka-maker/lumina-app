@@ -271,6 +271,10 @@ export default function PhilosophyPage() {
     }
   };
 
+  // タブごとにファイルをフィルタリング
+  const textFiles = savedFiles.filter(f => f.name.match(/\.(txt|md)$/i));
+  const pdfFiles = savedFiles.filter(f => f.name.match(/\.pdf$/i));
+
   const cardStyle: React.CSSProperties = {
     padding: 20, background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 16,
   };
@@ -373,12 +377,12 @@ export default function PhilosophyPage() {
 
       {tab === 'txtfile' && (
         <div style={{ ...cardStyle, marginBottom: 20 }}>
-          {/* 保存済みファイル一覧 */}
-          {savedFiles.length > 0 && (
+          {/* 保存済みテキストファイル一覧 */}
+          {textFiles.length > 0 ? (
             <div style={{ marginBottom: 20 }}>
-              <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-secondary)', marginBottom: 8 }}>📂 保存済みファイル（{savedFiles.length}件）</div>
+              <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-secondary)', marginBottom: 8 }}>📂 保存済みテキストファイル（{textFiles.length}件）</div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                {savedFiles.map(file => (
+                {textFiles.map(file => (
                   <div key={file.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 12px', background: 'rgba(74,222,128,0.06)', border: '1px solid rgba(74,222,128,0.2)', borderRadius: 10 }}>
                     <span style={{ fontSize: 13, color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
                       <span style={{ color: '#4ade80', flexShrink: 0 }}>✅</span>
@@ -393,6 +397,8 @@ export default function PhilosophyPage() {
                 ))}
               </div>
             </div>
+          ) : (
+            <div style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 20 }}>保存済みのテキストファイルはありません</div>
           )}
 
           {/* 新規アップロードエリア */}
@@ -443,12 +449,12 @@ export default function PhilosophyPage() {
 
       {tab === 'pdf' && (
         <div style={{ ...cardStyle, marginBottom: 20 }}>
-          {/* 保存済みファイル一覧（PDFタブにも表示） */}
-          {savedFiles.length > 0 && (
+          {/* 保存済みPDFファイル一覧 */}
+          {pdfFiles.length > 0 ? (
             <div style={{ marginBottom: 20 }}>
-              <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-secondary)', marginBottom: 8 }}>📂 保存済みファイル（{savedFiles.length}件）</div>
+              <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-secondary)', marginBottom: 8 }}>📂 保存済みPDFファイル（{pdfFiles.length}件）</div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                {savedFiles.map(file => (
+                {pdfFiles.map(file => (
                   <div key={file.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 12px', background: 'rgba(74,222,128,0.06)', border: '1px solid rgba(74,222,128,0.2)', borderRadius: 10 }}>
                     <span style={{ fontSize: 13, color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
                       <span style={{ color: '#4ade80', flexShrink: 0 }}>✅</span>
@@ -463,6 +469,8 @@ export default function PhilosophyPage() {
                 ))}
               </div>
             </div>
+          ) : (
+            <div style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 20 }}>保存済みのPDFファイルはありません</div>
           )}
 
           <div
