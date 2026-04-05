@@ -52,27 +52,22 @@ export default function GradePage() {
     try {
       const res = await fetch('/api/clinic/grades/generate', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ positions: genPositions, count: parseInt(genCount), role: genRole }) });
       const data = await res.json();
-      if (data.grades) setGenPreview(data);
-      else setMessage(data.error || '生成に失敗しました');
+      if (data.success && data.grades) {
+        // APIがDB保存済み → プレビュー表示
+        setGenPreview(data);
+      } else if (data.grades) {
+        setGenPreview(data);
+      } else {
+        setMessage(data.error || '生成に失敗しました');
+      }
     } catch { setMessage('生成に失敗しました'); }
     finally { setGenerating(false); }
   };
 
   const saveGenerated = async () => {
-    if (!genPreview?.grades) return;
-    setSaving(true);
-    for (const g of genPreview.grades) {
-      await fetch('/api/clinic/grades', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({
-        name: g.name, levelNumber: g.levelNumber, description: g.description,
-        requirementsPromotion: g.requirementsPromotion, requirementsDemotion: g.requirementsDemotion,
-        salaryMin: g.salaryMin, salaryMax: g.salaryMax, position: g.position, role: g.role,
-        skills: JSON.stringify(g.skills || []), knowledge: JSON.stringify(g.knowledge || []),
-        mindset: JSON.stringify(g.mindset || []), continuousLearning: JSON.stringify(g.continuousLearning || []),
-        requiredCertifications: JSON.stringify(g.requiredCertifications || []),
-        promotionExam: JSON.stringify(g.promotionExam || {}),
-      }) });
-    }
-    setShowGenModal(false); setGenPreview(null); fetchGrades(); setSaving(false);
+    // 新APIはDB保存済みなので、モーダルを閉じてリロードするだけ
+    setShowGenModal(false); setGenPreview(null); fetchGrades();
+    setMessage('等級制度を保存しました');
   };
 
   const refineCategory = async () => {

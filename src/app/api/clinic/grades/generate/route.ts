@@ -1,74 +1,58 @@
-import { NextRequest, NextResponse } from 'next/server';
-import { auth } from '@/lib/auth';
+export const maxDuration = 300;
+
+import Anthropic from '@anthropic-ai/sdk';
 import { neon } from '@neondatabase/serverless';
-import { buildSystemContext } from '@/lib/clinic-context';
+import { auth } from '@/lib/auth';
 
-export const maxDuration = 120;
+const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
-export async function POST(req: NextRequest) {
+export async function POST(req: Request) {
   const session = await auth();
-  if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  if (!session) return Response.json({ error: 'Unauthorized' }, { status: 401 });
 
-  const { positions, count, role } = await req.json();
-  if (!positions || !count) return NextResponse.json({ error: 'positions と count は必須です' }, { status: 400 });
+  try {
+    const body = await req.json();
+    const position = body.position || body.positions || '看護師';
+    const role = body.role || '一般〜管理職';
+    const count = body.count || 5;
 
-  const apiKey = process.env.ANTHROPIC_API_KEY;
-  if (!apiKey) return NextResponse.json({ error: 'APIキーが設定されていません' }, { status: 500 });
+    const sql = neon(process.env.DATABASE_URL!);
 
-  const sql = neon(process.env.DATABASE_URL!);
-  const philRows = await sql`SELECT content FROM clinic_philosophy ORDER BY created_at DESC LIMIT 1`;
-  const philosophy = philRows[0]?.content || '（理念未登録）';
+    // 理念・成長哲学・就業規則を並行取得
+    const [philRows, growthRows, rulesRows] = await Promise.all([
+      sql`SELECT content FROM clinic_philosophy LIMIT 1`,
+      sql`SELECT win_win_vision, power_partner_definition,
+              lead_management_philosophy, growth_model, core_values
+       FROM growth_philosophy LIMIT 1`,
+      sql`SELECT content FROM employment_rules LIMIT 1`.catch(() => []),
+    ]);
 
-  const systemPrompt = await buildSystemContext('あなたはクリニック経営・人事制度の専門家です。必ずJSON形式のみで返してください。JSONのみを返し、それ以外のテキストは含めないでください。', 'grade');
+    const philosophy = philRows[0]?.content ?? '';
+    const growth = growthRows[0];
+    const rules = (rulesRows[0]?.content as string)?.slice(0, 2000) ?? '';
 
-  const response = await fetch('https://api.anthropic.com/v1/messages', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' },
-    body: JSON.stringify({
-      model: 'claude-sonnet-4-6',
-      max_tokens: 8000,
-      system: systemPrompt,
-      messages: [{
-        role: 'user',
-        content: `職種：${positions} / 役割：${role || '一般〜管理職'}
+    const systemPrompt = `あなたはクリニックの等級制度設計の専門家です。必ずJSON形式のみで返してください。前置きや説明は不要です。
+
+【クリニックの理念】
+${philosophy}
+
+【院長のビジョン】
+${growth?.win_win_vision ?? ''}
+
+【リードマネジメント哲学】
+${growth?.lead_management_philosophy ?? ''}
+
+【「実」を見て評価する】
+${growth?.core_values ?? ''}
 
 【等級設計の大原則】
-・ピラミッド型の階層ではなく、同心円が外に広がるイメージ
-・上下の権力構造ではなく「関わり方・貢献の広がり」で等級が変わる
-・G4・G5は「上の人」ではなく「育成・社会貢献に関わる人」
-・全員がアンバサダー（G5）を目指して成長することが目標
+・ピラミッドではなく同心円モデル（G1ルーキー〜G5アンバサダー）
+・実行・実績・実力・誠実の「実」を見て評価する
+・マインド50%・知識25%・スキル25%の配分
+・アチーブメント原則：知る→わかる→行う→できる→分かち合う`;
 
-【等級名称（5段階固定）】
-G1：ルーキー（自分の成長に集中する時期）学ぶ・吸収する
-G2：コア（一人前として自立・自走する存在）自走する・貢献する
-G3：エキスパート（専門性・実績で周囲に影響を与える）魅せる・高める
-G4：パートナー（仲間の可能性を信じ・育てる存在）引き出す・支える
-G5：アンバサダー（理念を体現し社会に発信・貢献する）広げる・創る
-
-【評価の大原則：「実」を見る】
-言葉・態度・宣言ではなく、以下の「実」で評価：
-・実行：やると言ったことを実際にやっているか（期限遵守・約束履行・言い訳なし）
-・実績：事実として成果を出しているか（数字・具体的出来事・他者評価）
-・実力：本物の力が身についているか（教わらずできる・応用できる・自然に出る）
-・誠実：自分にも他者にも正直か（ミス隠さない・言動一致・約束を守る）
-評価基準は「〜な気持ちがある」ではなく「〜をしている」「〜という結果を出している」で表現。
-
-【評価の重点】
-- 実績・実力・貢献度（スキル25% + 知識25%）
-- 分かち合いの姿勢・組織への愛着（マインド50%）
-- 特にG4以上：仲間の可能性を信じ・引き出す支援力
-
-【評価で特に重視すること — 先払いの原則】
-・リソース（時間・お金・エネルギー）の先払い姿勢
-  → 自己投資を惜しまない / 学びにお金と時間を先払いしている / 見返りを求めず先に貢献する
-・求める心と挑戦する姿勢
-  → チャンスを与えられた時に飛び込む勇気 / 困難をも楽しむ精神
-・先払いへの理解と実践
-  → 「先払いが豊かな人生につながる」を体感している / 仲間の成長にも先払いできる
-
-【給与の考え方】
-- 責任と関わり方・先払い度合いに応じて段階的アップ
-- 育成への貢献も給与に反映（「管理職手当」ではなく「育成貢献手当」）
+    const userPrompt = `職種：${position}（${role}）
+等級数：${count}段階
 
 以下のJSON形式で等級制度を作成してください：
 {
@@ -76,45 +60,118 @@ G5：アンバサダー（理念を体現し社会に発信・貢献する）広
     {
       "levelNumber": 1,
       "name": "G1 ルーキー",
-      "position": "${positions}",
+      "position": "${position}",
       "role": "学ぶ人・吸収する人",
-      "description": "自分自身の成長と基礎固めに集中する時期。素直に学び、吸収し、基礎を体得する。",
-      "coreValue": "自己愛・素直さ・学ぶ姿勢",
-      "skills": ["必要なスキル①", "②"],
-      "knowledge": ["必要な知識①", "②"],
-      "mindset": ["求めるマインド・姿勢①", "②"],
-      "continuousLearning": ["継続学習①", "②"],
+      "description": "この等級の役割・期待（3〜5文）",
+      "skills": ["必要なスキル①", "スキル②", "スキル③"],
+      "knowledge": ["必要な知識①", "知識②"],
+      "mindset": ["求めるマインド①", "マインド②"],
+      "continuousLearning": ["継続学習①", "継続学習②"],
       "requiredCertifications": ["必須資格①"],
       "promotionExam": {
-        "description": "G2への昇格審査",
-        "format": "筆記/実技/面接/複合",
+        "description": "昇格試験の概要",
+        "format": "試験形式",
         "passingCriteria": "合格基準",
-        "examContent": ["試験内容①"],
-        "recommendedPreparation": "準備方法"
+        "examContent": ["試験内容①", "試験内容②"]
       },
-      "requirementsPromotion": "昇格条件",
+      "requirementsPromotion": "昇格条件まとめ",
       "requirementsDemotion": "降格条件",
-      "salaryMin": 200000,
-      "salaryMax": 240000,
-      "salaryNote": "成長への投資期間"
+      "salaryMin": 220000,
+      "salaryMax": 240000
     }
   ],
-  "designComment": "この等級制度はピラミッドではなく同心円。G5は『偉い人』ではなく『最も広く貢献している人』。"
+  "designComment": "この等級設計の意図・特徴"
 }
 
-全5等級（G1ルーキー〜G5アンバサダー）を具体的に生成してください。`,
-      }],
-    }),
-  });
+給与目安（皮膚科クリニック・滋賀県）：
+G1: 22〜24万 / G2: 24〜28万 / G3: 28〜34万 / G4: 34〜42万 / G5: 42〜52万`;
 
-  const data = await response.json();
-  const text = (data.content || []).filter((b: any) => b.type === 'text').map((b: any) => b.text).join('');
+    const response = await anthropic.messages.create({
+      model: 'claude-sonnet-4-6',
+      max_tokens: 8000,
+      system: systemPrompt,
+      messages: [{ role: 'user', content: userPrompt }],
+    });
 
-  try {
-    const jsonMatch = text.match(/```json\s*([\s\S]*?)\s*```/) || text.match(/(\{[\s\S]*\})/);
-    const parsed = JSON.parse(jsonMatch ? jsonMatch[1] : text);
-    return NextResponse.json(parsed);
-  } catch {
-    return NextResponse.json({ error: 'AI応答のパースに失敗しました', raw: text }, { status: 500 });
+    const resultText = response.content
+      .filter(b => b.type === 'text')
+      .map(b => (b as any).text)
+      .join('');
+
+    const clean = resultText
+      .replace(/```json\n?/g, '')
+      .replace(/```\n?/g, '')
+      .trim();
+    const parsed = JSON.parse(clean);
+
+    // DBに保存
+    const savedGrades = [];
+    for (const grade of parsed.grades) {
+      const existing = await sql`
+        SELECT id FROM grade_levels
+        WHERE level_number = ${grade.levelNumber}
+        AND position = ${position}
+        LIMIT 1
+      `;
+
+      let saved;
+      if (existing.length > 0) {
+        [saved] = await sql`
+          UPDATE grade_levels SET
+            name = ${grade.name},
+            role = ${grade.role ?? ''},
+            description = ${grade.description ?? ''},
+            skills = ${JSON.stringify(grade.skills ?? [])},
+            knowledge = ${JSON.stringify(grade.knowledge ?? [])},
+            mindset = ${JSON.stringify(grade.mindset ?? [])},
+            continuous_learning = ${JSON.stringify(grade.continuousLearning ?? [])},
+            required_certifications = ${JSON.stringify(grade.requiredCertifications ?? [])},
+            promotion_exam = ${JSON.stringify(grade.promotionExam ?? {})},
+            requirements_promotion = ${grade.requirementsPromotion ?? ''},
+            requirements_demotion = ${grade.requirementsDemotion ?? ''},
+            salary_min = ${grade.salaryMin ?? 0},
+            salary_max = ${grade.salaryMax ?? 0},
+            updated_at = NOW()
+          WHERE id = ${existing[0].id}
+          RETURNING *
+        `;
+      } else {
+        [saved] = await sql`
+          INSERT INTO grade_levels (
+            level_number, name, position, role, description,
+            skills, knowledge, mindset, continuous_learning,
+            required_certifications, promotion_exam,
+            requirements_promotion, requirements_demotion,
+            salary_min, salary_max
+          ) VALUES (
+            ${grade.levelNumber}, ${grade.name}, ${position},
+            ${grade.role ?? ''}, ${grade.description ?? ''},
+            ${JSON.stringify(grade.skills ?? [])},
+            ${JSON.stringify(grade.knowledge ?? [])},
+            ${JSON.stringify(grade.mindset ?? [])},
+            ${JSON.stringify(grade.continuousLearning ?? [])},
+            ${JSON.stringify(grade.requiredCertifications ?? [])},
+            ${JSON.stringify(grade.promotionExam ?? {})},
+            ${grade.requirementsPromotion ?? ''},
+            ${grade.requirementsDemotion ?? ''},
+            ${grade.salaryMin ?? 0}, ${grade.salaryMax ?? 0}
+          ) RETURNING *
+        `;
+      }
+      savedGrades.push(saved);
+    }
+
+    return Response.json({
+      success: true,
+      grades: savedGrades,
+      designComment: parsed.designComment,
+    });
+
+  } catch (e) {
+    console.error('Grade generate error:', e);
+    return Response.json(
+      { error: `生成エラー: ${String(e)}` },
+      { status: 500 }
+    );
   }
 }
