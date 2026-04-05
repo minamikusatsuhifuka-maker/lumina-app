@@ -58,6 +58,43 @@ export async function GET() {
     try { await sql`ALTER TABLE library ADD COLUMN tags TEXT DEFAULT ''`; } catch {}
     try { await sql`ALTER TABLE library ADD COLUMN group_name TEXT DEFAULT '未分類'`; } catch {}
 
+    // クリニックマネジメント用カラム・テーブル
+    try { await sql`ALTER TABLE users ADD COLUMN is_admin BOOLEAN DEFAULT false`; } catch {}
+
+    await sql`CREATE TABLE IF NOT EXISTS clinic_philosophy (
+      id TEXT PRIMARY KEY,
+      title TEXT NOT NULL,
+      content TEXT NOT NULL,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )`;
+
+    await sql`CREATE TABLE IF NOT EXISTS grade_levels (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      level_number INTEGER NOT NULL,
+      description TEXT,
+      requirements_promotion TEXT,
+      requirements_demotion TEXT,
+      salary_min INTEGER,
+      salary_max INTEGER,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )`;
+
+    await sql`CREATE TABLE IF NOT EXISTS action_tasks (
+      id TEXT PRIMARY KEY,
+      title TEXT NOT NULL,
+      description TEXT,
+      assignee_name TEXT,
+      due_date TIMESTAMP,
+      status TEXT DEFAULT 'todo',
+      priority TEXT DEFAULT 'medium',
+      category TEXT,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )`;
+
     return NextResponse.json({ success: true, message: '全テーブル初期化完了' });
   } catch (e: any) {
     return NextResponse.json({ error: e.message }, { status: 500 });
