@@ -1,5 +1,7 @@
 'use client';
 import { useState } from 'react';
+import { getSavedModel } from '@/lib/model-preference';
+import { ModelBadge } from '@/components/ModelBadge';
 
 type Step = {
   id: string;
@@ -86,9 +88,11 @@ export default function WorkflowPage() {
   const [currentStep, setCurrentStep] = useState(-1);
   const [stepResults, setStepResults] = useState<string[]>([]);
   const [progress, setProgress] = useState(0);
+  const [usedModel, setUsedModel] = useState<'claude' | 'gemini' | null>(null);
 
   const runWorkflow = async () => {
     if (!selectedWf || !input.trim()) return;
+    setUsedModel(getSavedModel());
     setRunning(true);
     setStepResults([]);
     setCurrentStep(0);
@@ -242,6 +246,7 @@ export default function WorkflowPage() {
                     </span>
                     <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)' }}>{step.label}</span>
                     {currentStep === i && running && <span style={{ fontSize: 11, color: selectedWf.color }}>実行中...</span>}
+                    {stepResults[i] && usedModel && <ModelBadge model={usedModel} />}
                   </div>
                   {stepResults[i] && (
                     <div style={{ padding: '12px 16px', background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 10, fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.7, whiteSpace: 'pre-wrap', maxHeight: 200, overflowY: 'auto' }}>

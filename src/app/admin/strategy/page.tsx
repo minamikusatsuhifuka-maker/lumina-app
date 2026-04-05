@@ -2,6 +2,7 @@
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
+import { ModelBadge } from '@/components/ModelBadge';
 
 const CATS = [
   { key: '', label: '全て' }, { key: 'marketing', label: '📣 マーケティング' }, { key: 'branding', label: '🎨 ブランディング' },
@@ -159,7 +160,10 @@ export default function StrategyBoardPage() {
               </div>
             ) : (
               <div>
-                <div style={{ fontSize: 16, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 8 }}>{genPreview.title}</div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+                  <span style={{ fontSize: 16, fontWeight: 700, color: 'var(--text-primary)' }}>{genPreview.title}</span>
+                  <ModelBadge model="claude" />
+                </div>
                 <div style={{ fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.7, marginBottom: 12 }}>{genPreview.description}</div>
                 {genPreview.phases?.map((p: any, i: number) => (
                   <div key={i} style={{ padding: 10, background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 8, marginBottom: 4, fontSize: 12 }}>

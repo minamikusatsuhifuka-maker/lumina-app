@@ -1,5 +1,6 @@
 'use client';
 import { useState, useEffect } from 'react';
+import { ModelBadge } from '@/components/ModelBadge';
 
 type DetailTab = 'overview' | 'skills' | 'knowledge' | 'mindset' | 'learning' | 'certs' | 'exam' | 'demotion';
 
@@ -276,6 +277,7 @@ export default function GradePage() {
               </div>
             ) : (
               <div>
+                <div style={{ marginBottom: 12 }}><ModelBadge model="claude" size="md" /></div>
                 {genPreview.designComment && <div style={{ padding: 12, background: 'rgba(108,99,255,0.05)', borderRadius: 8, fontSize: 13, color: 'var(--text-secondary)', marginBottom: 16, lineHeight: 1.7 }}>{genPreview.designComment}</div>}
                 {genPreview.grades.map((g: any, i: number) => (
                   <div key={i} style={{ padding: 14, background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 10, marginBottom: 8 }}>
