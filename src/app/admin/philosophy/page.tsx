@@ -29,6 +29,7 @@ export default function PhilosophyPage() {
 
   // テキストファイル
   const [txtFileText, setTxtFileText] = useState('');
+  const [txtFileNames, setTxtFileNames] = useState<string[]>([]);
   const [txtDragOver, setTxtDragOver] = useState(false);
   const txtFileRef = useRef<HTMLInputElement>(null);
 
@@ -82,26 +83,28 @@ export default function PhilosophyPage() {
     }
   };
 
-  const handleTextFileUpload = (file: File) => {
-    if (!file.name.match(/\.(txt|md)$/i)) {
-      setMessage('.txt または .md ファイルを選択してください');
-      return;
+  const handleTextFiles = async (files: FileList | File[]) => {
+    const fileArray = Array.from(files).filter(f => f.name.match(/\.(txt|md)$/i));
+    if (fileArray.length === 0) { setMessage('.txt または .md ファイルを選択してください'); return; }
+
+    const texts: string[] = [];
+    const names: string[] = [];
+    for (const file of fileArray) {
+      const text = await file.text();
+      texts.push(`## ${file.name.replace(/\.(txt|md)$/i, '')}\n\n${text}`);
+      names.push(file.name);
     }
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      const text = e.target?.result as string;
-      setTxtFileText(text);
-      setContent(text);
-      setMessage('テキストファイルを読み込みました');
-    };
-    reader.readAsText(file, 'UTF-8');
+    const combined = texts.join('\n\n---\n\n');
+    setTxtFileText(combined);
+    setTxtFileNames(names);
+    setContent(combined);
+    setMessage(`${names.length}ファイルを読み込みました（合計 ${combined.length.toLocaleString()}文字）`);
   };
 
   const handleTxtDrop = (e: React.DragEvent) => {
     e.preventDefault();
     setTxtDragOver(false);
-    const file = e.dataTransfer.files[0];
-    if (file) handleTextFileUpload(file);
+    handleTextFiles(e.dataTransfer.files);
   };
 
   const handlePdfUpload = async (file: File) => {
@@ -268,13 +271,21 @@ export default function PhilosophyPage() {
               >
                 <div style={{ fontSize: 36, marginBottom: 12 }}>📄</div>
                 <div style={{ fontSize: 14, color: 'var(--text-secondary)' }}>クリックまたはドラッグ＆ドロップでファイルをアップロード</div>
-                <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 4 }}>.txt / .md ファイルに対応</div>
+                <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 4 }}>.txt / .md に対応（複数ファイル同時OK）</div>
               </div>
-              <input ref={txtFileRef} type="file" accept=".txt,.md" hidden onChange={e => { const f = e.target.files?.[0]; if (f) handleTextFileUpload(f); }} />
+              <input ref={txtFileRef} type="file" accept=".txt,.md" multiple hidden onChange={e => { if (e.target.files) handleTextFiles(e.target.files); }} />
+
+              {/* ファイル名リスト */}
+              {txtFileNames.length > 0 && (
+                <div style={{ marginTop: 12, padding: 10, background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 8 }}>
+                  <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 6 }}>{txtFileNames.length}ファイル読み込み済み（合計 {txtFileText.length.toLocaleString()}文字）</div>
+                  {txtFileNames.map(n => <div key={n} style={{ fontSize: 12, color: 'var(--text-secondary)', padding: '2px 0' }}>✅ {n}</div>)}
+                </div>
+              )}
 
               {txtFileText && (
                 <>
-                  <label style={{ display: 'block', fontSize: 13, color: 'var(--text-secondary)', marginTop: 16, marginBottom: 6 }}>読み込んだテキスト</label>
+                  <label style={{ display: 'block', fontSize: 13, color: 'var(--text-secondary)', marginTop: 12, marginBottom: 6 }}>読み込んだテキスト</label>
                   <div style={{ padding: 14, background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 8, fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.8, whiteSpace: 'pre-wrap', maxHeight: 300, overflowY: 'auto' }}>
                     {txtFileText}
                   </div>
