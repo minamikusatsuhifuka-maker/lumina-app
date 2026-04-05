@@ -9,18 +9,28 @@ export default function IndustryPage() {
   const [result, setResult] = useState('');
   const [loading, setLoading] = useState(false);
 
+  const [error, setError] = useState('');
+
   const generate = async () => {
     if (!industry.trim()) return;
     setLoading(true);
     setResult('');
+    setError('');
     try {
       const res = await fetch('/api/industry', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ industry }),
       });
+      if (!res.ok) {
+        const errData = await res.json().catch(() => null);
+        throw new Error(errData?.error || `APIエラー: ${res.status}`);
+      }
       const data = await res.json();
       setResult(data.result || '');
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : 'エラーが発生しました';
+      setError(msg);
     } finally {
       setLoading(false);
     }
@@ -46,7 +56,7 @@ export default function IndustryPage() {
       </div>
 
       <div style={{ display: 'flex', gap: 10, marginBottom: 12 }}>
-        <input type="text" value={industry} onChange={e => setIndustry(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') e.preventDefault(); }} placeholder="業界名を入力（例：医療・ヘルスケア、AI・SaaS）" style={{ flex: 1, padding: '13px 16px', background: 'var(--input-bg)', border: '1px solid var(--input-border)', borderRadius: 10, color: 'var(--text-primary)', fontSize: 14, outline: 'none' }} />
+        <input type="text" value={industry} onChange={e => setIndustry(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); generate(); } }} placeholder="業界名を入力（例：医療・ヘルスケア、AI・SaaS）" style={{ flex: 1, padding: '13px 16px', background: 'var(--input-bg)', border: '1px solid var(--input-border)', borderRadius: 10, color: 'var(--text-primary)', fontSize: 14, outline: 'none' }} />
         <button onClick={generate} disabled={loading || !industry.trim()} style={{ padding: '13px 24px', borderRadius: 10, border: 'none', cursor: loading || !industry.trim() ? 'not-allowed' : 'pointer', background: loading || !industry.trim() ? 'rgba(108,99,255,0.3)' : 'linear-gradient(135deg, #6c63ff, #8b5cf6)', color: '#fff', fontWeight: 700, fontSize: 14, whiteSpace: 'nowrap' }}>
           {loading ? '生成中...' : '📊 レポート生成'}
         </button>
@@ -55,6 +65,12 @@ export default function IndustryPage() {
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 24 }}>
         {POPULAR.map(i => <button key={i} onClick={() => setIndustry(i)} style={{ padding: '5px 12px', borderRadius: 20, border: '1px solid var(--border)', background: 'var(--bg-card)', color: 'var(--text-muted)', fontSize: 12, cursor: 'pointer' }}>{i}</button>)}
       </div>
+
+      {error && (
+        <div style={{ padding: 16, background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.3)', borderRadius: 12, color: '#ef4444', fontSize: 13, marginBottom: 12 }}>
+          {error}
+        </div>
+      )}
 
       {loading && (
         <div style={{ padding: 24, background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 16, textAlign: 'center', color: 'var(--text-muted)', fontSize: 14 }}>

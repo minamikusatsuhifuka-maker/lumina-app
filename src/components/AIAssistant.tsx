@@ -2,9 +2,11 @@
 import { useState, useRef, useEffect } from 'react';
 
 type Message = { role: 'user' | 'assistant'; content: string; };
+type ChatSize = 'normal' | 'max';
 
 export function AIAssistant() {
   const [open, setOpen] = useState(false);
+  const [chatSize, setChatSize] = useState<ChatSize>('normal');
   const [messages, setMessages] = useState<Message[]>([
     { role: 'assistant', content: 'こんにちは！LUMINAアシスタントです。何でも聞いてください 😊\n\n例：「競合分析の結果を要約して」「このデータからSNS投稿を作って」' }
   ]);
@@ -43,44 +45,59 @@ export function AIAssistant() {
 
   const QUICK = ['使い方を教えて', '最近の調査をまとめて', 'ワークフローを提案して', '今日やることを整理して'];
 
+  const toggleMaximize = () => setChatSize(prev => prev === 'max' ? 'normal' : 'max');
+
+  const windowStyle: React.CSSProperties = chatSize === 'max'
+    ? { position: 'fixed', inset: 0, zIndex: 9998, width: '100vw', height: '100vh', background: 'var(--bg-secondary)', borderRadius: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' }
+    : { position: 'fixed', bottom: 88, right: 24, zIndex: 9998, width: 360, height: 500, background: 'var(--bg-secondary)', border: '1px solid var(--border-accent)', borderRadius: 20, display: 'flex', flexDirection: 'column', boxShadow: '0 8px 40px rgba(0,0,0,0.2)', overflow: 'hidden' };
+
   return (
     <>
-      {/* フローティングボタン */}
-      <button
-        onClick={() => setOpen(!open)}
-        style={{
-          position: 'fixed', bottom: 24, right: 24, zIndex: 9999,
-          width: 52, height: 52, borderRadius: '50%', border: 'none',
-          background: 'linear-gradient(135deg, #6c63ff, #8b5cf6)',
-          color: '#fff', fontSize: 22, cursor: 'pointer',
-          boxShadow: '0 4px 20px rgba(108,99,255,0.4)',
-          display: 'flex', alignItems: 'center', justifyContent: 'center',
-          transition: 'transform 0.2s',
-        }}
-        title="AIアシスタント"
-      >
-        {open ? '✕' : '💬'}
-      </button>
+      {/* フローティングボタン（最大化時は非表示） */}
+      {chatSize !== 'max' && (
+        <button
+          onClick={() => setOpen(!open)}
+          style={{
+            position: 'fixed', bottom: 24, right: 24, zIndex: 9999,
+            width: 52, height: 52, borderRadius: '50%', border: 'none',
+            background: 'linear-gradient(135deg, #6c63ff, #8b5cf6)',
+            color: '#fff', fontSize: 22, cursor: 'pointer',
+            boxShadow: '0 4px 20px rgba(108,99,255,0.4)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            transition: 'transform 0.2s',
+          }}
+          title="AIアシスタント"
+        >
+          {open ? '✕' : '💬'}
+        </button>
+      )}
 
       {/* チャットウィンドウ */}
       {open && (
-        <div style={{
-          position: 'fixed', bottom: 88, right: 24, zIndex: 9998,
-          width: 360, height: 500,
-          background: 'var(--bg-secondary)',
-          border: '1px solid var(--border-accent)',
-          borderRadius: 20,
-          display: 'flex', flexDirection: 'column',
-          boxShadow: '0 8px 40px rgba(0,0,0,0.2)',
-          overflow: 'hidden',
-        }}>
+        <div style={windowStyle}>
           {/* ヘッダー */}
           <div style={{ padding: '14px 16px', background: 'linear-gradient(135deg, #6c63ff, #8b5cf6)', display: 'flex', alignItems: 'center', gap: 10 }}>
             <span style={{ fontSize: 18 }}>🤖</span>
-            <div>
+            <div style={{ flex: 1 }}>
               <div style={{ fontSize: 13, fontWeight: 700, color: '#fff' }}>LUMINAアシスタント</div>
               <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.7)' }}>AI powered by Claude</div>
             </div>
+            <button
+              onClick={toggleMaximize}
+              style={{ background: 'rgba(255,255,255,0.2)', border: 'none', borderRadius: 6, padding: '4px 10px', color: '#fff', fontSize: 12, cursor: 'pointer', whiteSpace: 'nowrap' }}
+              title={chatSize === 'max' ? '縮小' : '最大化'}
+            >
+              {chatSize === 'max' ? '縮小' : '最大化'}
+            </button>
+            {chatSize === 'max' && (
+              <button
+                onClick={() => { setChatSize('normal'); setOpen(false); }}
+                style={{ background: 'rgba(255,255,255,0.2)', border: 'none', borderRadius: 6, padding: '4px 8px', color: '#fff', fontSize: 14, cursor: 'pointer' }}
+                title="閉じる"
+              >
+                ✕
+              </button>
+            )}
           </div>
 
           {/* メッセージ */}

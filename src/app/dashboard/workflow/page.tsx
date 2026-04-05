@@ -30,9 +30,9 @@ const WORKFLOWS: Workflow[] = [
     inputLabel: '競合他社名または業界',
     inputPlaceholder: '例：〇〇株式会社、SaaS業界',
     steps: [
-      { id: 'search', label: 'Web情報収集', api: '/api/websearch', payload: (input) => ({ query: `${input} 競合分析 サービス 特徴 2026年`, tokens: 2000 }), resultKey: 'result' },
-      { id: 'analyze', label: 'AI競合分析', api: '/api/analyze', payload: (input, prev) => ({ mode: 'competitive', content: prev }), resultKey: 'result' },
-      { id: 'strategy', label: '差別化戦略生成', api: '/api/strategy', payload: (input, prev) => ({ mode: 'brand', content: `競合：${input}\n\n分析結果：${prev}` }), resultKey: 'result' },
+      { id: 'search', label: 'Web情報収集', api: '/api/websearch', payload: (input) => ({ query: `${input} 競合分析 サービス 特徴 2026年`, maxTokens: 2000 }), resultKey: 'result' },
+      { id: 'analyze', label: 'AI競合分析', api: '/api/analyze', payload: (_input, prev) => ({ analysisType: 'competitor', content: prev }), resultKey: 'result' },
+      { id: 'strategy', label: '差別化戦略生成', api: '/api/strategy', payload: (input, prev) => ({ strategyType: 'brand', content: `競合：${input}\n\n分析結果：${prev}` }), resultKey: 'result' },
     ],
   },
   {
@@ -44,9 +44,9 @@ const WORKFLOWS: Workflow[] = [
     inputLabel: '調査する市場・業界',
     inputPlaceholder: '例：医療AI市場、フードデリバリー',
     steps: [
-      { id: 'search', label: 'Web情報収集', api: '/api/websearch', payload: (input) => ({ query: `${input} 市場規模 トレンド 2026年`, tokens: 2000 }), resultKey: 'result' },
-      { id: 'analyze', label: 'トレンド分析', api: '/api/analyze', payload: (input, prev) => ({ mode: 'trend', content: prev }), resultKey: 'result' },
-      { id: 'action', label: 'アクションプラン', api: '/api/analyze', payload: (input, prev) => ({ mode: 'action', content: prev }), resultKey: 'result' },
+      { id: 'search', label: 'Web情報収集', api: '/api/websearch', payload: (input) => ({ query: `${input} 市場規模 トレンド 2026年`, maxTokens: 2000 }), resultKey: 'result' },
+      { id: 'analyze', label: 'トレンド分析', api: '/api/analyze', payload: (_input, prev) => ({ analysisType: 'trends', content: prev }), resultKey: 'result' },
+      { id: 'action', label: 'アクションプラン', api: '/api/analyze', payload: (_input, prev) => ({ analysisType: 'action', content: prev }), resultKey: 'result' },
     ],
   },
   {
@@ -59,8 +59,8 @@ const WORKFLOWS: Workflow[] = [
     inputPlaceholder: '例：AI活用術、副業で月10万円',
     steps: [
       { id: 'note', label: 'note記事収集', api: '/api/note', payload: (input) => ({ query: input, maxResults: 5 }), resultKey: 'result' },
-      { id: 'write', label: 'ブログ記事生成', api: '/api/generate', payload: (input, prev) => ({ mode: 'blog', prompt: `テーマ：${input}\n参考情報：${prev.slice(0, 1000)}`, style: 'カジュアル', length: '2000字', audience: '一般' }), resultKey: 'result' },
-      { id: 'sns', label: 'SNS投稿生成', api: '/api/generate', payload: (input, prev) => ({ mode: 'sns_x', prompt: `以下の記事をX投稿に要約：${prev.slice(0, 500)}`, style: 'カジュアル', length: '140字', audience: '一般' }), resultKey: 'result' },
+      { id: 'write', label: 'ブログ記事生成', api: '/api/generate', payload: (input, prev) => ({ mode: 'blog', prompt: `テーマ：${input}\n参考情報：${prev.slice(0, 1000)}`, style: 'casual', length: 'medium', audience: 'general' }), resultKey: 'result' },
+      { id: 'sns', label: 'SNS投稿生成', api: '/api/generate', payload: (_input, prev) => ({ mode: 'sns_twitter', prompt: `以下の記事をX投稿に要約：${prev.slice(0, 500)}`, style: 'casual', length: 'short', audience: 'general' }), resultKey: 'result' },
     ],
   },
   {
@@ -72,9 +72,9 @@ const WORKFLOWS: Workflow[] = [
     inputLabel: '採用するポジション',
     inputPlaceholder: '例：フロントエンドエンジニア、営業マネージャー',
     steps: [
-      { id: 'strategy', label: '採用戦略立案', api: '/api/strategy', payload: (input) => ({ mode: 'recruit', content: `ポジション：${input}` }), resultKey: 'result' },
-      { id: 'job', label: '求人票生成', api: '/api/generate', payload: (input, prev) => ({ mode: 'blog', prompt: `以下の採用戦略を元に求人票を作成：\nポジション：${input}\n戦略：${prev.slice(0, 500)}`, style: 'フォーマル', length: '800字', audience: '求職者' }), resultKey: 'result' },
-      { id: 'interview', label: '面接質問生成', api: '/api/analyze', payload: (input, prev) => ({ mode: 'action', content: `${input}の面接質問リストを10個作成してください` }), resultKey: 'result' },
+      { id: 'strategy', label: '採用戦略立案', api: '/api/strategy', payload: (input) => ({ strategyType: 'hiring', content: `ポジション：${input}` }), resultKey: 'result' },
+      { id: 'job', label: '求人票生成', api: '/api/generate', payload: (input, prev) => ({ mode: 'blog', prompt: `以下の採用戦略を元に求人票を作成：\nポジション：${input}\n戦略：${prev.slice(0, 500)}`, style: 'formal', length: 'medium', audience: 'business' }), resultKey: 'result' },
+      { id: 'interview', label: '面接質問生成', api: '/api/analyze', payload: (input) => ({ analysisType: 'action', content: `${input}の面接質問リストを10個作成してください` }), resultKey: 'result' },
     ],
   },
 ];
@@ -115,15 +115,23 @@ export default function WorkflowPage() {
           const reader = res.body!.getReader();
           const decoder = new TextDecoder();
           let accumulated = '';
+          let buffer = '';
           while (true) {
             const { done, value } = await reader.read();
             if (done) break;
-            const chunk = decoder.decode(value);
-            for (const line of chunk.split('\n')) {
+            buffer += decoder.decode(value, { stream: true });
+            const lines = buffer.split('\n');
+            buffer = lines.pop() || '';
+            for (const line of lines) {
               if (!line.startsWith('data: ')) continue;
+              const raw = line.slice(6).trim();
+              if (raw === '[DONE]') continue;
               try {
-                const json = JSON.parse(line.slice(6));
+                const json = JSON.parse(raw);
+                // カスタムSSE形式（analyze/websearch/strategy/note）
                 if (json.type === 'text') accumulated += json.content;
+                // 生Anthropic SSE形式（generate API経由）
+                if (json.type === 'content_block_delta' && json.delta?.type === 'text_delta') accumulated += json.delta.text;
               } catch {}
             }
           }
