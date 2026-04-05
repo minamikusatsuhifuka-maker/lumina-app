@@ -20,7 +20,7 @@ export default function HandbookListPage() {
 
   const handleImport = async (file: File) => {
     const ext = file.name.split('.').pop()?.toLowerCase();
-    if (!['txt', 'md', 'pdf', 'docx'].includes(ext || '')) { setMessage('.txt / .md / .pdf / .docx ファイルに対応しています'); return; }
+    if (!['txt', 'md', 'pdf', 'docx', 'pptx', 'jpg', 'jpeg', 'png'].includes(ext || '')) { setMessage('.txt / .md / .pdf / .docx ファイルに対応しています'); return; }
 
     // txt/md はブラウザ側で読み込んでからサーバーに送る（APIは全形式対応）
     setImporting(true); setMessage('');
@@ -82,9 +82,9 @@ export default function HandbookListPage() {
               <div onDragOver={e => { e.preventDefault(); setDragOver(true); }} onDragLeave={() => setDragOver(false)} onDrop={e => { e.preventDefault(); setDragOver(false); const f = e.dataTransfer.files[0]; if (f) handleImport(f); }} onClick={() => fileRef.current?.click()} style={{ padding: 40, border: `2px dashed ${dragOver ? 'var(--accent)' : 'var(--border)'}`, borderRadius: 12, textAlign: 'center', cursor: 'pointer', background: dragOver ? 'var(--accent-soft)' : 'transparent' }}>
                 <div style={{ fontSize: 36, marginBottom: 12 }}>📂</div>
                 <div style={{ fontSize: 14, color: 'var(--text-secondary)' }}>{importing ? 'AIが章を分割中...' : 'クリックまたはD&Dでファイルをアップロード'}</div>
-                <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 4 }}>.txt / .md / .pdf / .docx / .pptx に対応</div>
+                <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 4 }}>.txt / .md / .pdf / .docx / .pptx / .jpg / .png に対応（スキャンPDF・画像もOCR対応）</div>
               </div>
-              <input ref={fileRef} type="file" accept=".txt,.md,.pdf,.docx,.pptx" hidden onChange={e => { const f = e.target.files?.[0]; if (f) handleImport(f); }} />
+              <input ref={fileRef} type="file" accept=".txt,.md,.pdf,.docx,.pptx,.jpg,.jpeg,.png" hidden onChange={e => { const f = e.target.files?.[0]; if (f) handleImport(f); }} />
             </>
           ) : (
             <div>

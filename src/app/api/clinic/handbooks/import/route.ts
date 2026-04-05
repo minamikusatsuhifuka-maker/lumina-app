@@ -12,21 +12,31 @@ async function extractText(file: File): Promise<string> {
   }
 
   if (fileName.endsWith('.pdf')) {
+    // まず通常のテキスト抽出
     try {
       const { PDFParse } = await import('pdf-parse');
       const parser = new PDFParse({ data: buffer });
       const textResult = await parser.getText();
-      if (textResult.text && textResult.text.trim().length > 10) return textResult.text;
-      throw new Error('テキストが空です');
-    } catch {
-      try {
-        const officeparser = await import('officeparser');
-        const text = await officeparser.parseOffice(buffer, { outputErrorToConsole: true });
-        return String(text);
-      } catch (e2) {
-        throw new Error(`PDF読み込み失敗: ${String(e2)}`);
-      }
+      if (textResult.text && textResult.text.trim().length > 50) return textResult.text;
+    } catch {}
+
+    // テキストが少ない → OCR（Claude Vision PDF）
+    try {
+      const { extractTextFromScannedPDF } = await import('@/lib/ocr');
+      const ocrText = await extractTextFromScannedPDF(buffer);
+      if (ocrText.trim().length > 10) return ocrText;
+    } catch (e) {
+      console.error('PDF OCR失敗:', e);
     }
+
+    throw new Error('PDFからテキストを抽出できませんでした。');
+  }
+
+  // 画像ファイル → Claude Vision OCR
+  if (fileName.endsWith('.jpg') || fileName.endsWith('.jpeg') || fileName.endsWith('.png')) {
+    const { extractTextFromImage } = await import('@/lib/ocr');
+    const mimeType = fileName.endsWith('.png') ? 'image/png' as const : 'image/jpeg' as const;
+    return await extractTextFromImage(buffer, mimeType);
   }
 
   if (fileName.endsWith('.docx')) {
@@ -41,7 +51,7 @@ async function extractText(file: File): Promise<string> {
     return String(text);
   }
 
-  throw new Error('.txt / .md / .pdf / .docx / .pptx のみ対応しています');
+  throw new Error('.txt / .md / .pdf / .docx / .pptx / .jpg / .png に対応しています');
 }
 
 export async function POST(req: NextRequest) {
