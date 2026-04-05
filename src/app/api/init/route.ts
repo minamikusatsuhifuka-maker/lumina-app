@@ -95,6 +95,55 @@ export async function GET() {
       updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )`;
 
+    // Phase B-1: スタッフ��理テーブル
+    await sql`CREATE TABLE IF NOT EXISTS staff (
+      id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
+      name TEXT NOT NULL,
+      name_kana TEXT,
+      email TEXT UNIQUE,
+      phone TEXT,
+      position TEXT,
+      department TEXT,
+      hired_at TIMESTAMP,
+      status TEXT DEFAULT 'active',
+      current_grade_id TEXT,
+      photo_url TEXT,
+      memo TEXT,
+      created_at TIMESTAMP DEFAULT NOW(),
+      updated_at TIMESTAMP DEFAULT NOW()
+    )`;
+
+    await sql`CREATE TABLE IF NOT EXISTS staff_documents (
+      id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
+      staff_id TEXT NOT NULL,
+      type TEXT NOT NULL,
+      title TEXT NOT NULL,
+      file_url TEXT,
+      extracted_text TEXT,
+      ai_analysis TEXT,
+      uploaded_at TIMESTAMP DEFAULT NOW()
+    )`;
+
+    await sql`CREATE TABLE IF NOT EXISTS staff_notes (
+      id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
+      staff_id TEXT NOT NULL,
+      type TEXT DEFAULT 'other',
+      title TEXT NOT NULL,
+      content TEXT NOT NULL,
+      author_name TEXT,
+      created_at TIMESTAMP DEFAULT NOW()
+    )`;
+
+    await sql`CREATE TABLE IF NOT EXISTS grade_histories (
+      id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
+      staff_id TEXT NOT NULL,
+      from_grade TEXT,
+      to_grade TEXT NOT NULL,
+      reason TEXT,
+      changed_by TEXT,
+      changed_at TIMESTAMP DEFAULT NOW()
+    )`;
+
     return NextResponse.json({ success: true, message: '全テーブル初期化完了' });
   } catch (e: any) {
     return NextResponse.json({ error: e.message }, { status: 500 });

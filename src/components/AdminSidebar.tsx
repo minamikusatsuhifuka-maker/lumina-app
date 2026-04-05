@@ -5,6 +5,7 @@ import Link from 'next/link';
 const navItems = [
   { href: '/admin', label: '管理ダッシュボード', icon: '📊' },
   { href: '/admin/philosophy', label: '理念管理', icon: '📖' },
+  { href: '/admin/staff', label: 'スタッフ管理', icon: '👥' },
   { href: '/admin/grade', label: '等級制度', icon: '🏅' },
   { href: '/admin/evaluation', label: '評価制度', icon: '📋' },
   { href: '/admin/strategy', label: '経営戦略', icon: '🗺' },
