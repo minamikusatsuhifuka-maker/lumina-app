@@ -9,6 +9,7 @@ const navItems = [
   { href: '/admin/surveys', label: 'アンケート管理', icon: '📝' },
   { href: '/admin/exams', label: '試験管理', icon: '📋' },
   { href: '/admin/grade', label: '等級制度', icon: '🏅' },
+  { href: '/admin/grade/compare', label: '等級比較表', icon: '📊' },
   { href: '/admin/evaluation', label: '評価制度', icon: '📋' },
   { href: '/admin/handbook', label: 'ハンドブック', icon: '📖' },
   { href: '/admin/strategy', label: '経営戦略', icon: '🗺' },

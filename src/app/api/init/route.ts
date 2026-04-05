@@ -144,6 +144,17 @@ export async function GET() {
       changed_at TIMESTAMP DEFAULT NOW()
     )`;
 
+    // grade_levels拡張カラム
+    try { await sql`ALTER TABLE grade_levels ADD COLUMN IF NOT EXISTS position TEXT`; } catch {}
+    try { await sql`ALTER TABLE grade_levels ADD COLUMN IF NOT EXISTS role TEXT`; } catch {}
+    try { await sql`ALTER TABLE grade_levels ADD COLUMN IF NOT EXISTS skills TEXT`; } catch {}
+    try { await sql`ALTER TABLE grade_levels ADD COLUMN IF NOT EXISTS knowledge TEXT`; } catch {}
+    try { await sql`ALTER TABLE grade_levels ADD COLUMN IF NOT EXISTS mindset TEXT`; } catch {}
+    try { await sql`ALTER TABLE grade_levels ADD COLUMN IF NOT EXISTS continuous_learning TEXT`; } catch {}
+    try { await sql`ALTER TABLE grade_levels ADD COLUMN IF NOT EXISTS required_certifications TEXT`; } catch {}
+    try { await sql`ALTER TABLE grade_levels ADD COLUMN IF NOT EXISTS promotion_exam TEXT`; } catch {}
+    try { await sql`ALTER TABLE grade_levels ADD COLUMN IF NOT EXISTS ai_chat_history TEXT`; } catch {}
+
     // Phase B-2: アンケート・試験テーブル
     await sql`CREATE TABLE IF NOT EXISTS surveys (
       id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,

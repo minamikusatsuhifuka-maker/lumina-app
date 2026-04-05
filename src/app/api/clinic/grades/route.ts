@@ -15,13 +15,13 @@ export async function POST(req: NextRequest) {
   const session = await auth();
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   const body = await req.json();
-  const { name, levelNumber, description, requirementsPromotion, requirementsDemotion, salaryMin, salaryMax } = body;
+  const { name, levelNumber, description, requirementsPromotion, requirementsDemotion, salaryMin, salaryMax, position, role, skills, knowledge, mindset, continuousLearning, requiredCertifications, promotionExam } = body;
   if (!name || levelNumber === undefined) return NextResponse.json({ error: 'name と levelNumber は必須です' }, { status: 400 });
 
   const sql = neon(process.env.DATABASE_URL!);
   const id = uuidv4();
-  await sql`INSERT INTO grade_levels (id, name, level_number, description, requirements_promotion, requirements_demotion, salary_min, salary_max)
-    VALUES (${id}, ${name}, ${levelNumber}, ${description || null}, ${requirementsPromotion || null}, ${requirementsDemotion || null}, ${salaryMin || null}, ${salaryMax || null})`;
+  await sql`INSERT INTO grade_levels (id, name, level_number, description, requirements_promotion, requirements_demotion, salary_min, salary_max, position, role, skills, knowledge, mindset, continuous_learning, required_certifications, promotion_exam)
+    VALUES (${id}, ${name}, ${levelNumber}, ${description || null}, ${requirementsPromotion || null}, ${requirementsDemotion || null}, ${salaryMin || null}, ${salaryMax || null}, ${position || null}, ${role || null}, ${skills || null}, ${knowledge || null}, ${mindset || null}, ${continuousLearning || null}, ${requiredCertifications || null}, ${promotionExam || null})`;
 
   return NextResponse.json({ success: true, id });
 }

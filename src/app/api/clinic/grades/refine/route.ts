@@ -1,53 +1,47 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
+import { neon } from '@neondatabase/serverless';
 
 export const maxDuration = 60;
+
+const CATEGORY_LABELS: Record<string, string> = {
+  skills: 'スキル要件', knowledge: '知識要件', mindset: 'マインド要件',
+  continuousLearning: '継続学習', requiredCertifications: '必須資格',
+  promotionExam: '昇格試験', requirementsDemotion: '降格条件', all: '全体',
+};
 
 export async function POST(req: NextRequest) {
   const session = await auth();
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-  const { gradeId, instruction, currentContent } = await req.json();
-  if (!gradeId || !instruction || !currentContent) {
-    return NextResponse.json({ error: 'gradeId, instruction, currentContent は必須です' }, { status: 400 });
-  }
+  const { gradeId, instruction, currentContent, category } = await req.json();
+  if (!instruction || !currentContent) return NextResponse.json({ error: 'instruction と currentContent は必須です' }, { status: 400 });
 
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) return NextResponse.json({ error: 'APIキーが設定されていません' }, { status: 500 });
 
+  const sql = neon(process.env.DATABASE_URL!);
+  const philRows = await sql`SELECT content FROM clinic_philosophy ORDER BY created_at DESC LIMIT 1`;
+  const philosophy = philRows[0]?.content || '';
+  const categoryLabel = CATEGORY_LABELS[category || 'all'] || '全体';
+
   const response = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'x-api-key': apiKey,
-      'anthropic-version': '2023-06-01',
-    },
+    headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' },
     body: JSON.stringify({
       model: 'claude-sonnet-4-6',
       max_tokens: 4000,
-      system: 'あなたはクリニック経営・人事制度の専門家です。必ずJSON形式のみで返してください。',
+      system: `あなたはクリニック経営・人事制度の専門家です。クリニックの理念：${philosophy}\n必ずJSON形式のみで返してください。`,
       messages: [{
         role: 'user',
-        content: `以下の等級情報を、指示に従って修正してください。
+        content: `現在の等級情報：
+${typeof currentContent === 'string' ? currentContent : JSON.stringify(currentContent, null, 2)}
 
-現在の等級情報：
-${JSON.stringify(currentContent, null, 2)}
+修正対象：${categoryLabel}
+修正指示：${instruction}
 
-修正指示：
-${instruction}
-
-修正後の等級情報を以下のJSON形式で返してください：
-{
-  "levelNumber": 1,
-  "name": "等級名",
-  "description": "等級の説明",
-  "requirementsPromotion": "昇格要件",
-  "requirementsDemotion": "降格要件",
-  "salaryMin": 200000,
-  "salaryMax": 250000,
-  "keyCompetencies": ["能力1", "能力2"],
-  "changeLog": "変更内容の要約"
-}`,
+修正後の等級情報全体をJSON形式で返してください。変更理由も添えてください：
+{ ...(全フィールド), "changeLog": "変更した内容と理由" }`,
       }],
     }),
   });
