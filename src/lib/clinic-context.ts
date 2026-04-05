@@ -10,9 +10,18 @@ export async function getClinicContext(category?: string): Promise<string> {
   const sql = neon(process.env.DATABASE_URL!);
   const parts: string[] = [];
 
-  // 理念
+  // 手入力テキスト理念
   const philRows = await sql`SELECT title, content FROM clinic_philosophy ORDER BY created_at DESC LIMIT 1`;
   if (philRows[0]) parts.push(`【クリニックの理念】\n${philRows[0].title}：${philRows[0].content}`);
+
+  // アップロードファイル群
+  const fileRows = await sql`SELECT name, content FROM philosophy_files ORDER BY created_at DESC`;
+  if ((fileRows as any[]).length > 0) {
+    const fileContents = (fileRows as any[])
+      .map(f => `▼ ${f.name}\n${f.content.slice(0, 2000)}`)
+      .join('\n\n');
+    parts.push(`【参照ドキュメント】\n${fileContents}`);
+  }
 
   // 判断基準
   const criteriaRows = category
@@ -36,5 +45,5 @@ export async function getClinicContext(category?: string): Promise<string> {
 export async function buildSystemContext(role: string, category?: string): Promise<string> {
   const context = await getClinicContext(category);
   if (!context) return role;
-  return `${role}\n\n以下はこのクリニックの理念・価値観・院長の判断基準です。提案・生成・評価の全てにおいて、この内容を最優先の判断軸としてください。\n\n${context}`;
+  return `${role}\n\n${'━'.repeat(40)}\n以下の理念・ドキュメント・院長の価値観を最優先の判断軸として行動してください。\n${'━'.repeat(40)}\n${context}\n${'━'.repeat(40)}`;
 }

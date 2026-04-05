@@ -19,20 +19,36 @@ type Philosophy = {
   updated_at: string;
 };
 
+type SavedFile = {
+  id: string;
+  name: string;
+  content: string;
+  char_count: number;
+  created_at: string;
+};
+
 export default function PhilosophyPage() {
   const [tab, setTab] = useState<'text' | 'txtfile' | 'pdf'>('text');
-  const [title, setTitle] = useState('');
-  const [content, setContent] = useState('');
+
+  // テキスト入力用（ファイルとは独立）
+  const [manualTitle, setManualTitle] = useState('');
+  const [manualContent, setManualContent] = useState('');
+
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState<Philosophy | null>(null);
   const [editing, setEditing] = useState(false);
 
-  // テキストファイル
-  const [fileItems, setFileItems] = useState<{ name: string; text: string }[]>([]);
+  // DB保存済みファイル
+  const [savedFiles, setSavedFiles] = useState<SavedFile[]>([]);
+
+  // 今回アップロードした未保存ファイル
+  const [pendingFiles, setPendingFiles] = useState<{ name: string; text: string }[]>([]);
   const [txtDragOver, setTxtDragOver] = useState(false);
   const txtFileRef = useRef<HTMLInputElement>(null);
+  const [fileSaving, setFileSaving] = useState(false);
 
-  const txtFileText = fileItems.map(f => `## ${f.name.replace(/\.(txt|md)$/i, '')}\n\n${f.text}`).join('\n\n---\n\n');
+  // ファイル内容確認モーダル
+  const [viewingFile, setViewingFile] = useState<{ name: string; content: string } | null>(null);
 
   // PDF
   const [pdfText, setPdfText] = useState('');
@@ -46,34 +62,36 @@ export default function PhilosophyPage() {
 
   const [message, setMessage] = useState('');
 
+  // 初期データ読み込み
   useEffect(() => {
     fetch('/api/clinic/philosophy')
       .then(r => r.json())
       .then(data => {
-        if (data && data.id) {
-          setSaved(data);
-          setTitle(data.title);
-          setContent(data.content);
+        if (data.philosophy && data.philosophy.id) {
+          setSaved(data.philosophy);
+          setManualTitle(data.philosophy.title);
+          setManualContent(data.philosophy.content);
         }
+        if (data.files) setSavedFiles(data.files);
       });
   }, []);
 
-  const handleSave = async () => {
-    if (!title.trim() || !content.trim()) return;
+  // テキスト保存（ファイルとは独立）
+  const handleSaveText = async () => {
+    if (!manualTitle.trim() || !manualContent.trim()) return;
     setSaving(true);
     setMessage('');
     try {
       const res = await fetch('/api/clinic/philosophy', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ title, content }),
+        body: JSON.stringify({ type: 'text', title: manualTitle, content: manualContent }),
       });
       if (res.ok) {
         setMessage('保存しました');
         setEditing(false);
-        // 再取得
         const data = await (await fetch('/api/clinic/philosophy')).json();
-        if (data?.id) setSaved(data);
+        if (data.philosophy?.id) setSaved(data.philosophy);
       } else {
         setMessage('保存に失敗しました');
       }
@@ -84,6 +102,7 @@ export default function PhilosophyPage() {
     }
   };
 
+  // ファイル読み込み → pendingFilesに追加
   const handleTextFiles = async (files: FileList | File[]) => {
     const fileArray = Array.from(files).filter(f => f.name.match(/\.(txt|md)$/i));
     if (fileArray.length === 0) { setMessage('.txt または .md ファイルを選択してください'); return; }
@@ -93,7 +112,7 @@ export default function PhilosophyPage() {
       newItems.push({ name: file.name, text: await file.text() });
     }
 
-    setFileItems(prev => {
+    setPendingFiles(prev => {
       const merged = [...prev];
       for (const item of newItems) {
         const idx = merged.findIndex(f => f.name === item.name);
@@ -105,13 +124,55 @@ export default function PhilosophyPage() {
     setMessage(`${newItems.length}ファイルを追加しました`);
   };
 
-  // fileItems変更時にcontentを同期
-  useEffect(() => { if (fileItems.length > 0) setContent(txtFileText); }, [fileItems]);
-
   const handleTxtDrop = (e: React.DragEvent) => {
     e.preventDefault();
     setTxtDragOver(false);
     handleTextFiles(e.dataTransfer.files);
+  };
+
+  // ファイルをDBに保存
+  const handleSaveFiles = async () => {
+    if (pendingFiles.length === 0) return;
+    setFileSaving(true);
+    setMessage('');
+    try {
+      const res = await fetch('/api/clinic/philosophy-files', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ files: pendingFiles.map(f => ({ name: f.name, content: f.text })) }),
+      });
+      if (res.ok) {
+        setMessage('ファイルを保存しました');
+        setPendingFiles([]);
+        // 保存済みファイル再取得
+        const data = await (await fetch('/api/clinic/philosophy-files')).json();
+        if (data.files) setSavedFiles(data.files);
+      } else {
+        setMessage('ファイル保存に失敗しました');
+      }
+    } catch {
+      setMessage('ファイル保存に失敗しました');
+    } finally {
+      setFileSaving(false);
+    }
+  };
+
+  // ファイル削除
+  const handleDeleteFile = async (id: string) => {
+    if (!confirm('このファイルを削除しますか？')) return;
+    try {
+      const res = await fetch('/api/clinic/philosophy-files', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id }),
+      });
+      if (res.ok) {
+        setSavedFiles(prev => prev.filter(f => f.id !== id));
+        setMessage('ファイルを削除しました');
+      }
+    } catch {
+      setMessage('削除に失敗しました');
+    }
   };
 
   const handlePdfUpload = async (file: File) => {
@@ -129,7 +190,7 @@ export default function PhilosophyPage() {
       const data = await res.json();
       if (data.content) {
         setPdfText(data.content);
-        setContent(data.content);
+        setManualContent(data.content);
         setMessage('PDFからテキストを抽出しました');
       } else {
         setMessage(data.error || 'PDF解析に失敗しました');
@@ -148,8 +209,33 @@ export default function PhilosophyPage() {
     if (file) handlePdfUpload(file);
   };
 
+  // PDF抽出テキストをテキスト保存
+  const handleSavePdfAsText = async () => {
+    if (!manualTitle.trim() || !manualContent.trim()) return;
+    setSaving(true);
+    setMessage('');
+    try {
+      const res = await fetch('/api/clinic/philosophy', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ type: 'text', title: manualTitle, content: manualContent }),
+      });
+      if (res.ok) {
+        setMessage('保存しました');
+        const data = await (await fetch('/api/clinic/philosophy')).json();
+        if (data.philosophy?.id) setSaved(data.philosophy);
+      } else {
+        setMessage('保存に失敗しました');
+      }
+    } catch {
+      setMessage('保存に失敗しました');
+    } finally {
+      setSaving(false);
+    }
+  };
+
   const handleAnalyze = async () => {
-    const targetContent = saved?.content || content;
+    const targetContent = saved?.content || manualContent;
     if (!targetContent.trim()) return;
     setAnalyzing(true);
     setAnalysis(null);
@@ -184,6 +270,19 @@ export default function PhilosophyPage() {
       {message && (
         <div style={{ padding: 12, background: message.includes('失敗') ? 'rgba(239,68,68,0.1)' : 'rgba(74,222,128,0.1)', border: `1px solid ${message.includes('失敗') ? 'rgba(239,68,68,0.3)' : 'rgba(74,222,128,0.3)'}`, borderRadius: 10, fontSize: 13, color: message.includes('失敗') ? '#ef4444' : '#4ade80', marginBottom: 16 }}>
           {message}
+        </div>
+      )}
+
+      {/* ファイル内容確認モーダル */}
+      {viewingFile && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }} onClick={() => setViewingFile(null)}>
+          <div style={{ background: 'var(--bg-secondary)', borderRadius: 16, padding: 24, maxWidth: 700, width: '100%', maxHeight: '80vh', overflow: 'auto' }} onClick={e => e.stopPropagation()}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+              <h3 style={{ fontSize: 16, fontWeight: 700, color: 'var(--text-primary)', margin: 0 }}>📄 {viewingFile.name}</h3>
+              <button onClick={() => setViewingFile(null)} style={{ background: 'none', border: 'none', fontSize: 20, cursor: 'pointer', color: 'var(--text-muted)' }}>✕</button>
+            </div>
+            <div style={{ fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.8, whiteSpace: 'pre-wrap' }}>{viewingFile.content}</div>
+          </div>
         </div>
       )}
 
@@ -235,26 +334,26 @@ export default function PhilosophyPage() {
             <div style={{ ...cardStyle, marginBottom: 20 }}>
               <label style={{ display: 'block', fontSize: 13, color: 'var(--text-secondary)', marginBottom: 6 }}>タイトル</label>
               <input
-                value={title} onChange={e => setTitle(e.target.value)}
+                value={manualTitle} onChange={e => setManualTitle(e.target.value)}
                 placeholder="例：南草津皮フ科 経営理念"
                 style={{ width: '100%', padding: '10px 14px', background: 'var(--input-bg)', border: '1px solid var(--input-border)', borderRadius: 8, color: 'var(--text-primary)', fontSize: 14, outline: 'none', marginBottom: 14, boxSizing: 'border-box' }}
               />
               <label style={{ display: 'block', fontSize: 13, color: 'var(--text-secondary)', marginBottom: 6 }}>理念テキスト</label>
               <textarea
-                value={content} onChange={e => setContent(e.target.value)}
+                value={manualContent} onChange={e => setManualContent(e.target.value)}
                 placeholder="クリニックの理念、ミッション、ビジョン、行動指針などを入力してください..."
                 style={{ width: '100%', minHeight: 400, padding: '12px 14px', background: 'var(--input-bg)', border: '1px solid var(--input-border)', borderRadius: 8, color: 'var(--text-primary)', fontSize: 14, lineHeight: 1.8, outline: 'none', resize: 'vertical', boxSizing: 'border-box' }}
               />
               <div style={{ display: 'flex', gap: 8, marginTop: 14 }}>
-                <button onClick={handleSave} disabled={saving || !title.trim() || !content.trim()} style={{
+                <button onClick={handleSaveText} disabled={saving || !manualTitle.trim() || !manualContent.trim()} style={{
                   padding: '10px 24px', borderRadius: 8, border: 'none', cursor: saving ? 'not-allowed' : 'pointer',
-                  background: saving || !title.trim() || !content.trim() ? 'rgba(108,99,255,0.3)' : 'linear-gradient(135deg, #6c63ff, #8b5cf6)',
+                  background: saving || !manualTitle.trim() || !manualContent.trim() ? 'rgba(108,99,255,0.3)' : 'linear-gradient(135deg, #6c63ff, #8b5cf6)',
                   color: '#fff', fontWeight: 700, fontSize: 14,
                 }}>
                   {saving ? '保存中...' : '💾 保存する'}
                 </button>
                 {editing && (
-                  <button onClick={() => { setEditing(false); if (saved) { setTitle(saved.title); setContent(saved.content); } }} style={{ padding: '10px 16px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--bg-card)', color: 'var(--text-muted)', fontSize: 13, cursor: 'pointer' }}>
+                  <button onClick={() => { setEditing(false); if (saved) { setManualTitle(saved.title); setManualContent(saved.content); } }} style={{ padding: '10px 16px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--bg-card)', color: 'var(--text-muted)', fontSize: 13, cursor: 'pointer' }}>
                     キャンセル
                   </button>
                 )}
@@ -264,6 +363,29 @@ export default function PhilosophyPage() {
 
           {tab === 'txtfile' && (
             <div style={{ ...cardStyle, marginBottom: 20 }}>
+              {/* 保存済みファイル一覧 */}
+              {savedFiles.length > 0 && (
+                <div style={{ marginBottom: 20 }}>
+                  <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-secondary)', marginBottom: 8 }}>保存済みファイル</div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                    {savedFiles.map(file => (
+                      <div key={file.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 12px', background: 'rgba(74,222,128,0.06)', border: '1px solid rgba(74,222,128,0.2)', borderRadius: 10 }}>
+                        <span style={{ fontSize: 13, color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
+                          📄 <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{file.name}</span>
+                          <span style={{ fontSize: 11, color: 'var(--text-muted)', flexShrink: 0 }}>({(file.char_count ?? 0).toLocaleString()}文字)</span>
+                        </span>
+                        <div style={{ display: 'flex', gap: 8, flexShrink: 0 }}>
+                          <button onClick={() => setViewingFile({ name: file.name, content: file.content })} style={{ fontSize: 12, color: '#6c63ff', background: 'none', border: 'none', cursor: 'pointer' }}>確認</button>
+                          <button onClick={() => handleDeleteFile(file.id)} style={{ fontSize: 12, color: '#ef4444', background: 'none', border: 'none', cursor: 'pointer' }}>✕ 削除</button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* 新規アップロードエリア */}
+              <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-secondary)', marginBottom: 8 }}>新規アップロード</div>
               <div
                 onDragOver={e => { e.preventDefault(); setTxtDragOver(true); }}
                 onDragLeave={() => setTxtDragOver(false)}
@@ -282,47 +404,28 @@ export default function PhilosophyPage() {
               </div>
               <input ref={txtFileRef} type="file" accept=".txt,.md" multiple hidden onChange={e => { if (e.target.files) handleTextFiles(e.target.files); }} />
 
-              {/* ファイル名リスト（個別削除対応） */}
-              {fileItems.length > 0 && (
+              {/* 未保存ファイルリスト */}
+              {pendingFiles.length > 0 && (
                 <div style={{ marginTop: 12, padding: 10, background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 8 }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-                    <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>{fileItems.length}ファイル読み込み済み（合計 {txtFileText.length.toLocaleString()}文字）</span>
-                    <button onClick={() => setFileItems([])} style={{ fontSize: 10, color: '#ef4444', background: 'none', border: 'none', cursor: 'pointer' }}>全て削除</button>
-                  </div>
-                  {fileItems.map(item => (
+                  <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 8 }}>未保存 — {pendingFiles.length}ファイル</div>
+                  {pendingFiles.map(item => (
                     <div key={item.name} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '4px 8px', background: 'var(--bg-secondary)', borderRadius: 6, marginBottom: 3, border: '1px solid var(--border)' }}>
                       <span style={{ fontSize: 12, color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
-                        <span style={{ color: '#4ade80', flexShrink: 0 }}>✅</span>
+                        <span style={{ color: '#f59e0b', flexShrink: 0 }}>⏳</span>
                         <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{item.name}</span>
                         <span style={{ fontSize: 10, color: 'var(--text-muted)', flexShrink: 0 }}>({item.text.length.toLocaleString()}文字)</span>
                       </span>
-                      <button onClick={() => setFileItems(prev => prev.filter(f => f.name !== item.name))} style={{ color: 'var(--text-muted)', background: 'none', border: 'none', cursor: 'pointer', fontSize: 14, flexShrink: 0, padding: '0 4px' }} title="削除">✕</button>
+                      <button onClick={() => setPendingFiles(prev => prev.filter(f => f.name !== item.name))} style={{ color: 'var(--text-muted)', background: 'none', border: 'none', cursor: 'pointer', fontSize: 14, flexShrink: 0, padding: '0 4px' }} title="削除">✕</button>
                     </div>
                   ))}
+                  <button onClick={handleSaveFiles} disabled={fileSaving} style={{
+                    marginTop: 10, padding: '10px 24px', borderRadius: 8, border: 'none', cursor: fileSaving ? 'not-allowed' : 'pointer',
+                    background: fileSaving ? 'rgba(108,99,255,0.3)' : 'linear-gradient(135deg, #6c63ff, #8b5cf6)',
+                    color: '#fff', fontWeight: 700, fontSize: 14, width: '100%',
+                  }}>
+                    {fileSaving ? '保存中...' : '💾 選択ファイルを保存する'}
+                  </button>
                 </div>
-              )}
-
-              {txtFileText && (
-                <>
-                  <label style={{ display: 'block', fontSize: 13, color: 'var(--text-secondary)', marginTop: 12, marginBottom: 6 }}>読み込んだテキスト</label>
-                  <div style={{ padding: 14, background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 8, fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.8, whiteSpace: 'pre-wrap', maxHeight: 300, overflowY: 'auto' }}>
-                    {txtFileText}
-                  </div>
-                  <div style={{ display: 'flex', gap: 8, marginTop: 14 }}>
-                    <input
-                      value={title} onChange={e => setTitle(e.target.value)}
-                      placeholder="タイトルを入力"
-                      style={{ flex: 1, padding: '10px 14px', background: 'var(--input-bg)', border: '1px solid var(--input-border)', borderRadius: 8, color: 'var(--text-primary)', fontSize: 14, outline: 'none' }}
-                    />
-                    <button onClick={handleSave} disabled={saving || !title.trim()} style={{
-                      padding: '10px 24px', borderRadius: 8, border: 'none', cursor: saving ? 'not-allowed' : 'pointer',
-                      background: saving || !title.trim() ? 'rgba(108,99,255,0.3)' : 'linear-gradient(135deg, #6c63ff, #8b5cf6)',
-                      color: '#fff', fontWeight: 700, fontSize: 14, whiteSpace: 'nowrap',
-                    }}>
-                      {saving ? '保存中...' : 'このテキストで保存する'}
-                    </button>
-                  </div>
-                </>
               )}
             </div>
           )}
@@ -357,13 +460,13 @@ export default function PhilosophyPage() {
                   </div>
                   <div style={{ display: 'flex', gap: 8, marginTop: 14 }}>
                     <input
-                      value={title} onChange={e => setTitle(e.target.value)}
+                      value={manualTitle} onChange={e => setManualTitle(e.target.value)}
                       placeholder="タイトルを入力"
                       style={{ flex: 1, padding: '10px 14px', background: 'var(--input-bg)', border: '1px solid var(--input-border)', borderRadius: 8, color: 'var(--text-primary)', fontSize: 14, outline: 'none' }}
                     />
-                    <button onClick={handleSave} disabled={saving || !title.trim()} style={{
+                    <button onClick={handleSavePdfAsText} disabled={saving || !manualTitle.trim()} style={{
                       padding: '10px 24px', borderRadius: 8, border: 'none', cursor: saving ? 'not-allowed' : 'pointer',
-                      background: saving || !title.trim() ? 'rgba(108,99,255,0.3)' : 'linear-gradient(135deg, #6c63ff, #8b5cf6)',
+                      background: saving || !manualTitle.trim() ? 'rgba(108,99,255,0.3)' : 'linear-gradient(135deg, #6c63ff, #8b5cf6)',
                       color: '#fff', fontWeight: 700, fontSize: 14, whiteSpace: 'nowrap',
                     }}>
                       {saving ? '保存中...' : 'このテキストで保存する'}
