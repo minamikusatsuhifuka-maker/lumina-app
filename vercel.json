@@ -1,28 +1,16 @@
 {
   "functions": {
-    "src/app/api/clinic/strategies/generate/route.ts": {
-      "maxDuration": 300
-    },
-    "src/app/api/clinic/strategies/[id]/breakdown/route.ts": {
-      "maxDuration": 300
-    },
-    "src/app/api/industry/route.ts": {
-      "maxDuration": 300
-    },
-    "src/app/api/deepresearch/route.ts": {
-      "maxDuration": 300
-    },
-    "src/app/api/websearch/route.ts": {
-      "maxDuration": 300
-    },
-    "src/app/api/clinic/handbooks/import/route.ts": {
-      "maxDuration": 120
-    },
-    "src/app/api/clinic/mindset-framework/generate/route.ts": {
-      "maxDuration": 120
-    },
-    "src/app/api/clinic/grades/generate/route.ts": {
-      "maxDuration": 120
-    }
+    "src/app/api/clinic/strategies/generate/route.ts": { "maxDuration": 300 },
+    "src/app/api/clinic/strategies/route.ts": { "maxDuration": 60 },
+    "src/app/api/clinic/strategies/[id]/breakdown/route.ts": { "maxDuration": 300 },
+    "src/app/api/clinic/handbooks/import/route.ts": { "maxDuration": 300 },
+    "src/app/api/clinic/mindset-framework/generate/route.ts": { "maxDuration": 300 },
+    "src/app/api/clinic/growth-philosophy/generate/route.ts": { "maxDuration": 300 },
+    "src/app/api/clinic/position-definitions/generate/route.ts": { "maxDuration": 120 },
+    "src/app/api/clinic/grades/generate/route.ts": { "maxDuration": 300 },
+    "src/app/api/clinic/grades/consult/route.ts": { "maxDuration": 300 },
+    "src/app/api/industry/route.ts": { "maxDuration": 300 },
+    "src/app/api/deepresearch/route.ts": { "maxDuration": 300 },
+    "src/app/api/websearch/route.ts": { "maxDuration": 300 }
   }
 }

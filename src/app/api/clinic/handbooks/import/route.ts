@@ -3,7 +3,7 @@ import { auth } from '@/lib/auth';
 import { PDFParse } from 'pdf-parse';
 import mammoth from 'mammoth';
 
-export const maxDuration = 120;
+export const maxDuration = 300;
 
 export async function POST(req: NextRequest) {
   const session = await auth();

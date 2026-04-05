@@ -10,6 +10,8 @@ export default function DefinitionsPage() {
   const [grades, setGrades] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [message, setMessage] = useState('');
+  const [selectedStage, setSelectedStage] = useState<any>(null);
+  const [careerPosition, setCareerPosition] = useState('');
 
   // 新規追加
   const [newName, setNewName] = useState('');
@@ -156,30 +158,90 @@ export default function DefinitionsPage() {
 
       {/* キャリアマップ */}
       {tab === 'careermap' && (
-        <div style={{ overflowX: 'auto' }}>
-          {grades.length === 0 || positions.length === 0 ? (
-            <div style={{ textAlign: 'center', padding: 40, color: 'var(--text-muted)' }}>職種と等級を先に登録してください</div>
+        <div>
+          {grades.length === 0 ? (
+            <div style={{ textAlign: 'center', padding: 40, color: 'var(--text-muted)' }}>等級を先に登録してください</div>
           ) : (
-            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
-              <thead>
-                <tr>
-                  <th style={{ padding: '10px 12px', background: 'var(--bg-secondary)', border: '1px solid var(--border)', textAlign: 'left', color: 'var(--text-muted)' }}>職種</th>
-                  {grades.map(g => <th key={g.id} style={{ padding: '10px 12px', background: 'var(--bg-secondary)', border: '1px solid var(--border)', textAlign: 'center', color: '#6c63ff', fontWeight: 700 }}>Lv.{g.level_number}<br />{g.name}</th>)}
-                </tr>
-              </thead>
-              <tbody>
-                {positions.map(p => (
-                  <tr key={p.id}>
-                    <td style={{ padding: '10px 12px', border: '1px solid var(--border)', fontWeight: 600, color: 'var(--text-primary)' }}>{p.name}</td>
-                    {grades.map(g => (
-                      <td key={g.id} style={{ padding: '10px 12px', border: '1px solid var(--border)', textAlign: 'center', color: 'var(--text-secondary)' }}>
-                        {g.role || (roles[Math.min(g.level_number - 1, roles.length - 1)]?.name || '—')}
-                      </td>
-                    ))}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+            <>
+              {/* 職種タブ */}
+              {positions.length > 0 && (
+                <div style={{ display: 'flex', gap: 6, marginBottom: 16 }}>
+                  <button onClick={() => setCareerPosition('')} style={{ padding: '6px 12px', borderRadius: 6, fontSize: 12, fontWeight: 600, cursor: 'pointer', background: !careerPosition ? 'rgba(108,99,255,0.15)' : 'var(--bg-card)', color: !careerPosition ? '#6c63ff' : 'var(--text-muted)', border: `1px solid ${!careerPosition ? 'rgba(108,99,255,0.3)' : 'var(--border)'}` }}>全職種</button>
+                  {positions.map(p => (
+                    <button key={p.id} onClick={() => setCareerPosition(p.name)} style={{ padding: '6px 12px', borderRadius: 6, fontSize: 12, fontWeight: 600, cursor: 'pointer', background: careerPosition === p.name ? 'rgba(108,99,255,0.15)' : 'var(--bg-card)', color: careerPosition === p.name ? '#6c63ff' : 'var(--text-muted)', border: `1px solid ${careerPosition === p.name ? 'rgba(108,99,255,0.3)' : 'var(--border)'}` }}>{p.name}</button>
+                  ))}
+                </div>
+              )}
+
+              {/* ステップ表示 */}
+              <div style={{ overflowX: 'auto', paddingBottom: 16 }}>
+                <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8, minWidth: 'max-content' }}>
+                  {grades.map((g, i) => {
+                    const skills = (() => { try { return JSON.parse(g.skills || '[]'); } catch { return []; } })();
+                    const salary = g.salary_min ? `${Math.round(g.salary_min / 10000)}〜${Math.round(g.salary_max / 10000)}万` : null;
+                    const role = g.role || (roles[Math.min(i, roles.length - 1)]?.name || '—');
+                    const isSelected = selectedStage?.id === g.id;
+
+                    return (
+                      <div key={g.id} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                        <div onClick={() => setSelectedStage(isSelected ? null : g)} style={{
+                          width: 176, padding: 14, borderRadius: 14,
+                          border: `2px solid ${isSelected ? '#6c63ff' : 'rgba(108,99,255,0.2)'}`,
+                          background: isSelected ? 'rgba(108,99,255,0.08)' : 'var(--bg-secondary)',
+                          cursor: 'pointer', transition: 'all 0.15s',
+                        }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                            <span style={{ fontSize: 11, fontWeight: 700, padding: '2px 8px', borderRadius: 20, background: 'rgba(108,99,255,0.15)', color: '#6c63ff' }}>Grade {g.level_number}</span>
+                            {salary && <span style={{ fontSize: 10, color: 'var(--text-muted)' }}>{salary}</span>}
+                          </div>
+                          <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 4 }}>{g.name}</div>
+                          <div style={{ fontSize: 12, color: '#6c63ff', marginBottom: 6 }}>👤 {role}</div>
+                          {skills.slice(0, 2).map((s: string, j: number) => (
+                            <div key={j} style={{ fontSize: 11, color: 'var(--text-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>• {s}</div>
+                          ))}
+                        </div>
+                        {i < grades.length - 1 && (
+                          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+                            <div style={{ fontSize: 22, color: 'rgba(108,99,255,0.4)' }}>→</div>
+                            <div style={{ fontSize: 10, color: 'var(--text-muted)' }}>成長</div>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* 選択したステージの詳細 */}
+              {selectedStage && (
+                <div style={{ padding: 20, background: 'var(--bg-secondary)', border: '2px solid rgba(108,99,255,0.3)', borderRadius: 16, marginTop: 8 }}>
+                  <div style={{ fontSize: 16, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 12 }}>Grade {selectedStage.level_number} {selectedStage.name} の詳細</div>
+                  {selectedStage.description && <div style={{ fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.7, marginBottom: 12 }}>{selectedStage.description}</div>}
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                    {[
+                      { label: '🎯 スキル要件', data: selectedStage.skills },
+                      { label: '📚 知識要件', data: selectedStage.knowledge },
+                      { label: '💡 マインド要件', data: selectedStage.mindset },
+                      { label: '🏅 必要資格', data: selectedStage.required_certifications },
+                    ].map(section => {
+                      const items = parseJson(section.data);
+                      return items.length > 0 ? (
+                        <div key={section.label} style={{ padding: 12, background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 10 }}>
+                          <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 6 }}>{section.label}</div>
+                          {items.map((item: string, i: number) => <div key={i} style={{ fontSize: 12, color: 'var(--text-secondary)', padding: '2px 0' }}>• {item}</div>)}
+                        </div>
+                      ) : null;
+                    })}
+                  </div>
+                  {selectedStage.requirements_promotion && (
+                    <div style={{ marginTop: 10, padding: 12, background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 10 }}>
+                      <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 6 }}>📈 昇格条件</div>
+                      <div style={{ fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.6, whiteSpace: 'pre-wrap' }}>{selectedStage.requirements_promotion}</div>
+                    </div>
+                  )}
+                </div>
+              )}
+            </>
           )}
         </div>
       )}
