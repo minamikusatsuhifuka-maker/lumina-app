@@ -1,0 +1,26 @@
+import { NextRequest, NextResponse } from 'next/server';
+import { auth } from '@/lib/auth';
+import { neon } from '@neondatabase/serverless';
+import { v4 as uuidv4 } from 'uuid';
+
+export async function GET() {
+  const session = await auth();
+  if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const sql = neon(process.env.DATABASE_URL!);
+  const rows = await sql`SELECT * FROM handbooks ORDER BY updated_at DESC`;
+  return NextResponse.json(rows);
+}
+
+export async function POST(req: NextRequest) {
+  const session = await auth();
+  if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const { title, description } = await req.json();
+  if (!title) return NextResponse.json({ error: 'title は必須です' }, { status: 400 });
+
+  const sql = neon(process.env.DATABASE_URL!);
+  const id = uuidv4();
+  await sql`INSERT INTO handbooks (id, title, description)
+    VALUES (${id}, ${title}, ${description || null})`;
+
+  return NextResponse.json({ success: true, id });
+}

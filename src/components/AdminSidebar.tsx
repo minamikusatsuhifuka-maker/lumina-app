@@ -10,6 +10,7 @@ const navItems = [
   { href: '/admin/exams', label: '試験管理', icon: '📋' },
   { href: '/admin/grade', label: '等級制度', icon: '🏅' },
   { href: '/admin/evaluation', label: '評価制度', icon: '📋' },
+  { href: '/admin/handbook', label: 'ハンドブック', icon: '📖' },
   { href: '/admin/strategy', label: '経営戦略', icon: '🗺' },
   { href: '/admin/tasks', label: 'タスク管理', icon: '✅' },
 ];

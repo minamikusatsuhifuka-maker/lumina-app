@@ -194,6 +194,27 @@ export async function GET() {
       updated_at TIMESTAMP DEFAULT NOW()
     )`;
 
+    // ハンドブック
+    await sql`CREATE TABLE IF NOT EXISTS handbooks (
+      id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
+      title TEXT NOT NULL,
+      description TEXT,
+      status TEXT DEFAULT 'draft',
+      created_at TIMESTAMP DEFAULT NOW(),
+      updated_at TIMESTAMP DEFAULT NOW()
+    )`;
+
+    await sql`CREATE TABLE IF NOT EXISTS handbook_chapters (
+      id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
+      handbook_id TEXT NOT NULL,
+      order_index INTEGER NOT NULL,
+      title TEXT NOT NULL,
+      content TEXT NOT NULL,
+      ai_suggestions TEXT,
+      last_edited_at TIMESTAMP DEFAULT NOW(),
+      created_at TIMESTAMP DEFAULT NOW()
+    )`;
+
     return NextResponse.json({ success: true, message: '全テーブル初期化完了' });
   } catch (e: any) {
     return NextResponse.json({ error: e.message }, { status: 500 });

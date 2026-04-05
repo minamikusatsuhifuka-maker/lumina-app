@@ -17,6 +17,7 @@
     "better-sqlite3": "^12.8.0",
     "jspdf": "^4.2.1",
     "lucide-react": "^0.577.0",
+    "mammoth": "^1.12.0",
     "next": "16.2.1",
     "next-auth": "^5.0.0-beta.30",
     "pdf-parse": "^2.4.5",
