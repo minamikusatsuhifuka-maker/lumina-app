@@ -46,6 +46,11 @@ export default function StaffDetailPage({ params }: { params: Promise<{ id: stri
   const [lmNextStep, setLmNextStep] = useState('');
   const [lmNeeds, setLmNeeds] = useState<string[]>([]);
   const [lmSaving, setLmSaving] = useState(false);
+  const [lmJikko, setLmJikko] = useState('');
+  const [lmJisseki, setLmJisseki] = useState('');
+  const [lmJitsuryoku, setLmJitsuryoku] = useState('');
+  const [lmSeijitsu, setLmSeijitsu] = useState('');
+
 
   const runScoring = async () => {
     setScoreLoading(true);
@@ -462,20 +467,41 @@ export default function StaffDetailPage({ params }: { params: Promise<{ id: stri
               </div>
             </div>
 
+            {/* 実の確認 */}
+            <div style={{ marginBottom: 16, padding: 14, border: '1px solid var(--border)', borderRadius: 12 }}>
+              <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 10 }}>📊 実の確認（言動・行動・結果から判断）</div>
+              {[
+                { key: 'jikko', label: '実行', q: '前回の面談で決めたことを実行できたか？', ph: '具体的に何を、いつまでに、実行した（またはしなかった）か', value: lmJikko, set: setLmJikko },
+                { key: 'jisseki', label: '実績', q: '今期、事実として出せた成果は？', ph: '数字・具体的な出来事・他者からの評価など', value: lmJisseki, set: setLmJisseki },
+                { key: 'jitsuryoku', label: '実力', q: '成長の証拠となる行動・言動は？', ph: '以前はできなかったが今はできること / 自然に出てくる行動', value: lmJitsuryoku, set: setLmJitsuryoku },
+                { key: 'seijitsu', label: '誠実', q: '自分・他者への誠実さが現れた場面は？', ph: 'ミスへの対応 / 約束の遵守 / 言動の一致', value: lmSeijitsu, set: setLmSeijitsu },
+              ].map(item => (
+                <div key={item.key} style={{ marginBottom: 10 }}>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--text-secondary)', marginBottom: 4 }}>
+                    <span style={{ padding: '1px 8px', borderRadius: 4, background: 'var(--bg-card)', border: '1px solid var(--border)', fontWeight: 700, color: 'var(--text-primary)', fontSize: 12 }}>{item.label}</span>
+                    {item.q}
+                  </label>
+                  <textarea value={item.value} onChange={e => item.set(e.target.value)} placeholder={item.ph} style={{ ...inputStyle, minHeight: 50, resize: 'vertical' }} />
+                </div>
+              ))}
+            </div>
+
             <button onClick={async () => {
               if (!lmFacts.trim()) return;
               setLmSaving(true);
+              const jitsuSection = [lmJikko && `実行：${lmJikko}`, lmJisseki && `実績：${lmJisseki}`, lmJitsuryoku && `実力：${lmJitsuryoku}`, lmSeijitsu && `誠実：${lmSeijitsu}`].filter(Boolean).join('\n');
               try {
                 await fetch(`/api/clinic/staff/${id}/notes`, {
                   method: 'POST', headers: { 'Content-Type': 'application/json' },
                   body: JSON.stringify({
                     type: 'interview', title: `リードマネジメント記録（${({ regular: '定期面談', adhoc: '随時面談', goal: '目標設定', review: '振り返り' })[lmType]}）`,
-                    content: `【事実】\n${lmFacts}\n\n【本人の気づき】\n${lmAwareness}\n\n【強み・可能性】\n${lmStrengths}\n\n【次のステップ】\n${lmNextStep}\n\n【5大欲求配慮】\n${lmNeeds.map(k => ({ power: '💪力', love: '❤️愛と所属', fun: '🎉楽しみ', freedom: '🕊️自由', survival: '🛡️生存' })[k]).join('、')}`,
+                    content: `【事実】\n${lmFacts}\n\n【本人の気づき】\n${lmAwareness}\n\n【強み・可能性】\n${lmStrengths}\n\n【次のステップ】\n${lmNextStep}\n\n【5大欲求配慮】\n${lmNeeds.map(k => ({ power: '💪力', love: '❤️愛と所属', fun: '🎉楽しみ', freedom: '🕊️自由', survival: '🛡️生存' })[k]).join('、')}${jitsuSection ? `\n\n【実の確認】\n${jitsuSection}` : ''}`,
                     author: '院長',
                   }),
                 });
                 setMessage('リードマネジメント記録を保存しました');
                 setLmFacts(''); setLmAwareness(''); setLmStrengths(''); setLmNextStep(''); setLmNeeds([]);
+                setLmJikko(''); setLmJisseki(''); setLmJitsuryoku(''); setLmSeijitsu('');
                 fetchStaff();
               } catch { setMessage('保存に失敗しました'); }
               finally { setLmSaving(false); }

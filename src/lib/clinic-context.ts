@@ -18,7 +18,7 @@ export async function buildSystemContext(
       sql`SELECT title, content FROM clinic_philosophy LIMIT 1`,
       sql`SELECT name, content FROM philosophy_files ORDER BY created_at DESC`,
       sql`SELECT win_win_vision, power_partner_definition,
-              lead_management_philosophy FROM growth_philosophy LIMIT 1`,
+              lead_management_philosophy, core_values FROM growth_philosophy LIMIT 1`,
       category
         ? sql`SELECT criterion FROM clinic_decision_criteria
                WHERE category = ${category} OR category = 'all'
@@ -60,7 +60,12 @@ ${growth.lead_management_philosophy}
       );
     }
 
-    // ③ クリニックの理念
+    // ③ 「実」を見て評価する哲学
+    if (growth?.core_values) {
+      sections.push(growth.core_values as string);
+    }
+
+    // ④ クリニックの理念
     if (philosophy?.content) {
       sections.push(
 `【クリニックの理念】

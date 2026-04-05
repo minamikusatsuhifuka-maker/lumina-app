@@ -154,6 +154,28 @@ export default function EvaluationPage() {
         </div>
       </div>
 
+      {/* 「実」を見て評価する */}
+      <div style={{ ...cardStyle, marginBottom: 20, padding: 16 }}>
+        <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 6 }}>📌 評価の大原則：「実」を見る</div>
+        <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 12, lineHeight: 1.6 }}>
+          「心の中やマインドは言動に全て現れる」— だから内面ではなく「実」で評価します。
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 8 }}>
+          {[
+            { kanji: '実行', reading: 'じっこう', desc: 'やると言ったことをやる' },
+            { kanji: '実績', reading: 'じっせき', desc: '事実・数字で語れる成果' },
+            { kanji: '実力', reading: 'じつりょく', desc: '本物の力が身についている' },
+            { kanji: '誠実', reading: 'せいじつ', desc: '自分にも他者にも正直' },
+          ].map(item => (
+            <div key={item.kanji} style={{ padding: 10, background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 10, textAlign: 'center' }}>
+              <div style={{ fontSize: 20, fontWeight: 800, color: 'var(--text-primary)' }}>{item.kanji}</div>
+              <div style={{ fontSize: 10, color: 'var(--text-muted)' }}>{item.reading}</div>
+              <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginTop: 4 }}>{item.desc}</div>
+            </div>
+          ))}
+        </div>
+      </div>
+
       {/* 等級セレクター */}
       <div style={{ display: 'flex', gap: 8, marginBottom: 16, flexWrap: 'wrap' }}>
         {grades.map(g => (
