@@ -1,6 +1,7 @@
 'use client';
 import { useState } from 'react';
 import { SaveToLibraryButton } from '@/components/SaveToLibraryButton';
+import { getSavedModel } from '@/lib/model-preference';
 
 const POPULAR = ['医療・ヘルスケア', 'AI・SaaS', '不動産', '飲食・フードテック', '教育・EdTech', '金融・FinTech', 'EC・小売', '製造・IoT', '広告・マーケ', '人材・HR'];
 
@@ -20,7 +21,7 @@ export default function IndustryPage() {
       const res = await fetch('/api/industry', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ industry }),
+        body: JSON.stringify({ industry, model: getSavedModel() }),
       });
       if (!res.ok) {
         const errData = await res.json().catch(() => null);
