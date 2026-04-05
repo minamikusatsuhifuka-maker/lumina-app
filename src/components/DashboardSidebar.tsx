@@ -18,6 +18,9 @@ const navItems = [
   { href: '/dashboard/alerts', label: '定期アラート', icon: '🔔' },
   { href: '/dashboard/genspark', label: 'Gensparkへ出力', icon: '🎯' },
   { href: '/dashboard/library', label: 'ライブラリ', icon: '📚' },
+  { href: '/dashboard/minutes', label: '議事録整理', icon: '📝' },
+  { href: '/dashboard/brainstorm', label: 'ブレスト', icon: '🧠' },
+  { href: '/dashboard/industry', label: '業界レポート', icon: '📊' },
   { href: '/dashboard/guide', label: '活用ガイド', icon: '📖' },
   { href: '/dashboard/glossary', label: '用語解説', icon: '📘' },
 ];
