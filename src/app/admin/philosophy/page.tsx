@@ -18,12 +18,17 @@ type Philosophy = {
 };
 
 export default function PhilosophyPage() {
-  const [tab, setTab] = useState<'text' | 'pdf'>('text');
+  const [tab, setTab] = useState<'text' | 'txtfile' | 'pdf'>('text');
   const [title, setTitle] = useState('');
   const [content, setContent] = useState('');
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState<Philosophy | null>(null);
   const [editing, setEditing] = useState(false);
+
+  // テキストファイル
+  const [txtFileText, setTxtFileText] = useState('');
+  const [txtDragOver, setTxtDragOver] = useState(false);
+  const txtFileRef = useRef<HTMLInputElement>(null);
 
   // PDF
   const [pdfText, setPdfText] = useState('');
@@ -73,6 +78,28 @@ export default function PhilosophyPage() {
     } finally {
       setSaving(false);
     }
+  };
+
+  const handleTextFileUpload = (file: File) => {
+    if (!file.name.match(/\.(txt|md)$/i)) {
+      setMessage('.txt または .md ファイルを選択してください');
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const text = e.target?.result as string;
+      setTxtFileText(text);
+      setContent(text);
+      setMessage('テキストファイルを読み込みました');
+    };
+    reader.readAsText(file, 'UTF-8');
+  };
+
+  const handleTxtDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    setTxtDragOver(false);
+    const file = e.dataTransfer.files[0];
+    if (file) handleTextFileUpload(file);
   };
 
   const handlePdfUpload = async (file: File) => {
@@ -180,14 +207,14 @@ export default function PhilosophyPage() {
         <>
           {/* タブ */}
           <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
-            {(['text', 'pdf'] as const).map(t => (
-              <button key={t} onClick={() => setTab(t)} style={{
-                padding: '8px 20px', borderRadius: 8, border: `1px solid ${tab === t ? 'var(--border-accent)' : 'var(--border)'}`,
-                background: tab === t ? 'var(--accent-soft)' : 'var(--bg-card)',
-                color: tab === t ? 'var(--text-primary)' : 'var(--text-muted)',
+            {([{ key: 'text' as const, label: '📝 テキスト入力' }, { key: 'txtfile' as const, label: '📄 テキストファイル' }, { key: 'pdf' as const, label: '📋 PDFアップロード' }]).map(t => (
+              <button key={t.key} onClick={() => setTab(t.key)} style={{
+                padding: '8px 20px', borderRadius: 8, border: `1px solid ${tab === t.key ? 'var(--border-accent)' : 'var(--border)'}`,
+                background: tab === t.key ? 'var(--accent-soft)' : 'var(--bg-card)',
+                color: tab === t.key ? 'var(--text-primary)' : 'var(--text-muted)',
                 fontSize: 13, fontWeight: 600, cursor: 'pointer',
               }}>
-                {t === 'text' ? '📝 テキスト入力' : '📄 PDFアップロード'}
+                {t.label}
               </button>
             ))}
           </div>
@@ -220,6 +247,51 @@ export default function PhilosophyPage() {
                   </button>
                 )}
               </div>
+            </div>
+          )}
+
+          {tab === 'txtfile' && (
+            <div style={{ ...cardStyle, marginBottom: 20 }}>
+              <div
+                onDragOver={e => { e.preventDefault(); setTxtDragOver(true); }}
+                onDragLeave={() => setTxtDragOver(false)}
+                onDrop={handleTxtDrop}
+                onClick={() => txtFileRef.current?.click()}
+                style={{
+                  padding: 40, border: `2px dashed ${txtDragOver ? 'var(--accent)' : 'var(--border)'}`,
+                  borderRadius: 12, textAlign: 'center', cursor: 'pointer',
+                  background: txtDragOver ? 'var(--accent-soft)' : 'transparent',
+                  transition: 'all 0.2s',
+                }}
+              >
+                <div style={{ fontSize: 36, marginBottom: 12 }}>📄</div>
+                <div style={{ fontSize: 14, color: 'var(--text-secondary)' }}>クリックまたはドラッグ＆ドロップでファイルをアップロード</div>
+                <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 4 }}>.txt / .md ファイルに対応</div>
+              </div>
+              <input ref={txtFileRef} type="file" accept=".txt,.md" hidden onChange={e => { const f = e.target.files?.[0]; if (f) handleTextFileUpload(f); }} />
+
+              {txtFileText && (
+                <>
+                  <label style={{ display: 'block', fontSize: 13, color: 'var(--text-secondary)', marginTop: 16, marginBottom: 6 }}>読み込んだテキスト</label>
+                  <div style={{ padding: 14, background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 8, fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.8, whiteSpace: 'pre-wrap', maxHeight: 300, overflowY: 'auto' }}>
+                    {txtFileText}
+                  </div>
+                  <div style={{ display: 'flex', gap: 8, marginTop: 14 }}>
+                    <input
+                      value={title} onChange={e => setTitle(e.target.value)}
+                      placeholder="タイトルを入力"
+                      style={{ flex: 1, padding: '10px 14px', background: 'var(--input-bg)', border: '1px solid var(--input-border)', borderRadius: 8, color: 'var(--text-primary)', fontSize: 14, outline: 'none' }}
+                    />
+                    <button onClick={handleSave} disabled={saving || !title.trim()} style={{
+                      padding: '10px 24px', borderRadius: 8, border: 'none', cursor: saving ? 'not-allowed' : 'pointer',
+                      background: saving || !title.trim() ? 'rgba(108,99,255,0.3)' : 'linear-gradient(135deg, #6c63ff, #8b5cf6)',
+                      color: '#fff', fontWeight: 700, fontSize: 14, whiteSpace: 'nowrap',
+                    }}>
+                      {saving ? '保存中...' : 'このテキストで保存する'}
+                    </button>
+                  </div>
+                </>
+              )}
             </div>
           )}
 
