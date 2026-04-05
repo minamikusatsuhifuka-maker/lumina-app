@@ -52,6 +52,7 @@ export default function PhilosophyPage() {
 
   // PDF
   const [pdfText, setPdfText] = useState('');
+  const [pdfFileName, setPdfFileName] = useState('');
   const [pdfLoading, setPdfLoading] = useState(false);
   const [dragOver, setDragOver] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
@@ -182,6 +183,7 @@ export default function PhilosophyPage() {
     }
     setPdfLoading(true);
     setPdfText('');
+    setPdfFileName(file.name);
     setMessage('');
     try {
       const formData = new FormData();
@@ -190,7 +192,6 @@ export default function PhilosophyPage() {
       const data = await res.json();
       if (data.content) {
         setPdfText(data.content);
-        setManualContent(data.content);
         setMessage('PDFからテキストを抽出しました');
       } else {
         setMessage(data.error || 'PDF解析に失敗しました');
@@ -209,21 +210,26 @@ export default function PhilosophyPage() {
     if (file) handlePdfUpload(file);
   };
 
-  // PDF抽出テキストをテキスト保存
-  const handleSavePdfAsText = async () => {
-    if (!manualTitle.trim() || !manualContent.trim()) return;
+  // PDF抽出テキストをphilosophy_filesに独立保存
+  const handleSavePdf = async () => {
+    if (!pdfText.trim()) return;
     setSaving(true);
     setMessage('');
     try {
-      const res = await fetch('/api/clinic/philosophy', {
+      const res = await fetch('/api/clinic/philosophy-files', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ type: 'text', title: manualTitle, content: manualContent }),
+        body: JSON.stringify({
+          files: [{ name: pdfFileName || 'アップロードPDF.pdf', content: pdfText }],
+        }),
       });
       if (res.ok) {
-        setMessage('保存しました');
-        const data = await (await fetch('/api/clinic/philosophy')).json();
-        if (data.philosophy?.id) setSaved(data.philosophy);
+        setMessage('PDFをファイルとして保存しました');
+        setPdfText('');
+        setPdfFileName('');
+        // 保存済みファイル再取得
+        const data = await (await fetch('/api/clinic/philosophy-files')).json();
+        if (data.files) setSavedFiles(data.files);
       } else {
         setMessage('保存に失敗しました');
       }
@@ -454,22 +460,20 @@ export default function PhilosophyPage() {
 
               {pdfText && (
                 <>
-                  <label style={{ display: 'block', fontSize: 13, color: 'var(--text-secondary)', marginTop: 16, marginBottom: 6 }}>抽出されたテキスト</label>
+                  <label style={{ display: 'block', fontSize: 13, color: 'var(--text-secondary)', marginTop: 16, marginBottom: 6 }}>抽出されたテキスト（{pdfFileName}）</label>
                   <div style={{ padding: 14, background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 8, fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.8, whiteSpace: 'pre-wrap', maxHeight: 300, overflowY: 'auto' }}>
                     {pdfText}
                   </div>
-                  <div style={{ display: 'flex', gap: 8, marginTop: 14 }}>
-                    <input
-                      value={manualTitle} onChange={e => setManualTitle(e.target.value)}
-                      placeholder="タイトルを入力"
-                      style={{ flex: 1, padding: '10px 14px', background: 'var(--input-bg)', border: '1px solid var(--input-border)', borderRadius: 8, color: 'var(--text-primary)', fontSize: 14, outline: 'none' }}
-                    />
-                    <button onClick={handleSavePdfAsText} disabled={saving || !manualTitle.trim()} style={{
+                  <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 8 }}>
+                    抽出したテキストはファイルとして保存され、手入力の理念テキストは変更されません
+                  </div>
+                  <div style={{ marginTop: 10 }}>
+                    <button onClick={handleSavePdf} disabled={saving} style={{
                       padding: '10px 24px', borderRadius: 8, border: 'none', cursor: saving ? 'not-allowed' : 'pointer',
-                      background: saving || !manualTitle.trim() ? 'rgba(108,99,255,0.3)' : 'linear-gradient(135deg, #6c63ff, #8b5cf6)',
+                      background: saving ? 'rgba(108,99,255,0.3)' : 'linear-gradient(135deg, #6c63ff, #8b5cf6)',
                       color: '#fff', fontWeight: 700, fontSize: 14, whiteSpace: 'nowrap',
                     }}>
-                      {saving ? '保存中...' : 'このテキストで保存する'}
+                      {saving ? '保存中...' : '📄 PDFファイルとして保存する'}
                     </button>
                   </div>
                 </>
