@@ -11,12 +11,20 @@ const CATS = [
   { key: 'finance', label: '💰 財務' }, { key: 'patient', label: '🏥 患者満足' }, { key: 'other', label: 'その他' },
 ];
 const PRI_BADGE: Record<string, { color: string; label: string }> = { high: { color: '#ef4444', label: '🔴 高' }, medium: { color: '#f5a623', label: '🟡 中' }, low: { color: '#4ade80', label: '🟢 低' } };
+const ST_BORDER: Record<string, string> = { draft: '#d1d5db', active: '#3b82f6', completed: '#22c55e', paused: '#eab308' };
+const ST_BG: Record<string, string> = { draft: 'transparent', active: 'rgba(59,130,246,0.03)', completed: 'rgba(34,197,94,0.03)', paused: 'rgba(234,179,8,0.03)' };
+const ST_BADGE_BG: Record<string, string> = { draft: 'rgba(156,163,175,0.12)', active: 'rgba(59,130,246,0.12)', completed: 'rgba(34,197,94,0.12)', paused: 'rgba(234,179,8,0.12)' };
+const ST_BADGE_COLOR: Record<string, string> = { draft: '#6b7280', active: '#2563eb', completed: '#16a34a', paused: '#ca8a04' };
+const ST_LABELS: Record<string, string> = { draft: '📝 ドラフト', active: '▶️ 実行中', completed: '✅ 完了', paused: '⏸ 一時停止' };
+const PRI_DOT: Record<string, string> = { high: '#ef4444', medium: '#eab308', low: '#22c55e' };
+const fmt = (d: string) => d ? new Date(d).toLocaleDateString('ja-JP', { month: 'short', day: 'numeric' }) : '';
 
 export default function StrategyBoardPage() {
   const router = useRouter();
   const [strategies, setStrategies] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [filterCat, setFilterCat] = useState('');
+  const [viewMode, setViewMode] = useState<'board' | 'list'>('board');
   const [showChat, setShowChat] = useState(false);
   const [chatMsg, setChatMsg] = useState('');
   const [chatResult, setChatResult] = useState('');
@@ -78,22 +86,40 @@ export default function StrategyBoardPage() {
 
   const inputStyle: React.CSSProperties = { width: '100%', padding: '10px 14px', background: 'var(--input-bg)', border: '1px solid var(--input-border)', borderRadius: 8, color: 'var(--text-primary)', fontSize: 14, outline: 'none', boxSizing: 'border-box' };
 
+  const getProgress = (s: any) => {
+    const total = s.task_count ?? 0;
+    const done = s.done_count ?? 0;
+    return total > 0 ? Math.round((done / total) * 100) : 0;
+  };
+
   const renderColumn = (status: string, label: string, items: any[]) => (
     <div style={{ flex: 1, minWidth: 250 }}>
       <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-muted)', marginBottom: 10 }}>{label}（{items.length}）</div>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-        {items.map(s => (
-          <Link key={s.id} href={`/admin/strategy/${s.id}`} style={{ textDecoration: 'none' }}>
-            <div style={{ padding: 14, background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 12, cursor: 'pointer' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
-                <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-primary)' }}>{s.title}</span>
-                <span style={{ fontSize: 10, color: PRI_BADGE[s.priority]?.color }}>{PRI_BADGE[s.priority]?.label}</span>
+        {items.map(s => {
+          const prog = getProgress(s);
+          return (
+            <Link key={s.id} href={`/admin/strategy/${s.id}`} style={{ textDecoration: 'none' }}>
+              <div style={{ padding: 14, background: ST_BG[s.status] || 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 12, cursor: 'pointer', borderLeft: `4px solid ${ST_BORDER[s.status] || 'var(--border)'}` }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                  <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-primary)' }}>{s.title}</span>
+                  <span style={{ fontSize: 10, color: PRI_BADGE[s.priority]?.color }}>{PRI_BADGE[s.priority]?.label}</span>
+                </div>
+                <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>{CATS.find(c => c.key === s.category)?.label || s.category}</div>
+                {s.target_date && <div style={{ fontSize: 10, color: 'var(--text-muted)', marginTop: 4 }}>期限: {fmt(s.target_date)}</div>}
+                {/* 進捗バー */}
+                <div style={{ marginTop: 8 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10, color: 'var(--text-muted)', marginBottom: 3 }}>
+                    <span>進捗</span><span>{prog}%</span>
+                  </div>
+                  <div style={{ height: 5, background: 'var(--border)', borderRadius: 4 }}>
+                    <div style={{ height: '100%', borderRadius: 4, transition: 'width 0.3s', width: `${prog}%`, background: prog === 100 ? '#22c55e' : prog > 50 ? '#3b82f6' : '#eab308' }} />
+                  </div>
+                </div>
               </div>
-              <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>{CATS.find(c => c.key === s.category)?.label || s.category}</div>
-              {s.target_date && <div style={{ fontSize: 10, color: 'var(--text-muted)', marginTop: 4 }}>期限: {new Date(s.target_date).toLocaleDateString('ja-JP')}</div>}
-            </div>
-          </Link>
-        ))}
+            </Link>
+          );
+        })}
       </div>
     </div>
   );
@@ -104,6 +130,7 @@ export default function StrategyBoardPage() {
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
           <h1 style={{ fontSize: 26, fontWeight: 700, color: 'var(--text-primary)' }}>🗺 経営戦略ボード</h1>
           <div style={{ display: 'flex', gap: 8 }}>
+            <button onClick={() => setViewMode(viewMode === 'board' ? 'list' : 'board')} style={{ padding: '7px 14px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--bg-card)', color: 'var(--text-muted)', fontSize: 12, cursor: 'pointer' }}>{viewMode === 'board' ? '≡ リスト' : '📋 ボード'}</button>
             <button onClick={() => setShowGen(true)} style={{ padding: '9px 16px', borderRadius: 8, border: 'none', background: 'linear-gradient(135deg, #6c63ff, #8b5cf6)', color: '#fff', fontWeight: 700, fontSize: 13, cursor: 'pointer' }}>＋ 新規戦略</button>
             <button onClick={() => setShowChat(!showChat)} style={{ padding: '9px 16px', borderRadius: 8, border: '1px solid var(--border)', background: showChat ? 'rgba(108,99,255,0.15)' : 'var(--bg-card)', color: showChat ? '#6c63ff' : 'var(--text-muted)', fontSize: 13, cursor: 'pointer' }}>🤖 AIと相談</button>
           </div>
@@ -115,11 +142,43 @@ export default function StrategyBoardPage() {
           ))}
         </div>
 
-        {loading ? <div style={{ textAlign: 'center', padding: 40, color: 'var(--text-muted)' }}>読み込み中...</div> : (
+        {loading ? <div style={{ textAlign: 'center', padding: 40, color: 'var(--text-muted)' }}>読み込み中...</div> : viewMode === 'board' ? (
           <div style={{ display: 'flex', gap: 16 }}>
             {renderColumn('draft', '📝 ドラフト', byStatus('draft'))}
             {renderColumn('active', '▶️ 実行中', byStatus('active'))}
             {renderColumn('completed', '✅ 完了', byStatus('completed'))}
+          </div>
+        ) : (
+          /* リスト表示 */
+          <div style={{ border: '1px solid var(--border)', borderRadius: 12, overflow: 'hidden' }}>
+            {/* ヘッダー */}
+            <div style={{ display: 'grid', gridTemplateColumns: '80px 40px 1fr 100px 120px 80px', gap: 8, padding: '8px 14px', background: 'var(--bg-secondary)', fontSize: 11, fontWeight: 600, color: 'var(--text-muted)' }}>
+              <div>状態</div><div>優先</div><div>戦略名</div><div>カテゴリ</div><div>進捗</div><div>期限</div>
+            </div>
+            {filtered.map(s => {
+              const prog = getProgress(s);
+              return (
+                <div key={s.id} onClick={() => router.push(`/admin/strategy/${s.id}`)} style={{
+                  display: 'grid', gridTemplateColumns: '80px 40px 1fr 100px 120px 80px', gap: 8,
+                  padding: '10px 14px', borderBottom: '1px solid var(--border)', cursor: 'pointer',
+                  borderLeft: `4px solid ${ST_BORDER[s.status] || 'var(--border)'}`,
+                  background: ST_BG[s.status], alignItems: 'center',
+                }}>
+                  <span style={{ fontSize: 10, padding: '2px 6px', borderRadius: 10, background: ST_BADGE_BG[s.status], color: ST_BADGE_COLOR[s.status], fontWeight: 600, textAlign: 'center', whiteSpace: 'nowrap' }}>{ST_LABELS[s.status]}</span>
+                  <div style={{ width: 12, height: 12, borderRadius: '50%', background: PRI_DOT[s.priority] || '#d1d5db' }} />
+                  <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s.title}</div>
+                  <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>{CATS.find(c => c.key === s.category)?.label?.replace(/^[^\s]+\s/, '') || s.category}</div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <div style={{ flex: 1, height: 5, background: 'var(--border)', borderRadius: 4 }}>
+                      <div style={{ height: '100%', borderRadius: 4, width: `${prog}%`, background: prog === 100 ? '#22c55e' : prog > 50 ? '#3b82f6' : '#eab308' }} />
+                    </div>
+                    <span style={{ fontSize: 10, color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>{prog}%</span>
+                  </div>
+                  <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>{s.target_date ? fmt(s.target_date) : '—'}</div>
+                </div>
+              );
+            })}
+            {filtered.length === 0 && <div style={{ textAlign: 'center', padding: 30, color: 'var(--text-muted)', fontSize: 13 }}>戦略がありません</div>}
           </div>
         )}
       </div>
