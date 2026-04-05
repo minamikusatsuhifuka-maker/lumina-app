@@ -23,6 +23,7 @@ export default function StrategyDetailPage({ params }: { params: Promise<{ id: s
   const [chatResult, setChatResult] = useState('');
   const [chatHistory, setChatHistory] = useState<{ msg: string; res: string }[]>([]);
   const [chatting, setChatting] = useState(false);
+  const [taskFilter, setTaskFilter] = useState('');
 
   const fetchData = () => { fetch(`/api/clinic/strategies/${id}`).then(r => r.json()).then(d => { setStrategy(d); setLoading(false); }); };
   useEffect(() => { fetchData(); }, [id]);
@@ -141,27 +142,79 @@ export default function StrategyDetailPage({ params }: { params: Promise<{ id: s
               </div>
             )}
 
-            <div style={{ display: 'flex', gap: 12 }}>
-              {STATUS_COLS.map(s => (
-                <div key={s} style={{ flex: 1, minWidth: 180 }}>
-                  <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-muted)', marginBottom: 8 }}>{STATUS_LABELS[s]}（{tasksByStatus(s).length}）</div>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                    {tasksByStatus(s).map((t: any) => (
-                      <div key={t.id} style={{ padding: 10, background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 8 }}>
-                        <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 4 }}>{t.title}</div>
-                        <div style={{ display: 'flex', gap: 4, fontSize: 10 }}>
-                          {t.assignee_name && <span style={{ color: 'var(--text-muted)' }}>{t.assignee_name}</span>}
-                          <span style={{ color: PRI_COLORS[t.priority] || 'var(--text-muted)' }}>{t.priority}</span>
-                        </div>
-                        <div style={{ display: 'flex', gap: 4, marginTop: 6 }}>
-                          {s !== 'todo' && <button onClick={() => updateTaskStatus(t.id, 'todo')} style={{ padding: '2px 6px', borderRadius: 4, border: '1px solid var(--border)', background: 'var(--bg-card)', color: 'var(--text-muted)', fontSize: 9, cursor: 'pointer' }}>←</button>}
-                          {s !== 'done' && <button onClick={() => updateTaskStatus(t.id, s === 'todo' ? 'in_progress' : 'done')} style={{ padding: '2px 6px', borderRadius: 4, border: '1px solid var(--border)', background: 'var(--bg-card)', color: 'var(--text-muted)', fontSize: 9, cursor: 'pointer' }}>→</button>}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
+            {/* サマリーバー */}
+            <div style={{ padding: '10px 14px', background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 10, marginBottom: 8, fontSize: 12, color: 'var(--text-muted)', display: 'flex', gap: 12, alignItems: 'center' }}>
+              <span>タスク合計: <b style={{ color: 'var(--text-primary)' }}>{tasks.length}件</b></span>
+              <span>ToDo: <b>{tasksByStatus('todo').length}</b></span>
+              <span>進行中: <b>{tasksByStatus('in_progress').length}</b></span>
+              <span>完了: <b>{tasksByStatus('done').length}</b></span>
+              <span>進捗: <b style={{ color: completedRate >= 80 ? '#4ade80' : completedRate >= 50 ? '#f5a623' : '#6c63ff' }}>{completedRate}%</b></span>
+            </div>
+
+            {/* プログレスバー */}
+            <div style={{ height: 6, background: 'var(--bg-secondary)', borderRadius: 3, marginBottom: 12, overflow: 'hidden' }}>
+              <div style={{ height: '100%', width: `${completedRate}%`, background: completedRate >= 80 ? '#4ade80' : completedRate >= 50 ? '#f5a623' : '#6c63ff', borderRadius: 3, transition: 'width 0.3s' }} />
+            </div>
+
+            {/* フィルターバー */}
+            <div style={{ display: 'flex', gap: 6, marginBottom: 14 }}>
+              {[
+                { key: '', label: `全て(${tasks.length})` },
+                { key: 'todo', label: `📝 ToDo(${tasksByStatus('todo').length})` },
+                { key: 'in_progress', label: `🔄 進行中(${tasksByStatus('in_progress').length})` },
+                { key: 'done', label: `✅ 完了(${tasksByStatus('done').length})` },
+              ].map(f => (
+                <button key={f.key} onClick={() => setTaskFilter(f.key)} style={{ padding: '5px 10px', borderRadius: 6, fontSize: 11, fontWeight: 600, cursor: 'pointer', background: taskFilter === f.key ? 'rgba(108,99,255,0.15)' : 'var(--bg-card)', color: taskFilter === f.key ? '#6c63ff' : 'var(--text-muted)', border: `1px solid ${taskFilter === f.key ? 'rgba(108,99,255,0.3)' : 'var(--border)'}` }}>{f.label}</button>
               ))}
+            </div>
+
+            {/* カードグリッド */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 10 }}>
+              {(taskFilter ? tasks.filter((t: any) => t.status === taskFilter) : tasks).map((t: any) => {
+                const statusStyles: Record<string, React.CSSProperties> = {
+                  todo: { borderLeft: '4px solid #9ca3af', background: 'var(--bg-card)' },
+                  in_progress: { borderLeft: '4px solid #3b82f6', background: 'rgba(59,130,246,0.04)' },
+                  done: { borderLeft: '4px solid #22c55e', background: 'rgba(34,197,94,0.04)', opacity: 0.7 },
+                };
+                const priBadge: Record<string, { bg: string; color: string; label: string }> = {
+                  high: { bg: 'rgba(239,68,68,0.1)', color: '#ef4444', label: '🔴 高' },
+                  medium: { bg: 'rgba(245,166,35,0.1)', color: '#d97706', label: '🟡 中' },
+                  low: { bg: 'rgba(74,222,128,0.1)', color: '#16a34a', label: '🟢 低' },
+                };
+                const stBadge: Record<string, { bg: string; color: string }> = {
+                  todo: { bg: 'rgba(107,114,128,0.1)', color: '#6b7280' },
+                  in_progress: { bg: 'rgba(59,130,246,0.1)', color: '#3b82f6' },
+                  done: { bg: 'rgba(34,197,94,0.1)', color: '#22c55e' },
+                };
+                const pri = priBadge[t.priority] || priBadge.medium;
+                const stb = stBadge[t.status] || stBadge.todo;
+                const isOverdue = t.target_date && new Date(t.target_date) < new Date();
+                const getDaysLeft = (d: string) => {
+                  const days = Math.ceil((new Date(d).getTime() - Date.now()) / 86400000);
+                  if (days < 0) return `(${Math.abs(days)}日超過)`;
+                  if (days === 0) return '(今日)';
+                  return `(あと${days}日)`;
+                };
+                const prevStatus = (s: string) => s === 'done' ? 'in_progress' : 'todo';
+                const nextStatus = (s: string) => s === 'todo' ? 'in_progress' : 'done';
+
+                return (
+                  <div key={t.id} style={{ padding: 10, borderRadius: 10, border: '1px solid var(--border)', display: 'flex', flexDirection: 'column', gap: 6, ...statusStyles[t.status] }}>
+                    <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+                      <span style={{ fontSize: 10, padding: '2px 7px', borderRadius: 10, fontWeight: 600, background: pri.bg, color: pri.color }}>{pri.label}</span>
+                      <span style={{ fontSize: 10, padding: '2px 7px', borderRadius: 10, background: stb.bg, color: stb.color }}>{STATUS_LABELS[t.status]}</span>
+                    </div>
+                    <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)', lineHeight: 1.4 }}>{t.title}</div>
+                    {t.assignee_name && <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>👤 {t.assignee_name}</div>}
+                    {t.target_date && <div style={{ fontSize: 11, color: isOverdue ? '#ef4444' : 'var(--text-muted)', fontWeight: isOverdue ? 600 : 400 }}>📅 {new Date(t.target_date).toLocaleDateString('ja-JP', { month: 'numeric', day: 'numeric' })} {getDaysLeft(t.target_date)}</div>}
+                    <div style={{ display: 'flex', gap: 4, marginTop: 'auto' }}>
+                      {t.status !== 'todo' && <button onClick={() => updateTaskStatus(t.id, prevStatus(t.status))} style={{ padding: '3px 8px', borderRadius: 5, border: '1px solid var(--border)', background: 'var(--bg-card)', color: 'var(--text-muted)', fontSize: 10, cursor: 'pointer' }}>← 戻す</button>}
+                      {t.status !== 'done' && <button onClick={() => updateTaskStatus(t.id, nextStatus(t.status))} style={{ padding: '3px 8px', borderRadius: 5, border: '1px solid rgba(108,99,255,0.3)', background: 'rgba(108,99,255,0.08)', color: '#6c63ff', fontSize: 10, fontWeight: 600, cursor: 'pointer', marginLeft: 'auto' }}>進める →</button>}
+                      {t.status === 'done' && <span style={{ fontSize: 10, color: '#22c55e', marginLeft: 'auto' }}>✅ 完了</span>}
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           </div>
         )}
