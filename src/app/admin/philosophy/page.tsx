@@ -28,10 +28,11 @@ export default function PhilosophyPage() {
   const [editing, setEditing] = useState(false);
 
   // テキストファイル
-  const [txtFileText, setTxtFileText] = useState('');
-  const [txtFileNames, setTxtFileNames] = useState<string[]>([]);
+  const [fileItems, setFileItems] = useState<{ name: string; text: string }[]>([]);
   const [txtDragOver, setTxtDragOver] = useState(false);
   const txtFileRef = useRef<HTMLInputElement>(null);
+
+  const txtFileText = fileItems.map(f => `## ${f.name.replace(/\.(txt|md)$/i, '')}\n\n${f.text}`).join('\n\n---\n\n');
 
   // PDF
   const [pdfText, setPdfText] = useState('');
@@ -87,19 +88,25 @@ export default function PhilosophyPage() {
     const fileArray = Array.from(files).filter(f => f.name.match(/\.(txt|md)$/i));
     if (fileArray.length === 0) { setMessage('.txt または .md ファイルを選択してください'); return; }
 
-    const texts: string[] = [];
-    const names: string[] = [];
+    const newItems: { name: string; text: string }[] = [];
     for (const file of fileArray) {
-      const text = await file.text();
-      texts.push(`## ${file.name.replace(/\.(txt|md)$/i, '')}\n\n${text}`);
-      names.push(file.name);
+      newItems.push({ name: file.name, text: await file.text() });
     }
-    const combined = texts.join('\n\n---\n\n');
-    setTxtFileText(combined);
-    setTxtFileNames(names);
-    setContent(combined);
-    setMessage(`${names.length}ファイルを読み込みました（合計 ${combined.length.toLocaleString()}文字）`);
+
+    setFileItems(prev => {
+      const merged = [...prev];
+      for (const item of newItems) {
+        const idx = merged.findIndex(f => f.name === item.name);
+        if (idx >= 0) merged[idx] = item;
+        else merged.push(item);
+      }
+      return merged;
+    });
+    setMessage(`${newItems.length}ファイルを追加しました`);
   };
+
+  // fileItems変更時にcontentを同期
+  useEffect(() => { if (fileItems.length > 0) setContent(txtFileText); }, [fileItems]);
 
   const handleTxtDrop = (e: React.DragEvent) => {
     e.preventDefault();
@@ -275,11 +282,23 @@ export default function PhilosophyPage() {
               </div>
               <input ref={txtFileRef} type="file" accept=".txt,.md" multiple hidden onChange={e => { if (e.target.files) handleTextFiles(e.target.files); }} />
 
-              {/* ファイル名リスト */}
-              {txtFileNames.length > 0 && (
+              {/* ファイル名リスト（個別削除対応） */}
+              {fileItems.length > 0 && (
                 <div style={{ marginTop: 12, padding: 10, background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 8 }}>
-                  <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 6 }}>{txtFileNames.length}ファイル読み込み済み（合計 {txtFileText.length.toLocaleString()}文字）</div>
-                  {txtFileNames.map(n => <div key={n} style={{ fontSize: 12, color: 'var(--text-secondary)', padding: '2px 0' }}>✅ {n}</div>)}
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                    <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>{fileItems.length}ファイル読み込み済み（合計 {txtFileText.length.toLocaleString()}文字）</span>
+                    <button onClick={() => setFileItems([])} style={{ fontSize: 10, color: '#ef4444', background: 'none', border: 'none', cursor: 'pointer' }}>全て削除</button>
+                  </div>
+                  {fileItems.map(item => (
+                    <div key={item.name} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '4px 8px', background: 'var(--bg-secondary)', borderRadius: 6, marginBottom: 3, border: '1px solid var(--border)' }}>
+                      <span style={{ fontSize: 12, color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
+                        <span style={{ color: '#4ade80', flexShrink: 0 }}>✅</span>
+                        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{item.name}</span>
+                        <span style={{ fontSize: 10, color: 'var(--text-muted)', flexShrink: 0 }}>({item.text.length.toLocaleString()}文字)</span>
+                      </span>
+                      <button onClick={() => setFileItems(prev => prev.filter(f => f.name !== item.name))} style={{ color: 'var(--text-muted)', background: 'none', border: 'none', cursor: 'pointer', fontSize: 14, flexShrink: 0, padding: '0 4px' }} title="削除">✕</button>
+                    </div>
+                  ))}
                 </div>
               )}
 
