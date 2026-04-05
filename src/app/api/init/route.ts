@@ -205,6 +205,41 @@ export async function GET() {
       updated_at TIMESTAMP DEFAULT NOW()
     )`;
 
+    // 職種・役職定義 + マインド成長
+    await sql`CREATE TABLE IF NOT EXISTS position_definitions (
+      id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
+      name TEXT NOT NULL UNIQUE,
+      description TEXT,
+      responsibilities TEXT,
+      required_base_skills TEXT,
+      career_path TEXT,
+      created_at TIMESTAMP DEFAULT NOW(),
+      updated_at TIMESTAMP DEFAULT NOW()
+    )`;
+
+    await sql`CREATE TABLE IF NOT EXISTS role_definitions (
+      id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
+      name TEXT NOT NULL UNIQUE,
+      level_order INTEGER,
+      description TEXT,
+      responsibilities TEXT,
+      authority TEXT,
+      leadership_requirements TEXT,
+      created_at TIMESTAMP DEFAULT NOW()
+    )`;
+
+    await sql`CREATE TABLE IF NOT EXISTS mindset_growth_framework (
+      id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
+      grade_level INTEGER NOT NULL,
+      position TEXT,
+      core_value TEXT NOT NULL,
+      stage_description TEXT,
+      behavioral_indicators TEXT,
+      growth_actions TEXT,
+      assessment_criteria TEXT,
+      created_at TIMESTAMP DEFAULT NOW()
+    )`;
+
     // ハンドブック
     await sql`CREATE TABLE IF NOT EXISTS handbooks (
       id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
