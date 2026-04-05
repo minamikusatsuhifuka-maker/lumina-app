@@ -10,7 +10,7 @@ export async function POST(req: NextRequest) {
     headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' },
     body: JSON.stringify({
       model: 'claude-sonnet-4-20250514',
-      max_tokens: 4000,
+      max_tokens: 16000,
       tools: [{ type: 'web_search_20250305', name: 'web_search' }],
       messages: [{ role: 'user', content: `「${industry}」業界について、最新のWeb情報を調査して包括的な業界レポートを作成してください。
 
@@ -49,7 +49,9 @@ export async function POST(req: NextRequest) {
 - ゲームチェンジャーとなりうる変化
 - 推奨アクション
 
-各セクションに出典URLを記載してください。` }],
+各セクションに出典URLを記載してください。
+
+必ず全セクションを最後まで完全に出力してください。途中で途切れないようにしてください。` }],
     }),
   });
 

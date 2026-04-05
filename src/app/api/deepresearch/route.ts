@@ -34,7 +34,7 @@ export async function POST(req: NextRequest) {
           },
           body: JSON.stringify({
             model: 'claude-sonnet-4-6',
-            max_tokens: 3000,
+            max_tokens: 8000,
             tools: [{ type: 'web_search_20250305', name: 'web_search' }],
             system: `あなたは優秀なリサーチアナリストです。
 与えられたトピックについてWebを検索し、信頼性の高い情報を収集・統合して、
@@ -60,7 +60,9 @@ export async function POST(req: NextRequest) {
 
 各情報の引用元URLを必ず記載してください。
 重要: URLは生のURL（https://...）のみ記載し、HTMLやMarkdownリンク記法は使わないでください。
-出典の形式: 「出典: サイト名 https://URL」`,
+出典の形式: 「出典: サイト名 https://URL」
+
+必ず全セクションを最後まで完全に出力してください。途中で途切れないようにしてください。`,
             }],
           }),
         });
