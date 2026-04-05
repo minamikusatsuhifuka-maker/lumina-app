@@ -3,55 +3,70 @@ export const maxDuration = 300;
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
 
-async function extractText(file: File): Promise<string> {
-  const fileName = file.name.toLowerCase();
-  const buffer = Buffer.from(await file.arrayBuffer());
+async function extractTextWithClaude(buffer: Buffer, fileName: string): Promise<string> {
+  const apiKey = process.env.ANTHROPIC_API_KEY!;
+  const base64 = buffer.toString('base64');
+  const ext = fileName.toLowerCase().split('.').pop();
 
-  if (fileName.endsWith('.txt') || fileName.endsWith('.md')) {
-    return await file.text();
+  // PDF → Claude document API
+  if (ext === 'pdf') {
+    const response = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01', 'anthropic-beta': 'pdfs-2024-09-25' },
+      body: JSON.stringify({
+        model: 'claude-sonnet-4-6', max_tokens: 8000,
+        messages: [{ role: 'user', content: [
+          { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: base64 } },
+          { type: 'text', text: 'このPDFの全テキストを抽出してください。章・見出しの構造を維持し、全ページのテキストを書き起こしてください。テキストのみ返してく���さい。' },
+        ] }],
+      }),
+    });
+    const data = await response.json();
+    return (data.content || []).filter((b: any) => b.type === 'text').map((b: any) => b.text).join('');
   }
 
-  if (fileName.endsWith('.pdf')) {
-    // まず通常のテキスト抽出
-    try {
-      const { PDFParse } = await import('pdf-parse');
-      const parser = new PDFParse({ data: buffer });
-      const textResult = await parser.getText();
-      if (textResult.text && textResult.text.trim().length > 50) return textResult.text;
-    } catch {}
-
-    // テキストが少ない → OCR（Claude Vision PDF）
-    try {
-      const { extractTextFromScannedPDF } = await import('@/lib/ocr');
-      const ocrText = await extractTextFromScannedPDF(buffer);
-      if (ocrText.trim().length > 10) return ocrText;
-    } catch (e) {
-      console.error('PDF OCR失敗:', e);
-    }
-
-    throw new Error('PDFからテキストを抽出できませんでした。');
+  // 画像 → Claude Vision
+  const imageTypes: Record<string, string> = { jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', webp: 'image/webp' };
+  if (ext && imageTypes[ext]) {
+    const response = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' },
+      body: JSON.stringify({
+        model: 'claude-sonnet-4-6', max_tokens: 4000,
+        messages: [{ role: 'user', content: [
+          { type: 'image', source: { type: 'base64', media_type: imageTypes[ext], data: base64 } },
+          { type: 'text', text: 'この画像のテキストを全て書き起こしてください。テキストのみ返してください。' },
+        ] }],
+      }),
+    });
+    const data = await response.json();
+    return (data.content || []).filter((b: any) => b.type === 'text').map((b: any) => b.text).join('');
   }
 
-  // 画像ファイル → Claude Vision OCR
-  if (fileName.endsWith('.jpg') || fileName.endsWith('.jpeg') || fileName.endsWith('.png')) {
-    const { extractTextFromImage } = await import('@/lib/ocr');
-    const mimeType = fileName.endsWith('.png') ? 'image/png' as const : 'image/jpeg' as const;
-    return await extractTextFromImage(buffer, mimeType);
-  }
-
-  if (fileName.endsWith('.docx')) {
+  // DOCX → mammoth
+  if (ext === 'docx') {
     const mammoth = await import('mammoth');
     const result = await mammoth.extractRawText({ buffer });
     return result.value;
   }
 
-  if (fileName.endsWith('.pptx')) {
-    const officeparser = await import('officeparser');
-    const text = await officeparser.parseOffice(buffer, { outputErrorToConsole: true });
-    return String(text);
+  // PPTX → adm-zip でXML解析
+  if (ext === 'pptx') {
+    const AdmZip = (await import('adm-zip')).default;
+    const zip = new AdmZip(buffer);
+    const texts: string[] = [];
+    for (const entry of zip.getEntries()) {
+      if (entry.entryName.match(/ppt\/slides\/slide\d+\.xml/)) {
+        const xml = entry.getData().toString('utf8');
+        const matches = xml.match(/<a:t[^>]*>([^<]+)<\/a:t>/g) ?? [];
+        const slideText = matches.map(m => m.replace(/<[^>]+>/g, '')).filter(t => t.trim()).join(' ');
+        if (slideText.trim()) texts.push(slideText);
+      }
+    }
+    return texts.join('\n\n');
   }
 
-  throw new Error('.txt / .md / .pdf / .docx / .pptx / .jpg / .png に対応しています');
+  throw new Error(`非対応のファイル形式: .${ext}`);
 }
 
 export async function POST(req: NextRequest) {
@@ -63,46 +78,39 @@ export async function POST(req: NextRequest) {
     const file = formData.get('file') as File | null;
     if (!file) return NextResponse.json({ error: 'ファイルがありません' }, { status: 400 });
 
+    const ext = file.name.toLowerCase().split('.').pop();
     let extractedText = '';
-    try {
-      extractedText = await extractText(file);
-    } catch (e) {
-      return NextResponse.json({ error: String(e) }, { status: 400 });
+
+    if (ext === 'txt' || ext === 'md') {
+      extractedText = await file.text();
+    } else {
+      extractedText = await extractTextWithClaude(Buffer.from(await file.arrayBuffer()), file.name);
     }
 
     if (!extractedText || extractedText.trim().length < 10) {
-      return NextResponse.json({ error: 'テキストを抽出できませんでした。スキャンPDFの場合はテキスト形式でお試しください。' }, { status: 400 });
+      return NextResponse.json({ error: 'テキストを抽出できませんでした' }, { status: 400 });
     }
 
-    const apiKey = process.env.ANTHROPIC_API_KEY;
-    if (!apiKey) return NextResponse.json({ error: 'APIキーが設定されていません' }, { status: 500 });
-
+    const apiKey = process.env.ANTHROPIC_API_KEY!;
     const response = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' },
       body: JSON.stringify({
-        model: 'claude-sonnet-4-6',
-        max_tokens: 8000,
-        system: '必ずJSON形式のみで返してください。前置きや説明は不要です。',
-        messages: [{
-          role: 'user',
-          content: `以下のハンドブック・資料テキストを章・セクションごとに分割してください。
-見出し（#・第〇章・数字+ドット・スライドタイトルなど）を章の区切りとして認識してください。
-以下のJSON形式のみで返してください：
+        model: 'claude-sonnet-4-6', max_tokens: 8000,
+        system: '必ずJSON形式のみで返してください。',
+        messages: [{ role: 'user', content: `以下のテキストを章・セクションごとに分割してください。
+見出しを章の区切りとして認識し、以下のJSON形式のみで返してください：
 {
-  "title": "タイトル（冒頭から推測）",
+  "title": "タイトル",
   "chapters": [
-    { "orderIndex": 1, "title": "章タイトル", "content": "本文テキスト全文" }
+    { "orderIndex": 1, "title": "章タイトル", "content": "本文" }
   ]
 }
 
 テキスト：
-${extractedText.slice(0, 15000)}`,
-        }],
+${extractedText.slice(0, 15000)}` }],
       }),
     });
-
-    if (!response.ok) return NextResponse.json({ error: `AI解析に失敗しました: ${response.status}` }, { status: 500 });
 
     const data = await response.json();
     const text = (data.content || []).filter((b: any) => b.type === 'text').map((b: any) => b.text).join('');
@@ -112,7 +120,7 @@ ${extractedText.slice(0, 15000)}`,
 
     return NextResponse.json({ title: parsed.title, chapters: parsed.chapters, extractedLength: extractedText.length });
   } catch (e) {
-    console.error('Handbook import error:', e);
+    console.error('Import error:', e);
     return NextResponse.json({ error: `読み込みエラー: ${String(e)}` }, { status: 500 });
   }
 }
