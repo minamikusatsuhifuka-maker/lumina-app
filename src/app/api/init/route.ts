@@ -144,6 +144,56 @@ export async function GET() {
       changed_at TIMESTAMP DEFAULT NOW()
     )`;
 
+    // Phase B-2: アンケート・試験テーブル
+    await sql`CREATE TABLE IF NOT EXISTS surveys (
+      id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
+      title TEXT NOT NULL,
+      description TEXT,
+      questions TEXT NOT NULL,
+      target_role TEXT,
+      is_active BOOLEAN DEFAULT true,
+      created_at TIMESTAMP DEFAULT NOW()
+    )`;
+
+    await sql`CREATE TABLE IF NOT EXISTS staff_survey_responses (
+      id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
+      staff_id TEXT NOT NULL,
+      survey_id TEXT NOT NULL,
+      answers TEXT NOT NULL,
+      ai_summary TEXT,
+      created_at TIMESTAMP DEFAULT NOW()
+    )`;
+
+    await sql`CREATE TABLE IF NOT EXISTS exams (
+      id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
+      title TEXT NOT NULL,
+      description TEXT,
+      questions TEXT NOT NULL,
+      passing_score INTEGER DEFAULT 70,
+      target_role TEXT,
+      created_at TIMESTAMP DEFAULT NOW()
+    )`;
+
+    await sql`CREATE TABLE IF NOT EXISTS staff_exam_results (
+      id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
+      staff_id TEXT NOT NULL,
+      exam_id TEXT NOT NULL,
+      score FLOAT NOT NULL,
+      passed BOOLEAN NOT NULL,
+      answers TEXT,
+      ai_comment TEXT,
+      taken_at TIMESTAMP DEFAULT NOW()
+    )`;
+
+    // Phase B-3: 評価基準テーブル
+    await sql`CREATE TABLE IF NOT EXISTS evaluation_criteria (
+      id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
+      grade_id TEXT NOT NULL,
+      categories TEXT NOT NULL,
+      created_at TIMESTAMP DEFAULT NOW(),
+      updated_at TIMESTAMP DEFAULT NOW()
+    )`;
+
     return NextResponse.json({ success: true, message: '全テーブル初期化完了' });
   } catch (e: any) {
     return NextResponse.json({ error: e.message }, { status: 500 });
