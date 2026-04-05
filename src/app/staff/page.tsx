@@ -42,6 +42,14 @@ export default function StaffHomePage() {
         <div style={{ fontSize: 13, color: 'var(--text-muted)', marginTop: 4 }}>{now.toLocaleDateString('ja-JP', { year: 'numeric', month: 'long', day: 'numeric', weekday: 'long' })}</div>
       </div>
 
+      {/* ビジョンバナー */}
+      <div style={{ marginBottom: 24, padding: 16, borderRadius: 14, background: 'linear-gradient(135deg, rgba(139,92,246,0.06), rgba(6,182,212,0.06))', border: '1px solid rgba(6,182,212,0.2)' }}>
+        <div style={{ fontSize: 10, color: '#06b6d4', fontWeight: 700, marginBottom: 4, letterSpacing: 2 }}>🌟 私たちの目指す姿</div>
+        <div style={{ fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.7 }}>
+          あなたはこのクリニックの<span style={{ color: '#8b5cf6', fontWeight: 700 }}>主役</span>です。強みを活かし、仲間と共に成長しながら、縁ある人を豊かで幸せにしていきましょう。
+        </div>
+      </div>
+
       {/* サマリーカード */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 10, marginBottom: 24 }}>
         {[

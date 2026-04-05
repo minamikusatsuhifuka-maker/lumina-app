@@ -23,6 +23,17 @@ export default async function AdminDashboardPage() {
 
   return (
     <div style={{ maxWidth: 900, margin: '0 auto' }}>
+      {/* ビジョンバナー */}
+      <div style={{ marginBottom: 28, padding: 24, borderRadius: 16, background: 'linear-gradient(135deg, rgba(108,99,255,0.12), rgba(59,130,246,0.08), rgba(6,182,212,0.12))', border: '1px solid rgba(108,99,255,0.2)' }}>
+        <div style={{ fontSize: 10, color: '#a78bfa', fontWeight: 700, marginBottom: 6, letterSpacing: 2 }}>🌟 CLINIC VISION</div>
+        <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-primary)', lineHeight: 1.7, marginBottom: 6 }}>
+          全員が次世代のリーダーとなり、お互いに高め合い協力し合うことでシナジーを生み出す<span style={{ color: '#06b6d4', fontWeight: 700 }}>ティール組織</span>へ。
+        </div>
+        <div style={{ fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.7 }}>
+          <span style={{ color: '#4ade80', fontWeight: 700 }}>全員主役</span> — 強みを活かし、クリニックという自己実現の舞台で輝く。縁ある人を豊かで幸せにすることで、自分自身の人生も豊かになる。
+        </div>
+      </div>
+
       <h1 style={{ fontSize: 26, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 4 }}>📊 管理ダッシュボード</h1>
       <p style={{ color: 'var(--text-muted)', fontSize: 13, marginBottom: 28 }}>クリニックマネジメント機能の概要</p>
 

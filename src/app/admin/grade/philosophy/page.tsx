@@ -123,6 +123,53 @@ export default function GrowthPhilosophyPage() {
               <div style={{ fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.7 }}>{philo.power_partner_definition}</div>
             </div>
           )}
+
+          {/* ティール組織ビジョン */}
+          <div style={{ marginTop: 32, padding: 24, borderRadius: 16, border: '2px solid rgba(6,182,212,0.3)', background: 'rgba(6,182,212,0.04)' }}>
+            <h2 style={{ fontSize: 18, fontWeight: 700, color: '#06b6d4', marginBottom: 16 }}>🩵 目指す組織像：ティール組織</h2>
+
+            {/* 同心円：ティール拡張 */}
+            <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 24 }}>
+              <div style={{ position: 'relative', width: 340, height: 340 }}>
+                {/* 最外: ティール */}
+                <div style={{ position: 'absolute', inset: 0, borderRadius: '50%', background: 'rgba(6,182,212,0.06)', border: '3px solid rgba(6,182,212,0.3)', display: 'flex', alignItems: 'flex-start', justifyContent: 'center', paddingTop: 14 }}>
+                  <span style={{ fontSize: 11, color: '#06b6d4', fontWeight: 700 }}>🌍 社会貢献・次世代リーダー</span>
+                </div>
+                {/* 中間: シナジー */}
+                <div style={{ position: 'absolute', top: 55, left: 55, right: 55, bottom: 55, borderRadius: '50%', background: 'rgba(59,130,246,0.06)', border: '3px solid rgba(59,130,246,0.3)', display: 'flex', alignItems: 'flex-start', justifyContent: 'center', paddingTop: 16 }}>
+                  <span style={{ fontSize: 10, color: '#3b82f6', fontWeight: 700 }}>👥 シナジー・パワーパートナー</span>
+                </div>
+                {/* 最内: 自己実現 */}
+                <div style={{ position: 'absolute', top: 110, left: 110, right: 110, bottom: 110, borderRadius: '50%', background: 'rgba(139,92,246,0.08)', border: '3px solid rgba(139,92,246,0.3)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column' }}>
+                  <span style={{ fontSize: 18 }}>✨</span>
+                  <span style={{ fontSize: 12, color: '#8b5cf6', fontWeight: 700 }}>自己実現</span>
+                  <span style={{ fontSize: 10, color: '#a78bfa' }}>全員が主役</span>
+                </div>
+              </div>
+            </div>
+
+            {/* 3つの特徴 */}
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12, marginBottom: 16 }}>
+              {[
+                { icon: '🌟', title: '全員主役', desc: '強みを活かし、クリニックという自己実現の舞台でそれぞれが主役として輝く' },
+                { icon: '🤝', title: '共創・シナジー', desc: '競争ではなく共創。お互いの強みを引き出し合い、1+1が10になる組織を作る' },
+                { icon: '🌍', title: '社会への貢献', desc: '縁ある人を豊かで幸せにすることで、クリニックを超えた社会問題を解決する次世代リーダーの集団に' },
+              ].map(f => (
+                <div key={f.title} style={{ padding: 14, background: 'var(--bg-card)', border: '1px solid rgba(6,182,212,0.2)', borderRadius: 12 }}>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: '#06b6d4', marginBottom: 6 }}>{f.icon} {f.title}</div>
+                  <div style={{ fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.6 }}>{f.desc}</div>
+                </div>
+              ))}
+            </div>
+
+            {/* 院長メッセージ */}
+            <div style={{ padding: 16, background: 'var(--bg-card)', border: '1px solid rgba(6,182,212,0.2)', borderRadius: 12 }}>
+              <div style={{ fontSize: 13, color: 'var(--text-secondary)', textAlign: 'center', lineHeight: 1.8 }}>
+                「各々が主体的に協力し合ってクリニックという<span style={{ color: '#06b6d4', fontWeight: 700 }}>組織づくり・作品作り</span>を楽しみながら、自己成長と社会貢献を続けることで縁ある人を豊かで幸せにできる豊かな人間になり、<span style={{ color: '#8b5cf6', fontWeight: 700 }}>自分自身の人生も幸せで豊かなものに</span>してほしい」
+              </div>
+              <div style={{ textAlign: 'right', fontSize: 11, color: 'var(--text-muted)', marginTop: 8 }}>— 院長より</div>
+            </div>
+          </div>
         </>
       )}
     </div>

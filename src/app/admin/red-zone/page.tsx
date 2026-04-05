@@ -123,7 +123,15 @@ export default function ZoneManagementPage() {
   return (
     <div style={{ maxWidth: 900, margin: '0 auto', paddingBottom: 60 }}>
       <h1 style={{ fontSize: 26, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 4 }}>🎯 行動基準・ゾーン管理</h1>
-      <p style={{ color: 'var(--text-muted)', fontSize: 13, marginBottom: 20 }}>当クリニックの行動基準を4段階で定義します</p>
+      <p style={{ color: 'var(--text-muted)', fontSize: 13, marginBottom: 16 }}>当クリニックの行動基準を4段階で定義します</p>
+
+      {/* ビジョンバナー */}
+      <div style={{ marginBottom: 20, padding: 16, borderRadius: 14, background: 'rgba(6,182,212,0.06)', border: '1px solid rgba(6,182,212,0.2)' }}>
+        <div style={{ fontSize: 13, fontWeight: 700, color: '#06b6d4', marginBottom: 4 }}>🩵 私たちが目指す姿</div>
+        <div style={{ fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.7 }}>
+          全員が次世代のリーダー・エキスパートとして、お互いの強みを活かしシナジーを生み出すティール組織。この行動基準は「罰則」ではなく、<span style={{ fontWeight: 700, color: 'var(--text-primary)' }}>全員が主役として輝くための道標</span>です。
+        </div>
+      </div>
 
       {message && <div style={{ padding: 10, background: message.includes('失敗') ? 'rgba(239,68,68,0.1)' : 'rgba(74,222,128,0.1)', borderRadius: 8, fontSize: 13, color: message.includes('失敗') ? '#ef4444' : '#4ade80', marginBottom: 12 }}>{message}</div>}
 
