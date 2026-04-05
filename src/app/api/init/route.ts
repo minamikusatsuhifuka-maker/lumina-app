@@ -205,6 +205,29 @@ export async function GET() {
       updated_at TIMESTAMP DEFAULT NOW()
     )`;
 
+    // Phase C: 経営戦略
+    await sql`CREATE TABLE IF NOT EXISTS strategies (
+      id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
+      title TEXT NOT NULL,
+      category TEXT NOT NULL,
+      description TEXT,
+      goal TEXT,
+      background TEXT,
+      status TEXT DEFAULT 'draft',
+      priority TEXT DEFAULT 'medium',
+      start_date DATE,
+      target_date DATE,
+      ai_chat_history TEXT,
+      created_at TIMESTAMP DEFAULT NOW(),
+      updated_at TIMESTAMP DEFAULT NOW()
+    )`;
+
+    try { await sql`ALTER TABLE action_tasks ADD COLUMN IF NOT EXISTS strategy_id TEXT`; } catch {}
+    try { await sql`ALTER TABLE action_tasks ADD COLUMN IF NOT EXISTS start_date DATE`; } catch {}
+    try { await sql`ALTER TABLE action_tasks ADD COLUMN IF NOT EXISTS target_date DATE`; } catch {}
+    try { await sql`ALTER TABLE action_tasks ADD COLUMN IF NOT EXISTS completed_at TIMESTAMP`; } catch {}
+    try { await sql`ALTER TABLE action_tasks ADD COLUMN IF NOT EXISTS memo TEXT`; } catch {}
+
     // 成長哲学システム
     await sql`CREATE TABLE IF NOT EXISTS growth_philosophy (
       id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
