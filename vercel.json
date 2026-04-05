@@ -1,0 +1,28 @@
+{
+  "functions": {
+    "src/app/api/clinic/strategies/generate/route.ts": {
+      "maxDuration": 300
+    },
+    "src/app/api/clinic/strategies/[id]/breakdown/route.ts": {
+      "maxDuration": 300
+    },
+    "src/app/api/industry/route.ts": {
+      "maxDuration": 300
+    },
+    "src/app/api/deepresearch/route.ts": {
+      "maxDuration": 300
+    },
+    "src/app/api/websearch/route.ts": {
+      "maxDuration": 300
+    },
+    "src/app/api/clinic/handbooks/import/route.ts": {
+      "maxDuration": 120
+    },
+    "src/app/api/clinic/mindset-framework/generate/route.ts": {
+      "maxDuration": 120
+    },
+    "src/app/api/clinic/grades/generate/route.ts": {
+      "maxDuration": 120
+    }
+  }
+}
