@@ -205,6 +205,28 @@ export async function GET() {
       updated_at TIMESTAMP DEFAULT NOW()
     )`;
 
+    // AI対話セッション
+    await sql`CREATE TABLE IF NOT EXISTS ai_dialogue_sessions (
+      id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
+      context_type TEXT NOT NULL,
+      context_id TEXT,
+      context_label TEXT,
+      messages TEXT NOT NULL DEFAULT '[]',
+      extracted_insights TEXT,
+      is_active BOOLEAN DEFAULT true,
+      created_at TIMESTAMP DEFAULT NOW(),
+      updated_at TIMESTAMP DEFAULT NOW()
+    )`;
+
+    await sql`CREATE TABLE IF NOT EXISTS clinic_decision_criteria (
+      id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
+      category TEXT NOT NULL,
+      criterion TEXT NOT NULL,
+      source_session_id TEXT,
+      priority INTEGER DEFAULT 5,
+      created_at TIMESTAMP DEFAULT NOW()
+    )`;
+
     // Phase C: 経営戦略
     await sql`CREATE TABLE IF NOT EXISTS strategies (
       id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,

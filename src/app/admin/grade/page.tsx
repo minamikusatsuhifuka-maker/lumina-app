@@ -1,6 +1,7 @@
 'use client';
 import { useState, useEffect } from 'react';
 import { ModelBadge } from '@/components/ModelBadge';
+import { AIDialogueButton } from '@/components/clinic/AIDialogueButton';
 
 type DetailTab = 'overview' | 'skills' | 'knowledge' | 'mindset' | 'learning' | 'certs' | 'exam' | 'demotion';
 
@@ -257,6 +258,8 @@ export default function GradePage() {
       </div>
 
       {/* 一括生成モーダル */}
+      <AIDialogueButton contextType="grade" contextLabel="等級制度" />
+
       {showGenModal && (
         <div style={{ position: 'fixed', inset: 0, zIndex: 9999, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
           <div style={{ width: '100%', maxWidth: 600, maxHeight: '90vh', overflowY: 'auto', background: 'var(--bg-primary)', borderRadius: 20, padding: 28 }}>

@@ -1,6 +1,7 @@
 'use client';
 import { useState, useEffect, useRef } from 'react';
 import { ModelBadge } from '@/components/ModelBadge';
+import { AIDialogueButton } from '@/components/clinic/AIDialogueButton';
 
 type Analysis = {
   coreValues: string[];
@@ -395,6 +396,7 @@ export default function PhilosophyPage() {
           </div>
         </div>
       )}
+      <AIDialogueButton contextType="philosophy" contextLabel="クリニック理念・ビジョン" />
     </div>
   );
 }

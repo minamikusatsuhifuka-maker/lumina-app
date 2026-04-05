@@ -3,6 +3,7 @@ import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { ModelBadge } from '@/components/ModelBadge';
+import { AIDialogueButton } from '@/components/clinic/AIDialogueButton';
 
 const CATS = [
   { key: '', label: '全て' }, { key: 'marketing', label: '📣 マーケティング' }, { key: 'branding', label: '🎨 ブランディング' },
@@ -143,6 +144,8 @@ export default function StrategyBoardPage() {
       )}
 
       {/* 戦略生成モーダル */}
+      <AIDialogueButton contextType="strategy" contextLabel="経営戦略" />
+
       {showGen && (
         <div style={{ position: 'fixed', inset: 0, zIndex: 9999, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
           <div style={{ width: '100%', maxWidth: 600, maxHeight: '90vh', overflowY: 'auto', background: 'var(--bg-primary)', borderRadius: 20, padding: 28 }}>

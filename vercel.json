@@ -12,6 +12,7 @@
     "src/app/api/industry/route.ts": { "maxDuration": 300 },
     "src/app/api/deepresearch/route.ts": { "maxDuration": 300 },
     "src/app/api/websearch/route.ts": { "maxDuration": 300 },
-    "src/app/api/clinic/handbooks/enhance/route.ts": { "maxDuration": 120 }
+    "src/app/api/clinic/handbooks/enhance/route.ts": { "maxDuration": 120 },
+    "src/app/api/clinic/dialogue/route.ts": { "maxDuration": 120 }
   }
 }
