@@ -52,6 +52,10 @@ export default function WritePage() {
   const [output, setOutput] = useState('');
   const [loading, setLoading] = useState(false);
   const [preview, setPreview] = useState(false);
+  const [buzzScore, setBuzzScore] = useState<any>(null);
+  const [buzzLoading, setBuzzLoading] = useState(false);
+  const [selectedChecks, setSelectedChecks] = useState<string[]>([]);
+  const [fixLoading, setFixLoading] = useState(false);
   const [translating, setTranslating] = useState(false);
   const [translated, setTranslated] = useState('');
   const [targetLang, setTargetLang] = useState('en');
@@ -163,6 +167,48 @@ export default function WritePage() {
       setTranslated('翻訳エラーが発生しました。');
     }
     setTranslating(false);
+  };
+
+  const checkBuzz = async () => {
+    if (!output) return;
+    setBuzzLoading(true);
+    setBuzzScore(null);
+    setSelectedChecks([]);
+    try {
+      const res = await fetch('/api/buzz', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ content: output, mode }),
+      });
+      const data = await res.json();
+      setBuzzScore(data);
+    } finally {
+      setBuzzLoading(false);
+    }
+  };
+
+  const autoFix = async () => {
+    if (!output || selectedChecks.length === 0) return;
+    setFixLoading(true);
+    try {
+      const checks = buzzScore?.improvements
+        ?.filter((imp: any) => selectedChecks.includes(imp.id))
+        ?.map((imp: any) => `・${imp.label}：${imp.description}`) || [];
+
+      const res = await fetch('/api/buzz', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ content: output, mode, checks }),
+      });
+      const data = await res.json();
+      if (data.fixed) {
+        setOutput(data.fixed);
+        setBuzzScore(null);
+        setSelectedChecks([]);
+      }
+    } finally {
+      setFixLoading(false);
+    }
   };
 
   const copy = () => navigator.clipboard.writeText(output).then(() => alert('コピーしました！'));
@@ -288,6 +334,96 @@ export default function WritePage() {
           </div>
           <textarea value={output} onChange={e => setOutput(e.target.value)} readOnly={loading} style={{ display: preview ? 'none' : 'block', width: '100%', minHeight: 400, background: 'var(--bg-secondary)', border: `1px solid ${loading ? 'var(--accent)' : 'var(--border)'}`, borderRadius: 12, color: 'var(--text-secondary)', fontSize: 14, padding: 20, resize: 'vertical', outline: 'none', fontFamily: 'inherit', lineHeight: 1.8, boxSizing: 'border-box' }} />
           {preview && <div style={{ minHeight: 400, background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 12, padding: '20px 28px', color: 'var(--text-secondary)', fontSize: 15, lineHeight: 1.9, whiteSpace: 'pre-wrap' }}>{output}</div>}
+        </div>
+      )}
+
+      {/* SNSバズり予測 */}
+      {output && !loading && (
+        <div style={{ marginTop: 12 }}>
+          <button
+            onClick={checkBuzz}
+            disabled={buzzLoading}
+            style={{
+              padding: '7px 16px', borderRadius: 8, cursor: 'pointer',
+              background: 'rgba(245,166,35,0.15)', border: '1px solid rgba(245,166,35,0.3)',
+              color: '#f5a623', fontWeight: 600, fontSize: 12,
+              opacity: buzzLoading ? 0.7 : 1,
+            }}
+          >
+            {buzzLoading ? '分析中...' : '📊 SNSバズり予測'}
+          </button>
+
+          {buzzScore && (
+            <div style={{
+              marginTop: 12, padding: 16,
+              background: 'var(--bg-secondary)', border: '1px solid var(--border)',
+              borderRadius: 12,
+            }}>
+              {/* スコア表示 */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 12 }}>
+                <span style={{ fontSize: 28, fontWeight: 700, color: buzzScore.score >= 70 ? '#1d9e75' : buzzScore.score >= 40 ? '#f5a623' : '#ff6b6b' }}>
+                  {buzzScore.score}点
+                </span>
+                <div>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-primary)' }}>{buzzScore.level}</div>
+                  <div style={{ height: 6, width: 160, background: 'var(--border)', borderRadius: 99, marginTop: 4 }}>
+                    <div style={{ height: '100%', width: `${buzzScore.score}%`, borderRadius: 99, background: buzzScore.score >= 70 ? '#1d9e75' : buzzScore.score >= 40 ? '#f5a623' : '#ff6b6b', transition: 'width 0.5s' }} />
+                  </div>
+                </div>
+              </div>
+
+              {/* 良い点 */}
+              {buzzScore.strengths?.length > 0 && (
+                <div style={{ marginBottom: 12 }}>
+                  <p style={{ fontSize: 12, fontWeight: 700, color: '#1d9e75', marginBottom: 6 }}>✅ 良い点</p>
+                  {buzzScore.strengths.map((s: string, i: number) => (
+                    <div key={i} style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 3 }}>・{s}</div>
+                  ))}
+                </div>
+              )}
+
+              {/* 改善項目チェックボックス */}
+              {buzzScore.improvements?.length > 0 && (
+                <div>
+                  <p style={{ fontSize: 12, fontWeight: 700, color: '#f5a623', marginBottom: 8 }}>
+                    🔧 改善したい項目を選んでAIに自動修正させる
+                  </p>
+                  {buzzScore.improvements.map((imp: any) => (
+                    <label key={imp.id} style={{ display: 'flex', alignItems: 'flex-start', gap: 8, marginBottom: 8, cursor: 'pointer' }}>
+                      <input
+                        type="checkbox"
+                        checked={selectedChecks.includes(imp.id)}
+                        onChange={e => {
+                          if (e.target.checked) setSelectedChecks(prev => [...prev, imp.id]);
+                          else setSelectedChecks(prev => prev.filter(c => c !== imp.id));
+                        }}
+                        style={{ marginTop: 2 }}
+                      />
+                      <div>
+                        <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)' }}>{imp.label}</div>
+                        <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>{imp.description}</div>
+                      </div>
+                    </label>
+                  ))}
+
+                  {selectedChecks.length > 0 && (
+                    <button
+                      onClick={autoFix}
+                      disabled={fixLoading}
+                      style={{
+                        marginTop: 8, padding: '9px 20px', borderRadius: 8, border: 'none', cursor: 'pointer',
+                        background: 'linear-gradient(135deg, #6c63ff, #8b5cf6)',
+                        color: '#fff', fontWeight: 700, fontSize: 13,
+                        opacity: fixLoading ? 0.7 : 1,
+                      }}
+                    >
+                      {fixLoading ? 'AI修正中...' : `⚡ ${selectedChecks.length}項目をAIが自動修正`}
+                    </button>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
         </div>
       )}
 

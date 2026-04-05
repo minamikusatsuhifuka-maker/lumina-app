@@ -18,6 +18,10 @@ export default function LibraryPage() {
   const [search, setSearch] = useState('');
   const [filterGroup, setFilterGroup] = useState('すべて');
   const [filterFav, setFilterFav] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [mergeMode, setMergeMode] = useState(false);
+  const [mergeResult, setMergeResult] = useState('');
+  const [merging, setMerging] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editTags, setEditTags] = useState('');
   const [editGroup, setEditGroup] = useState('');
@@ -28,6 +32,23 @@ export default function LibraryPage() {
       .then(r => r.json())
       .then(data => { if (Array.isArray(data)) setItems(data); setLoading(false); });
   }, []);
+
+  const generateMergeReport = async () => {
+    const selected = items.filter((item: any) => selectedIds.has(item.id));
+    if (selected.length < 2) return;
+    setMerging(true);
+    try {
+      const res = await fetch('/api/merge', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ items: selected }),
+      });
+      const data = await res.json();
+      setMergeResult(data.result || '');
+    } finally {
+      setMerging(false);
+    }
+  };
 
   const toggleFavorite = async (item: any) => {
     const newVal = item.is_favorite ? 0 : 1;
@@ -93,8 +114,59 @@ export default function LibraryPage() {
 
   return (
     <div>
-      <h1 style={{ fontSize: 28, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 4 }}>📚 ライブラリ</h1>
+      {/* 統合レポートモード切替 */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+        <h1 style={{ fontSize: 28, fontWeight: 700, color: 'var(--text-primary)' }}>📚 ライブラリ</h1>
+        <button
+          onClick={() => { setMergeMode(!mergeMode); setSelectedIds(new Set()); setMergeResult(''); }}
+          style={{
+            padding: '8px 16px', borderRadius: 8, cursor: 'pointer',
+            background: mergeMode ? 'linear-gradient(135deg, #6c63ff, #8b5cf6)' : 'var(--bg-card)',
+            color: mergeMode ? '#fff' : 'var(--text-muted)',
+            border: `1px solid ${mergeMode ? 'transparent' : 'var(--border)'}`,
+            fontSize: 13, fontWeight: 600,
+          }}
+        >
+          {mergeMode ? '✕ 統合モード終了' : '🔗 複数統合レポート'}
+        </button>
+      </div>
       <p style={{ color: 'var(--text-muted)', marginBottom: 20 }}>保存した調査・分析・文章を管理。お気に入り・タグ・グループ分けに対応。</p>
+
+      {/* 統合モード時のUI */}
+      {mergeMode && (
+        <div style={{
+          padding: 16, background: 'var(--accent-soft)',
+          border: '1px solid var(--border-accent)',
+          borderRadius: 12, marginBottom: 16,
+        }}>
+          <p style={{ fontSize: 13, color: 'var(--accent)', marginBottom: 10, fontWeight: 600 }}>
+            🔗 統合したい資料を選択してください（2件以上）：{selectedIds.size}件選択中
+          </p>
+          {selectedIds.size >= 2 && (
+            <button
+              onClick={generateMergeReport}
+              disabled={merging}
+              style={{
+                padding: '9px 20px', borderRadius: 8, border: 'none', cursor: 'pointer',
+                background: 'linear-gradient(135deg, #6c63ff, #8b5cf6)',
+                color: '#fff', fontWeight: 700, fontSize: 13,
+                opacity: merging ? 0.7 : 1,
+              }}
+            >
+              {merging ? '統合レポート生成中...' : '⚡ 統合レポートを生成'}
+            </button>
+          )}
+          {mergeResult && (
+            <div style={{
+              marginTop: 16, padding: 16, background: 'var(--bg-secondary)',
+              borderRadius: 10, fontSize: 13, color: 'var(--text-secondary)',
+              lineHeight: 1.8, whiteSpace: 'pre-wrap', maxHeight: '60vh', overflowY: 'auto',
+            }}>
+              {mergeResult}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* 検索・フィルター */}
       <div style={{ display: 'flex', gap: 10, marginBottom: 16, flexWrap: 'wrap' as const }}>
@@ -228,6 +300,19 @@ export default function LibraryPage() {
                 <div key={item.id} style={{ background: 'var(--bg-secondary)', border: `1px solid ${item.is_favorite ? 'rgba(245,166,35,0.3)' : 'var(--border)'}`, borderRadius: 12, overflow: 'hidden' }}>
                   {/* アイテムヘッダー */}
                   <div style={{ padding: '14px 16px', display: 'flex', alignItems: 'flex-start', gap: 10 }}>
+                    {mergeMode && (
+                      <input
+                        type="checkbox"
+                        checked={selectedIds.has(item.id)}
+                        onChange={e => {
+                          const next = new Set(selectedIds);
+                          if (e.target.checked) next.add(item.id);
+                          else next.delete(item.id);
+                          setSelectedIds(next);
+                        }}
+                        style={{ width: 16, height: 16, cursor: 'pointer', flexShrink: 0, marginTop: 2 }}
+                      />
+                    )}
                     <span style={{ fontSize: 18, flexShrink: 0 }}>{TYPE_ICONS[item.type] || TYPE_ICONS.default}</span>
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 4, cursor: 'pointer' }} onClick={() => setExpandedId(expandedId === item.id ? null : item.id)}>

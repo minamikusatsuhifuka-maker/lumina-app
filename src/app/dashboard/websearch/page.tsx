@@ -106,6 +106,11 @@ export default function WebSearchPage() {
       return new Set(JSON.parse(stored || '[]'));
     } catch { return new Set(); }
   });
+  const [followupQ, setFollowupQ] = useState('');
+  const [followupA, setFollowupA] = useState('');
+  const [followupLoading, setFollowupLoading] = useState(false);
+  const [reliability, setReliability] = useState<{score: number; level: string; reasons: string[]; warnings: string[]} | null>(null);
+  const [reliabilityLoading, setReliabilityLoading] = useState(false);
   const [history, setHistory] = useState<string[]>(() => {
     if (typeof window === 'undefined') return [];
     try { return JSON.parse(localStorage.getItem('lumina_search_history') || '[]'); } catch { return []; }
@@ -217,6 +222,39 @@ export default function WebSearchPage() {
       setTimeout(() => setToast(''), 2000);
     } finally {
       setSaving(false);
+    }
+  };
+
+  const askFollowup = async () => {
+    if (!followupQ.trim() || !result) return;
+    setFollowupLoading(true);
+    try {
+      const res = await fetch('/api/followup', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ question: followupQ, context: rawResult || result }),
+      });
+      const data = await res.json();
+      setFollowupA(data.result || '');
+    } finally {
+      setFollowupLoading(false);
+    }
+  };
+
+  const checkReliability = async () => {
+    if (!result) return;
+    setReliabilityLoading(true);
+    try {
+      const urls = (rawResult || result).match(/https?:\/\/[^\s）\]。、！？\n"'<>&]+/g) || [];
+      const res = await fetch('/api/reliability', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ content: rawResult || result, urls }),
+      });
+      const data = await res.json();
+      setReliability(data);
+    } finally {
+      setReliabilityLoading(false);
     }
   };
 
@@ -343,6 +381,18 @@ export default function WebSearchPage() {
                 <span style={{ fontSize: 12, color: 'var(--text-muted)', fontFamily: 'monospace', minWidth: 20, textAlign: 'center' }}>{fontSize}</span>
                 <button onClick={() => setFontSize(f => Math.min(20, f + 1))} style={{ width: 24, height: 24, borderRadius: 4, border: '1px solid var(--border)', background: 'var(--bg-secondary)', color: 'var(--text-secondary)', cursor: 'pointer', fontSize: 14, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>＋</button>
               </div>
+              <button
+                onClick={checkReliability}
+                disabled={reliabilityLoading || !result}
+                style={{
+                  padding: '6px 14px', borderRadius: 8, cursor: 'pointer',
+                  background: reliabilityLoading ? 'rgba(245,166,35,0.2)' : 'rgba(245,166,35,0.15)',
+                  color: '#f5a623', fontWeight: 600, fontSize: 12,
+                  border: '1px solid rgba(245,166,35,0.3)',
+                }}
+              >
+                {reliabilityLoading ? '評価中...' : '🛡️ 信頼性チェック'}
+              </button>
               <button onClick={sendToWrite} style={{ padding: '6px 14px', background: 'linear-gradient(135deg, #6c63ff, #8b5cf6)', color: '#fff', border: 'none', borderRadius: 6, cursor: 'pointer', fontSize: 12, fontWeight: 600 }}>
                 ✍️ 文章作成に使う
               </button>
@@ -364,10 +414,114 @@ export default function WebSearchPage() {
               </button>
             </div>
           </div>
+          {reliability && (
+            <div style={{
+              padding: '12px 16px', marginBottom: 12,
+              background: reliability.score >= 70 ? 'rgba(29,158,117,0.08)' : reliability.score >= 40 ? 'rgba(245,166,35,0.08)' : 'rgba(255,107,107,0.08)',
+              border: `1px solid ${reliability.score >= 70 ? 'rgba(29,158,117,0.3)' : reliability.score >= 40 ? 'rgba(245,166,35,0.3)' : 'rgba(255,107,107,0.3)'}`,
+              borderRadius: 10,
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 8 }}>
+                <span style={{ fontSize: 20, fontWeight: 700, color: reliability.score >= 70 ? '#1d9e75' : reliability.score >= 40 ? '#f5a623' : '#ff6b6b' }}>
+                  {reliability.score}点
+                </span>
+                <span style={{
+                  padding: '2px 10px', borderRadius: 99, fontSize: 12, fontWeight: 700,
+                  background: reliability.score >= 70 ? 'rgba(29,158,117,0.15)' : reliability.score >= 40 ? 'rgba(245,166,35,0.15)' : 'rgba(255,107,107,0.15)',
+                  color: reliability.score >= 70 ? '#1d9e75' : reliability.score >= 40 ? '#f5a623' : '#ff6b6b',
+                }}>
+                  信頼性：{reliability.level}
+                </span>
+                <div style={{ flex: 1, height: 6, background: 'var(--border)', borderRadius: 99 }}>
+                  <div style={{
+                    height: '100%', width: `${reliability.score}%`, borderRadius: 99,
+                    background: reliability.score >= 70 ? '#1d9e75' : reliability.score >= 40 ? '#f5a623' : '#ff6b6b',
+                    transition: 'width 0.5s ease',
+                  }} />
+                </div>
+              </div>
+              <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap' }}>
+                <div>
+                  {reliability.reasons.map((r, i) => (
+                    <div key={i} style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 2 }}>✓ {r}</div>
+                  ))}
+                </div>
+                {reliability.warnings.length > 0 && (
+                  <div>
+                    {reliability.warnings.map((w, i) => (
+                      <div key={i} style={{ fontSize: 11, color: '#f5a623', marginBottom: 2 }}>⚠ {w}</div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
           <div
             style={{ fontSize: fontSize, color: 'var(--text-primary)', lineHeight: 1.8, wordBreak: 'break-word' as const }}
             dangerouslySetInnerHTML={{ __html: formatResult(result, hitUrls) }}
           />
+          {result && (
+            <div style={{
+              marginTop: 16, padding: 16,
+              background: 'var(--bg-secondary)',
+              border: '1px solid var(--border-accent)',
+              borderRadius: 12,
+            }}>
+              <p style={{ fontSize: 13, fontWeight: 700, color: 'var(--accent)', marginBottom: 10 }}>
+                💬 この調査結果についてAIに質問
+              </p>
+              <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
+                <input
+                  type="text"
+                  value={followupQ}
+                  onChange={e => setFollowupQ(e.target.value)}
+                  onKeyDown={e => { if (e.key === 'Enter') e.preventDefault(); }}
+                  placeholder="例：この中で最も重要なポイントは？競合との違いは？"
+                  style={{
+                    flex: 1, padding: '9px 14px', fontSize: 13,
+                    background: 'var(--input-bg)', border: '1px solid var(--input-border)',
+                    borderRadius: 8, color: 'var(--text-primary)', outline: 'none',
+                  }}
+                />
+                <button
+                  onClick={askFollowup}
+                  disabled={followupLoading || !followupQ.trim()}
+                  style={{
+                    padding: '9px 18px', borderRadius: 8, border: 'none',
+                    background: followupLoading ? 'rgba(108,99,255,0.3)' : 'linear-gradient(135deg, #6c63ff, #8b5cf6)',
+                    color: '#fff', fontWeight: 600, fontSize: 13,
+                    cursor: followupLoading ? 'not-allowed' : 'pointer', whiteSpace: 'nowrap',
+                  }}
+                >
+                  {followupLoading ? '回答中...' : '質問する'}
+                </button>
+              </div>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 10 }}>
+                {['最重要ポイントは？', '競合との違いは？', '具体的な事例は？', '次のアクションは？', 'リスクは何か？'].map(q => (
+                  <button
+                    key={q}
+                    onClick={() => setFollowupQ(q)}
+                    style={{
+                      padding: '4px 10px', fontSize: 11, borderRadius: 20,
+                      background: 'var(--bg-card)', border: '1px solid var(--border)',
+                      color: 'var(--text-muted)', cursor: 'pointer',
+                    }}
+                  >
+                    {q}
+                  </button>
+                ))}
+              </div>
+              {followupA && (
+                <div style={{
+                  padding: 14, background: 'var(--bg-primary)',
+                  borderRadius: 8, fontSize: 13, color: 'var(--text-secondary)',
+                  lineHeight: 1.8, whiteSpace: 'pre-wrap',
+                }}>
+                  {followupA}
+                </div>
+              )}
+            </div>
+          )}
         </div>
       )}
 
