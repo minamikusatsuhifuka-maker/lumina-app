@@ -82,9 +82,9 @@ export default function HandbookListPage() {
               <div onDragOver={e => { e.preventDefault(); setDragOver(true); }} onDragLeave={() => setDragOver(false)} onDrop={e => { e.preventDefault(); setDragOver(false); const f = e.dataTransfer.files[0]; if (f) handleImport(f); }} onClick={() => fileRef.current?.click()} style={{ padding: 40, border: `2px dashed ${dragOver ? 'var(--accent)' : 'var(--border)'}`, borderRadius: 12, textAlign: 'center', cursor: 'pointer', background: dragOver ? 'var(--accent-soft)' : 'transparent' }}>
                 <div style={{ fontSize: 36, marginBottom: 12 }}>📂</div>
                 <div style={{ fontSize: 14, color: 'var(--text-secondary)' }}>{importing ? 'AIが章を分割中...' : 'クリックまたはD&Dでファイルをアップロード'}</div>
-                <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 4 }}>.txt / .md / .pdf / .docx に対応</div>
+                <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 4 }}>.txt / .md / .pdf / .docx / .pptx に対応</div>
               </div>
-              <input ref={fileRef} type="file" accept=".txt,.md,.pdf,.docx" hidden onChange={e => { const f = e.target.files?.[0]; if (f) handleImport(f); }} />
+              <input ref={fileRef} type="file" accept=".txt,.md,.pdf,.docx,.pptx" hidden onChange={e => { const f = e.target.files?.[0]; if (f) handleImport(f); }} />
             </>
           ) : (
             <div>
