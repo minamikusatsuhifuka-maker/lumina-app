@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
 import { neon } from '@neondatabase/serverless';
+import { buildSystemContext } from '@/lib/clinic-context';
 
 export const maxDuration = 60;
 
@@ -29,7 +30,7 @@ export async function POST(req: NextRequest) {
     body: JSON.stringify({
       model: 'claude-sonnet-4-6',
       max_tokens: 4000,
-      system: 'あなたはクリニックの人材育成専門家です。必ずJSON形式のみで返してください。',
+      system: await buildSystemContext('あなたはクリニックの人材育成専門家です。必ずJSON形式のみで返してください。', 'mindset'),
       messages: [{
         role: 'user',
         content: `以下の条件でスタッフ向けアンケートをJSON形式で作成してください。
