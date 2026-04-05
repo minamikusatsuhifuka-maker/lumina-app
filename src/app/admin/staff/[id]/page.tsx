@@ -1,7 +1,8 @@
 'use client';
 import { useState, useEffect, use } from 'react';
+import { HiringScoreChart } from '@/components/clinic/HiringScoreChart';
 
-type DetailTab = 'timeline' | 'documents' | 'notes' | 'grades';
+type DetailTab = 'timeline' | 'documents' | 'notes' | 'grades' | 'score';
 type NoteType = 'interview' | 'training' | 'praise' | 'incident' | 'other';
 
 const NOTE_ICONS: Record<string, string> = { interview: '💬', training: '📚', praise: '🌟', incident: '⚠️', other: '📝' };
@@ -23,6 +24,25 @@ export default function StaffDetailPage({ params }: { params: Promise<{ id: stri
 
   // 書類展開
   const [expandedDocId, setExpandedDocId] = useState<string | null>(null);
+
+  // スコアリング
+  const [scoreResult, setScoreResult] = useState<any>(null);
+  const [scoreLoading, setScoreLoading] = useState(false);
+
+  const runScoring = async () => {
+    setScoreLoading(true);
+    try {
+      const res = await fetch('/api/clinic/hiring-score', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ staffId: id }),
+      });
+      const data = await res.json();
+      if (data.scores) setScoreResult(data);
+      else setMessage(data.error || 'スコアリングに失敗しました');
+    } catch { setMessage('スコアリングに失敗しました'); }
+    finally { setScoreLoading(false); }
+  };
 
   const fetchStaff = () => {
     fetch(`/api/clinic/staff/${id}`).then(r => r.json()).then(data => {
@@ -111,6 +131,7 @@ export default function StaffDetailPage({ params }: { params: Promise<{ id: stri
           { key: 'documents' as DetailTab, label: '📄 書類' },
           { key: 'notes' as DetailTab, label: '📝 メモ追加' },
           { key: 'grades' as DetailTab, label: '🏅 等級履歴' },
+          { key: 'score' as DetailTab, label: '📊 採用スコア' },
         ]).map(t => (
           <button key={t.key} onClick={() => setTab(t.key)} style={{
             padding: '8px 14px', borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: 'pointer',
@@ -238,6 +259,49 @@ export default function StaffDetailPage({ params }: { params: Promise<{ id: stri
               {g.reason && <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 8 }}>{g.reason}</div>}
             </div>
           ))}
+        </div>
+      )}
+
+      {/* 採用スコア */}
+      {tab === 'score' && (
+        <div style={cardStyle}>
+          <button onClick={runScoring} disabled={scoreLoading} style={{
+            padding: '10px 20px', borderRadius: 8, border: 'none', cursor: scoreLoading ? 'not-allowed' : 'pointer',
+            background: scoreLoading ? 'rgba(236,72,153,0.3)' : 'linear-gradient(135deg, #ec4899, #8b5cf6)',
+            color: '#fff', fontWeight: 700, fontSize: 13, marginBottom: 16,
+          }}>
+            {scoreLoading ? 'AIが理念との適合度を分析中...' : scoreResult ? '🔄 再スコアリング' : '📊 AIスコアリングを実行'}
+          </button>
+
+          {scoreResult && (
+            <>
+              <HiringScoreChart scores={scoreResult.scores} totalScore={scoreResult.totalScore} rank={scoreResult.rank} rankLabel={scoreResult.rankLabel} />
+              {scoreResult.summary && (
+                <div style={{ marginTop: 14, padding: 12, background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 8 }}>
+                  <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 6 }}>💬 総合評価</div>
+                  <div style={{ fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.7 }}>{scoreResult.summary}</div>
+                </div>
+              )}
+              {scoreResult.strengths?.length > 0 && (
+                <div style={{ marginTop: 8, padding: 12, background: 'rgba(74,222,128,0.05)', border: '1px solid rgba(74,222,128,0.2)', borderRadius: 8 }}>
+                  <div style={{ fontSize: 12, color: '#4ade80', fontWeight: 600, marginBottom: 6 }}>💪 強み</div>
+                  {scoreResult.strengths.map((s: string, i: number) => <div key={i} style={{ fontSize: 13, color: 'var(--text-secondary)', padding: '2px 0' }}>• {s}</div>)}
+                </div>
+              )}
+              {scoreResult.risks?.length > 0 && (
+                <div style={{ marginTop: 8, padding: 12, background: 'rgba(239,68,68,0.05)', border: '1px solid rgba(239,68,68,0.2)', borderRadius: 8 }}>
+                  <div style={{ fontSize: 12, color: '#ef4444', fontWeight: 600, marginBottom: 6 }}>⚠️ リスク</div>
+                  {scoreResult.risks.map((r: string, i: number) => <div key={i} style={{ fontSize: 13, color: 'var(--text-secondary)', padding: '2px 0' }}>• {r}</div>)}
+                </div>
+              )}
+              {scoreResult.onboardingAdvice && (
+                <div style={{ marginTop: 8, padding: 12, background: 'rgba(108,99,255,0.05)', border: '1px solid rgba(108,99,255,0.2)', borderRadius: 8 }}>
+                  <div style={{ fontSize: 12, color: '#6c63ff', fontWeight: 600, marginBottom: 6 }}>📈 育成方針</div>
+                  <div style={{ fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.7 }}>{scoreResult.onboardingAdvice}</div>
+                </div>
+              )}
+            </>
+          )}
         </div>
       )}
     </div>

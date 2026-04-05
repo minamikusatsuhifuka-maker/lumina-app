@@ -1,6 +1,7 @@
 'use client';
 import { useState, useRef } from 'react';
 import { useRouter } from 'next/navigation';
+import { HiringScoreChart } from '@/components/clinic/HiringScoreChart';
 
 type Tab = 'basic' | 'resume' | 'aptitude' | 'hiring';
 
@@ -34,6 +35,10 @@ export default function NewStaffPage() {
   // 採用所見
   const [hiringComment, setHiringComment] = useState<any>(null);
   const [hiringLoading, setHiringLoading] = useState(false);
+
+  // スコアリング
+  const [scoreResult, setScoreResult] = useState<any>(null);
+  const [scoreLoading, setScoreLoading] = useState(false);
 
   const handleResumeUpload = async (file: File) => {
     setResumeLoading(true);
@@ -95,6 +100,26 @@ export default function NewStaffPage() {
       else setMessage(data.error || '所見生成に失敗しました');
     } catch { setMessage('所見生成に失敗しました'); }
     finally { setHiringLoading(false); }
+  };
+
+  const generateScore = async () => {
+    setScoreLoading(true);
+    setMessage('');
+    try {
+      const res = await fetch('/api/clinic/hiring-score', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          resumeText: resumeAnalysis ? JSON.stringify(resumeAnalysis) : resumeText,
+          aptitudeText: aptitudeAnalysis ? JSON.stringify(aptitudeAnalysis) : aptitudeText,
+          memoText: '',
+        }),
+      });
+      const data = await res.json();
+      if (data.scores) setScoreResult(data);
+      else setMessage(data.error || 'スコアリングに失敗しました');
+    } catch { setMessage('スコアリングに失敗しました'); }
+    finally { setScoreLoading(false); }
   };
 
   const handleRegister = async () => {
@@ -279,15 +304,50 @@ export default function NewStaffPage() {
       {/* タブ④: AI採用所見 */}
       {tab === 'hiring' && (
         <div style={{ ...cardStyle }}>
-          <button onClick={generateHiringComment} disabled={hiringLoading} style={{
-            padding: '10px 20px', borderRadius: 8, border: 'none', cursor: hiringLoading ? 'not-allowed' : 'pointer',
-            background: hiringLoading ? 'rgba(108,99,255,0.3)' : 'linear-gradient(135deg, #6c63ff, #8b5cf6)',
-            color: '#fff', fontWeight: 700, fontSize: 13, marginBottom: 16,
-          }}>
-            {hiringLoading ? '生成中...' : '🤖 採用総合所見を生成'}
-          </button>
+          <div style={{ display: 'flex', gap: 10, marginBottom: 16, flexWrap: 'wrap' }}>
+            <button onClick={generateHiringComment} disabled={hiringLoading} style={{
+              padding: '10px 20px', borderRadius: 8, border: 'none', cursor: hiringLoading ? 'not-allowed' : 'pointer',
+              background: hiringLoading ? 'rgba(108,99,255,0.3)' : 'linear-gradient(135deg, #6c63ff, #8b5cf6)',
+              color: '#fff', fontWeight: 700, fontSize: 13,
+            }}>
+              {hiringLoading ? '生成中...' : '🤖 採用総合所見を生成'}
+            </button>
+            <button onClick={generateScore} disabled={scoreLoading} style={{
+              padding: '10px 20px', borderRadius: 8, border: 'none', cursor: scoreLoading ? 'not-allowed' : 'pointer',
+              background: scoreLoading ? 'rgba(236,72,153,0.3)' : 'linear-gradient(135deg, #ec4899, #8b5cf6)',
+              color: '#fff', fontWeight: 700, fontSize: 13,
+            }}>
+              {scoreLoading ? 'AIが理念との適合度を分析中...' : '📊 AIスコアリングを実行'}
+            </button>
+          </div>
           {!resumeAnalysis && !aptitudeAnalysis && (
             <p style={{ fontSize: 12, color: 'var(--text-muted)' }}>※ 履歴書・適性試験を先にアップロードすると、より精度の高い所見が生成されます</p>
+          )}
+
+          {/* スコアリング結果 */}
+          {scoreResult && (
+            <div style={{ marginBottom: 20, padding: 16, background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 12 }}>
+              <h3 style={{ fontSize: 15, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 12 }}>📊 AIスコアリング結果</h3>
+              <HiringScoreChart scores={scoreResult.scores} totalScore={scoreResult.totalScore} rank={scoreResult.rank} rankLabel={scoreResult.rankLabel} />
+              {scoreResult.strengths?.length > 0 && (
+                <div style={{ marginTop: 14, padding: 12, background: 'rgba(74,222,128,0.05)', border: '1px solid rgba(74,222,128,0.2)', borderRadius: 8 }}>
+                  <div style={{ fontSize: 12, color: '#4ade80', fontWeight: 600, marginBottom: 6 }}>💪 強み</div>
+                  {scoreResult.strengths.map((s: string, i: number) => <div key={i} style={{ fontSize: 13, color: 'var(--text-secondary)', padding: '2px 0' }}>• {s}</div>)}
+                </div>
+              )}
+              {scoreResult.risks?.length > 0 && (
+                <div style={{ marginTop: 8, padding: 12, background: 'rgba(239,68,68,0.05)', border: '1px solid rgba(239,68,68,0.2)', borderRadius: 8 }}>
+                  <div style={{ fontSize: 12, color: '#ef4444', fontWeight: 600, marginBottom: 6 }}>⚠️ リスク</div>
+                  {scoreResult.risks.map((r: string, i: number) => <div key={i} style={{ fontSize: 13, color: 'var(--text-secondary)', padding: '2px 0' }}>• {r}</div>)}
+                </div>
+              )}
+              {scoreResult.onboardingAdvice && (
+                <div style={{ marginTop: 8, padding: 12, background: 'rgba(108,99,255,0.05)', border: '1px solid rgba(108,99,255,0.2)', borderRadius: 8 }}>
+                  <div style={{ fontSize: 12, color: '#6c63ff', fontWeight: 600, marginBottom: 6 }}>📈 育成方針</div>
+                  <div style={{ fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.7 }}>{scoreResult.onboardingAdvice}</div>
+                </div>
+              )}
+            </div>
           )}
 
           {hiringComment && (
