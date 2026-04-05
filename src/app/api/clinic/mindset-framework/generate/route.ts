@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
 import { neon } from '@neondatabase/serverless';
+import { buildSystemContext } from '@/lib/clinic-context';
 
 export const maxDuration = 300;
 
@@ -18,13 +19,7 @@ export async function POST(req: NextRequest) {
   const philRows = await sql`SELECT content FROM clinic_philosophy ORDER BY created_at DESC LIMIT 1`;
   const philosophy = philRows[0]?.content || '（理念未登録）';
 
-  const response = await fetch('https://api.anthropic.com/v1/messages', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' },
-    body: JSON.stringify({
-      model: 'claude-sonnet-4-6',
-      max_tokens: 8000,
-      system: `あなたはクリニックの人材育成専門家です。
+  const systemPrompt = await buildSystemContext(`あなたはクリニックの人材育成専門家です。
 以下の4つのコア価値を軸に、等級ごとの段階的なマインド成長を設計してください。
 
 コア価値：
@@ -38,7 +33,15 @@ export async function POST(req: NextRequest) {
 - 徐々に「チームへの貢献」「社会への貢献」へと広がっていく
 - マインドは命令で身につくものではなく、段階的な体験と気づきで育まれる
 - 各等級で「できる・やっている」行動として具体的に表現する
-必ずJSON形式のみで返してください。`,
+必ずJSON形式のみで返してください。`, 'mindset');
+
+  const response = await fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' },
+    body: JSON.stringify({
+      model: 'claude-sonnet-4-6',
+      max_tokens: 8000,
+      system: systemPrompt,
       messages: [{
         role: 'user',
         content: `クリニックの理念：${philosophy}

@@ -3,6 +3,7 @@ export const maxDuration = 120;
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
 import { neon } from '@neondatabase/serverless';
+import { buildSystemContext } from '@/lib/clinic-context';
 
 const TEMPLATE_PROMPTS: Record<string, string> = {
   story: '【ストーリー型】読者が主人公になれるような物語形式で書いてください。「あなたがこのクリニックで働く一日」のような具体的なシーンから始め、理念や価値観が自然に伝わるよう構成してください。',
@@ -24,9 +25,9 @@ export async function POST(req: NextRequest) {
   const rows = await sql`SELECT content FROM clinic_philosophy ORDER BY created_at DESC LIMIT 1`;
   const philosophy = rows[0]?.content || '';
 
-  const baseSystem = `あなたはクリニックのハンドブック編集の専門家です。
+  const baseSystem = await buildSystemContext(`あなたはクリニックのハンドブック編集の専門家です。
 クリニックの理念：${philosophy}
-理念に沿いながら、スタッフの心に響く・行動につながる文章を書いてください。`;
+理念に沿いながら、スタッフの心に響く・行動につながる文章を書いてください。`, 'handbook');
 
   let userPrompt = '';
 

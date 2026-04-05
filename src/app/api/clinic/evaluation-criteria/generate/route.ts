@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
 import { neon } from '@neondatabase/serverless';
+import { buildSystemContext } from '@/lib/clinic-context';
 
 export const maxDuration = 60;
 
@@ -25,6 +26,8 @@ export async function POST(req: NextRequest) {
   const grade = gradeRows[0];
   if (!grade) return NextResponse.json({ error: '等級が見つかりません' }, { status: 404 });
 
+  const systemPrompt = await buildSystemContext('あなたはクリニック経営・人事制度の専門家です。必ずJSON形式のみで返してください。', 'evaluation');
+
   const response = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
     headers: {
@@ -35,7 +38,7 @@ export async function POST(req: NextRequest) {
     body: JSON.stringify({
       model: 'claude-sonnet-4-6',
       max_tokens: 4000,
-      system: 'あなたはクリニック経営・人事制度の専門家です。必ずJSON形式のみで返してください。',
+      system: systemPrompt,
       messages: [{
         role: 'user',
         content: `以下のクリニック理念と等級情報に基づいて、評価シートを作成してください。

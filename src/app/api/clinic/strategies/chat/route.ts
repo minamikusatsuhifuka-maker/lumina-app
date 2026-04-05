@@ -1,6 +1,7 @@
 import { NextRequest } from 'next/server';
 import { auth } from '@/lib/auth';
 import { neon } from '@neondatabase/serverless';
+import { buildSystemContext } from '@/lib/clinic-context';
 
 export const maxDuration = 60;
 
@@ -34,6 +35,11 @@ export async function POST(req: NextRequest) {
     }
   }
 
+  const systemPrompt = await buildSystemContext(`あなたはクリニック経営の戦略アドバイザーです。
+クリニックの理念：${philosophy}${strategyContext}
+
+理念に基づいた経営戦略について、具体的で実践的なアドバイスをしてください。`, 'strategy');
+
   const encoder = new TextEncoder();
   const stream = new ReadableStream({
     async start(controller) {
@@ -46,10 +52,7 @@ export async function POST(req: NextRequest) {
             model: 'claude-sonnet-4-6',
             max_tokens: 3000,
             stream: true,
-            system: `あなたはクリニック経営の戦略アドバイザーです。
-クリニックの理念：${philosophy}${strategyContext}
-
-理念に基づいた経営戦略について、具体的で実践的なアドバイスをしてください。`,
+            system: systemPrompt,
             messages: [{ role: 'user', content: message }],
           }),
         });

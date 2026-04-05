@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
 import { neon } from '@neondatabase/serverless';
+import { buildSystemContext } from '@/lib/clinic-context';
 
 export const maxDuration = 60;
 
@@ -25,13 +26,15 @@ export async function POST(req: NextRequest) {
   const philosophy = philRows[0]?.content || '';
   const categoryLabel = CATEGORY_LABELS[category || 'all'] || '全体';
 
+  const systemPrompt = await buildSystemContext(`あなたはクリニック経営・人事制度の専門家です。クリニックの理念：${philosophy}\n必ずJSON形式のみで返してください。`, 'grade');
+
   const response = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' },
     body: JSON.stringify({
       model: 'claude-sonnet-4-6',
       max_tokens: 4000,
-      system: `あなたはクリニック経営・人事制度の専門家です。クリニックの理念：${philosophy}\n必ずJSON形式のみで返してください。`,
+      system: systemPrompt,
       messages: [{
         role: 'user',
         content: `現在の等級情報：

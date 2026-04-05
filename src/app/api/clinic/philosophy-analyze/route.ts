@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
+import { buildSystemContext } from '@/lib/clinic-context';
 
 export const maxDuration = 60;
 
@@ -13,6 +14,8 @@ export async function POST(req: NextRequest) {
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) return NextResponse.json({ error: 'APIキーが設定されていません' }, { status: 500 });
 
+  const systemPrompt = await buildSystemContext('あなたはクリニック経営の専門家です。理念文書を分析し、必ずJSON形式のみで返してください。JSONのみを返し、それ以外のテキストは含めないでください。', 'philosophy');
+
   const response = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
     headers: {
@@ -23,7 +26,7 @@ export async function POST(req: NextRequest) {
     body: JSON.stringify({
       model: 'claude-sonnet-4-6',
       max_tokens: 2000,
-      system: 'あなたはクリニック経営の専門家です。理念文書を分析し、必ずJSON形式のみで返してください。JSONのみを返し、それ以外のテキストは含めないでください。',
+      system: systemPrompt,
       messages: [{
         role: 'user',
         content: `以下のクリニック理念を分析し、下記JSON形式で返してください：

@@ -1,6 +1,7 @@
 import { NextRequest } from 'next/server';
 import { auth } from '@/lib/auth';
 import { neon } from '@neondatabase/serverless';
+import { buildSystemContext } from '@/lib/clinic-context';
 
 export const maxDuration = 60;
 
@@ -18,6 +19,12 @@ export async function POST(req: NextRequest) {
   const philRows = await sql`SELECT content FROM clinic_philosophy ORDER BY created_at DESC LIMIT 1`;
   const philosophy = philRows[0]?.content || '（理念未登録）';
 
+  const systemPrompt = await buildSystemContext(`あなたはクリニックの人事制度設計の専門家です。
+クリニックの理念：${philosophy}
+${gradeContent ? `現在設計中の等級：${typeof gradeContent === 'string' ? gradeContent : JSON.stringify(gradeContent)}` : ''}
+
+理念に沿った等級制度設計についてアドバイスしてください。具体的で実践的な提案をしてください。`, 'grade');
+
   const encoder = new TextEncoder();
   const stream = new ReadableStream({
     async start(controller) {
@@ -30,11 +37,7 @@ export async function POST(req: NextRequest) {
             model: 'claude-sonnet-4-6',
             max_tokens: 3000,
             stream: true,
-            system: `あなたはクリニックの人事制度設計の専門家です。
-クリニックの理念：${philosophy}
-${gradeContent ? `現在設計中の等級：${typeof gradeContent === 'string' ? gradeContent : JSON.stringify(gradeContent)}` : ''}
-
-理念に沿った等級制度設計についてアドバイスしてください。具体的で実践的な提案をしてください。`,
+            system: systemPrompt,
             messages: [{ role: 'user', content: message }],
           }),
         });

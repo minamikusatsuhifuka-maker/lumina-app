@@ -4,6 +4,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
 import { neon } from '@neondatabase/serverless';
 import { v4 as uuidv4 } from 'uuid';
+import { buildSystemContext } from '@/lib/clinic-context';
 
 const CONTEXT_PROMPTS: Record<string, string> = {
   philosophy: 'あなたはクリニックの理念・ビジョン策定の専門コンサルタントです。院長の想いを丁寧に引き出しながら、心に響く理念を一緒に作り上げてください。質問は一度に1〜2つまで。',
@@ -37,7 +38,7 @@ export async function GET(req: NextRequest) {
   const philosophy = philRows[0]?.content || '';
 
   const apiKey = process.env.ANTHROPIC_API_KEY!;
-  const systemPrompt = CONTEXT_PROMPTS[contextType] || CONTEXT_PROMPTS.philosophy;
+  const systemPrompt = await buildSystemContext(CONTEXT_PROMPTS[contextType] || CONTEXT_PROMPTS.philosophy, contextType);
 
   const response = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
@@ -76,8 +77,11 @@ export async function POST(req: NextRequest) {
 
   const turnCount = messages.filter((m: any) => m.role === 'user').length;
   const isSummaryTime = turnCount >= 5;
-  const systemPrompt = (CONTEXT_PROMPTS[dialogueSession.context_type] || CONTEXT_PROMPTS.philosophy) +
-    (isSummaryTime ? '\n\n【重要】十分な対話ができました。これまでの対話で引き出せた重要な想いを整理し、「これをもとに作成しましょうか？」と提案してください。' : '');
+  const systemPrompt = await buildSystemContext(
+    (CONTEXT_PROMPTS[dialogueSession.context_type] || CONTEXT_PROMPTS.philosophy) +
+    (isSummaryTime ? '\n\n【重要】十分な対話ができました。これまでの対話で引き出せた重要な想いを整理し、「これをもとに作成しましょうか？」と提案してください。' : ''),
+    dialogueSession.context_type
+  );
 
   const apiKey = process.env.ANTHROPIC_API_KEY!;
   const apiMessages = [

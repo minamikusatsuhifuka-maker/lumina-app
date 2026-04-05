@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
 import { neon } from '@neondatabase/serverless';
+import { buildSystemContext } from '@/lib/clinic-context';
 
 export const maxDuration = 300;
 
@@ -18,13 +19,15 @@ export async function POST(req: NextRequest) {
   const philRows = await sql`SELECT content FROM clinic_philosophy ORDER BY created_at DESC LIMIT 1`;
   const philosophy = philRows[0]?.content || '（理念未登録）';
 
+  const systemPrompt = await buildSystemContext('あなたはクリニック経営戦略の専門家です。必ずJSON形式のみで返してください。JSONのみを返し、それ以外のテキストは含めないでください。', 'strategy');
+
   const response = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' },
     body: JSON.stringify({
       model: 'claude-sonnet-4-6',
       max_tokens: 6000,
-      system: 'あなたはクリニック経営戦略の専門家です。必ずJSON形式のみで返してください。JSONのみを返し、それ以外のテキストは含めないでください。',
+      system: systemPrompt,
       messages: [{
         role: 'user',
         content: `クリニックの理念：${philosophy}

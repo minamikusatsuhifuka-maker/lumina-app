@@ -4,6 +4,7 @@ import Link from 'next/link';
 
 const navItems = [
   { href: '/admin', label: '管理ダッシュボード', icon: '📊' },
+  { href: '/admin/criteria', label: 'AIの判断基準', icon: '🧭' },
   { href: '/admin/philosophy', label: '理念管理', icon: '📖' },
   { href: '/admin/staff', label: 'スタッフ管理', icon: '👥' },
   { href: '/admin/surveys', label: 'アンケート管理', icon: '📝' },

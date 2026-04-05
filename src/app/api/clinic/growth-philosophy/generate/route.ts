@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
 import { neon } from '@neondatabase/serverless';
+import { buildSystemContext } from '@/lib/clinic-context';
 
 export const maxDuration = 300;
 
@@ -23,6 +24,8 @@ export async function POST(req: NextRequest) {
     philosophyText = 'まず自己愛、自分の人生を大切にし、自分の可能性や価値に気づくことがスタート。セルフコントロール・セルフマネジメント・タイムマネジメント・計画的な目標達成の技術を体得し、自己成長につなげる。その後、身近な家族や縁ある人を豊かで幸せにできる存在になり、より大きく社会を動かせる人間になっていく人格形成をしていく。自己実現と組織の理念・ビジョンが重なるように働きながら、自分が主役として輝けるような組織を設計する。Win-Winの関係でパワーパートナーと同じ目的・目標に向かって協力することで、組織がとてつもなく大きな社会貢献ができるものに変わっていく。';
   }
 
+  const systemPrompt = await buildSystemContext('あなたはクリニックの経営・人材育成哲学の設計者です。以下の成長哲学を組織全体の制度設計に落とし込んでください。必ずJSON形式のみで返してください。', 'growth');
+
   const response = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
     headers: {
@@ -33,7 +36,7 @@ export async function POST(req: NextRequest) {
     body: JSON.stringify({
       model: 'claude-sonnet-4-6',
       max_tokens: 4000,
-      system: 'あなたはクリニックの経営・人材育成哲学の設計者です。以下の成長哲学を組織全体の制度設計に落とし込んでください。必ずJSON形式のみで返してください。',
+      system: systemPrompt,
       messages: [{
         role: 'user',
         content: `クリニックの理念：${philosophy}

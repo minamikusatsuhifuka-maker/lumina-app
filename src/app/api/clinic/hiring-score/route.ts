@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
 import { neon } from '@neondatabase/serverless';
+import { buildSystemContext } from '@/lib/clinic-context';
 
 export const maxDuration = 60;
 
@@ -32,13 +33,15 @@ export async function POST(req: NextRequest) {
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) return NextResponse.json({ error: 'APIキーが設定されていません' }, { status: 500 });
 
+  const systemPrompt = await buildSystemContext('あなたはクリニック採用評価の専門家です。必ずJSON形式のみで返答してください。JSONのみを返し、それ以外のテキストは含めないでください。', 'hiring');
+
   const response = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' },
     body: JSON.stringify({
       model: 'claude-sonnet-4-6',
       max_tokens: 3000,
-      system: 'あなたはクリニック採用評価の専門家です。必ずJSON形式のみで返答してください。JSONのみを返し、それ以外のテキストは含めないでください。',
+      system: systemPrompt,
       messages: [{
         role: 'user',
         content: `以下のクリニック理念と候補者情報をもとに、採用評価スコアを算出してください。

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
 import { neon } from '@neondatabase/serverless';
+import { buildSystemContext } from '@/lib/clinic-context';
 
 export const maxDuration = 60;
 
@@ -30,13 +31,15 @@ export async function POST(req: NextRequest) {
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) return NextResponse.json({ error: 'APIキーが設定されていません' }, { status: 500 });
 
+  const systemPrompt = await buildSystemContext('あなたはクリニックの採用担当責任者です。理念との適合性を重視して判断してください。必ずJSON形式のみで返してください。', 'hiring');
+
   const response = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' },
     body: JSON.stringify({
       model: 'claude-sonnet-4-6',
       max_tokens: 2000,
-      system: 'あなたはクリニックの採用担当責任者です。理念との適合性を重視して判断してください。必ずJSON形式のみで返してください。',
+      system: systemPrompt,
       messages: [{
         role: 'user',
         content: `クリニックの理念：${philosophy}
