@@ -69,6 +69,68 @@ async function extractTextWithClaude(buffer: Buffer, fileName: string): Promise<
   throw new Error(`非対応のファイル形式: .${ext}`);
 }
 
+// ルールベースで章分割（JSONパースエラー回避）
+function splitIntoChapters(extractedText: string): { title: string; chapters: { orderIndex: number; title: string; content: string }[] } {
+  const lines = extractedText.split('\n');
+  const headingPattern = /^(#{1,3}\s+.+|第\d+章.+|\d+[\.．]\s*.+|【.+】|■.+|▼.+|◆.+)/;
+  const chapters: { orderIndex: number; title: string; content: string }[] = [];
+  let currentTitle = '';
+  let currentContent: string[] = [];
+  let orderIndex = 1;
+
+  // タイトル推定
+  let docTitle = '';
+  for (const line of lines.slice(0, 10)) {
+    if (line.trim().length > 3) { docTitle = line.trim(); break; }
+  }
+
+  for (const line of lines) {
+    if (headingPattern.test(line.trim()) && line.trim().length > 2) {
+      if (currentTitle && currentContent.join('\n').trim()) {
+        chapters.push({ orderIndex: orderIndex++, title: currentTitle, content: currentContent.join('\n').trim() });
+      }
+      currentTitle = line.trim().replace(/^#{1,3}\s+/, '');
+      currentContent = [];
+    } else {
+      currentContent.push(line);
+    }
+  }
+
+  if (currentContent.join('\n').trim()) {
+    chapters.push({ orderIndex: orderIndex++, title: currentTitle || 'その他', content: currentContent.join('\n').trim() });
+  }
+
+  // 章が1つ以下 → 均等5分割
+  if (chapters.length <= 1) {
+    const chunkSize = Math.ceil(lines.length / 5);
+    const newChapters = [];
+    for (let i = 0; i < 5; i++) {
+      const chunk = lines.slice(i * chunkSize, (i + 1) * chunkSize).join('\n').trim();
+      if (chunk) newChapters.push({ orderIndex: i + 1, title: i === 0 ? (docTitle || 'はじめに') : `セクション ${i + 1}`, content: chunk });
+    }
+    return { title: docTitle || 'ハンドブック', chapters: newChapters };
+  }
+
+  return { title: docTitle || 'ハンドブック', chapters };
+}
+
+// AIでタイトルだけ生成
+async function getAiTitle(extractedText: string): Promise<string> {
+  try {
+    const apiKey = process.env.ANTHROPIC_API_KEY!;
+    const res = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' },
+      body: JSON.stringify({
+        model: 'claude-sonnet-4-6', max_tokens: 100,
+        messages: [{ role: 'user', content: `以下のテキストの最初の部分からドキュメントのタイトルを1行で答えてください。タイトル���み返してください：\n\n${extractedText.slice(0, 500)}` }],
+      }),
+    });
+    const data = await res.json();
+    return (data.content || []).filter((b: any) => b.type === 'text').map((b: any) => b.text).join('').trim();
+  } catch { return ''; }
+}
+
 export async function POST(req: NextRequest) {
   const session = await auth();
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
@@ -91,34 +153,14 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'テキストを抽出できませんでした' }, { status: 400 });
     }
 
-    const apiKey = process.env.ANTHROPIC_API_KEY!;
-    const response = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' },
-      body: JSON.stringify({
-        model: 'claude-sonnet-4-6', max_tokens: 8000,
-        system: '必ずJSON形式のみで返してください。',
-        messages: [{ role: 'user', content: `以下のテキストを章・セクションごとに分割してください。
-見出しを章の区切りとして認識し、以下のJSON形式のみで返してください：
-{
-  "title": "タイトル",
-  "chapters": [
-    { "orderIndex": 1, "title": "章タイトル", "content": "本文" }
-  ]
-}
+    // ルールベースで章分割（JSONパースエラー回避）
+    const result = splitIntoChapters(extractedText);
 
-テキスト：
-${extractedText.slice(0, 15000)}` }],
-      }),
-    });
+    // AIでタイトル補完
+    const aiTitle = await getAiTitle(extractedText);
+    if (aiTitle) result.title = aiTitle;
 
-    const data = await response.json();
-    const text = (data.content || []).filter((b: any) => b.type === 'text').map((b: any) => b.text).join('');
-    const clean = text.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
-    const jsonMatch = clean.match(/(\{[\s\S]*\})/);
-    const parsed = JSON.parse(jsonMatch ? jsonMatch[1] : clean);
-
-    return NextResponse.json({ title: parsed.title, chapters: parsed.chapters, extractedLength: extractedText.length });
+    return NextResponse.json({ title: result.title, chapters: result.chapters, extractedLength: extractedText.length });
   } catch (e) {
     console.error('Import error:', e);
     return NextResponse.json({ error: `読み込みエラー: ${String(e)}` }, { status: 500 });
