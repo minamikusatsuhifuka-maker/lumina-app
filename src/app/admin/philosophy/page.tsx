@@ -1,5 +1,6 @@
 'use client';
 import { useState, useEffect, useRef } from 'react';
+import { ModelBadge } from '@/components/ModelBadge';
 
 type Analysis = {
   coreValues: string[];
@@ -347,7 +348,10 @@ export default function PhilosophyPage() {
       {/* AI解析結果 */}
       {analysis && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginTop: 8 }}>
-          <h2 style={{ fontSize: 16, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 4 }}>🤖 AI解析結果</h2>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+            <h2 style={{ fontSize: 16, fontWeight: 700, color: 'var(--text-primary)', margin: 0 }}>🤖 AI解析結果</h2>
+            <ModelBadge model="claude" />
+          </div>
 
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
             <div style={cardStyle}>

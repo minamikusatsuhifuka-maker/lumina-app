@@ -2,6 +2,7 @@
 import { useState } from 'react';
 import { SaveToLibraryButton } from '@/components/SaveToLibraryButton';
 import { getSavedModel } from '@/lib/model-preference';
+import { ModelBadge } from '@/components/ModelBadge';
 
 const POPULAR = ['医療・ヘルスケア', 'AI・SaaS', '不動産', '飲食・フードテック', '教育・EdTech', '金融・FinTech', 'EC・小売', '製造・IoT', '広告・マーケ', '人材・HR'];
 
@@ -9,11 +10,14 @@ export default function IndustryPage() {
   const [industry, setIndustry] = useState('');
   const [result, setResult] = useState('');
   const [loading, setLoading] = useState(false);
+  const [usedModel, setUsedModel] = useState<'claude' | 'gemini' | null>(null);
 
   const [error, setError] = useState('');
 
   const generate = async () => {
     if (!industry.trim()) return;
+    const currentModel = getSavedModel();
+    setUsedModel(currentModel);
     setLoading(true);
     setResult('');
     setError('');
@@ -82,7 +86,10 @@ export default function IndustryPage() {
       {result && (
         <div style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 16, overflow: 'hidden' }}>
           <div style={{ padding: '12px 20px', borderBottom: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--accent)' }}>📊 {industry} 業界レポート</span>
+            <span style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+              <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--accent)' }}>📊 {industry} 業界レポート</span>
+              {usedModel && <ModelBadge model={usedModel} />}
+            </span>
             <div style={{ display: 'flex', gap: 8 }}>
               <button onClick={() => navigator.clipboard.writeText(result)} style={{ padding: '5px 12px', borderRadius: 6, border: '1px solid var(--border)', background: 'var(--bg-card)', color: 'var(--text-muted)', fontSize: 12, cursor: 'pointer' }}>コピー</button>
               <SaveToLibraryButton title={`業界レポート: ${industry}`} content={result} type="web" tags="業界レポート" groupName="業界レポート" />

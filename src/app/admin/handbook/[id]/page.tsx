@@ -1,5 +1,7 @@
 'use client';
 import { useState, useEffect, use } from 'react';
+import { getSavedModel } from '@/lib/model-preference';
+import { ModelBadge } from '@/components/ModelBadge';
 
 const QUICK_INSTRUCTIONS = ['わかりやすく', '理念に沿って', '箇条書き化', '具体例を追加', 'トーンを丁寧に'];
 
@@ -198,7 +200,7 @@ export default function HandbookEditorPage({ params }: { params: Promise<{ id: s
 
               {aiResult && (
                 <div style={{ marginTop: 14 }}>
-                  <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 6 }}>AI提案：</div>
+                  <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 6, display: 'flex', alignItems: 'center', gap: 8 }}>AI提案：<ModelBadge model={getSavedModel()} /></div>
                   <div style={{ padding: 14, background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 10, fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.8, whiteSpace: 'pre-wrap', maxHeight: 400, overflowY: 'auto' }}>{aiResult}</div>
                   <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
                     <button onClick={applyAi} style={{ padding: '8px 16px', borderRadius: 8, border: 'none', background: '#4ade80', color: '#000', fontWeight: 700, fontSize: 13, cursor: 'pointer' }}>✅ 本文を置き換える</button>
