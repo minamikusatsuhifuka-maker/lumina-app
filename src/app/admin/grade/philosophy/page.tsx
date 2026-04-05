@@ -225,6 +225,59 @@ export default function GrowthPhilosophyPage() {
               <div style={{ textAlign: 'right', fontSize: 11, color: 'var(--text-muted)', marginTop: 8 }}>— 院長のリードマネジメント哲学</div>
             </div>
           </div>
+
+          {/* 自律型生命体組織ビジョン */}
+          <div style={{ marginTop: 32, padding: 24, borderRadius: 16, border: '2px solid rgba(6,182,212,0.4)', background: 'linear-gradient(135deg, rgba(6,182,212,0.04), rgba(59,130,246,0.04))' }}>
+            <h2 style={{ fontSize: 20, fontWeight: 700, color: '#0d9488', marginBottom: 4 }}>🌿 自律型生命体組織へ</h2>
+            <div style={{ fontSize: 13, color: '#14b8a6', marginBottom: 20 }}>管理する必要のない、自走し続ける組織の実現</div>
+
+            {/* 進化の段階 */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 20, overflowX: 'auto', paddingBottom: 8 }}>
+              {[
+                { stage: '現在', desc: 'ルール・管理で動く組織', icon: '📋', highlight: false },
+                { stage: '成長期', desc: '理念・価値観で動く組織', icon: '🌱', highlight: false },
+                { stage: '成熟期', desc: '自律・自主で動く組織', icon: '🚀', highlight: false },
+                { stage: '究極', desc: '生命体として自走・拡大', icon: '🌿', highlight: true },
+              ].map((item, i) => (
+                <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
+                  <div style={{
+                    textAlign: 'center', padding: 12, borderRadius: 12,
+                    background: item.highlight ? 'rgba(6,182,212,0.12)' : 'var(--bg-card)',
+                    border: `2px solid ${item.highlight ? '#14b8a6' : 'var(--border)'}`,
+                    minWidth: 100,
+                  }}>
+                    <div style={{ fontSize: 24 }}>{item.icon}</div>
+                    <div style={{ fontSize: 12, fontWeight: 700, color: item.highlight ? '#0d9488' : 'var(--text-secondary)', marginTop: 4 }}>{item.stage}</div>
+                    <div style={{ fontSize: 10, color: 'var(--text-muted)', marginTop: 2 }}>{item.desc}</div>
+                  </div>
+                  {i < 3 && <span style={{ fontSize: 18, color: 'var(--text-muted)', flexShrink: 0 }}>→</span>}
+                </div>
+              ))}
+            </div>
+
+            {/* ビジョン本文 */}
+            <div style={{ padding: 18, background: 'var(--bg-card)', border: '1px solid rgba(6,182,212,0.2)', borderRadius: 12, marginBottom: 16 }}>
+              <div style={{ fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.8, fontStyle: 'italic', textAlign: 'center' }}>
+                「全員がリーダーレベルの視座・視野・マインドになると、究極のところ<span style={{ color: '#0d9488', fontWeight: 700 }}>管理する必要がない</span>。自主的・自律的・自走して自由に大きく組織が拡大成長していく<span style={{ color: '#0d9488', fontWeight: 700 }}>生命体のような組織</span>になる」
+              </div>
+              <div style={{ textAlign: 'right', fontSize: 11, color: 'var(--text-muted)', marginTop: 8 }}>— 院長</div>
+            </div>
+
+            {/* 3つの特徴 */}
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10 }}>
+              {[
+                { icon: '🧠', title: '自主的', desc: '誰かに言われなくても自ら考え行動する' },
+                { icon: '⚙️', title: '自律的', desc: '自分の価値観と判断で最善を選び続ける' },
+                { icon: '🚀', title: '自走する', desc: 'エネルギーが外から補充されなくても前進し続ける' },
+              ].map(item => (
+                <div key={item.title} style={{ padding: 14, background: 'var(--bg-card)', border: '1px solid rgba(6,182,212,0.2)', borderRadius: 12, textAlign: 'center' }}>
+                  <div style={{ fontSize: 28, marginBottom: 6 }}>{item.icon}</div>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: '#0d9488' }}>{item.title}</div>
+                  <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4 }}>{item.desc}</div>
+                </div>
+              ))}
+            </div>
+          </div>
         </>
       )}
     </div>

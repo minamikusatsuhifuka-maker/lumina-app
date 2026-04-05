@@ -1,96 +1,139 @@
 import { neon } from '@neondatabase/serverless';
 
-const CATEGORY_LABELS: Record<string, string> = {
-  philosophy: '理念・価値観', grade: '等級・人材育成', evaluation: '評価基準',
-  strategy: '経営戦略', hiring: '採用・人材', mindset: 'マインド・文化',
-  marketing: 'マーケティング', handbook: 'ハンドブック・文化', growth: '成長哲学', all: '全般',
-};
-
-export async function getClinicContext(category?: string): Promise<string> {
-  const sql = neon(process.env.DATABASE_URL!);
-  const parts: string[] = [];
-
-  // 手入力テキスト理念
-  const philRows = await sql`SELECT title, content FROM clinic_philosophy ORDER BY created_at DESC LIMIT 1`;
-  if (philRows[0]) parts.push(`【クリニックの理念】\n${philRows[0].title}：${philRows[0].content}`);
-
-  // アップロードファイル群
-  const fileRows = await sql`SELECT name, content FROM philosophy_files ORDER BY created_at DESC`;
-  if ((fileRows as any[]).length > 0) {
-    const fileContents = (fileRows as any[])
-      .map(f => `▼ ${f.name}\n${f.content.slice(0, 2000)}`)
-      .join('\n\n');
-    parts.push(`【参照ドキュメント】\n${fileContents}`);
-  }
-
-  // 判断基準
-  const criteriaRows = category
-    ? await sql`SELECT category, criterion FROM clinic_decision_criteria WHERE category = ${category} OR category = 'all' ORDER BY priority DESC LIMIT 20`
-    : await sql`SELECT category, criterion FROM clinic_decision_criteria ORDER BY priority DESC LIMIT 30`;
-
-  if (criteriaRows.length > 0) {
-    const grouped: Record<string, string[]> = {};
-    for (const r of criteriaRows as any[]) { if (!grouped[r.category]) grouped[r.category] = []; grouped[r.category].push(r.criterion); }
-    const text = Object.entries(grouped).map(([cat, items]) => `▼ ${CATEGORY_LABELS[cat] || cat}\n${items.map(c => `  • ${c}`).join('\n')}`).join('\n\n');
-    parts.push(`【院長の価値観・判断基準】\n${text}`);
-  }
-
-  // 成長哲学・究極ビジョン（最重要 → 先頭に配置）
-  const growthRows = await sql`SELECT win_win_vision, power_partner_definition, lead_management_philosophy FROM growth_philosophy LIMIT 1`;
-  if (growthRows[0]?.win_win_vision) {
-    parts.unshift(`【院長の究極ビジョン・組織の目指す姿】\n${growthRows[0].win_win_vision}\n\nこのビジョンを常に念頭に置き、全ての提案・評価・生成において「この内容はスタッフが自己実現しながら社会に貢献できる組織づくりにつながるか」を最優先の判断軸としてください。`);
-    if (growthRows[0]?.power_partner_definition) {
-      parts.push(`【パワーパートナーの定義】\n${growthRows[0].power_partner_definition}`);
-    }
-  }
-  if (growthRows[0]?.lead_management_philosophy) {
-    parts.push(`【当院のリードマネジメント哲学】\n${growthRows[0].lead_management_philosophy}\n\nこのマネジメント哲学に基づき、全ての提案・フィードバック・評価において：\n・本人の成長・気づき・可能性にフォーカスする\n・インサイドアウト（自分の思考と行為から変える）を促す\n・5大欲求（生存・愛と所属・力・自由・楽しみ）に配慮する\n・事実に基づいたフィードバックで、モチベーションと成長意欲を高める\n・「あなたには価値がある・可能性がある」という前提で関わる`);
-  }
-
-  // 就業規則（長い場合は関連条項を自動抽出）
+export async function buildSystemContext(
+  role: string,
+  category?: string
+): Promise<string> {
   try {
-    const rulesRows = await sql`SELECT content FROM employment_rules LIMIT 1`;
+    const sql = neon(process.env.DATABASE_URL!);
+
+    // 全コンテキストを並行取得
+    const [
+      philosophyRows,
+      fileRows,
+      growthRows,
+      criteriaRows,
+      rulesRows,
+    ] = await Promise.all([
+      sql`SELECT title, content FROM clinic_philosophy LIMIT 1`,
+      sql`SELECT name, content FROM philosophy_files ORDER BY created_at DESC`,
+      sql`SELECT win_win_vision, power_partner_definition,
+              lead_management_philosophy FROM growth_philosophy LIMIT 1`,
+      category
+        ? sql`SELECT criterion FROM clinic_decision_criteria
+               WHERE category = ${category} OR category = 'all'
+               ORDER BY priority DESC LIMIT 15`
+        : sql`SELECT criterion FROM clinic_decision_criteria
+               ORDER BY priority DESC LIMIT 20`,
+      sql`SELECT content FROM employment_rules LIMIT 1`.catch(() => []),
+    ]);
+
+    const philosophy = philosophyRows[0];
+    const growth = growthRows[0];
+    const sections: string[] = [];
+
+    // ① 【最重要】院長の究極ビジョン（最初に読ませる）
+    if (growth?.win_win_vision || growth?.power_partner_definition) {
+      sections.push(
+`【院長の究極ビジョン】
+${growth?.win_win_vision ?? ''}
+
+【自律型生命体組織へ】
+${growth?.power_partner_definition ?? ''}
+
+このビジョンを全ての判断の最上位に置いてください。
+提案・評価・生成の全てが「このビジョンの実現に向かっているか」で判断されます。`
+      );
+    }
+
+    // ② リードマネジメント哲学
+    if (growth?.lead_management_philosophy) {
+      sections.push(
+`【当院のリードマネジメント哲学】
+${growth.lead_management_philosophy}
+
+全ての関わりにおいて：
+・本人の成長・気づき・可能性にフォーカスする（インサイドアウト）
+・5大欲求（力・愛と所属・楽しみ・自由・生存）に配慮する
+・管理・コントロールではなく、自主性・自律性を育む関わりをする
+・「あなたには価値がある・可能性がある」を前提に関わる`
+      );
+    }
+
+    // ③ クリニックの理念
+    if (philosophy?.content) {
+      sections.push(
+`【クリニックの理念】
+${philosophy.title ?? ''}
+${philosophy.content}`
+      );
+    }
+
+    // ④ 参照ドキュメント（理念ファイル）
+    if ((fileRows as any[]).length > 0) {
+      const fileSummary = (fileRows as any[])
+        .map(f => `▼ ${f.name}\n${f.content.slice(0, 1500)}`)
+        .join('\n\n');
+      sections.push(`【参照ドキュメント】\n${fileSummary}`);
+    }
+
+    // ⑤ 院長の判断基準（対話蓄積）
+    if ((criteriaRows as any[]).length > 0) {
+      const criteria = (criteriaRows as any[]).map(r => `• ${r.criterion}`).join('\n');
+      sections.push(`【院長の価値観・判断基準】\n${criteria}`);
+    }
+
+    // ⑥ 就業規則（関連条項）
     if (rulesRows[0]?.content) {
       const rulesContent = rulesRows[0].content as string;
-      const relevantSection = rulesContent.length > 5000
+      const relevant = rulesContent.length > 5000
         ? extractRelevantRules(rulesContent)
         : rulesContent;
-      parts.push(`【就業規則（関連条項）】\n${relevantSection}`);
+      sections.push(`【就業規則（関連条項）】\n${relevant}`);
     }
-  } catch { /* テーブル未作成時はスキップ */ }
 
-  return parts.length > 0 ? parts.join('\n\n') : '';
+    if (sections.length === 0) return role;
+
+    return `${role}
+
+${'━'.repeat(50)}
+【このクリニックについて — 全ての判断の前提】
+${'━'.repeat(50)}
+${sections.join('\n\n')}
+${'━'.repeat(50)}
+
+上記の理念・ビジョン・哲学を最優先の判断軸として、
+管理・コントロールではなく「自律・自主・自走」を促す視点で
+全ての提案・評価・生成を行ってください。`;
+
+  } catch (e) {
+    console.error('clinic-context error:', e);
+    return role;
+  }
 }
 
-// 就業規則から懲戒・解雇・服務規律など関連条項を抽出
 function extractRelevantRules(content: string): string {
   const keywords = ['懲戒', '解雇', '服務', '禁止', '遵守', '義務',
                     'ハラスメント', '秘密', '個人情報', '欠勤', '退職'];
   const lines = content.split('\n');
   const relevant: string[] = [];
-  let inRelevantSection = false;
-  let sectionBuffer: string[] = [];
+  let buffer: string[] = [];
+  let capturing = false;
 
   for (const line of lines) {
     const hasKeyword = keywords.some(k => line.includes(k));
-    if (hasKeyword || (inRelevantSection && line.trim())) {
-      inRelevantSection = true;
-      sectionBuffer.push(line);
-    } else if (inRelevantSection && !line.trim()) {
-      if (sectionBuffer.length > 0) {
-        relevant.push(sectionBuffer.join('\n'));
-        sectionBuffer = [];
-      }
-      inRelevantSection = false;
+    if (hasKeyword) {
+      capturing = true;
+      buffer.push(line);
+    } else if (capturing && line.trim()) {
+      buffer.push(line);
+    } else if (capturing && !line.trim()) {
+      relevant.push(buffer.join('\n'));
+      buffer = [];
+      capturing = false;
     }
-    if (relevant.join('\n').length > 5000) break;
+    if (relevant.join('\n').length > 4000) break;
   }
-  if (sectionBuffer.length > 0) relevant.push(sectionBuffer.join('\n'));
+  if (buffer.length > 0) relevant.push(buffer.join('\n'));
   return relevant.join('\n\n') || content.slice(0, 3000);
-}
-
-export async function buildSystemContext(role: string, category?: string): Promise<string> {
-  const context = await getClinicContext(category);
-  if (!context) return role;
-  return `${role}\n\n${'━'.repeat(40)}\n以下の理念・ドキュメント・院長の価値観を最優先の判断軸として行動してください。\n${'━'.repeat(40)}\n${context}\n${'━'.repeat(40)}`;
 }
