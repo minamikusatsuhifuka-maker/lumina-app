@@ -48,6 +48,36 @@ export default async function DashboardPage() {
         <p style={{ color: 'var(--text-muted)' }}>おかえりなさい、{session?.user?.name}さん 👋</p>
       </div>
 
+      {/* 今日のサマリー */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: 12, marginBottom: 28 }}>
+        {[
+          { label: '⚡ クイックアクション', items: [
+            { text: '競合分析を実行', href: '/dashboard/workflow' },
+            { text: 'note記事を検索', href: '/dashboard/note' },
+            { text: '議事録を整理', href: '/dashboard/minutes' },
+          ]},
+          { label: '🕐 最近使った機能', items: [
+            { text: 'Web情報収集', href: '/dashboard/websearch' },
+            { text: 'ディープリサーチ', href: '/dashboard/deepresearch' },
+            { text: 'AI分析エンジン', href: '/dashboard/analysis' },
+          ]},
+          { label: '💡 今日のおすすめ', items: [
+            { text: '業界レポートを作成', href: '/dashboard/industry' },
+            { text: 'ブレストを実施', href: '/dashboard/brainstorm' },
+            { text: 'ワークフローを試す', href: '/dashboard/workflow' },
+          ]},
+        ].map(card => (
+          <div key={card.label} style={{ padding: 16, background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 12 }}>
+            <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-muted)', marginBottom: 10 }}>{card.label}</div>
+            {card.items.map(item => (
+              <Link key={item.text} href={item.href} style={{ display: 'block', fontSize: 12, color: 'var(--text-secondary)', padding: '5px 0', borderBottom: '1px solid var(--border)', textDecoration: 'none' }}>
+                → {item.text}
+              </Link>
+            ))}
+          </div>
+        ))}
+      </div>
+
       {/* 統計カード */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 14, marginBottom: 28 }}>
         {stats.map(s => (

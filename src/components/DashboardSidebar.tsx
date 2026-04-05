@@ -6,6 +6,7 @@ import { ThemeSelector } from './ThemeSelector';
 
 const navItems = [
   { href: '/dashboard', label: 'ダッシュボード', icon: '🏠' },
+  { href: '/dashboard/workflow', label: 'ワークフロー', icon: '⚡' },
   { href: '/dashboard/intelligence', label: 'Intelligence Hub', icon: '🧠' },
   { href: '/dashboard/analysis', label: 'AI分析エンジン', icon: '🧩' },
   { href: '/dashboard/strategy', label: '経営インテリジェンス', icon: '💼' },
