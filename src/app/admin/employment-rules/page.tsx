@@ -50,24 +50,21 @@ export default function EmploymentRulesPage() {
   const handleFileUpload = async (file: File) => {
     setFileLoading(true); setMessage('');
     try {
-      const fileName = file.name.toLowerCase();
-      if (fileName.match(/\.(txt|md)$/)) {
-        const text = await file.text();
-        setContent(text);
-        setTitle(title || file.name.replace(/\.(txt|md)$/i, ''));
-        setMessage('ファイルを読み込みました');
-      } else if (fileName.endsWith('.pdf')) {
-        const formData = new FormData();
-        formData.append('file', file);
-        const res = await fetch('/api/clinic/philosophy-pdf', { method: 'POST', body: formData });
-        const data = await res.json();
-        if (data.content) {
-          setContent(data.content);
-          setTitle(title || file.name.replace(/\.pdf$/i, ''));
-          setMessage('PDFからテキストを抽出しました');
-        } else { setMessage(data.error || 'PDF解析に失敗しました'); }
+      // multipart/form-data でAPIに送信（PDF全文抽出・制限なし）
+      const formData = new FormData();
+      formData.append('file', file);
+      formData.append('title', title || file.name.replace(/\.(txt|md|pdf)$/i, ''));
+      const res = await fetch('/api/clinic/employment-rules', { method: 'POST', body: formData });
+      const data = await res.json();
+      if (data.success && data.content) {
+        setContent(data.content);
+        setTitle(data.title || file.name.replace(/\.(txt|md|pdf)$/i, ''));
+        setMessage(`✅ ${data.charCount?.toLocaleString() ?? data.content.length.toLocaleString()}文字を読み込みました`);
+        // 再取得して保存済み状態を更新
+        const saved = await (await fetch('/api/clinic/employment-rules')).json();
+        if (saved?.id) setSaved(saved);
       } else {
-        setMessage('.txt / .md / .pdf ファイルのみ対応しています');
+        setMessage(data.error || 'ファイル読み込みに失敗しました');
       }
     } catch { setMessage('ファイル読み込みに失敗しました'); }
     finally { setFileLoading(false); }
@@ -162,9 +159,12 @@ export default function EmploymentRulesPage() {
           <input value={title} onChange={e => setTitle(e.target.value)} placeholder="例：南草津皮フ科 就業規則" style={{ ...inputStyle, marginBottom: 14 }} />
 
           <label style={{ display: 'block', fontSize: 13, color: 'var(--text-secondary)', marginBottom: 6 }}>内容</label>
-          <textarea value={content} onChange={e => setContent(e.target.value)} placeholder="就業規則の内容を入力またはファイルから読み込み..." style={{ ...inputStyle, minHeight: 400, resize: 'vertical', lineHeight: 1.8 }} />
+          <textarea value={content} onChange={e => setContent(e.target.value)} rows={30} placeholder="就業規則の内容を入力またはファイルから読み込み..." style={{ ...inputStyle, minHeight: 500, resize: 'vertical', lineHeight: 1.8, fontFamily: 'monospace', fontSize: 13 }} />
+          <div style={{ textAlign: 'right', fontSize: 12, color: 'var(--text-muted)', marginTop: 4 }}>
+            {content.length.toLocaleString()}文字
+          </div>
 
-          <div style={{ display: 'flex', gap: 8, marginTop: 14 }}>
+          <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
             <button onClick={handleSave} disabled={saving || !title.trim() || !content.trim()} style={{
               padding: '10px 24px', borderRadius: 8, border: 'none', cursor: saving ? 'not-allowed' : 'pointer',
               background: saving || !title.trim() || !content.trim() ? 'rgba(108,99,255,0.3)' : 'linear-gradient(135deg, #6c63ff, #8b5cf6)',

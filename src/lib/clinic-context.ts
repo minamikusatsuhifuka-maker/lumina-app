@@ -39,13 +39,46 @@ export async function getClinicContext(category?: string): Promise<string> {
   const growthRows = await sql`SELECT win_win_vision FROM growth_philosophy LIMIT 1`;
   if (growthRows[0]?.win_win_vision) parts.push(`【Win-Winビジョン】\n${growthRows[0].win_win_vision}`);
 
-  // 就業規則
+  // 就業規則（長い場合は関連条項を自動抽出）
   try {
     const rulesRows = await sql`SELECT content FROM employment_rules LIMIT 1`;
-    if (rulesRows[0]?.content) parts.push(`【就業規則】\n${rulesRows[0].content.slice(0, 3000)}`);
+    if (rulesRows[0]?.content) {
+      const rulesContent = rulesRows[0].content as string;
+      const relevantSection = rulesContent.length > 5000
+        ? extractRelevantRules(rulesContent)
+        : rulesContent;
+      parts.push(`【就業規則（関連条項）】\n${relevantSection}`);
+    }
   } catch { /* テーブル未作成時はスキップ */ }
 
   return parts.length > 0 ? parts.join('\n\n') : '';
+}
+
+// 就業規則から懲戒・解雇・服務規律など関連条項を抽出
+function extractRelevantRules(content: string): string {
+  const keywords = ['懲戒', '解雇', '服務', '禁止', '遵守', '義務',
+                    'ハラスメント', '秘密', '個人情報', '欠勤', '退職'];
+  const lines = content.split('\n');
+  const relevant: string[] = [];
+  let inRelevantSection = false;
+  let sectionBuffer: string[] = [];
+
+  for (const line of lines) {
+    const hasKeyword = keywords.some(k => line.includes(k));
+    if (hasKeyword || (inRelevantSection && line.trim())) {
+      inRelevantSection = true;
+      sectionBuffer.push(line);
+    } else if (inRelevantSection && !line.trim()) {
+      if (sectionBuffer.length > 0) {
+        relevant.push(sectionBuffer.join('\n'));
+        sectionBuffer = [];
+      }
+      inRelevantSection = false;
+    }
+    if (relevant.join('\n').length > 5000) break;
+  }
+  if (sectionBuffer.length > 0) relevant.push(sectionBuffer.join('\n'));
+  return relevant.join('\n\n') || content.slice(0, 3000);
 }
 
 export async function buildSystemContext(role: string, category?: string): Promise<string> {
