@@ -124,6 +124,54 @@ export default function GrowthPhilosophyPage() {
             </div>
           )}
 
+          {/* 先払いの原則 */}
+          <div style={{ marginTop: 24, padding: 24, borderRadius: 16, border: '2px solid rgba(245,158,11,0.3)', background: 'linear-gradient(135deg, rgba(245,158,11,0.04), rgba(234,179,8,0.04))' }}>
+            <h2 style={{ fontSize: 18, fontWeight: 700, color: '#b45309', marginBottom: 2 }}>💰 先払いの原則</h2>
+            <div style={{ fontSize: 12, color: '#d97706', marginBottom: 16 }}>真のパワーパートナーを見極める最重要の視点</div>
+
+            {/* 3つのリソース */}
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10, marginBottom: 14 }}>
+              {[
+                { icon: '⏰', resource: '時間', desc: '学びに・成長に・仲間のために時間を先払いする' },
+                { icon: '💴', resource: 'お金', desc: '自己投資を惜しまず、学びにお金を先払いする' },
+                { icon: '⚡', resource: 'エネルギー', desc: '情熱と集中力を自己成長と貢献に先払いする' },
+              ].map(item => (
+                <div key={item.resource} style={{ padding: 14, background: 'var(--bg-card)', border: '1px solid rgba(245,158,11,0.2)', borderRadius: 12, textAlign: 'center' }}>
+                  <div style={{ fontSize: 28, marginBottom: 6 }}>{item.icon}</div>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: '#b45309' }}>{item.resource}</div>
+                  <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4, lineHeight: 1.5 }}>{item.desc}</div>
+                </div>
+              ))}
+            </div>
+
+            {/* 循環図 */}
+            <div style={{ padding: 14, background: 'var(--bg-card)', border: '1px solid rgba(245,158,11,0.2)', borderRadius: 12, marginBottom: 14 }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, flexWrap: 'wrap', fontSize: 13 }}>
+                {[
+                  { label: '先払い（投資）', bg: 'rgba(245,158,11,0.12)', color: '#b45309' },
+                  { label: '→', bg: 'transparent', color: '#d97706' },
+                  { label: '自己成長', bg: 'rgba(34,197,94,0.12)', color: '#15803d' },
+                  { label: '→', bg: 'transparent', color: '#22c55e' },
+                  { label: '貢献・分かち合い', bg: 'rgba(59,130,246,0.12)', color: '#1d4ed8' },
+                  { label: '→', bg: 'transparent', color: '#3b82f6' },
+                  { label: '豊かな人生', bg: 'rgba(139,92,246,0.12)', color: '#7c3aed' },
+                  { label: '→', bg: 'transparent', color: '#8b5cf6' },
+                  { label: 'さらに大きな先払い', bg: 'rgba(245,158,11,0.12)', color: '#b45309' },
+                ].map((item, i) => (
+                  <span key={i} style={{ padding: item.bg === 'transparent' ? '0' : '4px 12px', borderRadius: 20, background: item.bg, color: item.color, fontWeight: item.bg === 'transparent' ? 400 : 600, fontSize: item.bg === 'transparent' ? 16 : 12 }}>{item.label}</span>
+                ))}
+              </div>
+            </div>
+
+            {/* 院長の言葉 */}
+            <div style={{ padding: 16, background: 'var(--bg-card)', border: '1px solid rgba(245,158,11,0.2)', borderRadius: 12 }}>
+              <div style={{ fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.8, fontStyle: 'italic', textAlign: 'center' }}>
+                「求める心がある人には、いくらでもチャンスを与えたい。挑戦し、働きながら自己成長し、<span style={{ color: '#b45309', fontWeight: 700 }}>社会貢献できることを楽しんで欲しい</span>」
+              </div>
+              <div style={{ textAlign: 'right', fontSize: 11, color: 'var(--text-muted)', marginTop: 8 }}>— 院長</div>
+            </div>
+          </div>
+
           {/* ティール組織ビジョン */}
           <div style={{ marginTop: 32, padding: 24, borderRadius: 16, border: '2px solid rgba(6,182,212,0.3)', background: 'rgba(6,182,212,0.04)' }}>
             <h2 style={{ fontSize: 18, fontWeight: 700, color: '#06b6d4', marginBottom: 16 }}>🩵 目指す組織像：ティール組織</h2>

@@ -64,7 +64,9 @@ ${philosophy}
     "teamworkFit": { "score": 68, "label": "チームワーク適性", "comment": "具体的な根拠" },
     "patientOrientation": { "score": 90, "label": "患者志向性", "comment": "具体的な根拠" },
     "reliability": { "score": 75, "label": "誠実さ・信頼性", "comment": "具体的な根拠" },
-    "clinicCultureFit": { "score": 82, "label": "クリニック文化適合", "comment": "具体的な根拠" }
+    "clinicCultureFit": { "score": 82, "label": "クリニック文化適合", "comment": "具体的な根拠" },
+    "prepaymentAttitude": { "score": 75, "label": "先払い・自己投資姿勢", "comment": "時間・お金・エネルギーを自己成長に先払いしてきたか。学びへの投資意欲と行動。見返りを求めず先に与える姿勢" },
+    "challengeSpirit": { "score": 80, "label": "求める心・挑戦意欲", "comment": "成長への強い意欲。チャンスに飛び込む勇気。困難を楽しめる精神" }
   },
   "totalScore": 79,
   "rank": "A",

@@ -50,6 +50,23 @@ export default function StaffHomePage() {
         </div>
       </div>
 
+      {/* 今日の先払いチェック */}
+      <div style={{ marginBottom: 24, padding: 16, borderRadius: 14, background: 'rgba(245,158,11,0.05)', border: '1px solid rgba(245,158,11,0.2)' }}>
+        <div style={{ fontSize: 13, fontWeight: 700, color: '#b45309', marginBottom: 10 }}>💰 今日の先払いチェック</div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          {[
+            '今日、自己成長のために時間を先払いしましたか？',
+            '今日、仲間のために何かを先払いしましたか？',
+            '今日、患者さんに期待以上の価値を先払いしましたか？',
+          ].map((q, i) => (
+            <label key={i} style={{ display: 'flex', alignItems: 'flex-start', gap: 8, cursor: 'pointer', fontSize: 13, color: 'var(--text-secondary)' }}>
+              <input type="checkbox" style={{ marginTop: 2, accentColor: '#d97706' }} />
+              <span>{q}</span>
+            </label>
+          ))}
+        </div>
+      </div>
+
       {/* サマリーカード */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 10, marginBottom: 24 }}>
         {[
