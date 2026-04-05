@@ -41,14 +41,26 @@ export default function HandbookListPage() {
     try {
       const res = await fetch('/api/clinic/handbooks', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ title: importTitle, description: '' }) });
       const { id } = await res.json();
-      for (const ch of importPreview.chapters || []) {
-        await fetch(`/api/clinic/handbooks/${id}/chapters`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ title: ch.title, content: ch.content, orderIndex: ch.orderIndex }) });
-      }
+      await fetch(`/api/clinic/handbooks/${id}/chapters/bulk`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ chapters: importPreview.chapters || [] }) });
       setShowImport(false); setImportPreview(null);
       router.push(`/admin/handbook/${id}`);
     } catch { setMessage('保存に失敗しました'); }
     finally { setSaving(false); }
   };
+
+  const duplicateHandbook = async (hbId: string) => {
+    const res = await fetch(`/api/clinic/handbooks/${hbId}/duplicate`, { method: 'POST' });
+    const data = await res.json();
+    if (data.success) { fetchData(); setMessage('複製しました'); } else { setMessage('複製に失敗しました'); }
+  };
+
+  const toggleStatus = async (hb: any) => {
+    const newStatus = hb.status === 'published' ? 'draft' : 'published';
+    await fetch(`/api/clinic/handbooks/${hb.id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status: newStatus }) });
+    fetchData();
+  };
+
+  const fetchData = () => { fetch('/api/clinic/handbooks').then(r => r.json()).then(d => { if (Array.isArray(d)) setHandbooks(d); }); };
 
   const createNew = async () => {
     const res = await fetch('/api/clinic/handbooks', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ title: '新規ハンドブック', description: '' }) });
@@ -110,14 +122,18 @@ export default function HandbookListPage() {
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
           {handbooks.map(h => (
-            <div key={h.id} style={{ padding: 18, background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 14, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <Link href={`/admin/handbook/${h.id}`} style={{ textDecoration: 'none', flex: 1 }}>
-                <div style={{ fontSize: 16, fontWeight: 700, color: 'var(--text-primary)' }}>{h.title}</div>
-                <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>{new Date(h.updated_at).toLocaleDateString('ja-JP')} 更新</div>
-              </Link>
-              <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-                <span style={{ padding: '3px 10px', borderRadius: 20, fontSize: 11, background: h.status === 'published' ? 'rgba(74,222,128,0.15)' : 'rgba(245,166,35,0.15)', color: h.status === 'published' ? '#4ade80' : '#f5a623' }}>{h.status === 'published' ? '公開中' : '下書き'}</span>
-                <button onClick={() => deleteHandbook(h.id)} style={{ padding: '5px 8px', borderRadius: 6, border: 'none', background: 'rgba(239,68,68,0.1)', color: '#ef4444', fontSize: 12, cursor: 'pointer' }}>🗑</button>
+            <div key={h.id} style={{ padding: 18, background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 14 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                <Link href={`/admin/handbook/${h.id}`} style={{ textDecoration: 'none', flex: 1 }}>
+                  <div style={{ fontSize: 16, fontWeight: 700, color: 'var(--text-primary)' }}>{h.title}</div>
+                  {h.description && <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 2 }}>{h.description}</div>}
+                  <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4 }}>{h.chapter_count || 0}章 / {new Date(h.updated_at).toLocaleDateString('ja-JP')} 更新</div>
+                </Link>
+                <div style={{ display: 'flex', gap: 4, alignItems: 'center', flexShrink: 0 }}>
+                  <button onClick={() => toggleStatus(h)} style={{ padding: '3px 10px', borderRadius: 20, fontSize: 11, border: 'none', cursor: 'pointer', background: h.status === 'published' ? 'rgba(74,222,128,0.15)' : 'rgba(245,166,35,0.15)', color: h.status === 'published' ? '#4ade80' : '#f5a623' }}>{h.status === 'published' ? '✅ 公開中' : '📝 下書き'}</button>
+                  <button onClick={() => duplicateHandbook(h.id)} style={{ padding: '5px 8px', borderRadius: 6, border: '1px solid var(--border)', background: 'var(--bg-card)', color: 'var(--text-muted)', fontSize: 11, cursor: 'pointer' }}>📋 複製</button>
+                  <button onClick={() => deleteHandbook(h.id)} style={{ padding: '5px 8px', borderRadius: 6, border: 'none', background: 'rgba(239,68,68,0.1)', color: '#ef4444', fontSize: 11, cursor: 'pointer' }}>🗑</button>
+                </div>
               </div>
             </div>
           ))}
