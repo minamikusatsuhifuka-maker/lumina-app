@@ -30,38 +30,63 @@ export async function POST(req: NextRequest) {
       system: systemPrompt,
       messages: [{
         role: 'user',
-        content: `クリニックの理念：${philosophy}
-職種：${positions} / 役割：${role || '一般〜管理職'} / 等級数：${count}
+        content: `職種：${positions} / 役割：${role || '一般〜管理職'}
 
-以下のJSON形式で等級制度の全体案を作成してください。全項目を具体的に記載してください：
+【等級設計の大原則】
+・ピラミッド型の階層ではなく、同心円が外に広がるイメージ
+・上下の権力構造ではなく「関わり方・貢献の広がり」で等級が変わる
+・G4・G5は「上の人」ではなく「育成・社会貢献に関わる人」
+・全員がアンバサダー（G5）を目指して成長することが目標
+
+【等級名称（5段階固定）】
+G1：ルーキー（自分の成長に集中する時期）学ぶ・吸収する
+G2：コア（一人前として自立・自走する存在）自走する・貢献する
+G3：エキスパート（専門性・実績で周囲に影響を与える）魅せる・高める
+G4：パートナー（仲間の可能性を信じ・育てる存在）引き出す・支える
+G5：アンバサダー（理念を体現し社会に発信・貢献する）広げる・創る
+
+【評価の重点】
+- 実績・実力・貢献度（スキル25% + 知識25%）
+- 分かち合いの姿勢・組織への愛着（マインド50%）
+- 特にG4以上：仲間の可能性を信じ・引き出す支援力
+
+【給与の考え方】
+- 責任と働き方に応じて段階的アップ
+- 育成への貢献も給与に反映（「管理職手当」ではなく「育成貢献手当」）
+
+以下のJSON形式で等級制度を作成してください：
 {
   "grades": [
     {
       "levelNumber": 1,
-      "name": "Grade 1 / ジュニア",
+      "name": "G1 ルーキー",
       "position": "${positions}",
-      "role": "一般スタッフ",
-      "description": "この等級の役割・期待される姿（3〜5文）",
-      "skills": ["必要なスキル①（具体的に）", "②"],
+      "role": "学ぶ人・吸収する人",
+      "description": "自分自身の成長と基礎固めに集中する時期。素直に学び、吸収し、基礎を体得する。",
+      "coreValue": "自己愛・素直さ・学ぶ姿勢",
+      "skills": ["必要なスキル①", "②"],
       "knowledge": ["必要な知識①", "②"],
       "mindset": ["求めるマインド・姿勢①", "②"],
       "continuousLearning": ["継続学習①", "②"],
-      "requiredCertifications": ["必須資格①", "推奨資格②"],
+      "requiredCertifications": ["必須資格①"],
       "promotionExam": {
-        "description": "昇格試験の概要",
+        "description": "G2への昇格審査",
         "format": "筆記/実技/面接/複合",
         "passingCriteria": "合格基準",
-        "examContent": ["試験内容①", "②"],
-        "recommendedPreparation": "試験対策・準備方法"
+        "examContent": ["試験内容①"],
+        "recommendedPreparation": "準備方法"
       },
-      "requirementsPromotion": "昇格条件まとめ（箇条書き）",
-      "requirementsDemotion": "降格条件（具体的に）",
+      "requirementsPromotion": "昇格条件",
+      "requirementsDemotion": "降格条件",
       "salaryMin": 200000,
-      "salaryMax": 250000
+      "salaryMax": 240000,
+      "salaryNote": "成長への投資期間"
     }
   ],
-  "designComment": "この等級設計の意図・理念との対応"
-}`,
+  "designComment": "この等級制度はピラミッドではなく同心円。G5は『偉い人』ではなく『最も広く貢献している人』。"
+}
+
+全5等級（G1ルーキー〜G5アンバサダー）を具体的に生成してください。`,
       }],
     }),
   });

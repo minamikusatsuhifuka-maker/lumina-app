@@ -41,7 +41,13 @@ export default function StaffGradePage() {
   return (
     <div style={{ maxWidth: 900, margin: '0 auto' }}>
       <h1 style={{ fontSize: 20, fontWeight: 700, marginBottom: 6, color: 'var(--text-primary)' }}>📊 等級制度</h1>
-      <p style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 20 }}>各等級の要件と詳細（読み取り専用）</p>
+      <p style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 16 }}>各等級の要件と詳細</p>
+
+      <div style={{ marginBottom: 20, padding: 12, borderRadius: 12, background: 'rgba(6,182,212,0.06)', border: '1px solid rgba(6,182,212,0.2)' }}>
+        <div style={{ fontSize: 12, color: '#14b8a6', lineHeight: 1.7 }}>
+          ✨ この等級は「上下の位置」ではなく「あなたの関わりの広がり」を表しています。全員がアンバサダー（G5）を目指して成長しましょう。
+        </div>
+      </div>
 
       {/* 等級タブ */}
       <div style={{ display: 'flex', gap: 6, marginBottom: 20, flexWrap: 'wrap' }}>

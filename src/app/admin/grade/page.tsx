@@ -163,6 +163,49 @@ export default function GradePage() {
 
         {message && <div style={{ padding: 10, background: 'rgba(239,68,68,0.1)', borderRadius: 8, fontSize: 13, color: '#ef4444', marginBottom: 12 }}>{message}</div>}
 
+        {/* 同心円の説明バナー */}
+        <div style={{ marginBottom: 20, padding: 14, borderRadius: 14, background: 'rgba(6,182,212,0.06)', border: '1px solid rgba(6,182,212,0.2)' }}>
+          <div style={{ fontSize: 13, fontWeight: 700, color: '#0d9488', marginBottom: 4 }}>🌿 当院の等級制度について</div>
+          <div style={{ fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.7 }}>
+            この等級はピラミッドの「上下」ではなく、<span style={{ fontWeight: 700, color: 'var(--text-primary)' }}>同心円の「広が��」</span>を表しています。G4・G5は「偉い人」ではなく「育成や社会貢献に関わる人」。働き方・関わり方が異なるだけです。全員がアンバサダー（G5）を目指して自律的に成長することが目標です。
+          </div>
+        </div>
+
+        {/* 同心円ビジュアル */}
+        {grades.length > 0 && (
+          <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 24 }}>
+            <div style={{ position: 'relative', width: 320, height: 320 }}>
+              {[
+                { level: 5, label: 'G5 アンバサダー', sub: '広げる・創る', size: 320, color: '#0d9488', bg: 'rgba(6,182,212,0.06)' },
+                { level: 4, label: 'G4 パートナー', sub: '引き出す・支える', size: 250, color: '#8b5cf6', bg: 'rgba(139,92,246,0.06)' },
+                { level: 3, label: 'G3 エキスパート', sub: '魅せる・高める', size: 190, color: '#3b82f6', bg: 'rgba(59,130,246,0.06)' },
+                { level: 2, label: 'G2 コア', sub: '自走する・貢献する', size: 135, color: '#f59e0b', bg: 'rgba(245,158,11,0.06)' },
+                { level: 1, label: 'G1 ルーキー', sub: '学ぶ・��収する', size: 80, color: '#ec4899', bg: 'rgba(236,72,153,0.08)' },
+              ].map(ring => (
+                <div key={ring.level} style={{
+                  position: 'absolute', width: ring.size, height: ring.size, borderRadius: '50%',
+                  border: `2px solid ${ring.color}40`, background: ring.bg,
+                  top: (320 - ring.size) / 2, left: (320 - ring.size) / 2,
+                  display: 'flex', alignItems: ring.level >= 4 ? 'flex-start' : 'center',
+                  justifyContent: 'center', paddingTop: ring.level >= 4 ? (ring.level === 5 ? 8 : 12) : 0,
+                }}>
+                  {ring.level >= 3 && (
+                    <div style={{ textAlign: 'center' }}>
+                      <div style={{ fontSize: 10, fontWeight: 700, color: ring.color }}>{ring.label}</div>
+                      {ring.level >= 4 && <div style={{ fontSize: 9, color: ring.color + '99' }}>{ring.sub}</div>}
+                    </div>
+                  )}
+                  {ring.level <= 2 && (
+                    <div style={{ textAlign: 'center' }}>
+                      <div style={{ fontSize: ring.level === 1 ? 9 : 10, fontWeight: 700, color: ring.color }}>{ring.level === 1 ? 'G1' : ring.label}</div>
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
         {/* 等級一覧 */}
         <div style={{ display: 'flex', gap: 8, marginBottom: 20, flexWrap: 'wrap' }}>
           {grades.map(g => (
@@ -172,8 +215,9 @@ export default function GradePage() {
               border: `1px solid ${selectedId === g.id ? 'rgba(108,99,255,0.3)' : 'var(--border)'}`,
               color: selectedId === g.id ? 'var(--text-primary)' : 'var(--text-muted)', fontSize: 13, fontWeight: 600,
             }}>
-              <div>Lv.{g.level_number}</div>
+              <div style={{ fontSize: 15, fontWeight: 800 }}>G{g.level_number}</div>
               <div style={{ fontSize: 11, marginTop: 2 }}>{g.name}</div>
+              {g.role && <div style={{ fontSize: 10, color: 'var(--text-muted)', marginTop: 1 }}>{g.role}</div>}
             </button>
           ))}
         </div>
