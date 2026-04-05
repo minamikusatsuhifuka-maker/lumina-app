@@ -17,6 +17,19 @@ const prevStatus = (s: string) => s === 'done' ? 'in_progress' : 'todo';
 const isOverdue = (d: string) => d && new Date(d) < new Date(new Date().toDateString());
 const fmt = (d: string) => d ? new Date(d).toLocaleDateString('ja-JP', { month: 'short', day: 'numeric' }) : '';
 
+const STATUS_ORDER: Record<string, number> = { todo: 0, in_progress: 1, done: 2 };
+const PRI_ORDER: Record<string, number> = { high: 0, medium: 1, low: 2 };
+const sortTasks = (list: any[]) => [...list].sort((a, b) => {
+  const sd = (STATUS_ORDER[a.status] ?? 9) - (STATUS_ORDER[b.status] ?? 9);
+  if (sd !== 0) return sd;
+  const pd = (PRI_ORDER[a.priority] ?? 9) - (PRI_ORDER[b.priority] ?? 9);
+  if (pd !== 0) return pd;
+  if (a.due_date && b.due_date) return new Date(a.due_date).getTime() - new Date(b.due_date).getTime();
+  if (a.due_date) return -1;
+  if (b.due_date) return 1;
+  return 0;
+});
+
 export default function TasksPage() {
   const [tasks, setTasks] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -33,12 +46,12 @@ export default function TasksPage() {
   const fetchTasks = () => { fetch('/api/clinic/tasks').then(r => r.json()).then(d => { if (Array.isArray(d)) setTasks(d); setLoading(false); }); };
   useEffect(() => { fetchTasks(); }, []);
 
-  const filtered = tasks.filter(t => {
+  const filtered = sortTasks(tasks.filter(t => {
     if (filterPri && t.priority !== filterPri) return false;
     if (filterStatus && t.status !== filterStatus) return false;
     if (search && !t.title?.includes(search) && !t.assignee_name?.includes(search)) return false;
     return true;
-  });
+  }));
 
   const byStatus = (s: string) => filtered.filter(t => t.status === s);
 
@@ -121,7 +134,7 @@ export default function TasksPage() {
           ))}
         </div>
       ) : (
-        /* リスト表示 */
+        /* リスト表示（固定幅で整列） */
         <div style={{ border: '1px solid var(--border)', borderRadius: 12, overflow: 'hidden' }}>
           {filtered.map(t => (
             <div key={t.id} style={{
@@ -130,17 +143,39 @@ export default function TasksPage() {
               borderLeft: `4px solid ${STATUS_BORDER[t.status]}`,
               background: STATUS_BG[t.status],
               opacity: t.status === 'done' ? 0.7 : 1,
+              transition: 'background 0.15s',
             }}>
-              <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 10, background: STATUS_BADGE_BG[t.status], color: STATUS_BADGE_COLOR[t.status], fontWeight: 600, whiteSpace: 'nowrap' }}>{STATUS_LABELS[t.status]}</span>
-              <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 10, background: PRI_BADGE_BG[t.priority], color: PRI_COLORS[t.priority], fontWeight: 600, whiteSpace: 'nowrap' }}>{PRI_LABELS[t.priority]}</span>
-              <span style={{ flex: 1, fontSize: 13, fontWeight: 600, color: t.status === 'done' ? 'var(--text-muted)' : 'var(--text-primary)', textDecoration: t.status === 'done' ? 'line-through' : 'none', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{t.title}</span>
-              <span style={{ fontSize: 11, color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>👤 {t.assignee_name ?? '未設定'}</span>
-              {t.due_date && <span style={{ fontSize: 11, whiteSpace: 'nowrap', color: isOverdue(t.due_date) ? '#ef4444' : 'var(--text-muted)' }}>📅 {fmt(t.due_date)}{isOverdue(t.due_date) ? ' ⚠️' : ''}</span>}
-              <div style={{ display: 'flex', gap: 4, flexShrink: 0 }}>
-                {t.status !== 'todo' && <button onClick={() => updateStatus(t.id, prevStatus(t.status))} style={{ padding: '3px 8px', borderRadius: 4, border: '1px solid var(--border)', background: 'var(--bg-card)', color: 'var(--text-muted)', fontSize: 10, cursor: 'pointer' }}>←</button>}
-                {t.status !== 'done' && <button onClick={() => updateStatus(t.id, nextStatus(t.status))} style={{ padding: '3px 8px', borderRadius: 4, border: 'none', background: 'rgba(108,99,255,0.12)', color: '#6c63ff', fontSize: 10, cursor: 'pointer' }}>→</button>}
+              {/* ステータスバッジ（固定幅） */}
+              <div style={{ width: 76, flexShrink: 0 }}>
+                <span style={{ fontSize: 11, padding: '3px 8px', borderRadius: 10, background: STATUS_BADGE_BG[t.status], color: STATUS_BADGE_COLOR[t.status], fontWeight: 600, whiteSpace: 'nowrap' }}>{STATUS_LABELS[t.status]}</span>
               </div>
-              <button onClick={() => deleteTask(t.id)} style={{ color: 'var(--text-muted)', background: 'none', border: 'none', fontSize: 13, cursor: 'pointer', flexShrink: 0 }}>🗑</button>
+              {/* 優先度バッジ（固定幅） */}
+              <div style={{ width: 50, flexShrink: 0 }}>
+                <span style={{ fontSize: 11, padding: '3px 8px', borderRadius: 10, background: PRI_BADGE_BG[t.priority], color: PRI_COLORS[t.priority], fontWeight: 600 }}>{PRI_LABELS[t.priority]}</span>
+              </div>
+              {/* タスク名（flex-1） */}
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 13, fontWeight: 600, color: t.status === 'done' ? 'var(--text-muted)' : 'var(--text-primary)', textDecoration: t.status === 'done' ? 'line-through' : 'none', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{t.title}</div>
+              </div>
+              {/* 担当者（固定幅） */}
+              <div style={{ width: 110, flexShrink: 0 }}>
+                <div style={{ fontSize: 11, color: 'var(--text-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>👤 {t.assignee_name ?? '未設定'}</div>
+              </div>
+              {/* 期限（固定幅） */}
+              <div style={{ width: 90, flexShrink: 0 }}>
+                {t.due_date ? (
+                  <div style={{ fontSize: 11, whiteSpace: 'nowrap', color: isOverdue(t.due_date) ? '#ef4444' : 'var(--text-muted)', fontWeight: isOverdue(t.due_date) ? 600 : 400 }}>📅 {fmt(t.due_date)}{isOverdue(t.due_date) ? ' ⚠️' : ''}</div>
+                ) : (
+                  <div style={{ fontSize: 11, color: 'var(--border)' }}>—</div>
+                )}
+              </div>
+              {/* ステータス変更ボタン（固定幅） */}
+              <div style={{ display: 'flex', gap: 3, flexShrink: 0, width: 60, justifyContent: 'center' }}>
+                {t.status !== 'todo' && <button onClick={() => updateStatus(t.id, prevStatus(t.status))} style={{ width: 26, height: 26, display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: 6, border: '1px solid var(--border)', background: 'var(--bg-card)', color: 'var(--text-muted)', fontSize: 11, cursor: 'pointer' }}>←</button>}
+                {t.status !== 'done' && <button onClick={() => updateStatus(t.id, nextStatus(t.status))} style={{ width: 26, height: 26, display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: 6, border: 'none', background: 'rgba(108,99,255,0.12)', color: '#6c63ff', fontSize: 11, cursor: 'pointer' }}>→</button>}
+              </div>
+              {/* 削除 */}
+              <button onClick={() => deleteTask(t.id)} style={{ width: 26, height: 26, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-muted)', background: 'none', border: 'none', fontSize: 13, cursor: 'pointer', flexShrink: 0 }}>🗑</button>
             </div>
           ))}
           {filtered.length === 0 && <div style={{ textAlign: 'center', padding: 30, color: 'var(--text-muted)', fontSize: 13 }}>タスクがありません</div>}
