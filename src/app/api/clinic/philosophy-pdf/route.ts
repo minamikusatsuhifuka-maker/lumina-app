@@ -1,23 +1,104 @@
-import { NextRequest, NextResponse } from 'next/server';
-import { auth } from '@/lib/auth';
-import { PDFParse } from 'pdf-parse';
+export const maxDuration = 300;
 
-export async function POST(req: NextRequest) {
-  const session = await auth();
-  if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+import Anthropic from '@anthropic-ai/sdk';
 
-  const formData = await req.formData();
-  const file = formData.get('file') as File | null;
-  if (!file) return NextResponse.json({ error: 'ファイルが選択されていません' }, { status: 400 });
+const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
-  const buffer = Buffer.from(await file.arrayBuffer());
-
+export async function POST(req: Request) {
   try {
-    const parser = new PDFParse({ data: buffer });
-    const textResult = await parser.getText();
-    return NextResponse.json({ content: textResult.text });
-  } catch (e: unknown) {
-    const msg = e instanceof Error ? e.message : 'PDF解析に失敗しました';
-    return NextResponse.json({ error: msg }, { status: 500 });
+    const formData = await req.formData();
+    const file = formData.get('file') as File;
+
+    if (!file) {
+      return Response.json({ error: 'ファイルがありません' }, { status: 400 });
+    }
+
+    const buffer = Buffer.from(await file.arrayBuffer());
+    const base64 = buffer.toString('base64');
+    const fileName = file.name.toLowerCase();
+
+    let extractedText = '';
+
+    if (fileName.endsWith('.pdf')) {
+      // まず pdf-parse を試みる
+      try {
+        const { PDFParse } = await import('pdf-parse');
+        const parser = new PDFParse({ data: buffer });
+        const textResult = await parser.getText();
+        if (textResult.text && textResult.text.trim().length > 50) {
+          extractedText = textResult.text;
+        }
+      } catch {
+        // 失敗したら Claude API に直接渡す
+      }
+
+      // テキストが取れなかった場合 → Claude document API
+      if (!extractedText) {
+        const response = await anthropic.messages.create({
+          model: 'claude-sonnet-4-6',
+          max_tokens: 8000,
+          messages: [{
+            role: 'user',
+            content: [
+              {
+                type: 'document',
+                source: {
+                  type: 'base64',
+                  media_type: 'application/pdf',
+                  data: base64,
+                },
+              } as any,
+              {
+                type: 'text',
+                text: 'このPDFの全テキストを抽出してください。テキストのみ返してください。',
+              },
+            ],
+          }],
+        });
+        extractedText = response.content
+          .filter(b => b.type === 'text')
+          .map(b => (b as any).text)
+          .join('');
+      }
+    } else if (fileName.match(/\.(jpg|jpeg|png)$/)) {
+      // 画像 → Claude Vision OCR
+      const mimeType = fileName.endsWith('.png') ? 'image/png' : 'image/jpeg';
+      const response = await anthropic.messages.create({
+        model: 'claude-sonnet-4-6',
+        max_tokens: 4000,
+        messages: [{
+          role: 'user',
+          content: [
+            {
+              type: 'image',
+              source: { type: 'base64', media_type: mimeType as any, data: base64 },
+            },
+            { type: 'text', text: 'この画像のテキストを全て書き起こしてください。テキストのみ返してください。' },
+          ],
+        }],
+      });
+      extractedText = response.content
+        .filter(b => b.type === 'text')
+        .map(b => (b as any).text)
+        .join('');
+    } else {
+      return Response.json({ error: 'PDF・画像ファイルのみ対応しています' }, { status: 400 });
+    }
+
+    if (!extractedText || extractedText.trim().length < 10) {
+      return Response.json(
+        { error: 'テキストを抽出できませんでした' },
+        { status: 400 }
+      );
+    }
+
+    return Response.json({ content: extractedText });
+
+  } catch (e) {
+    console.error('Philosophy PDF error:', e);
+    return Response.json(
+      { error: `読み込みエラー: ${String(e)}` },
+      { status: 500 }
+    );
   }
 }
