@@ -205,6 +205,48 @@ export async function GET() {
       updated_at TIMESTAMP DEFAULT NOW()
     )`;
 
+    // 成長哲学システム
+    await sql`CREATE TABLE IF NOT EXISTS growth_philosophy (
+      id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
+      title TEXT NOT NULL DEFAULT 'クリニック成長哲学',
+      core_values TEXT,
+      growth_model TEXT,
+      win_win_vision TEXT,
+      power_partner_definition TEXT,
+      created_at TIMESTAMP DEFAULT NOW(),
+      updated_at TIMESTAMP DEFAULT NOW()
+    )`;
+
+    await sql`CREATE TABLE IF NOT EXISTS personal_growth_plans (
+      id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
+      staff_id TEXT NOT NULL,
+      life_vision TEXT,
+      personal_mission TEXT,
+      core_values TEXT,
+      self_love_notes TEXT,
+      strength_discovery TEXT,
+      short_term_goals TEXT,
+      long_term_goals TEXT,
+      organization_alignment TEXT,
+      power_partners TEXT,
+      updated_at TIMESTAMP DEFAULT NOW(),
+      created_at TIMESTAMP DEFAULT NOW()
+    )`;
+
+    await sql`CREATE TABLE IF NOT EXISTS self_management_logs (
+      id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
+      staff_id TEXT NOT NULL,
+      log_date DATE NOT NULL,
+      daily_goal TEXT,
+      achievement TEXT,
+      reflection TEXT,
+      gratitude TEXT,
+      tomorrow_intention TEXT,
+      mood_score INTEGER,
+      growth_score INTEGER,
+      created_at TIMESTAMP DEFAULT NOW()
+    )`;
+
     // 職種・役職定義 + マインド成長
     await sql`CREATE TABLE IF NOT EXISTS position_definitions (
       id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,

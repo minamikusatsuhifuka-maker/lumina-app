@@ -2,10 +2,13 @@
 import { useState, useEffect } from 'react';
 
 const CORE_VALUES = [
+  { key: 'self_love', label: '💎 自己愛', color: '#ec4899' },
+  { key: 'self_management', label: '🎯 セルフマネジメント', color: '#f5a623' },
   { key: 'self_growth', label: '🌱 自己成長', color: '#4ade80' },
-  { key: 'social_contribution', label: '🌍 社会貢献', color: '#6c63ff' },
-  { key: 'continuous_learning', label: '📖 継続学習', color: '#f5a623' },
-  { key: 'sharing', label: '🤝 分かち合い', color: '#ec4899' },
+  { key: 'enrich_others', label: '👨‍👩‍👧 身近な人を豊かに', color: '#6c63ff' },
+  { key: 'social_contribution', label: '🌍 社会貢献', color: '#00d4b8' },
+  { key: 'self_realization', label: '✨ 自己実現×理念', color: '#8b5cf6' },
+  { key: 'power_partner', label: '🤝 パワーパートナー', color: '#f87171' },
 ];
 
 const parseJson = (v: any) => { if (!v) return []; if (Array.isArray(v)) return v; try { return JSON.parse(v); } catch { return []; } };

@@ -10,6 +10,7 @@ const navItems = [
   { href: '/admin/exams', label: '試験管理', icon: '📋' },
   { href: '/admin/grade', label: '等級制度', icon: '🏅' },
   { href: '/admin/grade/compare', label: '等級比較表', icon: '📊' },
+  { href: '/admin/grade/philosophy', label: '成長哲学', icon: '🌟' },
   { href: '/admin/grade/definitions', label: '職種・役職定義', icon: '📌' },
   { href: '/admin/grade/mindset', label: 'マインド成長', icon: '🌱' },
   { href: '/admin/evaluation', label: '評価制度', icon: '📋' },

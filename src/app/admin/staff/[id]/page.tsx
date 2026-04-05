@@ -2,7 +2,7 @@
 import { useState, useEffect, use } from 'react';
 import { HiringScoreChart } from '@/components/clinic/HiringScoreChart';
 
-type DetailTab = 'timeline' | 'documents' | 'notes' | 'grades' | 'score';
+type DetailTab = 'timeline' | 'documents' | 'notes' | 'grades' | 'score' | 'growth';
 type NoteType = 'interview' | 'training' | 'praise' | 'incident' | 'other';
 
 const NOTE_ICONS: Record<string, string> = { interview: '💬', training: '📚', praise: '🌟', incident: '⚠️', other: '📝' };
@@ -29,6 +29,15 @@ export default function StaffDetailPage({ params }: { params: Promise<{ id: stri
   const [scoreResult, setScoreResult] = useState<any>(null);
   const [scoreLoading, setScoreLoading] = useState(false);
 
+  // 個人成長計画
+  const [growthPlan, setGrowthPlan] = useState<any>(null);
+  const [growthSaving, setGrowthSaving] = useState(false);
+  const [alignResult, setAlignResult] = useState<any>(null);
+  const [aligning, setAligning] = useState(false);
+  const [gf, setGf] = useState<Record<string, string>>({
+    lifeVision: '', personalMission: '', coreValues: '', shortTermGoals: '', longTermGoals: '',
+  });
+
   const runScoring = async () => {
     setScoreLoading(true);
     try {
@@ -51,7 +60,15 @@ export default function StaffDetailPage({ params }: { params: Promise<{ id: stri
     });
   };
 
-  useEffect(() => { fetchStaff(); }, [id]);
+  useEffect(() => {
+    fetchStaff();
+    fetch(`/api/clinic/personal-growth-plans?staffId=${id}`).then(r => r.json()).then(d => {
+      if (d?.id) {
+        setGrowthPlan(d);
+        setGf({ lifeVision: d.life_vision || '', personalMission: d.personal_mission || '', coreValues: d.core_values || '', shortTermGoals: d.short_term_goals || '', longTermGoals: d.long_term_goals || '' });
+      }
+    });
+  }, [id]);
 
   const saveNote = async () => {
     if (!noteTitle.trim() || !noteContent.trim()) return;
@@ -132,6 +149,7 @@ export default function StaffDetailPage({ params }: { params: Promise<{ id: stri
           { key: 'notes' as DetailTab, label: '📝 メモ追加' },
           { key: 'grades' as DetailTab, label: '🏅 等級履歴' },
           { key: 'score' as DetailTab, label: '📊 採用スコア' },
+          { key: 'growth' as DetailTab, label: '✨ 個人成長計画' },
         ]).map(t => (
           <button key={t.key} onClick={() => setTab(t.key)} style={{
             padding: '8px 14px', borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: 'pointer',
@@ -301,6 +319,86 @@ export default function StaffDetailPage({ params }: { params: Promise<{ id: stri
                 </div>
               )}
             </>
+          )}
+        </div>
+      )}
+
+      {/* 個人成長計画 */}
+      {tab === 'growth' && (
+        <div style={cardStyle}>
+          <h3 style={{ fontSize: 16, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 16 }}>✨ 個人成長計画</h3>
+
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+            <div>
+              <label style={{ display: 'block', fontSize: 13, color: 'var(--text-secondary)', marginBottom: 6 }}>🔭 人生ビジョン（10年後どうありたいか）</label>
+              <textarea value={gf.lifeVision} onChange={e => setGf(p => ({ ...p, lifeVision: e.target.value }))} placeholder="10年後のありたい姿を自由に書いてください" style={{ ...inputStyle, minHeight: 80, resize: 'vertical' }} />
+            </div>
+            <div>
+              <label style={{ display: 'block', fontSize: 13, color: 'var(--text-secondary)', marginBottom: 6 }}>🎯 個人ミッション</label>
+              <input value={gf.personalMission} onChange={e => setGf(p => ({ ...p, personalMission: e.target.value }))} placeholder="自分のミッション（一文で）" style={inputStyle} />
+            </div>
+            <div>
+              <label style={{ display: 'block', fontSize: 13, color: 'var(--text-secondary)', marginBottom: 6 }}>💎 自分のコア価値</label>
+              <input value={gf.coreValues} onChange={e => setGf(p => ({ ...p, coreValues: e.target.value }))} placeholder="大切にしている価値（カンマ区切り）" style={inputStyle} />
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
+              <div>
+                <label style={{ display: 'block', fontSize: 13, color: 'var(--text-secondary)', marginBottom: 6 }}>短期目標（1〜3ヶ月）</label>
+                <textarea value={gf.shortTermGoals} onChange={e => setGf(p => ({ ...p, shortTermGoals: e.target.value }))} style={{ ...inputStyle, minHeight: 60, resize: 'vertical' }} />
+              </div>
+              <div>
+                <label style={{ display: 'block', fontSize: 13, color: 'var(--text-secondary)', marginBottom: 6 }}>長期目標（1〜5年）</label>
+                <textarea value={gf.longTermGoals} onChange={e => setGf(p => ({ ...p, longTermGoals: e.target.value }))} style={{ ...inputStyle, minHeight: 60, resize: 'vertical' }} />
+              </div>
+            </div>
+          </div>
+
+          <div style={{ display: 'flex', gap: 10, marginTop: 16 }}>
+            <button onClick={async () => {
+              setGrowthSaving(true);
+              await fetch('/api/clinic/personal-growth-plans', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ staffId: id, lifeVision: gf.lifeVision, personalMission: gf.personalMission, coreValues: gf.coreValues, shortTermGoals: gf.shortTermGoals, longTermGoals: gf.longTermGoals }) });
+              setMessage('保存しました'); setGrowthSaving(false);
+            }} disabled={growthSaving} style={{ padding: '10px 20px', borderRadius: 8, border: 'none', background: growthSaving ? 'rgba(108,99,255,0.3)' : 'linear-gradient(135deg, #6c63ff, #8b5cf6)', color: '#fff', fontWeight: 700, fontSize: 13, cursor: 'pointer' }}>
+              {growthSaving ? '保存中...' : '💾 保存'}
+            </button>
+            <button onClick={async () => {
+              setAligning(true); setAlignResult(null);
+              try {
+                const res = await fetch('/api/clinic/personal-growth-plans/ai-align', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ staffId: id }) });
+                const data = await res.json();
+                if (data.alignmentScore !== undefined) setAlignResult(data);
+                else setMessage(data.error || '分析に失敗しました');
+              } catch { setMessage('分析に失敗しました'); }
+              finally { setAligning(false); }
+            }} disabled={aligning} style={{ padding: '10px 20px', borderRadius: 8, border: 'none', background: aligning ? 'rgba(236,72,153,0.3)' : 'linear-gradient(135deg, #ec4899, #8b5cf6)', color: '#fff', fontWeight: 700, fontSize: 13, cursor: 'pointer' }}>
+              {aligning ? '分析中...' : '🤖 自己実現×組織理念の重なりを分析'}
+            </button>
+          </div>
+
+          {alignResult && (
+            <div style={{ marginTop: 20, display: 'flex', flexDirection: 'column', gap: 10 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+                <div style={{ width: 80, height: 80, borderRadius: '50%', border: `4px solid ${alignResult.alignmentScore >= 80 ? '#4ade80' : alignResult.alignmentScore >= 60 ? '#f5a623' : '#ef4444'}`, display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column' }}>
+                  <span style={{ fontSize: 24, fontWeight: 800, color: alignResult.alignmentScore >= 80 ? '#4ade80' : alignResult.alignmentScore >= 60 ? '#f5a623' : '#ef4444' }}>{alignResult.alignmentScore}</span>
+                  <span style={{ fontSize: 9, color: 'var(--text-muted)' }}>適合度</span>
+                </div>
+                <div style={{ flex: 1 }}>
+                  {alignResult.alignmentAreas?.map((a: string, i: number) => <div key={i} style={{ fontSize: 13, color: 'var(--text-secondary)', padding: '2px 0' }}>✅ {a}</div>)}
+                </div>
+              </div>
+              {alignResult.powerPartnerMessage && (
+                <div style={{ padding: 16, background: 'rgba(236,72,153,0.05)', border: '1px solid rgba(236,72,153,0.2)', borderRadius: 12 }}>
+                  <div style={{ fontSize: 12, color: '#ec4899', fontWeight: 600, marginBottom: 6 }}>🤝 パワーパートナーメッセージ</div>
+                  <div style={{ fontSize: 14, color: 'var(--text-primary)', lineHeight: 1.8, fontStyle: 'italic' }}>{alignResult.powerPartnerMessage}</div>
+                </div>
+              )}
+              {alignResult.nextActionForGrowth?.length > 0 && (
+                <div style={{ padding: 14, background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 10 }}>
+                  <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 6 }}>🚀 今すぐできる成長アクション</div>
+                  {alignResult.nextActionForGrowth.map((a: string, i: number) => <div key={i} style={{ fontSize: 13, color: 'var(--text-secondary)', padding: '2px 0' }}>• {a}</div>)}
+                </div>
+              )}
+            </div>
           )}
         </div>
       )}
