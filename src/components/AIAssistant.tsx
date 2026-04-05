@@ -1,8 +1,11 @@
 'use client';
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
 
 type Message = { role: 'user' | 'assistant'; content: string; };
 type ChatSize = 'normal' | 'max';
+
+const MIN_W = 320, MIN_H = 400, MAX_W = 900, MAX_H = 900;
+const DEFAULT_SIZE = { width: 384, height: 500 };
 
 export function AIAssistant() {
   const [open, setOpen] = useState(false);
@@ -14,9 +17,27 @@ export function AIAssistant() {
   const [loading, setLoading] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
 
+  // リサイズ用state/ref
+  const [size, setSize] = useState(DEFAULT_SIZE);
+  const isResizing = useRef(false);
+  const resizeDir = useRef<'right' | 'bottom' | 'corner' | null>(null);
+  const startPos = useRef({ x: 0, y: 0 });
+  const startSize = useRef({ width: 0, height: 0 });
+
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
+
+  // localStorage から復元
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem('lumina_chat_size');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (parsed.width && parsed.height) setSize(parsed);
+      }
+    } catch {}
+  }, []);
 
   const send = async () => {
     if (!input.trim() || loading) return;
@@ -47,9 +68,56 @@ export function AIAssistant() {
 
   const toggleMaximize = () => setChatSize(prev => prev === 'max' ? 'normal' : 'max');
 
+  // リサイズハンドラー
+  const handleResizeStart = (e: React.MouseEvent, direction: 'right' | 'bottom' | 'corner') => {
+    e.preventDefault();
+    e.stopPropagation();
+    isResizing.current = true;
+    resizeDir.current = direction;
+    startPos.current = { x: e.clientX, y: e.clientY };
+    startSize.current = { ...size };
+  };
+
+  const handleMouseMove = useCallback((e: MouseEvent) => {
+    if (!isResizing.current) return;
+    // ウィンドウは右下固定なので、左・上方向にドラッグして広げる → dx/dy を反転
+    const dx = startPos.current.x - e.clientX;
+    const dy = startPos.current.y - e.clientY;
+    const dir = resizeDir.current;
+
+    const newW = dir === 'bottom' ? startSize.current.width : Math.min(MAX_W, Math.max(MIN_W, startSize.current.width + dx));
+    const newH = dir === 'right' ? startSize.current.height : Math.min(MAX_H, Math.max(MIN_H, startSize.current.height + dy));
+    setSize({ width: newW, height: newH });
+  }, []);
+
+  const handleMouseUp = useCallback(() => {
+    if (!isResizing.current) return;
+    isResizing.current = false;
+    resizeDir.current = null;
+    // 現在のサイズを保存（setSize後にrefで取れないのでDOMから取得せず次のrenderで保存）
+    setSize(prev => {
+      localStorage.setItem('lumina_chat_size', JSON.stringify(prev));
+      return prev;
+    });
+  }, []);
+
+  useEffect(() => {
+    window.addEventListener('mousemove', handleMouseMove);
+    window.addEventListener('mouseup', handleMouseUp);
+    return () => {
+      window.removeEventListener('mousemove', handleMouseMove);
+      window.removeEventListener('mouseup', handleMouseUp);
+    };
+  }, [handleMouseMove, handleMouseUp]);
+
+  const isMobile = typeof window !== 'undefined' && window.innerWidth <= 768;
+
   const windowStyle: React.CSSProperties = chatSize === 'max'
     ? { position: 'fixed', inset: 0, zIndex: 9998, width: '100vw', height: '100vh', background: 'var(--bg-secondary)', borderRadius: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' }
-    : { position: 'fixed', bottom: 88, right: 24, zIndex: 9998, width: 360, height: 500, background: 'var(--bg-secondary)', border: '1px solid var(--border-accent)', borderRadius: 20, display: 'flex', flexDirection: 'column', boxShadow: '0 8px 40px rgba(0,0,0,0.2)', overflow: 'hidden' };
+    : { position: 'fixed', bottom: 88, right: 24, zIndex: 9998, width: size.width, height: size.height, background: 'var(--bg-secondary)', border: '1px solid var(--border-accent)', borderRadius: 20, display: 'flex', flexDirection: 'column', boxShadow: '0 8px 40px rgba(0,0,0,0.2)', overflow: 'hidden' };
+
+  // リサイズハンドルの共通スタイル
+  const handleBase: React.CSSProperties = { position: 'absolute', zIndex: 10 };
 
   return (
     <>
@@ -74,7 +142,28 @@ export function AIAssistant() {
 
       {/* チャットウィンドウ */}
       {open && (
-        <div style={windowStyle}>
+        <div style={{ ...windowStyle, position: 'fixed' }}>
+          {/* リサイズハンドル（通常モード・PC のみ） */}
+          {chatSize !== 'max' && !isMobile && (
+            <>
+              {/* 左端 */}
+              <div
+                onMouseDown={e => handleResizeStart(e, 'right')}
+                style={{ ...handleBase, left: 0, top: 0, bottom: 0, width: 6, cursor: 'col-resize' }}
+              />
+              {/* 上端 */}
+              <div
+                onMouseDown={e => handleResizeStart(e, 'bottom')}
+                style={{ ...handleBase, top: 0, left: 0, right: 0, height: 6, cursor: 'row-resize' }}
+              />
+              {/* 左上角 */}
+              <div
+                onMouseDown={e => handleResizeStart(e, 'corner')}
+                style={{ ...handleBase, top: 0, left: 0, width: 14, height: 14, cursor: 'nw-resize', borderRadius: '20px 0 0 0' }}
+              />
+            </>
+          )}
+
           {/* ヘッダー */}
           <div style={{ padding: '14px 16px', background: 'linear-gradient(135deg, #6c63ff, #8b5cf6)', display: 'flex', alignItems: 'center', gap: 10 }}>
             <span style={{ fontSize: 18 }}>🤖</span>
