@@ -15,7 +15,7 @@ const navItems = [
   { href: '/admin/grade/definitions', label: '職種・役職定義', icon: '📌' },
   { href: '/admin/grade/mindset', label: 'マインド成長', icon: '🌱' },
   { href: '/admin/evaluation', label: '評価制度', icon: '📋' },
-  { href: '/admin/red-zone', label: 'レッドゾーン', icon: '🚫' },
+  { href: '/admin/red-zone', label: '行動基準', icon: '🎯' },
   { href: '/admin/employment-rules', label: '就業規則', icon: '📋' },
   { href: '/admin/handbook', label: 'ハンドブック', icon: '📖' },
   { href: '/admin/strategy', label: '経営戦略', icon: '🗺' },
