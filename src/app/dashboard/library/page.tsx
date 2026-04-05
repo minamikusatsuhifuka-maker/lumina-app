@@ -22,6 +22,7 @@ export default function LibraryPage() {
   const [mergeMode, setMergeMode] = useState(false);
   const [mergeResult, setMergeResult] = useState('');
   const [merging, setMerging] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editTags, setEditTags] = useState('');
   const [editGroup, setEditGroup] = useState('');
@@ -47,6 +48,35 @@ export default function LibraryPage() {
       setMergeResult(data.result || '');
     } finally {
       setMerging(false);
+    }
+  };
+
+  const handleSaveMergeReport = async () => {
+    if (!mergeResult) return;
+    setIsSaving(true);
+    try {
+      const res = await fetch('/api/library', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          title: `統合レポート ${new Date().toLocaleDateString('ja-JP')}`,
+          content: mergeResult,
+          type: 'merge',
+          tags: '統合レポート',
+          group_name: '統合レポート',
+        }),
+      });
+      if (res.ok) {
+        const newItem = await res.json();
+        setItems(prev => [newItem, ...prev]);
+        alert('ライブラリに保存しました！');
+      } else {
+        alert('保���に失敗しました');
+      }
+    } catch {
+      alert('保存に失敗しました');
+    } finally {
+      setIsSaving(false);
     }
   };
 
@@ -157,13 +187,26 @@ export default function LibraryPage() {
             </button>
           )}
           {mergeResult && (
-            <div style={{
-              marginTop: 16, padding: 16, background: 'var(--bg-secondary)',
-              borderRadius: 10, fontSize: 13, color: 'var(--text-secondary)',
-              lineHeight: 1.8, whiteSpace: 'pre-wrap', maxHeight: '60vh', overflowY: 'auto',
-            }}>
-              {mergeResult}
-            </div>
+            <>
+              <div style={{
+                marginTop: 16, padding: 16, background: 'var(--bg-secondary)',
+                borderRadius: 10, fontSize: 13, color: 'var(--text-secondary)',
+                lineHeight: 1.8, whiteSpace: 'pre-wrap', maxHeight: '60vh', overflowY: 'auto',
+              }}>
+                {mergeResult}
+              </div>
+              <button
+                onClick={handleSaveMergeReport}
+                disabled={isSaving}
+                style={{
+                  marginTop: 12, padding: '9px 20px', borderRadius: 8, border: 'none', cursor: isSaving ? 'not-allowed' : 'pointer',
+                  background: isSaving ? 'rgba(108,99,255,0.3)' : 'linear-gradient(135deg, #6c63ff, #8b5cf6)',
+                  color: '#fff', fontWeight: 700, fontSize: 13,
+                }}
+              >
+                {isSaving ? '保存中...' : '📚 ライブラリに保存'}
+              </button>
+            </>
           )}
         </div>
       )}
