@@ -35,13 +35,11 @@ export async function POST(req: Request) {
     const salaryMaxs = [0, 240000, 280000, 340000, 420000, 520000, 650000];
     const salaryRanges = ['', '22〜24万', '24〜28万', '28〜34万', '34〜42万', '42〜52万', '52〜65万'];
 
-    const systemPrompt = `あなたはクリニックの等級制度設計の専門家です。
-必ずJSON形式のみで返してください。前置き・説明・コードブロックは不要です。
+    const systemPrompt = `クリニックの等級制度設計専門家。必ずJSON形式のみで返答。前置き不要。
 
-クリニックの理念：${philosophy}
-ビジョン：${(growth?.win_win_vision as string)?.slice(0, 300) ?? ''}
-評価方針：マインド50%・知識25%・スキル25%。実行・実績・実力・誠実の「実」を見て評価。
-等級モデル：ピラミッドではなく同心円。G1ルーキー〜G5アンバサダー。`;
+理念：${philosophy.slice(0, 500)}
+評価方針：マインド50%・知識25%・スキル25%。アチーブメント原則（知る→わかる→行う→できる→分かち合う）。
+等級：G1ルーキー〜G5アンバサダー（同心円モデル）。`;
 
     const savedGrades = [];
 
@@ -50,35 +48,26 @@ export async function POST(req: Request) {
       const gradeName = gradeNames[level] ?? `G${level}`;
       const salaryRange = salaryRanges[level] ?? '';
 
-      const userPrompt = `職種：${position}（${role}）
-等級：${gradeName}（全${gradeCount}段階中 第${level}段階）
-給与目安：月${salaryRange}（皮膚科クリニック・滋賀県）
+      const userPrompt = `職種：${position} / 等級：${gradeName}（全${gradeCount}段階中第${level}段階）/ 給与：月${salaryRange}
 
-以下のJSON形式のみで返してください：
+JSON形式のみで返してください（説明不要）：
 {
-  "levelNumber": ${level},
   "name": "${gradeName}",
-  "description": "この等級の役割と期待（2〜3文）",
+  "description": "この等級の役割（1〜2文）",
   "skills": ["スキル①", "スキル②", "スキル③"],
-  "knowledge": ["知識①", "知識②", "知識③"],
-  "mindset": ["マインド①", "マインド②", "マインド③"],
-  "continuousLearning": ["継続学習①", "継続学習②"],
-  "requiredCertifications": ["必須資格①"],
-  "promotionExam": {
-    "description": "昇格試験の概要",
-    "format": "形式",
-    "passingCriteria": "合格基準",
-    "examContent": ["試験内容①", "試験内容②"]
-  },
-  "requirementsPromotion": "昇格条件（箇条書き）",
-  "requirementsDemotion": "降格条件",
+  "knowledge": ["知識①", "知識②"],
+  "mindset": ["マインド①", "マインド②"],
+  "continuousLearning": ["学習①", "学習②"],
+  "requiredCertifications": ["資格①"],
+  "requirementsPromotion": "昇格条件（1〜2文）",
+  "requirementsDemotion": "降格条件（1文）",
   "salaryMin": ${salaryMins[level] ?? 0},
   "salaryMax": ${salaryMaxs[level] ?? 0}
 }`;
 
       const response = await anthropic.messages.create({
         model: 'claude-sonnet-4-6',
-        max_tokens: 2000,
+        max_tokens: 1000,
         system: systemPrompt,
         messages: [{ role: 'user', content: userPrompt }],
       });
