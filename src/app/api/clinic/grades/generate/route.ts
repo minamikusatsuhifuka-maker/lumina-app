@@ -124,15 +124,16 @@ export async function POST(req: Request) {
           RETURNING *
         `;
       } else {
+        const newId = `grade_${Date.now()}_${level}`;
         [saved] = await sql`
           INSERT INTO grade_levels (
-            level_number, name, position, role, description,
+            id, level_number, name, position, role, description,
             skills, knowledge, mindset, continuous_learning,
             required_certifications, promotion_exam,
             requirements_promotion, requirements_demotion,
             salary_min, salary_max
           ) VALUES (
-            ${level}, ${grade.name}, ${position}, ${role},
+            ${newId}, ${level}, ${grade.name}, ${position}, ${role},
             ${grade.description ?? ''},
             ${JSON.stringify(grade.skills ?? [])},
             ${JSON.stringify(grade.knowledge ?? [])},
