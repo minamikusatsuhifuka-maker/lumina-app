@@ -20,6 +20,7 @@ const navItems = [
   { href: '/admin/handbook', label: 'ハンドブック', icon: '📖' },
   { href: '/admin/strategy', label: '経営戦略', icon: '🗺' },
   { href: '/admin/tasks', label: 'タスク管理', icon: '✅' },
+  { href: '/admin/applicants', label: '採用AI分析', icon: '👥' },
   { href: '/admin/text-editor', label: 'テキストエディタ', icon: '✍️' },
 ];
 
