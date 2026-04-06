@@ -58,85 +58,59 @@ export default function ZoneManagementPage() {
   const generateAllZones = async () => {
     setGenerating(true);
     setMessage('');
-    setSuggestions(null);
-    try {
-      const res = await fetch('/api/clinic/red-zone/generate', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ zone: 'all' }),
-      });
-      const data = await res.json();
 
-      // レスポンス形式の両方に対応
-      let allRules: { zone: string; title: string; description: string; example: string; consequence: string }[] = [];
+    const zones = ['red', 'yellow', 'green', 'teal'];
+    let totalSaved = 0;
 
-      if (data.zones && Array.isArray(data.zones)) {
-        // { zones: [{ zone_type, items }] } 形式
-        for (const zoneData of data.zones) {
-          const zoneKey = zoneData.zone_type || zoneData.zone;
-          const items = zoneData.items || zoneData.rules || [];
-          for (const item of items) {
-            allRules.push({
-              zone: zoneKey,
-              title: item.title || '',
-              description: item.description || '',
-              example: item.example || '',
-              consequence: item.consequence || '',
+    for (const zone of zones) {
+      try {
+        setMessage(`${zone}ゾーンを生成中...`);
+
+        const res = await fetch('/api/clinic/red-zone/generate', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ zone }),
+        });
+
+        if (!res.ok) {
+          console.error(`${zone} generate failed:`, res.status);
+          continue;
+        }
+
+        const data = await res.json();
+        const rules = data.rules || [];
+
+        // 各ルールを順番に保存
+        for (const rule of rules) {
+          try {
+            await fetch('/api/clinic/red-zone', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                zone_type: zone,
+                category: 'attitude',
+                title: rule.title || '',
+                description: rule.description || '',
+                consequence: rule.consequence || rule.example || '',
+                severity: zone === 'red' ? 'critical' : zone === 'yellow' ? 'serious' : 'standard',
+              }),
             });
+            totalSaved++;
+          } catch (e) {
+            console.error('保存失敗:', rule.title, e);
           }
         }
-      } else if (data.rules && Array.isArray(data.rules)) {
-        // { rules: [...] } 形式
-        for (const item of data.rules) {
-          allRules.push({
-            zone: item.zone || activeZone,
-            title: item.title || '',
-            description: item.description || '',
-            example: item.example || '',
-            consequence: item.consequence || '',
-          });
-        }
+      } catch (e) {
+        console.error(`${zone} error:`, e);
       }
-
-      if (allRules.length === 0) {
-        setMessage('生成データが空です。もう一度お試しください。');
-        return;
-      }
-
-      // 順番に保存（並列ではなく逐次）
-      let saved = 0;
-      for (const rule of allRules) {
-        try {
-          await fetch('/api/clinic/red-zone', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              zone_type: rule.zone,
-              category: 'attitude',
-              title: rule.title,
-              description: rule.description,
-              consequence: rule.consequence || rule.example || '',
-              severity: rule.zone === 'red' ? 'critical' : rule.zone === 'yellow' ? 'serious' : 'standard',
-            }),
-          });
-          saved++;
-        } catch (e) {
-          console.error('保存失敗:', rule.title, e);
-        }
-      }
-
-      // 再取得して表示更新
-      const updated = await fetch('/api/clinic/red-zone').then(r => r.json());
-      setRules(Array.isArray(updated) ? updated : []);
-      setMessage(`${saved}件の行動基準を生成・保存しました`);
-      setTimeout(() => setMessage(''), 4000);
-
-    } catch (e) {
-      console.error('generate error:', e);
-      setMessage('生成に失敗しました。もう一度お試しください。');
-    } finally {
-      setGenerating(false);
     }
+
+    // 全ゾーン完了後に再取得
+    const updated = await fetch('/api/clinic/red-zone').then(r => r.json());
+    setRules(Array.isArray(updated) ? updated : []);
+    setMessage(`✅ ${totalSaved}件の行動基準を生成・保存しました`);
+    setTimeout(() => setMessage(''), 5000);
+    setGenerating(false);
   };
 
   const adoptItem = async (zoneType: string, item: any, idx: number) => {
@@ -256,7 +230,7 @@ export default function ZoneManagementPage() {
           background: generating ? 'rgba(108,99,255,0.3)' : 'linear-gradient(135deg, #6c63ff, #8b5cf6)',
           color: '#fff', fontWeight: 700, fontSize: 13,
         }}>
-          {generating ? '生成中...' : '🤖 AIに4ゾーンを提案してもらう'}
+          {generating ? message || '生成中...' : '🤖 AIに4ゾーンを提案してもらう'}
         </button>
         <button onClick={() => { setShowAdd(!showAdd); setAddForm(prev => ({ ...prev, zone_type: activeZone })); }} style={{
           padding: '9px 18px', borderRadius: 8, border: '1px solid var(--border)',
