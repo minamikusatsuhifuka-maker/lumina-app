@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
 import { neon } from '@neondatabase/serverless';
+import { buildSystemContext } from '@/lib/clinic-context';
 
 export const maxDuration = 60;
 
@@ -16,18 +17,15 @@ export async function POST(req: NextRequest) {
 
   const sql = neon(process.env.DATABASE_URL!);
 
-  // スタッフの個人成長プラン、クリニック理念、成長哲学を取得
-  const [planRows, philRows, growthRows] = await Promise.all([
-    sql`SELECT * FROM personal_growth_plans WHERE staff_id = ${staffId} ORDER BY created_at DESC LIMIT 1`,
-    sql`SELECT * FROM clinic_philosophy ORDER BY created_at DESC LIMIT 1`,
-    sql`SELECT * FROM growth_philosophy ORDER BY created_at DESC LIMIT 1`,
-  ]);
+  // スタッフの個人成長プランを取得
+  const planRows = await sql`SELECT * FROM personal_growth_plans WHERE staff_id = ${staffId} ORDER BY created_at DESC LIMIT 1`;
 
   const plan = planRows[0];
   if (!plan) return NextResponse.json({ error: '個人成長プランが見つかりません' }, { status: 404 });
 
-  const philosophy = philRows[0]?.content || '（理念未登録）';
-  const growthPhilosophy = growthRows[0];
+  const systemContext = await buildSystemContext(
+    'あなたはクリニックの人材育成・組織開発の専門家です。個人のビジョンと組織の理念・成長哲学の整合性を分析し、必ずJSON形式のみで返してください。'
+  );
 
   const response = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
@@ -39,20 +37,10 @@ export async function POST(req: NextRequest) {
     body: JSON.stringify({
       model: 'claude-sonnet-4-6',
       max_tokens: 4000,
-      system: 'あなたはクリニックの人材育成・組織開発の専門家です。個人のビジョンと組織の理念・成長哲学の整合性を分析し、必ずJSON形式のみで返してください。',
+      system: systemContext,
       messages: [{
         role: 'user',
-        content: `以下の情報を元に、個人のビジョンと組織の理念・成長哲学の整合性を分析してください。
-
-【クリニック理念】
-${philosophy}
-
-【成長哲学】
-タイトル: ${growthPhilosophy?.title || '（未登録）'}
-コアバリュー: ${growthPhilosophy?.core_values || '（未登録）'}
-成長モデル: ${growthPhilosophy?.growth_model || '（未登録）'}
-Win-Winビジョン: ${growthPhilosophy?.win_win_vision || '（未登録）'}
-パワーパートナー定義: ${growthPhilosophy?.power_partner_definition || '（未登録）'}
+        content: `上記のクリニック理念・成長哲学と、以下の個人成長プランの整合性を分析してください。
 
 【個人成長プラン】
 ライフビジョン: ${plan.life_vision || '（未記入）'}

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
 import { neon } from '@neondatabase/serverless';
+import { buildSystemContext } from '@/lib/clinic-context';
 
 export const maxDuration = 300;
 
@@ -17,6 +18,10 @@ export async function POST(_req: NextRequest, { params }: { params: Promise<{ id
   if (!stratRows[0]) return NextResponse.json({ error: 'Not found' }, { status: 404 });
 
   const s = stratRows[0];
+  const systemContext = await buildSystemContext(
+    'あなたはクリニック経営戦略の実行計画策定の専門家です。必ずJSON形式のみで返してください。JSONのみを返し、それ以外のテキストは含めないでください。',
+    'strategy'
+  );
 
   const response = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
@@ -24,7 +29,7 @@ export async function POST(_req: NextRequest, { params }: { params: Promise<{ id
     body: JSON.stringify({
       model: 'claude-sonnet-4-6',
       max_tokens: 4000,
-      system: 'あなたはクリニック経営戦略の実行計画策定の専門家です。必ずJSON形式のみで返してください。JSONのみを返し、それ以外のテキストは含めないでください。',
+      system: systemContext,
       messages: [{
         role: 'user',
         content: `以下の戦略を5〜10個の具体的なタスクに分解してください。

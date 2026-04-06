@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
 import { neon } from '@neondatabase/serverless';
+import { buildSystemContext } from '@/lib/clinic-context';
 
 export const maxDuration = 60;
 
@@ -27,6 +28,10 @@ export async function POST(req: NextRequest) {
   const staffResponse = responseRows[0];
   if (!staffResponse) return NextResponse.json({ error: '回答が見つかりません' }, { status: 404 });
 
+  const systemContext = await buildSystemContext(
+    'あなたはクリニック経営・人事制度の専門家です。必ずJSON形式のみで返してください。'
+  );
+
   const response = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
     headers: {
@@ -37,7 +42,7 @@ export async function POST(req: NextRequest) {
     body: JSON.stringify({
       model: 'claude-sonnet-4-6',
       max_tokens: 4000,
-      system: 'あなたはクリニック経営・人事制度の専門家です。必ずJSON形式のみで返してください。',
+      system: systemContext,
       messages: [{
         role: 'user',
         content: `以下のアンケート回答を要約し、強み・課題・育成ポイントをJSON形式で返してください。

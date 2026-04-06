@@ -3,6 +3,7 @@ export const maxDuration = 300;
 import Anthropic from '@anthropic-ai/sdk';
 import { neon } from '@neondatabase/serverless';
 import { auth } from '@/lib/auth';
+import { buildSystemContext } from '@/lib/clinic-context';
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
@@ -18,15 +19,6 @@ export async function POST(req: Request) {
 
     const sql = neon(process.env.DATABASE_URL!);
 
-    // コンテキスト並行取得
-    const [philRows, growthRows] = await Promise.all([
-      sql`SELECT content FROM clinic_philosophy LIMIT 1`,
-      sql`SELECT win_win_vision, lead_management_philosophy
-          FROM growth_philosophy LIMIT 1`,
-    ]);
-    const philosophy = (philRows[0]?.content as string)?.slice(0, 1000) ?? '';
-    const growth = growthRows[0];
-
     const gradeNames = [
       '', 'G1 ルーキー', 'G2 コア', 'G3 エキスパート',
       'G4 パートナー', 'G5 アンバサダー', 'G6 マスター',
@@ -35,11 +27,10 @@ export async function POST(req: Request) {
     const salaryMaxs = [0, 240000, 280000, 340000, 420000, 520000, 650000];
     const salaryRanges = ['', '22〜24万', '24〜28万', '28〜34万', '34〜42万', '42〜52万', '52〜65万'];
 
-    const systemPrompt = `クリニックの等級制度設計専門家。必ずJSON形式のみで返答。前置き不要。
-
-理念：${philosophy.slice(0, 500)}
-評価方針：マインド50%・知識25%・スキル25%。アチーブメント原則（知る→わかる→行う→できる→分かち合う）。
-等級：G1ルーキー〜G5アンバサダー（同心円モデル）。`;
+    const systemPrompt = await buildSystemContext(
+      'クリニックの等級制度設計専門家。必ずJSON形式のみで返答。前置き不要。',
+      'grade'
+    );
 
     const savedGrades = [];
 
