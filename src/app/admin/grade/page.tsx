@@ -281,6 +281,42 @@ export default function GradePage() {
           )}
         </div>
 
+        {/* ティール組織ビジョンバナー */}
+        <div style={{
+          padding: 20, marginBottom: 24,
+          background: 'linear-gradient(135deg, rgba(6,182,212,0.08), rgba(139,92,246,0.06))',
+          border: '1px solid rgba(6,182,212,0.25)',
+          borderRadius: 16,
+        }}>
+          <div style={{ fontSize: 13, fontWeight: 700, color: '#06b6d4', marginBottom: 12 }}>🩵 私たちが目指す組織の姿</div>
+          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 12 }}>
+            {[
+              { color: '#ef4444', label: '🔴 レッド',  desc: '力・恐怖',   dim: true, current: false },
+              { color: '#f97316', label: '🟠 アンバー', desc: 'ルール・階層', dim: true, current: false },
+              { color: '#eab308', label: '🟡 オレンジ', desc: '目標・競争',  dim: true, current: false },
+              { color: '#4ade80', label: '🟢 グリーン', desc: '関係・合意',  dim: false, current: false },
+              { color: '#06b6d4', label: '🩵 ティール', desc: '自律・全体性', dim: false, current: true },
+            ].map(stage => (
+              <div key={stage.label} style={{
+                flex: 1, minWidth: 100, padding: '8px 10px',
+                background: stage.current ? `${stage.color}20` : `${stage.color}08`,
+                border: `1px solid ${stage.current ? stage.color + '60' : stage.color + '20'}`,
+                borderRadius: 10, textAlign: 'center',
+                opacity: stage.dim ? 0.45 : 1,
+                transform: stage.current ? 'scale(1.05)' : 'none',
+              }}>
+                <div style={{ fontSize: 12, fontWeight: 700, color: stage.color }}>{stage.label}</div>
+                <div style={{ fontSize: 10, color: 'var(--text-muted)', marginTop: 2 }}>{stage.desc}</div>
+                {stage.current && <div style={{ fontSize: 9, color: stage.color, marginTop: 3, fontWeight: 700 }}>← 目指す姿</div>}
+              </div>
+            ))}
+          </div>
+          <div style={{ fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.7 }}>
+            全員がリーダー。誰かに言われなくても最善の行動を選択できる組織。<br/>
+            G1→G5は「ティール度の成長」であり、影響の輪（同心円）の広がり。
+          </div>
+        </div>
+
         {/* 同心円ビジュアル（SVG） */}
         {filteredGrades.length > 0 && (
           <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 24 }}>
