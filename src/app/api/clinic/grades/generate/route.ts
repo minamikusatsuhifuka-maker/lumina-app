@@ -34,23 +34,40 @@ export async function POST(req: Request) {
 
     const savedGrades = [];
 
+    const circleRanges: Record<number, string> = {
+      1: '自分自身 → まず自分を整える',
+      2: '自分＋チーム → 仲間に貢献できる',
+      3: '自分＋チーム＋クリニック → 組織を豊かに',
+      4: '上記＋患者さん → 患者人生に貢献',
+      5: '上記＋地域・業界 → 外の世界に価値を届ける',
+      6: '上記＋業界全体 → 業界をリードする',
+    };
+
     // 1等級ずつ生成（JSON切れ防止）
     for (let level = 1; level <= gradeCount; level++) {
       const gradeName = gradeNames[level] ?? `G${level}`;
       const salaryRange = salaryRanges[level] ?? '';
+      const circleRange = circleRanges[level] ?? '';
 
-      const userPrompt = `職種：${position} / 等級：${gradeName}（全${gradeCount}段階中第${level}段階）/ 給与：月${salaryRange}
+      const userPrompt = `【非ピラミッド・同心円モデルの原則】
+等級は「上下関係」ではなく「影響の輪の広がり」を表します。
+G5が偉いのではなく「豊かにできる人の輪が最も広い」のです。
 
+職種：${position} / 等級：${gradeName}（全${gradeCount}段階中第${level}段階）
+同心円の範囲：${circleRange}
+給与：月${salaryRange}
+
+等級が上がるほど「先払いの量」が増える。基準は「言動として現れる実」で記述すること。
 JSON形式のみで返してください（説明不要）：
 {
   "name": "${gradeName}",
-  "description": "この等級の役割（1〜2文）",
-  "skills": ["スキル①", "スキル②", "スキル③"],
-  "knowledge": ["知識①", "知識②"],
-  "mindset": ["マインド①", "マインド②"],
+  "description": "この等級の同心円ミッション（1〜2文）",
+  "skills": ["スキル①", "スキル②", "スキル③", "スキル④", "スキル⑤"],
+  "knowledge": ["知識①", "知識②", "知識③", "知識④", "知識⑤"],
+  "mindset": ["マインド①（言動として現れる形）", "マインド②", "マインド③", "マインド④", "マインド⑤"],
   "continuousLearning": ["学習①", "学習②"],
   "requiredCertifications": ["資格①"],
-  "requirementsPromotion": "昇格条件（1〜2文）",
+  "requirementsPromotion": "昇格条件（具体的・測定可能、1〜2文）",
   "requirementsDemotion": "降格条件（1文）",
   "salaryMin": ${salaryMins[level] ?? 0},
   "salaryMax": ${salaryMaxs[level] ?? 0}

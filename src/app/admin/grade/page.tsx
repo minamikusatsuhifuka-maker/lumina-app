@@ -13,6 +13,15 @@ const DETAIL_TABS: { key: DetailTab; label: string }[] = [
 ];
 
 const QUICK = ['もっと具体的に', '理念に沿って', '業界標準を参考に', '追加提案して'];
+
+const CIRCLE_MISSIONS: Record<number, { icon: string; mission: string }> = {
+  1: { icon: '🌱', mission: 'まず自分自身を整え、基本を身につける。自分という土台を固める期間。' },
+  2: { icon: '🌿', mission: 'チームメンバーの力になれる存在へ。身近な仲間を豊かにする。' },
+  3: { icon: '🌳', mission: 'クリニック全体を豊かにする専門家。自分の得意でチームを引き上げる。' },
+  4: { icon: '🌏', mission: '患者さんの人生に本質的に貢献するパートナー。数字と人生の両方に責任を持つ。' },
+  5: { icon: '🌟', mission: 'クリニックの価値を地域・業界に届ける大使。先払いを体現し、外の世界へ影響を与える。' },
+  6: { icon: '✨', mission: '業界全体をリードし、次世代の仕組みを創る存在。' },
+};
 const parseJson = (v: any) => { if (!v) return []; if (Array.isArray(v)) return v; try { return JSON.parse(v); } catch { return []; } };
 
 export default function GradePage() {
@@ -326,6 +335,26 @@ export default function GradePage() {
               <div style={{ fontSize: 18, fontWeight: 700, color: 'var(--text-primary)' }}>Lv.{selected.level_number} {selected.name}</div>
               <button onClick={() => deleteGrade(selected.id)} style={{ padding: '4px 10px', borderRadius: 6, border: 'none', background: 'rgba(239,68,68,0.1)', color: '#ef4444', fontSize: 11, cursor: 'pointer' }}>🗑</button>
             </div>
+
+            {/* 同心円ミッション */}
+            {CIRCLE_MISSIONS[selected.level_number] && (
+              <div style={{
+                padding: 14, marginBottom: 14,
+                background: `${['','#94a3b8','#60a5fa','#4ade80','#06b6d4','#8b5cf6','#a78bfa'][selected.level_number] || '#6c63ff'}10`,
+                border: `1px solid ${['','#94a3b8','#60a5fa','#4ade80','#06b6d4','#8b5cf6','#a78bfa'][selected.level_number] || '#6c63ff'}30`,
+                borderRadius: 12, display: 'flex', gap: 14, alignItems: 'center',
+              }}>
+                <div style={{ fontSize: 32 }}>{CIRCLE_MISSIONS[selected.level_number].icon}</div>
+                <div>
+                  <div style={{ fontSize: 12, fontWeight: 700, color: ['','#94a3b8','#60a5fa','#4ade80','#06b6d4','#8b5cf6','#a78bfa'][selected.level_number] || '#6c63ff' }}>
+                    {selected.name}の同心円ミッション
+                  </div>
+                  <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 4, lineHeight: 1.6 }}>
+                    {CIRCLE_MISSIONS[selected.level_number].mission}
+                  </div>
+                </div>
+              </div>
+            )}
 
             {/* 8タブ */}
             <div style={{ display: 'flex', gap: 4, marginBottom: 16, flexWrap: 'wrap' }}>
