@@ -25,28 +25,32 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: '無効なゾーンです' }, { status: 400 });
     }
 
-    // 就業規則を軽量取得
+    // 就業規則を軽量取得（特殊文字を除去）
     let rulesSnippet = '';
     try {
       const sql = neon(process.env.DATABASE_URL!);
       const rules = await sql`SELECT content FROM employment_rules ORDER BY created_at DESC LIMIT 1`;
-      if (rules.length > 0) rulesSnippet = (rules[0].content as string)?.slice(0, 500) || '';
+      if (rules.length > 0) {
+        rulesSnippet = (rules[0].content as string)
+          ?.slice(0, 300)
+          ?.replace(/[\r\n]+/g, ' ')
+          ?.replace(/\\/g, '')
+          || '';
+      }
     } catch {}
 
-    const systemPrompt = `あなたは皮膚科・美容皮膚科クリニックの行動基準設計AIです。
-院長の哲学：ティール組織（全員がリーダー）・先払い（貢献を先に）・実評価（実行・実績・実力・誠実）・リードマネジメント（内発的動機）
-${rulesSnippet ? `就業規則（抜粋）：${rulesSnippet}` : ''}`;
+    const systemPrompt = `あなたは皮膚科・美容皮膚科クリニックの行動基準設計AIです。院長の哲学：ティール組織・先払い・実評価・リードマネジメント。${rulesSnippet ? `就業規則参考：${rulesSnippet}` : ''}`;
 
     const prompt = `${ZONE_DEFINITIONS[zone]}の行動基準を5件生成してください。
 
-以下のJSON形式のみで返してください（前置き・説明不要）：
+必ずJSON形式のみで返してください：
 {
   "rules": [
     {
-      "title": "タイトル（20文字以内）",
-      "description": "具体的な説明（1〜2文）",
-      "example": "具体的な行動例",
-      "consequence": "対応・結果"
+      "title": "タイトル",
+      "description": "説明",
+      "example": "具体例",
+      "consequence": "対応"
     }
   ]
 }`;
@@ -67,11 +71,30 @@ ${rulesSnippet ? `就業規則（抜粋）：${rulesSnippet}` : ''}`;
     });
 
     const data = await response.json();
-    const text = data.content?.[0]?.text || '{}';
-    const clean = text.replace(/```json|```/g, '').trim();
-    const parsed = JSON.parse(clean);
+    const text = data.content?.[0]?.text || '';
 
-    return NextResponse.json({ rules: parsed.rules || [] });
+    // 堅牢なJSON抽出
+    let rules: any[] = [];
+    try {
+      const jsonBlockMatch = text.match(/```json\s*([\s\S]*?)\s*```/);
+      const jsonStr = jsonBlockMatch
+        ? jsonBlockMatch[1]
+        : (text.match(/\{[\s\S]*\}/) || ['{}'])[0];
+
+      const parsed = JSON.parse(jsonStr);
+      rules = parsed.rules || [];
+    } catch {
+      // フォールバック：正規表現でタイトルだけ抽出
+      const titleMatches = [...text.matchAll(/"title"\s*:\s*"([^"]+)"/g)];
+      rules = titleMatches.map(m => ({
+        title: m[1],
+        description: '',
+        example: '',
+        consequence: '',
+      }));
+    }
+
+    return NextResponse.json({ rules });
 
   } catch (e) {
     console.error('generate error:', e);
