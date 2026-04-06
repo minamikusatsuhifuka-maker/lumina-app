@@ -44,6 +44,10 @@ export default function ZoneManagementPage() {
     behavioral_indicators: '', related_achievement_principle: '',
   });
 
+  // 編集
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editForm, setEditForm] = useState({ title: '', description: '', consequence: '', official_statement: '', legal_basis: '', improvement_period: '' });
+
   useEffect(() => {
     fetch('/api/clinic/red-zone').then(r => r.json()).then(d => {
       if (Array.isArray(d)) setRules(d);
@@ -87,6 +91,24 @@ export default function ZoneManagementPage() {
           };
         });
         setMessage(`「${item.title}」を採用しました`);
+      }
+    } finally { setSavingId(null); }
+  };
+
+  const startEdit = (rule: Rule) => {
+    setEditingId(rule.id);
+    setEditForm({ title: rule.title, description: rule.description, consequence: rule.consequence || '', official_statement: rule.official_statement || '', legal_basis: rule.legal_basis || '', improvement_period: rule.improvement_period || '' });
+  };
+
+  const saveEdit = async () => {
+    if (!editingId) return;
+    setSavingId('edit');
+    try {
+      const res = await fetch('/api/clinic/red-zone', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: editingId, ...editForm }) });
+      if ((await res.json()).success) {
+        setRules(prev => prev.map(r => r.id === editingId ? { ...r, ...editForm } : r));
+        setEditingId(null);
+        setMessage('更新しました');
       }
     } finally { setSavingId(null); }
   };
@@ -286,6 +308,21 @@ export default function ZoneManagementPage() {
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
           {zoneRules(activeZone).map(rule => (
             <div key={rule.id} style={{ padding: 14, background: z.bg, border: `1px solid ${z.border}`, borderRadius: 14 }}>
+              {editingId === rule.id ? (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  <input value={editForm.title} onChange={e => setEditForm(p => ({ ...p, title: e.target.value }))} placeholder="タイトル" style={inputStyle} />
+                  <textarea value={editForm.description} onChange={e => setEditForm(p => ({ ...p, description: e.target.value }))} placeholder="説明" style={{ ...inputStyle, minHeight: 60, resize: 'vertical' }} />
+                  <input value={editForm.official_statement} onChange={e => setEditForm(p => ({ ...p, official_statement: e.target.value }))} placeholder="公式ステートメント" style={inputStyle} />
+                  <input value={editForm.legal_basis} onChange={e => setEditForm(p => ({ ...p, legal_basis: e.target.value }))} placeholder="法的根拠" style={inputStyle} />
+                  <input value={editForm.improvement_period} onChange={e => setEditForm(p => ({ ...p, improvement_period: e.target.value }))} placeholder="改善期間" style={inputStyle} />
+                  <div style={{ display: 'flex', gap: 6 }}>
+                    <button onClick={saveEdit} disabled={savingId === 'edit'} style={{ padding: '6px 16px', borderRadius: 6, border: 'none', background: 'linear-gradient(135deg, #6c63ff, #8b5cf6)', color: '#fff', fontWeight: 700, fontSize: 12, cursor: 'pointer' }}>
+                      {savingId === 'edit' ? '保存中...' : '💾 保存'}
+                    </button>
+                    <button onClick={() => setEditingId(null)} style={{ padding: '6px 12px', borderRadius: 6, border: '1px solid var(--border)', background: 'var(--bg-card)', color: 'var(--text-muted)', fontSize: 12, cursor: 'pointer' }}>キャンセル</button>
+                  </div>
+                </div>
+              ) : (
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
                 <div style={{ flex: 1 }}>
                   <div style={{ display: 'flex', gap: 6, alignItems: 'center', marginBottom: 6 }}>
@@ -312,8 +349,12 @@ export default function ZoneManagementPage() {
                   {(rule as any).behavioral_indicators && <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4 }}>🎯 行動指標：{(rule as any).behavioral_indicators}</div>}
                   {(rule as any).related_achievement_principle && <div style={{ fontSize: 11, color: z.color, marginTop: 4 }}>⭐ {(rule as any).related_achievement_principle}</div>}
                 </div>
-                <button onClick={() => deleteRule(rule.id)} style={{ fontSize: 12, color: '#ef4444', background: 'none', border: 'none', cursor: 'pointer', flexShrink: 0, padding: '4px 8px' }}>🗑</button>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 4, flexShrink: 0 }}>
+                  <button onClick={() => startEdit(rule)} style={{ fontSize: 12, color: '#6c63ff', background: 'none', border: 'none', cursor: 'pointer', padding: '4px 8px' }}>✏️</button>
+                  <button onClick={() => deleteRule(rule.id)} style={{ fontSize: 12, color: '#ef4444', background: 'none', border: 'none', cursor: 'pointer', padding: '4px 8px' }}>🗑</button>
+                </div>
               </div>
+              )}
             </div>
           ))}
         </div>
