@@ -3,132 +3,95 @@ export const maxDuration = 120;
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
 import { neon } from '@neondatabase/serverless';
-import Anthropic from '@anthropic-ai/sdk';
-import { buildSystemContext } from '@/lib/clinic-context';
 
-const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+const ZONE_DEFS: Record<string, { label: string; prompt: string }> = {
+  red: {
+    label: '🔴レッドゾーン（即退職レベルの重大違反）',
+    prompt: `発覚次第即時解雇。いかなる理由・状況でも例外なし。
+ハラスメント・情報漏洩・虚偽報告・窃盗横領・無断欠勤3日以上など。`,
+  },
+  yellow: {
+    label: '🟡イエローゾーン（退職勧告レベル）',
+    prompt: `改善指導を行い、期間内に改善なければ退職勧告。
+遅刻繰返し・報連相欠如・ネガティブ影響・患者対応低下・ルール無視など。`,
+  },
+  green: {
+    label: '🟢グリーンゾーン（一人前の基準）',
+    prompt: `全スタッフが達成すべき基本ライン。
+組織づくりへの協力・真面目に違反なく働く・肯定的な仕事観・セルフコントロール・タイムマネジメント・全員が代表者という意識。`,
+  },
+  teal: {
+    label: '🩵ティールゾーン（リーダー以上の基準）',
+    prompt: `グリーンを体現した上でさらに高い次元。
+リードマネジメント実践・視座の高さ・人材育成・学習意欲・責任感・ロールモデル・大きな志・社会貢献・縁ある人を豊かにする。`,
+  },
+};
+
+async function generateZone(apiKey: string, zone: string, systemPrompt: string): Promise<any[]> {
+  const def = ZONE_DEFS[zone];
+  if (!def) return [];
+
+  const res = await fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' },
+    body: JSON.stringify({
+      model: 'claude-sonnet-4-6',
+      max_tokens: 1500,
+      system: systemPrompt,
+      messages: [{
+        role: 'user',
+        content: `${def.label}の行動基準を6件生成してください。
+${def.prompt}
+
+JSON形式のみで返してください：
+{"items":[{"category":"カテゴリ英語","title":"短いタイトル","description":"具体的な説明","official_statement":"公式ステートメント","legal_basis":"就業規則参照（あれば）","improvement_period":${zone === 'yellow' ? '"改善期間"' : 'null'}}]}`,
+      }],
+    }),
+  });
+
+  const data = await res.json();
+  const text = (data.content || []).filter((b: any) => b.type === 'text').map((b: any) => b.text).join('');
+  const clean = text.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
+  const match = clean.match(/(\{[\s\S]*\})/);
+  const parsed = JSON.parse(match ? match[1] : clean);
+  return parsed.items || [];
+}
 
 export async function POST(req: NextRequest) {
   const session = await auth();
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-  const sql = neon(process.env.DATABASE_URL!);
-  const rulesRows = await sql`SELECT content FROM employment_rules LIMIT 1`;
-  const employmentRules = (rulesRows[0]?.content as string) ?? '';
-
-  const system = await buildSystemContext(
-    'あなたはクリニックの人事・組織文化の専門家です。必ずJSON形式のみで返してください。マークダウンのコードフェンスなどは付けないでください。'
-  );
-
-  const response = await anthropic.messages.create({
-    model: 'claude-sonnet-4-6',
-    max_tokens: 8000,
-    system,
-    messages: [{
-      role: 'user',
-      content: `医療クリニックの行動基準を4つのゾーンに分けて作成してください。
-
-【就業規則（参考）】
-${employmentRules ? employmentRules.slice(0, 5000) : '未登録'}
-
-【4ゾーンの定義】
-
-🔴 レッド（即退職レベル）
-発覚次第即時解雇。いかなる理由・状況でも例外なし。
-
-🟡 イエロー（退職勧告レベル）
-改善指導を行い、期間内に改善なければ退職勧告。
-
-🟢 グリーン（一人前の基準）
-全スタッフが達成すべき基本ライン。
-・組織づくりへの協力・真面目に違反なく働く姿勢
-・組織人として当たり前の働き方・肯定的な仕事観
-・分かち合いの姿勢・セルフコントロール
-・タイムマネジメント・ポジティブなマインド
-・全員が当院の代表者であるという意識
-
-🩵 ティール（リーダー以上の基準）
-グリーンを体現した上でさらに高い次元：
-・関わる人の能力を引き出すマネジメント力（リードマネジメント）
-・視座の高さ・視野の広さ・思考の深さ
-・人材育成できる存在・組織づくりをリード
-・学習意欲・責任感・向上心に溢れる
-・頼れる存在・ロールモデル
-・大きな志をもち社会貢献している
-・縁ある人を豊かで幸せにする
-
-以下のJSON形式で作成してください：
-{
-  "zones": [
-    {
-      "zone_type": "red",
-      "items": [
-        {
-          "category": "harassment",
-          "title": "身体的暴力・傷害行為",
-          "description": "患者・スタッフへの身体的暴力、傷害、脅迫行為",
-          "official_statement": "当クリニックはいかなる暴力も絶対に許容しません。即日解雇とします。",
-          "legal_basis": "就業規則 懲戒解雇条項",
-          "improvement_period": null
-        }
-      ]
-    },
-    {
-      "zone_type": "yellow",
-      "items": [
-        {
-          "category": "attitude",
-          "title": "慢性的な遅刻・無断欠勤",
-          "description": "正当な理由のない遅刻・欠勤が月3回以上続く",
-          "official_statement": "勤怠管理は組織の信頼の基盤です。改善指導を行います。",
-          "legal_basis": "就業規則 服務規律条項",
-          "improvement_period": "指導開始から3ヶ月"
-        }
-      ]
-    },
-    {
-      "zone_type": "green",
-      "items": [
-        {
-          "category": "mindset",
-          "title": "当院の代表者としての意識",
-          "description": "院内外問わず、自分の言動がクリニック全体の評価に繋がる意識を持つ",
-          "official_statement": "あなたの一言・一動作が南草津皮フ科の顔です。",
-          "behavioral_indicators": "患者への挨拶・言葉遣い・SNSでの発信すべてを代表者として行動",
-          "related_achievement_principle": "行う（Lv3）〜できる（Lv4）"
-        }
-      ]
-    },
-    {
-      "zone_type": "teal",
-      "items": [
-        {
-          "category": "leadership",
-          "title": "リードマネジメントの実践",
-          "description": "指示・命令ではなく、関わる人の内発的動機を引き出すマネジメントを実践",
-          "official_statement": "真のリーダーは人を動かすのではなく、人が動きたくなる環境を創ります。",
-          "behavioral_indicators": "後輩が自ら考え行動できるような問いかけ・サポートを自然にしている",
-          "related_achievement_principle": "分かち合う（Lv5）の体現"
-        }
-      ]
-    }
-  ]
-}
-
-レッドゾーン：10〜15件（就業規則の懲戒規定を参照）
-イエローゾーン：10〜15件（就業規則の普通解雇・服務規律を参照）
-グリーンゾーン：10〜15件（一人前の基準・組織人としての当たり前）
-ティールゾーン：10〜15件（リーダー以上の高い意識・行動基準）`,
-    }],
-  });
-
-  const text = response.content.filter(b => b.type === 'text').map(b => (b as any).text).join('');
+  const apiKey = process.env.ANTHROPIC_API_KEY;
+  if (!apiKey) return NextResponse.json({ error: 'APIキーが設定されていません' }, { status: 500 });
 
   try {
-    const jsonMatch = text.match(/```json\s*([\s\S]*?)\s*```/) || text.match(/(\{[\s\S]*\})/);
-    const parsed = JSON.parse(jsonMatch ? jsonMatch[1] : text);
-    return NextResponse.json({ zones: parsed.zones });
-  } catch {
-    return NextResponse.json({ error: 'AI応答のパースに失敗しました', raw: text }, { status: 500 });
+    // 就業規則（軽量取得）
+    let rulesSnippet = '';
+    try {
+      const sql = neon(process.env.DATABASE_URL!);
+      const rules = await sql`SELECT content FROM employment_rules LIMIT 1`;
+      if (rules[0]?.content) rulesSnippet = (rules[0].content as string).slice(0, 800);
+    } catch {}
+
+    const systemPrompt = `あなたは皮膚科・美容皮膚科クリニックの行動基準設計AIです。必ずJSON形式のみで返してください。
+院長の哲学：ティール組織（全員がリーダー・自律型）、先払いの原則、実評価（実行・実績・実力・誠実）、リードマネジメント（内発的動機）。
+${rulesSnippet ? `就業規則（抜粋）：${rulesSnippet}` : ''}`;
+
+    // 4ゾーンを逐次生成（各1500トークン、タイムアウト回避）
+    const zones = [];
+    for (const zone of ['red', 'yellow', 'green', 'teal']) {
+      try {
+        const items = await generateZone(apiKey, zone, systemPrompt);
+        zones.push({ zone_type: zone, items });
+      } catch (e) {
+        console.error(`Zone ${zone} generation failed:`, e);
+        zones.push({ zone_type: zone, items: [] });
+      }
+    }
+
+    return NextResponse.json({ zones });
+  } catch (e) {
+    console.error('red-zone generate error:', e);
+    return NextResponse.json({ error: '生成に失敗しました', details: String(e) }, { status: 500 });
   }
 }
