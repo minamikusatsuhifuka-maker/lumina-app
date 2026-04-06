@@ -1,6 +1,6 @@
 import { NextRequest } from 'next/server';
 import { auth } from '@/lib/auth';
-import { neon } from '@neondatabase/serverless';
+import { buildSystemContext } from '@/lib/clinic-context';
 
 export const maxDuration = 60;
 
@@ -14,19 +14,11 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   const apiKey = process.env.ANTHROPIC_API_KEY!;
   const encoder = new TextEncoder();
 
-  // クリニック理念を取得
-  let philosophy = '';
-  try {
-    const sql = neon(process.env.DATABASE_URL!);
-    const rows = await sql`SELECT content FROM clinic_philosophy ORDER BY created_at DESC LIMIT 1`;
-    if (rows[0]) philosophy = rows[0].content as string;
-  } catch {
-    // 理念が取得できなくても続行
-  }
-
-  const systemPrompt = `あなたはクリニックのハンドブック編集専門家です。
-${philosophy ? `\n【クリニック理念】\n${philosophy}\n` : ''}
-指示に従い、章の内容を改善してください。改善後の完全なテキストのみを返してください。`;
+  const systemPrompt = await buildSystemContext(
+    `あなたはクリニックのハンドブック編集専門家です。
+指示に従い、章の内容を改善してください。改善後の完全なテキストのみを返してください。`,
+    'handbook'
+  );
 
   const stream = new ReadableStream({
     async start(controller) {

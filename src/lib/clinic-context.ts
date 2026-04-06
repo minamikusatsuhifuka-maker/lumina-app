@@ -1,5 +1,32 @@
 import { neon } from '@neondatabase/serverless';
 
+// ① 自律型組織ビジョン（静的・最優先ブロック）
+const visionBlock = `
+【院長の究極ビジョン：自律型生命体組織】
+
+このクリニックが目指すのは「ティール組織」——
+管理者が不要で、全員がリーダーであり、
+組織そのものが生命体のように自律して動く状態。
+
+■ ビジョンの3段階
+  第1段階：全スタッフが自分の仕事に誇りと意味を持つ
+  第2段階：誰かに言われなくても最善の行動を選択できる
+  第3段階：組織全体が一つの生命体として進化し続ける
+
+■ 院長が信じる人間観
+  ・すべてのスタッフに無限の可能性がある
+  ・人は管理されるより、信頼されるとき最大の力を発揮する
+  ・成長とは「知る→わかる→行う→できる→分かち合う」の5段階
+
+■ この組織で働く意味
+  自己愛（自分を豊かに）→ 身近な人を豊かに → 社会貢献
+  この同心円が広がるとき、個人の成長と組織の成長は一致する。
+
+AIはこのビジョンを体現するよう、すべての回答・提案・フィードバックを行うこと。
+スタッフを「管理される対象」ではなく「主役」として扱い、
+内発的動機を引き出す言葉を選ぶこと。
+`.trim();
+
 export async function buildSystemContext(
   role: string,
   category?: string
@@ -30,9 +57,9 @@ export async function buildSystemContext(
 
     const philosophy = philosophyRows[0];
     const growth = growthRows[0];
-    const sections: string[] = [];
+    const sections: string[] = [visionBlock]; // ① 自律型組織ビジョン（最優先）
 
-    // ① 【最重要】院長の究極ビジョン（最初に読ませる）
+    // ② 先払い哲学・パワーパートナー
     if (growth?.win_win_vision || growth?.power_partner_definition) {
       sections.push(
 `【院長の究極ビジョン】
@@ -46,7 +73,7 @@ ${growth?.power_partner_definition ?? ''}
       );
     }
 
-    // ② リードマネジメント哲学
+    // ③ リードマネジメント哲学
     if (growth?.lead_management_philosophy) {
       sections.push(
 `【当院のリードマネジメント哲学】
@@ -60,12 +87,12 @@ ${growth.lead_management_philosophy}
       );
     }
 
-    // ③ 「実」を見て評価する哲学
+    // ④ 「実」を見て評価する哲学
     if (growth?.core_values) {
       sections.push(growth.core_values as string);
     }
 
-    // ④ クリニックの理念
+    // ⑤ クリニックの理念
     if (philosophy?.content) {
       sections.push(
 `【クリニックの理念】
@@ -74,7 +101,7 @@ ${philosophy.content}`
       );
     }
 
-    // ④ 参照ドキュメント（理念ファイル）
+    // ⑥ 参照ドキュメント（理念ファイル）
     if ((fileRows as any[]).length > 0) {
       const fileSummary = (fileRows as any[])
         .map(f => `▼ ${f.name}\n${f.content.slice(0, 1500)}`)
@@ -82,13 +109,13 @@ ${philosophy.content}`
       sections.push(`【参照ドキュメント】\n${fileSummary}`);
     }
 
-    // ⑤ 院長の判断基準（対話蓄積）
+    // ⑦ 院長の判断基準（対話蓄積）
     if ((criteriaRows as any[]).length > 0) {
       const criteria = (criteriaRows as any[]).map(r => `• ${r.criterion}`).join('\n');
       sections.push(`【院長の価値観・判断基準】\n${criteria}`);
     }
 
-    // ⑥ 就業規則（関連条項）
+    // ⑧ 就業規則（関連条項）
     if (rulesRows[0]?.content) {
       const rulesContent = rulesRows[0].content as string;
       const relevant = rulesContent.length > 5000
