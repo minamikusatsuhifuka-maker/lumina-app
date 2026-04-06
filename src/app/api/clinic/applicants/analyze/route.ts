@@ -1,25 +1,37 @@
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
 import { neon } from '@neondatabase/serverless';
 
 export const maxDuration = 30;
 
-const sql = neon(process.env.DATABASE_URL!);
-
-export async function POST(req: Request) {
+export async function POST(req: NextRequest) {
   const session = await auth();
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-  const apiKey = process.env.ANTHROPIC_API_KEY!;
+  const apiKey = process.env.ANTHROPIC_API_KEY;
+  if (!apiKey) return NextResponse.json({ error: 'APIキーが未設定' }, { status: 500 });
 
   try {
-    const formData = await req.formData();
-    const text = (formData.get('text') as string || '').slice(0, 2000);
-    const position = formData.get('position') as string || '';
+    // JSONとFormData両方に対応
+    let text = '';
+    let position = '';
+    const contentType = req.headers.get('content-type') || '';
+
+    if (contentType.includes('application/json')) {
+      const body = await req.json();
+      text = (body.text || '').slice(0, 2000);
+      position = body.position || '';
+    } else {
+      const formData = await req.formData();
+      text = (formData.get('text') as string || '').slice(0, 2000);
+      position = formData.get('position') as string || '';
+    }
 
     if (!text.trim()) {
       return NextResponse.json({ error: 'テキストが空です' }, { status: 400 });
     }
+
+    console.log('analyze: start', { position, textLen: text.length });
 
     const response = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
@@ -71,14 +83,24 @@ ${text}
       }),
     });
 
+    if (!response.ok) {
+      const errBody = await response.text();
+      console.error('Anthropic API error:', response.status, errBody);
+      return NextResponse.json({ error: `AI API エラー: ${response.status}` }, { status: 500 });
+    }
+
     const data = await response.json();
     const rawText = data.content?.[0]?.text || '{}';
     const clean = rawText.replace(/```json|```/g, '').trim();
 
+    console.log('analyze: AI response received, parsing...');
+
     let result: any = {};
     try {
-      result = JSON.parse(clean);
-    } catch {
+      const match = clean.match(/\{[\s\S]*\}/);
+      result = JSON.parse(match ? match[0] : clean);
+    } catch (parseErr) {
+      console.error('JSON parse error:', parseErr, 'raw:', clean.slice(0, 200));
       result = {
         extracted_data: { name: '解析エラー' },
         scores: {
@@ -100,6 +122,7 @@ ${text}
       : 0;
 
     // DBに保存
+    const sql = neon(process.env.DATABASE_URL!);
     const saved = await sql`
       INSERT INTO applicants (
         name, position, raw_text, extracted_data, scores,
@@ -109,17 +132,19 @@ ${text}
         ${result.extracted_data?.name || '名前未取得'},
         ${position},
         ${text},
-        ${JSON.stringify(result.extracted_data || {})},
-        ${JSON.stringify(result.scores || {})},
+        ${JSON.stringify(result.extracted_data || {})}::jsonb,
+        ${JSON.stringify(result.scores || {})}::jsonb,
         ${totalScore},
         ${result.ai_comment || ''},
-        ${JSON.stringify(result.interview_points || [])},
-        ${JSON.stringify(result.dominant_needs || [])},
+        ${JSON.stringify(result.interview_points || [])}::jsonb,
+        ${JSON.stringify(result.dominant_needs || [])}::jsonb,
         ${result.personality_summary || ''},
         ${result.recommendation || '要検討'}
       )
       RETURNING id
     `;
+
+    console.log('analyze: saved to DB, id:', saved[0].id);
 
     return NextResponse.json({
       id: saved[0].id,

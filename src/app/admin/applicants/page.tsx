@@ -42,16 +42,10 @@ export default function ApplicantsPage() {
     setAnalyzing(true);
     setMessage('AIが分析中...');
     try {
-      const formData = new FormData();
-      formData.append('text', inputText);
-      formData.append('position', position);
-      if (fileRef.current?.files?.[0]) {
-        formData.append('file', fileRef.current.files[0]);
-      }
-
       const res = await fetch('/api/clinic/applicants/analyze', {
         method: 'POST',
-        body: formData,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text: inputText, position }),
       });
       const data = await res.json();
 
