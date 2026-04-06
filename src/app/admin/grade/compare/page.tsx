@@ -2,104 +2,227 @@
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
 
-const parseJson = (v: any) => { if (!v) return []; if (Array.isArray(v)) return v; try { return JSON.parse(v); } catch { return []; } };
-const parseExam = (v: any) => { if (!v) return null; if (typeof v === 'object' && !Array.isArray(v)) return v; try { return JSON.parse(v); } catch { return null; } };
-
-const ROWS = [
-  { key: 'skills', label: '🎯 スキル', type: 'list' },
-  { key: 'knowledge', label: '📚 知識', type: 'list' },
-  { key: 'mindset', label: '💡 マインド', type: 'list' },
-  { key: 'continuous_learning', label: '📖 継続学習', type: 'list' },
-  { key: 'required_certifications', label: '🏅 資格', type: 'list' },
-  { key: 'promotion_exam', label: '📝 昇格試験', type: 'exam' },
-  { key: 'requirements_demotion', label: '⬇️ 降格条件', type: 'text' },
-  { key: 'salary', label: '💰 給与レンジ', type: 'salary' },
-];
-
 export default function GradeComparePage() {
   const [grades, setGrades] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
-  const [analysisResult, setAnalysisResult] = useState('');
+  const [selectedPosition, setSelectedPosition] = useState('');
   const [analyzing, setAnalyzing] = useState(false);
+  const [gapAnalysis, setGapAnalysis] = useState('');
 
-  useEffect(() => { fetch('/api/clinic/grades').then(r => r.json()).then(d => { if (Array.isArray(d)) setGrades(d); setLoading(false); }); }, []);
-
-  const analyzeGaps = async () => {
-    setAnalyzing(true); setAnalysisResult('');
-    try {
-      const res = await fetch('/api/clinic/grades/consult', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message: `以下の全等級を比較分析し、等級間のギャップ・不整合・改善点を指摘してください。\n\n${JSON.stringify(grades, null, 2)}`, gradeContent: null }),
-      });
-      const reader = res.body!.getReader();
-      const decoder = new TextDecoder();
-      let acc = '', buffer = '';
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split('\n'); buffer = lines.pop() || '';
-        for (const line of lines) {
-          if (!line.startsWith('data: ')) continue;
-          try { const j = JSON.parse(line.slice(6)); if (j.type === 'text') { acc += j.content; setAnalysisResult(acc); } } catch {}
+  useEffect(() => {
+    fetch('/api/clinic/grades')
+      .then(r => r.json())
+      .then(d => {
+        if (Array.isArray(d)) {
+          setGrades(d);
+          const firstPos = [...new Set(d.map((g: any) => g.position).filter(Boolean))][0] || '';
+          setSelectedPosition(firstPos);
         }
-      }
-    } catch { setAnalysisResult('分析に失敗しました'); }
-    finally { setAnalyzing(false); }
+        setLoading(false);
+      });
+  }, []);
+
+  const positions = [...new Set(grades.map(g => g.position).filter(Boolean))] as string[];
+  const filteredGrades = grades
+    .filter(g => g.position === selectedPosition)
+    .sort((a, b) => a.level_number - b.level_number);
+
+  const parseArr = (v: any): string[] => {
+    if (!v) return [];
+    if (Array.isArray(v)) return v;
+    try { return JSON.parse(v); } catch { return []; }
   };
 
-  if (loading) return <div style={{ textAlign: 'center', padding: 40, color: 'var(--text-muted)' }}>読み込み中...</div>;
+  const SECTIONS = [
+    { key: 'skills',               label: '🎯 スキル',   color: '#f59e0b' },
+    { key: 'knowledge',            label: '📚 知識',     color: '#3b82f6' },
+    { key: 'mindset',              label: '💎 マインド',  color: '#8b5cf6' },
+    { key: 'continuous_learning',  label: '📖 継続学習', color: '#06b6d4' },
+    { key: 'demotion_conditions',  label: '⬇️ 降格条件', color: '#ef4444' },
+  ];
+
+  const GRADE_COLORS = ['#94a3b8', '#60a5fa', '#4ade80', '#06b6d4', '#8b5cf6'];
+
+  const runGapAnalysis = async () => {
+    setAnalyzing(true);
+    setGapAnalysis('');
+    try {
+      const res = await fetch('/api/clinic/ai-dialogue', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          messages: [{
+            role: 'user',
+            content: `${selectedPosition}のG1〜G5等級制度を分析してください。
+各等級のスキル・知識・マインドの連続性、ギャップ、改善点を指摘してください。
+院長の哲学（ティール組織・先払い・実評価・同心円成長）の観点からも評価してください。
+
+現在のデータ：
+${filteredGrades.map(g => `
+${g.name}（G${g.level_number}）:
+スキル: ${parseArr(g.skills).join('、')}
+知識: ${parseArr(g.knowledge).join('、')}
+マインド: ${parseArr(g.mindset).join('、')}
+`).join('\n')}`,
+          }],
+          contextType: 'grade',
+        }),
+      });
+      const data = await res.json();
+      setGapAnalysis(data.message || '分析に失敗しました');
+    } catch {
+      setGapAnalysis('エラーが発生しました');
+    } finally {
+      setAnalyzing(false);
+    }
+  };
+
+  if (loading) return (
+    <div style={{ textAlign: 'center', padding: 40, color: 'var(--text-muted)' }}>読み込み中...</div>
+  );
 
   return (
     <div style={{ maxWidth: 1200, margin: '0 auto', paddingBottom: 60 }}>
+      {/* ヘッダー */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
         <div>
-          <h1 style={{ fontSize: 26, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 4 }}>📊 等級比較表</h1>
-          <p style={{ color: 'var(--text-muted)', fontSize: 13 }}>全等級を横並びで比較</p>
+          <h1 style={{ fontSize: 24, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 4 }}>
+            📊 等級比較表
+          </h1>
+          <p style={{ color: 'var(--text-muted)', fontSize: 13 }}>職種ごとに等級を横並びで比較</p>
         </div>
         <div style={{ display: 'flex', gap: 8 }}>
-          <button onClick={analyzeGaps} disabled={analyzing} style={{ padding: '9px 18px', borderRadius: 8, border: 'none', background: analyzing ? 'rgba(108,99,255,0.3)' : 'linear-gradient(135deg, #6c63ff, #8b5cf6)', color: '#fff', fontWeight: 700, fontSize: 13, cursor: 'pointer' }}>
-            {analyzing ? '分析中...' : '📊 AIでギャップ分析'}
+          <button
+            onClick={runGapAnalysis}
+            disabled={analyzing}
+            style={{
+              padding: '8px 18px', borderRadius: 10, border: 'none', cursor: 'pointer',
+              background: analyzing ? 'rgba(108,99,255,0.3)' : 'linear-gradient(135deg, #6c63ff, #8b5cf6)',
+              color: '#fff', fontWeight: 700, fontSize: 13,
+            }}
+          >
+            {analyzing ? '分析中...' : '🤖 AIでギャップ分析'}
           </button>
-          <Link href="/admin/grade" style={{ padding: '9px 14px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--bg-card)', color: 'var(--text-muted)', fontSize: 13, textDecoration: 'none' }}>← 等級制度に戻る</Link>
+          <Link href="/admin/grade" style={{
+            padding: '8px 16px', borderRadius: 10, fontSize: 13, fontWeight: 600,
+            border: '1px solid var(--border)', background: 'var(--bg-card)',
+            color: 'var(--text-muted)', textDecoration: 'none',
+          }}>
+            ← 等級制度に戻る
+          </Link>
         </div>
       </div>
 
-      {analysisResult && (
-        <div style={{ padding: 16, background: 'rgba(108,99,255,0.05)', border: '1px solid rgba(108,99,255,0.2)', borderRadius: 12, marginBottom: 20, fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.7, whiteSpace: 'pre-wrap' }}>{analysisResult}</div>
-      )}
+      {/* 職種タブ */}
+      <div style={{ display: 'flex', gap: 8, marginBottom: 20 }}>
+        {positions.map(pos => (
+          <button
+            key={pos}
+            onClick={() => { setSelectedPosition(pos); setGapAnalysis(''); }}
+            style={{
+              padding: '10px 24px', borderRadius: 12, fontSize: 14, fontWeight: 700,
+              cursor: 'pointer',
+              background: selectedPosition === pos
+                ? 'linear-gradient(135deg, #6c63ff, #8b5cf6)'
+                : 'var(--bg-card)',
+              color: selectedPosition === pos ? '#fff' : 'var(--text-muted)',
+              border: selectedPosition === pos ? 'none' : '1px solid var(--border)',
+              boxShadow: selectedPosition === pos ? '0 4px 12px rgba(108,99,255,0.3)' : 'none',
+            }}
+          >
+            {pos}
+          </button>
+        ))}
+      </div>
 
-      {grades.length === 0 ? <div style={{ textAlign: 'center', padding: 40, color: 'var(--text-muted)' }}>等級が登録されていません</div> : (
-        <div style={{ overflowX: 'auto' }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
-            <thead>
-              <tr>
-                <th style={{ padding: '10px 12px', background: 'var(--bg-secondary)', border: '1px solid var(--border)', textAlign: 'left', color: 'var(--text-muted)', width: 120, position: 'sticky', left: 0, zIndex: 1 }}></th>
-                {grades.map(g => (
-                  <th key={g.id} style={{ padding: '10px 12px', background: 'var(--bg-secondary)', border: '1px solid var(--border)', textAlign: 'center', color: '#6c63ff', fontWeight: 700, minWidth: 160 }}>
-                    Lv.{g.level_number}<br />{g.name}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {ROWS.map(row => (
-                <tr key={row.key}>
-                  <td style={{ padding: '10px 12px', background: 'var(--bg-secondary)', border: '1px solid var(--border)', fontWeight: 600, color: 'var(--text-primary)', position: 'sticky', left: 0, zIndex: 1 }}>{row.label}</td>
-                  {grades.map(g => (
-                    <td key={g.id} style={{ padding: '10px 12px', border: '1px solid var(--border)', color: 'var(--text-secondary)', verticalAlign: 'top' }}>
-                      {row.type === 'list' && parseJson(g[row.key]).map((item: string, i: number) => <div key={i}>• {item}</div>)}
-                      {row.type === 'text' && (g[row.key] || '—')}
-                      {row.type === 'salary' && (g.salary_min ? `${g.salary_min?.toLocaleString()}〜${g.salary_max?.toLocaleString()}円` : '—')}
-                      {row.type === 'exam' && (() => { const e = parseExam(g.promotion_exam); return e ? `${e.format || ''} / ${e.passingCriteria || ''}` : '—'; })()}
-                    </td>
-                  ))}
-                </tr>
-              ))}
-            </tbody>
-          </table>
+      {/* AIギャップ分析結果 */}
+      {gapAnalysis && (
+        <div style={{
+          padding: 20, marginBottom: 20,
+          background: 'rgba(108,99,255,0.06)',
+          border: '1px solid rgba(108,99,255,0.2)',
+          borderRadius: 16,
+        }}>
+          <div style={{ fontSize: 14, fontWeight: 700, color: '#6c63ff', marginBottom: 10 }}>
+            🤖 AIギャップ分析結果（{selectedPosition}）
+          </div>
+          <div style={{ fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.8, whiteSpace: 'pre-wrap' }}>
+            {gapAnalysis}
+          </div>
         </div>
       )}
+
+      {/* 等級ヘッダー行 */}
+      <div style={{ overflowX: 'auto' }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 800 }}>
+          <thead>
+            <tr>
+              <th style={{
+                width: 100, padding: '12px 8px', fontSize: 12,
+                color: 'var(--text-muted)', fontWeight: 600,
+                background: 'var(--bg-secondary)', borderRadius: '8px 0 0 0',
+              }}>項目</th>
+              {filteredGrades.map((g, i) => (
+                <th key={g.id} style={{
+                  padding: '12px 8px', textAlign: 'center',
+                  background: `${GRADE_COLORS[i]}15`,
+                  borderLeft: `3px solid ${GRADE_COLORS[i]}`,
+                  fontSize: 13,
+                }}>
+                  <div style={{ fontWeight: 800, color: GRADE_COLORS[i], fontSize: 15 }}>
+                    G{g.level_number}
+                  </div>
+                  <div style={{ color: 'var(--text-primary)', fontWeight: 700 }}>{g.name}</div>
+                  <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2 }}>
+                    {g.salary_range}
+                  </div>
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {SECTIONS.map((section, si) => (
+              <tr key={section.key} style={{ background: si % 2 === 0 ? 'var(--bg-secondary)' : 'transparent' }}>
+                <td style={{
+                  padding: '16px 8px', fontSize: 12, fontWeight: 700,
+                  color: section.color, verticalAlign: 'top',
+                  borderTop: '1px solid var(--border)',
+                  whiteSpace: 'nowrap',
+                }}>
+                  {section.label}
+                </td>
+                {filteredGrades.map((g, i) => {
+                  const items = parseArr(g[section.key]);
+                  return (
+                    <td key={g.id} style={{
+                      padding: '12px 10px', verticalAlign: 'top',
+                      borderLeft: `3px solid ${GRADE_COLORS[i]}40`,
+                      borderTop: '1px solid var(--border)',
+                    }}>
+                      {items.length > 0 ? (
+                        <ul style={{ margin: 0, padding: 0, listStyle: 'none' }}>
+                          {items.map((item, j) => (
+                            <li key={j} style={{
+                              fontSize: 12, color: 'var(--text-secondary)',
+                              padding: '3px 0', display: 'flex', gap: 6,
+                              alignItems: 'flex-start', lineHeight: 1.5,
+                            }}>
+                              <span style={{ color: `${section.color}99`, flexShrink: 0, marginTop: 2 }}>•</span>
+                              <span>{item}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      ) : (
+                        <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>未設定</span>
+                      )}
+                    </td>
+                  );
+                })}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }
