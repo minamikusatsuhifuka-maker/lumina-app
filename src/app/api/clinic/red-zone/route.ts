@@ -25,12 +25,6 @@ export async function POST(req: NextRequest) {
   }
 
   const sql = neon(process.env.DATABASE_URL!);
-
-  // CHECK制約があれば削除（一度だけ実行、エラーは無視）
-  try { await sql`ALTER TABLE red_zone_rules DROP CONSTRAINT IF EXISTS red_zone_rules_zone_check`; } catch {}
-  try { await sql`ALTER TABLE red_zone_rules DROP CONSTRAINT IF EXISTS red_zone_rules_zone_type_check`; } catch {}
-  try { await sql`ALTER TABLE red_zone_rules DROP CONSTRAINT IF EXISTS red_zone_rules_category_check`; } catch {}
-
   const rows = await sql`INSERT INTO red_zone_rules
     (category, title, description, severity, consequence, zone_type, improvement_period, legal_basis, official_statement)
     VALUES (${category}, ${title}, ${description}, ${severity || 'critical'}, ${consequence || null},
@@ -66,10 +60,15 @@ export async function DELETE(req: NextRequest) {
   const session = await auth();
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-  const { id } = await req.json();
-  if (!id) return NextResponse.json({ error: 'id は必須です' }, { status: 400 });
-
+  const { id, deleteAll } = await req.json();
   const sql = neon(process.env.DATABASE_URL!);
+
+  if (deleteAll) {
+    await sql`DELETE FROM red_zone_rules`;
+    return NextResponse.json({ success: true });
+  }
+
+  if (!id) return NextResponse.json({ error: 'id は必須です' }, { status: 400 });
   await sql`DELETE FROM red_zone_rules WHERE id = ${id}`;
   return NextResponse.json({ success: true });
 }

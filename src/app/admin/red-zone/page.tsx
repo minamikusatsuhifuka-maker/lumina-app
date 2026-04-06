@@ -56,8 +56,22 @@ export default function ZoneManagementPage() {
   }, []);
 
   const generateAllZones = async () => {
+    if (!confirm('既存の行動基準をすべて削除して、新しく4ゾーン×5件を生成し直します。よろしいですか？')) return;
+
     setGenerating(true);
-    setMessage('');
+    setMessage('既存データをクリア中...');
+
+    // 既存データを一括削除（重複防止）
+    try {
+      await fetch('/api/clinic/red-zone', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ deleteAll: true }),
+      });
+      setRules([]);
+    } catch (e) {
+      console.error('一括削除失敗:', e);
+    }
 
     const zones = ['red', 'yellow', 'green', 'teal'];
     let totalSaved = 0;
