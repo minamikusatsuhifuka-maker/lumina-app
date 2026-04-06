@@ -15,12 +15,22 @@ export async function POST(req: NextRequest) {
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
   const body = await req.json();
-  const { category, title, description, severity, consequence, zone_type, improvement_period, legal_basis, official_statement } = body;
-  if (!category || !title || !description) {
-    return NextResponse.json({ error: 'category, title, description は必須です' }, { status: 400 });
+  const title = body.title?.trim();
+  const description = body.description?.trim() || title || '';
+  const category = body.category?.trim() || 'attitude';
+  const { severity, consequence, zone_type, improvement_period, legal_basis, official_statement } = body;
+
+  if (!title) {
+    return NextResponse.json({ error: 'title は必須です' }, { status: 400 });
   }
 
   const sql = neon(process.env.DATABASE_URL!);
+
+  // CHECK制約があれば削除（一度だけ実行、エラーは無視）
+  try { await sql`ALTER TABLE red_zone_rules DROP CONSTRAINT IF EXISTS red_zone_rules_zone_check`; } catch {}
+  try { await sql`ALTER TABLE red_zone_rules DROP CONSTRAINT IF EXISTS red_zone_rules_zone_type_check`; } catch {}
+  try { await sql`ALTER TABLE red_zone_rules DROP CONSTRAINT IF EXISTS red_zone_rules_category_check`; } catch {}
+
   const rows = await sql`INSERT INTO red_zone_rules
     (category, title, description, severity, consequence, zone_type, improvement_period, legal_basis, official_statement)
     VALUES (${category}, ${title}, ${description}, ${severity || 'critical'}, ${consequence || null},

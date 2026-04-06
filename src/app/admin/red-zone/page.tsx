@@ -80,24 +80,27 @@ export default function ZoneManagementPage() {
         const data = await res.json();
         const rules = data.rules || [];
 
-        // 各ルールを順番に保存
+        // 各ルールを順番に保存（空titleはスキップ）
         for (const rule of rules) {
+          const title = (rule.title || '').trim();
+          if (!title) continue;
           try {
-            await fetch('/api/clinic/red-zone', {
+            const res = await fetch('/api/clinic/red-zone', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({
                 zone_type: zone,
                 category: 'attitude',
-                title: rule.title || '',
-                description: rule.description || '',
-                consequence: rule.consequence || rule.example || '',
+                title,
+                description: (rule.description || title).trim(),
+                consequence: (rule.consequence || rule.example || '').trim(),
                 severity: zone === 'red' ? 'critical' : zone === 'yellow' ? 'serious' : 'standard',
               }),
             });
-            totalSaved++;
+            if (res.ok) totalSaved++;
+            else console.error('保存400:', zone, title, await res.text());
           } catch (e) {
-            console.error('保存失敗:', rule.title, e);
+            console.error('保存失敗:', title, e);
           }
         }
       } catch (e) {

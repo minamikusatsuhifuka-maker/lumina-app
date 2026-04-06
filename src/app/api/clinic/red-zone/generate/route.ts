@@ -84,13 +84,16 @@ export async function POST(req: NextRequest) {
       const parsed = JSON.parse(jsonStr);
       rules = parsed.rules || [];
     } catch {
-      // フォールバック：正規表現でタイトルだけ抽出
+      // フォールバック：正規表現でtitle・descriptionを抽出
       const titleMatches = [...text.matchAll(/"title"\s*:\s*"([^"]+)"/g)];
-      rules = titleMatches.map(m => ({
+      const descMatches = [...text.matchAll(/"description"\s*:\s*"([^"]+)"/g)];
+      const exampleMatches = [...text.matchAll(/"example"\s*:\s*"([^"]+)"/g)];
+      const consequenceMatches = [...text.matchAll(/"consequence"\s*:\s*"([^"]+)"/g)];
+      rules = titleMatches.map((m, i) => ({
         title: m[1],
-        description: '',
-        example: '',
-        consequence: '',
+        description: descMatches[i]?.[1] || m[1],
+        example: exampleMatches[i]?.[1] || '',
+        consequence: consequenceMatches[i]?.[1] || '',
       }));
     }
 
