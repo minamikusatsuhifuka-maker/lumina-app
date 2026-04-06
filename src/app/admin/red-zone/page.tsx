@@ -303,6 +303,38 @@ export default function ZoneManagementPage() {
         ))}
       </div>
 
+      {/* レッド・イエロー 対応フロー */}
+      {(activeZone === 'red' || activeZone === 'yellow') && (
+        <div style={{
+          padding: 20, marginBottom: 16,
+          background: activeZone === 'red' ? 'rgba(239,68,68,0.06)' : 'rgba(245,158,11,0.06)',
+          border: `1px solid ${activeZone === 'red' ? 'rgba(239,68,68,0.2)' : 'rgba(245,158,11,0.2)'}`,
+          borderRadius: 16,
+        }}>
+          <div style={{ fontSize: 14, fontWeight: 700, color: activeZone === 'red' ? '#ef4444' : '#f59e0b', marginBottom: 10 }}>
+            {activeZone === 'red' ? '🔴 レッドゾーン 対応フロー' : '🟡 イエローゾーン 対応フロー'}
+          </div>
+          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 10 }}>
+            {(activeZone === 'red'
+              ? ['①発生・即報告', '②事実確認（当日）', '③就業規則適用', '④退職勧告・懲戒', '⑤記録・保存']
+              : ['①発生・記録', '②1週間以内に面談', '③改善計画書作成', '④1ヶ月フォロー', '⑤改善確認 or レッドへ']
+            ).map((step, i) => (
+              <div key={i} style={{
+                padding: '6px 14px', borderRadius: 20,
+                background: activeZone === 'red' ? 'rgba(239,68,68,0.12)' : 'rgba(245,158,11,0.12)',
+                color: activeZone === 'red' ? '#ef4444' : '#f59e0b',
+                fontSize: 12, fontWeight: 600,
+              }}>{step}</div>
+            ))}
+          </div>
+          <div style={{ fontSize: 12, color: 'var(--text-muted)', lineHeight: 1.6 }}>
+            {activeZone === 'red'
+              ? '即日対応が原則です。発覚次第、院長へ即報告し、事実確認→就業規則の懲戒条項適用→記録保存の流れで対応します。'
+              : '改善の機会を提供します。リーダーが記録→1週間以内に面談→本人と共同で改善計画を作成→1ヶ月後にフォローアップを行います。'}
+          </div>
+        </div>
+      )}
+
       {/* 登録済み一覧 */}
       {zoneRules(activeZone).length > 0 ? (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
