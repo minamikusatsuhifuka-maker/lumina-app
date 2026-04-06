@@ -23,14 +23,36 @@ export default async function AdminDashboardPage() {
 
   return (
     <div style={{ maxWidth: 900, margin: '0 auto' }}>
-      {/* ビジョンバナー */}
-      <div style={{ marginBottom: 28, padding: 24, borderRadius: 16, background: 'linear-gradient(135deg, rgba(108,99,255,0.12), rgba(59,130,246,0.08), rgba(6,182,212,0.12))', border: '1px solid rgba(108,99,255,0.2)' }}>
-        <div style={{ fontSize: 10, color: '#a78bfa', fontWeight: 700, marginBottom: 6, letterSpacing: 2 }}>🌟 CLINIC VISION</div>
-        <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-primary)', lineHeight: 1.7, marginBottom: 6 }}>
-          全員が次世代のリーダーとなり、お互いに高め合い協力し合うことでシナジーを生み出す<span style={{ color: '#06b6d4', fontWeight: 700 }}>ティール組織</span>へ。
+      {/* ティール組織ビジョンバナー */}
+      <div style={{ marginBottom: 28, padding: 24, borderRadius: 16, background: 'linear-gradient(135deg, rgba(6,182,212,0.1), rgba(139,92,246,0.1))', border: '1px solid rgba(6,182,212,0.3)' }}>
+        <div style={{ fontSize: 13, fontWeight: 700, color: '#06b6d4', marginBottom: 12 }}>🩵 私たちが目指す組織の姿</div>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 12 }}>
+          {[
+            { color: '#ef4444', label: '🔴 レッド', desc: '力・恐怖', opacity: 0.4, current: false },
+            { color: '#f97316', label: '🟠 アンバー', desc: 'ルール・階層', opacity: 0.4, current: false },
+            { color: '#eab308', label: '🟡 オレンジ', desc: '目標・競争', opacity: 0.4, current: false },
+            { color: '#4ade80', label: '🟢 グリーン', desc: '関係・合意', opacity: 0.7, current: false },
+            { color: '#06b6d4', label: '🩵 ティール', desc: '自律・全体性', opacity: 1, current: true },
+          ].map((stage) => (
+            <div key={stage.label} style={{
+              flex: 1, minWidth: 100, padding: '8px 12px',
+              background: `${stage.color}${stage.current ? '20' : '10'}`,
+              border: `1px solid ${stage.color}${stage.current ? '60' : '20'}`,
+              borderRadius: 10, textAlign: 'center',
+              opacity: stage.opacity,
+              transform: stage.current ? 'scale(1.05)' : 'none',
+            }}>
+              <div style={{ fontSize: 13, fontWeight: 700, color: stage.color }}>{stage.label}</div>
+              <div style={{ fontSize: 10, color: 'var(--text-muted)' }}>{stage.desc}</div>
+              {stage.current && (
+                <div style={{ fontSize: 9, color: stage.color, marginTop: 2, fontWeight: 700 }}>← 目指す姿</div>
+              )}
+            </div>
+          ))}
         </div>
-        <div style={{ fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.7 }}>
-          <span style={{ color: '#4ade80', fontWeight: 700 }}>全員主役</span> — 強みを活かし、クリニックという自己実現の舞台で輝く。縁ある人を豊かで幸せにすることで、自分自身の人生も豊かになる。
+        <div style={{ fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.7 }}>
+          全員がリーダー。誰かに言われなくても最善の行動を選択できる組織。<br/>
+          G1→G5は「ティール度の成長」であり、同心円の広がり。
         </div>
       </div>
 

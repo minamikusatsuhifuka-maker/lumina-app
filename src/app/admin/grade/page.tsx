@@ -277,11 +277,11 @@ export default function GradePage() {
           <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 24 }}>
             <svg width="340" height="340" viewBox="0 0 340 340">
               {[
-                { level: 5, label: 'G5 アンバサダー', sub: '広げる・創る', r: 165, color: '#0d9488', bg: 'rgba(6,182,212,0.06)' },
-                { level: 4, label: 'G4 パートナー', sub: '引き出す・支える', r: 128, color: '#8b5cf6', bg: 'rgba(139,92,246,0.06)' },
-                { level: 3, label: 'G3 エキスパート', sub: '魅せる・高める', r: 95, color: '#3b82f6', bg: 'rgba(59,130,246,0.06)' },
-                { level: 2, label: 'G2 コア', sub: '自走する・貢献する', r: 65, color: '#f59e0b', bg: 'rgba(245,158,11,0.06)' },
-                { level: 1, label: 'G1 ルーキー', sub: '学ぶ・吸収する', r: 38, color: '#ec4899', bg: 'rgba(236,72,153,0.08)' },
+                { level: 5, label: 'G5 アンバサダー', sub: '広げる・創る', r: 165, color: '#8b5cf6', bg: 'rgba(139,92,246,0.06)' },
+                { level: 4, label: 'G4 パートナー', sub: '引き出す・支える', r: 128, color: '#06b6d4', bg: 'rgba(6,182,212,0.06)' },
+                { level: 3, label: 'G3 エキスパート', sub: '魅せる・高める', r: 95, color: '#4ade80', bg: 'rgba(74,222,128,0.06)' },
+                { level: 2, label: 'G2 コア', sub: '自走する・貢献する', r: 65, color: '#60a5fa', bg: 'rgba(96,165,250,0.06)' },
+                { level: 1, label: 'G1 ルーキー', sub: '学ぶ・吸収する', r: 38, color: '#94a3b8', bg: 'rgba(148,163,184,0.08)' },
               ].map(ring => (
                 <g key={ring.level}>
                   <circle cx="170" cy="170" r={ring.r} fill={ring.bg} stroke={ring.color} strokeOpacity="0.3" strokeWidth="2" />
