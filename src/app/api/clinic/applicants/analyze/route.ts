@@ -14,66 +14,14 @@ export async function POST(req: Request) {
 
   try {
     const formData = await req.formData();
-    const text = formData.get('text') as string || '';
+    const text = (formData.get('text') as string || '').slice(0, 2000);
     const position = formData.get('position') as string || '';
-    const file = formData.get('file') as File | null;
 
-    let inputText = text;
-
-    // ファイルがある場合はテキスト抽出
-    if (file) {
-      const buffer = await file.arrayBuffer();
-      const base64 = Buffer.from(buffer).toString('base64');
-      const mediaType = file.type as 'application/pdf' | 'image/jpeg' | 'image/png';
-
-      const readResponse = await fetch('https://api.anthropic.com/v1/messages', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-api-key': apiKey,
-          'anthropic-version': '2023-06-01',
-        },
-        body: JSON.stringify({
-          model: 'claude-sonnet-4-6',
-          max_tokens: 2000,
-          messages: [{
-            role: 'user',
-            content: [
-              {
-                type: mediaType === 'application/pdf' ? 'document' : 'image',
-                source: { type: 'base64', media_type: mediaType, data: base64 },
-              },
-              {
-                type: 'text',
-                text: 'このファイルの内容をすべてテキストとして書き出してください。',
-              },
-            ],
-          }],
-        }),
-      });
-      const readData = await readResponse.json();
-      inputText = readData.content?.[0]?.text || text;
-    }
-
-    if (!inputText.trim()) {
+    if (!text.trim()) {
       return NextResponse.json({ error: 'テキストが空です' }, { status: 400 });
     }
 
-    // 採点基準を取得
-    let gradeCriteria = '';
-    try {
-      const grades = await sql`
-        SELECT name, level_number, mindset, skills, knowledge
-        FROM grade_levels
-        WHERE position = ${position}
-        ORDER BY level_number
-        LIMIT 2
-      `;
-      gradeCriteria = grades.map((g: any) => `${g.name}: マインド=${g.mindset?.slice(0, 100)}`).join('\n');
-    } catch {}
-
-    // AI分析・採点
-    const analyzeResponse = await fetch('https://api.anthropic.com/v1/messages', {
+    const response = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -82,46 +30,30 @@ export async function POST(req: Request) {
       },
       body: JSON.stringify({
         model: 'claude-sonnet-4-6',
-        max_tokens: 2000,
+        max_tokens: 1500,
         system: `あなたはLUMINAクリニックの採用AIです。
-院長の評価哲学：
-- 4つの「実」：実行（やると言ったことをやる）・実績（数字で語れる成果）・実力（本物の力）・誠実（正直）
-- 5大欲求：生存・愛所属・力・自由・楽しみ（選択理論）
-- 同心円成長：自己愛→身近な人→社会貢献
-- 先払い哲学：貢献を先にする人が豊かになる
-- ティール組織：自律・主体性・全員リーダー
-
-採用で重視する点：
-- 素直さ・学ぶ姿勢
-- 患者さんへの思いやり
-- チームへの貢献意識
-- 誠実さ・正直さ
-- 成長への意欲
-
-必ずJSON形式のみで返してください。`,
+4つの「実」で採点：実行（やると言ったことをやる）・実績（数字の成果）・実力（本物の力）・誠実（正直）各25点満点。
+5大欲求で性格分析：生存・愛所属・力・自由・楽しみ。
+必ずJSONのみ返してください。前置き不要。`,
         messages: [{
           role: 'user',
-          content: `以下の応募者情報を分析し、採点してください。
+          content: `応募職種：${position}
 
-【応募職種】${position}
+応募者情報：
+${text}
 
-【応募者情報】
-${inputText.slice(0, 2000)}
-
-${gradeCriteria ? `【採用基準参考】\n${gradeCriteria}` : ''}
-
-以下のJSON形式で返してください：
+以下のJSON形式のみで返してください：
 {
   "extracted_data": {
     "name": "氏名",
-    "age": 年齢(数値),
-    "experience_years": 経験年数(数値),
+    "age": 年齢,
+    "experience_years": 経験年数,
     "current_job": "現職",
-    "education": "最終学歴",
-    "qualifications": ["資格1", "資格2"],
-    "motivation": "志望動機の要約",
-    "strengths": ["強み1", "強み2", "強み3"],
-    "concerns": ["懸念点1", "懸念点2"]
+    "education": "学歴",
+    "qualifications": ["資格"],
+    "motivation": "志望動機要約",
+    "strengths": ["強み1", "強み2"],
+    "concerns": ["懸念点1"]
   },
   "scores": {
     "jitsukou": {"score": 0-25, "reason": "理由"},
@@ -129,20 +61,39 @@ ${gradeCriteria ? `【採用基準参考】\n${gradeCriteria}` : ''}
     "jitsuryoku": {"score": 0-25, "reason": "理由"},
     "seijitsu": {"score": 0-25, "reason": "理由"}
   },
-  "dominant_needs": ["love_belonging", "power"],
-  "personality_summary": "性格・欲求バランスの要約（3文）",
+  "dominant_needs": ["love_belonging"],
+  "personality_summary": "性格・欲求の要約（2文）",
   "recommendation": "採用推奨|要検討|不採用",
-  "ai_comment": "総合コメント（3〜5文）",
-  "interview_points": ["面接で確認すべき点1", "面接で確認すべき点2", "面接で確認すべき点3"]
+  "ai_comment": "総合コメント（2〜3文）",
+  "interview_points": ["確認ポイント1", "確認ポイント2", "確認ポイント3"]
 }`,
         }],
       }),
     });
 
-    const analyzeData = await analyzeResponse.json();
-    const rawText = analyzeData.content?.[0]?.text || '{}';
+    const data = await response.json();
+    const rawText = data.content?.[0]?.text || '{}';
     const clean = rawText.replace(/```json|```/g, '').trim();
-    const result = JSON.parse(clean);
+
+    let result: any = {};
+    try {
+      result = JSON.parse(clean);
+    } catch {
+      result = {
+        extracted_data: { name: '解析エラー' },
+        scores: {
+          jitsukou: { score: 0, reason: '解析失敗' },
+          jisseki: { score: 0, reason: '解析失敗' },
+          jitsuryoku: { score: 0, reason: '解析失敗' },
+          seijitsu: { score: 0, reason: '解析失敗' },
+        },
+        dominant_needs: [],
+        personality_summary: '',
+        recommendation: '要検討',
+        ai_comment: '解析に失敗しました。再度お試しください。',
+        interview_points: [],
+      };
+    }
 
     const totalScore = result.scores
       ? Object.values(result.scores).reduce((sum: number, s: any) => sum + (s.score || 0), 0)
@@ -155,9 +106,9 @@ ${gradeCriteria ? `【採用基準参考】\n${gradeCriteria}` : ''}
         total_score, ai_comment, interview_points,
         dominant_needs, personality_summary, recommendation
       ) VALUES (
-        ${result.extracted_data?.name || '未取得'},
+        ${result.extracted_data?.name || '名前未取得'},
         ${position},
-        ${inputText.slice(0, 5000)},
+        ${text},
         ${JSON.stringify(result.extracted_data || {})},
         ${JSON.stringify(result.scores || {})},
         ${totalScore},
@@ -174,7 +125,6 @@ ${gradeCriteria ? `【採用基準参考】\n${gradeCriteria}` : ''}
       id: saved[0].id,
       ...result,
       total_score: totalScore,
-      raw_text: inputText.slice(0, 500),
     });
 
   } catch (e: any) {
