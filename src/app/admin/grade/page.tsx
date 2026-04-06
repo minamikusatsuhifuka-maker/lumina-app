@@ -176,13 +176,15 @@ export default function GradePage() {
   );
 
   const renderExam = (exam: any) => {
-    if (!exam || typeof exam === 'string') { try { exam = JSON.parse(exam); } catch { return <div style={{ color: 'var(--text-muted)', fontSize: 13 }}>未設定</div>; } }
+    if (!exam) return <div style={{ color: 'var(--text-muted)', fontSize: 13 }}>未設定</div>;
+    if (typeof exam === 'string') { try { exam = JSON.parse(exam); } catch { return <div style={{ color: 'var(--text-muted)', fontSize: 13 }}>未設定</div>; } }
+    if (!exam || typeof exam !== 'object') return <div style={{ color: 'var(--text-muted)', fontSize: 13 }}>未設定</div>;
     return (
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8, fontSize: 13, color: 'var(--text-secondary)' }}>
         {exam.description && <div><strong>概要:</strong> {exam.description}</div>}
         {exam.format && <div><strong>形式:</strong> {exam.format}</div>}
         {exam.passingCriteria && <div><strong>合格基準:</strong> {exam.passingCriteria}</div>}
-        {exam.examContent && <div><strong>内容:</strong>{exam.examContent.map((c: string, i: number) => <div key={i} style={{ paddingLeft: 12 }}>• {c}</div>)}</div>}
+        {Array.isArray(exam.examContent) && exam.examContent.length > 0 && <div><strong>内容:</strong>{exam.examContent.map((c: string, i: number) => <div key={i} style={{ paddingLeft: 12 }}>• {c}</div>)}</div>}
         {exam.recommendedPreparation && <div><strong>対策:</strong> {exam.recommendedPreparation}</div>}
       </div>
     );
