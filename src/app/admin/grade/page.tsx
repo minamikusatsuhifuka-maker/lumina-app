@@ -162,42 +162,38 @@ export default function GradePage() {
         <div style={{ marginBottom: 20, padding: 14, borderRadius: 14, background: 'rgba(6,182,212,0.06)', border: '1px solid rgba(6,182,212,0.2)' }}>
           <div style={{ fontSize: 13, fontWeight: 700, color: '#0d9488', marginBottom: 4 }}>🌿 当院の等級制度について</div>
           <div style={{ fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.7 }}>
-            この等級はピラミッドの「上下」ではなく、<span style={{ fontWeight: 700, color: 'var(--text-primary)' }}>同心円の「広が��」</span>を表しています。G4・G5は「偉い人」ではなく「育成や社会貢献に関わる人」。働き方・関わり方が異なるだけです。全員がアンバサダー（G5）を目指して自律的に成長することが目標です。
+            この等級はピラミッドの「上下」ではなく、<span style={{ fontWeight: 700, color: 'var(--text-primary)' }}>同心円の「広がり」</span>を表しています。G4・G5は「偉い人」ではなく「育成や社会貢献に関わる人」。働き方・関わり方が異なるだけです。全員がアンバサダー（G5）を目指して自律的に成長することが目標です。
           </div>
         </div>
 
-        {/* 同心円ビジュアル */}
+        {/* 同心円ビジュアル（SVG） */}
         {grades.length > 0 && (
           <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 24 }}>
-            <div style={{ position: 'relative', width: 320, height: 320 }}>
+            <svg width="340" height="340" viewBox="0 0 340 340">
               {[
-                { level: 5, label: 'G5 アンバサダー', sub: '広げる・創る', size: 320, color: '#0d9488', bg: 'rgba(6,182,212,0.06)' },
-                { level: 4, label: 'G4 パートナー', sub: '引き出す・支える', size: 250, color: '#8b5cf6', bg: 'rgba(139,92,246,0.06)' },
-                { level: 3, label: 'G3 エキスパート', sub: '魅せる・高める', size: 190, color: '#3b82f6', bg: 'rgba(59,130,246,0.06)' },
-                { level: 2, label: 'G2 コア', sub: '自走する・貢献する', size: 135, color: '#f59e0b', bg: 'rgba(245,158,11,0.06)' },
-                { level: 1, label: 'G1 ルーキー', sub: '学ぶ・��収する', size: 80, color: '#ec4899', bg: 'rgba(236,72,153,0.08)' },
+                { level: 5, label: 'G5 アンバサダー', sub: '広げる・創る', r: 165, color: '#0d9488', bg: 'rgba(6,182,212,0.06)' },
+                { level: 4, label: 'G4 パートナー', sub: '引き出す・支える', r: 128, color: '#8b5cf6', bg: 'rgba(139,92,246,0.06)' },
+                { level: 3, label: 'G3 エキスパート', sub: '魅せる・高める', r: 95, color: '#3b82f6', bg: 'rgba(59,130,246,0.06)' },
+                { level: 2, label: 'G2 コア', sub: '自走する・貢献する', r: 65, color: '#f59e0b', bg: 'rgba(245,158,11,0.06)' },
+                { level: 1, label: 'G1 ルーキー', sub: '学ぶ・吸収する', r: 38, color: '#ec4899', bg: 'rgba(236,72,153,0.08)' },
               ].map(ring => (
-                <div key={ring.level} style={{
-                  position: 'absolute', width: ring.size, height: ring.size, borderRadius: '50%',
-                  border: `2px solid ${ring.color}40`, background: ring.bg,
-                  top: (320 - ring.size) / 2, left: (320 - ring.size) / 2,
-                  display: 'flex', alignItems: ring.level >= 4 ? 'flex-start' : 'center',
-                  justifyContent: 'center', paddingTop: ring.level >= 4 ? (ring.level === 5 ? 8 : 12) : 0,
-                }}>
-                  {ring.level >= 3 && (
-                    <div style={{ textAlign: 'center' }}>
-                      <div style={{ fontSize: 10, fontWeight: 700, color: ring.color }}>{ring.label}</div>
-                      {ring.level >= 4 && <div style={{ fontSize: 9, color: ring.color + '99' }}>{ring.sub}</div>}
-                    </div>
+                <g key={ring.level}>
+                  <circle cx="170" cy="170" r={ring.r} fill={ring.bg} stroke={ring.color} strokeOpacity="0.3" strokeWidth="2" />
+                  {ring.level >= 2 && (
+                    <>
+                      <text x="170" y={170 - ring.r + 16} textAnchor="middle" fontSize="10" fontWeight="bold" fill={ring.color}>{ring.label}</text>
+                      <text x="170" y={170 - ring.r + 28} textAnchor="middle" fontSize="8" fill={ring.color} opacity="0.7">{ring.sub}</text>
+                    </>
                   )}
-                  {ring.level <= 2 && (
-                    <div style={{ textAlign: 'center' }}>
-                      <div style={{ fontSize: ring.level === 1 ? 9 : 10, fontWeight: 700, color: ring.color }}>{ring.level === 1 ? 'G1' : ring.label}</div>
-                    </div>
+                  {ring.level === 1 && (
+                    <>
+                      <text x="170" y="167" textAnchor="middle" fontSize="11" fontWeight="bold" fill={ring.color}>G1</text>
+                      <text x="170" y="180" textAnchor="middle" fontSize="8" fill={ring.color}>ルーキー</text>
+                    </>
                   )}
-                </div>
+                </g>
               ))}
-            </div>
+            </svg>
           </div>
         )}
 
