@@ -55,15 +55,88 @@ export default function ZoneManagementPage() {
     });
   }, []);
 
-  const generateAll = async () => {
-    setGenerating(true); setMessage(''); setSuggestions(null);
+  const generateAllZones = async () => {
+    setGenerating(true);
+    setMessage('');
+    setSuggestions(null);
     try {
-      const res = await fetch('/api/clinic/red-zone/generate', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+      const res = await fetch('/api/clinic/red-zone/generate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ zone: 'all' }),
+      });
       const data = await res.json();
-      if (data.zones) { setSuggestions(data); setSuggestTab('red'); }
-      else { setMessage(data.error || '生成に失敗しました'); }
-    } catch { setMessage('生成に失敗しました'); }
-    finally { setGenerating(false); }
+
+      // レスポンス形式の両方に対応
+      let allRules: { zone: string; title: string; description: string; example: string; consequence: string }[] = [];
+
+      if (data.zones && Array.isArray(data.zones)) {
+        // { zones: [{ zone_type, items }] } 形式
+        for (const zoneData of data.zones) {
+          const zoneKey = zoneData.zone_type || zoneData.zone;
+          const items = zoneData.items || zoneData.rules || [];
+          for (const item of items) {
+            allRules.push({
+              zone: zoneKey,
+              title: item.title || '',
+              description: item.description || '',
+              example: item.example || '',
+              consequence: item.consequence || '',
+            });
+          }
+        }
+      } else if (data.rules && Array.isArray(data.rules)) {
+        // { rules: [...] } 形式
+        for (const item of data.rules) {
+          allRules.push({
+            zone: item.zone || activeZone,
+            title: item.title || '',
+            description: item.description || '',
+            example: item.example || '',
+            consequence: item.consequence || '',
+          });
+        }
+      }
+
+      if (allRules.length === 0) {
+        setMessage('生成データが空です。もう一度お試しください。');
+        return;
+      }
+
+      // 順番に保存（並列ではなく逐次）
+      let saved = 0;
+      for (const rule of allRules) {
+        try {
+          await fetch('/api/clinic/red-zone', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              zone_type: rule.zone,
+              category: 'attitude',
+              title: rule.title,
+              description: rule.description,
+              consequence: rule.consequence || rule.example || '',
+              severity: rule.zone === 'red' ? 'critical' : rule.zone === 'yellow' ? 'serious' : 'standard',
+            }),
+          });
+          saved++;
+        } catch (e) {
+          console.error('保存失敗:', rule.title, e);
+        }
+      }
+
+      // 再取得して表示更新
+      const updated = await fetch('/api/clinic/red-zone').then(r => r.json());
+      setRules(Array.isArray(updated) ? updated : []);
+      setMessage(`${saved}件の行動基準を生成・保存しました`);
+      setTimeout(() => setMessage(''), 4000);
+
+    } catch (e) {
+      console.error('generate error:', e);
+      setMessage('生成に失敗しました。もう一度お試しください。');
+    } finally {
+      setGenerating(false);
+    }
   };
 
   const adoptItem = async (zoneType: string, item: any, idx: number) => {
@@ -178,7 +251,7 @@ export default function ZoneManagementPage() {
 
       {/* ボタン */}
       <div style={{ display: 'flex', gap: 10, marginBottom: 20, flexWrap: 'wrap' }}>
-        <button onClick={generateAll} disabled={generating} style={{
+        <button onClick={generateAllZones} disabled={generating} style={{
           padding: '9px 18px', borderRadius: 8, border: 'none', cursor: 'pointer',
           background: generating ? 'rgba(108,99,255,0.3)' : 'linear-gradient(135deg, #6c63ff, #8b5cf6)',
           color: '#fff', fontWeight: 700, fontSize: 13,
