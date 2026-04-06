@@ -2,6 +2,7 @@
 import { useState, useEffect, use } from 'react';
 import { getSavedModel } from '@/lib/model-preference';
 import { ModelBadge } from '@/components/ModelBadge';
+import { AITextReviser } from '@/components/clinic/AITextReviser';
 
 const QUICK_INSTRUCTIONS = ['わかりやすく', '理念に沿って', '箇条書き化', '具体例を追加', 'トーンを丁寧に'];
 
@@ -177,6 +178,12 @@ export default function HandbookEditorPage({ params }: { params: Promise<{ id: s
 
             {/* 本文 */}
             <textarea value={editContent} onChange={e => setEditContent(e.target.value)} style={{ ...inputStyle, minHeight: 400, resize: 'vertical', lineHeight: 1.8, fontSize: 14 }} />
+            <AITextReviser
+              text={editContent}
+              onRevised={(revised) => setEditContent(revised)}
+              defaultPurpose="manual"
+              purposes={['manual', 'patient', 'simple', 'warm', 'official']}
+            />
 
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 8 }}>
               <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>文字数: {editContent.length}</span>

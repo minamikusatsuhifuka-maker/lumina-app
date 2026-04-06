@@ -2,6 +2,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { ModelBadge } from '@/components/ModelBadge';
 import { AIDialogueButton } from '@/components/clinic/AIDialogueButton';
+import { AITextReviser } from '@/components/clinic/AITextReviser';
 
 type Analysis = {
   coreValues: string[];
@@ -357,6 +358,12 @@ export default function PhilosophyPage() {
             value={manualContent} onChange={e => setManualContent(e.target.value)}
             placeholder="クリニックの理念、ミッション、ビジョン、行動指針などを入力してください..."
             style={{ width: '100%', minHeight: 400, padding: '12px 14px', background: 'var(--input-bg)', border: '1px solid var(--input-border)', borderRadius: 8, color: 'var(--text-primary)', fontSize: 14, lineHeight: 1.8, outline: 'none', resize: 'vertical', boxSizing: 'border-box' }}
+          />
+          <AITextReviser
+            text={manualContent}
+            onRevised={(revised) => setManualContent(revised)}
+            defaultPurpose="philosophy"
+            purposes={['philosophy', 'warm', 'simple', 'teal']}
           />
           <div style={{ display: 'flex', gap: 8, marginTop: 14 }}>
             <button onClick={handleSaveText} disabled={saving || !manualTitle.trim() || !manualContent.trim()} style={{

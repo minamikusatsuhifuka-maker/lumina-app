@@ -2,6 +2,7 @@
 import { useState, useEffect } from 'react';
 import { ModelBadge } from '@/components/ModelBadge';
 import { AIDialogueButton } from '@/components/clinic/AIDialogueButton';
+import { AITextReviser } from '@/components/clinic/AITextReviser';
 
 type DetailTab = 'overview' | 'skills' | 'knowledge' | 'mindset' | 'learning' | 'certs' | 'exam' | 'demotion';
 
@@ -232,6 +233,13 @@ export default function GradePage() {
             <div>
               <textarea value={descInput} onChange={e => setDescInput(e.target.value)} rows={4}
                 style={{ width: '100%', padding: '10px 12px', background: 'var(--input-bg)', border: '1px solid var(--input-border)', borderRadius: 10, color: 'var(--text-primary)', fontSize: 13, lineHeight: 1.7, resize: 'vertical', outline: 'none', boxSizing: 'border-box' }} />
+              <AITextReviser
+                text={descInput}
+                onRevised={(revised) => setDescInput(revised)}
+                defaultPurpose="teal"
+                purposes={['teal', 'philosophy', 'warm', 'simple']}
+                compact={true}
+              />
 
               {/* AI提案エリア */}
               <div style={{ marginTop: 12, padding: 14, background: 'rgba(108,99,255,0.06)', border: '1px solid rgba(108,99,255,0.2)', borderRadius: 10 }}>

@@ -1,6 +1,7 @@
 'use client';
 import { useState, useEffect } from 'react';
 import { AIDialogueButton } from '@/components/clinic/AIDialogueButton';
+import { AITextReviser } from '@/components/clinic/AITextReviser';
 
 const ZONES = [
   { key: 'red', label: 'レッド', icon: '🔴', desc: '即退職レベル', color: '#ef4444', bg: 'rgba(239,68,68,0.06)', border: 'rgba(239,68,68,0.2)' },
@@ -408,6 +409,13 @@ export default function ZoneManagementPage() {
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                   <input value={editForm.title} onChange={e => setEditForm(p => ({ ...p, title: e.target.value }))} placeholder="タイトル" style={inputStyle} />
                   <textarea value={editForm.description} onChange={e => setEditForm(p => ({ ...p, description: e.target.value }))} placeholder="説明" style={{ ...inputStyle, minHeight: 60, resize: 'vertical' }} />
+                  <AITextReviser
+                    text={editForm.description}
+                    onRevised={(revised) => setEditForm(p => ({ ...p, description: revised }))}
+                    defaultPurpose="official"
+                    purposes={['official', 'simple', 'warm']}
+                    compact={true}
+                  />
                   <input value={editForm.official_statement} onChange={e => setEditForm(p => ({ ...p, official_statement: e.target.value }))} placeholder="公式ステートメント" style={inputStyle} />
                   <input value={editForm.legal_basis} onChange={e => setEditForm(p => ({ ...p, legal_basis: e.target.value }))} placeholder="法的根拠" style={inputStyle} />
                   <input value={editForm.improvement_period} onChange={e => setEditForm(p => ({ ...p, improvement_period: e.target.value }))} placeholder="改善期間" style={inputStyle} />

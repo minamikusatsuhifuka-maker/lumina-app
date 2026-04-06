@@ -1,6 +1,7 @@
 'use client';
 import { useState, useEffect, useRef } from 'react';
 import { AIDialogueButton } from '@/components/clinic/AIDialogueButton';
+import { AITextReviser } from '@/components/clinic/AITextReviser';
 
 export default function EmploymentRulesPage() {
   const [title, setTitle] = useState('');
@@ -160,6 +161,12 @@ export default function EmploymentRulesPage() {
 
           <label style={{ display: 'block', fontSize: 13, color: 'var(--text-secondary)', marginBottom: 6 }}>内容</label>
           <textarea value={content} onChange={e => setContent(e.target.value)} rows={30} placeholder="就業規則の内容を入力またはファイルから読み込み..." style={{ ...inputStyle, minHeight: 500, resize: 'vertical', lineHeight: 1.8, fontFamily: 'monospace', fontSize: 13 }} />
+          <AITextReviser
+            text={content}
+            onRevised={(revised) => setContent(revised)}
+            defaultPurpose="official"
+            purposes={['official', 'simple', 'patient', 'warm']}
+          />
           <div style={{ textAlign: 'right', fontSize: 12, color: 'var(--text-muted)', marginTop: 4 }}>
             {content.length.toLocaleString()}文字
           </div>
