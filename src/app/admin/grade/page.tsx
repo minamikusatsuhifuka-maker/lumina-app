@@ -42,9 +42,13 @@ export default function GradePage() {
   const [consulting, setConsulting] = useState(false);
   const [consultHistory, setConsultHistory] = useState<{ msg: string; res: string }[]>([]);
 
-  const fetchGrades = () => { fetch('/api/clinic/grades').then(r => r.json()).then(d => { if (Array.isArray(d)) setGrades(d); setLoading(false); }); };
+  const [selectedPosition, setSelectedPosition] = useState('');
+
+  const fetchGrades = () => { fetch('/api/clinic/grades').then(r => r.json()).then(d => { if (Array.isArray(d)) { setGrades(d); if (!selectedPosition && d.length > 0) setSelectedPosition(d[0].position || ''); } setLoading(false); }); };
   useEffect(() => { fetchGrades(); }, []);
 
+  const positions = [...new Set(grades.map(g => g.position).filter(Boolean))] as string[];
+  const filteredGrades = selectedPosition ? grades.filter(g => g.position === selectedPosition) : grades;
   const selected = grades.find(g => g.id === selectedId);
 
   const generateAll = async () => {
@@ -156,7 +160,21 @@ export default function GradePage() {
           </div>
         </div>
 
-        {message && <div style={{ padding: 10, background: 'rgba(239,68,68,0.1)', borderRadius: 8, fontSize: 13, color: '#ef4444', marginBottom: 12 }}>{message}</div>}
+        {message && <div style={{ padding: 10, background: message.includes('失敗') || message.includes('エラー') ? 'rgba(239,68,68,0.1)' : 'rgba(74,222,128,0.1)', borderRadius: 8, fontSize: 13, color: message.includes('失敗') || message.includes('エラー') ? '#ef4444' : '#4ade80', marginBottom: 12 }}>{message}</div>}
+
+        {/* 職種切り替えタブ */}
+        {positions.length > 1 && (
+          <div style={{ display: 'flex', gap: 8, marginBottom: 16, flexWrap: 'wrap' }}>
+            {positions.map(pos => (
+              <button key={pos} onClick={() => { setSelectedPosition(pos); setSelectedId(null); }} style={{
+                padding: '8px 18px', borderRadius: 20, fontSize: 13, fontWeight: 600, cursor: 'pointer', transition: 'all 0.15s',
+                background: selectedPosition === pos ? 'linear-gradient(135deg, #6c63ff, #8b5cf6)' : 'var(--bg-card)',
+                color: selectedPosition === pos ? '#fff' : 'var(--text-muted)',
+                border: `1px solid ${selectedPosition === pos ? 'transparent' : 'var(--border)'}`,
+              }}>{pos}</button>
+            ))}
+          </div>
+        )}
 
         {/* 同心円の説明バナー */}
         <div style={{ marginBottom: 20, padding: 14, borderRadius: 14, background: 'rgba(6,182,212,0.06)', border: '1px solid rgba(6,182,212,0.2)' }}>
@@ -167,7 +185,7 @@ export default function GradePage() {
         </div>
 
         {/* 同心円ビジュアル（SVG） */}
-        {grades.length > 0 && (
+        {filteredGrades.length > 0 && (
           <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 24 }}>
             <svg width="340" height="340" viewBox="0 0 340 340">
               {[
@@ -199,7 +217,7 @@ export default function GradePage() {
 
         {/* 等級一覧 */}
         <div style={{ display: 'flex', gap: 8, marginBottom: 20, flexWrap: 'wrap' }}>
-          {grades.map(g => (
+          {filteredGrades.map(g => (
             <button key={g.id} onClick={() => { setSelectedId(g.id); setRefineResult(null); setDetailTab('overview'); }} style={{
               padding: '10px 16px', borderRadius: 10, cursor: 'pointer',
               background: selectedId === g.id ? 'linear-gradient(135deg, rgba(108,99,255,0.15), rgba(236,72,153,0.08))' : 'var(--bg-secondary)',
@@ -208,7 +226,7 @@ export default function GradePage() {
             }}>
               <div style={{ fontSize: 15, fontWeight: 800 }}>G{g.level_number}</div>
               <div style={{ fontSize: 11, marginTop: 2 }}>{g.name}</div>
-              {g.role && <div style={{ fontSize: 10, color: 'var(--text-muted)', marginTop: 1 }}>{g.role}</div>}
+              {positions.length <= 1 && g.position && <div style={{ fontSize: 9, color: 'var(--text-muted)', marginTop: 1 }}>{g.position}</div>}
             </button>
           ))}
         </div>
