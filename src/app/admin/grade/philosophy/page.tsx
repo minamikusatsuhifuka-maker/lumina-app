@@ -118,11 +118,40 @@ export default function GrowthPhilosophyPage() {
             </div>
           )}
           {philo.power_partner_definition && (
-            <div style={{ padding: 18, background: 'rgba(236,72,153,0.05)', border: '1px solid rgba(236,72,153,0.2)', borderRadius: 14 }}>
+            <div style={{ padding: 18, background: 'rgba(236,72,153,0.05)', border: '1px solid rgba(236,72,153,0.2)', borderRadius: 14, marginBottom: 16 }}>
               <div style={{ fontSize: 14, fontWeight: 700, color: '#ec4899', marginBottom: 8 }}>🤝 パワーパートナー</div>
               <div style={{ fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.7 }}>{philo.power_partner_definition}</div>
             </div>
           )}
+
+          {/* パワーパートナーの連鎖 */}
+          <div style={{ padding: 20, marginBottom: 16, background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 16 }}>
+            <div style={{ fontSize: 16, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 16 }}>🤝 パワーパートナーの連鎖</div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', justifyContent: 'center' }}>
+              {[
+                { label: '院長', color: '#8b5cf6' },
+                { label: '↔', isArrow: true },
+                { label: 'スタッフ', color: '#06b6d4' },
+                { label: '↔', isArrow: true },
+                { label: '患者さん', color: '#4ade80' },
+                { label: '↔', isArrow: true },
+                { label: '地域社会', color: '#f59e0b' },
+              ].map((item, i) => (
+                'isArrow' in item && item.isArrow ? (
+                  <div key={i} style={{ fontSize: 20, color: 'var(--text-muted)' }}>↔</div>
+                ) : (
+                  <div key={i} style={{
+                    padding: '8px 16px', borderRadius: 20,
+                    background: `${item.color}15`, border: `1px solid ${item.color}40`,
+                    color: item.color, fontSize: 13, fontWeight: 700,
+                  }}>{item.label}</div>
+                )
+              ))}
+            </div>
+            <div style={{ fontSize: 12, color: 'var(--text-muted)', textAlign: 'center', marginTop: 12 }}>
+              全ての関係が「先払い」でつながるとき、クリニックは生命体として動き出す
+            </div>
+          </div>
 
           {/* 先払いの原則 */}
           <div style={{ marginTop: 24, padding: 24, borderRadius: 16, border: '2px solid rgba(245,158,11,0.3)', background: 'linear-gradient(135deg, rgba(245,158,11,0.04), rgba(234,179,8,0.04))' }}>
