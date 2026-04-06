@@ -161,6 +161,13 @@ export default function EvaluationPage() {
     finally { setGenerating(false); }
   };
 
+  const getRealBadge = (text: string): { label: string; color: string } => {
+    if (text.match(/数字|成果|実績|結果|売上|件数|達成/)) return { label: '実績', color: '#f59e0b' };
+    if (text.match(/技術|能力|スキル|熟練|対応力|判断/)) return { label: '実力', color: '#3b82f6' };
+    if (text.match(/正直|誠実|報告|透明|約束|信頼/)) return { label: '誠実', color: '#8b5cf6' };
+    return { label: '実行', color: '#ef4444' };
+  };
+
   const cardStyle: React.CSSProperties = { padding: 20, background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 16 };
   const inputStyle: React.CSSProperties = { width: '100%', padding: '8px 12px', background: 'var(--input-bg)', border: '1px solid var(--input-border)', borderRadius: 8, color: 'var(--text-primary)', fontSize: 13, outline: 'none', boxSizing: 'border-box' };
 
@@ -191,12 +198,18 @@ export default function EvaluationPage() {
         </div>
       ) : (
         <div>
-          {items.length > 0 ? items.map((item, i) => (
-            <div key={i} style={{ fontSize: 13, color: 'var(--text-secondary)', padding: '4px 0', display: 'flex', gap: 8, alignItems: 'flex-start' }}>
+          {items.length > 0 ? items.map((item, i) => {
+            const badge = section === 'mindset' ? getRealBadge(item) : null;
+            return (
+            <div key={i} style={{ fontSize: 13, color: 'var(--text-secondary)', padding: '4px 0', display: 'flex', gap: 8, alignItems: 'center' }}>
               <span style={{ color: `${color}99`, flexShrink: 0 }}>•</span>
-              <span>{item}</span>
+              <span style={{ flex: 1 }}>{item}</span>
+              {badge && (
+                <span style={{ fontSize: 10, padding: '2px 8px', borderRadius: 10, background: `${badge.color}15`, color: badge.color, fontWeight: 700, flexShrink: 0 }}>{badge.label}</span>
+              )}
             </div>
-          )) : (
+            );
+          }) : (
             <div style={{ fontSize: 13, color: 'var(--text-muted)' }}>項目が未設定です</div>
           )}
         </div>
