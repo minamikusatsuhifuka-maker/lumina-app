@@ -1,38 +1,37 @@
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
+import { auth } from '@/lib/auth';
 import { neon } from '@neondatabase/serverless';
 
 export async function GET() {
-  const sql = neon(process.env.DATABASE_URL!);
-
+  const session = await auth();
+  if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   try {
-    // テーブル存在チェック
-    const tableCheck = await sql`
-      SELECT EXISTS (
-        SELECT 1 FROM information_schema.tables
-        WHERE table_name = 'grade_evaluation_framework'
-      ) AS exists
-    `;
-
-    if (!tableCheck[0]?.exists) {
-      return NextResponse.json({ error: 'table_not_found' }, { status: 404 });
-    }
-
-    // カラム情報取得
-    const columns = await sql`
-      SELECT column_name, data_type
-      FROM information_schema.columns
-      WHERE table_name = 'grade_evaluation_framework'
-      ORDER BY ordinal_position
-    `;
-
-    // 全データ取得
-    const rows = await sql`SELECT * FROM grade_evaluation_framework ORDER BY grade_level ASC`;
-
-    return NextResponse.json({
-      columns: columns.map(c => ({ name: c.column_name, type: c.data_type })),
-      data: rows,
-    });
+    const sql = neon(process.env.DATABASE_URL!);
+    const rows = await sql`SELECT * FROM evaluation_framework WHERE id = 'default'`;
+    if (rows.length === 0) return NextResponse.json({ error: 'not_found' }, { status: 404 });
+    return NextResponse.json(rows[0]);
   } catch {
-    return NextResponse.json({ error: 'internal_error' }, { status: 500 });
+    return NextResponse.json({ error: 'db_error' }, { status: 500 });
+  }
+}
+
+export async function PATCH(req: NextRequest) {
+  const session = await auth();
+  if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  try {
+    const body = await req.json();
+    const sql = neon(process.env.DATABASE_URL!);
+    if (body.mindset_levels !== undefined) {
+      await sql`UPDATE evaluation_framework SET mindset_levels = ${JSON.stringify(body.mindset_levels)}::jsonb, updated_at = NOW() WHERE id = 'default'`;
+    }
+    if (body.real_principles !== undefined) {
+      await sql`UPDATE evaluation_framework SET real_principles = ${JSON.stringify(body.real_principles)}::jsonb, updated_at = NOW() WHERE id = 'default'`;
+    }
+    if (body.score_distribution !== undefined) {
+      await sql`UPDATE evaluation_framework SET score_distribution = ${JSON.stringify(body.score_distribution)}::jsonb, updated_at = NOW() WHERE id = 'default'`;
+    }
+    return NextResponse.json({ success: true });
+  } catch {
+    return NextResponse.json({ error: 'db_error' }, { status: 500 });
   }
 }

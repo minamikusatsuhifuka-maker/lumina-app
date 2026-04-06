@@ -2,12 +2,18 @@
 import { useState, useEffect } from 'react';
 import { AIDialogueButton } from '@/components/clinic/AIDialogueButton';
 
-const MINDSET_LEVELS = [
+const DEFAULT_MINDSET_LEVELS = [
   { level: 1, label: '知る', desc: '理念・原則を「知っている」', color: '#94a3b8' },
   { level: 2, label: 'わかる', desc: '意味を「理解している」', color: '#60a5fa' },
   { level: 3, label: '行う', desc: '日常的に「実践している」', color: '#fbbf24' },
   { level: 4, label: 'できる', desc: '自然に「体現できている」', color: '#4ade80' },
   { level: 5, label: '分かち合う', desc: '他者に「伝え広めている」', color: '#a78bfa' },
+];
+const DEFAULT_REAL_PRINCIPLES = [
+  { kanji: '実行', reading: 'じっこう', desc: 'やると言ったことをやる' },
+  { kanji: '実績', reading: 'じっせき', desc: '事実・数字で語れる成果' },
+  { kanji: '実力', reading: 'じつりょく', desc: '本物の力が身についている' },
+  { kanji: '誠実', reading: 'せいじつ', desc: '自分にも他者にも正直' },
 ];
 
 const parseArr = (v: any): string[] => {
@@ -36,6 +42,31 @@ export default function EvaluationPage() {
 
   // AI生成
   const [generating, setGenerating] = useState(false);
+
+  // フレームワーク（マインド5段階・実の原則）
+  const [mindsetLevels, setMindsetLevels] = useState<any[]>(DEFAULT_MINDSET_LEVELS);
+  const [realPrinciples, setRealPrinciples] = useState<any[]>(DEFAULT_REAL_PRINCIPLES);
+  const [editingFrameworkSection, setEditingFrameworkSection] = useState<'mindset_levels' | 'real_principles' | null>(null);
+  const [savingFramework, setSavingFramework] = useState(false);
+
+  useEffect(() => {
+    fetch('/api/clinic/evaluation-framework').then(r => r.json()).then(d => {
+      if (d.mindset_levels) setMindsetLevels(d.mindset_levels);
+      if (d.real_principles) setRealPrinciples(d.real_principles);
+    }).catch(() => {});
+  }, []);
+
+  const saveFrameworkSection = async (section: 'mindset_levels' | 'real_principles') => {
+    setSavingFramework(true);
+    const data = section === 'mindset_levels' ? mindsetLevels : realPrinciples;
+    try {
+      await fetch('/api/clinic/evaluation-framework', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ [section]: data }) });
+      setEditingFrameworkSection(null);
+      setMessage('保存しました');
+      setTimeout(() => setMessage(''), 2000);
+    } catch { setMessage('保存に失敗しました'); }
+    finally { setSavingFramework(false); }
+  };
 
   useEffect(() => {
     fetch('/api/clinic/grades').then(r => r.json()).then(d => {
@@ -190,40 +221,77 @@ export default function EvaluationPage() {
         </div>
       </div>
 
-      {/* アチーブメント原則 */}
+      {/* アチーブメント原則（編集可能） */}
       <div style={{ ...cardStyle, marginBottom: 20, padding: 16 }}>
-        <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 10 }}>マインド評価の5段階（アチーブメント原則）</div>
-        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-          {MINDSET_LEVELS.map(ml => (
-            <div key={ml.level} style={{ flex: 1, minWidth: 130, padding: '8px 10px', background: `${ml.color}15`, border: `1px solid ${ml.color}40`, borderRadius: 10, textAlign: 'center' }}>
-              <div style={{ fontSize: 16, fontWeight: 700, color: ml.color }}>Lv{ml.level}</div>
-              <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-primary)' }}>{ml.label}</div>
-              <div style={{ fontSize: 10, color: 'var(--text-muted)', marginTop: 2 }}>{ml.desc}</div>
-            </div>
-          ))}
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+          <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-primary)' }}>マインド評価の5段階（アチーブメント原則）</div>
+          {editingFrameworkSection !== 'mindset_levels' && (
+            <button onClick={() => setEditingFrameworkSection('mindset_levels')} style={{ fontSize: 12, color: '#8b5cf6', background: 'none', border: 'none', cursor: 'pointer' }}>✏️ 編集</button>
+          )}
         </div>
+        {editingFrameworkSection === 'mindset_levels' ? (
+          <div>
+            {mindsetLevels.map((ml, i) => (
+              <div key={i} style={{ display: 'flex', gap: 8, marginBottom: 8, alignItems: 'center' }}>
+                <div style={{ fontSize: 12, color: 'var(--text-muted)', width: 30, flexShrink: 0 }}>Lv{ml.level}</div>
+                <input value={ml.label} onChange={e => setMindsetLevels(prev => prev.map((v, j) => j === i ? { ...v, label: e.target.value } : v))} placeholder="ラベル" style={{ ...inputStyle, width: 80 }} />
+                <input value={ml.desc} onChange={e => setMindsetLevels(prev => prev.map((v, j) => j === i ? { ...v, desc: e.target.value } : v))} placeholder="説明文" style={{ ...inputStyle, flex: 1 }} />
+              </div>
+            ))}
+            <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
+              <button onClick={() => saveFrameworkSection('mindset_levels')} disabled={savingFramework} style={{ padding: '7px 16px', borderRadius: 8, border: 'none', background: '#8b5cf6', color: '#fff', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>{savingFramework ? '保存中...' : '💾 保存'}</button>
+              <button onClick={() => setEditingFrameworkSection(null)} style={{ padding: '7px 12px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--bg-card)', color: 'var(--text-muted)', fontSize: 12, cursor: 'pointer' }}>キャンセル</button>
+            </div>
+          </div>
+        ) : (
+          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+            {mindsetLevels.map(ml => (
+              <div key={ml.level} style={{ flex: 1, minWidth: 130, padding: '8px 10px', background: `${ml.color}15`, border: `1px solid ${ml.color}40`, borderRadius: 10, textAlign: 'center' }}>
+                <div style={{ fontSize: 16, fontWeight: 700, color: ml.color }}>Lv{ml.level}</div>
+                <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-primary)' }}>{ml.label}</div>
+                <div style={{ fontSize: 10, color: 'var(--text-muted)', marginTop: 2 }}>{ml.desc}</div>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
-      {/* 「実」を見て評価する */}
+      {/* 「実」を見て評価する（編集可能） */}
       <div style={{ ...cardStyle, marginBottom: 20, padding: 16 }}>
-        <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 6 }}>📌 評価の大原則：「実」を見る</div>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+          <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-primary)' }}>📌 評価の大原則：「実」を見る</div>
+          {editingFrameworkSection !== 'real_principles' && (
+            <button onClick={() => setEditingFrameworkSection('real_principles')} style={{ fontSize: 12, color: '#ef4444', background: 'none', border: 'none', cursor: 'pointer' }}>✏️ 編集</button>
+          )}
+        </div>
         <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 12, lineHeight: 1.6 }}>
           「心の中やマインドは言動に全て現れる」— だから内面ではなく「実」で評価します。
         </div>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 8 }}>
-          {[
-            { kanji: '実行', reading: 'じっこう', desc: 'やると言ったことをやる' },
-            { kanji: '実績', reading: 'じっせき', desc: '事実・数字で語れる成果' },
-            { kanji: '実力', reading: 'じつりょく', desc: '本物の力が身についている' },
-            { kanji: '誠実', reading: 'せいじつ', desc: '自分にも他者にも正直' },
-          ].map(item => (
-            <div key={item.kanji} style={{ padding: 10, background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 10, textAlign: 'center' }}>
-              <div style={{ fontSize: 20, fontWeight: 800, color: 'var(--text-primary)' }}>{item.kanji}</div>
-              <div style={{ fontSize: 10, color: 'var(--text-muted)' }}>{item.reading}</div>
-              <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginTop: 4 }}>{item.desc}</div>
+        {editingFrameworkSection === 'real_principles' ? (
+          <div>
+            {realPrinciples.map((item, i) => (
+              <div key={i} style={{ display: 'flex', gap: 8, marginBottom: 8, alignItems: 'center' }}>
+                <input value={item.kanji} onChange={e => setRealPrinciples(prev => prev.map((v, j) => j === i ? { ...v, kanji: e.target.value } : v))} placeholder="漢字" style={{ ...inputStyle, width: 60 }} />
+                <input value={item.reading} onChange={e => setRealPrinciples(prev => prev.map((v, j) => j === i ? { ...v, reading: e.target.value } : v))} placeholder="読み" style={{ ...inputStyle, width: 90 }} />
+                <input value={item.desc} onChange={e => setRealPrinciples(prev => prev.map((v, j) => j === i ? { ...v, desc: e.target.value } : v))} placeholder="説明" style={{ ...inputStyle, flex: 1 }} />
+              </div>
+            ))}
+            <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
+              <button onClick={() => saveFrameworkSection('real_principles')} disabled={savingFramework} style={{ padding: '7px 16px', borderRadius: 8, border: 'none', background: '#ef4444', color: '#fff', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>{savingFramework ? '保存中...' : '💾 保存'}</button>
+              <button onClick={() => setEditingFrameworkSection(null)} style={{ padding: '7px 12px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--bg-card)', color: 'var(--text-muted)', fontSize: 12, cursor: 'pointer' }}>キャンセル</button>
             </div>
-          ))}
-        </div>
+          </div>
+        ) : (
+          <div style={{ display: 'grid', gridTemplateColumns: `repeat(${realPrinciples.length}, 1fr)`, gap: 8 }}>
+            {realPrinciples.map(item => (
+              <div key={item.kanji} style={{ padding: 10, background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 10, textAlign: 'center' }}>
+                <div style={{ fontSize: 20, fontWeight: 800, color: 'var(--text-primary)' }}>{item.kanji}</div>
+                <div style={{ fontSize: 10, color: 'var(--text-muted)' }}>{item.reading}</div>
+                <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginTop: 4 }}>{item.desc}</div>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
       {/* 職種タブ */}
