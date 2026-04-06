@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
 import { neon } from '@neondatabase/serverless';
+import { callAI } from '@/lib/call-ai';
 
 export const maxDuration = 30;
 
@@ -8,19 +9,17 @@ export async function POST(req: NextRequest) {
   const session = await auth();
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-  const apiKey = process.env.ANTHROPIC_API_KEY;
-  if (!apiKey) return NextResponse.json({ error: 'APIキーが未設定' }, { status: 500 });
-
   try {
-    // JSONとFormData両方に対応
     let text = '';
     let position = '';
+    let aiModel: 'claude' | 'gemini' = 'claude';
     const contentType = req.headers.get('content-type') || '';
 
     if (contentType.includes('application/json')) {
       const body = await req.json();
       text = (body.text || '').slice(0, 2000);
       position = body.position || '';
+      aiModel = body.model || 'claude';
     } else {
       const formData = await req.formData();
       text = (formData.get('text') as string || '').slice(0, 2000);
@@ -31,25 +30,17 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'テキストが空です' }, { status: 400 });
     }
 
-    console.log('analyze: start', { position, textLen: text.length });
+    console.log('analyze: start', { position, textLen: text.length, model: aiModel });
 
-    const response = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': apiKey,
-        'anthropic-version': '2023-06-01',
-      },
-      body: JSON.stringify({
-        model: 'claude-sonnet-4-6',
-        max_tokens: 1500,
-        system: `あなたはLUMINAクリニックの採用AIです。
+    const rawText = await callAI({
+      model: aiModel,
+      system: `あなたはLUMINAクリニックの採用AIです。
 4つの「実」で採点：実行（やると言ったことをやる）・実績（数字の成果）・実力（本物の力）・誠実（正直）各25点満点。
 5大欲求で性格分析：生存・愛所属・力・自由・楽しみ。
 必ずJSONのみ返してください。前置き不要。`,
-        messages: [{
-          role: 'user',
-          content: `応募職種：${position}
+      messages: [{
+        role: 'user',
+        content: `応募職種：${position}
 
 応募者情報：
 ${text}
@@ -79,22 +70,13 @@ ${text}
   "ai_comment": "総合コメント（2〜3文）",
   "interview_points": ["確認ポイント1", "確認ポイント2", "確認ポイント3"]
 }`,
-        }],
-      }),
+      }],
+      maxTokens: 1500,
     });
-
-    if (!response.ok) {
-      const errBody = await response.text();
-      console.error('Anthropic API error:', response.status, errBody);
-      return NextResponse.json({ error: `AI API エラー: ${response.status}` }, { status: 500 });
-    }
-
-    const data = await response.json();
-    const rawText = data.content?.[0]?.text || '{}';
-    const clean = rawText.replace(/```json|```/g, '').trim();
 
     console.log('analyze: AI response received, parsing...');
 
+    const clean = rawText.replace(/```json|```/g, '').trim();
     let result: any = {};
     try {
       const match = clean.match(/\{[\s\S]*\}/);
@@ -121,7 +103,7 @@ ${text}
       ? Object.values(result.scores).reduce((sum: number, s: any) => sum + (s.score || 0), 0)
       : 0;
 
-    // DBに保存
+    // DBに保存（JSONB列にはJSON文字列をそのまま渡す）
     const sql = neon(process.env.DATABASE_URL!);
     const saved = await sql`
       INSERT INTO applicants (
@@ -132,12 +114,12 @@ ${text}
         ${result.extracted_data?.name || '名前未取得'},
         ${position},
         ${text},
-        ${JSON.stringify(result.extracted_data || {})}::jsonb,
-        ${JSON.stringify(result.scores || {})}::jsonb,
+        ${JSON.stringify(result.extracted_data || {})},
+        ${JSON.stringify(result.scores || {})},
         ${totalScore},
         ${result.ai_comment || ''},
-        ${JSON.stringify(result.interview_points || [])}::jsonb,
-        ${JSON.stringify(result.dominant_needs || [])}::jsonb,
+        ${JSON.stringify(result.interview_points || [])},
+        ${JSON.stringify(result.dominant_needs || [])},
         ${result.personality_summary || ''},
         ${result.recommendation || '要検討'}
       )

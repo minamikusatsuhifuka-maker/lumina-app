@@ -2,7 +2,7 @@
 import { useState, useEffect, useRef } from 'react';
 import {
   RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis,
-  Radar, ResponsiveContainer, Tooltip,
+  Radar, Tooltip,
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Cell,
 } from 'recharts';
 
@@ -284,41 +284,37 @@ export default function ApplicantsPage() {
                     <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-muted)', marginBottom: 8 }}>
                       📌 4つの「実」採点
                     </div>
-                    <div style={{ height: 220 }}>
-                      <ResponsiveContainer width="100%" height="100%">
-                        <RadarChart data={[
-                          { subject: '実行', score: selected.scores.jitsukou?.score || 0, fullMark: 25 },
-                          { subject: '実績', score: selected.scores.jisseki?.score || 0, fullMark: 25 },
-                          { subject: '実力', score: selected.scores.jitsuryoku?.score || 0, fullMark: 25 },
-                          { subject: '誠実', score: selected.scores.seijitsu?.score || 0, fullMark: 25 },
-                        ]}>
-                          <PolarGrid stroke="rgba(108,99,255,0.2)" />
-                          <PolarAngleAxis dataKey="subject" tick={{ fontSize: 12, fill: 'var(--text-secondary)', fontWeight: 700 }} />
-                          <PolarRadiusAxis angle={30} domain={[0, 25]} tick={{ fontSize: 10, fill: 'var(--text-muted)' }} />
-                          <Radar name="スコア" dataKey="score" stroke="#6c63ff" fill="#6c63ff" fillOpacity={0.25} strokeWidth={2} />
-                          <Tooltip formatter={(value: any) => [`${value}点`, 'スコア']} contentStyle={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 8, fontSize: 12 }} />
-                        </RadarChart>
-                      </ResponsiveContainer>
+                    <div style={{ width: '100%', minHeight: 220 }}>
+                      <RadarChart width={340} height={220} data={[
+                        { subject: '実行', score: selected.scores.jitsukou?.score || 0, fullMark: 25 },
+                        { subject: '実績', score: selected.scores.jisseki?.score || 0, fullMark: 25 },
+                        { subject: '実力', score: selected.scores.jitsuryoku?.score || 0, fullMark: 25 },
+                        { subject: '誠実', score: selected.scores.seijitsu?.score || 0, fullMark: 25 },
+                      ]}>
+                        <PolarGrid stroke="rgba(108,99,255,0.2)" />
+                        <PolarAngleAxis dataKey="subject" tick={{ fontSize: 12, fill: 'var(--text-secondary)', fontWeight: 700 }} />
+                        <PolarRadiusAxis angle={30} domain={[0, 25]} tick={{ fontSize: 10, fill: 'var(--text-muted)' }} />
+                        <Radar name="スコア" dataKey="score" stroke="#6c63ff" fill="#6c63ff" fillOpacity={0.25} strokeWidth={2} />
+                        <Tooltip formatter={(value: any) => [`${value}点`, 'スコア']} contentStyle={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 8, fontSize: 12 }} />
+                      </RadarChart>
                     </div>
-                    <div style={{ height: 120, marginTop: 8 }}>
-                      <ResponsiveContainer width="100%" height="100%">
-                        <BarChart data={[
-                          { name: '実行', score: selected.scores.jitsukou?.score || 0 },
-                          { name: '実績', score: selected.scores.jisseki?.score || 0 },
-                          { name: '実力', score: selected.scores.jitsuryoku?.score || 0 },
-                          { name: '誠実', score: selected.scores.seijitsu?.score || 0 },
-                        ]} layout="vertical" margin={{ left: 20, right: 20, top: 0, bottom: 0 }}>
-                          <CartesianGrid strokeDasharray="3 3" stroke="rgba(108,99,255,0.1)" />
-                          <XAxis type="number" domain={[0, 25]} tick={{ fontSize: 10 }} />
-                          <YAxis type="category" dataKey="name" tick={{ fontSize: 11, fontWeight: 700 }} width={30} />
-                          <Tooltip formatter={(v: any) => [`${v}点 / 25点`]} />
-                          <Bar dataKey="score" radius={[0, 4, 4, 0]}>
-                            {['#3b82f6', '#f59e0b', '#4ade80', '#8b5cf6'].map((color, i) => (
-                              <Cell key={i} fill={color} />
-                            ))}
-                          </Bar>
-                        </BarChart>
-                      </ResponsiveContainer>
+                    <div style={{ width: '100%', minHeight: 120, marginTop: 8 }}>
+                      <BarChart width={340} height={120} data={[
+                        { name: '実行', score: selected.scores.jitsukou?.score || 0 },
+                        { name: '実績', score: selected.scores.jisseki?.score || 0 },
+                        { name: '実力', score: selected.scores.jitsuryoku?.score || 0 },
+                        { name: '誠実', score: selected.scores.seijitsu?.score || 0 },
+                      ]} layout="vertical" margin={{ left: 20, right: 20, top: 0, bottom: 0 }}>
+                        <CartesianGrid strokeDasharray="3 3" stroke="rgba(108,99,255,0.1)" />
+                        <XAxis type="number" domain={[0, 25]} tick={{ fontSize: 10 }} />
+                        <YAxis type="category" dataKey="name" tick={{ fontSize: 11, fontWeight: 700 }} width={30} />
+                        <Tooltip formatter={(v: any) => [`${v}点 / 25点`]} />
+                        <Bar dataKey="score" radius={[0, 4, 4, 0]}>
+                          {['#3b82f6', '#f59e0b', '#4ade80', '#8b5cf6'].map((color, i) => (
+                            <Cell key={i} fill={color} />
+                          ))}
+                        </Bar>
+                      </BarChart>
                     </div>
                     <div style={{ marginTop: 12 }}>
                       {Object.entries(SCORE_LABELS).map(([key, { label, color }]) => {
