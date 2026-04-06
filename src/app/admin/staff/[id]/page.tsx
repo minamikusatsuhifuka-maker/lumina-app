@@ -38,6 +38,12 @@ export default function StaffDetailPage({ params }: { params: Promise<{ id: stri
     lifeVision: '', personalMission: '', coreValues: '', shortTermGoals: '', longTermGoals: '',
   });
 
+  // 5大欲求プロファイル（スタッフ恒常データ）
+  const [dominantNeeds, setDominantNeeds] = useState<string[]>([]);
+  const [leadNotes, setLeadNotes] = useState('');
+  const [qualityWorld, setQualityWorld] = useState('');
+  const [needsSaving, setNeedsSaving] = useState(false);
+
   // リードマネジメント記録
   const [lmType, setLmType] = useState('regular');
   const [lmFacts, setLmFacts] = useState('');
@@ -69,7 +75,12 @@ export default function StaffDetailPage({ params }: { params: Promise<{ id: stri
 
   const fetchStaff = () => {
     fetch(`/api/clinic/staff/${id}`).then(r => r.json()).then(data => {
-      if (data.id) setStaff(data);
+      if (data.id) {
+        setStaff(data);
+        if (Array.isArray(data.dominant_needs)) setDominantNeeds(data.dominant_needs);
+        if (data.lead_notes) setLeadNotes(data.lead_notes);
+        if (data.quality_world) setQualityWorld(data.quality_world);
+      }
       setLoading(false);
     });
   };
@@ -100,6 +111,20 @@ export default function StaffDetailPage({ params }: { params: Promise<{ id: stri
       }
     } catch { setMessage('保存に失敗しました'); }
     finally { setNoteSaving(false); }
+  };
+
+  const toggleNeed = (key: string) => setDominantNeeds(prev => prev.includes(key) ? prev.filter(k => k !== key) : [...prev, key]);
+
+  const saveNeedsProfile = async () => {
+    setNeedsSaving(true);
+    try {
+      await fetch(`/api/clinic/staff/${id}`, {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ dominant_needs: dominantNeeds, lead_notes: leadNotes, quality_world: qualityWorld }),
+      });
+      setMessage('5大欲求プロファイルを保存しました');
+    } catch { setMessage('保存に失敗しました'); }
+    finally { setNeedsSaving(false); }
   };
 
   const calcYears = (d: string) => {
@@ -154,6 +179,47 @@ export default function StaffDetailPage({ params }: { params: Promise<{ id: stri
       {message && (
         <div style={{ padding: 10, background: 'rgba(74,222,128,0.1)', border: '1px solid rgba(74,222,128,0.3)', borderRadius: 8, fontSize: 13, color: '#4ade80', marginBottom: 12 }}>{message}</div>
       )}
+
+      {/* 5大欲求プロファイル（リードマネジメント参考情報） */}
+      <div style={{ ...cardStyle, marginBottom: 20 }}>
+        <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 12 }}>💡 このスタッフの主要欲求（リードマネジメント参考情報）</div>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 12 }}>
+          {[
+            { key: 'survival',       icon: '🏠', label: '① 生存',  desc: '安心・安定・報酬' },
+            { key: 'love_belonging', icon: '❤️', label: '② 愛所属', desc: 'チーム・認められる' },
+            { key: 'power',          icon: '💪', label: '③ 力',    desc: '成長・達成・影響力' },
+            { key: 'freedom',        icon: '🦋', label: '④ 自由',  desc: '自分で決める・創意' },
+            { key: 'fun',            icon: '🎯', label: '⑤ 楽しみ', desc: '学ぶ・面白い・やりがい' },
+          ].map(need => (
+            <button key={need.key} onClick={() => toggleNeed(need.key)} style={{
+              padding: '8px 14px', borderRadius: 20, fontSize: 12, fontWeight: 600, cursor: 'pointer',
+              border: '2px solid', textAlign: 'left',
+              background: dominantNeeds.includes(need.key) ? 'rgba(108,99,255,0.15)' : 'var(--bg-card)',
+              borderColor: dominantNeeds.includes(need.key) ? '#6c63ff' : 'var(--border)',
+              color: dominantNeeds.includes(need.key) ? '#6c63ff' : 'var(--text-muted)',
+            }}>
+              {need.icon} {need.label}
+              <div style={{ fontSize: 10, fontWeight: 400 }}>{need.desc}</div>
+            </button>
+          ))}
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 12 }}>
+          <div>
+            <label style={{ display: 'block', fontSize: 12, color: 'var(--text-muted)', marginBottom: 4 }}>🌈 上質世界（本人が求めている理想像）</label>
+            <textarea value={qualityWorld} onChange={e => setQualityWorld(e.target.value)} placeholder="この人が心から望んでいる状態・環境・関係性" style={{ ...inputStyle, minHeight: 60, resize: 'vertical' }} />
+          </div>
+          <div>
+            <label style={{ display: 'block', fontSize: 12, color: 'var(--text-muted)', marginBottom: 4 }}>📝 リードメモ（関わり方のポイント）</label>
+            <textarea value={leadNotes} onChange={e => setLeadNotes(e.target.value)} placeholder="この人をリードする際に意識すべきこと" style={{ ...inputStyle, minHeight: 60, resize: 'vertical' }} />
+          </div>
+        </div>
+        <button onClick={saveNeedsProfile} disabled={needsSaving} style={{
+          padding: '7px 16px', borderRadius: 8, border: 'none', cursor: 'pointer',
+          background: needsSaving ? 'rgba(108,99,255,0.3)' : '#6c63ff', color: '#fff', fontSize: 12, fontWeight: 700,
+        }}>
+          {needsSaving ? '保存中...' : '💾 保存'}
+        </button>
+      </div>
 
       {/* タブ */}
       <div style={{ display: 'flex', gap: 6, marginBottom: 20 }}>

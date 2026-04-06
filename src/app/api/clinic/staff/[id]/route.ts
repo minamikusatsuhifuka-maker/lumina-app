@@ -62,6 +62,22 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     }
   }
 
+  // リードマネジメント用フィールド（カラム自動追加）
+  if (body.dominant_needs !== undefined || body.lead_notes !== undefined || body.quality_world !== undefined) {
+    await sql`ALTER TABLE staff ADD COLUMN IF NOT EXISTS dominant_needs JSONB DEFAULT '[]'`.catch(() => {});
+    await sql`ALTER TABLE staff ADD COLUMN IF NOT EXISTS lead_notes TEXT`.catch(() => {});
+    await sql`ALTER TABLE staff ADD COLUMN IF NOT EXISTS quality_world TEXT`.catch(() => {});
+    if (body.dominant_needs !== undefined) {
+      await sql`UPDATE staff SET dominant_needs = ${JSON.stringify(body.dominant_needs)}::jsonb, updated_at = NOW() WHERE id = ${id}`;
+    }
+    if (body.lead_notes !== undefined) {
+      await sql`UPDATE staff SET lead_notes = ${body.lead_notes}, updated_at = NOW() WHERE id = ${id}`;
+    }
+    if (body.quality_world !== undefined) {
+      await sql`UPDATE staff SET quality_world = ${body.quality_world}, updated_at = NOW() WHERE id = ${id}`;
+    }
+  }
+
   return NextResponse.json({ success: true });
 }
 
