@@ -42,24 +42,46 @@ export function AITextReviser({
       setTimeout(() => setMessage(''), 2000);
       return;
     }
+
+    if (text.length > 1500) {
+      setMessage('⚠️ テキストが長いため、先頭1500文字を対象に改善します');
+    }
+
     setGenerating(true);
     setRevised('');
-    setMessage('');
+
     try {
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 25000);
+      const timeoutId = setTimeout(() => controller.abort(), 20000);
+
       const res = await fetch('/api/clinic/text-editor', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ selectedText: text, purpose, fullContext: text }),
+        body: JSON.stringify({ selectedText: text, purpose }),
         signal: controller.signal,
       });
+
       clearTimeout(timeoutId);
+
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
+        setMessage(err.error || '生成に失敗しました');
+        return;
+      }
+
       const data = await res.json();
-      if (data.revised) setRevised(data.revised);
-      else setMessage(data.error || '生成に失敗しました');
+      if (data.revised) {
+        setRevised(data.revised);
+        setMessage('');
+      } else {
+        setMessage(data.error || '修正案の取得に失敗しました');
+      }
     } catch (e: any) {
-      setMessage(e.name === 'AbortError' ? 'タイムアウトしました' : 'エラーが発生しました');
+      if (e.name === 'AbortError') {
+        setMessage('タイムアウトしました。テキストを短くして再試行してください。');
+      } else {
+        setMessage('エラー: ' + String(e.message));
+      }
     } finally {
       setGenerating(false);
     }
