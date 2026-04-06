@@ -44,8 +44,39 @@ export default function GradePage() {
 
   const [selectedPosition, setSelectedPosition] = useState('');
 
+  // 等級制度説明文
+  const [gradeSystemDesc, setGradeSystemDesc] = useState('');
+  const [editingDesc, setEditingDesc] = useState(false);
+  const [descInput, setDescInput] = useState('');
+  const [aiInstruction, setAiInstruction] = useState('');
+  const [aiSuggesting, setAiSuggesting] = useState(false);
+  const [aiSuggested, setAiSuggested] = useState('');
+  const [savingDesc, setSavingDesc] = useState(false);
+
   const fetchGrades = () => { fetch('/api/clinic/grades').then(r => r.json()).then(d => { if (Array.isArray(d)) { setGrades(d); if (!selectedPosition && d.length > 0) setSelectedPosition(d[0].position || ''); } setLoading(false); }); };
   useEffect(() => { fetchGrades(); }, []);
+  useEffect(() => {
+    fetch('/api/clinic/evaluation-framework').then(r => r.json()).then(d => {
+      if (d.grade_system_description) { setGradeSystemDesc(d.grade_system_description); setDescInput(d.grade_system_description); }
+    }).catch(() => {});
+  }, []);
+
+  const saveDesc = async () => {
+    setSavingDesc(true);
+    try {
+      await fetch('/api/clinic/evaluation-framework', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ grade_system_description: descInput }) });
+      setGradeSystemDesc(descInput); setEditingDesc(false); setAiSuggested('');
+    } finally { setSavingDesc(false); }
+  };
+
+  const getAiSuggestion = async () => {
+    setAiSuggesting(true); setAiSuggested('');
+    try {
+      const res = await fetch('/api/clinic/grade/description-ai', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ currentText: descInput, instruction: aiInstruction }) });
+      const data = await res.json();
+      setAiSuggested(data.suggested || '');
+    } finally { setAiSuggesting(false); }
+  };
 
   const positions = [...new Set(grades.map(g => g.position).filter(Boolean))] as string[];
   const filteredGrades = selectedPosition ? grades.filter(g => g.position === selectedPosition) : grades;
@@ -176,12 +207,69 @@ export default function GradePage() {
           </div>
         )}
 
-        {/* 同心円の説明バナー */}
-        <div style={{ marginBottom: 20, padding: 14, borderRadius: 14, background: 'rgba(6,182,212,0.06)', border: '1px solid rgba(6,182,212,0.2)' }}>
-          <div style={{ fontSize: 13, fontWeight: 700, color: '#0d9488', marginBottom: 4 }}>🌿 当院の等級制度について</div>
-          <div style={{ fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.7 }}>
-            この等級はピラミッドの「上下」ではなく、<span style={{ fontWeight: 700, color: 'var(--text-primary)' }}>同心円の「広がり」</span>を表しています。G4・G5は「偉い人」ではなく「育成や社会貢献に関わる人」。働き方・関わり方が異なるだけです。全員がアンバサダー（G5）を目指して自律的に成長することが目標です。
+        {/* 当院の等級制度について（編集+AI提案対応） */}
+        <div style={{ marginBottom: 20, padding: 20, borderRadius: 16, background: 'linear-gradient(135deg, rgba(74,222,128,0.08), rgba(6,182,212,0.05))', border: '1px solid rgba(74,222,128,0.25)' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+            <div style={{ fontSize: 14, fontWeight: 700, color: '#4ade80' }}>🌿 当院の等級制度について</div>
+            {!editingDesc && (
+              <button onClick={() => { setEditingDesc(true); setDescInput(gradeSystemDesc || 'この等級はピラミッドの「上下」ではなく、同心円の「広がり」を表しています。G4・G5は「偉い人」ではなく「育成や社会貢献に関わる人」。働き方・関わり方が異なるだけです。全員がアンバサダー（G5）を目指して自律的に成長することが目標です。'); setAiSuggested(''); }}
+                style={{ fontSize: 12, color: '#4ade80', background: 'none', border: 'none', cursor: 'pointer' }}>✏️ 編集</button>
+            )}
           </div>
+
+          {editingDesc ? (
+            <div>
+              <textarea value={descInput} onChange={e => setDescInput(e.target.value)} rows={4}
+                style={{ width: '100%', padding: '10px 12px', background: 'var(--input-bg)', border: '1px solid var(--input-border)', borderRadius: 10, color: 'var(--text-primary)', fontSize: 13, lineHeight: 1.7, resize: 'vertical', outline: 'none', boxSizing: 'border-box' }} />
+
+              {/* AI提案エリア */}
+              <div style={{ marginTop: 12, padding: 14, background: 'rgba(108,99,255,0.06)', border: '1px solid rgba(108,99,255,0.2)', borderRadius: 10 }}>
+                <div style={{ fontSize: 12, fontWeight: 700, color: '#6c63ff', marginBottom: 8 }}>🤖 AIに改善してもらう</div>
+                <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
+                  <input value={aiInstruction} onChange={e => setAiInstruction(e.target.value)}
+                    placeholder="指示（例：もっとスタッフに寄り添った言葉で / ティール組織の概念を加えて）"
+                    style={{ flex: 1, padding: '7px 12px', background: 'var(--input-bg)', border: '1px solid var(--input-border)', borderRadius: 8, color: 'var(--text-primary)', fontSize: 12, outline: 'none' }} />
+                  <button onClick={getAiSuggestion} disabled={aiSuggesting}
+                    style={{ padding: '7px 16px', borderRadius: 8, border: 'none', cursor: 'pointer', background: aiSuggesting ? 'rgba(108,99,255,0.3)' : 'linear-gradient(135deg, #6c63ff, #8b5cf6)', color: '#fff', fontSize: 12, fontWeight: 700, flexShrink: 0 }}>
+                    {aiSuggesting ? '生成中...' : '🤖 提案'}
+                  </button>
+                </div>
+                <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 8 }}>
+                  {['ティール組織の概念を加えて', '先払い哲学を反映させて', 'もっとシンプルに', '同心円の広がりをわかりやすく', 'スタッフが読んで勇気が出る文章に'].map(hint => (
+                    <button key={hint} onClick={() => setAiInstruction(hint)}
+                      style={{ padding: '4px 10px', borderRadius: 12, fontSize: 11, background: 'rgba(108,99,255,0.1)', border: '1px solid rgba(108,99,255,0.2)', color: '#6c63ff', cursor: 'pointer' }}>
+                      {hint}
+                    </button>
+                  ))}
+                </div>
+                {aiSuggested && (
+                  <div style={{ padding: 12, background: 'rgba(74,222,128,0.08)', border: '1px solid rgba(74,222,128,0.2)', borderRadius: 8, marginTop: 8 }}>
+                    <div style={{ fontSize: 11, color: '#4ade80', fontWeight: 700, marginBottom: 6 }}>✨ AIの提案：</div>
+                    <div style={{ fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.7 }}>{aiSuggested}</div>
+                    <button onClick={() => setDescInput(aiSuggested)}
+                      style={{ marginTop: 8, padding: '6px 14px', borderRadius: 8, border: 'none', background: 'rgba(74,222,128,0.2)', color: '#4ade80', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>
+                      ✅ この提案を採用する
+                    </button>
+                  </div>
+                )}
+              </div>
+
+              <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
+                <button onClick={saveDesc} disabled={savingDesc}
+                  style={{ padding: '8px 20px', borderRadius: 8, border: 'none', cursor: 'pointer', background: '#4ade80', color: '#fff', fontSize: 13, fontWeight: 700 }}>
+                  {savingDesc ? '保存中...' : '💾 保存'}
+                </button>
+                <button onClick={() => { setEditingDesc(false); setDescInput(gradeSystemDesc); setAiSuggested(''); setAiInstruction(''); }}
+                  style={{ padding: '8px 14px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--bg-card)', color: 'var(--text-muted)', fontSize: 12, cursor: 'pointer' }}>
+                  キャンセル
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div style={{ fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.8 }}>
+              {gradeSystemDesc || 'この等級はピラミッドの「上下」ではなく、同心円の「広がり」を表しています。G4・G5は「偉い人」ではなく「育成や社会貢献に関わる人」。働き方・関わり方が異なるだけです。全員がアンバサダー（G5）を目指して自律的に成長することが目標です。'}
+            </div>
+          )}
         </div>
 
         {/* 同心円ビジュアル（SVG） */}
