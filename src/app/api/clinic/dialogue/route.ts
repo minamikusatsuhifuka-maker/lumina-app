@@ -5,6 +5,7 @@ import { auth } from '@/lib/auth';
 import { neon } from '@neondatabase/serverless';
 import { v4 as uuidv4 } from 'uuid';
 import { buildSystemContext } from '@/lib/clinic-context';
+import { callAI } from '@/lib/call-ai';
 
 const CONTEXT_PROMPTS: Record<string, string> = {
   philosophy: 'あなたはクリニックの理念・ビジョン策定の専門コンサルタントです。院長の想いを丁寧に引き出しながら、心に響く理念を一緒に作り上げてください。質問は一度に1〜2つまで。',
@@ -40,20 +41,15 @@ export async function GET(req: NextRequest) {
   const philRows = await sql`SELECT content FROM clinic_philosophy ORDER BY created_at DESC LIMIT 1`;
   const philosophy = philRows[0]?.content || '';
 
-  const apiKey = process.env.ANTHROPIC_API_KEY!;
+  const aiModel = searchParams.get('model') as 'claude' | 'gemini' || 'claude';
   const systemPrompt = await buildSystemContext(CONTEXT_PROMPTS[contextType] || CONTEXT_PROMPTS.philosophy, contextType);
 
-  const response = await fetch('https://api.anthropic.com/v1/messages', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' },
-    body: JSON.stringify({
-      model: 'claude-sonnet-4-6', max_tokens: 500, system: systemPrompt,
-      messages: [{ role: 'user', content: `クリニックの理念：${philosophy}\nテーマ：${contextLabel}\n\nこの内容について対話を始めてください。最初の質問を1つだけ投げかけてください。温かく・答えやすい質問にしてください。` }],
-    }),
+  const firstQuestion = await callAI({
+    model: aiModel,
+    system: systemPrompt,
+    messages: [{ role: 'user', content: `クリニックの理念：${philosophy}\nテーマ：${contextLabel}\n\nこの内容について対話を始めてください。最初の質問を1つだけ投げかけてください。温かく・答えやすい質問にしてください。` }],
+    maxTokens: 500,
   });
-
-  const data = await response.json();
-  const firstQuestion = (data.content || []).filter((b: any) => b.type === 'text').map((b: any) => b.text).join('');
   const initialMessages = [{ role: 'assistant', content: firstQuestion, timestamp: new Date().toISOString() }];
 
   const id = uuidv4();
@@ -66,7 +62,8 @@ export async function POST(req: NextRequest) {
   const authSession = await auth();
   if (!authSession) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-  const { sessionId, userMessage } = await req.json();
+  const { sessionId, userMessage, model: reqModel } = await req.json();
+  const aiModel = (reqModel || 'claude') as 'claude' | 'gemini';
   const sql = neon(process.env.DATABASE_URL!);
   const rows = await sql`SELECT * FROM ai_dialogue_sessions WHERE id = ${sessionId}`;
   if (!rows[0]) return NextResponse.json({ error: 'セッションが見つかりません' }, { status: 404 });
@@ -86,38 +83,30 @@ export async function POST(req: NextRequest) {
     dialogueSession.context_type
   );
 
-  const apiKey = process.env.ANTHROPIC_API_KEY!;
   const apiMessages = [
     { role: 'user' as const, content: `クリニックの理念：${philosophy}\n\n以下の対話を続けてください。` },
     { role: 'assistant' as const, content: 'はい、続けましょう。' },
     ...messages.map((m: any) => ({ role: m.role as 'user' | 'assistant', content: m.content })),
   ];
 
-  const response = await fetch('https://api.anthropic.com/v1/messages', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' },
-    body: JSON.stringify({ model: 'claude-sonnet-4-6', max_tokens: 800, system: systemPrompt, messages: apiMessages }),
+  const aiResponse = await callAI({
+    model: aiModel,
+    system: systemPrompt,
+    messages: apiMessages,
+    maxTokens: 800,
   });
-
-  const data = await response.json();
-  const aiResponse = (data.content || []).filter((b: any) => b.type === 'text').map((b: any) => b.text).join('');
   messages.push({ role: 'assistant', content: aiResponse, timestamp: new Date().toISOString() });
 
   // 5往復後に洞察抽出
   let insights = null;
   if (isSummaryTime && !dialogueSession.extracted_insights) {
     try {
-      const insightRes = await fetch('https://api.anthropic.com/v1/messages', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' },
-        body: JSON.stringify({
-          model: 'claude-sonnet-4-6', max_tokens: 1000,
-          system: '必ずJSON形式のみで返してください。',
-          messages: [{ role: 'user', content: `以下の対話から重要な判断基準・価値観を抽出してください：\n{"insights":["洞察"],"criteria":[{"criterion":"判断基準","priority":8}],"summary":"要約"}\n\n${messages.map((m: any) => `${m.role === 'user' ? '院長' : 'AI'}: ${m.content}`).join('\n\n')}` }],
-        }),
+      const insightText = await callAI({
+        model: aiModel,
+        system: '必ずJSON形式のみで返してください。',
+        messages: [{ role: 'user', content: `以下の対話から重要な判断基準・価値観を抽出してください：\n{"insights":["洞察"],"criteria":[{"criterion":"判断基準","priority":8}],"summary":"要約"}\n\n${messages.map((m: any) => `${m.role === 'user' ? '院長' : 'AI'}: ${m.content}`).join('\n\n')}` }],
+        maxTokens: 1000,
       });
-      const insightData = await insightRes.json();
-      const insightText = (insightData.content || []).filter((b: any) => b.type === 'text').map((b: any) => b.text).join('');
       const clean = insightText.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
       insights = JSON.parse(clean.match(/(\{[\s\S]*\})/)?.[1] || clean);
 

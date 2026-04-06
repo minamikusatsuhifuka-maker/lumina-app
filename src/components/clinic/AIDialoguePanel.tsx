@@ -53,7 +53,8 @@ export function AIDialoguePanel({ contextType, contextLabel, contextData, onInsi
 
   const startSession = async () => {
     setLoading(true); setInsights(null); setTurnCount(0);
-    const res = await fetch(`/api/clinic/dialogue?contextType=${contextType}&contextLabel=${encodeURIComponent(contextLabel)}`);
+    const model = localStorage.getItem('lumina_ai_model') || 'claude';
+    const res = await fetch(`/api/clinic/dialogue?contextType=${contextType}&contextLabel=${encodeURIComponent(contextLabel)}&model=${model}`);
     const data = await res.json();
     setSessionId(data.session.id);
     setMessages(data.messages);
@@ -70,7 +71,8 @@ export function AIDialoguePanel({ contextType, contextLabel, contextData, onInsi
     setLoading(true);
     setMessages(prev => [...prev, { role: 'user', content: msg, timestamp: new Date().toISOString() }]);
 
-    const res = await fetch('/api/clinic/dialogue', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ sessionId, userMessage: msg }) });
+    const model = localStorage.getItem('lumina_ai_model') || 'claude';
+    const res = await fetch('/api/clinic/dialogue', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ sessionId, userMessage: msg, model }) });
     const data = await res.json();
     setMessages(data.messages);
     setTurnCount(data.turnCount);
