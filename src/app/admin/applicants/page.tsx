@@ -1,7 +1,20 @@
 'use client';
 import { useState, useEffect, useRef } from 'react';
+import {
+  RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis,
+  Radar, ResponsiveContainer, Tooltip,
+  BarChart, Bar, XAxis, YAxis, CartesianGrid, Cell,
+} from 'recharts';
 
 const POSITIONS = ['看護師', 'マルチタスク医療事務'];
+
+const STATUS_LABELS: Record<string, { label: string; color: string }> = {
+  screening: { label: '📋 書類選考中', color: '#6c63ff' },
+  interview: { label: '💬 面接調整中', color: '#f59e0b' },
+  final:     { label: '🎯 最終選考',   color: '#06b6d4' },
+  hired:     { label: '✅ 採用',        color: '#4ade80' },
+  rejected:  { label: '❌ 不採用',      color: '#ef4444' },
+};
 
 const NEEDS_LABELS: Record<string, string> = {
   survival: '🏠 生存',
@@ -205,8 +218,19 @@ export default function ApplicantsPage() {
                       <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--text-primary)' }}>
                         {a.name || '名前未取得'}
                       </div>
-                      <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>
+                      <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2, display: 'flex', alignItems: 'center', gap: 4 }}>
                         {a.position} • {new Date(a.created_at).toLocaleDateString('ja-JP')}
+                        {a.status && STATUS_LABELS[a.status] && (
+                          <span style={{
+                            fontSize: 10, padding: '2px 8px', borderRadius: 10,
+                            background: `${STATUS_LABELS[a.status].color}15`,
+                            color: STATUS_LABELS[a.status].color,
+                            border: `1px solid ${STATUS_LABELS[a.status].color}30`,
+                            marginLeft: 4,
+                          }}>
+                            {STATUS_LABELS[a.status].label}
+                          </span>
+                        )}
                       </div>
                     </div>
                     <div style={{ textAlign: 'right' }}>
@@ -254,44 +278,131 @@ export default function ApplicantsPage() {
                   }}>✕</button>
                 </div>
 
+                {/* レーダーチャート + 横棒グラフ */}
+                {selected?.scores && (
+                  <div style={{ marginBottom: 20 }}>
+                    <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-muted)', marginBottom: 8 }}>
+                      📌 4つの「実」採点
+                    </div>
+                    <div style={{ height: 220 }}>
+                      <ResponsiveContainer width="100%" height="100%">
+                        <RadarChart data={[
+                          { subject: '実行', score: selected.scores.jitsukou?.score || 0, fullMark: 25 },
+                          { subject: '実績', score: selected.scores.jisseki?.score || 0, fullMark: 25 },
+                          { subject: '実力', score: selected.scores.jitsuryoku?.score || 0, fullMark: 25 },
+                          { subject: '誠実', score: selected.scores.seijitsu?.score || 0, fullMark: 25 },
+                        ]}>
+                          <PolarGrid stroke="rgba(108,99,255,0.2)" />
+                          <PolarAngleAxis dataKey="subject" tick={{ fontSize: 12, fill: 'var(--text-secondary)', fontWeight: 700 }} />
+                          <PolarRadiusAxis angle={30} domain={[0, 25]} tick={{ fontSize: 10, fill: 'var(--text-muted)' }} />
+                          <Radar name="スコア" dataKey="score" stroke="#6c63ff" fill="#6c63ff" fillOpacity={0.25} strokeWidth={2} />
+                          <Tooltip formatter={(value: any) => [`${value}点`, 'スコア']} contentStyle={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 8, fontSize: 12 }} />
+                        </RadarChart>
+                      </ResponsiveContainer>
+                    </div>
+                    <div style={{ height: 120, marginTop: 8 }}>
+                      <ResponsiveContainer width="100%" height="100%">
+                        <BarChart data={[
+                          { name: '実行', score: selected.scores.jitsukou?.score || 0 },
+                          { name: '実績', score: selected.scores.jisseki?.score || 0 },
+                          { name: '実力', score: selected.scores.jitsuryoku?.score || 0 },
+                          { name: '誠実', score: selected.scores.seijitsu?.score || 0 },
+                        ]} layout="vertical" margin={{ left: 20, right: 20, top: 0, bottom: 0 }}>
+                          <CartesianGrid strokeDasharray="3 3" stroke="rgba(108,99,255,0.1)" />
+                          <XAxis type="number" domain={[0, 25]} tick={{ fontSize: 10 }} />
+                          <YAxis type="category" dataKey="name" tick={{ fontSize: 11, fontWeight: 700 }} width={30} />
+                          <Tooltip formatter={(v: any) => [`${v}点 / 25点`]} />
+                          <Bar dataKey="score" radius={[0, 4, 4, 0]}>
+                            {['#3b82f6', '#f59e0b', '#4ade80', '#8b5cf6'].map((color, i) => (
+                              <Cell key={i} fill={color} />
+                            ))}
+                          </Bar>
+                        </BarChart>
+                      </ResponsiveContainer>
+                    </div>
+                    <div style={{ marginTop: 12 }}>
+                      {Object.entries(SCORE_LABELS).map(([key, { label, color }]) => {
+                        const s = selected.scores?.[key];
+                        if (!s?.reason) return null;
+                        return (
+                          <div key={key} style={{
+                            padding: '6px 10px', marginBottom: 6,
+                            background: `${color}08`, border: `1px solid ${color}20`,
+                            borderLeft: `3px solid ${color}`, borderRadius: 6,
+                          }}>
+                            <span style={{ fontSize: 11, fontWeight: 700, color }}>{label}（{s.score}点）</span>
+                            <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2 }}>{s.reason}</div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                    <div style={{ textAlign: 'center', marginTop: 12, padding: '10px 0', borderTop: '1px solid var(--border)' }}>
+                      <span style={{
+                        fontSize: 28, fontWeight: 800,
+                        color: (selected.total_score || 0) >= 80 ? '#4ade80' : (selected.total_score || 0) >= 60 ? '#f59e0b' : '#ef4444',
+                      }}>
+                        総合 {selected.total_score || 0}点
+                      </span>
+                      <span style={{ fontSize: 13, color: 'var(--text-muted)' }}> / 100点</span>
+                    </div>
+                  </div>
+                )}
+
+                {/* ステータス管理 */}
                 <div style={{ marginBottom: 16 }}>
                   <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-muted)', marginBottom: 8 }}>
-                    📌 4つの「実」採点
+                    📋 選考ステータス
                   </div>
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 8 }}>
-                    {Object.entries(SCORE_LABELS).map(([key, { label, color }]) => {
-                      const s = selected.scores?.[key] || {};
-                      return (
-                        <div key={key} style={{
-                          padding: 10, background: `${color}10`,
-                          border: `1px solid ${color}30`, borderRadius: 10, textAlign: 'center',
-                        }}>
-                          <div style={{ fontSize: 18, fontWeight: 800, color }}>{s.score ?? '-'}</div>
-                          <div style={{ fontSize: 11, color, fontWeight: 700 }}>{label}</div>
-                          <div style={{ fontSize: 10, color: 'var(--text-muted)', marginTop: 2 }}>/25点</div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                  <div style={{ textAlign: 'center', marginTop: 10 }}>
-                    <span style={{
-                      fontSize: 24, fontWeight: 800,
-                      color: (selected.total_score || 0) >= 80 ? '#4ade80' : (selected.total_score || 0) >= 60 ? '#f59e0b' : '#ef4444',
-                    }}>
-                      総合 {selected.total_score || 0}点
-                    </span>
-                    <span style={{ fontSize: 13, color: 'var(--text-muted)' }}> / 100点</span>
+                  <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                    {Object.entries(STATUS_LABELS).map(([key, s]) => (
+                      <button
+                        key={key}
+                        onClick={async () => {
+                          await fetch('/api/clinic/applicants', {
+                            method: 'PATCH',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ id: selected.id, status: key }),
+                          });
+                          setSelected((prev: any) => ({ ...prev, status: key }));
+                          const updated = await fetch('/api/clinic/applicants').then(r => r.json());
+                          setApplicants(Array.isArray(updated) ? updated : []);
+                        }}
+                        style={{
+                          padding: '5px 12px', borderRadius: 10, fontSize: 11, fontWeight: 700,
+                          cursor: 'pointer', border: '2px solid',
+                          background: selected.status === key ? `${s.color}20` : 'var(--bg-card)',
+                          borderColor: selected.status === key ? s.color : 'var(--border)',
+                          color: selected.status === key ? s.color : 'var(--text-muted)',
+                        }}
+                      >{s.label}</button>
+                    ))}
                   </div>
                 </div>
 
+                {/* AI判定 + 削除 */}
                 <div style={{
-                  padding: '10px 14px', borderRadius: 10, marginBottom: 16,
+                  padding: '8px 14px', borderRadius: 10, marginBottom: 16,
                   background: `${recommendColor(selected.recommendation)}15`,
                   border: `1px solid ${recommendColor(selected.recommendation)}40`,
-                  textAlign: 'center', fontSize: 15, fontWeight: 700,
-                  color: recommendColor(selected.recommendation),
+                  display: 'flex', justifyContent: 'space-between', alignItems: 'center',
                 }}>
-                  {selected.recommendation}
+                  <span style={{ fontSize: 13, fontWeight: 700, color: recommendColor(selected.recommendation) }}>
+                    🤖 AI判定：{selected.recommendation}
+                  </span>
+                  <button
+                    onClick={async () => {
+                      if (!confirm('この候補者を削除しますか？')) return;
+                      await fetch(`/api/clinic/applicants?id=${selected.id}`, { method: 'DELETE' });
+                      setSelected(null);
+                      const updated = await fetch('/api/clinic/applicants').then(r => r.json());
+                      setApplicants(Array.isArray(updated) ? updated : []);
+                    }}
+                    style={{
+                      fontSize: 11, color: '#ef4444', background: 'none',
+                      border: '1px solid rgba(239,68,68,0.3)',
+                      borderRadius: 6, padding: '3px 8px', cursor: 'pointer',
+                    }}
+                  >🗑 削除</button>
                 </div>
 
                 {selected.ai_comment && (
