@@ -5,10 +5,11 @@ import { AIDialoguePanel } from './AIDialoguePanel';
 interface Props {
   contextType: string;
   contextLabel: string;
+  contextData?: Record<string, any>;
   onInsightsExtracted?: (insights: any) => void;
 }
 
-export function AIDialogueButton({ contextType, contextLabel, onInsightsExtracted }: Props) {
+export function AIDialogueButton({ contextType, contextLabel, contextData, onInsightsExtracted }: Props) {
   const [open, setOpen] = useState(false);
 
   return (
@@ -40,7 +41,7 @@ export function AIDialogueButton({ contextType, contextLabel, onInsightsExtracte
               <button onClick={() => setOpen(false)} style={{ background: 'none', border: 'none', color: 'var(--text-muted)', fontSize: 18, cursor: 'pointer' }}>✕</button>
             </div>
             <div style={{ flex: 1, overflow: 'hidden' }}>
-              <AIDialoguePanel contextType={contextType} contextLabel={contextLabel} onInsightsExtracted={onInsightsExtracted} />
+              <AIDialoguePanel contextType={contextType} contextLabel={contextLabel} contextData={contextData} onInsightsExtracted={onInsightsExtracted} />
             </div>
           </div>
         </>

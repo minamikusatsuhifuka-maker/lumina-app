@@ -1,6 +1,7 @@
 'use client';
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
+import { AIDialogueButton } from '@/components/clinic/AIDialogueButton';
 
 export default function StaffHomePage() {
   const [tasks, setTasks] = useState<any[]>([]);
@@ -119,6 +120,8 @@ export default function StaffHomePage() {
           </div>
         </div>
       )}
+
+      <AIDialogueButton contextType="growth" contextLabel="成長・キャリア相談" />
     </div>
   );
 }

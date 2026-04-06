@@ -1,6 +1,7 @@
 'use client';
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
+import { AIDialogueButton } from '@/components/clinic/AIDialogueButton';
 
 type Staff = {
   id: string; name: string; name_kana: string; position: string;
@@ -93,6 +94,8 @@ export default function StaffListPage() {
           ))}
         </div>
       )}
+
+      <AIDialogueButton contextType="staff" contextLabel="スタッフ育成・採用相談" />
     </div>
   );
 }
