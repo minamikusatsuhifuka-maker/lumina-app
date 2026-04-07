@@ -60,6 +60,18 @@ export default function WritePage() {
   const [translated, setTranslated] = useState('');
   const [targetLang, setTargetLang] = useState('en');
   const [isFavorited, setIsFavorited] = useState(false);
+  const [buzzAnalysis, setBuzzAnalysis] = useState<{
+    problems: string[];
+    suggestions: string[];
+    revised: string;
+  } | null>(null);
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [analysisPurpose, setAnalysisPurpose] = useState('marketing');
+  const [analysisTarget, setAnalysisTarget] = useState('general');
+  const [showRevised, setShowRevised] = useState(false);
+  const [isExporting, setIsExporting] = useState(false);
+  const [gensparkResult, setGensparkResult] = useState('');
+  const [exportFormat, setExportFormat] = useState('presentation');
 
   useEffect(() => { setIsFavorited(false); }, [output]);
 
@@ -211,6 +223,46 @@ export default function WritePage() {
       }
     } finally {
       setFixLoading(false);
+    }
+  };
+
+  const handleBuzzAnalysis = async () => {
+    if (!output || !buzzScore) return;
+    setIsAnalyzing(true);
+    setBuzzAnalysis(null);
+    setShowRevised(false);
+    try {
+      const res = await fetch('/api/analyze-buzz', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          content: output,
+          score: buzzScore.score,
+          purpose: analysisPurpose,
+          target: analysisTarget,
+        }),
+      });
+      const data = await res.json();
+      setBuzzAnalysis(data);
+    } finally {
+      setIsAnalyzing(false);
+    }
+  };
+
+  const handleGensparkExport = async (format: string) => {
+    setIsExporting(true);
+    setExportFormat(format);
+    setGensparkResult('');
+    try {
+      const res = await fetch('/api/genspark-export', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ content: output, format }),
+      });
+      const data = await res.json();
+      setGensparkResult(data.result);
+    } finally {
+      setIsExporting(false);
     }
   };
 
@@ -450,6 +502,189 @@ export default function WritePage() {
                   )}
                 </div>
               )}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* AIバズり分析セクション */}
+      {buzzScore && output && !loading && (
+        <div style={{ marginTop: 16, border: '1px solid var(--border)', borderRadius: 12, padding: 16 }}>
+          <h3 style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 12 }}>🤖 AI改善アドバイス</h3>
+
+          <div style={{ display: 'flex', flexWrap: 'wrap' as const, gap: 12, marginBottom: 12 }}>
+            <div>
+              <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 4 }}>目的</div>
+              <select
+                value={analysisPurpose}
+                onChange={e => setAnalysisPurpose(e.target.value)}
+                style={{ padding: '6px 10px', background: 'var(--bg-primary)', border: '1px solid var(--border)', borderRadius: 8, color: 'var(--text-primary)', fontSize: 13, outline: 'none' }}
+              >
+                <option value="marketing">📣 マーケティング・集客</option>
+                <option value="education">📚 教育・学習</option>
+                <option value="hr">👥 人材育成・採用</option>
+                <option value="branding">✨ ブランディング</option>
+                <option value="sales">💼 営業・商品紹介</option>
+                <option value="community">🤝 コミュニティ形成</option>
+                <option value="pr">📰 PR・プレスリリース</option>
+                <option value="thought">🎯 専門性発信</option>
+              </select>
+            </div>
+            <div>
+              <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 4 }}>ターゲット</div>
+              <select
+                value={analysisTarget}
+                onChange={e => setAnalysisTarget(e.target.value)}
+                style={{ padding: '6px 10px', background: 'var(--bg-primary)', border: '1px solid var(--border)', borderRadius: 8, color: 'var(--text-primary)', fontSize: 13, outline: 'none' }}
+              >
+                <option value="general">一般読者</option>
+                <option value="beginner">初心者・入門者</option>
+                <option value="expert">専門家・上級者</option>
+                <option value="business">ビジネスパーソン</option>
+                <option value="consumer">一般消費者</option>
+                <option value="student">学生・若年層</option>
+                <option value="manager">管理職・経営者</option>
+              </select>
+            </div>
+            <div style={{ display: 'flex', alignItems: 'flex-end' }}>
+              <button
+                onClick={handleBuzzAnalysis}
+                disabled={isAnalyzing}
+                style={{
+                  padding: '7px 16px', borderRadius: 8, border: 'none', cursor: 'pointer',
+                  background: 'linear-gradient(135deg, #6c63ff, #8b5cf6)',
+                  color: '#fff', fontWeight: 600, fontSize: 13,
+                  opacity: isAnalyzing ? 0.7 : 1,
+                }}
+              >
+                {isAnalyzing ? '分析中...' : '🔍 AIに分析・改善させる'}
+              </button>
+            </div>
+          </div>
+
+          {buzzAnalysis && (
+            <div>
+              {/* 問題点 */}
+              <div style={{ background: 'rgba(239,68,68,0.08)', borderRadius: 10, padding: 12, marginBottom: 10 }}>
+                <p style={{ fontSize: 12, fontWeight: 700, color: '#ef4444', marginBottom: 6 }}>⚠️ 問題点</p>
+                {buzzAnalysis.problems?.map((p, i) => (
+                  <div key={i} style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 3, display: 'flex', gap: 6 }}>
+                    <span style={{ flexShrink: 0 }}>・</span>{p}
+                  </div>
+                ))}
+              </div>
+
+              {/* 改善案 */}
+              <div style={{ background: 'rgba(59,130,246,0.08)', borderRadius: 10, padding: 12, marginBottom: 10 }}>
+                <p style={{ fontSize: 12, fontWeight: 700, color: '#3b82f6', marginBottom: 6 }}>💡 改善案</p>
+                {buzzAnalysis.suggestions?.map((s, i) => (
+                  <div key={i} style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 3, display: 'flex', gap: 6 }}>
+                    <span style={{ flexShrink: 0 }}>・</span>{s}
+                  </div>
+                ))}
+              </div>
+
+              {/* 修正文章 */}
+              <div style={{ display: 'flex', gap: 8 }}>
+                <button
+                  onClick={() => setShowRevised(!showRevised)}
+                  style={{ padding: '7px 14px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--bg-secondary)', color: 'var(--text-secondary)', cursor: 'pointer', fontSize: 12 }}
+                >
+                  {showRevised ? '▲ 修正文章を閉じる' : '✍️ 修正文章を見る'}
+                </button>
+                {showRevised && (
+                  <button
+                    onClick={() => {
+                      setOutput(buzzAnalysis.revised);
+                      setShowRevised(false);
+                      setBuzzAnalysis(null);
+                      setBuzzScore(null);
+                    }}
+                    style={{ padding: '7px 14px', borderRadius: 8, border: 'none', background: '#1d9e75', color: '#fff', cursor: 'pointer', fontSize: 12, fontWeight: 600 }}
+                  >
+                    ✅ この修正を適用する
+                  </button>
+                )}
+              </div>
+              {showRevised && (
+                <div style={{
+                  marginTop: 10, padding: 14, background: 'var(--bg-secondary)',
+                  border: '1px solid var(--border)', borderRadius: 10,
+                  fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.8,
+                  whiteSpace: 'pre-wrap', maxHeight: '50vh', overflowY: 'auto',
+                }}>
+                  {buzzAnalysis.revised}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Genspark連携セクション */}
+      {output && !loading && (
+        <div style={{ marginTop: 16, border: '1px solid var(--border)', borderRadius: 12, padding: 16 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+            <h3 style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-primary)', margin: 0 }}>✨ Genspark連携</h3>
+            <a
+              href="https://www.genspark.ai"
+              target="_blank"
+              rel="noopener noreferrer"
+              style={{ fontSize: 12, color: 'var(--text-muted)', textDecoration: 'none', border: '1px solid var(--border)', borderRadius: 8, padding: '4px 10px' }}
+            >
+              🔗 Gensparkを開く
+            </a>
+          </div>
+
+          <div style={{ display: 'flex', flexWrap: 'wrap' as const, gap: 8, marginBottom: 12 }}>
+            {[
+              { key: 'presentation', label: '📊 プレゼン用スライド構成' },
+              { key: 'outline',      label: '📋 アウトライン形式' },
+              { key: 'summary',      label: '📝 要約＋キーポイント' },
+            ].map(fmt => (
+              <button
+                key={fmt.key}
+                onClick={() => handleGensparkExport(fmt.key)}
+                disabled={isExporting}
+                style={{
+                  padding: '6px 14px', borderRadius: 8, cursor: 'pointer',
+                  border: '1px solid var(--border)', background: 'var(--bg-secondary)',
+                  color: 'var(--text-secondary)', fontSize: 12,
+                  opacity: isExporting ? 0.7 : 1,
+                }}
+              >
+                {isExporting && exportFormat === fmt.key ? '変換中...' : fmt.label}
+              </button>
+            ))}
+          </div>
+
+          {gensparkResult && (
+            <div>
+              <div style={{
+                padding: 14, background: 'var(--bg-secondary)',
+                border: '1px solid var(--border)', borderRadius: 10,
+                fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.8,
+                whiteSpace: 'pre-wrap', maxHeight: 260, overflowY: 'auto',
+                marginBottom: 10,
+              }}>
+                {gensparkResult}
+              </div>
+              <div style={{ display: 'flex', gap: 8 }}>
+                <button
+                  onClick={() => navigator.clipboard.writeText(gensparkResult).then(() => alert('コピーしました！'))}
+                  style={{ padding: '6px 14px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--bg-secondary)', color: 'var(--text-secondary)', cursor: 'pointer', fontSize: 12 }}
+                >
+                  📋 コピー
+                </button>
+                <a
+                  href="https://www.genspark.ai"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  style={{ padding: '6px 14px', borderRadius: 8, border: 'none', background: 'linear-gradient(135deg, #6c63ff, #8b5cf6)', color: '#fff', fontSize: 12, fontWeight: 600, textDecoration: 'none', display: 'inline-flex', alignItems: 'center' }}
+                >
+                  ✨ Gensparkで開く →
+                </a>
+              </div>
             </div>
           )}
         </div>
