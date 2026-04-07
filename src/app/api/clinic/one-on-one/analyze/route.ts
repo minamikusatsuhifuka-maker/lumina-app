@@ -3,13 +3,18 @@ import { auth } from '@/lib/auth';
 import { neon } from '@neondatabase/serverless';
 
 export const maxDuration = 30;
-const sql = neon(process.env.DATABASE_URL!);
+
+// GETリクエストを明示的に拒否（プリフェッチ対策）
+export async function GET() {
+  return NextResponse.json({ error: 'Method not allowed' }, { status: 405 });
+}
 
 export async function POST(req: Request) {
   const session = await auth();
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-  const apiKey = process.env.ANTHROPIC_API_KEY!;
+  const apiKey = process.env.ANTHROPIC_API_KEY;
+  if (!apiKey) return NextResponse.json({ error: 'APIキーが未設定' }, { status: 500 });
 
   let body: any = {};
   try {
@@ -24,24 +29,28 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: 'meetingIdとstaffNameは必須です' }, { status: 400 });
   }
 
-  let history = '';
   try {
-    const past = await sql`
-      SELECT meeting_date, goals, achievements
-      FROM one_on_one_meetings
-      WHERE staff_name = ${staffName}
-        AND id != ${meetingId}
-      ORDER BY meeting_date DESC
-      LIMIT 2
-    `;
-    if (past.length > 0) {
-      history = past.map((m: any) =>
-        `${m.meeting_date}: ${(m.goals || '').slice(0, 50)}`
-      ).join('\n');
-    }
-  } catch {}
+    const sql = neon(process.env.DATABASE_URL!);
 
-  const prompt = `スタッフ「${staffName}」の1on1を分析してください。
+    // 過去履歴を取得
+    let history = '';
+    try {
+      const past = await sql`
+        SELECT meeting_date, goals, achievements
+        FROM one_on_one_meetings
+        WHERE staff_name = ${staffName}
+          AND id != ${meetingId}
+        ORDER BY meeting_date DESC
+        LIMIT 2
+      `;
+      if (past.length > 0) {
+        history = past.map((m: any) =>
+          `${m.meeting_date}: ${(m.goals || '').slice(0, 50)}`
+        ).join('\n');
+      }
+    } catch {}
+
+    const prompt = `スタッフ「${staffName}」の1on1を分析してください。
 
 テーマ: ${(goals || '').slice(0, 200)}
 内容: ${(discussion || '').slice(0, 300)}
@@ -59,7 +68,6 @@ ${history ? `過去: ${history}` : ''}
   "next_agenda": ["議題1", "議題2", "議題3"]
 }`;
 
-  try {
     const response = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
       headers: {
@@ -74,6 +82,11 @@ ${history ? `過去: ${history}` : ''}
         messages: [{ role: 'user', content: prompt }],
       }),
     });
+
+    if (!response.ok) {
+      console.error('Anthropic API error:', response.status);
+      return NextResponse.json({ error: `AI APIエラー: ${response.status}` }, { status: 500 });
+    }
 
     const data = await response.json();
     const rawText = data.content?.[0]?.text || '';
