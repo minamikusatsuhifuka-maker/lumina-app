@@ -1,5 +1,9 @@
 'use client';
 import { useState, useEffect } from 'react';
+import {
+  LineChart, Line, XAxis, YAxis, CartesianGrid,
+  Tooltip, Legend,
+} from 'recharts';
 
 const NEEDS_LABELS: Record<string, string> = {
   survival: '🏠 生存',
@@ -89,6 +93,21 @@ export default function OneOnOnePage() {
     borderRadius: 10, color: 'var(--text-primary)', fontSize: 13,
     lineHeight: 1.7, outline: 'none', boxSizing: 'border-box' as const, fontFamily: 'inherit',
   };
+  const [staffHistory, setStaffHistory] = useState<any[]>([]);
+
+  const loadStaffHistory = async (name: string) => {
+    try {
+      const res = await fetch(`/api/clinic/one-on-one?staff_name=${encodeURIComponent(name)}`);
+      const data = await res.json();
+      if (Array.isArray(data)) {
+        const withScores = data
+          .filter((m: any) => m.mindset_score || m.motivation_level)
+          .sort((a: any, b: any) => (a.meeting_date || '').localeCompare(b.meeting_date || ''));
+        setStaffHistory(withScores);
+      }
+    } catch {}
+  };
+
   const formatDate = (d: string) => d ? d.split('T')[0].replace(/-/g, '/') : '';
   const staffList = [...new Set(meetings.map(m => m.staff_name))];
 
@@ -172,7 +191,7 @@ export default function OneOnOnePage() {
             ) : meetings.map(m => {
               const stage = GROWTH_STAGES.find(s => s.key === m.growth_stage);
               return (
-                <div key={m.id} onClick={() => setSelected(m)} style={{
+                <div key={m.id} onClick={() => { setSelected(m); loadStaffHistory(m.staff_name); }} style={{
                   ...cardStyle, cursor: 'pointer',
                   border: selected?.id === m.id ? '2px solid #6c63ff' : '1px solid var(--border)', marginBottom: 10,
                 }}>
@@ -223,6 +242,38 @@ export default function OneOnOnePage() {
                     <div style={{ fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.7 }}>{field.value}</div>
                   </div>
                 ))}
+
+                {/* 成長グラフ */}
+                {staffHistory.length >= 2 && (
+                  <div style={{ marginBottom: 16 }}>
+                    <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-muted)', marginBottom: 8 }}>
+                      📈 成長推移グラフ
+                    </div>
+                    <div style={{ width: '100%', minHeight: 180 }}>
+                      <LineChart
+                        width={380}
+                        height={180}
+                        data={staffHistory.map(m => ({
+                          date: formatDate(m.meeting_date),
+                          マインド: m.mindset_score || null,
+                          モチベーション: m.motivation_level || null,
+                        }))}
+                        margin={{ top: 5, right: 10, left: -20, bottom: 5 }}
+                      >
+                        <CartesianGrid strokeDasharray="3 3" stroke="rgba(108,99,255,0.1)" />
+                        <XAxis dataKey="date" tick={{ fontSize: 10, fill: 'var(--text-muted)' }} />
+                        <YAxis domain={[0, 100]} tick={{ fontSize: 10, fill: 'var(--text-muted)' }} />
+                        <Tooltip contentStyle={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 8, fontSize: 12 }} formatter={(value: any) => [`${value}点`]} />
+                        <Legend wrapperStyle={{ fontSize: 11 }} />
+                        <Line type="monotone" dataKey="マインド" stroke="#8b5cf6" strokeWidth={2} dot={{ r: 4, fill: '#8b5cf6' }} connectNulls />
+                        <Line type="monotone" dataKey="モチベーション" stroke="#4ade80" strokeWidth={2} dot={{ r: 4, fill: '#4ade80' }} connectNulls />
+                      </LineChart>
+                    </div>
+                    <div style={{ fontSize: 11, color: 'var(--text-muted)', textAlign: 'center', marginTop: 4 }}>
+                      過去{staffHistory.length}回の記録
+                    </div>
+                  </div>
+                )}
 
                 <button onClick={() => analyzeWithAI(selected)} disabled={analyzing} style={{
                   width: '100%', padding: '10px', borderRadius: 10, border: 'none', cursor: 'pointer',
