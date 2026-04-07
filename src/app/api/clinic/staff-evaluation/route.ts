@@ -91,22 +91,43 @@ export async function POST(req: Request) {
                            totalScore >= 55 ? 'G3' :
                            totalScore >= 40 ? 'G2' : 'G1';
 
-  const result = await sql`
-    INSERT INTO staff_evaluations (
-      staff_name, period,
-      knowledge_score, knowledge_details,
-      skill_score, skill_details,
-      mindset_score, mindset_details,
-      total_score, recommended_grade
-    ) VALUES (
-      ${staff_name}, ${period || '2026-Q2'},
-      ${knowledgeScore}, ${JSON.stringify(knowledgeDetails)},
-      ${skillScore}, ${JSON.stringify(skillDetails)},
-      ${mindsetScore}, ${JSON.stringify(mindsetDetails)},
-      ${totalScore}, ${recommendedGrade}
-    )
-    RETURNING *
+  // 同じスタッフ・同じ期間の既存データがあればUPDATE
+  const existing = await sql`
+    SELECT id FROM staff_evaluations
+    WHERE staff_name = ${staff_name} AND period = ${period || '2026-Q2'}
+    LIMIT 1
   `;
+
+  let result;
+  if (existing.length > 0) {
+    result = await sql`
+      UPDATE staff_evaluations SET
+        knowledge_score = ${knowledgeScore}, knowledge_details = ${JSON.stringify(knowledgeDetails)},
+        skill_score = ${skillScore}, skill_details = ${JSON.stringify(skillDetails)},
+        mindset_score = ${mindsetScore}, mindset_details = ${JSON.stringify(mindsetDetails)},
+        total_score = ${totalScore}, recommended_grade = ${recommendedGrade},
+        updated_at = NOW()
+      WHERE id = ${existing[0].id}
+      RETURNING *
+    `;
+  } else {
+    result = await sql`
+      INSERT INTO staff_evaluations (
+        staff_name, period,
+        knowledge_score, knowledge_details,
+        skill_score, skill_details,
+        mindset_score, mindset_details,
+        total_score, recommended_grade
+      ) VALUES (
+        ${staff_name}, ${period || '2026-Q2'},
+        ${knowledgeScore}, ${JSON.stringify(knowledgeDetails)},
+        ${skillScore}, ${JSON.stringify(skillDetails)},
+        ${mindsetScore}, ${JSON.stringify(mindsetDetails)},
+        ${totalScore}, ${recommendedGrade}
+      )
+      RETURNING *
+    `;
+  }
 
   return NextResponse.json(result[0]);
 }
