@@ -1,5 +1,5 @@
 'use client';
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect } from 'react';
 import {
   RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis,
   Radar, Tooltip,
@@ -39,7 +39,8 @@ export default function ApplicantsPage() {
   const [inputText, setInputText] = useState('');
   const [position, setPosition] = useState(POSITIONS[0]);
   const [tab, setTab] = useState<'list' | 'new'>('list');
-  const fileRef = useRef<HTMLInputElement>(null);
+  const [extracting, setExtracting] = useState(false);
+  const [fileName, setFileName] = useState('');
 
   useEffect(() => {
     fetch('/api/clinic/applicants')
@@ -47,8 +48,33 @@ export default function ApplicantsPage() {
       .then(d => setApplicants(Array.isArray(d) ? d : []));
   }, []);
 
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setFileName(file.name);
+    setExtracting(true);
+    setMessage('📄 ファイルを読み取り中...');
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+      const res = await fetch('/api/clinic/applicants/extract', { method: 'POST', body: formData });
+      const data = await res.json();
+      if (data.text) {
+        setInputText(data.text);
+        setMessage('✅ ファイルの読み取り完了！内容を確認して「AIで分析・採点する」を押してください。');
+        setTimeout(() => setMessage(''), 5000);
+      } else {
+        setMessage('❌ ' + (data.error || 'ファイルの読み取りに失敗しました'));
+      }
+    } catch {
+      setMessage('❌ エラーが発生しました');
+    } finally {
+      setExtracting(false);
+    }
+  };
+
   const analyze = async () => {
-    if (!inputText.trim() && !fileRef.current?.files?.length) {
+    if (!inputText.trim()) {
       setMessage('テキストまたはファイルを入力してください');
       return;
     }
@@ -75,7 +101,7 @@ export default function ApplicantsPage() {
       setApplicants(Array.isArray(updated) ? updated : []);
 
       setInputText('');
-      if (fileRef.current) fileRef.current.value = '';
+      setFileName('');
     } catch {
       setMessage('エラーが発生しました');
     } finally {
@@ -143,26 +169,65 @@ export default function ApplicantsPage() {
             </div>
           </div>
 
-          <div style={{ marginBottom: 12 }}>
-            <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 6 }}>
-              ファイルアップロード（PDF・画像・スカウター結果）
+          {/* ファイルアップロード */}
+          <div style={{ marginBottom: 16 }}>
+            <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 8 }}>
+              📄 ファイルをアップロード
             </div>
-            <input
-              ref={fileRef}
-              type="file"
-              accept=".pdf,.jpg,.jpeg,.png"
-              style={{
-                width: '100%', padding: '10px 12px', borderRadius: 10,
-                border: '2px dashed var(--border)', background: 'var(--input-bg)',
-                color: 'var(--text-primary)', fontSize: 13, cursor: 'pointer',
-              }}
-            />
+            <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 8 }}>
+              PDF・JPG・PNG対応（5MB以下）• 履歴書・職務経歴書・スカウター結果
+            </div>
+            <label style={{
+              display: 'flex', flexDirection: 'column', alignItems: 'center',
+              justifyContent: 'center', gap: 8,
+              padding: '24px 16px',
+              border: `2px dashed ${extracting ? '#6c63ff' : 'var(--border)'}`,
+              borderRadius: 12, cursor: 'pointer',
+              background: extracting ? 'rgba(108,99,255,0.05)' : 'var(--input-bg)',
+              transition: 'all 0.2s',
+            }}>
+              <input
+                type="file"
+                accept=".pdf,.jpg,.jpeg,.png,.webp"
+                onChange={handleFileChange}
+                disabled={extracting}
+                style={{ display: 'none' }}
+              />
+              {extracting ? (
+                <>
+                  <div style={{ fontSize: 24 }}>⏳</div>
+                  <div style={{ fontSize: 13, color: '#6c63ff', fontWeight: 700 }}>読み取り中...</div>
+                </>
+              ) : fileName ? (
+                <>
+                  <div style={{ fontSize: 24 }}>✅</div>
+                  <div style={{ fontSize: 13, color: '#4ade80', fontWeight: 700 }}>{fileName}</div>
+                  <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>クリックして別のファイルを選択</div>
+                </>
+              ) : (
+                <>
+                  <div style={{ fontSize: 32 }}>📄</div>
+                  <div style={{ fontSize: 13, color: 'var(--text-secondary)', fontWeight: 600 }}>
+                    クリックしてファイルを選択
+                  </div>
+                  <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>PDF・JPG・PNG（5MB以下）</div>
+                </>
+              )}
+            </label>
           </div>
 
+          {/* 区切り */}
+          <div style={{
+            display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16,
+            color: 'var(--text-muted)', fontSize: 12,
+          }}>
+            <div style={{ flex: 1, height: 1, background: 'var(--border)' }} />
+            または直接テキストを入力
+            <div style={{ flex: 1, height: 1, background: 'var(--border)' }} />
+          </div>
+
+          {/* テキスト入力 */}
           <div style={{ marginBottom: 16 }}>
-            <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 6 }}>
-              またはテキストで直接入力（履歴書・志望動機・スカウター結果など）
-            </div>
             <textarea
               value={inputText}
               onChange={e => setInputText(e.target.value)}
