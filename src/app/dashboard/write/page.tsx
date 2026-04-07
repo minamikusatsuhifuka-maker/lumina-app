@@ -59,6 +59,9 @@ export default function WritePage() {
   const [translating, setTranslating] = useState(false);
   const [translated, setTranslated] = useState('');
   const [targetLang, setTargetLang] = useState('en');
+  const [isFavorited, setIsFavorited] = useState(false);
+
+  useEffect(() => { setIsFavorited(false); }, [output]);
 
   useEffect(() => {
     const context = localStorage.getItem('lumina_research_context');
@@ -281,6 +284,31 @@ export default function WritePage() {
                 groupName="文章作成"
                 tags="文章"
               />
+              <button
+                onClick={async () => {
+                  await fetch('/api/library', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                      type: 'write',
+                      title: `★ ${mode}: ${prompt.slice(0, 40)}`,
+                      content: output,
+                      tags: mode,
+                      group_name: '文章作成',
+                      is_favorite: true,
+                    }),
+                  });
+                  setIsFavorited(true);
+                }}
+                style={{
+                  padding: '6px 14px', borderRadius: 8, border: 'none', cursor: 'pointer',
+                  background: isFavorited ? 'rgba(245,166,35,0.2)' : 'var(--border)',
+                  color: isFavorited ? '#f5a623' : 'var(--text-muted)',
+                  fontSize: 12, fontWeight: 600,
+                }}
+              >
+                {isFavorited ? '★ お気に入り済み' : '☆ お気に入り'}
+              </button>
               <button onClick={copy} style={{ padding: '5px 12px', borderRadius: 6, border: '1px solid var(--border)', background: 'var(--bg-secondary)', color: 'var(--text-secondary)', cursor: 'pointer', fontSize: 12 }}>📋 コピー</button>
               <button onClick={() => download('md')} style={{ padding: '5px 12px', borderRadius: 6, border: '1px solid var(--border)', background: 'var(--bg-secondary)', color: 'var(--text-secondary)', cursor: 'pointer', fontSize: 12 }}>💾 MD</button>
               <button onClick={() => download('txt')} style={{ padding: '5px 12px', borderRadius: 6, border: '1px solid var(--border)', background: 'var(--bg-secondary)', color: 'var(--text-secondary)', cursor: 'pointer', fontSize: 12 }}>💾 TXT</button>
