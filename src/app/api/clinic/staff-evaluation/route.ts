@@ -1,0 +1,112 @@
+import { NextResponse } from 'next/server';
+import { auth } from '@/lib/auth';
+import { neon } from '@neondatabase/serverless';
+
+const sql = neon(process.env.DATABASE_URL!);
+
+export async function GET(req: Request) {
+  const session = await auth();
+  if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+
+  const { searchParams } = new URL(req.url);
+  const staffName = searchParams.get('staff_name');
+
+  if (staffName) {
+    const evals = await sql`
+      SELECT * FROM staff_evaluations WHERE staff_name = ${staffName} ORDER BY created_at DESC
+    `;
+    return NextResponse.json(evals);
+  }
+
+  const evals = await sql`SELECT * FROM staff_evaluations ORDER BY updated_at DESC LIMIT 100`;
+  return NextResponse.json(evals);
+}
+
+export async function POST(req: Request) {
+  const session = await auth();
+  if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+
+  const { staff_name, period } = await req.json();
+
+  // 1on1からマインドスコアを集計
+  let mindsetScore = 0;
+  let mindsetDetails: any[] = [];
+  try {
+    const meetings = await sql`
+      SELECT meeting_date, mindset_score, motivation_level, growth_stage, ai_analysis
+      FROM one_on_one_meetings
+      WHERE staff_name = ${staff_name} AND mindset_score IS NOT NULL
+      ORDER BY meeting_date DESC LIMIT 5
+    `;
+    if (meetings.length > 0) {
+      const avg = meetings.reduce((sum: number, m: any) =>
+        sum + ((m.mindset_score + m.motivation_level) / 2), 0) / meetings.length;
+      mindsetScore = Math.round(avg / 2);
+      mindsetDetails = meetings.map((m: any) => ({
+        date: m.meeting_date, score: m.mindset_score,
+        motivation: m.motivation_level, stage: m.growth_stage,
+      }));
+    }
+  } catch {}
+
+  // 試験結果から知識スコアを集計
+  let knowledgeScore = 0;
+  let knowledgeDetails: any[] = [];
+  try {
+    const exams = await sql`
+      SELECT e.title, ser.score, ser.created_at
+      FROM staff_exam_results ser
+      JOIN exams e ON e.id = ser.exam_id
+      WHERE ser.staff_id IN (SELECT id FROM staff WHERE name = ${staff_name} LIMIT 1)
+      ORDER BY ser.created_at DESC LIMIT 5
+    `;
+    if (exams.length > 0) {
+      const avg = exams.reduce((sum: number, e: any) => sum + (e.score || 0), 0) / exams.length;
+      knowledgeScore = Math.round(avg / 4);
+      knowledgeDetails = exams;
+    }
+  } catch {}
+
+  // アンケートからスキルスコアを集計
+  let skillScore = 0;
+  let skillDetails: any[] = [];
+  try {
+    const surveys = await sql`
+      SELECT s.title, ssr.score, ssr.created_at
+      FROM staff_survey_responses ssr
+      JOIN surveys s ON s.id = ssr.survey_id
+      WHERE ssr.staff_id IN (SELECT id FROM staff WHERE name = ${staff_name} LIMIT 1)
+      ORDER BY ssr.created_at DESC LIMIT 5
+    `;
+    if (surveys.length > 0) {
+      const avg = surveys.reduce((sum: number, s: any) => sum + (s.score || 0), 0) / surveys.length;
+      skillScore = Math.round(avg / 4);
+      skillDetails = surveys;
+    }
+  } catch {}
+
+  const totalScore = knowledgeScore + skillScore + mindsetScore;
+  const recommendedGrade = totalScore >= 85 ? 'G5' :
+                           totalScore >= 70 ? 'G4' :
+                           totalScore >= 55 ? 'G3' :
+                           totalScore >= 40 ? 'G2' : 'G1';
+
+  const result = await sql`
+    INSERT INTO staff_evaluations (
+      staff_name, period,
+      knowledge_score, knowledge_details,
+      skill_score, skill_details,
+      mindset_score, mindset_details,
+      total_score, recommended_grade
+    ) VALUES (
+      ${staff_name}, ${period || '2026-Q2'},
+      ${knowledgeScore}, ${JSON.stringify(knowledgeDetails)},
+      ${skillScore}, ${JSON.stringify(skillDetails)},
+      ${mindsetScore}, ${JSON.stringify(mindsetDetails)},
+      ${totalScore}, ${recommendedGrade}
+    )
+    RETURNING *
+  `;
+
+  return NextResponse.json(result[0]);
+}

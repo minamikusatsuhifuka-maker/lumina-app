@@ -22,6 +22,7 @@ const navItems = [
   { href: '/admin/tasks', label: 'タスク管理', icon: '✅' },
   { href: '/admin/applicants', label: '採用AI分析', icon: '👥' },
   { href: '/admin/one-on-one', label: '1on1ミーティング', icon: '🤝' },
+  { href: '/admin/staff-evaluation', label: 'スタッフ評価', icon: '📊' },
   { href: '/admin/text-editor', label: 'テキストエディタ', icon: '✍️' },
 ];
 
