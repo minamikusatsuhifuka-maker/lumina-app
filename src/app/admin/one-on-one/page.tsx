@@ -89,6 +89,7 @@ export default function OneOnOnePage() {
     borderRadius: 10, color: 'var(--text-primary)', fontSize: 13,
     lineHeight: 1.7, outline: 'none', boxSizing: 'border-box' as const, fontFamily: 'inherit',
   };
+  const formatDate = (d: string) => d ? d.split('T')[0].replace(/-/g, '/') : '';
   const staffList = [...new Set(meetings.map(m => m.staff_name))];
 
   return (
@@ -179,7 +180,7 @@ export default function OneOnOnePage() {
                     <div>
                       <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--text-primary)' }}>{m.staff_name}</div>
                       <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>
-                        {m.meeting_date} {m.goals && `• ${m.goals.slice(0, 30)}...`}
+                        {formatDate(m.meeting_date)} {m.goals && `• ${m.goals.slice(0, 30)}...`}
                       </div>
                     </div>
                     <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
@@ -205,7 +206,7 @@ export default function OneOnOnePage() {
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
                   <div>
                     <div style={{ fontSize: 16, fontWeight: 700 }}>{selected.staff_name}</div>
-                    <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>{selected.meeting_date}</div>
+                    <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>{formatDate(selected.meeting_date)}</div>
                   </div>
                   <button onClick={() => setSelected(null)} style={{ fontSize: 18, background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)' }}>✕</button>
                 </div>
