@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
 
-export const maxDuration = 30;
+export const maxDuration = 60;
 
 export async function POST(req: Request) {
   const session = await auth();
@@ -15,20 +15,22 @@ export async function POST(req: Request) {
 
     if (!file) return NextResponse.json({ error: 'ファイルがありません' }, { status: 400 });
 
-    const buffer = await file.arrayBuffer();
-    const base64 = Buffer.from(buffer).toString('base64');
-    const mediaType = file.type;
+    if (file.size > 3 * 1024 * 1024) {
+      return NextResponse.json({ error: 'ファイルサイズは3MB以下にしてください' }, { status: 400 });
+    }
 
     const supportedTypes = ['application/pdf', 'image/jpeg', 'image/png', 'image/webp'];
-    if (!supportedTypes.includes(mediaType)) {
+    if (!supportedTypes.includes(file.type)) {
       return NextResponse.json({ error: 'PDF・JPG・PNG・WEBPのみ対応しています' }, { status: 400 });
     }
 
-    if (buffer.byteLength > 5 * 1024 * 1024) {
-      return NextResponse.json({ error: 'ファイルサイズは5MB以下にしてください' }, { status: 400 });
-    }
+    const buffer = await file.arrayBuffer();
+    const base64 = Buffer.from(buffer).toString('base64');
+    const isPdf = file.type === 'application/pdf';
 
-    const isPdf = mediaType === 'application/pdf';
+    const contentBlock = isPdf
+      ? { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: base64 } }
+      : { type: 'image', source: { type: 'base64', media_type: file.type, data: base64 } };
 
     const response = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
@@ -39,22 +41,14 @@ export async function POST(req: Request) {
       },
       body: JSON.stringify({
         model: 'claude-sonnet-4-6',
-        max_tokens: 2000,
+        max_tokens: 1500,
         messages: [{
           role: 'user',
           content: [
-            isPdf ? {
-              type: 'document',
-              source: { type: 'base64', media_type: 'application/pdf', data: base64 },
-            } : {
-              type: 'image',
-              source: { type: 'base64', media_type: mediaType, data: base64 },
-            },
+            contentBlock,
             {
               type: 'text',
-              text: `このファイルは履歴書・職務経歴書・スカウター（適性検査）結果のいずれかです。
-内容を全てテキストとして書き出してください。
-氏名・年齢・経歴・志望動機・自己PR・資格・検査結果など、読み取れる情報を漏れなく書き出してください。`,
+              text: '履歴書・職務経歴書・適性検査の内容をテキストで書き出してください。氏名・年齢・経歴・志望動機・資格・検査結果を含めてください。',
             },
           ],
         }],
