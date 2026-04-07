@@ -42,6 +42,7 @@ export default function ApplicantsPage() {
   const [extracting, setExtracting] = useState(false);
   const [fileName, setFileName] = useState('');
   const [isDragging, setIsDragging] = useState(false);
+  const [statusFilter, setStatusFilter] = useState('all');
 
   useEffect(() => {
     fetch('/api/clinic/applicants')
@@ -133,6 +134,19 @@ export default function ApplicantsPage() {
       setTimeout(() => setMessage(''), 4000);
     }
   };
+
+  const STATUSES = [
+    { key: 'all',       label: '全て',       color: '#6c63ff' },
+    { key: 'screening', label: '📋 書類選考', color: '#6c63ff' },
+    { key: 'interview', label: '💬 面接',     color: '#f59e0b' },
+    { key: 'final',     label: '🎯 最終選考', color: '#06b6d4' },
+    { key: 'hired',     label: '✅ 採用',     color: '#4ade80' },
+    { key: 'rejected',  label: '❌ 不採用',   color: '#ef4444' },
+  ];
+
+  const filteredApplicants = statusFilter === 'all'
+    ? applicants
+    : applicants.filter(a => a.status === statusFilter);
 
   const cardStyle: React.CSSProperties = {
     padding: 20, background: 'var(--bg-secondary)',
@@ -297,16 +311,34 @@ export default function ApplicantsPage() {
         </div>
       )}
 
+      {/* ステータスフィルタータブ */}
+      {tab === 'list' && (
+        <div style={{ display: 'flex', gap: 6, marginBottom: 16, flexWrap: 'wrap' }}>
+          {STATUSES.map(s => {
+            const count = s.key === 'all' ? applicants.length : applicants.filter(a => a.status === s.key).length;
+            return (
+              <button key={s.key} onClick={() => setStatusFilter(s.key)} style={{
+                padding: '5px 12px', borderRadius: 20, fontSize: 12, fontWeight: 600,
+                cursor: 'pointer', border: '2px solid',
+                background: statusFilter === s.key ? `${s.color}15` : 'var(--bg-card)',
+                borderColor: statusFilter === s.key ? s.color : 'var(--border)',
+                color: statusFilter === s.key ? s.color : 'var(--text-muted)',
+              }}>{s.label} ({count})</button>
+            );
+          })}
+        </div>
+      )}
+
       {/* 候補者一覧 */}
       {tab === 'list' && (
         <div style={{ display: 'grid', gridTemplateColumns: selected ? '1fr 1.5fr' : '1fr', gap: 16 }}>
           <div>
-            {applicants.length === 0 ? (
+            {filteredApplicants.length === 0 ? (
               <div style={{ textAlign: 'center', padding: 40, color: 'var(--text-muted)' }}>
-                まだ候補者がいません。「新規分析」から追加してください。
+                {applicants.length === 0 ? 'まだ候補者がいません。「新規分析」から追加してください。' : 'このステータスの候補者はいません。'}
               </div>
             ) : (
-              applicants.map(a => (
+              filteredApplicants.map(a => (
                 <div
                   key={a.id}
                   onClick={() => {
@@ -315,7 +347,11 @@ export default function ApplicantsPage() {
                   style={{
                     ...cardStyle,
                     cursor: 'pointer',
-                    border: selected?.id === a.id ? '2px solid #6c63ff' : '1px solid var(--border)',
+                    border: selected?.id === a.id ? '2px solid #6c63ff'
+                      : a.status === 'hired' ? '1px solid rgba(74,222,128,0.4)'
+                      : a.status === 'rejected' ? '1px solid rgba(239,68,68,0.2)'
+                      : '1px solid var(--border)',
+                    opacity: a.status === 'rejected' ? 0.6 : 1,
                     marginBottom: 10,
                   }}
                 >
@@ -466,8 +502,9 @@ export default function ApplicantsPage() {
                             body: JSON.stringify({ id: selected.id, status: key }),
                           });
                           setSelected((prev: any) => ({ ...prev, status: key }));
-                          const updated = await fetch('/api/clinic/applicants').then(r => r.json());
-                          setApplicants(Array.isArray(updated) ? updated : []);
+                          setApplicants(prev => prev.map(a =>
+                            a.id === selected.id ? { ...a, status: key } : a
+                          ));
                         }}
                         style={{
                           padding: '5px 12px', borderRadius: 10, fontSize: 11, fontWeight: 700,
