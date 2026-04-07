@@ -205,15 +205,19 @@ export default function StaffEvaluationPage() {
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 12 }}>
                     <div>
                       <div style={{ fontSize: 11, fontWeight: 700, color: '#4ade80', marginBottom: 6 }}>💪 強み</div>
-                      {(aiResult.strengths || []).map((s: string, i: number) => (
-                        <div key={i} style={{ fontSize: 11, padding: '4px 8px', marginBottom: 4, background: 'rgba(74,222,128,0.08)', borderRadius: 6, color: 'var(--text-secondary)' }}>{s}</div>
-                      ))}
+                      {Array.isArray(aiResult.strengths) && aiResult.strengths.length > 0 ? (
+                        aiResult.strengths.map((s: string, i: number) => (
+                          <div key={i} style={{ fontSize: 11, padding: '4px 8px', marginBottom: 4, background: 'rgba(74,222,128,0.08)', borderRadius: 6, color: 'var(--text-secondary)' }}>{s}</div>
+                        ))
+                      ) : <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>データなし</div>}
                     </div>
                     <div>
                       <div style={{ fontSize: 11, fontWeight: 700, color: '#f59e0b', marginBottom: 6 }}>🔥 改善点</div>
-                      {(aiResult.improvements || []).map((s: string, i: number) => (
-                        <div key={i} style={{ fontSize: 11, padding: '4px 8px', marginBottom: 4, background: 'rgba(245,158,11,0.08)', borderRadius: 6, color: 'var(--text-secondary)' }}>{s}</div>
-                      ))}
+                      {Array.isArray(aiResult.improvements) && aiResult.improvements.length > 0 ? (
+                        aiResult.improvements.map((s: string, i: number) => (
+                          <div key={i} style={{ fontSize: 11, padding: '4px 8px', marginBottom: 4, background: 'rgba(245,158,11,0.08)', borderRadius: 6, color: 'var(--text-secondary)' }}>{s}</div>
+                        ))
+                      ) : <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>データなし</div>}
                     </div>
                   </div>
 

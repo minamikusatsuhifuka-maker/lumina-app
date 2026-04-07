@@ -47,16 +47,43 @@ ${latestMeeting ? `成長段階: ${latestMeeting.stage} / マインド: ${latest
 
     const clean = response.replace(/```json|```/g, '').trim();
     const jsonMatch = clean.match(/\{[\s\S]*\}/);
-    const result = jsonMatch ? JSON.parse(jsonMatch[0]) : {};
+    let result: any = {};
 
-    const sql = neon(process.env.DATABASE_URL!);
-    await sql`
-      UPDATE staff_evaluations SET ai_evaluation = ${result.ai_evaluation || ''}, updated_at = NOW()
-      WHERE id = ${evaluationId}
-    `;
+    if (jsonMatch) {
+      try {
+        result = JSON.parse(jsonMatch[0]);
+      } catch {
+        result = {
+          ai_evaluation: clean.slice(0, 200),
+          strengths: ['データ取得中'],
+          improvements: ['データ取得中'],
+          promotion_eligible: false,
+          promotion_reason: '評価データが不足しています',
+        };
+      }
+    } else {
+      result = {
+        ai_evaluation: response.slice(0, 300),
+        strengths: [],
+        improvements: [],
+        promotion_eligible: false,
+        promotion_reason: '評価データが不足しています',
+      };
+    }
+
+    try {
+      const sql = neon(process.env.DATABASE_URL!);
+      await sql`
+        UPDATE staff_evaluations SET ai_evaluation = ${result.ai_evaluation || ''}, updated_at = NOW()
+        WHERE id = ${evaluationId}
+      `;
+    } catch (dbErr) {
+      console.error('DB update error:', dbErr);
+    }
 
     return NextResponse.json(result);
   } catch (e: any) {
+    console.error('ai-comment error:', e);
     return NextResponse.json({ error: e.message }, { status: 500 });
   }
 }
