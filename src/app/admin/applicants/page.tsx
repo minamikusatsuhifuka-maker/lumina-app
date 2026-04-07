@@ -41,6 +41,7 @@ export default function ApplicantsPage() {
   const [tab, setTab] = useState<'list' | 'new'>('list');
   const [extracting, setExtracting] = useState(false);
   const [fileName, setFileName] = useState('');
+  const [isDragging, setIsDragging] = useState(false);
 
   useEffect(() => {
     fetch('/api/clinic/applicants')
@@ -48,9 +49,18 @@ export default function ApplicantsPage() {
       .then(d => setApplicants(Array.isArray(d) ? d : []));
   }, []);
 
-  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
+  const processFile = async (file: File) => {
+    const supportedTypes = ['application/pdf', 'image/jpeg', 'image/png', 'image/webp'];
+    if (!supportedTypes.includes(file.type)) {
+      setMessage('❌ PDF・JPG・PNG・WEBPのみ対応しています');
+      setTimeout(() => setMessage(''), 3000);
+      return;
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      setMessage('❌ ファイルサイズは5MB以下にしてください');
+      setTimeout(() => setMessage(''), 3000);
+      return;
+    }
     setFileName(file.name);
     setExtracting(true);
     setMessage('📄 ファイルを読み取り中...');
@@ -71,6 +81,20 @@ export default function ApplicantsPage() {
     } finally {
       setExtracting(false);
     }
+  };
+
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) await processFile(file);
+  };
+
+  const handleDragOver = (e: React.DragEvent) => { e.preventDefault(); setIsDragging(true); };
+  const handleDragLeave = (e: React.DragEvent) => { e.preventDefault(); setIsDragging(false); };
+  const handleDrop = async (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragging(false);
+    const file = e.dataTransfer.files?.[0];
+    if (file) await processFile(file);
   };
 
   const analyze = async () => {
@@ -171,21 +195,34 @@ export default function ApplicantsPage() {
 
           {/* ファイルアップロード */}
           <div style={{ marginBottom: 16 }}>
-            <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 8 }}>
+            <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 6 }}>
               📄 ファイルをアップロード
             </div>
             <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 8 }}>
               PDF・JPG・PNG対応（5MB以下）• 履歴書・職務経歴書・スカウター結果
             </div>
-            <label style={{
-              display: 'flex', flexDirection: 'column', alignItems: 'center',
-              justifyContent: 'center', gap: 8,
-              padding: '24px 16px',
-              border: `2px dashed ${extracting ? '#6c63ff' : 'var(--border)'}`,
-              borderRadius: 12, cursor: 'pointer',
-              background: extracting ? 'rgba(108,99,255,0.05)' : 'var(--input-bg)',
-              transition: 'all 0.2s',
-            }}>
+            <label
+              onDragOver={handleDragOver}
+              onDragLeave={handleDragLeave}
+              onDrop={handleDrop}
+              style={{
+                display: 'flex', flexDirection: 'column', alignItems: 'center',
+                justifyContent: 'center', gap: 8,
+                padding: '28px 16px',
+                border: `2px dashed ${
+                  isDragging ? '#6c63ff' :
+                  extracting ? '#6c63ff' :
+                  fileName ? '#4ade80' :
+                  'var(--border)'
+                }`,
+                borderRadius: 14, cursor: extracting ? 'wait' : 'pointer',
+                background: isDragging ? 'rgba(108,99,255,0.08)' :
+                            extracting ? 'rgba(108,99,255,0.04)' :
+                            fileName ? 'rgba(74,222,128,0.04)' :
+                            'var(--input-bg)',
+                transition: 'all 0.2s',
+              }}
+            >
               <input
                 type="file"
                 accept=".pdf,.jpg,.jpeg,.png,.webp"
@@ -195,28 +232,32 @@ export default function ApplicantsPage() {
               />
               {extracting ? (
                 <>
-                  <div style={{ fontSize: 24 }}>⏳</div>
+                  <div style={{ fontSize: 32 }}>⏳</div>
                   <div style={{ fontSize: 13, color: '#6c63ff', fontWeight: 700 }}>読み取り中...</div>
+                  <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>AIがファイルを解析しています</div>
+                </>
+              ) : isDragging ? (
+                <>
+                  <div style={{ fontSize: 32 }}>📂</div>
+                  <div style={{ fontSize: 14, color: '#6c63ff', fontWeight: 700 }}>ここにドロップ！</div>
                 </>
               ) : fileName ? (
                 <>
-                  <div style={{ fontSize: 24 }}>✅</div>
+                  <div style={{ fontSize: 32 }}>✅</div>
                   <div style={{ fontSize: 13, color: '#4ade80', fontWeight: 700 }}>{fileName}</div>
-                  <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>クリックして別のファイルを選択</div>
+                  <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>クリックまたはドラッグ&ドロップで別のファイルを選択</div>
                 </>
               ) : (
                 <>
-                  <div style={{ fontSize: 32 }}>📄</div>
-                  <div style={{ fontSize: 13, color: 'var(--text-secondary)', fontWeight: 600 }}>
-                    クリックしてファイルを選択
-                  </div>
+                  <div style={{ fontSize: 36 }}>📄</div>
+                  <div style={{ fontSize: 13, color: 'var(--text-secondary)', fontWeight: 600 }}>クリックまたはドラッグ&ドロップ</div>
                   <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>PDF・JPG・PNG（5MB以下）</div>
                 </>
               )}
             </label>
           </div>
 
-          {/* 区切り */}
+          {/* 区切り線 */}
           <div style={{
             display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16,
             color: 'var(--text-muted)', fontSize: 12,
