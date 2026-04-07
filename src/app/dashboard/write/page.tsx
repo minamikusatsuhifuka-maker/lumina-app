@@ -3,6 +3,7 @@ import { useState, useEffect } from 'react';
 import { ProgressBar } from '@/components/ProgressBar';
 import { useProgress } from '@/components/useProgress';
 import { SaveToLibraryButton } from '@/components/SaveToLibraryButton';
+import { useWritingTemplates } from '@/hooks/useWritingTemplates';
 
 const MODE_CATEGORIES = [
   {
@@ -72,6 +73,11 @@ export default function WritePage() {
   const [isExporting, setIsExporting] = useState(false);
   const [gensparkResult, setGensparkResult] = useState('');
   const [exportFormat, setExportFormat] = useState('presentation');
+  const { templates, isLoading: templatesLoading, saveTemplate, deleteTemplate } = useWritingTemplates();
+  const [templateName, setTemplateName] = useState('');
+  const [isSavingTemplate, setIsSavingTemplate] = useState(false);
+  const [showSaveInput, setShowSaveInput] = useState(false);
+  const [selectedTemplateId, setSelectedTemplateId] = useState('');
 
   useEffect(() => { setIsFavorited(false); }, [output]);
 
@@ -266,6 +272,25 @@ export default function WritePage() {
     }
   };
 
+  const handleSaveTemplate = async () => {
+    if (!templateName.trim()) return;
+    setIsSavingTemplate(true);
+    const ok = await saveTemplate(templateName, { mode, style, length, audience, prompt });
+    if (ok) { setTemplateName(''); setShowSaveInput(false); }
+    setIsSavingTemplate(false);
+  };
+
+  const handleLoadTemplate = (id: string) => {
+    const t = templates.find(t => t.id === id);
+    if (!t) return;
+    setMode(t.mode);
+    setStyle(t.style);
+    setLength(t.length);
+    setAudience(t.audience);
+    setPrompt(t.prompt);
+    setSelectedTemplateId(id);
+  };
+
   const copy = () => navigator.clipboard.writeText(output).then(() => alert('コピーしました！'));
   const download = (ext: string) => {
     const a = document.createElement('a');
@@ -297,6 +322,66 @@ export default function WritePage() {
           </div>
         ))}
       </div>
+      {/* テンプレート */}
+      <div style={{ display: 'flex', flexWrap: 'wrap' as const, alignItems: 'center', gap: 8, marginBottom: 12 }}>
+        <select
+          value={selectedTemplateId}
+          onChange={e => handleLoadTemplate(e.target.value)}
+          disabled={templatesLoading || templates.length === 0}
+          style={{ flex: 1, minWidth: 0, maxWidth: 280, padding: '6px 10px', background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 8, color: 'var(--text-primary)', fontSize: 13, outline: 'none' }}
+        >
+          <option value="">
+            {templatesLoading ? '読み込み中...' : templates.length === 0 ? 'テンプレートなし' : '📋 テンプレートを呼び出す'}
+          </option>
+          {templates.map(t => (
+            <option key={t.id} value={t.id}>{t.name}</option>
+          ))}
+        </select>
+
+        {selectedTemplateId && (
+          <button
+            onClick={() => { deleteTemplate(selectedTemplateId); setSelectedTemplateId(''); }}
+            style={{ padding: '5px 12px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--bg-secondary)', color: '#ff6b6b', cursor: 'pointer', fontSize: 12 }}
+          >
+            🗑 削除
+          </button>
+        )}
+
+        {!showSaveInput ? (
+          <button
+            onClick={() => setShowSaveInput(true)}
+            style={{ padding: '5px 12px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--bg-secondary)', color: 'var(--text-secondary)', cursor: 'pointer', fontSize: 12, marginLeft: 'auto' }}
+          >
+            💾 現在の設定を保存
+          </button>
+        ) : (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginLeft: 'auto' }}>
+            <input
+              type="text"
+              value={templateName}
+              onChange={e => setTemplateName(e.target.value)}
+              onKeyDown={e => e.key === 'Enter' && handleSaveTemplate()}
+              placeholder="テンプレート名を入力..."
+              autoFocus
+              style={{ width: 180, padding: '5px 10px', background: 'var(--bg-primary)', border: '1px solid var(--border)', borderRadius: 8, color: 'var(--text-primary)', fontSize: 12, outline: 'none' }}
+            />
+            <button
+              onClick={handleSaveTemplate}
+              disabled={!templateName.trim() || isSavingTemplate}
+              style={{ padding: '5px 12px', borderRadius: 8, border: 'none', background: 'linear-gradient(135deg, #6c63ff, #8b5cf6)', color: '#fff', cursor: 'pointer', fontSize: 12, fontWeight: 600, opacity: !templateName.trim() || isSavingTemplate ? 0.5 : 1 }}
+            >
+              {isSavingTemplate ? '保存中...' : '保存'}
+            </button>
+            <button
+              onClick={() => { setShowSaveInput(false); setTemplateName(''); }}
+              style={{ padding: '5px 10px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--bg-secondary)', color: 'var(--text-muted)', cursor: 'pointer', fontSize: 12 }}
+            >
+              ✕
+            </button>
+          </div>
+        )}
+      </div>
+
       <div style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 14, padding: 20, marginBottom: 16 }}>
         <textarea value={prompt} onChange={e => setPrompt(e.target.value)} placeholder={'テーマ・指示を入力\n例：AIが日常生活を変える5つの方法について初心者向けに2000文字で書いてください'} style={{ width: '100%', minHeight: 100, background: 'var(--bg-primary)', border: '1px solid var(--border)', borderRadius: 8, color: 'var(--text-primary)', fontSize: 14, padding: 14, resize: 'vertical', outline: 'none', fontFamily: 'inherit', lineHeight: 1.7, boxSizing: 'border-box' }} />
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 10, marginTop: 12 }}>

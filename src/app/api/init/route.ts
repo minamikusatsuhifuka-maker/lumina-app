@@ -348,6 +348,19 @@ export async function GET() {
       created_at TIMESTAMP DEFAULT NOW()
     )`;
 
+    await sql`CREATE TABLE IF NOT EXISTS writing_templates (
+      id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
+      user_id TEXT NOT NULL,
+      name TEXT NOT NULL,
+      mode TEXT NOT NULL,
+      style TEXT NOT NULL,
+      length TEXT NOT NULL,
+      audience TEXT NOT NULL,
+      prompt TEXT NOT NULL DEFAULT '',
+      created_at TIMESTAMP DEFAULT NOW(),
+      updated_at TIMESTAMP DEFAULT NOW()
+    )`;
+
     return NextResponse.json({ success: true, message: '全テーブル初期化完了' });
   } catch (e: any) {
     return NextResponse.json({ error: e.message }, { status: 500 });
