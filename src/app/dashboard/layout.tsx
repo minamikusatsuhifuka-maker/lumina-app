@@ -2,6 +2,7 @@ import { auth } from '@/lib/auth';
 import { redirect } from 'next/navigation';
 import { DashboardSidebar } from '@/components/DashboardSidebar';
 import { AIAssistant } from '@/components/AIAssistant';
+import { FloatingToolbar } from '@/components/FloatingToolbar';
 import { ModelSelector } from '@/components/ModelSelector';
 
 export default async function DashboardLayout({ children }: { children: React.ReactNode }) {
@@ -14,6 +15,7 @@ export default async function DashboardLayout({ children }: { children: React.Re
         <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 12 }}><ModelSelector /></div>
         {children}
       </main>
+      <FloatingToolbar />
       <AIAssistant />
     </div>
   );
