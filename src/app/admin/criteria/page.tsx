@@ -1,5 +1,6 @@
 'use client';
 import { useState, useEffect } from 'react';
+import { AITextReviser } from '@/components/clinic/AITextReviser';
 
 const CATS = [
   { key: '', label: '全て' }, { key: 'philosophy', label: '理念' }, { key: 'grade', label: '等級' },
@@ -83,12 +84,19 @@ export default function CriteriaPage() {
           {filtered.map(c => (
             <div key={c.id} style={{ padding: '12px 16px', background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 10 }}>
               {editId === c.id ? (
-                <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                  <input value={editText} onChange={e => setEditText(e.target.value)} style={{ ...inputStyle, flex: 1 }} />
-                  <input type="range" min={1} max={10} value={editPri} onChange={e => setEditPri(Number(e.target.value))} style={{ width: 60 }} />
-                  <span style={{ fontSize: 12, color: '#6c63ff', width: 16 }}>{editPri}</span>
-                  <button onClick={() => save(c.id)} style={{ padding: '4px 10px', borderRadius: 6, border: 'none', background: '#4ade80', color: '#000', fontSize: 11, fontWeight: 700, cursor: 'pointer' }}>保存</button>
-                  <button onClick={() => setEditId(null)} style={{ padding: '4px 8px', borderRadius: 6, border: '1px solid var(--border)', background: 'var(--bg-card)', color: 'var(--text-muted)', fontSize: 11, cursor: 'pointer' }}>✕</button>
+                <div>
+                  <textarea value={editText} onChange={e => setEditText(e.target.value)} rows={4}
+                    style={{ width: '100%', padding: '10px 12px', borderRadius: 10, border: '1px solid var(--input-border)', background: 'var(--input-bg)', color: 'var(--text-primary)', fontSize: 13, lineHeight: 1.7, resize: 'vertical', outline: 'none', boxSizing: 'border-box' as const }} />
+                  <AITextReviser text={editText} onRevised={(revised) => setEditText(revised)} defaultPurpose="philosophy" purposes={['philosophy', 'teal', 'warm', 'simple']} compact={true} />
+                  <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 8 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                      <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>重要度</span>
+                      <input type="range" min={1} max={10} value={editPri} onChange={e => setEditPri(Number(e.target.value))} style={{ width: 60 }} />
+                      <span style={{ fontSize: 12, color: '#6c63ff', width: 16 }}>{editPri}</span>
+                    </div>
+                    <button onClick={() => save(c.id)} style={{ padding: '6px 16px', borderRadius: 8, border: 'none', background: '#6c63ff', color: '#fff', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>💾 保存</button>
+                    <button onClick={() => setEditId(null)} style={{ padding: '6px 12px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--bg-card)', color: 'var(--text-muted)', fontSize: 12, cursor: 'pointer' }}>キャンセル</button>
+                  </div>
                 </div>
               ) : (
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
