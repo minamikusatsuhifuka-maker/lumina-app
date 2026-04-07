@@ -132,6 +132,8 @@ export default function StaffEvaluationPage() {
                   <div style={{ textAlign: 'right' }}>
                     <div style={{ fontSize: 22, fontWeight: 800, color: gradeColor }}>{ev.total_score}点</div>
                     <div style={{ fontSize: 12, fontWeight: 700, color: gradeColor }}>推奨：{ev.recommended_grade}</div>
+                    {ev.bonus_rate > 0 && <div style={{ fontSize: 11, color: '#4ade80', fontWeight: 700 }}>賞与+{ev.bonus_rate}%</div>}
+                    {ev.promotion_approved && <div style={{ fontSize: 10, color: '#4ade80' }}>✅ 昇格承認済み</div>}
                   </div>
                 </div>
                 <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
@@ -181,6 +183,46 @@ export default function StaffEvaluationPage() {
                   <div style={{ fontSize: 26, fontWeight: 800, color: GRADE_COLORS[selected.recommended_grade] || '#94a3b8' }}>{selected.recommended_grade}</div>
                   <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>推奨等級</div>
                 </div>
+              </div>
+
+              {/* 賞与・昇格判定 */}
+              <div style={{ marginBottom: 16 }}>
+                <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-muted)', marginBottom: 8 }}>💰 賞与・昇格判定</div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8, marginBottom: 12 }}>
+                  <div style={{ padding: 12, textAlign: 'center', background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 10 }}>
+                    <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 4 }}>現在等級</div>
+                    <div style={{ fontSize: 20, fontWeight: 800, color: 'var(--text-secondary)' }}>{selected.current_grade || '未設定'}</div>
+                  </div>
+                  <div style={{ padding: 12, textAlign: 'center', background: `${GRADE_COLORS[selected.recommended_grade] || '#94a3b8'}15`, border: `1px solid ${GRADE_COLORS[selected.recommended_grade] || '#94a3b8'}40`, borderRadius: 10 }}>
+                    <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 4 }}>推奨等級</div>
+                    <div style={{ fontSize: 20, fontWeight: 800, color: GRADE_COLORS[selected.recommended_grade] || '#94a3b8' }}>{selected.recommended_grade}</div>
+                  </div>
+                  <div style={{ padding: 12, textAlign: 'center', background: 'rgba(74,222,128,0.08)', border: '1px solid rgba(74,222,128,0.3)', borderRadius: 10 }}>
+                    <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 4 }}>賞与加算率</div>
+                    <div style={{ fontSize: 20, fontWeight: 800, color: '#4ade80' }}>+{selected.bonus_rate || 0}%</div>
+                  </div>
+                </div>
+                {!selected.promotion_approved ? (
+                  <button onClick={async () => {
+                    if (!confirm(`${selected.staff_name}さんを${selected.recommended_grade}に昇格承認しますか？`)) return;
+                    const res = await fetch('/api/clinic/staff-evaluation/approve', {
+                      method: 'POST', headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ evaluationId: selected.id, staffName: selected.staff_name, approvedGrade: selected.recommended_grade }),
+                    });
+                    if (res.ok) {
+                      setSelected((prev: any) => ({ ...prev, promotion_approved: true, approved_grade: selected.recommended_grade }));
+                      setMessage(`✅ ${selected.staff_name}さんの${selected.recommended_grade}昇格を承認しました`);
+                      setTimeout(() => setMessage(''), 4000);
+                    }
+                  }} style={{
+                    width: '100%', padding: '10px', borderRadius: 10, border: 'none', cursor: 'pointer',
+                    background: 'linear-gradient(135deg, #4ade80, #22c55e)', color: '#fff', fontSize: 13, fontWeight: 700,
+                  }}>✅ {selected.recommended_grade}への昇格を承認する</button>
+                ) : (
+                  <div style={{ padding: '10px 14px', borderRadius: 10, textAlign: 'center', background: 'rgba(74,222,128,0.1)', border: '1px solid rgba(74,222,128,0.3)', fontSize: 13, fontWeight: 700, color: '#4ade80' }}>
+                    ✅ {selected.approved_grade}への昇格承認済み
+                  </div>
+                )}
               </div>
 
               <button onClick={generateAIComment} disabled={generating} style={{

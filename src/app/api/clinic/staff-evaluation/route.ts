@@ -90,8 +90,12 @@ export async function POST(req: Request) {
                            totalScore >= 70 ? 'G4' :
                            totalScore >= 55 ? 'G3' :
                            totalScore >= 40 ? 'G2' : 'G1';
+  const bonusRate = totalScore >= 90 ? 30 :
+                    totalScore >= 80 ? 20 :
+                    totalScore >= 70 ? 15 :
+                    totalScore >= 55 ? 10 :
+                    totalScore >= 40 ? 5 : 0;
 
-  // 同じスタッフ・同じ期間の既存データがあればUPDATE
   const existing = await sql`
     SELECT id FROM staff_evaluations
     WHERE staff_name = ${staff_name} AND period = ${period || '2026-Q2'}
@@ -106,6 +110,7 @@ export async function POST(req: Request) {
         skill_score = ${skillScore}, skill_details = ${JSON.stringify(skillDetails)},
         mindset_score = ${mindsetScore}, mindset_details = ${JSON.stringify(mindsetDetails)},
         total_score = ${totalScore}, recommended_grade = ${recommendedGrade},
+        bonus_rate = ${bonusRate},
         updated_at = NOW()
       WHERE id = ${existing[0].id}
       RETURNING *
@@ -117,13 +122,13 @@ export async function POST(req: Request) {
         knowledge_score, knowledge_details,
         skill_score, skill_details,
         mindset_score, mindset_details,
-        total_score, recommended_grade
+        total_score, recommended_grade, bonus_rate
       ) VALUES (
         ${staff_name}, ${period || '2026-Q2'},
         ${knowledgeScore}, ${JSON.stringify(knowledgeDetails)},
         ${skillScore}, ${JSON.stringify(skillDetails)},
         ${mindsetScore}, ${JSON.stringify(mindsetDetails)},
-        ${totalScore}, ${recommendedGrade}
+        ${totalScore}, ${recommendedGrade}, ${bonusRate}
       )
       RETURNING *
     `;
