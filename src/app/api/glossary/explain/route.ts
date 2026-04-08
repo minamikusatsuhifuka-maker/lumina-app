@@ -50,7 +50,8 @@ export async function POST(req: NextRequest) {
   });
 
   const data = await response.json();
-  const resultText = data.content?.[0]?.text ?? '{"explanations":[]}';
+  let resultText = data.content?.[0]?.text ?? '{"explanations":[]}';
+  resultText = resultText.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
 
   try {
     const parsed = JSON.parse(resultText);
