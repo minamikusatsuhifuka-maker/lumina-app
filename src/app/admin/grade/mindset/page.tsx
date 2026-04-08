@@ -1,5 +1,5 @@
 'use client';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 
 const CORE_VALUES = [
   { key: 'self_love', label: '💎 自己愛', color: '#ec4899' },
@@ -30,6 +30,19 @@ export default function MindsetPage() {
   const [genPreview, setGenPreview] = useState<any>(null);
   const [saving, setSaving] = useState(false);
 
+  // 同心円モデル
+  const [circleTab, setCircleTab] = useState<'circle' | 'growth'>('circle');
+  const [layers, setLayers] = useState<any[]>([]);
+  const [selectedLayer, setSelectedLayer] = useState<any>(null);
+  const [layerLoading, setLayerLoading] = useState(true);
+  const [aiLoading, setAiLoading] = useState(false);
+  const [aiResult, setAiResult] = useState('');
+  const [layerSaving, setLayerSaving] = useState(false);
+  const [layerSaved, setLayerSaved] = useState(false);
+  const [editMission, setEditMission] = useState('');
+  const [editQuestion, setEditQuestion] = useState('');
+  const [editDescription, setEditDescription] = useState('');
+
   const fetchData = async () => {
     const [fw, gr] = await Promise.all([
       fetch('/api/clinic/mindset-framework').then(r => r.json()),
@@ -40,6 +53,15 @@ export default function MindsetPage() {
     setLoading(false);
   };
   useEffect(() => { fetchData(); }, []);
+
+  useEffect(() => {
+    fetch('/api/clinic/concentric-circles')
+      .then(r => r.json())
+      .then(d => {
+        if (Array.isArray(d)) setLayers(d);
+        setLayerLoading(false);
+      });
+  }, []);
 
   const generateAll = async () => {
     setGenerating(true); setMessage('');
@@ -74,6 +96,72 @@ export default function MindsetPage() {
     setShowGen(false); setGenPreview(null); fetchData(); setSaving(false);
   };
 
+  const selectLayer = (layer: any) => {
+    setSelectedLayer(layer);
+    setEditMission(layer.mission || '');
+    setEditQuestion(layer.question || '');
+    setEditDescription(layer.description || '');
+    setAiResult('');
+  };
+
+  const saveLayer = async () => {
+    if (!selectedLayer) return;
+    setLayerSaving(true);
+    await fetch('/api/clinic/concentric-circles', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        layer_id: selectedLayer.layer_id,
+        mission: editMission,
+        question: editQuestion,
+        description: editDescription,
+        keywords: selectedLayer.keywords,
+      }),
+    });
+    setLayers(prev => prev.map(l =>
+      l.layer_id === selectedLayer.layer_id
+        ? { ...l, mission: editMission, question: editQuestion, description: editDescription }
+        : l
+    ));
+    setLayerSaving(false);
+    setLayerSaved(true);
+    setTimeout(() => setLayerSaved(false), 2000);
+  };
+
+  const improveWithAI = async () => {
+    if (!selectedLayer || aiLoading) return;
+    setAiLoading(true);
+    setAiResult('');
+    try {
+      const res = await fetch('/api/clinic/handbooks/enhance', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          mode: 'rewrite',
+          chapterContent: `ミッション：${editMission}\n問いかけ：${editQuestion}`,
+          instruction: `ティール型クリニックの同心円モデル「${selectedLayer.label}」層として、自己成長と貢献の2軸が人生を豊かにするという哲学を大切に、温かみと誠実さのある表現にブラッシュアップしてください。
+
+以下の形式で返してください：
+【改善ミッション】
+（心に響く・具体的・温かみのある表現で1〜2文）
+
+【改善問いかけ】
+（スタッフが思わず内省したくなる深い問いかけで1文）`,
+        }),
+      });
+      const data = await res.json();
+      if (data.result) setAiResult(data.result);
+    } catch { setAiResult('エラーが発生しました。'); }
+    finally { setAiLoading(false); }
+  };
+
+  const applyAIResult = (field: 'mission' | 'question') => {
+    const missionMatch = aiResult.match(/【改善ミッション】\n([\s\S]*?)(?=\n【|$)/);
+    const questionMatch = aiResult.match(/【改善問いかけ】\n([\s\S]*?)(?=\n【|$)/);
+    if (field === 'mission' && missionMatch) setEditMission(missionMatch[1].trim());
+    if (field === 'question' && questionMatch) setEditQuestion(questionMatch[1].trim());
+  };
+
   const getFrameworkEntry = (gradeLevel: number, coreValue: string) => framework.find(f => f.grade_level === gradeLevel && f.core_value === coreValue);
 
   const gradeNumbers = [...new Set(framework.map(f => f.grade_level))].sort((a, b) => a - b);
@@ -83,6 +171,137 @@ export default function MindsetPage() {
 
   return (
     <div style={{ maxWidth: 900, margin: '0 auto', paddingBottom: 60 }}>
+      {/* タブ切替 */}
+      <div style={{ display: 'flex', gap: 8, marginBottom: 24 }}>
+        {[
+          { k: 'circle', l: '🔵 同心円モデル' },
+          { k: 'growth', l: '🌱 マインド成長フレームワーク' },
+        ].map(t => (
+          <button key={t.k} onClick={() => setCircleTab(t.k as any)}
+            style={{ padding: '8px 18px', borderRadius: 8, border: '1px solid', fontSize: 13, fontWeight: 600, cursor: 'pointer', background: circleTab === t.k ? 'rgba(108,99,255,0.15)' : 'var(--bg-card)', color: circleTab === t.k ? '#6c63ff' : 'var(--text-muted)', borderColor: circleTab === t.k ? 'rgba(108,99,255,0.3)' : 'var(--border)' }}>
+            {t.l}
+          </button>
+        ))}
+      </div>
+
+      {/* 同心円モデルタブ */}
+      {circleTab === 'circle' && (
+        <div style={{ display: 'flex', gap: 24 }}>
+          {/* 左：SVG同心円 */}
+          <div style={{ flexShrink: 0, width: 300 }}>
+            <svg width="300" height="300" viewBox="0 0 300 300">
+              {[
+                { id: 5, r: 143, color: '#534AB7', fill: '#EEEDFE' },
+                { id: 4, r: 114, color: '#185FA5', fill: '#E6F1FB' },
+                { id: 3, r: 88,  color: '#1D9E75', fill: '#E1F5EE' },
+                { id: 2, r: 64,  color: '#3B6D11', fill: '#EAF3DE' },
+                { id: 1, r: 42,  color: '#993556', fill: '#FBEAF0' },
+                { id: 0, r: 22,  color: '#6c63ff', fill: '#6c63ff' },
+              ].map(({ id, r, color, fill }) => (
+                <circle key={id} cx="150" cy="150" r={r}
+                  fill={selectedLayer?.layer_id === id ? color + '40' : fill}
+                  stroke={color} strokeWidth={selectedLayer?.layer_id === id ? 3 : 1.5}
+                  style={{ cursor: 'pointer', transition: 'all 0.15s' }}
+                  onClick={() => { const l = layers.find(x => x.layer_id === id); if (l) selectLayer(l); }}
+                />
+              ))}
+              {/* ラベル */}
+              {[
+                { id: 0, y: 147, text: '自分', fontSize: 10, color: '#fff' },
+                { id: 1, y: 117, text: '家族', fontSize: 9, color: '#72243E' },
+                { id: 2, y: 93,  text: '仲間・同僚・患者さん', fontSize: 8, color: '#27500A' },
+                { id: 3, y: 70,  text: 'チーム', fontSize: 9, color: '#085041' },
+                { id: 4, y: 45,  text: 'クリニック・地域', fontSize: 9, color: '#0C447C' },
+                { id: 5, y: 18,  text: '社会・世界', fontSize: 9, color: '#3C3489' },
+              ].map(({ id, y, text, fontSize, color }) => (
+                <text key={id} x="150" y={y} textAnchor="middle" fontSize={fontSize}
+                  fontWeight="500" fill={color} fontFamily="system-ui" style={{ pointerEvents: 'none' }}>
+                  {text}
+                </text>
+              ))}
+            </svg>
+            <div style={{ textAlign: 'center', fontSize: 11, color: 'var(--text-muted)', marginTop: 4 }}>各層をクリックして編集</div>
+          </div>
+
+          {/* 右：詳細パネル */}
+          <div style={{ flex: 1, minWidth: 0 }}>
+            {!selectedLayer ? (
+              <div style={{ padding: 40, textAlign: 'center', color: 'var(--text-muted)', fontSize: 13, lineHeight: 1.8 }}>
+                ← 円の層をクリックしてください<br />ミッション・問いかけの確認・編集・AI改善ができます
+              </div>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                {/* ヘッダー */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <div style={{ width: 12, height: 12, borderRadius: '50%', background: selectedLayer.color, flexShrink: 0 }} />
+                  <span style={{ fontSize: 15, fontWeight: 700, color: 'var(--text-primary)' }}>{selectedLayer.label}</span>
+                  <span style={{ marginLeft: 'auto', fontSize: 10, padding: '2px 8px', borderRadius: 10, background: selectedLayer.color + '20', color: selectedLayer.color, fontWeight: 600 }}>{selectedLayer.grade}</span>
+                </div>
+
+                {/* 概要 */}
+                <div>
+                  <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 4 }}>概要</div>
+                  <textarea value={editDescription} onChange={e => setEditDescription(e.target.value)} rows={2}
+                    style={{ width: '100%', padding: '8px 10px', borderRadius: 8, border: '1px solid var(--input-border)', background: 'var(--input-bg)', color: 'var(--text-primary)', fontSize: 12, lineHeight: 1.6, resize: 'vertical', outline: 'none', boxSizing: 'border-box' as const }} />
+                </div>
+
+                {/* ミッション */}
+                <div>
+                  <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 4 }}>ミッション</div>
+                  <textarea value={editMission} onChange={e => setEditMission(e.target.value)} rows={2}
+                    style={{ width: '100%', padding: '8px 10px', borderRadius: 8, border: '1px solid var(--input-border)', background: 'var(--input-bg)', color: 'var(--text-primary)', fontSize: 12, lineHeight: 1.6, resize: 'vertical', outline: 'none', boxSizing: 'border-box' as const }} />
+                </div>
+
+                {/* 問いかけ */}
+                <div>
+                  <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 4 }}>問いかけ</div>
+                  <textarea value={editQuestion} onChange={e => setEditQuestion(e.target.value)} rows={2}
+                    style={{ width: '100%', padding: '8px 10px', borderRadius: 8, border: '1px solid var(--input-border)', background: 'var(--input-bg)', color: 'var(--text-primary)', fontSize: 12, lineHeight: 1.6, resize: 'vertical', outline: 'none', boxSizing: 'border-box' as const }} />
+                </div>
+
+                {/* キーワード */}
+                <div>
+                  <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 4 }}>キーワード</div>
+                  <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+                    {(Array.isArray(selectedLayer.keywords) ? selectedLayer.keywords : JSON.parse(selectedLayer.keywords || '[]')).map((k: string) => (
+                      <span key={k} style={{ padding: '2px 10px', borderRadius: 12, fontSize: 11, background: selectedLayer.color + '15', color: selectedLayer.color, border: `0.5px solid ${selectedLayer.color}40` }}>{k}</span>
+                    ))}
+                  </div>
+                </div>
+
+                {/* ボタン */}
+                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                  <button onClick={improveWithAI} disabled={aiLoading}
+                    style={{ padding: '7px 16px', borderRadius: 8, border: 'none', background: aiLoading ? 'rgba(108,99,255,0.3)' : 'linear-gradient(135deg, #6c63ff, #8b5cf6)', color: '#fff', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>
+                    {aiLoading ? '考え中...' : '🤖 AIで磨く'}
+                  </button>
+                  <button onClick={saveLayer} disabled={layerSaving}
+                    style={{ padding: '7px 16px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--bg-card)', color: 'var(--text-muted)', fontSize: 12, cursor: 'pointer' }}>
+                    {layerSaving ? '保存中...' : '💾 保存'}
+                  </button>
+                  {layerSaved && <span style={{ fontSize: 11, color: '#4ade80', alignSelf: 'center' }}>保存しました</span>}
+                </div>
+
+                {/* AI結果 */}
+                {aiResult && (
+                  <div style={{ padding: 12, background: 'rgba(108,99,255,0.05)', border: '1px solid rgba(108,99,255,0.15)', borderRadius: 10 }}>
+                    <div style={{ fontSize: 11, color: '#6c63ff', fontWeight: 700, marginBottom: 6 }}>🤖 AI提案</div>
+                    <div style={{ fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.7, whiteSpace: 'pre-wrap', marginBottom: 8 }}>{aiResult}</div>
+                    <div style={{ display: 'flex', gap: 6 }}>
+                      <button onClick={() => applyAIResult('mission')} style={{ padding: '4px 12px', borderRadius: 6, border: 'none', background: '#6c63ff', color: '#fff', fontSize: 11, fontWeight: 700, cursor: 'pointer' }}>ミッションに反映</button>
+                      <button onClick={() => applyAIResult('question')} style={{ padding: '4px 12px', borderRadius: 6, border: 'none', background: '#6c63ff', color: '#fff', fontSize: 11, fontWeight: 700, cursor: 'pointer' }}>問いかけに反映</button>
+                      <button onClick={() => setAiResult('')} style={{ padding: '4px 12px', borderRadius: 6, border: '1px solid var(--border)', background: 'var(--bg-card)', color: 'var(--text-muted)', fontSize: 11, cursor: 'pointer' }}>閉じる</button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* 既存のマインド成長フレームワークはcircleTab === 'growth'の時のみ表示 */}
+      {circleTab === 'growth' && (<>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
         <h1 style={{ fontSize: 26, fontWeight: 700, color: 'var(--text-primary)' }}>🌱 マインド成長フレームワーク</h1>
         <button onClick={() => setShowGen(true)} style={{ padding: '9px 18px', borderRadius: 8, border: 'none', background: 'linear-gradient(135deg, #6c63ff, #8b5cf6)', color: '#fff', fontWeight: 700, fontSize: 13, cursor: 'pointer' }}>🌱 AIで一括生成</button>
@@ -186,6 +405,8 @@ export default function MindsetPage() {
           </div>
         </>
       )}
+
+      </>)}
 
       {/* 一括生成モーダル */}
       {showGen && (
