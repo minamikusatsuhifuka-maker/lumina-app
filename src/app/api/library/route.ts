@@ -15,19 +15,19 @@ export async function GET() {
 export async function POST(req: NextRequest) {
   const session = await auth();
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  const { type, title, content, metadata, tags, group_name, is_favorite } = await req.json();
+  const { type, title, content, metadata, tags, group_name, is_favorite, folder_name } = await req.json();
   const sql = neon(process.env.DATABASE_URL!);
   const id = uuidv4();
   const userId = (session.user as any).id;
-  await sql`INSERT INTO library (id, user_id, type, title, content, metadata, tags, group_name, is_favorite)
-    VALUES (${id}, ${userId}, ${type}, ${title}, ${content || ''}, ${JSON.stringify(metadata || {})}, ${tags || ''}, ${group_name || '未分類'}, ${is_favorite ? 1 : 0})`;
+  await sql`INSERT INTO library (id, user_id, type, title, content, metadata, tags, group_name, is_favorite, folder_name)
+    VALUES (${id}, ${userId}, ${type}, ${title}, ${content || ''}, ${JSON.stringify(metadata || {})}, ${tags || ''}, ${group_name || '未分類'}, ${is_favorite ? 1 : 0}, ${folder_name || null})`;
   return NextResponse.json({ success: true, id });
 }
 
 export async function PUT(req: NextRequest) {
   const session = await auth();
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  const { id, is_favorite, tags, group_name, title } = await req.json();
+  const { id, is_favorite, tags, group_name, title, folder_name } = await req.json();
   const sql = neon(process.env.DATABASE_URL!);
   const userId = (session.user as any).id;
   if (is_favorite !== undefined) {
@@ -41,6 +41,9 @@ export async function PUT(req: NextRequest) {
   }
   if (title !== undefined) {
     await sql`UPDATE library SET title = ${title} WHERE id = ${id} AND user_id = ${userId}`;
+  }
+  if (folder_name !== undefined) {
+    await sql`UPDATE library SET folder_name = ${folder_name} WHERE id = ${id} AND user_id = ${userId}`;
   }
   return NextResponse.json({ success: true });
 }

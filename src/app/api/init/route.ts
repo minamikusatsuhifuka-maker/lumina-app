@@ -31,8 +31,11 @@ export async function GET() {
       is_favorite INTEGER DEFAULT 0,
       tags TEXT DEFAULT '',
       group_name TEXT DEFAULT '未分類',
+      folder_name TEXT DEFAULT NULL,
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )`;
+    // 既存テーブルにfolder_nameカラムを追加（既にある場合は無視）
+    await sql`ALTER TABLE library ADD COLUMN IF NOT EXISTS folder_name TEXT DEFAULT NULL`;
     await sql`CREATE TABLE IF NOT EXISTS alerts (
       id TEXT PRIMARY KEY,
       user_id TEXT NOT NULL,
