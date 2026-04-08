@@ -19,11 +19,30 @@ export default function CriteriaPage() {
   const [editId, setEditId] = useState<string | null>(null);
   const [editText, setEditText] = useState('');
   const [editPri, setEditPri] = useState(5);
+  const [bulkLoading, setBulkLoading] = useState(false);
+  const [bulkDone, setBulkDone] = useState(false);
 
-  const fetchData = () => { fetch('/api/clinic/criteria').then(r => r.json()).then(d => { if (Array.isArray(d)) setCriteria(d); setLoading(false); }); };
+  const fetchData = () => {
+    fetch('/api/clinic/criteria').then(r => r.json()).then(d => {
+      if (Array.isArray(d)) setCriteria(d);
+      setLoading(false);
+    });
+  };
   useEffect(() => { fetchData(); }, []);
 
   const filtered = filterCat ? criteria.filter(c => c.category === filterCat) : criteria;
+
+  const bulkInsert = async () => {
+    if (!confirm('61件の判断基準を一括登録します。よろしいですか？')) return;
+    setBulkLoading(true);
+    try {
+      const res = await fetch('/api/clinic/criteria/bulk', { method: 'POST' });
+      const data = await res.json();
+      if (data.success) { setBulkDone(true); fetchData(); }
+      else alert('登録に失敗しました: ' + (data.error || ''));
+    } catch { alert('登録に失敗しました'); }
+    finally { setBulkLoading(false); }
+  };
 
   const add = async () => {
     if (!newText.trim()) return;
@@ -49,7 +68,18 @@ export default function CriteriaPage() {
     <div style={{ maxWidth: 900, margin: '0 auto', paddingBottom: 60 }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
         <h1 style={{ fontSize: 26, fontWeight: 700, color: 'var(--text-primary)' }}>🧭 AIの判断基準</h1>
-        <button onClick={() => setShowAdd(true)} style={{ padding: '9px 16px', borderRadius: 8, border: 'none', background: 'linear-gradient(135deg, #6c63ff, #8b5cf6)', color: '#fff', fontWeight: 700, fontSize: 13, cursor: 'pointer' }}>＋ 手動で追加</button>
+        <div style={{ display: 'flex', gap: 8 }}>
+          {criteria.length === 0 && !loading && (
+            <button
+              onClick={bulkInsert}
+              disabled={bulkLoading || bulkDone}
+              style={{ padding: '9px 16px', borderRadius: 8, border: 'none', background: bulkDone ? '#10b981' : 'linear-gradient(135deg, #f59e0b, #ef4444)', color: '#fff', fontWeight: 700, fontSize: 13, cursor: bulkLoading || bulkDone ? 'default' : 'pointer', opacity: bulkLoading ? 0.7 : 1 }}
+            >
+              {bulkDone ? '✅ 登録完了！' : bulkLoading ? '登録中...' : '🚀 サンプル61件を一括登録'}
+            </button>
+          )}
+          <button onClick={() => setShowAdd(true)} style={{ padding: '9px 16px', borderRadius: 8, border: 'none', background: 'linear-gradient(135deg, #6c63ff, #8b5cf6)', color: '#fff', fontWeight: 700, fontSize: 13, cursor: 'pointer' }}>＋ 手動で追加</button>
+        </div>
       </div>
       <p style={{ color: 'var(--text-muted)', fontSize: 13, marginBottom: 20 }}>AIとの対話から蓄積された院長の価値観・判断基準。全APIのプロンプトに自動反映されます。</p>
 
