@@ -5,15 +5,23 @@ export default async function AdminDashboardPage() {
   const sql = neon(process.env.DATABASE_URL!);
 
   // 各データの件数を取得
-  const [philRows, gradeRows, taskRows] = await Promise.all([
+  const [philRows, gradeRows, taskRows, staffRows, evalRows, applicantRows, meetingRows] = await Promise.all([
     sql`SELECT COUNT(*) as count FROM clinic_philosophy`.catch(() => [{ count: 0 }]),
     sql`SELECT COUNT(*) as count FROM grade_levels`.catch(() => [{ count: 0 }]),
     sql`SELECT COUNT(*) as count FROM action_tasks WHERE status != 'done'`.catch(() => [{ count: 0 }]),
+    sql`SELECT COUNT(*) as count FROM staff WHERE status = 'active'`.catch(() => [{ count: 0 }]),
+    sql`SELECT COUNT(*) as count FROM staff_evaluations`.catch(() => [{ count: 0 }]),
+    sql`SELECT COUNT(*) as count FROM applicants`.catch(() => [{ count: 0 }]),
+    sql`SELECT COUNT(*) as count FROM one_on_one_meetings`.catch(() => [{ count: 0 }]),
   ]);
 
   const hasPhilosophy = Number(philRows[0]?.count) > 0;
   const gradeCount = Number(gradeRows[0]?.count);
   const taskCount = Number(taskRows[0]?.count);
+  const staffCount = Number(staffRows[0]?.count || 0);
+  const evalCount = Number(evalRows[0]?.count || 0);
+  const applicantCount = Number(applicantRows[0]?.count || 0);
+  const meetingCount = Number(meetingRows[0]?.count || 0);
 
   const cards = [
     { icon: '📖', label: '理念', value: hasPhilosophy ? '登録済み' : '未登録', color: hasPhilosophy ? '#4ade80' : '#f87171', href: '/admin/philosophy' },
@@ -71,6 +79,22 @@ export default async function AdminDashboardPage() {
               <div style={{ fontSize: 22, fontWeight: 700, color: card.color }}>{card.value}</div>
             </div>
           </Link>
+        ))}
+      </div>
+
+      {/* 追加統計 */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, marginBottom: 32 }}>
+        {[
+          { label: 'スタッフ数', value: staffCount, unit: '名', icon: '👥', color: '#6c63ff' },
+          { label: '評価記録', value: evalCount, unit: '件', icon: '📊', color: '#4ade80' },
+          { label: '採用候補者', value: applicantCount, unit: '名', icon: '🔍', color: '#f59e0b' },
+          { label: '1on1記録', value: meetingCount, unit: '件', icon: '🤝', color: '#06b6d4' },
+        ].map(stat => (
+          <div key={stat.label} style={{ padding: '14px 16px', background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 12, textAlign: 'center' }}>
+            <div style={{ fontSize: 20, marginBottom: 4 }}>{stat.icon}</div>
+            <div style={{ fontSize: 26, fontWeight: 800, color: stat.color }}>{stat.value}</div>
+            <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2 }}>{stat.label}（{stat.unit}）</div>
+          </div>
         ))}
       </div>
 

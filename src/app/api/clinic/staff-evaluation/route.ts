@@ -14,7 +14,7 @@ export async function GET(req: Request) {
   if (staffName) {
     const evals = await sql`
       SELECT se.*,
-        gl.name AS current_grade,
+        COALESCE(gl.position, '') || ' G' || COALESCE(gl.level_number::text, '') AS current_grade,
         s.current_grade_id
       FROM staff_evaluations se
       LEFT JOIN staff s ON s.name = se.staff_name
@@ -27,7 +27,7 @@ export async function GET(req: Request) {
 
   const evals = await sql`
     SELECT se.*,
-      gl.name AS current_grade,
+      COALESCE(gl.position, '') || ' G' || COALESCE(gl.level_number::text, '') AS current_grade,
       s.current_grade_id
     FROM staff_evaluations se
     LEFT JOIN staff s ON s.name = se.staff_name
@@ -151,7 +151,7 @@ export async function POST(req: Request) {
 
   // staffテーブルから現在等級を取得して付与
   const staffRow = await sql`
-    SELECT gl.name AS current_grade
+    SELECT COALESCE(gl.position, '') || ' G' || COALESCE(gl.level_number::text, '') AS current_grade
     FROM staff s
     LEFT JOIN grade_levels gl ON gl.id = s.current_grade_id
     WHERE s.name = ${staff_name}

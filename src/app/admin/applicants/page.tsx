@@ -89,14 +89,12 @@ export default function ApplicantsPage() {
   const generateAiComment = async (note: any) => {
     setAiCommenting(note.id);
     try {
-      const res = await fetch('/api/anthropic', {
+      const res = await fetch('/api/clinic/applicants/ai-comment', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          messages: [{
-            role: 'user',
-            content: `以下の面接メモを読んで、候補者への評価コメントを3〜5文で書いてください。\n\n面接メモ：${note.note}`,
-          }],
+          note: note.note,
+          candidateName: selected?.name || selected?.extracted_data?.name || '',
         }),
       }).then(r => r.json());
       const comment = res?.content?.[0]?.text || '';

@@ -205,13 +205,15 @@ export default function StaffEvaluationPage() {
                 {!selected.promotion_approved ? (
                   <button onClick={async () => {
                     if (!confirm(`${selected.staff_name}さんを${selected.recommended_grade}に昇格承認しますか？`)) return;
-                    const res = await fetch('/api/clinic/staff-evaluation/approve', {
+                    const approveRes = await fetch('/api/clinic/staff-evaluation/approve', {
                       method: 'POST', headers: { 'Content-Type': 'application/json' },
                       body: JSON.stringify({ evaluationId: selected.id, staffName: selected.staff_name, approvedGrade: selected.recommended_grade }),
                     });
-                    if (res.ok) {
-                      setSelected((prev: any) => ({ ...prev, promotion_approved: true, approved_grade: selected.recommended_grade, current_grade: selected.recommended_grade }));
-                      setEvaluations(prev => prev.map(e => e.id === selected.id ? { ...e, promotion_approved: true, current_grade: selected.recommended_grade } : e));
+                    if (approveRes.ok) {
+                      const refreshed = await fetch(`/api/clinic/staff-evaluation?staff_name=${encodeURIComponent(selected.staff_name)}`).then(r => r.json());
+                      const latest = Array.isArray(refreshed) ? refreshed.find((e: any) => e.id === selected.id) : null;
+                      setSelected((prev: any) => ({ ...prev, promotion_approved: true, approved_grade: selected.recommended_grade, current_grade: latest?.current_grade || selected.recommended_grade }));
+                      setEvaluations(prev => prev.map(e => e.id === selected.id ? { ...e, promotion_approved: true, current_grade: latest?.current_grade || selected.recommended_grade } : e));
                       setMessage(`✅ ${selected.staff_name}さんの${selected.recommended_grade}昇格を承認しました`);
                       setTimeout(() => setMessage(''), 4000);
                     }

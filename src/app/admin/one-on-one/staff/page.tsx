@@ -140,7 +140,7 @@ export default function OneOnOneStaffSummaryPage() {
                 </div>
 
                 {/* 成長グラフ */}
-                {chartData.length >= 2 && (
+                {chartData.length >= 1 && (
                   <div style={cardStyle}>
                     <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-muted)', marginBottom: 12 }}>📈 成長推移グラフ</div>
                     <ResponsiveContainer width="100%" height={200}>
@@ -150,8 +150,8 @@ export default function OneOnOneStaffSummaryPage() {
                         <YAxis domain={[0, 100]} tick={{ fontSize: 10 }} />
                         <Tooltip />
                         <Legend />
-                        <Line type="monotone" dataKey="マインド" stroke="#6c63ff" strokeWidth={2} dot={{ r: 4 }} connectNulls />
-                        <Line type="monotone" dataKey="モチベーション" stroke="#4ade80" strokeWidth={2} dot={{ r: 4 }} connectNulls />
+                        <Line type="monotone" dataKey="マインド" stroke="#6c63ff" strokeWidth={2} dot={{ r: 5 }} connectNulls />
+                        <Line type="monotone" dataKey="モチベーション" stroke="#4ade80" strokeWidth={2} dot={{ r: 5 }} connectNulls />
                       </LineChart>
                     </ResponsiveContainer>
                   </div>
