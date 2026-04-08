@@ -1,262 +1,443 @@
 'use client';
 import { useState } from 'react';
-import { getSavedModel } from '@/lib/model-preference';
-import { ModelBadge } from '@/components/ModelBadge';
+import { VoiceInputButton } from '@/components/VoiceInputButton';
 
-type Step = {
-  id: string;
-  label: string;
-  api: string;
-  payload: (input: string, prev: string) => object;
-  resultKey: string;
-};
-
-type Workflow = {
-  id: string;
-  title: string;
-  desc: string;
+type WorkflowStep = {
+  stepNumber: number;
+  functionKey: string;
+  functionName: string;
   icon: string;
-  inputLabel: string;
-  inputPlaceholder: string;
-  steps: Step[];
-  color: string;
+  purpose: string;
+  inputPrompt: string;
+  outputDescription: string;
 };
 
-const WORKFLOWS: Workflow[] = [
-  {
-    id: 'competitor',
-    title: '競合分析レポート',
-    desc: 'Web収集→AI分析→差別化戦略を自動生成',
-    icon: '🏆',
-    color: '#6c63ff',
-    inputLabel: '競合他社名または業界',
-    inputPlaceholder: '例：〇〇株式会社、SaaS業界',
-    steps: [
-      { id: 'search', label: 'Web情報収集', api: '/api/websearch', payload: (input) => ({ query: `${input} 競合分析 サービス 特徴 2026年`, maxTokens: 2000 }), resultKey: 'result' },
-      { id: 'analyze', label: 'AI競合分析', api: '/api/analyze', payload: (_input, prev) => ({ analysisType: 'competitor', content: prev }), resultKey: 'result' },
-      { id: 'strategy', label: '差別化戦略生成', api: '/api/strategy', payload: (input, prev) => ({ strategyType: 'brand', content: `競合：${input}\n\n分析結果：${prev}` }), resultKey: 'result' },
-    ],
-  },
-  {
-    id: 'market',
-    title: '市場調査レポート',
-    desc: 'Web収集→トレンド分析→機会発見を自動化',
-    icon: '📈',
-    color: '#1d9e75',
-    inputLabel: '調査する市場・業界',
-    inputPlaceholder: '例：医療AI市場、フードデリバリー',
-    steps: [
-      { id: 'search', label: 'Web情報収集', api: '/api/websearch', payload: (input) => ({ query: `${input} 市場規模 トレンド 2026年`, maxTokens: 2000 }), resultKey: 'result' },
-      { id: 'analyze', label: 'トレンド分析', api: '/api/analyze', payload: (_input, prev) => ({ analysisType: 'trends', content: prev }), resultKey: 'result' },
-      { id: 'action', label: 'アクションプラン', api: '/api/analyze', payload: (_input, prev) => ({ analysisType: 'action', content: prev }), resultKey: 'result' },
-    ],
-  },
-  {
-    id: 'content',
-    title: 'コンテンツ制作',
-    desc: 'トレンド収集→note記事→SNS投稿を自動生成',
-    icon: '✍️',
-    color: '#f5a623',
-    inputLabel: 'コンテンツのテーマ',
-    inputPlaceholder: '例：AI活用術、副業で月10万円',
-    steps: [
-      { id: 'note', label: 'note記事収集', api: '/api/note', payload: (input) => ({ query: input, maxResults: 5 }), resultKey: 'result' },
-      { id: 'write', label: 'ブログ記事生成', api: '/api/generate', payload: (input, prev) => ({ mode: 'blog', prompt: `テーマ：${input}\n参考情報：${prev.slice(0, 1000)}`, style: 'casual', length: 'medium', audience: 'general' }), resultKey: 'result' },
-      { id: 'sns', label: 'SNS投稿生成', api: '/api/generate', payload: (_input, prev) => ({ mode: 'sns_twitter', prompt: `以下の記事をX投稿に要約：${prev.slice(0, 500)}`, style: 'casual', length: 'short', audience: 'general' }), resultKey: 'result' },
-    ],
-  },
-  {
-    id: 'recruit',
-    title: '採用強化パック',
-    desc: '採用戦略→求人票→面接質問を自動生成',
-    icon: '👥',
-    color: '#ec4899',
-    inputLabel: '採用するポジション',
-    inputPlaceholder: '例：フロントエンドエンジニア、営業マネージャー',
-    steps: [
-      { id: 'strategy', label: '採用戦略立案', api: '/api/strategy', payload: (input) => ({ strategyType: 'hiring', content: `ポジション：${input}` }), resultKey: 'result' },
-      { id: 'job', label: '求人票生成', api: '/api/generate', payload: (input, prev) => ({ mode: 'blog', prompt: `以下の採用戦略を元に求人票を作成：\nポジション：${input}\n戦略：${prev.slice(0, 500)}`, style: 'formal', length: 'medium', audience: 'business' }), resultKey: 'result' },
-      { id: 'interview', label: '面接質問生成', api: '/api/analyze', payload: (input) => ({ analysisType: 'action', content: `${input}の面接質問リストを10個作成してください` }), resultKey: 'result' },
-    ],
-  },
+type WorkflowPlan = {
+  title: string;
+  description: string;
+  estimatedMinutes: number;
+  steps: WorkflowStep[];
+};
+
+const PRESETS = [
+  '競合調査レポート作成',
+  '新規事業アイデア検討',
+  '市場トレンド把握',
+  '採用戦略立案',
+  'SNSコンテンツ作成',
+  '業界動向まとめ',
+  '学術文献調査',
+  '経営戦略策定',
 ];
 
 export default function WorkflowPage() {
-  const [selectedWf, setSelectedWf] = useState<Workflow | null>(null);
-  const [input, setInput] = useState('');
-  const [running, setRunning] = useState(false);
-  const [currentStep, setCurrentStep] = useState(-1);
+  const [goal, setGoal] = useState('');
+  const [workflow, setWorkflow] = useState<WorkflowPlan | null>(null);
+  const [isSuggesting, setIsSuggesting] = useState(false);
+  const [executionMode, setExecutionMode] = useState<'auto' | 'step' | null>(null);
+  const [currentStep, setCurrentStep] = useState(0);
   const [stepResults, setStepResults] = useState<string[]>([]);
-  const [progress, setProgress] = useState(0);
-  const [usedModel, setUsedModel] = useState<'claude' | 'gemini' | null>(null);
+  const [isExecuting, setIsExecuting] = useState(false);
+  const [isCompleted, setIsCompleted] = useState(false);
+  const [expandedStep, setExpandedStep] = useState<number | null>(null);
+  const [error, setError] = useState('');
 
-  const runWorkflow = async () => {
-    if (!selectedWf || !input.trim()) return;
-    setUsedModel(getSavedModel());
-    setRunning(true);
+  // ワークフロー提案
+  const suggestWorkflow = async () => {
+    if (!goal.trim()) return;
+    setIsSuggesting(true);
+    setError('');
+    setWorkflow(null);
     setStepResults([]);
-    setCurrentStep(0);
-    setProgress(0);
+    setExecutionMode(null);
+    setIsCompleted(false);
+    try {
+      const res = await fetch('/api/workflow/suggest', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ goal }),
+      });
+      const data = await res.json();
+      if (!res.ok || data.error) {
+        setError(data.error || 'ワークフロー提案に失敗しました');
+        return;
+      }
+      setWorkflow(data);
+    } catch { setError('通信エラーが発生しました'); }
+    finally { setIsSuggesting(false); }
+  };
 
-    let prevResult = '';
+  // 1ステップ実行
+  const executeStep = async (stepIndex: number) => {
+    if (!workflow) return;
+    const step = workflow.steps[stepIndex];
+    setIsExecuting(true);
+    setCurrentStep(stepIndex);
+    try {
+      const res = await fetch('/api/workflow/execute-step', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          functionKey: step.functionKey,
+          inputPrompt: step.inputPrompt,
+          previousResults: stepResults,
+        }),
+      });
+      const data = await res.json();
+      const result = data.result || data.error || '結果なし';
+      setStepResults(prev => {
+        const next = [...prev];
+        next[stepIndex] = result;
+        return next;
+      });
+    } catch {
+      setStepResults(prev => {
+        const next = [...prev];
+        next[stepIndex] = '（エラー: このステップはスキップされました）';
+        return next;
+      });
+    } finally {
+      setIsExecuting(false);
+    }
+  };
+
+  // 全自動実行
+  const executeAllAuto = async () => {
+    if (!workflow) return;
+    setExecutionMode('auto');
+    setStepResults([]);
+    setIsCompleted(false);
+
     const results: string[] = [];
-
-    for (let i = 0; i < selectedWf.steps.length; i++) {
-      const step = selectedWf.steps[i];
+    for (let i = 0; i < workflow.steps.length; i++) {
       setCurrentStep(i);
-      setProgress(Math.round((i / selectedWf.steps.length) * 100));
-
+      setIsExecuting(true);
       try {
-        const payload = step.payload(input, prevResult);
-        const res = await fetch(step.api, {
+        const res = await fetch('/api/workflow/execute-step', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(payload),
+          body: JSON.stringify({
+            functionKey: workflow.steps[i].functionKey,
+            inputPrompt: workflow.steps[i].inputPrompt,
+            previousResults: results,
+          }),
         });
-
-        // ストリーミング対応
-        if (res.headers.get('content-type')?.includes('text/event-stream')) {
-          const reader = res.body!.getReader();
-          const decoder = new TextDecoder();
-          let accumulated = '';
-          let buffer = '';
-          while (true) {
-            const { done, value } = await reader.read();
-            if (done) break;
-            buffer += decoder.decode(value, { stream: true });
-            const lines = buffer.split('\n');
-            buffer = lines.pop() || '';
-            for (const line of lines) {
-              if (!line.startsWith('data: ')) continue;
-              const raw = line.slice(6).trim();
-              if (raw === '[DONE]') continue;
-              try {
-                const json = JSON.parse(raw);
-                // カスタムSSE形式（analyze/websearch/strategy/note）
-                if (json.type === 'text') accumulated += json.content;
-                // 生Anthropic SSE形式（generate API経由）
-                if (json.type === 'content_block_delta' && json.delta?.type === 'text_delta') accumulated += json.delta.text;
-              } catch {}
-            }
-          }
-          prevResult = accumulated;
-          results.push(accumulated);
-        } else {
-          const data = await res.json();
-          prevResult = data[step.resultKey] || '';
-          results.push(prevResult);
-        }
+        const data = await res.json();
+        results.push(data.result || '結果なし');
       } catch {
-        results.push('（このステップはスキップされました）');
+        results.push('（エラー: スキップ）');
       }
-
       setStepResults([...results]);
+      setIsExecuting(false);
     }
+    setIsCompleted(true);
+  };
 
-    setProgress(100);
-    setCurrentStep(-1);
-    setRunning(false);
+  // ステップ承認モード開始
+  const startStepMode = () => {
+    setExecutionMode('step');
+    setStepResults([]);
+    setCurrentStep(0);
+    setIsCompleted(false);
+  };
 
-    // ライブラリに自動保存
+  // 次のステップへ
+  const nextStep = () => {
+    if (!workflow) return;
+    if (currentStep + 1 >= workflow.steps.length) {
+      setIsCompleted(true);
+    } else {
+      setCurrentStep(currentStep + 1);
+    }
+  };
+
+  // スキップ
+  const skipStep = () => {
+    setStepResults(prev => {
+      const next = [...prev];
+      next[currentStep] = '（スキップ）';
+      return next;
+    });
+    nextStep();
+  };
+
+  // ライブラリに全結果保存
+  const saveAllToLibrary = async () => {
+    if (!workflow) return;
+    const content = workflow.steps.map((s, i) =>
+      `## Step ${s.stepNumber}: ${s.functionName}\n${s.purpose}\n\n${stepResults[i] || '（未実行）'}`
+    ).join('\n\n---\n\n');
+
     await fetch('/api/library', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        type: 'web',
-        title: `ワークフロー: ${selectedWf.title} - ${input}`,
-        content: results.join('\n\n---\n\n'),
+        type: 'workflow',
+        title: `ワークフロー: ${workflow.title}`,
+        content,
         tags: 'ワークフロー',
         group_name: 'ワークフロー',
       }),
     });
+    alert('ライブラリに保存しました！');
   };
+
+  // リセット
+  const reset = () => {
+    setGoal('');
+    setWorkflow(null);
+    setStepResults([]);
+    setExecutionMode(null);
+    setIsCompleted(false);
+    setCurrentStep(0);
+    setError('');
+  };
+
+  const progress = workflow ? Math.round((stepResults.filter(Boolean).length / workflow.steps.length) * 100) : 0;
 
   return (
     <div style={{ maxWidth: 900, margin: '0 auto', paddingBottom: 60 }}>
-      <div style={{ marginBottom: 28 }}>
-        <h1 style={{ fontSize: 26, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 4 }}>⚡ ワンクリック自動ワークフロー</h1>
-        <p style={{ color: 'var(--text-muted)', fontSize: 13 }}>テンプレートを選ぶだけで、複数の機能を自動的に連続実行します</p>
-      </div>
+      <h1 style={{ fontSize: 26, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 4 }}>⚡ AIワークフロー</h1>
+      <p style={{ color: 'var(--text-muted)', fontSize: 13, marginBottom: 24 }}>
+        目的を入力するだけで、AIが最適な機能の使用順序を提案し自動実行します
+      </p>
 
-      {/* ワークフロー選択 */}
-      {!selectedWf && (
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: 12 }}>
-          {WORKFLOWS.map(wf => (
-            <div key={wf.id} onClick={() => setSelectedWf(wf)} style={{ padding: 20, background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 16, cursor: 'pointer', transition: 'border-color 0.15s' }}
-              onMouseEnter={e => (e.currentTarget.style.borderColor = wf.color)}
-              onMouseLeave={e => (e.currentTarget.style.borderColor = 'var(--border)')}>
-              <div style={{ fontSize: 28, marginBottom: 8 }}>{wf.icon}</div>
-              <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 4 }}>{wf.title}</div>
-              <div style={{ fontSize: 12, color: 'var(--text-muted)', lineHeight: 1.5, marginBottom: 12 }}>{wf.desc}</div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                {wf.steps.map((s, i) => (
-                  <div key={s.id} style={{ fontSize: 11, color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: 6 }}>
-                    <span style={{ width: 16, height: 16, borderRadius: '50%', background: `${wf.color}30`, color: wf.color, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 9, fontWeight: 700 }}>{i + 1}</span>
-                    {s.label}
+      {/* ① 目的入力エリア */}
+      {!executionMode && (
+        <div style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 16, padding: 24, marginBottom: 24 }}>
+          <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 12 }}>🎯 何を達成したいですか？</div>
+          <div style={{ position: 'relative', marginBottom: 12 }}>
+            <textarea
+              value={goal}
+              onChange={e => setGoal(e.target.value)}
+              placeholder="例：競合他社を調査してレポートを作りたい"
+              rows={3}
+              style={{ width: '100%', padding: '12px 48px 12px 14px', background: 'var(--bg-primary)', border: '1px solid var(--border)', borderRadius: 10, color: 'var(--text-primary)', fontSize: 14, outline: 'none', fontFamily: 'inherit', lineHeight: 1.6, resize: 'vertical', boxSizing: 'border-box' }}
+            />
+            <div style={{ position: 'absolute', right: 10, bottom: 10 }}>
+              <VoiceInputButton size="sm" onResult={(text) => setGoal(prev => prev + text)} />
+            </div>
+          </div>
+
+          {/* プリセット */}
+          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 16 }}>
+            {PRESETS.map(p => (
+              <button key={p} onClick={() => setGoal(p)}
+                style={{ padding: '5px 12px', borderRadius: 20, border: '1px solid var(--border)', background: goal === p ? 'rgba(108,99,255,0.1)' : 'var(--bg-primary)', color: goal === p ? '#6c63ff' : 'var(--text-muted)', fontSize: 12, cursor: 'pointer', fontWeight: goal === p ? 600 : 400 }}>
+                {p}
+              </button>
+            ))}
+          </div>
+
+          <button onClick={suggestWorkflow} disabled={isSuggesting || !goal.trim()}
+            style={{ padding: '12px 24px', borderRadius: 10, border: 'none', cursor: isSuggesting || !goal.trim() ? 'not-allowed' : 'pointer', background: isSuggesting || !goal.trim() ? 'rgba(108,99,255,0.3)' : 'linear-gradient(135deg, #6c63ff, #8b5cf6)', color: '#fff', fontWeight: 700, fontSize: 14, opacity: !goal.trim() ? 0.5 : 1 }}>
+            {isSuggesting ? '✨ AIが考え中...' : '✨ ワークフローを提案してもらう'}
+          </button>
+
+          {error && (
+            <div style={{ marginTop: 12, padding: '8px 14px', borderRadius: 8, background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.3)', fontSize: 12, color: '#ef4444' }}>
+              ⚠️ {error}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ② ワークフロー提案表示 */}
+      {workflow && !executionMode && (
+        <div style={{ background: 'var(--bg-secondary)', border: '1px solid rgba(108,99,255,0.3)', borderRadius: 16, padding: 24, marginBottom: 24 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 16 }}>
+            <div>
+              <div style={{ fontSize: 18, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 4 }}>✨ {workflow.title}</div>
+              <div style={{ fontSize: 13, color: 'var(--text-muted)' }}>{workflow.description}</div>
+            </div>
+            <span style={{ padding: '4px 12px', borderRadius: 20, background: 'rgba(108,99,255,0.1)', color: '#6c63ff', fontSize: 12, fontWeight: 600, whiteSpace: 'nowrap' }}>
+              約{workflow.estimatedMinutes}分
+            </span>
+          </div>
+
+          {/* ステップカード */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 20 }}>
+            {workflow.steps.map((step, i) => (
+              <div key={i} style={{ display: 'flex', gap: 12, alignItems: 'center', padding: '12px 16px', background: 'var(--bg-primary)', border: '1px solid var(--border)', borderRadius: 10 }}>
+                <span style={{ width: 32, height: 32, borderRadius: '50%', background: 'linear-gradient(135deg, #6c63ff, #8b5cf6)', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14, flexShrink: 0 }}>
+                  {step.icon}
+                </span>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)' }}>
+                    Step {step.stepNumber}: {step.functionName}
                   </div>
-                ))}
+                  <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>{step.purpose}</div>
+                </div>
+                <span style={{ fontSize: 11, color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>→ {step.outputDescription}</span>
+              </div>
+            ))}
+          </div>
+
+          {/* モード選択 */}
+          <div style={{ display: 'flex', gap: 12 }}>
+            <button onClick={executeAllAuto}
+              style={{ flex: 1, padding: '12px', borderRadius: 10, border: 'none', background: 'linear-gradient(135deg, #6c63ff, #8b5cf6)', color: '#fff', fontWeight: 700, fontSize: 14, cursor: 'pointer' }}>
+              ⚡ 全自動で実行
+            </button>
+            <button onClick={startStepMode}
+              style={{ flex: 1, padding: '12px', borderRadius: 10, border: '1px solid var(--border)', background: 'var(--bg-primary)', color: 'var(--text-primary)', fontWeight: 600, fontSize: 14, cursor: 'pointer' }}>
+              👆 ステップ確認しながら実行
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* ③ 実行中UI — 全自動モード */}
+      {executionMode === 'auto' && workflow && (
+        <div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+            <div style={{ fontSize: 16, fontWeight: 700, color: 'var(--text-primary)' }}>⚡ {workflow.title} — 全自動実行中</div>
+            <span style={{ fontSize: 13, color: '#6c63ff', fontWeight: 600 }}>{progress}%</span>
+          </div>
+          {/* プログレスバー */}
+          <div style={{ height: 6, background: 'var(--border)', borderRadius: 99, marginBottom: 20 }}>
+            <div style={{ height: '100%', width: `${progress}%`, background: 'linear-gradient(90deg, #6c63ff, #00d4b8)', borderRadius: 99, transition: 'width 0.5s ease' }} />
+          </div>
+
+          {workflow.steps.map((step, i) => {
+            const done = !!stepResults[i];
+            const active = currentStep === i && isExecuting;
+            return (
+              <div key={i} style={{ marginBottom: 12, opacity: done || active ? 1 : 0.4 }}>
+                <div onClick={() => done && setExpandedStep(expandedStep === i ? null : i)}
+                  style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', background: active ? 'rgba(108,99,255,0.06)' : 'var(--bg-secondary)', border: `1px solid ${active ? 'rgba(108,99,255,0.3)' : 'var(--border)'}`, borderRadius: 10, cursor: done ? 'pointer' : 'default' }}>
+                  <span style={{ width: 24, height: 24, borderRadius: '50%', background: done ? '#22c55e' : active ? '#6c63ff' : 'var(--border)', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 700 }}>
+                    {done ? '✓' : step.stepNumber}
+                  </span>
+                  <span style={{ fontSize: 14 }}>{step.icon}</span>
+                  <span style={{ flex: 1, fontSize: 13, fontWeight: 600, color: 'var(--text-primary)' }}>{step.functionName}</span>
+                  {active && <span style={{ fontSize: 11, color: '#6c63ff', animation: 'voicePulse 1.5s infinite' }}>実行中...</span>}
+                  {done && <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>{expandedStep === i ? '▲' : '▼'}</span>}
+                </div>
+                {expandedStep === i && stepResults[i] && (
+                  <div style={{ padding: '12px 16px', margin: '-1px 0 0', border: '1px solid var(--border)', borderTopColor: 'transparent', borderRadius: '0 0 10px 10px', background: 'var(--bg-secondary)', fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.7, whiteSpace: 'pre-wrap', maxHeight: 300, overflowY: 'auto' }}>
+                    {stepResults[i]}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {/* ③ 実行中UI — ステップ承認モード */}
+      {executionMode === 'step' && workflow && !isCompleted && (
+        <div>
+          <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 8 }}>
+            ステップ {currentStep + 1} / {workflow.steps.length}
+          </div>
+          {/* プログレスバー */}
+          <div style={{ height: 4, background: 'var(--border)', borderRadius: 99, marginBottom: 20 }}>
+            <div style={{ height: '100%', width: `${progress}%`, background: 'linear-gradient(90deg, #6c63ff, #00d4b8)', borderRadius: 99, transition: 'width 0.5s ease' }} />
+          </div>
+
+          {/* 現在のステップ */}
+          <div style={{ background: 'var(--bg-secondary)', border: '1px solid rgba(108,99,255,0.3)', borderRadius: 16, padding: 24, marginBottom: 16 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 12 }}>
+              <span style={{ width: 40, height: 40, borderRadius: '50%', background: 'linear-gradient(135deg, #6c63ff, #8b5cf6)', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18 }}>
+                {workflow.steps[currentStep].icon}
+              </span>
+              <div>
+                <div style={{ fontSize: 16, fontWeight: 700, color: 'var(--text-primary)' }}>
+                  Step {workflow.steps[currentStep].stepNumber}: {workflow.steps[currentStep].functionName}
+                </div>
+                <div style={{ fontSize: 13, color: 'var(--text-muted)' }}>{workflow.steps[currentStep].purpose}</div>
               </div>
             </div>
+            <div style={{ padding: '10px 14px', background: 'var(--bg-primary)', borderRadius: 8, fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.6, marginBottom: 16 }}>
+              <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 4 }}>入力プロンプト：</div>
+              {workflow.steps[currentStep].inputPrompt}
+            </div>
+
+            {/* 結果表示 */}
+            {stepResults[currentStep] && (
+              <div style={{ padding: '12px 16px', background: 'rgba(34,197,94,0.05)', border: '1px solid rgba(34,197,94,0.2)', borderRadius: 10, fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.7, whiteSpace: 'pre-wrap', maxHeight: 400, overflowY: 'auto', marginBottom: 16 }}>
+                {stepResults[currentStep]}
+              </div>
+            )}
+
+            {/* ボタン */}
+            <div style={{ display: 'flex', gap: 8 }}>
+              {!stepResults[currentStep] ? (
+                <>
+                  <button onClick={() => executeStep(currentStep)} disabled={isExecuting}
+                    style={{ flex: 1, padding: '10px', borderRadius: 8, border: 'none', background: isExecuting ? 'rgba(108,99,255,0.3)' : 'linear-gradient(135deg, #6c63ff, #8b5cf6)', color: '#fff', fontWeight: 700, fontSize: 13, cursor: isExecuting ? 'not-allowed' : 'pointer' }}>
+                    {isExecuting ? '⏳ 実行中...' : '▶️ このステップを実行'}
+                  </button>
+                  <button onClick={skipStep}
+                    style={{ padding: '10px 16px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--bg-primary)', color: 'var(--text-muted)', fontSize: 13, cursor: 'pointer' }}>
+                    スキップ →
+                  </button>
+                </>
+              ) : (
+                <button onClick={nextStep}
+                  style={{ flex: 1, padding: '10px', borderRadius: 8, border: 'none', background: 'linear-gradient(135deg, #22c55e, #16a34a)', color: '#fff', fontWeight: 700, fontSize: 13, cursor: 'pointer' }}>
+                  {currentStep + 1 >= workflow.steps.length ? '✅ 完了' : '次のステップへ →'}
+                </button>
+              )}
+            </div>
+          </div>
+
+          {/* 完了済みステップ一覧 */}
+          {stepResults.filter(Boolean).length > 0 && currentStep > 0 && (
+            <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 8 }}>完了済みステップ：</div>
+          )}
+          {workflow.steps.slice(0, currentStep).map((step, i) => (
+            stepResults[i] && (
+              <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 12px', background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 8, marginBottom: 4, fontSize: 12, color: 'var(--text-muted)' }}>
+                <span style={{ color: '#22c55e' }}>✓</span>
+                {step.icon} {step.functionName}
+              </div>
+            )
           ))}
         </div>
       )}
 
-      {/* 実行画面 */}
-      {selectedWf && (
-        <div>
-          <button onClick={() => { setSelectedWf(null); setStepResults([]); setInput(''); }} style={{ padding: '6px 14px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--bg-card)', color: 'var(--text-muted)', fontSize: 12, cursor: 'pointer', marginBottom: 20 }}>← 戻る</button>
-
-          <div style={{ padding: 20, background: `${selectedWf.color}10`, border: `1px solid ${selectedWf.color}40`, borderRadius: 16, marginBottom: 20 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 12 }}>
-              <span style={{ fontSize: 28 }}>{selectedWf.icon}</span>
-              <div>
-                <div style={{ fontSize: 16, fontWeight: 700, color: 'var(--text-primary)' }}>{selectedWf.title}</div>
-                <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>{selectedWf.desc}</div>
-              </div>
-            </div>
-            <label style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: 6, display: 'block' }}>{selectedWf.inputLabel}</label>
-            <div style={{ display: 'flex', gap: 10 }}>
-              <input type="text" value={input} onChange={e => setInput(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') e.preventDefault(); }} placeholder={selectedWf.inputPlaceholder} style={{ flex: 1, padding: '11px 14px', background: 'var(--input-bg)', border: '1px solid var(--input-border)', borderRadius: 8, color: 'var(--text-primary)', fontSize: 14, outline: 'none' }} />
-              <button onClick={runWorkflow} disabled={running || !input.trim()} style={{ padding: '11px 24px', borderRadius: 8, border: 'none', cursor: running || !input.trim() ? 'not-allowed' : 'pointer', background: running || !input.trim() ? 'rgba(108,99,255,0.3)' : `linear-gradient(135deg, ${selectedWf.color}, ${selectedWf.color}cc)`, color: '#fff', fontWeight: 700, fontSize: 14, whiteSpace: 'nowrap' }}>
-                {running ? `実行中... ${progress}%` : '⚡ 実行開始'}
-              </button>
-            </div>
+      {/* ④ 完了サマリー */}
+      {isCompleted && workflow && (
+        <div style={{ background: 'var(--bg-secondary)', border: '1px solid rgba(34,197,94,0.3)', borderRadius: 16, padding: 24, marginTop: 24 }}>
+          <div style={{ textAlign: 'center', marginBottom: 20 }}>
+            <div style={{ fontSize: 40, marginBottom: 8 }}>✅</div>
+            <div style={{ fontSize: 18, fontWeight: 700, color: 'var(--text-primary)' }}>ワークフロー完了！</div>
+            <div style={{ fontSize: 13, color: 'var(--text-muted)', marginTop: 4 }}>{workflow.title} — {workflow.steps.length}ステップ完了</div>
           </div>
 
-          {/* ステップ進捗 */}
-          {(running || stepResults.length > 0) && (
-            <div style={{ marginBottom: 20 }}>
-              {running && (
-                <div style={{ marginBottom: 12 }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: 'var(--text-muted)', marginBottom: 6 }}>
-                    <span>{selectedWf.steps[currentStep]?.label || '完了'}...</span>
-                    <span>{progress}%</span>
-                  </div>
-                  <div style={{ height: 6, background: 'var(--border)', borderRadius: 99 }}>
-                    <div style={{ height: '100%', width: `${progress}%`, background: `linear-gradient(90deg, ${selectedWf.color}, ${selectedWf.color}cc)`, borderRadius: 99, transition: 'width 0.4s ease' }} />
-                  </div>
+          {/* 結果一覧 */}
+          {workflow.steps.map((step, i) => (
+            <div key={i} style={{ marginBottom: 12 }}>
+              <div onClick={() => setExpandedStep(expandedStep === i ? null : i)}
+                style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', background: 'var(--bg-primary)', border: '1px solid var(--border)', borderRadius: 8, cursor: 'pointer' }}>
+                <span style={{ color: stepResults[i] && !stepResults[i].startsWith('（') ? '#22c55e' : 'var(--text-muted)' }}>
+                  {stepResults[i] && !stepResults[i].startsWith('（') ? '✓' : '○'}
+                </span>
+                <span style={{ fontSize: 14 }}>{step.icon}</span>
+                <span style={{ flex: 1, fontSize: 13, fontWeight: 600, color: 'var(--text-primary)' }}>{step.functionName}</span>
+                <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>{expandedStep === i ? '▲' : '▼'}</span>
+              </div>
+              {expandedStep === i && stepResults[i] && (
+                <div style={{ padding: '12px 16px', margin: '-1px 0 0', border: '1px solid var(--border)', borderTopColor: 'transparent', borderRadius: '0 0 8px 8px', background: 'var(--bg-secondary)', fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.7, whiteSpace: 'pre-wrap', maxHeight: 400, overflowY: 'auto' }}>
+                  {stepResults[i]}
                 </div>
               )}
-
-              {selectedWf.steps.map((step, i) => (
-                <div key={step.id} style={{ marginBottom: 16, opacity: stepResults[i] ? 1 : 0.4 }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-                    <span style={{ width: 22, height: 22, borderRadius: '50%', background: stepResults[i] ? selectedWf.color : 'var(--border)', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 700 }}>
-                      {stepResults[i] ? '✓' : i + 1}
-                    </span>
-                    <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)' }}>{step.label}</span>
-                    {currentStep === i && running && <span style={{ fontSize: 11, color: selectedWf.color }}>実行中...</span>}
-                    {stepResults[i] && usedModel && <ModelBadge model={usedModel} />}
-                  </div>
-                  {stepResults[i] && (
-                    <div style={{ padding: '12px 16px', background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 10, fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.7, whiteSpace: 'pre-wrap', maxHeight: 200, overflowY: 'auto' }}>
-                      {stepResults[i].slice(0, 500)}{stepResults[i].length > 500 ? '...' : ''}
-                    </div>
-                  )}
-                </div>
-              ))}
             </div>
-          )}
+          ))}
+
+          {/* アクションボタン */}
+          <div style={{ display: 'flex', gap: 8, marginTop: 20, flexWrap: 'wrap' }}>
+            <button onClick={saveAllToLibrary}
+              style={{ padding: '10px 20px', borderRadius: 8, border: 'none', background: 'linear-gradient(135deg, #6c63ff, #8b5cf6)', color: '#fff', fontWeight: 700, fontSize: 13, cursor: 'pointer' }}>
+              📚 全結果をライブラリに保存
+            </button>
+            <button onClick={reset}
+              style={{ padding: '10px 20px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--bg-primary)', color: 'var(--text-primary)', fontWeight: 600, fontSize: 13, cursor: 'pointer' }}>
+              🔄 新しいワークフローを開始
+            </button>
+          </div>
         </div>
       )}
     </div>
