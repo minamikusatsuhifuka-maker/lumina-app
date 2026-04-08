@@ -40,10 +40,12 @@ export function GlossaryPanel() {
   const [isLoading, setIsLoading] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [savedCount, setSavedCount] = useState(0);
+  const [error, setError] = useState('');
 
   const handleExtract = async () => {
     if (!inputText.trim()) return;
     setIsLoading(true);
+    setError('');
     try {
       const res = await fetch('/api/glossary/extract', {
         method: 'POST',
@@ -51,8 +53,19 @@ export function GlossaryPanel() {
         body: JSON.stringify({ text: inputText }),
       });
       const data = await res.json();
-      setTerms((data.terms ?? []).map((t: any) => ({ ...t, checked: true })));
+      if (!res.ok || data.error) {
+        setError(data.error || 'AI用語抽出に失敗しました。しばらく待ってから再試行してください。');
+        return;
+      }
+      const extracted = (data.terms ?? []).map((t: any) => ({ ...t, checked: true }));
+      if (extracted.length === 0) {
+        setError('専門用語が見つかりませんでした。テキストを変えて再試行してください。');
+        return;
+      }
+      setTerms(extracted);
       setStep('select');
+    } catch {
+      setError('通信エラーが発生しました。');
     } finally {
       setIsLoading(false);
     }
@@ -62,6 +75,7 @@ export function GlossaryPanel() {
     const selected = terms.filter(t => t.checked);
     if (selected.length === 0) return;
     setIsLoading(true);
+    setError('');
     try {
       const res = await fetch('/api/glossary/explain', {
         method: 'POST',
@@ -69,12 +83,18 @@ export function GlossaryPanel() {
         body: JSON.stringify({ terms: selected, sourceText: inputText }),
       });
       const data = await res.json();
+      if (!res.ok || data.error) {
+        setError(data.error || 'AI解説生成に失敗しました。しばらく待ってから再試行してください。');
+        return;
+      }
       const exps = (data.explanations ?? []).map((e: any) => {
         const term = selected.find(t => t.term === e.term);
         return { ...e, industry: term?.industry ?? 'general', level: term?.level ?? 'beginner' };
       });
       setExplanations(exps);
       setStep('explain');
+    } catch {
+      setError('通信エラーが発生しました。');
     } finally {
       setIsLoading(false);
     }
@@ -132,7 +152,7 @@ export function GlossaryPanel() {
 
   const reset = () => {
     setStep('input'); setInputText(''); setTerms([]);
-    setExplanations([]); setSavedCount(0);
+    setExplanations([]); setSavedCount(0); setError('');
   };
 
   return (
@@ -178,6 +198,13 @@ export function GlossaryPanel() {
 
           {/* コンテンツ */}
           <div style={{ flex: 1, overflowY: 'auto', padding: 16, display: 'flex', flexDirection: 'column', gap: 12 }}>
+
+            {/* エラー表示 */}
+            {error && (
+              <div style={{ padding: '8px 12px', borderRadius: 8, background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.3)', fontSize: 12, color: '#ef4444' }}>
+                ⚠️ {error}
+              </div>
+            )}
 
             {/* Step 1: テキスト入力 */}
             {step === 'input' && (

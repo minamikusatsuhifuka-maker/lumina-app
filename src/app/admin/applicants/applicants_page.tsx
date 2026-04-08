@@ -43,12 +43,72 @@ export default function ApplicantsPage() {
   const [fileName, setFileName] = useState('');
   const [isDragging, setIsDragging] = useState(false);
   const [statusFilter, setStatusFilter] = useState('all');
+  const [detailTab, setDetailTab] = useState<'analysis' | 'interview'>('analysis');
+  const [interviewNotes, setInterviewNotes] = useState<any[]>([]);
+  const [newNote, setNewNote] = useState('');
+  const [newDate, setNewDate] = useState('');
+  const [newInterviewer, setNewInterviewer] = useState('');
+  const [noteSaving, setNoteSaving] = useState(false);
+  const [aiCommenting, setAiCommenting] = useState<string | null>(null);
 
   useEffect(() => {
     fetch('/api/clinic/applicants')
       .then(r => r.json())
       .then(d => setApplicants(Array.isArray(d) ? d : []));
   }, []);
+
+  const fetchNotes = (applicantId: string) => {
+    fetch(`/api/clinic/applicants/interview-notes?applicantId=${applicantId}`)
+      .then(r => r.json())
+      .then(d => setInterviewNotes(Array.isArray(d) ? d : []));
+  };
+
+  const saveNote = async () => {
+    if (!newNote.trim() || !selected) return;
+    setNoteSaving(true);
+    await fetch('/api/clinic/applicants/interview-notes', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ applicantId: selected.id, interviewDate: newDate, interviewer: newInterviewer, note: newNote }),
+    });
+    setNewNote(''); setNewDate(''); setNewInterviewer('');
+    fetchNotes(selected.id);
+    setNoteSaving(false);
+  };
+
+  const deleteNote = async (id: string) => {
+    if (!confirm('削除しますか？')) return;
+    await fetch('/api/clinic/applicants/interview-notes', {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id }),
+    });
+    fetchNotes(selected.id);
+  };
+
+  const generateAiComment = async (note: any) => {
+    setAiCommenting(note.id);
+    try {
+      const res = await fetch('/api/anthropic', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          messages: [{
+            role: 'user',
+            content: `以下の面接メモを読んで、候補者への評価コメントを3〜5文で書いてください。\n\n面接メモ：${note.note}`,
+          }],
+        }),
+      }).then(r => r.json());
+      const comment = res?.content?.[0]?.text || '';
+      await fetch('/api/clinic/applicants/interview-notes', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: note.id, aiComment: comment }),
+      });
+      fetchNotes(selected.id);
+    } catch { /* ignore */ }
+    setAiCommenting(null);
+  };
 
   const processFile = async (file: File) => {
     const supportedTypes = ['application/pdf', 'image/jpeg', 'image/png', 'image/webp'];
@@ -413,12 +473,72 @@ export default function ApplicantsPage() {
           {selected && (
             <div style={{ position: 'sticky', top: 20 }}>
               <div style={cardStyle}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
                   <div style={{ fontSize: 16, fontWeight: 700 }}>{selected.name || selected.extracted_data?.name}</div>
                   <button onClick={() => setSelected(null)} style={{
                     fontSize: 18, background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)',
                   }}>✕</button>
                 </div>
+
+                {/* 詳細タブ切替 */}
+                <div style={{ display: 'flex', gap: 6, marginBottom: 16 }}>
+                  {[{ key: 'analysis', label: '📊 AI分析' }, { key: 'interview', label: '💬 面接メモ' }].map(t => (
+                    <button key={t.key}
+                      onClick={() => { setDetailTab(t.key as any); if (t.key === 'interview') fetchNotes(selected.id); }}
+                      style={{ padding: '5px 14px', borderRadius: 20, fontSize: 12, fontWeight: 600, cursor: 'pointer', border: '1px solid', background: detailTab === t.key ? 'rgba(108,99,255,0.15)' : 'transparent', color: detailTab === t.key ? '#6c63ff' : 'var(--text-muted)', borderColor: detailTab === t.key ? 'rgba(108,99,255,0.4)' : 'var(--border)' }}>
+                      {t.label}
+                    </button>
+                  ))}
+                </div>
+
+                {/* 面接メモタブ */}
+                {detailTab === 'interview' && (
+                  <div>
+                    <div style={{ padding: 14, background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 12, marginBottom: 14 }}>
+                      <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-muted)', marginBottom: 10 }}>📝 面接メモを追加</div>
+                      <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
+                        <input type="date" value={newDate} onChange={e => setNewDate(e.target.value)}
+                          style={{ flex: 1, padding: '7px 10px', borderRadius: 8, border: '1px solid var(--input-border)', background: 'var(--input-bg)', color: 'var(--text-primary)', fontSize: 12 }} />
+                        <input placeholder="面接者名" value={newInterviewer} onChange={e => setNewInterviewer(e.target.value)}
+                          style={{ flex: 1, padding: '7px 10px', borderRadius: 8, border: '1px solid var(--input-border)', background: 'var(--input-bg)', color: 'var(--text-primary)', fontSize: 12 }} />
+                      </div>
+                      <textarea value={newNote} onChange={e => setNewNote(e.target.value)} rows={4} placeholder="面接内容・印象・気になった点など..."
+                        style={{ width: '100%', padding: '8px 10px', borderRadius: 8, border: '1px solid var(--input-border)', background: 'var(--input-bg)', color: 'var(--text-primary)', fontSize: 12, lineHeight: 1.6, resize: 'vertical', boxSizing: 'border-box', outline: 'none' }} />
+                      <button onClick={saveNote} disabled={noteSaving || !newNote.trim()}
+                        style={{ marginTop: 8, padding: '7px 18px', borderRadius: 8, border: 'none', background: 'linear-gradient(135deg, #6c63ff, #8b5cf6)', color: '#fff', fontSize: 12, fontWeight: 700, cursor: 'pointer', opacity: noteSaving ? 0.7 : 1 }}>
+                        {noteSaving ? '保存中...' : '💾 保存'}
+                      </button>
+                    </div>
+                    {interviewNotes.length === 0 ? (
+                      <div style={{ textAlign: 'center', padding: 30, color: 'var(--text-muted)', fontSize: 13 }}>まだ面接メモがありません</div>
+                    ) : interviewNotes.map(note => (
+                      <div key={note.id} style={{ padding: 14, background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 12, marginBottom: 10 }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                          <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>
+                            {note.interview_date ? `📅 ${new Date(note.interview_date).toLocaleDateString('ja-JP')}` : '日付未設定'}
+                            {note.interviewer && ` ／ 👤 ${note.interviewer}`}
+                          </div>
+                          <button onClick={() => deleteNote(note.id)} style={{ fontSize: 10, color: '#ef4444', background: 'none', border: '1px solid rgba(239,68,68,0.3)', borderRadius: 5, padding: '2px 6px', cursor: 'pointer' }}>🗑</button>
+                        </div>
+                        <div style={{ fontSize: 13, color: 'var(--text-primary)', lineHeight: 1.6, marginBottom: 8, whiteSpace: 'pre-wrap' }}>{note.note}</div>
+                        {note.ai_comment ? (
+                          <div style={{ padding: '8px 10px', background: 'rgba(108,99,255,0.06)', border: '1px solid rgba(108,99,255,0.15)', borderRadius: 8 }}>
+                            <div style={{ fontSize: 11, fontWeight: 700, color: '#6c63ff', marginBottom: 4 }}>🤖 AIコメント</div>
+                            <div style={{ fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.6 }}>{note.ai_comment}</div>
+                          </div>
+                        ) : (
+                          <button onClick={() => generateAiComment(note)} disabled={aiCommenting === note.id}
+                            style={{ fontSize: 11, padding: '4px 12px', borderRadius: 8, border: '1px solid rgba(108,99,255,0.3)', background: 'rgba(108,99,255,0.06)', color: '#6c63ff', cursor: 'pointer', opacity: aiCommenting === note.id ? 0.7 : 1 }}>
+                            {aiCommenting === note.id ? '生成中...' : '🤖 AIコメントを生成'}
+                          </button>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {/* AI分析タブ */}
+                {detailTab === 'analysis' && <div>
 
                 {/* レーダーチャート + 横棒グラフ */}
                 {selected?.scores && (
@@ -586,6 +706,7 @@ export default function ApplicantsPage() {
                     </div>
                   </div>
                 )}
+                </div>}
               </div>
             </div>
           )}

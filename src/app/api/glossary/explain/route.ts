@@ -5,6 +5,27 @@ import { auth } from '@/lib/auth';
 export const runtime = 'nodejs';
 export const maxDuration = 300;
 
+async function callAnthropic(apiKey: string, body: object, retries = 2): Promise<any> {
+  for (let i = 0; i <= retries; i++) {
+    const res = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': apiKey,
+        'anthropic-version': '2023-06-01',
+      },
+      body: JSON.stringify(body),
+    });
+    if (res.ok) return res.json();
+    if ((res.status === 429 || res.status === 529) && i < retries) {
+      await new Promise(r => setTimeout(r, 2000 * (i + 1)));
+      continue;
+    }
+    const err = await res.text();
+    throw new Error(`Anthropic API error ${res.status}: ${err}`);
+  }
+}
+
 export async function POST(req: NextRequest) {
   const session = await auth();
   if (!session) return new Response('Unauthorized', { status: 401 });
@@ -14,18 +35,13 @@ export async function POST(req: NextRequest) {
 
   const termList = terms.map((t: any) => `- ${t.term}（${t.industry}・${t.level}）`).join('\n');
 
-  const response = await fetch('https://api.anthropic.com/v1/messages', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'x-api-key': apiKey,
-      'anthropic-version': '2023-06-01',
-    },
-    body: JSON.stringify({
-      model: 'claude-sonnet-4-6',
+  try {
+    const data = await callAnthropic(apiKey, {
+      model: 'claude-sonnet-4-5',
       max_tokens: 4000,
       system: `あなたは丁寧でわかりやすい解説が得意な専門家です。
 指定された専門用語について、必ずJSON形式のみで解説を生成してください。
+マークダウンのコードブロック（\`\`\`json等）は絶対に使わず、JSONをそのまま返してください。
 前置きや説明は不要です。
 
 {
@@ -47,17 +63,15 @@ export async function POST(req: NextRequest) {
         role: 'user',
         content: `以下の用語を解説してください：\n${termList}\n\n元のテキスト（文脈参考用）：\n${sourceText?.slice(0, 500) ?? ''}`,
       }],
-    }),
-  });
+    });
 
-  const data = await response.json();
-  let resultText = data.content?.[0]?.text ?? '{"explanations":[]}';
-  resultText = resultText.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
+    let resultText = data.content?.[0]?.text ?? '{"explanations":[]}';
+    resultText = resultText.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
 
-  try {
     const parsed = JSON.parse(resultText);
     return Response.json(parsed);
-  } catch {
-    return Response.json({ explanations: [] });
+  } catch (e: any) {
+    console.error('[glossary/explain]', e.message);
+    return Response.json({ explanations: [], error: e.message }, { status: 502 });
   }
 }
