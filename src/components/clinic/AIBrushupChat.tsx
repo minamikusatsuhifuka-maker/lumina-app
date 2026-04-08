@@ -98,6 +98,9 @@ export function AIBrushupChat({ contextContent, contextLabel, onApply }: AIBrush
   const [showHistory, setShowHistory] = useState(false);
   const [savedMsg, setSavedMsg] = useState('');
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const [panelSize, setPanelSize] = useState({ width: 420, height: 600 });
+  const [isResizing, setIsResizing] = useState(false);
+  const resizeStartRef = useRef<{ x: number; y: number; w: number; h: number } | null>(null);
 
   useEffect(() => {
     if (chatOpen) loadSession();
@@ -148,6 +151,37 @@ export function AIBrushupChat({ contextContent, contextLabel, onApply }: AIBrush
     }
   };
 
+  const startResize = (e: React.MouseEvent) => {
+    e.preventDefault();
+    resizeStartRef.current = {
+      x: e.clientX,
+      y: e.clientY,
+      w: panelSize.width,
+      h: panelSize.height,
+    };
+    setIsResizing(true);
+
+    const onMouseMove = (ev: MouseEvent) => {
+      if (!resizeStartRef.current) return;
+      const dx = resizeStartRef.current.x - ev.clientX;
+      const dy = resizeStartRef.current.y - ev.clientY;
+      setPanelSize({
+        width: Math.min(800, Math.max(320, resizeStartRef.current.w + dx)),
+        height: Math.min(900, Math.max(400, resizeStartRef.current.h + dy)),
+      });
+    };
+
+    const onMouseUp = () => {
+      setIsResizing(false);
+      resizeStartRef.current = null;
+      window.removeEventListener('mousemove', onMouseMove);
+      window.removeEventListener('mouseup', onMouseUp);
+    };
+
+    window.addEventListener('mousemove', onMouseMove);
+    window.addEventListener('mouseup', onMouseUp);
+  };
+
   const saveHistory = async (before: string, after: string) => {
     await fetch('/api/clinic/brushup-chat', {
       method: 'POST',
@@ -168,7 +202,30 @@ export function AIBrushupChat({ contextContent, contextLabel, onApply }: AIBrush
   return (
     <div style={{ position: 'fixed', bottom: 24, right: 24, zIndex: 1000, display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 12 }}>
       {chatOpen && (
-        <div style={{ width: 420, height: 600, background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 16, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+        <div style={{ position: 'relative', width: panelSize.width, height: panelSize.height, background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 16, display: 'flex', flexDirection: 'column', overflow: 'hidden', userSelect: isResizing ? 'none' : 'auto', transition: isResizing ? 'none' : 'width 0.1s, height 0.1s' }}>
+
+          {/* リサイズハンドル（左上） */}
+          <div
+            onMouseDown={startResize}
+            style={{
+              position: 'absolute',
+              top: 0,
+              left: 0,
+              width: 20,
+              height: 20,
+              cursor: 'nw-resize',
+              zIndex: 10,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+            }}
+          >
+            <svg width="10" height="10" viewBox="0 0 10 10" style={{ opacity: 0.3 }}>
+              <line x1="0" y1="10" x2="10" y2="0" stroke="currentColor" strokeWidth="1.5"/>
+              <line x1="0" y1="6" x2="6" y2="0" stroke="currentColor" strokeWidth="1.5"/>
+              <line x1="0" y1="2" x2="2" y2="0" stroke="currentColor" strokeWidth="1.5"/>
+            </svg>
+          </div>
 
           {/* ヘッダー */}
           <div style={{ padding: '12px 16px', borderBottom: '1px solid var(--border)', background: 'linear-gradient(135deg, rgba(108,99,255,0.1), rgba(236,72,153,0.05))' }}>
