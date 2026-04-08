@@ -348,6 +348,20 @@ export async function GET() {
       created_at TIMESTAMP DEFAULT NOW()
     )`;
 
+    await sql`CREATE TABLE IF NOT EXISTS glossary_items (
+      id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
+      user_id TEXT NOT NULL,
+      term TEXT NOT NULL,
+      reading TEXT,
+      definition TEXT NOT NULL DEFAULT '',
+      industry TEXT NOT NULL DEFAULT 'general',
+      level TEXT NOT NULL DEFAULT 'beginner',
+      tags TEXT NOT NULL DEFAULT '',
+      source_text TEXT,
+      created_at TIMESTAMP DEFAULT NOW(),
+      updated_at TIMESTAMP DEFAULT NOW()
+    )`;
+
     await sql`CREATE TABLE IF NOT EXISTS writing_templates (
       id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
       user_id TEXT NOT NULL,

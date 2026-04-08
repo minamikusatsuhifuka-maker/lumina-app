@@ -1,5 +1,5 @@
 'use client';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { ProgressBar } from '@/components/ProgressBar';
 import { useProgress } from '@/components/useProgress';
 
@@ -527,6 +527,49 @@ export default function GlossaryPage() {
   const [generating, setGenerating] = useState(false);
   const [generatedTerm, setGeneratedTerm] = useState<Term | null>(null);
   const [generateError, setGenerateError] = useState('');
+  const [viewMode, setViewMode] = useState<'builtin' | 'saved'>('builtin');
+  const [savedItems, setSavedItems] = useState<any[]>([]);
+  const [savedLoading, setSavedLoading] = useState(false);
+  const [savedSearch, setSavedSearch] = useState('');
+  const [savedIndustry, setSavedIndustry] = useState('all');
+  const [savedLevel, setSavedLevel] = useState('all');
+
+  useEffect(() => {
+    if (viewMode === 'saved') {
+      setSavedLoading(true);
+      const params = new URLSearchParams();
+      if (savedIndustry !== 'all') params.set('industry', savedIndustry);
+      if (savedLevel !== 'all') params.set('level', savedLevel);
+      fetch(`/api/glossary-items?${params}`)
+        .then(r => r.json())
+        .then(data => { if (Array.isArray(data)) setSavedItems(data); })
+        .finally(() => setSavedLoading(false));
+    }
+  }, [viewMode, savedIndustry, savedLevel]);
+
+  const deleteSavedItem = async (id: string) => {
+    await fetch(`/api/glossary-items/${id}`, { method: 'DELETE' });
+    setSavedItems(prev => prev.filter(i => i.id !== id));
+  };
+
+  const exportSavedItems = (format: 'txt' | 'csv') => {
+    const items = savedFilteredItems;
+    let content = '';
+    if (format === 'txt') {
+      content = items.map((i: any) => `【${i.term}】\n${i.definition}\n`).join('\n---\n\n');
+    } else {
+      content = '用語,解説,業界,難易度\n' + items.map((i: any) => `"${i.term}","${i.definition}","${i.industry}","${i.level}"`).join('\n');
+    }
+    const ext = format === 'csv' ? 'csv' : 'txt';
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob([content], { type: 'text/plain;charset=utf-8' }));
+    a.download = `glossary_saved.${ext}`; a.click();
+  };
+
+  const savedFilteredItems = savedItems.filter(i => {
+    if (!savedSearch) return true;
+    return i.term?.includes(savedSearch) || i.definition?.includes(savedSearch);
+  });
 
   const generateTerm = async () => {
     if (!newWord.trim()) return;
@@ -577,6 +620,99 @@ export default function GlossaryPage() {
   return (
     <div style={{ maxWidth: 900, margin: '0 auto', paddingBottom: 60 }}>
       <ProgressBar loading={progressLoading} progress={progress} label="📘 AI解説生成中..." />
+
+      {/* ビュー切り替えタブ */}
+      <div style={{ display: 'flex', gap: 0, borderBottom: '1px solid var(--border)', marginBottom: 20 }}>
+        {[
+          { key: 'builtin' as const, label: '📘 用語辞典' },
+          { key: 'saved' as const, label: '📖 保存済み用語集' },
+        ].map(tab => (
+          <button
+            key={tab.key}
+            onClick={() => setViewMode(tab.key)}
+            style={{
+              padding: '8px 20px', fontSize: 14, cursor: 'pointer',
+              border: 'none', background: 'none',
+              borderBottom: `2px solid ${viewMode === tab.key ? 'var(--accent)' : 'transparent'}`,
+              color: viewMode === tab.key ? 'var(--text-primary)' : 'var(--text-muted)',
+              fontWeight: viewMode === tab.key ? 600 : 400,
+            }}
+          >
+            {tab.label}
+            {tab.key === 'saved' && savedItems.length > 0 && (
+              <span style={{ marginLeft: 6, fontSize: 11, color: 'var(--text-muted)' }}>{savedItems.length}</span>
+            )}
+          </button>
+        ))}
+      </div>
+
+      {/* 保存済み用語集ビュー */}
+      {viewMode === 'saved' && (
+        <div>
+          <div style={{ display: 'flex', gap: 8, marginBottom: 16, flexWrap: 'wrap' as const, alignItems: 'center' }}>
+            <input
+              value={savedSearch}
+              onChange={e => setSavedSearch(e.target.value)}
+              placeholder="🔍 用語・解説を検索..."
+              style={{ flex: 1, minWidth: 200, padding: '8px 12px', background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 8, color: 'var(--text-primary)', fontSize: 13, outline: 'none' }}
+            />
+            <select value={savedIndustry} onChange={e => setSavedIndustry(e.target.value)} style={{ padding: '8px 10px', background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 8, color: 'var(--text-primary)', fontSize: 13, outline: 'none' }}>
+              <option value="all">全業界</option>
+              {['IT','医療','法律','金融','マーケティング','経営','科学','教育','general'].map(v => (
+                <option key={v} value={v}>{v}</option>
+              ))}
+            </select>
+            <select value={savedLevel} onChange={e => setSavedLevel(e.target.value)} style={{ padding: '8px 10px', background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 8, color: 'var(--text-primary)', fontSize: 13, outline: 'none' }}>
+              <option value="all">全難易度</option>
+              <option value="beginner">🟢 初級</option>
+              <option value="intermediate">🟡 中級</option>
+              <option value="advanced">🔴 上級</option>
+            </select>
+            <button onClick={() => exportSavedItems('txt')} style={{ padding: '6px 12px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--bg-secondary)', color: 'var(--text-muted)', cursor: 'pointer', fontSize: 12 }}>TXT</button>
+            <button onClick={() => exportSavedItems('csv')} style={{ padding: '6px 12px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--bg-secondary)', color: 'var(--text-muted)', cursor: 'pointer', fontSize: 12 }}>CSV</button>
+          </div>
+
+          {savedLoading ? (
+            <div style={{ textAlign: 'center', padding: 40, color: 'var(--text-muted)' }}>読み込み中...</div>
+          ) : savedFilteredItems.length === 0 ? (
+            <div style={{ textAlign: 'center', padding: 60, color: 'var(--text-muted)' }}>
+              <div style={{ fontSize: 40, marginBottom: 12 }}>📖</div>
+              <div style={{ fontSize: 14 }}>保存済み用語がありません</div>
+              <div style={{ fontSize: 12, marginTop: 8 }}>右下の📖ボタンからテキストを貼り付けて用語を抽出・保存できます</div>
+            </div>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              {savedFilteredItems.map((item: any) => (
+                <div key={item.id} style={{ padding: '12px 16px', background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 10 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+                        <span style={{ fontSize: 15, fontWeight: 700, color: 'var(--text-primary)' }}>{item.term}</span>
+                        {item.reading && <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>({item.reading})</span>}
+                        <span style={{ fontSize: 10, padding: '1px 6px', borderRadius: 99, background: 'rgba(29,158,117,0.12)', color: '#1D9E75' }}>{item.industry}</span>
+                        <span style={{ fontSize: 10, padding: '1px 6px', borderRadius: 99, background: 'rgba(245,166,35,0.12)', color: '#f5a623' }}>{item.level}</span>
+                      </div>
+                      <p style={{ fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.7, margin: 0 }}>{item.definition}</p>
+                      <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 6 }}>
+                        {new Date(item.created_at).toLocaleDateString('ja-JP')}
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => deleteSavedItem(item.id)}
+                      style={{ flexShrink: 0, width: 28, height: 28, borderRadius: 6, border: 'none', background: 'rgba(255,107,107,0.1)', color: '#ff6b6b', cursor: 'pointer', fontSize: 12, marginLeft: 8 }}
+                    >
+                      🗑
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* 既存の用語辞典ビュー */}
+      {viewMode === 'builtin' && (<>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 32 }}>
         <div>
           <h1 style={{ fontSize: 28, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 4 }}>
@@ -843,6 +979,7 @@ export default function GlossaryPage() {
           </div>
         ))}
       </div>
+      </>)}
     </div>
   );
 }

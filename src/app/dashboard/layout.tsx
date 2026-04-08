@@ -3,6 +3,7 @@ import { redirect } from 'next/navigation';
 import { DashboardSidebar } from '@/components/DashboardSidebar';
 import { AIAssistant } from '@/components/AIAssistant';
 import { FloatingToolbar } from '@/components/FloatingToolbar';
+import { GlossaryPanel } from '@/components/GlossaryPanel';
 import { ModelSelector } from '@/components/ModelSelector';
 
 export default async function DashboardLayout({ children }: { children: React.ReactNode }) {
@@ -16,6 +17,7 @@ export default async function DashboardLayout({ children }: { children: React.Re
         {children}
       </main>
       <FloatingToolbar />
+      <GlossaryPanel />
       <AIAssistant />
     </div>
   );
