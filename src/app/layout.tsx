@@ -9,14 +9,14 @@ const inter = Inter({ subsets: ['latin'], variable: '--font-inter' });
 const zenKaku = Zen_Kaku_Gothic_New({ subsets: ['latin'], weight: ['400', '700'], variable: '--font-zen' });
 
 export const metadata: Metadata = {
-  title: 'LUMINA — クリニックスタッフ成長支援プラットフォーム',
+  title: 'xLUMINA — クリニックスタッフ成長支援プラットフォーム',
   description: 'スタッフの成長を、AIが支える。評価・1on1・採用・等級制度をひとつのプラットフォームで。',
   metadataBase: new URL('https://xlumina.jp'),
   openGraph: {
-    title: 'LUMINA — クリニックスタッフ成長支援プラットフォーム',
+    title: 'xLUMINA — クリニックスタッフ成長支援プラットフォーム',
     description: 'スタッフの成長を、AIが支える。評価・1on1・採用・等級制度をひとつのプラットフォームで。',
     url: 'https://xlumina.jp',
-    siteName: 'LUMINA',
+    siteName: 'xLUMINA',
     images: [
       {
         url: '/api/og',
@@ -30,7 +30,7 @@ export const metadata: Metadata = {
   },
   twitter: {
     card: 'summary_large_image',
-    title: 'LUMINA — クリニックスタッフ成長支援プラットフォーム',
+    title: 'xLUMINA — クリニックスタッフ成長支援プラットフォーム',
     description: 'スタッフの成長を、AIが支える。',
     images: ['/api/og'],
   },

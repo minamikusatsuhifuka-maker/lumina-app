@@ -60,7 +60,7 @@ export async function GET() {
               fontSize: '32px', fontWeight: '700', color: 'white',
             }}>L</div>
             <div style={{ display: 'flex', flexDirection: 'column' }}>
-              <span style={{ fontSize: '28px', fontWeight: '700', color: '#1a1a2e', letterSpacing: '3px' }}>LUMINA</span>
+              <span style={{ fontSize: '28px', fontWeight: '700', color: '#1a1a2e', letterSpacing: '3px' }}>xLUMINA</span>
               <span style={{ fontSize: '14px', color: '#6c63ff', letterSpacing: '1px', marginTop: '2px' }}>クリニックスタッフ成長支援</span>
             </div>
           </div>
