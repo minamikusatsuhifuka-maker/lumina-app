@@ -137,10 +137,10 @@ export function AIBrushupChat({ contextContent, contextLabel, onApply }: AIBrush
           {/* 入力 */}
           {chatMode !== 'analyze' && (
             <div style={{ padding: '10px 12px', borderTop: '1px solid var(--border)', display: 'flex', gap: 8 }}>
-              <input value={chatInput} onChange={e => setChatInput(e.target.value)}
-                onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendChat(); } }}
+              <textarea value={chatInput} onChange={e => setChatInput(e.target.value)}
                 placeholder={chatMode === 'propose' ? 'こうしたい、を話しかける...' : '自由に話しかける...'}
-                style={inputStyle} />
+                rows={2}
+                style={{ ...inputStyle, resize: 'none', lineHeight: 1.5 }} />
               <button onClick={() => sendChat()} disabled={chatLoading || !chatInput.trim()}
                 style={{ padding: '7px 14px', borderRadius: 8, border: 'none', background: chatLoading ? 'rgba(108,99,255,0.3)' : 'linear-gradient(135deg, #6c63ff, #8b5cf6)', color: '#fff', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>
                 送信

@@ -230,7 +230,6 @@ export function AIAssistant() {
               type="text"
               value={input}
               onChange={e => setInput(e.target.value)}
-              onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); } }}
               placeholder="メッセージを入力..."
               style={{ flex: 1, padding: '8px 12px', background: 'var(--input-bg)', border: '1px solid var(--input-border)', borderRadius: 20, color: 'var(--text-primary)', fontSize: 13, outline: 'none' }}
             />

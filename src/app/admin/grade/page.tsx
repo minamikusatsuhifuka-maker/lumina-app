@@ -434,7 +434,7 @@ export default function GradePage() {
                 {QUICK.map(q => <button key={q} onClick={() => setRefineInstruction(q)} style={{ padding: '3px 8px', borderRadius: 14, border: '1px solid rgba(108,99,255,0.2)', background: 'var(--bg-card)', color: 'var(--text-muted)', fontSize: 10, cursor: 'pointer' }}>{q}</button>)}
               </div>
               <div style={{ display: 'flex', gap: 8 }}>
-                <input value={refineInstruction} onChange={e => setRefineInstruction(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); refineCategory(); } }} placeholder={`${DETAIL_TABS.find(t => t.key === detailTab)?.label}を改善する指示を入力`} style={{ ...inputStyle, flex: 1 }} />
+                <input value={refineInstruction} onChange={e => setRefineInstruction(e.target.value)} placeholder={`${DETAIL_TABS.find(t => t.key === detailTab)?.label}を改善する指示を入力`} style={{ ...inputStyle, flex: 1 }} />
                 <button onClick={refineCategory} disabled={refining} style={{ padding: '8px 16px', borderRadius: 8, border: 'none', background: refining ? 'rgba(108,99,255,0.3)' : 'linear-gradient(135deg, #6c63ff, #8b5cf6)', color: '#fff', fontSize: 12, fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap' }}>{refining ? '修正中...' : '🤖 改善'}</button>
               </div>
               {refineResult && (

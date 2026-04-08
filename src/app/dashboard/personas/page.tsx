@@ -171,7 +171,7 @@ export default function PersonasPage() {
             {chatLoading && <div style={{ color: 'var(--text-muted)', fontSize: 12, padding: '4px 14px' }}>考え中...</div>}
           </div>
           <div style={{ display: 'flex', gap: 8 }}>
-            <input value={chatInput} onChange={e => setChatInput(e.target.value)} onKeyDown={e => e.key === 'Enter' && !e.shiftKey && chat()}
+            <input value={chatInput} onChange={e => setChatInput(e.target.value)}
               placeholder={`${chatPersona.name}に質問する...`}
               style={{ flex: 1, padding: '10px 14px', background: 'var(--bg-primary)', border: '1px solid var(--accent-soft)', borderRadius: 8, color: 'var(--text-primary)', fontSize: 13, outline: 'none' }} />
             <button onClick={chat} disabled={chatLoading || !chatInput.trim()} style={{ padding: '10px 20px', background: 'linear-gradient(135deg, #6c63ff, #8b5cf6)', color: '#fff', border: 'none', borderRadius: 8, cursor: 'pointer', fontWeight: 600, fontSize: 13 }}>送信</button>

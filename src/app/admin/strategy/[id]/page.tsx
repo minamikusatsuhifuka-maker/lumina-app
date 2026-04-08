@@ -262,7 +262,7 @@ export default function StrategyDetailPage({ params }: { params: Promise<{ id: s
           )}
         </div>
         <div style={{ display: 'flex', gap: 6 }}>
-          <input value={chatMsg} onChange={e => setChatMsg(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); runChat(); } }} placeholder="質問..." style={{ flex: 1, padding: '8px 10px', background: 'var(--input-bg)', border: '1px solid var(--input-border)', borderRadius: 8, color: 'var(--text-primary)', fontSize: 12, outline: 'none' }} />
+          <input value={chatMsg} onChange={e => setChatMsg(e.target.value)} placeholder="質問..." style={{ flex: 1, padding: '8px 10px', background: 'var(--input-bg)', border: '1px solid var(--input-border)', borderRadius: 8, color: 'var(--text-primary)', fontSize: 12, outline: 'none' }} />
           <button onClick={runChat} disabled={chatting} style={{ padding: '8px 12px', borderRadius: 8, border: 'none', background: chatting ? 'rgba(108,99,255,0.3)' : 'linear-gradient(135deg, #6c63ff, #8b5cf6)', color: '#fff', fontSize: 11, fontWeight: 700, cursor: 'pointer' }}>{chatting ? '...' : '送信'}</button>
         </div>
       </div>

@@ -148,7 +148,7 @@ export function AIDialoguePanel({ contextType, contextLabel, contextData, onInsi
 
       {/* 入力 */}
       <div style={{ padding: '10px 14px', borderTop: '1px solid var(--border)', display: 'flex', gap: 8 }}>
-        <textarea value={input} onChange={e => setInput(e.target.value)} onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); } }} placeholder="Enterで送信" rows={2} style={{ flex: 1, padding: '8px 12px', background: 'var(--input-bg)', border: '1px solid var(--input-border)', borderRadius: 10, color: 'var(--text-primary)', fontSize: 13, outline: 'none', resize: 'none' }} />
+        <textarea value={input} onChange={e => setInput(e.target.value)} placeholder="送信ボタンで送信" rows={2} style={{ flex: 1, padding: '8px 12px', background: 'var(--input-bg)', border: '1px solid var(--input-border)', borderRadius: 10, color: 'var(--text-primary)', fontSize: 13, outline: 'none', resize: 'none' }} />
         <button onClick={send} disabled={loading || !input.trim()} style={{ padding: '8px 16px', borderRadius: 10, border: 'none', background: loading || !input.trim() ? 'rgba(108,99,255,0.3)' : 'linear-gradient(135deg, #6c63ff, #8b5cf6)', color: '#fff', fontWeight: 700, fontSize: 12, cursor: 'pointer', alignSelf: 'flex-end' }}>送信</button>
       </div>
     </div>

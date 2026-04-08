@@ -310,7 +310,7 @@ export default function HandbookEditorPage({ params }: { params: Promise<{ id: s
                 ))}
               </div>
               <div style={{ display: 'flex', gap: 6 }}>
-                <input value={aiInstruction} onChange={e => setAiInstruction(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); runAi(); } }} placeholder="自由に指示を入力" style={{ ...inputStyle, flex: 1, fontSize: 12 }} />
+                <input value={aiInstruction} onChange={e => setAiInstruction(e.target.value)} placeholder="自由に指示を入力" style={{ ...inputStyle, flex: 1, fontSize: 12 }} />
                 <button onClick={runAi} disabled={aiLoading || !aiInstruction.trim()} style={{ padding: '8px 14px', borderRadius: 8, border: 'none', background: aiLoading ? 'rgba(108,99,255,0.3)' : 'linear-gradient(135deg, #6c63ff, #8b5cf6)', color: '#fff', fontWeight: 700, fontSize: 11, cursor: 'pointer', whiteSpace: 'nowrap' }}>{aiLoading ? '...' : '🤖 改善'}</button>
               </div>
 
@@ -433,7 +433,6 @@ export default function HandbookEditorPage({ params }: { params: Promise<{ id: s
                 <input
                   value={chatInput}
                   onChange={e => setChatInput(e.target.value)}
-                  onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendChat(); } }}
                   placeholder={chatMode === 'propose' ? 'こうしたい、を話しかける...' : '自由に話しかける...'}
                   style={{ flex: 1, padding: '7px 10px', borderRadius: 8, border: '1px solid var(--input-border)', background: 'var(--input-bg)', color: 'var(--text-primary)', fontSize: 12, outline: 'none' }}
                 />
