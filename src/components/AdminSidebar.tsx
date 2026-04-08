@@ -16,7 +16,7 @@ const navGroups: NavGroup[] = [
   {
     category: '目標達成伴走',
     items: [
-      { href: '/admin/staff', label: 'スタッフ管理', icon: '👥' },
+      { href: '/admin/staff', label: 'スタッフ支援', icon: '👥' },
       { href: '/admin/staff-evaluation', label: 'スタッフ評価', icon: '📈' },
       { href: '/admin/one-on-one', label: '1on1ミーティング', icon: '🤝' },
       { href: '/admin/applicants', label: '採用AI分析', icon: '🔍' },
@@ -80,7 +80,7 @@ export function AdminSidebar({ userName }: { userName: string }) {
           {/* カテゴリラベル */}
           <div style={{
             fontSize: 10, fontWeight: 700, letterSpacing: '0.08em',
-            color: 'var(--text-muted)', opacity: 0.6,
+            color: 'var(--text-primary)', opacity: 0.85,
             padding: '10px 12px 4px',
             textTransform: 'uppercase',
             borderTop: gi > 0 ? '1px solid var(--border)' : 'none',
