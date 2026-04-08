@@ -1,5 +1,19 @@
 import { neon } from '@neondatabase/serverless';
 
+// カテゴリ名の日英マッピング
+const CATEGORY_MAP: Record<string, string[]> = {
+  philosophy: ['理念', 'philosophy'],
+  grade: ['等級', 'grade'],
+  evaluation: ['評価', 'evaluation'],
+  strategy: ['戦略', 'strategy'],
+  hiring: ['採用', 'hiring'],
+  mindset: ['マインド', 'mindset'],
+  handbook: ['ハンドブック', 'handbook'],
+  growth: ['成長哲学', 'growth'],
+  'red-zone': ['行動基準', 'red-zone'],
+  all: ['all'],
+};
+
 // ① 自律型組織ビジョン（ハードコード）
 const visionBlock = `【院長の究極ビジョン】
 ティール組織・全員主役・自律型生命体。
@@ -79,7 +93,6 @@ export async function buildSystemContext(
   role: string,
   category?: string
 ): Promise<string> {
-  // 静的ブロック（常に含む）
   const blocks: string[] = [
     visionBlock,
     powerPartnerBlock,
@@ -90,17 +103,30 @@ export async function buildSystemContext(
   try {
     const sql = neon(process.env.DATABASE_URL!);
 
-    // ⑤⑥⑦⑧を並行取得
-    const [philosophyRows, fileRows, criteriaRows, rulesRows] = await Promise.all([
+    // カテゴリの日英両方のキーを取得
+    const categoryKeys = category
+      ? (CATEGORY_MAP[category] || [category])
+      : [];
+
+    const [philosophyRows, fileRows, criteriaRows, rulesRows, gradeRows, redZoneRows] = await Promise.all([
       sql`SELECT title, content FROM clinic_philosophy LIMIT 1`,
       sql`SELECT name, content FROM philosophy_files ORDER BY created_at DESC LIMIT 3`,
-      category
-        ? sql`SELECT criterion FROM clinic_decision_criteria
-               WHERE category = ${category} OR category = 'all'
+      // カテゴリフィルタ：日英両方のカテゴリ名でOR検索
+      categoryKeys.length > 0
+        ? sql`SELECT criterion, priority FROM clinic_decision_criteria
+               WHERE category = ANY(${categoryKeys})
                ORDER BY priority DESC LIMIT 15`
-        : sql`SELECT criterion FROM clinic_decision_criteria
+        : sql`SELECT criterion, priority FROM clinic_decision_criteria
                ORDER BY priority DESC LIMIT 20`,
       sql`SELECT content FROM employment_rules LIMIT 1`.catch(() => []),
+      // 等級制度（上位5件）
+      sql`SELECT name, level_number, description, requirements_promotion
+           FROM grade_levels
+           ORDER BY level_number ASC LIMIT 5`.catch(() => []),
+      // 行動基準（レッドゾーン上位10件）
+      sql`SELECT zone, title, description
+           FROM red_zone_rules
+           ORDER BY zone ASC, id ASC LIMIT 10`.catch(() => []),
     ]);
 
     // ⑤ クリニック理念
@@ -118,19 +144,36 @@ export async function buildSystemContext(
     }
 
     // ⑦ 就業規則
-    if (rulesRows[0]?.content) {
-      const rulesContent = rulesRows[0].content as string;
+    if ((rulesRows as any[])[0]?.content) {
+      const rulesContent = (rulesRows as any[])[0].content as string;
       const snippet = rulesContent.length > 1000
         ? extractRelevantRules(rulesContent)
         : rulesContent;
       blocks.push(`【就業規則（抜粋）】\n${snippet}`);
     }
 
-    // ⑧ AIの判断基準
+    // ⑧ AIの判断基準（カテゴリ別フィルタ対応）
     if ((criteriaRows as any[]).length > 0) {
       const criteriaText = (criteriaRows as any[]).map(r => `・${r.criterion}`).join('\n');
       blocks.push(`【AIの判断基準】\n${criteriaText}`);
     }
+
+    // ⑨ 等級制度（新規追加）
+    if ((gradeRows as any[]).length > 0) {
+      const gradeText = (gradeRows as any[])
+        .map(g => `G${g.level_number}（${g.name || ''}）：${(g.description || '').slice(0, 100)}`)
+        .join('\n');
+      blocks.push(`【等級制度（概要）】\n${gradeText}`);
+    }
+
+    // ⑩ 行動基準（新規追加）
+    if ((redZoneRows as any[]).length > 0) {
+      const zoneText = (redZoneRows as any[])
+        .map(r => `[${r.zone}] ${r.title}：${(r.description || '').slice(0, 60)}`)
+        .join('\n');
+      blocks.push(`【行動基準】\n${zoneText}`);
+    }
+
   } catch (e) {
     console.error('clinic-context error:', e);
   }

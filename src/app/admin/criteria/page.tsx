@@ -4,9 +4,9 @@ import { AITextReviser } from '@/components/clinic/AITextReviser';
 import { AIBrushupChat } from '@/components/clinic/AIBrushupChat';
 
 const CATS = [
-  { key: '', label: '全て' }, { key: 'philosophy', label: '理念' }, { key: 'grade', label: '等級' },
-  { key: 'evaluation', label: '評価' }, { key: 'strategy', label: '戦略' }, { key: 'hiring', label: '採用' },
-  { key: 'mindset', label: 'マインド' }, { key: 'handbook', label: 'ハンドブック' }, { key: 'growth', label: '成長哲学' },
+  { key: '', label: '全て' }, { key: '理念', label: '理念' }, { key: '等級', label: '等級' },
+  { key: '評価', label: '評価' }, { key: '戦略', label: '戦略' }, { key: '採用', label: '採用' },
+  { key: 'マインド', label: 'マインド' }, { key: 'ハンドブック', label: 'ハンドブック' }, { key: '成長哲学', label: '成長哲学' },
 ];
 
 export default function CriteriaPage() {
@@ -14,7 +14,7 @@ export default function CriteriaPage() {
   const [loading, setLoading] = useState(true);
   const [filterCat, setFilterCat] = useState('');
   const [showAdd, setShowAdd] = useState(false);
-  const [newCat, setNewCat] = useState('philosophy');
+  const [newCat, setNewCat] = useState('理念');
   const [newText, setNewText] = useState('');
   const [newPri, setNewPri] = useState(5);
   const [editId, setEditId] = useState<string | null>(null);

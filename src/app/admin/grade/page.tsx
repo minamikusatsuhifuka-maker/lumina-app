@@ -64,6 +64,10 @@ export default function GradePage() {
   const [aiSuggested, setAiSuggested] = useState('');
   const [savingDesc, setSavingDesc] = useState(false);
 
+  // 等級ブラッシュアップ
+  const [brushupLoading, setBrushupLoading] = useState(false);
+  const [brushupResult, setBrushupResult] = useState('');
+
   const fetchGrades = () => { fetch('/api/clinic/grades').then(r => r.json()).then(d => { if (Array.isArray(d)) { setGrades(d); if (!selectedPosition && d.length > 0) setSelectedPosition(d[0].position || ''); } setLoading(false); }); };
   useEffect(() => { fetchGrades(); }, []);
   useEffect(() => {
@@ -87,6 +91,26 @@ export default function GradePage() {
       const data = await res.json();
       setAiSuggested(data.suggested || '');
     } finally { setAiSuggesting(false); }
+  };
+
+  const brushupGrade = async (grade: any) => {
+    setBrushupLoading(true);
+    setBrushupResult('');
+    try {
+      const res = await fetch('/api/clinic/grades/brushup', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          gradeLevel: grade.level_number,
+          name: grade.name,
+          description: grade.description,
+          requirementsPromotion: grade.requirements_promotion,
+        }),
+      });
+      const data = await res.json();
+      if (data.result) setBrushupResult(data.result);
+    } catch { setBrushupResult('エラーが発生しました'); }
+    finally { setBrushupLoading(false); }
   };
 
   const positions = [...new Set(grades.map(g => g.position).filter(Boolean))] as string[];
@@ -417,7 +441,22 @@ export default function GradePage() {
 
             {/* タブ内容 */}
             <div style={{ marginBottom: 16 }}>
-              {detailTab === 'overview' && <div style={{ fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.8, whiteSpace: 'pre-wrap' }}>{selected.description || '未設定'}{selected.salary_min ? `\n\n💰 給与: ${selected.salary_min?.toLocaleString()}〜${selected.salary_max?.toLocaleString()}円` : ''}{selected.requirements_promotion ? `\n\n📈 昇格条件:\n${selected.requirements_promotion}` : ''}</div>}
+              {detailTab === 'overview' && (
+                <div>
+                  <div style={{ fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.8, whiteSpace: 'pre-wrap' }}>{selected.description || '未設定'}{selected.salary_min ? `\n\n💰 給与: ${selected.salary_min?.toLocaleString()}〜${selected.salary_max?.toLocaleString()}円` : ''}{selected.requirements_promotion ? `\n\n📈 昇格条件:\n${selected.requirements_promotion}` : ''}</div>
+                  <button onClick={() => brushupGrade(selected)} disabled={brushupLoading}
+                    style={{ marginTop: 12, padding: '8px 18px', borderRadius: 8, border: 'none', background: brushupLoading ? 'rgba(108,99,255,0.3)' : 'linear-gradient(135deg, #6c63ff, #8b5cf6)', color: '#fff', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>
+                    {brushupLoading ? '考え中...' : '🤖 AIでブラッシュアップ'}
+                  </button>
+                  {brushupResult && (
+                    <div style={{ marginTop: 12, padding: 14, background: 'rgba(108,99,255,0.05)', border: '1px solid rgba(108,99,255,0.15)', borderRadius: 10 }}>
+                      <div style={{ fontSize: 11, color: '#6c63ff', fontWeight: 700, marginBottom: 6 }}>🤖 AI提案</div>
+                      <div style={{ fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.7, whiteSpace: 'pre-wrap' }}>{brushupResult}</div>
+                      <button onClick={() => setBrushupResult('')} style={{ marginTop: 8, padding: '4px 12px', borderRadius: 6, border: '1px solid var(--border)', background: 'var(--bg-card)', color: 'var(--text-muted)', fontSize: 11, cursor: 'pointer' }}>閉じる</button>
+                    </div>
+                  )}
+                </div>
+              )}
               {detailTab === 'skills' && renderList(parseJson(selected.skills), 'スキル')}
               {detailTab === 'knowledge' && renderList(parseJson(selected.knowledge), '知識')}
               {detailTab === 'mindset' && renderList(parseJson(selected.mindset), 'マインド')}
