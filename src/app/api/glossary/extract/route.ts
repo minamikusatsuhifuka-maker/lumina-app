@@ -21,8 +21,8 @@ export async function POST(req: NextRequest) {
     body: JSON.stringify({
       model: 'claude-sonnet-4-6',
       max_tokens: 1000,
-      system: `あなたは技術用語抽出の専門家です。
-与えられたテキストから専門用語を抽出し、必ずJSON形式のみで返してください。
+      system: `あなたは専門用語抽出の専門家です。
+与えられたテキストからすべての専門用語・略語・英字表記を抽出し、必ずJSON形式のみで返してください。
 前置きや説明は不要です。
 
 {
@@ -30,27 +30,27 @@ export async function POST(req: NextRequest) {
     {
       "term": "用語名",
       "reading": "よみがな（あれば）",
-      "industry": "AI|Claude Code|技術スタック|AIセキュリティ|IT|general",
+      "industry": "AI|Claude Code|技術スタック|AIセキュリティ|IT|医療|法律|金融|マーケティング|経営|general",
       "level": "beginner|intermediate|advanced",
-      "reason": "なぜ専門用語と判断したか（10字以内）"
+      "reason": "なぜ専門用語か（10字以内）"
     }
   ]
 }
 
-抽出の優先順位（高い順）：
-1. AI・機械学習関連（LLM, RAG, Fine-tuning, Embedding, Transformer, MCP, プロンプトエンジニアリング等）
-2. Claude Code関連（CLAUDE.md, Artifacts, Tool use, Computer use, Hooks, Skill等）
-3. 技術スタック関連（Next.js, Prisma, Vercel, Neon, TypeScript, Tailwind等）
-4. AIセキュリティ関連（プロンプトインジェクション, ジェイルブレイク, ハルシネーション, データポイズニング等）
-5. 略語・英字表記（API, SDK, CI/CD, ORM, SSR, SSG, RBAC等）
-6. その他IT・業界用語
+抽出ルール（必ず守ること）：
+- 略語・英字表記（API, SDK, HL7, FHIR, JSON-RPC, OML, ORU等）は必ずすべて抽出する
+- カタカナ専門用語も必ず抽出する
+- 分野を問わずすべての専門用語を抽出する
+- 一般的な日常語のみ除外する
+- 最大15個まで
 
-抽出基準：
-- 略語・英字表記は必ず抽出する
-- カタカナ専門用語も抽出する
-- 一般的な日常語は除外する
-- 最大15個まで`,
-      messages: [{ role: 'user', content: `以下のテキストから専門用語を抽出してください：\n\n${text}` }],
+優先抽出分野：
+1. AI・機械学習（LLM, RAG, MCP, Embedding等）
+2. Claude Code（CLAUDE.md, Hooks, Tool use等）
+3. 技術スタック（Next.js, Prisma, API, SDK等）
+4. AIセキュリティ（プロンプトインジェクション等）
+5. 医療・その他あらゆる分野の専門用語・略語`,
+      messages: [{ role: 'user', content: `以下のテキストから専門用語をすべて抽出してください：\n\n${text}` }],
     }),
   });
 
