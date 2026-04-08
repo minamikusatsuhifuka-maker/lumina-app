@@ -9,8 +9,31 @@ const inter = Inter({ subsets: ['latin'], variable: '--font-inter' });
 const zenKaku = Zen_Kaku_Gothic_New({ subsets: ['latin'], weight: ['400', '700'], variable: '--font-zen' });
 
 export const metadata: Metadata = {
-  title: 'xLUMINA — AI Research & Writing Suite',
-  description: 'AI文献検索・情報収集・文章生成の統合プラットフォーム',
+  title: 'LUMINA — クリニックスタッフ成長支援プラットフォーム',
+  description: 'スタッフの成長を、AIが支える。評価・1on1・採用・等級制度をひとつのプラットフォームで。',
+  metadataBase: new URL('https://xlumina.jp'),
+  openGraph: {
+    title: 'LUMINA — クリニックスタッフ成長支援プラットフォーム',
+    description: 'スタッフの成長を、AIが支える。評価・1on1・採用・等級制度をひとつのプラットフォームで。',
+    url: 'https://xlumina.jp',
+    siteName: 'LUMINA',
+    images: [
+      {
+        url: '/api/og',
+        width: 1200,
+        height: 630,
+        alt: 'LUMINA — クリニックスタッフ成長支援プラットフォーム',
+      },
+    ],
+    locale: 'ja_JP',
+    type: 'website',
+  },
+  twitter: {
+    card: 'summary_large_image',
+    title: 'LUMINA — クリニックスタッフ成長支援プラットフォーム',
+    description: 'スタッフの成長を、AIが支える。',
+    images: ['/api/og'],
+  },
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
