@@ -16,6 +16,8 @@ export function SaveToLibraryButton({ title, content, type, groupName, tags, met
   const [showFavoriteOption, setShowFavoriteOption] = useState(false);
   const [savedId, setSavedId] = useState<string | null>(null);
   const [toast, setToast] = useState('');
+  const [memorizing, setMemorizing] = useState(false);
+  const [memorized, setMemorized] = useState(false);
 
   const showToast = (msg: string) => {
     setToast(msg);
@@ -95,6 +97,40 @@ export function SaveToLibraryButton({ title, content, type, groupName, tags, met
           }}
         >
           {saving ? '保存中...' : saved ? '✅ 保存済み' : '📚 ライブラリに保存'}
+        </button>
+
+        {/* 🧠 記憶するボタン */}
+        <button
+          onClick={async () => {
+            if (!content || memorizing) return;
+            setMemorizing(true);
+            try {
+              const res = await fetch('/api/memory/summarize', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ content, title, sourceType: groupName, category: groupName }),
+              });
+              if (res.ok) {
+                setMemorized(true);
+                showToast('🧠 AIメモリに記憶しました！');
+              } else {
+                showToast('❌ メモリ保存に失敗しました');
+              }
+            } catch { showToast('❌ メモリ保存に失敗しました'); }
+            finally { setMemorizing(false); }
+          }}
+          disabled={memorizing || memorized || !content}
+          style={{
+            padding: '8px 16px',
+            background: memorized ? 'rgba(108,99,255,0.15)' : 'rgba(108,99,255,0.08)',
+            border: `1px solid ${memorized ? 'rgba(108,99,255,0.4)' : 'rgba(108,99,255,0.2)'}`,
+            borderRadius: 8, color: memorized ? '#6c63ff' : '#a89fff', fontSize: 13, fontWeight: 600,
+            cursor: memorizing || memorized || !content ? 'not-allowed' : 'pointer',
+            opacity: !content ? 0.5 : 1,
+            display: 'flex', alignItems: 'center', gap: 6,
+          }}
+        >
+          {memorizing ? '記憶中...' : memorized ? '🧠 記憶済み' : '🧠 記憶する'}
         </button>
 
         {/* お気に入りボタン（保存後に表示） */}

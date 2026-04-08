@@ -1,10 +1,27 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { auth } from '@/lib/auth';
+import { fetchUserMemories } from '@/lib/memory';
 
 export const maxDuration = 120;
 
 export async function POST(req: NextRequest) {
   const { question, context } = await req.json();
   const apiKey = process.env.ANTHROPIC_API_KEY!;
+
+  // メモリ取得（ログイン中なら）
+  let memoryContext = '';
+  try {
+    const session = await auth();
+    if (session) {
+      const userId = (session.user as any).id;
+      memoryContext = await fetchUserMemories(userId, 10);
+    }
+  } catch {}
+
+  const basePrompt = `あなたは優秀なリサーチアシスタントです。
+提供された調査結果をベースに、ユーザーの質問に詳しく答えてください。
+回答は日本語で、具体的かつ簡潔にまとめてください。
+過去のメモリ情報がある場合は「以前調べた〇〇によると」のように自然に参照してください。`;
 
   const response = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
@@ -16,14 +33,10 @@ export async function POST(req: NextRequest) {
     body: JSON.stringify({
       model: 'claude-sonnet-4-6',
       max_tokens: 2000,
-      tools: [{ type: 'web_search_20250305', name: 'web_search' }],
-      system: `あなたは優秀なリサーチアシスタントです。
-提供された調査結果をベースに、ユーザーの質問に詳しく答えてください。
-必要に応じてWeb検索で最新情報を補完してください。
-回答は日本語で、具体的かつ簡潔にまとめてください。`,
+      system: basePrompt + memoryContext,
       messages: [{
         role: 'user',
-        content: `【調査結果（コンテキスト）】\n${context.slice(0, 3000)}\n\n【質問】\n${question}`,
+        content: `【調査結果（コンテキスト）】\n${context?.slice(0, 3000) ?? ''}\n\n【質問】\n${question}`,
       }],
     }),
   });

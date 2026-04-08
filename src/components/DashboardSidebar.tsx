@@ -42,6 +42,7 @@ const navCategories: NavCategory[] = [
     category: '管理・設定',
     items: [
       { href: '/dashboard/library', label: 'ライブラリ', icon: '📚' },
+      { href: '/dashboard/memory', label: 'AIメモリ', icon: '🧠' },
       { href: '/dashboard/glossary', label: '用語解説', icon: '📘' },
       { href: '/dashboard/guide', label: '活用ガイド', icon: '📖' },
       { href: '/dashboard', label: 'ダッシュボード', icon: '🏠' },

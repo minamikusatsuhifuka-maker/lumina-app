@@ -21,6 +21,20 @@ export async function POST(req: NextRequest) {
   const userId = (session.user as any).id;
   await sql`INSERT INTO library (id, user_id, type, title, content, metadata, tags, group_name, is_favorite, folder_name)
     VALUES (${id}, ${userId}, ${type}, ${title}, ${content || ''}, ${JSON.stringify(metadata || {})}, ${tags || ''}, ${group_name || '未分類'}, ${is_favorite ? 1 : 0}, ${folder_name || null})`;
+
+  // ライブラリ保存後に非同期でメモリ化（レスポンスを待たない）
+  const baseUrl = process.env.NEXTAUTH_URL || process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'http://localhost:3000';
+  fetch(`${baseUrl}/api/memory/summarize`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', cookie: req.headers.get('cookie') ?? '' },
+    body: JSON.stringify({
+      content: content || '',
+      title: title ?? '',
+      sourceType: group_name ?? 'library',
+      category: group_name ?? 'general',
+    }),
+  }).catch(() => {}); // エラーは無視
+
   return NextResponse.json({ success: true, id });
 }
 

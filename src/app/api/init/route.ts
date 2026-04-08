@@ -378,6 +378,20 @@ export async function GET() {
       updated_at TIMESTAMP DEFAULT NOW()
     )`;
 
+    // AIメモリ
+    await sql`CREATE TABLE IF NOT EXISTS memory_items (
+      id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
+      user_id TEXT NOT NULL,
+      summary TEXT NOT NULL,
+      category TEXT NOT NULL DEFAULT 'general',
+      source_type TEXT NOT NULL DEFAULT 'library',
+      source_title TEXT,
+      keywords TEXT NOT NULL DEFAULT '',
+      created_at TIMESTAMP DEFAULT NOW()
+    )`;
+    await sql`CREATE INDEX IF NOT EXISTS idx_memory_items_user ON memory_items (user_id)`;
+    await sql`CREATE INDEX IF NOT EXISTS idx_memory_items_user_cat ON memory_items (user_id, category)`;
+
     return NextResponse.json({ success: true, message: '全テーブル初期化完了' });
   } catch (e: any) {
     return NextResponse.json({ error: e.message }, { status: 500 });
