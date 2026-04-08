@@ -2,6 +2,7 @@
 import { useState, useEffect } from 'react';
 import { AIDialogueButton } from '@/components/clinic/AIDialogueButton';
 import { AITextReviser } from '@/components/clinic/AITextReviser';
+import { AIBrushupChat } from '@/components/clinic/AIBrushupChat';
 
 const ZONES = [
   { key: 'red', label: 'レッド', icon: '🔴', desc: '即退職レベル', color: '#ef4444', bg: 'rgba(239,68,68,0.06)', border: 'rgba(239,68,68,0.2)' },
@@ -469,6 +470,10 @@ export default function ZoneManagementPage() {
       )}
 
       <AIDialogueButton contextType="evaluation" contextLabel="行動基準・4ゾーン" />
+      <AIBrushupChat
+        contextLabel="行動基準"
+        contextContent={rules.map((r: any) => `[${r.zone}] ${r.title}: ${r.description}`).join('\n')}
+      />
     </div>
   );
 }

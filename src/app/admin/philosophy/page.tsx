@@ -3,6 +3,7 @@ import { useState, useEffect, useRef } from 'react';
 import { ModelBadge } from '@/components/ModelBadge';
 import { AIDialogueButton } from '@/components/clinic/AIDialogueButton';
 import { AITextReviser } from '@/components/clinic/AITextReviser';
+import { AIBrushupChat } from '@/components/clinic/AIBrushupChat';
 
 type Analysis = {
   coreValues: string[];
@@ -574,6 +575,10 @@ export default function PhilosophyPage() {
         </div>
       )}
       <AIDialogueButton contextType="philosophy" contextLabel="クリニック理念・ビジョン" />
+      <AIBrushupChat
+        contextLabel="理念"
+        contextContent={saved?.content || manualContent || ''}
+      />
     </div>
   );
 }

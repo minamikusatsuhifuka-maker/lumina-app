@@ -1,6 +1,7 @@
 'use client';
 import { useState, useEffect } from 'react';
 import { AITextReviser } from '@/components/clinic/AITextReviser';
+import { AIBrushupChat } from '@/components/clinic/AIBrushupChat';
 
 const CATS = [
   { key: '', label: '全て' }, { key: 'philosophy', label: '理念' }, { key: 'grade', label: '等級' },
@@ -147,6 +148,10 @@ export default function CriteriaPage() {
           ))}
         </div>
       )}
+      <AIBrushupChat
+        contextLabel="AI判断基準"
+        contextContent={criteria.map((c: any) => `[${c.category}] ${c.criterion}`).join('\n')}
+      />
     </div>
   );
 }

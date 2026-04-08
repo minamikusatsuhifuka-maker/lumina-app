@@ -3,6 +3,7 @@ import { useState, useEffect } from 'react';
 import { ModelBadge } from '@/components/ModelBadge';
 import { AIDialogueButton } from '@/components/clinic/AIDialogueButton';
 import { AITextReviser } from '@/components/clinic/AITextReviser';
+import { AIBrushupChat } from '@/components/clinic/AIBrushupChat';
 
 type DetailTab = 'overview' | 'skills' | 'knowledge' | 'mindset' | 'learning' | 'certs' | 'exam' | 'demotion';
 
@@ -514,6 +515,10 @@ export default function GradePage() {
           </div>
         </div>
       )}
+      <AIBrushupChat
+        contextLabel="等級制度"
+        contextContent="現在編集中の等級制度ページ"
+      />
     </div>
   );
 }

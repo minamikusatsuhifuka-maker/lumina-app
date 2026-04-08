@@ -2,6 +2,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { AIDialogueButton } from '@/components/clinic/AIDialogueButton';
 import { AITextReviser } from '@/components/clinic/AITextReviser';
+import { AIBrushupChat } from '@/components/clinic/AIBrushupChat';
 
 export default function EmploymentRulesPage() {
   const [title, setTitle] = useState('');
@@ -232,6 +233,10 @@ export default function EmploymentRulesPage() {
       )}
 
       <AIDialogueButton contextType="handbook" contextLabel="就業規則" />
+      <AIBrushupChat
+        contextLabel="就業規則"
+        contextContent={content || saved?.content || ''}
+      />
     </div>
   );
 }
