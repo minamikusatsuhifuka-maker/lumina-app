@@ -1,6 +1,7 @@
 'use client';
 import { useState } from 'react';
 import { SaveToLibraryButton } from '@/components/SaveToLibraryButton';
+import { VoiceInputButton } from '@/components/VoiceInputButton';
 
 const PHASES = [
   { id: 'expand', label: '🌊 発散', desc: 'アイデアを20個以上出す', color: '#6c63ff' },
@@ -59,6 +60,7 @@ export default function BrainstormPage() {
       {/* テーマ入力 */}
       <div style={{ display: 'flex', gap: 10, marginBottom: 12 }}>
         <input type="text" value={theme} onChange={e => setTheme(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') e.preventDefault(); }} placeholder="ブレインストーミングのテーマを入力..." style={{ flex: 1, padding: '12px 16px', background: 'var(--input-bg)', border: '1px solid var(--input-border)', borderRadius: 10, color: 'var(--text-primary)', fontSize: 14, outline: 'none' }} />
+        <VoiceInputButton size="sm" onResult={(text) => setTheme(prev => prev + text)} />
       </div>
       <div style={{ display: 'flex', gap: 6, marginBottom: 20, flexWrap: 'wrap' }}>
         {THEMES.map(t => <button key={t} onClick={() => setTheme(t)} style={{ padding: '4px 12px', borderRadius: 20, border: '1px solid var(--border)', background: 'var(--bg-card)', color: 'var(--text-muted)', fontSize: 12, cursor: 'pointer' }}>{t}</button>)}

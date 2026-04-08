@@ -1,6 +1,7 @@
 'use client';
 import { useState } from 'react';
 import { ProgressBar } from '@/components/ProgressBar';
+import { VoiceInputButton } from '@/components/VoiceInputButton';
 import { useProgress } from '@/components/useProgress';
 
 const QUICK_SEARCHES = [
@@ -275,6 +276,8 @@ export default function WebSearchPage() {
           onChange={e => setQuery(e.target.value)}
           placeholder="調べたいテーマを入力（例：2026年のAI最新動向）"
           style={{ flex: 1, padding: '12px 16px', background: 'var(--bg-secondary)', border: '1px solid rgba(0,212,184,0.3)', borderRadius: 10, color: 'var(--text-primary)', fontSize: 15, outline: 'none' }}
+        />
+        <VoiceInputButton size="sm" onResult={(text) => setQuery(prev => prev + text)}
         />
         <button onClick={() => search()} disabled={loading} style={{ padding: '12px 24px', background: 'linear-gradient(135deg, #00d4b8, #00b4d8)', color: '#0a0e12', border: 'none', borderRadius: 10, fontWeight: 700, cursor: 'pointer', fontSize: 14 }}>
           {loading ? '調査中...' : '🔍 調査'}

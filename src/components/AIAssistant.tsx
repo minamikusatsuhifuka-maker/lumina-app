@@ -1,5 +1,6 @@
 'use client';
 import { useState, useRef, useEffect, useCallback } from 'react';
+import { VoiceInputButton } from '@/components/VoiceInputButton';
 
 type Message = { role: 'user' | 'assistant'; content: string; };
 type ChatSize = 'normal' | 'max';
@@ -233,6 +234,7 @@ export function AIAssistant() {
               placeholder="メッセージを入力..."
               style={{ flex: 1, padding: '8px 12px', background: 'var(--input-bg)', border: '1px solid var(--input-border)', borderRadius: 20, color: 'var(--text-primary)', fontSize: 13, outline: 'none' }}
             />
+            <VoiceInputButton size="sm" onResult={(text) => setInput(prev => prev + text)} />
             <button onClick={send} disabled={loading || !input.trim()} style={{ width: 36, height: 36, borderRadius: '50%', border: 'none', background: loading || !input.trim() ? 'rgba(108,99,255,0.3)' : 'linear-gradient(135deg, #6c63ff, #8b5cf6)', color: '#fff', cursor: loading || !input.trim() ? 'not-allowed' : 'pointer', fontSize: 14, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
               ↑
             </button>

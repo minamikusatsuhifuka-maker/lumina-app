@@ -1,6 +1,7 @@
 'use client';
 import { useState } from 'react';
 import { ProgressBar } from '@/components/ProgressBar';
+import { VoiceInputButton } from '@/components/VoiceInputButton';
 import { useProgress } from '@/components/useProgress';
 import { SaveToLibraryButton } from '@/components/SaveToLibraryButton';
 
@@ -208,6 +209,7 @@ export default function IntelligencePage() {
           placeholder={`${SEARCH_MODES.find(m2=>m2.id===mode)?.desc || ''}のキーワードを入力`}
           style={{ flex: 1, padding: '12px 16px', background: 'var(--bg-secondary)', border: '1px solid var(--border-accent)', borderRadius: 10, color: 'var(--text-primary)', fontSize: 14, outline: 'none' }}
         />
+        <VoiceInputButton size="sm" onResult={(text) => setQuery(prev => prev + text)} />
         <button
           onClick={() => search()}
           disabled={loading}

@@ -1,6 +1,7 @@
 'use client';
 import { useState } from 'react';
 import { SaveToLibraryButton } from '@/components/SaveToLibraryButton';
+import { VoiceInputButton } from '@/components/VoiceInputButton';
 
 const TEMPLATES = [
   { label: '定例会議', text: '参加者：田中、鈴木、佐藤\n日時：毎週月曜10時\n\n・先週のタスク確認\n・今週の目標設定\n・課題の共有' },
@@ -63,13 +64,18 @@ export default function MinutesPage() {
       </div>
 
       {/* 入力 */}
-      <textarea
-        value={text}
-        onChange={e => setText(e.target.value)}
-        placeholder="会議メモ・議事録のテキストをここに貼り付けてください..."
-        rows={10}
-        style={{ width: '100%', padding: '14px 16px', background: 'var(--input-bg)', border: '1px solid var(--input-border)', borderRadius: 12, color: 'var(--text-primary)', fontSize: 14, lineHeight: 1.7, resize: 'vertical', outline: 'none', boxSizing: 'border-box' }}
-      />
+      <div style={{ position: 'relative' }}>
+        <textarea
+          value={text}
+          onChange={e => setText(e.target.value)}
+          placeholder="会議メモ・議事録のテキストをここに貼り付けてください..."
+          rows={10}
+          style={{ width: '100%', padding: '14px 16px', paddingRight: 48, background: 'var(--input-bg)', border: '1px solid var(--input-border)', borderRadius: 12, color: 'var(--text-primary)', fontSize: 14, lineHeight: 1.7, resize: 'vertical', outline: 'none', boxSizing: 'border-box' }}
+        />
+        <div style={{ position: 'absolute', right: 10, bottom: 10 }}>
+          <VoiceInputButton size="sm" onResult={(text) => setText(prev => prev + text)} />
+        </div>
+      </div>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 10, marginBottom: 20 }}>
         <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>{text.length}文字</span>
         <button onClick={analyze} disabled={loading || !text.trim()} style={{ padding: '11px 28px', borderRadius: 10, border: 'none', cursor: loading || !text.trim() ? 'not-allowed' : 'pointer', background: loading || !text.trim() ? 'rgba(108,99,255,0.3)' : 'linear-gradient(135deg, #6c63ff, #8b5cf6)', color: '#fff', fontWeight: 700, fontSize: 14 }}>

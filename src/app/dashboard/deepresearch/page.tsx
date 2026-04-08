@@ -1,6 +1,7 @@
 'use client';
 import { useState } from 'react';
 import { ProgressBar } from '@/components/ProgressBar';
+import { VoiceInputButton } from '@/components/VoiceInputButton';
 import { useProgress } from '@/components/useProgress';
 import { SaveToLibraryButton } from '@/components/SaveToLibraryButton';
 
@@ -171,12 +172,17 @@ export default function DeepResearchPage() {
       <div style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 14, padding: 20, marginBottom: 20 }}>
         <div style={{ marginBottom: 12 }}>
           <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.06em' }}>リサーチトピック</div>
-          <textarea
-            value={topic}
-            onChange={e => setTopic(e.target.value)}
-            placeholder={'調査したいテーマを詳しく入力してください\n例：AIを活用したブログ記事の自動生成と収益化の最新事例'}
-            style={{ width: '100%', minHeight: 80, background: 'var(--bg-primary)', border: '1px solid var(--border)', borderRadius: 8, color: 'var(--text-primary)', fontSize: 14, padding: 12, resize: 'vertical', outline: 'none', fontFamily: 'inherit', lineHeight: 1.7, boxSizing: 'border-box' }}
-          />
+          <div style={{ position: 'relative' }}>
+            <textarea
+              value={topic}
+              onChange={e => setTopic(e.target.value)}
+              placeholder={'調査したいテーマを詳しく入力してください\n例：AIを活用したブログ記事の自動生成と収益化の最新事例'}
+              style={{ width: '100%', minHeight: 80, background: 'var(--bg-primary)', border: '1px solid var(--border)', borderRadius: 8, color: 'var(--text-primary)', fontSize: 14, padding: 12, paddingRight: 48, resize: 'vertical', outline: 'none', fontFamily: 'inherit', lineHeight: 1.7, boxSizing: 'border-box' }}
+            />
+            <div style={{ position: 'absolute', right: 10, bottom: 10 }}>
+              <VoiceInputButton size="sm" onResult={(text) => setTopic(prev => prev + text)} />
+            </div>
+          </div>
         </div>
 
         <div style={{ display: 'flex', gap: 8, marginBottom: 14 }}>
