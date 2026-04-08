@@ -40,7 +40,7 @@ ${latestMeeting ? `成長段階: ${latestMeeting.stage} / マインド: ${latest
   try {
     const response = await callAI({
       model: model || 'claude',
-      system: 'あなたはLUMINAクリニックの人事評価AIです。4つの実（実行・実績・実力・誠実）で評価します。JSONのみ返してください。',
+      system: 'あなたはxLUMINAクリニックの人事評価AIです。4つの実（実行・実績・実力・誠実）で評価します。JSONのみ返してください。',
       messages: [{ role: 'user', content: prompt }],
       maxTokens: 600,
     });

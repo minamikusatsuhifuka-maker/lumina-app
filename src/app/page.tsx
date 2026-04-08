@@ -7,8 +7,8 @@ export default function LandingPage() {
       {/* ナビゲーション */}
       <nav style={{ position: 'fixed' as const, top: 0, left: 0, right: 0, zIndex: 100, padding: '16px 40px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'rgba(7,8,15,0.8)', backdropFilter: 'blur(12px)', borderBottom: '1px solid rgba(130,140,255,0.1)' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          <div style={{ width: 32, height: 32, background: 'linear-gradient(135deg, #6c63ff, #00d4b8)', borderRadius: 8, display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, fontSize: 16 }}>L</div>
-          <span style={{ fontSize: 18, fontWeight: 700, letterSpacing: '-0.02em' }}>LUMINA</span>
+          <div style={{ width: 32, height: 32, background: 'linear-gradient(135deg, #6c63ff, #00d4b8)', borderRadius: 8, display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, fontSize: 16 }}>x</div>
+          <span style={{ fontSize: 18, fontWeight: 700, letterSpacing: '-0.02em' }}>xLUMINA</span>
         </div>
         <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
           <Link href="/auth" style={{ padding: '8px 20px', borderRadius: 8, border: '1px solid rgba(130,140,255,0.3)', color: '#a89fff', textDecoration: 'none', fontSize: 14, fontWeight: 500 }}>
@@ -37,7 +37,7 @@ export default function LandingPage() {
 
         <p style={{ fontSize: 18, color: '#7878a0', lineHeight: 1.7, maxWidth: 600, margin: '0 auto 40px' }}>
           最新ニュース収集・学術論文検索・SWOT分析・MVV策定・採用戦略・文章生成まで。
-          経営に必要なすべてをLUMINAひとつで。
+          経営に必要なすべてをxLUMINAひとつで。
         </p>
 
         <div style={{ display: 'flex', gap: 12, justifyContent: 'center', flexWrap: 'wrap' as const }}>
@@ -237,10 +237,10 @@ export default function LandingPage() {
       {/* フッター */}
       <footer style={{ padding: '32px 40px', borderTop: '1px solid rgba(130,140,255,0.1)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap' as const, gap: 12 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <div style={{ width: 24, height: 24, background: 'linear-gradient(135deg, #6c63ff, #00d4b8)', borderRadius: 6, display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, fontSize: 12 }}>L</div>
-          <span style={{ fontSize: 14, fontWeight: 600 }}>LUMINA</span>
+          <div style={{ width: 24, height: 24, background: 'linear-gradient(135deg, #6c63ff, #00d4b8)', borderRadius: 6, display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, fontSize: 12 }}>x</div>
+          <span style={{ fontSize: 14, fontWeight: 600 }}>xLUMINA</span>
         </div>
-        <div style={{ fontSize: 13, color: '#5a5a7a' }}>© 2026 LUMINA. AI Research & Writing Suite.</div>
+        <div style={{ fontSize: 13, color: '#5a5a7a' }}>© 2026 xLUMINA. AI Research & Writing Suite.</div>
         <div style={{ display: 'flex', gap: 20 }}>
           <Link href="/auth" style={{ fontSize: 13, color: '#7878a0', textDecoration: 'none' }}>ログイン</Link>
           <Link href="/auth" style={{ fontSize: 13, color: '#7878a0', textDecoration: 'none' }}>新規登録</Link>

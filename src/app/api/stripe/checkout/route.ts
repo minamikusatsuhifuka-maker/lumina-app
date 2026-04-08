@@ -23,7 +23,7 @@ export async function POST(req: NextRequest) {
         price_data: {
           currency: 'jpy',
           product_data: {
-            name: 'LUMINA Pro',
+            name: 'xLUMINA Pro',
             description: '全機能無制限・優先サポート',
           },
           unit_amount: 2980,

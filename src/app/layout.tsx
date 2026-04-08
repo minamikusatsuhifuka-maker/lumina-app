@@ -9,7 +9,7 @@ const inter = Inter({ subsets: ['latin'], variable: '--font-inter' });
 const zenKaku = Zen_Kaku_Gothic_New({ subsets: ['latin'], weight: ['400', '700'], variable: '--font-zen' });
 
 export const metadata: Metadata = {
-  title: 'LUMINA — AI Research & Writing Suite',
+  title: 'xLUMINA — AI Research & Writing Suite',
   description: 'AI文献検索・情報収集・文章生成の統合プラットフォーム',
 };
 

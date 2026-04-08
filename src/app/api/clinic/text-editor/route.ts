@@ -42,7 +42,7 @@ export async function POST(req: Request) {
       body: JSON.stringify({
         model: 'claude-sonnet-4-6',
         max_tokens: 1000,
-        system: `あなたはLUMINAクリニックの文書改善AIです。院長の哲学：ティール組織・先払い・実評価・リードマネジメント。修正した文章のみを返してください。説明不要。`,
+        system: `あなたはxLUMINAクリニックの文書改善AIです。院長の哲学：ティール組織・先払い・実評価・リードマネジメント。修正した文章のみを返してください。説明不要。`,
         messages: [{
           role: 'user',
           content: `以下の文章を${purposePrompt}\n\n【修正対象】\n${truncated}\n\n修正後の文章のみ返してください。`,

@@ -52,7 +52,7 @@ export default function PricingPage() {
   return (
     <div>
       <h1 style={{ fontSize: 28, fontWeight: 700, color: '#f0f0ff', marginBottom: 4 }}>💳 プランを選ぶ</h1>
-      <p style={{ color: 'var(--text-muted)', marginBottom: 32 }}>あなたのビジネスに最適なプランで、LUMINAをフル活用してください</p>
+      <p style={{ color: 'var(--text-muted)', marginBottom: 32 }}>あなたのビジネスに最適なプランで、xLUMINAをフル活用してください</p>
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 20, maxWidth: 800 }}>
         {PLANS.map(plan => (

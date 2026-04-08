@@ -1,5 +1,6 @@
 'use client';
 import { useState, useEffect } from 'react';
+import Link from 'next/link';
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid,
   Tooltip, Legend,
@@ -113,7 +114,12 @@ export default function OneOnOnePage() {
 
   return (
     <div style={{ maxWidth: 1000, margin: '0 auto', paddingBottom: 80 }}>
-      <h1 style={{ fontSize: 26, fontWeight: 700, marginBottom: 4 }}>🤝 1on1ミーティング</h1>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+        <h1 style={{ fontSize: 26, fontWeight: 700, color: 'var(--text-primary)' }}>🤝 1on1ミーティング</h1>
+        <Link href="/admin/one-on-one/staff" style={{ padding: '8px 16px', borderRadius: 8, background: 'linear-gradient(135deg, #6c63ff, #8b5cf6)', color: '#fff', textDecoration: 'none', fontSize: 13, fontWeight: 700 }}>
+          👤 スタッフ別サマリー
+        </Link>
+      </div>
       <p style={{ color: 'var(--text-muted)', fontSize: 13, marginBottom: 20 }}>
         スタッフとの対話を記録・AI分析・成長を可視化
       </p>

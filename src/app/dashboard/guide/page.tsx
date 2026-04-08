@@ -20,11 +20,11 @@ type Section = {
 const sections: Section[] = [
   {
     id: 'overview',
-    title: 'LUMINAとは？',
+    title: 'xLUMINAとは？',
     emoji: '🌟',
     tagline: 'AIがあなたの「頭脳」になる',
-    forWho: '初めてLUMINAを使う方・全員',
-    content: `LUMINAは、AIを使って「情報収集→分析→文章作成」をまとめてやってくれるツールです。\n\nたとえば「競合他社を調べて、自社の戦略をまとめて、提案書を書く」という3時間かかる作業が、LUMINAなら15分でできます。`,
+    forWho: '初めてxLUMINAを使う方・全員',
+    content: `xLUMINAは、AIを使って「情報収集→分析→文章作成」をまとめてやってくれるツールです。\n\nたとえば「競合他社を調べて、自社の戦略をまとめて、提案書を書く」という3時間かかる作業が、xLUMINAなら15分でできます。`,
     steps: [
       { text: 'まずダッシュボードを開く' },
       { text: '「Web情報収集」で気になるテーマを検索してみる' },
@@ -38,7 +38,7 @@ const sections: Section[] = [
     ],
     faqs: [
       { q: '無料で全機能使えますか？', a: '基本機能は無料で使えます。より高度な機能はProプラン（月額¥2,980）をご検討ください。' },
-      { q: 'AIが間違えることはありますか？', a: 'あります。特に数字・固有名詞・最新情報は必ず出典を確認しましょう。LUMINAは出典URLも一緒に表示します。' },
+      { q: 'AIが間違えることはありますか？', a: 'あります。特に数字・固有名詞・最新情報は必ず出典を確認しましょう。xLUMINAは出典URLも一緒に表示します。' },
     ],
   },
   {
@@ -169,7 +169,7 @@ const sections: Section[] = [
     emoji: '💼',
     tagline: '経営の7つの課題をAIが一気に解決',
     forWho: '経営者・管理職・人事担当者・起業を考えている方',
-    content: `MVV策定・マーケ戦略・ブランド・採用・人材育成・組織設計の7種類の経営課題をAIが支援します。\n\nコンサルタントに頼むような作業を、LUMINAなら数分でできます。`,
+    content: `MVV策定・マーケ戦略・ブランド・採用・人材育成・組織設計の7種類の経営課題をAIが支援します。\n\nコンサルタントに頼むような作業を、xLUMINAなら数分でできます。`,
     steps: [
       { text: '「経営インテリジェンス」を開く' },
       { text: '7つの機能から課題に合ったものを選ぶ' },
@@ -213,7 +213,7 @@ const sections: Section[] = [
     title: '最強ワークフロー',
     emoji: '🚀',
     tagline: '機能を組み合わせると効果が10倍になる',
-    forWho: 'LUMINAを使いこなしたい方・業務を大幅に効率化したい方',
+    forWho: 'xLUMINAを使いこなしたい方・業務を大幅に効率化したい方',
     content: `各機能を単独で使うより、組み合わせて使うほうが圧倒的に効果が出ます。\n\nよく使われる4つのワークフローを紹介します。`,
     steps: [
       { text: '【新規事業検討】Web情報収集（市場調査）→ ディープリサーチ（深掘り）→ AI分析・SWOT分析 → 経営インテリジェンス（事業計画）→ 文章作成（提案書）' },
@@ -244,7 +244,7 @@ export default function GuidePage() {
       {/* ヘッダー */}
       <div style={{ marginBottom: 28 }}>
         <h1 style={{ fontSize: 26, fontWeight: 700, color: '#f0f0ff', marginBottom: 4 }}>
-          📖 LUMINA 活用ガイド
+          📖 xLUMINA 活用ガイド
         </h1>
         <p style={{ color: 'var(--text-muted)', fontSize: 13 }}>
           中学生でもわかるやさしい解説。具体例・手順・よくある質問付き。

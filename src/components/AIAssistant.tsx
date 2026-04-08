@@ -11,7 +11,7 @@ export function AIAssistant() {
   const [open, setOpen] = useState(false);
   const [chatSize, setChatSize] = useState<ChatSize>('normal');
   const [messages, setMessages] = useState<Message[]>([
-    { role: 'assistant', content: 'こんにちは！LUMINAアシスタントです。何でも聞いてください 😊\n\n例：「競合分析の結果を要約して」「このデータからSNS投稿を作って」' }
+    { role: 'assistant', content: 'こんにちは！xLUMINAアシスタントです。何でも聞いてください 😊\n\n例：「競合分析の結果を要約して」「このデータからSNS投稿を作って」' }
   ]);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
@@ -52,7 +52,7 @@ export function AIAssistant() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           question: userMsg,
-          context: 'LUMINAというAIビジネスインテリジェンスプラットフォームのアシスタントとして回答してください。',
+          context: 'xLUMINAというAIビジネスインテリジェンスプラットフォームのアシスタントとして回答してください。',
         }),
       });
       const data = await res.json();
@@ -168,7 +168,7 @@ export function AIAssistant() {
           <div style={{ padding: '14px 16px', background: 'linear-gradient(135deg, #6c63ff, #8b5cf6)', display: 'flex', alignItems: 'center', gap: 10 }}>
             <span style={{ fontSize: 18 }}>🤖</span>
             <div style={{ flex: 1 }}>
-              <div style={{ fontSize: 13, fontWeight: 700, color: '#fff' }}>LUMINAアシスタント</div>
+              <div style={{ fontSize: 13, fontWeight: 700, color: '#fff' }}>xLUMINAアシスタント</div>
               <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.7)' }}>AI powered by Claude</div>
             </div>
             <button

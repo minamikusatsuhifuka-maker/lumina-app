@@ -38,8 +38,8 @@ function AuthForm() {
       <div style={{ width: '100%', maxWidth: 420 }}>
         <div style={{ textAlign: 'center', marginBottom: 32 }}>
           <Link href="/" style={{ textDecoration: 'none' }}>
-            <div style={{ width: 48, height: 48, background: 'linear-gradient(135deg, #6c63ff, #00d4b8)', borderRadius: 12, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 22, fontWeight: 700, color: '#fff', margin: '0 auto 12px' }}>L</div>
-            <div style={{ fontSize: 24, fontWeight: 700, color: '#f0f0ff' }}>LUMINA</div>
+            <div style={{ width: 48, height: 48, background: 'linear-gradient(135deg, #6c63ff, #00d4b8)', borderRadius: 12, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 22, fontWeight: 700, color: '#fff', margin: '0 auto 12px' }}>x</div>
+            <div style={{ fontSize: 24, fontWeight: 700, color: '#f0f0ff' }}>xLUMINA</div>
           </Link>
         </div>
         <div style={{ background: '#12142a', border: '1px solid rgba(130,140,255,0.15)', borderRadius: 16, padding: 32 }}>

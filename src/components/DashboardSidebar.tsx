@@ -4,26 +4,49 @@ import Link from 'next/link';
 import { SignOutButton } from '@/components/SignOutButton';
 import { ThemeSelector } from './ThemeSelector';
 
-const navItems = [
-  { href: '/dashboard', label: 'ダッシュボード', icon: '🏠' },
-  { href: '/dashboard/workflow', label: 'ワークフロー', icon: '⚡' },
-  { href: '/dashboard/intelligence', label: 'Intelligence Hub', icon: '🧠' },
-  { href: '/dashboard/analysis', label: 'AI分析エンジン', icon: '🧩' },
-  { href: '/dashboard/strategy', label: '経営インテリジェンス', icon: '💼' },
-  { href: '/dashboard/personas', label: 'AIペルソナ', icon: '🤖' },
-  { href: '/dashboard/research', label: '文献検索', icon: '🔬' },
-  { href: '/dashboard/websearch', label: 'Web情報収集', icon: '🌐' },
-  { href: '/dashboard/note', label: 'note検索', icon: '📓' },
-  { href: '/dashboard/deepresearch', label: 'ディープリサーチ', icon: '🔭' },
-  { href: '/dashboard/write', label: '文章作成', icon: '✍️' },
-  { href: '/dashboard/alerts', label: '定期アラート', icon: '🔔' },
-  { href: '/dashboard/genspark', label: 'Gensparkへ出力', icon: '🎯' },
-  { href: '/dashboard/library', label: 'ライブラリ', icon: '📚' },
-  { href: '/dashboard/minutes', label: '議事録整理', icon: '📝' },
-  { href: '/dashboard/brainstorm', label: 'ブレスト', icon: '🧠' },
-  { href: '/dashboard/industry', label: '業界レポート', icon: '📊' },
-  { href: '/dashboard/guide', label: '活用ガイド', icon: '📖' },
-  { href: '/dashboard/glossary', label: '用語解説', icon: '📘' },
+type NavItem = { href: string; label: string; icon: string };
+type NavCategory = { category: string; items: NavItem[] };
+
+const navCategories: NavCategory[] = [
+  {
+    category: '情報収集・調査',
+    items: [
+      { href: '/dashboard/intelligence', label: 'Intelligence Hub', icon: '🧠' },
+      { href: '/dashboard/websearch', label: 'Web情報収集', icon: '🌐' },
+      { href: '/dashboard/note', label: 'note検索', icon: '📓' },
+      { href: '/dashboard/deepresearch', label: 'ディープリサーチ', icon: '🔭' },
+      { href: '/dashboard/research', label: '文献検索', icon: '🔬' },
+      { href: '/dashboard/alerts', label: '定期アラート', icon: '🔔' },
+    ],
+  },
+  {
+    category: 'AI分析・戦略',
+    items: [
+      { href: '/dashboard/analysis', label: 'AI分析エンジン', icon: '🧩' },
+      { href: '/dashboard/strategy', label: '経営インテリジェンス', icon: '💼' },
+      { href: '/dashboard/industry', label: '業界レポート', icon: '📊' },
+      { href: '/dashboard/personas', label: 'AIペルソナ', icon: '🤖' },
+      { href: '/dashboard/brainstorm', label: 'ブレスト', icon: '💡' },
+    ],
+  },
+  {
+    category: 'コンテンツ作成',
+    items: [
+      { href: '/dashboard/write', label: '文章作成', icon: '✍️' },
+      { href: '/dashboard/minutes', label: '議事録整理', icon: '📝' },
+      { href: '/dashboard/genspark', label: 'Gensparkへ出力', icon: '🎯' },
+      { href: '/dashboard/workflow', label: 'ワークフロー', icon: '⚡' },
+    ],
+  },
+  {
+    category: '管理・設定',
+    items: [
+      { href: '/dashboard/library', label: 'ライブラリ', icon: '📚' },
+      { href: '/dashboard/glossary', label: '用語解説', icon: '📘' },
+      { href: '/dashboard/guide', label: '活用ガイド', icon: '📖' },
+      { href: '/dashboard', label: 'ダッシュボード', icon: '🏠' },
+    ],
+  },
 ];
 
 export function DashboardSidebar({ userName }: { userName: string }) {
@@ -37,24 +60,31 @@ export function DashboardSidebar({ userName }: { userName: string }) {
       position: 'sticky', top: 0, height: '100vh', overflowY: 'auto'
     }}>
       <Link href="/dashboard" style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', marginBottom: 16, textDecoration: 'none' }}>
-        <div style={{ width: 28, height: 28, background: 'linear-gradient(135deg, #6c63ff, #00d4b8)', borderRadius: 7, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, fontWeight: 700, color: '#fff' }}>L</div>
-        <span style={{ fontSize: 16, fontWeight: 700, color: 'var(--text-primary)' }}>LUMINA</span>
+        <div style={{ width: 28, height: 28, background: 'linear-gradient(135deg, #6c63ff, #00d4b8)', borderRadius: 7, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, fontWeight: 700, color: '#fff' }}>x</div>
+        <span style={{ fontSize: 16, fontWeight: 700, color: 'var(--text-primary)' }}>xLUMINA</span>
       </Link>
-      {navItems.map(item => {
-        const isActive = pathname === item.href;
-        return (
-          <Link key={item.href} href={item.href} style={{
-            display: 'flex', alignItems: 'center', gap: 10,
-            padding: '9px 12px', borderRadius: 8, textDecoration: 'none',
-            fontSize: 13, fontWeight: 500, transition: 'all 0.15s',
-            background: isActive ? 'linear-gradient(135deg, var(--accent-soft), rgba(0,212,184,0.08))' : 'transparent',
-            color: isActive ? 'var(--text-primary)' : 'var(--text-muted)',
-            border: isActive ? '1px solid var(--border)' : '1px solid transparent',
-          }}>
-            <span>{item.icon}</span>{item.label}
-          </Link>
-        );
-      })}
+      {navCategories.map(cat => (
+        <div key={cat.category} style={{ marginBottom: 8 }}>
+          <div style={{ padding: '6px 12px', fontSize: 10, fontWeight: 700, color: 'var(--text-muted)', letterSpacing: '0.05em', textTransform: 'uppercase' as const, opacity: 0.7 }}>
+            {cat.category}
+          </div>
+          {cat.items.map(item => {
+            const isActive = pathname === item.href;
+            return (
+              <Link key={item.href} href={item.href} style={{
+                display: 'flex', alignItems: 'center', gap: 10,
+                padding: '8px 12px', borderRadius: 8, textDecoration: 'none',
+                fontSize: 13, fontWeight: 500, transition: 'all 0.15s',
+                background: isActive ? 'linear-gradient(135deg, var(--accent-soft), rgba(0,212,184,0.08))' : 'transparent',
+                color: isActive ? 'var(--text-primary)' : 'var(--text-muted)',
+                border: isActive ? '1px solid var(--border)' : '1px solid transparent',
+              }}>
+                <span>{item.icon}</span>{item.label}
+              </Link>
+            );
+          })}
+        </div>
+      ))}
       <div style={{ marginTop: 'auto', paddingTop: 16, borderTop: '1px solid var(--border)' }}>
         <div style={{ padding: '8px 12px', fontSize: 12, color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: 6 }}>
           <span style={{ width: 24, height: 24, background: 'linear-gradient(135deg, #6c63ff, #00d4b8)', borderRadius: '50%', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, color: '#fff', fontWeight: 600 }}>

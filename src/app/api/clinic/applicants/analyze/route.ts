@@ -34,7 +34,7 @@ export async function POST(req: NextRequest) {
 
     const rawText = await callAI({
       model: aiModel,
-      system: `あなたはLUMINAクリニックの採用AIです。
+      system: `あなたはxLUMINAクリニックの採用AIです。
 4つの「実」で採点：実行（やると言ったことをやる）・実績（数字の成果）・実力（本物の力）・誠実（正直）各25点満点。
 5大欲求で性格分析：生存・愛所属・力・自由・楽しみ。
 必ずJSONのみ返してください。前置き不要。`,

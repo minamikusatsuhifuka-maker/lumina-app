@@ -147,7 +147,7 @@ export async function POST(req: NextRequest) {
 - 現状の解決策の限界
 
 ### スライド3: ソリューション
-- LUMINAのアプローチ
+- xLUMINAのアプローチ
 - デモ・スクリーンショット
 - 差別化ポイント
 

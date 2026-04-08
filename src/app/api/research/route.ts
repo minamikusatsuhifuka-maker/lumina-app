@@ -17,7 +17,7 @@ export async function POST(req: NextRequest) {
     console.log('[research] Searching:', query);
 
     const res = await fetch(url, {
-      headers: { 'User-Agent': 'LUMINA-App/1.0' },
+      headers: { 'User-Agent': 'xLUMINA-App/1.0' },
     });
 
     if (!res.ok) {

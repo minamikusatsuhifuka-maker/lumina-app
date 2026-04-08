@@ -72,7 +72,7 @@ export function AdminSidebar({ userName }: { userName: string }) {
     }}>
       <Link href="/admin" style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', marginBottom: 16, textDecoration: 'none' }}>
         <div style={{ width: 28, height: 28, background: 'linear-gradient(135deg, #6c63ff, #ec4899)', borderRadius: 7, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, fontWeight: 700, color: '#fff' }}>A</div>
-        <span style={{ fontSize: 16, fontWeight: 700, color: 'var(--text-primary)' }}>LUMINA Admin</span>
+        <span style={{ fontSize: 16, fontWeight: 700, color: 'var(--text-primary)' }}>xLUMINA Admin</span>
       </Link>
 
       {navGroups.map((group, gi) => (
