@@ -18,7 +18,7 @@ export async function POST(req: NextRequest) {
   const session = await auth();
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-  const { chapterContent, additionalNotes, mode, template, instruction } = await req.json();
+  const { chapterContent, additionalNotes, mode, template, instruction, messages, chatMode: requestChatMode } = await req.json();
   const apiKey = process.env.ANTHROPIC_API_KEY!;
 
   const sql = neon(process.env.DATABASE_URL!);
@@ -85,6 +85,49 @@ ${chapterContent}
 ${instruction}
 
 指示に従って書き直した文章のみ返してください。`;
+  } else if (mode === 'chat') {
+    const chatMessages = messages || [];
+    const chatMode = requestChatMode || 'propose';
+
+    let systemAddition = '';
+    if (chatMode === 'propose') {
+      systemAddition = `あなたは院長の相談相手です。院長が「こうしたい」「こんな気持ちを伝えたい」と話しかけてきます。
+具体的な改善案を2〜3パターン提示し、「どれが近いですか？」と問いかけてください。
+改善案はそれぞれ【案①】【案②】の形で提示し、実際の文章サンプルを含めてください。`;
+    } else if (chatMode === 'analyze') {
+      systemAddition = `あなたはハンドブック品質分析の専門家です。
+以下の観点で章を分析し、具体的な改善点を指摘してください：
+1. 📖 読みやすさ（難しい言葉・長すぎる文章はないか）
+2. 💡 具体性（抽象的すぎて行動につながらない部分はないか）
+3. ❤️ 温かみ（スタッフの心に響く表現になっているか）
+4. 🔄 一貫性（理念・他の章との矛盾はないか）
+5. ✅ 完全性（重要な情報の抜けはないか）
+各観点を★5段階で評価し、具体的な改善提案を添えてください。`;
+    } else {
+      systemAddition = `あなたは院長の文章パートナーです。会話の流れを理解し、
+院長が「もっとこうしたい」「この部分が気になる」と言ったら、具体的な修正案を提示してください。
+院長が承認したら「では本文を更新します：\n---\n（完成した文章）\n---」の形式で返してください。`;
+    }
+
+    const chatSystemPrompt = await buildSystemContext(
+      `${systemAddition}\n\n【現在編集中の章の内容】\n${chapterContent || '（まだ内容がありません）'}`,
+      'handbook'
+    );
+
+    const chatResponse = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' },
+      body: JSON.stringify({
+        model: 'claude-sonnet-4-6',
+        max_tokens: 2000,
+        system: chatSystemPrompt,
+        messages: chatMessages.length > 0 ? chatMessages : [{ role: 'user', content: chapterContent ? 'この章を分析してください。' : 'こんにちは' }],
+      }),
+    });
+
+    const chatData = await chatResponse.json();
+    const chatResult = (chatData.content || []).filter((b: any) => b.type === 'text').map((b: any) => b.text).join('');
+    return NextResponse.json({ result: chatResult });
   } else {
     return NextResponse.json({ error: '不正なmode' }, { status: 400 });
   }

@@ -29,6 +29,13 @@ export default function HandbookEditorPage({ params }: { params: Promise<{ id: s
   // 新章追加
   const [newChapterTitle, setNewChapterTitle] = useState('');
 
+  // AIチャットパネル
+  const [chatOpen, setChatOpen] = useState(false);
+  const [chatMode, setChatMode] = useState<'propose' | 'analyze' | 'free'>('propose');
+  const [chatMessages, setChatMessages] = useState<{ role: 'user' | 'assistant'; content: string }[]>([]);
+  const [chatInput, setChatInput] = useState('');
+  const [chatLoading, setChatLoading] = useState(false);
+
   const fetchData = async () => {
     const res = await fetch(`/api/clinic/handbooks/${id}`);
     const data = await res.json();
@@ -115,6 +122,52 @@ export default function HandbookEditorPage({ params }: { params: Promise<{ id: s
   };
 
   const applyAi = () => { setEditContent(aiResult); setAiResult(''); };
+
+  const sendChat = async (overrideInput?: string) => {
+    const input = overrideInput || chatInput;
+    if (!input.trim() && chatMode !== 'analyze') return;
+    setChatLoading(true);
+
+    const userMsg = chatMode === 'analyze' && chatMessages.length === 0
+      ? 'この章を分析してください。'
+      : input;
+
+    const newMessages: { role: 'user' | 'assistant'; content: string }[] = [
+      ...chatMessages,
+      { role: 'user', content: userMsg },
+    ];
+    setChatMessages(newMessages);
+    setChatInput('');
+
+    try {
+      const res = await fetch('/api/clinic/handbooks/enhance', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          mode: 'chat',
+          chatMode,
+          chapterContent: editContent,
+          messages: newMessages,
+        }),
+      });
+      const data = await res.json();
+      if (data.result) {
+        setChatMessages(prev => [...prev, { role: 'assistant', content: data.result }]);
+
+        // 対話モードで「---」で囲まれた文章は自動適用オファー
+        if (chatMode === 'free' && data.result.includes('---')) {
+          const match = data.result.match(/---\n([\s\S]+?)\n---/);
+          if (match) {
+            setAiResult(match[1].trim());
+          }
+        }
+      }
+    } catch {
+      setChatMessages(prev => [...prev, { role: 'assistant', content: 'エラーが発生しました。もう一度お試しください。' }]);
+    } finally {
+      setChatLoading(false);
+    }
+  };
 
   const exportFile = async (format: string) => {
     const res = await fetch(`/api/clinic/handbooks/${id}/export`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ format }) });
@@ -295,6 +348,115 @@ export default function HandbookEditorPage({ params }: { params: Promise<{ id: s
             </div>
           </>
         )}
+      </div>
+
+      {/* AIブラッシュアップチャット（フローティングパネル） */}
+      <div style={{
+        position: 'fixed', bottom: 24, right: 24, zIndex: 1000,
+        display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 12,
+      }}>
+        {chatOpen && (
+          <div style={{
+            width: 380, height: 560,
+            background: 'var(--bg-card)', border: '1px solid var(--border)',
+            borderRadius: 16, display: 'flex', flexDirection: 'column',
+            overflow: 'hidden',
+          }}>
+            {/* ヘッダー */}
+            <div style={{ padding: '12px 16px', borderBottom: '1px solid var(--border)', background: 'linear-gradient(135deg, rgba(108,99,255,0.1), rgba(236,72,153,0.05))' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-primary)' }}>🤖 AIブラッシュアップ</span>
+                <button onClick={() => setChatOpen(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', fontSize: 16 }}>✕</button>
+              </div>
+              {/* モード切替 */}
+              <div style={{ display: 'flex', gap: 4 }}>
+                {([
+                  { k: 'propose', l: '💬 提案' },
+                  { k: 'analyze', l: '🔍 分析' },
+                  { k: 'free', l: '🎙 対話' },
+                ] as const).map(m => (
+                  <button key={m.k} onClick={() => { setChatMode(m.k); setChatMessages([]); setChatInput(''); }}
+                    style={{ flex: 1, padding: '4px 0', borderRadius: 6, fontSize: 11, fontWeight: 600, cursor: 'pointer', border: '1px solid', background: chatMode === m.k ? 'rgba(108,99,255,0.15)' : 'transparent', color: chatMode === m.k ? '#6c63ff' : 'var(--text-muted)', borderColor: chatMode === m.k ? 'rgba(108,99,255,0.4)' : 'var(--border)' }}>
+                    {m.l}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* メッセージ一覧 */}
+            <div style={{ flex: 1, overflowY: 'auto', padding: '12px 16px', display: 'flex', flexDirection: 'column', gap: 10 }}>
+              {chatMessages.length === 0 && (
+                <div style={{ textAlign: 'center', padding: '20px 0', color: 'var(--text-muted)', fontSize: 12 }}>
+                  {chatMode === 'propose' && '「もっと温かみを出したい」「患者への感謝を入れたい」など、話しかけてください'}
+                  {chatMode === 'analyze' && (
+                    <div>
+                      <div style={{ marginBottom: 8 }}>AIがこの章を分析します</div>
+                      <button onClick={() => sendChat('analyze')} style={{ padding: '8px 20px', borderRadius: 8, border: 'none', background: 'linear-gradient(135deg, #6c63ff, #8b5cf6)', color: '#fff', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>
+                        🔍 今すぐ分析する
+                      </button>
+                    </div>
+                  )}
+                  {chatMode === 'free' && '自由に話しかけてください。AIが文章化・整理します'}
+                </div>
+              )}
+              {chatMessages.map((msg, i) => (
+                <div key={i} style={{ display: 'flex', justifyContent: msg.role === 'user' ? 'flex-end' : 'flex-start' }}>
+                  <div style={{
+                    maxWidth: '85%', padding: '8px 12px', borderRadius: msg.role === 'user' ? '12px 12px 2px 12px' : '12px 12px 12px 2px',
+                    background: msg.role === 'user' ? 'linear-gradient(135deg, #6c63ff, #8b5cf6)' : 'var(--bg-secondary)',
+                    color: msg.role === 'user' ? '#fff' : 'var(--text-primary)',
+                    fontSize: 12, lineHeight: 1.7, whiteSpace: 'pre-wrap',
+                    border: msg.role === 'assistant' ? '1px solid var(--border)' : 'none',
+                  }}>{msg.content}</div>
+                </div>
+              ))}
+              {chatLoading && (
+                <div style={{ display: 'flex', justifyContent: 'flex-start' }}>
+                  <div style={{ padding: '8px 14px', borderRadius: '12px 12px 12px 2px', background: 'var(--bg-secondary)', border: '1px solid var(--border)', fontSize: 12, color: 'var(--text-muted)' }}>
+                    考え中...
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* aiResultがある場合の適用バナー */}
+            {aiResult && chatMode === 'free' && (
+              <div style={{ padding: '8px 12px', background: 'rgba(74,222,128,0.1)', borderTop: '1px solid rgba(74,222,128,0.2)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span style={{ fontSize: 11, color: '#4ade80' }}>✅ 改善案があります</span>
+                <button onClick={applyAi} style={{ padding: '4px 12px', borderRadius: 6, border: 'none', background: '#4ade80', color: '#000', fontSize: 11, fontWeight: 700, cursor: 'pointer' }}>本文に反映</button>
+              </div>
+            )}
+
+            {/* 入力エリア */}
+            {chatMode !== 'analyze' && (
+              <div style={{ padding: '10px 12px', borderTop: '1px solid var(--border)', display: 'flex', gap: 8 }}>
+                <input
+                  value={chatInput}
+                  onChange={e => setChatInput(e.target.value)}
+                  onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendChat(); } }}
+                  placeholder={chatMode === 'propose' ? 'こうしたい、を話しかける...' : '自由に話しかける...'}
+                  style={{ flex: 1, padding: '7px 10px', borderRadius: 8, border: '1px solid var(--input-border)', background: 'var(--input-bg)', color: 'var(--text-primary)', fontSize: 12, outline: 'none' }}
+                />
+                <button onClick={() => sendChat()} disabled={chatLoading || !chatInput.trim()}
+                  style={{ padding: '7px 14px', borderRadius: 8, border: 'none', background: chatLoading ? 'rgba(108,99,255,0.3)' : 'linear-gradient(135deg, #6c63ff, #8b5cf6)', color: '#fff', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>
+                  送信
+                </button>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* トグルボタン */}
+        <button onClick={() => { setChatOpen(!chatOpen); if (!chatOpen) setChatMessages([]); }}
+          style={{
+            width: 56, height: 56, borderRadius: '50%', border: 'none', cursor: 'pointer',
+            background: chatOpen ? 'var(--bg-card)' : 'linear-gradient(135deg, #6c63ff, #ec4899)',
+            color: chatOpen ? 'var(--text-muted)' : '#fff',
+            fontSize: 22, display: 'flex', alignItems: 'center', justifyContent: 'center',
+            boxShadow: '0 4px 12px rgba(108,99,255,0.4)',
+          }}>
+          {chatOpen ? '✕' : '🤖'}
+        </button>
       </div>
     </div>
   );
