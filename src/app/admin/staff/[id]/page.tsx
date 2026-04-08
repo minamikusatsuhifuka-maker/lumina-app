@@ -142,7 +142,7 @@ export default function StaffDetailPage({ params }: { params: Promise<{ id: stri
     if (staff.hired_at) events.push({ date: staff.hired_at, icon: '🏥', label: '入職', detail: `${staff.position || ''}として入職` });
     (staff.documents || []).forEach((d: any) => events.push({ date: d.uploaded_at, icon: '📎', label: `書類追加: ${d.title}`, detail: `タイプ: ${d.type}` }));
     (staff.notes || []).forEach((n: any) => events.push({ date: n.created_at, icon: NOTE_ICONS[n.type] || '📝', label: `${NOTE_LABELS[n.type] || 'メモ'}: ${n.title}`, detail: n.content?.slice(0, 100) }));
-    (staff.gradeHistories || []).forEach((g: any) => events.push({ date: g.changed_at, icon: '🏅', label: `等級変��: ${g.from_grade || '—'} → ${g.to_grade}`, detail: g.reason || '' }));
+    (staff.gradeHistories || []).forEach((g: any) => events.push({ date: g.changed_at, icon: '🏅', label: `等級変更: ${g.from_grade || '—'} → ${g.to_grade}`, detail: g.reason || '' }));
     return events.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
   };
 
