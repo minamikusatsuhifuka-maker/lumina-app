@@ -502,7 +502,7 @@ export default function ApplicantsPage() {
                         <input placeholder="面接者名" value={newInterviewer} onChange={e => setNewInterviewer(e.target.value)}
                           style={{ flex: 1, padding: '7px 10px', borderRadius: 8, border: '1px solid var(--input-border)', background: 'var(--input-bg)', color: 'var(--text-primary)', fontSize: 12 }} />
                       </div>
-                      <textarea value={newNote} onChange={e => setNewNote(e.target.value)} rows={4} placeholder="面接内容・印象・気になった点など..."
+                      <textarea value={newNote} onChange={e => setNewNote(e.target.value)} rows={8} placeholder="面接内容・印象・気になった点など..."
                         style={{ width: '100%', padding: '8px 10px', borderRadius: 8, border: '1px solid var(--input-border)', background: 'var(--input-bg)', color: 'var(--text-primary)', fontSize: 12, lineHeight: 1.6, resize: 'vertical', boxSizing: 'border-box', outline: 'none' }} />
                       <button onClick={saveNote} disabled={noteSaving || !newNote.trim()}
                         style={{ marginTop: 8, padding: '7px 18px', borderRadius: 8, border: 'none', background: 'linear-gradient(135deg, #6c63ff, #8b5cf6)', color: '#fff', fontSize: 12, fontWeight: 700, cursor: 'pointer', opacity: noteSaving ? 0.7 : 1 }}>
