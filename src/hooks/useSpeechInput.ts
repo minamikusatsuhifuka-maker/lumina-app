@@ -60,5 +60,10 @@ export function useSpeechInput({ onResult, onError }: UseSpeechInputOptions) {
     setIsListening(false);
   }, []);
 
-  return { isListening, isSupported, startListening, stopListening };
+  const toggleListening = useCallback(() => {
+    if (isListening) stopListening();
+    else startListening();
+  }, [isListening, startListening, stopListening]);
+
+  return { isListening, isSupported, startListening, stopListening, toggleListening };
 }

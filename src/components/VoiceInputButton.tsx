@@ -8,7 +8,7 @@ interface VoiceInputButtonProps {
 }
 
 export function VoiceInputButton({ onResult, size = 'md' }: VoiceInputButtonProps) {
-  const { isListening, isSupported, startListening, stopListening } = useSpeechInput({
+  const { isListening, isSupported, toggleListening } = useSpeechInput({
     onResult,
     onError: (err) => console.warn('音声入力エラー:', err),
   });
@@ -19,12 +19,8 @@ export function VoiceInputButton({ onResult, size = 'md' }: VoiceInputButtonProp
 
   return (
     <button
-      onMouseDown={startListening}
-      onMouseUp={stopListening}
-      onMouseLeave={stopListening}
-      onTouchStart={startListening}
-      onTouchEnd={stopListening}
-      title={isListening ? '録音中（離すと確定）' : '押している間だけ録音'}
+      onClick={toggleListening}
+      title={isListening ? 'クリックで音声入力停止' : 'クリックで音声入力開始'}
       style={{
         width: dim, height: dim, borderRadius: '50%',
         display: 'flex', alignItems: 'center', justifyContent: 'center',
