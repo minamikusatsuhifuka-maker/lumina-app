@@ -2,32 +2,62 @@
 import { usePathname } from 'next/navigation';
 import Link from 'next/link';
 
-const navItems = [
-  { href: '/admin', label: '管理ダッシュボード', icon: '📊' },
-  { href: '/admin/criteria', label: 'AIの判断基準', icon: '🧭' },
-  { href: '/admin/philosophy', label: '理念管理', icon: '📖' },
-  { href: '/admin/staff', label: 'スタッフ管理', icon: '👥' },
-  { href: '/admin/surveys', label: 'アンケート管理', icon: '📝' },
-  { href: '/admin/exams', label: '試験管理', icon: '📋' },
-  { href: '/admin/grade', label: '等級制度', icon: '🏅' },
-  { href: '/admin/grade/compare', label: '等級比較表', icon: '📊' },
-  { href: '/admin/grade/philosophy', label: '成長哲学', icon: '🌟' },
-  { href: '/admin/grade/definitions', label: '職種・役職定義', icon: '📌' },
-  { href: '/admin/grade/mindset', label: 'マインド成長', icon: '🌱' },
-  { href: '/admin/evaluation', label: '評価制度', icon: '📋' },
-  { href: '/admin/red-zone', label: '行動基準', icon: '🎯' },
-  { href: '/admin/employment-rules', label: '就業規則', icon: '📋' },
-  { href: '/admin/handbook', label: 'ハンドブック', icon: '📖' },
-  { href: '/admin/strategy', label: '経営戦略', icon: '🗺' },
-  { href: '/admin/tasks', label: 'タスク管理', icon: '✅' },
-  { href: '/admin/applicants', label: '採用AI分析', icon: '👥' },
-  { href: '/admin/one-on-one', label: '1on1ミーティング', icon: '🤝' },
-  { href: '/admin/staff-evaluation', label: 'スタッフ評価', icon: '📊' },
-  { href: '/admin/text-editor', label: 'テキストエディタ', icon: '✍️' },
-];
+type NavItem = { href: string; label: string; icon: string };
+type NavGroup = { category: string; items: NavItem[] };
 
-const subLinks = [
-  { href: '/dashboard', label: '通常ダッシュボード', icon: '🏠' },
+const navGroups: NavGroup[] = [
+  {
+    category: 'ホーム',
+    items: [
+      { href: '/admin', label: '管理ダッシュボード', icon: '📊' },
+      { href: '/admin/criteria', label: 'AIの判断基準', icon: '🧭' },
+    ],
+  },
+  {
+    category: 'スタッフ管理',
+    items: [
+      { href: '/admin/staff', label: 'スタッフ管理', icon: '👥' },
+      { href: '/admin/staff-evaluation', label: 'スタッフ評価', icon: '📈' },
+      { href: '/admin/one-on-one', label: '1on1ミーティング', icon: '🤝' },
+      { href: '/admin/applicants', label: '採用AI分析', icon: '🔍' },
+    ],
+  },
+  {
+    category: '等級・成長',
+    items: [
+      { href: '/admin/grade', label: '等級制度', icon: '🏅' },
+      { href: '/admin/grade/compare', label: '等級比較表', icon: '📊' },
+      { href: '/admin/grade/mindset', label: 'マインド成長', icon: '🌱' },
+      { href: '/admin/grade/philosophy', label: '成長哲学', icon: '🌟' },
+      { href: '/admin/grade/definitions', label: '職種・役職定義', icon: '📌' },
+    ],
+  },
+  {
+    category: '制度・ルール',
+    items: [
+      { href: '/admin/evaluation', label: '評価制度', icon: '📋' },
+      { href: '/admin/red-zone', label: '行動基準', icon: '🎯' },
+      { href: '/admin/employment-rules', label: '就業規則', icon: '📄' },
+      { href: '/admin/handbook', label: 'ハンドブック', icon: '📖' },
+      { href: '/admin/surveys', label: 'アンケート管理', icon: '📝' },
+      { href: '/admin/exams', label: '試験管理', icon: '✏️' },
+    ],
+  },
+  {
+    category: '経営・理念',
+    items: [
+      { href: '/admin/philosophy', label: '理念管理', icon: '💡' },
+      { href: '/admin/strategy', label: '経営戦略', icon: '🗺' },
+      { href: '/admin/tasks', label: 'タスク管理', icon: '✅' },
+    ],
+  },
+  {
+    category: 'ツール',
+    items: [
+      { href: '/admin/text-editor', label: 'テキストエディタ', icon: '✍️' },
+      { href: '/dashboard', label: '通常ダッシュボード', icon: '🏠' },
+    ],
+  },
 ];
 
 export function AdminSidebar({ userName }: { userName: string }) {
@@ -37,7 +67,7 @@ export function AdminSidebar({ userName }: { userName: string }) {
       width: 220, background: 'var(--sidebar-bg)',
       borderRight: '1px solid var(--border)',
       padding: '20px 12px', display: 'flex',
-      flexDirection: 'column', gap: 4,
+      flexDirection: 'column', gap: 0,
       position: 'sticky', top: 0, height: '100vh', overflowY: 'auto',
     }}>
       <Link href="/admin" style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', marginBottom: 16, textDecoration: 'none' }}>
@@ -45,33 +75,37 @@ export function AdminSidebar({ userName }: { userName: string }) {
         <span style={{ fontSize: 16, fontWeight: 700, color: 'var(--text-primary)' }}>LUMINA Admin</span>
       </Link>
 
-      {navItems.map(item => {
-        const isActive = pathname === item.href;
-        return (
-          <Link key={item.href} href={item.href} style={{
-            display: 'flex', alignItems: 'center', gap: 10,
-            padding: '9px 12px', borderRadius: 8, textDecoration: 'none',
-            fontSize: 13, fontWeight: 500, transition: 'all 0.15s',
-            background: isActive ? 'linear-gradient(135deg, rgba(108,99,255,0.15), rgba(236,72,153,0.08))' : 'transparent',
-            color: isActive ? 'var(--text-primary)' : 'var(--text-muted)',
-            border: isActive ? '1px solid var(--border)' : '1px solid transparent',
+      {navGroups.map((group, gi) => (
+        <div key={group.category} style={{ marginBottom: 4 }}>
+          {/* カテゴリラベル */}
+          <div style={{
+            fontSize: 10, fontWeight: 700, letterSpacing: '0.08em',
+            color: 'var(--text-muted)', opacity: 0.6,
+            padding: '10px 12px 4px',
+            textTransform: 'uppercase',
+            borderTop: gi > 0 ? '1px solid var(--border)' : 'none',
+            marginTop: gi > 0 ? 8 : 0,
           }}>
-            <span>{item.icon}</span>{item.label}
-          </Link>
-        );
-      })}
+            {group.category}
+          </div>
 
-      <div style={{ height: 1, background: 'var(--border)', margin: '12px 0' }} />
-
-      {subLinks.map(item => (
-        <Link key={item.href} href={item.href} style={{
-          display: 'flex', alignItems: 'center', gap: 10,
-          padding: '9px 12px', borderRadius: 8, textDecoration: 'none',
-          fontSize: 13, fontWeight: 500, color: 'var(--text-muted)',
-          border: '1px solid transparent',
-        }}>
-          <span>{item.icon}</span>{item.label}
-        </Link>
+          {/* アイテム */}
+          {group.items.map(item => {
+            const isActive = pathname === item.href;
+            return (
+              <Link key={item.href} href={item.href} style={{
+                display: 'flex', alignItems: 'center', gap: 10,
+                padding: '8px 12px', borderRadius: 8, textDecoration: 'none',
+                fontSize: 13, fontWeight: 500, transition: 'all 0.15s',
+                background: isActive ? 'linear-gradient(135deg, rgba(108,99,255,0.15), rgba(236,72,153,0.08))' : 'transparent',
+                color: isActive ? 'var(--text-primary)' : 'var(--text-muted)',
+                border: isActive ? '1px solid var(--border)' : '1px solid transparent',
+              }}>
+                <span>{item.icon}</span>{item.label}
+              </Link>
+            );
+          })}
+        </div>
       ))}
 
       <div style={{ marginTop: 'auto', paddingTop: 16, borderTop: '1px solid var(--border)' }}>
