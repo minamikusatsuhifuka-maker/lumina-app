@@ -36,7 +36,7 @@ export async function POST(req: NextRequest) {
 
   try {
     const data = await callAnthropic(apiKey, {
-      model: 'claude-sonnet-4-5',
+      model: 'claude-sonnet-4-6',
       max_tokens: 1000,
       system: `あなたは専門用語抽出の専門家です。
 与えられたテキストからすべての専門用語・略語・英字表記を抽出し、必ずJSON形式のみで返してください。

@@ -14,7 +14,7 @@ async function extractTextWithClaude(buffer: Buffer, fileName: string): Promise<
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01', 'anthropic-beta': 'pdfs-2024-09-25' },
       body: JSON.stringify({
-        model: 'claude-sonnet-4-5', max_tokens: 8000,
+        model: 'claude-sonnet-4-6', max_tokens: 8000,
         messages: [{ role: 'user', content: [
           { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: base64 } },
           { type: 'text', text: 'このPDFの全テキストを抽出してください。章・見出しの構造を維持し、全ページのテキストを書き起こしてください。テキストのみ返してく���さい。' },
@@ -32,7 +32,7 @@ async function extractTextWithClaude(buffer: Buffer, fileName: string): Promise<
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' },
       body: JSON.stringify({
-        model: 'claude-sonnet-4-5', max_tokens: 4000,
+        model: 'claude-sonnet-4-6', max_tokens: 4000,
         messages: [{ role: 'user', content: [
           { type: 'image', source: { type: 'base64', media_type: imageTypes[ext], data: base64 } },
           { type: 'text', text: 'この画像のテキストを全て書き起こしてください。テキストのみ返してください。' },
@@ -122,7 +122,7 @@ async function getAiTitle(extractedText: string): Promise<string> {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' },
       body: JSON.stringify({
-        model: 'claude-sonnet-4-5', max_tokens: 100,
+        model: 'claude-sonnet-4-6', max_tokens: 100,
         messages: [{ role: 'user', content: `以下のテキストの最初の部分からドキュメントのタイトルを1行で答えてください。タイトル���み返してください：\n\n${extractedText.slice(0, 500)}` }],
       }),
     });

@@ -24,7 +24,7 @@ export async function POST(req: NextRequest) {
       'anthropic-version': '2023-06-01',
     },
     body: JSON.stringify({
-      model: 'claude-sonnet-4-5',
+      model: 'claude-sonnet-4-6',
       max_tokens: 4000,
       system: `あなたはプロフェッショナルな翻訳者です。
 与えられたテキストを自然で流暢な${langMap[targetLang]}に翻訳してください。

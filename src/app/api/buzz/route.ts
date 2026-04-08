@@ -48,7 +48,7 @@ ${mode || 'X（Twitter）'}
       'anthropic-version': '2023-06-01',
     },
     body: JSON.stringify({
-      model: 'claude-sonnet-4-5',
+      model: 'claude-sonnet-4-6',
       max_tokens: isAutoFix ? 1000 : 500,
       system: isAutoFix ? 'あなたはSNSマーケティングの専門家です。' : 'あなたはSNSマーケティングの専門家です。JSONのみ返してください。',
       messages: [{ role: 'user', content: prompt }],

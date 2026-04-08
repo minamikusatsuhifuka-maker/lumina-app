@@ -49,7 +49,7 @@ export async function generateWithModel(
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' },
     body: JSON.stringify({
-      model: 'claude-sonnet-4-5',
+      model: 'claude-sonnet-4-6',
       max_tokens: maxTokens,
       ...(systemPrompt && { system: systemPrompt }),
       messages: [{ role: 'user', content: prompt }],
@@ -92,7 +92,7 @@ export async function streamWithModel(
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' },
       body: JSON.stringify({
-        model: 'claude-sonnet-4-5',
+        model: 'claude-sonnet-4-6',
         max_tokens: maxTokens,
         stream: true,
         system: systemPrompt,

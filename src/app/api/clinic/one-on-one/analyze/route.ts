@@ -76,7 +76,7 @@ ${history ? `過去: ${history}` : ''}
         'anthropic-version': '2023-06-01',
       },
       body: JSON.stringify({
-        model: 'claude-sonnet-4-5',
+        model: 'claude-sonnet-4-6',
         max_tokens: 600,
         system: 'あなたはクリニックの1on1サポートAIです。リードマネジメント・5大欲求・ティール組織の視点で分析してください。JSONのみ返してください。前置き不要。',
         messages: [{ role: 'user', content: prompt }],
