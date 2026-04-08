@@ -14,7 +14,7 @@ export async function POST(req: NextRequest) {
       'anthropic-version': '2023-06-01',
     },
     body: JSON.stringify({
-      model: 'claude-sonnet-4-6',
+      model: 'claude-sonnet-4-5',
       max_tokens: 500,
       system: 'あなたは情報の信頼性評価の専門家です。JSONのみ返してください。',
       messages: [{

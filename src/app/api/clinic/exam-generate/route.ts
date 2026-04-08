@@ -28,7 +28,7 @@ export async function POST(req: NextRequest) {
       'anthropic-version': '2023-06-01',
     },
     body: JSON.stringify({
-      model: 'claude-sonnet-4-6',
+      model: 'claude-sonnet-4-5',
       max_tokens: 4000,
       system: await buildSystemContext('あなたはクリニックの人材育成専門家です。必ずJSON形式のみで返してください。', 'mindset'),
       messages: [{

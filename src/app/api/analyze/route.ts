@@ -62,7 +62,7 @@ export async function POST(req: NextRequest) {
             'anthropic-version': '2023-06-01',
           },
           body: JSON.stringify({
-            model: 'claude-sonnet-4-6',
+            model: 'claude-sonnet-4-5',
             max_tokens: 3000,
             system: `あなたは世界トップクラスの戦略コンサルタント・アナリストです。
 与えられた情報を深く分析し、実用的で具体的な洞察を提供してください。

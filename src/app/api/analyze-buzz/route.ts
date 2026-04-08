@@ -59,7 +59,7 @@ problemsは具体的に3点、suggestionsは実行可能な改善案を3点、re
       'anthropic-version': '2023-06-01',
     },
     body: JSON.stringify({
-      model: 'claude-sonnet-4-6',
+      model: 'claude-sonnet-4-5',
       max_tokens: 4000,
       system: systemPrompt,
       messages: [{ role: 'user', content: `以下の文章を分析してください：\n\n${content}` }],

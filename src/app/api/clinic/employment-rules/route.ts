@@ -56,7 +56,7 @@ export async function POST(req: NextRequest) {
       if (!extractedText) {
         const base64 = buffer.toString('base64');
         const response = await anthropic.messages.create({
-          model: 'claude-sonnet-4-6',
+          model: 'claude-sonnet-4-5',
           max_tokens: 16000,
           messages: [{
             role: 'user',

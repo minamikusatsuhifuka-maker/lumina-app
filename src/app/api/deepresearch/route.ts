@@ -33,7 +33,7 @@ export async function POST(req: NextRequest) {
             'anthropic-version': '2023-06-01',
           },
           body: JSON.stringify({
-            model: 'claude-sonnet-4-6',
+            model: 'claude-sonnet-4-5',
             max_tokens: 8000,
             tools: [{ type: 'web_search_20250305', name: 'web_search' }],
             system: `あなたは優秀なリサーチアナリストです。

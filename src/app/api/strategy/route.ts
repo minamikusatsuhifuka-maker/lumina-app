@@ -83,7 +83,7 @@ export async function POST(req: NextRequest) {
             'anthropic-beta': 'interleaved-thinking-2025-05-14',
           },
           body: JSON.stringify({
-            model: 'claude-sonnet-4-6',
+            model: 'claude-sonnet-4-5',
             max_tokens: 3000,
             stream: true,
             system: STRATEGY_PROMPTS[strategyType] || STRATEGY_PROMPTS.mvv,

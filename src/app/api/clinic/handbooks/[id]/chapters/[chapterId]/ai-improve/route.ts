@@ -34,7 +34,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
             'anthropic-beta': 'interleaved-thinking-2025-05-14',
           },
           body: JSON.stringify({
-            model: 'claude-sonnet-4-6',
+            model: 'claude-sonnet-4-5',
             max_tokens: 4000,
             stream: true,
             system: systemPrompt,
