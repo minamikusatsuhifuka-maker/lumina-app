@@ -41,6 +41,9 @@ export default function WorkflowPage() {
   const [isCompleted, setIsCompleted] = useState(false);
   const [expandedStep, setExpandedStep] = useState<number | null>(null);
   const [error, setError] = useState('');
+  const [isSaving, setIsSaving] = useState(false);
+  const [savedCount, setSavedCount] = useState(0);
+  const [saveCompleted, setSaveCompleted] = useState(false);
 
   // ワークフロー提案
   const suggestWorkflow = async () => {
@@ -161,25 +164,33 @@ export default function WorkflowPage() {
     nextStep();
   };
 
-  // ライブラリに全結果保存
+  // ライブラリに全結果保存（1件ずつ）
   const saveAllToLibrary = async () => {
     if (!workflow) return;
-    const content = workflow.steps.map((s, i) =>
-      `## Step ${s.stepNumber}: ${s.functionName}\n${s.purpose}\n\n${stepResults[i] || '（未実行）'}`
-    ).join('\n\n---\n\n');
+    setIsSaving(true);
+    setSavedCount(0);
+    setSaveCompleted(false);
 
-    await fetch('/api/library', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        type: 'workflow',
-        title: `ワークフロー: ${workflow.title}`,
-        content,
-        tags: 'ワークフロー',
-        group_name: 'ワークフロー',
-      }),
-    });
-    alert('ライブラリに保存しました！');
+    const validSteps = workflow.steps.filter((_, i) => stepResults[i] && !stepResults[i].startsWith('（'));
+    for (let i = 0; i < validSteps.length; i++) {
+      const step = validSteps[i];
+      const idx = workflow.steps.indexOf(step);
+      await fetch('/api/library', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          type: 'workflow',
+          title: `${workflow.title} — Step ${step.stepNumber}: ${step.functionName}`,
+          content: `## ${step.functionName}\n${step.purpose}\n\n${stepResults[idx]}`,
+          tags: 'ワークフロー',
+          group_name: 'ワークフロー',
+        }),
+      });
+      setSavedCount(i + 1);
+    }
+
+    setIsSaving(false);
+    setSaveCompleted(true);
   };
 
   // リセット
@@ -428,15 +439,43 @@ export default function WorkflowPage() {
           ))}
 
           {/* アクションボタン */}
-          <div style={{ display: 'flex', gap: 8, marginTop: 20, flexWrap: 'wrap' }}>
-            <button onClick={saveAllToLibrary}
-              style={{ padding: '10px 20px', borderRadius: 8, border: 'none', background: 'linear-gradient(135deg, #6c63ff, #8b5cf6)', color: '#fff', fontWeight: 700, fontSize: 13, cursor: 'pointer' }}>
-              📚 全結果をライブラリに保存
-            </button>
-            <button onClick={reset}
-              style={{ padding: '10px 20px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--bg-primary)', color: 'var(--text-primary)', fontWeight: 600, fontSize: 13, cursor: 'pointer' }}>
-              🔄 新しいワークフローを開始
-            </button>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 20 }}>
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+              <button onClick={saveAllToLibrary} disabled={isSaving || saveCompleted}
+                style={{
+                  padding: '10px 20px', borderRadius: 8, border: 'none',
+                  background: saveCompleted ? 'rgba(34,197,94,0.15)' : isSaving ? 'rgba(108,99,255,0.3)' : 'linear-gradient(135deg, #6c63ff, #8b5cf6)',
+                  color: saveCompleted ? '#22c55e' : '#fff',
+                  fontWeight: 700, fontSize: 13,
+                  cursor: isSaving || saveCompleted ? 'not-allowed' : 'pointer',
+                }}>
+                {saveCompleted ? `✅ ${savedCount}件を保存完了` : isSaving ? `保存中... (${savedCount}/${workflow.steps.filter((_, i) => stepResults[i] && !stepResults[i].startsWith('（')).length}件)` : '📚 全結果をライブラリに保存'}
+              </button>
+              <button onClick={reset}
+                style={{ padding: '10px 20px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--bg-primary)', color: 'var(--text-primary)', fontWeight: 600, fontSize: 13, cursor: 'pointer' }}>
+                🔄 新しいワークフローを開始
+              </button>
+            </div>
+            {/* プログレスバー */}
+            {isSaving && (() => {
+              const total = workflow.steps.filter((_, i) => stepResults[i] && !stepResults[i].startsWith('（')).length;
+              const pct = total > 0 ? Math.round((savedCount / total) * 100) : 0;
+              return (
+                <div>
+                  <div style={{ height: 4, background: 'var(--border)', borderRadius: 99 }}>
+                    <div style={{ height: '100%', width: `${pct}%`, background: 'linear-gradient(90deg, #6c63ff, #00d4b8)', borderRadius: 99, transition: 'width 0.3s ease' }} />
+                  </div>
+                  <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4 }}>
+                    ライブラリに保存しています...（{savedCount}/{total}件）
+                  </div>
+                </div>
+              );
+            })()}
+            {saveCompleted && (
+              <div style={{ fontSize: 12, color: '#22c55e', fontWeight: 600 }}>
+                ✅ {savedCount}件をライブラリに保存しました
+              </div>
+            )}
           </div>
         </div>
       )}
