@@ -13,12 +13,27 @@ export async function GET(req: Request) {
 
   if (staffName) {
     const evals = await sql`
-      SELECT * FROM staff_evaluations WHERE staff_name = ${staffName} ORDER BY created_at DESC
+      SELECT se.*,
+        gl.name AS current_grade,
+        s.current_grade_id
+      FROM staff_evaluations se
+      LEFT JOIN staff s ON s.name = se.staff_name
+      LEFT JOIN grade_levels gl ON gl.id = s.current_grade_id
+      WHERE se.staff_name = ${staffName}
+      ORDER BY se.created_at DESC
     `;
     return NextResponse.json(evals);
   }
 
-  const evals = await sql`SELECT * FROM staff_evaluations ORDER BY updated_at DESC LIMIT 100`;
+  const evals = await sql`
+    SELECT se.*,
+      gl.name AS current_grade,
+      s.current_grade_id
+    FROM staff_evaluations se
+    LEFT JOIN staff s ON s.name = se.staff_name
+    LEFT JOIN grade_levels gl ON gl.id = s.current_grade_id
+    ORDER BY se.updated_at DESC LIMIT 100
+  `;
   return NextResponse.json(evals);
 }
 
@@ -134,5 +149,15 @@ export async function POST(req: Request) {
     `;
   }
 
-  return NextResponse.json(result[0]);
+  // staffテーブルから現在等級を取得して付与
+  const staffRow = await sql`
+    SELECT gl.name AS current_grade
+    FROM staff s
+    LEFT JOIN grade_levels gl ON gl.id = s.current_grade_id
+    WHERE s.name = ${staff_name}
+    LIMIT 1
+  `;
+  const currentGrade = staffRow[0]?.current_grade || null;
+
+  return NextResponse.json({ ...result[0], current_grade: currentGrade });
 }

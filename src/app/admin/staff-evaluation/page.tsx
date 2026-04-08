@@ -191,7 +191,7 @@ export default function StaffEvaluationPage() {
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8, marginBottom: 12 }}>
                   <div style={{ padding: 12, textAlign: 'center', background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 10 }}>
                     <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 4 }}>現在等級</div>
-                    <div style={{ fontSize: 20, fontWeight: 800, color: 'var(--text-secondary)' }}>{selected.current_grade || '未設定'}</div>
+                    <div style={{ fontSize: 20, fontWeight: 800, color: selected.current_grade ? (GRADE_COLORS[selected.current_grade] || '#6c63ff') : 'var(--text-muted)' }}>{selected.current_grade || '未設定'}</div>
                   </div>
                   <div style={{ padding: 12, textAlign: 'center', background: `${GRADE_COLORS[selected.recommended_grade] || '#94a3b8'}15`, border: `1px solid ${GRADE_COLORS[selected.recommended_grade] || '#94a3b8'}40`, borderRadius: 10 }}>
                     <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 4 }}>推奨等級</div>
@@ -210,7 +210,8 @@ export default function StaffEvaluationPage() {
                       body: JSON.stringify({ evaluationId: selected.id, staffName: selected.staff_name, approvedGrade: selected.recommended_grade }),
                     });
                     if (res.ok) {
-                      setSelected((prev: any) => ({ ...prev, promotion_approved: true, approved_grade: selected.recommended_grade }));
+                      setSelected((prev: any) => ({ ...prev, promotion_approved: true, approved_grade: selected.recommended_grade, current_grade: selected.recommended_grade }));
+                      setEvaluations(prev => prev.map(e => e.id === selected.id ? { ...e, promotion_approved: true, current_grade: selected.recommended_grade } : e));
                       setMessage(`✅ ${selected.staff_name}さんの${selected.recommended_grade}昇格を承認しました`);
                       setTimeout(() => setMessage(''), 4000);
                     }
