@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useRouter } from 'next/navigation';
+import { useTheme } from './ThemeProvider';
 
 type Command = {
   id: string;
@@ -13,6 +14,23 @@ type Command = {
 };
 
 const COMMANDS: Command[] = [
+  // テーマ切り替え（上位に配置して視認性確保）
+  { id: 'theme-dark',     label: 'ダークモードに切替',   icon: '🌙', category: 'テーマ', action: 'theme-dark' },
+  { id: 'theme-light',    label: 'ライトモードに切替',   icon: '☀️', category: 'テーマ', action: 'theme-light' },
+  { id: 'theme-midnight', label: 'ミッドナイトに切替',   icon: '🌃', category: 'テーマ', action: 'theme-midnight' },
+  { id: 'theme-nature',   label: 'ネイチャーに切替',     icon: '🌿', category: 'テーマ', action: 'theme-nature' },
+
+  // クイックアクション
+  { id: 'action-new-write',    label: '新しい文章を作成',        icon: '✍️', category: 'クイックアクション', href: '/dashboard/write' },
+  { id: 'action-new-search',   label: 'Web検索を開始',           icon: '🔍', category: 'クイックアクション', href: '/dashboard/websearch' },
+  { id: 'action-new-workflow',  label: 'ワークフローを実行',     icon: '⚡', category: 'クイックアクション', href: '/dashboard/workflow' },
+  { id: 'action-library',      label: 'ライブラリを開く',        icon: '📚', category: 'クイックアクション', href: '/dashboard/library' },
+  { id: 'action-memory',       label: 'AIメモリを確認',          icon: '🧠', category: 'クイックアクション', href: '/dashboard/memory' },
+  { id: 'action-new-memory',   label: 'AIメモリを追加',          icon: '🧠', category: 'クイックアクション', href: '/dashboard/memory' },
+  { id: 'action-glossary',     label: '用語を解説する',          icon: '📖', category: 'クイックアクション', href: '/dashboard/glossary' },
+  { id: 'action-stats',        label: '使用状況を確認',          icon: '📊', category: 'クイックアクション', href: '/dashboard/stats' },
+  { id: 'action-settings',     label: '設定を開く',              icon: '⚙️', category: 'クイックアクション', href: '/dashboard/guide' },
+
   // ページ移動
   { id: 'nav-dashboard',     label: 'ダッシュボードへ',        icon: '🏠', category: 'ページ移動', href: '/dashboard' },
   { id: 'nav-intelligence',  label: 'Intelligence Hub',         icon: '🧠', category: 'ページ移動', href: '/dashboard/intelligence' },
@@ -30,23 +48,6 @@ const COMMANDS: Command[] = [
   { id: 'nav-alerts',        label: '定期アラートへ',           icon: '🔔', category: 'ページ移動', href: '/dashboard/alerts' },
   { id: 'nav-industry',      label: '業界レポートへ',           icon: '📊', category: 'ページ移動', href: '/dashboard/industry' },
   { id: 'nav-guide',         label: '活用ガイドへ',             icon: '📘', category: 'ページ移動', href: '/dashboard/guide' },
-
-  // クイックアクション
-  { id: 'action-new-write',    label: '新しい文章を作成',        icon: '✍️', category: 'クイックアクション', href: '/dashboard/write' },
-  { id: 'action-new-search',   label: 'Web検索を開始',           icon: '🔍', category: 'クイックアクション', href: '/dashboard/websearch' },
-  { id: 'action-new-workflow',  label: 'ワークフローを実行',     icon: '⚡', category: 'クイックアクション', href: '/dashboard/workflow' },
-  { id: 'action-library',      label: 'ライブラリを開く',        icon: '📚', category: 'クイックアクション', href: '/dashboard/library' },
-  { id: 'action-memory',       label: 'AIメモリを確認',          icon: '🧠', category: 'クイックアクション', href: '/dashboard/memory' },
-  { id: 'action-new-memory',   label: 'AIメモリを追加',          icon: '🧠', category: 'クイックアクション', href: '/dashboard/memory' },
-  { id: 'action-glossary',     label: '用語を解説する',          icon: '📖', category: 'クイックアクション', href: '/dashboard/glossary' },
-  { id: 'action-stats',        label: '使用状況を確認',          icon: '📊', category: 'クイックアクション', href: '/dashboard/stats' },
-  { id: 'action-settings',     label: '設定を開く',              icon: '⚙️', category: 'クイックアクション', href: '/dashboard/guide' },
-
-  // テーマ切り替え
-  { id: 'theme-dark',     label: 'ダークモードに切替',   icon: '🌙', category: 'テーマ', action: 'theme-dark' },
-  { id: 'theme-light',    label: 'ライトモードに切替',   icon: '☀️', category: 'テーマ', action: 'theme-light' },
-  { id: 'theme-midnight', label: 'ミッドナイトに切替',   icon: '🌃', category: 'テーマ', action: 'theme-midnight' },
-  { id: 'theme-nature',   label: 'ネイチャーに切替',     icon: '🌿', category: 'テーマ', action: 'theme-nature' },
 ];
 
 const HISTORY_KEY = 'lumina-cmd-history';
@@ -69,6 +70,7 @@ export function CommandPalette() {
   const [query, setQuery] = useState('');
   const [activeIndex, setActiveIndex] = useState(0);
   const router = useRouter();
+  const { setTheme } = useTheme();
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
 
@@ -123,19 +125,16 @@ export function CommandPalette() {
   const flatList = grouped.flatMap(g => g.commands);
 
   const executeAction = useCallback((action: string) => {
-    // テーマ切り替え: data-theme属性を変更してlocalStorageに保存
-    const themeMap: Record<string, string> = {
+    // ThemeProviderのsetThemeで正しくテーマ切替（React state + DOM + localStorage）
+    const themeMap: Record<string, 'dark' | 'light' | 'midnight' | 'nature'> = {
       'theme-dark': 'dark',
       'theme-light': 'light',
       'theme-midnight': 'midnight',
       'theme-nature': 'nature',
     };
     const theme = themeMap[action];
-    if (theme) {
-      document.documentElement.setAttribute('data-theme', theme);
-      localStorage.setItem('lumina-theme', theme);
-    }
-  }, []);
+    if (theme) setTheme(theme);
+  }, [setTheme]);
 
   const execute = useCallback((cmd: Command) => {
     setIsOpen(false);
@@ -201,7 +200,7 @@ export function CommandPalette() {
         </div>
 
         {/* コマンドリスト */}
-        <div ref={listRef} style={{ maxHeight: 360, overflowY: 'auto', padding: '6px 0' }}>
+        <div ref={listRef} style={{ maxHeight: 440, overflowY: 'auto', padding: '6px 0' }}>
           {grouped.map(({ category, commands }) => (
             <div key={category}>
               <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--text-muted)', padding: '8px 16px 3px', letterSpacing: '0.06em', textTransform: 'uppercase' as const }}>
