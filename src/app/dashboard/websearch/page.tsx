@@ -112,6 +112,9 @@ export default function WebSearchPage() {
   const [followupLoading, setFollowupLoading] = useState(false);
   const [reliability, setReliability] = useState<{score: number; level: string; reasons: string[]; warnings: string[]} | null>(null);
   const [reliabilityLoading, setReliabilityLoading] = useState(false);
+  const [categories, setCategories] = useState<{ text: string; category: string }[]>([]);
+  const [activeCategory, setActiveCategory] = useState('すべて');
+  const [classifyLoading, setClassifyLoading] = useState(false);
   const [history, setHistory] = useState<string[]>(() => {
     if (typeof window === 'undefined') return [];
     try { return JSON.parse(localStorage.getItem('lumina_search_history') || '[]'); } catch { return []; }
@@ -178,6 +181,18 @@ export default function WebSearchPage() {
         }
       }
       saveHitUrls(accumulated);
+
+      // 自動カテゴリ分類
+      setClassifyLoading(true);
+      fetch('/api/websearch/classify', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text: accumulated, query: searchQuery }),
+      })
+        .then(r => r.json())
+        .then(data => { if (data.categorized) setCategories(data.categorized); })
+        .catch(() => {})
+        .finally(() => setClassifyLoading(false));
     } catch (error: any) {
       setResult(`通信エラー: ${error.message}`);
       resetProgress();
@@ -371,6 +386,33 @@ export default function WebSearchPage() {
           <div style={{ width: 20, height: 20, border: '2px solid rgba(0,212,184,0.3)', borderTopColor: '#00d4b8', borderRadius: '50%', animation: 'spin 0.7s linear infinite' }} />
           AIがWebを調査中...（混雑時は自動でリトライします）
         </div>
+      )}
+
+      {/* カテゴリフィルター */}
+      {result && !loading && categories.length > 0 && (
+        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 12 }}>
+          {['すべて', ...new Set(categories.map(c => c.category))].map(cat => (
+            <button
+              key={cat}
+              onClick={() => setActiveCategory(cat)}
+              style={{
+                fontSize: 12, padding: '5px 14px', borderRadius: 20,
+                border: `1px solid ${activeCategory === cat ? 'var(--accent)' : 'var(--border)'}`,
+                background: activeCategory === cat ? 'var(--accent-soft)' : 'transparent',
+                color: activeCategory === cat ? 'var(--accent)' : 'var(--text-muted)',
+                cursor: 'pointer', fontWeight: 500, transition: 'all 0.15s',
+              }}
+            >
+              {cat}
+              <span style={{ marginLeft: 4, opacity: 0.6 }}>
+                {cat === 'すべて' ? categories.length : categories.filter(c => c.category === cat).length}
+              </span>
+            </button>
+          ))}
+        </div>
+      )}
+      {classifyLoading && result && !loading && (
+        <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 8 }}>🔄 カテゴリ分析中...</div>
       )}
 
       {result && !loading && (

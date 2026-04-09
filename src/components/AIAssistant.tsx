@@ -16,7 +16,24 @@ export function AIAssistant() {
   ]);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
+  const [currentHistoryId, setCurrentHistoryId] = useState<string | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
+
+  // 会話履歴保存
+  const saveHistory = async () => {
+    if (messages.length < 2) return;
+    const firstUserMsg = messages.find(m => m.role === 'user')?.content ?? '会話';
+    const title = firstUserMsg.slice(0, 30) + (firstUserMsg.length > 30 ? '...' : '');
+    try {
+      const res = await fetch('/api/chat-history', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ title, messages, id: currentHistoryId }),
+      });
+      const data = await res.json();
+      if (data.id && !currentHistoryId) setCurrentHistoryId(data.id);
+    } catch {}
+  };
 
   // リサイズ用state/ref
   const [size, setSize] = useState(DEFAULT_SIZE);
@@ -125,7 +142,7 @@ export function AIAssistant() {
       {/* フローティングボタン（最大化時は非表示） */}
       {chatSize !== 'max' && (
         <button
-          onClick={() => setOpen(!open)}
+          onClick={() => { if (open) saveHistory(); setOpen(!open); }}
           style={{
             position: 'fixed', bottom: 24, right: 24, zIndex: 9999,
             width: 52, height: 52, borderRadius: '50%', border: 'none',
@@ -181,7 +198,7 @@ export function AIAssistant() {
             </button>
             {chatSize === 'max' && (
               <button
-                onClick={() => { setChatSize('normal'); setOpen(false); }}
+                onClick={() => { saveHistory(); setChatSize('normal'); setOpen(false); }}
                 style={{ background: 'rgba(255,255,255,0.2)', border: 'none', borderRadius: 6, padding: '4px 8px', color: '#fff', fontSize: 14, cursor: 'pointer' }}
                 title="閉じる"
               >

@@ -432,6 +432,27 @@ export async function GET() {
     )`;
     await sql`CREATE INDEX IF NOT EXISTS idx_ga_mh_snapshot ON ga_metric_history (snapshot_id, metric_name)`;
 
+    // 会話履歴
+    await sql`CREATE TABLE IF NOT EXISTS chat_histories (
+      id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
+      user_id TEXT NOT NULL,
+      title TEXT NOT NULL,
+      messages JSONB NOT NULL DEFAULT '[]',
+      created_at TIMESTAMP DEFAULT NOW(),
+      updated_at TIMESTAMP DEFAULT NOW()
+    )`;
+    await sql`CREATE INDEX IF NOT EXISTS idx_chat_histories_user ON chat_histories(user_id)`;
+
+    // 共有アイテム
+    await sql`CREATE TABLE IF NOT EXISTS shared_items (
+      id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
+      library_item_id TEXT NOT NULL,
+      user_id TEXT NOT NULL,
+      expires_at TIMESTAMP,
+      view_count INT DEFAULT 0,
+      created_at TIMESTAMP DEFAULT NOW()
+    )`;
+
     // 通知センター
     await sql`CREATE TABLE IF NOT EXISTS notifications (
       id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,

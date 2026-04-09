@@ -21,6 +21,7 @@ export default function AlertsPage() {
   const [topic, setTopic] = useState('');
   const [frequency, setFrequency] = useState('weekly');
   const [results, setResults] = useState<Record<string, string>>({});
+  const [diffs, setDiffs] = useState<Record<string, { newInfo?: string[]; changedInfo?: string[]; summary?: string }>>({});
   const [running, setRunning] = useState<string>('');
   const [runningAll, setRunningAll] = useState(false);
   const [allProgress, setAllProgress] = useState({ done: 0, total: 0 });
@@ -68,6 +69,9 @@ export default function AlertsPage() {
       const data = await res.json();
       if (data.result) {
         setResults(prev => ({ ...prev, [id]: data.result }));
+        if (data.diffAnalysis) {
+          setDiffs(prev => ({ ...prev, [id]: data.diffAnalysis }));
+        }
 
         const newEntry = { text: data.result, date: new Date().toLocaleString('ja-JP') };
         setSavedResults(prev => {
@@ -339,6 +343,32 @@ export default function AlertsPage() {
                 {/* 収集結果（展開時のみ） */}
                 {isExpanded && (currentResult || latestSaved) && (
                   <div style={{ borderTop: '1px solid var(--border)' }}>
+                    {/* 前回比較差分 */}
+                    {diffs[alert.id] && (
+                      <div style={{ padding: '12px 16px', background: 'var(--bg-card)', borderBottom: '1px solid var(--border)' }}>
+                        <p style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 8 }}>📊 前回からの変化</p>
+                        {diffs[alert.id].newInfo && diffs[alert.id].newInfo!.length > 0 && (
+                          <div style={{ marginBottom: 8 }}>
+                            <p style={{ fontSize: 11, fontWeight: 600, color: '#22c55e', marginBottom: 4 }}>🆕 新しい情報</p>
+                            {diffs[alert.id].newInfo!.map((info, i) => (
+                              <p key={i} style={{ fontSize: 12, color: 'var(--text-secondary)', paddingLeft: 12 }}>・{info}</p>
+                            ))}
+                          </div>
+                        )}
+                        {diffs[alert.id].changedInfo && diffs[alert.id].changedInfo!.length > 0 && (
+                          <div style={{ marginBottom: 8 }}>
+                            <p style={{ fontSize: 11, fontWeight: 600, color: '#f59e0b', marginBottom: 4 }}>🔄 変化した情報</p>
+                            {diffs[alert.id].changedInfo!.map((info, i) => (
+                              <p key={i} style={{ fontSize: 12, color: 'var(--text-secondary)', paddingLeft: 12 }}>・{info}</p>
+                            ))}
+                          </div>
+                        )}
+                        {diffs[alert.id].summary && (
+                          <p style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 4, fontStyle: 'italic' }}>{diffs[alert.id].summary}</p>
+                        )}
+                      </div>
+                    )}
+
                     <div style={{
                       padding: 16, background: 'var(--bg-primary)',
                       fontSize: 13, color: 'var(--text-secondary)',

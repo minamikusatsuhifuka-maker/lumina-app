@@ -148,6 +148,16 @@ export default function WritePage() {
       setPrompt(`【参考情報】\n${context}\n\n【指示】\n`);
       localStorage.removeItem('lumina_research_context');
     }
+    // ブレストからの連携データを読み込み
+    const brainstormData = sessionStorage.getItem('brainstorm_to_write');
+    if (brainstormData) {
+      try {
+        const { prompt: p, mode: m } = JSON.parse(brainstormData);
+        if (p) setPrompt(p);
+        if (m) setMode(m);
+      } catch {}
+      sessionStorage.removeItem('brainstorm_to_write');
+    }
   }, []);
 
   const generate = async () => {

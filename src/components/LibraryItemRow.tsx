@@ -1,6 +1,6 @@
 'use client';
 
-import { useRef, useEffect } from 'react';
+import { useState, useRef, useEffect } from 'react';
 
 const CATEGORY_CONFIG: Record<string, { icon: string; badgeBg: string; badgeColor: string }> = {
   'Intelligence Hub':   { icon: '🧠', badgeBg: 'rgba(108,99,255,0.1)',  badgeColor: '#6c63ff' },
@@ -57,9 +57,23 @@ export function LibraryItemRow({
   onMoveToFolder,
 }: Props) {
   const menuRef = useRef<HTMLDivElement>(null);
+  const [shareUrl, setShareUrl] = useState('');
+  const [showShareModal, setShowShareModal] = useState(false);
   const groupName = item.group_name || '未分類';
   const config = CATEGORY_CONFIG[groupName] ?? { icon: '📄', badgeBg: 'rgba(156,163,175,0.1)', badgeColor: '#9ca3af' };
   const isMenuOpen = openMenuId === item.id;
+
+  const handleShare = async (expiresDays: number | null) => {
+    const res = await fetch('/api/share', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ libraryItemId: item.id, expiresDays }),
+    });
+    const data = await res.json();
+    setShareUrl(data.shareUrl);
+    setShowShareModal(true);
+    setOpenMenuId(null);
+  };
 
   useEffect(() => {
     if (!isMenuOpen) return;
@@ -163,6 +177,10 @@ export function LibraryItemRow({
               { label: '📝 Markdown', action: () => onExportMd(item) },
               { label: '📄 PDF', action: () => onExportPdf(item) },
               null,
+              { label: '🔗 7日間共有', action: () => handleShare(7) },
+              { label: '🔗 30日間共有', action: () => handleShare(30) },
+              { label: '🔗 無期限共有', action: () => handleShare(null) },
+              null,
               { label: '🗑 削除', action: () => onDelete(item.id), color: '#ff6b6b' },
             ].map((entry, i) =>
               entry === null ? (
@@ -186,6 +204,40 @@ export function LibraryItemRow({
           </div>
         )}
       </div>
+
+      {/* 共有URLモーダル */}
+      {showShareModal && (
+        <div
+          style={{ position: 'fixed', inset: 0, zIndex: 9999, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+          onClick={() => setShowShareModal(false)}
+        >
+          <div
+            style={{ background: 'var(--bg-secondary)', borderRadius: 12, padding: 24, width: 400, border: '1px solid var(--border)', boxShadow: '0 8px 32px rgba(0,0,0,0.3)' }}
+            onClick={e => e.stopPropagation()}
+          >
+            <h3 style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 12 }}>🔗 共有リンク</h3>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <input
+                value={shareUrl}
+                readOnly
+                style={{ flex: 1, fontSize: 12, border: '1px solid var(--border)', borderRadius: 8, padding: '8px 12px', background: 'var(--bg-primary)', color: 'var(--text-primary)', outline: 'none' }}
+              />
+              <button
+                onClick={() => { navigator.clipboard.writeText(shareUrl); }}
+                style={{ padding: '8px 14px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--bg-card)', color: 'var(--text-secondary)', cursor: 'pointer', fontSize: 14 }}
+              >
+                📋
+              </button>
+            </div>
+            <button
+              onClick={() => setShowShareModal(false)}
+              style={{ marginTop: 12, fontSize: 12, color: 'var(--text-muted)', background: 'none', border: 'none', cursor: 'pointer' }}
+            >
+              閉じる
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

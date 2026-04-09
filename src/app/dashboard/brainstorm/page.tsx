@@ -1,5 +1,6 @@
 'use client';
 import { useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { SaveToLibraryButton } from '@/components/SaveToLibraryButton';
 import { VoiceInputButton } from '@/components/VoiceInputButton';
 
@@ -12,6 +13,7 @@ const PHASES = [
 const THEMES = ['新規事業アイデア', 'SNSバズりコンテンツ', '採用施策', 'コスト削減策', '顧客体験改善', '新商品開発'];
 
 export default function BrainstormPage() {
+  const router = useRouter();
   const [theme, setTheme] = useState('');
   const [phase, setPhase] = useState('expand');
   const [results, setResults] = useState<Record<string, string>>({});
@@ -86,7 +88,30 @@ export default function BrainstormPage() {
         <div key={p.id} style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 16, overflow: 'hidden', marginBottom: 16 }}>
           <div style={{ padding: '12px 20px', borderBottom: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <span style={{ fontSize: 13, fontWeight: 700, color: p.color }}>{p.label} 結果</span>
-            <SaveToLibraryButton title={`ブレスト ${p.label}: ${theme}`} content={results[p.id]} type="web" tags="ブレインストーミング" groupName="ブレスト" />
+            <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+              <SaveToLibraryButton title={`ブレスト ${p.label}: ${theme}`} content={results[p.id]} type="web" tags="ブレインストーミング" groupName="ブレスト" />
+              <button
+                onClick={() => {
+                  sessionStorage.setItem('brainstorm_to_write', JSON.stringify({
+                    prompt: `以下のブレインストーミング結果をもとに、読みやすい文章を作成してください：\n\n${results[p.id]}`,
+                    mode: 'blog',
+                  }));
+                  router.push('/dashboard/write');
+                }}
+                style={{ padding: '5px 12px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--bg-card)', color: 'var(--text-secondary)', fontSize: 12, cursor: 'pointer', fontWeight: 500 }}
+              >
+                ✍️ 文章作成に送る
+              </button>
+              <button
+                onClick={() => {
+                  sessionStorage.setItem('brainstorm_to_workflow', results[p.id].slice(0, 200));
+                  router.push('/dashboard/workflow');
+                }}
+                style={{ padding: '5px 12px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--bg-card)', color: 'var(--text-secondary)', fontSize: 12, cursor: 'pointer', fontWeight: 500 }}
+              >
+                ⚡ ワークフローに送る
+              </button>
+            </div>
           </div>
           <div style={{ padding: '20px 24px' }} dangerouslySetInnerHTML={{ __html: formatResult(results[p.id]) }} />
         </div>
