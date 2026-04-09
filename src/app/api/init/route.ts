@@ -432,6 +432,19 @@ export async function GET() {
     )`;
     await sql`CREATE INDEX IF NOT EXISTS idx_ga_mh_snapshot ON ga_metric_history (snapshot_id, metric_name)`;
 
+    // 通知センター
+    await sql`CREATE TABLE IF NOT EXISTS notifications (
+      id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
+      user_id TEXT NOT NULL,
+      title TEXT NOT NULL,
+      message TEXT,
+      type TEXT DEFAULT 'info',
+      is_read BOOLEAN DEFAULT false,
+      href TEXT,
+      created_at TIMESTAMP DEFAULT NOW()
+    )`;
+    await sql`CREATE INDEX IF NOT EXISTS idx_notifications_user ON notifications(user_id)`;
+
     await sql`CREATE TABLE IF NOT EXISTS ga_insights (
       id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
       snapshot_id TEXT NOT NULL,

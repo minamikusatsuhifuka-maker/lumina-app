@@ -8,7 +8,8 @@ type Command = {
   label: string;
   icon: string;
   category: string;
-  href: string;
+  href?: string;
+  action?: string;
 };
 
 const COMMANDS: Command[] = [
@@ -31,12 +32,37 @@ const COMMANDS: Command[] = [
   { id: 'nav-guide',         label: '活用ガイドへ',             icon: '📘', category: 'ページ移動', href: '/dashboard/guide' },
 
   // クイックアクション
-  { id: 'action-new-write',   label: '新しい文章を作成',        icon: '✍️', category: 'クイックアクション', href: '/dashboard/write' },
-  { id: 'action-new-search',  label: 'Web検索を開始',           icon: '🔍', category: 'クイックアクション', href: '/dashboard/websearch' },
-  { id: 'action-new-workflow', label: 'ワークフローを実行',     icon: '⚡', category: 'クイックアクション', href: '/dashboard/workflow' },
-  { id: 'action-library',     label: 'ライブラリを開く',        icon: '📚', category: 'クイックアクション', href: '/dashboard/library' },
-  { id: 'action-memory',      label: 'AIメモリを確認',          icon: '🧠', category: 'クイックアクション', href: '/dashboard/memory' },
+  { id: 'action-new-write',    label: '新しい文章を作成',        icon: '✍️', category: 'クイックアクション', href: '/dashboard/write' },
+  { id: 'action-new-search',   label: 'Web検索を開始',           icon: '🔍', category: 'クイックアクション', href: '/dashboard/websearch' },
+  { id: 'action-new-workflow',  label: 'ワークフローを実行',     icon: '⚡', category: 'クイックアクション', href: '/dashboard/workflow' },
+  { id: 'action-library',      label: 'ライブラリを開く',        icon: '📚', category: 'クイックアクション', href: '/dashboard/library' },
+  { id: 'action-memory',       label: 'AIメモリを確認',          icon: '🧠', category: 'クイックアクション', href: '/dashboard/memory' },
+  { id: 'action-new-memory',   label: 'AIメモリを追加',          icon: '🧠', category: 'クイックアクション', href: '/dashboard/memory' },
+  { id: 'action-glossary',     label: '用語を解説する',          icon: '📖', category: 'クイックアクション', href: '/dashboard/glossary' },
+  { id: 'action-stats',        label: '使用状況を確認',          icon: '📊', category: 'クイックアクション', href: '/dashboard/stats' },
+  { id: 'action-settings',     label: '設定を開く',              icon: '⚙️', category: 'クイックアクション', href: '/dashboard/guide' },
+
+  // テーマ切り替え
+  { id: 'theme-dark',     label: 'ダークモードに切替',   icon: '🌙', category: 'テーマ', action: 'theme-dark' },
+  { id: 'theme-light',    label: 'ライトモードに切替',   icon: '☀️', category: 'テーマ', action: 'theme-light' },
+  { id: 'theme-midnight', label: 'ミッドナイトに切替',   icon: '🌃', category: 'テーマ', action: 'theme-midnight' },
+  { id: 'theme-nature',   label: 'ネイチャーに切替',     icon: '🌿', category: 'テーマ', action: 'theme-nature' },
 ];
+
+const HISTORY_KEY = 'lumina-cmd-history';
+const MAX_HISTORY = 5;
+
+function getHistory(): string[] {
+  try {
+    return JSON.parse(localStorage.getItem(HISTORY_KEY) || '[]');
+  } catch { return []; }
+}
+
+function saveHistory(id: string) {
+  const prev = getHistory().filter(h => h !== id);
+  const next = [id, ...prev].slice(0, MAX_HISTORY);
+  localStorage.setItem(HISTORY_KEY, JSON.stringify(next));
+}
 
 export function CommandPalette() {
   const [isOpen, setIsOpen] = useState(false);
@@ -65,7 +91,14 @@ export function CommandPalette() {
     if (isOpen) setTimeout(() => inputRef.current?.focus(), 50);
   }, [isOpen]);
 
-  // フィルタリング
+  // 最近使ったコマンドを取得
+  const recentCommands: Command[] = isOpen && !query.trim()
+    ? getHistory()
+        .map(id => COMMANDS.find(c => c.id === id))
+        .filter((c): c is Command => !!c)
+    : [];
+
+  // フィルタリング（カテゴリも検索対象）
   const filteredCommands = query.trim()
     ? COMMANDS.filter(c =>
         c.label.toLowerCase().includes(query.toLowerCase()) ||
@@ -73,8 +106,13 @@ export function CommandPalette() {
       )
     : COMMANDS;
 
-  // カテゴリでグルーピング
-  const grouped = filteredCommands.reduce<{ category: string; commands: Command[] }[]>((acc, cmd) => {
+  // 最近使ったコマンド + 通常コマンドをグルーピング
+  const allCommands: Command[] = [
+    ...recentCommands.map(c => ({ ...c, category: '🕐 最近使った機能' })),
+    ...filteredCommands,
+  ];
+
+  const grouped = allCommands.reduce<{ category: string; commands: Command[] }[]>((acc, cmd) => {
     const group = acc.find(g => g.category === cmd.category);
     if (group) group.commands.push(cmd);
     else acc.push({ category: cmd.category, commands: [cmd] });
@@ -84,11 +122,31 @@ export function CommandPalette() {
   // フラットインデックス用
   const flatList = grouped.flatMap(g => g.commands);
 
+  const executeAction = useCallback((action: string) => {
+    // テーマ切り替え: data-theme属性を変更してlocalStorageに保存
+    const themeMap: Record<string, string> = {
+      'theme-dark': 'dark',
+      'theme-light': 'light',
+      'theme-midnight': 'midnight',
+      'theme-nature': 'nature',
+    };
+    const theme = themeMap[action];
+    if (theme) {
+      document.documentElement.setAttribute('data-theme', theme);
+      localStorage.setItem('lumina-theme', theme);
+    }
+  }, []);
+
   const execute = useCallback((cmd: Command) => {
     setIsOpen(false);
     setQuery('');
-    router.push(cmd.href);
-  }, [router]);
+    saveHistory(cmd.id);
+    if (cmd.action) {
+      executeAction(cmd.action);
+    } else if (cmd.href) {
+      router.push(cmd.href);
+    }
+  }, [router, executeAction]);
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Escape') {
@@ -133,7 +191,7 @@ export function CommandPalette() {
           <input
             ref={inputRef}
             autoFocus
-            placeholder="ページ移動・機能を検索..."
+            placeholder="ページ移動・機能・テーマを検索..."
             value={query}
             onChange={e => setQuery(e.target.value)}
             onKeyDown={handleKeyDown}
@@ -155,7 +213,7 @@ export function CommandPalette() {
                 const isActive = activeIndex === idx;
                 return (
                   <div
-                    key={cmd.id}
+                    key={`${cmd.id}-${category}`}
                     data-idx={idx}
                     onClick={() => execute(cmd)}
                     onMouseEnter={() => setActiveIndex(idx)}
@@ -169,6 +227,9 @@ export function CommandPalette() {
                   >
                     <span style={{ fontSize: 16, width: 22, textAlign: 'center' }}>{cmd.icon}</span>
                     <span style={{ fontWeight: isActive ? 600 : 400 }}>{cmd.label}</span>
+                    {cmd.action && (
+                      <span style={{ marginLeft: 'auto', fontSize: 10, color: 'var(--text-muted)', opacity: 0.6 }}>アクション</span>
+                    )}
                   </div>
                 );
               })}
@@ -186,6 +247,7 @@ export function CommandPalette() {
           <span><kbd style={{ padding: '1px 4px', borderRadius: 3, border: '1px solid var(--border)', background: 'var(--bg-primary)', fontSize: 10 }}>↑↓</kbd> 移動</span>
           <span><kbd style={{ padding: '1px 4px', borderRadius: 3, border: '1px solid var(--border)', background: 'var(--bg-primary)', fontSize: 10 }}>Enter</kbd> 実行</span>
           <span><kbd style={{ padding: '1px 4px', borderRadius: 3, border: '1px solid var(--border)', background: 'var(--bg-primary)', fontSize: 10 }}>Esc</kbd> 閉じる</span>
+          <span style={{ marginLeft: 'auto' }}><kbd style={{ padding: '1px 4px', borderRadius: 3, border: '1px solid var(--border)', background: 'var(--bg-primary)', fontSize: 10 }}>⌘K</kbd> で開く</span>
         </div>
       </div>
     </div>

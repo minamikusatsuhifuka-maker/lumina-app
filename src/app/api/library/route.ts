@@ -22,8 +22,20 @@ export async function POST(req: NextRequest) {
   await sql`INSERT INTO library (id, user_id, type, title, content, metadata, tags, group_name, is_favorite, folder_name)
     VALUES (${id}, ${userId}, ${type}, ${title}, ${content || ''}, ${JSON.stringify(metadata || {})}, ${tags || ''}, ${group_name || '未分類'}, ${is_favorite ? 1 : 0}, ${folder_name || null})`;
 
+  // ライブラリ保存後に通知作成（非同期・ノンブロッキング）
+  const baseUrl = process.env.NEXTAUTH_URL || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'http://localhost:3000');
+  fetch(`${baseUrl}/api/notifications/create`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', cookie: req.headers.get('cookie') ?? '' },
+    body: JSON.stringify({
+      title: '📚 ライブラリに保存しました',
+      message: title ?? '',
+      type: 'success',
+      href: '/dashboard/library',
+    }),
+  }).catch(() => {});
+
   // ライブラリ保存後に非同期でメモリ化（レスポンスを待たない）
-  const baseUrl = process.env.NEXTAUTH_URL || process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'http://localhost:3000';
   fetch(`${baseUrl}/api/memory/summarize`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', cookie: req.headers.get('cookie') ?? '' },

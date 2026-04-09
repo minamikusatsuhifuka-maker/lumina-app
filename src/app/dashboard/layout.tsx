@@ -6,6 +6,7 @@ import { FloatingToolbar } from '@/components/FloatingToolbar';
 import { GlossaryPanel } from '@/components/GlossaryPanel';
 import { ModelSelector } from '@/components/ModelSelector';
 import { CommandPalette } from '@/components/CommandPalette';
+import { NotificationCenter } from '@/components/NotificationCenter';
 
 export default async function DashboardLayout({ children }: { children: React.ReactNode }) {
   const session = await auth();
@@ -14,7 +15,7 @@ export default async function DashboardLayout({ children }: { children: React.Re
     <div style={{ display: 'flex', minHeight: '100vh', background: 'var(--bg-primary)' }}>
       <DashboardSidebar userName={session.user?.name || ''} />
       <main style={{ flex: 1, padding: 28, overflowY: 'auto', maxWidth: 'calc(100vw - 220px)', color: 'var(--text-primary)' }}>
-        <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 12 }}><ModelSelector /></div>
+        <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: 8, marginBottom: 12 }}><NotificationCenter /><ModelSelector /></div>
         {children}
       </main>
       <FloatingToolbar />

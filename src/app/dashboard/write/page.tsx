@@ -121,6 +121,24 @@ export default function WritePage() {
   const [originalText, setOriginalText] = useState('');
   const [showDiff, setShowDiff] = useState(false);
   const [readability, setReadability] = useState<ReturnType<typeof calcReadabilityScore> | null>(null);
+  const [seoTitles, setSeoTitles] = useState<{ title: string; reason: string; score: number }[]>([]);
+  const [isLoadingTitles, setIsLoadingTitles] = useState(false);
+
+  const handleSuggestTitles = async () => {
+    if (!output) return;
+    setIsLoadingTitles(true);
+    try {
+      const res = await fetch('/api/seo-titles', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ content: output, mode }),
+      });
+      const data = await res.json();
+      setSeoTitles(data.titles ?? []);
+    } finally {
+      setIsLoadingTitles(false);
+    }
+  };
 
   useEffect(() => { setIsFavorited(false); }, [output]);
 
@@ -569,6 +587,55 @@ export default function WritePage() {
               </div>
             ))}
           </div>
+        </div>
+      )}
+
+      {/* SEOタイトル提案 */}
+      {output && !loading && (
+        <div style={{ marginTop: 12, border: '1px solid var(--border)', borderRadius: 12, padding: 16 }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: seoTitles.length > 0 ? 12 : 0 }}>
+            <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)' }}>💡 SEOタイトル提案</span>
+            <button
+              onClick={handleSuggestTitles}
+              disabled={isLoadingTitles}
+              style={{
+                fontSize: 12, padding: '5px 14px', borderRadius: 8, cursor: 'pointer',
+                background: 'linear-gradient(135deg, #6c63ff, #00d4b8)', color: '#fff',
+                border: 'none', fontWeight: 600,
+                opacity: isLoadingTitles ? 0.6 : 1,
+              }}
+            >
+              {isLoadingTitles ? '生成中...' : '✨ タイトルを提案'}
+            </button>
+          </div>
+          {seoTitles.length > 0 && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              {seoTitles.map((t, i) => (
+                <div
+                  key={i}
+                  onClick={() => setPrompt(t.title)}
+                  style={{
+                    display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px',
+                    borderRadius: 8, border: '1px solid var(--border)',
+                    cursor: 'pointer', transition: 'background 0.1s',
+                  }}
+                  onMouseEnter={e => (e.currentTarget.style.background = 'var(--accent-soft)')}
+                  onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
+                >
+                  <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-muted)', width: 16, flexShrink: 0 }}>{i + 1}</span>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 13, fontWeight: 500, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{t.title}</div>
+                    <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>{t.reason}</div>
+                  </div>
+                  <span style={{
+                    fontSize: 11, padding: '2px 8px', borderRadius: 20, fontWeight: 600,
+                    background: t.score >= 80 ? '#EAF3DE' : t.score >= 60 ? '#FAEEDA' : '#FCEBEB',
+                    color: t.score >= 80 ? '#27500A' : t.score >= 60 ? '#633806' : '#A32D2D',
+                  }}>{t.score}点</span>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       )}
 

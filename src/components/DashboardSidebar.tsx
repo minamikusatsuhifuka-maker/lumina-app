@@ -45,6 +45,7 @@ const navCategories: NavCategory[] = [
       { href: '/dashboard/memory', label: 'AIメモリ', icon: '🧠' },
       { href: '/dashboard/glossary', label: '用語解説', icon: '📘' },
       { href: '/dashboard/guide', label: '活用ガイド', icon: '📖' },
+      { href: '/dashboard/stats', label: '使用状況', icon: '📊' },
       { href: '/dashboard', label: 'ダッシュボード', icon: '🏠' },
     ],
   },
