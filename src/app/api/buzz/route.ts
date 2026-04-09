@@ -61,7 +61,7 @@ ${mode || 'X（Twitter）'}
     },
     body: JSON.stringify({
       model: 'claude-sonnet-4-6',
-      max_tokens: isAutoFix ? 1000 : 500,
+      max_tokens: isAutoFix ? 1000 : 1200,
       system: isAutoFix ? 'あなたはSNSマーケティングの専門家です。' : 'あなたはSNSマーケティングの専門家です。JSONのみ返してください。',
       messages: [{ role: 'user', content: prompt }],
     }),

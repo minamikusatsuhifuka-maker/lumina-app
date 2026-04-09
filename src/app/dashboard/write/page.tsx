@@ -79,6 +79,7 @@ export default function WritePage() {
   const [isSavingTemplate, setIsSavingTemplate] = useState(false);
   const [showSaveInput, setShowSaveInput] = useState(false);
   const [selectedTemplateId, setSelectedTemplateId] = useState('');
+  const [showExportMenu, setShowExportMenu] = useState(false);
 
   useEffect(() => { setIsFavorited(false); }, [output]);
 
@@ -413,12 +414,13 @@ export default function WritePage() {
       </div>
       {(output || loading) && (
         <div>
-          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
+          {/* 主要ボタン行 */}
+          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8, flexWrap: 'wrap', gap: 6 }}>
             <div style={{ display: 'flex', gap: 6 }}>
               <button onClick={() => setPreview(false)} style={{ padding: '5px 12px', borderRadius: 6, border: 'none', cursor: 'pointer', fontSize: 12, background: !preview ? 'var(--accent)' : 'var(--bg-secondary)', color: !preview ? '#fff' : 'var(--text-muted)' }}>✏️ 編集</button>
               <button onClick={() => setPreview(true)} style={{ padding: '5px 12px', borderRadius: 6, border: 'none', cursor: 'pointer', fontSize: 12, background: preview ? 'var(--accent)' : 'var(--bg-secondary)', color: preview ? '#fff' : 'var(--text-muted)' }}>👁 プレビュー</button>
             </div>
-            <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+            <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
               <span style={{ fontSize: 12, color: 'var(--text-muted)', fontFamily: 'monospace' }}>{output.length.toLocaleString()}字</span>
               <SaveToLibraryButton
                 title={`${MODE_CATEGORIES.flatMap(c => c.modes).find(m => m.id === mode)?.label || mode}: ${prompt.slice(0, 30)}`}
@@ -432,75 +434,48 @@ export default function WritePage() {
                   await fetch('/api/library', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                      type: 'write',
-                      title: `★ ${mode}: ${prompt.slice(0, 40)}`,
-                      content: output,
-                      tags: mode,
-                      group_name: '文章作成',
-                      is_favorite: true,
-                    }),
+                    body: JSON.stringify({ type: 'write', title: `★ ${mode}: ${prompt.slice(0, 40)}`, content: output, tags: mode, group_name: '文章作成', is_favorite: true }),
                   });
                   setIsFavorited(true);
                 }}
-                style={{
-                  padding: '6px 14px', borderRadius: 8, border: 'none', cursor: 'pointer',
-                  background: isFavorited ? 'rgba(245,166,35,0.2)' : 'var(--border)',
-                  color: isFavorited ? '#f5a623' : 'var(--text-muted)',
-                  fontSize: 12, fontWeight: 600,
-                }}
+                style={{ padding: '6px 14px', borderRadius: 8, border: 'none', cursor: 'pointer', background: isFavorited ? 'rgba(245,166,35,0.2)' : 'var(--border)', color: isFavorited ? '#f5a623' : 'var(--text-muted)', fontSize: 12, fontWeight: 600 }}
               >
                 {isFavorited ? '★ お気に入り済み' : '☆ お気に入り'}
               </button>
-              <button onClick={copy} style={{ padding: '5px 12px', borderRadius: 6, border: '1px solid var(--border)', background: 'var(--bg-secondary)', color: 'var(--text-secondary)', cursor: 'pointer', fontSize: 12 }}>📋 コピー</button>
-              <button onClick={() => download('md')} style={{ padding: '5px 12px', borderRadius: 6, border: '1px solid var(--border)', background: 'var(--bg-secondary)', color: 'var(--text-secondary)', cursor: 'pointer', fontSize: 12 }}>💾 MD</button>
-              <button onClick={() => download('txt')} style={{ padding: '5px 12px', borderRadius: 6, border: '1px solid var(--border)', background: 'var(--bg-secondary)', color: 'var(--text-secondary)', cursor: 'pointer', fontSize: 12 }}>💾 TXT</button>
-              <button
-                onClick={async () => {
-                  const { exportToPdf } = await import('@/lib/exportPdf');
-                  await exportToPdf(prompt.slice(0, 40) || '文章', output);
-                }}
-                style={{ padding: '5px 12px', borderRadius: 6, border: '1px solid rgba(255,107,107,0.3)', background: 'var(--bg-secondary)', color: '#ff6b6b', cursor: 'pointer', fontSize: 12 }}
-              >
-                📄 PDF
-              </button>
-              <button
-                onClick={() => {
-                  const noteContent = output
-                    .replace(/^# (.+)$/gm, '$1\n')
-                    .replace(/^## (.+)$/gm, '\n■ $1\n')
-                    .replace(/^### (.+)$/gm, '\n▶ $1\n')
-                    .replace(/\*\*(.+?)\*\*/g, '$1')
-                    .replace(/---/g, '\n---\n');
-                  navigator.clipboard.writeText(noteContent).then(() => {
-                    window.open('https://note.com/notes/new', '_blank');
-                    alert('✅ note形式でクリップボードにコピーしました！\n\nnoteのエディタで Cmd+V で貼り付けてください。');
-                  });
-                }}
-                style={{ padding: '5px 12px', borderRadius: 6, border: '1px solid rgba(0,212,184,0.3)', background: 'rgba(0,212,184,0.1)', color: '#00d4b8', cursor: 'pointer', fontSize: 12, fontWeight: 600 }}
-              >
-                📝 noteに投稿
-              </button>
-              <button
-                onClick={() => {
-                  const html = output
-                    .replace(/^# (.+)$/gm, '<h1>$1</h1>')
-                    .replace(/^## (.+)$/gm, '<h2>$1</h2>')
-                    .replace(/^### (.+)$/gm, '<h3>$1</h3>')
-                    .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
-                    .replace(/\*(.+?)\*/g, '<em>$1</em>')
-                    .replace(/^- (.+)$/gm, '<li>$1</li>')
-                    .replace(/(<li>.*<\/li>\n?)+/g, '<ul>$&</ul>')
-                    .replace(/^(?!<[h1-6ul]).+$/gm, '<p>$&</p>')
-                    .replace(/---/g, '<hr>');
-                  navigator.clipboard.writeText(html).then(() => {
-                    alert('✅ HTML形式でコピーしました！\nWordPressのHTMLエディタに貼り付けてください。');
-                  });
-                }}
-                style={{ padding: '5px 12px', borderRadius: 6, border: '1px solid rgba(245,166,35,0.3)', background: 'rgba(245,166,35,0.1)', color: '#f5a623', cursor: 'pointer', fontSize: 12 }}
-              >
-                🌐 WP用HTML
-              </button>
+              {/* エクスポートドロップダウン */}
+              <div style={{ position: 'relative' }}>
+                <button onClick={() => setShowExportMenu(!showExportMenu)}
+                  style={{ padding: '5px 12px', borderRadius: 6, border: '1px solid var(--border)', background: showExportMenu ? 'var(--accent-soft)' : 'var(--bg-secondary)', color: 'var(--text-secondary)', cursor: 'pointer', fontSize: 12 }}>
+                  📤 エクスポート {showExportMenu ? '▲' : '▼'}
+                </button>
+                {showExportMenu && (
+                  <div style={{ position: 'absolute', right: 0, top: 32, zIndex: 50, width: 180, background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 10, boxShadow: '0 8px 24px rgba(0,0,0,0.2)', padding: '4px 0' }}>
+                    {[
+                      { label: '📋 コピー', action: () => copy() },
+                      { label: '💾 Markdown', action: () => download('md') },
+                      { label: '💾 TXT', action: () => download('txt') },
+                      { label: '📄 PDF', action: async () => { const { exportToPdf } = await import('@/lib/exportPdf'); await exportToPdf(prompt.slice(0, 40) || '文章', output); } },
+                      null,
+                      { label: '📝 noteに投稿', action: () => {
+                        const noteContent = output.replace(/^# (.+)$/gm, '$1\n').replace(/^## (.+)$/gm, '\n■ $1\n').replace(/^### (.+)$/gm, '\n▶ $1\n').replace(/\*\*(.+?)\*\*/g, '$1').replace(/---/g, '\n---\n');
+                        navigator.clipboard.writeText(noteContent).then(() => { window.open('https://note.com/notes/new', '_blank'); alert('✅ note形式でコピーしました！'); });
+                      }},
+                      { label: '🌐 WP用HTML', action: () => {
+                        const html = output.replace(/^# (.+)$/gm, '<h1>$1</h1>').replace(/^## (.+)$/gm, '<h2>$1</h2>').replace(/^### (.+)$/gm, '<h3>$1</h3>').replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>').replace(/\*(.+?)\*/g, '<em>$1</em>').replace(/^- (.+)$/gm, '<li>$1</li>').replace(/(<li>.*<\/li>\n?)+/g, '<ul>$&</ul>').replace(/^(?!<[h1-6ul]).+$/gm, '<p>$&</p>').replace(/---/g, '<hr>');
+                        navigator.clipboard.writeText(html).then(() => alert('✅ HTML形式でコピーしました！'));
+                      }},
+                    ].map((entry, i) => entry === null
+                      ? <div key={`sep-${i}`} style={{ borderTop: '1px solid var(--border)', margin: '4px 0' }} />
+                      : <button key={entry.label} onClick={() => { entry.action(); setShowExportMenu(false); }}
+                          style={{ width: '100%', textAlign: 'left', padding: '7px 12px', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-secondary)', fontSize: 12 }}
+                          onMouseEnter={e => (e.currentTarget.style.background = 'var(--border)')}
+                          onMouseLeave={e => (e.currentTarget.style.background = 'none')}>
+                          {entry.label}
+                        </button>
+                    )}
+                  </div>
+                )}
+              </div>
             </div>
           </div>
           <textarea value={output} onChange={e => setOutput(e.target.value)} readOnly={loading} style={{ display: preview ? 'none' : 'block', width: '100%', minHeight: 400, background: 'var(--bg-secondary)', border: `1px solid ${loading ? 'var(--accent)' : 'var(--border)'}`, borderRadius: 12, color: 'var(--text-secondary)', fontSize: 14, padding: 20, resize: 'vertical', outline: 'none', fontFamily: 'inherit', lineHeight: 1.8, boxSizing: 'border-box' }} />
@@ -542,6 +517,47 @@ export default function WritePage() {
                   </div>
                 </div>
               </div>
+
+              {/* 5軸バーグラフ */}
+              {buzzScore.axes && (
+                <div style={{ marginBottom: 16 }}>
+                  <p style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 10 }}>📊 5軸スコア</p>
+                  {[
+                    { key: 'hook', label: 'フック力', weight: '25%' },
+                    { key: 'emotion', label: '感情訴求', weight: '25%' },
+                    { key: 'cta', label: '行動喚起', weight: '20%' },
+                    { key: 'virality', label: '拡散性', weight: '15%' },
+                    { key: 'quality', label: 'コンテンツ品質', weight: '15%' },
+                  ].map(axis => {
+                    const axisData = buzzScore.axes[axis.key];
+                    if (!axisData) return null;
+                    const s = axisData.score;
+                    const badgeLabel = s >= 80 ? 'バズ期待' : s >= 60 ? '良好' : s >= 40 ? '普通' : '要改善';
+                    const badgeColor = s >= 80 ? '#22c55e' : s >= 60 ? '#3b82f6' : s >= 40 ? '#f59e0b' : '#ef4444';
+                    const barColor = s >= 80 ? '#22c55e' : s >= 60 ? '#3b82f6' : s >= 40 ? '#f59e0b' : '#ef4444';
+                    return (
+                      <div key={axis.key} style={{ marginBottom: 10 }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 3 }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                            <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-primary)' }}>{axis.label}</span>
+                            <span style={{ fontSize: 9, color: 'var(--text-muted)' }}>({axis.weight})</span>
+                          </div>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                            <span style={{ fontSize: 9, padding: '1px 6px', borderRadius: 10, background: `${badgeColor}18`, color: badgeColor, fontWeight: 700 }}>{badgeLabel}</span>
+                            <span style={{ fontSize: 13, fontWeight: 700, color: barColor, fontFamily: 'monospace', minWidth: 28, textAlign: 'right' }}>{s}</span>
+                          </div>
+                        </div>
+                        <div style={{ height: 6, background: 'var(--border)', borderRadius: 99 }}>
+                          <div style={{ height: '100%', width: `${s}%`, background: barColor, borderRadius: 99, transition: 'width 0.5s ease' }} />
+                        </div>
+                        {axisData.comment && (
+                          <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2 }}>{axisData.comment}</div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
 
               {/* 良い点 */}
               {buzzScore.strengths?.length > 0 && (
