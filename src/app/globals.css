@@ -283,3 +283,8 @@ a[href*="dashboard"]:hover {
 [data-theme="light"] ::-webkit-scrollbar-thumb:hover {
   background: rgba(0,0,0,0.25);
 }
+
+/* ダッシュボードアクションリンク */
+.dash-action-link:hover {
+  background: rgba(108,99,255,0.08);
+}

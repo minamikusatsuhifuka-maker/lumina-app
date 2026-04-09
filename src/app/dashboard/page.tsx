@@ -51,27 +51,27 @@ export default async function DashboardPage() {
       {/* 今日のサマリー */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: 12, marginBottom: 28 }}>
         {[
-          { label: '⚡ クイックアクション', items: [
-            { text: '競合分析を実行', href: '/dashboard/workflow' },
-            { text: 'note記事を検索', href: '/dashboard/note' },
-            { text: '議事録を整理', href: '/dashboard/minutes' },
+          { label: '⚡ クイックアクション', accent: '#378ADD', items: [
+            { icon: '🏆', text: '競合分析を実行', href: '/dashboard/workflow' },
+            { icon: '📓', text: 'note記事を検索', href: '/dashboard/note' },
+            { icon: '📝', text: '議事録を整理', href: '/dashboard/minutes' },
           ]},
-          { label: '🕐 最近使った機能', items: [
-            { text: 'Web情報収集', href: '/dashboard/websearch' },
-            { text: 'ディープリサーチ', href: '/dashboard/deepresearch' },
-            { text: 'AI分析エンジン', href: '/dashboard/analysis' },
+          { label: '🕐 最近使った機能', accent: '#1D9E75', items: [
+            { icon: '🌐', text: 'Web情報収集', href: '/dashboard/websearch' },
+            { icon: '🔭', text: 'ディープリサーチ', href: '/dashboard/deepresearch' },
+            { icon: '🧩', text: 'AI分析エンジン', href: '/dashboard/analysis' },
           ]},
-          { label: '💡 今日のおすすめ', items: [
-            { text: '業界レポートを作成', href: '/dashboard/industry' },
-            { text: 'ブレストを実施', href: '/dashboard/brainstorm' },
-            { text: 'ワークフローを試す', href: '/dashboard/workflow' },
+          { label: '💡 今日のおすすめ', accent: '#EF9F27', items: [
+            { icon: '📊', text: '業界レポートを作成', href: '/dashboard/industry' },
+            { icon: '💡', text: 'ブレストを実施', href: '/dashboard/brainstorm' },
+            { icon: '⚡', text: 'ワークフローを試す', href: '/dashboard/workflow' },
           ]},
         ].map(card => (
-          <div key={card.label} style={{ padding: 16, background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 12 }}>
+          <div key={card.label} style={{ padding: 16, background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 12, borderLeft: `3px solid ${card.accent}`, transition: 'background 0.15s' }}>
             <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-muted)', marginBottom: 10 }}>{card.label}</div>
             {card.items.map(item => (
-              <Link key={item.text} href={item.href} style={{ display: 'block', fontSize: 12, color: 'var(--text-secondary)', padding: '5px 0', borderBottom: '1px solid var(--border)', textDecoration: 'none' }}>
-                → {item.text}
+              <Link key={item.text} href={item.href} className="dash-action-link" style={{ display: 'block', fontSize: 12, color: 'var(--text-secondary)', padding: '6px 8px', margin: '0 -8px', borderRadius: 6, textDecoration: 'none' }}>
+                {item.icon} {item.text}
               </Link>
             ))}
           </div>
