@@ -44,6 +44,44 @@ const MODE_CATEGORIES = [
   },
 ];
 
+function calcReadabilityScore(text: string) {
+  const sentences = text.split(/[。！？]/).filter(s => s.trim().length > 0);
+  const avgLen = sentences.length > 0
+    ? sentences.reduce((sum, s) => sum + s.length, 0) / sentences.length : 0;
+  const sentenceScore = avgLen <= 30 ? 25 : avgLen <= 50 ? 20 : avgLen <= 70 ? 15 : 10;
+
+  const kanjiCount = (text.match(/[\u4e00-\u9faf]/g) || []).length;
+  const kanjiRate = text.replace(/\s/g, '').length > 0
+    ? kanjiCount / text.replace(/\s/g, '').length : 0;
+  const kanjiScore = kanjiRate <= 0.2 ? 25 : kanjiRate <= 0.3 ? 20 : kanjiRate <= 0.4 ? 15 : 10;
+
+  const paragraphs = text.split(/\n\n+/).filter(p => p.trim().length > 0);
+  const paragraphScore = paragraphs.length >= 3 && paragraphs.length <= 8 ? 25
+    : paragraphs.length >= 2 ? 20 : 10;
+
+  const readingPoints = (text.match(/、/g) || []).length;
+  const readingRate = sentences.length > 0 ? readingPoints / sentences.length : 0;
+  const readingScore = readingRate >= 1 && readingRate <= 3 ? 25
+    : readingRate >= 0.5 ? 20 : 10;
+
+  const total = sentenceScore + kanjiScore + paragraphScore + readingScore;
+
+  return {
+    total,
+    label: total >= 80 ? '読みやすい' as const : total >= 60 ? '普通' as const : '読みにくい' as const,
+    details: [
+      { name: '文章の長さ', score: sentenceScore, max: 25,
+        advice: avgLen > 50 ? '一文が長すぎます。句点で区切りましょう。' : '適切な文長です。' },
+      { name: '漢字率', score: kanjiScore, max: 25,
+        advice: kanjiRate > 0.3 ? '漢字が多すぎます。ひらがなを増やしましょう。' : '適切な漢字率です。' },
+      { name: '段落構成', score: paragraphScore, max: 25,
+        advice: paragraphs.length < 3 ? '段落を増やしましょう。話題ごとに改行を。' : '良い段落構成です。' },
+      { name: '読点バランス', score: readingScore, max: 25,
+        advice: readingRate < 0.5 ? '読点が少なく読みにくいです。' : '適切な読点の使用です。' },
+    ],
+  };
+}
+
 export default function WritePage() {
   const { progress, loading: progressLoading, startProgress, completeProgress, resetProgress } = useProgress();
   const [mode, setMode] = useState('blog');
@@ -82,6 +120,7 @@ export default function WritePage() {
   const [showExportMenu, setShowExportMenu] = useState(false);
   const [originalText, setOriginalText] = useState('');
   const [showDiff, setShowDiff] = useState(false);
+  const [readability, setReadability] = useState<ReturnType<typeof calcReadabilityScore> | null>(null);
 
   useEffect(() => { setIsFavorited(false); }, [output]);
 
@@ -150,6 +189,7 @@ export default function WritePage() {
       }
 
       console.log('[write] Generation complete, length:', text.length);
+      if (text) setReadability(calcReadabilityScore(text));
 
       if (text) {
         try {
@@ -493,6 +533,42 @@ export default function WritePage() {
             style={{ padding: '7px 16px', borderRadius: 8, border: '1px solid rgba(108,99,255,0.3)', background: 'rgba(108,99,255,0.08)', color: '#6c63ff', cursor: 'pointer', fontSize: 12, fontWeight: 600 }}>
             📊 変更箇所を確認する
           </button>
+        </div>
+      )}
+
+      {/* 読みやすさスコア */}
+      {readability && output && !loading && (
+        <div style={{ marginTop: 12, border: '1px solid var(--border)', borderRadius: 12, padding: 16 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 12 }}>
+            <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)' }}>📖 読みやすさスコア</span>
+            <span style={{
+              fontSize: 24, fontWeight: 700,
+              color: readability.total >= 80 ? '#1D9E75' : readability.total >= 60 ? '#f59e0b' : '#ef4444',
+            }}>{readability.total}点</span>
+            <span style={{
+              fontSize: 11, padding: '2px 10px', borderRadius: 20, fontWeight: 600,
+              background: readability.total >= 80 ? 'rgba(29,158,117,0.12)' : readability.total >= 60 ? 'rgba(245,158,11,0.12)' : 'rgba(239,68,68,0.12)',
+              color: readability.total >= 80 ? '#1D9E75' : readability.total >= 60 ? '#f59e0b' : '#ef4444',
+            }}>{readability.label}</span>
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+            {readability.details.map((d, i) => (
+              <div key={i}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 3 }}>
+                  <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-primary)', width: 80, flexShrink: 0 }}>{d.name}</span>
+                  <div style={{ flex: 1, height: 6, background: 'var(--border)', borderRadius: 99, overflow: 'hidden' }}>
+                    <div style={{
+                      height: '100%', borderRadius: 99, transition: 'width 0.5s ease',
+                      width: `${(d.score / d.max) * 100}%`,
+                      background: d.score >= 20 ? '#1D9E75' : d.score >= 15 ? '#f59e0b' : '#ef4444',
+                    }} />
+                  </div>
+                  <span style={{ fontSize: 11, color: 'var(--text-muted)', width: 36, textAlign: 'right', fontFamily: 'monospace' }}>{d.score}/{d.max}</span>
+                </div>
+                <div style={{ fontSize: 11, color: 'var(--text-muted)', paddingLeft: 88 }}>{d.advice}</div>
+              </div>
+            ))}
+          </div>
         </div>
       )}
 
