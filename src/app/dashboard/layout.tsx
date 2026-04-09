@@ -5,6 +5,7 @@ import { AIAssistant } from '@/components/AIAssistant';
 import { FloatingToolbar } from '@/components/FloatingToolbar';
 import { GlossaryPanel } from '@/components/GlossaryPanel';
 import { ModelSelector } from '@/components/ModelSelector';
+import { CommandPalette } from '@/components/CommandPalette';
 
 export default async function DashboardLayout({ children }: { children: React.ReactNode }) {
   const session = await auth();
@@ -19,6 +20,7 @@ export default async function DashboardLayout({ children }: { children: React.Re
       <FloatingToolbar />
       <GlossaryPanel />
       <AIAssistant />
+      <CommandPalette />
     </div>
   );
 }
