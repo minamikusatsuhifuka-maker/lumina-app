@@ -2,7 +2,12 @@ import { BetaAnalyticsDataClient } from '@google-analytics/data';
 
 function getGaClient() {
   const email = process.env.GA4_SERVICE_ACCOUNT_EMAIL!;
-  const key = process.env.GA4_PRIVATE_KEY!.replace(/\\n/g, '\n');
+
+  // 改行コードを確実に変換（\\n → 実際の改行）
+  let key = process.env.GA4_PRIVATE_KEY!;
+  key = key.replace(/\\n/g, '\n');
+  // クォートが含まれている場合も除去
+  key = key.replace(/^["']|["']$/g, '');
 
   return new BetaAnalyticsDataClient({
     credentials: {
