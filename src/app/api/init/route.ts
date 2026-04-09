@@ -392,6 +392,57 @@ export async function GET() {
     await sql`CREATE INDEX IF NOT EXISTS idx_memory_items_user ON memory_items (user_id)`;
     await sql`CREATE INDEX IF NOT EXISTS idx_memory_items_user_cat ON memory_items (user_id, category)`;
 
+    // GA Analytics
+    await sql`CREATE TABLE IF NOT EXISTS ga_properties (
+      id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
+      user_id TEXT NOT NULL,
+      property_id TEXT NOT NULL,
+      display_name TEXT NOT NULL,
+      is_active BOOLEAN DEFAULT true,
+      created_at TIMESTAMP DEFAULT NOW(),
+      UNIQUE(user_id, property_id)
+    )`;
+
+    await sql`CREATE TABLE IF NOT EXISTS ga_snapshots (
+      id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
+      property_id TEXT NOT NULL,
+      fetched_at TIMESTAMP DEFAULT NOW(),
+      date_start TEXT NOT NULL,
+      date_end TEXT NOT NULL,
+      sessions INTEGER DEFAULT 0,
+      users INTEGER DEFAULT 0,
+      new_users INTEGER DEFAULT 0,
+      pageviews INTEGER DEFAULT 0,
+      bounce_rate FLOAT DEFAULT 0,
+      engagement_rate FLOAT DEFAULT 0,
+      avg_session_duration FLOAT DEFAULT 0,
+      conversions INTEGER DEFAULT 0,
+      conversion_rate FLOAT DEFAULT 0,
+      channel_breakdown TEXT DEFAULT '{}',
+      top_pages TEXT DEFAULT '[]'
+    )`;
+
+    await sql`CREATE TABLE IF NOT EXISTS ga_metric_history (
+      id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
+      snapshot_id TEXT NOT NULL,
+      metric_name TEXT NOT NULL,
+      value FLOAT NOT NULL,
+      date TEXT NOT NULL,
+      created_at TIMESTAMP DEFAULT NOW()
+    )`;
+    await sql`CREATE INDEX IF NOT EXISTS idx_ga_mh_snapshot ON ga_metric_history (snapshot_id, metric_name)`;
+
+    await sql`CREATE TABLE IF NOT EXISTS ga_insights (
+      id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
+      snapshot_id TEXT NOT NULL,
+      category TEXT NOT NULL,
+      title TEXT NOT NULL,
+      analysis TEXT NOT NULL,
+      advice TEXT NOT NULL,
+      priority INTEGER DEFAULT 5,
+      created_at TIMESTAMP DEFAULT NOW()
+    )`;
+
     return NextResponse.json({ success: true, message: '全テーブル初期化完了' });
   } catch (e: any) {
     return NextResponse.json({ error: e.message }, { status: 500 });
