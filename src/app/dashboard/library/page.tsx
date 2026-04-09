@@ -70,14 +70,26 @@ export default function LibraryPage() {
     const selected = items.filter((item: any) => selectedIds.has(item.id));
     if (selected.length < 2) { alert('2件以上選択してください'); return; }
     setMerging(true);
+    setMergeResult('');
     try {
+      const payload = selected.map(i => ({ title: i.title || '無題', content: (i.content || '').slice(0, 1000) }));
       const res = await fetch('/api/merge', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ items: selected.map(i => ({ title: i.title, content: i.content?.slice(0, 1000) ?? '' })) }),
+        body: JSON.stringify({ items: payload }),
       });
       const data = await res.json();
-      setMergeResult(data.result || '');
+      if (!res.ok || data.error) {
+        alert(`統合レポート生成エラー: ${data.error || '不明なエラー'}`);
+        return;
+      }
+      if (!data.result) {
+        alert('統合レポートが空でした。もう一度お試しください。');
+        return;
+      }
+      setMergeResult(data.result);
       setShowMergeModal(true);
+    } catch (e: any) {
+      alert(`通信エラー: ${e.message}`);
     } finally { setMerging(false); }
   };
 
