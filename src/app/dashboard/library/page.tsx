@@ -57,6 +57,7 @@ export default function LibraryPage() {
   const [folderModal, setFolderModal] = useState<{ item: any } | null>(null);
   const [folderInput, setFolderInput] = useState('');
   const [collapsedFolders, setCollapsedFolders] = useState<Set<string>>(new Set());
+  const [showMergeModal, setShowMergeModal] = useState(false);
 
   useEffect(() => {
     fetch('/api/library')
@@ -67,12 +68,16 @@ export default function LibraryPage() {
   /* ── アクション ── */
   const generateMergeReport = async () => {
     const selected = items.filter((item: any) => selectedIds.has(item.id));
-    if (selected.length < 2) return;
+    if (selected.length < 2) { alert('2件以上選択してください'); return; }
     setMerging(true);
     try {
-      const res = await fetch('/api/merge', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ items: selected }) });
+      const res = await fetch('/api/merge', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ items: selected.map(i => ({ title: i.title, content: i.content?.slice(0, 1000) ?? '' })) }),
+      });
       const data = await res.json();
       setMergeResult(data.result || '');
+      setShowMergeModal(true);
     } finally { setMerging(false); }
   };
 
@@ -286,34 +291,15 @@ export default function LibraryPage() {
             fontSize: 13, fontWeight: 600,
           }}
         >
-          {mergeMode ? '✕ 統合モード終了' : '🔗 複数統合レポート'}
+          {mergeMode ? '✕ 選択モード終了' : '✓ 選択モード'}
         </button>
       </div>
       <p style={{ color: 'var(--text-muted)', marginBottom: 20 }}>保存した調査・分析・文章を管理。お気に入り・タグ・フォルダ分けに対応。</p>
 
-      {/* 統合モード */}
+      {/* 選択モードガイド */}
       {mergeMode && (
-        <div style={{ padding: 16, background: 'var(--accent-soft)', border: '1px solid var(--border-accent)', borderRadius: 12, marginBottom: 16 }}>
-          <p style={{ fontSize: 13, color: 'var(--accent)', marginBottom: 10, fontWeight: 600 }}>
-            🔗 統合したい資料を選択してください（2件以上）：{selectedIds.size}件選択中
-          </p>
-          {selectedIds.size >= 2 && (
-            <button onClick={generateMergeReport} disabled={merging}
-              style={{ padding: '9px 20px', borderRadius: 8, border: 'none', cursor: 'pointer', background: 'linear-gradient(135deg, #6c63ff, #8b5cf6)', color: '#fff', fontWeight: 700, fontSize: 13, opacity: merging ? 0.7 : 1 }}>
-              {merging ? '統合レポート生成中...' : '⚡ 統合レポートを生成'}
-            </button>
-          )}
-          {mergeResult && (
-            <>
-              <div style={{ marginTop: 16, padding: 16, background: 'var(--bg-secondary)', borderRadius: 10, fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.8, whiteSpace: 'pre-wrap', maxHeight: '60vh', overflowY: 'auto' }}>
-                {mergeResult}
-              </div>
-              <button onClick={handleSaveMergeReport} disabled={isSaving}
-                style={{ marginTop: 12, padding: '9px 20px', borderRadius: 8, border: 'none', cursor: isSaving ? 'not-allowed' : 'pointer', background: isSaving ? 'rgba(108,99,255,0.3)' : 'linear-gradient(135deg, #6c63ff, #8b5cf6)', color: '#fff', fontWeight: 700, fontSize: 13 }}>
-                {isSaving ? '保存中...' : '📚 ライブラリに保存'}
-              </button>
-            </>
-          )}
+        <div style={{ padding: '10px 16px', background: 'var(--accent-soft)', border: '1px solid var(--border-accent)', borderRadius: 10, marginBottom: 16, fontSize: 13, color: 'var(--accent)', fontWeight: 600 }}>
+          ✓ 統合したい資料をチェックしてください（2件以上）
         </div>
       )}
 
@@ -431,6 +417,60 @@ export default function LibraryPage() {
               <button onClick={() => setFolderModal(null)}
                 style={{ padding: '10px 16px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--bg-secondary)', color: 'var(--text-muted)', cursor: 'pointer', fontSize: 13 }}>
                 キャンセル
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {/* ── 選択モード フローティングツールバー ── */}
+      {mergeMode && selectedIds.size > 0 && (
+        <div style={{
+          position: 'fixed', bottom: 24, left: '50%', transform: 'translateX(-50%)', zIndex: 40,
+          display: 'flex', alignItems: 'center', gap: 12,
+          background: 'linear-gradient(135deg, #6c63ff, #8b5cf6)',
+          color: '#fff', padding: '12px 24px', borderRadius: 99,
+          boxShadow: '0 8px 32px rgba(108,99,255,0.4)',
+        }}>
+          <span style={{ fontSize: 13, fontWeight: 600 }}>{selectedIds.size}件選択中</span>
+          <button onClick={generateMergeReport} disabled={merging || selectedIds.size < 2}
+            style={{ padding: '6px 16px', borderRadius: 99, background: '#fff', color: '#6c63ff', border: 'none', cursor: merging || selectedIds.size < 2 ? 'not-allowed' : 'pointer', fontSize: 13, fontWeight: 700, opacity: merging || selectedIds.size < 2 ? 0.6 : 1 }}>
+            {merging ? '分析中...' : '🔗 AIでまとめる'}
+          </button>
+          <button onClick={() => { setSelectedIds(new Set()); setMergeMode(false); }}
+            style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,0.7)', cursor: 'pointer', fontSize: 16 }}>
+            ✕
+          </button>
+        </div>
+      )}
+
+      {/* ── 統合レポートモーダル ── */}
+      {showMergeModal && mergeResult && (
+        <div style={{ position: 'fixed', inset: 0, zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,0.6)' }}
+          onClick={() => setShowMergeModal(false)}>
+          <div style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 16, width: '90vw', maxWidth: 800, maxHeight: '85vh', display: 'flex', flexDirection: 'column', boxShadow: '0 12px 40px rgba(0,0,0,0.3)' }}
+            onClick={e => e.stopPropagation()}>
+            {/* ヘッダー */}
+            <div style={{ padding: '14px 20px', borderBottom: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <span style={{ fontSize: 15, fontWeight: 700, color: 'var(--text-primary)' }}>🔗 AI統合サマリー</span>
+                <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 10, background: 'rgba(108,99,255,0.1)', color: '#6c63ff' }}>{selectedIds.size}件を分析</span>
+              </div>
+              <button onClick={() => setShowMergeModal(false)}
+                style={{ width: 28, height: 28, borderRadius: 6, border: '1px solid var(--border)', background: 'var(--bg-secondary)', color: 'var(--text-muted)', cursor: 'pointer', fontSize: 14, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>✕</button>
+            </div>
+            {/* コンテンツ */}
+            <div style={{ flex: 1, overflowY: 'auto', padding: 20, fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.8, whiteSpace: 'pre-wrap' }}>
+              {mergeResult}
+            </div>
+            {/* フッター */}
+            <div style={{ padding: '12px 20px', borderTop: '1px solid var(--border)', display: 'flex', gap: 8 }}>
+              <button onClick={handleSaveMergeReport} disabled={isSaving}
+                style={{ padding: '8px 16px', borderRadius: 8, border: 'none', background: isSaving ? 'rgba(108,99,255,0.3)' : 'linear-gradient(135deg, #6c63ff, #8b5cf6)', color: '#fff', fontWeight: 700, fontSize: 13, cursor: isSaving ? 'not-allowed' : 'pointer' }}>
+                {isSaving ? '保存中...' : '📚 ライブラリに保存'}
+              </button>
+              <button onClick={() => navigator.clipboard.writeText(mergeResult).then(() => alert('コピーしました！'))}
+                style={{ padding: '8px 16px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--bg-secondary)', color: 'var(--text-secondary)', cursor: 'pointer', fontSize: 13 }}>
+                📋 コピー
               </button>
             </div>
           </div>
