@@ -80,6 +80,8 @@ export default function WritePage() {
   const [showSaveInput, setShowSaveInput] = useState(false);
   const [selectedTemplateId, setSelectedTemplateId] = useState('');
   const [showExportMenu, setShowExportMenu] = useState(false);
+  const [originalText, setOriginalText] = useState('');
+  const [showDiff, setShowDiff] = useState(false);
 
   useEffect(() => { setIsFavorited(false); }, [output]);
 
@@ -225,6 +227,7 @@ export default function WritePage() {
       });
       const data = await res.json();
       if (data.fixed) {
+        setOriginalText(output);
         setOutput(data.fixed);
         setBuzzScore(null);
         setSelectedChecks([]);
@@ -483,6 +486,16 @@ export default function WritePage() {
         </div>
       )}
 
+      {/* 差分確認ボタン（修正適用後に表示） */}
+      {originalText && output && originalText !== output && !loading && (
+        <div style={{ marginTop: 12 }}>
+          <button onClick={() => setShowDiff(true)}
+            style={{ padding: '7px 16px', borderRadius: 8, border: '1px solid rgba(108,99,255,0.3)', background: 'rgba(108,99,255,0.08)', color: '#6c63ff', cursor: 'pointer', fontSize: 12, fontWeight: 600 }}>
+            📊 変更箇所を確認する
+          </button>
+        </div>
+      )}
+
       {/* SNSバズり予測 */}
       {output && !loading && (
         <div style={{ marginTop: 12 }}>
@@ -702,6 +715,7 @@ export default function WritePage() {
                 {showRevised && (
                   <button
                     onClick={() => {
+                      setOriginalText(output);
                       setOutput(buzzAnalysis.revised);
                       setShowRevised(false);
                       setBuzzAnalysis(null);
@@ -710,6 +724,12 @@ export default function WritePage() {
                     style={{ padding: '7px 14px', borderRadius: 8, border: 'none', background: '#1d9e75', color: '#fff', cursor: 'pointer', fontSize: 12, fontWeight: 600 }}
                   >
                     ✅ この修正を適用する
+                  </button>
+                )}
+                {originalText && !showRevised && (
+                  <button onClick={() => setShowDiff(true)}
+                    style={{ padding: '7px 14px', borderRadius: 8, border: '1px solid rgba(108,99,255,0.3)', background: 'rgba(108,99,255,0.08)', color: '#6c63ff', cursor: 'pointer', fontSize: 12, fontWeight: 600 }}>
+                    📊 変更箇所を確認する
                   </button>
                 )}
               </div>
@@ -822,6 +842,76 @@ export default function WritePage() {
           )}
         </div>
       )}
+      {/* 差分比較モーダル */}
+      {showDiff && originalText && (() => {
+        const splitBlocks = (text: string) => text.split(/(?<=。|\n)/).filter(s => s.trim());
+        const beforeBlocks = splitBlocks(originalText);
+        const afterBlocks = splitBlocks(output);
+
+        // 簡易LCS差分アルゴリズム
+        type DiffLine = { type: 'unchanged' | 'removed' | 'added'; text: string };
+        const beforeSet = new Set(beforeBlocks);
+        const afterSet = new Set(afterBlocks);
+        const diffBefore: DiffLine[] = beforeBlocks.map(b => ({
+          type: afterSet.has(b) ? 'unchanged' as const : 'removed' as const,
+          text: b,
+        }));
+        const diffAfter: DiffLine[] = afterBlocks.map(b => ({
+          type: beforeSet.has(b) ? 'unchanged' as const : 'added' as const,
+          text: b,
+        }));
+
+        const addedCount = diffAfter.filter(d => d.type === 'added').length;
+        const removedCount = diffBefore.filter(d => d.type === 'removed').length;
+        const addedChars = diffAfter.filter(d => d.type === 'added').reduce((sum, d) => sum + d.text.length, 0);
+        const removedChars = diffBefore.filter(d => d.type === 'removed').reduce((sum, d) => sum + d.text.length, 0);
+
+        const renderBlock = (d: DiffLine) => {
+          const bg = d.type === 'removed' ? '#FCEBEB' : d.type === 'added' ? '#EAF3DE' : 'transparent';
+          const decoration = d.type === 'removed' ? 'line-through' : 'none';
+          const color = d.type === 'removed' ? '#b91c1c' : d.type === 'added' ? '#15803d' : 'var(--text-secondary)';
+          return (
+            <div style={{ padding: '4px 8px', borderRadius: 4, background: bg, color, textDecoration: decoration, fontSize: 13, lineHeight: 1.7, marginBottom: 2 }}>
+              {d.type === 'removed' && <span style={{ fontSize: 10, marginRight: 4 }}>-</span>}
+              {d.type === 'added' && <span style={{ fontSize: 10, marginRight: 4 }}>+</span>}
+              {d.text}
+            </div>
+          );
+        };
+
+        return (
+          <div style={{ position: 'fixed', inset: 0, zIndex: 50, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,0.6)' }}
+            onClick={() => setShowDiff(false)}>
+            <div style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 16, width: '90vw', maxWidth: 960, maxHeight: '85vh', display: 'flex', flexDirection: 'column', boxShadow: '0 12px 40px rgba(0,0,0,0.3)' }}
+              onClick={e => e.stopPropagation()}>
+              {/* ヘッダー */}
+              <div style={{ padding: '14px 20px', borderBottom: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                  <span style={{ fontSize: 15, fontWeight: 700, color: 'var(--text-primary)' }}>📊 変更箇所の比較</span>
+                  <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 10, background: 'rgba(239,68,68,0.1)', color: '#ef4444' }}>-{removedCount}箇所 ({removedChars}字)</span>
+                  <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 10, background: 'rgba(34,197,94,0.1)', color: '#22c55e' }}>+{addedCount}箇所 ({addedChars}字)</span>
+                </div>
+                <button onClick={() => setShowDiff(false)} style={{ width: 28, height: 28, borderRadius: 6, border: '1px solid var(--border)', background: 'var(--bg-secondary)', color: 'var(--text-muted)', cursor: 'pointer', fontSize: 14, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>✕</button>
+              </div>
+              {/* 2カラム */}
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', flex: 1, overflow: 'hidden' }}>
+                <div style={{ borderRight: '1px solid var(--border)', display: 'flex', flexDirection: 'column' }}>
+                  <div style={{ padding: '8px 16px', borderBottom: '1px solid var(--border)', fontSize: 12, fontWeight: 700, color: '#ef4444', background: 'rgba(239,68,68,0.04)' }}>修正前</div>
+                  <div style={{ padding: 16, overflowY: 'auto', maxHeight: '70vh' }}>
+                    {diffBefore.map((d, i) => <div key={i}>{renderBlock(d)}</div>)}
+                  </div>
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column' }}>
+                  <div style={{ padding: '8px 16px', borderBottom: '1px solid var(--border)', fontSize: 12, fontWeight: 700, color: '#22c55e', background: 'rgba(34,197,94,0.04)' }}>修正後</div>
+                  <div style={{ padding: 16, overflowY: 'auto', maxHeight: '70vh' }}>
+                    {diffAfter.map((d, i) => <div key={i}>{renderBlock(d)}</div>)}
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 }
