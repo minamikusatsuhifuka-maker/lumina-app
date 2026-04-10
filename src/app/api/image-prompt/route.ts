@@ -9,6 +9,7 @@ const TOOL_GUIDES: Record<string, string> = {
   stable_diffusion: 'Stable Diffusionに最適化。positive/negative prompt分離。品質タグ（masterpiece, best quality等）を先頭に。',
   dalle: 'DALL-E 3に最適化。自然な英語文章形式。詳細な描写と構図を含める。',
   firefly: 'Adobe Fireflyに最適化。スタイルと雰囲気重視。商用利用可能な表現で。',
+  nano_banana: 'Nano Banana 2に最適化。日本語キーワードも含めた日英混合プロンプトで出力。シンプルで直感的な表現を優先。LoRAタグは不要。',
 };
 
 export async function POST(req: NextRequest) {
@@ -43,5 +44,8 @@ JSON形式のみで返答：
   const data = await response.json();
   let text = data.content?.[0]?.text ?? '{}';
   text = text.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
-  try { return NextResponse.json(JSON.parse(text)); } catch { return NextResponse.json({ error: 'パース失敗' }, { status: 500 }); }
+  const jsonStart = text.indexOf('{');
+  const jsonEnd = text.lastIndexOf('}');
+  if (jsonStart !== -1 && jsonEnd !== -1) text = text.slice(jsonStart, jsonEnd + 1);
+  try { return NextResponse.json(JSON.parse(text)); } catch { return NextResponse.json({ error: 'パース失敗', raw: text.slice(0, 100) }, { status: 500 }); }
 }

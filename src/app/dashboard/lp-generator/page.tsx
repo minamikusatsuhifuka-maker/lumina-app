@@ -257,9 +257,22 @@ ${result.cta_sections[2] ? ctaBlock(result.cta_sections[2]) : ''}
       <h1 style={{ fontSize: 28, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 4 }}>
         📄 LP自動生成
       </h1>
-      <p style={{ color: 'var(--text-muted)', marginBottom: 20 }}>
+      <p style={{ color: 'var(--text-muted)', marginBottom: 12 }}>
         セールスフレームワークに基づいて、LP（ランディングページ）の構成をAIが自動生成します
       </p>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 20 }}>
+        <span style={{ fontSize: 11, color: 'var(--text-muted)', alignSelf: 'center' }}>関連機能：</span>
+        {[
+          { href: '/dashboard/hp-generator', icon: '🏠', label: 'HP内容生成' },
+          { href: '/dashboard/image-prompt', icon: '🎨', label: '画像プロンプト' },
+          { href: '/dashboard/doc-prompt', icon: '📋', label: '資料プロンプト' },
+          { href: '/dashboard/write', icon: '✍️', label: '文章作成' },
+        ].map(link => (
+          <a key={link.href} href={link.href} style={{ fontSize: 11, padding: '4px 12px', borderRadius: 20, border: '1px solid var(--border)', color: 'var(--text-muted)', textDecoration: 'none', display: 'flex', alignItems: 'center', gap: 4 }}>
+            <span style={{ fontSize: 12 }}>{link.icon}</span>{link.label}
+          </a>
+        ))}
+      </div>
 
       {/* フレームワーク選択 */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 10, marginBottom: 20 }}>

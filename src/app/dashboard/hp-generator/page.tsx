@@ -34,7 +34,20 @@ export default function HpGeneratorPage() {
   return (
     <div style={{ maxWidth: 860, margin: '0 auto', paddingBottom: 60 }}>
       <h1 style={{ fontSize: 26, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 4 }}>🏠 HP内容自動生成</h1>
-      <p style={{ color: 'var(--text-muted)', fontSize: 13, marginBottom: 24 }}>企業情報を入力するだけで、HPの全セクションコンテンツをAIが自動生成します。</p>
+      <p style={{ color: 'var(--text-muted)', fontSize: 13, marginBottom: 12 }}>企業情報を入力するだけで、HPの全セクションコンテンツをAIが自動生成します。</p>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 20 }}>
+        <span style={{ fontSize: 11, color: 'var(--text-muted)', alignSelf: 'center' }}>関連機能：</span>
+        {[
+          { href: '/dashboard/lp-generator', icon: '📊', label: 'LP自動生成' },
+          { href: '/dashboard/image-prompt', icon: '🎨', label: '画像プロンプト' },
+          { href: '/dashboard/doc-prompt', icon: '📋', label: '資料プロンプト' },
+          { href: '/dashboard/write', icon: '✍️', label: '文章作成' },
+        ].map(link => (
+          <a key={link.href} href={link.href} style={{ fontSize: 11, padding: '4px 12px', borderRadius: 20, border: '1px solid var(--border)', color: 'var(--text-muted)', textDecoration: 'none', display: 'flex', alignItems: 'center', gap: 4 }}>
+            <span style={{ fontSize: 12 }}>{link.icon}</span>{link.label}
+          </a>
+        ))}
+      </div>
 
       {/* 入力フォーム */}
       <div style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 14, padding: 24, marginBottom: 24 }}>

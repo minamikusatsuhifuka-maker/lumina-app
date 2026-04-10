@@ -32,6 +32,10 @@ export default async function DashboardPage() {
     { icon: '✍️', title: '文章作成', desc: 'ブログ・note・小説・出版用文章を生成', href: '/dashboard/write', borderColor: '#00d4b825' },
     { icon: '🔬', title: '文献検索', desc: 'Semantic Scholarで1.38億件の論文を検索', href: '/dashboard/research', borderColor: '#a89fff25' },
     { icon: '📚', title: 'ライブラリ', desc: '保存した調査・分析・文章を管理', href: '/dashboard/library', borderColor: '#f8717125' },
+    { icon: '📊', title: 'LP自動生成', desc: 'PASONA/AIDA法則でLP全文を生成', href: '/dashboard/lp-generator', borderColor: '#6c63ff25' },
+    { icon: '🏠', title: 'HP内容生成', desc: '企業情報→HP全セクションを一括生成', href: '/dashboard/hp-generator', borderColor: '#00d4b825' },
+    { icon: '🎨', title: '画像プロンプト', desc: 'Midjourney/SD向け最適プロンプト', href: '/dashboard/image-prompt', borderColor: '#f5a62325' },
+    { icon: '📋', title: '資料プロンプト', desc: 'スライド別AIプロンプトを自動生成', href: '/dashboard/doc-prompt', borderColor: '#8b5cf625' },
   ];
 
   const modeLabel: Record<string, string> = {

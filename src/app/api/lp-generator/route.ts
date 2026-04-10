@@ -47,5 +47,8 @@ JSON形式のみで返答。マークダウン不要：
   const data = await response.json();
   let text = data.content?.[0]?.text ?? '{}';
   text = text.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
-  try { return NextResponse.json(JSON.parse(text)); } catch { return NextResponse.json({ error: 'パース失敗' }, { status: 500 }); }
+  const jsonStart = text.indexOf('{');
+  const jsonEnd = text.lastIndexOf('}');
+  if (jsonStart !== -1 && jsonEnd !== -1) text = text.slice(jsonStart, jsonEnd + 1);
+  try { return NextResponse.json(JSON.parse(text)); } catch { return NextResponse.json({ error: 'JSONパース失敗', raw: text.slice(0, 100) }, { status: 500 }); }
 }
