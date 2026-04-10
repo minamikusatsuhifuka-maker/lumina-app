@@ -14,6 +14,7 @@ export async function POST(req: NextRequest) {
     fr: 'フランス語（Français）',
     es: 'スペイン語（Español）',
     de: 'ドイツ語（Deutsch）',
+    pt: 'ポルトガル語（Português）',
   };
 
   const response = await fetch('https://api.anthropic.com/v1/messages', {

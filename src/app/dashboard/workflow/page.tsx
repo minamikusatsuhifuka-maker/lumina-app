@@ -1,5 +1,5 @@
 'use client';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { VoiceInputButton } from '@/components/VoiceInputButton';
 
 type WorkflowStep = {
@@ -44,6 +44,17 @@ export default function WorkflowPage() {
   const [isSaving, setIsSaving] = useState(false);
   const [savedCount, setSavedCount] = useState(0);
   const [saveCompleted, setSaveCompleted] = useState(false);
+  const [histories, setHistories] = useState<any[]>([]);
+
+  const fetchHistories = async () => {
+    try {
+      const res = await fetch('/api/workflow-history');
+      const data = await res.json();
+      if (Array.isArray(data)) setHistories(data);
+    } catch {}
+  };
+
+  useEffect(() => { fetchHistories(); }, []);
 
   // ワークフロー提案
   const suggestWorkflow = async () => {
@@ -134,6 +145,12 @@ export default function WorkflowPage() {
       setIsExecuting(false);
     }
     setIsCompleted(true);
+    // 履歴保存
+    fetch('/api/workflow-history', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ goal, workflowPlan: workflow, stepResults: results }),
+    }).then(() => fetchHistories()).catch(() => {});
   };
 
   // ステップ承認モード開始
@@ -476,6 +493,46 @@ export default function WorkflowPage() {
                 ✅ {savedCount}件をライブラリに保存しました
               </div>
             )}
+          </div>
+        </div>
+      )}
+      {/* 実行履歴 */}
+      {histories.length > 0 && (
+        <div style={{ marginTop: 32 }}>
+          <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 12 }}>📋 実行履歴</div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            {histories.map((h: any) => (
+              <div key={h.id} style={{
+                display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                padding: '12px 16px', borderRadius: 10,
+                border: '1px solid var(--border)', background: 'var(--bg-secondary)',
+              }}>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{h.goal}</div>
+                  <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2 }}>
+                    {new Date(h.completed_at).toLocaleDateString('ja-JP', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                    {h.workflow_plan?.steps?.length ? `　${h.workflow_plan.steps.length}ステップ` : ''}
+                  </div>
+                </div>
+                <button
+                  onClick={() => {
+                    setGoal(h.goal);
+                    setWorkflow(h.workflow_plan);
+                    setStepResults([]);
+                    setExecutionMode(null);
+                    setIsCompleted(false);
+                    window.scrollTo({ top: 0, behavior: 'smooth' });
+                  }}
+                  style={{
+                    padding: '5px 14px', borderRadius: 8, border: '1px solid var(--border)',
+                    background: 'var(--bg-secondary)', color: 'var(--text-secondary)',
+                    cursor: 'pointer', fontSize: 12, fontWeight: 500, flexShrink: 0, marginLeft: 12,
+                  }}
+                >
+                  🔄 再実行
+                </button>
+              </div>
+            ))}
           </div>
         </div>
       )}

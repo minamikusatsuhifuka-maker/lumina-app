@@ -1,6 +1,7 @@
 'use client';
 import { useState, useEffect, useMemo } from 'react';
 import { LibraryItemRow } from '@/components/LibraryItemRow';
+import { LibraryPreviewPanel } from '@/components/LibraryPreviewPanel';
 
 /* ── タブ定義（サイドメニュー対応） ── */
 const TABS = [
@@ -58,6 +59,7 @@ export default function LibraryPage() {
   const [folderInput, setFolderInput] = useState('');
   const [collapsedFolders, setCollapsedFolders] = useState<Set<string>>(new Set());
   const [showMergeModal, setShowMergeModal] = useState(false);
+  const [previewItem, setPreviewItem] = useState<any>(null);
 
   useEffect(() => {
     fetch('/api/library')
@@ -223,7 +225,7 @@ export default function LibraryPage() {
         onExportPdf={async (it) => { const { exportToPdf } = await import('@/lib/exportPdf'); await exportToPdf(it.title?.slice(0, 40) || 'ライブラリ', it.content || ''); }}
         onUseInWrite={(it) => { localStorage.setItem('lumina_research_context', it.content || ''); window.location.href = '/dashboard/write'; }}
         onStartTagEdit={(it) => { setEditingId(it.id); setEditTags(it.tags || ''); setEditGroup(it.group_name || '未分類'); }}
-        onExpandToggle={(id) => setExpandedId(expandedId === id ? null : id)}
+        onExpandToggle={() => setPreviewItem(item)}
         isExpanded={expandedId === item.id}
         onMoveToFolder={openFolderModal}
       />
@@ -488,6 +490,7 @@ export default function LibraryPage() {
           </div>
         </div>
       )}
+      <LibraryPreviewPanel item={previewItem} onClose={() => setPreviewItem(null)} />
     </div>
   );
 }

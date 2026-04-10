@@ -443,6 +443,17 @@ export async function GET() {
     )`;
     await sql`CREATE INDEX IF NOT EXISTS idx_chat_histories_user ON chat_histories(user_id)`;
 
+    // ワークフロー実行履歴
+    await sql`CREATE TABLE IF NOT EXISTS workflow_histories (
+      id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
+      user_id TEXT NOT NULL,
+      goal TEXT NOT NULL,
+      workflow_plan JSONB NOT NULL,
+      step_results JSONB NOT NULL DEFAULT '[]',
+      completed_at TIMESTAMP DEFAULT NOW()
+    )`;
+    await sql`CREATE INDEX IF NOT EXISTS idx_workflow_histories_user ON workflow_histories(user_id)`;
+
     // 共有アイテム
     await sql`CREATE TABLE IF NOT EXISTS shared_items (
       id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,

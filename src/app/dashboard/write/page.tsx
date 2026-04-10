@@ -115,6 +115,9 @@ export default function WritePage() {
   const [readability, setReadability] = useState<ReturnType<typeof calcReadabilityScore> | null>(null);
   const [seoTitles, setSeoTitles] = useState<{ title: string; reason: string; score: number }[]>([]);
   const [isLoadingTitles, setIsLoadingTitles] = useState(false);
+  const [isContinuing, setIsContinuing] = useState(false);
+  const [isConverting, setIsConverting] = useState(false);
+  const [showToneButtons, setShowToneButtons] = useState(false);
 
   const handleSuggestTitles = async () => {
     if (!output) return;
@@ -130,6 +133,66 @@ export default function WritePage() {
     } finally {
       setIsLoadingTitles(false);
     }
+  };
+
+  // 続きを書くハンドラ
+  const handleContinueWriting = async () => {
+    if (!output || isContinuing) return;
+    setIsContinuing(true);
+    try {
+      const response = await fetch('/api/continue-writing', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ currentText: output, mode, style, audience }),
+      });
+      const reader = response.body?.getReader();
+      const decoder = new TextDecoder();
+      if (reader) {
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          const chunk = decoder.decode(value, { stream: true });
+          const lines = chunk.split('\n');
+          for (const line of lines) {
+            if (line.startsWith('data: ')) {
+              try {
+                const data = JSON.parse(line.slice(6));
+                if (data.type === 'content_block_delta') {
+                  setOutput(prev => prev + (data.delta?.text ?? ''));
+                }
+              } catch {}
+            }
+          }
+        }
+      }
+    } finally { setIsContinuing(false); }
+  };
+
+  // トーン変換ハンドラ
+  const TONE_OPTIONS = [
+    { key: 'formal',   label: '👔 フォーマルに' },
+    { key: 'casual',   label: '😊 カジュアルに' },
+    { key: 'shorter',  label: '✂️ 短くする' },
+    { key: 'detailed', label: '📖 詳しくする' },
+    { key: 'positive', label: '✨ ポジティブに' },
+    { key: 'simple',   label: '🎓 わかりやすく' },
+  ];
+  const handleToneConvert = async (tone: string) => {
+    if (!output || isConverting) return;
+    setIsConverting(true);
+    try {
+      const res = await fetch('/api/tone-convert', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text: output, tone }),
+      });
+      const data = await res.json();
+      if (data.converted) {
+        setOriginalText(output);
+        setOutput(data.converted);
+      }
+      setShowToneButtons(false);
+    } finally { setIsConverting(false); }
   };
 
   useEffect(() => { setIsFavorited(false); }, [output]);
@@ -548,6 +611,50 @@ export default function WritePage() {
               >
                 {isFavorited ? '★ お気に入り済み' : '☆ お気に入り'}
               </button>
+              {/* 続きを書く */}
+              {output && !loading && (
+                <button onClick={handleContinueWriting} disabled={isContinuing} style={{
+                  padding: '6px 14px', borderRadius: 8, border: '1px solid var(--border)',
+                  background: 'var(--bg-secondary)', color: 'var(--text-secondary)',
+                  cursor: isContinuing ? 'not-allowed' : 'pointer', fontSize: 12, fontWeight: 600,
+                  opacity: isContinuing ? 0.6 : 1,
+                }}>
+                  {isContinuing ? '生成中...' : '➕ 続きを書く'}
+                </button>
+              )}
+              {/* トーン変換 */}
+              {output && !loading && (
+                <div style={{ position: 'relative' }}>
+                  <button onClick={() => setShowToneButtons(!showToneButtons)} disabled={isConverting} style={{
+                    padding: '6px 14px', borderRadius: 8, border: '1px solid var(--border)',
+                    background: showToneButtons ? 'var(--accent-soft)' : 'var(--bg-secondary)',
+                    color: 'var(--text-secondary)', cursor: 'pointer', fontSize: 12, fontWeight: 600,
+                    opacity: isConverting ? 0.6 : 1,
+                  }}>
+                    {isConverting ? '変換中...' : '🎭 トーン変換 ▾'}
+                  </button>
+                  {showToneButtons && (
+                    <div style={{
+                      position: 'absolute', top: 32, left: 0, zIndex: 50, minWidth: 160,
+                      background: 'var(--bg-secondary)', border: '1px solid var(--border)',
+                      borderRadius: 10, boxShadow: '0 8px 24px rgba(0,0,0,0.2)', padding: '4px 0',
+                    }}>
+                      {TONE_OPTIONS.map(t => (
+                        <button key={t.key} onClick={() => handleToneConvert(t.key)} style={{
+                          display: 'block', width: '100%', textAlign: 'left', padding: '6px 12px',
+                          background: 'none', border: 'none', cursor: 'pointer',
+                          color: 'var(--text-secondary)', fontSize: 12, whiteSpace: 'nowrap',
+                        }}
+                          onMouseEnter={e => (e.currentTarget.style.background = 'var(--border)')}
+                          onMouseLeave={e => (e.currentTarget.style.background = 'none')}
+                        >
+                          {t.label}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
               {/* エクスポートドロップダウン */}
               <div style={{ position: 'relative' }}>
                 <button onClick={() => setShowExportMenu(!showExportMenu)}
@@ -1008,25 +1115,35 @@ export default function WritePage() {
       {/* 翻訳セクション */}
       {output && !loading && (
         <div style={{ marginTop: 16, background: 'var(--bg-secondary)', border: '1px solid rgba(0,212,184,0.15)', borderRadius: 12, padding: 20 }}>
-          <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 12 }}>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 12, flexWrap: 'wrap' }}>
             <span style={{ fontSize: 13, fontWeight: 600, color: '#00d4b8' }}>🌍 翻訳</span>
             <select value={targetLang} onChange={e => setTargetLang(e.target.value)} style={{ padding: '5px 10px', background: 'var(--bg-primary)', border: '1px solid rgba(0,212,184,0.2)', borderRadius: 6, color: 'var(--text-primary)', fontSize: 13, outline: 'none' }}>
               <option value="en">🇺🇸 英語</option>
-              <option value="zh">🇨🇳 中国語</option>
+              <option value="zh">🇨🇳 中国語（簡体）</option>
               <option value="ko">🇰🇷 韓国語</option>
-              <option value="fr">🇫🇷 フランス語</option>
               <option value="es">🇪🇸 スペイン語</option>
+              <option value="fr">🇫🇷 フランス語</option>
               <option value="de">🇩🇪 ドイツ語</option>
+              <option value="pt">🇧🇷 ポルトガル語</option>
             </select>
             <button onClick={translate} disabled={translating} style={{ padding: '5px 16px', background: 'linear-gradient(135deg, #00d4b8, #00b4d8)', color: '#0a0e12', border: 'none', borderRadius: 6, fontWeight: 700, cursor: 'pointer', fontSize: 13 }}>
               {translating ? '翻訳中...' : '翻訳する'}
             </button>
-            {translated && (
-              <button onClick={() => navigator.clipboard.writeText(translated)} style={{ padding: '5px 12px', background: 'var(--bg-secondary)', border: '1px solid rgba(0,212,184,0.2)', color: '#00d4b8', borderRadius: 6, cursor: 'pointer', fontSize: 12 }}>📋 コピー</button>
-            )}
           </div>
           {translated && (
-            <div style={{ fontSize: 14, color: 'var(--text-secondary)', lineHeight: 1.9, whiteSpace: 'pre-wrap', borderTop: '1px solid rgba(0,212,184,0.1)', paddingTop: 12 }}>{translated}</div>
+            <>
+              <div style={{ fontSize: 14, color: 'var(--text-secondary)', lineHeight: 1.9, whiteSpace: 'pre-wrap', borderTop: '1px solid rgba(0,212,184,0.1)', paddingTop: 12, maxHeight: 260, overflowY: 'auto' }}>{translated}</div>
+              <div style={{ display: 'flex', gap: 6, marginTop: 8 }}>
+                <button onClick={() => navigator.clipboard.writeText(translated)} style={{ padding: '5px 12px', background: 'var(--bg-secondary)', border: '1px solid rgba(0,212,184,0.2)', color: '#00d4b8', borderRadius: 6, cursor: 'pointer', fontSize: 12 }}>📋 コピー</button>
+                <button onClick={() => {
+                  const blob = new Blob([translated], { type: 'text/plain;charset=utf-8' });
+                  const url = URL.createObjectURL(blob);
+                  const a = document.createElement('a');
+                  a.href = url; a.download = `translated_${targetLang}.txt`; a.click();
+                  URL.revokeObjectURL(url);
+                }} style={{ padding: '5px 12px', background: 'var(--bg-secondary)', border: '1px solid rgba(0,212,184,0.2)', color: '#00d4b8', borderRadius: 6, cursor: 'pointer', fontSize: 12 }}>💾 TXTで保存</button>
+              </div>
+            </>
           )}
         </div>
       )}

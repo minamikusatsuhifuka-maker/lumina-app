@@ -1,5 +1,6 @@
 'use client';
 import { useState, useRef, useEffect, useCallback } from 'react';
+import { usePathname } from 'next/navigation';
 import { VoiceInputButton } from '@/components/VoiceInputButton';
 
 type Message = { role: 'user' | 'assistant'; content: string; };
@@ -8,7 +9,19 @@ type ChatSize = 'normal' | 'max';
 const MIN_W = 320, MIN_H = 400, MAX_W = 900, MAX_H = 900;
 const DEFAULT_SIZE = { width: 384, height: 500 };
 
+const PAGE_CONTEXT: Record<string, string> = {
+  '/dashboard/write':       '文章作成ページにいます。文章の改善・アドバイス・続き生成の提案を優先してください。',
+  '/dashboard/library':     'ライブラリページにいます。保存データの活用方法や検索のアドバイスを優先してください。',
+  '/dashboard/websearch':   'Web情報収集ページにいます。検索クエリの改善やリサーチ方法のアドバイスを優先してください。',
+  '/dashboard/workflow':    'ワークフローページにいます。目的に合ったワークフロー設計のアドバイスを優先してください。',
+  '/dashboard/brainstorm':  'ブレインストーミングページにいます。アイデア発想や思考整理のアドバイスを優先してください。',
+  '/dashboard/analysis':    'AI分析ページにいます。分析の観点や解釈のアドバイスを優先してください。',
+  '/dashboard/intelligence': 'Intelligence Hubにいます。情報収集の戦略やモード選択のアドバイスを優先してください。',
+  '/dashboard':             'ダッシュボードにいます。xLUMINAの機能活用全般についてアドバイスしてください。',
+};
+
 export function AIAssistant() {
+  const pathname = usePathname();
   const [open, setOpen] = useState(false);
   const [chatSize, setChatSize] = useState<ChatSize>('normal');
   const [messages, setMessages] = useState<Message[]>([
@@ -70,7 +83,7 @@ export function AIAssistant() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           question: userMsg,
-          context: 'xLUMINAというAIビジネスインテリジェンスプラットフォームのアシスタントとして回答してください。',
+          context: `あなたはxLUMINAの常駐AIアシスタントです。${Object.entries(PAGE_CONTEXT).find(([path]) => pathname.startsWith(path))?.[1] ?? 'xLUMINAを使用中です。'}ユーザーの質問に簡潔・的確に答えてください。必要に応じてxLUMINAの機能を活用する提案もしてください。`,
         }),
       });
       const data = await res.json();

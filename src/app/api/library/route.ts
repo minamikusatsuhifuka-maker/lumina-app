@@ -3,11 +3,29 @@ import { auth } from '@/lib/auth';
 import { v4 as uuidv4 } from 'uuid';
 import { neon } from '@neondatabase/serverless';
 
-export async function GET() {
+export async function GET(req: NextRequest) {
   const session = await auth();
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   const sql = neon(process.env.DATABASE_URL!);
   const userId = (session.user as any).id;
+  const q = req.nextUrl.searchParams.get('q')?.trim();
+
+  if (q) {
+    const rows = await sql`
+      SELECT *, CASE
+        WHEN title ILIKE ${'%' + q + '%'} THEN 1
+        WHEN content ILIKE ${'%' + q + '%'} THEN 2
+        ELSE 3
+      END as relevance
+      FROM library
+      WHERE user_id = ${userId}
+        AND (title ILIKE ${'%' + q + '%'} OR content ILIKE ${'%' + q + '%'})
+      ORDER BY relevance ASC, created_at DESC
+      LIMIT 50
+    `;
+    return NextResponse.json(rows);
+  }
+
   const rows = await sql`SELECT * FROM library WHERE user_id = ${userId} ORDER BY is_favorite DESC, created_at DESC`;
   return NextResponse.json(rows);
 }
