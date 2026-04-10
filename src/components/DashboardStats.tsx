@@ -1,7 +1,7 @@
 'use client';
 
-import { useState, useEffect } from 'react';
 import Link from 'next/link';
+import { useStats } from '@/hooks/useStats';
 
 const STAT_CARDS = [
   { key: 'writings',  icon: '✍️', label: '作成した文章',    href: '/dashboard/write',    color: '#6c63ff' },
@@ -13,20 +13,8 @@ const STAT_CARDS = [
 ] as const;
 
 export function DashboardStats() {
-  const [totals, setTotals] = useState<Record<string, number>>({});
-
-  useEffect(() => {
-    const timer = setTimeout(async () => {
-      try {
-        const res = await fetch('/api/stats');
-        if (res.ok) {
-          const data = await res.json();
-          setTotals(data.totals ?? {});
-        }
-      } catch {}
-    }, 300);
-    return () => clearTimeout(timer);
-  }, []);
+  const { stats } = useStats();
+  const totals = stats?.totals ?? {};
 
   return (
     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12, marginBottom: 28 }}>

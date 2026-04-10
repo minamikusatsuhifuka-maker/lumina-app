@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
+import { useNotifications } from '@/hooks/useNotifications';
 
 interface Notification {
   id: string;
@@ -19,26 +20,9 @@ const TYPE_ICON: Record<string, string> = {
 
 export function NotificationCenter() {
   const [isOpen, setIsOpen] = useState(false);
-  const [notifications, setNotifications] = useState<Notification[]>([]);
-  const [unreadCount, setUnreadCount] = useState(0);
   const panelRef = useRef<HTMLDivElement>(null);
   const router = useRouter();
-
-  const fetchNotifications = async () => {
-    try {
-      const res = await fetch('/api/notifications');
-      if (!res.ok) return;
-      const data = await res.json();
-      setNotifications(data.notifications ?? []);
-      setUnreadCount(data.unreadCount ?? 0);
-    } catch { /* 静かに失敗 */ }
-  };
-
-  useEffect(() => {
-    fetchNotifications();
-    const interval = setInterval(fetchNotifications, 30000);
-    return () => clearInterval(interval);
-  }, []);
+  const { notifications, unreadCount, refresh } = useNotifications();
 
   useEffect(() => {
     const handler = (e: MouseEvent) => {
@@ -56,8 +40,7 @@ export function NotificationCenter() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ id: 'all' }),
     });
-    setNotifications(prev => prev.map(n => ({ ...n, is_read: true })));
-    setUnreadCount(0);
+    refresh();
   };
 
   const handleClick = async (n: Notification) => {
@@ -67,8 +50,7 @@ export function NotificationCenter() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ id: n.id }),
       });
-      setUnreadCount(prev => Math.max(0, prev - 1));
-      setNotifications(prev => prev.map(x => x.id === n.id ? { ...x, is_read: true } : x));
+      refresh();
     }
     if (n.href) router.push(n.href);
     setIsOpen(false);
@@ -135,7 +117,7 @@ export function NotificationCenter() {
                 通知はありません
               </div>
             ) : (
-              notifications.map(n => (
+              notifications.map((n: Notification) => (
                 <div
                   key={n.id}
                   onClick={() => handleClick(n)}
