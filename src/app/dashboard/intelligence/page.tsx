@@ -134,7 +134,7 @@ export default function IntelligencePage() {
       const res = await retryFetch('/api/websearch', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ query: searchQuery, mode }),
+        body: JSON.stringify({ query: searchQuery, mode, maxTokens: 8000 }),
       });
 
       if (!res.body) { setLoading(false); return; }

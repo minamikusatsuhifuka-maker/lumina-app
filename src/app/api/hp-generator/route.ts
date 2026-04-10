@@ -59,6 +59,9 @@ export async function POST(req: NextRequest) {
   const data = await response.json();
   let text = data.content?.[0]?.text ?? '{}';
   text = text.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
+  const jsonStart = text.indexOf('{');
+  const jsonEnd = text.lastIndexOf('}');
+  if (jsonStart !== -1 && jsonEnd !== -1) text = text.slice(jsonStart, jsonEnd + 1);
 
   try {
     return NextResponse.json(JSON.parse(text));
