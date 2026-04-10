@@ -38,6 +38,9 @@ const navCategories: NavCategory[] = [
       { href: '/dashboard/genspark', label: 'Gensparkへ出力', icon: '🎯' },
       { href: '/dashboard/workflow', label: 'ワークフロー', icon: '⚡' },
       { href: '/dashboard/hp-generator', label: 'HP内容生成', icon: '🏠' },
+      { href: '/dashboard/lp-generator', label: 'LP自動生成', icon: '📊' },
+      { href: '/dashboard/image-prompt', label: '画像プロンプト', icon: '🎨' },
+      { href: '/dashboard/doc-prompt', label: '資料プロンプト', icon: '📋' },
     ],
   },
   {
