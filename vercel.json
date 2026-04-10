@@ -1,4 +1,10 @@
 {
+  "crons": [
+    {
+      "path": "/api/weekly-report",
+      "schedule": "0 18 * * 1"
+    }
+  ],
   "functions": {
     "src/app/api/clinic/strategies/generate/route.ts": { "maxDuration": 300 },
     "src/app/api/clinic/strategies/route.ts": { "maxDuration": 60 },

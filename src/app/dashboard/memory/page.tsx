@@ -18,6 +18,19 @@ export default function MemoryPage() {
   const [manualText, setManualText] = useState('');
   const [manualTitle, setManualTitle] = useState('');
   const [saving, setSaving] = useState(false);
+  const [clusters, setClusters] = useState<any[]>([]);
+  const [isClustering, setIsClustering] = useState(false);
+  const [activeView, setActiveView] = useState<'list' | 'cluster'>('list');
+
+  const handleAnalyzeClusters = async () => {
+    setIsClustering(true);
+    try {
+      const res = await fetch('/api/memory/clusters');
+      const data = await res.json();
+      setClusters(data.clusters ?? []);
+      setActiveView('cluster');
+    } finally { setIsClustering(false); }
+  };
 
   const loadMemories = async (keyword = '') => {
     setLoading(true);
@@ -82,10 +95,84 @@ export default function MemoryPage() {
           </button>
         )}
       </div>
-      <p style={{ color: 'var(--text-muted)', marginBottom: 20, fontSize: 13 }}>
+      <p style={{ color: 'var(--text-muted)', marginBottom: 12, fontSize: 13 }}>
         AIがあなたの過去の調査・分析を自動要約して記憶。常駐アシスタントや各機能が文脈を踏まえた回答をします。
       </p>
 
+      {/* ビュー切替 */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16 }}>
+        <div style={{ display: 'flex', borderRadius: 8, border: '1px solid var(--border)', overflow: 'hidden' }}>
+          <button onClick={() => setActiveView('list')} style={{
+            padding: '6px 14px', fontSize: 12, fontWeight: 600, cursor: 'pointer', border: 'none',
+            background: activeView === 'list' ? 'var(--accent)' : 'var(--bg-secondary)',
+            color: activeView === 'list' ? '#fff' : 'var(--text-muted)',
+          }}>📋 一覧</button>
+          <button onClick={() => { setActiveView('cluster'); if (clusters.length === 0) handleAnalyzeClusters(); }} style={{
+            padding: '6px 14px', fontSize: 12, fontWeight: 600, cursor: 'pointer', border: 'none',
+            background: activeView === 'cluster' ? 'var(--accent)' : 'var(--bg-secondary)',
+            color: activeView === 'cluster' ? '#fff' : 'var(--text-muted)',
+          }}>🗺️ クラスター</button>
+        </div>
+        {activeView === 'cluster' && (
+          <button onClick={handleAnalyzeClusters} disabled={isClustering} style={{
+            padding: '6px 14px', fontSize: 12, fontWeight: 600, cursor: 'pointer', borderRadius: 8,
+            background: 'linear-gradient(135deg, #6c63ff, #8b5cf6)', color: '#fff', border: 'none',
+            opacity: isClustering ? 0.6 : 1,
+          }}>
+            {isClustering ? '分析中...' : '🔄 再分析'}
+          </button>
+        )}
+      </div>
+
+      {/* クラスタービュー */}
+      {activeView === 'cluster' && (
+        <div style={{ marginBottom: 24 }}>
+          {clusters.length === 0 && !isClustering ? (
+            <div style={{ textAlign: 'center', padding: 48, color: 'var(--text-muted)' }}>
+              <p style={{ fontSize: 13, marginBottom: 16 }}>クラスター分析でメモリの関連性を可視化します</p>
+              <button onClick={handleAnalyzeClusters} disabled={isClustering} style={{
+                padding: '10px 24px', fontSize: 13, fontWeight: 600, borderRadius: 10,
+                background: 'linear-gradient(135deg, #6c63ff, #8b5cf6)', color: '#fff', border: 'none', cursor: 'pointer',
+              }}>🗺️ クラスター分析を実行</button>
+            </div>
+          ) : isClustering ? (
+            <div style={{ textAlign: 'center', padding: 48, color: 'var(--text-muted)', fontSize: 13 }}>分析中...</div>
+          ) : (
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 14 }}>
+              {clusters.map((cluster: any, i: number) => (
+                <div key={i} style={{
+                  border: '1px solid var(--border)', borderRadius: 12, padding: 16,
+                  background: 'var(--bg-secondary)', transition: 'background 0.15s',
+                }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+                    <span style={{ fontSize: 24 }}>{cluster.emoji}</span>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)' }}>{cluster.theme}</div>
+                      <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>{cluster.description}</div>
+                    </div>
+                    <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 20, background: 'var(--accent-soft)', color: 'var(--accent)', fontWeight: 600 }}>
+                      {cluster.count}件
+                    </span>
+                  </div>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginBottom: 8 }}>
+                    {cluster.keywords?.map((kw: string) => (
+                      <span key={kw} style={{ fontSize: 10, padding: '1px 8px', borderRadius: 10, border: '1px solid var(--border)', color: 'var(--text-muted)' }}>{kw}</span>
+                    ))}
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                    {cluster.memories?.slice(0, 3).map((m: any) => (
+                      <div key={m.id} style={{ fontSize: 11, color: 'var(--text-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', paddingLeft: 4 }}>・{m.summary}</div>
+                    ))}
+                    {cluster.count > 3 && <div style={{ fontSize: 11, color: 'var(--text-muted)', paddingLeft: 4 }}>他{cluster.count - 3}件...</div>}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {activeView === 'list' && <>
       {/* 統計 */}
       <div style={{ display: 'flex', gap: 12, marginBottom: 20, flexWrap: 'wrap' }}>
         <div style={{ background: 'var(--bg-secondary)', border: '1px solid rgba(108,99,255,0.2)', borderRadius: 10, padding: '12px 20px', display: 'flex', gap: 10, alignItems: 'center' }}>
@@ -171,6 +258,7 @@ export default function MemoryPage() {
           })}
         </div>
       )}
+      </>}
     </div>
   );
 }

@@ -1,4 +1,5 @@
 'use client';
+import { useState, useEffect } from 'react';
 import { usePathname } from 'next/navigation';
 import Link from 'next/link';
 import { SignOutButton } from '@/components/SignOutButton';
@@ -53,14 +54,13 @@ const navCategories: NavCategory[] = [
 
 export function DashboardSidebar({ userName }: { userName: string }) {
   const pathname = usePathname();
-  return (
-    <nav style={{
-      width: 220, background: 'var(--sidebar-bg)',
-      borderRight: '1px solid var(--border)',
-      padding: '20px 12px', display: 'flex',
-      flexDirection: 'column', gap: 4,
-      position: 'sticky', top: 0, height: '100vh', overflowY: 'auto'
-    }}>
+  const [mobileOpen, setMobileOpen] = useState(false);
+
+  // ページ遷移時にモバイルメニューを閉じる
+  useEffect(() => { setMobileOpen(false); }, [pathname]);
+
+  const sidebarContent = (
+    <>
       <Link href="/dashboard" style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', marginBottom: 16, textDecoration: 'none' }}>
         <div style={{ width: 28, height: 28, background: 'linear-gradient(135deg, #6c63ff, #00d4b8)', borderRadius: 7, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, fontWeight: 700, color: '#fff' }}>x</div>
         <span style={{ fontSize: 16, fontWeight: 700, color: 'var(--text-primary)' }}>xLUMINA</span>
@@ -100,6 +100,64 @@ export function DashboardSidebar({ userName }: { userName: string }) {
         <ThemeSelector />
         <SignOutButton />
       </div>
-    </nav>
+    </>
+  );
+
+  return (
+    <>
+      {/* モバイル：ハンバーガーボタン */}
+      <button
+        onClick={() => setMobileOpen(!mobileOpen)}
+        className="mobile-hamburger"
+        style={{
+          position: 'fixed', top: 12, left: 12, zIndex: 51,
+          width: 36, height: 36, borderRadius: 8,
+          border: '1px solid var(--border)', background: 'var(--bg-secondary)',
+          cursor: 'pointer', display: 'none', alignItems: 'center', justifyContent: 'center',
+          fontSize: 16, color: 'var(--text-primary)',
+        }}
+      >
+        {mobileOpen ? '✕' : '☰'}
+      </button>
+
+      {/* モバイル：オーバーレイ */}
+      {mobileOpen && (
+        <div
+          className="mobile-overlay"
+          style={{ position: 'fixed', inset: 0, zIndex: 40, background: 'rgba(0,0,0,0.3)' }}
+          onClick={() => setMobileOpen(false)}
+        />
+      )}
+
+      {/* サイドバー本体 */}
+      <nav
+        className={`sidebar-nav ${mobileOpen ? 'sidebar-open' : ''}`}
+        style={{
+          width: 220, background: 'var(--sidebar-bg)',
+          borderRight: '1px solid var(--border)',
+          padding: '20px 12px', display: 'flex',
+          flexDirection: 'column', gap: 4,
+          position: 'sticky', top: 0, height: '100vh', overflowY: 'auto',
+        }}
+      >
+        {sidebarContent}
+      </nav>
+
+      {/* レスポンシブCSS */}
+      <style>{`
+        @media (max-width: 768px) {
+          .mobile-hamburger { display: flex !important; }
+          .sidebar-nav {
+            position: fixed !important;
+            top: 0; left: 0; z-index: 45;
+            transform: translateX(-100%);
+            transition: transform 0.2s ease;
+          }
+          .sidebar-nav.sidebar-open {
+            transform: translateX(0);
+          }
+        }
+      `}</style>
+    </>
   );
 }

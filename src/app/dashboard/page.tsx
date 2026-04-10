@@ -4,6 +4,7 @@ import { neon } from '@neondatabase/serverless';
 import TipsSection from '@/components/TipsSection';
 import { BriefingSection } from '@/components/BriefingSection';
 import { DashboardStats } from '@/components/DashboardStats';
+import { WeeklyReportButton } from '@/components/WeeklyReportButton';
 
 export default async function DashboardPage() {
   const session = await auth();
@@ -45,7 +46,10 @@ export default async function DashboardPage() {
         <p style={{ color: 'var(--text-muted)' }}>おかえりなさい、{session?.user?.name}さん 👋</p>
       </div>
 
-      <BriefingSection />
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16 }}>
+        <BriefingSection />
+      </div>
+      <div style={{ marginBottom: 16 }}><WeeklyReportButton /></div>
 
       {/* 今日のサマリー */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: 12, marginBottom: 28 }}>
