@@ -37,6 +37,7 @@ const navCategories: NavCategory[] = [
       { href: '/dashboard/minutes', label: '議事録整理', icon: '📝' },
       { href: '/dashboard/genspark', label: 'Gensparkへ出力', icon: '🎯' },
       { href: '/dashboard/workflow', label: 'ワークフロー', icon: '⚡' },
+      { href: '/dashboard/hp-generator', label: 'HP内容生成', icon: '🏠' },
     ],
   },
   {
