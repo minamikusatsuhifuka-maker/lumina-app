@@ -6,42 +6,22 @@ import { useProgress } from '@/components/useProgress';
 import { SaveToLibraryButton } from '@/components/SaveToLibraryButton';
 import { useWritingTemplates } from '@/hooks/useWritingTemplates';
 
-const MODE_CATEGORIES = [
-  {
-    label: '文章',
-    modes: [
-      { id: 'blog', label: '📝 ブログ' },
-      { id: 'note', label: '✏️ note' },
-      { id: 'press', label: '📰 プレスリリース' },
-      { id: 'email', label: '📧 メール' },
-      { id: 'homepage', label: '🌐 HP・LP' },
-      { id: 'product', label: '🛍️ 商品説明' },
-      { id: 'report', label: '📊 レポート' },
-    ],
-  },
-  {
-    label: 'SNS',
-    modes: [
-      { id: 'sns_twitter', label: '🐦 X投稿文' },
-      { id: 'sns_instagram', label: '📸 Instagram' },
-      { id: 'sns_note', label: '📝 noteリード文' },
-      { id: 'social', label: '📱 SNS汎用' },
-    ],
-  },
-  {
-    label: '小説・書籍',
-    modes: [
-      { id: 'novel', label: '📖 小説' },
-      { id: 'guide', label: '📚 解説本' },
-      { id: 'publish', label: '🗞️ 出版用' },
-    ],
-  },
-  {
-    label: 'AI活用',
-    modes: [
-      { id: 'image_prompt', label: '🎨 画像プロンプト' },
-    ],
-  },
+const ALL_MODES = [
+  { key: 'blog',          label: '📝 ブログ' },
+  { key: 'note',          label: '✒️ note' },
+  { key: 'sns_twitter',   label: '𝕏 X投稿文' },
+  { key: 'social',        label: '📱 SNS汎用' },
+  { key: 'report',        label: '📊 レポート' },
+  { key: 'email',         label: '📧 メール' },
+  { key: 'press',         label: '📰 プレスリリース' },
+  { key: 'sns_instagram', label: '📸 Instagram' },
+  { key: 'homepage',      label: '🌐 HP・LP' },
+  { key: 'product',       label: '🛍 商品説明' },
+  { key: 'sns_note',      label: '📓 noteリード文' },
+  { key: 'novel',         label: '📚 小説' },
+  { key: 'guide',         label: '📖 解説本' },
+  { key: 'publish',       label: '🖨 出版用' },
+  { key: 'image_prompt',  label: '🎨 画像プロンプト' },
 ];
 
 function calcReadabilityScore(text: string) {
@@ -85,6 +65,7 @@ function calcReadabilityScore(text: string) {
 export default function WritePage() {
   const { progress, loading: progressLoading, startProgress, completeProgress, resetProgress } = useProgress();
   const [mode, setMode] = useState('blog');
+  const [showAllModes, setShowAllModes] = useState(false);
   const [prompt, setPrompt] = useState('');
   const [style, setStyle] = useState('casual');
   const [length, setLength] = useState('medium');
@@ -381,19 +362,27 @@ export default function WritePage() {
         </a>
       </div>
       <p style={{ color: 'var(--text-muted)', marginBottom: 24 }}>Claude Sonnet 4.6 — 高精度ストリーミング生成</p>
-      <div style={{ marginBottom: 20 }}>
-        {MODE_CATEGORIES.map(cat => (
-          <div key={cat.label} style={{ marginBottom: 10 }}>
-            <div style={{ fontSize: 10, color: 'var(--text-muted)', marginBottom: 5, textTransform: 'uppercase', letterSpacing: '0.08em', fontWeight: 600 }}>{cat.label}</div>
-            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-              {cat.modes.map(m => (
-                <button key={m.id} onClick={() => setMode(m.id)} style={{ padding: '5px 12px', borderRadius: 6, border: mode === m.id ? 'none' : '1px solid var(--border)', cursor: 'pointer', fontSize: 12, fontWeight: 600, background: mode === m.id ? 'var(--accent)' : 'var(--bg-secondary)', color: mode === m.id ? '#fff' : 'var(--text-muted)' }}>
-                  {m.label}
-                </button>
-              ))}
-            </div>
-          </div>
+      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 20 }}>
+        {(showAllModes ? ALL_MODES : ALL_MODES.slice(0, 8)).map(m => (
+          <button key={m.key} onClick={() => setMode(m.key)} style={{
+            padding: '5px 14px', borderRadius: 20, cursor: 'pointer', fontSize: 12, fontWeight: 600,
+            border: mode === m.key ? '1px solid var(--accent)' : '1px solid var(--border)',
+            background: mode === m.key ? 'var(--accent)' : 'transparent',
+            color: mode === m.key ? '#fff' : 'var(--text-muted)',
+            transition: 'all 0.15s',
+          }}>
+            {m.label}
+          </button>
         ))}
+        <button
+          onClick={() => setShowAllModes(!showAllModes)}
+          style={{
+            padding: '5px 14px', borderRadius: 20, cursor: 'pointer', fontSize: 12, fontWeight: 500,
+            border: '1px dashed var(--border)', background: 'transparent', color: 'var(--text-muted)',
+          }}
+        >
+          {showAllModes ? '▲ 閉じる' : `▼ もっと見る（+${ALL_MODES.length - 8}）`}
+        </button>
       </div>
       {/* テンプレート */}
       <div style={{ display: 'flex', flexWrap: 'wrap' as const, alignItems: 'center', gap: 8, marginBottom: 12 }}>
@@ -494,7 +483,7 @@ export default function WritePage() {
             <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
               <span style={{ fontSize: 12, color: 'var(--text-muted)', fontFamily: 'monospace' }}>{output.length.toLocaleString()}字</span>
               <SaveToLibraryButton
-                title={`${MODE_CATEGORIES.flatMap(c => c.modes).find(m => m.id === mode)?.label || mode}: ${prompt.slice(0, 30)}`}
+                title={`${ALL_MODES.find(m => m.key === mode)?.label || mode}: ${prompt.slice(0, 30)}`}
                 content={output}
                 type="write"
                 groupName="文章作成"
