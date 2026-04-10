@@ -7,21 +7,32 @@ import { SaveToLibraryButton } from '@/components/SaveToLibraryButton';
 import { useWritingTemplates } from '@/hooks/useWritingTemplates';
 
 const ALL_MODES = [
-  { key: 'blog',          label: '📝 ブログ' },
-  { key: 'note',          label: '✒️ note' },
-  { key: 'sns_twitter',   label: '𝕏 X投稿文' },
-  { key: 'social',        label: '📱 SNS汎用' },
-  { key: 'report',        label: '📊 レポート' },
-  { key: 'email',         label: '📧 メール' },
-  { key: 'press',         label: '📰 プレスリリース' },
-  { key: 'sns_instagram', label: '📸 Instagram' },
-  { key: 'homepage',      label: '🌐 HP・LP' },
-  { key: 'product',       label: '🛍 商品説明' },
-  { key: 'sns_note',      label: '📓 noteリード文' },
-  { key: 'novel',         label: '📚 小説' },
-  { key: 'guide',         label: '📖 解説本' },
-  { key: 'publish',       label: '🖨 出版用' },
-  { key: 'image_prompt',  label: '🎨 画像プロンプト' },
+  { key: 'blog',          label: '📝 ブログ',        description: 'SEOを意識した読みやすい長文記事' },
+  { key: 'note',          label: '✒️ note',           description: 'noteに最適な共感を生む記事' },
+  { key: 'sns_twitter',   label: '𝕏 X投稿文',         description: '140文字以内・拡散されやすい投稿' },
+  { key: 'social',        label: '📱 SNS汎用',        description: 'Instagram・FacebookなどSNS全般' },
+  { key: 'report',        label: '📊 レポート',       description: '論理的で説得力のあるビジネスレポート' },
+  { key: 'email',         label: '📧 メール',         description: '丁寧で伝わりやすいビジネスメール' },
+  { key: 'press',         label: '📰 プレスリリース', description: 'メディア向けの公式プレスリリース' },
+  { key: 'sns_instagram', label: '📸 Instagram',      description: '絵文字・ハッシュタグ付きキャプション' },
+  { key: 'homepage',      label: '🌐 HP・LP',         description: '集客・CVに強いランディングページ文章' },
+  { key: 'product',       label: '🛍 商品説明',       description: '購買意欲を高める商品・サービス紹介' },
+  { key: 'sns_note',      label: '📓 noteリード文',   description: '読者を引き込む書き出し500字' },
+  { key: 'novel',         label: '📚 小説',           description: '読者を引き込む物語・フィクション' },
+  { key: 'guide',         label: '📖 解説本',         description: 'わかりやすく丁寧な解説・ガイド文章' },
+  { key: 'publish',       label: '🖨 出版用',         description: '出版・書籍向けの高品質な原稿' },
+  { key: 'image_prompt',  label: '🎨 画像プロンプト', description: 'Midjourney・DALL-E向け英語プロンプト' },
+];
+
+const QUICK_PROMPTS = [
+  { label: '詳しく解説', text: 'について、初心者にもわかりやすく詳しく解説してください。' },
+  { label: 'メリデメ',   text: 'のメリットとデメリットをそれぞれ5つずつ挙げて解説してください。' },
+  { label: '初心者向け', text: 'について、全く知識がない初心者向けにわかりやすく説明してください。' },
+  { label: '比較',       text: 'を比較して、それぞれの特徴と向いている人を教えてください。' },
+  { label: '事例紹介',   text: 'の具体的な活用事例を5つ紹介してください。' },
+  { label: 'まとめ',     text: 'について、重要なポイントをまとめてください。' },
+  { label: '最新情報',   text: 'の2026年最新トレンドと今後の展望について解説してください。' },
+  { label: 'How To',     text: 'のやり方を、ステップバイステップで詳しく説明してください。' },
 ];
 
 function calcReadabilityScore(text: string) {
@@ -364,15 +375,25 @@ export default function WritePage() {
       <p style={{ color: 'var(--text-muted)', marginBottom: 24 }}>Claude Sonnet 4.6 — 高精度ストリーミング生成</p>
       <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 20 }}>
         {(showAllModes ? ALL_MODES : ALL_MODES.slice(0, 8)).map(m => (
-          <button key={m.key} onClick={() => setMode(m.key)} style={{
-            padding: '5px 14px', borderRadius: 20, cursor: 'pointer', fontSize: 12, fontWeight: 600,
-            border: mode === m.key ? '1px solid var(--accent)' : '1px solid var(--border)',
-            background: mode === m.key ? 'var(--accent)' : 'transparent',
-            color: mode === m.key ? '#fff' : 'var(--text-muted)',
-            transition: 'all 0.15s',
-          }}>
-            {m.label}
-          </button>
+          <div key={m.key} style={{ position: 'relative' }} className="group">
+            <button onClick={() => setMode(m.key)} style={{
+              padding: '5px 14px', borderRadius: 20, cursor: 'pointer', fontSize: 12, fontWeight: 600,
+              border: mode === m.key ? '1px solid var(--accent)' : '1px solid var(--border)',
+              background: mode === m.key ? 'var(--accent)' : 'transparent',
+              color: mode === m.key ? '#fff' : 'var(--text-muted)',
+              transition: 'all 0.15s',
+            }} title={m.description}>
+              {m.label}
+            </button>
+            <div style={{
+              position: 'absolute', bottom: '100%', left: '50%', transform: 'translateX(-50%)',
+              marginBottom: 8, padding: '4px 10px', borderRadius: 6, fontSize: 11, whiteSpace: 'nowrap',
+              background: 'var(--text-primary)', color: 'var(--bg-primary)',
+              pointerEvents: 'none', zIndex: 50, opacity: 0, transition: 'opacity 0.15s',
+            }} className="group-hover-tooltip">
+              {m.description}
+            </div>
+          </div>
         ))}
         <button
           onClick={() => setShowAllModes(!showAllModes)}
@@ -383,6 +404,7 @@ export default function WritePage() {
         >
           {showAllModes ? '▲ 閉じる' : `▼ もっと見る（+${ALL_MODES.length - 8}）`}
         </button>
+        <style>{`.group:hover .group-hover-tooltip { opacity: 1 !important; }`}</style>
       </div>
       {/* テンプレート */}
       <div style={{ display: 'flex', flexWrap: 'wrap' as const, alignItems: 'center', gap: 8, marginBottom: 12 }}>
@@ -451,6 +473,22 @@ export default function WritePage() {
             <VoiceInputButton size="sm" onResult={(text) => setPrompt(prev => prev + text)} />
           </div>
         </div>
+        {/* クイック挿入 */}
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5, marginTop: 8, alignItems: 'center' }}>
+          <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>クイック挿入：</span>
+          {QUICK_PROMPTS.map(qp => (
+            <button key={qp.label} onClick={() => setPrompt(prev => prev + qp.text)} style={{
+              fontSize: 11, padding: '3px 10px', borderRadius: 6,
+              border: '1px solid var(--border)', background: 'transparent',
+              color: 'var(--text-muted)', cursor: 'pointer', transition: 'background 0.1s',
+            }}
+              onMouseEnter={e => (e.currentTarget.style.background = 'var(--bg-card)')}
+              onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
+            >
+              {qp.label}
+            </button>
+          ))}
+        </div>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 10, marginTop: 12 }}>
           {[
             { label: '文体', value: style, set: setStyle, options: [['casual','カジュアル'],['formal','フォーマル'],['literary','文学的'],['academic','学術的']] },
@@ -474,6 +512,14 @@ export default function WritePage() {
       </div>
       {(output || loading) && (
         <div>
+          {/* リアルタイム統計 */}
+          {output && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginBottom: 8, fontSize: 12, color: 'var(--text-muted)' }}>
+              <span>📝 {output.length.toLocaleString()}文字</span>
+              <span>📄 {output.split(/\n\n+/).filter(p => p.trim().length > 0).length}段落</span>
+              <span>⏱ 約{Math.max(1, Math.ceil(output.length / 400))}分で読める</span>
+            </div>
+          )}
           {/* 主要ボタン行 */}
           <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8, flexWrap: 'wrap', gap: 6 }}>
             <div style={{ display: 'flex', gap: 6 }}>

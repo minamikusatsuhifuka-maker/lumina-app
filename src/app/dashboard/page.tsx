@@ -3,6 +3,7 @@ import Link from 'next/link';
 import { neon } from '@neondatabase/serverless';
 import TipsSection from '@/components/TipsSection';
 import { BriefingSection } from '@/components/BriefingSection';
+import { DashboardStats } from '@/components/DashboardStats';
 
 export default async function DashboardPage() {
   const session = await auth();
@@ -22,11 +23,6 @@ export default async function DashboardPage() {
       recentDrafts = await sql`SELECT * FROM drafts WHERE user_id = ${userId} ORDER BY updated_at DESC LIMIT 3`;
     } catch {}
   }
-
-  const stats = [
-    { label: '作成した文章', value: draftCount, icon: '✍️', color: 'var(--accent)', borderColor: 'var(--border-accent)' },
-    { label: '保存したアイテム', value: libCount, icon: '📌', color: '#00d4b8', borderColor: '#00d4b830' },
-  ];
 
   const cards = [
     { icon: '🧠', title: 'Intelligence Hub', desc: 'ニュース・SNS・市場・学術を統合収集', href: '/dashboard/intelligence', borderColor: 'var(--accent-soft)' },
@@ -81,18 +77,8 @@ export default async function DashboardPage() {
         ))}
       </div>
 
-      {/* 統計カード */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 14, marginBottom: 28 }}>
-        {stats.map(s => (
-          <div key={s.label} style={{ background: 'var(--bg-card)', border: `1px solid ${s.borderColor}`, borderRadius: 12, padding: '18px 20px', display: 'flex', alignItems: 'center', gap: 14 }}>
-            <span style={{ fontSize: 28 }}>{s.icon}</span>
-            <div>
-              <div style={{ fontSize: 28, fontWeight: 700, color: s.color, fontFamily: 'monospace' }}>{s.value}</div>
-              <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>{s.label}</div>
-            </div>
-          </div>
-        ))}
-      </div>
+      {/* 統計カード（6枚・クリッカブル） */}
+      <DashboardStats />
 
       {/* クイックスタート */}
       <div style={{ marginBottom: 28 }}>

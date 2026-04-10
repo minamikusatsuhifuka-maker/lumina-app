@@ -15,12 +15,16 @@ export async function GET() {
     memoryCount,
     glossaryCount,
     templateCount,
+    writingsCount,
+    workflowsCount,
     recentLibrary,
   ] = await Promise.all([
     sql`SELECT COUNT(*) as count FROM library WHERE user_id = ${userId}`,
     sql`SELECT COUNT(*) as count FROM memory_items WHERE user_id = ${userId}`,
     sql`SELECT COUNT(*) as count FROM glossary_items WHERE user_id = ${userId}`,
     sql`SELECT COUNT(*) as count FROM writing_templates WHERE user_id = ${userId}`,
+    sql`SELECT COUNT(*) as count FROM library WHERE user_id = ${userId} AND group_name = '文章作成'`,
+    sql`SELECT COUNT(*) as count FROM library WHERE user_id = ${userId} AND group_name LIKE '%ワークフロー%'`,
     sql`
       SELECT group_name as group_type, COUNT(*) as count
       FROM library
@@ -49,6 +53,8 @@ export async function GET() {
       memory: Number(memoryCount[0]?.count ?? 0),
       glossary: Number(glossaryCount[0]?.count ?? 0),
       templates: Number(templateCount[0]?.count ?? 0),
+      writings: Number(writingsCount[0]?.count ?? 0),
+      workflows: Number(workflowsCount[0]?.count ?? 0),
     },
     categoryBreakdown: recentLibrary,
     weeklyStats,
