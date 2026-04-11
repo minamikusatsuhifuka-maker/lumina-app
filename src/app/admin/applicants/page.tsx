@@ -50,6 +50,9 @@ export default function ApplicantsPage() {
   const [newInterviewer, setNewInterviewer] = useState('');
   const [noteSaving, setNoteSaving] = useState(false);
   const [aiCommenting, setAiCommenting] = useState<string | null>(null);
+  const [sortBy, setSortBy] = useState<'score' | 'date' | 'status'>('score');
+  const [scoreFilter, setScoreFilter] = useState<'all' | 'high' | 'mid' | 'low'>('all');
+  const [showComparison, setShowComparison] = useState(false);
 
   useEffect(() => {
     fetch('/api/clinic/applicants')
@@ -202,9 +205,21 @@ export default function ApplicantsPage() {
     { key: 'rejected',  label: '❌ 不採用',   color: '#ef4444' },
   ];
 
-  const filteredApplicants = statusFilter === 'all'
-    ? applicants
-    : applicants.filter(a => a.status === statusFilter);
+  const filteredApplicants = applicants
+    .filter(a => statusFilter === 'all' || a.status === statusFilter)
+    .filter(a => {
+      if (scoreFilter === 'all') return true;
+      if (scoreFilter === 'high') return (a.total_score || 0) >= 80;
+      if (scoreFilter === 'mid') return (a.total_score || 0) >= 60 && (a.total_score || 0) < 80;
+      if (scoreFilter === 'low') return (a.total_score || 0) < 60;
+      return true;
+    })
+    .sort((a, b) => {
+      if (sortBy === 'score') return (b.total_score || 0) - (a.total_score || 0);
+      if (sortBy === 'date') return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+      if (sortBy === 'status') return (a.status || '').localeCompare(b.status || '');
+      return 0;
+    });
 
   const cardStyle: React.CSSProperties = {
     padding: 20, background: 'var(--bg-secondary)',
@@ -387,6 +402,90 @@ export default function ApplicantsPage() {
         </div>
       )}
 
+      {/* スコアフィルタ・ソート・比較ビュー */}
+      {tab === 'list' && (
+        <div style={{ display: 'flex', gap: 8, marginBottom: 12, flexWrap: 'wrap', alignItems: 'center' }}>
+          <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>スコア：</span>
+          {[
+            { k: 'all', l: '全員' },
+            { k: 'high', l: '🟢 80点以上' },
+            { k: 'mid', l: '🟡 60〜79点' },
+            { k: 'low', l: '🔴 60点未満' },
+          ].map(f => (
+            <button key={f.k} onClick={() => setScoreFilter(f.k as any)}
+              style={{ padding: '4px 10px', borderRadius: 8, border: '1px solid', fontSize: 11, cursor: 'pointer', background: scoreFilter === f.k ? 'rgba(108,99,255,0.15)' : 'var(--bg-card)', color: scoreFilter === f.k ? '#6c63ff' : 'var(--text-muted)', borderColor: scoreFilter === f.k ? 'rgba(108,99,255,0.3)' : 'var(--border)', fontWeight: scoreFilter === f.k ? 600 : 400 }}>
+              {f.l}
+            </button>
+          ))}
+
+          <div style={{ width: 1, height: 16, background: 'var(--border)', margin: '0 4px' }} />
+
+          <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>並び替え：</span>
+          {[
+            { k: 'score', l: 'スコア順' },
+            { k: 'date', l: '登録順' },
+          ].map(s => (
+            <button key={s.k} onClick={() => setSortBy(s.k as any)}
+              style={{ padding: '4px 10px', borderRadius: 8, border: '1px solid', fontSize: 11, cursor: 'pointer', background: sortBy === s.k ? 'rgba(108,99,255,0.15)' : 'var(--bg-card)', color: sortBy === s.k ? '#6c63ff' : 'var(--text-muted)', borderColor: sortBy === s.k ? 'rgba(108,99,255,0.3)' : 'var(--border)', fontWeight: sortBy === s.k ? 600 : 400 }}>
+              {s.l}
+            </button>
+          ))}
+
+          <div style={{ marginLeft: 'auto' }}>
+            <button onClick={() => setShowComparison(!showComparison)}
+              style={{ padding: '4px 12px', borderRadius: 8, border: '1px solid', fontSize: 11, cursor: 'pointer', background: showComparison ? 'rgba(6,182,212,0.15)' : 'var(--bg-card)', color: showComparison ? '#06b6d4' : 'var(--text-muted)', borderColor: showComparison ? 'rgba(6,182,212,0.3)' : 'var(--border)', fontWeight: 600 }}>
+              📊 スコア比較ビュー
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* スコア比較ビュー */}
+      {tab === 'list' && showComparison && filteredApplicants.length > 0 && (
+        <div style={{ marginBottom: 16, padding: 16, background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 12 }}>
+          <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 12 }}>📊 候補者スコア比較</div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            {filteredApplicants
+              .filter(a => a.total_score)
+              .slice(0, 8)
+              .map(a => (
+                <div key={a.id} style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer' }}
+                  onClick={() => fetch(`/api/clinic/applicants/${a.id}`).then(r => r.json()).then(setSelected)}>
+                  <div style={{ width: 80, fontSize: 11, color: 'var(--text-primary)', fontWeight: selected?.id === a.id ? 700 : 400, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flexShrink: 0 }}>
+                    {a.name || '名前未取得'}
+                  </div>
+                  <div style={{ flex: 1, display: 'flex', gap: 3 }}>
+                    {[
+                      { key: 'jitsukou', label: '実行', color: '#3b82f6' },
+                      { key: 'jisseki', label: '実績', color: '#f59e0b' },
+                      { key: 'jitsuryoku', label: '実力', color: '#4ade80' },
+                      { key: 'seijitsu', label: '誠実', color: '#8b5cf6' },
+                    ].map(item => {
+                      const scores = typeof a.scores === 'string' ? JSON.parse(a.scores || '{}') : (a.scores || {});
+                      const score = scores[item.key]?.score || 0;
+                      return (
+                        <div key={item.key} style={{ flex: 1 }}>
+                          <div style={{ fontSize: 9, color: 'var(--text-muted)', marginBottom: 2, textAlign: 'center' }}>{item.label}</div>
+                          <div style={{ height: 6, background: 'var(--border)', borderRadius: 3, overflow: 'hidden' }}>
+                            <div style={{ width: `${(score / 25) * 100}%`, height: '100%', background: item.color, borderRadius: 3 }} />
+                          </div>
+                          <div style={{ fontSize: 9, color: item.color, textAlign: 'center', marginTop: 1 }}>{score}</div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                  <div style={{ width: 44, textAlign: 'right', flexShrink: 0 }}>
+                    <span style={{ fontSize: 15, fontWeight: 700, color: (a.total_score || 0) >= 80 ? '#4ade80' : (a.total_score || 0) >= 60 ? '#f59e0b' : '#ef4444' }}>
+                      {a.total_score}
+                    </span>
+                    <span style={{ fontSize: 10, color: 'var(--text-muted)' }}>点</span>
+                  </div>
+                </div>
+              ))}
+          </div>
+        </div>
+      )}
+
       {/* 候補者一覧 */}
       {tab === 'list' && (
         <div style={{ display: 'grid', gridTemplateColumns: selected ? '1fr 1.5fr' : '1fr', gap: 16 }}>
@@ -460,6 +559,25 @@ export default function ApplicantsPage() {
                           </span>
                         ))
                       }
+                    </div>
+                  )}
+                  {/* ミニスコアバー */}
+                  {a.total_score && (
+                    <div style={{ marginTop: 8, display: 'flex', gap: 4 }}>
+                      {[
+                        { key: 'jitsukou', color: '#3b82f6' },
+                        { key: 'jisseki', color: '#f59e0b' },
+                        { key: 'jitsuryoku', color: '#4ade80' },
+                        { key: 'seijitsu', color: '#8b5cf6' },
+                      ].map(item => {
+                        const scores = typeof a.scores === 'string' ? JSON.parse(a.scores || '{}') : (a.scores || {});
+                        const score = scores[item.key]?.score || 0;
+                        return (
+                          <div key={item.key} style={{ flex: 1, height: 4, background: 'var(--border)', borderRadius: 2, overflow: 'hidden' }}>
+                            <div style={{ width: `${(score / 25) * 100}%`, height: '100%', background: item.color, borderRadius: 2 }} />
+                          </div>
+                        );
+                      })}
                     </div>
                   )}
                 </div>
