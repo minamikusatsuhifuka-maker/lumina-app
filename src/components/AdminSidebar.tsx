@@ -28,6 +28,7 @@ const navGroups: NavGroup[] = [
       { href: '/admin/grade', label: '等級制度', icon: '🏅' },
       { href: '/admin/grade/compare', label: '等級比較表', icon: '📊' },
       { href: '/admin/grade/mindset', label: 'マインド成長', icon: '🌱' },
+      { href: '/admin/grade/mindset', label: '同心円モデル', icon: '🔵' },
       { href: '/admin/grade/philosophy', label: '成長哲学', icon: '🌟' },
       { href: '/admin/grade/definitions', label: '職種・役職定義', icon: '📌' },
     ],
@@ -49,13 +50,6 @@ const navGroups: NavGroup[] = [
       { href: '/admin/philosophy', label: '理念管理', icon: '💡' },
       { href: '/admin/strategy', label: '経営戦略', icon: '🗺' },
       { href: '/admin/tasks', label: 'タスク管理', icon: '✅' },
-    ],
-  },
-  {
-    category: 'ツール',
-    items: [
-      { href: '/admin/text-editor', label: 'テキストエディタ', icon: '✍️' },
-      { href: '/dashboard', label: '通常ダッシュボード', icon: '🏠' },
     ],
   },
 ];
