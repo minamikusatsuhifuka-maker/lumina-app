@@ -18,6 +18,7 @@ const navGroups: NavGroup[] = [
       { href: '/staff/growth', label: '成長計画', icon: '✨' },
       { href: '/staff/grade', label: '等級・評価', icon: '🏅' },
       { href: '/staff/circle', label: '成長の地図', icon: '🔵' },
+      { href: '/staff/one-on-one', label: '1on1振り返り', icon: '🤝' },
     ],
   },
   {
