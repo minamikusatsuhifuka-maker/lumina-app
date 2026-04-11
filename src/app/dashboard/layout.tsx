@@ -10,14 +10,16 @@ import { NotificationCenter } from '@/components/NotificationCenter';
 import { ThemeToggle } from '@/components/ThemeToggle';
 import { PageHelp } from '@/components/PageHelp';
 import { OnboardingTutorial } from '@/components/OnboardingTutorial';
+import { ToastProvider } from '@/components/ui/Toast';
 
 export default async function DashboardLayout({ children }: { children: React.ReactNode }) {
   const session = await auth();
   if (!session) redirect('/auth');
   return (
+    <ToastProvider>
     <div className="dashboard-layout" style={{ display: 'flex', minHeight: '100vh', background: 'var(--bg-primary)' }}>
       <DashboardSidebar userName={session.user?.name || ''} />
-      <main className="dashboard-main" style={{ flex: 1, padding: 28, overflowY: 'auto', maxWidth: 'calc(100vw - 220px)', color: 'var(--text-primary)' }}>
+      <main className="dashboard-main page-enter" style={{ flex: 1, padding: 28, overflowY: 'auto', maxWidth: 'calc(100vw - 220px)', color: 'var(--text-primary)' }}>
         <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: 8, marginBottom: 12 }}><PageHelp /><ThemeToggle /><NotificationCenter /><ModelSelector /></div>
         {children}
       </main>
@@ -36,5 +38,6 @@ export default async function DashboardLayout({ children }: { children: React.Re
         }
       `}</style>
     </div>
+    </ToastProvider>
   );
 }

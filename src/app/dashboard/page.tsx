@@ -5,6 +5,7 @@ import TipsSection from '@/components/TipsSection';
 import { BriefingSection } from '@/components/BriefingSection';
 import { DashboardStats } from '@/components/DashboardStats';
 import { WeeklyReportButton } from '@/components/WeeklyReportButton';
+import { DashboardCustomize } from '@/components/DashboardCustomize';
 
 export default async function DashboardPage() {
   const session = await auth();

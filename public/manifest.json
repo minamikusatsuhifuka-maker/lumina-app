@@ -1,0 +1,24 @@
+{
+  "name": "xLUMINA - AI情報収集・文章作成",
+  "short_name": "xLUMINA",
+  "description": "AIが情報収集から文章作成まで一気通貫で支援するプラットフォーム",
+  "start_url": "/dashboard",
+  "display": "standalone",
+  "background_color": "#07080f",
+  "theme_color": "#6c63ff",
+  "orientation": "portrait-primary",
+  "icons": [
+    {
+      "src": "/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ],
+  "shortcuts": [
+    { "name": "文章作成", "url": "/dashboard/write" },
+    { "name": "Intelligence Hub", "url": "/dashboard/intelligence" },
+    { "name": "ワークフロー", "url": "/dashboard/workflow" }
+  ],
+  "categories": ["productivity", "business"]
+}
