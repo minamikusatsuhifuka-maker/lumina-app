@@ -219,6 +219,22 @@ export default function IntelligencePage() {
         </button>
       </div>
 
+      {/* サンプル入力 */}
+      <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 8 }}>
+        <button onClick={() => {
+          const samples: Record<string, string> = {
+            web: 'xLUMINA 競合サービス比較 AI情報収集ツール', news: 'AI・ChatGPT・Claude最新動向2026',
+            sns: 'AIツール活用術 バズり投稿 最新トレンド', market: 'AI SaaS市場 競合分析 2026年',
+            academic: '大規模言語モデル 最新研究論文 2026', management: 'AI時代のマーケティング人材育成 最新手法',
+            marketing: 'AIマーケティング 最新トレンド 事例 2026', hr: 'AI活用採用 エンゲージメント向上 最新施策',
+          };
+          setQuery(samples[mode] ?? 'AI最新トレンド 2026');
+        }} style={{
+          fontSize: 11, padding: '4px 12px', borderRadius: 8, cursor: 'pointer',
+          border: '1px dashed var(--border)', background: 'transparent', color: 'var(--text-muted)',
+        }}>📋 サンプルを入力</button>
+      </div>
+
       {/* クイックトピック */}
       <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' as const, marginBottom: 20 }}>
         {topics.map(t => (

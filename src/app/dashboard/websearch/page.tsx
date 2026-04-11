@@ -350,9 +350,17 @@ export default function WebSearchPage() {
         ))}
       </div>
 
-      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 24 }}>
+      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 12 }}>
         {QUICK_SEARCHES.map(q => (
           <button key={q} onClick={() => setQuery(q)} style={{ padding: '5px 12px', borderRadius: 20, border: '1px solid rgba(0,212,184,0.2)', background: 'rgba(0,212,184,0.05)', color: '#00d4b8', cursor: 'pointer', fontSize: 12 }}>
+            {q}
+          </button>
+        ))}
+      </div>
+      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 24, alignItems: 'center' }}>
+        <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>サンプル：</span>
+        {['Claude Sonnet 4.6 最新アップデート 機能比較', 'AI活用 中小企業 業務効率化 事例 2026', 'LP制作 コスト削減 AIツール活用'].map(q => (
+          <button key={q} onClick={() => setQuery(q)} style={{ fontSize: 11, padding: '4px 12px', borderRadius: 20, border: '1px dashed var(--border)', background: 'transparent', color: 'var(--text-muted)', cursor: 'pointer', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 200 }}>
             {q}
           </button>
         ))}

@@ -56,6 +56,13 @@ export default function LPGeneratorPage() {
   const [error, setError] = useState('');
   const { progress, loading: progressLoading, startProgress, completeProgress, resetProgress } = useProgress();
 
+  const LP_SAMPLES: Record<string, LPForm> = {
+    pasona: { productName: 'xLUMINA Pro', target: '副業・フリーランスで情報発信しているビジネスパーソン', problem: '情報収集に毎日3時間かかる・文章が書けない・LP制作に数十万円かかる', solution: '30以上のAI機能で情報収集から文章生成まで全自動。LP・HP・SNS投稿もAIが一括生成。', price: '月額9,800円（税込）・14日間無料トライアルあり', cta: '14日間無料で試す →' },
+    aida: { productName: 'AIライティングアシスタント', target: 'ブログ・note・メルマガで情報発信したい個人事業主', problem: '文章を書くのが苦手・時間がかかりすぎる', solution: 'AIが高品質な文章を数分で生成。バズり予測・SEO最適化も自動対応。', price: '月額2,980円（税込）・初月無料', cta: '今すぐ無料で始める' },
+    pab: { productName: 'Web情報自動収集ツール', target: 'マーケターやコンサルタント', problem: '競合調査・市場分析に毎週何時間もかけている', solution: 'キーワードを入力するだけでAIが最新情報を自動収集・分析レポートを生成', price: '月額5,800円・7日間無料', cta: '無料で試してみる' },
+    quest: { productName: 'AIマーケティング講座', target: 'マーケティングを学びたい中小企業の経営者', problem: 'マーケティングの知識がなく、広告費を無駄にしている', solution: 'AIを活用した現代マーケティングの実践講座。すぐに使えるテンプレート付き。', price: '一括49,800円または月額4,980円×12回', cta: '無料説明会に参加する' },
+  };
+
   const updateForm = (key: keyof LPForm, value: string) => {
     setForm(prev => ({ ...prev, [key]: value }));
   };
@@ -292,8 +299,12 @@ ${result.cta_sections[2] ? ctaBlock(result.cta_sections[2]) : ''}
 
       {/* 入力フォーム */}
       <div style={{ background: 'var(--bg-secondary)', border: `1px solid ${selectedFramework?.color}30`, borderRadius: 12, padding: 20, marginBottom: 16 }}>
-        <div style={{ fontSize: 13, fontWeight: 600, color: selectedFramework?.color, marginBottom: 16 }}>
-          {selectedFramework?.label} フレームワークで LP を生成
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+          <span style={{ fontSize: 13, fontWeight: 600, color: selectedFramework?.color }}>{selectedFramework?.label} フレームワークで LP を生成</span>
+          <button onClick={() => { const s = LP_SAMPLES[framework]; if (s) setForm(s); }} style={{
+            fontSize: 11, padding: '4px 12px', borderRadius: 8, cursor: 'pointer',
+            border: '1px dashed var(--border)', background: 'transparent', color: 'var(--text-muted)',
+          }}>📋 サンプルを入力</button>
         </div>
 
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 12 }}>

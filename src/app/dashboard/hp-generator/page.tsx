@@ -49,6 +49,12 @@ export default function HpGeneratorPage() {
         ))}
       </div>
 
+      <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 8 }}>
+        <button onClick={() => setForm({ companyName: 'xLUMINA', industry: 'IT・SaaS', target: '情報収集・文章作成を効率化したい中小企業・フリーランス・マーケター', usp: '30以上のAI機能で情報収集から収益化まで一気通貫。月2,980円から。LP/HP/文章をAIが全自動生成。', tone: '親しみやすくプロフェッショナル' })} style={{
+          fontSize: 11, padding: '4px 12px', borderRadius: 8, cursor: 'pointer',
+          border: '1px dashed var(--border)', background: 'transparent', color: 'var(--text-muted)',
+        }}>📋 サンプルを入力</button>
+      </div>
       {/* 入力フォーム */}
       <div style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 14, padding: 24, marginBottom: 24 }}>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, marginBottom: 14 }}>

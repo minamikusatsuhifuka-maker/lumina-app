@@ -536,8 +536,30 @@ export default function WritePage() {
             <VoiceInputButton size="sm" onResult={(text) => setPrompt(prev => prev + text)} />
           </div>
         </div>
-        {/* クイック挿入 */}
+        {/* サンプル＋クイック挿入 */}
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5, marginTop: 8, alignItems: 'center' }}>
+          <button onClick={() => {
+            const samples: Record<string, string> = {
+              blog: 'Claude Codeを使った業務効率化について、具体的な活用事例と導入メリットを初心者向けに解説してください。',
+              note: 'AI時代に生き残るフリーランスの仕事術。ChatGPTやClaudeを使って生産性を3倍にした実体験を書いてください。',
+              sns_twitter: '2026年のAIトレンドTOP3。知らないと乗り遅れる最新動向をまとめました。',
+              social: '【保存版】AIツール活用術5選。毎日使えるビジネスパーソン向けTipsをまとめました。',
+              report: '2026年上半期 AI市場動向レポート。主要プレイヤーの動向・市場規模・今後の展望を分析してください。',
+              email: '新サービス「xLUMINA」のご案内メール。AIで情報収集から文章作成まで一気通貫で効率化できるサービスの魅力を伝えてください。',
+              press: 'AI情報収集・文章作成プラットフォーム「xLUMINA」正式リリースのプレスリリースを作成してください。',
+              sns_instagram: '朝活×AI活用術。毎朝30分のAI情報収集で1日の仕事が変わった体験談を書いてください。ハッシュタグも提案してください。',
+              homepage: 'AI業務効率化ツール「xLUMINA」のHP用キャッチコピーと説明文を作成してください。',
+              product: 'xLUMINA Proプランの商品説明文。月額9,800円の価値を伝える魅力的な文章を作成してください。',
+              novel: 'AIが人間の仕事を奪う近未来を舞台にした短編小説。主人公は元ライターで、AIと共存する道を探す物語。',
+              guide: 'ChatGPT・Claude初心者向け完全ガイド。アカウント登録から実践的な使い方まで丁寧に解説してください。',
+              image_prompt: '夕暮れの東京タワーをバックに、ビジネスパーソンが街を歩いているシーン。プロフェッショナルな雰囲気で。',
+            };
+            setPrompt(samples[mode] ?? samples.blog);
+          }} style={{
+            fontSize: 11, padding: '3px 10px', borderRadius: 6,
+            border: '1px dashed var(--accent)', background: 'transparent',
+            color: 'var(--accent)', cursor: 'pointer',
+          }}>📋 サンプル</button>
           <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>クイック挿入：</span>
           {QUICK_PROMPTS.map(qp => (
             <button key={qp.label} onClick={() => setPrompt(prev => prev + qp.text)} style={{

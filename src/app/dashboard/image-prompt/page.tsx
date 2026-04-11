@@ -184,6 +184,22 @@ export default function ImagePromptPage() {
         ))}
       </div>
 
+      <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 8 }}>
+        <button onClick={() => {
+          const samples: Record<string, Partial<typeof form>> = {
+            midjourney: { description: '青い空と海が広がる沖縄の海岸で、白いリゾートウェアを着た30代女性がコーヒーを飲んでいる。朝の清々しい雰囲気。', style: 'realistic', mood: 'bright', usage: 'sns' },
+            stable_diffusion: { description: '東京の夜景をバックに、スーツを着たビジネスマンがスマホを見ている。近未来的なサイバーパンクな雰囲気。', style: 'cyberpunk', mood: 'cool', usage: 'blog' },
+            dalle: { description: '白を基調としたオフィスで複数の人がノートPCで作業。窓から自然光。チームワーク感。', style: 'business', mood: 'bright', usage: 'lp' },
+            firefly: { description: '森の中の小川のそばに有機野菜や果物が並んでいる。自然光。温かみのある色調。', style: 'watercolor', mood: 'soft', usage: 'product' },
+            nano_banana: { description: '可愛い猫がキーボードの上で丸くなって眠っている。暖かい室内光。', style: 'anime', mood: 'warm', usage: 'sns' },
+          };
+          const s = samples[tool];
+          if (s) setForm(f => ({ ...f, ...s }));
+        }} style={{
+          fontSize: 11, padding: '4px 12px', borderRadius: 8, cursor: 'pointer',
+          border: '1px dashed var(--border)', background: 'transparent', color: 'var(--text-muted)',
+        }}>📋 サンプルを入力</button>
+      </div>
       {/* 入力フォーム */}
       <div style={{ background: 'var(--bg-secondary)', border: `1px solid ${selectedTool?.color}30`, borderRadius: 12, padding: 20, marginBottom: 16 }}>
         <div style={{ fontSize: 13, fontWeight: 600, color: selectedTool?.color, marginBottom: 16 }}>

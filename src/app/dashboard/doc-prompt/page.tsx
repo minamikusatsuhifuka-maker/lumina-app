@@ -51,6 +51,15 @@ export default function DocPromptPage() {
     setForm(prev => ({ ...prev, [key]: value }));
   };
 
+  const DOC_SAMPLES: Record<string, DocForm> = {
+    proposal: { theme: '2026年度 DX推進戦略・AIアシスタント導入提案', audience: '経営層・取締役会', slides: '10', purpose: 'DX推進の必要性を理解してもらい、来期予算の承認を得たい。' },
+    report: { theme: '2026年Q1 マーケティング施策 成果報告', audience: '営業部長・マーケティングチーム', slides: '8', purpose: 'Q1の施策結果を共有し、Q2の改善策を承認してもらう。' },
+    plan: { theme: '新サービス「AIコンシェルジュ」立ち上げ企画', audience: '社内プロジェクト承認者', slides: '12', purpose: '新規事業としての可能性を示し、プロジェクト立ち上げ承認を得る。' },
+    presentation: { theme: 'Claude Codeの活用方法と業務効率化事例', audience: '経営者・IT部門', slides: '8', purpose: 'Claude Codeの活用可能性を理解してもらい、社内導入を検討してもらう。' },
+    sales: { theme: 'xLUMINA AI情報収集・文章生成プラットフォーム', audience: '中小企業の経営者・マーケティング担当者', slides: '10', purpose: 'xLUMINAの価値を伝えて、14日間無料トライアルの申込みにつなげる。' },
+    manual: { theme: 'xLUMINA 利用開始ガイド・基本操作マニュアル', audience: '新規ユーザー・初心者', slides: '15', purpose: '初めてのユーザーが迷わず使い始められるよう、基本操作を説明する。' },
+  };
+
   const generate = async () => {
     if (!form.theme.trim()) return;
     setLoading(true);
@@ -207,8 +216,12 @@ export default function DocPromptPage() {
 
       {/* 入力フォーム */}
       <div style={{ background: 'var(--bg-secondary)', border: `1px solid ${selectedDoc?.color}30`, borderRadius: 12, padding: 20, marginBottom: 16 }}>
-        <div style={{ fontSize: 13, fontWeight: 600, color: selectedDoc?.color, marginBottom: 16 }}>
-          {selectedDoc?.label} のプロンプトを生成
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+          <span style={{ fontSize: 13, fontWeight: 600, color: selectedDoc?.color }}>{selectedDoc?.label} のプロンプトを生成</span>
+          <button onClick={() => { const s = DOC_SAMPLES[docType]; if (s) setForm(s); }} style={{
+            fontSize: 11, padding: '4px 12px', borderRadius: 8, cursor: 'pointer',
+            border: '1px dashed var(--border)', background: 'transparent', color: 'var(--text-muted)',
+          }}>📋 サンプルを入力</button>
         </div>
 
         {/* テーマ */}
