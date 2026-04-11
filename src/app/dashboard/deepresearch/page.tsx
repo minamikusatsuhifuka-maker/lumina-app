@@ -4,6 +4,7 @@ import { ProgressBar } from '@/components/ProgressBar';
 import { VoiceInputButton } from '@/components/VoiceInputButton';
 import { useProgress } from '@/components/useProgress';
 import { SaveToLibraryButton } from '@/components/SaveToLibraryButton';
+import { DateRangePicker, DateRange, getDateCondition } from '@/components/DateRangePicker';
 
 const TEMPLATES = [
   { label: 'AI最新動向', topic: '2026年の生成AI・大規模言語モデルの最新動向と活用事例' },
@@ -89,6 +90,7 @@ const formatReport = (text: string): string => {
 export default function DeepResearchPage() {
   const [topic, setTopic] = useState('');
   const [depth, setDepth] = useState('standard');
+  const [dateRange, setDateRange] = useState<DateRange>({ start: null, end: null });
   const [report, setReport] = useState('');
   const [loading, setLoading] = useState(false);
   const [fontSize, setFontSize] = useState(14);
@@ -109,7 +111,7 @@ export default function DeepResearchPage() {
       const res = await retryFetch('/api/deepresearch', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ topic: q, depth }),
+        body: JSON.stringify({ topic: q + getDateCondition(dateRange), depth }),
       });
 
       if (!res.ok || !res.body) {
@@ -202,6 +204,10 @@ export default function DeepResearchPage() {
           ))}
         </div>
 
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+          <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>調査期間：</span>
+          <DateRangePicker value={dateRange} onChange={setDateRange} placeholder="期間を指定（任意）" />
+        </div>
         <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
           <button
             onClick={() => research()}

@@ -3,6 +3,7 @@ import { useState } from 'react';
 import { ProgressBar } from '@/components/ProgressBar';
 import { VoiceInputButton } from '@/components/VoiceInputButton';
 import { useProgress } from '@/components/useProgress';
+import { DateRangePicker, DateRange, getDateCondition } from '@/components/DateRangePicker';
 
 const QUICK_SEARCHES = [
   'AIの最新トレンド2026年', 'ChatGPT活用事例ビジネス', 'note ブログ収益化のコツ',
@@ -115,6 +116,7 @@ export default function WebSearchPage() {
   const [categories, setCategories] = useState<{ text: string; category: string }[]>([]);
   const [activeCategory, setActiveCategory] = useState('すべて');
   const [classifyLoading, setClassifyLoading] = useState(false);
+  const [dateRange, setDateRange] = useState<DateRange>({ start: null, end: null });
   const [history, setHistory] = useState<string[]>(() => {
     if (typeof window === 'undefined') return [];
     try { return JSON.parse(localStorage.getItem('lumina_search_history') || '[]'); } catch { return []; }
@@ -148,7 +150,7 @@ export default function WebSearchPage() {
       const res = await retryFetch('/api/websearch', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ query: searchQuery, maxTokens, period }),
+        body: JSON.stringify({ query: searchQuery + getDateCondition(dateRange), maxTokens, period }),
       });
 
       if (!res.ok || !res.body) {
@@ -358,6 +360,7 @@ export default function WebSearchPage() {
       </div>
       <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 24, alignItems: 'center' }}>
         <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>サンプル：</span>
+        <DateRangePicker value={dateRange} onChange={setDateRange} placeholder="期間を指定" />
         {['Claude Sonnet 4.6 最新アップデート 機能比較', 'AI活用 中小企業 業務効率化 事例 2026', 'LP制作 コスト削減 AIツール活用'].map(q => (
           <button key={q} onClick={() => setQuery(q)} style={{ fontSize: 11, padding: '4px 12px', borderRadius: 20, border: '1px dashed var(--border)', background: 'transparent', color: 'var(--text-muted)', cursor: 'pointer', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 200 }}>
             {q}

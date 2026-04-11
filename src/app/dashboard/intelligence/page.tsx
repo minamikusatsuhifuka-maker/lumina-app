@@ -27,6 +27,8 @@ const QUICK_TOPICS: Record<string, string[]> = {
   hr: ['エンジニア採用 最新手法', 'リファラル採用 成功事例', '離職防止 施策', 'ダイバーシティ採用 取り組み'],
 };
 
+import { DateRangePicker, DateRange, getDateCondition } from '@/components/DateRangePicker';
+
 async function retryFetch(url: string, options: RequestInit, maxRetries = 3): Promise<Response> {
   for (let i = 0; i < maxRetries; i++) {
     const res = await fetch(url, options);
@@ -106,6 +108,7 @@ export default function IntelligencePage() {
   const [loading, setLoading] = useState(false);
   const [fontSize, setFontSize] = useState(14);
   const { progress, loading: progressLoading, startProgress, completeProgress, resetProgress } = useProgress();
+  const [dateRange, setDateRange] = useState<DateRange>({ start: null, end: null });
 
   const search = async (q?: string) => {
     const searchQuery = q || query;
@@ -134,7 +137,7 @@ export default function IntelligencePage() {
       const res = await retryFetch('/api/websearch', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ query: searchQuery, mode, maxTokens: 8000 }),
+        body: JSON.stringify({ query: searchQuery + getDateCondition(dateRange), mode, maxTokens: 8000 }),
       });
 
       if (!res.body) { setLoading(false); return; }
@@ -217,6 +220,12 @@ export default function IntelligencePage() {
         >
           {loading ? '調査中...' : '🔍 調査開始'}
         </button>
+      </div>
+
+      {/* 期間選択 */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+        <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>期間絞り込み：</span>
+        <DateRangePicker value={dateRange} onChange={setDateRange} placeholder="期間を指定" />
       </div>
 
       {/* サンプル入力 */}

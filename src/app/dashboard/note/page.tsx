@@ -1,6 +1,7 @@
 'use client';
 import { useState } from 'react';
 import { SaveToLibraryButton } from '@/components/SaveToLibraryButton';
+import { DateRangePicker, DateRange, getDateCondition } from '@/components/DateRangePicker';
 
 const QUICK_SEARCHES = [
   'AI活用 ビジネス', 'ChatGPT 使い方', 'フリーランス 副業',
@@ -12,6 +13,7 @@ const MAX_RESULTS_OPTIONS = [5, 10, 20];
 
 export default function NotePage() {
   const [query, setQuery] = useState('');
+  const [dateRange, setDateRange] = useState<DateRange>({ start: null, end: null });
   const [maxResults, setMaxResults] = useState(10);
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState('');
@@ -52,7 +54,7 @@ export default function NotePage() {
       const res = await fetch('/api/note', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ query, maxResults }),
+        body: JSON.stringify({ query: query + getDateCondition(dateRange), maxResults }),
       });
 
       if (!res.body) throw new Error('ストリームなし');
@@ -153,6 +155,10 @@ export default function NotePage() {
           </div>
         </div>
 
+        {/* 期間選択 */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+          <DateRangePicker value={dateRange} onChange={setDateRange} placeholder="投稿期間を指定" />
+        </div>
         {/* クイック検索 */}
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
           {QUICK_SEARCHES.map(q => (

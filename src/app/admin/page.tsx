@@ -16,9 +16,8 @@ export default async function AdminDashboardPage() {
 
   const [
     staffRows, evalRows, pendingApprovalRows,
-    meetingRows, thisMonthMeetingRows,
-    applicantRows, handbookRows,
-    pendingOneOnOneRows,
+    thisMonthMeetingRows, applicantRows,
+    pendingOneOnOneRows, gradeDistRows,
   ] = await Promise.all([
     sql`SELECT COUNT(*) as count FROM staff WHERE status = 'active'`.catch(() => [{ count: 0 }]),
     sql`SELECT COUNT(*) as count FROM staff_evaluations`.catch(() => [{ count: 0 }]),
@@ -27,19 +26,25 @@ export default async function AdminDashboardPage() {
         WHERE se.promotion_approved = false
         AND se.recommended_grade IS NOT NULL
         ORDER BY se.updated_at DESC LIMIT 3`.catch(() => []),
-    sql`SELECT COUNT(*) as count FROM one_on_one_meetings`.catch(() => [{ count: 0 }]),
     sql`SELECT COUNT(*) as count FROM one_on_one_meetings
         WHERE created_at >= date_trunc('month', NOW())`.catch(() => [{ count: 0 }]),
     sql`SELECT COUNT(*) as count FROM applicants`.catch(() => [{ count: 0 }]),
-    sql`SELECT COUNT(*) as count FROM handbooks WHERE status = 'published'`.catch(() => [{ count: 0 }]),
     sql`SELECT s.name FROM staff s
         WHERE s.status = 'active'
         AND NOT EXISTS (
           SELECT 1 FROM one_on_one_meetings m
           WHERE m.staff_name = s.name
           AND m.meeting_date >= NOW() - INTERVAL '30 days'
-        )
-        LIMIT 3`.catch(() => []),
+        ) LIMIT 3`.catch(() => []),
+    // 等級別・職種別集計
+    sql`SELECT
+          gl.level_number,
+          gl.position,
+          COUNT(s.id) as count
+        FROM grade_levels gl
+        LEFT JOIN staff s ON s.current_grade_id = gl.id AND s.status = 'active'
+        GROUP BY gl.level_number, gl.position
+        ORDER BY gl.level_number ASC, gl.position ASC`.catch(() => []),
   ]);
 
   const staffCount = Number(staffRows[0]?.count || 0);
@@ -47,11 +52,8 @@ export default async function AdminDashboardPage() {
   const pendingApprovals = (pendingApprovalRows as any[]);
   const applicantCount = Number(applicantRows[0]?.count || 0);
   const pendingOneOnOne = (pendingOneOnOneRows as any[]);
+  const gradeDistribution = (gradeDistRows as any[]);
 
-  // 今日の日付から格言を選ぶ
-  const todayQuote = LEAD_QUOTES[new Date().getDay() % LEAD_QUOTES.length];
-
-  // 挨拶の時間帯判定（JST = UTC+9）
   const jstHour = (new Date().getUTCHours() + 9) % 24;
   const greeting = jstHour < 11 ? 'おはようございます' :
                    jstHour < 17 ? 'こんにちは' :
@@ -60,46 +62,60 @@ export default async function AdminDashboardPage() {
                       jstHour < 17 ? '午後もスタッフとの関わりを大切に' :
                       jstHour < 21 ? '今日のスタッフとの関わりを振り返りましょう' : '今日も一日お疲れ様でした';
 
+  const todayQuote = LEAD_QUOTES[new Date().getDay() % LEAD_QUOTES.length];
+
   const stats = [
-    { label: 'スタッフ', value: staffCount, unit: '名', dot: '#1D9E75', sub: '全員活動中' },
-    { label: '今月の1on1', value: thisMonthMeetings, unit: '件', dot: '#6c63ff', sub: `${Math.max(0, staffCount - thisMonthMeetings)}名 未実施` },
-    { label: '昇格申請', value: pendingApprovals.length, unit: '件', dot: '#f59e0b', sub: pendingApprovals.length > 0 ? '承認待ち' : '対応なし' },
-    { label: '採用候補者', value: applicantCount, unit: '名', dot: '#06b6d4', sub: '登録中' },
+    { label: 'スタッフ', value: staffCount, unit: '名', dot: '#1D9E75', sub: '全員活動中', href: '/admin/staff' },
+    { label: '今月の1on1', value: thisMonthMeetings, unit: '件', dot: '#6c63ff', sub: `${Math.max(0, staffCount - thisMonthMeetings)}名 未実施`, href: '/admin/one-on-one' },
+    { label: '昇格申請', value: pendingApprovals.length, unit: '件', dot: '#f59e0b', sub: pendingApprovals.length > 0 ? '承認待ち' : '対応なし', href: '/admin/staff-evaluation' },
+    { label: '採用候補者', value: applicantCount, unit: '名', dot: '#06b6d4', sub: '登録中', href: '/admin/applicants' },
   ];
 
   const quickLinks = [
-    { href: '/admin/staff-evaluation', icon: '📈', label: 'スタッフ評価', desc: 'データ集計・AI分析' },
-    { href: '/admin/one-on-one', icon: '🤝', label: '1on1を記録', desc: '面談記録・成長グラフ' },
-    { href: '/admin/grade/mindset', icon: '🔵', label: '同心円モデル', desc: '成長の地図を編集' },
-    { href: '/admin/applicants', icon: '🔍', label: '採用AI分析', desc: '候補者のスコアリング' },
+    { href: '/admin/staff-evaluation', icon: '📈', label: 'スタッフ評価', desc: 'データ集計・AI分析・期間比較' },
+    { href: '/admin/one-on-one', icon: '🤝', label: '1on1を記録', desc: '面談記録・AI分析・サジェスト' },
+    { href: '/admin/grade/mindset', icon: '🔵', label: '同心円モデル', desc: '成長の地図を確認・編集' },
+    { href: '/admin/applicants', icon: '🔍', label: '採用AI分析', desc: '候補者スコアリング・比較' },
+    { href: '/admin/staff/summary', icon: '📊', label: '成長サマリー', desc: '全スタッフの成長を俯瞰' },
     { href: '/admin/handbook', icon: '📖', label: 'ハンドブック', desc: 'AIでブラッシュアップ' },
-    { href: '/admin/criteria', icon: '🧭', label: 'AI判断基準', desc: 'AIの思考を設計する' },
   ];
+
+  // 等級分布を整理（G1〜G5）
+  const gradeMap: Record<number, { total: number; positions: Record<string, number> }> = {};
+  for (const row of gradeDistribution) {
+    const lv = Number(row.level_number);
+    if (!gradeMap[lv]) gradeMap[lv] = { total: 0, positions: {} };
+    const cnt = Number(row.count || 0);
+    gradeMap[lv].total += cnt;
+    if (row.position && cnt > 0) gradeMap[lv].positions[row.position] = cnt;
+  }
+
+  const GRADE_COLORS: Record<number, string> = { 5: '#8b5cf6', 4: '#06b6d4', 3: '#4ade80', 2: '#60a5fa', 1: '#94a3b8' };
 
   return (
     <div style={{ maxWidth: 900, margin: '0 auto' }}>
 
       {/* 挨拶 */}
       <div style={{ marginBottom: 20 }}>
-        <h1 style={{ fontSize: 22, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 2 }}>
-          {greeting}
-        </h1>
+        <h1 style={{ fontSize: 22, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 2 }}>{greeting}</h1>
         <p style={{ fontSize: 13, color: 'var(--text-muted)' }}>{greetingSub}</p>
       </div>
 
       {/* 統計カード */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 10, marginBottom: 20 }}>
         {stats.map(s => (
-          <div key={s.label} style={{ padding: '14px 16px', background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 12 }}>
-            <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 6 }}>{s.label}</div>
-            <div style={{ fontSize: 26, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 4 }}>
-              {s.value}<span style={{ fontSize: 13, fontWeight: 400, color: 'var(--text-muted)', marginLeft: 2 }}>{s.unit}</span>
+          <Link key={s.label} href={s.href} style={{ textDecoration: 'none' }}>
+            <div style={{ padding: '14px 16px', background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 12, cursor: 'pointer' }}>
+              <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 6 }}>{s.label}</div>
+              <div style={{ fontSize: 26, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 4 }}>
+                {s.value}<span style={{ fontSize: 13, fontWeight: 400, color: 'var(--text-muted)', marginLeft: 2 }}>{s.unit}</span>
+              </div>
+              <div style={{ fontSize: 11, color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: 4 }}>
+                <span style={{ display: 'inline-block', width: 6, height: 6, borderRadius: '50%', background: s.dot, flexShrink: 0 }} />
+                {s.sub}
+              </div>
             </div>
-            <div style={{ fontSize: 11, color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: 4 }}>
-              <span style={{ display: 'inline-block', width: 6, height: 6, borderRadius: '50%', background: s.dot, flexShrink: 0 }} />
-              {s.sub}
-            </div>
-          </div>
+          </Link>
         ))}
       </div>
 
@@ -134,13 +150,39 @@ export default async function AdminDashboardPage() {
         </div>
       )}
 
+      {/* 等級別・職種別スナップショット */}
+      {Object.keys(gradeMap).length > 0 && (
+        <div style={{ marginBottom: 20, padding: '14px 16px', background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 12 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+            <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-primary)' }}>🏅 等級別スタッフ分布</div>
+            <Link href="/admin/staff/summary" style={{ fontSize: 12, color: '#6c63ff', textDecoration: 'none' }}>詳細 →</Link>
+          </div>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+            {[5, 4, 3, 2, 1].map(lv => {
+              const info = gradeMap[lv];
+              if (!info) return null;
+              const color = GRADE_COLORS[lv];
+              return (
+                <div key={lv} style={{ flex: 1, minWidth: 80, padding: '10px 12px', borderRadius: 10, background: color + '12', border: `1px solid ${color}30`, textAlign: 'center' }}>
+                  <div style={{ fontSize: 10, color, fontWeight: 700, marginBottom: 4 }}>G{lv}</div>
+                  <div style={{ fontSize: 22, fontWeight: 700, color }}>{info.total}<span style={{ fontSize: 12, fontWeight: 400 }}>名</span></div>
+                  {Object.entries(info.positions).map(([pos, cnt]) => (
+                    <div key={pos} style={{ fontSize: 10, color: 'var(--text-muted)', marginTop: 2 }}>{pos} {cnt}名</div>
+                  ))}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
       {/* クイックアクセス */}
       <div style={{ marginBottom: 20 }}>
         <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 8 }}>クイックアクセス</div>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8 }}>
           {quickLinks.map(link => (
             <Link key={link.href} href={link.href} style={{ textDecoration: 'none' }}>
-              <div style={{ padding: '14px 16px', background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 12, transition: 'border-color 0.15s', cursor: 'pointer' }}>
+              <div style={{ padding: '14px 16px', background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 12, cursor: 'pointer' }}>
                 <div style={{ fontSize: 20, marginBottom: 6 }}>{link.icon}</div>
                 <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 2 }}>{link.label}</div>
                 <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>{link.desc}</div>
@@ -150,7 +192,7 @@ export default async function AdminDashboardPage() {
         </div>
       </div>
 
-      {/* 今週のリードマネジメント */}
+      {/* 今日のリードマネジメント */}
       <div style={{ padding: '14px 18px', background: 'rgba(29,158,117,0.06)', border: '1px solid rgba(29,158,117,0.2)', borderRadius: 12, display: 'flex', gap: 12, alignItems: 'flex-start' }}>
         <span style={{ fontSize: 20, flexShrink: 0 }}>🩵</span>
         <div>

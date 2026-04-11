@@ -2,6 +2,7 @@
 import { useState, useEffect } from 'react';
 import { ProgressBar } from '@/components/ProgressBar';
 import { useProgress } from '@/components/useProgress';
+import { DateRangePicker, DateRange, getDateCondition } from '@/components/DateRangePicker';
 
 const FREQUENCIES = [
   { id: 'daily', label: '毎日', desc: '毎朝最新情報を収集' },
@@ -23,6 +24,7 @@ export default function AlertsPage() {
   const [results, setResults] = useState<Record<string, string>>({});
   const [diffs, setDiffs] = useState<Record<string, { newInfo?: string[]; changedInfo?: string[]; summary?: string }>>({});
   const [running, setRunning] = useState<string>('');
+  const [dateRange, setDateRange] = useState<DateRange>({ start: null, end: null });
   const [runningAll, setRunningAll] = useState(false);
   const [allProgress, setAllProgress] = useState({ done: 0, total: 0 });
   const [expandedResults, setExpandedResults] = useState<Set<string>>(new Set());
@@ -64,7 +66,7 @@ export default function AlertsPage() {
       const res = await fetch('/api/alerts/run', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ topic: alertTopic }),
+        body: JSON.stringify({ topic: alertTopic + getDateCondition(dateRange) }),
       });
       const data = await res.json();
       if (data.result) {

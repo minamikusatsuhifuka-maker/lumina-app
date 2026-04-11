@@ -15,6 +15,9 @@ export default function StaffEvaluationPage() {
   const [aiResult, setAiResult] = useState<any>(null);
   const [message, setMessage] = useState('');
   const [staffList, setStaffList] = useState<any[]>([]);
+  const [compareMode, setCompareMode] = useState(false);
+  const [compareData, setCompareData] = useState<any[]>([]);
+  const [compareLoading, setCompareLoading] = useState(false);
 
   useEffect(() => {
     fetch('/api/clinic/staff')
@@ -44,6 +47,19 @@ export default function StaffEvaluationPage() {
       setTimeout(() => setMessage(''), 3000);
     } catch { setMessage('❌ エラーが発生しました'); }
     finally { setGenerating(false); }
+  };
+
+  const loadCompareData = async (staffName: string) => {
+    if (!staffName) return;
+    setCompareLoading(true);
+    try {
+      const res = await fetch(`/api/clinic/staff-evaluation?staff_name=${encodeURIComponent(staffName)}`);
+      const data = await res.json();
+      if (Array.isArray(data)) {
+        setCompareData(data.sort((a: any, b: any) => a.period.localeCompare(b.period)));
+      }
+    } catch {}
+    setCompareLoading(false);
   };
 
   const generateAIComment = async () => {
@@ -196,6 +212,73 @@ export default function StaffEvaluationPage() {
                   <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>推奨等級</div>
                 </div>
               </div>
+
+              {/* 期間比較ボタン */}
+              <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 8 }}>
+                <button onClick={() => {
+                  setCompareMode(!compareMode);
+                  if (!compareMode) loadCompareData(selected.staff_name);
+                }} style={{ padding: '5px 12px', borderRadius: 8, border: '1px solid var(--border)', background: compareMode ? 'rgba(108,99,255,0.15)' : 'var(--bg-card)', color: compareMode ? '#6c63ff' : 'var(--text-muted)', fontSize: 12, cursor: 'pointer', fontWeight: compareMode ? 600 : 400 }}>
+                  📈 期間比較
+                </button>
+              </div>
+
+              {/* 期間比較ビュー */}
+              {compareMode && (
+                <div style={{ marginBottom: 16, padding: 14, background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 12 }}>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 10 }}>📈 期間別スコア比較</div>
+                  {compareLoading ? (
+                    <div style={{ textAlign: 'center', padding: 20, color: 'var(--text-muted)', fontSize: 12 }}>読み込み中...</div>
+                  ) : compareData.length < 2 ? (
+                    <div style={{ textAlign: 'center', padding: 16, color: 'var(--text-muted)', fontSize: 12 }}>比較には2期以上のデータが必要です</div>
+                  ) : (
+                    <div style={{ overflowX: 'auto' }}>
+                      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+                        <thead>
+                          <tr>
+                            <th style={{ padding: '6px 10px', textAlign: 'left', color: 'var(--text-muted)', fontWeight: 600, borderBottom: '1px solid var(--border)' }}>期間</th>
+                            <th style={{ padding: '6px 10px', textAlign: 'center', color: 'var(--text-muted)', fontWeight: 600, borderBottom: '1px solid var(--border)' }}>総合</th>
+                            <th style={{ padding: '6px 10px', textAlign: 'center', color: 'var(--text-muted)', fontWeight: 600, borderBottom: '1px solid var(--border)' }}>知識</th>
+                            <th style={{ padding: '6px 10px', textAlign: 'center', color: 'var(--text-muted)', fontWeight: 600, borderBottom: '1px solid var(--border)' }}>スキル</th>
+                            <th style={{ padding: '6px 10px', textAlign: 'center', color: 'var(--text-muted)', fontWeight: 600, borderBottom: '1px solid var(--border)' }}>マインド</th>
+                            <th style={{ padding: '6px 10px', textAlign: 'center', color: 'var(--text-muted)', fontWeight: 600, borderBottom: '1px solid var(--border)' }}>推奨等級</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {compareData.map((ev, i) => {
+                            const prev = compareData[i - 1];
+                            const diff = prev ? (ev.total_score || 0) - (prev.total_score || 0) : null;
+                            return (
+                              <tr key={ev.id} style={{ background: ev.id === selected.id ? 'rgba(108,99,255,0.06)' : 'transparent' }}>
+                                <td style={{ padding: '8px 10px', fontWeight: ev.id === selected.id ? 700 : 400, color: 'var(--text-primary)', borderBottom: '1px solid var(--border)' }}>
+                                  {ev.period}
+                                  {ev.id === selected.id && <span style={{ marginLeft: 6, fontSize: 10, padding: '1px 6px', borderRadius: 4, background: 'rgba(108,99,255,0.15)', color: '#6c63ff' }}>現在</span>}
+                                </td>
+                                <td style={{ padding: '8px 10px', textAlign: 'center', borderBottom: '1px solid var(--border)' }}>
+                                  <span style={{ fontWeight: 700, color: (ev.total_score || 0) >= 80 ? '#4ade80' : (ev.total_score || 0) >= 60 ? '#f59e0b' : '#ef4444' }}>
+                                    {ev.total_score || 0}
+                                  </span>
+                                  {diff !== null && (
+                                    <span style={{ marginLeft: 4, fontSize: 10, color: diff > 0 ? '#4ade80' : diff < 0 ? '#ef4444' : 'var(--text-muted)' }}>
+                                      {diff > 0 ? `+${diff}` : diff}
+                                    </span>
+                                  )}
+                                </td>
+                                <td style={{ padding: '8px 10px', textAlign: 'center', color: 'var(--text-secondary)', borderBottom: '1px solid var(--border)' }}>{ev.knowledge_score || 0}</td>
+                                <td style={{ padding: '8px 10px', textAlign: 'center', color: 'var(--text-secondary)', borderBottom: '1px solid var(--border)' }}>{ev.skill_score || 0}</td>
+                                <td style={{ padding: '8px 10px', textAlign: 'center', color: 'var(--text-secondary)', borderBottom: '1px solid var(--border)' }}>{ev.mindset_score || 0}</td>
+                                <td style={{ padding: '8px 10px', textAlign: 'center', borderBottom: '1px solid var(--border)' }}>
+                                  <span style={{ padding: '2px 8px', borderRadius: 8, fontSize: 11, background: 'rgba(108,99,255,0.1)', color: '#6c63ff' }}>{ev.recommended_grade || '—'}</span>
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+              )}
 
               {/* 賞与・昇格判定 */}
               <div style={{ marginBottom: 16 }}>
