@@ -15,11 +15,22 @@ export default function StaffListPage() {
   const [search, setSearch] = useState('');
   const [filterPos, setFilterPos] = useState('すべて');
   const [viewMode, setViewMode] = useState<'card' | 'grade'>('card');
+  const [staffMetrics, setStaffMetrics] = useState<Record<string, { lastMeetingDays: number | null; mindsetScore: number | null }>>({});
 
   useEffect(() => {
     fetch('/api/clinic/staff').then(r => r.json()).then(data => {
       if (Array.isArray(data)) setStaff(data);
       setLoading(false);
+    });
+    // 1on1の最終日・マインドスコアを取得
+    fetch('/api/clinic/staff/summary').then(r => r.json()).then(d => {
+      if (d?.summary) {
+        const metrics: Record<string, any> = {};
+        d.summary.forEach((s: any) => {
+          metrics[s.name] = { lastMeetingDays: s.last_meeting_days, mindsetScore: s.last_mindset_score };
+        });
+        setStaffMetrics(metrics);
+      }
     });
   }, []);
 
@@ -147,6 +158,25 @@ export default function StaffListPage() {
                 {s.hired_at && (
                   <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 8 }}>
                     入職: {new Date(s.hired_at).toLocaleDateString('ja-JP')}（{calcYears(s.hired_at)}）
+                  </div>
+                )}
+                {/* ミニ成長バー */}
+                {staffMetrics[s.name] && (
+                  <div style={{ marginTop: 10, paddingTop: 10, borderTop: '1px solid var(--border)' }}>
+                    {staffMetrics[s.name].mindsetScore && (
+                      <div style={{ marginBottom: 4 }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10, color: 'var(--text-muted)', marginBottom: 3 }}>
+                          <span>マインド</span>
+                          <span>{staffMetrics[s.name].mindsetScore}/10</span>
+                        </div>
+                        <div style={{ height: 4, background: 'var(--border)', borderRadius: 2, overflow: 'hidden' }}>
+                          <div style={{ width: `${(staffMetrics[s.name].mindsetScore! / 10) * 100}%`, height: '100%', background: '#6c63ff', borderRadius: 2 }} />
+                        </div>
+                      </div>
+                    )}
+                    <div style={{ fontSize: 10, color: staffMetrics[s.name].lastMeetingDays === null ? '#ef4444' : staffMetrics[s.name].lastMeetingDays! > 30 ? '#f59e0b' : '#4ade80', marginTop: 4 }}>
+                      🤝 最終1on1：{staffMetrics[s.name].lastMeetingDays === null ? '未実施' : staffMetrics[s.name].lastMeetingDays === 0 ? '今日' : `${staffMetrics[s.name].lastMeetingDays}日前`}
+                    </div>
                   </div>
                 )}
               </div>

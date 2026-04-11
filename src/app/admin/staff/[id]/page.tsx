@@ -1,8 +1,9 @@
 'use client';
 import { useState, useEffect, use } from 'react';
 import { HiringScoreChart } from '@/components/clinic/HiringScoreChart';
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 
-type DetailTab = 'summary' | 'timeline' | 'documents' | 'notes' | 'grades' | 'score' | 'growth';
+type DetailTab = 'summary' | 'growth_chart' | 'timeline' | 'documents' | 'notes' | 'grades' | 'score' | 'growth';
 type NoteType = 'interview' | 'training' | 'praise' | 'incident' | 'other';
 
 const NOTE_ICONS: Record<string, string> = { interview: '💬', training: '📚', praise: '🌟', incident: '⚠️', other: '📝' };
@@ -25,7 +26,10 @@ export default function StaffDetailPage({ params }: { params: Promise<{ id: stri
   // サマリー
   const [oneOnOnes, setOneOnOnes] = useState<any[]>([]);
   const [evaluation, setEvaluation] = useState<any>(null);
+  const [evaluations, setEvaluations] = useState<any[]>([]);
   const [summaryLoading, setSummaryLoading] = useState(false);
+  const [aiInsight, setAiInsight] = useState('');
+  const [insightLoading, setInsightLoading] = useState(false);
 
   // 書類展開
   const [expandedDocId, setExpandedDocId] = useState<string | null>(null);
@@ -85,10 +89,36 @@ export default function StaffDetailPage({ params }: { params: Promise<{ id: stri
         fetch(`/api/clinic/one-on-one?staff_name=${encodeURIComponent(staffName)}`).then(r => r.json()),
         fetch(`/api/clinic/staff-evaluation?staff_name=${encodeURIComponent(staffName)}`).then(r => r.json()),
       ]);
-      if (Array.isArray(meetings)) setOneOnOnes(meetings.slice(0, 5));
-      if (Array.isArray(evals) && evals.length > 0) setEvaluation(evals[0]);
+      if (Array.isArray(meetings)) {
+        setOneOnOnes(meetings.sort((a: any, b: any) => new Date(a.meeting_date).getTime() - new Date(b.meeting_date).getTime()));
+      }
+      if (Array.isArray(evals) && evals.length > 0) {
+        setEvaluation(evals[0]);
+        setEvaluations(evals.sort((a: any, b: any) => a.period.localeCompare(b.period)));
+      }
     } catch {}
     setSummaryLoading(false);
+  };
+
+  const generateAiInsight = async () => {
+    if (!staff) return;
+    setInsightLoading(true);
+    setAiInsight('');
+    try {
+      const recentMeeting = oneOnOnes[oneOnOnes.length - 1];
+      const latestEval = evaluations[evaluations.length - 1];
+      const res = await fetch('/api/clinic/brushup-chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          message: `スタッフ情報：\n名前：${staff.name}\n職種：${staff.position || '未設定'}\n在籍：${staff.hired_at ? Math.floor((Date.now() - new Date(staff.hired_at).getTime()) / (365.25*24*60*60*1000)) + '年' : '不明'}\n\n最新1on1（${recentMeeting?.meeting_date || 'なし'}）：\n- 達成：${recentMeeting?.achievements || '未記録'}\n- 課題：${recentMeeting?.challenges || '未記録'}\n- 成長ステージ：${recentMeeting?.growth_stage || '未記録'}\n- マインドスコア：${recentMeeting?.mindset_score || '未記録'}/10\n\n最新評価（${latestEval?.period || 'なし'}）：\n- 総合スコア：${latestEval?.total_score || '未記録'}点\n- 推奨等級：${latestEval?.recommended_grade || '未記録'}\n\nこのスタッフの「成長ポイント（強み）」と「次に伸ばすべき点」をそれぞれ1〜2文で、温かく・具体的に書いてください。\n\n【成長ポイント】\n（強みを認める言葉で）\n\n【次のステップ】\n（義務ではなく成長の機会として）`,
+          category: 'evaluation',
+        }),
+      });
+      const data = await res.json();
+      setAiInsight(data.reply || data.result || '');
+    } catch {}
+    setInsightLoading(false);
   };
 
   const fetchStaff = () => {
@@ -244,6 +274,7 @@ export default function StaffDetailPage({ params }: { params: Promise<{ id: stri
       <div style={{ display: 'flex', gap: 6, marginBottom: 20 }}>
         {([
           { key: 'summary' as DetailTab, label: '📊 サマリー' },
+          { key: 'growth_chart' as DetailTab, label: '📈 成長グラフ' },
           { key: 'timeline' as DetailTab, label: '📅 タイムライン' },
           { key: 'documents' as DetailTab, label: '📄 書類' },
           { key: 'notes' as DetailTab, label: '📝 メモ追加' },
@@ -308,35 +339,132 @@ export default function StaffDetailPage({ params }: { params: Promise<{ id: stri
               )}
 
               {/* 直近の1on1 */}
-              <div>
-                <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 8 }}>🤝 直近の1on1</div>
-                {oneOnOnes.length === 0 ? (
-                  <div style={{ padding: 20, textAlign: 'center', color: 'var(--text-muted)', fontSize: 13, background: 'var(--bg-secondary)', borderRadius: 10, border: '1px solid var(--border)' }}>
-                    まだ1on1の記録がありません
-                  </div>
-                ) : (
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                    {oneOnOnes.map((m: any) => (
-                      <div key={m.id} style={{ padding: '12px 14px', background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 10 }}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
-                          <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)' }}>{m.meeting_date}</span>
-                          {m.mindset_score && (
-                            <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 8, background: 'rgba(108,99,255,0.1)', color: '#6c63ff' }}>
-                              マインド {m.mindset_score}/10
-                            </span>
-                          )}
-                        </div>
-                        {m.achievements && (
-                          <div style={{ fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.6 }}>
-                            {m.achievements.slice(0, 80)}{m.achievements.length > 80 ? '...' : ''}
-                          </div>
-                        )}
+              {oneOnOnes.length > 0 && (
+                <div>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 8 }}>🤝 直近の1on1（{new Date(oneOnOnes[oneOnOnes.length - 1].meeting_date).toLocaleDateString('ja-JP')}）</div>
+                  <div style={{ padding: '12px 14px', background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 10 }}>
+                    {oneOnOnes[oneOnOnes.length - 1].achievements && (
+                      <div style={{ marginBottom: 8 }}>
+                        <span style={{ fontSize: 11, color: '#4ade80', fontWeight: 700 }}>✨ 達成：</span>
+                        <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>{oneOnOnes[oneOnOnes.length - 1].achievements.slice(0, 80)}...</span>
                       </div>
-                    ))}
+                    )}
+                    {oneOnOnes[oneOnOnes.length - 1].challenges && (
+                      <div>
+                        <span style={{ fontSize: 11, color: '#f59e0b', fontWeight: 700 }}>🔍 課題：</span>
+                        <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>{oneOnOnes[oneOnOnes.length - 1].challenges.slice(0, 80)}...</span>
+                      </div>
+                    )}
+                    {oneOnOnes[oneOnOnes.length - 1].mindset_score && (
+                      <div style={{ marginTop: 8, display: 'flex', gap: 8 }}>
+                        <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 8, background: 'rgba(108,99,255,0.1)', color: '#6c63ff' }}>マインド {oneOnOnes[oneOnOnes.length - 1].mindset_score}/10</span>
+                        {oneOnOnes[oneOnOnes.length - 1].growth_stage && <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 8, background: 'rgba(74,222,128,0.1)', color: '#4ade80' }}>{oneOnOnes[oneOnOnes.length - 1].growth_stage}</span>}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* AI所見 */}
+              <div style={{ padding: 14, background: 'rgba(108,99,255,0.05)', border: '1px solid rgba(108,99,255,0.2)', borderRadius: 12 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: '#6c63ff' }}>🤖 AI所見</div>
+                  <button onClick={generateAiInsight} disabled={insightLoading}
+                    style={{ padding: '5px 12px', borderRadius: 8, border: 'none', background: insightLoading ? 'rgba(108,99,255,0.3)' : '#6c63ff', color: '#fff', fontSize: 11, fontWeight: 700, cursor: 'pointer' }}>
+                    {insightLoading ? '分析中...' : aiInsight ? '再分析' : '✨ AI所見を生成'}
+                  </button>
+                </div>
+                {aiInsight ? (
+                  <div style={{ fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.8, whiteSpace: 'pre-wrap' }}>{aiInsight}</div>
+                ) : (
+                  <div style={{ fontSize: 12, color: 'var(--text-muted)', textAlign: 'center', padding: '10px 0' }}>
+                    「AI所見を生成」ボタンで、このスタッフの成長ポイントと次のステップをAIが分析します
                   </div>
                 )}
               </div>
             </>
+          )}
+        </div>
+      )}
+
+      {/* 成長グラフ */}
+      {tab === 'growth_chart' && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+          {/* 1on1マインドスコア折れ線グラフ */}
+          <div style={{ padding: 16, background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 12 }}>
+            <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 12 }}>🧠 マインド・意欲スコア推移</div>
+            {oneOnOnes.filter(m => m.mindset_score || m.motivation_level).length < 2 ? (
+              <div style={{ textAlign: 'center', padding: 32, color: 'var(--text-muted)', fontSize: 13 }}>
+                <div style={{ fontSize: 28, marginBottom: 8 }}>📈</div>
+                1on1を2回以上記録するとグラフが表示されます
+              </div>
+            ) : (
+              <ResponsiveContainer width="100%" height={200}>
+                <LineChart data={oneOnOnes.filter(m => m.mindset_score || m.motivation_level).map(m => ({
+                  date: new Date(m.meeting_date).toLocaleDateString('ja-JP', { month: 'short', day: 'numeric' }),
+                  マインド: m.mindset_score || null,
+                  意欲: m.motivation_level || null,
+                }))}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
+                  <XAxis dataKey="date" tick={{ fontSize: 11, fill: 'var(--text-muted)' }} />
+                  <YAxis domain={[0, 10]} tick={{ fontSize: 11, fill: 'var(--text-muted)' }} />
+                  <Tooltip contentStyle={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 8, fontSize: 12 }} />
+                  <Line type="monotone" dataKey="マインド" stroke="#6c63ff" strokeWidth={2} dot={{ r: 4, fill: '#6c63ff' }} connectNulls />
+                  <Line type="monotone" dataKey="意欲" stroke="#4ade80" strokeWidth={2} dot={{ r: 4, fill: '#4ade80' }} connectNulls />
+                </LineChart>
+              </ResponsiveContainer>
+            )}
+          </div>
+
+          {/* 評価スコア推移 */}
+          {evaluations.length > 0 && (
+            <div style={{ padding: 16, background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 12 }}>
+              <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 12 }}>📊 評価スコア推移</div>
+              {evaluations.length < 2 ? (
+                <div style={{ textAlign: 'center', padding: 20, color: 'var(--text-muted)', fontSize: 13 }}>2期以上の評価データが揃うとグラフが表示されます</div>
+              ) : (
+                <ResponsiveContainer width="100%" height={180}>
+                  <LineChart data={evaluations.map(ev => ({
+                    period: ev.period,
+                    総合: ev.total_score || 0,
+                    知識: ev.knowledge_score || 0,
+                    マインド: ev.mindset_score || 0,
+                  }))}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
+                    <XAxis dataKey="period" tick={{ fontSize: 11, fill: 'var(--text-muted)' }} />
+                    <YAxis domain={[0, 100]} tick={{ fontSize: 11, fill: 'var(--text-muted)' }} />
+                    <Tooltip contentStyle={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 8, fontSize: 12 }} />
+                    <Line type="monotone" dataKey="総合" stroke="#6c63ff" strokeWidth={2.5} dot={{ r: 5, fill: '#6c63ff' }} />
+                    <Line type="monotone" dataKey="知識" stroke="#4ade80" strokeWidth={1.5} dot={{ r: 3, fill: '#4ade80' }} />
+                    <Line type="monotone" dataKey="マインド" stroke="#f59e0b" strokeWidth={1.5} dot={{ r: 3, fill: '#f59e0b' }} />
+                  </LineChart>
+                </ResponsiveContainer>
+              )}
+            </div>
+          )}
+
+          {/* 成長ステージ変化 */}
+          {oneOnOnes.filter(m => m.growth_stage).length > 0 && (
+            <div style={{ padding: 14, background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 12 }}>
+              <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 10 }}>🌱 成長ステージの変化</div>
+              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                {oneOnOnes.filter(m => m.growth_stage).map((m, i, arr) => {
+                  const prev = arr[i - 1];
+                  const changed = prev && prev.growth_stage !== m.growth_stage;
+                  const STAGE_COLORS: Record<string, string> = { 'Lv1知る': '#94a3b8', 'Lv2わかる': '#60a5fa', 'Lv3行う': '#fbbf24', 'Lv4できる': '#4ade80', 'Lv5分かち合う': '#a78bfa' };
+                  const color = STAGE_COLORS[m.growth_stage] || '#94a3b8';
+                  return (
+                    <div key={m.id} style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                      {i > 0 && <span style={{ color: 'var(--text-muted)', fontSize: 12 }}>→</span>}
+                      <span style={{ padding: '3px 10px', borderRadius: 10, fontSize: 11, fontWeight: changed ? 700 : 400, background: color + '20', color, border: changed ? `2px solid ${color}` : `1px solid ${color}40` }}>
+                        {m.growth_stage}
+                        {changed && <span style={{ marginLeft: 4, fontSize: 9 }}>↑UP</span>}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
           )}
         </div>
       )}
