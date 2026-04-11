@@ -97,7 +97,15 @@ export default function StaffEvaluationPage() {
   ] : [];
 
   return (
-    <div style={{ maxWidth: 1000, margin: '0 auto', paddingBottom: 80 }}>
+    <>
+    <style>{`
+      @media print {
+        body * { visibility: hidden; }
+        #eval-print, #eval-print * { visibility: visible; }
+        #eval-print { position: absolute; left: 0; top: 0; width: 100%; }
+      }
+    `}</style>
+    <div id="eval-print" style={{ maxWidth: 1000, margin: '0 auto', paddingBottom: 80 }}>
       <h1 style={{ fontSize: 26, fontWeight: 700, marginBottom: 4 }}>📊 スタッフ評価</h1>
       <p style={{ color: 'var(--text-muted)', fontSize: 13, marginBottom: 20 }}>
         試験・アンケート・1on1を自動集計 → 等級判定・AI評価コメント
@@ -329,6 +337,11 @@ export default function StaffEvaluationPage() {
                 color: '#fff', fontSize: 13, fontWeight: 700, marginBottom: 16,
               }}>{generating ? '🤖 生成中...' : '🤖 AI評価コメントを生成'}</button>
 
+              <button onClick={() => window.print()}
+                style={{ width: '100%', padding: '10px', borderRadius: 10, border: '1px solid var(--border)', background: 'var(--bg-card)', color: 'var(--text-muted)', fontSize: 13, fontWeight: 600, cursor: 'pointer', marginBottom: 16 }}>
+                🖨️ 評価レポートを印刷
+              </button>
+
               {aiResult && (
                 <div>
                   <div style={{
@@ -371,5 +384,6 @@ export default function StaffEvaluationPage() {
         )}
       </div>
     </div>
+    </>
   );
 }
