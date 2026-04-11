@@ -51,6 +51,15 @@ export default async function AdminDashboardPage() {
   // 今日の日付から格言を選ぶ
   const todayQuote = LEAD_QUOTES[new Date().getDay() % LEAD_QUOTES.length];
 
+  // 挨拶の時間帯判定（JST = UTC+9）
+  const jstHour = (new Date().getUTCHours() + 9) % 24;
+  const greeting = jstHour < 11 ? 'おはようございます' :
+                   jstHour < 17 ? 'こんにちは' :
+                   jstHour < 21 ? 'お疲れ様です' : 'ゆっくり休んでください';
+  const greetingSub = jstHour < 11 ? '今日もスタッフの成長を一緒に支えましょう' :
+                      jstHour < 17 ? '午後もスタッフとの関わりを大切に' :
+                      jstHour < 21 ? '今日のスタッフとの関わりを振り返りましょう' : '今日も一日お疲れ様でした';
+
   const stats = [
     { label: 'スタッフ', value: staffCount, unit: '名', dot: '#1D9E75', sub: '全員活動中' },
     { label: '今月の1on1', value: thisMonthMeetings, unit: '件', dot: '#6c63ff', sub: `${Math.max(0, staffCount - thisMonthMeetings)}名 未実施` },
@@ -73,9 +82,9 @@ export default async function AdminDashboardPage() {
       {/* 挨拶 */}
       <div style={{ marginBottom: 20 }}>
         <h1 style={{ fontSize: 22, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 2 }}>
-          おはようございます
+          {greeting}
         </h1>
-        <p style={{ fontSize: 13, color: 'var(--text-muted)' }}>今日もスタッフの成長を一緒に支えましょう</p>
+        <p style={{ fontSize: 13, color: 'var(--text-muted)' }}>{greetingSub}</p>
       </div>
 
       {/* 統計カード */}

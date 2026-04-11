@@ -95,6 +95,13 @@ export default function OneOnOnePage() {
     lineHeight: 1.7, outline: 'none', boxSizing: 'border-box' as const, fontFamily: 'inherit',
   };
   const [staffHistory, setStaffHistory] = useState<any[]>([]);
+  const [staffListData, setStaffListData] = useState<any[]>([]);
+
+  useEffect(() => {
+    fetch('/api/clinic/staff')
+      .then(r => r.json())
+      .then(d => { if (Array.isArray(d)) setStaffListData(d); });
+  }, []);
 
   const loadStaffHistory = async (name: string) => {
     try {
@@ -152,9 +159,13 @@ export default function OneOnOnePage() {
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 12 }}>
             <div>
               <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 4 }}>スタッフ名 *</div>
-              <input value={form.staff_name} onChange={e => setForm(f => ({ ...f, staff_name: e.target.value }))}
-                placeholder="例：田中さくら" list="staff-list" style={inputStyle} />
-              <datalist id="staff-list">{staffList.map(name => <option key={name} value={name} />)}</datalist>
+              <select value={form.staff_name} onChange={e => setForm(f => ({ ...f, staff_name: e.target.value }))}
+                style={{ width: '100%', padding: '9px 14px', background: 'var(--input-bg)', border: '1px solid var(--input-border)', borderRadius: 8, color: 'var(--text-primary)', fontSize: 13, outline: 'none' }}>
+                <option value="">スタッフを選択してください</option>
+                {staffListData.map(s => (
+                  <option key={s.id} value={s.name}>{s.name}（{s.position || ''}）</option>
+                ))}
+              </select>
             </div>
             <div>
               <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 4 }}>ミーティング日</div>

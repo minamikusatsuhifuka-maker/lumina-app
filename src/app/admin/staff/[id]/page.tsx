@@ -2,7 +2,7 @@
 import { useState, useEffect, use } from 'react';
 import { HiringScoreChart } from '@/components/clinic/HiringScoreChart';
 
-type DetailTab = 'timeline' | 'documents' | 'notes' | 'grades' | 'score' | 'growth';
+type DetailTab = 'summary' | 'timeline' | 'documents' | 'notes' | 'grades' | 'score' | 'growth';
 type NoteType = 'interview' | 'training' | 'praise' | 'incident' | 'other';
 
 const NOTE_ICONS: Record<string, string> = { interview: '💬', training: '📚', praise: '🌟', incident: '⚠️', other: '📝' };
@@ -12,7 +12,7 @@ export default function StaffDetailPage({ params }: { params: Promise<{ id: stri
   const { id } = use(params);
   const [staff, setStaff] = useState<any>(null);
   const [loading, setLoading] = useState(true);
-  const [tab, setTab] = useState<DetailTab>('timeline');
+  const [tab, setTab] = useState<DetailTab>('summary');
 
   // メモ追加フォーム
   const [noteType, setNoteType] = useState<NoteType>('other');
@@ -21,6 +21,11 @@ export default function StaffDetailPage({ params }: { params: Promise<{ id: stri
   const [noteAuthor, setNoteAuthor] = useState('');
   const [noteSaving, setNoteSaving] = useState(false);
   const [message, setMessage] = useState('');
+
+  // サマリー
+  const [oneOnOnes, setOneOnOnes] = useState<any[]>([]);
+  const [evaluation, setEvaluation] = useState<any>(null);
+  const [summaryLoading, setSummaryLoading] = useState(false);
 
   // 書類展開
   const [expandedDocId, setExpandedDocId] = useState<string | null>(null);
@@ -73,6 +78,19 @@ export default function StaffDetailPage({ params }: { params: Promise<{ id: stri
     finally { setScoreLoading(false); }
   };
 
+  const fetchSummary = async (staffName: string) => {
+    setSummaryLoading(true);
+    try {
+      const [meetings, evals] = await Promise.all([
+        fetch(`/api/clinic/one-on-one?staff_name=${encodeURIComponent(staffName)}`).then(r => r.json()),
+        fetch(`/api/clinic/staff-evaluation?staff_name=${encodeURIComponent(staffName)}`).then(r => r.json()),
+      ]);
+      if (Array.isArray(meetings)) setOneOnOnes(meetings.slice(0, 5));
+      if (Array.isArray(evals) && evals.length > 0) setEvaluation(evals[0]);
+    } catch {}
+    setSummaryLoading(false);
+  };
+
   const fetchStaff = () => {
     fetch(`/api/clinic/staff/${id}`).then(r => r.json()).then(data => {
       if (data.id) {
@@ -80,6 +98,7 @@ export default function StaffDetailPage({ params }: { params: Promise<{ id: stri
         if (Array.isArray(data.dominant_needs)) setDominantNeeds(data.dominant_needs);
         if (data.lead_notes) setLeadNotes(data.lead_notes);
         if (data.quality_world) setQualityWorld(data.quality_world);
+        if (data.name) fetchSummary(data.name);
       }
       setLoading(false);
     });
@@ -224,6 +243,7 @@ export default function StaffDetailPage({ params }: { params: Promise<{ id: stri
       {/* タブ */}
       <div style={{ display: 'flex', gap: 6, marginBottom: 20 }}>
         {([
+          { key: 'summary' as DetailTab, label: '📊 サマリー' },
           { key: 'timeline' as DetailTab, label: '📅 タイムライン' },
           { key: 'documents' as DetailTab, label: '📄 書類' },
           { key: 'notes' as DetailTab, label: '📝 メモ追加' },
@@ -239,6 +259,87 @@ export default function StaffDetailPage({ params }: { params: Promise<{ id: stri
           }}>{t.label}</button>
         ))}
       </div>
+
+      {/* サマリー */}
+      {tab === 'summary' && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+          {summaryLoading ? (
+            <div style={{ textAlign: 'center', padding: 40, color: 'var(--text-muted)' }}>読み込み中...</div>
+          ) : (
+            <>
+              {/* 基本情報カード */}
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 10 }}>
+                {[
+                  { label: '職種', value: staff?.position || '未設定' },
+                  { label: '在籍', value: staff?.hired_at ? `${Math.floor((Date.now() - new Date(staff.hired_at).getTime()) / (365.25*24*60*60*1000))}年` : '未設定' },
+                  { label: '現在等級', value: evaluation?.current_grade || '未設定' },
+                ].map(item => (
+                  <div key={item.label} style={{ padding: '12px 14px', background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 10, textAlign: 'center' }}>
+                    <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 4 }}>{item.label}</div>
+                    <div style={{ fontSize: 18, fontWeight: 700, color: 'var(--text-primary)' }}>{item.value}</div>
+                  </div>
+                ))}
+              </div>
+
+              {/* 評価スコア */}
+              {evaluation && (
+                <div style={{ padding: 16, background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 12 }}>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 12 }}>📊 最新評価スコア（{evaluation.period}）</div>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 8 }}>
+                    {[
+                      { label: '総合', value: evaluation.total_score, color: '#6c63ff' },
+                      { label: '知識', value: evaluation.knowledge_score, color: '#4ade80' },
+                      { label: 'スキル', value: evaluation.skill_score, color: '#06b6d4' },
+                      { label: 'マインド', value: evaluation.mindset_score, color: '#f59e0b' },
+                    ].map(s => (
+                      <div key={s.label} style={{ textAlign: 'center', padding: '10px 8px', background: 'var(--bg-card)', borderRadius: 8, border: '1px solid var(--border)' }}>
+                        <div style={{ fontSize: 10, color: 'var(--text-muted)', marginBottom: 4 }}>{s.label}</div>
+                        <div style={{ fontSize: 22, fontWeight: 700, color: s.color }}>{s.value || 0}</div>
+                        <div style={{ fontSize: 9, color: 'var(--text-muted)' }}>/ 100</div>
+                      </div>
+                    ))}
+                  </div>
+                  {evaluation.promotion_approved && (
+                    <div style={{ marginTop: 10, padding: '6px 12px', borderRadius: 8, background: 'rgba(74,222,128,0.1)', border: '1px solid rgba(74,222,128,0.3)', fontSize: 12, color: '#4ade80', textAlign: 'center' }}>
+                      ✅ {evaluation.approved_grade}への昇格承認済み
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* 直近の1on1 */}
+              <div>
+                <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 8 }}>🤝 直近の1on1</div>
+                {oneOnOnes.length === 0 ? (
+                  <div style={{ padding: 20, textAlign: 'center', color: 'var(--text-muted)', fontSize: 13, background: 'var(--bg-secondary)', borderRadius: 10, border: '1px solid var(--border)' }}>
+                    まだ1on1の記録がありません
+                  </div>
+                ) : (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                    {oneOnOnes.map((m: any) => (
+                      <div key={m.id} style={{ padding: '12px 14px', background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 10 }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                          <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)' }}>{m.meeting_date}</span>
+                          {m.mindset_score && (
+                            <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 8, background: 'rgba(108,99,255,0.1)', color: '#6c63ff' }}>
+                              マインド {m.mindset_score}/10
+                            </span>
+                          )}
+                        </div>
+                        {m.achievements && (
+                          <div style={{ fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.6 }}>
+                            {m.achievements.slice(0, 80)}{m.achievements.length > 80 ? '...' : ''}
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </>
+          )}
+        </div>
+      )}
 
       {/* タイムライン */}
       {tab === 'timeline' && (

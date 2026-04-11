@@ -14,6 +14,13 @@ export default function StaffEvaluationPage() {
   const [generating, setGenerating] = useState(false);
   const [aiResult, setAiResult] = useState<any>(null);
   const [message, setMessage] = useState('');
+  const [staffList, setStaffList] = useState<any[]>([]);
+
+  useEffect(() => {
+    fetch('/api/clinic/staff')
+      .then(r => r.json())
+      .then(d => { if (Array.isArray(d)) setStaffList(d); });
+  }, []);
 
   useEffect(() => {
     fetch('/api/clinic/staff-evaluation')
@@ -93,8 +100,13 @@ export default function StaffEvaluationPage() {
         <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'flex-end' }}>
           <div style={{ flex: 1, minWidth: 200 }}>
             <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 4 }}>スタッフ名</div>
-            <input value={staffName} onChange={e => setStaffName(e.target.value)} placeholder="例：田中さくら"
-              style={{ width: '100%', padding: '10px 12px', borderRadius: 10, border: '1px solid var(--input-border)', background: 'var(--input-bg)', color: 'var(--text-primary)', fontSize: 13, outline: 'none', boxSizing: 'border-box' as const }} />
+            <select value={staffName} onChange={e => setStaffName(e.target.value)}
+              style={{ width: '100%', padding: '9px 14px', background: 'var(--input-bg)', border: '1px solid var(--input-border)', borderRadius: 8, color: 'var(--text-primary)', fontSize: 13, outline: 'none', marginBottom: 8 }}>
+              <option value="">スタッフを選択してください</option>
+              {staffList.map(s => (
+                <option key={s.id} value={s.name}>{s.name}（{s.position || ''}）</option>
+              ))}
+            </select>
           </div>
           <div>
             <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 4 }}>評価期間</div>
