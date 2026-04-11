@@ -76,10 +76,13 @@ export default function StaffListPage() {
       {loading ? (
         <div style={{ textAlign: 'center', padding: 40, color: 'var(--text-muted)' }}>読み込み中...</div>
       ) : filtered.length === 0 ? (
-        <div style={{ textAlign: 'center', padding: 60, color: 'var(--text-muted)' }}>
-          <div style={{ fontSize: 48, marginBottom: 16 }}>👥</div>
-          <div style={{ fontSize: 16 }}>スタッフが登録されていません</div>
-          <div style={{ fontSize: 13, marginTop: 8 }}>「＋ 新規スタッフ登録」から追加してください</div>
+        <div style={{ textAlign: 'center', padding: '48px 20px', color: 'var(--text-muted)', background: 'var(--bg-secondary)', borderRadius: 14, border: '1px solid var(--border)' }}>
+          <div style={{ fontSize: 40, marginBottom: 12 }}>👥</div>
+          <div style={{ fontSize: 16, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 6 }}>スタッフが登録されていません</div>
+          <div style={{ fontSize: 13, marginBottom: 16 }}>右上の「＋ 新規スタッフ登録」から追加してください</div>
+          <Link href="/admin/staff/new" style={{ display: 'inline-block', padding: '8px 20px', borderRadius: 8, background: 'linear-gradient(135deg, #6c63ff, #8b5cf6)', color: '#fff', textDecoration: 'none', fontSize: 13, fontWeight: 700 }}>
+            ＋ 最初のスタッフを登録する
+          </Link>
         </div>
       ) : viewMode === 'grade' ? (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>

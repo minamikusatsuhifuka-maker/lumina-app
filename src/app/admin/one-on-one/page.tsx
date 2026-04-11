@@ -289,8 +289,10 @@ export default function OneOnOnePage() {
         <div style={{ display: 'grid', gridTemplateColumns: selected ? '1fr 1.4fr' : '1fr', gap: 16 }}>
           <div>
             {meetings.length === 0 ? (
-              <div style={{ textAlign: 'center', padding: 40, color: 'var(--text-muted)' }}>
-                まだ記録がありません。「新規記録」から追加してください。
+              <div style={{ textAlign: 'center', padding: '40px 20px', color: 'var(--text-muted)', background: 'var(--bg-secondary)', borderRadius: 14, border: '1px solid var(--border)' }}>
+                <div style={{ fontSize: 36, marginBottom: 10 }}>🤝</div>
+                <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 6 }}>まだ1on1の記録がありません</div>
+                <div style={{ fontSize: 13 }}>「新規記録」タブから最初の記録を追加しましょう</div>
               </div>
             ) : meetings.map(m => {
               const stage = GROWTH_STAGES.find(s => s.key === m.growth_stage);
