@@ -177,6 +177,11 @@ export default function AlertsPage() {
           />
         </div>
 
+        {/* 収集期間 */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+          <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>収集期間：</span>
+          <DateRangePicker value={dateRange} onChange={setDateRange} placeholder="期間を指定しない場合は最新情報" />
+        </div>
         {/* プリセット */}
         <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' as const, marginBottom: 14 }}>
           {PRESETS.map(p => (
