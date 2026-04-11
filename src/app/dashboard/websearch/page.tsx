@@ -110,7 +110,7 @@ export default function WebSearchPage() {
   const [followupQ, setFollowupQ] = useState('');
   const [followupA, setFollowupA] = useState('');
   const [followupLoading, setFollowupLoading] = useState(false);
-  const [reliability, setReliability] = useState<{score: number; level: string; reasons: string[]; warnings: string[]} | null>(null);
+  const [reliability, setReliability] = useState<any>(null);
   const [reliabilityLoading, setReliabilityLoading] = useState(false);
   const [categories, setCategories] = useState<{ text: string; category: string }[]>([]);
   const [activeCategory, setActiveCategory] = useState('すべて');
@@ -261,11 +261,10 @@ export default function WebSearchPage() {
     if (!result) return;
     setReliabilityLoading(true);
     try {
-      const urls = (rawResult || result).match(/https?:\/\/[^\s）\]。、！？\n"'<>&]+/g) || [];
-      const res = await fetch('/api/reliability', {
+      const res = await fetch('/api/reliability-score', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ content: rawResult || result, urls }),
+        body: JSON.stringify({ title: query, content: rawResult || result, source: 'Web情報収集' }),
       });
       const data = await res.json();
       setReliability(data);
@@ -468,45 +467,65 @@ export default function WebSearchPage() {
             </div>
           </div>
           {reliability && (
-            <div style={{
-              padding: '12px 16px', marginBottom: 12,
-              background: reliability.score >= 70 ? 'rgba(29,158,117,0.08)' : reliability.score >= 40 ? 'rgba(245,166,35,0.08)' : 'rgba(255,107,107,0.08)',
-              border: `1px solid ${reliability.score >= 70 ? 'rgba(29,158,117,0.3)' : reliability.score >= 40 ? 'rgba(245,166,35,0.3)' : 'rgba(255,107,107,0.3)'}`,
-              borderRadius: 10,
-            }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 8 }}>
-                <span style={{ fontSize: 20, fontWeight: 700, color: reliability.score >= 70 ? '#1d9e75' : reliability.score >= 40 ? '#f5a623' : '#ff6b6b' }}>
-                  {reliability.score}点
-                </span>
+            <div style={{ padding: 16, marginBottom: 12, borderRadius: 12, border: '1px solid var(--border)', background: 'var(--bg-card)' }}>
+              {/* スコア・グレード・バッジ */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12, flexWrap: 'wrap' }}>
                 <span style={{
-                  padding: '2px 10px', borderRadius: 99, fontSize: 12, fontWeight: 700,
-                  background: reliability.score >= 70 ? 'rgba(29,158,117,0.15)' : reliability.score >= 40 ? 'rgba(245,166,35,0.15)' : 'rgba(255,107,107,0.15)',
-                  color: reliability.score >= 70 ? '#1d9e75' : reliability.score >= 40 ? '#f5a623' : '#ff6b6b',
-                }}>
-                  信頼性：{reliability.level}
-                </span>
-                <div style={{ flex: 1, height: 6, background: 'var(--border)', borderRadius: 99 }}>
-                  <div style={{
-                    height: '100%', width: `${reliability.score}%`, borderRadius: 99,
-                    background: reliability.score >= 70 ? '#1d9e75' : reliability.score >= 40 ? '#f5a623' : '#ff6b6b',
-                    transition: 'width 0.5s ease',
-                  }} />
-                </div>
+                  fontSize: 24, fontWeight: 700,
+                  color: (reliability.total_score ?? reliability.score) >= 80 ? '#1D9E75' : (reliability.total_score ?? reliability.score) >= 60 ? '#EF9F27' : '#E24B4A',
+                }}>{reliability.total_score ?? reliability.score}点</span>
+                <span style={{
+                  padding: '3px 12px', borderRadius: 99, fontSize: 12, fontWeight: 700,
+                  background: (reliability.total_score ?? reliability.score) >= 80 ? '#EAF3DE' : (reliability.total_score ?? reliability.score) >= 60 ? '#FAEEDA' : '#FCEBEB',
+                  color: (reliability.total_score ?? reliability.score) >= 80 ? '#27500A' : (reliability.total_score ?? reliability.score) >= 60 ? '#633806' : '#A32D2D',
+                }}>グレード：{reliability.grade ?? reliability.level}</span>
+                {reliability.badges?.map((b: string) => (
+                  <span key={b} style={{ fontSize: 11, padding: '2px 8px', borderRadius: 99, background: 'rgba(55,138,221,0.1)', color: '#378ADD', border: '1px solid rgba(55,138,221,0.2)' }}>✓ {b}</span>
+                ))}
               </div>
-              <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap' }}>
-                <div>
-                  {reliability.reasons.map((r, i) => (
-                    <div key={i} style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 2 }}>✓ {r}</div>
+              {/* 総合バー */}
+              <div style={{ height: 6, background: 'var(--border)', borderRadius: 99, marginBottom: 14, overflow: 'hidden' }}>
+                <div style={{
+                  height: '100%', borderRadius: 99, transition: 'width 0.5s ease',
+                  width: `${reliability.total_score ?? reliability.score}%`,
+                  background: (reliability.total_score ?? reliability.score) >= 80 ? '#1D9E75' : (reliability.total_score ?? reliability.score) >= 60 ? '#EF9F27' : '#E24B4A',
+                }} />
+              </div>
+              {/* 4軸詳細 */}
+              {reliability.breakdown && (
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 12 }}>
+                  {Object.entries(reliability.breakdown).map(([key, val]: [string, any]) => {
+                    const labels: Record<string, string> = { domain_authority: '🌐 ドメイン権威', content_quality: '📝 コンテンツ品質', recency: '🕐 情報の鮮度', source_type: '📚 情報源の種類' };
+                    const c = val.score >= 20 ? '#1D9E75' : val.score >= 12 ? '#EF9F27' : '#E24B4A';
+                    return (
+                      <div key={key} style={{ padding: 10, borderRadius: 8, border: '1px solid var(--border)', background: 'var(--bg-secondary)' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
+                          <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-primary)' }}>{labels[key] ?? key}</span>
+                          <span style={{ fontSize: 11, fontWeight: 700, color: c }}>{val.score}/25</span>
+                        </div>
+                        <div style={{ height: 4, background: 'var(--border)', borderRadius: 99, overflow: 'hidden', marginBottom: 4 }}>
+                          <div style={{ height: '100%', borderRadius: 99, width: `${(val.score / 25) * 100}%`, background: c }} />
+                        </div>
+                        <div style={{ fontSize: 10, color: 'var(--text-muted)', lineHeight: 1.5 }}>{val.reason}</div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+              {/* 注意点 */}
+              {reliability.warnings?.length > 0 && (
+                <div style={{ marginBottom: 8 }}>
+                  {reliability.warnings.map((w: string, i: number) => (
+                    <div key={i} style={{ fontSize: 11, color: '#EF9F27', marginBottom: 2 }}>⚠️ {w}</div>
                   ))}
                 </div>
-                {reliability.warnings.length > 0 && (
-                  <div>
-                    {reliability.warnings.map((w, i) => (
-                      <div key={i} style={{ fontSize: 11, color: '#f5a623', marginBottom: 2 }}>⚠ {w}</div>
-                    ))}
-                  </div>
-                )}
-              </div>
+              )}
+              {/* アドバイス */}
+              {reliability.recommendation && (
+                <div style={{ borderTop: '1px solid var(--border)', paddingTop: 8, marginTop: 8 }}>
+                  <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>💡 {reliability.recommendation}</div>
+                </div>
+              )}
             </div>
           )}
           <div
