@@ -17,6 +17,7 @@ const navGroups: NavGroup[] = [
     category: '目標達成伴走',
     items: [
       { href: '/admin/staff', label: 'スタッフ支援', icon: '👥' },
+      { href: '/admin/staff/summary', label: '成長サマリー', icon: '📊' },
       { href: '/admin/staff-evaluation', label: 'スタッフ評価', icon: '📈' },
       { href: '/admin/one-on-one', label: '1on1ミーティング', icon: '🤝' },
       { href: '/admin/applicants', label: '採用AI分析', icon: '🔍' },
