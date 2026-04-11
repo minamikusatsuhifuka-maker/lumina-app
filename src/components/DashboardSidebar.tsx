@@ -19,6 +19,7 @@ const navCategories: NavCategory[] = [
       { href: '/dashboard/research', label: '文献検索', icon: '🔬' },
       { href: '/dashboard/alerts', label: '定期アラート', icon: '🔔' },
       { href: '/dashboard/fact-check', label: 'ファクトチェック', icon: '✅' },
+      { href: '/dashboard/citation', label: '引用元生成', icon: '📚' },
     ],
   },
   {
@@ -48,6 +49,8 @@ const navCategories: NavCategory[] = [
       { href: '/dashboard/doc-prompt', label: '資料プロンプト', icon: '📋' },
       { href: '/dashboard/simplifier', label: '難易度変換', icon: '🎓' },
       { href: '/dashboard/video-script', label: '動画スクリプト', icon: '🎬' },
+      { href: '/dashboard/infographic', label: 'インフォグラフィック', icon: '📊' },
+      { href: '/dashboard/storytelling', label: 'ストーリーテリング', icon: '📖' },
     ],
   },
   {
