@@ -617,6 +617,94 @@ export default function KindleStudioPage() {
         </>
       )}
 
+      {/* ツールリンク集 */}
+      <div style={{ marginTop: 40, borderTop: '1px solid var(--border)', paddingTop: 32 }}>
+        <h2 style={{ fontSize: 17, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 6 }}>🔗 次に使うおすすめAIツール</h2>
+        <p style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 20 }}>xLUMINAで生成した原稿を以下のツールと組み合わせるとより高品質な作品が完成します。</p>
+        {(() => {
+          const TOOLS: Record<string, { name: string; desc: string; url: string; icon: string; badge: string; badgeColor: string }[]> = {
+            guide: [
+              { name: 'Vellum', desc: 'Kindle＆PDF同時組版。原稿を貼るだけで美しい本に。Mac専用。', url: 'https://vellum.pub', icon: '📖', badge: '★ 組版', badgeColor: '#8b5cf6' },
+              { name: 'DALL-E 3', desc: '手順図・フロー図・説明図をテキスト指示で生成。', url: 'https://chat.openai.com', icon: '🤖', badge: '図解生成', badgeColor: '#22c55e' },
+              { name: 'Midjourney', desc: 'プロ品質の表紙・カバー画像を生成。', url: 'https://midjourney.com', icon: '🎨', badge: '表紙制作', badgeColor: '#3b82f6' },
+              { name: 'Canva', desc: '図解・インフォグラフィック・表紙デザインのテンプレートが豊富。', url: 'https://www.canva.com', icon: '🖼️', badge: 'レイアウト', badgeColor: '#14b8a6' },
+            ],
+            novel: [
+              { name: 'Sudowrite', desc: '小説専用AI。続き提案・場面描写強化・書き直しが得意。', url: 'https://sudowrite.com', icon: '✍️', badge: '★ 小説AI', badgeColor: '#8b5cf6' },
+              { name: 'ProWritingAid', desc: '文体の一貫性・繰り返し・テンポを分析。', url: 'https://prowritingaid.com', icon: '🔍', badge: '文体チェック', badgeColor: '#3b82f6' },
+              { name: 'Midjourney', desc: '小説の世界観を表現する表紙・挿絵を生成。', url: 'https://midjourney.com', icon: '🎨', badge: '表紙・世界観', badgeColor: '#f59e0b' },
+              { name: 'Vellum', desc: '小説の組版に最適。章タイトル・目次・フォントが自動で美しく整う。', url: 'https://vellum.pub', icon: '📖', badge: '組版', badgeColor: '#22c55e' },
+            ],
+            picture: [
+              { name: 'Midjourney', desc: '絵本イラスト最高品質。--srefで全ページスタイル統一。', url: 'https://midjourney.com', icon: '🎨', badge: '★ イラスト', badgeColor: '#ec4899' },
+              { name: 'xLUMINA 難易度変換', desc: '生成テキストを「小学生向け」に自動変換。', url: '/dashboard/simplifier', icon: '🎓', badge: 'xLUMINA内', badgeColor: '#6c63ff' },
+              { name: 'Adobe Firefly', desc: '著作権的に最も安全。商業出版の絵本イラストに最適。', url: 'https://www.adobe.com/jp/products/firefly.html', icon: '✨', badge: '商用安全', badgeColor: '#ef4444' },
+              { name: 'Canva', desc: '絵本テンプレートで画像と文章を美しく配置。', url: 'https://www.canva.com', icon: '📐', badge: 'レイアウト', badgeColor: '#14b8a6' },
+              { name: 'Book Creator', desc: '絵本専用作成ツール。音声・アニメーションも追加可。', url: 'https://bookcreator.com', icon: '📚', badge: '絵本専用', badgeColor: '#eab308' },
+            ],
+            puzzle: [
+              { name: 'Crossword Labs', desc: '単語リストを貼るだけでクロスワード自動完成。完全無料。', url: 'https://crosswordlabs.com', icon: '🔤', badge: '★ 無料', badgeColor: '#f59e0b' },
+              { name: 'Discovery Puzzle Maker', desc: 'ワードサーチ・迷路など複数種類を自動生成。', url: 'https://puzzlemaker.discoveryeducation.com', icon: '🔠', badge: '無料', badgeColor: '#3b82f6' },
+              { name: 'Canva', desc: 'パズル本のテンプレートで全ページを美しくレイアウト。', url: 'https://www.canva.com', icon: '📐', badge: 'レイアウト', badgeColor: '#14b8a6' },
+              { name: 'ランサーズ', desc: 'AI苦手な迷路・間違い探しを専門クリエイターに外注。1問500円〜。', url: 'https://www.lancers.jp', icon: '🤝', badge: '外注', badgeColor: '#22c55e' },
+            ],
+          };
+          const tools = TOOLS[bookType] ?? TOOLS.guide;
+          return (
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 10, marginBottom: 16 }}>
+              {tools.map(t => (
+                <a key={t.name} href={t.url} target="_blank" rel="noopener noreferrer" style={{
+                  display: 'flex', alignItems: 'flex-start', gap: 10, padding: 14, borderRadius: 12,
+                  border: '1px solid var(--border)', background: 'var(--bg-secondary)', textDecoration: 'none',
+                  transition: 'background 0.15s',
+                }}>
+                  <span style={{ fontSize: 20, flexShrink: 0 }}>{t.icon}</span>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 2 }}>
+                      <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)' }}>{t.name}</span>
+                      <span style={{ fontSize: 10, padding: '1px 6px', borderRadius: 99, background: `${t.badgeColor}20`, color: t.badgeColor }}>{t.badge}</span>
+                    </div>
+                    <p style={{ fontSize: 11, color: 'var(--text-muted)', lineHeight: 1.5 }}>{t.desc}</p>
+                  </div>
+                  <span style={{ fontSize: 11, color: 'var(--text-muted)', flexShrink: 0 }}>↗</span>
+                </a>
+              ))}
+              <a href="https://kdp.amazon.co.jp" target="_blank" rel="noopener noreferrer" style={{
+                display: 'flex', alignItems: 'flex-start', gap: 10, padding: 14, borderRadius: 12,
+                border: '2px solid rgba(245,166,35,0.4)', background: 'rgba(245,166,35,0.06)', textDecoration: 'none',
+                gridColumn: 'span 2',
+              }}>
+                <span style={{ fontSize: 20, flexShrink: 0 }}>📦</span>
+                <div style={{ flex: 1 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 2 }}>
+                    <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)' }}>KDP（Kindle Direct Publishing）</span>
+                    <span style={{ fontSize: 10, padding: '1px 6px', borderRadius: 99, background: 'rgba(245,166,35,0.2)', color: '#b45309' }}>最終出版 無料</span>
+                  </div>
+                  <p style={{ fontSize: 11, color: 'var(--text-muted)' }}>Amazon公式出版プラットフォーム。無料で出版、印税35〜70%。</p>
+                </div>
+                <span style={{ fontSize: 11, color: 'var(--text-muted)', flexShrink: 0 }}>↗</span>
+              </a>
+            </div>
+          );
+        })()}
+        <div style={{ padding: 14, borderRadius: 12, background: 'var(--bg-card)', border: '1px solid var(--border)' }}>
+          <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 8 }}>📋 出版前に確認すべきリンク</div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 6 }}>
+            {[
+              { label: 'KDP ヘルプ', url: 'https://kdp.amazon.co.jp/ja_JP/help/topic/G200635650' },
+              { label: 'KDP 料金・印税', url: 'https://kdp.amazon.co.jp/ja_JP/help/topic/G200634500' },
+              { label: '表紙ガイドライン', url: 'https://kdp.amazon.co.jp/ja_JP/help/topic/G200645690' },
+              { label: 'コンテンツガイドライン', url: 'https://kdp.amazon.co.jp/ja_JP/help/topic/G200672390' },
+            ].map(link => (
+              <a key={link.url} href={link.url} target="_blank" rel="noopener noreferrer" style={{
+                fontSize: 11, padding: '6px 8px', borderRadius: 8, border: '1px solid var(--border)',
+                background: 'transparent', color: 'var(--text-muted)', textDecoration: 'none', textAlign: 'center',
+              }}>{link.label} ↗</a>
+            ))}
+          </div>
+        </div>
+      </div>
+
       <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
     </div>
   );
