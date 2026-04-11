@@ -1,7 +1,7 @@
 'use client';
 import { useState, useEffect, use } from 'react';
 import { HiringScoreChart } from '@/components/clinic/HiringScoreChart';
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, Radar } from 'recharts';
 
 type DetailTab = 'summary' | 'growth_chart' | 'timeline' | 'documents' | 'notes' | 'grades' | 'score' | 'growth';
 type NoteType = 'interview' | 'training' | 'praise' | 'incident' | 'other';
@@ -268,6 +268,37 @@ export default function StaffDetailPage({ params }: { params: Promise<{ id: stri
         }}>
           {needsSaving ? '保存中...' : '💾 保存'}
         </button>
+
+        {/* 5大欲求レーダーチャート */}
+        {dominantNeeds.length > 0 && (
+          <div style={{ marginTop: 14, paddingTop: 14, borderTop: '1px solid var(--border)' }}>
+            <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-muted)', marginBottom: 8 }}>📊 欲求プロファイル</div>
+            <div style={{ display: 'flex', gap: 16, alignItems: 'flex-start' }}>
+              <RadarChart width={200} height={160} data={[
+                { subject: '生存', value: dominantNeeds.includes('survival') ? 10 : 3, fullMark: 10 },
+                { subject: '愛所属', value: dominantNeeds.includes('love_belonging') ? 10 : 3, fullMark: 10 },
+                { subject: '力', value: dominantNeeds.includes('power') ? 10 : 3, fullMark: 10 },
+                { subject: '自由', value: dominantNeeds.includes('freedom') ? 10 : 3, fullMark: 10 },
+                { subject: '楽しみ', value: dominantNeeds.includes('fun') ? 10 : 3, fullMark: 10 },
+              ]}>
+                <PolarGrid stroke="var(--border)" />
+                <PolarAngleAxis dataKey="subject" tick={{ fontSize: 11, fill: 'var(--text-muted)' }} />
+                <PolarRadiusAxis domain={[0, 10]} tick={false} axisLine={false} />
+                <Radar name="欲求" dataKey="value" stroke="#6c63ff" fill="#6c63ff" fillOpacity={0.25} strokeWidth={2} />
+              </RadarChart>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 6 }}>主要欲求から考えるアプローチ</div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                  {dominantNeeds.includes('survival') && <div style={{ fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.6 }}>🏠 <strong style={{ fontWeight: 600 }}>生存：</strong>安定した環境・明確な評価基準・安心できる人間関係を優先して</div>}
+                  {dominantNeeds.includes('love_belonging') && <div style={{ fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.6 }}>❤️ <strong style={{ fontWeight: 600 }}>愛所属：</strong>チームへの貢献実感・感謝の言葉・仲間との関係構築の機会を</div>}
+                  {dominantNeeds.includes('power') && <div style={{ fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.6 }}>💪 <strong style={{ fontWeight: 600 }}>力：</strong>成長機会・責任ある役割・達成を認める場を積極的に作って</div>}
+                  {dominantNeeds.includes('freedom') && <div style={{ fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.6 }}>🦋 <strong style={{ fontWeight: 600 }}>自由：</strong>自分で決める余白・創意工夫を活かせる仕事・細かい管理を減らして</div>}
+                  {dominantNeeds.includes('fun') && <div style={{ fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.6 }}>🎯 <strong style={{ fontWeight: 600 }}>楽しみ：</strong>学びの機会・新しい挑戦・やりがいを感じられる仕事を意識的に</div>}
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* タブ */}

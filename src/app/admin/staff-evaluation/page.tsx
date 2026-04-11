@@ -18,6 +18,9 @@ export default function StaffEvaluationPage() {
   const [compareMode, setCompareMode] = useState(false);
   const [compareData, setCompareData] = useState<any[]>([]);
   const [compareLoading, setCompareLoading] = useState(false);
+  const [promotionMessage, setPromotionMessage] = useState('');
+  const [promotionMessageVisible, setPromotionMessageVisible] = useState(false);
+  const [promotionMessageLoading, setPromotionMessageLoading] = useState(false);
 
   useEffect(() => {
     fetch('/api/clinic/staff')
@@ -83,6 +86,25 @@ export default function StaffEvaluationPage() {
       setTimeout(() => setMessage(''), 3000);
     } catch { setMessage('❌ エラーが発生しました'); }
     finally { setGenerating(false); }
+  };
+
+  const generatePromotionMessage = async (staffName: string, grade: string) => {
+    setPromotionMessageLoading(true);
+    setPromotionMessage('');
+    setPromotionMessageVisible(true);
+    try {
+      const res = await fetch('/api/clinic/brushup-chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          message: `スタッフが昇格しました。院長からのお祝いメッセージを作成してください。\n\nスタッフ名：${staffName}\n昇格した等級：${grade}\n\n以下の条件で書いてください：\n- 4〜5文の温かく誇りを感じるメッセージ\n- 昇格した等級の意味・次の広がりを感じさせる\n- このスタッフへの期待と感謝を込める\n- 「${staffName}さん」から始める\n- リードマネジメント哲学（内発的動機・インサイドアウト）を意識した言葉で\n\nメッセージのみ返してください`,
+          category: 'evaluation',
+        }),
+      });
+      const data = await res.json();
+      setPromotionMessage(data.reply || data.result || '');
+    } catch { setPromotionMessage('生成に失敗しました。'); }
+    finally { setPromotionMessageLoading(false); }
   };
 
   const cardStyle: React.CSSProperties = {
@@ -318,6 +340,7 @@ export default function StaffEvaluationPage() {
                       setSelected((prev: any) => ({ ...prev, promotion_approved: true, approved_grade: selected.recommended_grade, current_grade: latest?.current_grade || selected.recommended_grade }));
                       setEvaluations(prev => prev.map(e => e.id === selected.id ? { ...e, promotion_approved: true, current_grade: latest?.current_grade || selected.recommended_grade } : e));
                       setMessage(`✅ ${selected.staff_name}さんの${selected.recommended_grade}昇格を承認しました`);
+                      generatePromotionMessage(selected.staff_name, selected.recommended_grade);
                       setTimeout(() => setMessage(''), 4000);
                     }
                   }} style={{
@@ -327,6 +350,32 @@ export default function StaffEvaluationPage() {
                 ) : (
                   <div style={{ padding: '10px 14px', borderRadius: 10, textAlign: 'center', background: 'rgba(74,222,128,0.1)', border: '1px solid rgba(74,222,128,0.3)', fontSize: 13, fontWeight: 700, color: '#4ade80' }}>
                     ✅ {selected.approved_grade}への昇格承認済み
+                  </div>
+                )}
+
+                {/* 昇格メッセージ */}
+                {promotionMessageVisible && (
+                  <div style={{ marginTop: 10, padding: 14, background: 'rgba(74,222,128,0.06)', border: '1px solid rgba(74,222,128,0.2)', borderRadius: 12 }}>
+                    <div style={{ fontSize: 12, fontWeight: 700, color: '#4ade80', marginBottom: 8 }}>🎉 昇格お祝いメッセージ（コピーして渡せます）</div>
+                    {promotionMessageLoading ? (
+                      <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>メッセージを生成中...</div>
+                    ) : (
+                      <>
+                        <div style={{ fontSize: 13, color: 'var(--text-primary)', lineHeight: 1.8, whiteSpace: 'pre-wrap', padding: '10px 12px', background: 'var(--bg-card)', borderRadius: 8, border: '1px solid var(--border)', marginBottom: 8 }}>
+                          {promotionMessage}
+                        </div>
+                        <div style={{ display: 'flex', gap: 8 }}>
+                          <button onClick={() => navigator.clipboard.writeText(promotionMessage).then(() => setMessage('📋 コピーしました！'))}
+                            style={{ padding: '5px 14px', borderRadius: 8, border: 'none', background: '#4ade80', color: '#000', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>
+                            📋 コピー
+                          </button>
+                          <button onClick={() => setPromotionMessageVisible(false)}
+                            style={{ padding: '5px 12px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--bg-card)', color: 'var(--text-muted)', fontSize: 12, cursor: 'pointer' }}>
+                            閉じる
+                          </button>
+                        </div>
+                      </>
+                    )}
                   </div>
                 )}
               </div>

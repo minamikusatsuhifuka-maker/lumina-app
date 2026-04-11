@@ -107,6 +107,25 @@ export default function OneOnOnePage() {
     finally { setSuggesting(false); }
   };
 
+  const generatePraise = async (meeting: any) => {
+    setPraiseLoading(true);
+    setPraiseMessage('');
+    setPraiseVisible(true);
+    try {
+      const res = await fetch('/api/clinic/brushup-chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          message: `1on1の記録をもとに、院長からスタッフへの称賛メッセージを作成してください。\n\nスタッフ名：${meeting.staff_name}\n面談日：${meeting.meeting_date}\n達成・成長したこと：${meeting.achievements || '未記録'}\n課題・取り組み：${meeting.challenges || '未記録'}\n成長ステージ：${meeting.growth_stage || '未記録'}\n\n以下の条件で書いてください：\n- 3〜4文の温かいメッセージ\n- スタッフの具体的な行動・成長を称える\n- 次への期待と応援を込める\n- LINEやSlackで送れる自然な文体\n- 「${meeting.staff_name}さん」から始める\n\nメッセージのみ返してください（説明文不要）`,
+          category: 'evaluation',
+        }),
+      });
+      const data = await res.json();
+      setPraiseMessage(data.reply || data.result || '');
+    } catch { setPraiseMessage('生成に失敗しました。もう一度お試しください。'); }
+    finally { setPraiseLoading(false); }
+  };
+
   const cardStyle: React.CSSProperties = {
     padding: 20, background: 'var(--bg-secondary)',
     border: '1px solid var(--border)', borderRadius: 16, marginBottom: 16,
@@ -123,6 +142,9 @@ export default function OneOnOnePage() {
   const [suggestions, setSuggestions] = useState('');
   const [draftLoading, setDraftLoading] = useState(false);
   const [draftSuggestion, setDraftSuggestion] = useState<string>('');
+  const [praiseMessage, setPraiseMessage] = useState('');
+  const [praiseLoading, setPraiseLoading] = useState(false);
+  const [praiseVisible, setPraiseVisible] = useState(false);
 
   useEffect(() => {
     fetch('/api/clinic/staff')
@@ -396,6 +418,40 @@ export default function OneOnOnePage() {
                   }}>
                   {suggesting ? '💭 考え中...' : '💡 次回の問いかけをAIが提案'}
                 </button>
+
+                {/* 称賛メッセージ生成ボタン */}
+                <button onClick={() => generatePraise(selected)} disabled={praiseLoading}
+                  style={{
+                    width: '100%', padding: '9px', borderRadius: 10, border: 'none', cursor: 'pointer', marginTop: 8,
+                    background: praiseLoading ? 'rgba(236,72,153,0.3)' : 'linear-gradient(135deg, #ec4899, #f43f5e)',
+                    color: '#fff', fontSize: 13, fontWeight: 700,
+                  }}>
+                  {praiseLoading ? '💌 生成中...' : '💌 称賛メッセージを生成'}
+                </button>
+
+                {/* 称賛メッセージ表示 */}
+                {praiseVisible && (
+                  <div style={{ marginTop: 10, padding: 14, background: 'rgba(236,72,153,0.06)', border: '1px solid rgba(236,72,153,0.2)', borderRadius: 12 }}>
+                    <div style={{ fontSize: 12, fontWeight: 700, color: '#ec4899', marginBottom: 8 }}>💌 称賛メッセージ（LINEやSlackで送れます）</div>
+                    {praiseLoading ? (
+                      <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>メッセージを生成中...</div>
+                    ) : (
+                      <>
+                        <div style={{ fontSize: 13, color: 'var(--text-primary)', lineHeight: 1.8, whiteSpace: 'pre-wrap', padding: '10px 12px', background: 'var(--bg-card)', borderRadius: 8, border: '1px solid var(--border)', marginBottom: 8 }}>
+                          {praiseMessage}
+                        </div>
+                        <button onClick={() => navigator.clipboard.writeText(praiseMessage).then(() => setMessage('📋 コピーしました！'))}
+                          style={{ padding: '5px 14px', borderRadius: 8, border: 'none', background: '#ec4899', color: '#fff', fontSize: 12, fontWeight: 700, cursor: 'pointer', marginRight: 8 }}>
+                          📋 コピー
+                        </button>
+                        <button onClick={() => setPraiseVisible(false)}
+                          style={{ padding: '5px 12px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--bg-card)', color: 'var(--text-muted)', fontSize: 12, cursor: 'pointer' }}>
+                          閉じる
+                        </button>
+                      </>
+                    )}
+                  </div>
+                )}
 
                 {/* サジェスト表示 */}
                 {suggestions && (
