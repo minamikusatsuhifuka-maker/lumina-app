@@ -18,6 +18,7 @@ export default async function AdminDashboardPage() {
     staffRows, evalRows, pendingApprovalRows,
     thisMonthMeetingRows, applicantRows,
     pendingOneOnOneRows, gradeDistRows,
+    stageUpRows,
   ] = await Promise.all([
     sql`SELECT COUNT(*) as count FROM staff WHERE status = 'active'`.catch(() => [{ count: 0 }]),
     sql`SELECT COUNT(*) as count FROM staff_evaluations`.catch(() => [{ count: 0 }]),
@@ -45,6 +46,23 @@ export default async function AdminDashboardPage() {
         LEFT JOIN staff s ON s.current_grade_id = gl.id AND s.status = 'active'
         GROUP BY gl.level_number, gl.position
         ORDER BY gl.level_number ASC, gl.position ASC`.catch(() => []),
+    // 今月の成長ステージアップを検知
+    sql`
+      WITH ranked AS (
+        SELECT staff_name, growth_stage, meeting_date,
+          ROW_NUMBER() OVER (PARTITION BY staff_name ORDER BY meeting_date ASC) as rn_asc,
+          ROW_NUMBER() OVER (PARTITION BY staff_name ORDER BY meeting_date DESC) as rn_desc
+        FROM one_on_one_meetings
+        WHERE meeting_date >= date_trunc('month', NOW())
+        AND growth_stage IS NOT NULL
+      )
+      SELECT a.staff_name, a.growth_stage as from_stage, b.growth_stage as to_stage
+      FROM ranked a
+      JOIN ranked b ON a.staff_name = b.staff_name
+      WHERE a.rn_asc = 1 AND b.rn_desc = 1
+      AND a.growth_stage != b.growth_stage
+      LIMIT 3
+    `.catch(() => []),
   ]);
 
   const staffCount = Number(staffRows[0]?.count || 0);
@@ -53,6 +71,7 @@ export default async function AdminDashboardPage() {
   const applicantCount = Number(applicantRows[0]?.count || 0);
   const pendingOneOnOne = (pendingOneOnOneRows as any[]);
   const gradeDistribution = (gradeDistRows as any[]);
+  const stageUpStaffs = (stageUpRows as any[]);
 
   const jstHour = (new Date().getUTCHours() + 9) % 24;
   const greeting = jstHour < 11 ? 'おはようございます' :
@@ -120,7 +139,7 @@ export default async function AdminDashboardPage() {
       </div>
 
       {/* 今日のアクション */}
-      {(pendingApprovals.length > 0 || pendingOneOnOne.length > 0) && (
+      {(pendingApprovals.length > 0 || pendingOneOnOne.length > 0 || stageUpStaffs.length > 0) && (
         <div style={{ marginBottom: 20 }}>
           <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 8 }}>今日のアクション</div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
@@ -143,6 +162,17 @@ export default async function AdminDashboardPage() {
                     <strong style={{ fontWeight: 600 }}>{(pendingOneOnOne as any[]).map((s: any) => s.name).join('・')}</strong>さんとの1on1が30日以上未実施です
                   </span>
                   <span style={{ fontSize: 10, padding: '2px 8px', borderRadius: 8, background: 'rgba(108,99,255,0.12)', color: '#6c63ff', fontWeight: 600 }}>要対応</span>
+                </div>
+              </Link>
+            )}
+            {stageUpStaffs.length > 0 && (
+              <Link href="/admin/staff/growth-report" style={{ textDecoration: 'none' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', background: 'var(--bg-secondary)', border: '1px solid rgba(245,158,11,0.3)', borderRadius: 10 }}>
+                  <span style={{ display: 'inline-block', width: 8, height: 8, borderRadius: '50%', background: '#f59e0b', flexShrink: 0 }} />
+                  <span style={{ fontSize: 13, color: 'var(--text-primary)', flex: 1 }}>
+                    🌱 <strong style={{ fontWeight: 600 }}>{stageUpStaffs.map((s: any) => s.staff_name).join('・')}</strong>さんが今月成長ステージアップしました！
+                  </span>
+                  <span style={{ fontSize: 10, padding: '2px 8px', borderRadius: 8, background: 'rgba(245,158,11,0.12)', color: '#d97706', fontWeight: 600 }}>確認する</span>
                 </div>
               </Link>
             )}
