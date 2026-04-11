@@ -84,6 +84,29 @@ export default function OneOnOnePage() {
     finally { setAnalyzing(false); }
   };
 
+  const getSuggestions = async (meeting: any) => {
+    setSuggesting(true);
+    setSuggestions('');
+    try {
+      const res = await fetch('/api/clinic/one-on-one/suggest', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          staffName: meeting.staff_name,
+          discussion: meeting.discussion,
+          achievements: meeting.achievements,
+          challenges: meeting.challenges,
+          actionItems: meeting.action_items,
+          aiAnalysis: meeting.ai_analysis,
+          growthStage: meeting.growth_stage,
+        }),
+      });
+      const data = await res.json();
+      if (data.result) setSuggestions(data.result);
+    } catch { setMessage('❌ サジェスト生成に失敗しました'); }
+    finally { setSuggesting(false); }
+  };
+
   const cardStyle: React.CSSProperties = {
     padding: 20, background: 'var(--bg-secondary)',
     border: '1px solid var(--border)', borderRadius: 16, marginBottom: 16,
@@ -96,6 +119,8 @@ export default function OneOnOnePage() {
   };
   const [staffHistory, setStaffHistory] = useState<any[]>([]);
   const [staffListData, setStaffListData] = useState<any[]>([]);
+  const [suggesting, setSuggesting] = useState(false);
+  const [suggestions, setSuggestions] = useState('');
 
   useEffect(() => {
     fetch('/api/clinic/staff')
@@ -297,6 +322,45 @@ export default function OneOnOnePage() {
                   background: analyzing ? 'rgba(108,99,255,0.3)' : 'linear-gradient(135deg, #6c63ff, #8b5cf6)',
                   color: '#fff', fontSize: 13, fontWeight: 700, marginBottom: 16,
                 }}>{analyzing ? '🤖 分析中...' : '🤖 AIで分析する'}</button>
+
+                {/* AIサジェストボタン */}
+                <button onClick={() => getSuggestions(selected)} disabled={suggesting}
+                  style={{
+                    width: '100%', padding: '9px', borderRadius: 10, border: 'none', cursor: 'pointer', marginTop: 8,
+                    background: suggesting ? 'rgba(29,158,117,0.3)' : 'linear-gradient(135deg, #1D9E75, #0F6E56)',
+                    color: '#fff', fontSize: 13, fontWeight: 700,
+                  }}>
+                  {suggesting ? '💭 考え中...' : '💡 次回の問いかけをAIが提案'}
+                </button>
+
+                {/* サジェスト表示 */}
+                {suggestions && (
+                  <div style={{ marginTop: 12, padding: 14, background: 'rgba(29,158,117,0.06)', border: '1px solid rgba(29,158,117,0.2)', borderRadius: 12 }}>
+                    <div style={{ fontSize: 12, fontWeight: 700, color: '#1D9E75', marginBottom: 10 }}>💡 次回の1on1で使える問いかけ</div>
+                    {suggestions.split(/【問いかけ[①②③]】/).filter(Boolean).map((block, i) => {
+                      const [question, ...rest] = block.trim().split('→ 意図：');
+                      return (
+                        <div key={i} style={{ marginBottom: 10, padding: '10px 12px', background: 'var(--bg-card)', borderRadius: 8, border: '1px solid var(--border)' }}>
+                          <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 4 }}>
+                            問いかけ {['①', '②', '③'][i]}
+                          </div>
+                          <div style={{ fontSize: 13, color: 'var(--text-primary)', lineHeight: 1.7, marginBottom: rest[0] ? 6 : 0 }}>
+                            「{question.trim()}」
+                          </div>
+                          {rest[0] && (
+                            <div style={{ fontSize: 11, color: 'var(--text-muted)', lineHeight: 1.6 }}>
+                              意図：{rest[0].trim()}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                    <button onClick={() => setSuggestions('')}
+                      style={{ marginTop: 4, padding: '4px 12px', borderRadius: 6, border: '1px solid var(--border)', background: 'var(--bg-card)', color: 'var(--text-muted)', fontSize: 11, cursor: 'pointer' }}>
+                      閉じる
+                    </button>
+                  </div>
+                )}
 
                 {selected.ai_analysis && (
                   <>

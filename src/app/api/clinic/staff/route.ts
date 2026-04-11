@@ -7,7 +7,15 @@ export async function GET() {
   const session = await auth();
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   const sql = neon(process.env.DATABASE_URL!);
-  const rows = await sql`SELECT * FROM staff WHERE status = 'active' ORDER BY name ASC`;
+  const rows = await sql`
+    SELECT s.*,
+      COALESCE(gl.position, '') || ' G' || COALESCE(gl.level_number::text, '') AS current_grade_label,
+      gl.level_number AS grade_level_number
+    FROM staff s
+    LEFT JOIN grade_levels gl ON gl.id = s.current_grade_id
+    WHERE s.status = 'active'
+    ORDER BY gl.level_number DESC NULLS LAST, s.name ASC
+  `;
   return NextResponse.json(rows);
 }
 

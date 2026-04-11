@@ -6,6 +6,7 @@ import { AIDialogueButton } from '@/components/clinic/AIDialogueButton';
 type Staff = {
   id: string; name: string; name_kana: string; position: string;
   department: string; hired_at: string; status: string; current_grade_id: string;
+  current_grade_label?: string; grade_level_number?: number;
 };
 
 export default function StaffListPage() {
@@ -13,6 +14,7 @@ export default function StaffListPage() {
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [filterPos, setFilterPos] = useState('すべて');
+  const [viewMode, setViewMode] = useState<'card' | 'grade'>('card');
 
   useEffect(() => {
     fetch('/api/clinic/staff').then(r => r.json()).then(data => {
@@ -58,6 +60,19 @@ export default function StaffListPage() {
         </select>
       </div>
 
+      {/* ビュー切替 */}
+      <div style={{ display: 'flex', gap: 6, marginBottom: 16 }}>
+        {[
+          { k: 'card', l: '🃏 カード表示' },
+          { k: 'grade', l: '🏅 等級別表示' },
+        ].map(v => (
+          <button key={v.k} onClick={() => setViewMode(v.k as any)}
+            style={{ padding: '6px 14px', borderRadius: 8, border: '1px solid', fontSize: 12, fontWeight: 600, cursor: 'pointer', background: viewMode === v.k ? 'rgba(108,99,255,0.15)' : 'var(--bg-card)', color: viewMode === v.k ? '#6c63ff' : 'var(--text-muted)', borderColor: viewMode === v.k ? 'rgba(108,99,255,0.3)' : 'var(--border)' }}>
+            {v.l}
+          </button>
+        ))}
+      </div>
+
       {loading ? (
         <div style={{ textAlign: 'center', padding: 40, color: 'var(--text-muted)' }}>読み込み中...</div>
       ) : filtered.length === 0 ? (
@@ -65,6 +80,48 @@ export default function StaffListPage() {
           <div style={{ fontSize: 48, marginBottom: 16 }}>👥</div>
           <div style={{ fontSize: 16 }}>スタッフが登録されていません</div>
           <div style={{ fontSize: 13, marginTop: 8 }}>「＋ 新規スタッフ登録」から追加してください</div>
+        </div>
+      ) : viewMode === 'grade' ? (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+          {[5, 4, 3, 2, 1, null].map(gradeNum => {
+            const gradeStaff = filtered.filter(s =>
+              gradeNum === null
+                ? !s.grade_level_number
+                : s.grade_level_number === gradeNum
+            );
+            if (gradeStaff.length === 0) return null;
+
+            const GRADE_COLORS: Record<string, string> = {
+              '5': '#8b5cf6', '4': '#06b6d4', '3': '#4ade80', '2': '#60a5fa', '1': '#94a3b8',
+            };
+            const color = gradeNum ? GRADE_COLORS[String(gradeNum)] : '#6b7280';
+            const label = gradeStaff[0]?.current_grade_label || (gradeNum ? `G${gradeNum}` : '等級未設定');
+
+            return (
+              <div key={gradeNum ?? 'none'}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
+                  <span style={{ padding: '3px 12px', borderRadius: 12, fontSize: 12, fontWeight: 700, background: color + '20', color }}>{label}</span>
+                  <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>{gradeStaff.length}名</span>
+                  <div style={{ flex: 1, height: 1, background: 'var(--border)' }} />
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))', gap: 8 }}>
+                  {gradeStaff.map(s => (
+                    <Link key={s.id} href={`/admin/staff/${s.id}`} style={{ textDecoration: 'none' }}>
+                      <div style={{ padding: '12px 14px', background: 'var(--bg-secondary)', border: `1px solid ${color}30`, borderRadius: 10, display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer' }}>
+                        <div style={{ width: 36, height: 36, borderRadius: '50%', background: `linear-gradient(135deg, ${color}, ${color}aa)`, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontWeight: 700, fontSize: 14, flexShrink: 0 }}>
+                          {s.name?.charAt(0)}
+                        </div>
+                        <div style={{ minWidth: 0 }}>
+                          <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-primary)' }}>{s.name}</div>
+                          <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>{s.position || '職種未設定'}</div>
+                        </div>
+                      </div>
+                    </Link>
+                  ))}
+                </div>
+              </div>
+            );
+          })}
         </div>
       ) : (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: 12 }}>
