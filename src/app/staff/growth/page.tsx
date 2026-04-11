@@ -1,10 +1,10 @@
 'use client';
 import { useState, useEffect } from 'react';
 
-type Tab = 'discovery' | 'goals' | 'alignment' | 'log';
+type Tab = 'growth' | 'discovery' | 'goals' | 'alignment' | 'log';
 
 export default function StaffGrowthPage() {
-  const [tab, setTab] = useState<Tab>('discovery');
+  const [tab, setTab] = useState<Tab>('growth');
   const [plan, setPlan] = useState<any>(null);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState('');
@@ -21,11 +21,32 @@ export default function StaffGrowthPage() {
   const [logSaving, setLogSaving] = useState(false);
   const [logs, setLogs] = useState<any[]>([]);
 
+  // 成長グラフ
+  const [oneOnOneHistory, setOneOnOneHistory] = useState<any[]>([]);
+  const [evalHistory, setEvalHistory] = useState<any[]>([]);
+  const [myName, setMyName] = useState('');
+
+  // AI目標提案
+  const [goalAiLoading, setGoalAiLoading] = useState(false);
+  const [goalAiSuggestion, setGoalAiSuggestion] = useState('');
+  const [goalAiField, setGoalAiField] = useState<string>('');
+
   useEffect(() => {
     fetch('/api/clinic/personal-growth-plans?staffId=me').then(r => r.json()).then(d => {
       if (d?.id) { setPlan(d); setGf({ lifeVision: d.life_vision || '', personalMission: d.personal_mission || '', coreValues: d.core_values || '', shortTermGoals: d.short_term_goals || '', longTermGoals: d.long_term_goals || '' }); }
     });
     fetch('/api/clinic/self-management-logs?staffId=me').then(r => r.json()).then(d => { if (Array.isArray(d)) setLogs(d.slice(0, 7)); });
+    // 成長グラフ用データ
+    fetch('/api/clinic/staff/my-grade').then(r => r.json()).then(d => {
+      const name = d?.name || '';
+      setMyName(name);
+      if (name) {
+        fetch(`/api/clinic/one-on-one?staff_name=${encodeURIComponent(name)}`).then(r => r.json())
+          .then(data => { if (Array.isArray(data)) setOneOnOneHistory(data.filter((m: any) => m.mindset_score || m.motivation_level).slice(0, 10).reverse()); });
+        fetch(`/api/clinic/staff-evaluation?staff_name=${encodeURIComponent(name)}`).then(r => r.json())
+          .then(data => { if (Array.isArray(data)) setEvalHistory(data.sort((a: any, b: any) => a.period.localeCompare(b.period))); });
+      }
+    });
   }, []);
 
   const savePlan = async () => {
@@ -55,10 +76,37 @@ export default function StaffGrowthPage() {
     if (Array.isArray(d)) setLogs(d.slice(0, 7));
   };
 
+  const suggestGoalWithAI = async (field: string, currentValue: string) => {
+    setGoalAiLoading(true);
+    setGoalAiField(field);
+    setGoalAiSuggestion('');
+    try {
+      const fieldLabels: Record<string, string> = {
+        lifeVision: '人生ビジョン', personalMission: '個人ミッション',
+        coreValues: 'コアバリュー', shortTermGoals: '短期目標', longTermGoals: '長期目標',
+      };
+      const res = await fetch('/api/clinic/brushup-chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          message: `クリニックスタッフの${fieldLabels[field] || field}を一緒に考えます。\n現在の入力：「${currentValue || '（未入力）'}」\n\nリードマネジメント・インサイドアウトの視点で、より具体的で心に響く表現を2〜3パターン提案してください。\n短く・温かく・行動につながる言葉で。\n\n【提案①】\n（提案文）\n\n【提案②】\n（提案文）`,
+          category: 'growth',
+        }),
+      });
+      const data = await res.json();
+      const text = data.reply || data.result || '';
+      setGoalAiSuggestion(text);
+    } catch {}
+    setGoalAiLoading(false);
+  };
+
   const inputStyle: React.CSSProperties = { width: '100%', padding: '10px 14px', background: 'var(--input-bg)', border: '1px solid var(--input-border)', borderRadius: 8, color: 'var(--text-primary)', fontSize: 14, outline: 'none', boxSizing: 'border-box' };
   const tabs: { key: Tab; label: string }[] = [
-    { key: 'discovery', label: '💎 自己発見' }, { key: 'goals', label: '🎯 目標設定' },
-    { key: 'alignment', label: '✨ 自己実現×理念' }, { key: 'log', label: '📝 セルフマネジメント' },
+    { key: 'growth', label: '📈 成長グラフ' },
+    { key: 'discovery', label: '💎 自己発見' },
+    { key: 'goals', label: '🎯 目標設定' },
+    { key: 'alignment', label: '✨ 自己実現×理念' },
+    { key: 'log', label: '📝 セルフマネジメント' },
   ];
 
   return (
@@ -74,19 +122,168 @@ export default function StaffGrowthPage() {
         ))}
       </div>
 
+      {tab === 'growth' && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+          {/* マインドスコア推移 */}
+          <div style={{ padding: 16, background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 12 }}>
+            <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 12 }}>🧠 マインドスコア推移（1on1記録より）</div>
+            {oneOnOneHistory.length === 0 ? (
+              <div style={{ textAlign: 'center', padding: 24, color: 'var(--text-muted)', fontSize: 13 }}>
+                <div style={{ fontSize: 28, marginBottom: 8 }}>🤝</div>
+                1on1の記録が増えると成長グラフが表示されます
+              </div>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                {oneOnOneHistory.map((m: any) => (
+                  <div key={m.id} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                    <div style={{ fontSize: 11, color: 'var(--text-muted)', width: 60, flexShrink: 0 }}>
+                      {new Date(m.meeting_date).toLocaleDateString('ja-JP', { month: 'short', day: 'numeric' })}
+                    </div>
+                    <div style={{ flex: 1, display: 'flex', gap: 6 }}>
+                      {m.mindset_score && (
+                        <div style={{ flex: 1 }}>
+                          <div style={{ fontSize: 9, color: '#6c63ff', marginBottom: 2 }}>マインド</div>
+                          <div style={{ height: 8, background: 'var(--border)', borderRadius: 4, overflow: 'hidden' }}>
+                            <div style={{ width: `${(m.mindset_score / 10) * 100}%`, height: '100%', background: '#6c63ff', borderRadius: 4 }} />
+                          </div>
+                        </div>
+                      )}
+                      {m.motivation_level && (
+                        <div style={{ flex: 1 }}>
+                          <div style={{ fontSize: 9, color: '#4ade80', marginBottom: 2 }}>意欲</div>
+                          <div style={{ height: 8, background: 'var(--border)', borderRadius: 4, overflow: 'hidden' }}>
+                            <div style={{ width: `${(m.motivation_level / 10) * 100}%`, height: '100%', background: '#4ade80', borderRadius: 4 }} />
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                    <div style={{ display: 'flex', gap: 8, flexShrink: 0 }}>
+                      {m.mindset_score && <span style={{ fontSize: 12, fontWeight: 700, color: '#6c63ff' }}>{m.mindset_score}</span>}
+                      {m.motivation_level && <span style={{ fontSize: 12, fontWeight: 700, color: '#4ade80' }}>{m.motivation_level}</span>}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* 評価スコア推移 */}
+          {evalHistory.length > 0 && (
+            <div style={{ padding: 16, background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 12 }}>
+              <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 12 }}>📊 評価スコア推移</div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                {evalHistory.map((ev: any, i: number) => {
+                  const prev = evalHistory[i - 1];
+                  const diff = prev ? (ev.total_score || 0) - (prev.total_score || 0) : null;
+                  return (
+                    <div key={ev.id} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                      <div style={{ fontSize: 11, color: 'var(--text-muted)', width: 70, flexShrink: 0 }}>{ev.period}</div>
+                      <div style={{ flex: 1, height: 10, background: 'var(--border)', borderRadius: 5, overflow: 'hidden' }}>
+                        <div style={{ width: `${ev.total_score || 0}%`, height: '100%', background: (ev.total_score || 0) >= 80 ? '#4ade80' : (ev.total_score || 0) >= 60 ? '#f59e0b' : '#ef4444', borderRadius: 5 }} />
+                      </div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0 }}>
+                        <span style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-primary)' }}>{ev.total_score || 0}</span>
+                        {diff !== null && (
+                          <span style={{ fontSize: 11, color: diff > 0 ? '#4ade80' : diff < 0 ? '#ef4444' : 'var(--text-muted)' }}>
+                            {diff > 0 ? `↑${diff}` : diff < 0 ? `↓${Math.abs(diff)}` : '→'}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {/* 成長メッセージ */}
+          <div style={{ padding: '12px 16px', background: 'rgba(108,99,255,0.06)', border: '1px solid rgba(108,99,255,0.2)', borderRadius: 10, fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.7 }}>
+            🌱 あなたの成長は数字だけではありません。日々の気づきと行動が積み重なって、やがて大きな変化になります。
+          </div>
+        </div>
+      )}
+
       {tab === 'discovery' && (
         <div style={{ padding: 20, background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 16, display: 'flex', flexDirection: 'column', gap: 14 }}>
-          <div><label style={{ display: 'block', fontSize: 13, color: 'var(--text-secondary)', marginBottom: 6 }}>🔭 人生ビジョン</label><textarea value={gf.lifeVision} onChange={e => setGf(p => ({ ...p, lifeVision: e.target.value }))} placeholder="10年後どうありたいか" style={{ ...inputStyle, minHeight: 80, resize: 'vertical' }} /></div>
-          <div><label style={{ display: 'block', fontSize: 13, color: 'var(--text-secondary)', marginBottom: 6 }}>🎯 個人ミッション</label><input value={gf.personalMission} onChange={e => setGf(p => ({ ...p, personalMission: e.target.value }))} placeholder="自分のミッション（一文で）" style={inputStyle} /></div>
-          <div><label style={{ display: 'block', fontSize: 13, color: 'var(--text-secondary)', marginBottom: 6 }}>💎 自分のコア価値</label><input value={gf.coreValues} onChange={e => setGf(p => ({ ...p, coreValues: e.target.value }))} placeholder="大切にしている価値（カンマ区切り）" style={inputStyle} /></div>
+          {[
+            { key: 'lifeVision', label: '🔭 人生ビジョン', placeholder: '10年後どうありたいか', isTextarea: true },
+            { key: 'personalMission', label: '🎯 個人ミッション', placeholder: '自分のミッション（一文で）', isTextarea: false },
+            { key: 'coreValues', label: '💎 自分のコア価値', placeholder: '大切にしている価値（カンマ区切り）', isTextarea: false },
+          ].map(field => (
+            <div key={field.key}>
+              <label style={{ display: 'block', fontSize: 13, color: 'var(--text-secondary)', marginBottom: 6 }}>{field.label}</label>
+              {field.isTextarea ? (
+                <textarea value={(gf as any)[field.key]} onChange={e => setGf(p => ({ ...p, [field.key]: e.target.value }))} placeholder={field.placeholder} style={{ ...inputStyle, minHeight: 80, resize: 'vertical' }} />
+              ) : (
+                <input value={(gf as any)[field.key]} onChange={e => setGf(p => ({ ...p, [field.key]: e.target.value }))} placeholder={field.placeholder} style={inputStyle} />
+              )}
+              <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 4 }}>
+                <button onClick={() => suggestGoalWithAI(field.key, (gf as any)[field.key])}
+                  disabled={goalAiLoading && goalAiField === field.key}
+                  style={{ padding: '4px 10px', borderRadius: 6, border: '1px solid rgba(108,99,255,0.3)', background: 'rgba(108,99,255,0.06)', color: '#6c63ff', fontSize: 11, cursor: 'pointer' }}>
+                  {goalAiLoading && goalAiField === field.key ? '考え中...' : '💡 AIに提案してもらう'}
+                </button>
+              </div>
+              {goalAiSuggestion && goalAiField === field.key && (
+                <div style={{ marginTop: 8, padding: 12, background: 'rgba(108,99,255,0.06)', border: '1px solid rgba(108,99,255,0.2)', borderRadius: 8 }}>
+                  <div style={{ fontSize: 11, color: '#6c63ff', fontWeight: 700, marginBottom: 6 }}>💡 AI提案</div>
+                  <div style={{ fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.7, whiteSpace: 'pre-wrap', marginBottom: 8 }}>{goalAiSuggestion}</div>
+                  <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                    {goalAiSuggestion.split(/【提案[①②③]】/).filter(s => s.trim()).map((s, i) => (
+                      <button key={i} onClick={() => { setGf(f => ({ ...f, [field.key]: s.trim() })); setGoalAiSuggestion(''); }}
+                        style={{ padding: '4px 10px', borderRadius: 6, border: 'none', background: '#6c63ff', color: '#fff', fontSize: 11, cursor: 'pointer' }}>
+                        案{['①', '②', '③'][i]}を使う
+                      </button>
+                    ))}
+                    <button onClick={() => setGoalAiSuggestion('')}
+                      style={{ padding: '4px 10px', borderRadius: 6, border: '1px solid var(--border)', background: 'transparent', color: 'var(--text-muted)', fontSize: 11, cursor: 'pointer' }}>
+                      閉じる
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          ))}
           <button onClick={savePlan} disabled={saving} style={{ padding: '10px 20px', borderRadius: 8, border: 'none', background: saving ? 'rgba(108,99,255,0.3)' : 'linear-gradient(135deg, #6c63ff, #8b5cf6)', color: '#fff', fontWeight: 700, fontSize: 13, cursor: 'pointer', alignSelf: 'flex-start' }}>{saving ? '保存中...' : '💾 保存'}</button>
         </div>
       )}
 
       {tab === 'goals' && (
         <div style={{ padding: 20, background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 16, display: 'flex', flexDirection: 'column', gap: 14 }}>
-          <div><label style={{ display: 'block', fontSize: 13, color: 'var(--text-secondary)', marginBottom: 6 }}>短期目標（1〜3ヶ月）</label><textarea value={gf.shortTermGoals} onChange={e => setGf(p => ({ ...p, shortTermGoals: e.target.value }))} style={{ ...inputStyle, minHeight: 80, resize: 'vertical' }} /></div>
-          <div><label style={{ display: 'block', fontSize: 13, color: 'var(--text-secondary)', marginBottom: 6 }}>長期目標（1〜5年）</label><textarea value={gf.longTermGoals} onChange={e => setGf(p => ({ ...p, longTermGoals: e.target.value }))} style={{ ...inputStyle, minHeight: 80, resize: 'vertical' }} /></div>
+          {[
+            { key: 'shortTermGoals', label: '短期目標（1〜3ヶ月）' },
+            { key: 'longTermGoals', label: '長期目標（1〜5年）' },
+          ].map(field => (
+            <div key={field.key}>
+              <label style={{ display: 'block', fontSize: 13, color: 'var(--text-secondary)', marginBottom: 6 }}>{field.label}</label>
+              <textarea value={(gf as any)[field.key]} onChange={e => setGf(p => ({ ...p, [field.key]: e.target.value }))} style={{ ...inputStyle, minHeight: 80, resize: 'vertical' }} />
+              <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 4 }}>
+                <button onClick={() => suggestGoalWithAI(field.key, (gf as any)[field.key])}
+                  disabled={goalAiLoading && goalAiField === field.key}
+                  style={{ padding: '4px 10px', borderRadius: 6, border: '1px solid rgba(108,99,255,0.3)', background: 'rgba(108,99,255,0.06)', color: '#6c63ff', fontSize: 11, cursor: 'pointer' }}>
+                  {goalAiLoading && goalAiField === field.key ? '考え中...' : '💡 AIに提案してもらう'}
+                </button>
+              </div>
+              {goalAiSuggestion && goalAiField === field.key && (
+                <div style={{ marginTop: 8, padding: 12, background: 'rgba(108,99,255,0.06)', border: '1px solid rgba(108,99,255,0.2)', borderRadius: 8 }}>
+                  <div style={{ fontSize: 11, color: '#6c63ff', fontWeight: 700, marginBottom: 6 }}>💡 AI提案</div>
+                  <div style={{ fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.7, whiteSpace: 'pre-wrap', marginBottom: 8 }}>{goalAiSuggestion}</div>
+                  <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                    {goalAiSuggestion.split(/【提案[①②③]】/).filter(s => s.trim()).map((s, i) => (
+                      <button key={i} onClick={() => { setGf(f => ({ ...f, [field.key]: s.trim() })); setGoalAiSuggestion(''); }}
+                        style={{ padding: '4px 10px', borderRadius: 6, border: 'none', background: '#6c63ff', color: '#fff', fontSize: 11, cursor: 'pointer' }}>
+                        案{['①', '②', '③'][i]}を使う
+                      </button>
+                    ))}
+                    <button onClick={() => setGoalAiSuggestion('')}
+                      style={{ padding: '4px 10px', borderRadius: 6, border: '1px solid var(--border)', background: 'transparent', color: 'var(--text-muted)', fontSize: 11, cursor: 'pointer' }}>
+                      閉じる
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          ))}
           <button onClick={savePlan} disabled={saving} style={{ padding: '10px 20px', borderRadius: 8, border: 'none', background: saving ? 'rgba(108,99,255,0.3)' : 'linear-gradient(135deg, #6c63ff, #8b5cf6)', color: '#fff', fontWeight: 700, fontSize: 13, cursor: 'pointer', alignSelf: 'flex-start' }}>{saving ? '保存中...' : '💾 保存'}</button>
         </div>
       )}

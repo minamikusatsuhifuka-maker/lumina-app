@@ -12,6 +12,8 @@ export default function StaffExamTakePage({ params }: { params: Promise<{ id: st
   const [answers, setAnswers] = useState<Record<string, string>>({});
   const [submitting, setSubmitting] = useState(false);
   const [result, setResult] = useState<any>(null);
+  const [aiFeedback, setAiFeedback] = useState('');
+  const [feedbackLoading, setFeedbackLoading] = useState(false);
 
   useEffect(() => {
     fetch(`/api/clinic/exams/${id}`)
@@ -28,6 +30,24 @@ export default function StaffExamTakePage({ params }: { params: Promise<{ id: st
     try { return JSON.parse(q); } catch { return []; }
   };
 
+  const generateFeedback = async (score: number, passed: boolean, wrongQuestions: any[]) => {
+    setFeedbackLoading(true);
+    try {
+      const res = await fetch('/api/clinic/brushup-chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          message: `クリニックスタッフが試験を受けました。\n試験名：${exam?.title || '試験'}\n得点：${score}点（合格ライン：${exam?.passing_score || 70}点）\n結果：${passed ? '合格' : '不合格'}\n間違えた問題数：${wrongQuestions.length}問\n\nこのスタッフへの温かいフィードバックを3〜4文で書いてください。\n- 合格の場合：称賛と次のステップへの激励\n- 不合格の場合：頑張りへの承認・間違えた分野の学び方の提案・再挑戦への勇気\n\nリードマネジメントの原則（内発的動機・強みを認める）で書いてください。`,
+          category: 'evaluation',
+        }),
+      });
+      const data = await res.json();
+      const text = data.reply || data.result || '';
+      setAiFeedback(text);
+    } catch {}
+    setFeedbackLoading(false);
+  };
+
   const handleSubmit = async () => {
     setSubmitting(true);
     const res = await fetch(`/api/clinic/exams/${id}/submit`, {
@@ -37,6 +57,13 @@ export default function StaffExamTakePage({ params }: { params: Promise<{ id: st
     });
     const data = await res.json();
     setResult(data);
+    // AIフィードバックを自動生成
+    const qs = parseQuestions(exam.questions);
+    const wrongOnes = qs.filter((_: any, i: number) => {
+      const qId = qs[i]?.id || `q${i}`;
+      return answers[qId] !== qs[i]?.correctAnswer;
+    });
+    generateFeedback(data.score, data.passed, wrongOnes);
     setPhase('after');
     setSubmitting(false);
   };
@@ -210,6 +237,18 @@ export default function StaffExamTakePage({ params }: { params: Promise<{ id: st
           正答: {result?.correctCount ?? 0} / {result?.totalQuestions ?? questions.length} 問 ・ 合格ライン: {exam.passing_score || 70}点
         </div>
       </div>
+
+      {/* AIフィードバック */}
+      {(aiFeedback || feedbackLoading) && (
+        <div style={{ marginBottom: 20, padding: '14px 18px', background: feedbackLoading ? 'var(--bg-secondary)' : 'rgba(108,99,255,0.06)', border: '1px solid rgba(108,99,255,0.2)', borderRadius: 12 }}>
+          <div style={{ fontSize: 12, fontWeight: 700, color: '#6c63ff', marginBottom: 8 }}>🤖 AIからのフィードバック</div>
+          {feedbackLoading ? (
+            <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>フィードバックを生成中...</div>
+          ) : (
+            <div style={{ fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.8 }}>{aiFeedback}</div>
+          )}
+        </div>
+      )}
 
       {/* 各問の結果 */}
       <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 24 }}>
