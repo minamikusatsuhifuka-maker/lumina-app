@@ -121,6 +121,8 @@ export default function OneOnOnePage() {
   const [staffListData, setStaffListData] = useState<any[]>([]);
   const [suggesting, setSuggesting] = useState(false);
   const [suggestions, setSuggestions] = useState('');
+  const [draftLoading, setDraftLoading] = useState(false);
+  const [draftSuggestion, setDraftSuggestion] = useState<string>('');
 
   useEffect(() => {
     fetch('/api/clinic/staff')
@@ -139,6 +141,36 @@ export default function OneOnOnePage() {
         setStaffHistory(withScores);
       }
     } catch {}
+  };
+
+  const fetchDraftSuggestion = async (staffName: string) => {
+    if (!staffName) return;
+    setDraftLoading(true);
+    setDraftSuggestion('');
+    try {
+      // 過去の記録を取得
+      const meetings = await fetch(`/api/clinic/one-on-one?staff_name=${encodeURIComponent(staffName)}`)
+        .then(r => r.json());
+      const recent = Array.isArray(meetings) ? meetings.slice(0, 3) : [];
+      if (recent.length === 0) { setDraftLoading(false); return; }
+
+      const res = await fetch('/api/clinic/one-on-one/suggest', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          staffName,
+          discussion: recent[0]?.discussion || '',
+          achievements: recent[0]?.achievements || '',
+          challenges: recent[0]?.challenges || '',
+          actionItems: recent[0]?.action_items || '',
+          aiAnalysis: recent[0]?.ai_analysis || '',
+          growthStage: recent[0]?.growth_stage || '',
+        }),
+      });
+      const data = await res.json();
+      if (data.result) setDraftSuggestion(data.result);
+    } catch {}
+    finally { setDraftLoading(false); }
   };
 
   const formatDate = (d: string) => d ? d.split('T')[0].replace(/-/g, '/') : '';
@@ -184,7 +216,11 @@ export default function OneOnOnePage() {
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 12 }}>
             <div>
               <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 4 }}>スタッフ名 *</div>
-              <select value={form.staff_name} onChange={e => setForm(f => ({ ...f, staff_name: e.target.value }))}
+              <select value={form.staff_name} onChange={e => {
+                const name = e.target.value;
+                setForm(f => ({ ...f, staff_name: name }));
+                if (name) fetchDraftSuggestion(name);
+              }}
                 style={{ width: '100%', padding: '9px 14px', background: 'var(--input-bg)', border: '1px solid var(--input-border)', borderRadius: 8, color: 'var(--text-primary)', fontSize: 13, outline: 'none' }}>
                 <option value="">スタッフを選択してください</option>
                 {staffListData.map(s => (
@@ -197,6 +233,32 @@ export default function OneOnOnePage() {
               <input type="date" value={form.meeting_date} onChange={e => setForm(f => ({ ...f, meeting_date: e.target.value }))} style={inputStyle} />
             </div>
           </div>
+
+          {/* AI下書きサジェスト */}
+          {draftLoading && (
+            <div style={{ padding: '8px 12px', background: 'rgba(108,99,255,0.06)', border: '1px solid rgba(108,99,255,0.15)', borderRadius: 8, fontSize: 12, color: '#6c63ff', marginBottom: 12 }}>
+              💭 過去の記録から今回聞くべきことを考えています...
+            </div>
+          )}
+          {draftSuggestion && !draftLoading && (
+            <div style={{ marginBottom: 12, padding: 12, background: 'rgba(108,99,255,0.06)', border: '1px solid rgba(108,99,255,0.15)', borderRadius: 10 }}>
+              <div style={{ fontSize: 11, fontWeight: 700, color: '#6c63ff', marginBottom: 8 }}>💡 今回の1on1で聞くといい問いかけ（過去の記録から）</div>
+              {draftSuggestion.split(/【問いかけ[①②③]】/).filter(Boolean).slice(0, 2).map((block, i) => {
+                const [question] = block.trim().split('→ 意図：');
+                return (
+                  <div key={i} style={{ marginBottom: 6, padding: '8px 10px', background: 'var(--bg-card)', borderRadius: 6, border: '1px solid var(--border)' }}>
+                    <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 3 }}>問いかけ {['①', '②'][i]}</div>
+                    <div style={{ fontSize: 12, color: 'var(--text-primary)', lineHeight: 1.6 }}>「{question.trim()}」</div>
+                  </div>
+                );
+              })}
+              <button onClick={() => setDraftSuggestion('')}
+                style={{ marginTop: 4, fontSize: 11, padding: '2px 8px', borderRadius: 6, border: '1px solid var(--border)', background: 'transparent', color: 'var(--text-muted)', cursor: 'pointer' }}>
+                閉じる
+              </button>
+            </div>
+          )}
+
           {[
             { key: 'goals',       label: '🎯 今回のテーマ・目標',   rows: 2,  placeholder: '例：G2への昇格に向けた課題整理' },
             { key: 'discussion',  label: '💬 話し合った内容',       rows: 4,  placeholder: '例：患者対応での強みと改善点について話し合った...' },

@@ -111,6 +111,17 @@ export default function ApplicantsPage() {
     setAiCommenting(null);
   };
 
+  const quickUpdateStatus = async (e: React.MouseEvent, applicantId: string, newStatus: string) => {
+    e.stopPropagation(); // カードのクリックイベントを止める
+    await fetch(`/api/clinic/applicants/${applicantId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status: newStatus }),
+    });
+    setApplicants(prev => prev.map(a => a.id === applicantId ? { ...a, status: newStatus } : a));
+    if (selected?.id === applicantId) setSelected((prev: any) => ({ ...prev, status: newStatus }));
+  };
+
   const processFile = async (file: File) => {
     const supportedTypes = ['application/pdf', 'image/jpeg', 'image/png', 'image/webp'];
     if (!supportedTypes.includes(file.type)) {
@@ -580,6 +591,26 @@ export default function ApplicantsPage() {
                       })}
                     </div>
                   )}
+                  {/* ワンクリックステータス変更 */}
+                  <div style={{ marginTop: 8, display: 'flex', gap: 4, flexWrap: 'wrap' }} onClick={e => e.stopPropagation()}>
+                    {Object.entries(STATUS_LABELS)
+                      .filter(([key]) => key !== a.status && key !== 'rejected')
+                      .slice(0, 3)
+                      .map(([key, s]) => (
+                        <button key={key}
+                          onClick={(e) => quickUpdateStatus(e, a.id, key)}
+                          style={{ padding: '2px 8px', borderRadius: 6, border: `1px solid ${s.color}30`, background: `${s.color}08`, color: s.color, fontSize: 10, cursor: 'pointer', fontWeight: 500 }}>
+                          → {s.label}
+                        </button>
+                      ))}
+                    {a.status !== 'rejected' && (
+                      <button
+                        onClick={(e) => { if (confirm('不採用にしますか？')) quickUpdateStatus(e, a.id, 'rejected'); }}
+                        style={{ padding: '2px 8px', borderRadius: 6, border: '1px solid rgba(239,68,68,0.3)', background: 'rgba(239,68,68,0.06)', color: '#ef4444', fontSize: 10, cursor: 'pointer' }}>
+                        ❌ 不採用
+                      </button>
+                    )}
+                  </div>
                 </div>
               ))
             )}
