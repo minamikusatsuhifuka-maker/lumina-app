@@ -3,30 +3,8 @@ import { auth } from '@/lib/auth';
 
 export const runtime = 'nodejs';
 
-// 南草津皮フ科のPlace ID（初回はFind Placeで自動取得してキャッシュ）
-let cachedPlaceId: string | null = null;
+const PLACE_ID = 'ChIJ7VPhj_pzAWARqIB4cyLDDFU';
 const CLINIC_NAME = '南草津皮フ科';
-
-async function getPlaceId(apiKey: string): Promise<string> {
-  if (cachedPlaceId) return cachedPlaceId;
-
-  const url = new URL('https://maps.googleapis.com/maps/api/place/findplacefromtext/json');
-  url.searchParams.set('input', CLINIC_NAME);
-  url.searchParams.set('inputtype', 'textquery');
-  url.searchParams.set('fields', 'place_id,name');
-  url.searchParams.set('locationbias', 'point:35.006601,135.942499');
-  url.searchParams.set('key', apiKey);
-
-  const res = await fetch(url.toString());
-  const data = await res.json();
-
-  if (data.candidates && data.candidates.length > 0) {
-    cachedPlaceId = data.candidates[0].place_id;
-    return cachedPlaceId!;
-  }
-
-  throw new Error('Place IDが見つかりませんでした');
-}
 
 export async function GET() {
   const session = await auth();
@@ -38,11 +16,9 @@ export async function GET() {
   }
 
   try {
-    const placeId = await getPlaceId(apiKey);
-
     // Place Details APIで詳細を取得
     const detailsUrl = new URL('https://maps.googleapis.com/maps/api/place/details/json');
-    detailsUrl.searchParams.set('place_id', placeId);
+    detailsUrl.searchParams.set('place_id', PLACE_ID);
     detailsUrl.searchParams.set('fields', 'name,rating,user_ratings_total,reviews,opening_hours,formatted_address,formatted_phone_number,website,url');
     detailsUrl.searchParams.set('language', 'ja');
     detailsUrl.searchParams.set('reviews_sort', 'newest');
@@ -58,7 +34,7 @@ export async function GET() {
     const result = data.result;
 
     return NextResponse.json({
-      placeId,
+      placeId: PLACE_ID,
       name: result.name ?? CLINIC_NAME,
       rating: result.rating ?? 0,
       totalReviews: result.user_ratings_total ?? 0,
