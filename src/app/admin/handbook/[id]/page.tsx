@@ -554,7 +554,7 @@ export default function HandbookEditorPage({ params }: { params: Promise<{ id: s
               </div>
 
               {/* 進捗バー */}
-              <div style={{ marginBottom: 14 }}>
+              <div key={`progress-${wizardStep}`} style={{ marginBottom: 14 }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: 'var(--text-muted)', marginBottom: 6 }}>
                   <span style={{ fontWeight: 600 }}>
                     {aiLoading ? '処理中...' : `Step ${wizardStep} / 3`}
@@ -570,7 +570,12 @@ export default function HandbookEditorPage({ params }: { params: Promise<{ id: s
                 <div style={{ height: 8, background: 'rgba(108,99,255,0.15)', borderRadius: 4, overflow: 'hidden', position: 'relative' }}>
                   <div style={{
                     height: '100%',
-                    width: wizardStep === 1 ? '5%' : wizardStep === 2 ? '50%' : '100%',
+                    width: (() => {
+                      const s = wizardStep;
+                      if (s === 1) return '5%';
+                      if (s === 2) return '50%';
+                      return '100%';
+                    })(),
                     background: 'linear-gradient(90deg, #6c63ff, #8b5cf6)',
                     borderRadius: 4,
                     transition: 'width 0.5s ease',
