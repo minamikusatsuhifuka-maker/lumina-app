@@ -112,18 +112,24 @@ export default function OneOnOnePage() {
     setPraiseMessage('');
     setPraiseVisible(true);
     try {
-      const res = await fetch('/api/clinic/brushup-chat', {
+      const res = await fetch('/api/clinic/one-on-one/praise', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          message: `1on1の記録をもとに、院長からスタッフへの称賛メッセージを作成してください。\n\nスタッフ名：${meeting.staff_name}\n面談日：${meeting.meeting_date}\n達成・成長したこと：${meeting.achievements || '未記録'}\n課題・取り組み：${meeting.challenges || '未記録'}\n成長ステージ：${meeting.growth_stage || '未記録'}\n\n以下の条件で書いてください：\n- 3〜4文の温かいメッセージ\n- スタッフの具体的な行動・成長を称える\n- 次への期待と応援を込める\n- LINEやSlackで送れる自然な文体\n- 「${meeting.staff_name}さん」から始める\n\nメッセージのみ返してください（説明文不要）`,
-          category: 'evaluation',
+          staffName: meeting.staff_name,
+          meetingDate: meeting.meeting_date,
+          achievements: meeting.achievements,
+          challenges: meeting.challenges,
+          growthStage: meeting.growth_stage,
         }),
       });
       const data = await res.json();
-      setPraiseMessage(data.reply || data.result || '');
-    } catch { setPraiseMessage('生成に失敗しました。もう一度お試しください。'); }
-    finally { setPraiseLoading(false); }
+      setPraiseMessage(data.message || '生成に失敗しました。');
+    } catch {
+      setPraiseMessage('生成に失敗しました。再度お試しください。');
+    } finally {
+      setPraiseLoading(false);
+    }
   };
 
   const cardStyle: React.CSSProperties = {
