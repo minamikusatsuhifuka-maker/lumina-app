@@ -57,7 +57,7 @@ export async function fetchTopPages(
     metrics: [{ name: 'sessions' }],
     dimensions: [{ name: 'pagePath' }],
     orderBys: [{ metric: { metricName: 'sessions' }, desc: true }],
-    limit: 10,
+    limit: 20,
   });
 
   return response;

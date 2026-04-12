@@ -6,6 +6,8 @@ import {
   XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer,
 } from 'recharts';
+import { DayPicker, type DateRange } from 'react-day-picker';
+import 'react-day-picker/style.css';
 
 // ─── 型定義 ───
 
@@ -134,6 +136,36 @@ const CHANNEL_LABEL_MAP: Record<string, string> = {
 
 function formatChannelName(name: string): string {
   return CHANNEL_LABEL_MAP[name] || name;
+}
+
+// 流入元ソース名からURLを生成
+const SOURCE_URL_MAP: Record<string, string> = {
+  'google': 'https://google.com',
+  'yahoo': 'https://yahoo.co.jp',
+  'bing': 'https://bing.com',
+  'baidu': 'https://baidu.com',
+  'duckduckgo': 'https://duckduckgo.com',
+  'naver': 'https://naver.com',
+  'yandex': 'https://yandex.com',
+  'ig': 'https://instagram.com',
+  'instagram': 'https://instagram.com',
+  'facebook': 'https://facebook.com',
+  'fb': 'https://facebook.com',
+  'twitter': 'https://x.com',
+  'x': 'https://x.com',
+  't.co': 'https://x.com',
+  'linkedin': 'https://linkedin.com',
+  'youtube': 'https://youtube.com',
+  'tiktok': 'https://tiktok.com',
+  'pinterest': 'https://pinterest.com',
+  'reddit': 'https://reddit.com',
+};
+
+function getSourceUrl(source: string): string {
+  const lower = source.toLowerCase();
+  if (SOURCE_URL_MAP[lower]) return SOURCE_URL_MAP[lower];
+  if (lower.includes('.')) return `https://${source}`;
+  return `https://${source}.com`;
 }
 
 // 人気ページのパスを日本語ラベルに変換するマップ
@@ -319,12 +351,59 @@ export default function AnalyticsPage() {
   const [expandedHistoryId, setExpandedHistoryId] = useState<string | null>(null);
   const [showClaudeModal, setShowClaudeModal] = useState(false);
 
+  // 期間選択
+  const [presetDays, setPresetDays] = useState<number>(7);
+  const [showCalendar, setShowCalendar] = useState(false);
+  const [dateRange, setDateRange] = useState<DateRange | undefined>(undefined);
+  const [activeDateStart, setActiveDateStart] = useState<string | null>(null);
+  const [activeDateEnd, setActiveDateEnd] = useState<string | null>(null);
+  const calendarRef = useRef<HTMLDivElement>(null);
+
+  // カレンダー外クリックで閉じる
+  useEffect(() => {
+    if (!showCalendar) return;
+    const handler = (e: MouseEvent) => {
+      if (calendarRef.current && !calendarRef.current.contains(e.target as Node)) {
+        setShowCalendar(false);
+      }
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [showCalendar]);
+
+  // 日付ヘルパー
+  const toDateStr = (d: Date) => d.toISOString().split('T')[0];
+  const formatDateJa = (s: string) => {
+    const d = new Date(s + 'T00:00:00');
+    return `${d.getFullYear()}/${String(d.getMonth() + 1).padStart(2, '0')}/${String(d.getDate()).padStart(2, '0')}`;
+  };
+
+  // 現在の選択期間を算出
+  const getDateParams = () => {
+    if (dateRange?.from && dateRange?.to) {
+      return { startDate: toDateStr(dateRange.from), endDate: toDateStr(dateRange.to) };
+    }
+    const end = new Date();
+    const start = new Date(Date.now() - presetDays * 24 * 60 * 60 * 1000);
+    return { startDate: toDateStr(start), endDate: toDateStr(end) };
+  };
+
+  const periodLabel = (() => {
+    const { startDate, endDate } = getDateParams();
+    return `${formatDateJa(startDate)} 〜 ${formatDateJa(endDate)}`;
+  })();
+
   // GA4データ取得
   const fetchData = async () => {
     setLoading(true);
     setError(null);
+    const { startDate, endDate } = getDateParams();
     try {
-      const res = await fetch('/api/ga/fetch', { method: 'POST' });
+      const res = await fetch('/api/ga/fetch', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ startDate, endDate }),
+      });
       if (!res.ok) {
         const errBody = await res.json().catch(() => ({ error: 'データ取得に失敗しました' }));
         throw new Error(errBody.error || `HTTP ${res.status}`);
@@ -335,6 +414,8 @@ export default function AnalyticsPage() {
       setTopPages(data.topPages ?? []);
       setReferralSources(data.referralSources ?? []);
       setSnapshotId(data.snapshotId ?? null);
+      setActiveDateStart(data.startDate ?? startDate);
+      setActiveDateEnd(data.endDate ?? endDate);
       setSaved(false);
       setInsightData(null);
       setShowAllReferrals(false);
@@ -654,6 +735,35 @@ export default function AnalyticsPage() {
     <div className="analytics-root">
       {/* CSS */}
       <style>{`
+        .preset-btn {
+          padding: 6px 14px; border-radius: 8px; border: 1px solid var(--border);
+          background: var(--bg-secondary); color: var(--text-muted);
+          font-size: 12px; font-weight: 600; cursor: pointer;
+          transition: all 0.15s;
+        }
+        .preset-btn:hover { border-color: #6c63ff; color: var(--text-primary); }
+        .preset-btn.active {
+          background: linear-gradient(135deg, rgba(108,99,255,0.1), rgba(0,212,184,0.1));
+          border-color: #6c63ff; color: var(--text-primary);
+        }
+        .calendar-popover {
+          position: absolute; top: 100%; right: 0; margin-top: 8px; z-index: 60;
+          background: var(--bg-secondary); border: 1px solid var(--border);
+          border-radius: 14px; box-shadow: 0 12px 40px rgba(0,0,0,0.15);
+          padding: 12px; animation: modalSlideUp 0.2s ease;
+        }
+        .calendar-popover .rdp-root {
+          --rdp-accent-color: #6c63ff;
+          --rdp-accent-background-color: rgba(108,99,255,0.12);
+          --rdp-range_middle-background-color: rgba(108,99,255,0.06);
+          --rdp-today-color: #00d4b8;
+          font-size: 13px;
+          color: var(--text-primary);
+        }
+        .calendar-popover .rdp-day { border-radius: 8px; }
+        .calendar-popover .rdp-head_cell { color: var(--text-muted); font-size: 11px; }
+        .calendar-popover .rdp-nav button { color: var(--text-muted); }
+        .calendar-popover .rdp-caption_label { color: var(--text-primary); font-weight: 700; }
         @keyframes tooltipFadeIn {
           from { opacity: 0; transform: translateX(-50%) translateY(4px); }
           to   { opacity: 1; transform: translateX(-50%) translateY(0); }
@@ -876,41 +986,103 @@ export default function AnalyticsPage() {
       `}</style>
 
       {/* ─── ヘッダー ─── */}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 28 }}>
-        <div>
-          <h1 style={{ fontSize: 24, fontWeight: 800, color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: 10 }}>
-            <span style={{
-              display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-              width: 36, height: 36, borderRadius: 10,
-              background: 'linear-gradient(135deg, #6c63ff, #00d4b8)',
-              fontSize: 18,
-            }}>📈</span>
-            アナリティクス
-          </h1>
-          <p style={{ fontSize: 13, color: 'var(--text-muted)', marginTop: 4 }}>
-            GA4のデータを取得し、AIが自動で分析・アクション提案を行います
-          </p>
+      <div style={{ marginBottom: 28 }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
+          <div>
+            <h1 style={{ fontSize: 24, fontWeight: 800, color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: 10 }}>
+              <span style={{
+                display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                width: 36, height: 36, borderRadius: 10,
+                background: 'linear-gradient(135deg, #6c63ff, #00d4b8)',
+                fontSize: 18,
+              }}>📈</span>
+              アナリティクス
+            </h1>
+            <p style={{ fontSize: 13, color: 'var(--text-muted)', marginTop: 4 }}>
+              GA4のデータを取得し、AIが自動で分析・アクション提案を行います
+            </p>
+          </div>
+          <button
+            onClick={fetchData}
+            disabled={loading}
+            style={{
+              padding: '11px 24px', borderRadius: 10, border: 'none',
+              cursor: loading ? 'not-allowed' : 'pointer',
+              background: 'linear-gradient(135deg, #6c63ff, #00d4b8)', color: '#fff',
+              fontWeight: 700, fontSize: 13, opacity: loading ? 0.6 : 1,
+              transition: 'opacity 0.2s, box-shadow 0.2s',
+              boxShadow: '0 4px 14px rgba(108,99,255,0.3)',
+            }}
+          >
+            {loading ? '取得中...' : 'GA4データを取得'}
+          </button>
         </div>
-        <button
-          onClick={fetchData}
-          disabled={loading}
-          style={{
-            padding: '11px 24px', borderRadius: 10, border: 'none',
-            cursor: loading ? 'not-allowed' : 'pointer',
-            background: 'linear-gradient(135deg, #6c63ff, #00d4b8)', color: '#fff',
-            fontWeight: 700, fontSize: 13, opacity: loading ? 0.6 : 1,
-            transition: 'opacity 0.2s, box-shadow 0.2s',
-            boxShadow: '0 4px 14px rgba(108,99,255,0.3)',
-          }}
-        >
-          {loading ? '取得中...' : 'GA4データを取得'}
-        </button>
+
+        {/* 期間選択 */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', position: 'relative' }}>
+          {[
+            { label: '過去7日', days: 7 },
+            { label: '過去14日', days: 14 },
+            { label: '過去30日', days: 30 },
+            { label: '過去90日', days: 90 },
+          ].map(p => (
+            <button
+              key={p.days}
+              className={`preset-btn ${!dateRange && presetDays === p.days ? 'active' : ''}`}
+              onClick={() => { setPresetDays(p.days); setDateRange(undefined); setShowCalendar(false); }}
+            >
+              {p.label}
+            </button>
+          ))}
+          <div style={{ position: 'relative' }} ref={calendarRef}>
+            <button
+              className={`preset-btn ${dateRange ? 'active' : ''}`}
+              onClick={() => setShowCalendar(!showCalendar)}
+              style={{ display: 'flex', alignItems: 'center', gap: 4 }}
+            >
+              📅 {dateRange?.from && dateRange?.to
+                ? `${formatDateJa(toDateStr(dateRange.from))} 〜 ${formatDateJa(toDateStr(dateRange.to))}`
+                : 'カスタム期間'}
+            </button>
+            {showCalendar && (
+              <div className="calendar-popover">
+                <DayPicker
+                  mode="range"
+                  selected={dateRange}
+                  onSelect={(range) => {
+                    setDateRange(range);
+                    if (range?.from && range?.to) {
+                      // 365日制限
+                      const diffMs = range.to.getTime() - range.from.getTime();
+                      if (diffMs > 365 * 24 * 60 * 60 * 1000) {
+                        const clampedFrom = new Date(range.to.getTime() - 365 * 24 * 60 * 60 * 1000);
+                        setDateRange({ from: clampedFrom, to: range.to });
+                      }
+                      setShowCalendar(false);
+                    }
+                  }}
+                  disabled={{ after: new Date() }}
+                  numberOfMonths={2}
+                  showOutsideDays
+                />
+                {dateRange?.from && !dateRange?.to && (
+                  <div style={{ padding: '8px 12px', fontSize: 11, color: 'var(--text-muted)', textAlign: 'center', borderTop: '1px solid var(--border)' }}>
+                    終了日を選択してください
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+          <span style={{ fontSize: 12, color: 'var(--text-muted)', marginLeft: 4 }}>
+            📅 {periodLabel}
+          </span>
+        </div>
       </div>
 
       {/* ─── 過去の分析履歴 ─── */}
       {history.length > 0 && (
         <div style={{ marginBottom: 24 }}>
-          <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase' as const, letterSpacing: '0.08em', marginBottom: 12, display: 'flex', alignItems: 'center', gap: 8 }}>
+          <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase' as const, letterSpacing: '0.08em', marginBottom: 12, display: 'flex', alignItems: 'center', gap: 8 }}>
             <span style={{ width: 20, height: 2, background: 'linear-gradient(90deg, #8b5cf6, #ec4899)', borderRadius: 1 }} />
             過去の分析履歴（{history.length}件）
           </div>
@@ -1038,7 +1210,7 @@ export default function AnalyticsPage() {
             GA4データがまだ取得されていません
           </div>
           <div style={{ fontSize: 13, color: 'var(--text-muted)' }}>
-            「GA4データを取得」ボタンをクリックして直近7日間のデータを取得してください
+            期間を選択し「GA4データを取得」ボタンをクリックしてデータを取得してください
           </div>
         </div>
       )}
@@ -1056,9 +1228,9 @@ export default function AnalyticsPage() {
         <>
           {/* ═══ SECTION 1: KPIカード ═══ */}
           <div style={{ marginBottom: 8 }}>
-            <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase' as const, letterSpacing: '0.08em', marginBottom: 14, display: 'flex', alignItems: 'center', gap: 8 }}>
+            <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase' as const, letterSpacing: '0.08em', marginBottom: 14, display: 'flex', alignItems: 'center', gap: 8 }}>
               <span style={{ width: 20, height: 2, background: 'linear-gradient(90deg, #6c63ff, #00d4b8)', borderRadius: 1 }} />
-              主要指標（直近7日間）
+              主要指標{activeDateStart && activeDateEnd ? `（${formatDateJa(activeDateStart)} 〜 ${formatDateJa(activeDateEnd)}）` : ''}
             </div>
             <div className="kpi-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(195px, 1fr))', gap: 12 }}>
               {kpis.map((kpi, idx) => {
@@ -1069,8 +1241,8 @@ export default function AnalyticsPage() {
                       <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 3, background: kpi.gradient }} />
                       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                          <span style={{ fontSize: 15 }}>{kpi.icon}</span>
-                          <span style={{ fontSize: 11, color: 'var(--text-muted)', fontWeight: 600 }}>{kpi.label}</span>
+                          <span style={{ fontSize: 16 }}>{kpi.icon}</span>
+                          <span style={{ fontSize: 13, color: 'var(--text-muted)', fontWeight: 600 }}>{kpi.label}</span>
                         </div>
                         <div style={{
                           width: 8, height: 8, borderRadius: '50%', background: sc.dot,
@@ -1091,14 +1263,14 @@ export default function AnalyticsPage() {
 
           {/* ═══ SECTION 2: チャート ═══ */}
           <div style={{ marginBottom: 8 }}>
-            <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase' as const, letterSpacing: '0.08em', marginBottom: 14, display: 'flex', alignItems: 'center', gap: 8 }}>
+            <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase' as const, letterSpacing: '0.08em', marginBottom: 14, display: 'flex', alignItems: 'center', gap: 8 }}>
               <span style={{ width: 20, height: 2, background: 'linear-gradient(90deg, #6c63ff, #00d4b8)', borderRadius: 1 }} />
               チャネル分析 & 人気ページ
             </div>
             <div className="chart-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20 }}>
               {/* チャネル別（ドーナツ + リスト横並び） */}
               <div className="analytics-card" style={{ padding: 22 }}>
-                <h3 style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 18 }}>チャネル別セッション</h3>
+                <h3 style={{ fontSize: 15, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 18 }}>チャネル別セッション</h3>
                 {pieData.length > 0 ? (
                   <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
                     {/* ドーナツチャート（中央に総セッション数） */}
@@ -1133,7 +1305,7 @@ export default function AnalyticsPage() {
                         <div style={{ fontSize: 22, fontWeight: 800, color: 'var(--text-primary)', lineHeight: 1 }}>
                           {totalSessions.toLocaleString()}
                         </div>
-                        <div style={{ fontSize: 10, color: 'var(--text-muted)', marginTop: 2 }}>総セッション</div>
+                        <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2 }}>総セッション</div>
                       </div>
                     </div>
                     {/* チャネルリスト */}
@@ -1142,11 +1314,11 @@ export default function AnalyticsPage() {
                         const pct = totalSessions > 0 ? (d.value / totalSessions) * 100 : 0;
                         const color = CHANNEL_COLORS[i % CHANNEL_COLORS.length];
                         return (
-                          <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12 }}>
+                          <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13 }}>
                             <span style={{ width: 10, height: 10, borderRadius: '50%', background: color, flexShrink: 0 }} />
                             <span style={{ flex: 1, color: 'var(--text-primary)', fontWeight: 500, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', minWidth: 0 }}>{d.name}</span>
-                            <span style={{ color: 'var(--text-muted)', fontWeight: 600, flexShrink: 0, width: 40, textAlign: 'right' }}>{d.value}</span>
-                            <span style={{ color: 'var(--text-muted)', fontSize: 11, flexShrink: 0, width: 38, textAlign: 'right' }}>{pct.toFixed(1)}%</span>
+                            <span style={{ color: 'var(--text-muted)', fontWeight: 600, flexShrink: 0, width: 44, textAlign: 'right' }}>{d.value}</span>
+                            <span style={{ color: 'var(--text-muted)', fontSize: 12, flexShrink: 0, width: 40, textAlign: 'right' }}>{pct.toFixed(1)}%</span>
                             <div style={{ width: 60, height: 6, borderRadius: 3, background: 'var(--bg-primary)', flexShrink: 0, overflow: 'hidden' }}>
                               <div style={{ width: `${Math.min(pct, 100)}%`, height: '100%', borderRadius: 3, background: color, transition: 'width 0.4s ease' }} />
                             </div>
@@ -1162,13 +1334,13 @@ export default function AnalyticsPage() {
 
               {/* 人気ページ */}
               <div className="analytics-card" style={{ padding: 22 }}>
-                <h3 style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 18 }}>人気ページ TOP10</h3>
+                <h3 style={{ fontSize: 15, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 18 }}>人気ページ TOP20</h3>
                 {pageBarData.length > 0 ? (
-                  <ResponsiveContainer width="100%" height={280}>
+                  <ResponsiveContainer width="100%" height={Math.max(300, pageBarData.length * 28)}>
                     <BarChart data={pageBarData} layout="vertical" margin={{ top: 4, right: 16, left: 0, bottom: 4 }}>
                       <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
-                      <XAxis type="number" tick={{ fontSize: 10, fill: 'var(--text-muted)' }} allowDecimals={false} />
-                      <YAxis type="category" dataKey="name" tick={{ fontSize: 10, fill: 'var(--text-muted)' }} width={160} />
+                      <XAxis type="number" tick={{ fontSize: 12, fill: 'var(--text-muted)' }} allowDecimals={false} />
+                      <YAxis type="category" dataKey="name" tick={{ fontSize: 13, fill: 'var(--text-muted)' }} width={180} />
                       <Tooltip
                         contentStyle={{ background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 10, fontSize: 12 }}
                         formatter={(value) => [`${value} セッション`, '']}
@@ -1196,18 +1368,18 @@ export default function AnalyticsPage() {
           {/* ═══ 流入元サイト詳細 ═══ */}
           {referralSources.length > 0 && (
             <div style={{ marginTop: 24 }}>
-              <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase' as const, letterSpacing: '0.08em', marginBottom: 14, display: 'flex', alignItems: 'center', gap: 8 }}>
+              <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase' as const, letterSpacing: '0.08em', marginBottom: 14, display: 'flex', alignItems: 'center', gap: 8 }}>
                 <span style={{ width: 20, height: 2, background: 'linear-gradient(90deg, #6c63ff, #00d4b8)', borderRadius: 1 }} />
                 流入元サイト詳細
               </div>
               <div className="analytics-card" style={{ padding: 0, overflow: 'hidden' }}>
-                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 14 }}>
                   <thead>
                     <tr style={{ borderBottom: '1px solid var(--border)' }}>
                       {['流入元サイト', '媒体', 'セッション数', '直帰率'].map(h => (
                         <th key={h} style={{
                           padding: '12px 16px', textAlign: h === 'セッション数' || h === '直帰率' ? 'right' : 'left',
-                          fontSize: 11, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase' as const,
+                          fontSize: 12, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase' as const,
                           letterSpacing: '0.04em', background: 'var(--bg-primary)',
                         }}>{h}</th>
                       ))}
@@ -1226,17 +1398,29 @@ export default function AnalyticsPage() {
                             {isSearchEngine && (
                               <span style={{
                                 display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-                                width: 20, height: 20, borderRadius: 5, fontSize: 10, flexShrink: 0,
+                                width: 22, height: 22, borderRadius: 6, fontSize: 11, flexShrink: 0,
                                 background: 'rgba(16,185,129,0.1)', color: '#10b981',
                               }}>🔍</span>
                             )}
-                            <span style={{ fontWeight: 600, color: isSearchEngine ? '#10b981' : 'var(--text-primary)' }}>
+                            <a
+                              href={getSourceUrl(r.source)}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              style={{
+                                fontWeight: 600, fontSize: 14,
+                                color: isSearchEngine ? '#10b981' : 'var(--text-primary)',
+                                textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 4,
+                              }}
+                              onMouseEnter={e => (e.currentTarget.style.textDecoration = 'underline')}
+                              onMouseLeave={e => (e.currentTarget.style.textDecoration = 'none')}
+                            >
                               {r.source}
-                            </span>
+                              <span style={{ fontSize: 11, opacity: 0.5 }}>↗</span>
+                            </a>
                           </td>
                           <td style={{ padding: '10px 16px', color: 'var(--text-muted)' }}>
                             <span style={{
-                              display: 'inline-block', padding: '2px 8px', borderRadius: 4, fontSize: 11,
+                              display: 'inline-block', padding: '3px 10px', borderRadius: 5, fontSize: 12,
                               background: r.medium === 'organic' ? 'rgba(16,185,129,0.08)' :
                                          r.medium === 'referral' ? 'rgba(108,99,255,0.08)' :
                                          r.medium === 'cpc' ? 'rgba(245,158,11,0.08)' : 'var(--bg-primary)',
@@ -1248,12 +1432,12 @@ export default function AnalyticsPage() {
                               {r.medium}
                             </span>
                           </td>
-                          <td style={{ padding: '10px 16px', textAlign: 'right', fontWeight: 700, color: 'var(--text-primary)' }}>
+                          <td style={{ padding: '10px 16px', textAlign: 'right', fontWeight: 700, fontSize: 14, color: 'var(--text-primary)' }}>
                             {r.sessions.toLocaleString()}
                           </td>
                           <td style={{ padding: '10px 16px', textAlign: 'right' }}>
                             <span style={{
-                              fontWeight: 600,
+                              fontWeight: 600, fontSize: 14,
                               color: br <= 40 ? '#10b981' : br <= 60 ? '#f59e0b' : '#ef4444',
                             }}>
                               {br.toFixed(1)}%
@@ -1287,7 +1471,7 @@ export default function AnalyticsPage() {
           {/* ══��� SECTION 3: AI分析 ═══ */}
           <div>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
-              <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase' as const, letterSpacing: '0.08em', display: 'flex', alignItems: 'center', gap: 8 }}>
+              <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase' as const, letterSpacing: '0.08em', display: 'flex', alignItems: 'center', gap: 8 }}>
                 <span style={{ width: 20, height: 2, background: 'linear-gradient(90deg, #6c63ff, #00d4b8)', borderRadius: 1 }} />
                 AI分析 & アクションプラン
               </div>
