@@ -153,6 +153,27 @@ export default function HandbookEditorPage({ params }: { params: Promise<{ id: s
     }
   }, [activeIdx]);
 
+  // AI処理中に進捗バーをゆっくり増やすエフェクト
+  useEffect(() => {
+    if (!aiLoading) return;
+
+    setStepProgress(0);
+    let current = 0;
+    const target = 88;
+    const duration = 18000;
+    const interval = 100;
+    const steps = duration / interval;
+    const increment = target / steps;
+
+    const timer = setInterval(() => {
+      current = Math.min(current + increment, target);
+      setStepProgress(Math.round(current));
+      if (current >= target) clearInterval(timer);
+    }, interval);
+
+    return () => clearInterval(timer);
+  }, [aiLoading]);
+
   const saveChapter = async () => {
     const ch = chapters[activeIdx];
     if (!ch) return;
@@ -603,7 +624,7 @@ export default function HandbookEditorPage({ params }: { params: Promise<{ id: s
                     AIがこの章を読んで「改善すべき点」を具体的に教えてくれます
                   </div>
                   <button onClick={async () => {
-                    setAiLoading(true); setStepProgress(0); setAiResult('');
+                    setAiLoading(true); setAiResult('');
                     try {
                       const res = await fetch('/api/clinic/handbooks/enhance', {
                         method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -654,7 +675,7 @@ export default function HandbookEditorPage({ params }: { params: Promise<{ id: s
                       { k: 'concrete', l: '✅ 具体的行動型', d: '「明日からこう動こう」と思える実践的な文章に' },
                     ].map(t => (
                       <button key={t.k} onClick={async () => {
-                        setAiLoading(true); setStepProgress(0); setAiResult('');
+                        setAiLoading(true); setAiResult('');
                         setBeforeContent(editContent);
                         setShowBeforeAfter(false);
                         try {
@@ -685,7 +706,7 @@ export default function HandbookEditorPage({ params }: { params: Promise<{ id: s
                         style={{ ...inputStyle, flex: 1, fontSize: 12 }} />
                       <button onClick={async () => {
                         if (!aiInstruction.trim()) return;
-                        setAiLoading(true); setStepProgress(0); setAiResult('');
+                        setAiLoading(true); setAiResult('');
                         setBeforeContent(editContent);
                         setShowBeforeAfter(false);
                         try {
