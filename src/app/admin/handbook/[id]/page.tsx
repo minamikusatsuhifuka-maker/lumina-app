@@ -397,6 +397,18 @@ export default function HandbookEditorPage({ params }: { params: Promise<{ id: s
           <div style={{ textAlign: 'center', padding: 60, color: 'var(--text-muted)' }}>章がありません。左のパネルから追加してください。</div>
         ) : (
           <>
+            {/* 保存ボタン行（タイトル上） */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+              <button onClick={saveChapter} disabled={saving} style={{
+                padding: '7px 20px', borderRadius: 8, border: 'none',
+                background: saving ? 'rgba(108,99,255,0.3)' : 'linear-gradient(135deg, #6c63ff, #8b5cf6)',
+                color: '#fff', fontWeight: 700, fontSize: 13, cursor: 'pointer',
+              }}>
+                {saving ? '保存中...' : '💾 保存'}
+              </button>
+              <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>文字数: {editContent.length}</span>
+            </div>
+
             {/* 章タイトル */}
             <input value={editTitle} onChange={e => setEditTitle(e.target.value)} style={{ ...inputStyle, fontSize: 18, fontWeight: 700, marginBottom: 12 }} />
 
@@ -409,10 +421,6 @@ export default function HandbookEditorPage({ params }: { params: Promise<{ id: s
               purposes={['manual', 'patient', 'simple', 'warm', 'official']}
             />
 
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 8 }}>
-              <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>文字数: {editContent.length}</span>
-              <button onClick={saveChapter} disabled={saving} style={{ padding: '8px 20px', borderRadius: 8, border: 'none', background: saving ? 'rgba(108,99,255,0.3)' : 'linear-gradient(135deg, #6c63ff, #8b5cf6)', color: '#fff', fontWeight: 700, fontSize: 13, cursor: 'pointer' }}>{saving ? '保存中...' : '💾 保存'}</button>
-            </div>
 
             {/* ボスマネ→リードマネ変換・問いかけ生成 */}
             <div style={{ marginTop: 12, display: 'flex', gap: 8 }}>
@@ -535,6 +543,23 @@ export default function HandbookEditorPage({ params }: { params: Promise<{ id: s
                       {wizardStep > step ? '✓' : step}
                     </button>
                   ))}
+                </div>
+              </div>
+
+              {/* 進捗バー */}
+              <div style={{ marginBottom: 14 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10, color: 'var(--text-muted)', marginBottom: 4 }}>
+                  <span>Step {wizardStep} / 3</span>
+                  <span>{Math.round(((wizardStep - 1) / 2) * 100)}%</span>
+                </div>
+                <div style={{ height: 6, background: 'var(--border)', borderRadius: 3, overflow: 'hidden' }}>
+                  <div style={{
+                    height: '100%',
+                    width: `${Math.round(((wizardStep - 1) / 2) * 100)}%`,
+                    background: 'linear-gradient(90deg, #6c63ff, #8b5cf6)',
+                    borderRadius: 3,
+                    transition: 'width 0.4s ease',
+                  }} />
                 </div>
               </div>
 
