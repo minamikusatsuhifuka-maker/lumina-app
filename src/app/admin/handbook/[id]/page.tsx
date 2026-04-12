@@ -519,9 +519,7 @@ export default function HandbookEditorPage({ params }: { params: Promise<{ id: s
                         </div>
                         <div>
                           <div style={{ fontSize: 11, fontWeight: 700, color: '#4ade80', marginBottom: 6 }}>After（AI改善案）</div>
-                          <div style={{ padding: 12, background: 'rgba(74,222,128,0.04)', border: '1px solid rgba(74,222,128,0.2)', borderRadius: 8, fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.8, whiteSpace: 'pre-wrap', maxHeight: 300, overflowY: 'auto' }}>
-                            {aiResult}
-                          </div>
+                          <div style={{ padding: 12, background: 'rgba(74,222,128,0.04)', border: '1px solid rgba(74,222,128,0.2)', borderRadius: 8, fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.8, maxHeight: 300, overflowY: 'auto' }} dangerouslySetInnerHTML={{ __html: renderMarkdown(aiResult) }} />
                         </div>
                       </div>
                       <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
@@ -560,9 +558,7 @@ export default function HandbookEditorPage({ params }: { params: Promise<{ id: s
                   {/* 最終プレビュー */}
                   <div style={{ marginBottom: 12 }}>
                     <div style={{ fontSize: 11, fontWeight: 700, color: '#4ade80', marginBottom: 6 }}>適用される内容：</div>
-                    <div style={{ padding: 14, background: 'rgba(74,222,128,0.04)', border: '1px solid rgba(74,222,128,0.2)', borderRadius: 10, fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.8, whiteSpace: 'pre-wrap', maxHeight: 300, overflowY: 'auto' }}>
-                      {aiResult}
-                    </div>
+                    <div style={{ padding: 14, background: 'rgba(74,222,128,0.04)', border: '1px solid rgba(74,222,128,0.2)', borderRadius: 10, fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.8, maxHeight: 300, overflowY: 'auto' }} dangerouslySetInnerHTML={{ __html: renderMarkdown(aiResult) }} />
                   </div>
 
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
