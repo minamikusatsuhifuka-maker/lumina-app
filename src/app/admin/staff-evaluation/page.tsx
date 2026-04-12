@@ -93,18 +93,18 @@ export default function StaffEvaluationPage() {
     setPromotionMessage('');
     setPromotionMessageVisible(true);
     try {
-      const res = await fetch('/api/clinic/brushup-chat', {
+      const res = await fetch('/api/clinic/staff-evaluation/promotion-message', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          message: `スタッフが昇格しました。院長からのお祝いメッセージを作成してください。\n\nスタッフ名：${staffName}\n昇格した等級：${grade}\n\n以下の条件で書いてください：\n- 4〜5文の温かく誇りを感じるメッセージ\n- 昇格した等級の意味・次の広がりを感じさせる\n- このスタッフへの期待と感謝を込める\n- 「${staffName}さん」から始める\n- リードマネジメント哲学（内発的動機・インサイドアウト）を意識した言葉で\n\nメッセージのみ返してください`,
-          category: 'evaluation',
-        }),
+        body: JSON.stringify({ staffName, grade }),
       });
       const data = await res.json();
-      setPromotionMessage(data.reply || data.result || '');
-    } catch { setPromotionMessage('生成に失敗しました。'); }
-    finally { setPromotionMessageLoading(false); }
+      setPromotionMessage(data.message || '生成に失敗しました。');
+    } catch {
+      setPromotionMessage('生成に失敗しました。再度お試しください。');
+    } finally {
+      setPromotionMessageLoading(false);
+    }
   };
 
   const cardStyle: React.CSSProperties = {
