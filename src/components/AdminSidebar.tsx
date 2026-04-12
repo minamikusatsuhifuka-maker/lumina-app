@@ -42,6 +42,7 @@ const navGroups: NavGroup[] = [
       { href: '/admin/red-zone', label: '行動基準', icon: '🎯' },
       { href: '/admin/employment-rules', label: '就業規則', icon: '📄' },
       { href: '/admin/handbook', label: 'ハンドブック', icon: '📖' },
+      { href: '/admin/text-improve', label: 'テキスト改善', icon: '✍️' },
       { href: '/admin/surveys', label: 'アンケート管理', icon: '📝' },
       { href: '/admin/exams', label: '試験管理', icon: '✏️' },
     ],
