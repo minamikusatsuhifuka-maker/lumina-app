@@ -357,8 +357,8 @@ export default function HandbookEditorPage({ params }: { params: Promise<{ id: s
     <>
     <style>{`
       @keyframes handbookSlide {
-        0% { left: -40%; }
-        100% { left: 140%; }
+        0% { transform: translateX(0%); }
+        100% { transform: translateX(350%); }
       }
     `}</style>
     <div style={{ display: 'flex', gap: 0, minHeight: 'calc(100vh - 56px)' }}>
@@ -557,10 +557,10 @@ export default function HandbookEditorPage({ params }: { params: Promise<{ id: s
               <div style={{ marginBottom: 14 }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: 'var(--text-muted)', marginBottom: 6 }}>
                   <span style={{ fontWeight: 600 }}>
-                    {(aiLoading || ideologyLoading) ? '処理中...' : `Step ${wizardStep} / 3`}
+                    {aiLoading ? '処理中...' : `Step ${wizardStep} / 3`}
                   </span>
                   <span>
-                    {(aiLoading || ideologyLoading)
+                    {aiLoading
                       ? '⏳'
                       : wizardStep === 1 ? '0%'
                       : wizardStep === 2 ? '50%'
@@ -576,11 +576,16 @@ export default function HandbookEditorPage({ params }: { params: Promise<{ id: s
                     transition: 'width 0.5s ease',
                   }} />
                 </div>
-                {(aiLoading || ideologyLoading) && (
-                  <div style={{ marginTop: 3, height: 3, background: 'rgba(108,99,255,0.1)', borderRadius: 2, overflow: 'hidden', position: 'relative' }}>
+                {aiLoading && (
+                  <div style={{
+                    marginTop: 3, height: 4,
+                    background: 'rgba(108,99,255,0.12)',
+                    borderRadius: 2, overflow: 'hidden', position: 'relative',
+                  }}>
                     <div style={{
-                      position: 'absolute', top: 0, height: '100%', width: '40%',
-                      background: 'linear-gradient(90deg, transparent, #6c63ff, transparent)',
+                      position: 'absolute', top: 0, left: '-40%',
+                      height: '100%', width: '40%',
+                      background: 'linear-gradient(90deg, transparent, rgba(108,99,255,0.8), transparent)',
                       animation: 'handbookSlide 1.2s ease-in-out infinite',
                     }} />
                   </div>
