@@ -104,6 +104,11 @@ export default function HandbookEditorPage({ params }: { params: Promise<{ id: s
   const [ideologyScore, setIdeologyScore] = useState<null | { score: number; reason: string; points: string[] }>(null);
   const [ideologyLoading, setIdeologyLoading] = useState(false);
 
+  // 改善履歴
+  const [improveHistories, setImproveHistories] = useState<any[]>([]);
+  const [showHistory, setShowHistory] = useState(false);
+  const [historyLoading, setHistoryLoading] = useState(false);
+
   // 新章追加
   const [newChapterTitle, setNewChapterTitle] = useState('');
 
@@ -135,6 +140,7 @@ export default function HandbookEditorPage({ params }: { params: Promise<{ id: s
       setEditContent(chapters[activeIdx].content);
       setAiResult('');
       setAiHistory([]);
+      if (chapters[activeIdx].id) loadImproveHistory(chapters[activeIdx].id);
     }
   }, [activeIdx]);
 
@@ -214,6 +220,38 @@ export default function HandbookEditorPage({ params }: { params: Promise<{ id: s
       if (data.score !== undefined) setIdeologyScore(data);
     } catch {}
     finally { setIdeologyLoading(false); }
+  };
+
+  const loadImproveHistory = async (chapterId: string) => {
+    if (!chapterId) return;
+    setHistoryLoading(true);
+    try {
+      const res = await fetch(`/api/clinic/handbooks/improve-history?chapterId=${chapterId}`);
+      const data = await res.json();
+      if (Array.isArray(data)) setImproveHistories(data);
+    } catch {}
+    setHistoryLoading(false);
+  };
+
+  const saveImproveHistory = async (direction: string, afterContent: string) => {
+    const chapter = chapters[activeIdx];
+    if (!chapter || !afterContent) return;
+    try {
+      await fetch('/api/clinic/handbooks/improve-history', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          chapterId: chapter.id,
+          handbookId: id,
+          chapterTitle: editTitle,
+          direction,
+          beforeContent: editContent,
+          afterContent,
+          ideologyScore: null,
+        }),
+      });
+      await loadImproveHistory(chapter.id);
+    } catch {}
   };
 
   const sendChat = async (overrideInput?: string) => {
@@ -463,7 +501,7 @@ export default function HandbookEditorPage({ params }: { params: Promise<{ id: s
                             body: JSON.stringify({ mode: 'template', template: t.k, chapterContent: editContent }),
                           });
                           const data = await res.json();
-                          if (data.result) { setAiResult(data.result); setShowBeforeAfter(true); }
+                          if (data.result) { setAiResult(data.result); setShowBeforeAfter(true); saveImproveHistory(t.l, data.result); }
                         } catch {} finally { setAiLoading(false); }
                       }} disabled={aiLoading} style={{
                         padding: '12px', borderRadius: 10, border: '1px solid var(--border)',
@@ -494,7 +532,7 @@ export default function HandbookEditorPage({ params }: { params: Promise<{ id: s
                             body: JSON.stringify({ mode: 'rewrite', instruction: aiInstruction, chapterContent: editContent }),
                           });
                           const data = await res.json();
-                          if (data.result) { setAiResult(data.result); setShowBeforeAfter(true); setAiInstruction(''); }
+                          if (data.result) { setAiResult(data.result); setShowBeforeAfter(true); saveImproveHistory(aiInstruction.slice(0, 30), data.result); setAiInstruction(''); }
                         } catch {} finally { setAiLoading(false); }
                       }} disabled={aiLoading || !aiInstruction.trim()} style={{
                         padding: '8px 14px', borderRadius: 8, border: 'none',
@@ -620,6 +658,72 @@ export default function HandbookEditorPage({ params }: { params: Promise<{ id: s
                 </div>
               )}
 
+            </div>
+
+            {/* 改善履歴 */}
+            <div style={{ marginTop: 16 }}>
+              <button
+                onClick={() => { setShowHistory(!showHistory); if (!showHistory && chapters[activeIdx]?.id) loadImproveHistory(chapters[activeIdx].id); }}
+                style={{ width: '100%', padding: '10px 14px', borderRadius: 10, border: '1px solid var(--border)', background: 'var(--bg-secondary)', color: 'var(--text-primary)', fontSize: 13, fontWeight: 600, cursor: 'pointer', textAlign: 'left', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
+              >
+                <span>📜 改善履歴（{improveHistories.length}件）</span>
+                <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>{showHistory ? '▲ 閉じる' : '▼ 開く'}</span>
+              </button>
+
+              {showHistory && (
+                <div style={{ marginTop: 8, display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  {historyLoading ? (
+                    <div style={{ textAlign: 'center', padding: 20, color: 'var(--text-muted)', fontSize: 13 }}>読み込み中...</div>
+                  ) : improveHistories.length === 0 ? (
+                    <div style={{ textAlign: 'center', padding: 20, color: 'var(--text-muted)', fontSize: 13 }}>
+                      まだ改善履歴がありません。AI改善を実行すると自動で保存されます。
+                    </div>
+                  ) : improveHistories.map(h => (
+                    <div key={h.id} style={{ padding: 12, background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 10 }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                        <div>
+                          <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-primary)' }}>{h.direction || '改善'}</span>
+                          <span style={{ fontSize: 11, color: 'var(--text-muted)', marginLeft: 8 }}>
+                            {new Date(h.created_at).toLocaleDateString('ja-JP', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                          </span>
+                        </div>
+                        <div style={{ display: 'flex', gap: 6 }}>
+                          <button
+                            onClick={() => { setEditContent(h.after_content); setMessage('✅ 過去の改善案を復元しました'); }}
+                            style={{ padding: '3px 10px', borderRadius: 6, border: 'none', background: '#6c63ff', color: '#fff', fontSize: 11, fontWeight: 700, cursor: 'pointer' }}
+                          >
+                            復元
+                          </button>
+                          <button
+                            onClick={async () => {
+                              if (!confirm('この履歴を削除しますか？')) return;
+                              await fetch('/api/clinic/handbooks/improve-history', { method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: h.id }) });
+                              setImproveHistories(prev => prev.filter(x => x.id !== h.id));
+                            }}
+                            style={{ padding: '3px 8px', borderRadius: 6, border: '1px solid rgba(239,68,68,0.3)', background: 'transparent', color: '#ef4444', fontSize: 11, cursor: 'pointer' }}
+                          >
+                            削除
+                          </button>
+                        </div>
+                      </div>
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6 }}>
+                        <div>
+                          <div style={{ fontSize: 10, color: '#ef4444', marginBottom: 3 }}>Before</div>
+                          <div style={{ fontSize: 11, color: 'var(--text-muted)', lineHeight: 1.6, maxHeight: 80, overflowY: 'hidden', padding: '6px 8px', background: 'rgba(239,68,68,0.04)', borderRadius: 6, border: '1px solid rgba(239,68,68,0.15)' }}>
+                            {h.before_content.slice(0, 120)}...
+                          </div>
+                        </div>
+                        <div>
+                          <div style={{ fontSize: 10, color: '#1D9E75', marginBottom: 3 }}>After</div>
+                          <div style={{ fontSize: 11, color: 'var(--text-secondary)', lineHeight: 1.6, maxHeight: 80, overflowY: 'hidden', padding: '6px 8px', background: 'rgba(29,158,117,0.04)', borderRadius: 6, border: '1px solid rgba(29,158,117,0.15)' }}>
+                            {h.after_content.slice(0, 120)}...
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           </>
         )}
