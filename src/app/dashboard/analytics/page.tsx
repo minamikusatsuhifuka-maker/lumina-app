@@ -87,6 +87,60 @@ const STATUS_COLORS = {
   neutral: { dot: '#64748b', bg: 'rgba(100,116,139,0.1)' },
 };
 
+// 人気ページのパスを日本語ラベルに変換するマップ
+const PAGE_LABEL_MAP: Record<string, string> = {
+  '/': 'トップページ',
+  '/isotretinoin/': 'イソトレチノイン',
+  '/isotretinoin': 'イソトレチノイン',
+  '/acne/': 'ニキビ治療',
+  '/acne': 'ニキビ治療',
+  '/about/': 'クリニック紹介',
+  '/about': 'クリニック紹介',
+  '/access/': 'アクセス',
+  '/access': 'アクセス',
+  '/contact/': 'お問い合わせ',
+  '/contact': 'お問い合わせ',
+  '/reserve/': '予約',
+  '/reserve': '予約',
+  '/reservation/': '予約',
+  '/reservation': '予約',
+  '/staff/': 'スタッフ紹介',
+  '/staff': 'スタッフ紹介',
+  '/doctor/': '医師紹介',
+  '/doctor': '医師紹介',
+  '/price/': '料金表',
+  '/price': '料金表',
+  '/menu/': '診療メニュー',
+  '/menu': '診療メニュー',
+  '/dermoscopy/': 'ダーモスコピー',
+  '/dermoscopy': 'ダーモスコピー',
+  '/laser/': 'レーザー治療',
+  '/laser': 'レーザー治療',
+  '/skincare/': 'スキンケア',
+  '/skincare': 'スキンケア',
+  '/cosmetic/': '美容皮膚科',
+  '/cosmetic': '美容皮膚科',
+  '/allergy/': 'アレルギー',
+  '/allergy': 'アレルギー',
+  '/eczema/': '湿疹・皮膚炎',
+  '/eczema': '湿疹・皮膚炎',
+  '/blog/': 'ブログ',
+  '/blog': 'ブログ',
+  '/faq/': 'よくある質問',
+  '/faq': 'よくある質問',
+  '/privacy/': 'プライバシーポリシー',
+  '/privacy': 'プライバシーポリシー',
+};
+
+function formatPagePath(path: string): string {
+  const label = PAGE_LABEL_MAP[path];
+  if (label) return `${label} (${path})`;
+  // /xxx/ → xxx を抽出して先頭大文字化し、パスも付ける
+  const seg = path.replace(/^\/|\/$/g, '').split('/').pop() || path;
+  if (seg !== path && seg.length > 0) return `${seg} (${path})`;
+  return path;
+}
+
 // ─── ヘルパー ───
 
 function buildKpis(m: GaMetrics): KpiDef[] {
@@ -289,11 +343,147 @@ export default function AnalyticsPage() {
 
   // チャート用データ
   const pieData = Object.entries(channelBreakdown).map(([name, value]) => ({ name, value }));
-  const pageBarData = topPages.map(p => ({
-    name: p.path.length > 25 ? p.path.slice(0, 25) + '…' : p.path,
-    sessions: p.sessions,
-    fullPath: p.path,
-  }));
+  const totalSessions = pieData.reduce((sum, d) => sum + d.value, 0);
+  const pageBarData = topPages.map(p => {
+    const label = formatPagePath(p.path);
+    return {
+      name: label.length > 35 ? label.slice(0, 35) + '…' : label,
+      sessions: p.sessions,
+      fullPath: p.path,
+    };
+  });
+
+  // Claude Code連携MDファイル生成
+  const downloadClaudeCodeTasks = () => {
+    if (!metrics || !insightData) return;
+    const today = new Date().toISOString().split('T')[0];
+    const pps = metrics.sessions > 0 ? (metrics.pageviews / metrics.sessions).toFixed(2) : '0';
+    const nur = metrics.users > 0 ? ((metrics.newUsers / metrics.users) * 100).toFixed(1) : '0';
+
+    const lines: string[] = [
+      `# xLUMINA Claude Code 実装タスク`,
+      ``,
+      `> 生成日: ${today}`,
+      `> このファイルを Claude Code に貼り付けて実装を依頼してください。`,
+      `> 各タスクは独立して実装可能です。優先度の高いものから順に進めることを推奨します。`,
+      ``,
+      `---`,
+      ``,
+      `## 1. GA4データ概要（直近7日間）`,
+      ``,
+      `| 指標 | 値 |`,
+      `|---|---|`,
+      `| セッション | ${metrics.sessions.toLocaleString()} |`,
+      `| ユーザー | ${metrics.users.toLocaleString()} |`,
+      `| 新規ユーザー | ${metrics.newUsers.toLocaleString()}（新規率 ${nur}%） |`,
+      `| リピーター | ${(metrics.users - metrics.newUsers).toLocaleString()} |`,
+      `| ページビュー | ${metrics.pageviews.toLocaleString()} |`,
+      `| PV/セッション | ${pps} |`,
+      `| エンゲージメント率 | ${(metrics.engagementRate * 100).toFixed(1)}% |`,
+      `| 直帰率 | ${(metrics.bounceRate * 100).toFixed(1)}% |`,
+      `| 平均セッション時間 | ${Math.round(metrics.avgSessionDuration)}秒 |`,
+      `| コンバージョン | ${metrics.conversions.toLocaleString()} |`,
+      `| コンバージョン率 | ${(metrics.conversionRate * 100).toFixed(2)}% |`,
+      ``,
+    ];
+
+    if (Object.keys(channelBreakdown).length > 0) {
+      lines.push(`### チャネル別セッション`, ``);
+      Object.entries(channelBreakdown).forEach(([ch, count]) => {
+        lines.push(`- ${ch}: ${count}`);
+      });
+      lines.push(``);
+    }
+
+    if (topPages.length > 0) {
+      lines.push(`### 人気ページ TOP${topPages.length}`, ``);
+      topPages.forEach((p, i) => {
+        lines.push(`${i + 1}. ${formatPagePath(p.path)} — ${p.sessions}セッション`);
+      });
+      lines.push(``);
+    }
+
+    lines.push(`---`, ``, `## 2. AI分析サマリー`, ``);
+    if (insightData.summary) lines.push(insightData.summary, ``);
+
+    if (insightData.actionPlans.length > 0) {
+      lines.push(`---`, ``, `## 3. アクションプラン & Claude Code 実装タスク`, ``);
+      const sorted = [...insightData.actionPlans].sort((a, b) => {
+        const order = { high: 0, medium: 1, low: 2 };
+        return (order[a.priority] ?? 3) - (order[b.priority] ?? 3);
+      });
+      sorted.forEach((ap, i) => {
+        const pLabel = ap.priority === 'high' ? '🔴 高' : ap.priority === 'medium' ? '🟡 中' : '🟢 低';
+        lines.push(`### タスク ${i + 1}: ${ap.title}`);
+        lines.push(``);
+        lines.push(`- **優先度**: ${pLabel}`);
+        lines.push(`- **カテゴリ**: ${ap.category || '一般'}`);
+        lines.push(`- **概要**: ${ap.description}`);
+        if (ap.xluminaFeature) {
+          lines.push(`- **💡 xLUMINA活用**: ${ap.xluminaFeature}`);
+        }
+        lines.push(``);
+        lines.push(`**Claude Code への実装依頼例:**`);
+        lines.push('```');
+        if (ap.category === 'SEO' || ap.category === 'コンテンツ') {
+          lines.push(`xLUMINAに以下の機能を追加してください：`);
+          lines.push(`「${ap.title}」を自動化するページ or APIを実装。`);
+          lines.push(`- GA4データを参照して${ap.category}最適化の提案を表示`);
+          lines.push(`- 結果をダッシュボードに反映`);
+        } else if (ap.category === 'SNS') {
+          lines.push(`xLUMINAに以下の機能を追加してください：`);
+          lines.push(`SNSマーケティング強化のため「${ap.title}」を実装。`);
+          lines.push(`- SNSアバタースタジオとの連携`);
+          lines.push(`- 投稿コンテンツの自動生成機能`);
+        } else if (ap.category === 'LP改善') {
+          lines.push(`xLUMINAに以下の機能を追加してください：`);
+          lines.push(`「${ap.title}」のためのLP改善機能を実装。`);
+          lines.push(`- LP自動生成機能でバリエーションを作成`);
+          lines.push(`- ABテスト生成機能でCTA最適化`);
+        } else {
+          lines.push(`xLUMINAに以下の機能を追加してください：`);
+          lines.push(`「${ap.title}」— ${ap.description}`);
+          lines.push(`GA4のデータと連携し、効果測定可能な形で実装。`);
+        }
+        lines.push('```');
+        lines.push(``);
+      });
+    }
+
+    if (insightData.marketingIdeas.length > 0) {
+      lines.push(`---`, ``, `## 4. マーケティング施策 & 実装アイデア`, ``);
+      insightData.marketingIdeas.forEach((mi, i) => {
+        lines.push(`### 施策 ${i + 1}: [${mi.channel}] ${mi.title}`);
+        lines.push(``);
+        lines.push(`- **内容**: ${mi.description}`);
+        if (mi.xluminaUsage) {
+          lines.push(`- **💡 xLUMINA活用**: ${mi.xluminaUsage}`);
+        }
+        lines.push(``);
+      });
+    }
+
+    lines.push(
+      `---`,
+      ``,
+      `## 💡 Claude Code への貼り付け方`,
+      ``,
+      `1. Claude Code を開く`,
+      `2. このファイルの内容をコピー、またはファイルパスを指定して読み込ませる`,
+      `3. 「上記のタスクを優先度の高いものから順に実装してください」と依頼`,
+      `4. 各タスクの実装後に \`npm run build\` で確認`,
+      ``,
+      `> 💡 ヒント: 一度に全タスクを依頼するより、2〜3タスクずつ依頼すると精度が上がります。`,
+    );
+
+    const blob = new Blob([lines.join('\n')], { type: 'text/markdown' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `xlumina_claude_code_tasks_${today}.md`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
 
   const kpis = metrics ? buildKpis(metrics) : [];
 
@@ -398,6 +588,7 @@ export default function AnalyticsPage() {
           transition: all 0.2s;
         }
         .copy-btn:hover { background: var(--bg-primary); box-shadow: 0 2px 8px rgba(0,0,0,0.06); }
+        .claude-code-btn:hover { box-shadow: 0 6px 20px rgba(245,158,11,0.4) !important; transform: translateY(-1px); }
         .shimmer-bar {
           height: 16px;
           border-radius: 8px;
@@ -550,14 +741,51 @@ export default function AnalyticsPage() {
               <div className="analytics-card" style={{ padding: 22 }}>
                 <h3 style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 18 }}>チャネル別セッション</h3>
                 {pieData.length > 0 ? (
-                  <ResponsiveContainer width="100%" height={280}>
+                  <ResponsiveContainer width="100%" height={300}>
                     <PieChart>
                       <Pie
                         data={pieData} cx="50%" cy="50%"
-                        outerRadius={90} innerRadius={40}
+                        outerRadius={85} innerRadius={38}
                         dataKey="value" strokeWidth={2} stroke="var(--bg-secondary)"
-                        label={(props: { name?: string; percent?: number }) => `${props.name ?? ''} ${((props.percent ?? 0) * 100).toFixed(0)}%`}
-                        labelLine={true}
+                        label={(props: {
+                          cx?: number; cy?: number;
+                          midAngle?: number; outerRadius?: number;
+                          name?: string; value?: number;
+                        }) => {
+                          const { cx = 0, cy = 0, midAngle = 0, outerRadius: or = 0, name = '', value = 0 } = props;
+                          const pct = totalSessions > 0 ? (value / totalSessions) * 100 : 0;
+                          if (pct < 5) return null;
+                          const RADIAN = Math.PI / 180;
+                          const radius = or + 28;
+                          const x = cx + radius * Math.cos(-midAngle * RADIAN);
+                          const y = cy + radius * Math.sin(-midAngle * RADIAN);
+                          return (
+                            <text
+                              x={x} y={y}
+                              fill="var(--text-secondary)"
+                              textAnchor={x > cx ? 'start' : 'end'}
+                              dominantBaseline="central"
+                              fontSize={11} fontWeight={600}
+                            >
+                              {name} {pct.toFixed(0)}%
+                            </text>
+                          );
+                        }}
+                        labelLine={(props: {
+                          cx?: number; cy?: number;
+                          midAngle?: number; outerRadius?: number;
+                          value?: number;
+                        }) => {
+                          const { cx = 0, cy = 0, midAngle = 0, outerRadius: or = 0, value = 0 } = props;
+                          const pct = totalSessions > 0 ? (value / totalSessions) * 100 : 0;
+                          if (pct < 5) return <line stroke="none" />;
+                          const RADIAN = Math.PI / 180;
+                          const x1 = cx + (or + 4) * Math.cos(-midAngle * RADIAN);
+                          const y1 = cy + (or + 4) * Math.sin(-midAngle * RADIAN);
+                          const x2 = cx + (or + 22) * Math.cos(-midAngle * RADIAN);
+                          const y2 = cy + (or + 22) * Math.sin(-midAngle * RADIAN);
+                          return <line x1={x1} y1={y1} x2={x2} y2={y2} stroke="var(--border)" strokeWidth={1} />;
+                        }}
                       >
                         {pieData.map((_, i) => (
                           <Cell key={i} fill={CHANNEL_COLORS[i % CHANNEL_COLORS.length]} />
@@ -565,7 +793,11 @@ export default function AnalyticsPage() {
                       </Pie>
                       <Tooltip
                         contentStyle={{ background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 10, fontSize: 12 }}
-                        formatter={(value) => [`${value} セッション`, '']}
+                        formatter={(value, _name, entry) => {
+                          const v = typeof value === 'number' ? value : Number(value);
+                          const pct = totalSessions > 0 ? ((v / totalSessions) * 100).toFixed(1) : '0';
+                          return [`${v} セッション (${pct}%)`, entry?.payload?.name ?? ''];
+                        }}
                       />
                     </PieChart>
                   </ResponsiveContainer>
@@ -582,7 +814,7 @@ export default function AnalyticsPage() {
                     <BarChart data={pageBarData} layout="vertical" margin={{ top: 4, right: 16, left: 0, bottom: 4 }}>
                       <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
                       <XAxis type="number" tick={{ fontSize: 10, fill: 'var(--text-muted)' }} allowDecimals={false} />
-                      <YAxis type="category" dataKey="name" tick={{ fontSize: 10, fill: 'var(--text-muted)' }} width={110} />
+                      <YAxis type="category" dataKey="name" tick={{ fontSize: 10, fill: 'var(--text-muted)' }} width={160} />
                       <Tooltip
                         contentStyle={{ background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 10, fontSize: 12 }}
                         formatter={(value) => [`${value} セッション`, '']}
@@ -616,10 +848,25 @@ export default function AnalyticsPage() {
                 <span style={{ width: 20, height: 2, background: 'linear-gradient(90deg, #6c63ff, #00d4b8)', borderRadius: 1 }} />
                 AI分析 & アクションプラン
               </div>
-              <div style={{ display: 'flex', gap: 8 }}>
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
                 {insightData && (
                   <button className="copy-btn" onClick={copyActionPlans}>
                     {copied ? '✅ コピー完了' : '📋 アクションをコピー'}
+                  </button>
+                )}
+                {insightData && (
+                  <button
+                    onClick={downloadClaudeCodeTasks}
+                    style={{
+                      padding: '9px 20px', borderRadius: 10, border: 'none',
+                      cursor: 'pointer',
+                      background: 'linear-gradient(135deg, #f59e0b, #f97316)', color: '#fff',
+                      fontWeight: 700, fontSize: 12,
+                      transition: 'opacity 0.2s, box-shadow 0.2s',
+                      boxShadow: '0 3px 12px rgba(245,158,11,0.3)',
+                    }}
+                  >
+                    🤖 Claude Codeで強化する
                   </button>
                 )}
                 <button
