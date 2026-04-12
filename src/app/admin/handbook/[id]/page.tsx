@@ -354,6 +354,13 @@ export default function HandbookEditorPage({ params }: { params: Promise<{ id: s
   const inputStyle: React.CSSProperties = { width: '100%', padding: '10px 14px', background: 'var(--input-bg)', border: '1px solid var(--input-border)', borderRadius: 8, color: 'var(--text-primary)', fontSize: 14, outline: 'none', boxSizing: 'border-box' };
 
   return (
+    <>
+    <style>{`
+      @keyframes slide {
+        0% { left: -40%; }
+        100% { left: 100%; }
+      }
+    `}</style>
     <div style={{ display: 'flex', gap: 0, minHeight: 'calc(100vh - 56px)' }}>
       {/* 左カラム: 章ナビ */}
       <div style={{ width: 220, flexShrink: 0, background: 'var(--bg-secondary)', borderRight: '1px solid var(--border)', padding: 16, display: 'flex', flexDirection: 'column', gap: 4, overflowY: 'auto' }}>
@@ -548,19 +555,28 @@ export default function HandbookEditorPage({ params }: { params: Promise<{ id: s
 
               {/* 進捗バー */}
               <div style={{ marginBottom: 14 }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10, color: 'var(--text-muted)', marginBottom: 4 }}>
-                  <span>Step {wizardStep} / 3</span>
-                  <span>{Math.round(((wizardStep - 1) / 2) * 100)}%</span>
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: 'var(--text-muted)', marginBottom: 6 }}>
+                  <span style={{ fontWeight: 600 }}>Step {wizardStep} / 3</span>
+                  <span>{wizardStep === 1 ? '0' : wizardStep === 2 ? '50' : '100'}%</span>
                 </div>
-                <div style={{ height: 6, background: 'var(--border)', borderRadius: 3, overflow: 'hidden' }}>
+                <div style={{ height: 8, background: 'rgba(108,99,255,0.15)', borderRadius: 4, overflow: 'hidden' }}>
                   <div style={{
                     height: '100%',
-                    width: `${Math.round(((wizardStep - 1) / 2) * 100)}%`,
+                    width: wizardStep === 1 ? '0%' : wizardStep === 2 ? '50%' : '100%',
                     background: 'linear-gradient(90deg, #6c63ff, #8b5cf6)',
-                    borderRadius: 3,
-                    transition: 'width 0.4s ease',
+                    borderRadius: 4,
+                    transition: 'width 0.5s ease',
                   }} />
                 </div>
+                {aiLoading && (
+                  <div style={{ marginTop: 4, height: 3, background: 'rgba(108,99,255,0.1)', borderRadius: 2, overflow: 'hidden', position: 'relative' }}>
+                    <div style={{
+                      position: 'absolute', height: '100%', width: '40%',
+                      background: 'linear-gradient(90deg, transparent, #6c63ff, transparent)',
+                      animation: 'slide 1.2s infinite',
+                    }} />
+                  </div>
+                )}
               </div>
 
               {/* Step 1：現状評価 */}
@@ -969,5 +985,6 @@ export default function HandbookEditorPage({ params }: { params: Promise<{ id: s
         </button>
       </div>
     </div>
+    </>
   );
 }
