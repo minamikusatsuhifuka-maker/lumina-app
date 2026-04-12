@@ -3,18 +3,85 @@ import { useState, useEffect } from 'react';
 import Link from 'next/link';
 
 function renderMarkdown(text: string): string {
-  return text
-    .replace(/^#### (.+)$/gm, '<h4 style="font-size:13px;font-weight:700;color:#6c63ff;margin:16px 0 6px;">$1</h4>')
-    .replace(/^### (.+)$/gm, '<h3 style="font-size:14px;font-weight:700;color:var(--text-primary);margin:20px 0 8px;padding-bottom:6px;border-bottom:1px solid var(--border);">$1</h3>')
-    .replace(/^## (.+)$/gm, '<h2 style="font-size:16px;font-weight:700;color:var(--text-primary);margin:24px 0 10px;">$2</h2>'.replace('$2', '$1'))
-    .replace(/^# (.+)$/gm, '<h1 style="font-size:18px;font-weight:700;color:var(--text-primary);margin:0 0 12px;">$1</h1>')
-    .replace(/\*\*(.+?)\*\*/g, '<strong style="font-weight:700;color:var(--text-primary);">$1</strong>')
-    .replace(/^> (.+)$/gm, '<div style="padding:8px 12px;border-left:3px solid #6c63ff;background:rgba(108,99,255,0.06);margin:6px 0;font-size:13px;color:var(--text-secondary);">$1</div>')
-    .replace(/^[-*] (.+)$/gm, '<li style="margin:4px 0;font-size:13px;color:var(--text-secondary);">$1</li>')
-    .replace(/^---$/gm, '<hr style="border:none;border-top:1px solid var(--border);margin:16px 0;">')
-    .replace(/(<li[^>]*>[\s\S]*?<\/li>\n?)+/g, '<ul style="padding-left:20px;margin:8px 0;">$&</ul>')
-    .replace(/\n\n/g, '</p><p style="margin:8px 0;font-size:13px;color:var(--text-secondary);line-height:1.8;">')
-    .replace(/\n/g, '<br>');
+  const lines = text.split('\n');
+  const result: string[] = [];
+  let i = 0;
+
+  while (i < lines.length) {
+    const line = lines[i];
+
+    // テーブル（|で始まる行をまとめて処理）
+    if (line.trim().startsWith('|')) {
+      const tableLines: string[] = [];
+      while (i < lines.length && lines[i].trim().startsWith('|')) {
+        tableLines.push(lines[i]);
+        i++;
+      }
+      const dataLines = tableLines.filter(l => !/^\s*\|[-:\s|]+\|\s*$/.test(l));
+      if (dataLines.length > 0) {
+        const rows = dataLines.map(l =>
+          l.trim().replace(/^\|/, '').replace(/\|$/, '').split('|').map(c => c.trim())
+        );
+        let tableHtml = '<div style="overflow-x:auto;margin:10px 0"><table style="width:100%;border-collapse:collapse;font-size:12px">';
+        rows.forEach((cells, idx) => {
+          tableHtml += '<tr style="border-bottom:1px solid var(--border)">';
+          cells.forEach(cell => {
+            const tag = idx === 0 ? 'th' : 'td';
+            const style = idx === 0
+              ? 'padding:6px 10px;text-align:left;font-weight:700;color:var(--text-primary);background:var(--bg-secondary)'
+              : 'padding:6px 10px;color:var(--text-secondary)';
+            const cellContent = cell.replace(/\*\*(.+?)\*\*/g, '<strong style="font-weight:700;color:var(--text-primary)">$1</strong>');
+            tableHtml += '<' + tag + ' style="' + style + '">' + cellContent + '</' + tag + '>';
+          });
+          tableHtml += '</tr>';
+        });
+        tableHtml += '</table></div>';
+        result.push(tableHtml);
+      }
+      continue;
+    }
+
+    if (/^## (.+)$/.test(line)) {
+      result.push('<h2 style="font-size:16px;font-weight:700;color:var(--text-primary);margin:20px 0 8px;padding-bottom:6px;border-bottom:1px solid var(--border)">' + line.replace(/^## /, '') + '</h2>');
+      i++; continue;
+    }
+    if (/^### (.+)$/.test(line)) {
+      result.push('<h3 style="font-size:14px;font-weight:700;color:var(--text-primary);margin:16px 0 6px">' + line.replace(/^### /, '') + '</h3>');
+      i++; continue;
+    }
+    if (/^# (.+)$/.test(line)) {
+      result.push('<h1 style="font-size:18px;font-weight:700;color:var(--text-primary);margin:0 0 12px">' + line.replace(/^# /, '') + '</h1>');
+      i++; continue;
+    }
+    if (/^---$/.test(line.trim())) {
+      result.push('<hr style="border:none;border-top:1px solid var(--border);margin:14px 0">');
+      i++; continue;
+    }
+    if (/^> (.+)$/.test(line)) {
+      const content = line.replace(/^> /, '').replace(/\*\*(.+?)\*\*/g, '<strong style="font-weight:700">$1</strong>');
+      result.push('<div style="padding:8px 12px;border-left:3px solid #6c63ff;background:rgba(108,99,255,0.06);margin:6px 0;font-size:13px;color:var(--text-secondary)">' + content + '</div>');
+      i++; continue;
+    }
+    if (/^[-*・] (.+)$/.test(line)) {
+      const items: string[] = [];
+      while (i < lines.length && /^[-*・] (.+)$/.test(lines[i])) {
+        const content = lines[i].replace(/^[-*・] /, '').replace(/\*\*(.+?)\*\*/g, '<strong style="font-weight:700;color:var(--text-primary)">$1</strong>');
+        items.push('<li style="margin:4px 0;font-size:13px;color:var(--text-secondary);line-height:1.7">' + content + '</li>');
+        i++;
+      }
+      result.push('<ul style="padding-left:18px;margin:8px 0">' + items.join('') + '</ul>');
+      continue;
+    }
+    if (line.trim() === '') {
+      result.push('<div style="height:6px"></div>');
+      i++; continue;
+    }
+    const content = line.replace(/\*\*(.+?)\*\*/g, '<strong style="font-weight:700;color:var(--text-primary)">$1</strong>');
+    result.push('<p style="margin:4px 0;font-size:13px;color:var(--text-secondary);line-height:1.8">' + content + '</p>');
+    i++;
+  }
+
+  return result.join('');
 }
 
 export default function GrowthReportPage() {
@@ -141,7 +208,7 @@ export default function GrowthReportPage() {
               <>
                 <div
                   style={{ fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.8, padding: '12px 14px', background: 'var(--bg-card)', borderRadius: 10, border: '1px solid var(--border)', marginBottom: 10 }}
-                  dangerouslySetInnerHTML={{ __html: '<p style="margin:8px 0;font-size:13px;color:var(--text-secondary);line-height:1.8;">' + renderMarkdown(report) + '</p>' }}
+                  dangerouslySetInnerHTML={{ __html: renderMarkdown(report) }}
                 />
                 <button onClick={() => navigator.clipboard.writeText(report)}
                   style={{ padding: '6px 16px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--bg-card)', color: 'var(--text-muted)', fontSize: 12, cursor: 'pointer' }}>
