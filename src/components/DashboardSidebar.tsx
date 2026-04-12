@@ -63,6 +63,7 @@ const navCategories: NavCategory[] = [
       { href: '/dashboard/glossary', label: '用語解説', icon: '📘' },
       { href: '/dashboard/guide', label: '活用ガイド', icon: '📖' },
       { href: '/dashboard/analytics', label: 'アナリティクス', icon: '📈' },
+      { href: '/dashboard/reviews', label: '口コミ管理', icon: '⭐' },
       { href: '/dashboard/stats', label: '使用状況', icon: '📊' },
       { href: '/dashboard', label: 'ダッシュボード', icon: '🏠' },
     ],
