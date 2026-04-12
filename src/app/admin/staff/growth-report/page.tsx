@@ -7,6 +7,7 @@ export default function GrowthReportPage() {
   const [reportData, setReportData] = useState<any>(null);
   const [generating, setGenerating] = useState(false);
   const [report, setReport] = useState('');
+  const [summary, setSummary] = useState<any[]>([]);
   const [selectedMonth, setSelectedMonth] = useState(() => {
     const now = new Date();
     return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
@@ -14,6 +15,9 @@ export default function GrowthReportPage() {
 
   useEffect(() => {
     fetchMonthlyData(selectedMonth);
+    fetch('/api/clinic/staff/summary').then(r => r.json()).then(d => {
+      if (d?.summary) setSummary(d.summary);
+    });
   }, [selectedMonth]);
 
   const fetchMonthlyData = async (month: string) => {
@@ -32,18 +36,21 @@ export default function GrowthReportPage() {
     setGenerating(true);
     setReport('');
     try {
-      const res = await fetch('/api/clinic/brushup-chat', {
+      const res = await fetch('/api/clinic/staff/monthly-report', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          message: `${selectedMonth}の全スタッフ成長レポートを作成してください。\n\n【データ】\n1on1実施数：${reportData.meetingCount}件（${reportData.staffWithMeeting}名のスタッフ）\n平均マインドスコア：${reportData.avgMindset || '未集計'}/10\n平均意欲レベル：${reportData.avgMotivation || '未集計'}/10\n成長ステージアップ：${reportData.stageUps?.length || 0}名\n昇格承認：${reportData.promotions?.length || 0}名\n\nスタッフ別ハイライト：\n${reportData.highlights?.map((h: any) => `・${h.name}：${h.summary}`).join('\n') || 'データなし'}\n\n以下の形式で温かく・具体的なレポートを書いてください：\n\n## ${selectedMonth} スタッフ成長レポート\n\n### 今月のハイライト\n（全体の成長傾向を2〜3文で）\n\n### 特に輝いたスタッフ\n（具体的な成長が見られたスタッフを称える・2〜3名）\n\n### チーム全体の成長ポイント\n（チームとして伸びた部分を2文で）\n\n### 来月への期待\n（院長からのメッセージとして、来月に向けた温かい言葉で締める）`,
-          category: 'evaluation',
+          month: selectedMonth,
+          staffSummary: summary,
         }),
       });
       const data = await res.json();
-      setReport(data.reply || data.result || '');
-    } catch { setReport('レポート生成に失敗しました。'); }
-    setGenerating(false);
+      setReport(data.report || 'レポートの生成に失敗しました。');
+    } catch {
+      setReport('レポートの生成に失敗しました。再度お試しください。');
+    } finally {
+      setGenerating(false);
+    }
   };
 
   const months = Array.from({ length: 6 }, (_, i) => {
