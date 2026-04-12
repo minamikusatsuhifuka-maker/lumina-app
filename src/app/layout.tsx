@@ -53,6 +53,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <head>
         <link rel="apple-touch-icon" href="/icon.svg" />
         <meta name="theme-color" content="#6c63ff" />
+        <meta name="google-site-verification" content="1Gln9d0aJYKM_nHmlgnWym0wYywCO58b_3VrT8amIwM" />
       </head>
       <body className={`${outfit.variable} ${notoSansJP.variable} ${inter.variable} ${zenKaku.variable}`} style={{ margin: 0 }}>
         <ThemeProvider>
