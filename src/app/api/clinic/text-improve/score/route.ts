@@ -22,8 +22,17 @@ export async function POST(req: NextRequest) {
   const session = await auth();
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-  const { text, purpose } = await req.json();
+  const { text, purpose, purposeLabel, customPurpose } = await req.json();
   const apiKey = process.env.ANTHROPIC_API_KEY!;
+
+  const scorePrompt = customPurpose
+    ? `採点基準：「${customPurpose}」という目的に対して、以下の観点で採点してください：
+    - 目的が明確に伝わるか
+    - 読み手に響くか・行動を促すか
+    - クリニックの理念・温かさが感じられるか
+    - 表現のわかりやすさ・自然さ
+    - 全体的な完成度`
+    : SCORE_PROMPTS[purpose] || SCORE_PROMPTS.staff;
 
   const systemPrompt = await buildSystemContext(
     `あなたはクリニックの文章専門家です。文章を目的に応じて採点してください。`,
@@ -39,12 +48,12 @@ export async function POST(req: NextRequest) {
       system: systemPrompt,
       messages: [{
         role: 'user',
-        content: `以下の文章を「${PURPOSE_LABELS[purpose] || purpose}」として採点してください。
+        content: `以下の文章を「${purposeLabel || PURPOSE_LABELS[purpose] || purpose}」として採点してください。
 
 【文章】
 ${text}
 
-${SCORE_PROMPTS[purpose] || SCORE_PROMPTS.staff}
+${scorePrompt}
 
 必ず以下のJSON形式のみで返してください：
 {

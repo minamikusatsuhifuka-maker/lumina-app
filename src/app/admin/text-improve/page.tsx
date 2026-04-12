@@ -83,6 +83,9 @@ export default function TextImprovePage() {
   const [score, setScore] = useState<{ score: number; reason: string; points: string[] } | null>(null);
   const [scoreLoading, setScoreLoading] = useState(false);
 
+  const [customPurpose, setCustomPurpose] = useState('');
+  const [isCustom, setIsCustom] = useState(false);
+
   useEffect(() => {
     const loading = evalLoading || improveLoading;
     if (!loading) return;
@@ -105,11 +108,20 @@ export default function TextImprovePage() {
       const [evalRes, scoreRes] = await Promise.all([
         fetch('/api/clinic/handbooks/enhance', {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ mode: 'evaluate', chapterContent: inputText, purposeContext: purpose.key }),
+          body: JSON.stringify({
+            mode: 'evaluate',
+            chapterContent: inputText,
+            purposeContext: isCustom ? customPurpose : purpose.key,
+          }),
         }),
         fetch('/api/clinic/text-improve/score', {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ text: inputText, purpose: purpose.key, purposeLabel: purpose.label }),
+          body: JSON.stringify({
+            text: inputText,
+            purpose: isCustom ? 'custom' : purpose.key,
+            purposeLabel: isCustom ? customPurpose : purpose.label,
+            customPurpose: isCustom ? customPurpose : undefined,
+          }),
         }),
       ]);
       const evalData = await evalRes.json();
@@ -131,8 +143,9 @@ export default function TextImprovePage() {
         body: JSON.stringify({
           mode: free ? 'rewrite' : 'template',
           template: dir,
-          instruction: free,
+          instruction: free || (isCustom ? `「${customPurpose}」として最適化してください` : undefined),
           chapterContent: inputText,
+          purposeContext: isCustom ? customPurpose : purpose.key,
         }),
       });
       const data = await res.json();
@@ -174,11 +187,47 @@ export default function TextImprovePage() {
             <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-muted)', marginBottom: 8 }}>① 文章の目的を選択</div>
             <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
               {PURPOSES.map(p => (
-                <button key={p.key} onClick={() => { setPurpose(p); setScore(null); setEvalResult(''); }}
+                <button key={p.key} onClick={() => { setPurpose(p); setIsCustom(false); setCustomPurpose(''); setScore(null); setEvalResult(''); }}
                   style={{ padding: '6px 12px', borderRadius: 8, border: '2px solid', fontSize: 12, fontWeight: 600, cursor: 'pointer', background: purpose.key === p.key ? `${p.color}18` : 'var(--bg-card)', borderColor: purpose.key === p.key ? p.color : 'var(--border)', color: purpose.key === p.key ? p.color : 'var(--text-muted)' }}>
                   {p.icon} {p.label}
                 </button>
               ))}
+            </div>
+
+            {/* 自由入力欄 */}
+            <div style={{ marginTop: 10 }}>
+              <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                <button
+                  onClick={() => setIsCustom(!isCustom)}
+                  style={{
+                    padding: '6px 12px', borderRadius: 8, fontSize: 12, fontWeight: 600,
+                    cursor: 'pointer', border: '2px solid',
+                    background: isCustom ? 'rgba(148,163,184,0.15)' : 'var(--bg-card)',
+                    borderColor: isCustom ? '#6c63ff' : 'var(--border)',
+                    color: isCustom ? '#6c63ff' : 'var(--text-muted)',
+                    whiteSpace: 'nowrap',
+                  }}
+                >
+                  ✏️ その他・自由入力
+                </button>
+                {isCustom && (
+                  <input
+                    value={customPurpose}
+                    onChange={e => setCustomPurpose(e.target.value)}
+                    placeholder="例：患者様へのお礼状、スタッフ表彰メッセージ、SNS投稿文..."
+                    style={{
+                      flex: 1, padding: '6px 12px', borderRadius: 8,
+                      background: 'var(--bg-card)', border: '2px solid #6c63ff',
+                      color: 'var(--text-primary)', fontSize: 12, outline: 'none',
+                    }}
+                  />
+                )}
+              </div>
+              {isCustom && customPurpose.trim() && (
+                <div style={{ marginTop: 6, fontSize: 11, color: '#6c63ff', padding: '4px 10px', background: 'rgba(108,99,255,0.08)', borderRadius: 6, display: 'inline-block' }}>
+                  🤖 AIが「{customPurpose}」に最適な採点・評価・改善を自動判断します
+                </div>
+              )}
             </div>
           </div>
 
@@ -237,14 +286,21 @@ export default function TextImprovePage() {
 
           <div style={{ padding: 14, background: `${purposeColor}08`, border: `1px solid ${purposeColor}30`, borderRadius: 12 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: score ? 10 : 0 }}>
-              <div style={{ fontSize: 12, fontWeight: 700, color: purposeColor }}>📊 {purpose.scoreLabel}</div>
+              <div style={{ fontSize: 12, fontWeight: 700, color: purposeColor }}>
+                📊 {isCustom ? (customPurpose ? `「${customPurpose}」スコア` : 'カスタムスコア') : purpose.scoreLabel}
+              </div>
               <button onClick={async () => {
                 if (!inputText.trim()) return;
                 setScoreLoading(true); setScore(null);
                 try {
                   const res = await fetch('/api/clinic/text-improve/score', {
                     method: 'POST', headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ text: inputText, purpose: purpose.key, purposeLabel: purpose.label }),
+                    body: JSON.stringify({
+            text: inputText,
+            purpose: isCustom ? 'custom' : purpose.key,
+            purposeLabel: isCustom ? customPurpose : purpose.label,
+            customPurpose: isCustom ? customPurpose : undefined,
+          }),
                   });
                   const data = await res.json();
                   if (data.score !== undefined) setScore(data);
@@ -270,7 +326,13 @@ export default function TextImprovePage() {
                 </div>
               </div>
             )}
-            {!score && !scoreLoading && <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4 }}>{purpose.scoreDesc}</div>}
+            {!score && !scoreLoading && (
+              <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4 }}>
+                {isCustom
+                  ? customPurpose ? `「${customPurpose}」の目的に合わせてAIが採点します` : '目的を入力するとAIが自動で採点基準を判断します'
+                  : purpose.scoreDesc}
+              </div>
+            )}
           </div>
 
           <div style={{ padding: 14, background: 'rgba(108,99,255,0.04)', border: '1px solid rgba(108,99,255,0.15)', borderRadius: 12 }}>
