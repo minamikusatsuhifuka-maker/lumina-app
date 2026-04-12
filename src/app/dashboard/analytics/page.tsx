@@ -1,10 +1,10 @@
 'use client';
 
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
 import {
   BarChart, Bar, PieChart, Pie, Cell,
   XAxis, YAxis, CartesianGrid, Tooltip,
-  ResponsiveContainer, Legend,
+  ResponsiveContainer,
 } from 'recharts';
 
 // ─── 型定義 ───
@@ -59,6 +59,25 @@ interface KpiDef {
   tooltip: string;
   status: 'good' | 'warn' | 'bad' | 'neutral';
   gradient: string;
+}
+
+interface SavedSnapshot {
+  id: string;
+  date_start: string;
+  date_end: string;
+  sessions: number;
+  users: number;
+  new_users: number;
+  pageviews: number;
+  bounce_rate: number;
+  engagement_rate: number;
+  avg_session_duration: number;
+  conversions: number;
+  conversion_rate: number;
+  channel_breakdown: Record<string, number> | null;
+  top_pages: TopPage[] | null;
+  ai_insight: InsightData | null;
+  saved_at: string;
 }
 
 // ─── 定数 ───
@@ -260,6 +279,12 @@ export default function AnalyticsPage() {
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const actionPlanRef = useRef<HTMLDivElement>(null);
+  const [snapshotId, setSnapshotId] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+  const [history, setHistory] = useState<SavedSnapshot[]>([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [expandedHistoryId, setExpandedHistoryId] = useState<string | null>(null);
 
   // GA4データ取得
   const fetchData = async () => {
@@ -275,6 +300,9 @@ export default function AnalyticsPage() {
       setMetrics(data.metrics);
       setChannelBreakdown(data.channelBreakdown ?? {});
       setTopPages(data.topPages ?? []);
+      setSnapshotId(data.snapshotId ?? null);
+      setSaved(false);
+      setInsightData(null);
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'データ取得に失敗しました');
     } finally {
@@ -310,6 +338,106 @@ export default function AnalyticsPage() {
     } finally {
       setInsightLoading(false);
     }
+  };
+
+  // 履歴を取得
+  const fetchHistory = useCallback(async () => {
+    setHistoryLoading(true);
+    try {
+      const res = await fetch('/api/ga/save');
+      if (!res.ok) return;
+      const data = await res.json();
+      setHistory(data.snapshots ?? []);
+    } catch {
+      // 履歴取得失敗は無視
+    } finally {
+      setHistoryLoading(false);
+    }
+  }, []);
+
+  // 初回読み込み時に履歴を取得
+  useEffect(() => { fetchHistory(); }, [fetchHistory]);
+
+  // AI分析結果を保存
+  const saveInsight = async () => {
+    if (!snapshotId || !insightData) return;
+    setSaving(true);
+    try {
+      const res = await fetch('/api/ga/save', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ snapshotId, aiInsight: insightData }),
+      });
+      if (!res.ok) throw new Error('保存に失敗しました');
+      setSaved(true);
+      fetchHistory();
+    } catch {
+      setError('分析の保存に失敗しました');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  // 履歴からMDをダウンロード
+  const downloadHistoryMd = (snap: SavedSnapshot) => {
+    const date = new Date(snap.saved_at).toLocaleDateString('ja-JP');
+    const m = {
+      sessions: snap.sessions, users: snap.users, newUsers: snap.new_users,
+      pageviews: snap.pageviews, bounceRate: snap.bounce_rate,
+      engagementRate: snap.engagement_rate, avgSessionDuration: snap.avg_session_duration,
+      conversions: snap.conversions, conversionRate: snap.conversion_rate,
+    };
+    const pps = m.sessions > 0 ? (m.pageviews / m.sessions).toFixed(2) : '0';
+    const nur = m.users > 0 ? ((m.newUsers / m.users) * 100).toFixed(1) : '0';
+    const lines = [
+      `# GA4分析レポート（${snap.date_start} 〜 ${snap.date_end}）`,
+      ``, `> 保存日: ${date}`, ``,
+      `## KPI`, ``,
+      `| 指標 | 値 |`, `|---|---|`,
+      `| セッション | ${m.sessions} |`,
+      `| ユーザー | ${m.users} |`,
+      `| 新規ユーザー | ${m.newUsers}（新規率 ${nur}%） |`,
+      `| PV | ${m.pageviews} |`,
+      `| PV/セッション | ${pps} |`,
+      `| エンゲージメント率 | ${(m.engagementRate * 100).toFixed(1)}% |`,
+      `| 直帰率 | ${(m.bounceRate * 100).toFixed(1)}% |`,
+      `| コンバージョン | ${m.conversions} |`,
+      ``,
+    ];
+    const insight = snap.ai_insight;
+    if (insight) {
+      if (insight.summary) lines.push(`## サマリー`, ``, insight.summary, ``);
+      if (insight.insights?.length) {
+        lines.push(`## 課題と現状分析`, ``);
+        insight.insights.forEach((ins, i) => {
+          lines.push(`${i + 1}. **${ins.title}**: ${ins.body}`);
+        });
+        lines.push(``);
+      }
+      if (insight.actionPlans?.length) {
+        lines.push(`## アクションプラン`, ``);
+        insight.actionPlans.forEach((ap, i) => {
+          const p = ap.priority === 'high' ? '高' : ap.priority === 'medium' ? '中' : '低';
+          lines.push(`${i + 1}. [${p}] **${ap.title}** — ${ap.description}`);
+          if (ap.xluminaFeature) lines.push(`   - xLUMINA活用: ${ap.xluminaFeature}`);
+        });
+        lines.push(``);
+      }
+      if (insight.marketingIdeas?.length) {
+        lines.push(`## マーケティング施策`, ``);
+        insight.marketingIdeas.forEach((mi, i) => {
+          lines.push(`${i + 1}. [${mi.channel}] **${mi.title}** — ${mi.description}`);
+          if (mi.xluminaUsage) lines.push(`   - xLUMINA活用: ${mi.xluminaUsage}`);
+        });
+      }
+    }
+    const blob = new Blob([lines.join('\n')], { type: 'text/markdown' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `ga4_report_${snap.date_start}_${snap.date_end}.md`;
+    a.click();
+    URL.revokeObjectURL(url);
   };
 
   // アクションプランをクリップボードにコピー
@@ -617,6 +745,48 @@ export default function AnalyticsPage() {
           background: linear-gradient(135deg, rgba(108,99,255,0.12), rgba(0,212,184,0.12));
           color: var(--text-primary);
         }
+        .history-card {
+          background: var(--bg-secondary);
+          border: 1px solid var(--border);
+          border-radius: 12px;
+          overflow: hidden;
+          transition: box-shadow 0.2s;
+        }
+        .history-card:hover {
+          box-shadow: 0 4px 16px rgba(0,0,0,0.06);
+        }
+        .history-header {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          padding: 14px 18px;
+          cursor: pointer;
+          transition: background 0.15s;
+        }
+        .history-header:hover {
+          background: rgba(108,99,255,0.04);
+        }
+        .history-detail {
+          padding: 0 18px 16px;
+          border-top: 1px solid var(--border);
+        }
+        .save-btn {
+          display: inline-flex;
+          align-items: center;
+          gap: 6px;
+          padding: 9px 20px;
+          border-radius: 10px;
+          border: none;
+          cursor: pointer;
+          background: linear-gradient(135deg, #10b981, #059669);
+          color: #fff;
+          font-weight: 700;
+          font-size: 12px;
+          transition: opacity 0.2s, box-shadow 0.2s;
+          box-shadow: 0 3px 12px rgba(16,185,129,0.25);
+        }
+        .save-btn:disabled { opacity: 0.6; cursor: not-allowed; }
+        .save-btn:hover:not(:disabled) { box-shadow: 0 6px 20px rgba(16,185,129,0.35); }
         @media (max-width: 768px) {
           .kpi-grid { grid-template-columns: repeat(2, 1fr) !important; }
           .chart-grid { grid-template-columns: 1fr !important; }
@@ -655,6 +825,114 @@ export default function AnalyticsPage() {
           {loading ? '取得中...' : 'GA4データを取得'}
         </button>
       </div>
+
+      {/* ─── 過去の分析履歴 ─── */}
+      {history.length > 0 && (
+        <div style={{ marginBottom: 24 }}>
+          <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase' as const, letterSpacing: '0.08em', marginBottom: 12, display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span style={{ width: 20, height: 2, background: 'linear-gradient(90deg, #8b5cf6, #ec4899)', borderRadius: 1 }} />
+            過去の分析履歴（{history.length}件）
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            {history.map(snap => {
+              const isExpanded = expandedHistoryId === snap.id;
+              const savedDate = new Date(snap.saved_at).toLocaleDateString('ja-JP', { year: 'numeric', month: 'long', day: 'numeric' });
+              const savedTime = new Date(snap.saved_at).toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' });
+              const insight = snap.ai_insight;
+              return (
+                <div key={snap.id} className="history-card">
+                  <div className="history-header" onClick={() => setExpandedHistoryId(isExpanded ? null : snap.id)}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                      <span style={{ fontSize: 16 }}>{isExpanded ? '📂' : '📁'}</span>
+                      <div>
+                        <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)' }}>
+                          {snap.date_start} 〜 {snap.date_end}
+                        </div>
+                        <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2 }}>
+                          {savedDate} {savedTime} 保存 ・ {snap.sessions}セッション ・ {snap.users}ユーザー ・ PV {snap.pageviews}
+                        </div>
+                      </div>
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <button
+                        className="copy-btn"
+                        onClick={(e) => { e.stopPropagation(); downloadHistoryMd(snap); }}
+                        style={{ fontSize: 11, padding: '5px 10px' }}
+                      >
+                        📥 MDでダウンロード
+                      </button>
+                      <span style={{ fontSize: 12, color: 'var(--text-muted)', transition: 'transform 0.2s', display: 'inline-block', transform: isExpanded ? 'rotate(180deg)' : 'rotate(0)' }}>▼</span>
+                    </div>
+                  </div>
+                  {isExpanded && insight && (
+                    <div className="history-detail">
+                      {/* KPI概要 */}
+                      <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', padding: '12px 0', fontSize: 12 }}>
+                        {[
+                          { label: 'セッション', val: snap.sessions },
+                          { label: 'ユーザー', val: snap.users },
+                          { label: '新規', val: snap.new_users },
+                          { label: 'PV', val: snap.pageviews },
+                          { label: 'エンゲージ率', val: `${(snap.engagement_rate * 100).toFixed(1)}%` },
+                          { label: '直帰率', val: `${(snap.bounce_rate * 100).toFixed(1)}%` },
+                          { label: 'CV', val: snap.conversions },
+                        ].map(k => (
+                          <div key={k.label} style={{ padding: '4px 10px', borderRadius: 6, background: 'var(--bg-primary)', border: '1px solid var(--border)' }}>
+                            <span style={{ color: 'var(--text-muted)', marginRight: 4 }}>{k.label}:</span>
+                            <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{k.val}</span>
+                          </div>
+                        ))}
+                      </div>
+                      {/* サマリー */}
+                      {insight.summary && (
+                        <div style={{ padding: '10px 14px', borderRadius: 8, background: 'rgba(108,99,255,0.04)', border: '1px solid rgba(108,99,255,0.1)', fontSize: 13, color: 'var(--text-primary)', lineHeight: 1.6, marginBottom: 10 }}>
+                          {insight.summary}
+                        </div>
+                      )}
+                      {/* 課題 */}
+                      {insight.insights?.length > 0 && (
+                        <div style={{ marginBottom: 10 }}>
+                          <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-muted)', marginBottom: 6 }}>課題と現状分析</div>
+                          {insight.insights.map((ins, i) => (
+                            <div key={i} style={{ fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.5, padding: '4px 0' }}>
+                              {INSIGHT_STYLE[ins.type]?.icon || '💡'} <strong>{ins.title}</strong>: {ins.body}
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                      {/* アクションプラン */}
+                      {insight.actionPlans?.length > 0 && (
+                        <div>
+                          <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-muted)', marginBottom: 6 }}>アクションプラン（{insight.actionPlans.length}件）</div>
+                          {insight.actionPlans.slice(0, 5).map((ap, i) => {
+                            const pc = PRIORITY_CONFIG[ap.priority] || PRIORITY_CONFIG.low;
+                            return (
+                              <div key={i} style={{ fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.5, padding: '3px 0', display: 'flex', gap: 6, alignItems: 'baseline' }}>
+                                <span className="priority-badge" style={{ background: pc.bg, color: pc.text, border: `1px solid ${pc.border}`, fontSize: 10, padding: '1px 6px', flexShrink: 0 }}>
+                                  {pc.label}
+                                </span>
+                                <span><strong>{ap.title}</strong> — {ap.description}</span>
+                              </div>
+                            );
+                          })}
+                          {insight.actionPlans.length > 5 && (
+                            <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4 }}>…他 {insight.actionPlans.length - 5} 件</div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+      {historyLoading && (
+        <div style={{ padding: 12, textAlign: 'center', color: 'var(--text-muted)', fontSize: 12, marginBottom: 16 }}>
+          履歴を読み込み中...
+        </div>
+      )}
 
       {/* ─── エラー ─── */}
       {error && (
@@ -853,6 +1131,16 @@ export default function AnalyticsPage() {
                   <button className="copy-btn" onClick={copyActionPlans}>
                     {copied ? '✅ コピー完了' : '📋 アクションをコピー'}
                   </button>
+                )}
+                {insightData && !saved && snapshotId && (
+                  <button className="save-btn" onClick={saveInsight} disabled={saving}>
+                    {saving ? '保存中...' : '💾 この分析を保存する'}
+                  </button>
+                )}
+                {saved && (
+                  <span style={{ padding: '9px 16px', fontSize: 12, fontWeight: 600, color: '#10b981' }}>
+                    ✅ 保存済み
+                  </span>
                 )}
                 {insightData && (
                   <button
