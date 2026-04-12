@@ -356,9 +356,9 @@ export default function HandbookEditorPage({ params }: { params: Promise<{ id: s
   return (
     <>
     <style>{`
-      @keyframes slide {
+      @keyframes handbookSlide {
         0% { left: -40%; }
-        100% { left: 100%; }
+        100% { left: 140%; }
       }
     `}</style>
     <div style={{ display: 'flex', gap: 0, minHeight: 'calc(100vh - 56px)' }}>
@@ -556,24 +556,32 @@ export default function HandbookEditorPage({ params }: { params: Promise<{ id: s
               {/* 進捗バー */}
               <div style={{ marginBottom: 14 }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: 'var(--text-muted)', marginBottom: 6 }}>
-                  <span style={{ fontWeight: 600 }}>Step {wizardStep} / 3</span>
-                  <span>{wizardStep === 1 ? '0' : wizardStep === 2 ? '50' : '100'}%</span>
+                  <span style={{ fontWeight: 600 }}>
+                    {(aiLoading || ideologyLoading) ? '処理中...' : `Step ${wizardStep} / 3`}
+                  </span>
+                  <span>
+                    {(aiLoading || ideologyLoading)
+                      ? '⏳'
+                      : wizardStep === 1 ? '0%'
+                      : wizardStep === 2 ? '50%'
+                      : '100%'}
+                  </span>
                 </div>
-                <div style={{ height: 8, background: 'rgba(108,99,255,0.15)', borderRadius: 4, overflow: 'hidden' }}>
+                <div style={{ height: 8, background: 'rgba(108,99,255,0.15)', borderRadius: 4, overflow: 'hidden', position: 'relative' }}>
                   <div style={{
                     height: '100%',
-                    width: wizardStep === 1 ? '0%' : wizardStep === 2 ? '50%' : '100%',
+                    width: wizardStep === 1 ? '5%' : wizardStep === 2 ? '50%' : '100%',
                     background: 'linear-gradient(90deg, #6c63ff, #8b5cf6)',
                     borderRadius: 4,
                     transition: 'width 0.5s ease',
                   }} />
                 </div>
-                {aiLoading && (
-                  <div style={{ marginTop: 4, height: 3, background: 'rgba(108,99,255,0.1)', borderRadius: 2, overflow: 'hidden', position: 'relative' }}>
+                {(aiLoading || ideologyLoading) && (
+                  <div style={{ marginTop: 3, height: 3, background: 'rgba(108,99,255,0.1)', borderRadius: 2, overflow: 'hidden', position: 'relative' }}>
                     <div style={{
-                      position: 'absolute', height: '100%', width: '40%',
+                      position: 'absolute', top: 0, height: '100%', width: '40%',
                       background: 'linear-gradient(90deg, transparent, #6c63ff, transparent)',
-                      animation: 'slide 1.2s infinite',
+                      animation: 'handbookSlide 1.2s ease-in-out infinite',
                     }} />
                   </div>
                 )}
