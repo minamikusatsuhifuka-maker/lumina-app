@@ -2,6 +2,21 @@
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
 
+function renderMarkdown(text: string): string {
+  return text
+    .replace(/^#### (.+)$/gm, '<h4 style="font-size:13px;font-weight:700;color:#6c63ff;margin:16px 0 6px;">$1</h4>')
+    .replace(/^### (.+)$/gm, '<h3 style="font-size:14px;font-weight:700;color:var(--text-primary);margin:20px 0 8px;padding-bottom:6px;border-bottom:1px solid var(--border);">$1</h3>')
+    .replace(/^## (.+)$/gm, '<h2 style="font-size:16px;font-weight:700;color:var(--text-primary);margin:24px 0 10px;">$2</h2>'.replace('$2', '$1'))
+    .replace(/^# (.+)$/gm, '<h1 style="font-size:18px;font-weight:700;color:var(--text-primary);margin:0 0 12px;">$1</h1>')
+    .replace(/\*\*(.+?)\*\*/g, '<strong style="font-weight:700;color:var(--text-primary);">$1</strong>')
+    .replace(/^> (.+)$/gm, '<div style="padding:8px 12px;border-left:3px solid #6c63ff;background:rgba(108,99,255,0.06);margin:6px 0;font-size:13px;color:var(--text-secondary);">$1</div>')
+    .replace(/^[-*] (.+)$/gm, '<li style="margin:4px 0;font-size:13px;color:var(--text-secondary);">$1</li>')
+    .replace(/^---$/gm, '<hr style="border:none;border-top:1px solid var(--border);margin:16px 0;">')
+    .replace(/(<li[^>]*>[\s\S]*?<\/li>\n?)+/g, '<ul style="padding-left:20px;margin:8px 0;">$&</ul>')
+    .replace(/\n\n/g, '</p><p style="margin:8px 0;font-size:13px;color:var(--text-secondary);line-height:1.8;">')
+    .replace(/\n/g, '<br>');
+}
+
 export default function GrowthReportPage() {
   const [loading, setLoading] = useState(true);
   const [reportData, setReportData] = useState<any>(null);
@@ -124,9 +139,10 @@ export default function GrowthReportPage() {
             </div>
             {report ? (
               <>
-                <div style={{ fontSize: 14, color: 'var(--text-primary)', lineHeight: 1.9, whiteSpace: 'pre-wrap', padding: '12px 14px', background: 'var(--bg-card)', borderRadius: 10, border: '1px solid var(--border)', marginBottom: 10 }}>
-                  {report}
-                </div>
+                <div
+                  style={{ fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.8, padding: '12px 14px', background: 'var(--bg-card)', borderRadius: 10, border: '1px solid var(--border)', marginBottom: 10 }}
+                  dangerouslySetInnerHTML={{ __html: '<p style="margin:8px 0;font-size:13px;color:var(--text-secondary);line-height:1.8;">' + renderMarkdown(report) + '</p>' }}
+                />
                 <button onClick={() => navigator.clipboard.writeText(report)}
                   style={{ padding: '6px 16px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--bg-card)', color: 'var(--text-muted)', fontSize: 12, cursor: 'pointer' }}>
                   📋 コピー
