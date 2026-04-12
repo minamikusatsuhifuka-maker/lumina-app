@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
 import { neon } from '@neondatabase/serverless';
-import { fetchGaData, fetchTopPages } from '@/lib/ga-client';
+import { fetchGaData, fetchTopPages, fetchReferralSources } from '@/lib/ga-client';
 
 export const runtime = 'nodejs';
 export const maxDuration = 300;
@@ -32,9 +32,10 @@ export async function POST() {
     }
 
     // GA4 APIからデータ取得
-    const [gaData, topPagesData] = await Promise.all([
+    const [gaData, topPagesData, referralData] = await Promise.all([
       fetchGaData(propertyId, startDate, endDate),
       fetchTopPages(propertyId, startDate, endDate),
+      fetchReferralSources(propertyId, startDate, endDate),
     ]);
 
     const rows = gaData.rows ?? [];
@@ -65,6 +66,16 @@ export async function POST() {
       sessions: parseInt(row.metricValues?.[0]?.value ?? '0'),
     }));
 
+    // 流入元サイト（(direct)/(none) を除外）
+    const referralSources = (referralData.rows ?? [])
+      .map(row => ({
+        source: row.dimensionValues?.[0]?.value ?? '',
+        medium: row.dimensionValues?.[1]?.value ?? '',
+        sessions: parseInt(row.metricValues?.[0]?.value ?? '0'),
+        bounceRate: parseFloat(row.metricValues?.[1]?.value ?? '0'),
+      }))
+      .filter(r => r.source !== '(direct)' && r.medium !== '(none)' && r.source !== '(not set)');
+
     // スナップショット保存
     const snapshots = await sql`INSERT INTO ga_snapshots
       (property_id, date_start, date_end, sessions, users, new_users, pageviews,
@@ -77,7 +88,7 @@ export async function POST() {
         ${JSON.stringify(channelBreakdown)}, ${JSON.stringify(topPages)})
       RETURNING id`;
 
-    return NextResponse.json({ success: true, snapshotId: snapshots[0].id, metrics, channelBreakdown, topPages });
+    return NextResponse.json({ success: true, snapshotId: snapshots[0].id, metrics, channelBreakdown, topPages, referralSources });
 
   } catch (error: any) {
     console.error('[ga/fetch] error:', error);

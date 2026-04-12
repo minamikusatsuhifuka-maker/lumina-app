@@ -62,3 +62,28 @@ export async function fetchTopPages(
 
   return response;
 }
+
+export async function fetchReferralSources(
+  propertyId: string,
+  startDate: string,
+  endDate: string
+) {
+  const client = getGaClient();
+
+  const [response] = await client.runReport({
+    property: `properties/${propertyId}`,
+    dateRanges: [{ startDate, endDate }],
+    metrics: [
+      { name: 'sessions' },
+      { name: 'bounceRate' },
+    ],
+    dimensions: [
+      { name: 'sessionSource' },
+      { name: 'sessionMedium' },
+    ],
+    orderBys: [{ metric: { metricName: 'sessions' }, desc: true }],
+    limit: 20,
+  });
+
+  return response;
+}

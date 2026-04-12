@@ -23,6 +23,13 @@ interface GaMetrics {
 
 interface TopPage { path: string; sessions: number }
 
+interface ReferralSource {
+  source: string;
+  medium: string;
+  sessions: number;
+  bounceRate: number;
+}
+
 interface Insight {
   title: string;
   body: string;
@@ -106,6 +113,29 @@ const STATUS_COLORS = {
   neutral: { dot: '#64748b', bg: 'rgba(100,116,139,0.1)' },
 };
 
+// GA4チャネル名を日本語に変換するマップ
+const CHANNEL_LABEL_MAP: Record<string, string> = {
+  'Organic Search': '🔍 自然検索',
+  'Direct': '🔗 直接アクセス',
+  'Referral': '📎 参照元',
+  'Paid Search': '💰 有料検索広告',
+  'Organic Social': '📱 SNS自然流入',
+  'Unassigned': '❓ 未分類',
+  'Email': '📧 メール',
+  'Display': '🖼 ディスプレイ広告',
+  'Paid Social': '💰 SNS広告',
+  'Organic Video': '🎬 動画自然流入',
+  'Paid Video': '💰 動画広告',
+  'Cross-network': '🌐 クロスネットワーク',
+  'Affiliates': '🤝 アフィリエイト',
+  'Audio': '🎧 音声',
+  'SMS': '💬 SMS',
+};
+
+function formatChannelName(name: string): string {
+  return CHANNEL_LABEL_MAP[name] || name;
+}
+
 // 人気ページのパスを日本語ラベルに変換するマップ
 const PAGE_LABEL_MAP: Record<string, string> = {
   '/': 'トップページ',
@@ -173,67 +203,67 @@ function buildKpis(m: GaMetrics): KpiDef[] {
   return [
     {
       key: 'sessions', label: 'セッション', value: m.sessions.toLocaleString(), icon: '👁️',
-      tooltip: 'サイトへの訪問回数。同一ユーザーでも再訪問は別カウント',
+      tooltip: 'サイトへの訪問回数。1人が複数回訪問すると複数カウント',
       status: m.sessions > 100 ? 'good' : m.sessions > 30 ? 'warn' : 'bad',
       gradient: 'linear-gradient(135deg, #6c63ff, #8b5cf6)',
     },
     {
       key: 'users', label: 'ユーザー', value: m.users.toLocaleString(), icon: '👤',
-      tooltip: '期間中にサイトを訪れたユニークユーザー数',
+      tooltip: 'サイトを訪れた人数（重複なし）',
       status: m.users > 50 ? 'good' : m.users > 15 ? 'warn' : 'bad',
       gradient: 'linear-gradient(135deg, #00d4b8, #10b981)',
     },
     {
       key: 'newUsers', label: '新規ユーザー', value: m.newUsers.toLocaleString(), icon: '🆕',
-      tooltip: '初めてサイトを訪問したユーザー数。集客施策の効果指標',
+      tooltip: '初めてサイトを訪れた人の数',
       status: m.newUsers > 30 ? 'good' : m.newUsers > 10 ? 'warn' : 'bad',
       gradient: 'linear-gradient(135deg, #8b5cf6, #a78bfa)',
     },
     {
       key: 'newUserRate', label: '新規率', value: `${newUserRate.toFixed(1)}%`, icon: '📊',
-      tooltip: '全ユーザーのうち新規ユーザーの割合。高すぎるとリピーター不足の可能性',
+      tooltip: '訪問者のうち初めて来た人の割合。高すぎるとリピーターが少ない',
       status: newUserRate >= 30 && newUserRate <= 70 ? 'good' : 'warn',
       gradient: 'linear-gradient(135deg, #06b6d4, #0891b2)',
     },
     {
       key: 'returning', label: 'リピーター', value: returningUsers.toLocaleString(), icon: '🔁',
-      tooltip: '過去にもサイトを訪問したことがあるユーザー数。ファン化の指標',
+      tooltip: '2回以上訪問している人の数。既存患者や関心の高い人',
       status: returningUsers > 10 ? 'good' : returningUsers > 3 ? 'warn' : 'bad',
       gradient: 'linear-gradient(135deg, #ec4899, #f472b6)',
     },
     {
       key: 'pageviews', label: 'ページビュー', value: m.pageviews.toLocaleString(), icon: '📄',
-      tooltip: '閲覧されたページの総数。コンテンツの消費量を示す',
+      tooltip: 'ページが表示された合計回数',
       status: m.pageviews > 200 ? 'good' : m.pageviews > 50 ? 'warn' : 'bad',
       gradient: 'linear-gradient(135deg, #f59e0b, #fbbf24)',
     },
     {
       key: 'pagesPerSession', label: 'PV/セッション', value: pagesPerSession.toFixed(2), icon: '📑',
-      tooltip: '1回の訪問で平均何ページ見たか。回遊性の指標',
+      tooltip: '1回の訪問で平均何ページ見たか。高いほど興味を持って回遊している',
       status: pagesPerSession >= 2 ? 'good' : pagesPerSession >= 1.3 ? 'warn' : 'bad',
       gradient: 'linear-gradient(135deg, #84cc16, #a3e635)',
     },
     {
       key: 'engagement', label: 'エンゲージメント率', value: `${er.toFixed(1)}%`, icon: '🎯',
-      tooltip: 'サイトに関心を持って操作したセッションの割合。直帰の逆指標',
+      tooltip: '10秒以上滞在・2ページ以上閲覧など、積極的に閲覧した割合。高いほど良い',
       status: er >= 60 ? 'good' : er >= 40 ? 'warn' : 'bad',
       gradient: 'linear-gradient(135deg, #10b981, #34d399)',
     },
     {
       key: 'bounce', label: '直帰率', value: `${br.toFixed(1)}%`, icon: '↩️',
-      tooltip: '1ページだけ見て離脱した割合。低いほど良い',
+      tooltip: '1ページだけ見てすぐ離脱した割合。低いほど良い（目安：50%以下が理想）',
       status: br <= 40 ? 'good' : br <= 60 ? 'warn' : 'bad',
       gradient: 'linear-gradient(135deg, #64748b, #94a3b8)',
     },
     {
       key: 'duration', label: '平均セッション時間', value: `${Math.round(m.avgSessionDuration)}秒`, icon: '⏱️',
-      tooltip: '1回の訪問あたりの平均滞在時間。長いほどコンテンツが読まれている',
+      tooltip: '1回の訪問で平均どれくらい滞在したか',
       status: m.avgSessionDuration >= 120 ? 'good' : m.avgSessionDuration >= 60 ? 'warn' : 'bad',
       gradient: 'linear-gradient(135deg, #06b6d4, #22d3ee)',
     },
     {
       key: 'conversions', label: 'コンバージョン', value: m.conversions.toLocaleString(), icon: '🎉',
-      tooltip: '目標達成数（予約・問い合わせ等）。最終的なビジネス成果',
+      tooltip: '予約・問い合わせなど目標とする行動が達成された回数',
       status: m.conversions > 5 ? 'good' : m.conversions > 0 ? 'warn' : 'bad',
       gradient: 'linear-gradient(135deg, #ec4899, #f43f5e)',
     },
@@ -279,12 +309,15 @@ export default function AnalyticsPage() {
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const actionPlanRef = useRef<HTMLDivElement>(null);
+  const [referralSources, setReferralSources] = useState<ReferralSource[]>([]);
+  const [showAllReferrals, setShowAllReferrals] = useState(false);
   const [snapshotId, setSnapshotId] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [history, setHistory] = useState<SavedSnapshot[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
   const [expandedHistoryId, setExpandedHistoryId] = useState<string | null>(null);
+  const [showClaudeModal, setShowClaudeModal] = useState(false);
 
   // GA4データ取得
   const fetchData = async () => {
@@ -300,9 +333,11 @@ export default function AnalyticsPage() {
       setMetrics(data.metrics);
       setChannelBreakdown(data.channelBreakdown ?? {});
       setTopPages(data.topPages ?? []);
+      setReferralSources(data.referralSources ?? []);
       setSnapshotId(data.snapshotId ?? null);
       setSaved(false);
       setInsightData(null);
+      setShowAllReferrals(false);
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'データ取得に失敗しました');
     } finally {
@@ -469,8 +504,8 @@ export default function AnalyticsPage() {
     setTimeout(() => setCopied(false), 2000);
   };
 
-  // チャート用データ
-  const pieData = Object.entries(channelBreakdown).map(([name, value]) => ({ name, value }));
+  // チャート用データ（チャネル名を日本語に変換）
+  const pieData = Object.entries(channelBreakdown).map(([name, value]) => ({ name: formatChannelName(name), value }));
   const totalSessions = pieData.reduce((sum, d) => sum + d.value, 0);
   const pageBarData = topPages.map(p => {
     const label = formatPagePath(p.path);
@@ -787,6 +822,52 @@ export default function AnalyticsPage() {
         }
         .save-btn:disabled { opacity: 0.6; cursor: not-allowed; }
         .save-btn:hover:not(:disabled) { box-shadow: 0 6px 20px rgba(16,185,129,0.35); }
+        @keyframes modalFadeIn {
+          from { opacity: 0; }
+          to { opacity: 1; }
+        }
+        @keyframes modalSlideUp {
+          from { opacity: 0; transform: translateY(24px) scale(0.98); }
+          to { opacity: 1; transform: translateY(0) scale(1); }
+        }
+        .claude-modal-overlay {
+          position: fixed; inset: 0; z-index: 1000;
+          background: rgba(0,0,0,0.5);
+          backdrop-filter: blur(6px);
+          -webkit-backdrop-filter: blur(6px);
+          display: flex; align-items: center; justify-content: center;
+          padding: 24px;
+          animation: modalFadeIn 0.2s ease;
+        }
+        .claude-modal {
+          background: var(--bg-secondary);
+          border: 1px solid var(--border);
+          border-radius: 16px;
+          width: 100%; max-width: 800px;
+          max-height: calc(100vh - 48px);
+          overflow-y: auto;
+          box-shadow: 0 24px 80px rgba(0,0,0,0.25);
+          animation: modalSlideUp 0.3s ease;
+        }
+        .claude-modal::-webkit-scrollbar { width: 6px; }
+        .claude-modal::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+        .claude-modal-section {
+          padding: 20px 24px;
+          border-bottom: 1px solid var(--border);
+        }
+        .claude-modal-section:last-child { border-bottom: none; }
+        .difficulty-stars { letter-spacing: 2px; }
+        .enhance-item {
+          padding: 14px 16px;
+          border-radius: 10px;
+          border: 1px solid var(--border);
+          background: var(--bg-primary);
+          transition: box-shadow 0.15s, transform 0.15s;
+        }
+        .enhance-item:hover {
+          box-shadow: 0 4px 12px rgba(0,0,0,0.06);
+          transform: translateY(-1px);
+        }
         @media (max-width: 768px) {
           .kpi-grid { grid-template-columns: repeat(2, 1fr) !important; }
           .chart-grid { grid-template-columns: 1fr !important; }
@@ -1015,70 +1096,65 @@ export default function AnalyticsPage() {
               チャネル分析 & 人気ページ
             </div>
             <div className="chart-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20 }}>
-              {/* チャネル別 */}
+              {/* チャネル別（ドーナツ + リスト横並び） */}
               <div className="analytics-card" style={{ padding: 22 }}>
                 <h3 style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 18 }}>チャネル別セッション</h3>
                 {pieData.length > 0 ? (
-                  <ResponsiveContainer width="100%" height={300}>
-                    <PieChart>
-                      <Pie
-                        data={pieData} cx="50%" cy="50%"
-                        outerRadius={85} innerRadius={38}
-                        dataKey="value" strokeWidth={2} stroke="var(--bg-secondary)"
-                        label={(props: {
-                          cx?: number; cy?: number;
-                          midAngle?: number; outerRadius?: number;
-                          name?: string; value?: number;
-                        }) => {
-                          const { cx = 0, cy = 0, midAngle = 0, outerRadius: or = 0, name = '', value = 0 } = props;
-                          const pct = totalSessions > 0 ? (value / totalSessions) * 100 : 0;
-                          if (pct < 5) return null;
-                          const RADIAN = Math.PI / 180;
-                          const radius = or + 28;
-                          const x = cx + radius * Math.cos(-midAngle * RADIAN);
-                          const y = cy + radius * Math.sin(-midAngle * RADIAN);
-                          return (
-                            <text
-                              x={x} y={y}
-                              fill="var(--text-secondary)"
-                              textAnchor={x > cx ? 'start' : 'end'}
-                              dominantBaseline="central"
-                              fontSize={11} fontWeight={600}
-                            >
-                              {name} {pct.toFixed(0)}%
-                            </text>
-                          );
-                        }}
-                        labelLine={(props: {
-                          cx?: number; cy?: number;
-                          midAngle?: number; outerRadius?: number;
-                          value?: number;
-                        }) => {
-                          const { cx = 0, cy = 0, midAngle = 0, outerRadius: or = 0, value = 0 } = props;
-                          const pct = totalSessions > 0 ? (value / totalSessions) * 100 : 0;
-                          if (pct < 5) return <line stroke="none" />;
-                          const RADIAN = Math.PI / 180;
-                          const x1 = cx + (or + 4) * Math.cos(-midAngle * RADIAN);
-                          const y1 = cy + (or + 4) * Math.sin(-midAngle * RADIAN);
-                          const x2 = cx + (or + 22) * Math.cos(-midAngle * RADIAN);
-                          const y2 = cy + (or + 22) * Math.sin(-midAngle * RADIAN);
-                          return <line x1={x1} y1={y1} x2={x2} y2={y2} stroke="var(--border)" strokeWidth={1} />;
-                        }}
-                      >
-                        {pieData.map((_, i) => (
-                          <Cell key={i} fill={CHANNEL_COLORS[i % CHANNEL_COLORS.length]} />
-                        ))}
-                      </Pie>
-                      <Tooltip
-                        contentStyle={{ background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 10, fontSize: 12 }}
-                        formatter={(value, _name, entry) => {
-                          const v = typeof value === 'number' ? value : Number(value);
-                          const pct = totalSessions > 0 ? ((v / totalSessions) * 100).toFixed(1) : '0';
-                          return [`${v} セッション (${pct}%)`, entry?.payload?.name ?? ''];
-                        }}
-                      />
-                    </PieChart>
-                  </ResponsiveContainer>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+                    {/* ドーナツチャート（中央に総セッション数） */}
+                    <div style={{ position: 'relative', flexShrink: 0, width: 200, height: 200 }}>
+                      <ResponsiveContainer width="100%" height={200}>
+                        <PieChart>
+                          <Pie
+                            data={pieData} cx="50%" cy="50%"
+                            outerRadius={90} innerRadius={52}
+                            dataKey="value" strokeWidth={2} stroke="var(--bg-secondary)"
+                            label={false} labelLine={false}
+                          >
+                            {pieData.map((_, i) => (
+                              <Cell key={i} fill={CHANNEL_COLORS[i % CHANNEL_COLORS.length]} />
+                            ))}
+                          </Pie>
+                          <Tooltip
+                            contentStyle={{ background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 10, fontSize: 12 }}
+                            formatter={(value, _name, entry) => {
+                              const v = typeof value === 'number' ? value : Number(value);
+                              const pct = totalSessions > 0 ? ((v / totalSessions) * 100).toFixed(1) : '0';
+                              return [`${v} セッション (${pct}%)`, entry?.payload?.name ?? ''];
+                            }}
+                          />
+                        </PieChart>
+                      </ResponsiveContainer>
+                      {/* 中央オーバーレイ: 総セッション数 */}
+                      <div style={{
+                        position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%, -50%)',
+                        textAlign: 'center', pointerEvents: 'none',
+                      }}>
+                        <div style={{ fontSize: 22, fontWeight: 800, color: 'var(--text-primary)', lineHeight: 1 }}>
+                          {totalSessions.toLocaleString()}
+                        </div>
+                        <div style={{ fontSize: 10, color: 'var(--text-muted)', marginTop: 2 }}>総セッション</div>
+                      </div>
+                    </div>
+                    {/* チャネルリスト */}
+                    <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 6 }}>
+                      {pieData.map((d, i) => {
+                        const pct = totalSessions > 0 ? (d.value / totalSessions) * 100 : 0;
+                        const color = CHANNEL_COLORS[i % CHANNEL_COLORS.length];
+                        return (
+                          <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12 }}>
+                            <span style={{ width: 10, height: 10, borderRadius: '50%', background: color, flexShrink: 0 }} />
+                            <span style={{ flex: 1, color: 'var(--text-primary)', fontWeight: 500, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', minWidth: 0 }}>{d.name}</span>
+                            <span style={{ color: 'var(--text-muted)', fontWeight: 600, flexShrink: 0, width: 40, textAlign: 'right' }}>{d.value}</span>
+                            <span style={{ color: 'var(--text-muted)', fontSize: 11, flexShrink: 0, width: 38, textAlign: 'right' }}>{pct.toFixed(1)}%</span>
+                            <div style={{ width: 60, height: 6, borderRadius: 3, background: 'var(--bg-primary)', flexShrink: 0, overflow: 'hidden' }}>
+                              <div style={{ width: `${Math.min(pct, 100)}%`, height: '100%', borderRadius: 3, background: color, transition: 'width 0.4s ease' }} />
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
                 ) : (
                   <div style={{ padding: 40, textAlign: 'center', color: 'var(--text-muted)', fontSize: 13 }}>データがありません</div>
                 )}
@@ -1117,9 +1193,98 @@ export default function AnalyticsPage() {
             </div>
           </div>
 
+          {/* ═══ 流入元サイト詳細 ═══ */}
+          {referralSources.length > 0 && (
+            <div style={{ marginTop: 24 }}>
+              <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase' as const, letterSpacing: '0.08em', marginBottom: 14, display: 'flex', alignItems: 'center', gap: 8 }}>
+                <span style={{ width: 20, height: 2, background: 'linear-gradient(90deg, #6c63ff, #00d4b8)', borderRadius: 1 }} />
+                流入元サイト詳細
+              </div>
+              <div className="analytics-card" style={{ padding: 0, overflow: 'hidden' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+                  <thead>
+                    <tr style={{ borderBottom: '1px solid var(--border)' }}>
+                      {['流入元サイト', '媒体', 'セッション数', '直帰率'].map(h => (
+                        <th key={h} style={{
+                          padding: '12px 16px', textAlign: h === 'セッション数' || h === '直帰率' ? 'right' : 'left',
+                          fontSize: 11, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase' as const,
+                          letterSpacing: '0.04em', background: 'var(--bg-primary)',
+                        }}>{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {(showAllReferrals ? referralSources : referralSources.slice(0, 10)).map((r, i) => {
+                      const isSearchEngine = /google|yahoo|bing|baidu|duckduckgo|naver|yandex/i.test(r.source);
+                      const br = r.bounceRate * 100;
+                      return (
+                        <tr key={i} style={{ borderBottom: '1px solid var(--border)', transition: 'background 0.15s' }}
+                          onMouseEnter={e => (e.currentTarget.style.background = 'rgba(108,99,255,0.03)')}
+                          onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
+                        >
+                          <td style={{ padding: '10px 16px', display: 'flex', alignItems: 'center', gap: 8 }}>
+                            {isSearchEngine && (
+                              <span style={{
+                                display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                                width: 20, height: 20, borderRadius: 5, fontSize: 10, flexShrink: 0,
+                                background: 'rgba(16,185,129,0.1)', color: '#10b981',
+                              }}>🔍</span>
+                            )}
+                            <span style={{ fontWeight: 600, color: isSearchEngine ? '#10b981' : 'var(--text-primary)' }}>
+                              {r.source}
+                            </span>
+                          </td>
+                          <td style={{ padding: '10px 16px', color: 'var(--text-muted)' }}>
+                            <span style={{
+                              display: 'inline-block', padding: '2px 8px', borderRadius: 4, fontSize: 11,
+                              background: r.medium === 'organic' ? 'rgba(16,185,129,0.08)' :
+                                         r.medium === 'referral' ? 'rgba(108,99,255,0.08)' :
+                                         r.medium === 'cpc' ? 'rgba(245,158,11,0.08)' : 'var(--bg-primary)',
+                              color: r.medium === 'organic' ? '#10b981' :
+                                     r.medium === 'referral' ? '#6c63ff' :
+                                     r.medium === 'cpc' ? '#f59e0b' : 'var(--text-muted)',
+                              fontWeight: 600,
+                            }}>
+                              {r.medium}
+                            </span>
+                          </td>
+                          <td style={{ padding: '10px 16px', textAlign: 'right', fontWeight: 700, color: 'var(--text-primary)' }}>
+                            {r.sessions.toLocaleString()}
+                          </td>
+                          <td style={{ padding: '10px 16px', textAlign: 'right' }}>
+                            <span style={{
+                              fontWeight: 600,
+                              color: br <= 40 ? '#10b981' : br <= 60 ? '#f59e0b' : '#ef4444',
+                            }}>
+                              {br.toFixed(1)}%
+                            </span>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+                {referralSources.length > 10 && (
+                  <div style={{ padding: '10px 16px', textAlign: 'center', borderTop: '1px solid var(--border)' }}>
+                    <button
+                      onClick={() => setShowAllReferrals(!showAllReferrals)}
+                      style={{
+                        padding: '6px 16px', borderRadius: 6, border: '1px solid var(--border)',
+                        background: 'transparent', color: 'var(--text-muted)', cursor: 'pointer',
+                        fontSize: 12, fontWeight: 600, transition: 'all 0.15s',
+                      }}
+                    >
+                      {showAllReferrals ? '▲ 折りたたむ' : `▼ もっと見る（残り${referralSources.length - 10}件）`}
+                    </button>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
           <div className="section-divider" />
 
-          {/* ═══ SECTION 3: AI分析 ═══ */}
+          {/* ══��� SECTION 3: AI分析 ═══ */}
           <div>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
               <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase' as const, letterSpacing: '0.08em', display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -1144,7 +1309,7 @@ export default function AnalyticsPage() {
                 )}
                 {insightData && (
                   <button
-                    onClick={downloadClaudeCodeTasks}
+                    onClick={() => setShowClaudeModal(true)}
                     style={{
                       padding: '9px 20px', borderRadius: 10, border: 'none',
                       cursor: 'pointer',
@@ -1320,6 +1485,209 @@ export default function AnalyticsPage() {
           </div>
         </>
       )}
+
+      {/* ═══ Claude Code 強化モーダル ═══ */}
+      {showClaudeModal && insightData && metrics && (() => {
+        // 課題点を抽出（warning/info の上位3つ）
+        const issues = insightData.insights
+          .filter(i => i.type === 'warning' || i.type === 'info')
+          .slice(0, 3);
+        if (issues.length === 0 && insightData.insights.length > 0) {
+          issues.push(...insightData.insights.slice(0, 3));
+        }
+
+        // 優先度別にアクションプランをグループ化
+        const grouped: Record<string, typeof insightData.actionPlans> = { high: [], medium: [], low: [] };
+        insightData.actionPlans.forEach(ap => {
+          (grouped[ap.priority] ?? grouped.low).push(ap);
+        });
+
+        // 実装難易度を推定（カテゴリベース）
+        const difficultyMap: Record<string, number> = {
+          'SEO': 1, 'MEO': 1, 'コンテンツ': 1, 'SNS': 2,
+          'LP改善': 2, '広告': 2, 'その他': 2,
+        };
+        const getDifficulty = (cat: string) => difficultyMap[cat] ?? 2;
+
+        // 効果を推定
+        const effectMap: Record<string, string> = {
+          'SEO': '検索流入の増加',
+          'MEO': 'ローカル検索の強化',
+          'コンテンツ': 'PV・滞在時間の改善',
+          'SNS': 'SNS流入・認知拡大',
+          'LP改善': 'コンバージョン率の向上',
+          '広告': '有料集客の効率化',
+        };
+        const getEffect = (cat: string) => effectMap[cat] ?? '運用効率の改善';
+
+        const priorityLabel = { high: { text: '優先度 高', color: '#ef4444', bg: 'rgba(239,68,68,0.08)' }, medium: { text: '優先度 中', color: '#f59e0b', bg: 'rgba(245,158,11,0.08)' }, low: { text: '優先度 低', color: '#22c55e', bg: 'rgba(34,197,94,0.08)' } };
+
+        return (
+          <div className="claude-modal-overlay" onClick={() => setShowClaudeModal(false)}>
+            <div className="claude-modal" onClick={e => e.stopPropagation()}>
+              {/* ヘッダー */}
+              <div className="claude-modal-section" style={{ background: 'linear-gradient(135deg, rgba(245,158,11,0.06), rgba(249,115,22,0.06))' }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                    <span style={{
+                      display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                      width: 40, height: 40, borderRadius: 10,
+                      background: 'linear-gradient(135deg, #f59e0b, #f97316)',
+                      fontSize: 20,
+                    }}>🤖</span>
+                    <div>
+                      <h2 style={{ fontSize: 18, fontWeight: 800, color: 'var(--text-primary)', margin: 0 }}>
+                        Claude Codeで強化できること
+                      </h2>
+                      <p style={{ fontSize: 12, color: 'var(--text-muted)', margin: '2px 0 0' }}>
+                        GA4分析結果を元に、xLUMINAの強化ポイントを提案します
+                      </p>
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => setShowClaudeModal(false)}
+                    style={{ width: 32, height: 32, borderRadius: 8, border: '1px solid var(--border)', background: 'var(--bg-primary)', cursor: 'pointer', fontSize: 14, color: 'var(--text-muted)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                  >✕</button>
+                </div>
+              </div>
+
+              {/* 現状サマリーカード */}
+              <div className="claude-modal-section" style={{ background: 'rgba(108,99,255,0.03)' }}>
+                <h3 style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 12, display: 'flex', alignItems: 'center', gap: 6 }}>
+                  📊 現状サマリー
+                </h3>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 10, marginBottom: 14 }}>
+                  {[
+                    { label: 'セッション', value: metrics.sessions.toLocaleString(), icon: '👁️' },
+                    { label: 'CV率', value: `${(metrics.conversionRate * 100).toFixed(2)}%`, icon: '🎯' },
+                    { label: '直帰率', value: `${(metrics.bounceRate * 100).toFixed(1)}%`, icon: '↩️' },
+                  ].map(s => (
+                    <div key={s.label} style={{ padding: '10px 12px', borderRadius: 8, background: 'var(--bg-secondary)', border: '1px solid var(--border)', textAlign: 'center' }}>
+                      <div style={{ fontSize: 14 }}>{s.icon}</div>
+                      <div style={{ fontSize: 18, fontWeight: 800, color: 'var(--text-primary)', margin: '4px 0 2px' }}>{s.value}</div>
+                      <div style={{ fontSize: 10, color: 'var(--text-muted)', fontWeight: 600 }}>{s.label}</div>
+                    </div>
+                  ))}
+                </div>
+                {issues.length > 0 && (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-muted)', marginBottom: 2 }}>検出された課題</div>
+                    {issues.map((issue, i) => (
+                      <div key={i} style={{ display: 'flex', alignItems: 'baseline', gap: 8, fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.5 }}>
+                        <span style={{ flexShrink: 0 }}>{INSIGHT_STYLE[issue.type]?.icon || '💡'}</span>
+                        <span><strong style={{ color: 'var(--text-primary)' }}>{issue.title}</strong> — {issue.body.length > 80 ? issue.body.slice(0, 80) + '…' : issue.body}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* 強化提案リスト */}
+              {insightData.actionPlans.length > 0 && (
+                <div className="claude-modal-section">
+                  <h3 style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 14, display: 'flex', alignItems: 'center', gap: 6 }}>
+                    🎯 強化提案リスト
+                  </h3>
+                  {(['high', 'medium', 'low'] as const).map(priority => {
+                    const items = grouped[priority];
+                    if (items.length === 0) return null;
+                    const pl = priorityLabel[priority];
+                    return (
+                      <div key={priority} style={{ marginBottom: 16 }}>
+                        <div style={{ fontSize: 11, fontWeight: 700, color: pl.color, marginBottom: 8, display: 'flex', alignItems: 'center', gap: 6 }}>
+                          <span style={{ width: 8, height: 8, borderRadius: '50%', background: pl.color }} />
+                          {pl.text}（{items.length}件）
+                        </div>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                          {items.map((ap, i) => {
+                            const diff = getDifficulty(ap.category);
+                            const effect = getEffect(ap.category);
+                            return (
+                              <div key={i} className="enhance-item">
+                                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
+                                  <span style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-primary)' }}>{ap.title}</span>
+                                  {ap.category && (
+                                    <span style={{ fontSize: 10, padding: '2px 8px', borderRadius: 4, background: pl.bg, color: pl.color, fontWeight: 600 }}>{ap.category}</span>
+                                  )}
+                                </div>
+                                <div style={{ fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.5, marginBottom: 8 }}>
+                                  {ap.description}
+                                </div>
+                                <div style={{ display: 'flex', gap: 16, fontSize: 11 }}>
+                                  <span style={{ color: 'var(--text-muted)' }}>
+                                    実装難易度: <span className="difficulty-stars" style={{ color: '#f59e0b' }}>{'⭐'.repeat(diff)}{'☆'.repeat(3 - diff)}</span>
+                                  </span>
+                                  <span style={{ color: 'var(--text-muted)' }}>
+                                    期待効果: <strong style={{ color: 'var(--text-primary)' }}>{effect}</strong>
+                                  </span>
+                                </div>
+                                {ap.xluminaFeature && (
+                                  <div className="xlumina-badge" style={{ marginTop: 8 }}>
+                                    <span>💡</span>
+                                    <span style={{ fontWeight: 600 }}>xLUMINA活用:</span> {ap.xluminaFeature}
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+
+              {/* xLUMINA強化アイデア */}
+              {insightData.marketingIdeas.length > 0 && (
+                <div className="claude-modal-section" style={{ background: 'linear-gradient(135deg, rgba(108,99,255,0.03), rgba(0,212,184,0.03))' }}>
+                  <h3 style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 14, display: 'flex', alignItems: 'center', gap: 6 }}>
+                    🚀 xLUMINA 強化アイデア
+                  </h3>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                    {insightData.marketingIdeas.map((mi, i) => (
+                      <div key={i} className="enhance-item" style={{ borderLeft: '3px solid #6c63ff' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+                          <span className="channel-tag">{mi.channel}</span>
+                          <span style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-primary)' }}>{mi.title}</span>
+                        </div>
+                        <div style={{ fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.5, marginBottom: 6 }}>
+                          {mi.description}
+                        </div>
+                        {mi.xluminaUsage && (
+                          <div style={{ display: 'flex', alignItems: 'baseline', gap: 6, fontSize: 12, color: 'var(--text-primary)', padding: '6px 10px', borderRadius: 6, background: 'rgba(108,99,255,0.06)' }}>
+                            <span>💡</span> <strong>新機能案:</strong> {mi.xluminaUsage}
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* フッター */}
+              <div className="claude-modal-section" style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 10, padding: '16px 24px' }}>
+                <button
+                  onClick={() => setShowClaudeModal(false)}
+                  style={{
+                    padding: '10px 20px', borderRadius: 10,
+                    border: '1px solid var(--border)', background: 'var(--bg-primary)',
+                    color: 'var(--text-primary)', fontWeight: 600, fontSize: 13, cursor: 'pointer',
+                  }}
+                >✕ 閉じる</button>
+                <button
+                  onClick={() => { downloadClaudeCodeTasks(); setShowClaudeModal(false); }}
+                  style={{
+                    padding: '10px 24px', borderRadius: 10, border: 'none',
+                    background: 'linear-gradient(135deg, #f59e0b, #f97316)', color: '#fff',
+                    fontWeight: 700, fontSize: 13, cursor: 'pointer',
+                    boxShadow: '0 4px 14px rgba(245,158,11,0.3)',
+                  }}
+                >📋 MDをダウンロード</button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 }
