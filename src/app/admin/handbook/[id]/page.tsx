@@ -109,6 +109,12 @@ export default function HandbookEditorPage({ params }: { params: Promise<{ id: s
   const [showHistory, setShowHistory] = useState(false);
   const [historyLoading, setHistoryLoading] = useState(false);
 
+  // ボスマネ変換・問いかけ
+  const [bossConvertLoading, setBossConvertLoading] = useState(false);
+  const [questionLoading, setQuestionLoading] = useState(false);
+  const [questionResult, setQuestionResult] = useState('');
+  const [questionVisible, setQuestionVisible] = useState(false);
+
   // 新章追加
   const [newChapterTitle, setNewChapterTitle] = useState('');
 
@@ -254,6 +260,40 @@ export default function HandbookEditorPage({ params }: { params: Promise<{ id: s
     } catch {}
   };
 
+  const convertBossToLead = async () => {
+    setBossConvertLoading(true);
+    try {
+      const res = await fetch('/api/clinic/handbooks/enhance', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ mode: 'boss-to-lead', chapterContent: editContent }),
+      });
+      const data = await res.json();
+      if (data.result) {
+        setEditContent(data.result);
+        setMessage('✅ リードマネジメント型の表現に変換しました');
+        saveImproveHistory('ボスマネ→リードマネ変換', data.result);
+      }
+    } catch { setMessage('❌ 変換に失敗しました'); }
+    finally { setBossConvertLoading(false); }
+  };
+
+  const generateQuestion = async () => {
+    setQuestionLoading(true);
+    setQuestionResult('');
+    setQuestionVisible(true);
+    try {
+      const res = await fetch('/api/clinic/handbooks/enhance', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ mode: 'add-question', chapterContent: editContent }),
+      });
+      const data = await res.json();
+      if (data.result) setQuestionResult(data.result);
+    } catch { setQuestionResult('生成に失敗しました。'); }
+    finally { setQuestionLoading(false); }
+  };
+
   const sendChat = async (overrideInput?: string) => {
     const input = overrideInput || chatInput;
     if (!input.trim() && chatMode !== 'analyze') return;
@@ -373,6 +413,73 @@ export default function HandbookEditorPage({ params }: { params: Promise<{ id: s
               <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>文字数: {editContent.length}</span>
               <button onClick={saveChapter} disabled={saving} style={{ padding: '8px 20px', borderRadius: 8, border: 'none', background: saving ? 'rgba(108,99,255,0.3)' : 'linear-gradient(135deg, #6c63ff, #8b5cf6)', color: '#fff', fontWeight: 700, fontSize: 13, cursor: 'pointer' }}>{saving ? '保存中...' : '💾 保存'}</button>
             </div>
+
+            {/* ボスマネ→リードマネ変換・問いかけ生成 */}
+            <div style={{ marginTop: 12, display: 'flex', gap: 8 }}>
+              <button
+                onClick={convertBossToLead}
+                disabled={bossConvertLoading}
+                style={{
+                  flex: 1, padding: '9px 12px', borderRadius: 10, border: 'none',
+                  background: bossConvertLoading ? 'rgba(245,158,11,0.3)' : 'linear-gradient(135deg, #f59e0b, #d97706)',
+                  color: '#fff', fontSize: 12, fontWeight: 700, cursor: 'pointer',
+                }}
+              >
+                {bossConvertLoading ? '変換中...' : '🔄 ボスマネ→リードマネ変換'}
+              </button>
+              <button
+                onClick={generateQuestion}
+                disabled={questionLoading}
+                style={{
+                  flex: 1, padding: '9px 12px', borderRadius: 10, border: 'none',
+                  background: questionLoading ? 'rgba(6,182,212,0.3)' : 'linear-gradient(135deg, #06b6d4, #0891b2)',
+                  color: '#fff', fontSize: 12, fontWeight: 700, cursor: 'pointer',
+                }}
+              >
+                {questionLoading ? '生成中...' : '💭 章末問いかけを生成'}
+              </button>
+            </div>
+
+            {/* 問いかけ結果表示 */}
+            {questionVisible && (
+              <div style={{ marginTop: 10, padding: 14, background: 'rgba(6,182,212,0.06)', border: '1px solid rgba(6,182,212,0.2)', borderRadius: 12 }}>
+                <div style={{ fontSize: 12, fontWeight: 700, color: '#06b6d4', marginBottom: 8 }}>💭 章末問いかけ（本文に追加できます）</div>
+                {questionLoading ? (
+                  <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>生成中...</div>
+                ) : (
+                  <>
+                    <div
+                      style={{ fontSize: 13, color: 'var(--text-primary)', lineHeight: 1.8, padding: '10px 12px', background: 'var(--bg-card)', borderRadius: 8, border: '1px solid var(--border)', marginBottom: 8 }}
+                      dangerouslySetInnerHTML={{ __html: renderMarkdown(questionResult) }}
+                    />
+                    <div style={{ display: 'flex', gap: 8 }}>
+                      <button
+                        onClick={() => {
+                          setEditContent(prev => prev + '\n\n' + questionResult);
+                          setQuestionVisible(false);
+                          setMessage('✅ 章末に問いかけを追加しました');
+                        }}
+                        style={{ padding: '5px 14px', borderRadius: 8, border: 'none', background: '#06b6d4', color: '#fff', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}
+                      >
+                        ✅ 章末に追加する
+                      </button>
+                      <button
+                        onClick={() => navigator.clipboard.writeText(questionResult).then(() => setMessage('📋 コピーしました！'))}
+                        style={{ padding: '5px 12px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--bg-card)', color: 'var(--text-muted)', fontSize: 12, cursor: 'pointer' }}
+                      >
+                        📋 コピー
+                      </button>
+                      <button
+                        onClick={() => setQuestionVisible(false)}
+                        style={{ padding: '5px 10px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--bg-card)', color: 'var(--text-muted)', fontSize: 12, cursor: 'pointer' }}
+                      >
+                        閉じる
+                      </button>
+                    </div>
+                  </>
+                )}
+              </div>
+            )}
 
             {/* 理念一致度スコア */}
             <div style={{ marginTop: 16, padding: 14, background: 'rgba(29,158,117,0.05)', border: '1px solid rgba(29,158,117,0.2)', borderRadius: 12 }}>
