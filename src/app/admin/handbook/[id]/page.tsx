@@ -6,6 +6,75 @@ import { AITextReviser } from '@/components/clinic/AITextReviser';
 
 const QUICK_INSTRUCTIONS = ['わかりやすく', '理念に沿って', '箇条書き化', '具体例を追加', 'トーンを丁寧に'];
 
+function renderMarkdown(text: string): string {
+  const lines = text.split('\n');
+  const result: string[] = [];
+  let i = 0;
+  while (i < lines.length) {
+    const line = lines[i];
+    if (line.trim().startsWith('|')) {
+      const tableLines: string[] = [];
+      while (i < lines.length && lines[i].trim().startsWith('|')) {
+        tableLines.push(lines[i]); i++;
+      }
+      const dataLines = tableLines.filter(l => !/^\s*\|[-:\s|]+\|\s*$/.test(l));
+      if (dataLines.length > 0) {
+        const rows = dataLines.map(l => l.trim().replace(/^\|/, '').replace(/\|$/, '').split('|').map(c => c.trim()));
+        let html = '<table style="width:100%;border-collapse:collapse;font-size:12px;margin:8px 0">';
+        rows.forEach((cells, idx) => {
+          html += '<tr style="border-bottom:1px solid var(--border)">';
+          cells.forEach(cell => {
+            const tag = idx === 0 ? 'th' : 'td';
+            const style = idx === 0 ? 'padding:5px 8px;text-align:left;font-weight:700;color:var(--text-primary);background:var(--bg-secondary)' : 'padding:5px 8px;color:var(--text-secondary)';
+            const content = cell.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+            html += `<${tag} style="${style}">${content}</${tag}>`;
+          });
+          html += '</tr>';
+        });
+        html += '</table>';
+        result.push(html);
+      }
+      continue;
+    }
+    if (/^## (.+)$/.test(line)) {
+      result.push(`<h2 style="font-size:14px;font-weight:700;color:var(--text-primary);margin:16px 0 6px;padding-bottom:4px;border-bottom:1px solid var(--border)">${line.replace(/^## /, '').replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')}</h2>`);
+      i++; continue;
+    }
+    if (/^### (.+)$/.test(line)) {
+      result.push(`<h3 style="font-size:13px;font-weight:700;color:var(--text-primary);margin:12px 0 4px">${line.replace(/^### /, '').replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')}</h3>`);
+      i++; continue;
+    }
+    if (/^# (.+)$/.test(line)) {
+      result.push(`<h1 style="font-size:16px;font-weight:700;color:var(--text-primary);margin:0 0 10px">${line.replace(/^# /, '')}</h1>`);
+      i++; continue;
+    }
+    if (/^---$/.test(line.trim())) {
+      result.push('<hr style="border:none;border-top:1px solid var(--border);margin:12px 0">');
+      i++; continue;
+    }
+    if (/^> (.+)$/.test(line)) {
+      const content = line.replace(/^> /, '').replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+      result.push(`<div style="padding:7px 12px;border-left:3px solid #6c63ff;background:rgba(108,99,255,0.06);margin:5px 0;font-size:12px;color:var(--text-secondary)">${content}</div>`);
+      i++; continue;
+    }
+    if (/^[-*] (.+)$/.test(line)) {
+      const items: string[] = [];
+      while (i < lines.length && /^[-*] (.+)$/.test(lines[i])) {
+        const content = lines[i].replace(/^[-*] /, '').replace(/\*\*(.+?)\*\*/g, '<strong style="font-weight:700;color:var(--text-primary)">$1</strong>');
+        items.push(`<li style="margin:3px 0;font-size:12px;color:var(--text-secondary);line-height:1.6">${content}</li>`);
+        i++;
+      }
+      result.push(`<ul style="padding-left:16px;margin:6px 0">${items.join('')}</ul>`);
+      continue;
+    }
+    if (line.trim() === '') { result.push('<div style="height:6px"></div>'); i++; continue; }
+    const content = line.replace(/\*\*(.+?)\*\*/g, '<strong style="font-weight:700;color:var(--text-primary)">$1</strong>');
+    result.push(`<p style="margin:3px 0;font-size:12px;color:var(--text-secondary);line-height:1.8">${content}</p>`);
+    i++;
+  }
+  return result.join('');
+}
+
 export default function HandbookEditorPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
   const [handbook, setHandbook] = useState<any>(null);
@@ -30,6 +99,10 @@ export default function HandbookEditorPage({ params }: { params: Promise<{ id: s
   const [wizardStep, setWizardStep] = useState<1 | 2 | 3>(1);
   const [beforeContent, setBeforeContent] = useState('');
   const [showBeforeAfter, setShowBeforeAfter] = useState(false);
+
+  // 理念一致度スコア
+  const [ideologyScore, setIdeologyScore] = useState<null | { score: number; reason: string; points: string[] }>(null);
+  const [ideologyLoading, setIdeologyLoading] = useState(false);
 
   // 新章追加
   const [newChapterTitle, setNewChapterTitle] = useState('');
@@ -127,6 +200,21 @@ export default function HandbookEditorPage({ params }: { params: Promise<{ id: s
   };
 
   const applyAi = () => { setEditContent(aiResult); setAiResult(''); };
+
+  const checkIdeologyScore = async () => {
+    setIdeologyLoading(true);
+    setIdeologyScore(null);
+    try {
+      const res = await fetch('/api/clinic/handbooks/ideology-score', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ chapterContent: editContent }),
+      });
+      const data = await res.json();
+      if (data.score !== undefined) setIdeologyScore(data);
+    } catch {}
+    finally { setIdeologyLoading(false); }
+  };
 
   const sendChat = async (overrideInput?: string) => {
     const input = overrideInput || chatInput;
@@ -248,6 +336,43 @@ export default function HandbookEditorPage({ params }: { params: Promise<{ id: s
               <button onClick={saveChapter} disabled={saving} style={{ padding: '8px 20px', borderRadius: 8, border: 'none', background: saving ? 'rgba(108,99,255,0.3)' : 'linear-gradient(135deg, #6c63ff, #8b5cf6)', color: '#fff', fontWeight: 700, fontSize: 13, cursor: 'pointer' }}>{saving ? '保存中...' : '💾 保存'}</button>
             </div>
 
+            {/* 理念一致度スコア */}
+            <div style={{ marginTop: 16, padding: 14, background: 'rgba(29,158,117,0.05)', border: '1px solid rgba(29,158,117,0.2)', borderRadius: 12 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: ideologyScore ? 12 : 0 }}>
+                <div style={{ fontSize: 13, fontWeight: 700, color: '#1D9E75' }}>🌿 理念一致度スコア</div>
+                <button onClick={checkIdeologyScore} disabled={ideologyLoading}
+                  style={{ padding: '5px 14px', borderRadius: 8, border: 'none', background: ideologyLoading ? 'rgba(29,158,117,0.3)' : '#1D9E75', color: '#fff', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>
+                  {ideologyLoading ? '採点中...' : ideologyScore ? '再採点' : '📊 採点する'}
+                </button>
+              </div>
+              {ideologyScore && (
+                <div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 10 }}>
+                    <div style={{ flex: 1, height: 12, background: 'var(--border)', borderRadius: 6, overflow: 'hidden' }}>
+                      <div style={{
+                        width: `${ideologyScore.score}%`, height: '100%', borderRadius: 6,
+                        background: ideologyScore.score >= 80 ? '#1D9E75' : ideologyScore.score >= 60 ? '#f59e0b' : '#ef4444',
+                        transition: 'width 0.6s ease',
+                      }} />
+                    </div>
+                    <div style={{ fontSize: 22, fontWeight: 700, color: ideologyScore.score >= 80 ? '#1D9E75' : ideologyScore.score >= 60 ? '#f59e0b' : '#ef4444', minWidth: 48 }}>
+                      {ideologyScore.score}点
+                    </div>
+                  </div>
+                  <div style={{ fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.7, marginBottom: 8 }}>{ideologyScore.reason}</div>
+                  {ideologyScore.points.length > 0 && (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                      {ideologyScore.points.map((p, i) => (
+                        <div key={i} style={{ fontSize: 11, color: 'var(--text-muted)', padding: '4px 8px', background: 'var(--bg-card)', borderRadius: 6, borderLeft: '3px solid rgba(29,158,117,0.4)' }}>
+                          {p}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+
             {/* AI文章強化ウィザード */}
             <div style={{ marginTop: 24, padding: 18, background: 'rgba(108,99,255,0.04)', border: '1px solid rgba(108,99,255,0.15)', borderRadius: 14 }}>
 
@@ -297,9 +422,10 @@ export default function HandbookEditorPage({ params }: { params: Promise<{ id: s
 
                   {aiResult && (
                     <div style={{ marginTop: 12 }}>
-                      <div style={{ padding: 14, background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 10, fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.8, whiteSpace: 'pre-wrap' }}>
-                        {aiResult}
-                      </div>
+                      <div
+                        style={{ padding: 12, background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 10, maxHeight: 350, overflowY: 'auto' }}
+                        dangerouslySetInnerHTML={{ __html: renderMarkdown(aiResult) }}
+                      />
                       <button onClick={() => { setWizardStep(2); setAiResult(''); }}
                         style={{ marginTop: 10, width: '100%', padding: '10px', borderRadius: 10, border: 'none', background: '#4ade80', color: '#000', fontWeight: 700, fontSize: 13, cursor: 'pointer' }}>
                         ✅ 評価を確認した → Step 2へ
