@@ -509,17 +509,33 @@ export default function HandbookEditorPage({ params }: { params: Promise<{ id: s
                   {/* Before / After 比較 */}
                   {showBeforeAfter && aiResult && (
                     <div style={{ marginTop: 16 }}>
-                      <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 8 }}>📊 Before / After 比較</div>
+                      <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 10, display: 'flex', alignItems: 'center', gap: 6 }}>
+                        📊 Before / After 比較
+                      </div>
                       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
                         <div>
-                          <div style={{ fontSize: 11, fontWeight: 700, color: '#ef4444', marginBottom: 6 }}>Before（現在）</div>
-                          <div style={{ padding: 12, background: 'rgba(239,68,68,0.04)', border: '1px solid rgba(239,68,68,0.2)', borderRadius: 8, fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.8, whiteSpace: 'pre-wrap', maxHeight: 300, overflowY: 'auto' }}>
-                            {beforeContent}
+                          <div style={{ fontSize: 11, fontWeight: 700, color: '#ef4444', marginBottom: 4 }}>Before（現在）</div>
+                          <div style={{
+                            padding: 12, background: 'rgba(239,68,68,0.04)',
+                            border: '1px solid rgba(239,68,68,0.2)', borderRadius: 8,
+                            fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.8,
+                            whiteSpace: 'pre-wrap',
+                            height: 480, overflowY: 'auto',
+                          }}>
+                            {editContent}
                           </div>
                         </div>
                         <div>
-                          <div style={{ fontSize: 11, fontWeight: 700, color: '#4ade80', marginBottom: 6 }}>After（AI改善案）</div>
-                          <div style={{ padding: 12, background: 'rgba(74,222,128,0.04)', border: '1px solid rgba(74,222,128,0.2)', borderRadius: 8, fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.8, maxHeight: 300, overflowY: 'auto' }} dangerouslySetInnerHTML={{ __html: renderMarkdown(aiResult) }} />
+                          <div style={{ fontSize: 11, fontWeight: 700, color: '#1D9E75', marginBottom: 4 }}>After（AI改善案）</div>
+                          <div style={{
+                            padding: 12, background: 'rgba(29,158,117,0.04)',
+                            border: '1px solid rgba(29,158,117,0.2)', borderRadius: 8,
+                            fontSize: 12, color: 'var(--text-primary)', lineHeight: 1.8,
+                            whiteSpace: 'pre-wrap',
+                            height: 480, overflowY: 'auto',
+                          }}>
+                            {aiResult || '← 上の改善ボタンを押すとここに表示されます'}
+                          </div>
                         </div>
                       </div>
                       <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
