@@ -1,9 +1,17 @@
 import { NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
 import { GoogleGenerativeAI } from '@google/generative-ai';
+import { neon } from '@neondatabase/serverless';
 
 export const runtime = 'nodejs';
 export const maxDuration = 60;
+
+interface DbReview {
+  author_name: string;
+  rating: number;
+  text: string | null;
+  source: string;
+}
 
 export async function POST(req: Request) {
   const session = await auth();
@@ -21,19 +29,41 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'reviews が必要です' }, { status: 400 });
     }
 
-    const reviewTexts = reviews
+    // DB保存済みの口コミも取得して分析対象に含める
+    let dbReviews: DbReview[] = [];
+    try {
+      const sql = neon(process.env.DATABASE_URL!);
+      dbReviews = await sql`
+        SELECT author_name, rating, text, source
+        FROM clinic_reviews
+        ORDER BY created_at DESC
+      ` as DbReview[];
+    } catch {
+      // DBテーブル未作成などでも分析は継続
+    }
+
+    const placesReviewTexts = reviews
       .map((r: { rating: number; author: string; text: string }, i: number) =>
-        `${i + 1}. [${r.rating}★] ${r.author}: ${r.text}`)
+        `${i + 1}. [${r.rating}★] ${r.author}（Google Places）: ${r.text}`)
       .join('\n\n');
 
-    const prompt = `あなたは皮膚科クリニックの口コミ分析・評判管理の専門家です。以下のGoogle口コミを分析してください。
+    const dbReviewTexts = dbReviews
+      .map((r, i) =>
+        `${reviews.length + i + 1}. [${r.rating}★] ${r.author_name}（${r.source === 'manual' ? '手動登録' : r.source}）: ${r.text ?? ''}`)
+      .join('\n\n');
+
+    const allReviewTexts = [placesReviewTexts, dbReviewTexts].filter(Boolean).join('\n\n');
+    const totalAnalyzed = reviews.length + dbReviews.length;
+
+    const prompt = `あなたは皮膚科クリニックの口コミ分析・評判管理の専門家です。以下の口コミを分析してください。
 
 ## クリニック情報
 - 名前: ${name}
 - 総合評価: ${rating}/5.0（${totalReviews}件）
+- 分析対象の口コミ数: ${totalAnalyzed}件（Google Places: ${reviews.length}件、DB保存: ${dbReviews.length}件）
 
-## 最新口コミ
-${reviewTexts}
+## 分析対象の口コミ
+${allReviewTexts}
 
 以下のJSON形式で回答してください:
 {
@@ -67,6 +97,9 @@ ${reviewTexts}
       strengths: parsed.strengths || [],
       improvements: parsed.improvements || [],
       replyIdeas: parsed.replyIdeas || [],
+      analyzedCount: totalAnalyzed,
+      placesCount: reviews.length,
+      dbCount: dbReviews.length,
     });
 
   } catch (error: unknown) {
