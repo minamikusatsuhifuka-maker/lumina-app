@@ -77,7 +77,7 @@ export async function POST() {
         ${JSON.stringify(channelBreakdown)}, ${JSON.stringify(topPages)})
       RETURNING id`;
 
-    return NextResponse.json({ success: true, snapshotId: snapshots[0].id, metrics });
+    return NextResponse.json({ success: true, snapshotId: snapshots[0].id, metrics, channelBreakdown, topPages });
 
   } catch (error: any) {
     console.error('[ga/fetch] error:', error);
