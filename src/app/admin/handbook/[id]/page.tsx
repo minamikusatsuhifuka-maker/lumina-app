@@ -109,6 +109,9 @@ export default function HandbookEditorPage({ params }: { params: Promise<{ id: s
   const [showHistory, setShowHistory] = useState(false);
   const [historyLoading, setHistoryLoading] = useState(false);
 
+  // Step別進捗
+  const [stepProgress, setStepProgress] = useState(0);
+
   // ボスマネ変換・問いかけ
   const [bossConvertLoading, setBossConvertLoading] = useState(false);
   const [questionLoading, setQuestionLoading] = useState(false);
@@ -553,38 +556,31 @@ export default function HandbookEditorPage({ params }: { params: Promise<{ id: s
                 </div>
               </div>
 
-              {/* 進捗バー */}
-              <div key={`progress-${wizardStep}`} style={{ marginBottom: 14 }}>
+              {/* Step別進捗バー */}
+              <div style={{ marginBottom: 14 }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: 'var(--text-muted)', marginBottom: 6 }}>
                   <span style={{ fontWeight: 600 }}>
-                    {aiLoading ? '処理中...' : `Step ${wizardStep} / 3`}
+                    {aiLoading ? '処理中...' : stepProgress === 100 ? '完了 ✓' : `Step ${wizardStep} / 3`}
                   </span>
-                  <span>
-                    {aiLoading
-                      ? '⏳'
-                      : wizardStep === 1 ? '0%'
-                      : wizardStep === 2 ? '50%'
-                      : '100%'}
+                  <span style={{ fontWeight: aiLoading ? 400 : 600, color: stepProgress === 100 ? '#1D9E75' : 'var(--text-muted)' }}>
+                    {aiLoading ? '⏳' : `${stepProgress}%`}
                   </span>
                 </div>
                 <div style={{ height: 8, background: 'rgba(108,99,255,0.15)', borderRadius: 4, overflow: 'hidden', position: 'relative' }}>
                   <div style={{
                     height: '100%',
-                    width: (() => {
-                      const s = wizardStep;
-                      if (s === 1) return '5%';
-                      if (s === 2) return '50%';
-                      return '100%';
-                    })(),
-                    background: 'linear-gradient(90deg, #6c63ff, #8b5cf6)',
+                    width: aiLoading ? '5%' : `${stepProgress}%`,
+                    background: stepProgress === 100
+                      ? 'linear-gradient(90deg, #1D9E75, #4ade80)'
+                      : 'linear-gradient(90deg, #6c63ff, #8b5cf6)',
                     borderRadius: 4,
-                    transition: 'width 0.5s ease',
+                    transition: 'width 0.5s ease, background 0.3s ease',
                   }} />
                 </div>
                 {aiLoading && (
                   <div style={{
                     marginTop: 3, height: 4,
-                    background: 'rgba(108,99,255,0.12)',
+                    background: 'rgba(108,99,255,0.1)',
                     borderRadius: 2, overflow: 'hidden', position: 'relative',
                   }}>
                     <div style={{
@@ -607,15 +603,15 @@ export default function HandbookEditorPage({ params }: { params: Promise<{ id: s
                     AIがこの章を読んで「改善すべき点」を具体的に教えてくれます
                   </div>
                   <button onClick={async () => {
-                    setAiLoading(true); setAiResult('');
+                    setAiLoading(true); setStepProgress(0); setAiResult('');
                     try {
                       const res = await fetch('/api/clinic/handbooks/enhance', {
                         method: 'POST', headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({ mode: 'evaluate', chapterContent: editContent }),
                       });
                       const data = await res.json();
-                      if (data.result) { setAiResult(data.result); }
-                    } catch {} finally { setAiLoading(false); }
+                      if (data.result) { setAiResult(data.result); setStepProgress(100); }
+                    } catch { setStepProgress(0); } finally { setAiLoading(false); }
                   }} disabled={aiLoading} style={{
                     width: '100%', padding: '12px', borderRadius: 10, border: 'none', cursor: 'pointer',
                     background: aiLoading ? 'rgba(108,99,255,0.3)' : 'linear-gradient(135deg, #6c63ff, #8b5cf6)',
@@ -630,7 +626,7 @@ export default function HandbookEditorPage({ params }: { params: Promise<{ id: s
                         style={{ padding: 12, background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 10, maxHeight: 350, overflowY: 'auto' }}
                         dangerouslySetInnerHTML={{ __html: renderMarkdown(aiResult) }}
                       />
-                      <button onClick={() => { setWizardStep(2); setAiResult(''); }}
+                      <button onClick={() => { setWizardStep(2); setStepProgress(0); setAiResult(''); }}
                         style={{ marginTop: 10, width: '100%', padding: '10px', borderRadius: 10, border: 'none', background: '#4ade80', color: '#000', fontWeight: 700, fontSize: 13, cursor: 'pointer' }}>
                         ✅ 評価を確認した → Step 2へ
                       </button>
@@ -658,7 +654,7 @@ export default function HandbookEditorPage({ params }: { params: Promise<{ id: s
                       { k: 'concrete', l: '✅ 具体的行動型', d: '「明日からこう動こう」と思える実践的な文章に' },
                     ].map(t => (
                       <button key={t.k} onClick={async () => {
-                        setAiLoading(true); setAiResult('');
+                        setAiLoading(true); setStepProgress(0); setAiResult('');
                         setBeforeContent(editContent);
                         setShowBeforeAfter(false);
                         try {
@@ -667,8 +663,8 @@ export default function HandbookEditorPage({ params }: { params: Promise<{ id: s
                             body: JSON.stringify({ mode: 'template', template: t.k, chapterContent: editContent }),
                           });
                           const data = await res.json();
-                          if (data.result) { setAiResult(data.result); setShowBeforeAfter(true); saveImproveHistory(t.l, data.result); }
-                        } catch {} finally { setAiLoading(false); }
+                          if (data.result) { setAiResult(data.result); setShowBeforeAfter(true); setStepProgress(100); saveImproveHistory(t.l, data.result); }
+                        } catch { setStepProgress(0); } finally { setAiLoading(false); }
                       }} disabled={aiLoading} style={{
                         padding: '12px', borderRadius: 10, border: '1px solid var(--border)',
                         background: 'var(--bg-card)', cursor: 'pointer', textAlign: 'left',
@@ -689,7 +685,7 @@ export default function HandbookEditorPage({ params }: { params: Promise<{ id: s
                         style={{ ...inputStyle, flex: 1, fontSize: 12 }} />
                       <button onClick={async () => {
                         if (!aiInstruction.trim()) return;
-                        setAiLoading(true); setAiResult('');
+                        setAiLoading(true); setStepProgress(0); setAiResult('');
                         setBeforeContent(editContent);
                         setShowBeforeAfter(false);
                         try {
@@ -698,8 +694,8 @@ export default function HandbookEditorPage({ params }: { params: Promise<{ id: s
                             body: JSON.stringify({ mode: 'rewrite', instruction: aiInstruction, chapterContent: editContent }),
                           });
                           const data = await res.json();
-                          if (data.result) { setAiResult(data.result); setShowBeforeAfter(true); saveImproveHistory(aiInstruction.slice(0, 30), data.result); setAiInstruction(''); }
-                        } catch {} finally { setAiLoading(false); }
+                          if (data.result) { setAiResult(data.result); setShowBeforeAfter(true); setStepProgress(100); saveImproveHistory(aiInstruction.slice(0, 30), data.result); setAiInstruction(''); }
+                        } catch { setStepProgress(0); } finally { setAiLoading(false); }
                       }} disabled={aiLoading || !aiInstruction.trim()} style={{
                         padding: '8px 14px', borderRadius: 8, border: 'none',
                         background: aiLoading ? 'rgba(108,99,255,0.3)' : '#6c63ff',
@@ -743,7 +739,7 @@ export default function HandbookEditorPage({ params }: { params: Promise<{ id: s
                         </div>
                       </div>
                       <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
-                        <button onClick={() => { setWizardStep(3); }} style={{
+                        <button onClick={() => { setWizardStep(3); setStepProgress(0); }} style={{
                           flex: 1, padding: '10px', borderRadius: 10, border: 'none',
                           background: '#4ade80', color: '#000', fontWeight: 700, fontSize: 13, cursor: 'pointer',
                         }}>
@@ -786,6 +782,7 @@ export default function HandbookEditorPage({ params }: { params: Promise<{ id: s
                       setEditContent(aiResult);
                       setAiResult('');
                       setShowBeforeAfter(false);
+                      setStepProgress(100);
                       setWizardStep(1);
                       setMessage('✅ 本文を更新しました。「💾 保存」ボタンで保存してください。');
                       setTimeout(() => setMessage(''), 4000);
@@ -799,6 +796,7 @@ export default function HandbookEditorPage({ params }: { params: Promise<{ id: s
                       setEditContent(aiResult);
                       setAiResult('');
                       setShowBeforeAfter(false);
+                      setStepProgress(100);
                       setWizardStep(1);
                       setSaving(true);
                       const chapter = chapters[activeIdx];
