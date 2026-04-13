@@ -21,6 +21,20 @@ interface DbReview {
   review_date: string | null;
   source: string;
   created_at: string;
+  replied_at: string | null;
+  reply_text: string | null;
+}
+
+interface ReplyDraft {
+  style: string;
+  text: string;
+}
+
+interface ReplyDraftState {
+  loading: boolean;
+  tone?: 'positive' | 'negative' | 'neutral';
+  drafts?: ReplyDraft[];
+  error?: string;
 }
 
 interface PlaceData {
@@ -81,6 +95,59 @@ export default function ReviewsPage() {
   const [activeTab, setActiveTab] = useState<'places' | 'manual'>('places');
   const [showImportModal, setShowImportModal] = useState(false);
   const [saving, setSaving] = useState(false);
+
+  // 返信文生成関連（レビューIDをキーにstateを保持）
+  const [replyDrafts, setReplyDrafts] = useState<Record<number, ReplyDraftState>>({});
+  const [copiedId, setCopiedId] = useState<string | null>(null);
+
+  // 返信文案を生成
+  const generateReply = async (r: DbReview) => {
+    setReplyDrafts((prev) => ({ ...prev, [r.id]: { loading: true } }));
+    try {
+      const res = await fetch('/api/reviews/reply-draft', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ author: r.author_name, rating: r.rating, text: r.text }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || '生成に失敗しました');
+      setReplyDrafts((prev) => ({
+        ...prev,
+        [r.id]: { loading: false, tone: json.tone, drafts: json.drafts ?? [] },
+      }));
+    } catch (e: unknown) {
+      setReplyDrafts((prev) => ({
+        ...prev,
+        [r.id]: { loading: false, error: e instanceof Error ? e.message : '生成に失敗しました' },
+      }));
+    }
+  };
+
+  // クリップボードにコピー
+  const copyReply = async (key: string, text: string) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopiedId(key);
+      setTimeout(() => setCopiedId(null), 2000);
+    } catch {
+      alert('クリップボードへのコピーに失敗しました');
+    }
+  };
+
+  // 返信済みとして記録
+  const markReplied = async (reviewId: number, replyText: string) => {
+    try {
+      const res = await fetch('/api/reviews/mark-replied', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: reviewId, replyText }),
+      });
+      if (!res.ok) throw new Error('保存に失敗しました');
+      await fetchDbReviews();
+    } catch (e: unknown) {
+      alert(e instanceof Error ? e.message : '保存に失敗しました');
+    }
+  };
 
   // モーダルフォーム
   const [formAuthor, setFormAuthor] = useState('');
@@ -517,6 +584,96 @@ export default function ReviewsPage() {
                           {r.text}
                         </div>
                       )}
+
+                      {/* 返信機能エリア */}
+                      <div style={{ paddingLeft: 42, marginTop: 12, display: 'flex', flexDirection: 'column', gap: 10 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+                          <button
+                            onClick={() => generateReply(r)}
+                            disabled={replyDrafts[r.id]?.loading}
+                            style={{
+                              padding: '7px 14px', borderRadius: 8,
+                              border: '1px solid rgba(108,99,255,0.3)',
+                              background: 'rgba(108,99,255,0.08)',
+                              color: '#6c63ff', fontSize: 12, fontWeight: 700,
+                              cursor: replyDrafts[r.id]?.loading ? 'not-allowed' : 'pointer',
+                            }}
+                          >
+                            {replyDrafts[r.id]?.loading ? '🤖 生成中…' : '✍️ 返信文を生成'}
+                          </button>
+                          {r.replied_at && (
+                            <span style={{
+                              padding: '4px 10px', borderRadius: 6, fontSize: 11, fontWeight: 700,
+                              background: 'rgba(16,185,129,0.1)', color: '#10b981',
+                              border: '1px solid rgba(16,185,129,0.3)',
+                            }}>
+                              ✅ 返信済み（{new Date(r.replied_at).toLocaleDateString('ja-JP')}）
+                            </span>
+                          )}
+                        </div>
+
+                        {replyDrafts[r.id]?.error && (
+                          <div style={{ fontSize: 12, color: '#ef4444' }}>
+                            ⚠️ {replyDrafts[r.id]?.error}
+                          </div>
+                        )}
+
+                        {replyDrafts[r.id]?.drafts && replyDrafts[r.id]!.drafts!.length > 0 && (
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                            <div style={{ fontSize: 11, color: 'var(--text-muted)', fontWeight: 700 }}>
+                              トーン: {replyDrafts[r.id]?.tone === 'positive' ? '😊 ポジティブ' : replyDrafts[r.id]?.tone === 'negative' ? '🙏 ネガティブ' : '🤝 中立'}
+                            </div>
+                            {replyDrafts[r.id]!.drafts!.map((d, di) => {
+                              const copyKey = `${r.id}-${di}`;
+                              return (
+                                <div key={di} style={{
+                                  padding: 12, borderRadius: 8,
+                                  background: 'rgba(108,99,255,0.05)',
+                                  border: '1px solid rgba(108,99,255,0.15)',
+                                }}>
+                                  <div style={{
+                                    fontSize: 11, fontWeight: 700, color: '#6c63ff',
+                                    marginBottom: 6, display: 'flex', alignItems: 'center',
+                                    justifyContent: 'space-between', gap: 8,
+                                  }}>
+                                    <span>💬 パターン{di + 1}: {d.style}</span>
+                                    <div style={{ display: 'flex', gap: 6 }}>
+                                      <button
+                                        onClick={() => copyReply(copyKey, d.text)}
+                                        style={{
+                                          padding: '4px 10px', borderRadius: 6, fontSize: 11,
+                                          border: '1px solid var(--border)',
+                                          background: 'var(--bg-primary)', color: 'var(--text-primary)',
+                                          cursor: 'pointer', fontWeight: 600,
+                                        }}
+                                      >
+                                        {copiedId === copyKey ? '✓ コピー完了' : '📋 コピー'}
+                                      </button>
+                                      <button
+                                        onClick={() => markReplied(r.id, d.text)}
+                                        style={{
+                                          padding: '4px 10px', borderRadius: 6, fontSize: 11,
+                                          border: '1px solid rgba(16,185,129,0.3)',
+                                          background: 'rgba(16,185,129,0.08)', color: '#10b981',
+                                          cursor: 'pointer', fontWeight: 600,
+                                        }}
+                                      >
+                                        ✅ 返信済みにする
+                                      </button>
+                                    </div>
+                                  </div>
+                                  <div style={{
+                                    fontSize: 12, lineHeight: 1.8, color: 'var(--text-primary)',
+                                    whiteSpace: 'pre-wrap',
+                                  }}>
+                                    {d.text}
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        )}
+                      </div>
                     </div>
                   ))
                 ) : (

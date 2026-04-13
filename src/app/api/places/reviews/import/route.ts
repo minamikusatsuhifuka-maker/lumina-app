@@ -70,7 +70,7 @@ export async function GET() {
   try {
     const sql = neon(process.env.DATABASE_URL!);
     const rows = await sql`
-      SELECT id, author_name, rating, text, review_date, source, created_at
+      SELECT id, author_name, rating, text, review_date, source, created_at, replied_at, reply_text
       FROM clinic_reviews
       ORDER BY created_at DESC
     `;
