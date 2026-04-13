@@ -5,7 +5,7 @@ import { fetchSearchConsoleData } from '@/lib/gsc-client';
 export const runtime = 'nodejs';
 export const maxDuration = 120;
 
-const SITE_URL = 'https://xlumina.jp/';
+const SITE_URL = 'https://www.mkhifuka11.com/';
 
 export async function POST(req: Request) {
   const session = await auth();
