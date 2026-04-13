@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { AnalysisHistory } from '@/components/AnalysisHistory';
 
 interface CategoryData {
   key: string;
@@ -219,6 +220,47 @@ export default function ConversionPage() {
           「自費診療ページを分析」をクリックしてGA4データを取得してください。
         </div>
       )}
+
+      {/* 分析保存・履歴 */}
+      <AnalysisHistory<AnalyzeResponse>
+        pageType="conversion"
+        currentData={data && data.categories.length > 0 ? data : null}
+        canSave={!!(data && data.categories.length > 0 && data.ai?.summary)}
+        buildTitle={(d) => `CV分析 (${d.startDate} 〜 ${d.endDate})`}
+        themeColor="#f59e0b"
+        buildMarkdown={(d) => {
+          const lines: string[] = [];
+          lines.push(`# 自費診療ページ CV分析レポート`);
+          lines.push('');
+          lines.push(`期間: ${d.startDate} 〜 ${d.endDate}`);
+          lines.push('');
+          if (d.ai?.summary) {
+            lines.push(`## AIサマリー`);
+            lines.push(d.ai.summary);
+            lines.push('');
+          }
+          lines.push(`## ページ別パフォーマンス`);
+          lines.push(`| 診療メニュー | セッション | 直帰率 | 平均滞在 | CV | CVR |`);
+          lines.push(`|---|---|---|---|---|---|`);
+          for (const c of d.categories) {
+            lines.push(
+              `| ${c.label} | ${c.sessions.toLocaleString()} | ${(c.bounceRate * 100).toFixed(1)}% | ${Math.round(c.avgSessionDuration)}秒 | ${c.conversions} | ${(c.cvr * 100).toFixed(2)}% |`,
+            );
+          }
+          lines.push('');
+          if (d.ai?.improvements?.length) {
+            lines.push(`## CVR改善提案`);
+            for (const imp of d.ai.improvements) {
+              lines.push(`### [優先度${imp.priority}] ${imp.title}`);
+              lines.push(`対象: ${imp.pageKey}`);
+              lines.push(imp.description);
+              lines.push('');
+            }
+          }
+          return lines.join('\n');
+        }}
+      />
+
 
       {data && data.categories.length === 0 && (
         <div

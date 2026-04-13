@@ -45,18 +45,82 @@ function extractTag(html: string, tag: string): string[] {
   return out.slice(0, 20);
 }
 
-async function fetchCompetitorPage(url: string): Promise<CompetitorPageData> {
-  const res = await fetch(url, {
+function isUrlLike(s: string): boolean {
+  return /^https?:\/\//i.test(s) || /\.(com|net|jp|org|co\.jp|info|clinic)/i.test(s);
+}
+
+// クリニック名からGeminiでURLを推定
+async function guessUrlFromName(clinicName: string): Promise<string | null> {
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey) return null;
+  try {
+    const genAI = new GoogleGenerativeAI(apiKey);
+    const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
+    const prompt = `次のクリニック名の公式サイトURLを推測してください。実在の正確なURLが分かる場合のみ回答してください。
+クリニック名: ${clinicName}
+
+回答フォーマット（JSON）:
+{ "url": "https://example.com/" または "" (不明な場合) }
+
+注意:
+- 必ず https://から始める
+- 末尾にスラッシュを付ける
+- 不確実な場合は空文字列を返す`;
+    const result = await model.generateContent({
+      contents: [{ role: 'user', parts: [{ text: prompt }] }],
+    });
+    const text = result.response.text();
+    const m = text.match(/\{[\s\S]*\}/);
+    if (!m) return null;
+    const parsed = JSON.parse(m[0]);
+    const url = (parsed.url || '').trim();
+    if (url && /^https?:\/\//.test(url)) return url;
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+async function tryFetch(url: string): Promise<Response> {
+  return fetch(url, {
     headers: {
       'User-Agent':
-        'Mozilla/5.0 (compatible; LuminaBot/1.0; +https://xlumina.jp)',
-      Accept: 'text/html,application/xhtml+xml',
+        'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+      Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+      'Accept-Language': 'ja,en-US;q=0.9,en;q=0.8',
     },
-    // 30秒で打ち切り
+    redirect: 'follow',
     signal: AbortSignal.timeout(30000),
   });
-  if (!res.ok) throw new Error(`競合サイトの取得に失敗しました (HTTP ${res.status})`);
+}
+
+async function fetchCompetitorPage(url: string): Promise<CompetitorPageData> {
+  let res: Response;
+  try {
+    res = await tryFetch(url);
+  } catch (e) {
+    // httpsが失敗した場合、wwwを付けて再試行
+    try {
+      const u = new URL(url);
+      if (!u.hostname.startsWith('www.')) {
+        const retry = `${u.protocol}//www.${u.hostname}${u.pathname}`;
+        res = await tryFetch(retry);
+        url = retry;
+      } else {
+        throw e;
+      }
+    } catch {
+      const msg = e instanceof Error ? e.message : '不明';
+      throw new Error(`競合サイトに接続できませんでした: ${msg}`);
+    }
+  }
+  if (!res.ok) {
+    throw new Error(`競合サイトの取得に失敗しました (HTTP ${res.status} ${res.statusText})`);
+  }
   const html = await res.text();
+  if (!html || html.length < 100) {
+    throw new Error('競合サイトの本文を取得できませんでした（ページが空または短すぎます）');
+  }
 
   const titleMatch = html.match(/<title[^>]*>([\s\S]*?)<\/title>/i);
   const title = titleMatch ? stripTags(titleMatch[1]) : '';
@@ -99,12 +163,47 @@ export async function POST(req: Request) {
   try {
     const { competitorUrl } = await req.json();
     if (!competitorUrl || typeof competitorUrl !== 'string') {
-      return NextResponse.json({ error: 'competitorUrl が必要です' }, { status: 400 });
+      return NextResponse.json({ error: 'URLまたはクリニック名が必要です' }, { status: 400 });
     }
-    const normalized = competitorUrl.startsWith('http') ? competitorUrl : `https://${competitorUrl}`;
+
+    const input = competitorUrl.trim();
+    let normalized: string;
+    let resolvedFromName = false;
+
+    if (isUrlLike(input)) {
+      // URL形式の場合
+      normalized = input.startsWith('http') ? input : `https://${input}`;
+    } else {
+      // クリニック名の場合: Geminiで推定
+      const guessed = await guessUrlFromName(input);
+      if (!guessed) {
+        return NextResponse.json(
+          {
+            error: `「${input}」のURLを特定できませんでした。公式サイトのURLを直接入力してください。`,
+          },
+          { status: 400 },
+        );
+      }
+      normalized = guessed;
+      resolvedFromName = true;
+    }
 
     // 競合サイトのページ取得
-    const competitor = await fetchCompetitorPage(normalized);
+    let competitor: CompetitorPageData;
+    try {
+      competitor = await fetchCompetitorPage(normalized);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : '取得失敗';
+      return NextResponse.json(
+        {
+          error: resolvedFromName
+            ? `推定URL ${normalized} の取得に失敗: ${msg}`
+            : msg,
+          attemptedUrl: normalized,
+        },
+        { status: 502 },
+      );
+    }
 
     // 自院のGSCデータ（直近28日）
     const endDate = new Date().toISOString().split('T')[0];

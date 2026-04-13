@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
+import { AnalysisHistory } from '@/components/AnalysisHistory';
 
 interface ContactLog {
   id: number;
@@ -245,6 +246,61 @@ export default function ContactsPage() {
           ⚠️ {error}
         </div>
       )}
+
+      {/* 分析保存・履歴 */}
+      <AnalysisHistory<{ insight: InsightResponse; logCount: number; recentLogs: ContactLog[] }>
+        pageType="contacts"
+        currentData={
+          insight ? { insight, logCount: logs.length, recentLogs: logs.slice(0, 30) } : null
+        }
+        canSave={!!insight}
+        buildTitle={(d) =>
+          `問い合わせ分析 (転換率: ${d.insight.conversionRate.toFixed(2)}% / ${d.logCount}日分)`
+        }
+        themeColor="#6c63ff"
+        buildMarkdown={(d) => {
+          const lines: string[] = [];
+          lines.push(`# 問い合わせ転換率分析レポート`);
+          lines.push('');
+          lines.push(`記録日数: ${d.logCount}日`);
+          lines.push(`合計問い合わせ: ${d.insight.totalContacts.toLocaleString()}件`);
+          lines.push(`セッション→予約転換率: ${d.insight.conversionRate.toFixed(2)}%`);
+          lines.push('');
+          if (d.insight.summary) {
+            lines.push(`## AIサマリー`);
+            lines.push(d.insight.summary);
+            lines.push('');
+          }
+          if (d.insight.insights?.length) {
+            lines.push(`## 気づき`);
+            for (const i of d.insight.insights) {
+              lines.push(`### ${i.title}`);
+              lines.push(i.body);
+              lines.push('');
+            }
+          }
+          if (d.insight.recommendations?.length) {
+            lines.push(`## 改善アクション`);
+            for (const r of d.insight.recommendations) {
+              lines.push(`- **[優先度${r.priority}] ${r.title}** — ${r.description}`);
+            }
+            lines.push('');
+          }
+          if (d.recentLogs?.length) {
+            lines.push(`## 直近の日次記録`);
+            lines.push(`| 日付 | Web | 電話 | LINE | その他 | 合計 |`);
+            lines.push(`|---|---|---|---|---|---|`);
+            for (const l of d.recentLogs) {
+              const total =
+                l.web_bookings + l.phone_bookings + l.line_inquiries + l.other_inquiries;
+              lines.push(
+                `| ${l.log_date} | ${l.web_bookings} | ${l.phone_bookings} | ${l.line_inquiries} | ${l.other_inquiries} | ${total} |`,
+              );
+            }
+          }
+          return lines.join('\n');
+        }}
+      />
 
       {/* 入力フォーム */}
       <div className="ct-card" style={{ padding: 18, marginBottom: 20 }}>

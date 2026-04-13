@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { AnalysisHistory } from '@/components/AnalysisHistory';
 
 // ─── 型定義 ───
 interface Totals {
@@ -351,6 +352,73 @@ export default function SeoPage() {
           「Search Consoleデータを取得」ボタンを押して分析を開始してください。
         </div>
       )}
+
+      {/* 分析保存・履歴 */}
+      <AnalysisHistory
+        pageType="seo"
+        currentData={
+          insightData && totals && dateRange
+            ? { totals, queries, pages, insightData, dateRange }
+            : null
+        }
+        canSave={!!(insightData && totals)}
+        buildTitle={(d) =>
+          `SEO分析 (${d.dateRange?.startDate ?? ''} 〜 ${d.dateRange?.endDate ?? ''})`
+        }
+        buildMarkdown={(d) => {
+          const lines: string[] = [];
+          lines.push(`# SEO分析レポート`);
+          lines.push(``);
+          lines.push(`期間: ${d.dateRange?.startDate ?? ''} 〜 ${d.dateRange?.endDate ?? ''}`);
+          lines.push(``);
+          lines.push(`## KPI`);
+          lines.push(`- 総クリック数: ${d.totals?.clicks?.toLocaleString?.() ?? '-'}`);
+          lines.push(`- 総表示回数: ${d.totals?.impressions?.toLocaleString?.() ?? '-'}`);
+          lines.push(
+            `- 平均CTR: ${((d.totals?.ctr ?? 0) * 100).toFixed(2)}%`,
+          );
+          lines.push(`- 平均順位: ${(d.totals?.position ?? 0).toFixed(1)}`);
+          lines.push(``);
+          if (d.insightData?.summary) {
+            lines.push(`## AIサマリー`);
+            lines.push(d.insightData.summary);
+            lines.push(``);
+          }
+          if (d.insightData?.insights?.length) {
+            lines.push(`## 気づき`);
+            for (const i of d.insightData.insights) {
+              lines.push(`### ${i.title}`);
+              lines.push(i.body);
+              lines.push(``);
+            }
+          }
+          if (d.insightData?.actionPlans?.length) {
+            lines.push(`## アクションプラン`);
+            for (const p of d.insightData.actionPlans) {
+              lines.push(`- **[優先度${p.priority}] ${p.title}** — ${p.description}`);
+            }
+            lines.push(``);
+          }
+          if (d.queries?.length) {
+            lines.push(`## 検索キーワード TOP30`);
+            lines.push(`| # | キーワード | クリック | 表示 | CTR | 順位 |`);
+            lines.push(`|---|---|---|---|---|---|`);
+            d.queries.slice(0, 30).forEach((q: { query: string; clicks: number; impressions: number; ctr: number; position: number }, i: number) => {
+              lines.push(
+                `| ${i + 1} | ${q.query} | ${q.clicks} | ${q.impressions} | ${(q.ctr * 100).toFixed(2)}% | ${q.position.toFixed(1)} |`,
+              );
+            });
+            lines.push(``);
+          }
+          if (d.pages?.length) {
+            lines.push(`## 人気ページ TOP20`);
+            d.pages.slice(0, 20).forEach((p: { page: string; clicks: number; impressions: number }, i: number) => {
+              lines.push(`${i + 1}. ${p.page} — ${p.clicks}クリック / ${p.impressions}表示`);
+            });
+          }
+          return lines.join('\n');
+        }}
+      />
 
       {/* KPIカード */}
       {totals && (

@@ -1,10 +1,11 @@
 'use client';
 import { useState, useEffect } from 'react';
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 
-type Tab = 'growth' | 'discovery' | 'goals' | 'alignment' | 'log';
+type Tab = 'mygrowth' | 'growth' | 'discovery' | 'goals' | 'alignment' | 'log';
 
 export default function StaffGrowthPage() {
-  const [tab, setTab] = useState<Tab>('growth');
+  const [tab, setTab] = useState<Tab>('mygrowth');
   const [plan, setPlan] = useState<any>(null);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState('');
@@ -31,12 +32,27 @@ export default function StaffGrowthPage() {
   const [goalAiSuggestion, setGoalAiSuggestion] = useState('');
   const [goalAiField, setGoalAiField] = useState<string>('');
 
+  // 私の成長マイページ
+  const [myMeetings, setMyMeetings] = useState<any[]>([]);
+  const [myEvaluations, setMyEvaluations] = useState<any[]>([]);
+  const [myStaff, setMyStaff] = useState<any>(null);
+  const [myGrowthLoading, setMyGrowthLoading] = useState(true);
+  const [myAiInsight, setMyAiInsight] = useState('');
+  const [myInsightLoading, setMyInsightLoading] = useState(false);
+
   useEffect(() => {
     fetch('/api/clinic/personal-growth-plans?staffId=me').then(r => r.json()).then(d => {
       if (d?.id) { setPlan(d); setGf({ lifeVision: d.life_vision || '', personalMission: d.personal_mission || '', coreValues: d.core_values || '', shortTermGoals: d.short_term_goals || '', longTermGoals: d.long_term_goals || '' }); }
     });
     fetch('/api/clinic/self-management-logs?staffId=me').then(r => r.json()).then(d => { if (Array.isArray(d)) setLogs(d.slice(0, 7)); });
     // 成長グラフ用データ
+    // 私の成長マイページデータ
+    fetch('/api/clinic/staff/my-growth').then(r => r.json()).then(d => {
+      if (d.meetings) setMyMeetings(d.meetings.sort((a: any, b: any) => new Date(a.meeting_date).getTime() - new Date(b.meeting_date).getTime()));
+      if (d.evaluations) setMyEvaluations(d.evaluations);
+      if (d.staff) setMyStaff(d.staff);
+      setMyGrowthLoading(false);
+    }).catch(() => setMyGrowthLoading(false));
     fetch('/api/clinic/staff/my-grade').then(r => r.json()).then(d => {
       const name = d?.name || '';
       setMyName(name);
@@ -65,6 +81,29 @@ export default function StaffGrowthPage() {
       else setMessage(data.error || '分析に失敗しました');
     } catch { setMessage('分析に失敗しました'); }
     finally { setAligning(false); }
+  };
+
+  const generateMyInsight = async () => {
+    setMyInsightLoading(true);
+    setMyAiInsight('');
+    try {
+      const recentMeeting = myMeetings[myMeetings.length - 1];
+      const latestEval = myEvaluations[myEvaluations.length - 1];
+      const res = await fetch('/api/clinic/staff/strength-tags', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          staffName: myStaff?.name || 'あなた',
+          position: myStaff?.position || '',
+          achievements: myMeetings.slice(-3).map((m: any) => m.achievements).filter(Boolean).join('、'),
+          growthStages: myMeetings.filter((m: any) => m.growth_stage).map((m: any) => m.growth_stage).join('→'),
+          aiComment: latestEval?.ai_comment || '',
+        }),
+      });
+      const data = await res.json();
+      if (data.tags) setMyAiInsight(data.tags.join(' / '));
+    } catch {}
+    finally { setMyInsightLoading(false); }
   };
 
   const saveLog = async () => {
@@ -102,6 +141,7 @@ export default function StaffGrowthPage() {
 
   const inputStyle: React.CSSProperties = { width: '100%', padding: '10px 14px', background: 'var(--input-bg)', border: '1px solid var(--input-border)', borderRadius: 8, color: 'var(--text-primary)', fontSize: 14, outline: 'none', boxSizing: 'border-box' };
   const tabs: { key: Tab; label: string }[] = [
+    { key: 'mygrowth', label: '🌱 私の成長' },
     { key: 'growth', label: '📈 成長グラフ' },
     { key: 'discovery', label: '💎 自己発見' },
     { key: 'goals', label: '🎯 目標設定' },
@@ -121,6 +161,163 @@ export default function StaffGrowthPage() {
           <button key={t.key} onClick={() => setTab(t.key)} style={{ padding: '7px 14px', borderRadius: 8, fontSize: 12, fontWeight: 600, cursor: 'pointer', background: tab === t.key ? 'rgba(108,99,255,0.15)' : 'var(--bg-card)', color: tab === t.key ? '#6c63ff' : 'var(--text-muted)', border: `1px solid ${tab === t.key ? 'rgba(108,99,255,0.3)' : 'var(--border)'}` }}>{t.label}</button>
         ))}
       </div>
+
+      {tab === 'mygrowth' && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+
+          {myGrowthLoading ? (
+            <div style={{ textAlign: 'center', padding: 40, color: 'var(--text-muted)' }}>読み込み中...</div>
+          ) : (
+            <>
+              {/* 成長スナップショット */}
+              {myStaff && (
+                <div style={{ padding: 16, background: 'rgba(108,99,255,0.05)', border: '1px solid rgba(108,99,255,0.2)', borderRadius: 12 }}>
+                  <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 10 }}>
+                    {myStaff.name}さんの成長スナップショット
+                  </div>
+                  <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                    {(() => {
+                      const lastStage = myMeetings.filter((m: any) => m.growth_stage).slice(-1)[0]?.growth_stage;
+                      const STAGE_COLORS: Record<string, string> = { 'Lv1知る': '#94a3b8', 'Lv2わかる': '#60a5fa', 'Lv3行う': '#fbbf24', 'Lv4できる': '#4ade80', 'Lv5分かち合う': '#a78bfa' };
+                      const color = lastStage ? STAGE_COLORS[lastStage] || '#94a3b8' : null;
+                      return lastStage ? (
+                        <span style={{ padding: '4px 12px', borderRadius: 20, fontSize: 12, fontWeight: 600, background: `${color}18`, color: color as string, border: `1px solid ${color}40` }}>
+                          🌱 {lastStage}
+                        </span>
+                      ) : null;
+                    })()}
+                    {(() => {
+                      const lastScore = myMeetings.filter((m: any) => m.mindset_score).slice(-1)[0]?.mindset_score;
+                      return lastScore ? (
+                        <span style={{ padding: '4px 12px', borderRadius: 20, fontSize: 12, fontWeight: 600, background: 'rgba(139,92,246,0.1)', color: '#8b5cf6', border: '1px solid rgba(139,92,246,0.25)' }}>
+                          🧠 マインド {lastScore}/10
+                        </span>
+                      ) : null;
+                    })()}
+                    <span style={{ padding: '4px 12px', borderRadius: 20, fontSize: 12, fontWeight: 600, background: 'rgba(74,222,128,0.1)', color: '#4ade80', border: '1px solid rgba(74,222,128,0.25)' }}>
+                      🤝 1on1 {myMeetings.length}回
+                    </span>
+                  </div>
+                </div>
+              )}
+
+              {/* マインドスコア推移 */}
+              {myMeetings.filter((m: any) => m.mindset_score).length >= 2 ? (
+                <div style={{ padding: 16, background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 12 }}>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 12 }}>🧠 マインド・やる気スコアの推移</div>
+                  <ResponsiveContainer width="100%" height={200}>
+                    <LineChart data={myMeetings.filter((m: any) => m.mindset_score || m.motivation_level).map((m: any) => ({
+                      date: new Date(m.meeting_date).toLocaleDateString('ja-JP', { month: 'short', day: 'numeric' }),
+                      マインド: m.mindset_score || null,
+                      やる気: m.motivation_level ? Math.round(m.motivation_level / 10) : null,
+                    }))}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
+                      <XAxis dataKey="date" tick={{ fontSize: 11, fill: 'var(--text-muted)' }} />
+                      <YAxis domain={[0, 10]} tick={{ fontSize: 11, fill: 'var(--text-muted)' }} />
+                      <Tooltip contentStyle={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 8, fontSize: 12 }} />
+                      <Line type="monotone" dataKey="マインド" stroke="#6c63ff" strokeWidth={2.5} dot={{ r: 5, fill: '#6c63ff' }} connectNulls />
+                      <Line type="monotone" dataKey="やる気" stroke="#4ade80" strokeWidth={1.5} dot={{ r: 3, fill: '#4ade80' }} connectNulls />
+                    </LineChart>
+                  </ResponsiveContainer>
+                </div>
+              ) : (
+                <div style={{ padding: 24, textAlign: 'center', color: 'var(--text-muted)', background: 'var(--bg-secondary)', borderRadius: 12, border: '1px solid var(--border)' }}>
+                  <div style={{ fontSize: 28, marginBottom: 8 }}>📈</div>
+                  <div style={{ fontSize: 13 }}>1on1を2回以上記録するとグラフが表示されます</div>
+                </div>
+              )}
+
+              {/* 成長ステージの変化 */}
+              {myMeetings.filter((m: any) => m.growth_stage).length > 0 && (
+                <div style={{ padding: 14, background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 12 }}>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 10 }}>🌱 成長ステージの歩み</div>
+                  <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+                    {myMeetings.filter((m: any) => m.growth_stage).map((m: any, i: number, arr: any[]) => {
+                      const prev = arr[i - 1];
+                      const changed = prev && prev.growth_stage !== m.growth_stage;
+                      const STAGE_COLORS: Record<string, string> = { 'Lv1知る': '#94a3b8', 'Lv2わかる': '#60a5fa', 'Lv3行う': '#fbbf24', 'Lv4できる': '#4ade80', 'Lv5分かち合う': '#a78bfa' };
+                      const color = STAGE_COLORS[m.growth_stage] || '#94a3b8';
+                      return (
+                        <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                          {i > 0 && <span style={{ color: 'var(--text-muted)', fontSize: 12 }}>→</span>}
+                          <span style={{ padding: '3px 10px', borderRadius: 10, fontSize: 11, fontWeight: changed ? 700 : 400, background: `${color}20`, color, border: changed ? `2px solid ${color}` : `1px solid ${color}40` }}>
+                            {m.growth_stage}{changed && ' ✨'}
+                          </span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {/* 直近の称賛・達成事項 */}
+              {myMeetings.filter((m: any) => m.achievements).length > 0 && (
+                <div style={{ padding: 14, background: 'rgba(74,222,128,0.05)', border: '1px solid rgba(74,222,128,0.2)', borderRadius: 12 }}>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: '#1D9E75', marginBottom: 10 }}>✨ あなたの達成・成長記録</div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                    {myMeetings.filter((m: any) => m.achievements).slice(-3).reverse().map((m: any, i: number) => (
+                      <div key={i} style={{ padding: '8px 12px', background: 'var(--bg-card)', borderRadius: 8, borderLeft: '3px solid #4ade80' }}>
+                        <div style={{ fontSize: 10, color: 'var(--text-muted)', marginBottom: 3 }}>
+                          {new Date(m.meeting_date).toLocaleDateString('ja-JP', { month: 'long', day: 'numeric' })}
+                        </div>
+                        <div style={{ fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.6 }}>{m.achievements}</div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* AI強みタグ */}
+              <div style={{ padding: 14, background: 'rgba(108,99,255,0.05)', border: '1px solid rgba(108,99,255,0.2)', borderRadius: 12 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: myAiInsight ? 10 : 0 }}>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: '#6c63ff' }}>🤖 AIが見つけたあなたの強み</div>
+                  <button onClick={generateMyInsight} disabled={myInsightLoading || myMeetings.length === 0}
+                    style={{ padding: '5px 12px', borderRadius: 8, border: 'none', background: myInsightLoading ? 'rgba(108,99,255,0.3)' : '#6c63ff', color: '#fff', fontSize: 11, fontWeight: 700, cursor: 'pointer' }}>
+                    {myInsightLoading ? '分析中...' : myAiInsight ? '再分析' : '✨ 分析する'}
+                  </button>
+                </div>
+                {myAiInsight ? (
+                  <div style={{ fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.8 }}>{myAiInsight}</div>
+                ) : !myInsightLoading && (
+                  <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 4 }}>
+                    {myMeetings.length === 0 ? '1on1の記録が増えるとAIがあなたの強みを分析します' : 'ボタンを押すとAIがあなたの強みを言語化します'}
+                  </div>
+                )}
+              </div>
+
+              {/* 評価スコア推移 */}
+              {myEvaluations.length > 0 && (
+                <div style={{ padding: 14, background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 12 }}>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 10 }}>📊 評価スコアの推移</div>
+                  {myEvaluations.map((ev: any, i: number) => (
+                    <div key={i} style={{ marginBottom: 10 }}>
+                      <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-muted)', marginBottom: 6 }}>{ev.period}</div>
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 6 }}>
+                        {[
+                          { label: '総合', value: ev.total_score, color: '#6c63ff' },
+                          { label: '知識', value: ev.knowledge_score, color: '#4ade80' },
+                          { label: 'スキル', value: ev.skill_score, color: '#06b6d4' },
+                          { label: 'マインド', value: ev.mindset_score, color: '#f59e0b' },
+                        ].map(s => (
+                          <div key={s.label} style={{ textAlign: 'center', padding: '8px 6px', background: 'var(--bg-card)', borderRadius: 8, border: '1px solid var(--border)' }}>
+                            <div style={{ fontSize: 10, color: 'var(--text-muted)', marginBottom: 3 }}>{s.label}</div>
+                            <div style={{ fontSize: 18, fontWeight: 700, color: s.color }}>{s.value || 0}</div>
+                          </div>
+                        ))}
+                      </div>
+                      {ev.promotion_approved && (
+                        <div style={{ marginTop: 6, padding: '4px 10px', borderRadius: 8, background: 'rgba(74,222,128,0.1)', border: '1px solid rgba(74,222,128,0.3)', fontSize: 11, color: '#4ade80', textAlign: 'center' }}>
+                          ✅ {ev.approved_grade}への昇格承認済み
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </>
+          )}
+        </div>
+      )}
 
       {tab === 'growth' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>

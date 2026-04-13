@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { AnalysisHistory } from '@/components/AnalysisHistory';
 
 // ─── 型定義 ───
 interface CompetitorData {
@@ -155,7 +156,7 @@ export default function CompetitorPage() {
           type="text"
           value={url}
           onChange={(e) => setUrl(e.target.value)}
-          placeholder="例: https://example-clinic.com"
+          placeholder="例: https://example-clinic.com または「○○皮フ科クリニック」"
           style={{
             flex: 1,
             minWidth: 280,
@@ -212,9 +213,66 @@ export default function CompetitorPage() {
           className="comp-card"
           style={{ padding: 40, textAlign: 'center', color: 'var(--text-muted)', fontSize: 13 }}
         >
-          競合クリニックのURLを入力して「競合を分析」をクリックしてください。
+          競合クリニックのURL または クリニック名を入力して「競合を分析」をクリックしてください。
         </div>
       )}
+
+      {/* 分析保存・履歴 */}
+      <AnalysisHistory<AnalyzeResponse>
+        pageType="competitor"
+        currentData={data}
+        canSave={!!(data && data.ai?.summary)}
+        buildTitle={(d) => `競合分析: ${d.competitor?.title || d.competitor?.url || '無題'}`}
+        themeColor="#6c63ff"
+        buildMarkdown={(d) => {
+          const lines: string[] = [];
+          lines.push(`# 競合分析レポート`);
+          lines.push('');
+          lines.push(`競合URL: ${d.competitor?.url || '-'}`);
+          lines.push(`タイトル: ${d.competitor?.title || '-'}`);
+          lines.push(`ディスクリプション: ${d.competitor?.description || '-'}`);
+          lines.push(`コンテンツ量: ${d.competitor?.textLength?.toLocaleString() ?? '-'}文字`);
+          lines.push(`ページ数概算: 約${d.competitor?.approxPageCount ?? '-'}ページ`);
+          lines.push('');
+          if (d.ai?.summary) {
+            lines.push(`## AIサマリー`);
+            lines.push(d.ai.summary);
+            lines.push('');
+          }
+          if (d.competitor?.h1?.length) {
+            lines.push(`## 競合サイト H1見出し`);
+            for (const h of d.competitor.h1) lines.push(`- ${h}`);
+            lines.push('');
+          }
+          if (d.competitor?.h2?.length) {
+            lines.push(`## 競合サイト H2見出し`);
+            for (const h of d.competitor.h2) lines.push(`- ${h}`);
+            lines.push('');
+          }
+          if (d.ownQueries?.length) {
+            lines.push(`## 自院の主要検索キーワード`);
+            for (const q of d.ownQueries) {
+              lines.push(`- ${q.query} (${q.clicks}クリック / 順位${q.position.toFixed(1)})`);
+            }
+            lines.push('');
+          }
+          if (d.ai?.differentiators?.length) {
+            lines.push(`## 差別化ポイント`);
+            for (const diff of d.ai.differentiators) {
+              lines.push(`### ✨ ${diff.title}`);
+              lines.push(diff.description);
+              lines.push('');
+            }
+          }
+          if (d.ai?.recommendations?.length) {
+            lines.push(`## 改善アクションプラン`);
+            for (const r of d.ai.recommendations) {
+              lines.push(`- **[優先度${r.priority}] ${r.title}** — ${r.description}`);
+            }
+          }
+          return lines.join('\n');
+        }}
+      />
 
       {data && (
         <>
