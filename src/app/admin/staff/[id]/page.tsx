@@ -128,39 +128,33 @@ export default function StaffDetailPage({ params }: { params: Promise<{ id: stri
   };
 
   const generateStrengthTags = async () => {
-    if (!staff || strengthTags.length > 0) return; // 既に生成済みならスキップ
+    if (!staff || strengthTags.length > 0) return;
     setStrengthLoading(true);
     try {
       const recentMeetings = (oneOnOnes || []).slice(-5);
       const latestEval = (evaluations || [])[evaluations.length - 1];
-      const res = await fetch('https://api.anthropic.com/v1/messages', {
+
+      const res = await fetch('/api/clinic/staff/strength-tags', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          model: 'claude-sonnet-4-6',
-          max_tokens: 200,
-          messages: [{
-            role: 'user',
-            content: `スタッフ情報をもとに、このスタッフの「強み・特徴タグ」を3〜5個生成してください。
-
-名前：${staff.name} / 職種：${staff.position || '未設定'}
-1on1の達成内容：${recentMeetings.map((m: any) => m.achievements).filter(Boolean).join('、') || '未記録'}
-1on1の成長ステージ：${recentMeetings.map((m: any) => m.growth_stage).filter(Boolean).join('→') || '未記録'}
-評価コメント：${latestEval?.ai_comment || '未記録'}
-
-タグの例：「患者への共感力が高い」「自ら動ける主体性」「後輩への指導力」「細部への注意力」「チームの潤滑油」「学習意欲が旺盛」「安定した業務遂行力」
-
-必ずJSON配列のみで返してください（説明不要）：
-["タグ1", "タグ2", "タグ3"]`,
-          }],
+          staffName: staff.name,
+          position: staff.position,
+          achievements: recentMeetings.map((m: any) => m.achievements).filter(Boolean).join('、') || '未記録',
+          growthStages: recentMeetings.map((m: any) => m.growth_stage).filter(Boolean).join('→') || '未記録',
+          aiComment: latestEval?.ai_comment || '未記録',
         }),
       });
+
       const data = await res.json();
-      const text = (data.content || []).filter((b: any) => b.type === 'text').map((b: any) => b.text).join('');
-      const clean = text.replace(/```json|```/g, '').trim();
-      const tags = JSON.parse(clean);
-      if (Array.isArray(tags)) setStrengthTags(tags);
-    } catch {}
+      if (Array.isArray(data.tags) && data.tags.length > 0) {
+        setStrengthTags(data.tags);
+      } else {
+        setStrengthTags(['データが不足しています。1on1を記録するとタグが生成されます']);
+      }
+    } catch {
+      setStrengthTags(['生成に失敗しました。再度お試しください']);
+    }
     finally { setStrengthLoading(false); }
   };
 
