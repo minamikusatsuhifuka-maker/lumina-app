@@ -52,20 +52,24 @@ export async function POST(req: Request) {
     const avgCtr = totalImpressions > 0 ? totalClicks / totalImpressions : 0;
     const avgPosition = posCount > 0 ? posSum / posCount : 0;
 
-    const queries = data.queries.map((r) => ({
-      query: r.keys?.[0] ?? '',
-      clicks: r.clicks,
-      impressions: r.impressions,
-      ctr: r.ctr,
-      position: r.position,
-    }));
-    const pages = data.pages.map((r) => ({
-      page: r.keys?.[0] ?? '',
-      clicks: r.clicks,
-      impressions: r.impressions,
-      ctr: r.ctr,
-      position: r.position,
-    }));
+    const queries = data.queries
+      .map((r) => ({
+        query: r.keys?.[0] ?? '',
+        clicks: r.clicks,
+        impressions: r.impressions,
+        ctr: r.ctr,
+        position: r.position,
+      }))
+      .slice(0, 30);
+    const pages = data.pages
+      .map((r) => ({
+        page: r.keys?.[0] ?? '',
+        clicks: r.clicks,
+        impressions: r.impressions,
+        ctr: r.ctr,
+        position: r.position,
+      }))
+      .slice(0, 20);
 
     return NextResponse.json({
       success: true,

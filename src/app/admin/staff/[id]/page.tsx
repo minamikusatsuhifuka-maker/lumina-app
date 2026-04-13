@@ -66,6 +66,12 @@ export default function StaffDetailPage({ params }: { params: Promise<{ id: stri
   const [lmJitsuryoku, setLmJitsuryoku] = useState('');
   const [lmSeijitsu, setLmSeijitsu] = useState('');
 
+  // 強みタグ
+  const [strengthTags, setStrengthTags] = useState<string[]>([]);
+  const [strengthLoading, setStrengthLoading] = useState(false);
+  // 成長速度
+  const [growthSpeed, setGrowthSpeed] = useState<'rapid' | 'steady' | 'stable' | 'declining' | null>(null);
+
 
   const runScoring = async () => {
     setScoreLoading(true);
@@ -120,6 +126,58 @@ export default function StaffDetailPage({ params }: { params: Promise<{ id: stri
     } catch {}
     setInsightLoading(false);
   };
+
+  const generateStrengthTags = async () => {
+    if (!staff || strengthTags.length > 0) return; // 既に生成済みならスキップ
+    setStrengthLoading(true);
+    try {
+      const recentMeetings = (oneOnOnes || []).slice(-5);
+      const latestEval = (evaluations || [])[evaluations.length - 1];
+      const res = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          model: 'claude-sonnet-4-6',
+          max_tokens: 200,
+          messages: [{
+            role: 'user',
+            content: `スタッフ情報をもとに、このスタッフの「強み・特徴タグ」を3〜5個生成してください。
+
+名前：${staff.name} / 職種：${staff.position || '未設定'}
+1on1の達成内容：${recentMeetings.map((m: any) => m.achievements).filter(Boolean).join('、') || '未記録'}
+1on1の成長ステージ：${recentMeetings.map((m: any) => m.growth_stage).filter(Boolean).join('→') || '未記録'}
+評価コメント：${latestEval?.ai_comment || '未記録'}
+
+タグの例：「患者への共感力が高い」「自ら動ける主体性」「後輩への指導力」「細部への注意力」「チームの潤滑油」「学習意欲が旺盛」「安定した業務遂行力」
+
+必ずJSON配列のみで返してください（説明不要）：
+["タグ1", "タグ2", "タグ3"]`,
+          }],
+        }),
+      });
+      const data = await res.json();
+      const text = (data.content || []).filter((b: any) => b.type === 'text').map((b: any) => b.text).join('');
+      const clean = text.replace(/```json|```/g, '').trim();
+      const tags = JSON.parse(clean);
+      if (Array.isArray(tags)) setStrengthTags(tags);
+    } catch {}
+    finally { setStrengthLoading(false); }
+  };
+
+  // 成長速度インジケーターを計算
+  useEffect(() => {
+    const meetings = oneOnOnes || [];
+    if (meetings.length < 2) return;
+    const recent = meetings.slice(-2);
+    const prev = recent[0]?.mindset_score;
+    const curr = recent[1]?.mindset_score;
+    if (!prev || !curr) return;
+    const diff = curr - prev;
+    if (diff >= 2) setGrowthSpeed('rapid');
+    else if (diff >= 0) setGrowthSpeed('steady');
+    else if (diff >= -1) setGrowthSpeed('stable');
+    else setGrowthSpeed('declining');
+  }, [oneOnOnes]);
 
   const fetchStaff = () => {
     fetch(`/api/clinic/staff/${id}`).then(r => r.json()).then(data => {
@@ -206,21 +264,105 @@ export default function StaffDetailPage({ params }: { params: Promise<{ id: stri
 
   return (
     <div style={{ maxWidth: 900, margin: '0 auto', paddingBottom: 60 }}>
-      {/* ヘッダー */}
-      <div style={{ ...cardStyle, marginBottom: 20, display: 'flex', alignItems: 'center', gap: 16 }}>
-        <div style={{ width: 56, height: 56, borderRadius: '50%', background: 'linear-gradient(135deg, #6c63ff, #ec4899)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontWeight: 700, fontSize: 22, flexShrink: 0 }}>
-          {staff.name?.charAt(0)}
-        </div>
-        <div style={{ flex: 1 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            <span style={{ fontSize: 22, fontWeight: 700, color: 'var(--text-primary)' }}>{staff.name}</span>
-            <span style={{ padding: '2px 10px', borderRadius: 20, fontSize: 11, fontWeight: 600, background: `${statusColor}20`, color: statusColor, border: `1px solid ${statusColor}40` }}>{statusLabel}</span>
+      {/* ヘッダー：成長カルテ */}
+      <div style={{ marginBottom: 20, padding: 20, background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 16 }}>
+        <div style={{ display: 'flex', alignItems: 'flex-start', gap: 16 }}>
+          {/* アバター */}
+          <div style={{ width: 64, height: 64, borderRadius: '50%', background: 'linear-gradient(135deg, #6c63ff, #ec4899)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontWeight: 700, fontSize: 26, flexShrink: 0, boxShadow: '0 4px 12px rgba(108,99,255,0.3)' }}>
+            {staff.name?.charAt(0)}
           </div>
-          {staff.name_kana && <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>{staff.name_kana}</div>}
-          <div style={{ display: 'flex', gap: 10, marginTop: 6, fontSize: 12, color: 'var(--text-muted)', flexWrap: 'wrap' }}>
-            {staff.position && <span>{staff.position}</span>}
-            {staff.department && <span>/ {staff.department}</span>}
-            {staff.hired_at && <span>/ 入職 {new Date(staff.hired_at).toLocaleDateString('ja-JP')}（{calcYears(staff.hired_at)}）</span>}
+
+          <div style={{ flex: 1, minWidth: 0 }}>
+            {/* 名前・ステータス */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 4, flexWrap: 'wrap' }}>
+              <span style={{ fontSize: 24, fontWeight: 700, color: 'var(--text-primary)' }}>{staff.name}</span>
+              {staff.name_kana && <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>{staff.name_kana}</span>}
+              <span style={{ padding: '2px 10px', borderRadius: 20, fontSize: 11, fontWeight: 600, background: `${statusColor}20`, color: statusColor, border: `1px solid ${statusColor}40` }}>{statusLabel}</span>
+            </div>
+
+            {/* 職種・部署 */}
+            <div style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 12 }}>
+              {staff.position}{staff.department ? ` / ${staff.department}` : ''}{staff.hired_at ? ` / 入職 ${calcYears(staff.hired_at)}` : ''}
+            </div>
+
+            {/* 成長スナップショット */}
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+              {/* 等級 */}
+              {staff.current_grade && (
+                <div style={{ padding: '5px 12px', borderRadius: 20, background: 'rgba(108,99,255,0.1)', border: '1px solid rgba(108,99,255,0.25)', display: 'flex', alignItems: 'center', gap: 5 }}>
+                  <span style={{ fontSize: 11, color: '#6c63ff' }}>🏅</span>
+                  <span style={{ fontSize: 12, fontWeight: 600, color: '#6c63ff' }}>{staff.current_grade}</span>
+                </div>
+              )}
+
+              {/* 最新成長ステージ */}
+              {(() => {
+                const lastStage = (oneOnOnes || []).filter((m: any) => m.growth_stage).slice(-1)[0]?.growth_stage;
+                const STAGE_COLORS: Record<string, string> = { 'Lv1知る': '#94a3b8', 'Lv2わかる': '#60a5fa', 'Lv3行う': '#fbbf24', 'Lv4できる': '#4ade80', 'Lv5分かち合う': '#a78bfa' };
+                const color = STAGE_COLORS[lastStage] || '#94a3b8';
+                return lastStage ? (
+                  <div style={{ padding: '5px 12px', borderRadius: 20, background: `${color}18`, border: `1px solid ${color}40`, display: 'flex', alignItems: 'center', gap: 5 }}>
+                    <span style={{ fontSize: 11 }}>🌱</span>
+                    <span style={{ fontSize: 12, fontWeight: 600, color }}>{lastStage}</span>
+                  </div>
+                ) : null;
+              })()}
+
+              {/* マインドスコア */}
+              {(() => {
+                const lastScore = (oneOnOnes || []).filter((m: any) => m.mindset_score).slice(-1)[0]?.mindset_score;
+                return lastScore ? (
+                  <div style={{ padding: '5px 12px', borderRadius: 20, background: 'rgba(139,92,246,0.1)', border: '1px solid rgba(139,92,246,0.25)', display: 'flex', alignItems: 'center', gap: 5 }}>
+                    <span style={{ fontSize: 11 }}>🧠</span>
+                    <span style={{ fontSize: 12, fontWeight: 600, color: '#8b5cf6' }}>マインド {lastScore}/10</span>
+                  </div>
+                ) : null;
+              })()}
+
+              {/* 最終1on1 */}
+              {(() => {
+                const lastMeeting = (oneOnOnes || []).slice(-1)[0];
+                if (!lastMeeting) return <div style={{ padding: '5px 12px', borderRadius: 20, background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.25)', fontSize: 12, fontWeight: 600, color: '#ef4444' }}>🤝 1on1 未実施</div>;
+                const days = Math.floor((Date.now() - new Date(lastMeeting.meeting_date).getTime()) / (1000 * 60 * 60 * 24));
+                const color = days <= 14 ? '#4ade80' : days <= 30 ? '#f59e0b' : '#ef4444';
+                return (
+                  <div style={{ padding: '5px 12px', borderRadius: 20, background: `${color}15`, border: `1px solid ${color}35`, display: 'flex', alignItems: 'center', gap: 5 }}>
+                    <span style={{ fontSize: 11 }}>🤝</span>
+                    <span style={{ fontSize: 12, fontWeight: 600, color }}>1on1 {days === 0 ? '今日' : `${days}日前`}</span>
+                  </div>
+                );
+              })()}
+
+              {/* 成長速度インジケーター */}
+              {growthSpeed && (
+                <div style={{ padding: '5px 12px', borderRadius: 20, background: growthSpeed === 'rapid' ? 'rgba(74,222,128,0.12)' : growthSpeed === 'steady' ? 'rgba(96,165,250,0.12)' : growthSpeed === 'stable' ? 'rgba(148,163,184,0.12)' : 'rgba(239,68,68,0.12)', border: `1px solid ${growthSpeed === 'rapid' ? 'rgba(74,222,128,0.3)' : growthSpeed === 'steady' ? 'rgba(96,165,250,0.3)' : growthSpeed === 'stable' ? 'rgba(148,163,184,0.3)' : 'rgba(239,68,68,0.3)'}`, display: 'flex', alignItems: 'center', gap: 5 }}>
+                  <span style={{ fontSize: 12 }}>{growthSpeed === 'rapid' ? '📈' : growthSpeed === 'steady' ? '↗️' : growthSpeed === 'stable' ? '→' : '📉'}</span>
+                  <span style={{ fontSize: 12, fontWeight: 600, color: growthSpeed === 'rapid' ? '#4ade80' : growthSpeed === 'steady' ? '#60a5fa' : growthSpeed === 'stable' ? '#94a3b8' : '#ef4444' }}>
+                    {growthSpeed === 'rapid' ? '急成長中' : growthSpeed === 'steady' ? '成長中' : growthSpeed === 'stable' ? '安定期' : '要フォロー'}
+                  </span>
+                </div>
+              )}
+            </div>
+
+            {/* 強みタグ */}
+            {strengthTags.length > 0 && (
+              <div style={{ marginTop: 10, display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                {strengthTags.map((tag, i) => (
+                  <span key={i} style={{ padding: '3px 10px', borderRadius: 12, background: 'rgba(29,158,117,0.1)', border: '1px solid rgba(29,158,117,0.25)', fontSize: 11, color: '#1D9E75', fontWeight: 500 }}>
+                    ✨ {tag}
+                  </span>
+                ))}
+              </div>
+            )}
+            {strengthTags.length === 0 && !strengthLoading && (oneOnOnes || []).length > 0 && (
+              <button onClick={generateStrengthTags}
+                style={{ marginTop: 8, padding: '4px 12px', borderRadius: 8, border: '1px dashed rgba(29,158,117,0.4)', background: 'transparent', color: '#1D9E75', fontSize: 11, cursor: 'pointer' }}>
+                ✨ 強みタグを生成
+              </button>
+            )}
+            {strengthLoading && (
+              <div style={{ marginTop: 8, fontSize: 11, color: 'var(--text-muted)' }}>強みタグを生成中...</div>
+            )}
           </div>
         </div>
       </div>
@@ -421,6 +563,21 @@ export default function StaffDetailPage({ params }: { params: Promise<{ id: stri
       {/* 成長グラフ */}
       {tab === 'growth_chart' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+          {/* 成長速度インジケーター */}
+          {growthSpeed && (
+            <div style={{ marginBottom: 12, padding: '10px 14px', borderRadius: 10, display: 'flex', alignItems: 'center', gap: 10, background: growthSpeed === 'rapid' ? 'rgba(74,222,128,0.08)' : growthSpeed === 'steady' ? 'rgba(96,165,250,0.08)' : growthSpeed === 'stable' ? 'rgba(148,163,184,0.08)' : 'rgba(239,68,68,0.08)', border: `1px solid ${growthSpeed === 'rapid' ? 'rgba(74,222,128,0.25)' : growthSpeed === 'steady' ? 'rgba(96,165,250,0.25)' : growthSpeed === 'stable' ? 'rgba(148,163,184,0.25)' : 'rgba(239,68,68,0.25)'}` }}>
+              <span style={{ fontSize: 20 }}>{growthSpeed === 'rapid' ? '📈' : growthSpeed === 'steady' ? '↗️' : growthSpeed === 'stable' ? '→' : '📉'}</span>
+              <div>
+                <div style={{ fontSize: 13, fontWeight: 700, color: growthSpeed === 'rapid' ? '#4ade80' : growthSpeed === 'steady' ? '#60a5fa' : growthSpeed === 'stable' ? '#94a3b8' : '#ef4444' }}>
+                  {growthSpeed === 'rapid' ? '急成長中' : growthSpeed === 'steady' ? '成長中' : growthSpeed === 'stable' ? '安定期' : '要フォロー'}
+                </div>
+                <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>
+                  {growthSpeed === 'rapid' ? '直近の1on1でマインドスコアが大きく向上しています。この勢いを認めて次のステップへ' : growthSpeed === 'steady' ? 'じわじわと成長しています。継続的な関わりが実を結んでいます' : growthSpeed === 'stable' ? 'スコアは横ばい。安定しているが、新しい刺激や課題が必要かもしれません' : 'マインドスコアが下がっています。早めに1on1で様子を聞いてみましょう'}
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* 1on1マインドスコア折れ線グラフ */}
           <div style={{ padding: 16, background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 12 }}>
             <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 12 }}>🧠 マインド・意欲スコア推移</div>

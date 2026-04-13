@@ -78,6 +78,78 @@ function truncate(s: string, max = 60): string {
   return s.length > max ? s.slice(0, max) + '…' : s;
 }
 
+// ─── 治療カテゴリ定義 ───
+type TreatmentKey = 'beauty' | 'infection' | 'disease' | 'other';
+
+const TREATMENT_CATEGORIES: Record<
+  TreatmentKey,
+  { label: string; color: string; keywords: string[] }
+> = {
+  beauty: {
+    label: '美容系',
+    color: '#ec4899',
+    keywords: [
+      'miin_laser',
+      'whitening',
+      'melasma',
+      'dermapen',
+      'peeling',
+      'botox',
+      'hifu',
+      'pigment',
+      'hair_removal',
+      'lift',
+      'filler',
+    ],
+  },
+  infection: {
+    label: '感染症系',
+    color: '#f59e0b',
+    keywords: [
+      'shingles',
+      'cellulitis',
+      'athletes_foot',
+      'herpes',
+      'tinea',
+      'impetigo',
+      'wart',
+      'candida',
+      'scabies',
+    ],
+  },
+  disease: {
+    label: '皮膚疾患系',
+    color: '#6c63ff',
+    keywords: [
+      'rosacea',
+      'psoriasis',
+      'dupilumab',
+      'eczema',
+      'atopic',
+      'acne',
+      'urticaria',
+      'dermatitis',
+      'vitiligo',
+      'alopecia',
+    ],
+  },
+  other: {
+    label: 'その他',
+    color: '#64748b',
+    keywords: [],
+  },
+};
+
+function categorizePage(url: string): TreatmentKey {
+  const lower = url.toLowerCase();
+  for (const key of ['beauty', 'infection', 'disease'] as const) {
+    if (TREATMENT_CATEGORIES[key].keywords.some((kw) => lower.includes(kw))) {
+      return key;
+    }
+  }
+  return 'other';
+}
+
 export default function SeoPage() {
   const [totals, setTotals] = useState<Totals | null>(null);
   const [queries, setQueries] = useState<QueryRow[]>([]);
@@ -531,7 +603,199 @@ export default function SeoPage() {
         </div>
       )}
 
-      {/* キーワードTOP20 */}
+      {/* 治療別パフォーマンス */}
+      {pages.length > 0 && (() => {
+        const stats: Record<TreatmentKey, { clicks: number; impressions: number }> = {
+          beauty: { clicks: 0, impressions: 0 },
+          infection: { clicks: 0, impressions: 0 },
+          disease: { clicks: 0, impressions: 0 },
+          other: { clicks: 0, impressions: 0 },
+        };
+        for (const p of pages) {
+          const cat = categorizePage(p.page);
+          stats[cat].clicks += p.clicks;
+          stats[cat].impressions += p.impressions;
+        }
+        const maxClicks = Math.max(
+          1,
+          ...(Object.values(stats).map((s) => s.clicks) as number[]),
+        );
+        return (
+          <div
+            style={{
+              marginBottom: 24,
+              padding: 18,
+              background: 'var(--bg-secondary)',
+              border: '1px solid var(--border)',
+              borderRadius: 12,
+            }}
+          >
+            <div
+              style={{
+                fontSize: 14,
+                fontWeight: 700,
+                color: 'var(--text-primary)',
+                marginBottom: 14,
+              }}
+            >
+              💊 治療別パフォーマンス
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+              {(Object.keys(TREATMENT_CATEGORIES) as TreatmentKey[]).map((key) => {
+                const cat = TREATMENT_CATEGORIES[key];
+                const s = stats[key];
+                const ctr = s.impressions > 0 ? s.clicks / s.impressions : 0;
+                const widthPct = (s.clicks / maxClicks) * 100;
+                return (
+                  <div key={key}>
+                    <div
+                      style={{
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        alignItems: 'center',
+                        marginBottom: 6,
+                        fontSize: 12,
+                      }}
+                    >
+                      <span
+                        style={{
+                          fontWeight: 700,
+                          color: 'var(--text-primary)',
+                        }}
+                      >
+                        {cat.label}
+                      </span>
+                      <span style={{ color: 'var(--text-muted)' }}>
+                        クリック {s.clicks.toLocaleString()} / 表示{' '}
+                        {s.impressions.toLocaleString()} / CTR {formatPercent(ctr)}
+                      </span>
+                    </div>
+                    <div
+                      style={{
+                        height: 14,
+                        background: 'var(--bg-primary)',
+                        borderRadius: 7,
+                        overflow: 'hidden',
+                        border: '1px solid var(--border)',
+                      }}
+                    >
+                      <div
+                        style={{
+                          width: `${widthPct}%`,
+                          height: '100%',
+                          background: cat.color,
+                          transition: 'width 0.4s ease',
+                        }}
+                      />
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* CTR改善チャンス */}
+      {queries.length > 0 && (() => {
+        const targetCtr = 0.03;
+        const opportunities = queries
+          .filter((q) => q.impressions >= 1000 && q.ctr < 0.01)
+          .map((q) => ({
+            ...q,
+            potentialGain: q.impressions * (targetCtr - q.ctr),
+          }))
+          .sort((a, b) => b.potentialGain - a.potentialGain);
+
+        if (opportunities.length === 0) return null;
+
+        return (
+          <div
+            style={{
+              marginBottom: 24,
+              padding: 18,
+              background: 'var(--bg-secondary)',
+              border: '1px solid rgba(239,68,68,0.35)',
+              borderRadius: 12,
+            }}
+          >
+            <div
+              style={{
+                fontSize: 14,
+                fontWeight: 700,
+                color: 'var(--text-primary)',
+                marginBottom: 4,
+              }}
+            >
+              🎯 CTR改善チャンス
+            </div>
+            <div
+              style={{
+                fontSize: 11,
+                color: 'var(--text-muted)',
+                marginBottom: 12,
+              }}
+            >
+              表示回数1,000以上 かつ CTR 1%未満 のキーワード（目標CTR: 3%）
+            </div>
+            <div style={{ overflowX: 'auto' }}>
+              <table
+                style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}
+              >
+                <thead>
+                  <tr style={{ borderBottom: '1px solid var(--border)' }}>
+                    <Th style={{ textAlign: 'left' }}>キーワード</Th>
+                    <Th>表示回数</Th>
+                    <Th>現在CTR</Th>
+                    <Th>目標CTR</Th>
+                    <Th>潜在クリック増加数</Th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {opportunities.map((q, i) => (
+                    <tr
+                      key={i}
+                      style={{
+                        borderBottom: '1px solid var(--border)',
+                        background: 'rgba(239,68,68,0.06)',
+                      }}
+                    >
+                      <Td
+                        style={{
+                          color: '#ef4444',
+                          fontWeight: 600,
+                        }}
+                      >
+                        {truncate(q.query, 40)}
+                      </Td>
+                      <Td style={{ textAlign: 'right' }}>
+                        {q.impressions.toLocaleString()}
+                      </Td>
+                      <Td style={{ textAlign: 'right', color: '#ef4444' }}>
+                        {formatPercent(q.ctr)}
+                      </Td>
+                      <Td style={{ textAlign: 'right', color: '#22c55e' }}>
+                        {formatPercent(targetCtr)}
+                      </Td>
+                      <Td
+                        style={{
+                          textAlign: 'right',
+                          color: '#ef4444',
+                          fontWeight: 700,
+                        }}
+                      >
+                        +{Math.round(q.potentialGain).toLocaleString()}
+                      </Td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* キーワードTOP30 */}
       {queries.length > 0 && (
         <div
           style={{
@@ -550,7 +814,7 @@ export default function SeoPage() {
               marginBottom: 12,
             }}
           >
-            🔤 検索キーワード TOP20
+            🔤 検索キーワード TOP30
           </div>
           <div style={{ overflowX: 'auto' }}>
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
@@ -565,7 +829,7 @@ export default function SeoPage() {
                 </tr>
               </thead>
               <tbody>
-                {queries.slice(0, 20).map((q, i) => (
+                {queries.slice(0, 30).map((q, i) => (
                   <tr
                     key={i}
                     style={{ borderBottom: '1px solid var(--border)' }}
@@ -604,7 +868,7 @@ export default function SeoPage() {
               marginBottom: 12,
             }}
           >
-            📄 人気ページ TOP10
+            📄 人気ページ TOP20
           </div>
           <div style={{ overflowX: 'auto' }}>
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
@@ -619,7 +883,7 @@ export default function SeoPage() {
                 </tr>
               </thead>
               <tbody>
-                {pages.slice(0, 10).map((p, i) => (
+                {pages.slice(0, 20).map((p, i) => (
                   <tr
                     key={i}
                     style={{ borderBottom: '1px solid var(--border)' }}

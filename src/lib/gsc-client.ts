@@ -63,8 +63,8 @@ export async function fetchSearchConsoleData(
   endDate: string,
 ): Promise<GscData> {
   const [queries, pages] = await Promise.all([
-    querySearchAnalytics(siteUrl, startDate, endDate, 'query', 50),
-    querySearchAnalytics(siteUrl, startDate, endDate, 'page', 50),
+    querySearchAnalytics(siteUrl, startDate, endDate, 'query', 30),
+    querySearchAnalytics(siteUrl, startDate, endDate, 'page', 20),
   ]);
 
   return { queries, pages };
