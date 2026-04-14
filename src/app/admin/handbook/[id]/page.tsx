@@ -502,22 +502,29 @@ export default function HandbookEditorPage({ params }: { params: Promise<{ id: s
                       padding: 10, background: 'rgba(239,68,68,0.04)',
                       border: '1px solid rgba(239,68,68,0.2)', borderRadius: 8,
                       fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.8,
-                      whiteSpace: 'pre-wrap', height: 300, overflowY: 'auto',
+                      whiteSpace: 'pre-wrap', height: 600, overflowY: 'auto',
                     }}>
                       {bossBeforeContent}
                     </div>
                   </div>
-                  {/* After */}
+                  {/* After（編集可能） */}
                   <div>
-                    <div style={{ fontSize: 11, fontWeight: 700, color: '#1D9E75', marginBottom: 4 }}>After（リードマネジメント型）</div>
-                    <div style={{
-                      padding: 10, background: 'rgba(29,158,117,0.04)',
-                      border: '1px solid rgba(29,158,117,0.2)', borderRadius: 8,
-                      fontSize: 12, color: 'var(--text-primary)', lineHeight: 1.8,
-                      whiteSpace: 'pre-wrap', height: 300, overflowY: 'auto',
-                    }}>
-                      {bossAfterContent}
+                    <div style={{ fontSize: 11, fontWeight: 700, color: '#1D9E75', marginBottom: 4 }}>
+                      After（リードマネジメント型）
+                      <span style={{ fontWeight: 400, color: 'var(--text-muted)', marginLeft: 6 }}>※編集できます</span>
                     </div>
+                    <textarea
+                      value={bossAfterContent}
+                      onChange={e => setBossAfterContent(e.target.value)}
+                      style={{
+                        width: '100%', height: 600, padding: 10,
+                        background: 'rgba(29,158,117,0.04)',
+                        border: '1px solid rgba(29,158,117,0.2)', borderRadius: 8,
+                        fontSize: 12, color: 'var(--text-primary)', lineHeight: 1.8,
+                        resize: 'vertical', outline: 'none', boxSizing: 'border-box',
+                        fontFamily: 'inherit',
+                      }}
+                    />
                   </div>
                 </div>
                 <div style={{ display: 'flex', gap: 8 }}>
