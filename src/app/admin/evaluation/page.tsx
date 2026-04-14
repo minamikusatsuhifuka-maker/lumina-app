@@ -49,6 +49,10 @@ export default function EvaluationPage() {
   const [editingFrameworkSection, setEditingFrameworkSection] = useState<'mindset_levels' | 'real_principles' | null>(null);
   const [savingFramework, setSavingFramework] = useState(false);
 
+  // ドラッグ＆ドロップ並び替え
+  const [dragIndex, setDragIndex] = useState<number | null>(null);
+  const [dragSection, setDragSection] = useState<string | null>(null);
+
   useEffect(() => {
     fetch('/api/clinic/evaluation-framework').then(r => r.json()).then(d => {
       if (d.mindset_levels) setMindsetLevels(d.mindset_levels);
@@ -127,6 +131,45 @@ export default function EvaluationPage() {
     finally { setSaving(false); }
   };
 
+  const handleDragStart = (section: string, index: number) => {
+    setDragIndex(index);
+    setDragSection(section);
+  };
+
+  const handleDragOver = (e: React.DragEvent, section: string, index: number) => {
+    e.preventDefault();
+    if (dragSection !== section || dragIndex === null || dragIndex === index) return;
+    const getter = section === 'knowledge' ? knowledgeCriteria
+      : section === 'skills' ? skillCriteria
+      : section === 'mindset' ? mindsetCriteria
+      : null;
+    const setter = section === 'knowledge' ? setKnowledgeCriteria
+      : section === 'skills' ? setSkillCriteria
+      : section === 'mindset' ? setMindsetCriteria
+      : null;
+    if (!getter || !setter) return;
+    const newItems = [...getter];
+    const [moved] = newItems.splice(dragIndex, 1);
+    newItems.splice(index, 0, moved);
+    setter(newItems);
+    setDragIndex(index);
+  };
+
+  const handleDragOverReal = (e: React.DragEvent, index: number) => {
+    e.preventDefault();
+    if (dragSection !== 'real' || dragIndex === null || dragIndex === index) return;
+    const newItems = [...realPrinciples];
+    const [moved] = newItems.splice(dragIndex, 1);
+    newItems.splice(index, 0, moved);
+    setRealPrinciples(newItems);
+    setDragIndex(index);
+  };
+
+  const handleDragEnd = () => {
+    setDragIndex(null);
+    setDragSection(null);
+  };
+
   const generateForGrade = async () => {
     if (!selectedGrade) return;
     setGenerating(true); setMessage('');
@@ -185,7 +228,23 @@ export default function EvaluationPage() {
       {editingSection === section ? (
         <div>
           {items.map((item, i) => (
-            <div key={i} style={{ display: 'flex', gap: 6, marginBottom: 6 }}>
+            <div
+              key={i}
+              draggable
+              onDragStart={() => handleDragStart(section, i)}
+              onDragOver={(e) => handleDragOver(e, section, i)}
+              onDragEnd={handleDragEnd}
+              style={{
+                display: 'flex', gap: 6, marginBottom: 6, alignItems: 'center',
+                opacity: dragIndex === i && dragSection === section ? 0.4 : 1,
+                cursor: 'grab',
+                transition: 'opacity 0.15s',
+                background: dragIndex === i && dragSection === section ? 'rgba(108,99,255,0.05)' : 'transparent',
+                borderRadius: 6,
+                padding: '2px 0',
+              }}
+            >
+              <span style={{ color: 'var(--text-muted)', fontSize: 14, cursor: 'grab', flexShrink: 0, userSelect: 'none' }}>⠿</span>
               <input value={item} onChange={e => updateCriteria(section, i, e.target.value)} style={{ ...inputStyle, flex: 1 }} />
               <button onClick={() => removeCriteria(section, i)} style={{ color: '#ef4444', background: 'none', border: 'none', cursor: 'pointer', fontSize: 14, flexShrink: 0 }}>✕</button>
             </div>
@@ -283,7 +342,20 @@ export default function EvaluationPage() {
         {editingFrameworkSection === 'real_principles' ? (
           <div>
             {realPrinciples.map((item, i) => (
-              <div key={i} style={{ display: 'flex', gap: 8, marginBottom: 8, alignItems: 'center' }}>
+              <div
+                key={i}
+                draggable
+                onDragStart={() => { setDragIndex(i); setDragSection('real'); }}
+                onDragOver={(e) => handleDragOverReal(e, i)}
+                onDragEnd={handleDragEnd}
+                style={{
+                  display: 'flex', gap: 8, marginBottom: 8, alignItems: 'center',
+                  opacity: dragIndex === i && dragSection === 'real' ? 0.4 : 1,
+                  cursor: 'grab',
+                  transition: 'opacity 0.15s',
+                }}
+              >
+                <span style={{ color: 'var(--text-muted)', fontSize: 14, cursor: 'grab', flexShrink: 0, userSelect: 'none' }}>⠿</span>
                 <input value={item.kanji} onChange={e => setRealPrinciples(prev => prev.map((v, j) => j === i ? { ...v, kanji: e.target.value } : v))} placeholder="漢字" style={{ ...inputStyle, width: 60 }} />
                 <input value={item.reading} onChange={e => setRealPrinciples(prev => prev.map((v, j) => j === i ? { ...v, reading: e.target.value } : v))} placeholder="読み" style={{ ...inputStyle, width: 90 }} />
                 <input value={item.desc} onChange={e => setRealPrinciples(prev => prev.map((v, j) => j === i ? { ...v, desc: e.target.value } : v))} placeholder="説明" style={{ ...inputStyle, flex: 1 }} />
