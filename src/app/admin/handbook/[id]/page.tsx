@@ -120,6 +120,8 @@ export default function HandbookEditorPage({ params }: { params: Promise<{ id: s
   const [bossBeforeContent, setBossBeforeContent] = useState('');
   const [bossAfterContent, setBossAfterContent] = useState('');
   const [bossCompareVisible, setBossCompareVisible] = useState(false);
+  const [bossAfterEditing, setBossAfterEditing] = useState(false);
+  const [bossAfterEdited, setBossAfterEdited] = useState('');
 
   // 新章追加
   const [newChapterTitle, setNewChapterTitle] = useState('');
@@ -502,29 +504,56 @@ export default function HandbookEditorPage({ params }: { params: Promise<{ id: s
                       padding: 10, background: 'rgba(239,68,68,0.04)',
                       border: '1px solid rgba(239,68,68,0.2)', borderRadius: 8,
                       fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.8,
-                      whiteSpace: 'pre-wrap', height: 600, overflowY: 'auto',
+                      whiteSpace: 'pre-wrap', height: 500, overflowY: 'auto',
                     }}>
                       {bossBeforeContent}
                     </div>
                   </div>
-                  {/* After（編集可能） */}
+                  {/* After */}
                   <div>
-                    <div style={{ fontSize: 11, fontWeight: 700, color: '#1D9E75', marginBottom: 4 }}>
-                      After（リードマネジメント型）
-                      <span style={{ fontWeight: 400, color: 'var(--text-muted)', marginLeft: 6 }}>※編集できます</span>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: '#1D9E75', marginBottom: 4, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <span>After（リードマネジメント型）</span>
+                      {!bossAfterEditing ? (
+                        <button
+                          onClick={() => { setBossAfterEditing(true); setBossAfterEdited(bossAfterContent); }}
+                          style={{ fontSize: 10, padding: '2px 8px', borderRadius: 5, border: '1px solid rgba(29,158,117,0.3)', background: 'transparent', color: '#1D9E75', cursor: 'pointer' }}
+                        >✏️ 編集</button>
+                      ) : (
+                        <div style={{ display: 'flex', gap: 4 }}>
+                          <button
+                            onClick={() => { setBossAfterContent(bossAfterEdited); setBossAfterEditing(false); }}
+                            style={{ fontSize: 10, padding: '2px 8px', borderRadius: 5, border: 'none', background: '#1D9E75', color: '#fff', cursor: 'pointer', fontWeight: 600 }}
+                          >確定</button>
+                          <button
+                            onClick={() => { setBossAfterEditing(false); setBossAfterEdited(''); }}
+                            style={{ fontSize: 10, padding: '2px 8px', borderRadius: 5, border: '1px solid var(--border)', background: 'var(--bg-card)', color: 'var(--text-muted)', cursor: 'pointer' }}
+                          >キャンセル</button>
+                        </div>
+                      )}
                     </div>
-                    <textarea
-                      value={bossAfterContent}
-                      onChange={e => setBossAfterContent(e.target.value)}
-                      style={{
-                        width: '100%', height: 600, padding: 10,
-                        background: 'rgba(29,158,117,0.04)',
+                    {bossAfterEditing ? (
+                      <textarea
+                        value={bossAfterEdited}
+                        onChange={e => setBossAfterEdited(e.target.value)}
+                        style={{
+                          width: '100%', padding: 12,
+                          background: 'rgba(29,158,117,0.04)',
+                          border: '2px solid rgba(29,158,117,0.3)', borderRadius: 8,
+                          fontSize: 12, color: 'var(--text-primary)', lineHeight: 1.8,
+                          height: 500, resize: 'vertical', outline: 'none',
+                          boxSizing: 'border-box' as const,
+                        }}
+                      />
+                    ) : (
+                      <div style={{
+                        padding: 12, background: 'rgba(29,158,117,0.04)',
                         border: '1px solid rgba(29,158,117,0.2)', borderRadius: 8,
                         fontSize: 12, color: 'var(--text-primary)', lineHeight: 1.8,
-                        resize: 'vertical', outline: 'none', boxSizing: 'border-box',
-                        fontFamily: 'inherit',
-                      }}
-                    />
+                        whiteSpace: 'pre-wrap', height: 500, overflowY: 'auto',
+                      }}>
+                        {bossAfterContent || (bossConvertLoading ? '生成中...' : '← 変換ボタンを押すとここに表示されます')}
+                      </div>
+                    )}
                   </div>
                 </div>
                 <div style={{ display: 'flex', gap: 8 }}>
@@ -611,7 +640,19 @@ export default function HandbookEditorPage({ params }: { params: Promise<{ id: s
             {/* 理念一致度スコア */}
             <div style={{ marginTop: 16, padding: 14, background: 'rgba(29,158,117,0.05)', border: '1px solid rgba(29,158,117,0.2)', borderRadius: 12 }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: ideologyScore ? 12 : 0 }}>
-                <div style={{ fontSize: 13, fontWeight: 700, color: '#1D9E75' }}>🌿 理念一致度スコア</div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: '#1D9E75' }}>🌿 理念一致度スコア</div>
+                  {ideologyScore && (
+                    <div style={{
+                      padding: '2px 10px', borderRadius: 20, fontSize: 13, fontWeight: 800,
+                      background: ideologyScore.score >= 80 ? 'rgba(29,158,117,0.15)' : ideologyScore.score >= 60 ? 'rgba(245,158,11,0.15)' : 'rgba(239,68,68,0.15)',
+                      color: ideologyScore.score >= 80 ? '#1D9E75' : ideologyScore.score >= 60 ? '#f59e0b' : '#ef4444',
+                      border: `1px solid ${ideologyScore.score >= 80 ? 'rgba(29,158,117,0.3)' : ideologyScore.score >= 60 ? 'rgba(245,158,11,0.3)' : 'rgba(239,68,68,0.3)'}`,
+                    }}>
+                      {ideologyScore.score}点
+                    </div>
+                  )}
+                </div>
                 <button onClick={checkIdeologyScore} disabled={ideologyLoading}
                   style={{ padding: '5px 14px', borderRadius: 8, border: 'none', background: ideologyLoading ? 'rgba(29,158,117,0.3)' : '#1D9E75', color: '#fff', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>
                   {ideologyLoading ? '採点中...' : ideologyScore ? '再採点' : '📊 採点する'}
@@ -641,6 +682,27 @@ export default function HandbookEditorPage({ params }: { params: Promise<{ id: s
                       ))}
                     </div>
                   )}
+                  <div style={{ marginTop: 8 }}>
+                    <button
+                      onClick={async () => {
+                        const chapter = chapters[activeIdx];
+                        if (!chapter || !ideologyScore) return;
+                        await saveImproveHistory(
+                          `理念スコア採点：${ideologyScore.score}点`,
+                          `【採点結果：${ideologyScore.score}点】\n\n${ideologyScore.reason}\n\n改善ポイント：\n${ideologyScore.points.join('\n')}`
+                        );
+                        setMessage('✅ 採点結果を改善履歴に保存しました');
+                        setTimeout(() => setMessage(''), 2000);
+                      }}
+                      style={{
+                        padding: '5px 14px', borderRadius: 8,
+                        border: '1px solid rgba(29,158,117,0.3)', background: 'transparent',
+                        color: '#1D9E75', fontSize: 11, fontWeight: 600, cursor: 'pointer',
+                      }}
+                    >
+                      📥 採点結果を保存
+                    </button>
+                  </div>
                 </div>
               )}
             </div>
