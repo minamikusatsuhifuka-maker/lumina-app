@@ -287,9 +287,19 @@ export default function EvaluationPage() {
                 <input value={item.kanji} onChange={e => setRealPrinciples(prev => prev.map((v, j) => j === i ? { ...v, kanji: e.target.value } : v))} placeholder="漢字" style={{ ...inputStyle, width: 60 }} />
                 <input value={item.reading} onChange={e => setRealPrinciples(prev => prev.map((v, j) => j === i ? { ...v, reading: e.target.value } : v))} placeholder="読み" style={{ ...inputStyle, width: 90 }} />
                 <input value={item.desc} onChange={e => setRealPrinciples(prev => prev.map((v, j) => j === i ? { ...v, desc: e.target.value } : v))} placeholder="説明" style={{ ...inputStyle, flex: 1 }} />
+                <button
+                  onClick={() => setRealPrinciples(prev => prev.filter((_, j) => j !== i))}
+                  style={{ padding: '6px 10px', borderRadius: 6, border: '1px solid rgba(239,68,68,0.3)', background: 'transparent', color: '#ef4444', fontSize: 12, cursor: 'pointer', flexShrink: 0 }}
+                >✕</button>
               </div>
             ))}
-            <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
+            <button
+              onClick={() => setRealPrinciples(prev => [...prev, { kanji: '', reading: '', desc: '' }])}
+              style={{ marginBottom: 12, padding: '6px 14px', borderRadius: 8, border: '1px dashed rgba(239,68,68,0.4)', background: 'transparent', color: '#ef4444', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}
+            >
+              ＋ 項目を追加
+            </button>
+            <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
               <button onClick={() => saveFrameworkSection('real_principles')} disabled={savingFramework} style={{ padding: '7px 16px', borderRadius: 8, border: 'none', background: '#ef4444', color: '#fff', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>{savingFramework ? '保存中...' : '💾 保存'}</button>
               <button onClick={() => setEditingFrameworkSection(null)} style={{ padding: '7px 12px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--bg-card)', color: 'var(--text-muted)', fontSize: 12, cursor: 'pointer' }}>キャンセル</button>
             </div>
