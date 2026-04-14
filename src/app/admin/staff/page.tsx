@@ -90,12 +90,12 @@ export default function StaffListPage() {
     <div style={{ maxWidth: 960, margin: '0 auto', paddingBottom: 60 }}>
       {/* ヘッダー */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
-        <h1 style={{ fontSize: 24, fontWeight: 700, color: 'var(--text-primary)' }}>👥 スタッフ管理</h1>
+        <h1 style={{ fontSize: 24, fontWeight: 700, color: 'var(--text-primary)' }}>👥 スタッフ支援</h1>
         <Link href="/admin/staff/new" style={{ padding: '9px 18px', borderRadius: 8, border: 'none', textDecoration: 'none', background: 'linear-gradient(135deg, #6c63ff, #8b5cf6)', color: '#fff', fontWeight: 700, fontSize: 13 }}>
           ＋ 新規スタッフ登録
         </Link>
       </div>
-      <p style={{ color: 'var(--text-muted)', fontSize: 13, marginBottom: 16 }}>スタッフの基本情報・書類・成長記録を管理</p>
+      <p style={{ color: 'var(--text-muted)', fontSize: 13, marginBottom: 16 }}>スタッフの成長・基本情報・書類・記録を支援</p>
 
       {/* フォロー必要アラート */}
       {followCount > 0 && (
