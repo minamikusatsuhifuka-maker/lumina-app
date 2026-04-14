@@ -117,6 +117,9 @@ export default function HandbookEditorPage({ params }: { params: Promise<{ id: s
   const [questionLoading, setQuestionLoading] = useState(false);
   const [questionResult, setQuestionResult] = useState('');
   const [questionVisible, setQuestionVisible] = useState(false);
+  const [bossBeforeContent, setBossBeforeContent] = useState('');
+  const [bossAfterContent, setBossAfterContent] = useState('');
+  const [bossCompareVisible, setBossCompareVisible] = useState(false);
 
   // 新章追加
   const [newChapterTitle, setNewChapterTitle] = useState('');
@@ -286,6 +289,10 @@ export default function HandbookEditorPage({ params }: { params: Promise<{ id: s
 
   const convertBossToLead = async () => {
     setBossConvertLoading(true);
+    // 変換前の内容を保存
+    setBossBeforeContent(editContent);
+    setBossAfterContent('');
+    setBossCompareVisible(false);
     try {
       const res = await fetch('/api/clinic/handbooks/enhance', {
         method: 'POST',
@@ -294,8 +301,10 @@ export default function HandbookEditorPage({ params }: { params: Promise<{ id: s
       });
       const data = await res.json();
       if (data.result) {
-        setEditContent(data.result);
-        setMessage('✅ リードマネジメント型の表現に変換しました');
+        setBossAfterContent(data.result);
+        setBossCompareVisible(true);
+        // 本文には即反映せず、比較画面を表示
+        setMessage('✅ リードマネジメント型の表現に変換しました。下のBefore/Afterを確認して「採用する」を押してください。');
         saveImproveHistory('ボスマネ→リードマネ変換', data.result);
       }
     } catch { setMessage('❌ 変換に失敗しました'); }
@@ -478,6 +487,78 @@ export default function HandbookEditorPage({ params }: { params: Promise<{ id: s
                 {questionLoading ? '生成中...' : '💭 章末問いかけを生成'}
               </button>
             </div>
+
+            {/* ボスマネ→リードマネ Before/After比較 */}
+            {bossCompareVisible && bossAfterContent && (
+              <div style={{ marginTop: 12, padding: 14, background: 'rgba(245,158,11,0.05)', border: '1px solid rgba(245,158,11,0.25)', borderRadius: 12 }}>
+                <div style={{ fontSize: 13, fontWeight: 700, color: '#d97706', marginBottom: 12 }}>
+                  🔄 ボスマネ→リードマネ 変換結果
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 12 }}>
+                  {/* Before */}
+                  <div>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: '#ef4444', marginBottom: 4 }}>Before（変換前）</div>
+                    <div style={{
+                      padding: 10, background: 'rgba(239,68,68,0.04)',
+                      border: '1px solid rgba(239,68,68,0.2)', borderRadius: 8,
+                      fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.8,
+                      whiteSpace: 'pre-wrap', height: 300, overflowY: 'auto',
+                    }}>
+                      {bossBeforeContent}
+                    </div>
+                  </div>
+                  {/* After */}
+                  <div>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: '#1D9E75', marginBottom: 4 }}>After（リードマネジメント型）</div>
+                    <div style={{
+                      padding: 10, background: 'rgba(29,158,117,0.04)',
+                      border: '1px solid rgba(29,158,117,0.2)', borderRadius: 8,
+                      fontSize: 12, color: 'var(--text-primary)', lineHeight: 1.8,
+                      whiteSpace: 'pre-wrap', height: 300, overflowY: 'auto',
+                    }}>
+                      {bossAfterContent}
+                    </div>
+                  </div>
+                </div>
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <button
+                    onClick={() => {
+                      setEditContent(bossAfterContent);
+                      setBossCompareVisible(false);
+                      setMessage('✅ リードマネジメント型の文章を本文に採用しました');
+                      setTimeout(() => setMessage(''), 3000);
+                    }}
+                    style={{
+                      padding: '8px 20px', borderRadius: 8, border: 'none',
+                      background: '#1D9E75', color: '#fff', fontSize: 13, fontWeight: 700, cursor: 'pointer',
+                    }}
+                  >
+                    ✅ この変換を採用する
+                  </button>
+                  <button
+                    onClick={() => navigator.clipboard.writeText(bossAfterContent)
+                      .then(() => setMessage('📋 コピーしました！'))}
+                    style={{
+                      padding: '8px 16px', borderRadius: 8,
+                      border: '1px solid var(--border)', background: 'var(--bg-card)',
+                      color: 'var(--text-muted)', fontSize: 13, cursor: 'pointer',
+                    }}
+                  >
+                    📋 コピー
+                  </button>
+                  <button
+                    onClick={() => setBossCompareVisible(false)}
+                    style={{
+                      padding: '8px 14px', borderRadius: 8,
+                      border: '1px solid var(--border)', background: 'var(--bg-card)',
+                      color: 'var(--text-muted)', fontSize: 13, cursor: 'pointer',
+                    }}
+                  >
+                    閉じる
+                  </button>
+                </div>
+              </div>
+            )}
 
             {/* 問いかけ結果表示 */}
             {questionVisible && (
