@@ -53,3 +53,23 @@ export async function POST(req: NextRequest) {
 
   return NextResponse.json({ success: true, id });
 }
+
+export async function PATCH(req: NextRequest) {
+  const session = await auth();
+  if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+
+  const { id, stageDescription, behavioralIndicators, growthActions } = await req.json();
+  if (!id) return NextResponse.json({ error: 'id は必須です' }, { status: 400 });
+
+  const sql = neon(process.env.DATABASE_URL!);
+  await sql`
+    UPDATE mindset_growth_framework
+    SET
+      stage_description = ${stageDescription},
+      behavioral_indicators = ${behavioralIndicators},
+      growth_actions = ${growthActions},
+      updated_at = NOW()
+    WHERE id = ${id}
+  `;
+  return NextResponse.json({ success: true });
+}

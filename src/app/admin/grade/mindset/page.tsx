@@ -43,6 +43,15 @@ export default function MindsetPage() {
   const [editQuestion, setEditQuestion] = useState('');
   const [editDescription, setEditDescription] = useState('');
 
+  // マインド成長フレームワーク編集
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editForm, setEditForm] = useState<{
+    stageDescription: string;
+    behavioralIndicators: string[];
+    growthActions: string[];
+  }>({ stageDescription: '', behavioralIndicators: [], growthActions: [] });
+  const [editSaving, setEditSaving] = useState(false);
+
   const fetchData = async () => {
     const [fw, gr] = await Promise.all([
       fetch('/api/clinic/mindset-framework').then(r => r.json()),
@@ -53,6 +62,88 @@ export default function MindsetPage() {
     setLoading(false);
   };
   useEffect(() => { fetchData(); }, []);
+
+  const startEdit = (entry: any) => {
+    setEditingId(entry.id);
+    const parseArr = (v: any): string[] => {
+      if (!v) return [];
+      if (Array.isArray(v)) return v;
+      try { const r = JSON.parse(v); return Array.isArray(r) ? r : []; } catch { return []; }
+    };
+    setEditForm({
+      stageDescription: entry.stage_description || '',
+      behavioralIndicators: parseArr(entry.behavioral_indicators),
+      growthActions: parseArr(entry.growth_actions),
+    });
+  };
+
+  const saveEdit = async () => {
+    if (!editingId) return;
+    setEditSaving(true);
+    try {
+      await fetch('/api/clinic/mindset-framework', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: editingId,
+          stageDescription: editForm.stageDescription,
+          behavioralIndicators: JSON.stringify(editForm.behavioralIndicators),
+          growthActions: JSON.stringify(editForm.growthActions),
+        }),
+      });
+      setFramework(prev => prev.map(f => f.id === editingId ? {
+        ...f,
+        stage_description: editForm.stageDescription,
+        behavioral_indicators: editForm.behavioralIndicators,
+        growth_actions: editForm.growthActions,
+      } : f));
+      setEditingId(null);
+      setMessage('✅ 保存しました');
+      setTimeout(() => setMessage(''), 2000);
+    } catch { setMessage('❌ 保存に失敗しました'); }
+    finally { setEditSaving(false); }
+  };
+
+  const renderEditForm = () => (
+    <div>
+      <div style={{ marginBottom: 10 }}>
+        <label style={{ fontSize: 11, color: 'var(--text-muted)', display: 'block', marginBottom: 4 }}>ステージの説明</label>
+        <input
+          value={editForm.stageDescription}
+          onChange={e => setEditForm(prev => ({ ...prev, stageDescription: e.target.value }))}
+          style={{ width: '100%', padding: '8px 10px', background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 6, color: 'var(--text-primary)', fontSize: 13, outline: 'none', boxSizing: 'border-box' as const }}
+        />
+      </div>
+      <div style={{ marginBottom: 10 }}>
+        <label style={{ fontSize: 11, color: 'var(--text-muted)', display: 'block', marginBottom: 4 }}>行動指標（1行1項目）</label>
+        <textarea
+          value={editForm.behavioralIndicators.join('\n')}
+          onChange={e => setEditForm(prev => ({ ...prev, behavioralIndicators: e.target.value.split('\n') }))}
+          rows={4}
+          style={{ width: '100%', padding: '8px 10px', background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 6, color: 'var(--text-primary)', fontSize: 12, outline: 'none', resize: 'vertical', boxSizing: 'border-box' as const, lineHeight: 1.6 }}
+        />
+      </div>
+      <div style={{ marginBottom: 12 }}>
+        <label style={{ fontSize: 11, color: 'var(--text-muted)', display: 'block', marginBottom: 4 }}>成長アクション（1行1項目）</label>
+        <textarea
+          value={editForm.growthActions.join('\n')}
+          onChange={e => setEditForm(prev => ({ ...prev, growthActions: e.target.value.split('\n') }))}
+          rows={3}
+          style={{ width: '100%', padding: '8px 10px', background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 6, color: 'var(--text-primary)', fontSize: 12, outline: 'none', resize: 'vertical', boxSizing: 'border-box' as const, lineHeight: 1.6 }}
+        />
+      </div>
+      <div style={{ display: 'flex', gap: 8 }}>
+        <button onClick={saveEdit} disabled={editSaving}
+          style={{ padding: '6px 16px', borderRadius: 8, border: 'none', background: editSaving ? 'rgba(108,99,255,0.3)' : '#6c63ff', color: '#fff', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>
+          {editSaving ? '保存中...' : '💾 保存'}
+        </button>
+        <button onClick={() => setEditingId(null)}
+          style={{ padding: '6px 12px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--bg-card)', color: 'var(--text-muted)', fontSize: 12, cursor: 'pointer' }}>
+          キャンセル
+        </button>
+      </div>
+    </div>
+  );
 
   useEffect(() => {
     fetch('/api/clinic/concentric-circles')
@@ -346,21 +437,29 @@ export default function MindsetPage() {
                   </div>
                   <div style={{ flex: 1, padding: '14px 16px' }}>
                     {entry ? (
-                      <>
-                        <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 6 }}>{entry.stage_description}</div>
-                        {parseJson(entry.behavioral_indicators).length > 0 && (
-                          <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 4 }}>
-                            <span style={{ color: 'var(--text-muted)' }}>行動: </span>
-                            {parseJson(entry.behavioral_indicators).map((b: string, i: number) => <span key={i}>{i > 0 ? ' / ' : ''}{b}</span>)}
+                      editingId === entry.id ? renderEditForm() : (
+                        <>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 6 }}>
+                            <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)', flex: 1 }}>{entry.stage_description}</div>
+                            <button onClick={() => startEdit(entry)}
+                              style={{ marginLeft: 10, fontSize: 11, color: 'var(--text-muted)', background: 'none', border: '1px solid var(--border)', borderRadius: 6, padding: '3px 8px', cursor: 'pointer', flexShrink: 0 }}>
+                              ✏️ 編集
+                            </button>
                           </div>
-                        )}
-                        {parseJson(entry.growth_actions).length > 0 && (
-                          <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>
-                            <span style={{ color: 'var(--text-muted)' }}>アクション: </span>
-                            {parseJson(entry.growth_actions).map((a: string, i: number) => <span key={i}>{i > 0 ? ' / ' : ''}{a}</span>)}
-                          </div>
-                        )}
-                      </>
+                          {parseJson(entry.behavioral_indicators).length > 0 && (
+                            <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 4 }}>
+                              <span style={{ color: 'var(--text-muted)' }}>行動: </span>
+                              {parseJson(entry.behavioral_indicators).map((b: string, i: number) => <span key={i}>{i > 0 ? ' / ' : ''}{b}</span>)}
+                            </div>
+                          )}
+                          {parseJson(entry.growth_actions).length > 0 && (
+                            <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>
+                              <span style={{ color: 'var(--text-muted)' }}>アクション: </span>
+                              {parseJson(entry.growth_actions).map((a: string, i: number) => <span key={i}>{i > 0 ? ' / ' : ''}{a}</span>)}
+                            </div>
+                          )}
+                        </>
+                      )
                     ) : <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>未設定</div>}
                   </div>
                 </div>
@@ -394,10 +493,18 @@ export default function MindsetPage() {
                 <div key={cv.key} style={{ padding: 16, background: 'var(--bg-secondary)', border: `1px solid ${cv.color}30`, borderRadius: 14 }}>
                   <div style={{ fontSize: 14, fontWeight: 700, color: cv.color, marginBottom: 8 }}>{cv.label}</div>
                   {entry ? (
-                    <>
-                      <div style={{ fontSize: 13, color: 'var(--text-primary)', marginBottom: 6, fontWeight: 600 }}>{entry.stage_description}</div>
-                      {parseJson(entry.behavioral_indicators).map((b: string, i: number) => <div key={i} style={{ fontSize: 12, color: 'var(--text-secondary)', padding: '2px 0' }}>• {b}</div>)}
-                    </>
+                    editingId === entry.id ? renderEditForm() : (
+                      <>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 6 }}>
+                          <div style={{ fontSize: 13, color: 'var(--text-primary)', fontWeight: 600, flex: 1 }}>{entry.stage_description}</div>
+                          <button onClick={() => startEdit(entry)}
+                            style={{ marginLeft: 10, fontSize: 11, color: 'var(--text-muted)', background: 'none', border: '1px solid var(--border)', borderRadius: 6, padding: '3px 8px', cursor: 'pointer', flexShrink: 0 }}>
+                            ✏️ 編集
+                          </button>
+                        </div>
+                        {parseJson(entry.behavioral_indicators).map((b: string, i: number) => <div key={i} style={{ fontSize: 12, color: 'var(--text-secondary)', padding: '2px 0' }}>• {b}</div>)}
+                      </>
+                    )
                   ) : <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>未設定</div>}
                 </div>
               );
