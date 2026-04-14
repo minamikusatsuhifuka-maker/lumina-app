@@ -5,10 +5,10 @@ import { AITextReviser } from '@/components/clinic/AITextReviser';
 import { AIBrushupChat } from '@/components/clinic/AIBrushupChat';
 
 const ZONES = [
-  { key: 'red', label: 'レッド', icon: '🔴', desc: '即退職レベル', color: '#ef4444', bg: 'rgba(239,68,68,0.06)', border: 'rgba(239,68,68,0.2)' },
-  { key: 'yellow', label: 'イエロー', icon: '🟡', desc: '退職勧告レベル', color: '#f59e0b', bg: 'rgba(245,158,11,0.06)', border: 'rgba(245,158,11,0.2)' },
-  { key: 'green', label: 'グリーン', icon: '🟢', desc: '一人前の基準', color: '#22c55e', bg: 'rgba(34,197,94,0.06)', border: 'rgba(34,197,94,0.2)' },
   { key: 'teal', label: 'ティール', icon: '🩵', desc: 'リーダーの基準', color: '#06b6d4', bg: 'rgba(6,182,212,0.06)', border: 'rgba(6,182,212,0.2)' },
+  { key: 'green', label: 'グリーン', icon: '🟢', desc: '一人前の基準', color: '#22c55e', bg: 'rgba(34,197,94,0.06)', border: 'rgba(34,197,94,0.2)' },
+  { key: 'yellow', label: 'イエロー', icon: '🟡', desc: '退職勧告レベル', color: '#f59e0b', bg: 'rgba(245,158,11,0.06)', border: 'rgba(245,158,11,0.2)' },
+  { key: 'red', label: 'レッド', icon: '🔴', desc: '即退職レベル', color: '#ef4444', bg: 'rgba(239,68,68,0.06)', border: 'rgba(239,68,68,0.2)' },
 ] as const;
 
 type ZoneType = typeof ZONES[number]['key'];
@@ -30,7 +30,7 @@ type Rule = {
 
 export default function ZoneManagementPage() {
   const [rules, setRules] = useState<Rule[]>([]);
-  const [activeZone, setActiveZone] = useState<ZoneType>('red');
+  const [activeZone, setActiveZone] = useState<ZoneType>('teal');
   const [loading, setLoading] = useState(true);
   const [generating, setGenerating] = useState(false);
   const [suggestions, setSuggestions] = useState<any>(null); // { zones: [...] }
@@ -75,7 +75,7 @@ export default function ZoneManagementPage() {
       console.error('一括削除失敗:', e);
     }
 
-    const zones = ['red', 'yellow', 'green', 'teal'];
+    const zones = ['teal', 'green', 'yellow', 'red'];
     let totalSaved = 0;
 
     for (const zone of zones) {
