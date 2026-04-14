@@ -55,6 +55,12 @@ const navGroups: NavGroup[] = [
       { href: '/admin/tasks', label: 'タスク管理', icon: '✅' },
     ],
   },
+  {
+    category: 'ツール',
+    items: [
+      { href: '/staff/quotes', label: '金言コレクション', icon: '📚' },
+    ],
+  },
 ];
 
 export function AdminSidebar({ userName }: { userName: string }) {

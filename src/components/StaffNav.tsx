@@ -34,6 +34,7 @@ const navGroups: NavGroup[] = [
     items: [
       { href: '/staff/handbook', label: 'ハンドブック', icon: '📖' },
       { href: '/staff/strategy', label: '戦略・計画', icon: '🗺' },
+      { href: '/staff/quotes', label: '金言', icon: '📚' },
     ],
   },
 ];
