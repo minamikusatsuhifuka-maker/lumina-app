@@ -22,6 +22,7 @@ const navGroups: NavGroup[] = [
       { href: '/admin/staff-evaluation', label: 'スタッフ評価', icon: '📈' },
       { href: '/admin/one-on-one', label: '1on1ミーティング', icon: '🤝' },
       { href: '/admin/applicants', label: '採用AI分析', icon: '🔍' },
+      { href: '/admin/staff-onboarding', label: 'スタッフ登録管理', icon: '📋' },
     ],
   },
   {
