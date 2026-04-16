@@ -120,6 +120,10 @@ export default function HandbookEditorPage({ params }: { params: Promise<{ id: s
   const [showHistory, setShowHistory] = useState(false);
   const [historyLoading, setHistoryLoading] = useState(false);
 
+  // Before/After表示設定
+  const [resultFontSize, setResultFontSize] = useState(16);
+  const [resultBoxHeight, setResultBoxHeight] = useState(420);
+
 
   // ボスマネ変換・問いかけ
   const [bossConvertLoading, setBossConvertLoading] = useState(false);
@@ -931,6 +935,21 @@ export default function HandbookEditorPage({ params }: { params: Promise<{ id: s
                       📋 生成結果の比較（{multipleResults.length}種類）
                     </div>
 
+                    {/* 表示設定コントロール */}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 24, padding: '10px 14px', background: 'var(--bg-secondary)', borderRadius: 12, border: '1px solid var(--border)', fontSize: 13 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                        <span style={{ color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>🔤 文字</span>
+                        <input type="range" min={12} max={22} value={resultFontSize} onChange={e => setResultFontSize(Number(e.target.value))} style={{ width: 96, accentColor: '#8b5cf6' }} />
+                        <span style={{ color: 'var(--text-secondary)', width: 32, textAlign: 'right' }}>{resultFontSize}px</span>
+                      </div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                        <span style={{ color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>↕️ 高さ</span>
+                        <input type="range" min={200} max={800} step={20} value={resultBoxHeight} onChange={e => setResultBoxHeight(Number(e.target.value))} style={{ width: 96, accentColor: '#8b5cf6' }} />
+                        <span style={{ color: 'var(--text-secondary)', width: 48, textAlign: 'right' }}>{resultBoxHeight}px</span>
+                      </div>
+                      <button onClick={() => { setResultFontSize(16); setResultBoxHeight(420); }} style={{ fontSize: 12, color: 'var(--text-muted)', textDecoration: 'underline', background: 'none', border: 'none', cursor: 'pointer', whiteSpace: 'nowrap' }}>リセット</button>
+                    </div>
+
                     {multipleResults.map((r, i) => (
                       <div key={i} style={{ borderRadius: 12, border: '1px solid var(--border)', overflow: 'hidden', background: 'var(--bg-card)' }}>
                         {/* ヘッダー */}
@@ -957,15 +976,15 @@ export default function HandbookEditorPage({ params }: { params: Promise<{ id: s
                         </div>
                         {/* Before/After */}
                         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr' }}>
-                          <div style={{ padding: 12, borderRight: '1px solid var(--border)' }}>
+                          <div style={{ padding: 12, borderRight: '1px solid var(--border)', height: resultBoxHeight, overflowY: 'auto' }}>
                             <div style={{ fontSize: 10, fontWeight: 700, color: '#ef4444', marginBottom: 4 }}>Before</div>
-                            <div style={{ fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.8, whiteSpace: 'pre-wrap', maxHeight: 300, overflowY: 'auto' }}>
+                            <div style={{ fontSize: resultFontSize, color: 'var(--text-secondary)', lineHeight: 1.8, whiteSpace: 'pre-wrap' }}>
                               {editContent}
                             </div>
                           </div>
-                          <div style={{ padding: 12 }}>
+                          <div style={{ padding: 12, height: resultBoxHeight, overflowY: 'auto' }}>
                             <div style={{ fontSize: 10, fontWeight: 700, color: '#6c63ff', marginBottom: 4 }}>After</div>
-                            <div style={{ fontSize: 12, color: 'var(--text-primary)', lineHeight: 1.8, whiteSpace: 'pre-wrap', maxHeight: 300, overflowY: 'auto' }}>
+                            <div style={{ fontSize: resultFontSize, color: 'var(--text-primary)', lineHeight: 1.8, whiteSpace: 'pre-wrap' }}>
                               {r.result}
                             </div>
                           </div>
