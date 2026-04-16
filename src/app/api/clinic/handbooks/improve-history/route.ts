@@ -23,9 +23,21 @@ export async function GET(req: NextRequest) {
       before_content TEXT NOT NULL,
       after_content TEXT NOT NULL,
       ideology_score INTEGER,
+      evaluation_result TEXT,
+      score_result INTEGER,
+      score_comment TEXT,
+      score_suggestions TEXT,
+      saved_at TIMESTAMPTZ DEFAULT NOW(),
       created_at TIMESTAMPTZ DEFAULT NOW()
     )
   `;
+
+  // 既存テーブルへのマイグレーション
+  await sql`ALTER TABLE handbook_improve_histories ADD COLUMN IF NOT EXISTS evaluation_result TEXT`;
+  await sql`ALTER TABLE handbook_improve_histories ADD COLUMN IF NOT EXISTS score_result INTEGER`;
+  await sql`ALTER TABLE handbook_improve_histories ADD COLUMN IF NOT EXISTS score_comment TEXT`;
+  await sql`ALTER TABLE handbook_improve_histories ADD COLUMN IF NOT EXISTS score_suggestions TEXT`;
+  await sql`ALTER TABLE handbook_improve_histories ADD COLUMN IF NOT EXISTS saved_at TIMESTAMPTZ DEFAULT NOW()`;
 
   const rows = await sql`
     SELECT * FROM handbook_improve_histories
@@ -41,7 +53,10 @@ export async function POST(req: NextRequest) {
   const session = await auth();
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-  const { chapterId, handbookId, chapterTitle, direction, beforeContent, afterContent, ideologyScore } = await req.json();
+  const {
+    chapterId, handbookId, chapterTitle, direction, beforeContent, afterContent, ideologyScore,
+    evaluation_result, score_result, score_comment, score_suggestions,
+  } = await req.json();
 
   const sql = neon(process.env.DATABASE_URL!);
 
@@ -55,20 +70,35 @@ export async function POST(req: NextRequest) {
       before_content TEXT NOT NULL,
       after_content TEXT NOT NULL,
       ideology_score INTEGER,
+      evaluation_result TEXT,
+      score_result INTEGER,
+      score_comment TEXT,
+      score_suggestions TEXT,
+      saved_at TIMESTAMPTZ DEFAULT NOW(),
       created_at TIMESTAMPTZ DEFAULT NOW()
     )
   `;
+
+  // 既存テーブルへのマイグレーション
+  await sql`ALTER TABLE handbook_improve_histories ADD COLUMN IF NOT EXISTS evaluation_result TEXT`;
+  await sql`ALTER TABLE handbook_improve_histories ADD COLUMN IF NOT EXISTS score_result INTEGER`;
+  await sql`ALTER TABLE handbook_improve_histories ADD COLUMN IF NOT EXISTS score_comment TEXT`;
+  await sql`ALTER TABLE handbook_improve_histories ADD COLUMN IF NOT EXISTS score_suggestions TEXT`;
+  await sql`ALTER TABLE handbook_improve_histories ADD COLUMN IF NOT EXISTS saved_at TIMESTAMPTZ DEFAULT NOW()`;
 
   const id = uuidv4();
   await sql`
     INSERT INTO handbook_improve_histories (
       id, chapter_id, handbook_id, chapter_title,
-      direction, before_content, after_content, ideology_score
+      direction, before_content, after_content, ideology_score,
+      evaluation_result, score_result, score_comment, score_suggestions
     ) VALUES (
       ${id}, ${chapterId}, ${handbookId || ''}, ${chapterTitle || ''},
       ${direction || ''},
-      ${beforeContent}, ${afterContent},
-      ${ideologyScore || null}
+      ${beforeContent || ''}, ${afterContent || ''},
+      ${ideologyScore || null},
+      ${evaluation_result || null}, ${score_result || null},
+      ${score_comment || null}, ${score_suggestions || null}
     )
   `;
 
