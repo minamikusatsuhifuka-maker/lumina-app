@@ -38,6 +38,7 @@ export async function GET(req: NextRequest) {
   await sql`ALTER TABLE handbook_improve_histories ADD COLUMN IF NOT EXISTS score_comment TEXT`;
   await sql`ALTER TABLE handbook_improve_histories ADD COLUMN IF NOT EXISTS score_suggestions TEXT`;
   await sql`ALTER TABLE handbook_improve_histories ADD COLUMN IF NOT EXISTS saved_at TIMESTAMPTZ DEFAULT NOW()`;
+  await sql`ALTER TABLE handbook_improve_histories ADD COLUMN IF NOT EXISTS template_label TEXT`;
 
   const rows = await sql`
     SELECT * FROM handbook_improve_histories
@@ -55,7 +56,7 @@ export async function POST(req: NextRequest) {
 
   const {
     chapterId, handbookId, chapterTitle, direction, beforeContent, afterContent, ideologyScore,
-    evaluation_result, score_result, score_comment, score_suggestions,
+    evaluation_result, score_result, score_comment, score_suggestions, template_label,
   } = await req.json();
 
   const sql = neon(process.env.DATABASE_URL!);
@@ -85,20 +86,23 @@ export async function POST(req: NextRequest) {
   await sql`ALTER TABLE handbook_improve_histories ADD COLUMN IF NOT EXISTS score_comment TEXT`;
   await sql`ALTER TABLE handbook_improve_histories ADD COLUMN IF NOT EXISTS score_suggestions TEXT`;
   await sql`ALTER TABLE handbook_improve_histories ADD COLUMN IF NOT EXISTS saved_at TIMESTAMPTZ DEFAULT NOW()`;
+  await sql`ALTER TABLE handbook_improve_histories ADD COLUMN IF NOT EXISTS template_label TEXT`;
 
   const id = uuidv4();
   await sql`
     INSERT INTO handbook_improve_histories (
       id, chapter_id, handbook_id, chapter_title,
       direction, before_content, after_content, ideology_score,
-      evaluation_result, score_result, score_comment, score_suggestions
+      evaluation_result, score_result, score_comment, score_suggestions,
+      template_label
     ) VALUES (
       ${id}, ${chapterId}, ${handbookId || ''}, ${chapterTitle || ''},
       ${direction || ''},
       ${beforeContent || ''}, ${afterContent || ''},
       ${ideologyScore || null},
       ${evaluation_result || null}, ${score_result || null},
-      ${score_comment || null}, ${score_suggestions || null}
+      ${score_comment || null}, ${score_suggestions || null},
+      ${template_label || null}
     )
   `;
 
