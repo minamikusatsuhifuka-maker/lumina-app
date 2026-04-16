@@ -74,6 +74,16 @@ export default function HandbookListPage() {
     setHandbooks(prev => prev.filter(h => h.id !== id));
   };
 
+  // ロック切り替え
+  const toggleLock = async (id: string, isLocked: boolean) => {
+    if (isLocked) {
+      const confirmed = confirm('このハンドブックのロックを解除しますか？\n編集・削除が可能になります。');
+      if (!confirmed) return;
+    }
+    await fetch(`/api/clinic/handbooks/${id}/lock`, { method: 'PATCH' });
+    fetchData();
+  };
+
   return (
     <div style={{ maxWidth: 900, margin: '0 auto', paddingBottom: 60 }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
@@ -122,17 +132,18 @@ export default function HandbookListPage() {
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
           {handbooks.map(h => (
-            <div key={h.id} style={{ padding: 18, background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 14 }}>
+            <div key={h.id} style={{ padding: 18, background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 14, borderLeft: h.is_locked ? '4px solid #f87171' : undefined }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                <Link href={`/admin/handbook/${h.id}`} style={{ textDecoration: 'none', flex: 1 }}>
+                <Link href={h.is_locked ? '#' : `/admin/handbook/${h.id}`} onClick={e => { if (h.is_locked) e.preventDefault(); }} style={{ textDecoration: 'none', flex: 1, opacity: h.is_locked ? 0.7 : 1 }}>
                   <div style={{ fontSize: 16, fontWeight: 700, color: 'var(--text-primary)' }}>{h.title}</div>
                   {h.description && <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 2 }}>{h.description}</div>}
                   <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4 }}>{h.chapter_count || 0}章 / {new Date(h.updated_at).toLocaleDateString('ja-JP')} 更新</div>
                 </Link>
                 <div style={{ display: 'flex', gap: 4, alignItems: 'center', flexShrink: 0 }}>
-                  <button onClick={() => toggleStatus(h)} style={{ padding: '3px 10px', borderRadius: 20, fontSize: 11, border: 'none', cursor: 'pointer', background: h.status === 'published' ? 'rgba(74,222,128,0.15)' : 'rgba(245,166,35,0.15)', color: h.status === 'published' ? '#4ade80' : '#f5a623' }}>{h.status === 'published' ? '✅ 公開中' : '📝 下書き'}</button>
+                  <button onClick={() => toggleLock(h.id, h.is_locked)} title={h.is_locked ? 'ロック中（クリックで解除）' : 'クリックでロック'} style={{ padding: '5px 8px', borderRadius: 6, border: 'none', background: 'transparent', fontSize: 16, cursor: 'pointer', color: h.is_locked ? '#ef4444' : '#d1d5db' }}>{h.is_locked ? '🔒' : '🔓'}</button>
+                  <button onClick={() => toggleStatus(h)} disabled={h.is_locked} style={{ padding: '3px 10px', borderRadius: 20, fontSize: 11, border: 'none', cursor: h.is_locked ? 'not-allowed' : 'pointer', opacity: h.is_locked ? 0.3 : 1, background: h.status === 'published' ? 'rgba(74,222,128,0.15)' : 'rgba(245,166,35,0.15)', color: h.status === 'published' ? '#4ade80' : '#f5a623' }}>{h.status === 'published' ? '✅ 公開中' : '📝 下書き'}</button>
                   <button onClick={() => duplicateHandbook(h.id)} style={{ padding: '5px 8px', borderRadius: 6, border: '1px solid var(--border)', background: 'var(--bg-card)', color: 'var(--text-muted)', fontSize: 11, cursor: 'pointer' }}>📋 複製</button>
-                  <button onClick={() => deleteHandbook(h.id)} style={{ padding: '5px 8px', borderRadius: 6, border: 'none', background: 'rgba(239,68,68,0.1)', color: '#ef4444', fontSize: 11, cursor: 'pointer' }}>🗑</button>
+                  <button onClick={() => deleteHandbook(h.id)} disabled={h.is_locked} style={{ padding: '5px 8px', borderRadius: 6, border: 'none', background: 'rgba(239,68,68,0.1)', color: '#ef4444', fontSize: 11, cursor: h.is_locked ? 'not-allowed' : 'pointer', opacity: h.is_locked ? 0.3 : 1 }}>🗑</button>
                 </div>
               </div>
             </div>

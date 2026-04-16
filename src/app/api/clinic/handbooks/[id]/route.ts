@@ -24,9 +24,15 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   const session = await auth();
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   const { id } = await params;
-  const body = await req.json();
   const sql = neon(process.env.DATABASE_URL!);
 
+  // ロック確認
+  const handbook = await sql`SELECT is_locked FROM handbooks WHERE id = ${id}`;
+  if (handbook[0]?.is_locked) {
+    return NextResponse.json({ error: 'ロック中のため変更できません' }, { status: 403 });
+  }
+
+  const body = await req.json();
   if (body.title !== undefined) await sql`UPDATE handbooks SET title = ${body.title}, updated_at = NOW() WHERE id = ${id}`;
   if (body.description !== undefined) await sql`UPDATE handbooks SET description = ${body.description}, updated_at = NOW() WHERE id = ${id}`;
   if (body.status !== undefined) await sql`UPDATE handbooks SET status = ${body.status}, updated_at = NOW() WHERE id = ${id}`;
@@ -39,6 +45,13 @@ export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ 
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   const { id } = await params;
   const sql = neon(process.env.DATABASE_URL!);
+
+  // ロック確認
+  const handbook = await sql`SELECT is_locked FROM handbooks WHERE id = ${id}`;
+  if (handbook[0]?.is_locked) {
+    return NextResponse.json({ error: 'ロック中のため削除できません' }, { status: 403 });
+  }
+
   await sql`DELETE FROM handbook_chapters WHERE handbook_id = ${id}`;
   await sql`DELETE FROM handbooks WHERE id = ${id}`;
   return NextResponse.json({ success: true });

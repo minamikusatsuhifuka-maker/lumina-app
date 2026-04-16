@@ -7,6 +7,10 @@ export async function GET() {
   const session = await auth();
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   const sql = neon(process.env.DATABASE_URL!);
+
+  // is_lockedカラムがなければ追加
+  await sql`ALTER TABLE handbooks ADD COLUMN IF NOT EXISTS is_locked BOOLEAN DEFAULT FALSE`;
+
   const rows = await sql`SELECT h.*, (SELECT COUNT(*) FROM handbook_chapters hc WHERE hc.handbook_id = h.id) as chapter_count FROM handbooks h ORDER BY h.updated_at DESC`;
   return NextResponse.json(rows);
 }
