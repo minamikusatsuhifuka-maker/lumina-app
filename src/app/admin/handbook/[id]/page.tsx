@@ -1395,7 +1395,7 @@ export default function HandbookEditorPage({ params }: { params: Promise<{ id: s
                             )}
                           </div>
                           <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                            {!r.scoring && (
+                            {(!r.scoring || r.scoring.score === 0) && (
                               <button
                                 onClick={() => handleScoreImproved(i)}
                                 disabled={r.isScoringLoading}
@@ -1444,7 +1444,12 @@ export default function HandbookEditorPage({ params }: { params: Promise<{ id: s
                           </div>
                         </div>
                         {/* 採点結果 */}
-                        {r.scoring && (
+                        {r.scoring && r.scoring.score === 0 ? (
+                          <div style={{ borderTop: '1px solid var(--border)', padding: 16, background: '#fef2f2' }}>
+                            <p style={{ fontSize: 13, color: '#b91c1c', fontWeight: 600 }}>⚠️ 採点に失敗しました。再度「📊 採点」を押してください。</p>
+                            <p style={{ fontSize: 11, color: '#991b1b', marginTop: 4 }}>{r.scoring.comment}</p>
+                          </div>
+                        ) : r.scoring ? (
                           <div style={{ borderTop: '1px solid var(--border)', padding: 16, background: 'var(--bg-secondary)', display: 'flex', flexDirection: 'column', gap: 12 }}>
                             <p style={{ fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.6 }}>{r.scoring.comment}</p>
                             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
@@ -1485,7 +1490,7 @@ export default function HandbookEditorPage({ params }: { params: Promise<{ id: s
                               </div>
                             </div>
                           </div>
-                        )}
+                        ) : null}
                       </div>
                     ))}
 
