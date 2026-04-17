@@ -111,7 +111,18 @@ export default function HandbookEditorPage({ params }: { params: Promise<{ id: s
 
   // Step3 複数テンプレート選択・同時生成
   const [selectedTemplates, setSelectedTemplates] = useState<string[]>([]);
-  const [multipleResults, setMultipleResults] = useState<{ label: string; icon: string; result: string }[]>([]);
+  const [multipleResults, setMultipleResults] = useState<{
+    label: string; icon: string; result: string;
+    scoring?: {
+      score: number; score_diff: number; comment: string;
+      good_points: string[]; improve_points: string[];
+      balance: { readability: number; agency: number; specificity: number; philosophy: number; warmth: number; };
+    };
+    isScoringLoading?: boolean;
+  }[]>([]);
+  const [isScoringAll, setIsScoringAll] = useState(false);
+  const [showBalanceComparison, setShowBalanceComparison] = useState(false);
+  const [finalSelectedLabel, setFinalSelectedLabel] = useState<string | null>(null);
   const [isGenerating, setIsGenerating] = useState(false);
   const [generatedCount, setGeneratedCount] = useState(0);
 
@@ -434,6 +445,78 @@ export default function HandbookEditorPage({ params }: { params: Promise<{ id: s
     await loadImproveHistory(chapter.id);
     setMessage(`✅ 「${templateLabel}」の改善案を保存しました`);
     setTimeout(() => setMessage(''), 2000);
+  };
+
+  // 個別採点
+  const handleScoreImproved = async (index: number) => {
+    const r = multipleResults[index];
+    setMultipleResults(prev => prev.map((item, i) =>
+      i === index ? { ...item, isScoringLoading: true } : item
+    ));
+    try {
+      const res = await fetch('/api/clinic/handbook-improve/score-improved', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          original: editContent,
+          improved: r.result,
+          templateLabel: r.label,
+        }),
+      });
+      const data = await res.json();
+      if (data.error) {
+        setMessage('⚠️ 採点に失敗しました');
+        setTimeout(() => setMessage(''), 3000);
+        setMultipleResults(prev => prev.map((item, i) =>
+          i === index ? { ...item, isScoringLoading: false } : item
+        ));
+        return;
+      }
+      setMultipleResults(prev => prev.map((item, i) =>
+        i === index ? { ...item, scoring: data, isScoringLoading: false } : item
+      ));
+    } catch {
+      setMultipleResults(prev => prev.map((item, i) =>
+        i === index ? { ...item, isScoringLoading: false } : item
+      ));
+    }
+  };
+
+  // 全カード一括採点
+  const handleScoreAll = async () => {
+    setIsScoringAll(true);
+    await Promise.allSettled(
+      multipleResults.map((_, i) => handleScoreImproved(i))
+    );
+    setIsScoringAll(false);
+    setShowBalanceComparison(true);
+  };
+
+  // 最終案を採用して保存
+  const handleFinalSelect = async (r: typeof multipleResults[0]) => {
+    setFinalSelectedLabel(r.label);
+    setEditContent(prev => prev + '\n\n---\n\n' + r.result);
+    const chapter = chapters[activeIdx];
+    if (!chapter) return;
+    await fetch('/api/clinic/handbooks/improve-history', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        chapterId: chapter.id,
+        handbookId: id,
+        chapterTitle: editTitle,
+        direction: r.label,
+        beforeContent: editContent,
+        afterContent: r.result,
+        template_label: r.label,
+        score_result: r.scoring?.score,
+        score_comment: r.scoring?.comment,
+        score_suggestions: JSON.stringify(r.scoring?.good_points ?? []),
+      }),
+    });
+    await loadImproveHistory(chapter.id);
+    setMessage(`✅ 「${r.label}」を最終案として採用しました`);
+    setTimeout(() => setMessage(''), 3000);
   };
 
   const convertBossToLead = async () => {
@@ -1278,16 +1361,33 @@ export default function HandbookEditorPage({ params }: { params: Promise<{ id: s
                     </div>
 
                     {multipleResults.map((r, i) => (
-                      <div key={i} style={{ borderRadius: 12, border: '1px solid var(--border)', overflow: 'hidden', background: 'var(--bg-card)' }}>
+                      <div key={i} style={{ borderRadius: 12, border: finalSelectedLabel === r.label ? '2px solid #22c55e' : '1px solid var(--border)', overflow: 'hidden', background: 'var(--bg-card)', boxShadow: finalSelectedLabel === r.label ? '0 0 0 3px rgba(34,197,94,0.2)' : 'none' }}>
                         {/* ヘッダー */}
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 14px', background: 'var(--bg-secondary)', borderBottom: '1px solid var(--border)' }}>
-                          <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-primary)' }}>{r.label}</span>
-                          <div style={{ display: 'flex', gap: 6 }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 14px', background: 'var(--bg-secondary)', borderBottom: '1px solid var(--border)', flexWrap: 'wrap', gap: 6 }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                            <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-primary)' }}>{r.label}</span>
+                            {r.scoring && (
+                              <span style={{ fontSize: 12, fontWeight: 700, padding: '2px 10px', borderRadius: 99, background: r.scoring.score >= 85 ? '#dcfce7' : r.scoring.score >= 70 ? '#fef9c3' : '#fecaca', color: r.scoring.score >= 85 ? '#15803d' : r.scoring.score >= 70 ? '#a16207' : '#dc2626' }}>
+                                {r.scoring.score}点
+                                {r.scoring.score_diff > 0 && <span style={{ marginLeft: 4, color: '#16a34a' }}>↑+{r.scoring.score_diff}</span>}
+                              </span>
+                            )}
+                          </div>
+                          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                            {!r.scoring && (
+                              <button
+                                onClick={() => handleScoreImproved(i)}
+                                disabled={r.isScoringLoading}
+                                style={{ padding: '4px 10px', borderRadius: 6, border: 'none', background: '#8b5cf6', color: '#fff', fontSize: 11, fontWeight: 700, cursor: r.isScoringLoading ? 'wait' : 'pointer', opacity: r.isScoringLoading ? 0.5 : 1 }}
+                              >
+                                {r.isScoringLoading ? '⏳ 採点中...' : '📊 採点'}
+                              </button>
+                            )}
                             <button
                               onClick={() => handleSaveImproved(r.result, r.label)}
                               style={{ padding: '4px 10px', borderRadius: 6, border: 'none', background: '#1D9E75', color: '#fff', fontSize: 11, fontWeight: 700, cursor: 'pointer' }}
                             >
-                              ✅ この案を保存
+                              💾 保存
                             </button>
                             <button
                               onClick={() => {
@@ -1298,6 +1398,12 @@ export default function HandbookEditorPage({ params }: { params: Promise<{ id: s
                               style={{ padding: '4px 10px', borderRadius: 6, border: 'none', background: '#6c63ff', color: '#fff', fontSize: 11, fontWeight: 700, cursor: 'pointer' }}
                             >
                               ✏️ 適用
+                            </button>
+                            <button
+                              onClick={() => handleFinalSelect(r)}
+                              style={{ padding: '4px 10px', borderRadius: 6, border: finalSelectedLabel === r.label ? 'none' : '1.5px solid #22c55e', background: finalSelectedLabel === r.label ? '#22c55e' : 'transparent', color: finalSelectedLabel === r.label ? '#fff' : '#16a34a', fontSize: 11, fontWeight: 700, cursor: 'pointer' }}
+                            >
+                              {finalSelectedLabel === r.label ? '✅ 採用済み' : '✅ これを採用'}
                             </button>
                           </div>
                         </div>
@@ -1316,8 +1422,127 @@ export default function HandbookEditorPage({ params }: { params: Promise<{ id: s
                             </div>
                           </div>
                         </div>
+                        {/* 採点結果 */}
+                        {r.scoring && (
+                          <div style={{ borderTop: '1px solid var(--border)', padding: 16, background: 'var(--bg-secondary)', display: 'flex', flexDirection: 'column', gap: 12 }}>
+                            <p style={{ fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.6 }}>{r.scoring.comment}</p>
+                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                              <div>
+                                <p style={{ fontSize: 11, fontWeight: 700, color: '#16a34a', marginBottom: 4 }}>✅ 良い点</p>
+                                {r.scoring.good_points.map((p, j) => (
+                                  <p key={j} style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 2 }}>・{p}</p>
+                                ))}
+                              </div>
+                              <div>
+                                <p style={{ fontSize: 11, fontWeight: 700, color: '#ea580c', marginBottom: 4 }}>💡 改善できる点</p>
+                                {r.scoring.improve_points.map((p, j) => (
+                                  <p key={j} style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 2 }}>・{p}</p>
+                                ))}
+                              </div>
+                            </div>
+                            <div>
+                              <p style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-muted)', marginBottom: 8 }}>📊 バランス指標</p>
+                              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                                {([
+                                  { key: 'readability' as const, label: '読みやすさ' },
+                                  { key: 'agency' as const, label: '主体性・自律' },
+                                  { key: 'specificity' as const, label: '具体性' },
+                                  { key: 'philosophy' as const, label: '理念一致度' },
+                                  { key: 'warmth' as const, label: '温かみ' },
+                                ] as const).map(({ key, label }) => {
+                                  const val = r.scoring!.balance[key];
+                                  return (
+                                    <div key={key} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                      <span style={{ fontSize: 12, color: 'var(--text-muted)', width: 80, flexShrink: 0 }}>{label}</span>
+                                      <div style={{ flex: 1, background: 'var(--border)', borderRadius: 99, height: 8 }}>
+                                        <div style={{ width: `${val * 10}%`, height: 8, borderRadius: 99, background: '#8b5cf6', transition: 'width 0.3s' }} />
+                                      </div>
+                                      <span style={{ fontSize: 12, color: 'var(--text-secondary)', width: 24, textAlign: 'right' }}>{val}</span>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          </div>
+                        )}
                       </div>
                     ))}
+
+                    {/* 全カード一括採点ボタン */}
+                    <div style={{ display: 'flex', gap: 10, marginTop: 4 }}>
+                      <button
+                        onClick={handleScoreAll}
+                        disabled={isScoringAll}
+                        style={{ flex: 1, padding: '10px 0', borderRadius: 10, border: 'none', background: '#8b5cf6', color: '#fff', fontSize: 13, fontWeight: 700, cursor: isScoringAll ? 'wait' : 'pointer', opacity: isScoringAll ? 0.5 : 1 }}
+                      >
+                        {isScoringAll ? '⏳ 全案を採点中...' : '📊 全案を一括採点する'}
+                      </button>
+                      {multipleResults.some(r => r.scoring) && (
+                        <button
+                          onClick={() => setShowBalanceComparison(!showBalanceComparison)}
+                          style={{ padding: '10px 16px', borderRadius: 10, border: '1px solid var(--border)', background: 'var(--bg-secondary)', color: 'var(--text-primary)', fontSize: 13, fontWeight: 700, cursor: 'pointer' }}
+                        >
+                          {showBalanceComparison ? '比較を閉じる' : '📈 バランス比較'}
+                        </button>
+                      )}
+                    </div>
+
+                    {/* バランス比較ビュー */}
+                    {showBalanceComparison && multipleResults.some(r => r.scoring) && (
+                      <div style={{ marginTop: 8, padding: 16, borderRadius: 12, border: '1px solid var(--border)', background: 'var(--bg-card)', overflowX: 'auto' }}>
+                        <p style={{ fontWeight: 700, fontSize: 13, color: 'var(--text-primary)', marginBottom: 12 }}>📈 全案バランス比較</p>
+                        <table style={{ width: '100%', fontSize: 12, textAlign: 'center', borderCollapse: 'collapse' }}>
+                          <thead>
+                            <tr style={{ borderBottom: '1px solid var(--border)' }}>
+                              <th style={{ textAlign: 'left', padding: '8px 12px 8px 0', color: 'var(--text-muted)' }}>指標</th>
+                              {multipleResults.filter(r => r.scoring).map(r => (
+                                <th key={r.label} style={{ padding: '8px 8px', color: '#8b5cf6' }}>{r.label}</th>
+                              ))}
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {[
+                              { key: 'score', label: '総合スコア', isTotal: true },
+                              { key: 'readability', label: '読みやすさ', isTotal: false },
+                              { key: 'agency', label: '主体性・自律', isTotal: false },
+                              { key: 'specificity', label: '具体性', isTotal: false },
+                              { key: 'philosophy', label: '理念一致度', isTotal: false },
+                              { key: 'warmth', label: '温かみ', isTotal: false },
+                            ].map(({ key, label, isTotal }) => (
+                              <tr key={key} style={{ borderBottom: '1px solid var(--border)', background: isTotal ? 'rgba(139,92,246,0.06)' : 'transparent', fontWeight: isTotal ? 700 : 400 }}>
+                                <td style={{ textAlign: 'left', padding: '8px 12px 8px 0', color: 'var(--text-secondary)' }}>{label}</td>
+                                {multipleResults.filter(r => r.scoring).map(r => {
+                                  const sc = r.scoring!;
+                                  const val = isTotal
+                                    ? sc.score
+                                    : sc.balance[key as keyof typeof sc.balance];
+                                  const max = isTotal ? 100 : 10;
+                                  const pct = val / max;
+                                  return (
+                                    <td key={r.label} style={{ padding: '8px 8px', color: pct >= 0.85 ? '#16a34a' : pct >= 0.70 ? '#a16207' : '#dc2626' }}>
+                                      {isTotal ? `${val}点` : val}
+                                    </td>
+                                  );
+                                })}
+                              </tr>
+                            ))}
+                            <tr>
+                              <td style={{ padding: '8px 12px 8px 0', textAlign: 'left', color: 'var(--text-muted)' }}>決定</td>
+                              {multipleResults.filter(r => r.scoring).map(r => (
+                                <td key={r.label} style={{ padding: '8px 8px' }}>
+                                  <button
+                                    onClick={() => handleFinalSelect(r)}
+                                    style={{ fontSize: 11, borderRadius: 6, padding: '3px 10px', fontWeight: 700, border: finalSelectedLabel === r.label ? 'none' : '1.5px solid #22c55e', background: finalSelectedLabel === r.label ? '#22c55e' : 'transparent', color: finalSelectedLabel === r.label ? '#fff' : '#16a34a', cursor: 'pointer' }}
+                                  >
+                                    {finalSelectedLabel === r.label ? '✅ 採用済み' : '採用'}
+                                  </button>
+                                </td>
+                              ))}
+                            </tr>
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
