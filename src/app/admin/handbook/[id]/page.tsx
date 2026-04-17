@@ -1737,22 +1737,66 @@ export default function HandbookEditorPage({ params }: { params: Promise<{ id: s
 
                                     {r.rewrittenScoring && (
                                       <div style={{ marginTop: 10, padding: 12, borderRadius: 10, border: '1px solid var(--border)', background: '#faf5ff' }}>
-                                        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 6 }}>
+                                        {/* 再改善スコアのメイン表示 */}
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 10 }}>
                                           <span style={{
-                                            fontSize: 18,
+                                            fontSize: 28,
                                             fontWeight: 700,
                                             color: r.rewrittenScoring.score >= 90 ? '#16a34a' : '#ca8a04',
                                           }}>
                                             {r.rewrittenScoring.score}点{r.rewrittenScoring.score >= 90 ? ' 🎉' : ''}
                                           </span>
-                                          <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>
-                                            初回改善比 {r.rewrittenScoring.score_diff >= 0 ? '+' : ''}{r.rewrittenScoring.score_diff}
-                                          </span>
-                                          <div style={{ flex: 1, background: 'var(--border)', borderRadius: 99, height: 8 }}>
-                                            <div style={{ width: `${r.rewrittenScoring.score}%`, height: 8, borderRadius: 99, background: '#8b5cf6' }} />
+                                          <div style={{ flex: 1, background: '#e5e7eb', borderRadius: 9999, height: 8 }}>
+                                            <div style={{
+                                              height: 8,
+                                              borderRadius: 9999,
+                                              background: r.rewrittenScoring.score >= 90 ? '#16a34a' : '#a855f7',
+                                              width: `${r.rewrittenScoring.score}%`,
+                                              transition: 'width 0.5s ease',
+                                            }} />
                                           </div>
                                         </div>
-                                        <p style={{ fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.6 }}>
+
+                                        {/* 初回改善 → 再改善の変化を明示 */}
+                                        <div style={{
+                                          display: 'flex',
+                                          alignItems: 'center',
+                                          gap: 8,
+                                          padding: '8px 12px',
+                                          background: '#f3f4f6',
+                                          borderRadius: 10,
+                                          marginBottom: 10,
+                                          fontSize: 13,
+                                          flexWrap: 'wrap',
+                                        }}>
+                                          <span style={{ color: '#6b7280' }}>初回改善</span>
+                                          <span style={{ fontWeight: 700, color: '#6b7280' }}>{r.scoring?.score ?? '?'}点</span>
+                                          <span style={{ color: '#9ca3af' }}>→</span>
+                                          <span style={{ color: '#6b7280' }}>再改善</span>
+                                          <span style={{ fontWeight: 700, color: r.rewrittenScoring.score >= 90 ? '#16a34a' : '#a855f7' }}>
+                                            {r.rewrittenScoring.score}点
+                                          </span>
+                                          {r.scoring && (
+                                            <span style={{
+                                              marginLeft: 4,
+                                              fontWeight: 700,
+                                              color: (r.rewrittenScoring.score - r.scoring.score) >= 0 ? '#16a34a' : '#dc2626',
+                                              background: (r.rewrittenScoring.score - r.scoring.score) >= 0 ? '#dcfce7' : '#fee2e2',
+                                              padding: '2px 8px',
+                                              borderRadius: 9999,
+                                            }}>
+                                              {(r.rewrittenScoring.score - r.scoring.score) >= 0 ? '+' : ''}
+                                              {r.rewrittenScoring.score - r.scoring.score}点
+                                            </span>
+                                          )}
+                                          {r.rewrittenScoring.score_diff !== 0 && (
+                                            <span style={{ marginLeft: 'auto', color: '#6b7280', fontSize: 12 }}>
+                                              元の文章比 {r.rewrittenScoring.score_diff >= 0 ? '+' : ''}{r.rewrittenScoring.score_diff}点
+                                            </span>
+                                          )}
+                                        </div>
+
+                                        <p style={{ fontSize: 13, color: '#374151', lineHeight: 1.6 }}>
                                           {r.rewrittenScoring.comment}
                                         </p>
                                       </div>
