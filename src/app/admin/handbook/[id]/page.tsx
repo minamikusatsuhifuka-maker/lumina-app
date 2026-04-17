@@ -130,6 +130,16 @@ export default function HandbookEditorPage({ params }: { params: Promise<{ id: s
   const [questionLoading, setQuestionLoading] = useState(false);
   const [questionResult, setQuestionResult] = useState('');
   const [questionVisible, setQuestionVisible] = useState(false);
+
+  // 章末問いかけ生成 - 複数レベル比較・保存・選択
+  const [showQuestionPanel, setShowQuestionPanel] = useState(false);
+  const [selectedQuestionLevels, setSelectedQuestionLevels] = useState<string[]>(['standard']);
+  const [questionResults, setQuestionResults] = useState<{ id: string; label: string; icon: string; desc: string; text: string }[]>([]);
+  const [isGeneratingQuestions, setIsGeneratingQuestions] = useState(false);
+  const [questionGeneratedCount, setQuestionGeneratedCount] = useState(0);
+  const [selectedQuestionId, setSelectedQuestionId] = useState<string | null>(null);
+  const [questionsSaved, setQuestionsSaved] = useState(false);
+  const [savedQuestions, setSavedQuestions] = useState<any[]>([]);
   const [bossBeforeContent, setBossBeforeContent] = useState('');
   const [bossAfterContent, setBossAfterContent] = useState('');
   const [bossCompareVisible, setBossCompareVisible] = useState(false);
@@ -175,9 +185,18 @@ export default function HandbookEditorPage({ params }: { params: Promise<{ id: s
       setSelectedTemplates([]);
       setMultipleResults([]);
       setGeneratedCount(0);
+      setQuestionResults([]);
+      setSelectedQuestionId(null);
+      setQuestionsSaved(false);
+      setSavedQuestions([]);
       if (chapters[activeIdx].id) loadImproveHistory(chapters[activeIdx].id);
     }
   }, [activeIdx]);
+
+  // 問いかけパネルを開いたら保存済み履歴を取得
+  useEffect(() => {
+    if (showQuestionPanel && chapters[activeIdx]) fetchSavedQuestions();
+  }, [showQuestionPanel, activeIdx]);
 
 
   const saveChapter = async () => {
@@ -457,6 +476,143 @@ export default function HandbookEditorPage({ params }: { params: Promise<{ id: s
     finally { setQuestionLoading(false); }
   };
 
+  // --- 章末問いかけ生成 複数レベル定義 ---
+  const questionLevels = [
+    {
+      id: 'detailed',
+      label: '詳細型',
+      icon: '🔬',
+      desc: '深く考えさせる、多角的な問いかけ（3〜5問）',
+      prompt: 'この章の内容について、スタッフが深く考えられるよう、多角的な視点から詳細な問いかけを3〜5問生成してください。背景・理由・具体的行動まで掘り下げる内容にしてください。',
+    },
+    {
+      id: 'standard',
+      label: '標準型',
+      icon: '📝',
+      desc: 'バランスのよい問いかけ（2〜3問）',
+      prompt: 'この章の内容について、スタッフが自分ごととして考えられる、バランスのよい問いかけを2〜3問生成してください。',
+    },
+    {
+      id: 'simple',
+      label: '簡単型',
+      icon: '💡',
+      desc: '読んですぐ答えられるシンプルな問いかけ（1〜2問）',
+      prompt: 'この章の内容について、読んですぐに答えられるシンプルで親しみやすい問いかけを1〜2問生成してください。',
+    },
+    {
+      id: 'action',
+      label: '行動促進型',
+      icon: '🚀',
+      desc: '「明日からこうする」と決意を促す問いかけ（2問）',
+      prompt: 'この章を読んだスタッフが「明日からこう行動しよう」と具体的な決意ができるような、行動を促す問いかけを2問生成してください。',
+    },
+    {
+      id: 'reflection',
+      label: '内省・振り返り型',
+      icon: '🪞',
+      desc: '自分自身を振り返る内省的な問いかけ（2〜3問）',
+      prompt: 'この章の内容をもとに、スタッフが自分自身の行動・価値観・あり方を静かに振り返れるような内省的な問いかけを2〜3問生成してください。',
+    },
+  ];
+
+  const toggleQuestionLevel = (id: string) => {
+    setSelectedQuestionLevels(prev =>
+      prev.includes(id) ? prev.filter(l => l !== id) : [...prev, id]
+    );
+  };
+
+  // 保存済み問いかけを取得
+  const fetchSavedQuestions = async () => {
+    const chapter = chapters[activeIdx];
+    if (!chapter) return;
+    try {
+      const res = await fetch(`/api/clinic/handbook-questions?chapter_id=${chapter.id}`);
+      const data = await res.json();
+      setSavedQuestions(data.questions ?? []);
+    } catch {}
+  };
+
+  // 複数レベル同時生成
+  const handleGenerateQuestions = async () => {
+    const chapter = chapters[activeIdx];
+    if (!chapter) return;
+    setIsGeneratingQuestions(true);
+    setQuestionGeneratedCount(0);
+    setQuestionResults([]);
+    setQuestionsSaved(false);
+    setSelectedQuestionId(null);
+
+    const targets = questionLevels.filter(l => selectedQuestionLevels.includes(l.id));
+
+    const results = await Promise.allSettled(
+      targets.map(async (level) => {
+        const res = await fetch('/api/clinic/handbook-questions/generate', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ content: editContent, prompt: level.prompt }),
+        });
+        const data = await res.json();
+        setQuestionGeneratedCount(prev => prev + 1);
+        return {
+          id: level.id,
+          label: level.label,
+          icon: level.icon,
+          desc: level.desc,
+          text: data.question ?? '',
+        };
+      })
+    );
+
+    const fulfilled = results
+      .filter((r): r is PromiseFulfilledResult<{ id: string; label: string; icon: string; desc: string; text: string }> => r.status === 'fulfilled')
+      .map(r => r.value)
+      .filter(r => r.text);
+
+    setQuestionResults(fulfilled);
+    setIsGeneratingQuestions(false);
+  };
+
+  // 個別保存
+  const handleSaveQuestion = async (r: { id: string; label: string; desc?: string; text: string }) => {
+    const chapter = chapters[activeIdx];
+    if (!chapter) return;
+    await fetch('/api/clinic/handbook-questions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        chapter_id: chapter.id,
+        chapter_content: editContent,
+        level_label: r.label,
+        level_desc: r.desc ?? '',
+        question_text: r.text,
+      }),
+    });
+    await fetchSavedQuestions();
+  };
+
+  // まとめて保存
+  const handleSaveAllQuestions = async () => {
+    await Promise.all(questionResults.map(r => handleSaveQuestion(r)));
+    setQuestionsSaved(true);
+    setMessage('✅ すべての問いかけを保存しました');
+    setTimeout(() => setMessage(''), 2000);
+  };
+
+  // 採用（章末に追記）
+  const handleSelectQuestion = (r: { id: string; text: string }) => {
+    setSelectedQuestionId(r.id);
+    setEditContent(prev => prev + '\n\n---\n\n**📝 振り返りの問いかけ**\n\n' + r.text);
+    setMessage('✅ 章末に問いかけを追記しました');
+    setTimeout(() => setMessage(''), 2000);
+  };
+
+  // 保存済みから採用
+  const handleSelectSavedQuestion = (q: any) => {
+    setEditContent(prev => prev + '\n\n---\n\n**📝 振り返りの問いかけ**\n\n' + q.question_text);
+    setMessage('✅ 章末に問いかけを追記しました');
+    setTimeout(() => setMessage(''), 2000);
+  };
+
   const sendChat = async (overrideInput?: string) => {
     const input = overrideInput || chatInput;
     if (!input.trim() && chatMode !== 'analyze') return;
@@ -606,17 +762,188 @@ export default function HandbookEditorPage({ params }: { params: Promise<{ id: s
                 {bossConvertLoading ? '変換中...' : '🔄 ボスマネ→リードマネ変換'}
               </button>
               <button
-                onClick={generateQuestion}
-                disabled={questionLoading}
+                onClick={() => setShowQuestionPanel(!showQuestionPanel)}
                 style={{
                   flex: 1, padding: '9px 12px', borderRadius: 10, border: 'none',
-                  background: questionLoading ? 'rgba(6,182,212,0.3)' : 'linear-gradient(135deg, #06b6d4, #0891b2)',
+                  background: 'linear-gradient(135deg, #06b6d4, #0891b2)',
                   color: '#fff', fontSize: 12, fontWeight: 700, cursor: 'pointer',
+                  display: 'flex', alignItems: 'center', justifyContent: 'space-between',
                 }}
               >
-                {questionLoading ? '生成中...' : '💭 章末問いかけを生成'}
+                <span>💬 章末問いかけを生成</span>
+                <span>{showQuestionPanel ? '▲' : '▼'}</span>
               </button>
             </div>
+
+            {/* 章末問いかけ生成パネル（複数レベル比較・保存・選択） */}
+            {showQuestionPanel && (
+              <div style={{ marginTop: 12, padding: 16, borderRadius: 12, border: '1px solid rgba(6,182,212,0.25)', background: 'rgba(6,182,212,0.04)' }}>
+                {/* レベル選択（チェックボックス） */}
+                <div style={{ marginBottom: 12 }}>
+                  <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 8 }}>
+                    生成するタイプを選択（複数可）
+                  </div>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 6 }}>
+                    {questionLevels.map((level) => {
+                      const checked = selectedQuestionLevels.includes(level.id);
+                      return (
+                        <label
+                          key={level.id}
+                          style={{
+                            display: 'flex', alignItems: 'flex-start', gap: 10,
+                            padding: 10, borderRadius: 10, cursor: 'pointer',
+                            border: checked ? '1px solid #06b6d4' : '1px solid var(--border)',
+                            background: checked ? 'rgba(6,182,212,0.08)' : 'var(--bg-card)',
+                            transition: 'all 0.15s',
+                          }}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={checked}
+                            onChange={() => toggleQuestionLevel(level.id)}
+                            style={{ marginTop: 3, accentColor: '#06b6d4' }}
+                          />
+                          <div>
+                            <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-primary)' }}>
+                              {level.icon} {level.label}
+                            </div>
+                            <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2 }}>{level.desc}</div>
+                          </div>
+                        </label>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* 生成ボタン */}
+                <button
+                  onClick={handleGenerateQuestions}
+                  disabled={selectedQuestionLevels.length === 0 || isGeneratingQuestions}
+                  style={{
+                    width: '100%', padding: '10px 14px', borderRadius: 10, border: 'none',
+                    background: (selectedQuestionLevels.length === 0 || isGeneratingQuestions)
+                      ? 'rgba(6,182,212,0.35)'
+                      : 'linear-gradient(135deg, #06b6d4, #0891b2)',
+                    color: '#fff', fontSize: 12, fontWeight: 700, cursor: 'pointer',
+                    opacity: selectedQuestionLevels.length === 0 ? 0.5 : 1,
+                  }}
+                >
+                  {isGeneratingQuestions
+                    ? `⏳ 生成中... (${questionGeneratedCount}/${selectedQuestionLevels.length})`
+                    : `💬 選択した${selectedQuestionLevels.length}種類を同時生成`}
+                </button>
+
+                {/* 比較結果 */}
+                {questionResults.length > 0 && (
+                  <div style={{ marginTop: 14, display: 'flex', flexDirection: 'column', gap: 10 }}>
+                    <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-primary)' }}>
+                      📋 生成結果の比較（{questionResults.length}種類）
+                    </div>
+                    {questionResults.map((r) => {
+                      const isSelected = selectedQuestionId === r.id;
+                      return (
+                        <div
+                          key={r.id}
+                          style={{
+                            borderRadius: 10, overflow: 'hidden',
+                            border: isSelected ? '2px solid #06b6d4' : '1px solid var(--border)',
+                            background: 'var(--bg-card)',
+                          }}
+                        >
+                          {/* ヘッダー */}
+                          <div style={{
+                            display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                            padding: '8px 12px', background: 'var(--bg-secondary)', borderBottom: '1px solid var(--border)',
+                          }}>
+                            <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-primary)' }}>
+                              {r.icon} {r.label}
+                            </span>
+                            <div style={{ display: 'flex', gap: 6 }}>
+                              <button
+                                onClick={() => handleSaveQuestion(r)}
+                                style={{ fontSize: 11, padding: '4px 10px', borderRadius: 6, border: 'none', background: '#1D9E75', color: '#fff', cursor: 'pointer', fontWeight: 600 }}
+                              >
+                                💾 保存
+                              </button>
+                              <button
+                                onClick={() => handleSelectQuestion(r)}
+                                style={{
+                                  fontSize: 11, padding: '4px 10px', borderRadius: 6, cursor: 'pointer', fontWeight: 700,
+                                  border: isSelected ? 'none' : '1px solid #06b6d4',
+                                  background: isSelected ? '#06b6d4' : 'transparent',
+                                  color: isSelected ? '#fff' : '#06b6d4',
+                                }}
+                              >
+                                {isSelected ? '✅ 採用中' : '採用する'}
+                              </button>
+                            </div>
+                          </div>
+                          {/* 問いかけ内容 */}
+                          <div style={{ padding: 12, fontSize: 12, color: 'var(--text-primary)', lineHeight: 1.8, whiteSpace: 'pre-wrap' }}>
+                            {r.text}
+                          </div>
+                        </div>
+                      );
+                    })}
+
+                    {/* まとめて保存 */}
+                    <button
+                      onClick={handleSaveAllQuestions}
+                      style={{
+                        marginTop: 4, background: 'transparent', border: 'none',
+                        color: 'var(--text-muted)', fontSize: 11, cursor: 'pointer', textDecoration: 'underline',
+                      }}
+                    >
+                      💾 全ての結果をまとめて保存する
+                    </button>
+                    {questionsSaved && (
+                      <div style={{ textAlign: 'center', color: '#1D9E75', fontSize: 11 }}>✓ 保存済み</div>
+                    )}
+                  </div>
+                )}
+
+                {/* 保存済み問いかけ履歴 */}
+                {savedQuestions.length > 0 && (
+                  <div style={{ marginTop: 16, paddingTop: 12, borderTop: '1px dashed var(--border)' }}>
+                    <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 8 }}>
+                      🗂 保存済みの問いかけ履歴（{savedQuestions.length}件）
+                    </div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 6, maxHeight: 280, overflowY: 'auto' }}>
+                      {savedQuestions.map((q) => (
+                        <div
+                          key={q.id}
+                          style={{
+                            display: 'flex', gap: 8, padding: 10, borderRadius: 8,
+                            border: '1px solid var(--border)', background: 'var(--bg-card)',
+                          }}
+                        >
+                          <div style={{ flex: 1 }}>
+                            <div style={{ fontSize: 11, fontWeight: 700, color: '#06b6d4', marginBottom: 4 }}>
+                              {q.level_label}
+                              <span style={{ marginLeft: 8, color: 'var(--text-muted)', fontWeight: 400 }}>
+                                {new Date(q.created_at).toLocaleDateString('ja-JP')}
+                              </span>
+                            </div>
+                            <div style={{
+                              fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.6, whiteSpace: 'pre-wrap',
+                              display: '-webkit-box', WebkitLineClamp: 3, WebkitBoxOrient: 'vertical', overflow: 'hidden',
+                            }}>
+                              {q.question_text}
+                            </div>
+                          </div>
+                          <button
+                            onClick={() => handleSelectSavedQuestion(q)}
+                            style={{ fontSize: 11, padding: '4px 10px', borderRadius: 6, border: 'none', background: '#06b6d4', color: '#fff', cursor: 'pointer', whiteSpace: 'nowrap', height: 'fit-content', fontWeight: 600 }}
+                          >
+                            採用
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
 
             {/* ボスマネ→リードマネ Before/After比較 */}
             {bossCompareVisible && bossAfterContent && (
