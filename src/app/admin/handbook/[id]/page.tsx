@@ -132,8 +132,8 @@ export default function HandbookEditorPage({ params }: { params: Promise<{ id: s
   const [historyLoading, setHistoryLoading] = useState(false);
 
   // Before/After表示設定
-  const [resultFontSize, setResultFontSize] = useState(16);
-  const [resultBoxHeight, setResultBoxHeight] = useState(420);
+  const [resultFontSize, setResultFontSize] = useState(13);
+  const [resultBoxHeight, setResultBoxHeight] = useState(660);
 
 
   // ボスマネ変換・問いかけ
@@ -1378,7 +1378,7 @@ export default function HandbookEditorPage({ params }: { params: Promise<{ id: s
                         <input type="range" min={200} max={800} step={20} value={resultBoxHeight} onChange={e => setResultBoxHeight(Number(e.target.value))} style={{ width: 96, accentColor: '#8b5cf6' }} />
                         <span style={{ color: 'var(--text-secondary)', width: 48, textAlign: 'right' }}>{resultBoxHeight}px</span>
                       </div>
-                      <button onClick={() => { setResultFontSize(16); setResultBoxHeight(420); }} style={{ fontSize: 12, color: 'var(--text-muted)', textDecoration: 'underline', background: 'none', border: 'none', cursor: 'pointer', whiteSpace: 'nowrap' }}>リセット</button>
+                      <button onClick={() => { setResultFontSize(13); setResultBoxHeight(660); }} style={{ fontSize: 12, color: 'var(--text-muted)', textDecoration: 'underline', background: 'none', border: 'none', cursor: 'pointer', whiteSpace: 'nowrap' }}>リセット</button>
                     </div>
 
                     {multipleResults.map((r, i) => (
