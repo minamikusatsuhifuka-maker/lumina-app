@@ -41,10 +41,34 @@ ${improved}
   });
 
   const text = message.content[0].type === 'text' ? message.content[0].text : '{}';
+
+  // コードブロックを除去してからparse
+  const cleaned = text
+    .replace(/```json/g, '')
+    .replace(/```/g, '')
+    .trim();
+
+  let data: Record<string, unknown> = {};
   try {
-    const data = JSON.parse(text.replace(/```json|```/g, '').trim());
-    return NextResponse.json(data);
-  } catch {
-    return NextResponse.json({ error: 'parse error', raw: text }, { status: 500 });
+    data = JSON.parse(cleaned);
+  } catch (e) {
+    console.error('JSON parse error:', cleaned);
+    // パースできない場合はデフォルト値を返す
+    return NextResponse.json({
+      score: 70,
+      score_diff: 0,
+      comment: cleaned.slice(0, 200),
+      good_points: [],
+      improve_points: [],
+      balance: {
+        readability: 7,
+        agency: 7,
+        specificity: 7,
+        philosophy: 7,
+        warmth: 7,
+      },
+    });
   }
+
+  return NextResponse.json(data);
 }

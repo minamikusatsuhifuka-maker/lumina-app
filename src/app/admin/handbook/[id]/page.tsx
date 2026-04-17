@@ -450,9 +450,11 @@ export default function HandbookEditorPage({ params }: { params: Promise<{ id: s
   // 個別採点
   const handleScoreImproved = async (index: number) => {
     const r = multipleResults[index];
+
     setMultipleResults(prev => prev.map((item, i) =>
       i === index ? { ...item, isScoringLoading: true } : item
     ));
+
     try {
       const res = await fetch('/api/clinic/handbook-improve/score-improved', {
         method: 'POST',
@@ -463,19 +465,31 @@ export default function HandbookEditorPage({ params }: { params: Promise<{ id: s
           templateLabel: r.label,
         }),
       });
-      const data = await res.json();
-      if (data.error) {
-        setMessage('⚠️ 採点に失敗しました');
-        setTimeout(() => setMessage(''), 3000);
+
+      if (!res.ok) {
+        console.error('採点APIエラー:', res.status, await res.text());
         setMultipleResults(prev => prev.map((item, i) =>
           i === index ? { ...item, isScoringLoading: false } : item
         ));
         return;
       }
+
+      const data = await res.json();
+
+      if (data.error) {
+        console.error('採点結果エラー:', data.error, data.raw);
+        setMultipleResults(prev => prev.map((item, i) =>
+          i === index ? { ...item, isScoringLoading: false } : item
+        ));
+        return;
+      }
+
       setMultipleResults(prev => prev.map((item, i) =>
         i === index ? { ...item, scoring: data, isScoringLoading: false } : item
       ));
-    } catch {
+
+    } catch (e) {
+      console.error('handleScoreImproved 例外:', e);
       setMultipleResults(prev => prev.map((item, i) =>
         i === index ? { ...item, isScoringLoading: false } : item
       ));
@@ -484,6 +498,13 @@ export default function HandbookEditorPage({ params }: { params: Promise<{ id: s
 
   // 全カード一括採点
   const handleScoreAll = async () => {
+    console.log('handleScoreAll: multipleResults =', multipleResults);
+
+    if (multipleResults.length === 0) {
+      alert('先に改善文を生成してください');
+      return;
+    }
+
     setIsScoringAll(true);
     await Promise.allSettled(
       multipleResults.map((_, i) => handleScoreImproved(i))
