@@ -148,6 +148,19 @@ export default function HandbookEditorPage({ params }: { params: Promise<{ id: s
   const [resultFontSize, setResultFontSize] = useState(13);
   const [resultBoxHeight, setResultBoxHeight] = useState(660);
 
+  // モデル比較関連state
+  const [showModelCompare, setShowModelCompare]           = useState(false);
+  const [compareTemplate, setCompareTemplate]             = useState('');
+  const [compareTemplatePrompt, setCompareTemplatePrompt] = useState('');
+  const [isComparing, setIsComparing]                     = useState(false);
+  const [compareResult, setCompareResult]                 = useState<{
+    sonnet: { result: string; scoring: any };
+    opus:   { result: string; scoring: any };
+  } | null>(null);
+  const [compareSaved, setCompareSaved]                   = useState(false);
+  const [compareHistory, setCompareHistory]               = useState<any[]>([]);
+  const [showCompareHistory, setShowCompareHistory]       = useState(false);
+
 
   // ボスマネ変換・問いかけ
   const [bossConvertLoading, setBossConvertLoading] = useState(false);
@@ -388,6 +401,82 @@ export default function HandbookEditorPage({ params }: { params: Promise<{ id: s
 
   const toggleTemplate = (label: string) => {
     setSelectedTemplates(prev => prev.includes(label) ? prev.filter(l => l !== label) : [...prev, label]);
+  };
+
+  // 比較履歴を取得
+  const fetchCompareHistory = async () => {
+    const chapter = chapters[activeIdx];
+    if (!chapter?.id) return;
+    const res = await fetch(
+      `/api/clinic/handbook-model-compare?chapter_id=${chapter.id}`
+    );
+    const data = await res.json();
+    setCompareHistory(data.comparisons ?? []);
+  };
+
+  // モデル比較実行
+  const handleCompareModels = async () => {
+    if (!compareTemplate) {
+      alert('テンプレートを1つ選択してください');
+      return;
+    }
+    setIsComparing(true);
+    setCompareResult(null);
+    setCompareSaved(false);
+
+    try {
+      const res = await fetch('/api/clinic/handbook-improve/compare-models', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          content: editContent,
+          templateLabel: compareTemplate,
+          templatePrompt: compareTemplatePrompt,
+        }),
+      });
+      const data = await res.json();
+      setCompareResult(data);
+    } catch {
+      setMessage('モデル比較に失敗しました');
+    } finally {
+      setIsComparing(false);
+    }
+  };
+
+  // 比較結果を保存
+  const handleSaveComparison = async (selectedModel?: string) => {
+    const chapter = chapters[activeIdx];
+    if (!compareResult || !chapter?.id) return;
+    await fetch('/api/clinic/handbook-model-compare', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        chapter_id: chapter.id,
+        chapter_content: editContent,
+        template_label: compareTemplate,
+        sonnet_result:  compareResult.sonnet.result,
+        sonnet_score:   compareResult.sonnet.scoring?.score,
+        sonnet_comment: compareResult.sonnet.scoring?.comment,
+        sonnet_balance: compareResult.sonnet.scoring?.balance,
+        opus_result:    compareResult.opus.result,
+        opus_score:     compareResult.opus.scoring?.score,
+        opus_comment:   compareResult.opus.scoring?.comment,
+        opus_balance:   compareResult.opus.scoring?.balance,
+        selected_model: selectedModel ?? null,
+      }),
+    });
+    setCompareSaved(true);
+    fetchCompareHistory();
+  };
+
+  // 採用してエディタに反映
+  const handleAdoptModel = (modelKey: 'sonnet' | 'opus') => {
+    if (!compareResult) return;
+    const text = compareResult[modelKey].result;
+    setEditContent(text);
+    handleSaveComparison(modelKey === 'sonnet' ? 'claude-sonnet-4-6' : 'claude-opus-4-7');
+    setMessage('✅ 選択したモデルの結果をエディタに反映しました');
+    setTimeout(() => setMessage(''), 2000);
   };
 
   // 複数テンプレート同時生成
@@ -2088,6 +2177,244 @@ export default function HandbookEditorPage({ params }: { params: Promise<{ id: s
                 )}
               </div>
 
+            </div>
+
+            {/* ===== モデル比較セクション ===== */}
+            <div style={{ marginTop: '24px', borderRadius: '16px', border: '1px solid #e5e7eb', background: '#fff', overflow: 'hidden' }}>
+
+              {/* ヘッダー */}
+              <button
+                onClick={() => { setShowModelCompare(!showModelCompare); if (!showModelCompare) fetchCompareHistory(); }}
+                style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 20px', background: 'none', border: 'none', cursor: 'pointer' }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <span style={{ fontSize: '16px' }}>🔬</span>
+                  <span style={{ fontWeight: 'bold', fontSize: '15px' }}>モデル比較</span>
+                  <span style={{ fontSize: '12px', background: '#ede9fe', color: '#7c3aed', padding: '2px 8px', borderRadius: '9999px', fontWeight: 'bold' }}>
+                    Sonnet 4.6 vs Opus 4.7
+                  </span>
+                </div>
+                <span style={{ color: '#9ca3af' }}>{showModelCompare ? '▲' : '▼'}</span>
+              </button>
+
+              {showModelCompare && (
+                <div style={{ padding: '0 20px 20px', borderTop: '1px solid #f3f4f6' }}>
+
+                  <p style={{ fontSize: '13px', color: '#6b7280', margin: '12px 0 16px' }}>
+                    同じ文章・同じテンプレートでSonnet 4.6とOpus 4.7を同時生成し、品質を比較します。
+                  </p>
+
+                  {/* テンプレート選択（ラジオ） */}
+                  <p style={{ fontSize: '13px', fontWeight: 'bold', marginBottom: '8px' }}>
+                    比較するテンプレートを1つ選択：
+                  </p>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', marginBottom: '16px' }}>
+                    {improveTemplates.map(t => (
+                      <label
+                        key={t.label}
+                        style={{
+                          display: 'flex', alignItems: 'flex-start', gap: '8px',
+                          padding: '10px 12px', borderRadius: '10px', cursor: 'pointer',
+                          border: compareTemplate === t.label ? '2px solid #7c3aed' : '2px solid #e5e7eb',
+                          background: compareTemplate === t.label ? '#faf5ff' : '#fff',
+                        }}
+                      >
+                        <input
+                          type="radio"
+                          name="compareTemplate"
+                          checked={compareTemplate === t.label}
+                          onChange={() => {
+                            setCompareTemplate(t.label);
+                            setCompareTemplatePrompt(t.desc);
+                          }}
+                          style={{ marginTop: '2px', accentColor: '#7c3aed' }}
+                        />
+                        <div>
+                          <p style={{ fontWeight: 'bold', fontSize: '13px' }}>{t.icon} {t.label}</p>
+                          <p style={{ fontSize: '11px', color: '#9ca3af', marginTop: '2px' }}>{t.desc}</p>
+                        </div>
+                      </label>
+                    ))}
+                  </div>
+
+                  {/* 比較実行ボタン */}
+                  <button
+                    onClick={handleCompareModels}
+                    disabled={isComparing || !compareTemplate}
+                    style={{
+                      width: '100%', padding: '12px', borderRadius: '12px',
+                      background: isComparing || !compareTemplate ? '#e5e7eb' : '#7c3aed',
+                      color: '#fff', fontWeight: 'bold', fontSize: '14px',
+                      border: 'none', cursor: isComparing || !compareTemplate ? 'not-allowed' : 'pointer',
+                      marginBottom: '20px',
+                    }}
+                  >
+                    {isComparing ? '⏳ Sonnet・Opusで同時生成中...' : '🔬 2モデルで同時生成・比較'}
+                  </button>
+
+                  {/* 比較結果 */}
+                  {compareResult && (
+                    <div>
+                      {/* 3カラム比較テーブル */}
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '12px', marginBottom: '16px' }}>
+
+                        {/* 元の文章 */}
+                        <div style={{ borderRadius: '12px', border: '1px solid #e5e7eb', overflow: 'hidden' }}>
+                          <div style={{ padding: '10px 14px', background: '#f9fafb', borderBottom: '1px solid #e5e7eb' }}>
+                            <p style={{ fontWeight: 'bold', fontSize: '13px', color: '#374151' }}>📄 元の文章</p>
+                          </div>
+                          <div style={{ padding: '12px 14px', height: `${resultBoxHeight}px`, overflowY: 'auto' }}>
+                            <p style={{ fontSize: `${resultFontSize}px`, color: '#6b7280', whiteSpace: 'pre-wrap', lineHeight: '1.7' }}>
+                              {editContent}
+                            </p>
+                          </div>
+                        </div>
+
+                        {/* Sonnet・Opus結果 */}
+                        {(['sonnet', 'opus'] as const).map(modelKey => {
+                          const data = compareResult[modelKey];
+                          const label = modelKey === 'sonnet' ? '⚡ Sonnet 4.6' : '🏆 Opus 4.7';
+                          const color = modelKey === 'sonnet' ? '#1d9e75' : '#7c3aed';
+                          return (
+                            <div key={modelKey} style={{ borderRadius: '12px', border: `2px solid ${color}`, overflow: 'hidden' }}>
+                              {/* モデルヘッダー */}
+                              <div style={{ padding: '10px 14px', background: `${color}15`, borderBottom: `1px solid ${color}30`, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                <p style={{ fontWeight: 'bold', fontSize: '13px', color }}>
+                                  {label}
+                                </p>
+                                {data.scoring?.score > 0 && (
+                                  <span style={{
+                                    fontWeight: 'bold', fontSize: '14px',
+                                    color: data.scoring.score >= 85 ? '#16a34a' : data.scoring.score >= 70 ? '#ca8a04' : '#dc2626',
+                                  }}>
+                                    {data.scoring.score}点
+                                  </span>
+                                )}
+                              </div>
+                              {/* 本文 */}
+                              <div style={{ padding: '12px 14px', height: `${resultBoxHeight}px`, overflowY: 'auto' }}>
+                                <p style={{ fontSize: `${resultFontSize}px`, color: '#1f2937', whiteSpace: 'pre-wrap', lineHeight: '1.7' }}>
+                                  {data.result}
+                                </p>
+                              </div>
+                              {/* スコア詳細 */}
+                              {data.scoring?.score > 0 && (
+                                <div style={{ padding: '12px 14px', borderTop: '1px solid #f3f4f6', background: '#fafafa' }}>
+                                  <p style={{ fontSize: '12px', color: '#374151', marginBottom: '8px' }}>{data.scoring.comment}</p>
+                                  {/* バランス指標 */}
+                                  {['readability','agency','specificity','philosophy','warmth'].map((key, ki) => {
+                                    const labels = ['読みやすさ','主体性','具体性','理念一致','温かみ'];
+                                    const val = data.scoring.balance?.[key] ?? 0;
+                                    return (
+                                      <div key={key} style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '4px' }}>
+                                        <span style={{ fontSize: '11px', color: '#9ca3af', width: '52px' }}>{labels[ki]}</span>
+                                        <div style={{ flex: 1, background: '#e5e7eb', borderRadius: '9999px', height: '6px' }}>
+                                          <div style={{ width: `${val * 10}%`, height: '6px', borderRadius: '9999px', background: color }} />
+                                        </div>
+                                        <span style={{ fontSize: '11px', color: '#6b7280', width: '16px', textAlign: 'right' }}>{val}</span>
+                                      </div>
+                                    );
+                                  })}
+                                  {/* 採用ボタン */}
+                                  <button
+                                    onClick={() => handleAdoptModel(modelKey)}
+                                    style={{
+                                      marginTop: '10px', width: '100%', padding: '8px',
+                                      background: color, color: '#fff', borderRadius: '8px',
+                                      border: 'none', fontWeight: 'bold', fontSize: '13px', cursor: 'pointer',
+                                    }}
+                                  >
+                                    ✅ この案を採用
+                                  </button>
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+
+                      {/* 保存ボタン */}
+                      <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
+                        <button
+                          onClick={() => handleSaveComparison()}
+                          disabled={compareSaved}
+                          style={{
+                            padding: '8px 16px', borderRadius: '10px', fontSize: '13px', fontWeight: 'bold',
+                            background: compareSaved ? '#dcfce7' : '#f9fafb',
+                            color: compareSaved ? '#16a34a' : '#374151',
+                            border: '1px solid #e5e7eb', cursor: compareSaved ? 'default' : 'pointer',
+                          }}
+                        >
+                          {compareSaved ? '✓ 保存済み' : '💾 比較結果を保存'}
+                        </button>
+                      </div>
+
+                      {/* スコアサマリー比較 */}
+                      {compareResult.sonnet.scoring?.score > 0 && compareResult.opus.scoring?.score > 0 && (
+                        <div style={{ marginTop: '16px', padding: '14px 16px', background: '#f9fafb', borderRadius: '12px', border: '1px solid #e5e7eb' }}>
+                          <p style={{ fontWeight: 'bold', fontSize: '13px', marginBottom: '10px' }}>📊 スコアサマリー</p>
+                          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                            {(['sonnet', 'opus'] as const).map(modelKey => {
+                              const s = compareResult[modelKey].scoring;
+                              const label = modelKey === 'sonnet' ? '⚡ Sonnet 4.6' : '🏆 Opus 4.7';
+                              const color = modelKey === 'sonnet' ? '#1d9e75' : '#7c3aed';
+                              const isWinner = modelKey === 'sonnet'
+                                ? compareResult.sonnet.scoring.score >= compareResult.opus.scoring.score
+                                : compareResult.opus.scoring.score > compareResult.sonnet.scoring.score;
+                              return (
+                                <div key={modelKey} style={{ padding: '12px', borderRadius: '10px', border: `2px solid ${isWinner ? color : '#e5e7eb'}`, background: isWinner ? `${color}10` : '#fff' }}>
+                                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
+                                    <span style={{ fontWeight: 'bold', fontSize: '13px', color }}>{label}</span>
+                                    {isWinner && <span style={{ fontSize: '11px', background: color, color: '#fff', padding: '1px 6px', borderRadius: '9999px' }}>高スコア</span>}
+                                  </div>
+                                  <p style={{ fontSize: '24px', fontWeight: 'bold', color }}>{s.score}点</p>
+                                  <p style={{ fontSize: '12px', color: '#6b7280', marginTop: '4px', lineHeight: '1.5' }}>{s.comment?.slice(0, 60)}...</p>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* 比較履歴 */}
+                  {compareHistory.length > 0 && (
+                    <div style={{ marginTop: '20px', borderTop: '1px solid #f3f4f6', paddingTop: '16px' }}>
+                      <button
+                        onClick={() => setShowCompareHistory(!showCompareHistory)}
+                        style={{ fontSize: '13px', fontWeight: 'bold', color: '#6b7280', background: 'none', border: 'none', cursor: 'pointer' }}
+                      >
+                        🗂 比較履歴（{compareHistory.length}件）{showCompareHistory ? '▲' : '▼'}
+                      </button>
+                      {showCompareHistory && (
+                        <div style={{ marginTop: '8px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                          {compareHistory.map((h, i) => (
+                            <div key={i} style={{ padding: '12px 14px', borderRadius: '10px', border: '1px solid #e5e7eb', background: '#fafafa', fontSize: '13px' }}>
+                              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+                                <span style={{ fontWeight: 'bold' }}>{h.template_label}</span>
+                                <span style={{ color: '#9ca3af', fontSize: '12px' }}>
+                                  {new Date(h.created_at).toLocaleDateString('ja-JP')}
+                                </span>
+                              </div>
+                              <div style={{ display: 'flex', gap: '16px' }}>
+                                <span style={{ color: '#1d9e75' }}>⚡ Sonnet: {h.sonnet_score}点</span>
+                                <span style={{ color: '#7c3aed' }}>🏆 Opus: {h.opus_score}点</span>
+                                {h.selected_model && (
+                                  <span style={{ color: '#16a34a', fontWeight: 'bold' }}>
+                                    ✅ 採用: {h.selected_model === 'claude-sonnet-4-6' ? 'Sonnet' : 'Opus'}
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                </div>
+              )}
             </div>
 
             {/* 改善履歴 */}
