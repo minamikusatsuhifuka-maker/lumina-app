@@ -133,6 +133,7 @@ export default function HandbookEditorPage({ params }: { params: Promise<{ id: s
   }[]>([]);
   const [isScoringAll, setIsScoringAll] = useState(false);
   const [isRewritingAll, setIsRewritingAll] = useState(false);
+  const [exportCopied, setExportCopied] = useState(false);
   const [showBalanceComparison, setShowBalanceComparison] = useState(false);
   const [finalSelectedLabel, setFinalSelectedLabel] = useState<string | null>(null);
   const [isGenerating, setIsGenerating] = useState(false);
@@ -523,6 +524,113 @@ export default function HandbookEditorPage({ params }: { params: Promise<{ id: s
     );
     setIsScoringAll(false);
     setShowBalanceComparison(true);
+  };
+
+  // === AI改善結果テキスト出力 ===
+
+  // 全案のテキストを生成
+  const buildExportText = (): string => {
+    const lines: string[] = [];
+    const now = new Date().toLocaleString('ja-JP');
+    const chapter = chapters[activeIdx];
+
+    lines.push('='.repeat(60));
+    lines.push('LUMINA ハンドブック AI改善結果レポート');
+    lines.push(`出力日時：${now}`);
+    lines.push(`章タイトル：${chapter?.title ?? editTitle ?? ''}`);
+    lines.push('='.repeat(60));
+    lines.push('');
+
+    multipleResults.forEach((r, i) => {
+      lines.push(`【${i + 1}】${r.icon} ${r.label}`);
+      lines.push('-'.repeat(50));
+
+      if (r.scoring) {
+        lines.push(`■ 初回改善スコア：${r.scoring.score}点`);
+        lines.push('');
+      }
+
+      lines.push('▼ Before（元の文章）');
+      lines.push(editContent ?? '');
+      lines.push('');
+
+      lines.push('▼ After（初回改善）');
+      lines.push(r.result ?? '');
+      lines.push('');
+
+      if (r.scoring) {
+        lines.push('▼ 評価コメント');
+        lines.push(r.scoring.comment ?? '');
+        lines.push('');
+
+        lines.push('▼ 良い点');
+        r.scoring.good_points?.forEach(p => lines.push(`・${p}`));
+        lines.push('');
+
+        lines.push('▼ 改善できる点');
+        r.scoring.improve_points?.forEach(p => lines.push(`・${p}`));
+        lines.push('');
+
+        lines.push('▼ バランス指標');
+        lines.push(`　読みやすさ：${r.scoring.balance.readability}`);
+        lines.push(`　主体性・自律：${r.scoring.balance.agency}`);
+        lines.push(`　具体性：${r.scoring.balance.specificity}`);
+        lines.push(`　理念一致度：${r.scoring.balance.philosophy}`);
+        lines.push(`　温かみ：${r.scoring.balance.warmth}`);
+        lines.push('');
+      }
+
+      if (r.rewritten) {
+        lines.push('▼ After（再改善）');
+        lines.push(r.rewritten);
+        lines.push('');
+
+        if (r.rewrittenScoring) {
+          lines.push(`■ 再改善スコア：${r.rewrittenScoring.score}点`);
+          if (r.scoring) {
+            const diff = r.rewrittenScoring.score - r.scoring.score;
+            lines.push(`　初回改善比：${diff >= 0 ? '+' : ''}${diff}点`);
+          }
+          lines.push('');
+          lines.push('▼ 再改善評価コメント');
+          lines.push(r.rewrittenScoring.comment ?? '');
+          lines.push('');
+        }
+      }
+
+      lines.push('='.repeat(60));
+      lines.push('');
+    });
+
+    return lines.join('\n');
+  };
+
+  // クリップボードにコピー
+  const handleCopyAll = async () => {
+    const text = buildExportText();
+    try {
+      await navigator.clipboard.writeText(text);
+      setExportCopied(true);
+      setTimeout(() => setExportCopied(false), 2500);
+    } catch (e) {
+      console.error('クリップボードコピー失敗:', e);
+      alert('クリップボードへのコピーに失敗しました');
+    }
+  };
+
+  // .txtファイルとしてダウンロード
+  const handleDownloadAll = () => {
+    const text = buildExportText();
+    const blob = new Blob([text], { type: 'text/plain;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    const dateStr = new Date().toISOString().slice(0, 10);
+    const chapter = chapters[activeIdx];
+    const titleStr = (chapter?.title ?? editTitle ?? 'chapter').replace(/[\\/:*?"<>|]/g, '_');
+    a.download = `LUMINA_改善レポート_${titleStr}_${dateStr}.txt`;
+    a.click();
+    URL.revokeObjectURL(url);
   };
 
   // === 90点超え自動再改善ライター ===
@@ -1517,6 +1625,48 @@ export default function HandbookEditorPage({ params }: { params: Promise<{ id: s
                     <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-primary)' }}>
                       📋 生成結果の比較（{multipleResults.length}種類）
                     </div>
+
+                    {/* テキスト出力ボタン（生成結果が1件以上ある場合に表示） */}
+                    {multipleResults.length > 0 && (
+                      <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+                        <button
+                          onClick={handleCopyAll}
+                          style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: 6,
+                            padding: '8px 16px',
+                            borderRadius: 10,
+                            border: '1px solid #d1d5db',
+                            background: exportCopied ? '#dcfce7' : '#f9fafb',
+                            color: exportCopied ? '#16a34a' : '#374151',
+                            fontSize: 13,
+                            fontWeight: 700,
+                            cursor: 'pointer',
+                          }}
+                        >
+                          {exportCopied ? '✓ コピー完了！' : '📋 全案をコピー'}
+                        </button>
+                        <button
+                          onClick={handleDownloadAll}
+                          style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: 6,
+                            padding: '8px 16px',
+                            borderRadius: 10,
+                            border: '1px solid #d1d5db',
+                            background: '#f9fafb',
+                            color: '#374151',
+                            fontSize: 13,
+                            fontWeight: 700,
+                            cursor: 'pointer',
+                          }}
+                        >
+                          ⬇️ .txtダウンロード
+                        </button>
+                      </div>
+                    )}
 
                     {/* 表示設定コントロール */}
                     <div style={{ display: 'flex', alignItems: 'center', gap: 24, padding: '10px 14px', background: 'var(--bg-secondary)', borderRadius: 12, border: '1px solid var(--border)', fontSize: 13 }}>
