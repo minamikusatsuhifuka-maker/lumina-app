@@ -119,8 +119,20 @@ export default function HandbookEditorPage({ params }: { params: Promise<{ id: s
       balance: { readability: number; agency: number; specificity: number; philosophy: number; warmth: number; };
     };
     isScoringLoading?: boolean;
+    // 90点超え自動再改善
+    selectedImprovePoints?: string[];
+    rewritten?: string;
+    rewrittenScoring?: {
+      score: number; score_diff: number; comment: string;
+      good_points: string[]; improve_points: string[];
+      balance: { readability: number; agency: number; specificity: number; philosophy: number; warmth: number; };
+    };
+    isRewriting?: boolean;
+    isRewrittenScoring?: boolean;
+    rewrittenSaved?: boolean;
   }[]>([]);
   const [isScoringAll, setIsScoringAll] = useState(false);
+  const [isRewritingAll, setIsRewritingAll] = useState(false);
   const [showBalanceComparison, setShowBalanceComparison] = useState(false);
   const [finalSelectedLabel, setFinalSelectedLabel] = useState<string | null>(null);
   const [isGenerating, setIsGenerating] = useState(false);
@@ -511,6 +523,146 @@ export default function HandbookEditorPage({ params }: { params: Promise<{ id: s
     );
     setIsScoringAll(false);
     setShowBalanceComparison(true);
+  };
+
+  // === 90点超え自動再改善ライター ===
+
+  // 改善点チェックボックスのtoggle
+  const toggleImprovePoint = (index: number, point: string) => {
+    setMultipleResults(prev => prev.map((item, i) => {
+      if (i !== index) return item;
+      const current = item.selectedImprovePoints ?? [];
+      const updated = current.includes(point)
+        ? current.filter(p => p !== point)
+        : [...current, point];
+      return { ...item, selectedImprovePoints: updated };
+    }));
+  };
+
+  // 全改善点を一括選択/解除
+  const toggleAllImprovePoints = (index: number, allPoints: string[]) => {
+    setMultipleResults(prev => prev.map((item, i) => {
+      if (i !== index) return item;
+      const isAllSelected = (item.selectedImprovePoints ?? []).length === allPoints.length;
+      return {
+        ...item,
+        selectedImprovePoints: isAllSelected ? [] : [...allPoints],
+      };
+    }));
+  };
+
+  // 個別再改善
+  const handleRewrite = async (index: number) => {
+    const r = multipleResults[index];
+    const improvePoints = (r.selectedImprovePoints && r.selectedImprovePoints.length > 0)
+      ? r.selectedImprovePoints
+      : (r.scoring?.improve_points ?? []);
+
+    if (improvePoints.length === 0) {
+      alert('改善点を1つ以上選択してください');
+      return;
+    }
+
+    // 再改善中フラグON
+    setMultipleResults(prev => prev.map((item, i) =>
+      i === index ? { ...item, isRewriting: true, rewritten: undefined, rewrittenScoring: undefined, rewrittenSaved: false } : item
+    ));
+
+    try {
+      const rewriteRes = await fetch('/api/clinic/handbook-improve/rewrite', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          original: editContent,
+          improved: r.result,
+          templateLabel: r.label,
+          improvePoints,
+          targetScore: 90,
+        }),
+      });
+      const rewriteData = await rewriteRes.json();
+
+      // 再改善後に自動採点
+      setMultipleResults(prev => prev.map((item, i) =>
+        i === index ? { ...item, rewritten: rewriteData.rewritten, isRewriting: false, isRewrittenScoring: true } : item
+      ));
+
+      const scoreRes = await fetch('/api/clinic/handbook-improve/score-improved', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          original: editContent,
+          improved: rewriteData.rewritten,
+          templateLabel: r.label + '（再改善版）',
+        }),
+      });
+      const scoreData = await scoreRes.json();
+
+      setMultipleResults(prev => prev.map((item, i) =>
+        i === index ? { ...item, rewrittenScoring: scoreData, isRewrittenScoring: false } : item
+      ));
+    } catch (e) {
+      console.error('handleRewrite 例外:', e);
+      setMultipleResults(prev => prev.map((item, i) =>
+        i === index ? { ...item, isRewriting: false, isRewrittenScoring: false } : item
+      ));
+    }
+  };
+
+  // 全案一括再改善
+  const handleRewriteAll = async () => {
+    setIsRewritingAll(true);
+    // 採点済みで改善点が未選択の案には全改善点を自動選択
+    setMultipleResults(prev => prev.map((item) => {
+      if (!item.scoring) return item;
+      if (item.selectedImprovePoints && item.selectedImprovePoints.length > 0) return item;
+      return { ...item, selectedImprovePoints: item.scoring.improve_points ?? [] };
+    }));
+
+    // 次のレンダリングを待つため少し遅延してから実行
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    await Promise.allSettled(
+      multipleResults.map((r, i) => {
+        if (!r.scoring) return Promise.resolve();
+        return handleRewrite(i);
+      })
+    );
+    setIsRewritingAll(false);
+  };
+
+  // 再改善結果を保存
+  const handleSaveRewritten = async (index: number) => {
+    const r = multipleResults[index];
+    if (!r.rewritten) return;
+
+    const chapter = chapters[activeIdx];
+    if (!chapter) return;
+
+    await fetch('/api/clinic/handbooks/improve-history', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        chapterId: chapter.id,
+        handbookId: id,
+        chapterTitle: editTitle,
+        direction: r.label + '（再改善）',
+        beforeContent: r.result,          // Before = 初回改善案
+        afterContent: r.rewritten,        // After  = 再改善案
+        template_label: r.label + '（再改善）',
+        score_result: r.rewrittenScoring?.score,
+        score_comment: r.rewrittenScoring?.comment,
+        score_suggestions: JSON.stringify(r.rewrittenScoring?.good_points ?? []),
+      }),
+    });
+
+    await loadImproveHistory(chapter.id);
+
+    setMultipleResults(prev => prev.map((item, i) =>
+      i === index ? { ...item, rewrittenSaved: true } : item
+    ));
+    setMessage(`✅ 「${r.label}」の再改善結果を保存しました`);
+    setTimeout(() => setMessage(''), 2500);
   };
 
   // 最終案を採用して保存
@@ -1489,6 +1641,166 @@ export default function HandbookEditorPage({ params }: { params: Promise<{ id: s
                                 })}
                               </div>
                             </div>
+
+                            {/* 改善点チェックボックス */}
+                            {r.scoring.improve_points.length > 0 && (
+                              <div style={{ marginTop: 12, paddingTop: 12, borderTop: '1px solid var(--border)' }}>
+                                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+                                  <p style={{ fontSize: 11, fontWeight: 700, color: '#ea580c' }}>💡 解決する改善点を選択</p>
+                                  <button
+                                    onClick={() => toggleAllImprovePoints(i, r.scoring!.improve_points)}
+                                    style={{ fontSize: 11, color: 'var(--text-muted)', textDecoration: 'underline', background: 'none', border: 'none', cursor: 'pointer' }}
+                                  >
+                                    {(r.selectedImprovePoints ?? []).length === r.scoring.improve_points.length ? '全解除' : '全選択'}
+                                  </button>
+                                </div>
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                                  {r.scoring.improve_points.map((point, pi) => {
+                                    const checked = (r.selectedImprovePoints ?? []).includes(point);
+                                    return (
+                                      <label
+                                        key={pi}
+                                        style={{
+                                          display: 'flex',
+                                          alignItems: 'flex-start',
+                                          gap: 8,
+                                          padding: 8,
+                                          borderRadius: 8,
+                                          border: `1px solid ${checked ? '#fb923c' : 'var(--border)'}`,
+                                          background: checked ? '#fff7ed' : 'var(--bg-card)',
+                                          cursor: 'pointer',
+                                          fontSize: 12,
+                                        }}
+                                      >
+                                        <input
+                                          type="checkbox"
+                                          checked={checked}
+                                          onChange={() => toggleImprovePoint(i, point)}
+                                          style={{ marginTop: 2, accentColor: '#f97316' }}
+                                        />
+                                        <span style={{ color: 'var(--text-secondary)' }}>{point}</span>
+                                      </label>
+                                    );
+                                  })}
+                                </div>
+                                <button
+                                  onClick={() => handleRewrite(i)}
+                                  disabled={r.isRewriting || (r.selectedImprovePoints ?? []).length === 0}
+                                  style={{
+                                    marginTop: 10,
+                                    width: '100%',
+                                    padding: '8px 0',
+                                    borderRadius: 10,
+                                    border: 'none',
+                                    background: '#f97316',
+                                    color: '#fff',
+                                    fontSize: 13,
+                                    fontWeight: 700,
+                                    cursor: r.isRewriting ? 'wait' : (((r.selectedImprovePoints ?? []).length === 0) ? 'not-allowed' : 'pointer'),
+                                    opacity: r.isRewriting || (r.selectedImprovePoints ?? []).length === 0 ? 0.4 : 1,
+                                  }}
+                                >
+                                  {r.isRewriting ? '⏳ 再改善中...' : '🚀 選択した改善点を解決して90点超えを目指す'}
+                                </button>
+                              </div>
+                            )}
+
+                            {/* 再改善結果のBefore/After */}
+                            {(r.rewritten || r.isRewriting || r.isRewrittenScoring) && (
+                              <div style={{ marginTop: 12, paddingTop: 12, borderTop: '1px solid var(--border)' }}>
+                                <p style={{ fontSize: 11, fontWeight: 700, color: '#8b5cf6', marginBottom: 8 }}>🚀 再改善結果</p>
+
+                                {r.isRewriting && (
+                                  <p style={{ fontSize: 13, color: 'var(--text-muted)' }}>⏳ AI再改善中...</p>
+                                )}
+
+                                {r.rewritten && (
+                                  <>
+                                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', border: '1px solid var(--border)', borderRadius: 12, overflow: 'hidden' }}>
+                                      <div style={{ padding: 12, height: resultBoxHeight, overflowY: 'auto', borderRight: '1px solid var(--border)', background: 'var(--bg-card)' }}>
+                                        <p style={{ fontSize: 10, fontWeight: 700, color: '#f87171', marginBottom: 6 }}>Before（初回改善）</p>
+                                        <div style={{ fontSize: resultFontSize, color: 'var(--text-secondary)', lineHeight: 1.8, whiteSpace: 'pre-wrap' }}>
+                                          {r.result}
+                                        </div>
+                                      </div>
+                                      <div style={{ padding: 12, height: resultBoxHeight, overflowY: 'auto', background: 'var(--bg-card)' }}>
+                                        <p style={{ fontSize: 10, fontWeight: 700, color: '#8b5cf6', marginBottom: 6 }}>After（再改善）</p>
+                                        <div style={{ fontSize: resultFontSize, color: 'var(--text-primary)', lineHeight: 1.8, whiteSpace: 'pre-wrap' }}>
+                                          {r.rewritten}
+                                        </div>
+                                      </div>
+                                    </div>
+
+                                    {r.isRewrittenScoring && (
+                                      <p style={{ fontSize: 13, color: 'var(--text-muted)', marginTop: 8 }}>📊 再改善後を採点中...</p>
+                                    )}
+
+                                    {r.rewrittenScoring && (
+                                      <div style={{ marginTop: 10, padding: 12, borderRadius: 10, border: '1px solid var(--border)', background: '#faf5ff' }}>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 6 }}>
+                                          <span style={{
+                                            fontSize: 18,
+                                            fontWeight: 700,
+                                            color: r.rewrittenScoring.score >= 90 ? '#16a34a' : '#ca8a04',
+                                          }}>
+                                            {r.rewrittenScoring.score}点{r.rewrittenScoring.score >= 90 ? ' 🎉' : ''}
+                                          </span>
+                                          <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>
+                                            初回改善比 {r.rewrittenScoring.score_diff >= 0 ? '+' : ''}{r.rewrittenScoring.score_diff}
+                                          </span>
+                                          <div style={{ flex: 1, background: 'var(--border)', borderRadius: 99, height: 8 }}>
+                                            <div style={{ width: `${r.rewrittenScoring.score}%`, height: 8, borderRadius: 99, background: '#8b5cf6' }} />
+                                          </div>
+                                        </div>
+                                        <p style={{ fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.6 }}>
+                                          {r.rewrittenScoring.comment}
+                                        </p>
+                                      </div>
+                                    )}
+
+                                    <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
+                                      <button
+                                        onClick={() => handleSaveRewritten(i)}
+                                        disabled={r.rewrittenSaved}
+                                        style={{
+                                          flex: 1,
+                                          padding: '8px 0',
+                                          borderRadius: 10,
+                                          border: 'none',
+                                          background: '#22c55e',
+                                          color: '#fff',
+                                          fontSize: 13,
+                                          fontWeight: 700,
+                                          cursor: r.rewrittenSaved ? 'default' : 'pointer',
+                                          opacity: r.rewrittenSaved ? 0.5 : 1,
+                                        }}
+                                      >
+                                        {r.rewrittenSaved ? '✓ 保存済み' : '💾 再改善結果を保存'}
+                                      </button>
+                                      <button
+                                        onClick={() => {
+                                          setEditContent(prev => prev + '\n\n---\n\n' + r.rewritten!);
+                                          setFinalSelectedLabel(r.label + '（再改善）');
+                                        }}
+                                        style={{
+                                          flex: 1,
+                                          padding: '8px 0',
+                                          borderRadius: 10,
+                                          border: 'none',
+                                          background: '#8b5cf6',
+                                          color: '#fff',
+                                          fontSize: 13,
+                                          fontWeight: 700,
+                                          cursor: 'pointer',
+                                        }}
+                                      >
+                                        ✅ この再改善案を採用
+                                      </button>
+                                    </div>
+                                  </>
+                                )}
+                              </div>
+                            )}
                           </div>
                         ) : null}
                       </div>
@@ -1503,6 +1815,15 @@ export default function HandbookEditorPage({ params }: { params: Promise<{ id: s
                       >
                         {isScoringAll ? '⏳ 全案を採点中...' : '📊 全案を一括採点する'}
                       </button>
+                      {multipleResults.some(r => r.scoring) && (
+                        <button
+                          onClick={handleRewriteAll}
+                          disabled={isRewritingAll}
+                          style={{ flex: 1, padding: '10px 0', borderRadius: 10, border: 'none', background: '#f97316', color: '#fff', fontSize: 13, fontWeight: 700, cursor: isRewritingAll ? 'wait' : 'pointer', opacity: isRewritingAll ? 0.5 : 1 }}
+                        >
+                          {isRewritingAll ? '⏳ 全案を再改善中...' : '🚀 全案を一括再改善（90点超えを目指す）'}
+                        </button>
+                      )}
                       {multipleResults.some(r => r.scoring) && (
                         <button
                           onClick={() => setShowBalanceComparison(!showBalanceComparison)}
