@@ -2333,19 +2333,38 @@ export default function HandbookEditorPage({ params }: { params: Promise<{ id: s
                         })}
                       </div>
 
-                      {/* 保存ボタン */}
-                      <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
+                      {/* 保存エリア */}
+                      <div style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        marginTop: '16px',
+                        padding: '12px 16px',
+                        background: '#f9fafb',
+                        borderRadius: '12px',
+                        border: '1px solid #e5e7eb',
+                      }}>
+                        <div style={{ fontSize: '13px', color: '#6b7280' }}>
+                          {compareSaved
+                            ? '✓ DBに保存済み。下の履歴から確認できます。'
+                            : '比較結果をDBに保存して後から確認できます'}
+                        </div>
                         <button
                           onClick={() => handleSaveComparison()}
                           disabled={compareSaved}
                           style={{
-                            padding: '8px 16px', borderRadius: '10px', fontSize: '13px', fontWeight: 'bold',
-                            background: compareSaved ? '#dcfce7' : '#f9fafb',
-                            color: compareSaved ? '#16a34a' : '#374151',
-                            border: '1px solid #e5e7eb', cursor: compareSaved ? 'default' : 'pointer',
+                            padding: '8px 20px',
+                            borderRadius: '10px',
+                            fontSize: '13px',
+                            fontWeight: 'bold',
+                            background: compareSaved ? '#dcfce7' : '#1d9e75',
+                            color: compareSaved ? '#16a34a' : '#fff',
+                            border: 'none',
+                            cursor: compareSaved ? 'default' : 'pointer',
+                            whiteSpace: 'nowrap',
                           }}
                         >
-                          {compareSaved ? '✓ 保存済み' : '💾 比較結果を保存'}
+                          {compareSaved ? '✓ 保存済み' : '💾 比較結果を保存する'}
                         </button>
                       </div>
 
@@ -2380,32 +2399,199 @@ export default function HandbookEditorPage({ params }: { params: Promise<{ id: s
 
                   {/* 比較履歴 */}
                   {compareHistory.length > 0 && (
-                    <div style={{ marginTop: '20px', borderTop: '1px solid #f3f4f6', paddingTop: '16px' }}>
-                      <button
-                        onClick={() => setShowCompareHistory(!showCompareHistory)}
-                        style={{ fontSize: '13px', fontWeight: 'bold', color: '#6b7280', background: 'none', border: 'none', cursor: 'pointer' }}
-                      >
-                        🗂 比較履歴（{compareHistory.length}件）{showCompareHistory ? '▲' : '▼'}
-                      </button>
+                    <div style={{ marginTop: '24px', borderTop: '1px solid #f3f4f6', paddingTop: '16px' }}>
+
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px' }}>
+                        <button
+                          onClick={() => setShowCompareHistory(!showCompareHistory)}
+                          style={{
+                            fontSize: '14px', fontWeight: 'bold', color: '#374151',
+                            background: 'none', border: 'none', cursor: 'pointer',
+                            display: 'flex', alignItems: 'center', gap: '6px',
+                          }}
+                        >
+                          🗂 比較履歴
+                          <span style={{
+                            fontSize: '12px', background: '#ede9fe', color: '#7c3aed',
+                            padding: '1px 8px', borderRadius: '9999px',
+                          }}>
+                            {compareHistory.length}件
+                          </span>
+                          <span style={{ color: '#9ca3af', fontSize: '12px' }}>
+                            {showCompareHistory ? '▲ 閉じる' : '▼ 開く'}
+                          </span>
+                        </button>
+                      </div>
+
                       {showCompareHistory && (
-                        <div style={{ marginTop: '8px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
                           {compareHistory.map((h, i) => (
-                            <div key={i} style={{ padding: '12px 14px', borderRadius: '10px', border: '1px solid #e5e7eb', background: '#fafafa', fontSize: '13px' }}>
-                              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
-                                <span style={{ fontWeight: 'bold' }}>{h.template_label}</span>
-                                <span style={{ color: '#9ca3af', fontSize: '12px' }}>
-                                  {new Date(h.created_at).toLocaleDateString('ja-JP')}
-                                </span>
+                            <div
+                              key={h.id ?? i}
+                              style={{
+                                borderRadius: '12px',
+                                border: '1px solid #e5e7eb',
+                                overflow: 'hidden',
+                                background: '#fff',
+                              }}
+                            >
+                              {/* 履歴ヘッダー */}
+                              <div style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'space-between',
+                                padding: '12px 16px',
+                                background: '#f9fafb',
+                                borderBottom: '1px solid #f3f4f6',
+                              }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                  <span style={{ fontWeight: 'bold', fontSize: '13px' }}>
+                                    {h.template_label}
+                                  </span>
+                                  {h.selected_model && (
+                                    <span style={{
+                                      fontSize: '11px', background: '#dcfce7', color: '#16a34a',
+                                      padding: '1px 8px', borderRadius: '9999px', fontWeight: 'bold',
+                                    }}>
+                                      ✅ {h.selected_model === 'claude-sonnet-4-6' ? 'Sonnet採用' : 'Opus採用'}
+                                    </span>
+                                  )}
+                                </div>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                                  <span style={{ fontSize: '12px', color: '#9ca3af' }}>
+                                    {new Date(h.created_at).toLocaleString('ja-JP', {
+                                      month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit'
+                                    })}
+                                  </span>
+                                  <button
+                                    onClick={() => setExpandedHistory(expandedHistory === h.id ? null : h.id)}
+                                    style={{
+                                      fontSize: '12px', color: '#7c3aed', background: '#ede9fe',
+                                      border: 'none', padding: '3px 10px', borderRadius: '8px', cursor: 'pointer',
+                                    }}
+                                  >
+                                    {expandedHistory === h.id ? '閉じる' : '詳細を見る'}
+                                  </button>
+                                </div>
                               </div>
-                              <div style={{ display: 'flex', gap: '16px' }}>
-                                <span style={{ color: '#1d9e75' }}>⚡ Sonnet: {h.sonnet_score}点</span>
-                                <span style={{ color: '#7c3aed' }}>🏆 Opus: {h.opus_score}点</span>
-                                {h.selected_model && (
-                                  <span style={{ color: '#16a34a', fontWeight: 'bold' }}>
-                                    ✅ 採用: {h.selected_model === 'claude-sonnet-4-6' ? 'Sonnet' : 'Opus'}
+
+                              {/* スコアサマリー行 */}
+                              <div style={{
+                                display: 'flex',
+                                gap: '16px',
+                                padding: '10px 16px',
+                                fontSize: '13px',
+                                borderBottom: expandedHistory === h.id ? '1px solid #f3f4f6' : 'none',
+                              }}>
+                                <span style={{ color: '#1d9e75', fontWeight: 'bold' }}>
+                                  ⚡ Sonnet: {h.sonnet_score}点
+                                </span>
+                                <span style={{ color: '#9ca3af' }}>vs</span>
+                                <span style={{ color: '#7c3aed', fontWeight: 'bold' }}>
+                                  🏆 Opus: {h.opus_score}点
+                                </span>
+                                {h.sonnet_score !== h.opus_score && (
+                                  <span style={{
+                                    fontSize: '12px', color: '#6b7280',
+                                    background: '#f3f4f6', padding: '1px 8px', borderRadius: '9999px',
+                                  }}>
+                                    {h.opus_score > h.sonnet_score
+                                      ? `Opusが${h.opus_score - h.sonnet_score}点上回る`
+                                      : `Sonnetが${h.sonnet_score - h.opus_score}点上回る`}
                                   </span>
                                 )}
                               </div>
+
+                              {/* 展開時：全文表示 */}
+                              {expandedHistory === h.id && (
+                                <div style={{ padding: '16px' }}>
+                                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+
+                                    {/* Sonnet */}
+                                    <div style={{ borderRadius: '10px', border: '2px solid #1d9e75', overflow: 'hidden' }}>
+                                      <div style={{ padding: '8px 12px', background: '#f0fdf4', borderBottom: '1px solid #bbf7d0', display: 'flex', justifyContent: 'space-between' }}>
+                                        <span style={{ fontWeight: 'bold', fontSize: '13px', color: '#1d9e75' }}>⚡ Sonnet 4.6</span>
+                                        <span style={{ fontWeight: 'bold', color: '#1d9e75' }}>{h.sonnet_score}点</span>
+                                      </div>
+                                      <div style={{ padding: '12px', maxHeight: '300px', overflowY: 'auto' }}>
+                                        <p style={{ fontSize: '13px', color: '#374151', whiteSpace: 'pre-wrap', lineHeight: '1.7', marginBottom: '8px' }}>
+                                          {h.sonnet_result}
+                                        </p>
+                                        <p style={{ fontSize: '12px', color: '#6b7280', fontStyle: 'italic', borderTop: '1px solid #f3f4f6', paddingTop: '8px' }}>
+                                          {h.sonnet_comment}
+                                        </p>
+                                      </div>
+                                      {/* 採用ボタン */}
+                                      {!h.selected_model && (
+                                        <div style={{ padding: '8px 12px', borderTop: '1px solid #f3f4f6' }}>
+                                          <button
+                                            onClick={async () => {
+                                              setEditContent(h.sonnet_result);
+                                              await fetch('/api/clinic/handbook-model-compare', {
+                                                method: 'PATCH',
+                                                headers: { 'Content-Type': 'application/json' },
+                                                body: JSON.stringify({ id: h.id, selected_model: 'claude-sonnet-4-6' }),
+                                              });
+                                              fetchCompareHistory();
+                                              setMessage('✅ Sonnetの案をエディタに反映しました');
+                                              setTimeout(() => setMessage(''), 2000);
+                                            }}
+                                            style={{
+                                              width: '100%', padding: '6px', background: '#1d9e75',
+                                              color: '#fff', borderRadius: '8px', border: 'none',
+                                              fontSize: '12px', fontWeight: 'bold', cursor: 'pointer',
+                                            }}
+                                          >
+                                            ✅ この案を採用
+                                          </button>
+                                        </div>
+                                      )}
+                                    </div>
+
+                                    {/* Opus */}
+                                    <div style={{ borderRadius: '10px', border: '2px solid #7c3aed', overflow: 'hidden' }}>
+                                      <div style={{ padding: '8px 12px', background: '#faf5ff', borderBottom: '1px solid #e9d5ff', display: 'flex', justifyContent: 'space-between' }}>
+                                        <span style={{ fontWeight: 'bold', fontSize: '13px', color: '#7c3aed' }}>🏆 Opus 4.7</span>
+                                        <span style={{ fontWeight: 'bold', color: '#7c3aed' }}>{h.opus_score}点</span>
+                                      </div>
+                                      <div style={{ padding: '12px', maxHeight: '300px', overflowY: 'auto' }}>
+                                        <p style={{ fontSize: '13px', color: '#374151', whiteSpace: 'pre-wrap', lineHeight: '1.7', marginBottom: '8px' }}>
+                                          {h.opus_result}
+                                        </p>
+                                        <p style={{ fontSize: '12px', color: '#6b7280', fontStyle: 'italic', borderTop: '1px solid #f3f4f6', paddingTop: '8px' }}>
+                                          {h.opus_comment}
+                                        </p>
+                                      </div>
+                                      {/* 採用ボタン */}
+                                      {!h.selected_model && (
+                                        <div style={{ padding: '8px 12px', borderTop: '1px solid #f3f4f6' }}>
+                                          <button
+                                            onClick={async () => {
+                                              setEditContent(h.opus_result);
+                                              await fetch('/api/clinic/handbook-model-compare', {
+                                                method: 'PATCH',
+                                                headers: { 'Content-Type': 'application/json' },
+                                                body: JSON.stringify({ id: h.id, selected_model: 'claude-opus-4-7' }),
+                                              });
+                                              fetchCompareHistory();
+                                              setMessage('✅ Opusの案をエディタに反映しました');
+                                              setTimeout(() => setMessage(''), 2000);
+                                            }}
+                                            style={{
+                                              width: '100%', padding: '6px', background: '#7c3aed',
+                                              color: '#fff', borderRadius: '8px', border: 'none',
+                                              fontSize: '12px', fontWeight: 'bold', cursor: 'pointer',
+                                            }}
+                                          >
+                                            ✅ この案を採用
+                                          </button>
+                                        </div>
+                                      )}
+                                    </div>
+
+                                  </div>
+                                </div>
+                              )}
                             </div>
                           ))}
                         </div>
