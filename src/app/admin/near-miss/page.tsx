@@ -12,9 +12,35 @@ const DEPARTMENTS = [
   { id: 'other',     label: 'その他',             color: '#9ca3af', icon: '📝' },
 ];
 
+const REPORT_TYPES = [
+  {
+    id: 'near_miss',
+    label: 'ヒヤリハット',
+    desc: '危険だった・ミスになりかけた・困ったことを共有する',
+    icon: '⚠️',
+    color: '#d97706',
+    bgColor: '#fffbeb',
+    borderColor: '#fcd34d',
+    badgeBg: '#fef3c7',
+    badgeText: '#92400e',
+  },
+  {
+    id: 'notice',
+    label: '気づきシェア',
+    desc: '改善のアイデア・工夫・良かった対応を共有する',
+    icon: '💡',
+    color: '#059669',
+    bgColor: '#f0fdf4',
+    borderColor: '#6ee7b7',
+    badgeBg: '#dcfce7',
+    badgeText: '#065f46',
+  },
+];
+
 export default function NearMissPage() {
   const [reports, setReports]               = useState<any[]>([]);
   const [selectedDept, setSelectedDept]     = useState('all');
+  const [selectedType, setSelectedType]     = useState('all');
   const [showForm, setShowForm]             = useState(false);
   const [expandedId, setExpandedId]         = useState<number | null>(null);
   const [adminCommentId, setAdminCommentId] = useState<number | null>(null);
@@ -22,6 +48,7 @@ export default function NearMissPage() {
 
   // フォームstate
   const [form, setForm] = useState({
+    report_type: '',
     reporter_name: '', department: 'reception', occurred_at: '', location: '',
     incident: '', direct_cause: '', background_cause: '',
     prevention_personal: '', prevention_team: '', reflection: '', comment: '',
@@ -29,15 +56,22 @@ export default function NearMissPage() {
   const [submitting, setSubmitting] = useState(false);
   const [submitted, setSubmitted]   = useState(false);
 
-  useEffect(() => { fetchReports(); }, [selectedDept]);
+  useEffect(() => { fetchReports(); }, [selectedDept, selectedType]);
 
   const fetchReports = async () => {
-    const res = await fetch(`/api/clinic/near-miss?department=${selectedDept}`);
+    const params = new URLSearchParams();
+    if (selectedDept !== 'all') params.set('department', selectedDept);
+    if (selectedType !== 'all') params.set('type', selectedType);
+    const res = await fetch(`/api/clinic/near-miss?${params.toString()}`);
     const data = await res.json();
     setReports(data.reports ?? []);
   };
 
   const handleSubmit = async () => {
+    if (!form.report_type) {
+      alert('まず報告の種類を選んでください');
+      return;
+    }
     if (!form.reporter_name || !form.incident || !form.occurred_at) {
       alert('報告者・発生日時・出来事は必須です');
       return;
@@ -52,6 +86,7 @@ export default function NearMissPage() {
     setSubmitting(false);
     setShowForm(false);
     setForm({
+      report_type: '',
       reporter_name: '', department: 'reception', occurred_at: '', location: '',
       incident: '', direct_cause: '', background_cause: '',
       prevention_personal: '', prevention_team: '', reflection: '', comment: '',
@@ -89,7 +124,7 @@ export default function NearMissPage() {
       {/* ヘッダー */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
         <div>
-          <h1 style={{ fontSize: '22px', fontWeight: 'bold' }}>💛 気づきシェア</h1>
+          <h1 style={{ fontSize: '22px', fontWeight: 'bold' }}>⚠️💡 ヒヤリハット・気づきシェア</h1>
           <p style={{ fontSize: '13px', color: '#6b7280', marginTop: '4px' }}>
             小さな気づきを分かち合うことが、チームみんなの安心につながります。
           </p>
@@ -148,91 +183,163 @@ export default function NearMissPage() {
 
       {/* 新規報告フォーム */}
       {showForm && (
-        <div style={{ background: '#fffbeb', border: '1px solid #fcd34d', borderRadius: '16px', padding: '24px', marginBottom: '24px' }}>
-          <h2 style={{ fontSize: '16px', fontWeight: 'bold', color: '#d97706', marginBottom: '16px' }}>
-            💛 気づきシェアフォーム
+        <div style={{
+          background: '#fff',
+          border: `2px solid ${form.report_type
+            ? REPORT_TYPES.find(t => t.id === form.report_type)?.borderColor ?? '#fcd34d'
+            : '#e5e7eb'}`,
+          borderRadius: '16px',
+          padding: '24px',
+          marginBottom: '24px',
+        }}>
+          <h2 style={{ fontSize: '16px', fontWeight: 'bold', marginBottom: '16px', color: '#374151' }}>
+            📝 報告フォーム
           </h2>
 
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '12px' }}>
-            <div>
-              <label style={{ fontSize: '12px', fontWeight: 'bold', color: '#374151' }}>報告者名 *</label>
-              <input
-                value={form.reporter_name}
-                onChange={e => setForm({ ...form, reporter_name: e.target.value })}
-                placeholder="例：山田 花子"
-                style={{ width: '100%', padding: '8px 12px', border: '1px solid #e5e7eb', borderRadius: '8px', fontSize: '14px', marginTop: '4px', boxSizing: 'border-box' }}
-              />
-            </div>
-            <div>
-              <label style={{ fontSize: '12px', fontWeight: 'bold', color: '#374151' }}>所属部署 *</label>
-              <select
-                value={form.department}
-                onChange={e => setForm({ ...form, department: e.target.value })}
-                style={{ width: '100%', padding: '8px 12px', border: '1px solid #e5e7eb', borderRadius: '8px', fontSize: '14px', marginTop: '4px', boxSizing: 'border-box' }}
-              >
-                {DEPARTMENTS.filter(d => d.id !== 'all').map(d => (
-                  <option key={d.id} value={d.id}>{d.icon} {d.label}</option>
-                ))}
-              </select>
-            </div>
-            <div>
-              <label style={{ fontSize: '12px', fontWeight: 'bold', color: '#374151' }}>発生日時 *</label>
-              <input
-                type="datetime-local"
-                value={form.occurred_at}
-                onChange={e => setForm({ ...form, occurred_at: e.target.value })}
-                style={{ width: '100%', padding: '8px 12px', border: '1px solid #e5e7eb', borderRadius: '8px', fontSize: '14px', marginTop: '4px', boxSizing: 'border-box' }}
-              />
-            </div>
-            <div>
-              <label style={{ fontSize: '12px', fontWeight: 'bold', color: '#374151' }}>発生場所</label>
-              <input
-                value={form.location}
-                onChange={e => setForm({ ...form, location: e.target.value })}
-                placeholder="例：受付、施術室3、診察室"
-                style={{ width: '100%', padding: '8px 12px', border: '1px solid #e5e7eb', borderRadius: '8px', fontSize: '14px', marginTop: '4px', boxSizing: 'border-box' }}
-              />
+          {/* ① タイプ選択 */}
+          <div style={{ marginBottom: '20px' }}>
+            <p style={{ fontSize: '13px', fontWeight: 'bold', color: '#374151', marginBottom: '10px' }}>
+              まず報告の種類を選んでください：
+            </p>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+              {REPORT_TYPES.map(t => (
+                <button
+                  key={t.id}
+                  onClick={() => setForm({ ...form, report_type: t.id })}
+                  style={{
+                    padding: '14px 16px',
+                    borderRadius: '12px',
+                    border: `2px solid ${form.report_type === t.id ? t.color : '#e5e7eb'}`,
+                    background: form.report_type === t.id ? t.bgColor : '#fff',
+                    cursor: 'pointer',
+                    textAlign: 'left',
+                    transition: 'all 0.15s',
+                  }}
+                >
+                  <p style={{ fontWeight: 'bold', fontSize: '15px', marginBottom: '4px', color: form.report_type === t.id ? t.color : '#374151' }}>
+                    {t.icon} {t.label}
+                  </p>
+                  <p style={{ fontSize: '12px', color: '#6b7280', lineHeight: '1.5' }}>
+                    {t.desc}
+                  </p>
+                </button>
+              ))}
             </div>
           </div>
 
-          {[
-            { key: 'incident', label: '出来事 *', placeholder: '何が起きたか、事実を客観的・具体的に記載してください', required: true },
-            { key: 'direct_cause', label: '直接要因', placeholder: 'きっかけとなった具体的な行動や状況' },
-            { key: 'background_cause', label: '背景要因', placeholder: '直接要因が発生した根本的な理由・環境' },
-            { key: 'prevention_personal', label: '再発防止策【個人】', placeholder: '自分自身が学んだこと、今後意識したい行動・工夫' },
-            { key: 'prevention_team', label: '再発防止策【チーム】', placeholder: 'チーム単位での共有・連携・工夫の改善案' },
-            { key: 'reflection', label: '振り返りと気づき', placeholder: '今回の出来事を通して感じたこと、学び、チームへの活かし方' },
-            { key: 'comment', label: 'コメント・補足', placeholder: 'その他、補足があれば記入してください' },
-          ].map(f => (
-            <div key={f.key} style={{ marginBottom: '10px' }}>
-              <label style={{ fontSize: '12px', fontWeight: 'bold', color: '#374151' }}>{f.label}</label>
-              <textarea
-                value={(form as any)[f.key]}
-                onChange={e => setForm({ ...form, [f.key]: e.target.value })}
-                placeholder={f.placeholder}
-                rows={3}
-                style={{ width: '100%', padding: '8px 12px', border: '1px solid #e5e7eb', borderRadius: '8px', fontSize: '13px', marginTop: '4px', resize: 'vertical', boxSizing: 'border-box', lineHeight: '1.6' }}
-              />
-            </div>
-          ))}
+          {/* ② タイプ選択後に残りのフォーム */}
+          {form.report_type && (
+            <>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '12px' }}>
+                <div>
+                  <label style={{ fontSize: '12px', fontWeight: 'bold', color: '#374151' }}>報告者名 *</label>
+                  <input
+                    value={form.reporter_name}
+                    onChange={e => setForm({ ...form, reporter_name: e.target.value })}
+                    placeholder="例：山田 花子"
+                    style={{ width: '100%', padding: '8px 12px', border: '1px solid #e5e7eb', borderRadius: '8px', fontSize: '14px', marginTop: '4px', boxSizing: 'border-box' }}
+                  />
+                </div>
+                <div>
+                  <label style={{ fontSize: '12px', fontWeight: 'bold', color: '#374151' }}>所属部署 *</label>
+                  <select
+                    value={form.department}
+                    onChange={e => setForm({ ...form, department: e.target.value })}
+                    style={{ width: '100%', padding: '8px 12px', border: '1px solid #e5e7eb', borderRadius: '8px', fontSize: '14px', marginTop: '4px', boxSizing: 'border-box' }}
+                  >
+                    {DEPARTMENTS.filter(d => d.id !== 'all').map(d => (
+                      <option key={d.id} value={d.id}>{d.icon} {d.label}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label style={{ fontSize: '12px', fontWeight: 'bold', color: '#374151' }}>発生日時 *</label>
+                  <input
+                    type="datetime-local"
+                    value={form.occurred_at}
+                    onChange={e => setForm({ ...form, occurred_at: e.target.value })}
+                    style={{ width: '100%', padding: '8px 12px', border: '1px solid #e5e7eb', borderRadius: '8px', fontSize: '14px', marginTop: '4px', boxSizing: 'border-box' }}
+                  />
+                </div>
+                <div>
+                  <label style={{ fontSize: '12px', fontWeight: 'bold', color: '#374151' }}>発生場所</label>
+                  <input
+                    value={form.location}
+                    onChange={e => setForm({ ...form, location: e.target.value })}
+                    placeholder="例：受付、施術室3、診察室"
+                    style={{ width: '100%', padding: '8px 12px', border: '1px solid #e5e7eb', borderRadius: '8px', fontSize: '14px', marginTop: '4px', boxSizing: 'border-box' }}
+                  />
+                </div>
+              </div>
 
-          <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end', marginTop: '16px' }}>
-            <button
-              onClick={() => setShowForm(false)}
-              style={{ padding: '10px 20px', background: '#f3f4f6', borderRadius: '10px', border: 'none', cursor: 'pointer', fontSize: '14px' }}
-            >
-              キャンセル
-            </button>
-            <button
-              onClick={handleSubmit}
-              disabled={submitting}
-              style={{ padding: '10px 24px', background: '#d97706', color: '#fff', borderRadius: '10px', border: 'none', fontWeight: 'bold', fontSize: '14px', cursor: 'pointer' }}
-            >
-              {submitting ? '⏳ 送信中...' : '💛 気づきをシェアする'}
-            </button>
-          </div>
+              {[
+                { key: 'incident',            label: form.report_type === 'near_miss' ? '出来事 *' : '気づき・内容 *', placeholder: form.report_type === 'near_miss' ? '何が起きたか、事実を客観的・具体的に' : '気づいたこと・改善アイデア・良かった対応を具体的に' },
+                { key: 'direct_cause',        label: '直接要因',         placeholder: 'きっかけとなった具体的な行動や状況' },
+                { key: 'background_cause',    label: '背景要因',         placeholder: '直接要因が発生した根本的な理由・環境' },
+                { key: 'prevention_personal', label: '再発防止策【個人】', placeholder: '自分自身が学んだこと、今後意識したい行動・工夫' },
+                { key: 'prevention_team',     label: '再発防止策【チーム】', placeholder: 'チーム単位での共有・連携・工夫の改善案' },
+                { key: 'reflection',          label: '振り返りと気づき', placeholder: '今回の出来事を通して感じたこと・学び' },
+                { key: 'comment',             label: 'コメント・補足',   placeholder: 'その他、補足があれば' },
+              ].map(f => (
+                <div key={f.key} style={{ marginBottom: '10px' }}>
+                  <label style={{ fontSize: '12px', fontWeight: 'bold', color: '#374151' }}>{f.label}</label>
+                  <textarea
+                    value={(form as any)[f.key]}
+                    onChange={e => setForm({ ...form, [f.key]: e.target.value })}
+                    placeholder={f.placeholder}
+                    rows={3}
+                    style={{ width: '100%', padding: '8px 12px', border: '1px solid #e5e7eb', borderRadius: '8px', fontSize: '13px', marginTop: '4px', resize: 'vertical', boxSizing: 'border-box', lineHeight: '1.6' }}
+                  />
+                </div>
+              ))}
+
+              <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end', marginTop: '16px' }}>
+                <button
+                  onClick={() => setShowForm(false)}
+                  style={{ padding: '10px 20px', background: '#f3f4f6', borderRadius: '10px', border: 'none', cursor: 'pointer', fontSize: '14px' }}
+                >
+                  キャンセル
+                </button>
+                <button
+                  onClick={handleSubmit}
+                  disabled={submitting}
+                  style={{
+                    padding: '10px 24px',
+                    background: REPORT_TYPES.find(t => t.id === form.report_type)?.color ?? '#d97706',
+                    color: '#fff', borderRadius: '10px', border: 'none',
+                    fontWeight: 'bold', fontSize: '14px', cursor: 'pointer',
+                  }}
+                >
+                  {submitting ? '⏳ 送信中...' : `${REPORT_TYPES.find(t => t.id === form.report_type)?.icon} シェアする`}
+                </button>
+              </div>
+            </>
+          )}
         </div>
       )}
+
+      {/* タイプフィルター */}
+      <div style={{ display: 'flex', gap: '8px', marginBottom: '10px' }}>
+        {[
+          { id: 'all',       label: 'すべて',       icon: '📋', color: '#374151' },
+          { id: 'near_miss', label: 'ヒヤリハット', icon: '⚠️', color: '#d97706' },
+          { id: 'notice',    label: '気づきシェア',  icon: '💡', color: '#059669' },
+        ].map(t => (
+          <button
+            key={t.id}
+            onClick={() => setSelectedType(t.id)}
+            style={{
+              padding: '6px 16px', borderRadius: '9999px', fontSize: '13px', fontWeight: 'bold',
+              border: `2px solid ${selectedType === t.id ? t.color : '#e5e7eb'}`,
+              background: selectedType === t.id ? t.color : '#fff',
+              color: selectedType === t.id ? '#fff' : '#374151',
+              cursor: 'pointer',
+            }}
+          >
+            {t.icon} {t.label}
+          </button>
+        ))}
+      </div>
 
       {/* 部署フィルター */}
       <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginBottom: '16px' }}>
@@ -267,22 +374,34 @@ export default function NearMissPage() {
         <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
           {reports.map(r => {
             const dept = deptInfo(r.department);
+            const typeInfo = REPORT_TYPES.find(t => t.id === r.report_type) ?? REPORT_TYPES[0];
             const isExpanded = expandedId === r.id;
             return (
               <div
                 key={r.id}
                 style={{
                   borderRadius: '14px',
-                  border: `1px solid ${r.is_read ? '#e5e7eb' : '#fcd34d'}`,
-                  background: r.is_read ? '#fff' : '#fffbeb',
+                  border: `1px solid ${r.is_read ? typeInfo.borderColor + '80' : typeInfo.borderColor}`,
+                  background: r.is_read ? '#fff' : typeInfo.bgColor,
                   overflow: 'hidden',
                 }}
               >
                 {/* カードヘッダー */}
                 <div
                   onClick={() => { setExpandedId(isExpanded ? null : r.id); if (!r.is_read) handleMarkRead(r.id); }}
-                  style={{ padding: '14px 16px', cursor: 'pointer', display: 'flex', alignItems: 'flex-start', gap: '12px' }}
+                  style={{ padding: '14px 16px', cursor: 'pointer', display: 'flex', alignItems: 'flex-start', gap: '8px', flexWrap: 'wrap' }}
                 >
+                  {/* タイプバッジ */}
+                  <span style={{
+                    fontSize: '11px', fontWeight: 'bold',
+                    color: typeInfo.badgeText,
+                    background: typeInfo.badgeBg,
+                    padding: '3px 10px', borderRadius: '9999px',
+                    whiteSpace: 'nowrap', marginTop: '2px',
+                  }}>
+                    {typeInfo.icon} {typeInfo.label}
+                  </span>
+
                   {/* 部署バッジ */}
                   <span style={{
                     fontSize: '11px', fontWeight: 'bold', color: '#fff',
@@ -292,10 +411,10 @@ export default function NearMissPage() {
                     {dept.icon} {dept.label}
                   </span>
 
-                  <div style={{ flex: 1 }}>
+                  <div style={{ flex: 1, minWidth: 0 }}>
                     {/* 未読バッジ */}
                     {!r.is_read && (
-                      <span style={{ fontSize: '10px', background: '#d97706', color: '#fff', padding: '1px 6px', borderRadius: '9999px', marginRight: '6px', fontWeight: 'bold' }}>
+                      <span style={{ fontSize: '10px', background: typeInfo.color, color: '#fff', padding: '1px 6px', borderRadius: '9999px', marginRight: '6px', fontWeight: 'bold' }}>
                         NEW
                       </span>
                     )}

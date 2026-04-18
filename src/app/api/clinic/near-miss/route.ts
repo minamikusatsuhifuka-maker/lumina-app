@@ -24,24 +24,22 @@ async function ensureTable() {
   `;
 }
 
-// GET: 一覧取得（部署フィルタ・未読フィルタ対応）
+// GET: 一覧取得（部署フィルタ・タイプフィルタ対応）
 export async function GET(req: Request) {
   await ensureTable();
   const { searchParams } = new URL(req.url);
   const department = searchParams.get('department');
+  const type       = searchParams.get('type');
 
   let rows;
-  if (department && department !== 'all') {
-    rows = await sql`
-      SELECT * FROM near_miss_reports
-      WHERE department = ${department}
-      ORDER BY created_at DESC
-    `;
+  if (department && department !== 'all' && type && type !== 'all') {
+    rows = await sql`SELECT * FROM near_miss_reports WHERE department = ${department} AND report_type = ${type} ORDER BY created_at DESC`;
+  } else if (department && department !== 'all') {
+    rows = await sql`SELECT * FROM near_miss_reports WHERE department = ${department} ORDER BY created_at DESC`;
+  } else if (type && type !== 'all') {
+    rows = await sql`SELECT * FROM near_miss_reports WHERE report_type = ${type} ORDER BY created_at DESC`;
   } else {
-    rows = await sql`
-      SELECT * FROM near_miss_reports
-      ORDER BY created_at DESC
-    `;
+    rows = await sql`SELECT * FROM near_miss_reports ORDER BY created_at DESC`;
   }
   return NextResponse.json({ reports: rows });
 }
@@ -52,10 +50,12 @@ export async function POST(req: Request) {
   const body = await req.json();
   await sql`
     INSERT INTO near_miss_reports (
+      report_type,
       reporter_name, department, occurred_at, location,
       incident, direct_cause, background_cause,
       prevention_personal, prevention_team, reflection, comment
     ) VALUES (
+      ${body.report_type ?? 'near_miss'},
       ${body.reporter_name}, ${body.department}, ${body.occurred_at}, ${body.location ?? ''},
       ${body.incident}, ${body.direct_cause ?? ''}, ${body.background_cause ?? ''},
       ${body.prevention_personal ?? ''}, ${body.prevention_team ?? ''},
