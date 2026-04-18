@@ -72,9 +72,16 @@ export default function NearMissPage() {
   const [subtitleDraft, setSubtitleDraft]           = useState('');
   const [subtitleSaved, setSubtitleSaved]           = useState(false);
 
+  // 初回のみ全件取得
+  useEffect(() => { fetchAllReports(); }, []);
+
+  // タブ切替はフロントでフィルタ（API不要）
   useEffect(() => {
-    fetchReports();
-  }, [selectedDept, selectedType]);
+    let filtered = [...allReports];
+    if (selectedDept !== 'all') filtered = filtered.filter(r => r.department === selectedDept);
+    if (selectedType !== 'all') filtered = filtered.filter(r => r.report_type === selectedType);
+    setReports(filtered);
+  }, [allReports, selectedDept, selectedType]);
 
   useEffect(() => {
     fetch('/api/clinic/settings')
@@ -85,18 +92,10 @@ export default function NearMissPage() {
       .catch(() => {});
   }, []);
 
-  const fetchReports = async () => {
-    const params = new URLSearchParams();
-    if (selectedDept !== 'all') params.set('department', selectedDept);
-    if (selectedType !== 'all') params.set('type', selectedType);
-    const res = await fetch(`/api/clinic/near-miss?${params.toString()}`);
+  const fetchAllReports = async () => {
+    const res = await fetch('/api/clinic/near-miss');
     const data = await res.json();
-    setReports(data.reports ?? []);
-
-    // 件数表示用：全件（フィルタなし）
-    const allRes = await fetch('/api/clinic/near-miss');
-    const allData = await allRes.json();
-    setAllReports(allData.reports ?? []);
+    setAllReports(data.reports ?? []);
   };
 
   const handleSubmit = async () => {
@@ -114,7 +113,7 @@ export default function NearMissPage() {
     setSubmitted(true);
     setShowForm(false);
     setForm({ ...emptyForm });
-    fetchReports();
+    await fetchAllReports();
     setTimeout(() => setSubmitted(false), 3000);
   };
 
@@ -124,7 +123,7 @@ export default function NearMissPage() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ id, is_read: true }),
     });
-    fetchReports();
+    setAllReports(prev => prev.map(r => r.id === id ? { ...r, is_read: true } : r));
   };
 
   const handleSaveAdminComment = async (id: number) => {
@@ -133,9 +132,9 @@ export default function NearMissPage() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ id, admin_comment: adminCommentText }),
     });
+    setAllReports(prev => prev.map(r => r.id === id ? { ...r, admin_comment: adminCommentText } : r));
     setAdminCommentId(null);
     setAdminCommentText('');
-    fetchReports();
   };
 
   const handleGenerateComment = async (report: any) => {
