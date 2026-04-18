@@ -60,6 +60,7 @@ export default function NearMissPage() {
   const [expandedId, setExpandedId]             = useState<number | null>(null);
   const [adminCommentId, setAdminCommentId]     = useState<number | null>(null);
   const [adminCommentText, setAdminCommentText] = useState('');
+  const [generatingCommentId, setGeneratingCommentId] = useState<number | null>(null);
   const [form, setForm]                         = useState({ ...emptyForm });
   const [submitting, setSubmitting]             = useState(false);
   const [submitted, setSubmitted]               = useState(false);
@@ -129,6 +130,21 @@ export default function NearMissPage() {
     setAdminCommentId(null);
     setAdminCommentText('');
     fetchReports();
+  };
+
+  const handleGenerateComment = async (report: any) => {
+    setGeneratingCommentId(report.id);
+    setAdminCommentId(report.id);
+
+    const res = await fetch('/api/clinic/near-miss/generate-comment', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ report }),
+    });
+    const data = await res.json();
+
+    setAdminCommentText(data.comment ?? '');
+    setGeneratingCommentId(null);
   };
 
   const handleSaveSubtitle = async () => {
@@ -379,26 +395,82 @@ export default function NearMissPage() {
                       </div>
                     ))}
 
-                    {r.admin_comment && (
+                    {/* 管理者コメント表示（編集中は非表示） */}
+                    {r.admin_comment && adminCommentId !== r.id && (
                       <div style={{ marginTop: '12px', padding: '12px', background: '#f0fdf4', borderRadius: '10px', border: '1px solid #bbf7d0' }}>
                         <p style={{ fontSize: '12px', fontWeight: 'bold', color: '#16a34a', marginBottom: '4px' }}>✅ 管理者コメント</p>
                         <p style={{ fontSize: '13px', color: '#374151', lineHeight: '1.7', whiteSpace: 'pre-wrap' }}>{r.admin_comment}</p>
                       </div>
                     )}
 
+                    {/* 管理者コメント入力・AI生成エリア */}
                     {adminCommentId === r.id ? (
                       <div style={{ marginTop: '12px' }}>
-                        <textarea value={adminCommentText} onChange={e => setAdminCommentText(e.target.value)} placeholder="管理者コメントを入力..." rows={3}
-                          style={{ width: '100%', padding: '8px 12px', border: '1px solid #e5e7eb', borderRadius: '8px', fontSize: '13px', resize: 'vertical', boxSizing: 'border-box' }} />
-                        <div style={{ display: 'flex', gap: '8px', marginTop: '6px', justifyContent: 'flex-end' }}>
-                          <button onClick={() => setAdminCommentId(null)} style={{ padding: '6px 14px', background: '#f3f4f6', borderRadius: '8px', border: 'none', cursor: 'pointer', fontSize: '13px' }}>キャンセル</button>
-                          <button onClick={() => handleSaveAdminComment(r.id)} style={{ padding: '6px 14px', background: '#16a34a', color: '#fff', borderRadius: '8px', border: 'none', cursor: 'pointer', fontSize: '13px', fontWeight: 'bold' }}>💾 保存</button>
+
+                        {/* AI生成ボタン */}
+                        <div style={{
+                          display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px',
+                          padding: '10px 12px', background: '#faf5ff',
+                          borderRadius: '10px', border: '1px solid #e9d5ff',
+                        }}>
+                          <span style={{ fontSize: '13px', color: '#7c3aed' }}>🤖 AIがコメントを生成します</span>
+                          <button
+                            onClick={() => handleGenerateComment(r)}
+                            disabled={generatingCommentId === r.id}
+                            style={{
+                              marginLeft: 'auto', padding: '6px 16px',
+                              background: generatingCommentId === r.id ? '#e9d5ff' : '#7c3aed',
+                              color: '#fff', borderRadius: '8px', border: 'none',
+                              fontSize: '12px', fontWeight: 'bold',
+                              cursor: generatingCommentId === r.id ? 'not-allowed' : 'pointer',
+                              whiteSpace: 'nowrap',
+                            }}
+                          >
+                            {generatingCommentId === r.id ? '⏳ 生成中...' : '✨ AIコメントを生成'}
+                          </button>
+                        </div>
+
+                        <textarea
+                          value={adminCommentText}
+                          onChange={e => setAdminCommentText(e.target.value)}
+                          placeholder={generatingCommentId === r.id ? '⏳ AIがコメントを生成中です...' : '管理者コメントを入力、またはAIで生成してください'}
+                          rows={5}
+                          style={{ width: '100%', padding: '8px 12px', border: '1px solid #e5e7eb', borderRadius: '8px', fontSize: '13px', resize: 'vertical', boxSizing: 'border-box', lineHeight: '1.7' }}
+                        />
+
+                        <p style={{ fontSize: '11px', color: '#9ca3af', textAlign: 'right', marginTop: '2px' }}>
+                          {adminCommentText.length}文字
+                        </p>
+
+                        <div style={{ display: 'flex', gap: '8px', marginTop: '8px', justifyContent: 'flex-end' }}>
+                          <button
+                            onClick={() => { setAdminCommentId(null); setAdminCommentText(''); }}
+                            style={{ padding: '6px 14px', background: '#f3f4f6', borderRadius: '8px', border: 'none', cursor: 'pointer', fontSize: '13px' }}
+                          >
+                            キャンセル
+                          </button>
+                          <button
+                            onClick={() => handleSaveAdminComment(r.id)}
+                            disabled={!adminCommentText.trim()}
+                            style={{
+                              padding: '6px 16px',
+                              background: adminCommentText.trim() ? '#16a34a' : '#e5e7eb',
+                              color: adminCommentText.trim() ? '#fff' : '#9ca3af',
+                              borderRadius: '8px', border: 'none',
+                              cursor: adminCommentText.trim() ? 'pointer' : 'not-allowed',
+                              fontSize: '13px', fontWeight: 'bold',
+                            }}
+                          >
+                            💾 保存する
+                          </button>
                         </div>
                       </div>
                     ) : (
-                      <button onClick={() => { setAdminCommentId(r.id); setAdminCommentText(r.admin_comment ?? ''); }}
-                        style={{ marginTop: '10px', fontSize: '12px', color: '#16a34a', background: 'none', border: 'none', cursor: 'pointer', fontWeight: 'bold' }}>
-                        ✏️ 管理者コメントを{r.admin_comment ? '編集' : '追加'}する
+                      <button
+                        onClick={() => { setAdminCommentId(r.id); setAdminCommentText(r.admin_comment ?? ''); }}
+                        style={{ marginTop: '10px', fontSize: '12px', color: '#7c3aed', background: 'none', border: 'none', cursor: 'pointer', fontWeight: 'bold' }}
+                      >
+                        {r.admin_comment ? '✏️ 管理者コメントを編集する' : '✨ AIコメントを生成・追加する'}
                       </button>
                     )}
                   </div>
