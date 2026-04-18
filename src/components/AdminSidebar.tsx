@@ -46,7 +46,7 @@ const navGroups: NavGroup[] = [
       { href: '/admin/text-improve', label: 'テキスト改善', icon: '✍️' },
       { href: '/admin/surveys', label: 'アンケート管理', icon: '📝' },
       { href: '/admin/exams', label: '試験管理', icon: '✏️' },
-      { href: '/admin/near-miss', label: 'ヒヤリハット', icon: '⚠️' },
+      { href: '/admin/near-miss', label: '気づきシェア', icon: '💛' },
     ],
   },
   {

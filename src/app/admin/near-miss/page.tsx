@@ -89,35 +89,35 @@ export default function NearMissPage() {
       {/* ヘッダー */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
         <div>
-          <h1 style={{ fontSize: '22px', fontWeight: 'bold' }}>⚠️ ヒヤリハット報告</h1>
+          <h1 style={{ fontSize: '22px', fontWeight: 'bold' }}>💛 気づきシェア</h1>
           <p style={{ fontSize: '13px', color: '#6b7280', marginTop: '4px' }}>
-            気づいたことを気軽に報告してください。報告がチームを守ります。
+            小さな気づきを分かち合うことが、チームみんなの安心につながります。
           </p>
         </div>
         <button
           onClick={() => setShowForm(!showForm)}
           style={{
-            padding: '10px 20px', background: '#ef4444', color: '#fff',
+            padding: '10px 20px', background: '#d97706', color: '#fff',
             borderRadius: '12px', border: 'none', fontWeight: 'bold',
             fontSize: '14px', cursor: 'pointer',
           }}
         >
-          ＋ 新規報告する
+          ＋ 気づきをシェアする
         </button>
       </div>
 
       {/* 提出完了メッセージ */}
       {submitted && (
-        <div style={{ padding: '12px 16px', background: '#dcfce7', borderRadius: '10px', color: '#16a34a', fontWeight: 'bold', marginBottom: '16px' }}>
-          ✓ 報告を送信しました。ありがとうございます。
+        <div style={{ padding: '12px 16px', background: '#fef3c7', borderRadius: '10px', color: '#d97706', fontWeight: 'bold', marginBottom: '16px' }}>
+          💛 シェアしてくれてありがとうございます。あなたの気づきがチームを守ります。
         </div>
       )}
 
       {/* 未読アラート */}
       {unreadReports.length > 0 && (
-        <div style={{ padding: '14px 16px', background: '#fef2f2', border: '2px solid #fca5a5', borderRadius: '12px', marginBottom: '20px' }}>
-          <p style={{ fontWeight: 'bold', color: '#dc2626', fontSize: '14px', marginBottom: '8px' }}>
-            🔴 未読のヒヤリハット報告 {unreadReports.length}件
+        <div style={{ padding: '14px 16px', background: '#fef3c7', border: '2px solid #fcd34d', borderRadius: '12px', marginBottom: '20px' }}>
+          <p style={{ fontWeight: 'bold', color: '#d97706', fontSize: '14px', marginBottom: '8px' }}>
+            💛 新しい気づきシェア {unreadReports.length}件
           </p>
           <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
             {unreadReports.slice(0, 3).map(r => (
@@ -131,7 +131,7 @@ export default function NearMissPage() {
                 </span>
                 <button
                   onClick={() => { setExpandedId(r.id); handleMarkRead(r.id); }}
-                  style={{ fontSize: '12px', color: '#dc2626', background: 'none', border: 'none', cursor: 'pointer', fontWeight: 'bold' }}
+                  style={{ fontSize: '12px', color: '#d97706', background: 'none', border: 'none', cursor: 'pointer', fontWeight: 'bold' }}
                 >
                   確認する →
                 </button>
@@ -148,9 +148,9 @@ export default function NearMissPage() {
 
       {/* 新規報告フォーム */}
       {showForm && (
-        <div style={{ background: '#fff', border: '2px solid #ef4444', borderRadius: '16px', padding: '24px', marginBottom: '24px' }}>
-          <h2 style={{ fontSize: '16px', fontWeight: 'bold', color: '#ef4444', marginBottom: '16px' }}>
-            ⚠️ ヒヤリハット報告フォーム
+        <div style={{ background: '#fffbeb', border: '1px solid #fcd34d', borderRadius: '16px', padding: '24px', marginBottom: '24px' }}>
+          <h2 style={{ fontSize: '16px', fontWeight: 'bold', color: '#d97706', marginBottom: '16px' }}>
+            💛 気づきシェアフォーム
           </h2>
 
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '12px' }}>
@@ -226,9 +226,9 @@ export default function NearMissPage() {
             <button
               onClick={handleSubmit}
               disabled={submitting}
-              style={{ padding: '10px 24px', background: '#ef4444', color: '#fff', borderRadius: '10px', border: 'none', fontWeight: 'bold', fontSize: '14px', cursor: 'pointer' }}
+              style={{ padding: '10px 24px', background: '#d97706', color: '#fff', borderRadius: '10px', border: 'none', fontWeight: 'bold', fontSize: '14px', cursor: 'pointer' }}
             >
-              {submitting ? '⏳ 送信中...' : '📤 報告を送信する'}
+              {submitting ? '⏳ 送信中...' : '💛 気づきをシェアする'}
             </button>
           </div>
         </div>
@@ -273,8 +273,8 @@ export default function NearMissPage() {
                 key={r.id}
                 style={{
                   borderRadius: '14px',
-                  border: `1px solid ${r.is_read ? '#e5e7eb' : '#fca5a5'}`,
-                  background: r.is_read ? '#fff' : '#fff7f7',
+                  border: `1px solid ${r.is_read ? '#e5e7eb' : '#fcd34d'}`,
+                  background: r.is_read ? '#fff' : '#fffbeb',
                   overflow: 'hidden',
                 }}
               >
@@ -295,7 +295,7 @@ export default function NearMissPage() {
                   <div style={{ flex: 1 }}>
                     {/* 未読バッジ */}
                     {!r.is_read && (
-                      <span style={{ fontSize: '10px', background: '#ef4444', color: '#fff', padding: '1px 6px', borderRadius: '9999px', marginRight: '6px', fontWeight: 'bold' }}>
+                      <span style={{ fontSize: '10px', background: '#d97706', color: '#fff', padding: '1px 6px', borderRadius: '9999px', marginRight: '6px', fontWeight: 'bold' }}>
                         NEW
                       </span>
                     )}

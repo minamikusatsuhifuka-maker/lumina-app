@@ -141,23 +141,23 @@ export default async function AdminDashboardPage() {
         ))}
       </div>
 
-      {/* ヒヤリハット未読アラート */}
+      {/* 気づきシェア未読アラート */}
       {nearMissUnreadCount > 0 && (
         <Link href="/admin/near-miss" style={{ textDecoration: 'none' }}>
           <div style={{
             display: 'flex', alignItems: 'center', gap: '10px',
-            padding: '14px 16px', background: '#fef2f2',
-            border: '2px solid #fca5a5', borderRadius: '12px',
+            padding: '14px 16px', background: '#fffbeb',
+            border: '2px solid #fcd34d', borderRadius: '12px',
             marginBottom: '16px', cursor: 'pointer',
           }}>
-            <span style={{ fontSize: '20px' }}>⚠️</span>
+            <span style={{ fontSize: '20px' }}>💛</span>
             <div style={{ flex: 1 }}>
-              <p style={{ fontWeight: 'bold', color: '#dc2626', fontSize: '14px' }}>
-                未読のヒヤリハット報告 {nearMissUnreadCount}件
+              <p style={{ fontWeight: 'bold', color: '#d97706', fontSize: '14px' }}>
+                💛 新しい気づきシェア {nearMissUnreadCount}件
               </p>
-              <p style={{ fontSize: '12px', color: '#9ca3af' }}>クリックして確認する</p>
+              <p style={{ fontSize: '12px', color: '#9ca3af' }}>みんなの気づきを確認する</p>
             </div>
-            <span style={{ color: '#dc2626' }}>→</span>
+            <span style={{ color: '#d97706' }}>→</span>
           </div>
         </Link>
       )}
