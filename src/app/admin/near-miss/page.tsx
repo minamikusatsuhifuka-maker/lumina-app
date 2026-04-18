@@ -93,6 +93,12 @@ export default function NearMissPage() {
   const [cautionDraft, setCautionDraft]             = useState('');
   const [cautionSaved, setCautionSaved]             = useState(false);
 
+  // 気づきシェア注意書き編集
+  const [noticeCaution, setNoticeCaution]                   = useState('あなたの気づきがチームを明るくします。\nどんな小さなことでも、シェアしてくれると嬉しいです。');
+  const [isEditingNoticeCaution, setIsEditingNoticeCaution] = useState(false);
+  const [noticeCautionDraft, setNoticeCautionDraft]         = useState('');
+  const [noticeCautionSaved, setNoticeCautionSaved]         = useState(false);
+
   // 初回のみ全件取得
   useEffect(() => { fetchAllReports(); }, []);
 
@@ -110,6 +116,7 @@ export default function NearMissPage() {
       .then(data => {
         if (data.near_miss_subtitle) setSubtitle(data.near_miss_subtitle);
         if (data.near_miss_caution)  setNearMissCaution(data.near_miss_caution);
+        if (data.notice_caution)     setNoticeCaution(data.notice_caution);
       })
       .catch(() => {});
   }, []);
@@ -235,6 +242,18 @@ export default function NearMissPage() {
 
     setAdminCommentText(data.comment ?? '');
     setGeneratingCommentId(null);
+  };
+
+  const handleSaveNoticeCaution = async () => {
+    await fetch('/api/clinic/settings', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ key: 'notice_caution', value: noticeCautionDraft }),
+    });
+    setNoticeCaution(noticeCautionDraft);
+    setIsEditingNoticeCaution(false);
+    setNoticeCautionSaved(true);
+    setTimeout(() => setNoticeCautionSaved(false), 2500);
   };
 
   const handleSaveCaution = async () => {
@@ -399,6 +418,51 @@ export default function NearMissPage() {
                     </div>
                     <button
                       onClick={() => { setCautionDraft(nearMissCaution); setIsEditingCaution(true); }}
+                      title="注意書きを編集"
+                      style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '14px', color: '#d1d5db', flexShrink: 0 }}
+                    >
+                      ✏️
+                    </button>
+                  </>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* 気づきシェア注意書き */}
+          {form.report_type === 'notice' && (
+            <div style={{
+              margin: '12px 0 16px', padding: '12px 16px',
+              background: '#f0fdf4', border: '1px solid #6ee7b7',
+              borderRadius: '10px',
+            }}>
+              <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '8px' }}>
+                {isEditingNoticeCaution ? (
+                  <div style={{ flex: 1 }}>
+                    <textarea
+                      value={noticeCautionDraft}
+                      onChange={e => setNoticeCautionDraft(e.target.value)}
+                      rows={3}
+                      autoFocus
+                      style={{ width: '100%', padding: '8px 12px', border: '1px solid #6ee7b7', borderRadius: '8px', fontSize: '13px', resize: 'vertical', boxSizing: 'border-box', lineHeight: '1.7' }}
+                    />
+                    <div style={{ display: 'flex', gap: '6px', marginTop: '6px' }}>
+                      <button onClick={handleSaveNoticeCaution} style={{ padding: '5px 14px', background: '#059669', color: '#fff', borderRadius: '8px', border: 'none', fontSize: '12px', fontWeight: 'bold', cursor: 'pointer' }}>
+                        💾 保存
+                      </button>
+                      <button onClick={() => setIsEditingNoticeCaution(false)} style={{ padding: '5px 12px', background: '#f3f4f6', color: '#374151', borderRadius: '8px', border: 'none', fontSize: '12px', cursor: 'pointer' }}>
+                        キャンセル
+                      </button>
+                    </div>
+                    {noticeCautionSaved && <p style={{ fontSize: '12px', color: '#16a34a', marginTop: '4px' }}>✓ 保存しました</p>}
+                  </div>
+                ) : (
+                  <>
+                    <p style={{ fontSize: '13px', color: '#065f46', lineHeight: '1.7', whiteSpace: 'pre-wrap', fontWeight: 500, flex: 1 }}>
+                      💡 {noticeCaution}
+                    </p>
+                    <button
+                      onClick={() => { setNoticeCautionDraft(noticeCaution); setIsEditingNoticeCaution(true); }}
                       title="注意書きを編集"
                       style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '14px', color: '#d1d5db', flexShrink: 0 }}
                     >
