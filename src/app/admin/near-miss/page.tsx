@@ -73,6 +73,7 @@ export default function NearMissPage() {
   const [adminCommentId, setAdminCommentId]     = useState<number | null>(null);
   const [adminCommentText, setAdminCommentText] = useState('');
   const [generatingCommentId, setGeneratingCommentId] = useState<number | null>(null);
+  const [selectedCommentTone, setSelectedCommentTone] = useState('lead');
   const [form, setForm]                         = useState({ ...emptyForm });
   const [submitting, setSubmitting]             = useState(false);
   const [submitted, setSubmitted]               = useState(false);
@@ -174,7 +175,7 @@ export default function NearMissPage() {
     const res = await fetch('/api/clinic/near-miss/generate-comment', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ report }),
+      body: JSON.stringify({ report, tone: selectedCommentTone }),
     });
     const data = await res.json();
 
@@ -553,45 +554,96 @@ export default function NearMissPage() {
                     {adminCommentId === r.id ? (
                       <div style={{ marginTop: '12px' }}>
 
-                        {/* AI生成ボタン */}
+                        {/* AI生成パネル */}
                         <div style={{
-                          display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px',
-                          padding: '10px 12px', background: '#faf5ff',
-                          borderRadius: '10px', border: '1px solid #e9d5ff',
+                          padding: '14px 16px', background: '#faf5ff',
+                          borderRadius: '12px', border: '1px solid #ddd6fe',
+                          marginBottom: '10px',
                         }}>
-                          <span style={{ fontSize: '13px', color: '#7c3aed' }}>🤖 AIがコメントを生成します</span>
+                          <p style={{ fontSize: '13px', fontWeight: 'bold', color: '#7c3aed', marginBottom: '10px' }}>
+                            🤖 AIコメント生成 — リードマネジメント
+                          </p>
+
+                          {/* トーン選択 */}
+                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', marginBottom: '10px' }}>
+                            {[
+                              { id: 'lead',   label: '🌱 リードマネジメント型',    desc: '内発的動機・自律性を引き出す' },
+                              { id: 'praise', label: '🤝 労い・感謝・承認型',      desc: 'シェアへの感謝と貢献を伝える' },
+                              { id: 'growth', label: '🚀 成長・可能性引き出し型',  desc: '報告者の成長と影響力を伝える' },
+                              { id: 'team',   label: '💛 チーム・組織への影響型',  desc: '全員の学びと安全につながると伝える' },
+                              { id: 'action', label: '🎯 理念・アクションプラン型', desc: '理念と結びついた具体的提案' },
+                            ].map(t => (
+                              <button
+                                key={t.id}
+                                onClick={() => setSelectedCommentTone(t.id)}
+                                title={t.desc}
+                                style={{
+                                  padding: '5px 12px', borderRadius: '9999px',
+                                  border: `2px solid ${selectedCommentTone === t.id ? '#7c3aed' : '#e9d5ff'}`,
+                                  background: selectedCommentTone === t.id ? '#7c3aed' : '#fff',
+                                  color: selectedCommentTone === t.id ? '#fff' : '#7c3aed',
+                                  fontSize: '12px', fontWeight: 'bold', cursor: 'pointer',
+                                }}
+                              >
+                                {t.label}
+                              </button>
+                            ))}
+                          </div>
+
+                          {/* 選択中トーンの説明 */}
+                          <p style={{ fontSize: '11px', color: '#8b5cf6', marginBottom: '10px' }}>
+                            {({
+                              lead:   '🌱 スタッフの内発的動機・自律性を引き出すコメントを生成します',
+                              praise: '🤝 シェアへの感謝・労い・貢献を承認するコメントを生成します',
+                              growth: '🚀 報告者の成長・可能性・影響力を引き出すコメントを生成します',
+                              team:   '💛 チーム全体の学び・心理的安全性を伝えるコメントを生成します',
+                              action: '🎯 クリニック理念と結びついた具体的なアクションを提案します',
+                            } as Record<string, string>)[selectedCommentTone] ?? ''}
+                          </p>
+
+                          {/* 生成ボタン */}
                           <button
                             onClick={() => handleGenerateComment(r)}
                             disabled={generatingCommentId === r.id}
                             style={{
-                              marginLeft: 'auto', padding: '6px 16px',
-                              background: generatingCommentId === r.id ? '#e9d5ff' : '#7c3aed',
+                              width: '100%', padding: '9px',
+                              background: generatingCommentId === r.id ? '#ddd6fe' : '#7c3aed',
                               color: '#fff', borderRadius: '8px', border: 'none',
-                              fontSize: '12px', fontWeight: 'bold',
+                              fontSize: '13px', fontWeight: 'bold',
                               cursor: generatingCommentId === r.id ? 'not-allowed' : 'pointer',
-                              whiteSpace: 'nowrap',
                             }}
                           >
-                            {generatingCommentId === r.id ? '⏳ 生成中...' : '✨ AIコメントを生成'}
+                            {generatingCommentId === r.id ? '⏳ AIがコメントを生成中...' : '✨ このトーンでAIコメントを生成'}
                           </button>
                         </div>
 
                         <textarea
                           value={adminCommentText}
                           onChange={e => setAdminCommentText(e.target.value)}
-                          placeholder={generatingCommentId === r.id ? '⏳ AIがコメントを生成中です...' : '管理者コメントを入力、またはAIで生成してください'}
-                          rows={5}
-                          style={{ width: '100%', padding: '8px 12px', border: '1px solid #e5e7eb', borderRadius: '8px', fontSize: '13px', resize: 'vertical', boxSizing: 'border-box', lineHeight: '1.7' }}
+                          placeholder="AIで生成するか、直接入力してください"
+                          rows={6}
+                          style={{ width: '100%', padding: '10px 14px', border: '1px solid #e5e7eb', borderRadius: '10px', fontSize: '13px', resize: 'vertical', boxSizing: 'border-box', lineHeight: '1.8' }}
                         />
 
-                        <p style={{ fontSize: '11px', color: '#9ca3af', textAlign: 'right', marginTop: '2px' }}>
-                          {adminCommentText.length}文字
-                        </p>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '4px' }}>
+                          {adminCommentText && (
+                            <button
+                              onClick={() => handleGenerateComment(r)}
+                              disabled={generatingCommentId === r.id}
+                              style={{ fontSize: '12px', color: '#7c3aed', background: 'none', border: 'none', cursor: 'pointer' }}
+                            >
+                              🔄 別のトーンで再生成
+                            </button>
+                          )}
+                          <p style={{ fontSize: '11px', color: '#9ca3af', marginLeft: 'auto' }}>
+                            {adminCommentText.length}文字
+                          </p>
+                        </div>
 
-                        <div style={{ display: 'flex', gap: '8px', marginTop: '8px', justifyContent: 'flex-end' }}>
+                        <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end', marginTop: '10px' }}>
                           <button
                             onClick={() => { setAdminCommentId(null); setAdminCommentText(''); }}
-                            style={{ padding: '6px 14px', background: '#f3f4f6', borderRadius: '8px', border: 'none', cursor: 'pointer', fontSize: '13px' }}
+                            style={{ padding: '8px 16px', background: '#f3f4f6', borderRadius: '8px', border: 'none', cursor: 'pointer', fontSize: '13px' }}
                           >
                             キャンセル
                           </button>
@@ -599,15 +651,15 @@ export default function NearMissPage() {
                             onClick={() => handleSaveAdminComment(r.id)}
                             disabled={!adminCommentText.trim()}
                             style={{
-                              padding: '6px 16px',
+                              padding: '8px 20px',
                               background: adminCommentText.trim() ? '#16a34a' : '#e5e7eb',
                               color: adminCommentText.trim() ? '#fff' : '#9ca3af',
                               borderRadius: '8px', border: 'none',
+                              fontWeight: 'bold', fontSize: '13px',
                               cursor: adminCommentText.trim() ? 'pointer' : 'not-allowed',
-                              fontSize: '13px', fontWeight: 'bold',
                             }}
                           >
-                            💾 保存する
+                            💾 管理者コメントとして保存
                           </button>
                         </div>
                       </div>
