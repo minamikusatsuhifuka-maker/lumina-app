@@ -56,7 +56,34 @@ export default function NearMissPage() {
   const [submitting, setSubmitting] = useState(false);
   const [submitted, setSubmitted]   = useState(false);
 
+  // サブタイトル編集state
+  const [subtitle, setSubtitle]                   = useState('小さな気づきを分かち合うことが、チームみんなの安心につながります。');
+  const [isEditingSubtitle, setIsEditingSubtitle] = useState(false);
+  const [subtitleDraft, setSubtitleDraft]         = useState('');
+  const [subtitleSaved, setSubtitleSaved]         = useState(false);
+
   useEffect(() => { fetchReports(); }, [selectedDept, selectedType]);
+
+  useEffect(() => {
+    fetch('/api/clinic/settings')
+      .then(r => r.json())
+      .then(data => {
+        if (data.near_miss_subtitle) setSubtitle(data.near_miss_subtitle);
+      })
+      .catch(() => {});
+  }, []);
+
+  const handleSaveSubtitle = async () => {
+    await fetch('/api/clinic/settings', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ key: 'near_miss_subtitle', value: subtitleDraft }),
+    });
+    setSubtitle(subtitleDraft);
+    setIsEditingSubtitle(false);
+    setSubtitleSaved(true);
+    setTimeout(() => setSubtitleSaved(false), 2500);
+  };
 
   const fetchReports = async () => {
     const params = new URLSearchParams();
@@ -125,9 +152,70 @@ export default function NearMissPage() {
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
         <div>
           <h1 style={{ fontSize: '22px', fontWeight: 'bold' }}>⚠️💡 ヒヤリハット・気づきシェア</h1>
-          <p style={{ fontSize: '13px', color: '#6b7280', marginTop: '4px' }}>
-            小さな気づきを分かち合うことが、チームみんなの安心につながります。
-          </p>
+          {/* サブタイトル（編集可能） */}
+          <div style={{ display: 'flex', alignItems: 'flex-start', gap: '8px', marginTop: '6px' }}>
+            {isEditingSubtitle ? (
+              <div style={{ flex: 1 }}>
+                <textarea
+                  value={subtitleDraft}
+                  onChange={e => setSubtitleDraft(e.target.value)}
+                  rows={2}
+                  autoFocus
+                  style={{
+                    width: '100%', padding: '8px 12px',
+                    border: '1px solid #fcd34d', borderRadius: '8px',
+                    fontSize: '13px', color: '#374151',
+                    resize: 'vertical', boxSizing: 'border-box', lineHeight: '1.6',
+                  }}
+                />
+                <div style={{ display: 'flex', gap: '6px', marginTop: '6px' }}>
+                  <button
+                    onClick={handleSaveSubtitle}
+                    style={{
+                      padding: '5px 14px', background: '#d97706', color: '#fff',
+                      borderRadius: '8px', border: 'none',
+                      fontSize: '12px', fontWeight: 'bold', cursor: 'pointer',
+                    }}
+                  >
+                    💾 保存
+                  </button>
+                  <button
+                    onClick={() => setIsEditingSubtitle(false)}
+                    style={{
+                      padding: '5px 12px', background: '#f3f4f6', color: '#374151',
+                      borderRadius: '8px', border: 'none',
+                      fontSize: '12px', cursor: 'pointer',
+                    }}
+                  >
+                    キャンセル
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <>
+                <p style={{ fontSize: '13px', color: '#6b7280', lineHeight: '1.6', flex: 1 }}>
+                  {subtitle}
+                </p>
+                <button
+                  onClick={() => { setSubtitleDraft(subtitle); setIsEditingSubtitle(true); }}
+                  title="テキストを編集"
+                  style={{
+                    background: 'none', border: 'none', cursor: 'pointer',
+                    fontSize: '14px', color: '#d1d5db',
+                    padding: '2px 4px', borderRadius: '4px', flexShrink: 0,
+                  }}
+                >
+                  ✏️
+                </button>
+              </>
+            )}
+          </div>
+
+          {subtitleSaved && (
+            <p style={{ fontSize: '12px', color: '#16a34a', marginTop: '4px' }}>
+              ✓ 保存しました
+            </p>
+          )}
         </div>
         <button
           onClick={() => setShowForm(!showForm)}
