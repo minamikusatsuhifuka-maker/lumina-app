@@ -34,6 +34,7 @@ const NOTICE_CATEGORIES = [
   { id: 'team_praise',   icon: '👏', label: 'ありがとう・すごい！を伝えたい',   desc: 'スタッフへの感謝・称賛を言葉にしてシェアしましょう',                 placeholder: '例：〇〇さんがこんなことをしてくれた、〇〇さんのこの対応が素晴らしかった、など', color: '#7c3aed', bg: '#faf5ff' },
   { id: 'goal',          icon: '🎯', label: '目標達成・成長のお知らせ',         desc: '自分やチームの頑張り・成長・達成したことを報告してください',         placeholder: '例：〇〇の手技が上手くできるようになった、目標の件数を達成した、など',   color: '#2563eb', bg: '#eff6ff' },
   { id: 'learning',      icon: '📚', label: '学びのシェア',                     desc: '研修・勉強・気づきから学んだことをみんなにシェアしてください',       placeholder: '例：勉強会でこんなことを学んだ、この本のこの考え方が仕事に役立った、など', color: '#0891b2', bg: '#ecfeff' },
+  { id: 'tips',          icon: '🔧', label: 'こんな使い方あります',             desc: 'ツール・システム・業務の便利な使い方・時短ワザを紹介する',           placeholder: '例：このシステムのこの機能をこう使うと便利、この手順をこうすると時短になる、など', color: '#0891b2', bg: '#ecfeff' },
   { id: 'other_notice',  icon: '💬', label: 'その他・自由なシェア',             desc: 'どのカテゴリにも当てはまらない気づきや想いを自由に書いてください',   placeholder: '自由に書いてください',                                                 color: '#6b7280', bg: '#f9fafb' },
 ];
 
@@ -85,6 +86,12 @@ export default function NearMissPage() {
   const [subtitleDraft, setSubtitleDraft]           = useState('');
   const [subtitleSaved, setSubtitleSaved]           = useState(false);
 
+  // ヒヤリハット注意書き編集
+  const [nearMissCaution, setNearMissCaution]       = useState('みんなに共有して安全なチーム医療を目指そう。\nあなたの共有がこれからの仲間の安全を守ります。');
+  const [isEditingCaution, setIsEditingCaution]     = useState(false);
+  const [cautionDraft, setCautionDraft]             = useState('');
+  const [cautionSaved, setCautionSaved]             = useState(false);
+
   // 初回のみ全件取得
   useEffect(() => { fetchAllReports(); }, []);
 
@@ -101,6 +108,7 @@ export default function NearMissPage() {
       .then(r => r.json())
       .then(data => {
         if (data.near_miss_subtitle) setSubtitle(data.near_miss_subtitle);
+        if (data.near_miss_caution)  setNearMissCaution(data.near_miss_caution);
       })
       .catch(() => {});
   }, []);
@@ -181,6 +189,18 @@ export default function NearMissPage() {
 
     setAdminCommentText(data.comment ?? '');
     setGeneratingCommentId(null);
+  };
+
+  const handleSaveCaution = async () => {
+    await fetch('/api/clinic/settings', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ key: 'near_miss_caution', value: cautionDraft }),
+    });
+    setNearMissCaution(cautionDraft);
+    setIsEditingCaution(false);
+    setCautionSaved(true);
+    setTimeout(() => setCautionSaved(false), 2500);
   };
 
   const handleSaveSubtitle = async () => {
@@ -296,6 +316,53 @@ export default function NearMissPage() {
               ))}
             </div>
           </div>
+
+          {/* ヒヤリハット選択時の注意書き */}
+          {form.report_type === 'near_miss' && (
+            <div style={{
+              margin: '12px 0 16px', padding: '12px 16px',
+              background: '#fffbeb', border: '1px solid #fcd34d',
+              borderRadius: '10px',
+            }}>
+              <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '8px' }}>
+                {isEditingCaution ? (
+                  <div style={{ flex: 1 }}>
+                    <textarea
+                      value={cautionDraft}
+                      onChange={e => setCautionDraft(e.target.value)}
+                      rows={3}
+                      autoFocus
+                      style={{ width: '100%', padding: '8px 12px', border: '1px solid #fcd34d', borderRadius: '8px', fontSize: '13px', resize: 'vertical', boxSizing: 'border-box', lineHeight: '1.7' }}
+                    />
+                    <div style={{ display: 'flex', gap: '6px', marginTop: '6px' }}>
+                      <button onClick={handleSaveCaution} style={{ padding: '5px 14px', background: '#d97706', color: '#fff', borderRadius: '8px', border: 'none', fontSize: '12px', fontWeight: 'bold', cursor: 'pointer' }}>
+                        💾 保存
+                      </button>
+                      <button onClick={() => setIsEditingCaution(false)} style={{ padding: '5px 12px', background: '#f3f4f6', color: '#374151', borderRadius: '8px', border: 'none', fontSize: '12px', cursor: 'pointer' }}>
+                        キャンセル
+                      </button>
+                    </div>
+                    {cautionSaved && <p style={{ fontSize: '12px', color: '#16a34a', marginTop: '4px' }}>✓ 保存しました</p>}
+                  </div>
+                ) : (
+                  <>
+                    <div style={{ flex: 1 }}>
+                      <p style={{ fontSize: '13px', color: '#92400e', lineHeight: '1.7', whiteSpace: 'pre-wrap', fontWeight: 500 }}>
+                        🛡️ {nearMissCaution}
+                      </p>
+                    </div>
+                    <button
+                      onClick={() => { setCautionDraft(nearMissCaution); setIsEditingCaution(true); }}
+                      title="注意書きを編集"
+                      style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '14px', color: '#d1d5db', flexShrink: 0 }}
+                    >
+                      ✏️
+                    </button>
+                  </>
+                )}
+              </div>
+            </div>
+          )}
 
           {/* ヒヤリハット用フォーム */}
           {form.report_type === 'near_miss' && (
