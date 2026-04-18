@@ -28,6 +28,11 @@ async function ensureTable() {
     ALTER TABLE near_miss_reports
     ADD COLUMN IF NOT EXISTS report_type TEXT DEFAULT 'near_miss'
   `;
+  // notice_categoryカラムを追加（気づきシェアのカテゴリ）
+  await sql`
+    ALTER TABLE near_miss_reports
+    ADD COLUMN IF NOT EXISTS notice_category TEXT
+  `;
 }
 
 // GET: 一覧取得（部署フィルタ・タイプフィルタ対応）
@@ -56,12 +61,12 @@ export async function POST(req: Request) {
   const body = await req.json();
   await sql`
     INSERT INTO near_miss_reports (
-      report_type,
+      report_type, notice_category,
       reporter_name, department, occurred_at, location,
       incident, direct_cause, background_cause,
       prevention_personal, prevention_team, reflection, comment
     ) VALUES (
-      ${body.report_type ?? 'near_miss'},
+      ${body.report_type ?? 'near_miss'}, ${body.notice_category ?? null},
       ${body.reporter_name}, ${body.department}, ${body.occurred_at}, ${body.location ?? ''},
       ${body.incident}, ${body.direct_cause ?? ''}, ${body.background_cause ?? ''},
       ${body.prevention_personal ?? ''}, ${body.prevention_team ?? ''},

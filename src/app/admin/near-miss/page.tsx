@@ -26,6 +26,17 @@ const REPORT_TYPES = [
   },
 ];
 
+const NOTICE_CATEGORIES = [
+  { id: 'improvement',   icon: '💡', label: '改善・工夫のアイデア',             desc: '「こうすればもっと良くなる」というアイデアや工夫を教えてください',     placeholder: '例：受付のこの流れをこう変えると患者さんが待たずに済む、など',       color: '#d97706', bg: '#fffbeb' },
+  { id: 'patient_voice', icon: '🌸', label: '患者さんの声・うれしかったこと',   desc: '患者さんから嬉しいお言葉や反応があったら教えてください',             placeholder: '例：「いつもありがとう」と言っていただけた、笑顔で帰っていかれた、など', color: '#db2777', bg: '#fdf2f8' },
+  { id: 'environment',   icon: '🌿', label: '環境改善・あると良いもの',         desc: 'みんなが働きやすくなるために、あると良いものや環境の改善案を教えてください', placeholder: '例：この場所にこれがあると便利、この動線を変えると動きやすい、など',   color: '#059669', bg: '#f0fdf4' },
+  { id: 'happy_share',   icon: '☀️', label: '幸せのおすそわけ',                desc: '最近あった良いこと・うれしかったこと・ほっこりしたことを教えてください', placeholder: '例：〇〇さんが助けてくれてとても助かった、チームワークが良かった瞬間、など', color: '#ea580c', bg: '#fff7ed' },
+  { id: 'team_praise',   icon: '👏', label: 'ありがとう・すごい！を伝えたい',   desc: 'スタッフへの感謝・称賛を言葉にしてシェアしましょう',                 placeholder: '例：〇〇さんがこんなことをしてくれた、〇〇さんのこの対応が素晴らしかった、など', color: '#7c3aed', bg: '#faf5ff' },
+  { id: 'goal',          icon: '🎯', label: '目標達成・成長のお知らせ',         desc: '自分やチームの頑張り・成長・達成したことを報告してください',         placeholder: '例：〇〇の手技が上手くできるようになった、目標の件数を達成した、など',   color: '#2563eb', bg: '#eff6ff' },
+  { id: 'learning',      icon: '📚', label: '学びのシェア',                     desc: '研修・勉強・気づきから学んだことをみんなにシェアしてください',       placeholder: '例：勉強会でこんなことを学んだ、この本のこの考え方が仕事に役立った、など', color: '#0891b2', bg: '#ecfeff' },
+  { id: 'other_notice',  icon: '💬', label: 'その他・自由なシェア',             desc: 'どのカテゴリにも当てはまらない気づきや想いを自由に書いてください',   placeholder: '自由に書いてください',                                                 color: '#6b7280', bg: '#f9fafb' },
+];
+
 const DEPARTMENTS = [
   { id: 'all',        label: '全て',              color: '#374151', icon: '📋' },
   { id: 'reception',  label: '受付・クラーク',     color: '#3b82f6', icon: '🏥' },
@@ -65,6 +76,7 @@ export default function NearMissPage() {
   const [form, setForm]                         = useState({ ...emptyForm });
   const [submitting, setSubmitting]             = useState(false);
   const [submitted, setSubmitted]               = useState(false);
+  const [noticeCategory, setNoticeCategory]     = useState('');
 
   // サブタイトル編集
   const [subtitle, setSubtitle]                     = useState('小さな気づきを分かち合うことが、チームみんなの安心につながります。');
@@ -99,19 +111,37 @@ export default function NearMissPage() {
   };
 
   const handleSubmit = async () => {
-    if (!form.reporter_name || !form.incident || !form.occurred_at || !form.report_type) {
-      alert('種類・報告者名・発生日時・出来事は必須です');
+    if (!form.report_type) {
+      alert('種類を選んでください');
       return;
     }
+    if (form.report_type === 'notice' && !noticeCategory) {
+      alert('カテゴリを選択してください');
+      return;
+    }
+    if (form.report_type === 'near_miss' && (!form.reporter_name || !form.incident || !form.occurred_at)) {
+      alert('報告者名・発生日時・出来事は必須です');
+      return;
+    }
+    if (form.report_type === 'notice' && (!form.reporter_name || !form.incident)) {
+      alert('名前と内容は必須です');
+      return;
+    }
+    const submitForm = {
+      ...form,
+      notice_category: form.report_type === 'notice' ? noticeCategory : null,
+      occurred_at: form.occurred_at || new Date().toISOString(),
+    };
     setSubmitting(true);
     await fetch('/api/clinic/near-miss', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(form),
+      body: JSON.stringify(submitForm),
     });
     setSubmitting(false);
     setSubmitted(true);
     setShowForm(false);
+    setNoticeCategory('');
     setForm({ ...emptyForm });
     await fetchAllReports();
     setTimeout(() => setSubmitted(false), 3000);
@@ -266,8 +296,8 @@ export default function NearMissPage() {
             </div>
           </div>
 
-          {/* フォーム本体（タイプ選択後に表示） */}
-          {form.report_type && (
+          {/* ヒヤリハット用フォーム */}
+          {form.report_type === 'near_miss' && (
             <>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '12px' }}>
                 <div>
@@ -291,7 +321,7 @@ export default function NearMissPage() {
               </div>
 
               {[
-                { key: 'incident',            label: form.report_type === 'near_miss' ? '出来事 *' : '気づき・内容 *', placeholder: form.report_type === 'near_miss' ? '何が起きたか、事実を客観的・具体的に' : '気づいたこと・改善アイデア・良かった対応を具体的に' },
+                { key: 'incident',            label: '出来事 *',              placeholder: '何が起きたか、事実を客観的・具体的に' },
                 { key: 'direct_cause',        label: '直接要因',             placeholder: 'きっかけとなった具体的な行動や状況' },
                 { key: 'background_cause',    label: '背景要因',             placeholder: '直接要因が発生した根本的な理由・環境' },
                 { key: 'prevention_personal', label: '再発防止策【個人】',   placeholder: '自分自身が学んだこと、今後意識したい行動・工夫' },
@@ -310,10 +340,104 @@ export default function NearMissPage() {
                 <button onClick={() => setShowForm(false)} style={{ padding: '10px 20px', background: '#f3f4f6', borderRadius: '10px', border: 'none', cursor: 'pointer', fontSize: '14px' }}>キャンセル</button>
                 <button onClick={handleSubmit} disabled={submitting}
                   style={{ padding: '10px 24px', background: currentType?.color ?? '#d97706', color: '#fff', borderRadius: '10px', border: 'none', fontWeight: 'bold', fontSize: '14px', cursor: 'pointer' }}>
-                  {submitting ? '⏳ 送信中...' : `${currentType?.icon ?? '💛'} シェアする`}
+                  {submitting ? '⏳ 送信中...' : `${currentType?.icon ?? '⚠️'} シェアする`}
                 </button>
               </div>
             </>
+          )}
+
+          {/* 気づきシェア用フォーム（カテゴリ選択式） */}
+          {form.report_type === 'notice' && (
+            <div>
+              {/* カテゴリ選択 */}
+              <div style={{ marginBottom: '20px' }}>
+                <p style={{ fontSize: '13px', fontWeight: 'bold', color: '#374151', marginBottom: '10px' }}>
+                  どんな気づきをシェアしますか？
+                </p>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
+                  {NOTICE_CATEGORIES.map(cat => (
+                    <button
+                      key={cat.id}
+                      onClick={() => setNoticeCategory(cat.id)}
+                      style={{
+                        padding: '12px 14px', borderRadius: '12px',
+                        border: `2px solid ${noticeCategory === cat.id ? cat.color : '#e5e7eb'}`,
+                        background: noticeCategory === cat.id ? cat.bg : '#fff',
+                        cursor: 'pointer', textAlign: 'left',
+                      }}
+                    >
+                      <p style={{ fontWeight: 'bold', fontSize: '13px', marginBottom: '2px', color: noticeCategory === cat.id ? cat.color : '#374151' }}>
+                        {cat.icon} {cat.label}
+                      </p>
+                      <p style={{ fontSize: '11px', color: '#6b7280', lineHeight: '1.4' }}>{cat.desc}</p>
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {noticeCategory && (() => {
+                const cat = NOTICE_CATEGORIES.find(c => c.id === noticeCategory)!;
+                return (
+                  <div style={{ borderLeft: `3px solid ${cat.color}`, paddingLeft: '16px' }}>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '12px' }}>
+                      <div>
+                        <label style={{ fontSize: '12px', fontWeight: 'bold', color: '#374151' }}>名前 *</label>
+                        <input value={form.reporter_name} onChange={e => setForm({ ...form, reporter_name: e.target.value })} placeholder="例：山田 花子" style={{ width: '100%', padding: '8px 12px', border: '1px solid #e5e7eb', borderRadius: '8px', fontSize: '14px', marginTop: '4px', boxSizing: 'border-box' }} />
+                      </div>
+                      <div>
+                        <label style={{ fontSize: '12px', fontWeight: 'bold', color: '#374151' }}>所属部署 *</label>
+                        <select value={form.department} onChange={e => setForm({ ...form, department: e.target.value })} style={{ width: '100%', padding: '8px 12px', border: '1px solid #e5e7eb', borderRadius: '8px', fontSize: '14px', marginTop: '4px', boxSizing: 'border-box' }}>
+                          {DEPARTMENTS.filter(d => d.id !== 'all').map(d => <option key={d.id} value={d.id}>{d.icon} {d.label}</option>)}
+                        </select>
+                      </div>
+                      <div>
+                        <label style={{ fontSize: '12px', fontWeight: 'bold', color: '#374151' }}>日時（任意）</label>
+                        <input type="datetime-local" value={form.occurred_at} onChange={e => setForm({ ...form, occurred_at: e.target.value })} style={{ width: '100%', padding: '8px 12px', border: '1px solid #e5e7eb', borderRadius: '8px', fontSize: '14px', marginTop: '4px', boxSizing: 'border-box' }} />
+                      </div>
+                    </div>
+
+                    <div style={{ marginBottom: '12px' }}>
+                      <label style={{ fontSize: '13px', fontWeight: 'bold', color: cat.color, marginBottom: '6px', display: 'block' }}>
+                        {cat.icon} {cat.label}の内容 *
+                      </label>
+                      <textarea
+                        value={form.incident}
+                        onChange={e => setForm({ ...form, incident: e.target.value })}
+                        placeholder={cat.placeholder}
+                        rows={5}
+                        style={{
+                          width: '100%', padding: '10px 14px',
+                          border: `1px solid ${cat.color}40`, borderRadius: '10px',
+                          fontSize: '14px', resize: 'vertical', boxSizing: 'border-box',
+                          lineHeight: '1.7', background: cat.bg,
+                        }}
+                      />
+                    </div>
+
+                    <div style={{ marginBottom: '12px' }}>
+                      <label style={{ fontSize: '12px', fontWeight: 'bold', color: '#374151' }}>
+                        一言コメント・補足（任意）
+                      </label>
+                      <textarea
+                        value={form.comment}
+                        onChange={e => setForm({ ...form, comment: e.target.value })}
+                        placeholder="補足や想いがあれば気軽に書いてください"
+                        rows={2}
+                        style={{ width: '100%', padding: '8px 12px', border: '1px solid #e5e7eb', borderRadius: '8px', fontSize: '13px', marginTop: '4px', resize: 'vertical', boxSizing: 'border-box' }}
+                      />
+                    </div>
+
+                    <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
+                      <button onClick={() => setShowForm(false)} style={{ padding: '10px 20px', background: '#f3f4f6', borderRadius: '10px', border: 'none', cursor: 'pointer', fontSize: '14px' }}>キャンセル</button>
+                      <button onClick={handleSubmit} disabled={submitting}
+                        style={{ padding: '10px 24px', background: cat.color, color: '#fff', borderRadius: '10px', border: 'none', fontWeight: 'bold', fontSize: '14px', cursor: 'pointer' }}>
+                        {submitting ? '⏳ 送信中...' : `${cat.icon} シェアする`}
+                      </button>
+                    </div>
+                  </div>
+                );
+              })()}
+            </div>
           )}
         </div>
       )}
@@ -367,6 +491,23 @@ export default function NearMissPage() {
                   <span style={{ fontSize: '11px', fontWeight: 'bold', color: '#fff', background: dept.color, padding: '3px 10px', borderRadius: '9999px', whiteSpace: 'nowrap', marginTop: '2px' }}>
                     {dept.icon} {dept.label}
                   </span>
+
+                  {/* 気づきシェアのカテゴリバッジ */}
+                  {r.report_type === 'notice' && r.notice_category && (() => {
+                    const cat = NOTICE_CATEGORIES.find(c => c.id === r.notice_category);
+                    if (!cat) return null;
+                    return (
+                      <span style={{
+                        fontSize: '11px', fontWeight: 'bold',
+                        color: cat.color, background: cat.bg,
+                        padding: '3px 10px', borderRadius: '9999px',
+                        border: `1px solid ${cat.color}40`,
+                        whiteSpace: 'nowrap', marginTop: '2px',
+                      }}>
+                        {cat.icon} {cat.label}
+                      </span>
+                    );
+                  })()}
 
                   <div style={{ flex: 1 }}>
                     {!r.is_read && <span style={{ fontSize: '10px', background: ti.color, color: '#fff', padding: '1px 6px', borderRadius: '9999px', marginRight: '6px', fontWeight: 'bold' }}>NEW</span>}
