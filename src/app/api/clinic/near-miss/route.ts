@@ -33,6 +33,21 @@ async function ensureTable() {
     ALTER TABLE near_miss_reports
     ADD COLUMN IF NOT EXISTS notice_category TEXT
   `;
+  // ピン留め・実現ステータス・同じ経験カウントカラム追加
+  await sql`ALTER TABLE near_miss_reports ADD COLUMN IF NOT EXISTS is_pinned BOOLEAN DEFAULT FALSE`;
+  await sql`ALTER TABLE near_miss_reports ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'open'`;
+  await sql`ALTER TABLE near_miss_reports ADD COLUMN IF NOT EXISTS status_note TEXT`;
+  await sql`ALTER TABLE near_miss_reports ADD COLUMN IF NOT EXISTS same_experience_count INTEGER DEFAULT 0`;
+  // リアクションテーブル
+  await sql`
+    CREATE TABLE IF NOT EXISTS near_miss_reactions (
+      id         SERIAL PRIMARY KEY,
+      report_id  INTEGER NOT NULL,
+      emoji      TEXT NOT NULL,
+      reactor    TEXT DEFAULT '匿名',
+      created_at TIMESTAMP DEFAULT NOW()
+    )
+  `;
 }
 
 // GET: 一覧取得（部署フィルタ・タイプフィルタ対応）

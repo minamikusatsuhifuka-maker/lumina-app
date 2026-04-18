@@ -114,6 +114,19 @@ export default function NearMissPage() {
   // 説明セクションの開閉
   const [showDefinitions, setShowDefinitions]               = useState(false);
 
+  // リアクション
+  const [reactions, setReactions]           = useState<Record<number, any[]>>({});
+  // 実現ステータス編集
+  const [editStatusId, setEditStatusId]     = useState<number | null>(null);
+  const [statusForm, setStatusForm]         = useState<{ status: string; status_note: string }>({ status: 'open', status_note: '' });
+  // 統計・月次まとめ
+  const [showStats, setShowStats]           = useState(false);
+  const [showMonthly, setShowMonthly]       = useState(false);
+  const [monthlyYear, setMonthlyYear]       = useState(new Date().getFullYear());
+  const [monthlyMonth, setMonthlyMonth]     = useState(new Date().getMonth() + 1);
+  const [monthlySummary, setMonthlySummary] = useState('');
+  const [isGeneratingSummary, setIsGeneratingSummary] = useState(false);
+
   // 初回のみ全件取得
   useEffect(() => { fetchAllReports(); }, []);
 
@@ -122,6 +135,12 @@ export default function NearMissPage() {
     let filtered = [...allReports];
     if (selectedDept !== 'all') filtered = filtered.filter(r => r.department === selectedDept);
     if (selectedType !== 'all') filtered = filtered.filter(r => r.report_type === selectedType);
+    // ピン留めを最上部に
+    filtered.sort((a, b) => {
+      if (a.is_pinned && !b.is_pinned) return -1;
+      if (!a.is_pinned && b.is_pinned) return 1;
+      return 0;
+    });
     setReports(filtered);
   }, [allReports, selectedDept, selectedType]);
 
@@ -259,6 +278,67 @@ export default function NearMissPage() {
 
     setAdminCommentText(data.comment ?? '');
     setGeneratingCommentId(null);
+  };
+
+  const fetchReactions = async (report_id: number) => {
+    const res = await fetch(`/api/clinic/near-miss/reactions?report_id=${report_id}`);
+    const data = await res.json();
+    setReactions(prev => ({ ...prev, [report_id]: data.reactions ?? [] }));
+  };
+
+  const handleReact = async (report_id: number, emoji: string) => {
+    await fetch('/api/clinic/near-miss/reactions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ report_id, emoji }),
+    });
+    fetchReactions(report_id);
+  };
+
+  const handleTogglePin = async (r: any) => {
+    await fetch('/api/clinic/near-miss/status', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: r.id, is_pinned: !r.is_pinned }),
+    });
+    setAllReports(prev => prev.map(item =>
+      item.id === r.id ? { ...item, is_pinned: !r.is_pinned } : item
+    ));
+  };
+
+  const handleSameExperience = async (r: any) => {
+    await fetch('/api/clinic/near-miss/status', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: r.id, increment_same_experience: true }),
+    });
+    setAllReports(prev => prev.map(item =>
+      item.id === r.id ? { ...item, same_experience_count: (item.same_experience_count ?? 0) + 1 } : item
+    ));
+  };
+
+  const handleSaveStatus = async (id: number) => {
+    await fetch('/api/clinic/near-miss/status', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id, status: statusForm.status, status_note: statusForm.status_note }),
+    });
+    setAllReports(prev => prev.map(item =>
+      item.id === id ? { ...item, ...statusForm } : item
+    ));
+    setEditStatusId(null);
+  };
+
+  const handleGenerateMonthlySummary = async () => {
+    setIsGeneratingSummary(true);
+    const res = await fetch('/api/clinic/near-miss/monthly-summary', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ year: monthlyYear, month: monthlyMonth }),
+    });
+    const data = await res.json();
+    setMonthlySummary(data.summary ?? '');
+    setIsGeneratingSummary(false);
   };
 
   const handleSaveNearMissDef = async () => {
@@ -462,6 +542,161 @@ export default function NearMissPage() {
               )}
             </div>
 
+          </div>
+        )}
+      </div>
+
+      {/* 統計ダッシュボード */}
+      <div style={{ margin: '12px 0' }}>
+        <button
+          onClick={() => setShowStats(!showStats)}
+          style={{ padding: '6px 14px', borderRadius: '9999px', border: '1px solid #e5e7eb', background: '#f9fafb', fontSize: '13px', cursor: 'pointer', fontWeight: 'bold', color: '#374151' }}
+        >
+          📊 統計ダッシュボード {showStats ? '▲' : '▼'}
+        </button>
+
+        {showStats && (() => {
+          const total      = allReports.length;
+          const nearMiss   = allReports.filter(r => r.report_type === 'near_miss').length;
+          const notice     = allReports.filter(r => r.report_type === 'notice').length;
+          const done       = allReports.filter(r => r.status === 'done').length;
+          const pinned     = allReports.filter(r => r.is_pinned).length;
+          const withComment = allReports.filter(r => r.admin_comment).length;
+          const commentRate = total ? Math.round((withComment / total) * 100) : 0;
+
+          const catCounts: Record<string, number> = {};
+          allReports.forEach(r => {
+            const key = r.notice_category ?? (r.report_type === 'near_miss' ? 'near_miss' : 'other');
+            catCounts[key] = (catCounts[key] ?? 0) + 1;
+          });
+
+          const monthCounts: Record<string, number> = {};
+          allReports.forEach(r => {
+            const d = new Date(r.created_at);
+            const key = `${d.getFullYear()}/${String(d.getMonth() + 1).padStart(2, '0')}`;
+            monthCounts[key] = (monthCounts[key] ?? 0) + 1;
+          });
+          const months = Object.entries(monthCounts).sort().slice(-6);
+          const maxMonthCount = Math.max(...months.map(([, v]) => v), 1);
+
+          const catLabel = (key: string) => {
+            if (key === 'near_miss') return '⚠️ ヒヤリハット';
+            const c = NOTICE_CATEGORIES.find(x => x.id === key);
+            return c ? `${c.icon} ${c.label}` : key;
+          };
+
+          return (
+            <div style={{ marginTop: '12px', padding: '20px', background: '#fff', border: '1px solid #e5e7eb', borderRadius: '16px' }}>
+
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '10px', marginBottom: '20px' }}>
+                {[
+                  { label: '総シェア数',       value: total,              icon: '📋', color: '#374151' },
+                  { label: 'ヒヤリハット',     value: nearMiss,           icon: '⚠️', color: '#d97706' },
+                  { label: '気づきシェア',     value: notice,             icon: '💡', color: '#059669' },
+                  { label: '解決済み',         value: done,               icon: '✅', color: '#16a34a' },
+                  { label: '管理者コメント率', value: `${commentRate}%`, icon: '💬', color: '#7c3aed' },
+                  { label: 'ピン留め中',       value: pinned,             icon: '📌', color: '#ea580c' },
+                ].map(k => (
+                  <div key={k.label} style={{ padding: '14px', background: '#f9fafb', borderRadius: '12px', textAlign: 'center', border: '1px solid #f3f4f6' }}>
+                    <p style={{ fontSize: '20px', marginBottom: '4px' }}>{k.icon}</p>
+                    <p style={{ fontSize: '22px', fontWeight: 'bold', color: k.color }}>{k.value}</p>
+                    <p style={{ fontSize: '11px', color: '#6b7280' }}>{k.label}</p>
+                  </div>
+                ))}
+              </div>
+
+              <div style={{ marginBottom: '20px' }}>
+                <p style={{ fontSize: '13px', fontWeight: 'bold', color: '#374151', marginBottom: '10px' }}>📅 月別シェア数（直近6ヶ月）</p>
+                <div style={{ display: 'flex', alignItems: 'flex-end', gap: '8px', height: '80px' }}>
+                  {months.map(([month, count]) => (
+                    <div key={month} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px' }}>
+                      <p style={{ fontSize: '11px', color: '#374151', fontWeight: 'bold' }}>{count}</p>
+                      <div style={{
+                        width: '100%',
+                        height: `${(count / maxMonthCount) * 56}px`,
+                        background: '#7c3aed', borderRadius: '4px 4px 0 0', minHeight: '4px',
+                      }} />
+                      <p style={{ fontSize: '10px', color: '#6b7280' }}>{month.slice(5)}月</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <div>
+                <p style={{ fontSize: '13px', fontWeight: 'bold', color: '#374151', marginBottom: '8px' }}>🗂 カテゴリ別件数</p>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                  {Object.entries(catCounts).sort(([,a],[,b]) => b - a).map(([cat, count]) => (
+                    <div key={cat} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <p style={{ fontSize: '12px', color: '#6b7280', width: '200px', flexShrink: 0 }}>
+                        {catLabel(cat)}
+                      </p>
+                      <div style={{ flex: 1, background: '#f3f4f6', borderRadius: '9999px', height: '8px' }}>
+                        <div style={{ width: `${(count / total) * 100}%`, height: '8px', background: '#7c3aed', borderRadius: '9999px' }} />
+                      </div>
+                      <p style={{ fontSize: '12px', color: '#374151', fontWeight: 'bold', width: '24px', textAlign: 'right' }}>{count}</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+            </div>
+          );
+        })()}
+      </div>
+
+      {/* 月次まとめ */}
+      <div style={{ margin: '12px 0' }}>
+        <button
+          onClick={() => setShowMonthly(!showMonthly)}
+          style={{ padding: '6px 14px', borderRadius: '9999px', border: '1px solid #e5e7eb', background: '#f9fafb', fontSize: '13px', cursor: 'pointer', fontWeight: 'bold', color: '#374151' }}
+        >
+          📝 月次まとめを生成 {showMonthly ? '▲' : '▼'}
+        </button>
+
+        {showMonthly && (
+          <div style={{ marginTop: '12px', padding: '20px', background: '#fff', border: '1px solid #e5e7eb', borderRadius: '16px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '14px' }}>
+              <select value={monthlyYear} onChange={e => setMonthlyYear(Number(e.target.value))}
+                style={{ padding: '6px 10px', border: '1px solid #e5e7eb', borderRadius: '8px', fontSize: '13px' }}>
+                {[2024, 2025, 2026].map(y => <option key={y} value={y}>{y}年</option>)}
+              </select>
+              <select value={monthlyMonth} onChange={e => setMonthlyMonth(Number(e.target.value))}
+                style={{ padding: '6px 10px', border: '1px solid #e5e7eb', borderRadius: '8px', fontSize: '13px' }}>
+                {Array.from({ length: 12 }, (_, i) => i + 1).map(m => <option key={m} value={m}>{m}月</option>)}
+              </select>
+              <button
+                onClick={handleGenerateMonthlySummary}
+                disabled={isGeneratingSummary}
+                style={{
+                  padding: '7px 18px',
+                  background: isGeneratingSummary ? '#e9d5ff' : '#7c3aed',
+                  color: '#fff', borderRadius: '8px', border: 'none',
+                  fontSize: '13px', fontWeight: 'bold',
+                  cursor: isGeneratingSummary ? 'not-allowed' : 'pointer',
+                }}
+              >
+                {isGeneratingSummary ? '⏳ 生成中...' : '✨ まとめを生成'}
+              </button>
+            </div>
+
+            {monthlySummary && (
+              <div>
+                <div style={{ padding: '16px', background: '#faf5ff', border: '1px solid #ddd6fe', borderRadius: '12px', marginBottom: '10px' }}>
+                  <p style={{ fontSize: '14px', fontWeight: 'bold', color: '#7c3aed', marginBottom: '8px' }}>
+                    📝 {monthlyYear}年{monthlyMonth}月 チームまとめ
+                  </p>
+                  <p style={{ fontSize: '13px', color: '#374151', lineHeight: '1.8', whiteSpace: 'pre-wrap' }}>
+                    {monthlySummary}
+                  </p>
+                </div>
+                <button
+                  onClick={() => { navigator.clipboard.writeText(`${monthlyYear}年${monthlyMonth}月 チームまとめ\n\n${monthlySummary}`); }}
+                  style={{ fontSize: '12px', color: '#7c3aed', background: 'none', border: 'none', cursor: 'pointer', fontWeight: 'bold' }}
+                >
+                  📋 コピーする
+                </button>
+              </div>
+            )}
           </div>
         )}
       </div>
@@ -912,7 +1147,7 @@ export default function NearMissPage() {
             return (
               <div key={r.id} style={{ borderRadius: '14px', border: `1px solid ${r.is_read ? ti.borderColor + '80' : ti.borderColor}`, background: r.is_read ? '#fff' : ti.bgColor, overflow: 'hidden' }}>
 
-                <div onClick={() => { setExpandedId(isExpanded ? null : r.id); if (!r.is_read) handleMarkRead(r.id); }}
+                <div onClick={() => { const willOpen = !isExpanded; setExpandedId(willOpen ? r.id : null); if (!r.is_read) handleMarkRead(r.id); if (willOpen && !reactions[r.id]) fetchReactions(r.id); }}
                   style={{ padding: '14px 16px', cursor: 'pointer', display: 'flex', alignItems: 'flex-start', gap: '8px' }}>
 
                   {/* タイプバッジ */}
@@ -954,6 +1189,13 @@ export default function NearMissPage() {
                     </div>
                   </div>
 
+                  <button
+                    onClick={e => { e.stopPropagation(); handleTogglePin(r); }}
+                    title={r.is_pinned ? 'ピン留め解除' : 'ピン留め'}
+                    style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '16px', opacity: r.is_pinned ? 1 : 0.3, padding: '2px' }}
+                  >
+                    📌
+                  </button>
                   <span style={{ color: '#9ca3af', fontSize: '12px' }}>{isExpanded ? '▲' : '▼'}</span>
                 </div>
 
@@ -973,6 +1215,109 @@ export default function NearMissPage() {
                         <p style={{ fontSize: '13px', color: '#4b5563', lineHeight: '1.7', background: '#f9fafb', padding: '10px 12px', borderRadius: '8px', whiteSpace: 'pre-wrap' }}>{f.value}</p>
                       </div>
                     ))}
+
+                    {/* リアクション・同じ経験 */}
+                    <div style={{ marginTop: '14px', paddingTop: '12px', borderTop: '1px solid #f3f4f6' }}>
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', marginBottom: '10px' }}>
+                        {['💛', '🙏', '💡', '👏', '🔥', '😮'].map(emoji => {
+                          const found = reactions[r.id]?.find((rx: any) => rx.emoji === emoji);
+                          const count = found ? Number(found.count) : 0;
+                          return (
+                            <button
+                              key={emoji}
+                              onClick={() => handleReact(r.id, emoji)}
+                              style={{
+                                padding: '4px 10px', borderRadius: '9999px',
+                                border: `1px solid ${count > 0 ? '#ddd6fe' : '#e5e7eb'}`,
+                                background: count > 0 ? '#faf5ff' : '#fff',
+                                cursor: 'pointer', fontSize: '13px',
+                                display: 'flex', alignItems: 'center', gap: '4px',
+                              }}
+                            >
+                              {emoji}
+                              {count > 0 && <span style={{ fontSize: '11px', fontWeight: 'bold', color: '#7c3aed' }}>{count}</span>}
+                            </button>
+                          );
+                        })}
+                      </div>
+
+                      <button
+                        onClick={() => handleSameExperience(r)}
+                        style={{
+                          padding: '5px 14px', borderRadius: '9999px',
+                          border: '1px solid #ddd6fe', background: '#faf5ff',
+                          cursor: 'pointer', fontSize: '12px', fontWeight: 'bold',
+                          color: '#7c3aed', display: 'inline-flex', alignItems: 'center', gap: '6px',
+                        }}
+                      >
+                        🙋 私も同じ経験があります
+                        {(r.same_experience_count ?? 0) > 0 && (
+                          <span style={{ background: '#7c3aed', color: '#fff', borderRadius: '9999px', padding: '1px 7px', fontSize: '11px' }}>
+                            {r.same_experience_count}人
+                          </span>
+                        )}
+                      </button>
+                    </div>
+
+                    {/* 実現ステータス */}
+                    <div style={{ marginTop: '10px' }}>
+                      {editStatusId === r.id ? (
+                        <div style={{ padding: '12px', background: '#f0fdf4', borderRadius: '10px', border: '1px solid #bbf7d0' }}>
+                          <p style={{ fontSize: '12px', fontWeight: 'bold', color: '#16a34a', marginBottom: '8px' }}>📋 実現ステータスを設定</p>
+                          <div style={{ display: 'flex', gap: '6px', marginBottom: '8px', flexWrap: 'wrap' }}>
+                            {[
+                              { id: 'open',      label: '📬 受付中',    color: '#6b7280' },
+                              { id: 'reviewing', label: '🔍 検討中',    color: '#d97706' },
+                              { id: 'decided',   label: '✅ 実施決定',  color: '#2563eb' },
+                              { id: 'done',      label: '🎉 完了！',    color: '#16a34a' },
+                            ].map(s => (
+                              <button
+                                key={s.id}
+                                onClick={() => setStatusForm({ ...statusForm, status: s.id })}
+                                style={{
+                                  padding: '4px 12px', borderRadius: '9999px',
+                                  border: `2px solid ${statusForm.status === s.id ? s.color : '#e5e7eb'}`,
+                                  background: statusForm.status === s.id ? s.color : '#fff',
+                                  color: statusForm.status === s.id ? '#fff' : '#374151',
+                                  fontSize: '12px', fontWeight: 'bold', cursor: 'pointer',
+                                }}
+                              >
+                                {s.label}
+                              </button>
+                            ))}
+                          </div>
+                          <input
+                            value={statusForm.status_note}
+                            onChange={e => setStatusForm({ ...statusForm, status_note: e.target.value })}
+                            placeholder="ひとこと添える（任意）例：来月から実施します！"
+                            style={{ width: '100%', padding: '7px 12px', border: '1px solid #6ee7b7', borderRadius: '8px', fontSize: '13px', boxSizing: 'border-box', marginBottom: '8px' }}
+                          />
+                          <div style={{ display: 'flex', gap: '6px' }}>
+                            <button onClick={() => handleSaveStatus(r.id)} style={{ padding: '6px 14px', background: '#16a34a', color: '#fff', borderRadius: '8px', border: 'none', fontSize: '12px', fontWeight: 'bold', cursor: 'pointer' }}>💾 保存</button>
+                            <button onClick={() => setEditStatusId(null)} style={{ padding: '6px 12px', background: '#f3f4f6', borderRadius: '8px', border: 'none', fontSize: '12px', cursor: 'pointer' }}>キャンセル</button>
+                          </div>
+                        </div>
+                      ) : (
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                          {r.status && r.status !== 'open' && (
+                            <span style={{
+                              fontSize: '12px', fontWeight: 'bold', padding: '3px 10px', borderRadius: '9999px',
+                              background: r.status === 'done' ? '#dcfce7' : r.status === 'decided' ? '#dbeafe' : '#fef3c7',
+                              color: r.status === 'done' ? '#16a34a' : r.status === 'decided' ? '#2563eb' : '#d97706',
+                            }}>
+                              {({ reviewing: '🔍 検討中', decided: '✅ 実施決定', done: '🎉 完了！' } as Record<string, string>)[r.status] ?? ''}
+                              {r.status_note && ` — ${r.status_note}`}
+                            </span>
+                          )}
+                          <button
+                            onClick={() => { setEditStatusId(r.id); setStatusForm({ status: r.status ?? 'open', status_note: r.status_note ?? '' }); }}
+                            style={{ fontSize: '11px', color: '#16a34a', background: 'none', border: 'none', cursor: 'pointer', fontWeight: 'bold' }}
+                          >
+                            📋 {r.status && r.status !== 'open' ? 'ステータスを変更' : '実現ステータスを設定'}
+                          </button>
+                        </div>
+                      )}
+                    </div>
 
                     {/* 管理者コメント表示（編集中は非表示） */}
                     {r.admin_comment && adminCommentId !== r.id && (

@@ -27,6 +27,7 @@ const navGroups: NavGroup[] = [
       { href: '/staff/tasks', label: '私のタスク', icon: '✅' },
       { href: '/staff/exams', label: '試験', icon: '📋' },
       { href: '/staff/surveys', label: 'アンケート', icon: '📝' },
+      { href: '/staff/near-miss', label: '気づきシェア', icon: '💛' },
     ],
   },
   {
