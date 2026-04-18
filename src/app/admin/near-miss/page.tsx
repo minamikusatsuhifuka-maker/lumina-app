@@ -39,20 +39,16 @@ const NOTICE_CATEGORIES = [
 ];
 
 const DEPARTMENTS = [
-  { id: 'all',        label: '全て',              color: '#374151', icon: '📋' },
-  { id: 'reception',  label: '受付・クラーク',     color: '#3b82f6', icon: '🏥' },
-  { id: 'counselor',  label: 'カウンセラー',       color: '#8b5cf6', icon: '💬' },
-  { id: 'nurse',      label: '看護師',             color: '#10b981', icon: '💉' },
-  { id: 'cosmetic',   label: '美容診療',           color: '#f59e0b', icon: '✨' },
-  { id: 'insurance',  label: '保険診療',           color: '#ef4444', icon: '📋' },
-  { id: 'multitask',  label: 'マルチタスク医療事務', color: '#6366f1', icon: '🗂' },
-  { id: 'other',      label: 'その他',             color: '#9ca3af', icon: '📝' },
+  { id: 'all',       label: '全て',         color: '#374151', icon: '📋' },
+  { id: 'multitask', label: 'マルチタスク', color: '#6366f1', icon: '🗂' },
+  { id: 'nurse',     label: '看護師',       color: '#10b981', icon: '💉' },
+  { id: 'doctor',    label: '医師',         color: '#3b82f6', icon: '🩺' },
 ];
 
 const emptyForm = {
   report_type: '' as string,
   reporter_name: '',
-  department: 'reception',
+  department: 'multitask',
   occurred_at: '',
   location: '',
   incident: '',
@@ -373,7 +369,7 @@ export default function NearMissPage() {
                   <input value={form.reporter_name} onChange={e => setForm({ ...form, reporter_name: e.target.value })} placeholder="例：山田 花子" style={{ width: '100%', padding: '8px 12px', border: '1px solid #e5e7eb', borderRadius: '8px', fontSize: '14px', marginTop: '4px', boxSizing: 'border-box' }} />
                 </div>
                 <div>
-                  <label style={{ fontSize: '12px', fontWeight: 'bold', color: '#374151' }}>所属部署 *</label>
+                  <label style={{ fontSize: '12px', fontWeight: 'bold', color: '#374151' }}>役割 *</label>
                   <select value={form.department} onChange={e => setForm({ ...form, department: e.target.value })} style={{ width: '100%', padding: '8px 12px', border: '1px solid #e5e7eb', borderRadius: '8px', fontSize: '14px', marginTop: '4px', boxSizing: 'border-box' }}>
                     {DEPARTMENTS.filter(d => d.id !== 'all').map(d => <option key={d.id} value={d.id}>{d.icon} {d.label}</option>)}
                   </select>
@@ -453,7 +449,7 @@ export default function NearMissPage() {
                         <input value={form.reporter_name} onChange={e => setForm({ ...form, reporter_name: e.target.value })} placeholder="例：山田 花子" style={{ width: '100%', padding: '8px 12px', border: '1px solid #e5e7eb', borderRadius: '8px', fontSize: '14px', marginTop: '4px', boxSizing: 'border-box' }} />
                       </div>
                       <div>
-                        <label style={{ fontSize: '12px', fontWeight: 'bold', color: '#374151' }}>所属部署 *</label>
+                        <label style={{ fontSize: '12px', fontWeight: 'bold', color: '#374151' }}>役割 *</label>
                         <select value={form.department} onChange={e => setForm({ ...form, department: e.target.value })} style={{ width: '100%', padding: '8px 12px', border: '1px solid #e5e7eb', borderRadius: '8px', fontSize: '14px', marginTop: '4px', boxSizing: 'border-box' }}>
                           {DEPARTMENTS.filter(d => d.id !== 'all').map(d => <option key={d.id} value={d.id}>{d.icon} {d.label}</option>)}
                         </select>
