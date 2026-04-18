@@ -5,6 +5,7 @@ async function ensureTable() {
   await sql`
     CREATE TABLE IF NOT EXISTS near_miss_reports (
       id                  SERIAL PRIMARY KEY,
+      report_type         TEXT DEFAULT 'near_miss',
       reporter_name       TEXT NOT NULL,
       department          TEXT NOT NULL,
       occurred_at         TIMESTAMP NOT NULL,
@@ -21,6 +22,11 @@ async function ensureTable() {
       is_shared           BOOLEAN DEFAULT FALSE,
       created_at          TIMESTAMP DEFAULT NOW()
     )
+  `;
+  // 既存テーブルにreport_typeカラムを追加（既にある場合はスキップ）
+  await sql`
+    ALTER TABLE near_miss_reports
+    ADD COLUMN IF NOT EXISTS report_type TEXT DEFAULT 'near_miss'
   `;
 }
 
