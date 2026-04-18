@@ -54,6 +54,7 @@ const emptyForm = {
 
 export default function NearMissPage() {
   const [reports, setReports]                   = useState<any[]>([]);
+  const [allReports, setAllReports]             = useState<any[]>([]);
   const [selectedDept, setSelectedDept]         = useState('all');
   const [selectedType, setSelectedType]         = useState('all');
   const [showForm, setShowForm]                 = useState(false);
@@ -91,6 +92,11 @@ export default function NearMissPage() {
     const res = await fetch(`/api/clinic/near-miss?${params.toString()}`);
     const data = await res.json();
     setReports(data.reports ?? []);
+
+    // 件数表示用：全件（フィルタなし）
+    const allRes = await fetch('/api/clinic/near-miss');
+    const allData = await allRes.json();
+    setAllReports(allData.reports ?? []);
   };
 
   const handleSubmit = async () => {
@@ -333,7 +339,7 @@ export default function NearMissPage() {
           <button key={d.id} onClick={() => setSelectedDept(d.id)}
             style={{ padding: '6px 14px', borderRadius: '9999px', fontSize: '13px', fontWeight: 'bold', border: `2px solid ${selectedDept === d.id ? d.color : '#e5e7eb'}`, background: selectedDept === d.id ? d.color : '#fff', color: selectedDept === d.id ? '#fff' : '#374151', cursor: 'pointer' }}>
             {d.icon} {d.label}
-            {d.id !== 'all' && <span style={{ marginLeft: '4px', fontSize: '11px', opacity: 0.8 }}>({reports.filter(r => r.department === d.id).length})</span>}
+            {d.id !== 'all' && <span style={{ marginLeft: '4px', fontSize: '11px', opacity: 0.8 }}>({allReports.filter(r => r.department === d.id).length})</span>}
           </button>
         ))}
       </div>
