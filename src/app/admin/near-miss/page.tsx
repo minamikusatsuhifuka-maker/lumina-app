@@ -76,6 +76,11 @@ export default function NearMissPage() {
   const [submitted, setSubmitted]               = useState(false);
   const [noticeCategory, setNoticeCategory]     = useState('');
 
+  // 個人情報チェック
+  const [privacyWarning, setPrivacyWarning]     = useState<{ detected_items: string[]; suggestion: string } | null>(null);
+  const [isCheckingPrivacy, setIsCheckingPrivacy] = useState(false);
+  const [privacyChecked, setPrivacyChecked]     = useState(false);
+
   // サブタイトル編集
   const [subtitle, setSubtitle]                     = useState('小さな気づきを分かち合うことが、チームみんなの安心につながります。');
   const [isEditingSubtitle, setIsEditingSubtitle]   = useState(false);
@@ -115,6 +120,44 @@ export default function NearMissPage() {
     setAllReports(data.reports ?? []);
   };
 
+  const checkPrivacy = async (): Promise<boolean> => {
+    const textToCheck = [
+      form.incident,
+      form.direct_cause,
+      form.background_cause,
+      form.prevention_personal,
+      form.prevention_team,
+      form.reflection,
+      form.comment,
+    ].filter(Boolean).join('\n');
+
+    if (!textToCheck.trim()) return true;
+
+    setIsCheckingPrivacy(true);
+    setPrivacyWarning(null);
+
+    const res = await fetch('/api/clinic/near-miss/check-privacy', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text: textToCheck }),
+    });
+    const data = await res.json();
+    setIsCheckingPrivacy(false);
+
+    if (data.has_personal_info) {
+      setPrivacyWarning({
+        detected_items: data.detected_items ?? [],
+        suggestion: data.suggestion ?? '',
+      });
+      setPrivacyChecked(false);
+      return false;
+    }
+
+    setPrivacyWarning(null);
+    setPrivacyChecked(true);
+    return true;
+  };
+
   const handleSubmit = async () => {
     if (!form.report_type) {
       alert('種類を選んでください');
@@ -132,6 +175,11 @@ export default function NearMissPage() {
       alert('名前と内容は必須です');
       return;
     }
+
+    // 個人情報チェック
+    const isClean = await checkPrivacy();
+    if (!isClean) return;
+
     const submitForm = {
       ...form,
       notice_category: form.report_type === 'notice' ? noticeCategory : null,
@@ -147,6 +195,8 @@ export default function NearMissPage() {
     setSubmitted(true);
     setShowForm(false);
     setNoticeCategory('');
+    setPrivacyWarning(null);
+    setPrivacyChecked(false);
     setForm({ ...emptyForm });
     await fetchAllReports();
     setTimeout(() => setSubmitted(false), 3000);
@@ -395,16 +445,76 @@ export default function NearMissPage() {
               ].map(f => (
                 <div key={f.key} style={{ marginBottom: '10px' }}>
                   <label style={{ fontSize: '12px', fontWeight: 'bold', color: '#374151' }}>{f.label}</label>
-                  <textarea value={(form as any)[f.key]} onChange={e => setForm({ ...form, [f.key]: e.target.value })} placeholder={f.placeholder} rows={3}
+                  <textarea value={(form as any)[f.key]} onChange={e => { setForm({ ...form, [f.key]: e.target.value }); setPrivacyWarning(null); setPrivacyChecked(false); }} placeholder={f.placeholder} rows={3}
                     style={{ width: '100%', padding: '8px 12px', border: '1px solid #e5e7eb', borderRadius: '8px', fontSize: '13px', marginTop: '4px', resize: 'vertical', boxSizing: 'border-box', lineHeight: '1.6' }} />
                 </div>
               ))}
 
+              {/* 個人情報チェック中 */}
+              {isCheckingPrivacy && (
+                <div style={{ padding: '10px 14px', background: '#f0f9ff', border: '1px solid #bae6fd', borderRadius: '10px', marginBottom: '10px', fontSize: '13px', color: '#0369a1', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <span>⏳</span>
+                  <span>個人情報が含まれていないか確認中...</span>
+                </div>
+              )}
+
+              {/* 個人情報警告 */}
+              {privacyWarning && (
+                <div style={{ padding: '14px 16px', background: '#fef2f2', border: '2px solid #fca5a5', borderRadius: '12px', marginBottom: '12px' }}>
+                  <div style={{ display: 'flex', alignItems: 'flex-start', gap: '8px', marginBottom: '8px' }}>
+                    <span style={{ fontSize: '18px', flexShrink: 0 }}>⚠️</span>
+                    <div>
+                      <p style={{ fontWeight: 'bold', color: '#dc2626', fontSize: '14px', marginBottom: '4px' }}>
+                        個人を特定できる情報が含まれています
+                      </p>
+                      <p style={{ fontSize: '13px', color: '#6b7280' }}>
+                        修正してから送信してください。ID番号は記載可能です。
+                      </p>
+                    </div>
+                  </div>
+                  {privacyWarning.detected_items.length > 0 && (
+                    <div style={{ marginBottom: '8px' }}>
+                      <p style={{ fontSize: '12px', fontWeight: 'bold', color: '#dc2626', marginBottom: '4px' }}>🔍 検出された情報：</p>
+                      {privacyWarning.detected_items.map((item, i) => (
+                        <div key={i} style={{ display: 'inline-block', margin: '2px 4px 2px 0', padding: '2px 10px', background: '#fee2e2', borderRadius: '9999px', fontSize: '12px', color: '#dc2626', fontWeight: 'bold' }}>
+                          {item}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  {privacyWarning.suggestion && (
+                    <div style={{ padding: '10px 12px', background: '#fff', borderRadius: '8px', border: '1px solid #fca5a5', fontSize: '13px', color: '#374151', lineHeight: '1.6' }}>
+                      <p style={{ fontWeight: 'bold', color: '#d97706', marginBottom: '4px' }}>💡 修正の提案</p>
+                      <p>{privacyWarning.suggestion}</p>
+                    </div>
+                  )}
+                  <button
+                    onClick={checkPrivacy}
+                    style={{ marginTop: '10px', padding: '6px 16px', background: '#dc2626', color: '#fff', borderRadius: '8px', border: 'none', fontSize: '12px', fontWeight: 'bold', cursor: 'pointer' }}
+                  >
+                    🔍 修正後に再チェックする
+                  </button>
+                </div>
+              )}
+
+              {/* チェック済みOK */}
+              {privacyChecked && !privacyWarning && (
+                <div style={{ padding: '8px 14px', background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: '8px', marginBottom: '10px', fontSize: '12px', color: '#16a34a', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  ✅ 個人情報のチェックが完了しました。送信できます。
+                </div>
+              )}
+
               <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end', marginTop: '16px' }}>
-                <button onClick={() => setShowForm(false)} style={{ padding: '10px 20px', background: '#f3f4f6', borderRadius: '10px', border: 'none', cursor: 'pointer', fontSize: '14px' }}>キャンセル</button>
-                <button onClick={handleSubmit} disabled={submitting}
-                  style={{ padding: '10px 24px', background: currentType?.color ?? '#d97706', color: '#fff', borderRadius: '10px', border: 'none', fontWeight: 'bold', fontSize: '14px', cursor: 'pointer' }}>
-                  {submitting ? '⏳ 送信中...' : `${currentType?.icon ?? '⚠️'} シェアする`}
+                <button onClick={() => { setShowForm(false); setPrivacyWarning(null); setPrivacyChecked(false); }} style={{ padding: '10px 20px', background: '#f3f4f6', borderRadius: '10px', border: 'none', cursor: 'pointer', fontSize: '14px' }}>キャンセル</button>
+                <button onClick={handleSubmit} disabled={submitting || isCheckingPrivacy || !!privacyWarning}
+                  style={{
+                    padding: '10px 24px',
+                    background: (submitting || isCheckingPrivacy || privacyWarning) ? '#e5e7eb' : (currentType?.color ?? '#d97706'),
+                    color: (submitting || isCheckingPrivacy || privacyWarning) ? '#9ca3af' : '#fff',
+                    borderRadius: '10px', border: 'none', fontWeight: 'bold', fontSize: '14px',
+                    cursor: (submitting || isCheckingPrivacy || privacyWarning) ? 'not-allowed' : 'pointer',
+                  }}>
+                  {isCheckingPrivacy ? '⏳ 確認中...' : submitting ? '⏳ 送信中...' : privacyWarning ? '⚠️ 修正してから送信' : `${currentType?.icon ?? '⚠️'} シェアする`}
                 </button>
               </div>
             </>
@@ -466,7 +576,7 @@ export default function NearMissPage() {
                       </label>
                       <textarea
                         value={form.incident}
-                        onChange={e => setForm({ ...form, incident: e.target.value })}
+                        onChange={e => { setForm({ ...form, incident: e.target.value }); setPrivacyWarning(null); setPrivacyChecked(false); }}
                         placeholder={cat.placeholder}
                         rows={5}
                         style={{
@@ -484,18 +594,78 @@ export default function NearMissPage() {
                       </label>
                       <textarea
                         value={form.comment}
-                        onChange={e => setForm({ ...form, comment: e.target.value })}
+                        onChange={e => { setForm({ ...form, comment: e.target.value }); setPrivacyWarning(null); setPrivacyChecked(false); }}
                         placeholder="補足や想いがあれば気軽に書いてください"
                         rows={2}
                         style={{ width: '100%', padding: '8px 12px', border: '1px solid #e5e7eb', borderRadius: '8px', fontSize: '13px', marginTop: '4px', resize: 'vertical', boxSizing: 'border-box' }}
                       />
                     </div>
 
+                    {/* 個人情報チェック中 */}
+                    {isCheckingPrivacy && (
+                      <div style={{ padding: '10px 14px', background: '#f0f9ff', border: '1px solid #bae6fd', borderRadius: '10px', marginBottom: '10px', fontSize: '13px', color: '#0369a1', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <span>⏳</span>
+                        <span>個人情報が含まれていないか確認中...</span>
+                      </div>
+                    )}
+
+                    {/* 個人情報警告 */}
+                    {privacyWarning && (
+                      <div style={{ padding: '14px 16px', background: '#fef2f2', border: '2px solid #fca5a5', borderRadius: '12px', marginBottom: '12px' }}>
+                        <div style={{ display: 'flex', alignItems: 'flex-start', gap: '8px', marginBottom: '8px' }}>
+                          <span style={{ fontSize: '18px', flexShrink: 0 }}>⚠️</span>
+                          <div>
+                            <p style={{ fontWeight: 'bold', color: '#dc2626', fontSize: '14px', marginBottom: '4px' }}>
+                              個人を特定できる情報が含まれています
+                            </p>
+                            <p style={{ fontSize: '13px', color: '#6b7280' }}>
+                              修正してから送信してください。ID番号は記載可能です。
+                            </p>
+                          </div>
+                        </div>
+                        {privacyWarning.detected_items.length > 0 && (
+                          <div style={{ marginBottom: '8px' }}>
+                            <p style={{ fontSize: '12px', fontWeight: 'bold', color: '#dc2626', marginBottom: '4px' }}>🔍 検出された情報：</p>
+                            {privacyWarning.detected_items.map((item, i) => (
+                              <div key={i} style={{ display: 'inline-block', margin: '2px 4px 2px 0', padding: '2px 10px', background: '#fee2e2', borderRadius: '9999px', fontSize: '12px', color: '#dc2626', fontWeight: 'bold' }}>
+                                {item}
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                        {privacyWarning.suggestion && (
+                          <div style={{ padding: '10px 12px', background: '#fff', borderRadius: '8px', border: '1px solid #fca5a5', fontSize: '13px', color: '#374151', lineHeight: '1.6' }}>
+                            <p style={{ fontWeight: 'bold', color: '#d97706', marginBottom: '4px' }}>💡 修正の提案</p>
+                            <p>{privacyWarning.suggestion}</p>
+                          </div>
+                        )}
+                        <button
+                          onClick={checkPrivacy}
+                          style={{ marginTop: '10px', padding: '6px 16px', background: '#dc2626', color: '#fff', borderRadius: '8px', border: 'none', fontSize: '12px', fontWeight: 'bold', cursor: 'pointer' }}
+                        >
+                          🔍 修正後に再チェックする
+                        </button>
+                      </div>
+                    )}
+
+                    {/* チェック済みOK */}
+                    {privacyChecked && !privacyWarning && (
+                      <div style={{ padding: '8px 14px', background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: '8px', marginBottom: '10px', fontSize: '12px', color: '#16a34a', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                        ✅ 個人情報のチェックが完了しました。送信できます。
+                      </div>
+                    )}
+
                     <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
-                      <button onClick={() => setShowForm(false)} style={{ padding: '10px 20px', background: '#f3f4f6', borderRadius: '10px', border: 'none', cursor: 'pointer', fontSize: '14px' }}>キャンセル</button>
-                      <button onClick={handleSubmit} disabled={submitting}
-                        style={{ padding: '10px 24px', background: cat.color, color: '#fff', borderRadius: '10px', border: 'none', fontWeight: 'bold', fontSize: '14px', cursor: 'pointer' }}>
-                        {submitting ? '⏳ 送信中...' : `${cat.icon} シェアする`}
+                      <button onClick={() => { setShowForm(false); setPrivacyWarning(null); setPrivacyChecked(false); }} style={{ padding: '10px 20px', background: '#f3f4f6', borderRadius: '10px', border: 'none', cursor: 'pointer', fontSize: '14px' }}>キャンセル</button>
+                      <button onClick={handleSubmit} disabled={submitting || isCheckingPrivacy || !!privacyWarning}
+                        style={{
+                          padding: '10px 24px',
+                          background: (submitting || isCheckingPrivacy || privacyWarning) ? '#e5e7eb' : cat.color,
+                          color: (submitting || isCheckingPrivacy || privacyWarning) ? '#9ca3af' : '#fff',
+                          borderRadius: '10px', border: 'none', fontWeight: 'bold', fontSize: '14px',
+                          cursor: (submitting || isCheckingPrivacy || privacyWarning) ? 'not-allowed' : 'pointer',
+                        }}>
+                        {isCheckingPrivacy ? '⏳ 確認中...' : submitting ? '⏳ 送信中...' : privacyWarning ? '⚠️ 修正してから送信' : `${cat.icon} シェアする`}
                       </button>
                     </div>
                   </div>
