@@ -99,6 +99,21 @@ export default function NearMissPage() {
   const [noticeCautionDraft, setNoticeCautionDraft]         = useState('');
   const [noticeCautionSaved, setNoticeCautionSaved]         = useState(false);
 
+  // ヒヤリハット定義
+  const [nearMissDefinition, setNearMissDefinition]         = useState('ヒヤリハットとは、重大な事故にはつながらなかったものの、「ヒヤリ」としたり「ハッ」としたりした出来事のことです。\n1件の重大事故の背景には、29件の軽微な事故、そして300件のヒヤリハットがあると言われています（ハインリッヒの法則）。\n小さな気づきを共有することが、大きな事故を未然に防ぐ第一歩になります。');
+  const [isEditingNearMissDef, setIsEditingNearMissDef]     = useState(false);
+  const [nearMissDefDraft, setNearMissDefDraft]             = useState('');
+  const [nearMissDefSaved, setNearMissDefSaved]             = useState(false);
+
+  // 気づきシェア意義
+  const [noticeDefinition, setNoticeDefinition]             = useState('気づきシェアとは、日々の仕事の中で気づいた改善のアイデア・工夫・うれしかったこと・学びなどをチームみんなで分かち合う取り組みです。\n一人の小さな気づきが、チーム全体の成長と幸せにつながります。\nシェアすることで、あなた自身の成長にもなり、周りへのポジティブな影響力が広がります。');
+  const [isEditingNoticeDef, setIsEditingNoticeDef]         = useState(false);
+  const [noticeDefDraft, setNoticeDefDraft]                 = useState('');
+  const [noticeDefSaved, setNoticeDefSaved]                 = useState(false);
+
+  // 説明セクションの開閉
+  const [showDefinitions, setShowDefinitions]               = useState(false);
+
   // 初回のみ全件取得
   useEffect(() => { fetchAllReports(); }, []);
 
@@ -116,7 +131,9 @@ export default function NearMissPage() {
       .then(data => {
         if (data.near_miss_subtitle) setSubtitle(data.near_miss_subtitle);
         if (data.near_miss_caution)  setNearMissCaution(data.near_miss_caution);
-        if (data.notice_caution)     setNoticeCaution(data.notice_caution);
+        if (data.notice_caution)       setNoticeCaution(data.notice_caution);
+        if (data.near_miss_definition) setNearMissDefinition(data.near_miss_definition);
+        if (data.notice_definition)    setNoticeDefinition(data.notice_definition);
       })
       .catch(() => {});
   }, []);
@@ -244,6 +261,30 @@ export default function NearMissPage() {
     setGeneratingCommentId(null);
   };
 
+  const handleSaveNearMissDef = async () => {
+    await fetch('/api/clinic/settings', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ key: 'near_miss_definition', value: nearMissDefDraft }),
+    });
+    setNearMissDefinition(nearMissDefDraft);
+    setIsEditingNearMissDef(false);
+    setNearMissDefSaved(true);
+    setTimeout(() => setNearMissDefSaved(false), 2500);
+  };
+
+  const handleSaveNoticeDef = async () => {
+    await fetch('/api/clinic/settings', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ key: 'notice_definition', value: noticeDefDraft }),
+    });
+    setNoticeDefinition(noticeDefDraft);
+    setIsEditingNoticeDef(false);
+    setNoticeDefSaved(true);
+    setTimeout(() => setNoticeDefSaved(false), 2500);
+  };
+
   const handleSaveNoticeCaution = async () => {
     await fetch('/api/clinic/settings', {
       method: 'POST',
@@ -329,6 +370,100 @@ export default function NearMissPage() {
         >
           ＋ シェアする
         </button>
+      </div>
+
+      {/* ===== ヒヤリハット定義・気づきシェア意義セクション ===== */}
+      <div style={{ margin: '16px 0' }}>
+        <button
+          onClick={() => setShowDefinitions(!showDefinitions)}
+          style={{
+            display: 'flex', alignItems: 'center', gap: '8px',
+            padding: '8px 14px', background: 'none',
+            border: '1px solid #e5e7eb', borderRadius: '9999px',
+            cursor: 'pointer', fontSize: '13px', color: '#6b7280', fontWeight: 'bold',
+          }}
+        >
+          📖 ヒヤリハット・気づきシェアとは？
+          <span style={{ fontSize: '11px' }}>{showDefinitions ? '▲ 閉じる' : '▼ 開く'}</span>
+        </button>
+
+        {showDefinitions && (
+          <div style={{ marginTop: '12px', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+
+            {/* ヒヤリハットの定義 */}
+            <div style={{ padding: '16px 18px', background: '#fffbeb', border: '1px solid #fcd34d', borderRadius: '14px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '8px' }}>
+                <p style={{ fontSize: '14px', fontWeight: 'bold', color: '#d97706' }}>⚠️ ヒヤリハットとは</p>
+                {!isEditingNearMissDef && (
+                  <button
+                    onClick={() => { setNearMissDefDraft(nearMissDefinition); setIsEditingNearMissDef(true); }}
+                    style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '13px', color: '#d1d5db' }}
+                  >
+                    ✏️
+                  </button>
+                )}
+              </div>
+
+              {isEditingNearMissDef ? (
+                <div>
+                  <textarea
+                    value={nearMissDefDraft}
+                    onChange={e => setNearMissDefDraft(e.target.value)}
+                    rows={6}
+                    autoFocus
+                    style={{ width: '100%', padding: '8px 12px', border: '1px solid #fcd34d', borderRadius: '8px', fontSize: '13px', resize: 'vertical', boxSizing: 'border-box', lineHeight: '1.7', background: '#fff' }}
+                  />
+                  <div style={{ display: 'flex', gap: '6px', marginTop: '6px' }}>
+                    <button onClick={handleSaveNearMissDef} style={{ padding: '5px 14px', background: '#d97706', color: '#fff', borderRadius: '8px', border: 'none', fontSize: '12px', fontWeight: 'bold', cursor: 'pointer' }}>💾 保存</button>
+                    <button onClick={() => setIsEditingNearMissDef(false)} style={{ padding: '5px 12px', background: '#f3f4f6', color: '#374151', borderRadius: '8px', border: 'none', fontSize: '12px', cursor: 'pointer' }}>キャンセル</button>
+                  </div>
+                  {nearMissDefSaved && <p style={{ fontSize: '12px', color: '#16a34a', marginTop: '4px' }}>✓ 保存しました</p>}
+                </div>
+              ) : (
+                <p style={{ fontSize: '13px', color: '#92400e', lineHeight: '1.8', whiteSpace: 'pre-wrap' }}>
+                  {nearMissDefinition}
+                </p>
+              )}
+            </div>
+
+            {/* 気づきシェアの意義 */}
+            <div style={{ padding: '16px 18px', background: '#f0fdf4', border: '1px solid #6ee7b7', borderRadius: '14px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '8px' }}>
+                <p style={{ fontSize: '14px', fontWeight: 'bold', color: '#059669' }}>💡 気づきシェアとは</p>
+                {!isEditingNoticeDef && (
+                  <button
+                    onClick={() => { setNoticeDefDraft(noticeDefinition); setIsEditingNoticeDef(true); }}
+                    style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '13px', color: '#d1d5db' }}
+                  >
+                    ✏️
+                  </button>
+                )}
+              </div>
+
+              {isEditingNoticeDef ? (
+                <div>
+                  <textarea
+                    value={noticeDefDraft}
+                    onChange={e => setNoticeDefDraft(e.target.value)}
+                    rows={6}
+                    autoFocus
+                    style={{ width: '100%', padding: '8px 12px', border: '1px solid #6ee7b7', borderRadius: '8px', fontSize: '13px', resize: 'vertical', boxSizing: 'border-box', lineHeight: '1.7', background: '#fff' }}
+                  />
+                  <div style={{ display: 'flex', gap: '6px', marginTop: '6px' }}>
+                    <button onClick={handleSaveNoticeDef} style={{ padding: '5px 14px', background: '#059669', color: '#fff', borderRadius: '8px', border: 'none', fontSize: '12px', fontWeight: 'bold', cursor: 'pointer' }}>💾 保存</button>
+                    <button onClick={() => setIsEditingNoticeDef(false)} style={{ padding: '5px 12px', background: '#f3f4f6', color: '#374151', borderRadius: '8px', border: 'none', fontSize: '12px', cursor: 'pointer' }}>キャンセル</button>
+                  </div>
+                  {noticeDefSaved && <p style={{ fontSize: '12px', color: '#16a34a', marginTop: '4px' }}>✓ 保存しました</p>}
+                </div>
+              ) : (
+                <p style={{ fontSize: '13px', color: '#065f46', lineHeight: '1.8', whiteSpace: 'pre-wrap' }}>
+                  {noticeDefinition}
+                </p>
+              )}
+            </div>
+
+          </div>
+        )}
       </div>
 
       {/* 送信完了 */}
