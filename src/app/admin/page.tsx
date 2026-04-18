@@ -18,7 +18,7 @@ export default async function AdminDashboardPage() {
     staffRows, evalRows, pendingApprovalRows,
     thisMonthMeetingRows, applicantRows,
     pendingOneOnOneRows, gradeDistRows,
-    stageUpRows,
+    stageUpRows, nearMissUnreadRows,
   ] = await Promise.all([
     sql`SELECT COUNT(*) as count FROM staff WHERE status = 'active'`.catch(() => [{ count: 0 }]),
     sql`SELECT COUNT(*) as count FROM staff_evaluations`.catch(() => [{ count: 0 }]),
@@ -63,6 +63,8 @@ export default async function AdminDashboardPage() {
       AND a.growth_stage != b.growth_stage
       LIMIT 3
     `.catch(() => []),
+    // ヒヤリハット未読件数
+    sql`SELECT COUNT(*) as count FROM near_miss_reports WHERE is_read = false`.catch(() => [{ count: 0 }]),
   ]);
 
   const staffCount = Number(staffRows[0]?.count || 0);
@@ -72,6 +74,7 @@ export default async function AdminDashboardPage() {
   const pendingOneOnOne = (pendingOneOnOneRows as any[]);
   const gradeDistribution = (gradeDistRows as any[]);
   const stageUpStaffs = (stageUpRows as any[]);
+  const nearMissUnreadCount = Number(nearMissUnreadRows[0]?.count || 0);
 
   const jstHour = (new Date().getUTCHours() + 9) % 24;
   const greeting = jstHour < 11 ? 'おはようございます' :
@@ -137,6 +140,27 @@ export default async function AdminDashboardPage() {
           </Link>
         ))}
       </div>
+
+      {/* ヒヤリハット未読アラート */}
+      {nearMissUnreadCount > 0 && (
+        <Link href="/admin/near-miss" style={{ textDecoration: 'none' }}>
+          <div style={{
+            display: 'flex', alignItems: 'center', gap: '10px',
+            padding: '14px 16px', background: '#fef2f2',
+            border: '2px solid #fca5a5', borderRadius: '12px',
+            marginBottom: '16px', cursor: 'pointer',
+          }}>
+            <span style={{ fontSize: '20px' }}>⚠️</span>
+            <div style={{ flex: 1 }}>
+              <p style={{ fontWeight: 'bold', color: '#dc2626', fontSize: '14px' }}>
+                未読のヒヤリハット報告 {nearMissUnreadCount}件
+              </p>
+              <p style={{ fontSize: '12px', color: '#9ca3af' }}>クリックして確認する</p>
+            </div>
+            <span style={{ color: '#dc2626' }}>→</span>
+          </div>
+        </Link>
+      )}
 
       {/* 今日のアクション */}
       {(pendingApprovals.length > 0 || pendingOneOnOne.length > 0 || stageUpStaffs.length > 0) && (
