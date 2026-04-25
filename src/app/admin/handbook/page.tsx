@@ -16,6 +16,11 @@ export default function HandbookListPage() {
   const [dragOver, setDragOver] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
 
+  // タイトル編集用 state
+  const [editingTitleId, setEditingTitleId] = useState<string | null>(null);
+  const [titleDraft, setTitleDraft] = useState('');
+  const [savingTitleId, setSavingTitleId] = useState<string | null>(null);
+
   useEffect(() => { fetch('/api/clinic/handbooks').then(r => r.json()).then(d => { if (Array.isArray(d)) setHandbooks(d); setLoading(false); }); }, []);
 
   const handleImport = async (file: File) => {
@@ -74,6 +79,28 @@ export default function HandbookListPage() {
     setHandbooks(prev => prev.filter(h => h.id !== id));
   };
 
+  // タイトル保存
+  const handleSaveTitle = async (id: string) => {
+    if (!titleDraft.trim()) {
+      alert('タイトルを入力してください');
+      return;
+    }
+    setSavingTitleId(id);
+    await fetch(`/api/clinic/handbooks/${id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ title: titleDraft.trim() }),
+    });
+    setSavingTitleId(null);
+    setEditingTitleId(null);
+    fetchData();
+  };
+
+  const handleKeyDownTitle = (e: React.KeyboardEvent, id: string) => {
+    if (e.key === 'Enter') handleSaveTitle(id);
+    if (e.key === 'Escape') setEditingTitleId(null);
+  };
+
   // ロック切り替え
   const toggleLock = async (id: string, isLocked: boolean) => {
     if (isLocked) {
@@ -86,6 +113,9 @@ export default function HandbookListPage() {
 
   return (
     <div style={{ maxWidth: 900, margin: '0 auto', paddingBottom: 60 }}>
+      <style>{`
+        .handbook-card:hover .title-edit-btn { opacity: 1 !important; }
+      `}</style>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
         <h1 style={{ fontSize: 26, fontWeight: 700, color: 'var(--text-primary)' }}>📖 ハンドブック</h1>
         <div style={{ display: 'flex', gap: 8 }}>
@@ -132,13 +162,52 @@ export default function HandbookListPage() {
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
           {handbooks.map(h => (
-            <div key={h.id} style={{ padding: 18, background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 14, borderLeft: h.is_locked ? '4px solid #f87171' : undefined }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                <Link href={h.is_locked ? '#' : `/admin/handbook/${h.id}`} onClick={e => { if (h.is_locked) e.preventDefault(); }} style={{ textDecoration: 'none', flex: 1, opacity: h.is_locked ? 0.7 : 1 }}>
-                  <div style={{ fontSize: 16, fontWeight: 700, color: 'var(--text-primary)' }}>{h.title}</div>
-                  {h.description && <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 2 }}>{h.description}</div>}
-                  <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4 }}>{h.chapter_count || 0}章 / {new Date(h.updated_at).toLocaleDateString('ja-JP')} 更新</div>
-                </Link>
+            <div key={h.id} className="handbook-card" style={{ padding: 18, background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 14, borderLeft: h.is_locked ? '4px solid #f87171' : undefined }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8 }}>
+                {editingTitleId === h.id ? (
+                  /* 編集モード */
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, flex: 1, minWidth: 0 }} onClick={e => e.stopPropagation()}>
+                    <input
+                      value={titleDraft}
+                      onChange={e => setTitleDraft(e.target.value)}
+                      onKeyDown={e => handleKeyDownTitle(e, h.id)}
+                      autoFocus
+                      style={{ flex: 1, padding: '6px 10px', border: '2px solid #6c63ff', borderRadius: 8, fontSize: 15, fontWeight: 'bold', outline: 'none', boxSizing: 'border-box', background: 'var(--input-bg)', color: 'var(--text-primary)' }}
+                    />
+                    <button
+                      onClick={() => handleSaveTitle(h.id)}
+                      disabled={savingTitleId === h.id}
+                      style={{ padding: '6px 14px', background: '#6c63ff', color: '#fff', borderRadius: 8, border: 'none', fontSize: 13, fontWeight: 'bold', cursor: 'pointer', whiteSpace: 'nowrap' }}
+                    >
+                      {savingTitleId === h.id ? '⏳' : '💾 保存'}
+                    </button>
+                    <button
+                      onClick={() => setEditingTitleId(null)}
+                      style={{ padding: '6px 10px', background: '#f3f4f6', color: '#374151', borderRadius: 8, border: 'none', fontSize: 13, cursor: 'pointer' }}
+                    >
+                      キャンセル
+                    </button>
+                  </div>
+                ) : (
+                  /* 表示モード */
+                  <Link href={h.is_locked ? '#' : `/admin/handbook/${h.id}`} onClick={e => { if (h.is_locked) e.preventDefault(); }} style={{ textDecoration: 'none', flex: 1, opacity: h.is_locked ? 0.7 : 1, minWidth: 0 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <span style={{ fontSize: 16, fontWeight: 700, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{h.title}</span>
+                      {!h.is_locked && (
+                        <button
+                          onClick={e => { e.preventDefault(); e.stopPropagation(); setEditingTitleId(h.id); setTitleDraft(h.title); }}
+                          title="タイトルを編集"
+                          className="title-edit-btn"
+                          style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 13, color: 'var(--text-muted)', padding: '2px 4px', borderRadius: 4, flexShrink: 0, opacity: 0 }}
+                        >
+                          ✏️
+                        </button>
+                      )}
+                    </div>
+                    {h.description && <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 2 }}>{h.description}</div>}
+                    <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4 }}>{h.chapter_count || 0}章 / {new Date(h.updated_at).toLocaleDateString('ja-JP')} 更新</div>
+                  </Link>
+                )}
                 <div style={{ display: 'flex', gap: 4, alignItems: 'center', flexShrink: 0 }}>
                   <button onClick={() => toggleLock(h.id, h.is_locked)} title={h.is_locked ? 'ロック中（クリックで解除）' : 'クリックでロック'} style={{ padding: '5px 8px', borderRadius: 6, border: 'none', background: 'transparent', fontSize: 16, cursor: 'pointer', color: h.is_locked ? '#ef4444' : '#d1d5db' }}>{h.is_locked ? '🔒' : '🔓'}</button>
                   <button onClick={() => toggleStatus(h)} disabled={h.is_locked} style={{ padding: '3px 10px', borderRadius: 20, fontSize: 11, border: 'none', cursor: h.is_locked ? 'not-allowed' : 'pointer', opacity: h.is_locked ? 0.3 : 1, background: h.status === 'published' ? 'rgba(74,222,128,0.15)' : 'rgba(245,166,35,0.15)', color: h.status === 'published' ? '#4ade80' : '#f5a623' }}>{h.status === 'published' ? '✅ 公開中' : '📝 下書き'}</button>
