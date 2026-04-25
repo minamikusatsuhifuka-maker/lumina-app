@@ -161,6 +161,11 @@ export default function HandbookEditorPage({ params }: { params: Promise<{ id: s
   const [compareHistory, setCompareHistory]               = useState<any[]>([]);
   const [showCompareHistory, setShowCompareHistory]       = useState(false);
 
+  // スコアサマリー全文展開用
+  const [expandedSummaryModel, setExpandedSummaryModel]   = useState<'sonnet' | 'opus' | null>(null);
+  // 履歴コメント全文展開用（key: `${id}-sonnet` / `${id}-opus`）
+  const [expandedHistoryComment, setExpandedHistoryComment] = useState<string | null>(null);
+
 
   // ボスマネ変換・問いかけ
   const [bossConvertLoading, setBossConvertLoading] = useState(false);
@@ -2401,7 +2406,35 @@ export default function HandbookEditorPage({ params }: { params: Promise<{ id: s
                                     {isWinner && <span style={{ fontSize: '11px', background: color, color: '#fff', padding: '1px 6px', borderRadius: '9999px' }}>高スコア</span>}
                                   </div>
                                   <p style={{ fontSize: '24px', fontWeight: 'bold', color }}>{s.score}点</p>
-                                  <p style={{ fontSize: '12px', color: '#6b7280', marginTop: '4px', lineHeight: '1.5' }}>{s.comment?.slice(0, 60)}...</p>
+                                  <p style={{
+                                    fontSize: '13px',
+                                    color: '#6b7280',
+                                    marginTop: '4px',
+                                    lineHeight: '1.6',
+                                    display: '-webkit-box',
+                                    WebkitLineClamp: expandedSummaryModel === modelKey ? undefined : 3,
+                                    WebkitBoxOrient: 'vertical' as const,
+                                    overflow: expandedSummaryModel === modelKey ? 'visible' : 'hidden',
+                                  }}>
+                                    {s.comment}
+                                  </p>
+                                  {s.comment && s.comment.length > 80 && (
+                                    <button
+                                      onClick={() => setExpandedSummaryModel(expandedSummaryModel === modelKey ? null : modelKey)}
+                                      style={{
+                                        marginTop: '6px',
+                                        fontSize: '12px',
+                                        color,
+                                        background: 'none',
+                                        border: 'none',
+                                        cursor: 'pointer',
+                                        fontWeight: 'bold',
+                                        padding: 0,
+                                      }}
+                                    >
+                                      {expandedSummaryModel === modelKey ? '▲ 閉じる' : '▼ 全文を読む'}
+                                    </button>
+                                  )}
                                 </div>
                               );
                             })}
@@ -2531,9 +2564,32 @@ export default function HandbookEditorPage({ params }: { params: Promise<{ id: s
                                         <p style={{ fontSize: '13px', color: '#374151', whiteSpace: 'pre-wrap', lineHeight: '1.7', marginBottom: '8px' }}>
                                           {h.sonnet_result}
                                         </p>
-                                        <p style={{ fontSize: '12px', color: '#6b7280', fontStyle: 'italic', borderTop: '1px solid #f3f4f6', paddingTop: '8px' }}>
+                                        <p style={{
+                                          fontSize: '12px',
+                                          color: '#6b7280',
+                                          fontStyle: 'italic',
+                                          borderTop: '1px solid #f3f4f6',
+                                          paddingTop: '8px',
+                                          lineHeight: '1.6',
+                                          display: '-webkit-box',
+                                          WebkitLineClamp: expandedHistoryComment === `${h.id}-sonnet` ? undefined : 3,
+                                          WebkitBoxOrient: 'vertical' as const,
+                                          overflow: expandedHistoryComment === `${h.id}-sonnet` ? 'visible' : 'hidden',
+                                        }}>
                                           {h.sonnet_comment}
                                         </p>
+                                        {h.sonnet_comment && h.sonnet_comment.length > 80 && (
+                                          <button
+                                            onClick={() => setExpandedHistoryComment(expandedHistoryComment === `${h.id}-sonnet` ? null : `${h.id}-sonnet`)}
+                                            style={{
+                                              fontSize: '11px', color: '#1d9e75',
+                                              background: 'none', border: 'none',
+                                              cursor: 'pointer', fontWeight: 'bold', padding: 0, marginTop: '4px',
+                                            }}
+                                          >
+                                            {expandedHistoryComment === `${h.id}-sonnet` ? '▲ 閉じる' : '▼ 全文を読む'}
+                                          </button>
+                                        )}
                                       </div>
                                       {/* 採用ボタン */}
                                       {!h.selected_model && (
@@ -2572,9 +2628,32 @@ export default function HandbookEditorPage({ params }: { params: Promise<{ id: s
                                         <p style={{ fontSize: '13px', color: '#374151', whiteSpace: 'pre-wrap', lineHeight: '1.7', marginBottom: '8px' }}>
                                           {h.opus_result}
                                         </p>
-                                        <p style={{ fontSize: '12px', color: '#6b7280', fontStyle: 'italic', borderTop: '1px solid #f3f4f6', paddingTop: '8px' }}>
+                                        <p style={{
+                                          fontSize: '12px',
+                                          color: '#6b7280',
+                                          fontStyle: 'italic',
+                                          borderTop: '1px solid #f3f4f6',
+                                          paddingTop: '8px',
+                                          lineHeight: '1.6',
+                                          display: '-webkit-box',
+                                          WebkitLineClamp: expandedHistoryComment === `${h.id}-opus` ? undefined : 3,
+                                          WebkitBoxOrient: 'vertical' as const,
+                                          overflow: expandedHistoryComment === `${h.id}-opus` ? 'visible' : 'hidden',
+                                        }}>
                                           {h.opus_comment}
                                         </p>
+                                        {h.opus_comment && h.opus_comment.length > 80 && (
+                                          <button
+                                            onClick={() => setExpandedHistoryComment(expandedHistoryComment === `${h.id}-opus` ? null : `${h.id}-opus`)}
+                                            style={{
+                                              fontSize: '11px', color: '#7c3aed',
+                                              background: 'none', border: 'none',
+                                              cursor: 'pointer', fontWeight: 'bold', padding: 0, marginTop: '4px',
+                                            }}
+                                          >
+                                            {expandedHistoryComment === `${h.id}-opus` ? '▲ 閉じる' : '▼ 全文を読む'}
+                                          </button>
+                                        )}
                                       </div>
                                       {/* 採用ボタン */}
                                       {!h.selected_model && (
