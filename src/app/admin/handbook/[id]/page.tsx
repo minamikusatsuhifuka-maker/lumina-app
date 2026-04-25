@@ -748,21 +748,21 @@ export default function HandbookEditorPage({ params }: { params: Promise<{ id: s
     }));
   };
 
-  // 個別再改善
-  const handleRewrite = async (index: number) => {
+  // 個別再改善（improvePoints を直接受け取る共通実装）
+  const handleRewriteWithPoints = async (index: number, improvePoints: string[]) => {
     const r = multipleResults[index];
-    const improvePoints = (r.selectedImprovePoints && r.selectedImprovePoints.length > 0)
-      ? r.selectedImprovePoints
-      : (r.scoring?.improve_points ?? []);
+    if (!r) return;
 
-    if (improvePoints.length === 0) {
-      alert('改善点を1つ以上選択してください');
-      return;
-    }
-
-    // 再改善中フラグON
+    // 改善点を確定しつつ、再改善中フラグON
     setMultipleResults(prev => prev.map((item, i) =>
-      i === index ? { ...item, isRewriting: true, rewritten: undefined, rewrittenScoring: undefined, rewrittenSaved: false } : item
+      i === index ? {
+        ...item,
+        selectedImprovePoints: improvePoints,
+        isRewriting: true,
+        rewritten: undefined,
+        rewrittenScoring: undefined,
+        rewrittenSaved: false,
+      } : item
     ));
 
     try {
@@ -799,32 +799,46 @@ export default function HandbookEditorPage({ params }: { params: Promise<{ id: s
         i === index ? { ...item, rewrittenScoring: scoreData, isRewrittenScoring: false } : item
       ));
     } catch (e) {
-      console.error('handleRewrite 例外:', e);
+      console.error('handleRewriteWithPoints 例外:', e);
       setMultipleResults(prev => prev.map((item, i) =>
         i === index ? { ...item, isRewriting: false, isRewrittenScoring: false } : item
       ));
     }
   };
 
+  // 個別再改善（チェックボックスから呼ばれる）
+  const handleRewrite = async (index: number) => {
+    const r = multipleResults[index];
+    const improvePoints = (r.selectedImprovePoints && r.selectedImprovePoints.length > 0)
+      ? r.selectedImprovePoints
+      : (r.scoring?.improve_points ?? []);
+
+    if (improvePoints.length === 0) {
+      alert('改善点を1つ以上選択してください');
+      return;
+    }
+    await handleRewriteWithPoints(index, improvePoints);
+  };
+
   // 全案一括再改善
   const handleRewriteAll = async () => {
     setIsRewritingAll(true);
-    // 採点済みで改善点が未選択の案には全改善点を自動選択
-    setMultipleResults(prev => prev.map((item) => {
-      if (!item.scoring) return item;
-      if (item.selectedImprovePoints && item.selectedImprovePoints.length > 0) return item;
-      return { ...item, selectedImprovePoints: item.scoring.improve_points ?? [] };
-    }));
 
-    // 次のレンダリングを待つため少し遅延してから実行
-    await new Promise((resolve) => setTimeout(resolve, 50));
+    // 各案の improvePoints を先に確定（setState を待たずに直接渡す）
+    const targets = multipleResults
+      .map((r, i) => ({
+        index: i,
+        improvePoints: (r.selectedImprovePoints && r.selectedImprovePoints.length > 0)
+          ? r.selectedImprovePoints
+          : (r.scoring?.improve_points ?? []),
+        hasScoring: !!r.scoring,
+      }))
+      .filter(t => t.hasScoring && t.improvePoints.length > 0);
 
     await Promise.allSettled(
-      multipleResults.map((r, i) => {
-        if (!r.scoring) return Promise.resolve();
-        return handleRewrite(i);
-      })
+      targets.map(({ index, improvePoints }) => handleRewriteWithPoints(index, improvePoints))
     );
+
     setIsRewritingAll(false);
   };
 
