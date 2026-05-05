@@ -6,7 +6,7 @@
     },
     {
       "path": "/api/cron/batch-research",
-      "schedule": "* * * * *"
+      "schedule": "0 22 * * *"
     }
   ],
   "functions": {

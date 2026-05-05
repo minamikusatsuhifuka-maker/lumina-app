@@ -287,7 +287,7 @@ export default function DeepResearchPage() {
         browserTimerRef.current = setTimeout(() => runBatchJob(jobId), delay);
         alert(`${new Date(scheduledAt).toLocaleString('ja-JP')} に実行開始します。\nこのページを開いたままにしてください。`);
       } else {
-        alert(`サーバー自動実行を登録しました。\n${new Date(scheduledAt).toLocaleString('ja-JP')} に自動実行されます。`);
+        alert(`サーバー自動実行ジョブを登録しました。\n毎朝7時（日本時間）に自動実行されます。\nページを閉じても実行されます。`);
       }
     } catch (e: any) {
       alert(`通信エラー: ${e?.message || ''}`);
@@ -933,7 +933,7 @@ export default function DeepResearchPage() {
                 {[
                   { value: 'immediate' as const, label: '⚡ 今すぐ実行', desc: 'すぐ一括実行' },
                   { value: 'browser' as const, label: '🌐 ブラウザタイマー', desc: 'ページ開いたまま' },
-                  { value: 'cron' as const, label: '⏰ サーバー自動実行', desc: 'ページ閉じてもOK' },
+                  { value: 'cron' as const, label: '⏰ サーバー自動実行', desc: '毎朝7時に自動実行' },
                 ].map(opt => (
                   <button
                     key={opt.value}
