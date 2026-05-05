@@ -3,6 +3,10 @@
     {
       "path": "/api/weekly-report",
       "schedule": "0 18 * * 1"
+    },
+    {
+      "path": "/api/cron/batch-research",
+      "schedule": "* * * * *"
     }
   ],
   "functions": {
@@ -19,6 +23,8 @@
     "src/app/api/deepresearch/route.ts": { "maxDuration": 300 },
     "src/app/api/websearch/route.ts": { "maxDuration": 300 },
     "src/app/api/clinic/handbooks/enhance/route.ts": { "maxDuration": 120 },
-    "src/app/api/clinic/dialogue/route.ts": { "maxDuration": 120 }
+    "src/app/api/clinic/dialogue/route.ts": { "maxDuration": 120 },
+    "src/app/api/batch-research/[id]/run/route.ts": { "maxDuration": 300 },
+    "src/app/api/cron/batch-research/route.ts": { "maxDuration": 60 }
   }
 }

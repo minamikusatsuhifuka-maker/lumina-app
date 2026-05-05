@@ -1,5 +1,5 @@
 'use client';
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { ProgressBar } from '@/components/ProgressBar';
 import { VoiceInputButton } from '@/components/VoiceInputButton';
 import { useProgress } from '@/components/useProgress';
@@ -87,9 +87,147 @@ const formatReport = (text: string): string => {
   return html.join('');
 };
 
+type BatchTopic = { topic: string; mode: 'quick' | 'standard' | 'deep' };
+type ProgressEvent = { type: string; index?: number; topic?: string; total?: number; error?: string; success?: boolean; jobId?: number; message?: string };
+type BatchJob = {
+  id: number;
+  group_name: string;
+  topics: { topic: string; mode: string; status: string }[];
+  schedule_type: string;
+  scheduled_at: string | null;
+  status: string;
+  created_at: string;
+};
+
 export default function DeepResearchPage() {
   const [topic, setTopic] = useState('');
   const [depth, setDepth] = useState('standard');
+  const [tab, setTab] = useState<'single' | 'batch'>('single');
+
+  // バッチリサーチ
+  const [batchTopics, setBatchTopics] = useState<BatchTopic[]>([{ topic: '', mode: 'standard' }]);
+  const [scheduleType, setScheduleType] = useState<'immediate' | 'browser' | 'cron'>('immediate');
+  const [scheduledAt, setScheduledAt] = useState('');
+  const [notifyEmail, setNotifyEmail] = useState('');
+  const [groupName, setGroupName] = useState('');
+  const [batchJobs, setBatchJobs] = useState<BatchJob[]>([]);
+  const [runningJobId, setRunningJobId] = useState<number | null>(null);
+  const [batchProgress, setBatchProgress] = useState<ProgressEvent[]>([]);
+  const browserTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const loadBatchJobs = async () => {
+    try {
+      const res = await fetch('/api/batch-research?limit=10');
+      if (!res.ok) return;
+      const data = await res.json();
+      setBatchJobs(data.jobs || []);
+    } catch {}
+  };
+
+  useEffect(() => {
+    if (tab === 'batch') loadBatchJobs();
+    return () => {
+      if (browserTimerRef.current) clearTimeout(browserTimerRef.current);
+    };
+  }, [tab]);
+
+  const addBatchTopic = () => setBatchTopics(prev => prev.length < 10 ? [...prev, { topic: '', mode: 'standard' }] : prev);
+  const removeBatchTopic = (i: number) => setBatchTopics(prev => prev.filter((_, idx) => idx !== i));
+  const updateBatchTopic = (i: number, patch: Partial<BatchTopic>) => {
+    setBatchTopics(prev => prev.map((t, idx) => idx === i ? { ...t, ...patch } : t));
+  };
+
+  const runBatchJob = async (jobId: number) => {
+    setRunningJobId(jobId);
+    setBatchProgress([]);
+    try {
+      const res = await fetch(`/api/batch-research/${jobId}/run`, { method: 'POST' });
+      if (!res.ok || !res.body) {
+        const err = await res.text();
+        alert(`実行エラー: ${err.slice(0, 200)}`);
+        setRunningJobId(null);
+        return;
+      }
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() ?? '';
+        for (const line of lines) {
+          if (!line.startsWith('data: ')) continue;
+          const json = line.slice(6).trim();
+          if (!json) continue;
+          try {
+            const event = JSON.parse(json) as ProgressEvent;
+            setBatchProgress(prev => [...prev, event]);
+            if (event.type === 'all_done' || event.type === 'error') {
+              setRunningJobId(null);
+              loadBatchJobs();
+            }
+          } catch {}
+        }
+      }
+    } catch (e: any) {
+      alert(`通信エラー: ${e?.message || ''}`);
+    } finally {
+      setRunningJobId(null);
+    }
+  };
+
+  const handleBatchSubmit = async () => {
+    const validTopics = batchTopics.filter(t => t.topic.trim());
+    if (validTopics.length === 0) {
+      alert('トピックを入力してください');
+      return;
+    }
+    if ((scheduleType === 'browser' || scheduleType === 'cron') && !scheduledAt) {
+      alert('実行時刻を指定してください');
+      return;
+    }
+
+    try {
+      const res = await fetch('/api/batch-research', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          groupName: groupName.trim() || undefined,
+          topics: validTopics,
+          scheduleType,
+          scheduledAt: scheduledAt ? new Date(scheduledAt).toISOString() : undefined,
+          notifyEmail: notifyEmail.trim() || undefined,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        alert(`登録エラー: ${data.error || '不明なエラー'}`);
+        return;
+      }
+      const jobId = data.job?.id;
+      await loadBatchJobs();
+
+      if (scheduleType === 'immediate') {
+        await runBatchJob(jobId);
+      } else if (scheduleType === 'browser') {
+        const delay = new Date(scheduledAt).getTime() - Date.now();
+        if (delay <= 0) {
+          alert('過去の時刻は指定できません');
+          return;
+        }
+        if (browserTimerRef.current) clearTimeout(browserTimerRef.current);
+        browserTimerRef.current = setTimeout(() => runBatchJob(jobId), delay);
+        alert(`${new Date(scheduledAt).toLocaleString('ja-JP')} に実行開始します。\nこのページを開いたままにしてください。`);
+      } else {
+        alert(`サーバー自動実行を登録しました。\n${new Date(scheduledAt).toLocaleString('ja-JP')} に自動実行されます。`);
+      }
+    } catch (e: any) {
+      alert(`通信エラー: ${e?.message || ''}`);
+    }
+  };
+
   const [dateRange, setDateRange] = useState<DateRange>({ start: null, end: null });
   const [report, setReport] = useState('');
   const [loading, setLoading] = useState(false);
@@ -260,8 +398,37 @@ export default function DeepResearchPage() {
     <div>
       <ProgressBar loading={progressLoading} progress={progress} label="🔭 ディープリサーチ実行中..." />
       <h1 style={{ fontSize: 28, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 8 }}>🔭 ディープリサーチ</h1>
-      <p style={{ color: 'var(--text-muted)', marginBottom: 24 }}>Claude AIが複数ソースを統合し、徹底的なリサーチレポートを生成します</p>
+      <p style={{ color: 'var(--text-muted)', marginBottom: 16 }}>Claude AIが複数ソースを統合し、徹底的なリサーチレポートを生成します</p>
 
+      {/* タブ切替 */}
+      <div style={{ display: 'flex', gap: 8, marginBottom: 20 }}>
+        <button
+          onClick={() => setTab('single')}
+          style={{
+            padding: '10px 20px',
+            background: tab === 'single' ? 'linear-gradient(135deg, #6c63ff, #8b5cf6)' : 'var(--bg-secondary)',
+            color: tab === 'single' ? '#fff' : 'var(--text-muted)',
+            border: tab === 'single' ? 'none' : '1px solid var(--border)',
+            borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: 'pointer',
+          }}
+        >
+          🔭 通常リサーチ
+        </button>
+        <button
+          onClick={() => setTab('batch')}
+          style={{
+            padding: '10px 20px',
+            background: tab === 'batch' ? 'linear-gradient(135deg, #6c63ff, #8b5cf6)' : 'var(--bg-secondary)',
+            color: tab === 'batch' ? '#fff' : 'var(--text-muted)',
+            border: tab === 'batch' ? 'none' : '1px solid var(--border)',
+            borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: 'pointer',
+          }}
+        >
+          ⚡ バッチリサーチ
+        </button>
+      </div>
+
+      {tab === 'single' && (<>
       <div style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 14, padding: 20, marginBottom: 20 }}>
         <div style={{ marginBottom: 12 }}>
           <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.06em' }}>リサーチトピック</div>
@@ -462,6 +629,236 @@ export default function DeepResearchPage() {
               </div>
             )}
           </div>
+        </div>
+      )}
+
+      </>)}
+
+      {tab === 'batch' && (
+        <div>
+          {/* バッチリサーチ */}
+          <div style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 14, padding: 20, marginBottom: 20 }}>
+            {/* グループ名 */}
+            <div style={{ marginBottom: 14 }}>
+              <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.06em' }}>グループ名（任意）</div>
+              <input
+                value={groupName}
+                onChange={e => setGroupName(e.target.value)}
+                placeholder="例: 朝のリサーチ 2026-05-06"
+                style={{ width: '100%', padding: 10, background: 'var(--bg-primary)', border: '1px solid var(--border)', borderRadius: 8, color: 'var(--text-primary)', fontSize: 13, outline: 'none', boxSizing: 'border-box' as const }}
+              />
+            </div>
+
+            {/* トピックリスト */}
+            <div style={{ marginBottom: 14 }}>
+              <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.06em' }}>リサーチトピック（最大10件）</div>
+              <div style={{ display: 'flex', flexDirection: 'column' as const, gap: 8 }}>
+                {batchTopics.map((item, i) => (
+                  <div key={i} style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                    <span style={{ fontSize: 12, color: 'var(--text-muted)', width: 24, textAlign: 'center' as const }}>{i + 1}</span>
+                    <input
+                      value={item.topic}
+                      onChange={e => updateBatchTopic(i, { topic: e.target.value })}
+                      placeholder={`トピック ${i + 1}`}
+                      style={{ flex: 1, padding: 8, background: 'var(--bg-primary)', border: '1px solid var(--border)', borderRadius: 6, color: 'var(--text-primary)', fontSize: 13, outline: 'none' }}
+                    />
+                    <select
+                      value={item.mode}
+                      onChange={e => updateBatchTopic(i, { mode: e.target.value as BatchTopic['mode'] })}
+                      style={{ padding: 8, background: 'var(--bg-primary)', border: '1px solid var(--border)', borderRadius: 6, color: 'var(--text-primary)', fontSize: 12, outline: 'none' }}
+                    >
+                      <option value="quick">⚡ クイック(1500字)</option>
+                      <option value="standard">📊 標準(3000字)</option>
+                      <option value="deep">🔭 ディープ(5000字)</option>
+                    </select>
+                    {batchTopics.length > 1 && (
+                      <button
+                        onClick={() => removeBatchTopic(i)}
+                        style={{ width: 28, height: 28, background: 'transparent', border: '1px solid #ef4444', borderRadius: 6, color: '#ef4444', cursor: 'pointer', fontSize: 12 }}
+                      >✕</button>
+                    )}
+                  </div>
+                ))}
+              </div>
+              {batchTopics.length < 10 && (
+                <button
+                  onClick={addBatchTopic}
+                  style={{ marginTop: 8, padding: '6px 14px', background: 'transparent', border: '1px dashed var(--border-accent)', borderRadius: 6, color: 'var(--accent)', cursor: 'pointer', fontSize: 12, fontWeight: 600 }}
+                >＋ トピックを追加</button>
+              )}
+            </div>
+
+            {/* 実行タイミング */}
+            <div style={{ marginBottom: 14 }}>
+              <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.06em' }}>実行タイミング</div>
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' as const }}>
+                {[
+                  { value: 'immediate' as const, label: '⚡ 今すぐ実行', desc: 'すぐ一括実行' },
+                  { value: 'browser' as const, label: '🌐 ブラウザタイマー', desc: 'ページ開いたまま' },
+                  { value: 'cron' as const, label: '⏰ サーバー自動実行', desc: 'ページ閉じてもOK' },
+                ].map(opt => (
+                  <button
+                    key={opt.value}
+                    onClick={() => setScheduleType(opt.value)}
+                    style={{
+                      flex: 1, minWidth: 140, padding: '10px 8px', borderRadius: 8,
+                      border: scheduleType === opt.value ? '2px solid var(--accent)' : '1px solid var(--border)',
+                      background: scheduleType === opt.value ? 'var(--accent-soft)' : 'var(--bg-primary)',
+                      color: scheduleType === opt.value ? 'var(--text-secondary)' : 'var(--text-muted)',
+                      fontSize: 12, fontWeight: 600, cursor: 'pointer', textAlign: 'center' as const,
+                    }}
+                  >
+                    <div>{opt.label}</div>
+                    <div style={{ fontSize: 10, marginTop: 2, fontWeight: 400, opacity: 0.8 }}>{opt.desc}</div>
+                  </button>
+                ))}
+              </div>
+              {(scheduleType === 'browser' || scheduleType === 'cron') && (
+                <div style={{ marginTop: 10 }}>
+                  <input
+                    type="datetime-local"
+                    value={scheduledAt}
+                    onChange={e => setScheduledAt(e.target.value)}
+                    style={{ padding: 8, background: 'var(--bg-primary)', border: '1px solid var(--border)', borderRadius: 6, color: 'var(--text-primary)', fontSize: 13, outline: 'none' }}
+                  />
+                  {scheduleType === 'cron' && (
+                    <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4 }}>
+                      ⚠ Vercel Cronで毎分監視・自動実行されます（ページを閉じても実行）
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+
+            {/* メール通知 */}
+            <div style={{ marginBottom: 14 }}>
+              <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.06em' }}>完了通知メール（任意）</div>
+              <input
+                type="email"
+                value={notifyEmail}
+                onChange={e => setNotifyEmail(e.target.value)}
+                placeholder="example@gmail.com"
+                style={{ width: '100%', padding: 10, background: 'var(--bg-primary)', border: '1px solid var(--border)', borderRadius: 8, color: 'var(--text-primary)', fontSize: 13, outline: 'none', boxSizing: 'border-box' as const }}
+              />
+            </div>
+
+            {/* 実行ボタン */}
+            <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+              <button
+                onClick={handleBatchSubmit}
+                disabled={!!runningJobId}
+                style={{
+                  padding: '10px 28px',
+                  background: runningJobId ? 'var(--bg-secondary)' : 'linear-gradient(135deg, #6c63ff, #8b5cf6)',
+                  color: runningJobId ? 'var(--text-muted)' : '#fff',
+                  border: 'none', borderRadius: 8, fontWeight: 700, fontSize: 14,
+                  cursor: runningJobId ? 'not-allowed' : 'pointer',
+                }}
+              >
+                {runningJobId
+                  ? '⏳ 実行中...'
+                  : scheduleType === 'immediate' ? '⚡ 今すぐ一括実行' : '📅 スケジュール登録'}
+              </button>
+            </div>
+          </div>
+
+          {/* 進捗表示 */}
+          {batchProgress.length > 0 && (
+            <div style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 12, padding: 16, marginBottom: 20 }}>
+              <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 10 }}>📊 実行進捗</div>
+              <div style={{ display: 'flex', flexDirection: 'column' as const, gap: 4, fontSize: 12, color: 'var(--text-secondary)', maxHeight: 240, overflowY: 'auto' as const }}>
+                {batchProgress.map((p, i) => (
+                  <div key={i}>
+                    {p.type === 'start' && `🚀 バッチ開始（${p.total}件）`}
+                    {p.type === 'topic_start' && `🔍 [${(p.index ?? 0) + 1}] ${p.topic} リサーチ中...`}
+                    {p.type === 'research_done' && `📝 [${(p.index ?? 0) + 1}] ${p.topic} リサーチ完了`}
+                    {p.type === 'topic_done' && `✅ [${(p.index ?? 0) + 1}] ${p.topic} コンテキスト生成・保存完了`}
+                    {p.type === 'topic_error' && `❌ [${(p.index ?? 0) + 1}] ${p.topic} エラー: ${p.error || ''}`}
+                    {p.type === 'all_done' && `🎉 全件完了！コンテキストライブラリに保存されました`}
+                    {p.type === 'error' && `❌ エラー: ${p.message || ''}`}
+                  </div>
+                ))}
+              </div>
+              {batchProgress.some(p => p.type === 'all_done') && (
+                <a
+                  href="/dashboard/context-library"
+                  style={{ display: 'block', marginTop: 10, fontSize: 12, color: 'var(--accent)', textAlign: 'center' as const }}
+                >
+                  📚 コンテキストライブラリで確認する →
+                </a>
+              )}
+            </div>
+          )}
+
+          {/* 履歴 */}
+          {batchJobs.length > 0 && (
+            <div>
+              <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 10 }}>📋 バッチジョブ履歴</div>
+              <div style={{ display: 'flex', flexDirection: 'column' as const, gap: 8 }}>
+                {batchJobs.map(job => (
+                  <div key={job.id} style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 10, padding: 12 }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap' as const, gap: 6 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' as const }}>
+                        <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)' }}>{job.group_name}</span>
+                        <span style={{
+                          fontSize: 10, padding: '2px 8px', borderRadius: 10, fontWeight: 700,
+                          background:
+                            job.status === 'completed' ? 'rgba(29,158,117,0.18)' :
+                            job.status === 'running' ? 'rgba(108,99,255,0.18)' :
+                            job.status === 'failed' ? 'rgba(239,68,68,0.18)' :
+                            'rgba(100,116,139,0.18)',
+                          color:
+                            job.status === 'completed' ? '#1D9E75' :
+                            job.status === 'running' ? '#6c63ff' :
+                            job.status === 'failed' ? '#ef4444' :
+                            '#64748b',
+                        }}>
+                          {job.status === 'completed' ? '✅ 完了' :
+                           job.status === 'running' ? '⏳ 実行中' :
+                           job.status === 'failed' ? '❌ 失敗' : '⏰ 待機中'}
+                        </span>
+                        <span style={{ fontSize: 10, color: 'var(--text-muted)', padding: '1px 6px', background: 'var(--bg-primary)', borderRadius: 6 }}>
+                          {job.schedule_type === 'immediate' ? '即時' : job.schedule_type === 'browser' ? 'ブラウザ' : 'cron'}
+                        </span>
+                      </div>
+                      <span style={{ fontSize: 10, color: 'var(--text-muted)' }}>
+                        {new Date(job.created_at).toLocaleString('ja-JP')}
+                      </span>
+                    </div>
+                    <div style={{ marginTop: 6, fontSize: 11, color: 'var(--text-muted)', display: 'flex', flexWrap: 'wrap' as const, gap: 8 }}>
+                      {job.topics.map((t, i) => (
+                        <span key={i}>
+                          {t.status === 'completed' ? '✅' : t.status === 'failed' ? '❌' : '⏳'} {t.topic}
+                        </span>
+                      ))}
+                    </div>
+                    {job.status === 'pending' && job.scheduled_at && (
+                      <div style={{ marginTop: 4, fontSize: 11, color: '#6c63ff' }}>
+                        ⏰ 実行予定: {new Date(job.scheduled_at).toLocaleString('ja-JP')}
+                      </div>
+                    )}
+                    <div style={{ marginTop: 8, display: 'flex', gap: 6 }}>
+                      <a
+                        href={`/dashboard/context-library?batch=${job.id}`}
+                        style={{ padding: '4px 10px', background: 'var(--accent-soft)', border: '1px solid var(--border-accent)', color: 'var(--text-primary)', borderRadius: 6, fontSize: 11, fontWeight: 600, textDecoration: 'none' }}
+                      >
+                        📚 コンテキスト確認
+                      </a>
+                      {(job.status === 'pending' && job.schedule_type !== 'cron') && (
+                        <button
+                          onClick={() => runBatchJob(job.id)}
+                          disabled={!!runningJobId}
+                          style={{ padding: '4px 10px', background: 'var(--accent-soft)', border: '1px solid var(--border-accent)', color: 'var(--text-primary)', borderRadius: 6, cursor: 'pointer', fontSize: 11, fontWeight: 600 }}
+                        >
+                          ▶️ いま実行
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
       )}
 

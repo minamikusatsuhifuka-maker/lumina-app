@@ -16,8 +16,21 @@ export default function ContextLibraryPage() {
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [tagFilter, setTagFilter] = useState('');
+  const [batchFilter, setBatchFilter] = useState<string | null>(null);
   const [expandedId, setExpandedId] = useState<number | null>(null);
   const [copiedId, setCopiedId] = useState<number | null>(null);
+
+  // URLパラメータから batchId を取得
+  useEffect(() => {
+    try {
+      const params = new URLSearchParams(window.location.search);
+      const batch = params.get('batch');
+      if (batch) {
+        setTagFilter(`batch:${batch}`);
+        setBatchFilter(batch);
+      }
+    } catch {}
+  }, []);
 
   const fetchItems = async () => {
     setLoading(true);
@@ -102,6 +115,31 @@ export default function ContextLibraryPage() {
         <h1 style={{ fontSize: 28, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 8 }}>🧠 コンテキストライブラリ</h1>
         <p style={{ color: 'var(--text-muted)', fontSize: 14 }}>AIに読み込ませる背景情報を管理します。文章作成・SNS投稿・LP作成・資料作成にワンクリックで活用できます。</p>
       </div>
+
+      {batchFilter && (
+        <div style={{
+          background: 'linear-gradient(135deg, rgba(108,99,255,0.12), rgba(0,212,184,0.12))',
+          border: '1px solid var(--border-accent)',
+          borderRadius: 10,
+          padding: 12,
+          marginBottom: 16,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          gap: 12,
+          flexWrap: 'wrap' as const,
+        }}>
+          <div style={{ fontSize: 13, color: 'var(--text-primary)' }}>
+            🏷️ バッチジョブ #{batchFilter} の結果のみ表示中
+          </div>
+          <button
+            onClick={() => { setBatchFilter(null); setTagFilter(''); }}
+            style={{ padding: '4px 12px', background: 'var(--bg-secondary)', border: '1px solid var(--border)', color: 'var(--text-secondary)', borderRadius: 6, cursor: 'pointer', fontSize: 11, fontWeight: 600 }}
+          >
+            ✕ フィルター解除
+          </button>
+        </div>
+      )}
 
       {/* 検索・フィルターバー */}
       <div style={{
