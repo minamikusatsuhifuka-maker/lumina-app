@@ -121,6 +121,50 @@ export default function DeepResearchPage() {
   const stuckTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const elapsedTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
+  // ブラウザタイマー カウントダウン表示
+  const [browserCountdown, setBrowserCountdown] = useState<{
+    jobId: number;
+    targetTime: number;
+    groupName: string;
+  } | null>(null);
+  const [countdownDisplay, setCountdownDisplay] = useState('');
+
+  // カウントダウン更新
+  useEffect(() => {
+    if (!browserCountdown) {
+      setCountdownDisplay('');
+      return;
+    }
+    const update = () => {
+      const remaining = browserCountdown.targetTime - Date.now();
+      if (remaining <= 0) {
+        setCountdownDisplay('実行中...');
+        return;
+      }
+      const h = Math.floor(remaining / 3600000);
+      const m = Math.floor((remaining % 3600000) / 60000);
+      const s = Math.floor((remaining % 60000) / 1000);
+      setCountdownDisplay(
+        h > 0 ? `${h}時間${m}分${s}秒後に実行` : `${m}分${s}秒後に実行`
+      );
+    };
+    update();
+    const interval = setInterval(update, 1000);
+    return () => clearInterval(interval);
+  }, [browserCountdown]);
+
+  // ページ離脱時の警告（タイマー待機中のみ）
+  useEffect(() => {
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      if (browserCountdown) {
+        e.preventDefault();
+        e.returnValue = 'ブラウザタイマーが待機中です。ページを離れるとタイマーがキャンセルされます。';
+      }
+    };
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+  }, [browserCountdown]);
+
   const handleDeleteJob = async (jobId: number, status: string) => {
     if (status === 'running') return;
     if (!confirm('このジョブを削除しますか？')) return;
@@ -294,14 +338,42 @@ export default function DeepResearchPage() {
       if (scheduleType === 'immediate') {
         await runBatchJob(jobId);
       } else if (scheduleType === 'browser') {
-        const delay = new Date(scheduledAt).getTime() - Date.now();
+        // datetime-local はローカル時刻として正しく解釈される
+        const targetTime = new Date(scheduledAt).getTime();
+        const now = Date.now();
+        const delay = targetTime - now;
+
         if (delay <= 0) {
-          alert('過去の時刻は指定できません');
+          alert('過去の時刻は設定できません。未来の時刻を指定してください。');
           return;
         }
+        if (delay > 24 * 60 * 60 * 1000) {
+          alert('ブラウザタイマーは24時間以内の時刻のみ設定できます。\n24時間以上先はサーバー自動実行をご利用ください。');
+          return;
+        }
+
+        const minutes = Math.floor(delay / 60000);
+        const seconds = Math.floor((delay % 60000) / 1000);
+
         if (browserTimerRef.current) clearTimeout(browserTimerRef.current);
-        browserTimerRef.current = setTimeout(() => runBatchJob(jobId), delay);
-        alert(`${new Date(scheduledAt).toLocaleString('ja-JP')} に実行開始します。\nこのページを開いたままにしてください。`);
+        browserTimerRef.current = setTimeout(async () => {
+          setBrowserCountdown(null);
+          await runBatchJob(jobId);
+        }, delay);
+
+        setBrowserCountdown({
+          jobId,
+          targetTime,
+          groupName: groupName.trim() || 'バッチリサーチ',
+        });
+
+        alert(
+          `✅ ブラウザタイマーをセットしました。\n\n` +
+          `実行予定: ${new Date(scheduledAt).toLocaleString('ja-JP')}\n` +
+          `（約${minutes}分${seconds}秒後）\n\n` +
+          `⚠️ このページを開いたまま待機してください。\n` +
+          `ページを閉じるとタイマーがキャンセルされます。`
+        );
       } else {
         alert(`サーバー自動実行ジョブを登録しました。\n毎朝7時（日本時間）に自動実行されます。\nページを閉じても実行されます。`);
       }
@@ -890,6 +962,58 @@ export default function DeepResearchPage() {
 
       {tab === 'batch' && (
         <div>
+          {/* ブラウザタイマー カウントダウンバナー */}
+          {browserCountdown && (
+            <div style={{
+              marginBottom: 16,
+              padding: 14,
+              background: 'linear-gradient(135deg, rgba(108,99,255,0.08), rgba(0,212,184,0.08))',
+              border: '1px solid var(--border-accent)',
+              borderRadius: 12,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              gap: 12,
+              flexWrap: 'wrap' as const,
+            }}>
+              <div style={{ flex: 1, minWidth: 200 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, fontWeight: 700, color: 'var(--text-primary)' }}>
+                  <span style={{ animation: 'pulse 1.6s ease-in-out infinite' }}>⏱</span>
+                  ブラウザタイマー待機中
+                </div>
+                <div style={{ fontSize: 12, color: 'var(--accent)', marginTop: 4, fontWeight: 600 }}>
+                  「{browserCountdown.groupName}」 — {countdownDisplay}
+                </div>
+                <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2 }}>
+                  実行予定: {new Date(browserCountdown.targetTime).toLocaleString('ja-JP')}
+                </div>
+              </div>
+              <button
+                onClick={() => {
+                  if (browserTimerRef.current) {
+                    clearTimeout(browserTimerRef.current);
+                    browserTimerRef.current = null;
+                  }
+                  setBrowserCountdown(null);
+                  alert('ブラウザタイマーをキャンセルしました');
+                }}
+                style={{
+                  padding: '6px 14px',
+                  background: 'transparent',
+                  border: '1px solid #ef4444',
+                  color: '#ef4444',
+                  borderRadius: 8,
+                  fontSize: 11,
+                  fontWeight: 700,
+                  cursor: 'pointer',
+                  flexShrink: 0,
+                }}
+              >
+                ✕ キャンセル
+              </button>
+            </div>
+          )}
+
           {/* バッチリサーチ */}
           <div style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 14, padding: 20, marginBottom: 20 }}>
             {/* グループ名 */}
