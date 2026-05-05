@@ -472,13 +472,7 @@ ${architecture.mermaid}
                   <textarea
                     value={input}
                     onChange={e => setInput(e.target.value)}
-                    onKeyDown={e => {
-                      if (e.key === 'Enter' && !e.shiftKey) {
-                        e.preventDefault();
-                        sendMessage(input);
-                      }
-                    }}
-                    placeholder="メッセージを入力... (Shift+Enterで改行)"
+                    placeholder="メッセージを入力... (Enterで改行・送信ボタンで送信)"
                     rows={2}
                     disabled={isLoading}
                     style={{
