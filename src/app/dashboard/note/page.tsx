@@ -1,7 +1,9 @@
 'use client';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { SaveToLibraryButton } from '@/components/SaveToLibraryButton';
 import { DateRangePicker, DateRange, getDateCondition } from '@/components/DateRangePicker';
+
+type SuggestedTitle = { title: string; reason: string; category: string; level: string };
 
 const QUICK_SEARCHES = [
   'AI活用 ビジネス', 'ChatGPT 使い方', 'フリーランス 副業',
@@ -18,6 +20,99 @@ export default function NotePage() {
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState('');
   const [fontSize, setFontSize] = useState(14);
+
+  // 知識ツリー連携
+  const [suggestedTitles, setSuggestedTitles] = useState<SuggestedTitle[]>([]);
+  const [isLoadingTitles, setIsLoadingTitles] = useState(false);
+  const [currentNodeId, setCurrentNodeId] = useState<number | null>(null);
+  const [currentDepth, setCurrentDepth] = useState(0);
+  const [pendingParentId, setPendingParentId] = useState<number | null>(null);
+  const [selectedTitle, setSelectedTitle] = useState<string | null>(null);
+  const [showSourcePicker, setShowSourcePicker] = useState(false);
+
+  const saveNodeAndSuggestTitles = async (
+    nodeTopic: string,
+    researchText: string,
+    parentId: number | null,
+    depth: number
+  ) => {
+    setIsLoadingTitles(true);
+    setSuggestedTitles([]);
+    try {
+      const sRes = await fetch('/api/knowledge/suggest-titles', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ topic: nodeTopic, researchText, depth }),
+      });
+      const sData = await sRes.json();
+      const titles: SuggestedTitle[] = sData.titles || [];
+
+      const nRes = await fetch('/api/knowledge/nodes', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          parentId,
+          topic: nodeTopic,
+          sourceType: 'notesearch',
+          summary: researchText.slice(0, 200),
+          depth,
+          suggestedTitles: titles,
+        }),
+      });
+      const nData = await nRes.json();
+
+      setSuggestedTitles(titles);
+      setCurrentNodeId(nData?.node?.id || null);
+      setCurrentDepth(depth);
+    } catch (e) {
+      console.error('saveNodeAndSuggestTitles エラー:', e);
+    } finally {
+      setIsLoadingTitles(false);
+    }
+  };
+
+  const handleTitleClick = (title: string) => {
+    setSelectedTitle(title);
+    setShowSourcePicker(true);
+  };
+
+  const executeWithSource = (source: 'deepresearch' | 'notesearch') => {
+    setShowSourcePicker(false);
+    if (!selectedTitle) return;
+    if (source === 'deepresearch') {
+      const params = new URLSearchParams({
+        q: selectedTitle,
+        ...(currentNodeId ? { fromNode: String(currentNodeId), depth: String(currentDepth + 1) } : {}),
+      });
+      window.location.href = `/dashboard/deepresearch?${params.toString()}`;
+    } else {
+      // 同ページで再検索
+      setQuery(selectedTitle);
+      setPendingParentId(currentNodeId);
+      setCurrentDepth(currentDepth + 1);
+      setSelectedTitle(null);
+      setTimeout(() => doSearch(selectedTitle, currentNodeId, currentDepth + 1), 0);
+    }
+  };
+
+  // URLパラメータ自動実行
+  useEffect(() => {
+    try {
+      const params = new URLSearchParams(window.location.search);
+      const q = params.get('q');
+      const fromNode = params.get('fromNode');
+      const depthParam = params.get('depth');
+      if (q) {
+        const parentId = fromNode ? parseInt(fromNode, 10) : null;
+        const startDepth = depthParam ? parseInt(depthParam, 10) : 0;
+        setQuery(q);
+        setCurrentDepth(startDepth);
+        setPendingParentId(parentId);
+        doSearch(q, parentId, startDepth);
+      }
+    } catch {}
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const processInline = (text: string): string => {
     // 太字
@@ -45,16 +140,22 @@ export default function NotePage() {
     }).join('');
   };
 
-  const handleSearch = async () => {
-    if (!query.trim() || loading) return;
+  const doSearch = async (
+    q: string,
+    parentId: number | null = null,
+    startDepth: number = 0
+  ) => {
+    if (!q.trim() || loading) return;
     setLoading(true);
     setResult('');
+    setSuggestedTitles([]);
+    setCurrentNodeId(null);
 
     try {
       const res = await fetch('/api/note', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ query: query + getDateCondition(dateRange), maxResults }),
+        body: JSON.stringify({ query: q + getDateCondition(dateRange), maxResults }),
       });
 
       if (!res.body) throw new Error('ストリームなし');
@@ -78,12 +179,19 @@ export default function NotePage() {
           } catch {}
         }
       }
+
+      // 完了後：知識ツリー保存＋関連タイトル案
+      if (accumulated.trim() && !accumulated.startsWith('エラー')) {
+        saveNodeAndSuggestTitles(q, accumulated, parentId, startDepth).catch(e => console.error(e));
+      }
     } catch (error: any) {
       setResult(`エラー: ${error.message}`);
     } finally {
       setLoading(false);
     }
   };
+
+  const handleSearch = () => doSearch(query, pendingParentId, currentDepth);
 
   return (
     <div style={{ maxWidth: 900, margin: '0 auto', paddingBottom: 60 }}>
@@ -236,6 +344,144 @@ export default function NotePage() {
               AIがnote記事を分析中...
             </div>
           )}
+        </div>
+      )}
+
+      {/* 関連タイトル案 */}
+      {!loading && (isLoadingTitles || suggestedTitles.length > 0) && (
+        <div style={{
+          marginTop: 20,
+          padding: 18,
+          borderRadius: 12,
+          border: '1px solid var(--border-accent)',
+          background: 'linear-gradient(135deg, rgba(108,99,255,0.06), rgba(0,212,184,0.06))',
+        }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12, flexWrap: 'wrap' as const, gap: 8 }}>
+            <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-primary)' }}>
+              🔗 次に調べると理解が深まるトピック
+            </div>
+            <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>
+              探求深度: Lv.{currentDepth}
+              {currentDepth >= 3 ? ' 🏆 専門家レベル' : currentDepth >= 2 ? ' 🎯 応用レベル' : currentDepth >= 1 ? ' 📚 学習中' : ' 🌱 入門'}
+            </div>
+          </div>
+          {isLoadingTitles ? (
+            <div style={{ fontSize: 12, color: 'var(--text-muted)', textAlign: 'center' as const, padding: 12 }}>
+              🤖 AIが関連トピックを分析中...
+            </div>
+          ) : (
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 8 }}>
+              {suggestedTitles.map((item, i) => {
+                const lvColor =
+                  item.level === 'プロ' ? { bg: 'rgba(239,68,68,0.18)', color: '#ef4444' } :
+                  item.level === '専門' ? { bg: 'rgba(245,158,11,0.18)', color: '#f59e0b' } :
+                  item.level === '応用' ? { bg: 'rgba(234,179,8,0.18)', color: '#ca8a04' } :
+                  item.level === '基礎' ? { bg: 'rgba(29,158,117,0.18)', color: '#1D9E75' } :
+                  { bg: 'rgba(59,130,246,0.18)', color: '#3b82f6' };
+                return (
+                  <button
+                    key={i}
+                    onClick={() => handleTitleClick(item.title)}
+                    style={{
+                      textAlign: 'left' as const,
+                      padding: 12,
+                      background: 'var(--bg-primary)',
+                      border: '1px solid var(--border)',
+                      borderRadius: 8,
+                      cursor: 'pointer',
+                    }}
+                  >
+                    <div style={{ display: 'flex', gap: 6, alignItems: 'flex-start' }}>
+                      <span style={{ fontSize: 10, padding: '2px 6px', borderRadius: 6, background: lvColor.bg, color: lvColor.color, fontWeight: 700, flexShrink: 0 }}>
+                        {item.level}
+                      </span>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 3 }}>
+                          {item.title}
+                        </div>
+                        <div style={{ fontSize: 11, color: 'var(--text-muted)', lineHeight: 1.5 }}>
+                          {item.reason}
+                        </div>
+                      </div>
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          )}
+          {currentNodeId && (
+            <div style={{ marginTop: 10, textAlign: 'right' as const }}>
+              <a href="/dashboard/knowledge-tree" style={{ fontSize: 11, color: 'var(--accent)', textDecoration: 'none' }}>
+                🌳 知識ツリーで探求マップを見る →
+              </a>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* 実行ソース選択モーダル */}
+      {showSourcePicker && selectedTitle && (
+        <div
+          onClick={() => setShowSourcePicker(false)}
+          style={{
+            position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
+            background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center',
+            zIndex: 50, padding: 16,
+          }}
+        >
+          <div
+            onClick={e => e.stopPropagation()}
+            style={{
+              background: 'var(--bg-primary)',
+              border: '1px solid var(--border)',
+              borderRadius: 16,
+              padding: 20,
+              maxWidth: 360,
+              width: '100%',
+            }}
+          >
+            <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 6 }}>
+              どちらで調べますか？
+            </div>
+            <div style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 8, padding: 10, marginBottom: 14, fontSize: 12, color: 'var(--text-secondary)' }}>
+              「{selectedTitle}」
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column' as const, gap: 8 }}>
+              <button
+                onClick={() => executeWithSource('deepresearch')}
+                style={{
+                  padding: '12px 16px',
+                  background: 'linear-gradient(135deg, #6c63ff, #8b5cf6)',
+                  color: '#fff', border: 'none', borderRadius: 10,
+                  fontSize: 13, fontWeight: 700, cursor: 'pointer',
+                }}
+              >
+                🔭 ディープリサーチで調べる
+              </button>
+              <button
+                onClick={() => executeWithSource('notesearch')}
+                style={{
+                  padding: '12px 16px',
+                  background: 'var(--accent-soft)',
+                  color: 'var(--text-primary)',
+                  border: '1px solid var(--border-accent)', borderRadius: 10,
+                  fontSize: 13, fontWeight: 700, cursor: 'pointer',
+                }}
+              >
+                📓 noteサーチで調べる
+              </button>
+              <button
+                onClick={() => setShowSourcePicker(false)}
+                style={{
+                  padding: '8px 16px', background: 'transparent',
+                  color: 'var(--text-muted)', border: 'none', borderRadius: 8,
+                  fontSize: 12, cursor: 'pointer',
+                }}
+              >
+                キャンセル
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>
