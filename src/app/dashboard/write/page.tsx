@@ -213,6 +213,28 @@ export default function WritePage() {
       } catch {}
       sessionStorage.removeItem('brainstorm_to_write');
     }
+    // コンテキストライブラリ・ディープリサーチからの連携（contextId or sessionStorage）
+    try {
+      const params = new URLSearchParams(window.location.search);
+      const contextId = params.get('contextId');
+      if (contextId) {
+        fetch(`/api/context-saves?id=${contextId}`)
+          .then(r => r.ok ? r.json() : null)
+          .then(data => {
+            if (data && data.context_text) {
+              setPrompt(`【背景情報】\n${data.context_text}\n\n【指示】\n`);
+            }
+          })
+          .catch(() => {});
+      } else {
+        const ctx = sessionStorage.getItem('lumina_context_text');
+        if (ctx) {
+          setPrompt(`【背景情報】\n${ctx}\n\n【指示】\n`);
+          sessionStorage.removeItem('lumina_context_text');
+          sessionStorage.removeItem('lumina_context_topic');
+        }
+      }
+    } catch {}
   }, []);
 
   const generate = async () => {

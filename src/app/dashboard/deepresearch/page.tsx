@@ -97,6 +97,94 @@ export default function DeepResearchPage() {
   const [elapsed, setElapsed] = useState(0);
   const { progress, loading: progressLoading, startProgress, completeProgress, resetProgress } = useProgress();
 
+  // AI背景情報コンテキスト最適化
+  const [contextText, setContextText] = useState('');
+  const [optimizing, setOptimizing] = useState(false);
+  const [savedContextId, setSavedContextId] = useState<number | null>(null);
+  const [saveStatus, setSaveStatus] = useState('');
+
+  const optimizeContext = async () => {
+    if (!report.trim()) return;
+    setOptimizing(true);
+    setContextText('');
+    setSavedContextId(null);
+    try {
+      const res = await fetch('/api/deepresearch/optimize-context', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ topic, researchText: report }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        alert(`最適化エラー: ${data.error || '不明なエラー'}`);
+      } else {
+        setContextText(data.contextText || '');
+      }
+    } catch (e: any) {
+      alert(`通信エラー: ${e.message}`);
+    } finally {
+      setOptimizing(false);
+    }
+  };
+
+  const saveContext = async () => {
+    if (!contextText.trim()) return;
+    setSaveStatus('保存中...');
+    try {
+      const res = await fetch('/api/context-saves', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ topic, contextText, researchText: report }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setSaveStatus('');
+        alert(`保存エラー: ${data.error || '不明なエラー'}`);
+      } else {
+        setSavedContextId(data.id);
+        setSaveStatus('✅ 保存完了');
+        setTimeout(() => setSaveStatus(''), 3000);
+      }
+    } catch (e: any) {
+      setSaveStatus('');
+      alert(`通信エラー: ${e.message}`);
+    }
+  };
+
+  // コンテキストを sessionStorage に格納してから遷移
+  const goToTool = async (tool: 'write' | 'sns-post' | 'lp' | 'materials') => {
+    if (!contextText.trim()) return;
+    // 未保存ならまず保存
+    let id = savedContextId;
+    if (!id) {
+      try {
+        const res = await fetch('/api/context-saves', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ topic, contextText, researchText: report }),
+        });
+        const data = await res.json();
+        if (res.ok) {
+          id = data.id;
+          setSavedContextId(id);
+        }
+      } catch {}
+    }
+    // sessionStorageにも保持（既存ツールが対応していなくても利用可能にする）
+    try {
+      sessionStorage.setItem('lumina_context_text', contextText);
+      sessionStorage.setItem('lumina_context_topic', topic);
+    } catch {}
+    const toolPath: Record<typeof tool, string> = {
+      'write': '/dashboard/write',
+      'sns-post': '/dashboard/sns-post',
+      'lp': '/dashboard/lp-generator',
+      'materials': '/dashboard/materials',
+    };
+    const url = id ? `${toolPath[tool]}?contextId=${id}` : toolPath[tool];
+    window.location.href = url;
+  };
+
   const research = async (t?: string) => {
     const q = t || topic;
     if (!q.trim()) return;
@@ -191,7 +279,7 @@ export default function DeepResearchPage() {
           {[
             { value: 'quick', label: '⚡ クイック', desc: '約500字' },
             { value: 'standard', label: '📊 スタンダード', desc: '約1500字' },
-            { value: 'deep', label: '🔭 ディープ', desc: '約3000字+' },
+            { value: 'deep', label: '🔭 ディープ', desc: '約5000字+' },
           ].map(d => (
             <button
               key={d.value}
@@ -277,6 +365,100 @@ export default function DeepResearchPage() {
             style={{ fontSize: fontSize, color: 'var(--text-secondary)', lineHeight: 1.8, wordBreak: 'break-word' as const }}
             dangerouslySetInnerHTML={{ __html: formatReport(report) }}
           />
+
+          {/* AI背景情報最適化セクション */}
+          <div style={{ marginTop: 24, paddingTop: 20, borderTop: '1px dashed var(--border)' }}>
+            {!contextText && !optimizing && (
+              <div style={{ display: 'flex', justifyContent: 'center' }}>
+                <button
+                  onClick={optimizeContext}
+                  style={{
+                    padding: '12px 28px',
+                    background: 'linear-gradient(135deg, #00d4b8, #6c63ff)',
+                    color: '#fff',
+                    border: 'none',
+                    borderRadius: 10,
+                    cursor: 'pointer',
+                    fontSize: 14,
+                    fontWeight: 700,
+                    boxShadow: '0 4px 12px rgba(108,99,255,0.25)',
+                  }}
+                >
+                  🧠 AI背景情報として最適化
+                </button>
+              </div>
+            )}
+
+            {optimizing && (
+              <div style={{ textAlign: 'center', padding: 24 }}>
+                <div style={{ width: 32, height: 32, border: '3px solid var(--border-accent)', borderTopColor: 'var(--accent)', borderRadius: '50%', animation: 'spin 0.8s linear infinite', margin: '0 auto 12px' }} />
+                <div style={{ color: 'var(--text-secondary)', fontWeight: 600 }}>背景情報コンテキストを生成中...</div>
+              </div>
+            )}
+
+            {contextText && !optimizing && (
+              <div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12, flexWrap: 'wrap' as const, gap: 8 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <span style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-primary)' }}>🧠 AI背景情報コンテキスト</span>
+                    {saveStatus && <span style={{ fontSize: 12, color: '#00d4b8', fontWeight: 600 }}>{saveStatus}</span>}
+                  </div>
+                  <button
+                    onClick={optimizeContext}
+                    style={{ padding: '4px 12px', background: 'var(--bg-secondary)', border: '1px solid var(--border)', color: 'var(--text-muted)', borderRadius: 6, cursor: 'pointer', fontSize: 11 }}
+                  >
+                    🔄 再生成
+                  </button>
+                </div>
+
+                <div style={{ background: 'var(--bg-primary)', border: '1px solid var(--border-accent)', borderRadius: 10, padding: 16, marginBottom: 12, maxHeight: 400, overflowY: 'auto' as const }}>
+                  <pre style={{ margin: 0, whiteSpace: 'pre-wrap' as const, wordBreak: 'break-word' as const, fontSize: 12, fontFamily: 'inherit', color: 'var(--text-secondary)', lineHeight: 1.7 }}>
+                    {contextText}
+                  </pre>
+                </div>
+
+                {/* 連携ボタン群 */}
+                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' as const }}>
+                  <button
+                    onClick={() => navigator.clipboard.writeText(contextText)}
+                    style={{ padding: '8px 14px', background: 'var(--bg-secondary)', border: '1px solid var(--border)', color: 'var(--text-secondary)', borderRadius: 8, cursor: 'pointer', fontSize: 12, fontWeight: 600 }}
+                  >
+                    📋 コピー
+                  </button>
+                  <button
+                    onClick={saveContext}
+                    style={{ padding: '8px 14px', background: 'linear-gradient(135deg, #6c63ff, #00d4b8)', color: '#fff', border: 'none', borderRadius: 8, cursor: 'pointer', fontSize: 12, fontWeight: 700 }}
+                  >
+                    💾 保存
+                  </button>
+                  <button
+                    onClick={() => goToTool('write')}
+                    style={{ padding: '8px 14px', background: 'var(--accent-soft)', border: '1px solid var(--border-accent)', color: 'var(--text-primary)', borderRadius: 8, cursor: 'pointer', fontSize: 12, fontWeight: 600 }}
+                  >
+                    ✍️ 文章作成へ
+                  </button>
+                  <button
+                    onClick={() => goToTool('sns-post')}
+                    style={{ padding: '8px 14px', background: 'var(--accent-soft)', border: '1px solid var(--border-accent)', color: 'var(--text-primary)', borderRadius: 8, cursor: 'pointer', fontSize: 12, fontWeight: 600 }}
+                  >
+                    📱 SNS投稿へ
+                  </button>
+                  <button
+                    onClick={() => goToTool('lp')}
+                    style={{ padding: '8px 14px', background: 'var(--accent-soft)', border: '1px solid var(--border-accent)', color: 'var(--text-primary)', borderRadius: 8, cursor: 'pointer', fontSize: 12, fontWeight: 600 }}
+                  >
+                    📄 LP作成へ
+                  </button>
+                  <button
+                    onClick={() => goToTool('materials')}
+                    style={{ padding: '8px 14px', background: 'var(--accent-soft)', border: '1px solid var(--border-accent)', color: 'var(--text-primary)', borderRadius: 8, cursor: 'pointer', fontSize: 12, fontWeight: 600 }}
+                  >
+                    📊 資料作成へ
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
         </div>
       )}
 

@@ -16,6 +16,7 @@ const navCategories: NavCategory[] = [
       { href: '/dashboard/websearch', label: 'Web情報収集', icon: '🌐' },
       { href: '/dashboard/note', label: 'note検索', icon: '📓' },
       { href: '/dashboard/deepresearch', label: 'ディープリサーチ', icon: '🔭' },
+      { href: '/dashboard/context-library', label: 'コンテキストライブラリ', icon: '🧠' },
       { href: '/dashboard/research', label: '文献検索', icon: '🔬' },
       { href: '/dashboard/alerts', label: '定期アラート', icon: '🔔' },
       { href: '/dashboard/fact-check', label: 'ファクトチェック', icon: '✅' },

@@ -1,5 +1,5 @@
 'use client';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { ProgressBar } from '@/components/ProgressBar';
 import { useProgress } from '@/components/useProgress';
 import { SaveToLibraryButton } from '@/components/SaveToLibraryButton';
@@ -54,7 +54,41 @@ export default function LPGeneratorPage() {
   const [rawText, setRawText] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [contextHint, setContextHint] = useState('');
   const { progress, loading: progressLoading, startProgress, completeProgress, resetProgress } = useProgress();
+
+  // コンテキストライブラリ・ディープリサーチからの背景情報受け取り
+  useEffect(() => {
+    try {
+      const params = new URLSearchParams(window.location.search);
+      const contextId = params.get('contextId');
+      const apply = (text: string, topic?: string) => {
+        setContextHint(text);
+        // problem/solution が空なら背景情報の先頭を仮入力
+        setForm(prev => ({
+          ...prev,
+          productName: prev.productName || (topic || ''),
+          problem: prev.problem || `（背景情報を参照）${text.slice(0, 200)}`,
+        }));
+      };
+      if (contextId) {
+        fetch(`/api/context-saves?id=${contextId}`)
+          .then(r => r.ok ? r.json() : null)
+          .then(data => {
+            if (data && data.context_text) apply(data.context_text, data.topic);
+          })
+          .catch(() => {});
+      } else {
+        const ctx = sessionStorage.getItem('lumina_context_text');
+        const topic = sessionStorage.getItem('lumina_context_topic') || '';
+        if (ctx) {
+          apply(ctx, topic);
+          sessionStorage.removeItem('lumina_context_text');
+          sessionStorage.removeItem('lumina_context_topic');
+        }
+      }
+    } catch {}
+  }, []);
 
   const LP_SAMPLES: Record<string, LPForm> = {
     pasona: { productName: 'xLUMINA Pro', target: '副業・フリーランスで情報発信しているビジネスパーソン', problem: '情報収集に毎日3時間かかる・文章が書けない・LP制作に数十万円かかる', solution: '30以上のAI機能で情報収集から文章生成まで全自動。LP・HP・SNS投稿もAIが一括生成。', price: '月額9,800円（税込）・14日間無料トライアルあり', cta: '14日間無料で試す →' },
