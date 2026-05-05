@@ -33,6 +33,7 @@ const navCategories: NavCategory[] = [
       { href: '/dashboard/industry', label: '業界レポート', icon: '📊' },
       { href: '/dashboard/personas', label: 'AIペルソナ', icon: '🤖' },
       { href: '/dashboard/brainstorm', label: 'ブレスト', icon: '💡' },
+      { href: '/dashboard/architecture', label: 'アーキテクチャ設計', icon: '🏗' },
     ],
   },
   {
