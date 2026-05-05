@@ -395,6 +395,58 @@ export default function DeepResearchPage() {
   const [savedContextId, setSavedContextId] = useState<number | null>(null);
   const [saveStatus, setSaveStatus] = useState('');
 
+  // 専門用語サーチ
+  type ExtractedTerm = { term: string; reading: string; category: string; difficulty: 'やや難' | '難' | '超難'; context: string };
+  type ExplainedTerm = { id?: number; term: string; reading?: string | null; explanation?: string; category?: string; alreadyExists?: boolean; error?: string };
+  const [extractedTerms, setExtractedTerms] = useState<ExtractedTerm[]>([]);
+  const [selectedTerms, setSelectedTerms] = useState<Set<string>>(new Set());
+  const [isExtractingTerms, setIsExtractingTerms] = useState(false);
+  const [isExplainingTerms, setIsExplainingTerms] = useState(false);
+  const [explainedTerms, setExplainedTerms] = useState<ExplainedTerm[]>([]);
+
+  const extractTermsFromResearch = async (researchText: string, t: string) => {
+    setIsExtractingTerms(true);
+    setExtractedTerms([]);
+    setSelectedTerms(new Set());
+    setExplainedTerms([]);
+    try {
+      const res = await fetch('/api/glossary/research-extract', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ researchText, topic: t }),
+      });
+      const data = await res.json();
+      setExtractedTerms(data.terms || []);
+    } catch (e) {
+      console.error('用語抽出エラー:', e);
+    } finally {
+      setIsExtractingTerms(false);
+    }
+  };
+
+  const handleExplainTerms = async () => {
+    const termsToExplain = extractedTerms.filter(t => selectedTerms.has(t.term));
+    if (termsToExplain.length === 0) {
+      alert('用語を選択してください');
+      return;
+    }
+    setIsExplainingTerms(true);
+    setExplainedTerms([]);
+    try {
+      const res = await fetch('/api/glossary/research-explain', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ terms: termsToExplain, sourceTopic: topic }),
+      });
+      const data = await res.json();
+      setExplainedTerms(data.results || []);
+    } catch (e) {
+      console.error('用語解説エラー:', e);
+    } finally {
+      setIsExplainingTerms(false);
+    }
+  };
+
   // 知識ツリー・関連タイトル案
   type SuggestedTitle = { title: string; reason: string; category: string; level: string };
   const [suggestedTitles, setSuggestedTitles] = useState<SuggestedTitle[]>([]);
@@ -606,11 +658,12 @@ export default function DeepResearchPage() {
         }
       }
 
-      // 完了後：知識ツリーノード保存＋関連タイトル案生成
+      // 完了後：知識ツリーノード保存＋関連タイトル案生成＋専門用語抽出
       const finalDepth = startDepth !== null ? startDepth : 0;
       const finalParentId = parentId;
       if (accumulated.trim() && !accumulated.startsWith('エラー')) {
         saveNodeAndSuggestTitles(q, accumulated, finalParentId, finalDepth).catch(e => console.error(e));
+        extractTermsFromResearch(accumulated, q).catch(e => console.error(e));
       }
     } catch (error: any) {
       setReport(`通信エラー: ${error.message}`);
@@ -857,6 +910,181 @@ export default function DeepResearchPage() {
                   >
                     🌳 知識ツリーで探求マップを見る →
                   </a>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* 専門用語サーチパネル */}
+          {(isExtractingTerms || extractedTerms.length > 0) && (
+            <div style={{
+              marginTop: 24,
+              border: '1px solid var(--border)',
+              borderRadius: 12,
+              overflow: 'hidden' as const,
+            }}>
+              <div style={{
+                padding: '10px 16px',
+                background: 'linear-gradient(135deg, #f59e0b, #ef6c00)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                flexWrap: 'wrap' as const,
+                gap: 8,
+              }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <span style={{ fontSize: 16 }}>📚</span>
+                  <span style={{ color: '#fff', fontSize: 13, fontWeight: 700 }}>専門用語サーチ</span>
+                  {extractedTerms.length > 0 && (
+                    <span style={{ background: 'rgba(255,255,255,0.25)', color: '#fff', fontSize: 10, padding: '2px 8px', borderRadius: 10, fontWeight: 700 }}>
+                      {extractedTerms.length}件検出
+                    </span>
+                  )}
+                </div>
+                <a href="/dashboard/research-glossary" style={{ color: 'rgba(255,255,255,0.9)', fontSize: 11, textDecoration: 'none' }}>
+                  用語集を見る →
+                </a>
+              </div>
+
+              {isExtractingTerms ? (
+                <div style={{ padding: 18, textAlign: 'center' as const, fontSize: 12, color: 'var(--text-muted)', animation: 'pulse 1.6s ease-in-out infinite' }}>
+                  🤖 AIが専門用語を抽出中...
+                </div>
+              ) : (
+                <div style={{ padding: 16, background: 'var(--bg-primary)' }}>
+                  <p style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 10 }}>
+                    調べたい用語を選択して「まとめて解説」を押してください
+                  </p>
+
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 6, marginBottom: 12 }}>
+                    {extractedTerms.map((item) => {
+                      const checked = selectedTerms.has(item.term);
+                      const diffColor =
+                        item.difficulty === '超難' ? { bg: 'rgba(239,68,68,0.18)', color: '#ef4444' } :
+                        item.difficulty === '難' ? { bg: 'rgba(245,158,11,0.18)', color: '#f59e0b' } :
+                        { bg: 'rgba(234,179,8,0.18)', color: '#ca8a04' };
+                      return (
+                        <label
+                          key={item.term}
+                          style={{
+                            display: 'flex', gap: 8, padding: 10,
+                            background: checked ? 'rgba(245,158,11,0.08)' : 'var(--bg-secondary)',
+                            border: checked ? '1px solid #f59e0b' : '1px solid var(--border)',
+                            borderRadius: 8,
+                            cursor: 'pointer',
+                            alignItems: 'flex-start' as const,
+                          }}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={checked}
+                            onChange={(e) => {
+                              const next = new Set(selectedTerms);
+                              if (e.target.checked) next.add(item.term);
+                              else next.delete(item.term);
+                              setSelectedTerms(next);
+                            }}
+                            style={{ marginTop: 2, accentColor: '#f59e0b', flexShrink: 0 }}
+                          />
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <div style={{ display: 'flex', gap: 4, alignItems: 'center', flexWrap: 'wrap' as const, marginBottom: 2 }}>
+                              <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)' }}>{item.term}</span>
+                              {item.reading && (
+                                <span style={{ fontSize: 10, color: 'var(--text-muted)' }}>（{item.reading}）</span>
+                              )}
+                              <span style={{ fontSize: 9, padding: '1px 6px', borderRadius: 6, background: diffColor.bg, color: diffColor.color, fontWeight: 700 }}>
+                                {item.difficulty}
+                              </span>
+                              <span style={{ fontSize: 9, padding: '1px 6px', borderRadius: 6, background: 'var(--bg-primary)', color: 'var(--text-muted)' }}>
+                                {item.category}
+                              </span>
+                            </div>
+                            {item.context && (
+                              <div style={{ fontSize: 10, color: 'var(--text-muted)', overflow: 'hidden', textOverflow: 'ellipsis' as const, whiteSpace: 'nowrap' as const }}>
+                                文中: 「{item.context}」
+                              </div>
+                            )}
+                          </div>
+                        </label>
+                      );
+                    })}
+                  </div>
+
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' as const }}>
+                    <button
+                      onClick={() => {
+                        if (selectedTerms.size === extractedTerms.length) {
+                          setSelectedTerms(new Set());
+                        } else {
+                          setSelectedTerms(new Set(extractedTerms.map(t => t.term)));
+                        }
+                      }}
+                      style={{ fontSize: 11, color: '#f59e0b', background: 'transparent', border: 'none', cursor: 'pointer', padding: '4px 8px', fontWeight: 600 }}
+                    >
+                      {selectedTerms.size === extractedTerms.length ? '全解除' : '全選択'}
+                    </button>
+                    <span style={{ fontSize: 10, color: 'var(--text-muted)' }}>{selectedTerms.size}件選択中</span>
+                    <button
+                      onClick={handleExplainTerms}
+                      disabled={selectedTerms.size === 0 || isExplainingTerms}
+                      style={{
+                        marginLeft: 'auto',
+                        padding: '8px 16px',
+                        background: selectedTerms.size === 0 || isExplainingTerms ? 'var(--bg-secondary)' : 'linear-gradient(135deg, #f59e0b, #ef6c00)',
+                        color: selectedTerms.size === 0 || isExplainingTerms ? 'var(--text-muted)' : '#fff',
+                        border: 'none', borderRadius: 8, cursor: selectedTerms.size === 0 || isExplainingTerms ? 'not-allowed' : 'pointer',
+                        fontSize: 12, fontWeight: 700,
+                      }}
+                    >
+                      {isExplainingTerms
+                        ? `🔄 解説生成中... (${explainedTerms.length}/${selectedTerms.size})`
+                        : `📖 まとめて解説・保存 (${selectedTerms.size}件)`}
+                    </button>
+                  </div>
+
+                  {/* 解説結果 */}
+                  {explainedTerms.length > 0 && (
+                    <div style={{ marginTop: 16, display: 'flex', flexDirection: 'column' as const, gap: 8 }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-primary)' }}>📖 解説結果</span>
+                        <a href="/dashboard/research-glossary" style={{ fontSize: 11, color: '#f59e0b', textDecoration: 'none' }}>
+                          用語集で全件確認 →
+                        </a>
+                      </div>
+                      {explainedTerms.map((item, i) => {
+                        const isErr = !!item.error;
+                        const isExist = item.alreadyExists;
+                        const bg = isErr ? 'rgba(239,68,68,0.06)' : isExist ? 'var(--bg-secondary)' : 'rgba(245,158,11,0.06)';
+                        const border = isErr ? '1px solid rgba(239,68,68,0.3)' : isExist ? '1px solid var(--border)' : '1px solid rgba(245,158,11,0.3)';
+                        return (
+                          <div key={i} style={{ background: bg, border, borderRadius: 8, padding: 12 }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6, flexWrap: 'wrap' as const }}>
+                              <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-primary)' }}>{item.term}</span>
+                              {item.reading && (
+                                <span style={{ fontSize: 10, color: 'var(--text-muted)' }}>（{item.reading}）</span>
+                              )}
+                              {item.category && (
+                                <span style={{ fontSize: 9, padding: '1px 6px', borderRadius: 6, background: 'var(--bg-primary)', border: '1px solid var(--border)', color: 'var(--text-muted)' }}>
+                                  {item.category}
+                                </span>
+                              )}
+                              {isExist && (
+                                <span style={{ marginLeft: 'auto', fontSize: 10, color: 'var(--text-muted)' }}>保存済み</span>
+                              )}
+                              {!isExist && !isErr && (
+                                <span style={{ marginLeft: 'auto', fontSize: 10, color: '#1D9E75', fontWeight: 600 }}>✅ 用語集に保存</span>
+                              )}
+                            </div>
+                            {isErr ? (
+                              <p style={{ fontSize: 11, color: '#ef4444', margin: 0 }}>エラー: {item.error}</p>
+                            ) : (
+                              <p style={{ fontSize: 12, color: 'var(--text-secondary)', margin: 0, lineHeight: 1.7 }}>{item.explanation}</p>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
                 </div>
               )}
             </div>
