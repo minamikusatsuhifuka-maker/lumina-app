@@ -654,6 +654,42 @@ export default function DeepResearchPage() {
     }
   };
 
+  // AI背景情報コンテキストをMDファイルとしてダウンロード
+  const handleDownloadMD = () => {
+    if (!contextText) return;
+
+    const now = new Date();
+    const dateStr = now.toISOString().slice(0, 10);
+    const timeStr = now.toTimeString().slice(0, 5).replace(':', '');
+
+    const safeTopic = (topic ?? 'コンテキスト')
+      .replace(/[\\/:*?"<>|]/g, '')
+      .replace(/\s+/g, '_')
+      .slice(0, 40);
+
+    const filename = `${dateStr}_${timeStr}_${safeTopic}.md`;
+
+    const mdContent = `---
+title: ${topic ?? 'AI背景情報コンテキスト'}
+generated_at: ${now.toISOString()}
+source: xLUMINA Deep Research
+type: ai_context
+---
+
+${contextText}
+`.trim();
+
+    const blob = new Blob([mdContent], { type: 'text/markdown; charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
   const saveContext = async () => {
     if (!contextText.trim()) return;
     setSaveStatus('保存中...');
@@ -1465,6 +1501,14 @@ export default function DeepResearchPage() {
                     style={{ padding: '8px 14px', background: 'var(--bg-secondary)', border: '1px solid var(--border)', color: 'var(--text-secondary)', borderRadius: 8, cursor: 'pointer', fontSize: 12, fontWeight: 600 }}
                   >
                     📋 コピー
+                  </button>
+                  <button
+                    onClick={handleDownloadMD}
+                    disabled={!contextText}
+                    title="AIが読み込みやすいMarkdown形式でダウンロード"
+                    style={{ padding: '8px 14px', background: '#374151', color: '#fff', border: 'none', borderRadius: 8, cursor: contextText ? 'pointer' : 'not-allowed', fontSize: 12, fontWeight: 600, opacity: contextText ? 1 : 0.4 }}
+                  >
+                    📄 MDで出力
                   </button>
                   <button
                     onClick={saveContext}
