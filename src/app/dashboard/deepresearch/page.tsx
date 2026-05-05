@@ -119,6 +119,9 @@ export default function DeepResearchPage() {
         alert(`最適化エラー: ${data.error || '不明なエラー'}`);
       } else {
         setContextText(data.contextText || '');
+        if (data.warning) {
+          alert(`⚠️ ${data.warning}`);
+        }
       }
     } catch (e: any) {
       alert(`通信エラー: ${e.message}`);
