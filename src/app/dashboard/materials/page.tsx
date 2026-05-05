@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import { parseSSEStream } from '@/lib/streamUtils';
 
 // 資料作成（コンテキストライブラリ連携対応・最小実装）
 export default function MaterialsPage() {
@@ -58,15 +59,7 @@ export default function MaterialsPage() {
         setOutput('生成に失敗しました。');
         return;
       }
-      const reader = res.body.getReader();
-      const decoder = new TextDecoder();
-      let acc = '';
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        acc += decoder.decode(value);
-        setOutput(acc);
-      }
+      await parseSSEStream(res, (text) => setOutput(text));
     } catch (e: any) {
       setOutput(`通信エラー: ${e.message}`);
     } finally {

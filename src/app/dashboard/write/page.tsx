@@ -119,6 +119,86 @@ export default function WritePage() {
   const [isConverting, setIsConverting] = useState(false);
   const [showToneButtons, setShowToneButtons] = useState(false);
 
+  // AI改善提案
+  const [improveSuggestions, setImproveSuggestions] = useState<Array<{ point: string; detail: string; priority: string }>>([]);
+  const [improvedText, setImprovedText] = useState('');
+  const [isImproving, setIsImproving] = useState(false);
+  const [showImproved, setShowImproved] = useState(false);
+  const [improveError, setImproveError] = useState('');
+
+  const handleImprove = async () => {
+    if (!output.trim()) return;
+    setIsImproving(true);
+    setImproveSuggestions([]);
+    setImprovedText('');
+    setShowImproved(false);
+    setImproveError('');
+
+    try {
+      const res = await fetch('/api/writing/improve', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          originalText: output,
+          readabilityScore: readability?.total ?? null,
+          scoreDetails: readability?.details ?? null,
+          topic: prompt,
+          style: mode,
+        }),
+      });
+
+      if (!res.ok || !res.body) {
+        const errText = await res.text();
+        setImproveError(`改善エラー: ${errText.slice(0, 200)}`);
+        return;
+      }
+
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+      let fullJsonText = '';
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() ?? '';
+        for (const line of lines) {
+          if (!line.startsWith('data: ')) continue;
+          const json = line.slice(6).trim();
+          if (!json) continue;
+          try {
+            const parsed = JSON.parse(json);
+            if (parsed.type === 'delta' && typeof parsed.text === 'string') {
+              fullJsonText += parsed.text;
+            } else if (parsed.type === 'done') {
+              const text = parsed.fullText || fullJsonText;
+              const cleaned = text.replace(/^```(?:json)?\s*/i, '').replace(/```\s*$/, '').trim();
+              try {
+                const result = JSON.parse(cleaned);
+                setImproveSuggestions(result.suggestions ?? []);
+                setImprovedText(result.improvedText ?? '');
+                setShowImproved(true);
+              } catch (e) {
+                console.error('[writing/improve] JSONパースエラー:', cleaned.slice(0, 300));
+                setImproveError('AI応答のJSON解析に失敗しました。再試行してください。');
+              }
+            } else if (parsed.type === 'error') {
+              setImproveError(`改善エラー: ${parsed.message || ''}`);
+            }
+          } catch {
+            // skip
+          }
+        }
+      }
+    } catch (err: any) {
+      setImproveError(`通信エラー: ${err?.message || String(err)}`);
+    } finally {
+      setIsImproving(false);
+    }
+  };
+
   const handleSuggestTitles = async () => {
     if (!output) return;
     setIsLoadingTitles(true);
@@ -783,6 +863,102 @@ export default function WritePage() {
               </div>
             ))}
           </div>
+        </div>
+      )}
+
+      {/* AI改善提案 */}
+      {output && !loading && (
+        <div style={{ marginTop: 12, border: '1px solid var(--border)', borderRadius: 12, padding: 16 }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: improveSuggestions.length > 0 || showImproved || improveError ? 12 : 0, flexWrap: 'wrap' as const, gap: 8 }}>
+            <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)' }}>✨ AI改善提案</span>
+            <button
+              onClick={handleImprove}
+              disabled={isImproving}
+              style={{
+                padding: '8px 18px',
+                background: isImproving ? 'var(--bg-secondary)' : 'linear-gradient(135deg, #6c63ff, #8b5cf6)',
+                color: isImproving ? 'var(--text-muted)' : '#fff',
+                border: 'none',
+                borderRadius: 8,
+                cursor: isImproving ? 'not-allowed' : 'pointer',
+                fontSize: 12,
+                fontWeight: 700,
+              }}
+            >
+              {isImproving ? '🔧 改善中...' : '🔧 AIで改善する'}
+            </button>
+          </div>
+
+          {improveError && (
+            <div style={{ padding: '8px 12px', background: 'rgba(239,68,68,0.08)', border: '1px solid #ef4444', borderRadius: 6, color: '#ef4444', fontSize: 12, marginBottom: 8 }}>
+              {improveError}
+            </div>
+          )}
+
+          {improveSuggestions.length > 0 && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 12 }}>
+              {improveSuggestions.map((s, i) => {
+                const colors = s.priority === '高'
+                  ? { border: '#ef4444', bg: 'rgba(239,68,68,0.06)', tagBg: 'rgba(239,68,68,0.18)', tagColor: '#ef4444' }
+                  : s.priority === '中'
+                  ? { border: '#f59e0b', bg: 'rgba(245,158,11,0.06)', tagBg: 'rgba(245,158,11,0.18)', tagColor: '#f59e0b' }
+                  : { border: '#1D9E75', bg: 'rgba(29,158,117,0.06)', tagBg: 'rgba(29,158,117,0.18)', tagColor: '#1D9E75' };
+                return (
+                  <div key={i} style={{ padding: 10, borderRadius: 8, borderLeft: `4px solid ${colors.border}`, background: colors.bg }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4, flexWrap: 'wrap' as const }}>
+                      <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)' }}>{s.point}</span>
+                      <span style={{ fontSize: 10, padding: '1px 8px', borderRadius: 10, background: colors.tagBg, color: colors.tagColor, fontWeight: 700 }}>
+                        {s.priority}
+                      </span>
+                    </div>
+                    <div style={{ fontSize: 12, color: 'var(--text-muted)', lineHeight: 1.7 }}>{s.detail}</div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          {showImproved && improvedText && (
+            <div style={{ marginTop: 8 }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6, flexWrap: 'wrap' as const, gap: 8 }}>
+                <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-primary)' }}>📝 改善後の文章</span>
+                <button
+                  onClick={() => {
+                    setOriginalText(output);
+                    setOutput(improvedText);
+                    setReadability(calcReadabilityScore(improvedText));
+                    setShowImproved(false);
+                  }}
+                  style={{
+                    padding: '6px 14px',
+                    background: 'linear-gradient(135deg, #1D9E75, #00d4b8)',
+                    color: '#fff',
+                    border: 'none',
+                    borderRadius: 6,
+                    cursor: 'pointer',
+                    fontSize: 11,
+                    fontWeight: 700,
+                  }}
+                >
+                  ✅ この改善を採用する
+                </button>
+              </div>
+              <div style={{
+                background: 'var(--bg-secondary)',
+                border: '1px solid var(--border)',
+                borderRadius: 8,
+                padding: 12,
+                fontSize: 13,
+                color: 'var(--text-secondary)',
+                lineHeight: 1.8,
+                whiteSpace: 'pre-wrap' as const,
+                maxHeight: 300,
+                overflowY: 'auto' as const,
+              }}>
+                {improvedText}
+              </div>
+            </div>
+          )}
         </div>
       )}
 
