@@ -12,20 +12,39 @@ export async function POST(req: NextRequest) {
     });
   }
 
+  // モード別の本文指示（文字数より完結性を最優先）
   const depthPrompts: Record<string, string> = {
-    quick: '1500字程度で簡潔にまとめてください。要点を押さえつつ、初心者にも理解しやすい説明を心がけてください。',
-    standard: '3000字程度で詳しくまとめてください。概要・主要ポイント・最新動向・事例・まとめの構成で、具体例や数字を交えて読み応えのあるレポートにしてください。',
-    deep: '5000字以上で網羅的かつ詳細に記述してください。各セクションを深く掘り下げ、背景・現状・課題・具体事例・統計・今後の展望を豊富な引用元とともに記述してください。',
+    quick: '1500字程度で簡潔にまとめてください。要点を絞りつつ、必ず最後の「まとめ・結論」まで完結させてください。',
+    standard: '3000字程度で詳しくまとめてください。概要・主要ポイント・最新動向・事例を含め、必ず最後の「まとめ・結論」まで完結させてください。',
+    deep: '5000字程度の詳細なリサーチレポートを作成してください。各章を深く掘り下げつつ、必ず最後の「まとめ・結論」で締めくくってください。文字数より完結性を最優先してください。',
   };
 
-  // モードごとのmax_tokens
+  // モード別のmax_tokens（完結性確保のため余裕を持たせる）
   const depthMaxTokens: Record<string, number> = {
-    quick: 2500,
-    standard: 5000,
-    deep: 9000,
+    quick: 3000,
+    standard: 6000,
+    deep: 12000,
   };
   const selectedDepth = depth || 'standard';
-  const maxTokens = depthMaxTokens[selectedDepth] || 5000;
+  const maxTokens = depthMaxTokens[selectedDepth] || 6000;
+
+  // モード別のアウトライン構成
+  const depthOutlines: Record<string, string> = {
+    quick: `## はじめに
+## 要点（3〜5項目）
+## まとめ・結論`,
+    standard: `## はじめに
+## 背景と概要
+## 主要ポイント・最新動向
+## 事例・実践
+## まとめ・結論`,
+    deep: `## はじめに
+## 背景と概要
+## 詳細解説（複数章で深く掘り下げ）
+## 実践・活用方法
+## まとめ・結論`,
+  };
+  const outline = depthOutlines[selectedDepth] || depthOutlines.standard;
 
   const encoder = new TextEncoder();
 
@@ -59,19 +78,27 @@ export async function POST(req: NextRequest) {
             messages: [{
               role: 'user',
               content: `トピック：${topic}
-調査深度：${depthPrompts[depth || 'standard']}
+調査深度の指示：${depthPrompts[selectedDepth]}
+
+【必須要件】
+- 必ず「まとめ・結論」セクションで締めくくること
+- 途中で終わらず最後まで完結させること
+- 文字数が多少前後しても完結を最優先すること
+- 以下の構成に従うこと
 
 # ${topic}
-## 概要
-## 主要ポイント
-## 詳細分析
-## まとめと活用アドバイス
+${outline}
+## 参考・補足
 
-各情報の引用元URLを必ず記載してください。
-重要: URLは生のURL（https://...）のみ記載し、HTMLやMarkdownリンク記法は使わないでください。
-出典の形式: 「出典: サイト名 https://URL」
+【出力ルール】
+- 各情報の引用元URLを必ず記載
+- URLは生のURL（https://...）のみ。HTMLタグやMarkdownリンク記法は禁止
+- 出典の形式: 「出典: サイト名 https://URL」
+- 事実と推測を明確に区別
 
-必ず全セクションを最後まで完全に出力してください。途中で途切れないようにしてください。`,
+【最重要】必ず最後の「まとめ・結論」まで書き切ってください。
+途中で終わることは絶対に避けてください。
+時間や長さが厳しい場合は中盤を簡潔にしてでも、結論セクションを必ず含めてください。`,
             }],
           }),
         });
