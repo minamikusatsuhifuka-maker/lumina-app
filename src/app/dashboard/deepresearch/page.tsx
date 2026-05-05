@@ -403,12 +403,14 @@ export default function DeepResearchPage() {
   const [isExtractingTerms, setIsExtractingTerms] = useState(false);
   const [isExplainingTerms, setIsExplainingTerms] = useState(false);
   const [explainedTerms, setExplainedTerms] = useState<ExplainedTerm[]>([]);
+  const [extractError, setExtractError] = useState('');
 
   const extractTermsFromResearch = async (researchText: string, t: string) => {
     setIsExtractingTerms(true);
     setExtractedTerms([]);
     setSelectedTerms(new Set());
     setExplainedTerms([]);
+    setExtractError('');
     try {
       const res = await fetch('/api/glossary/research-extract', {
         method: 'POST',
@@ -416,9 +418,18 @@ export default function DeepResearchPage() {
         body: JSON.stringify({ researchText, topic: t }),
       });
       const data = await res.json();
-      setExtractedTerms(data.terms || []);
-    } catch (e) {
+      if (!res.ok) {
+        setExtractError(`抽出エラー: ${data.error || res.status}`);
+        return;
+      }
+      const terms = Array.isArray(data.terms) ? data.terms : [];
+      setExtractedTerms(terms);
+      if (terms.length === 0) {
+        setExtractError('AIが専門用語を検出できませんでした。');
+      }
+    } catch (e: any) {
       console.error('用語抽出エラー:', e);
+      setExtractError(`通信エラー: ${e?.message || ''}`);
     } finally {
       setIsExtractingTerms(false);
     }
@@ -445,6 +456,99 @@ export default function DeepResearchPage() {
     } finally {
       setIsExplainingTerms(false);
     }
+  };
+
+  // 関連トピック一括バッチ
+  type BatchRelatedItem = { topic: string; status: 'pending' | 'running' | 'done' | 'error' };
+  const [selectedRelatedTopics, setSelectedRelatedTopics] = useState<Set<string>>(new Set());
+  const [batchRelatedMode, setBatchRelatedMode] = useState(false);
+  const [isBatchingRelated, setIsBatchingRelated] = useState(false);
+  const [batchRelatedProgress, setBatchRelatedProgress] = useState<BatchRelatedItem[]>([]);
+
+  const handleBatchRelatedResearch = async (mode: 'quick' | 'standard' | 'deep') => {
+    const topics = Array.from(selectedRelatedTopics);
+    if (topics.length === 0) {
+      alert('トピックを選択してください');
+      return;
+    }
+    const modeLabels: Record<typeof mode, string> = { quick: '1500字', standard: '3000字', deep: '5000字' };
+    if (!confirm(`選択した${topics.length}件を${modeLabels[mode]}でリサーチします。よろしいですか？`)) return;
+
+    setIsBatchingRelated(true);
+    setBatchRelatedProgress(topics.map(t => ({ topic: t, status: 'pending' })));
+
+    for (let i = 0; i < topics.length; i++) {
+      const t = topics[i];
+      setBatchRelatedProgress(prev => prev.map((p, idx) => idx === i ? { ...p, status: 'running' } : p));
+
+      try {
+        // バッチジョブ登録
+        const jobRes = await fetch('/api/batch-research', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            groupName: `関連リサーチ: ${t.slice(0, 20)}`,
+            topics: [{ topic: t, mode }],
+            scheduleType: 'immediate',
+          }),
+        });
+        const jobData = await jobRes.json();
+        if (!jobRes.ok) throw new Error(jobData.error || 'ジョブ登録失敗');
+        const jobId = jobData.job?.id;
+
+        // SSEで完了まで待機
+        const runRes = await fetch(`/api/batch-research/${jobId}/run`, { method: 'POST' });
+        if (!runRes.ok || !runRes.body) throw new Error('実行開始失敗');
+        const reader = runRes.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+        let topicCompleted = false;
+        while (!topicCompleted) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split('\n');
+          buffer = lines.pop() ?? '';
+          for (const line of lines) {
+            if (!line.startsWith('data: ')) continue;
+            try {
+              const event = JSON.parse(line.slice(6));
+              if (event.type === 'topic_done' || event.type === 'all_done') {
+                topicCompleted = true;
+              } else if (event.type === 'topic_error' || event.type === 'error') {
+                throw new Error(event.error || event.message || 'リサーチ失敗');
+              }
+            } catch (parseErr) {
+              if (parseErr instanceof Error && (parseErr.message.includes('リサーチ失敗') || parseErr.message.includes('failed'))) {
+                throw parseErr;
+              }
+            }
+          }
+        }
+
+        // 知識ツリーに親子関係で保存
+        await fetch('/api/knowledge/nodes', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            parentId: currentNodeId,
+            topic: t,
+            sourceType: 'deepresearch',
+            summary: `バッチリサーチ（${modeLabels[mode]}）から自動保存`,
+            depth: (currentDepth || 0) + 1,
+          }),
+        }).catch(() => {});
+
+        setBatchRelatedProgress(prev => prev.map((p, idx) => idx === i ? { ...p, status: 'done' } : p));
+      } catch (e) {
+        console.error(`関連バッチエラー (${t}):`, e);
+        setBatchRelatedProgress(prev => prev.map((p, idx) => idx === i ? { ...p, status: 'error' } : p));
+      }
+    }
+
+    setIsBatchingRelated(false);
+    setSelectedRelatedTopics(new Set());
+    setBatchRelatedMode(false);
   };
 
   // 知識ツリー・関連タイトル案
@@ -842,11 +946,186 @@ export default function DeepResearchPage() {
                 <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-primary)' }}>
                   🔗 次に調べると理解が深まるトピック
                 </div>
-                <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>
-                  探求深度: Lv.{currentDepth}
-                  {currentDepth >= 3 ? ' 🏆 専門家レベル' : currentDepth >= 2 ? ' 🎯 応用レベル' : currentDepth >= 1 ? ' 📚 学習中' : ' 🌱 入門'}
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' as const }}>
+                  <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>
+                    探求深度: Lv.{currentDepth}
+                    {currentDepth >= 3 ? ' 🏆 専門家レベル' : currentDepth >= 2 ? ' 🎯 応用レベル' : currentDepth >= 1 ? ' 📚 学習中' : ' 🌱 入門'}
+                  </div>
+                  {!isLoadingTitles && suggestedTitles.length > 0 && !isBatchingRelated && (
+                    <button
+                      onClick={() => {
+                        setBatchRelatedMode(!batchRelatedMode);
+                        setSelectedRelatedTopics(new Set());
+                      }}
+                      style={{
+                        padding: '5px 12px',
+                        fontSize: 11,
+                        fontWeight: 700,
+                        borderRadius: 6,
+                        cursor: 'pointer',
+                        border: 'none',
+                        color: '#fff',
+                        background: batchRelatedMode
+                          ? 'linear-gradient(135deg, #6b7280, #4b5563)'
+                          : 'linear-gradient(135deg, #8b5cf6, #6c63ff)',
+                      }}
+                    >
+                      {batchRelatedMode ? '✕ キャンセル' : '⚡ まとめて調べる'}
+                    </button>
+                  )}
                 </div>
               </div>
+
+              {/* バッチモードのツールバー */}
+              {batchRelatedMode && !isBatchingRelated && suggestedTitles.length > 0 && (
+                <div style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 10,
+                  padding: '10px 12px',
+                  marginBottom: 10,
+                  background: 'rgba(139,92,246,0.08)',
+                  border: '1px solid rgba(139,92,246,0.25)',
+                  borderRadius: 8,
+                  flexWrap: 'wrap' as const,
+                }}>
+                  <button
+                    onClick={() => {
+                      if (selectedRelatedTopics.size === suggestedTitles.length) {
+                        setSelectedRelatedTopics(new Set());
+                      } else {
+                        setSelectedRelatedTopics(new Set(suggestedTitles.map(s => s.title)));
+                      }
+                    }}
+                    style={{ fontSize: 11, color: '#8b5cf6', background: 'transparent', border: 'none', cursor: 'pointer', textDecoration: 'underline', padding: 0 }}
+                  >
+                    {selectedRelatedTopics.size === suggestedTitles.length ? '全選択解除' : '全選択'}
+                  </button>
+                  <span style={{ fontSize: 12, color: 'var(--text-secondary)', fontWeight: 600 }}>
+                    {selectedRelatedTopics.size} / {suggestedTitles.length} 件選択中
+                  </span>
+                  <div style={{ flex: 1 }} />
+                  <button
+                    onClick={() => handleBatchRelatedResearch('quick')}
+                    disabled={selectedRelatedTopics.size === 0}
+                    style={{
+                      padding: '6px 12px', fontSize: 11, fontWeight: 700,
+                      borderRadius: 6, border: 'none', color: '#fff', cursor: selectedRelatedTopics.size === 0 ? 'not-allowed' : 'pointer',
+                      opacity: selectedRelatedTopics.size === 0 ? 0.4 : 1,
+                      background: 'linear-gradient(135deg, #3b82f6, #2563eb)',
+                    }}
+                  >
+                    ⚡ 1500字
+                  </button>
+                  <button
+                    onClick={() => handleBatchRelatedResearch('standard')}
+                    disabled={selectedRelatedTopics.size === 0}
+                    style={{
+                      padding: '6px 12px', fontSize: 11, fontWeight: 700,
+                      borderRadius: 6, border: 'none', color: '#fff', cursor: selectedRelatedTopics.size === 0 ? 'not-allowed' : 'pointer',
+                      opacity: selectedRelatedTopics.size === 0 ? 0.4 : 1,
+                      background: 'linear-gradient(135deg, #8b5cf6, #6c63ff)',
+                    }}
+                  >
+                    📖 3000字
+                  </button>
+                  <button
+                    onClick={() => handleBatchRelatedResearch('deep')}
+                    disabled={selectedRelatedTopics.size === 0}
+                    style={{
+                      padding: '6px 12px', fontSize: 11, fontWeight: 700,
+                      borderRadius: 6, border: 'none', color: '#fff', cursor: selectedRelatedTopics.size === 0 ? 'not-allowed' : 'pointer',
+                      opacity: selectedRelatedTopics.size === 0 ? 0.4 : 1,
+                      background: 'linear-gradient(135deg, #ef4444, #dc2626)',
+                    }}
+                  >
+                    🔬 5000字
+                  </button>
+                </div>
+              )}
+
+              {/* バッチ実行中の進捗表示 */}
+              {isBatchingRelated && batchRelatedProgress.length > 0 && (
+                <div style={{
+                  padding: 14,
+                  marginBottom: 12,
+                  background: 'rgba(108,99,255,0.06)',
+                  border: '1px solid rgba(108,99,255,0.2)',
+                  borderRadius: 10,
+                }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+                    <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-primary)' }}>
+                      🚀 一括リサーチ実行中...
+                    </div>
+                    <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>
+                      {batchRelatedProgress.filter(p => p.status === 'done' || p.status === 'error').length} / {batchRelatedProgress.length} 完了
+                    </div>
+                  </div>
+                  <div style={{ height: 6, background: 'var(--border)', borderRadius: 3, overflow: 'hidden' as const, marginBottom: 10 }}>
+                    <div style={{
+                      width: `${(batchRelatedProgress.filter(p => p.status === 'done' || p.status === 'error').length / batchRelatedProgress.length) * 100}%`,
+                      height: '100%',
+                      background: 'linear-gradient(90deg, #8b5cf6, #00d4b8)',
+                      transition: 'width 0.3s ease',
+                    }} />
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column' as const, gap: 4 }}>
+                    {batchRelatedProgress.map((p, idx) => (
+                      <div key={idx} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, color: 'var(--text-secondary)' }}>
+                        <span style={{ fontSize: 14, width: 20, display: 'inline-block', textAlign: 'center' as const }}>
+                          {p.status === 'pending' && '○'}
+                          {p.status === 'running' && (
+                            <span style={{ display: 'inline-block', animation: 'spin 1s linear infinite' }}>⏳</span>
+                          )}
+                          {p.status === 'done' && '✅'}
+                          {p.status === 'error' && '❌'}
+                        </span>
+                        <span style={{ flex: 1, overflow: 'hidden' as const, textOverflow: 'ellipsis' as const, whiteSpace: 'nowrap' as const }}>
+                          {p.topic}
+                        </span>
+                        <span style={{ fontSize: 10, color: 'var(--text-muted)' }}>
+                          {p.status === 'pending' && '待機中'}
+                          {p.status === 'running' && 'リサーチ中'}
+                          {p.status === 'done' && '完了'}
+                          {p.status === 'error' && 'エラー'}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* バッチ完了バナー */}
+              {!isBatchingRelated && batchRelatedProgress.length > 0 && batchRelatedProgress.every(p => p.status === 'done' || p.status === 'error') && (
+                <div style={{
+                  padding: 14,
+                  marginBottom: 12,
+                  background: 'linear-gradient(135deg, rgba(29,158,117,0.10), rgba(0,212,184,0.10))',
+                  border: '1px solid rgba(29,158,117,0.3)',
+                  borderRadius: 10,
+                }}>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 6 }}>
+                    🎉 一括リサーチが完了しました
+                  </div>
+                  <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 8 }}>
+                    成功: {batchRelatedProgress.filter(p => p.status === 'done').length}件 ／ エラー: {batchRelatedProgress.filter(p => p.status === 'error').length}件
+                  </div>
+                  <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' as const }}>
+                    <a href="/dashboard/context-library" style={{ fontSize: 12, color: 'var(--accent)', textDecoration: 'none', fontWeight: 600 }}>
+                      🧠 コンテキストライブラリで確認 →
+                    </a>
+                    <a href="/dashboard/knowledge-tree" style={{ fontSize: 12, color: 'var(--accent)', textDecoration: 'none', fontWeight: 600 }}>
+                      🌳 知識ツリーで確認 →
+                    </a>
+                    <button
+                      onClick={() => setBatchRelatedProgress([])}
+                      style={{ fontSize: 11, color: 'var(--text-muted)', background: 'transparent', border: 'none', cursor: 'pointer', textDecoration: 'underline', padding: 0, marginLeft: 'auto' }}
+                    >
+                      閉じる
+                    </button>
+                  </div>
+                </div>
+              )}
 
               {isLoadingTitles ? (
                 <div style={{ fontSize: 12, color: 'var(--text-muted)', textAlign: 'center' as const, padding: 12 }}>
@@ -861,29 +1140,55 @@ export default function DeepResearchPage() {
                       item.level === '応用' ? { bg: 'rgba(234,179,8,0.18)', color: '#ca8a04' } :
                       item.level === '基礎' ? { bg: 'rgba(29,158,117,0.18)', color: '#1D9E75' } :
                       { bg: 'rgba(59,130,246,0.18)', color: '#3b82f6' };
+                    const isSelected = selectedRelatedTopics.has(item.title);
+                    const handleClick = batchRelatedMode
+                      ? () => {
+                          setSelectedRelatedTopics(prev => {
+                            const next = new Set(prev);
+                            if (next.has(item.title)) next.delete(item.title);
+                            else next.add(item.title);
+                            return next;
+                          });
+                        }
+                      : () => handleTitleClick(item.title);
                     return (
                       <button
                         key={i}
-                        onClick={() => handleTitleClick(item.title)}
+                        onClick={handleClick}
+                        disabled={isBatchingRelated}
                         style={{
                           textAlign: 'left' as const,
                           padding: 12,
-                          background: 'var(--bg-primary)',
-                          border: '1px solid var(--border)',
+                          background: batchRelatedMode && isSelected ? 'rgba(139,92,246,0.12)' : 'var(--bg-primary)',
+                          border: batchRelatedMode && isSelected ? '2px solid #8b5cf6' : '1px solid var(--border)',
                           borderRadius: 8,
-                          cursor: 'pointer',
+                          cursor: isBatchingRelated ? 'not-allowed' : 'pointer',
                           transition: 'all 0.15s ease',
+                          opacity: isBatchingRelated ? 0.6 : 1,
                         }}
                         onMouseEnter={e => {
-                          e.currentTarget.style.borderColor = 'var(--accent)';
+                          if (isBatchingRelated) return;
+                          e.currentTarget.style.borderColor = batchRelatedMode && isSelected ? '#8b5cf6' : 'var(--accent)';
                           e.currentTarget.style.transform = 'translateY(-1px)';
                         }}
                         onMouseLeave={e => {
-                          e.currentTarget.style.borderColor = 'var(--border)';
+                          e.currentTarget.style.borderColor = batchRelatedMode && isSelected ? '#8b5cf6' : 'var(--border)';
                           e.currentTarget.style.transform = 'translateY(0)';
                         }}
                       >
                         <div style={{ display: 'flex', gap: 6, alignItems: 'flex-start' }}>
+                          {batchRelatedMode && (
+                            <span style={{
+                              fontSize: 14, width: 18, height: 18,
+                              display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                              borderRadius: 4,
+                              border: isSelected ? '2px solid #8b5cf6' : '2px solid var(--border)',
+                              background: isSelected ? '#8b5cf6' : 'transparent',
+                              color: '#fff', fontWeight: 700, flexShrink: 0, marginTop: 1,
+                            }}>
+                              {isSelected ? '✓' : ''}
+                            </span>
+                          )}
                           <span style={{ fontSize: 10, padding: '2px 6px', borderRadius: 6, background: lvColor.bg, color: lvColor.color, fontWeight: 700, flexShrink: 0 }}>
                             {item.level}
                           </span>
@@ -902,7 +1207,7 @@ export default function DeepResearchPage() {
                 </div>
               )}
 
-              {currentNodeId && (
+              {currentNodeId && !batchRelatedMode && (
                 <div style={{ marginTop: 10, textAlign: 'right' as const }}>
                   <a
                     href="/dashboard/knowledge-tree"
@@ -916,7 +1221,7 @@ export default function DeepResearchPage() {
           )}
 
           {/* 専門用語サーチパネル */}
-          {(isExtractingTerms || extractedTerms.length > 0) && (
+          {(isExtractingTerms || extractedTerms.length > 0 || extractError) && (
             <div style={{
               marginTop: 24,
               border: '1px solid var(--border)',
@@ -949,6 +1254,18 @@ export default function DeepResearchPage() {
               {isExtractingTerms ? (
                 <div style={{ padding: 18, textAlign: 'center' as const, fontSize: 12, color: 'var(--text-muted)', animation: 'pulse 1.6s ease-in-out infinite' }}>
                   🤖 AIが専門用語を抽出中...
+                </div>
+              ) : extractedTerms.length === 0 && extractError ? (
+                <div style={{ padding: 18, textAlign: 'center' as const, fontSize: 12, color: 'var(--text-muted)' }}>
+                  ⚠️ {extractError}
+                  <div style={{ marginTop: 8 }}>
+                    <button
+                      onClick={() => extractTermsFromResearch(report, topic)}
+                      style={{ padding: '6px 14px', background: 'var(--bg-secondary)', border: '1px solid var(--border)', color: 'var(--text-secondary)', borderRadius: 6, cursor: 'pointer', fontSize: 11 }}
+                    >
+                      🔄 再試行
+                    </button>
+                  </div>
                 </div>
               ) : (
                 <div style={{ padding: 16, background: 'var(--bg-primary)' }}>
