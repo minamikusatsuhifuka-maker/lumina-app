@@ -55,6 +55,7 @@ const navCategories: NavCategory[] = [
       { href: '/dashboard/video-script', label: '動画スクリプト', icon: '🎬' },
       { href: '/dashboard/infographic', label: 'インフォグラフィック', icon: '📊' },
       { href: '/dashboard/storytelling', label: 'ストーリーテリング', icon: '📖' },
+      { href: '/dashboard/kindle', label: 'Kindle書籍生成', icon: '📚' },
       { href: '/dashboard/kindle-studio', label: 'Kindle出版スタジオ', icon: '📚' },
       { href: '/dashboard/avatar-studio', label: 'SNSアバタースタジオ', icon: '🎭' },
     ],
