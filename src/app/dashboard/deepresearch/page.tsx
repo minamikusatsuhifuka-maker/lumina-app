@@ -113,7 +113,13 @@ export default function DeepResearchPage() {
   const [batchJobs, setBatchJobs] = useState<BatchJob[]>([]);
   const [runningJobId, setRunningJobId] = useState<number | null>(null);
   const [batchProgress, setBatchProgress] = useState<ProgressEvent[]>([]);
+  type TopicStatus = 'pending' | 'researching' | 'generating' | 'done' | 'error';
+  const [topicStatuses, setTopicStatuses] = useState<Record<number, TopicStatus>>({});
+  const [isStuck, setIsStuck] = useState(false);
+  const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const browserTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const stuckTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const elapsedTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const loadBatchJobs = async () => {
     try {
@@ -156,15 +162,41 @@ export default function DeepResearchPage() {
     setBatchTopics(prev => prev.map((t, idx) => idx === i ? { ...t, ...patch } : t));
   };
 
+  const clearBatchTimers = () => {
+    if (stuckTimerRef.current) clearTimeout(stuckTimerRef.current);
+    if (elapsedTimerRef.current) clearInterval(elapsedTimerRef.current);
+    stuckTimerRef.current = null;
+    elapsedTimerRef.current = null;
+  };
+
+  const resetStuckTimer = () => {
+    if (stuckTimerRef.current) clearTimeout(stuckTimerRef.current);
+    setIsStuck(false);
+    stuckTimerRef.current = setTimeout(() => setIsStuck(true), 60000); // 60秒無応答でアラート
+  };
+
   const runBatchJob = async (jobId: number) => {
     setRunningJobId(jobId);
     setBatchProgress([]);
+    setTopicStatuses({});
+    setIsStuck(false);
+    setElapsedSeconds(0);
+
+    // 経過時間カウンター
+    elapsedTimerRef.current = setInterval(() => {
+      setElapsedSeconds(prev => prev + 1);
+    }, 1000);
+
+    // スタック検知タイマー初期化
+    resetStuckTimer();
+
     try {
       const res = await fetch(`/api/batch-research/${jobId}/run`, { method: 'POST' });
       if (!res.ok || !res.body) {
         const err = await res.text();
         alert(`実行エラー: ${err.slice(0, 200)}`);
         setRunningJobId(null);
+        clearBatchTimers();
         return;
       }
       const reader = res.body.getReader();
@@ -182,9 +214,23 @@ export default function DeepResearchPage() {
           if (!json) continue;
           try {
             const event = JSON.parse(json) as ProgressEvent;
+            // イベント受信のたびにスタックタイマーをリセット
+            resetStuckTimer();
             setBatchProgress(prev => [...prev, event]);
-            if (event.type === 'all_done' || event.type === 'error') {
+
+            const idx = event.index ?? -1;
+            if (event.type === 'topic_start' && idx >= 0) {
+              setTopicStatuses(prev => ({ ...prev, [idx]: 'researching' }));
+            } else if (event.type === 'research_done' && idx >= 0) {
+              setTopicStatuses(prev => ({ ...prev, [idx]: 'generating' }));
+            } else if (event.type === 'topic_done' && idx >= 0) {
+              setTopicStatuses(prev => ({ ...prev, [idx]: 'done' }));
+            } else if (event.type === 'topic_error' && idx >= 0) {
+              setTopicStatuses(prev => ({ ...prev, [idx]: 'error' }));
+            } else if (event.type === 'all_done' || event.type === 'error') {
+              clearBatchTimers();
               setRunningJobId(null);
+              setIsStuck(false);
               loadBatchJobs();
             }
           } catch {}
@@ -193,6 +239,7 @@ export default function DeepResearchPage() {
     } catch (e: any) {
       alert(`通信エラー: ${e?.message || ''}`);
     } finally {
+      clearBatchTimers();
       setRunningJobId(null);
     }
   };
@@ -953,33 +1000,246 @@ export default function DeepResearchPage() {
             </div>
           </div>
 
-          {/* 進捗表示 */}
-          {batchProgress.length > 0 && (
-            <div style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 12, padding: 16, marginBottom: 20 }}>
-              <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 10 }}>📊 実行進捗</div>
-              <div style={{ display: 'flex', flexDirection: 'column' as const, gap: 4, fontSize: 12, color: 'var(--text-secondary)', maxHeight: 240, overflowY: 'auto' as const }}>
-                {batchProgress.map((p, i) => (
-                  <div key={i}>
-                    {p.type === 'start' && `🚀 バッチ開始（${p.total}件）`}
-                    {p.type === 'topic_start' && `🔍 [${(p.index ?? 0) + 1}] ${p.topic} リサーチ中...`}
-                    {p.type === 'research_done' && `📝 [${(p.index ?? 0) + 1}] ${p.topic} リサーチ完了`}
-                    {p.type === 'topic_done' && `✅ [${(p.index ?? 0) + 1}] ${p.topic} コンテキスト生成・保存完了`}
-                    {p.type === 'topic_error' && `❌ [${(p.index ?? 0) + 1}] ${p.topic} エラー: ${p.error || ''}`}
-                    {p.type === 'all_done' && `🎉 全件完了！コンテキストライブラリに保存されました`}
-                    {p.type === 'error' && `❌ エラー: ${p.message || ''}`}
+          {/* ========== 進捗表示（改善版） ========== */}
+          {(runningJobId !== null || batchProgress.length > 0) && (() => {
+            const validTopics = batchTopics.filter(t => t.topic.trim());
+            const completedCount = Object.values(topicStatuses).filter(s => s === 'done' || s === 'error').length;
+            const totalCount = validTopics.length;
+            const progressPct = totalCount > 0 ? (completedCount / totalCount) * 100 : 0;
+            const isRunning = runningJobId !== null;
+            const isAllDone = batchProgress.some(p => p.type === 'all_done');
+            const min = Math.floor(elapsedSeconds / 60);
+            const sec = elapsedSeconds % 60;
+
+            return (
+              <div style={{
+                border: '1px solid var(--border)',
+                borderRadius: 12,
+                overflow: 'hidden' as const,
+                marginBottom: 20,
+                background: 'var(--bg-secondary)',
+              }}>
+                {/* ヘッダー */}
+                <div style={{
+                  padding: '12px 18px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  background: isRunning
+                    ? 'linear-gradient(135deg, #6c63ff, #8b5cf6)'
+                    : 'linear-gradient(135deg, #1D9E75, #00d4b8)',
+                  flexWrap: 'wrap' as const,
+                  gap: 10,
+                }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                    {isRunning ? (
+                      <>
+                        <div style={{
+                          width: 18, height: 18,
+                          border: '3px solid rgba(255,255,255,0.3)',
+                          borderTopColor: '#fff',
+                          borderRadius: '50%',
+                          animation: 'spin 0.8s linear infinite',
+                        }} />
+                        <span style={{ color: '#fff', fontSize: 14, fontWeight: 700 }}>
+                          バッチリサーチ実行中
+                        </span>
+                      </>
+                    ) : (
+                      <>
+                        <span style={{ fontSize: 18 }}>✅</span>
+                        <span style={{ color: '#fff', fontSize: 14, fontWeight: 700 }}>
+                          {isAllDone ? '完了' : '終了'}
+                        </span>
+                      </>
+                    )}
                   </div>
-                ))}
+                  {isRunning && (
+                    <span style={{ color: 'rgba(255,255,255,0.9)', fontSize: 12 }}>
+                      経過時間: {min}分{sec}秒
+                    </span>
+                  )}
+                </div>
+
+                {/* スタックアラート */}
+                {isStuck && isRunning && (
+                  <div style={{
+                    padding: '12px 18px',
+                    background: 'rgba(239,68,68,0.08)',
+                    borderBottom: '1px solid rgba(239,68,68,0.3)',
+                    display: 'flex',
+                    alignItems: 'flex-start',
+                    gap: 10,
+                    flexWrap: 'wrap' as const,
+                  }}>
+                    <span style={{ fontSize: 22 }}>⚠️</span>
+                    <div style={{ flex: 1, minWidth: 200 }}>
+                      <div style={{ fontSize: 13, fontWeight: 700, color: '#ef4444', marginBottom: 2 }}>
+                        60秒以上応答がありません
+                      </div>
+                      <div style={{ fontSize: 11, color: '#dc2626', lineHeight: 1.6 }}>
+                        処理が止まっている可能性があります。ページを再読み込みするか、しばらくお待ちください。
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => window.location.reload()}
+                      style={{
+                        padding: '6px 14px',
+                        background: '#ef4444',
+                        color: '#fff',
+                        border: 'none',
+                        borderRadius: 6,
+                        fontSize: 11,
+                        fontWeight: 700,
+                        cursor: 'pointer',
+                        flexShrink: 0,
+                      }}
+                    >
+                      再読み込み
+                    </button>
+                  </div>
+                )}
+
+                {/* トピック別ステータス */}
+                {validTopics.length > 0 && (
+                  <div style={{ background: 'var(--bg-primary)' }}>
+                    {validTopics.map((item, i) => {
+                      const status = (topicStatuses[i] ?? 'pending') as TopicStatus;
+                      const labels: Record<TopicStatus, { text: string; color: string }> = {
+                        pending: { text: '待機中...', color: 'var(--text-muted)' },
+                        researching: { text: '🔭 ディープリサーチ中...', color: '#6c63ff' },
+                        generating: { text: '🧠 AIコンテキスト生成中...', color: '#8b5cf6' },
+                        done: { text: '✓ リサーチ・コンテキスト保存完了', color: '#1D9E75' },
+                        error: { text: '✗ エラーが発生しました', color: '#ef4444' },
+                      };
+                      const isPulsing = status === 'researching' || status === 'generating';
+
+                      return (
+                        <div key={i} style={{
+                          padding: '12px 18px',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: 12,
+                          borderBottom: i < validTopics.length - 1 ? '1px solid var(--border)' : 'none',
+                        }}>
+                          <div style={{ width: 32, flexShrink: 0, display: 'flex', justifyContent: 'center' }}>
+                            {status === 'pending' && (
+                              <span style={{
+                                width: 22, height: 22, borderRadius: '50%',
+                                border: '2px solid var(--border)',
+                                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                fontSize: 10, color: 'var(--text-muted)',
+                              }}>
+                                {i + 1}
+                              </span>
+                            )}
+                            {status === 'researching' && (
+                              <div style={{
+                                width: 22, height: 22,
+                                border: '3px solid rgba(108,99,255,0.2)',
+                                borderTopColor: '#6c63ff',
+                                borderRadius: '50%',
+                                animation: 'spin 0.8s linear infinite',
+                              }} />
+                            )}
+                            {status === 'generating' && (
+                              <div style={{
+                                width: 22, height: 22,
+                                border: '3px solid rgba(139,92,246,0.2)',
+                                borderTopColor: '#8b5cf6',
+                                borderRadius: '50%',
+                                animation: 'spin 0.8s linear infinite',
+                              }} />
+                            )}
+                            {status === 'done' && <span style={{ fontSize: 18 }}>✅</span>}
+                            {status === 'error' && <span style={{ fontSize: 18 }}>❌</span>}
+                          </div>
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis' as const, whiteSpace: 'nowrap' as const }}>
+                              {item.topic}
+                            </div>
+                            <div style={{
+                              fontSize: 11,
+                              color: labels[status].color,
+                              marginTop: 2,
+                              animation: isPulsing ? 'pulse 1.6s ease-in-out infinite' : 'none',
+                            }}>
+                              {labels[status].text}
+                            </div>
+                          </div>
+                          <span style={{ fontSize: 10, color: 'var(--text-muted)', flexShrink: 0 }}>
+                            {item.mode === 'deep' ? '5000字' : item.mode === 'standard' ? '3000字' : '1500字'}
+                          </span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+
+                {/* 全体プログレスバー */}
+                {validTopics.length > 0 && (
+                  <div style={{ padding: '12px 18px', background: 'var(--bg-secondary)', borderTop: '1px solid var(--border)' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: 'var(--text-muted)', marginBottom: 6 }}>
+                      <span>全体進捗</span>
+                      <span>{completedCount} / {totalCount} 件完了</span>
+                    </div>
+                    <div style={{ width: '100%', height: 8, background: 'var(--border)', borderRadius: 99, overflow: 'hidden' }}>
+                      <div style={{
+                        height: '100%',
+                        width: `${progressPct}%`,
+                        background: 'linear-gradient(90deg, #6c63ff, #00d4b8)',
+                        borderRadius: 99,
+                        transition: 'width 0.5s ease',
+                      }} />
+                    </div>
+                  </div>
+                )}
+
+                {/* 完了メッセージ */}
+                {isAllDone && (
+                  <div style={{
+                    padding: '14px 18px',
+                    background: 'rgba(29,158,117,0.08)',
+                    borderTop: '1px solid rgba(29,158,117,0.3)',
+                  }}>
+                    <div style={{ fontSize: 13, fontWeight: 700, color: '#1D9E75', marginBottom: 8 }}>
+                      🎉 全件完了！コンテキストライブラリに保存されました
+                    </div>
+                    <a
+                      href="/dashboard/context-library"
+                      style={{
+                        display: 'inline-block',
+                        padding: '8px 16px',
+                        background: 'linear-gradient(135deg, #1D9E75, #00d4b8)',
+                        color: '#fff',
+                        textDecoration: 'none',
+                        borderRadius: 8,
+                        fontSize: 12,
+                        fontWeight: 700,
+                      }}
+                    >
+                      📚 コンテキストライブラリで確認する →
+                    </a>
+                  </div>
+                )}
+
+                {/* エラーメッセージ */}
+                {batchProgress.some(p => p.type === 'error') && (
+                  <div style={{
+                    padding: '12px 18px',
+                    background: 'rgba(239,68,68,0.08)',
+                    borderTop: '1px solid rgba(239,68,68,0.3)',
+                    fontSize: 12,
+                    color: '#ef4444',
+                  }}>
+                    {batchProgress.filter(p => p.type === 'error').map((p, i) => (
+                      <div key={i}>❌ {p.message || 'エラーが発生しました'}</div>
+                    ))}
+                  </div>
+                )}
               </div>
-              {batchProgress.some(p => p.type === 'all_done') && (
-                <a
-                  href="/dashboard/context-library"
-                  style={{ display: 'block', marginTop: 10, fontSize: 12, color: 'var(--accent)', textAlign: 'center' as const }}
-                >
-                  📚 コンテキストライブラリで確認する →
-                </a>
-              )}
-            </div>
-          )}
+            );
+          })()}
 
           {/* 履歴 */}
           {batchJobs.length > 0 && (
@@ -1120,7 +1380,10 @@ export default function DeepResearchPage() {
         </div>
       )}
 
-      <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+      <style>{`
+        @keyframes spin { to { transform: rotate(360deg); } }
+        @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
+      `}</style>
     </div>
   );
 }
