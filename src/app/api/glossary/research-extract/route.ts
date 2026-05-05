@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
+import { neon } from '@neondatabase/serverless';
 
 export const maxDuration = 60;
 
@@ -81,7 +82,30 @@ ${String(researchText).slice(0, 3000)}
 
     try {
       const parsed = JSON.parse(jsonMatch[0]);
-      return NextResponse.json({ terms: parsed.terms ?? [] });
+      const rawTerms = Array.isArray(parsed.terms) ? parsed.terms : [];
+
+      // 既存用語を照合してalreadySavedフラグを付与
+      let termsWithStatus = rawTerms;
+      try {
+        const userId = (session.user as any).id;
+        const termNames = rawTerms.map((t: any) => t.term).filter(Boolean);
+        if (termNames.length > 0) {
+          const sql = neon(process.env.DATABASE_URL!);
+          const existing = await sql`
+            SELECT term FROM glossary_terms
+            WHERE user_id = ${userId} AND term = ANY(${termNames})
+          `;
+          const existingSet = new Set(existing.map((r: any) => r.term));
+          termsWithStatus = rawTerms.map((t: any) => ({
+            ...t,
+            alreadySaved: existingSet.has(t.term),
+          }));
+        }
+      } catch (dbErr) {
+        console.error('[glossary/research-extract] 既存照合失敗:', dbErr);
+      }
+
+      return NextResponse.json({ terms: termsWithStatus });
     } catch (e: any) {
       return NextResponse.json({ terms: [], error: 'JSONパース失敗' }, { status: 500 });
     }

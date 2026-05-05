@@ -396,7 +396,7 @@ export default function DeepResearchPage() {
   const [saveStatus, setSaveStatus] = useState('');
 
   // 専門用語サーチ
-  type ExtractedTerm = { term: string; reading: string; category: string; difficulty: 'やや難' | '難' | '超難'; context: string };
+  type ExtractedTerm = { term: string; reading: string; category: string; difficulty: 'やや難' | '難' | '超難'; context: string; alreadySaved?: boolean };
   type ExplainedTerm = { id?: number; term: string; reading?: string | null; explanation?: string; category?: string; alreadyExists?: boolean; error?: string };
   const [extractedTerms, setExtractedTerms] = useState<ExtractedTerm[]>([]);
   const [selectedTerms, setSelectedTerms] = useState<Set<string>>(new Set());
@@ -745,7 +745,7 @@ ${contextText}
       'materials': '/dashboard/materials',
     };
     const url = id ? `${toolPath[tool]}?contextId=${id}` : toolPath[tool];
-    window.location.href = url;
+    window.open(url, '_blank', 'noopener,noreferrer');
   };
 
   const research = async (t?: string, parentId: number | null = null, startDepth: number | null = null) => {
@@ -1273,12 +1273,17 @@ ${contextText}
                 flexWrap: 'wrap' as const,
                 gap: 8,
               }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' as const }}>
                   <span style={{ fontSize: 16 }}>📚</span>
                   <span style={{ color: '#fff', fontSize: 13, fontWeight: 700 }}>専門用語サーチ</span>
                   {extractedTerms.length > 0 && (
                     <span style={{ background: 'rgba(255,255,255,0.25)', color: '#fff', fontSize: 10, padding: '2px 8px', borderRadius: 10, fontWeight: 700 }}>
                       {extractedTerms.length}件検出
+                    </span>
+                  )}
+                  {extractedTerms.filter(t => t.alreadySaved).length > 0 && (
+                    <span style={{ background: 'rgba(187,247,208,0.95)', color: '#15803d', fontSize: 10, padding: '2px 8px', borderRadius: 10, fontWeight: 700 }}>
+                      ✅ {extractedTerms.filter(t => t.alreadySaved).length}件保存済み
                     </span>
                   )}
                 </div>
@@ -1316,13 +1321,14 @@ ${contextText}
                         item.difficulty === '超難' ? { bg: 'rgba(239,68,68,0.18)', color: '#ef4444' } :
                         item.difficulty === '難' ? { bg: 'rgba(245,158,11,0.18)', color: '#f59e0b' } :
                         { bg: 'rgba(234,179,8,0.18)', color: '#ca8a04' };
+                      const saved = !!item.alreadySaved;
                       return (
                         <label
                           key={item.term}
                           style={{
                             display: 'flex', gap: 8, padding: 10,
-                            background: checked ? 'rgba(245,158,11,0.08)' : 'var(--bg-secondary)',
-                            border: checked ? '1px solid #f59e0b' : '1px solid var(--border)',
+                            background: saved ? 'rgba(34,197,94,0.08)' : checked ? 'rgba(245,158,11,0.08)' : 'var(--bg-secondary)',
+                            border: saved ? '1px solid rgba(34,197,94,0.5)' : checked ? '1px solid #f59e0b' : '1px solid var(--border)',
                             borderRadius: 8,
                             cursor: 'pointer',
                             alignItems: 'flex-start' as const,
@@ -1345,9 +1351,15 @@ ${contextText}
                               {item.reading && (
                                 <span style={{ fontSize: 10, color: 'var(--text-muted)' }}>（{item.reading}）</span>
                               )}
-                              <span style={{ fontSize: 9, padding: '1px 6px', borderRadius: 6, background: diffColor.bg, color: diffColor.color, fontWeight: 700 }}>
-                                {item.difficulty}
-                              </span>
+                              {saved ? (
+                                <span style={{ fontSize: 9, padding: '1px 6px', borderRadius: 6, background: 'rgba(34,197,94,0.18)', color: '#15803d', fontWeight: 700 }}>
+                                  ✅ 保存済み
+                                </span>
+                              ) : (
+                                <span style={{ fontSize: 9, padding: '1px 6px', borderRadius: 6, background: diffColor.bg, color: diffColor.color, fontWeight: 700 }}>
+                                  {item.difficulty}
+                                </span>
+                              )}
                               <span style={{ fontSize: 9, padding: '1px 6px', borderRadius: 6, background: 'var(--bg-primary)', color: 'var(--text-muted)' }}>
                                 {item.category}
                               </span>
