@@ -76,13 +76,13 @@ export default function ClinicSettingsPage() {
   };
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
+    const files = Array.from(e.target.files ?? []);
+    if (files.length === 0) return;
     setIsUploading(true);
     setUploadResult(null);
     try {
       const formData = new FormData();
-      formData.append('file', file);
+      files.forEach(f => formData.append('files', f));
       const res = await fetch('/api/clinic-profile/upload', { method: 'POST', body: formData });
       const data = await res.json();
       if (!res.ok || data.error) {
@@ -90,11 +90,14 @@ export default function ClinicSettingsPage() {
         return;
       }
       setUploadResult(data);
+      const autoName = files.length === 1
+        ? files[0].name.replace(/\.(pdf|docx?|doc|txt|md)$/i, '')
+        : `${files.length}件のファイル`;
       setEditForm(prev => ({
         ...prev,
         content: data.extractedText,
         sections: data.sections ?? [],
-        name: prev.name || (data.fileName ?? '').replace(/\.(pdf|docx?|doc|txt|md)$/i, ''),
+        name: prev.name || autoName,
       }));
     } catch (err: any) {
       alert(`通信エラー: ${err?.message || err}`);
@@ -431,8 +434,11 @@ export default function ClinicSettingsPage() {
               }}
             >
               <div style={{ fontSize: 30, marginBottom: 6 }}>📎</div>
-              <p style={{ fontSize: 12, color: 'var(--text-secondary)' }}>
+              <p style={{ fontSize: 12, color: 'var(--text-secondary)', fontWeight: 600 }}>
                 PDF・Word(.docx)・テキストをクリックして選択
+              </p>
+              <p style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4 }}>
+                複数ファイルを一度に選択できます（Ctrl/Cmd+クリック）
               </p>
               <p style={{ fontSize: 10, color: 'var(--text-muted)', marginTop: 4 }}>
                 AIが自動でテキスト抽出・セクション分けします
@@ -442,21 +448,55 @@ export default function ClinicSettingsPage() {
               ref={fileInputRef}
               type="file"
               accept=".pdf,.docx,.doc,.txt,.md"
+              multiple
               onChange={handleFileUpload}
               style={{ display: 'none' }}
             />
             {isUploading && (
-              <div style={{ marginTop: 10, fontSize: 12, color: 'var(--text-muted)', animation: 'pulse 1.6s ease-in-out infinite' }}>
-                📄 ファイル読み込み中... AIがテキスト抽出・セクション分けを行っています
+              <div style={{
+                marginTop: 10, padding: 10, borderRadius: 8,
+                background: 'rgba(59,130,246,0.10)', border: '1px solid rgba(59,130,246,0.3)',
+                fontSize: 12, color: '#2563eb',
+                display: 'flex', alignItems: 'center', gap: 8,
+              }}>
+                <span style={{ display: 'inline-block', animation: 'spin 1s linear infinite' }}>⏳</span>
+                ファイル読み込み中... AIがテキスト抽出・セクション分けを行っています
               </div>
             )}
             {uploadResult && (
-              <div style={{
-                marginTop: 10, padding: 10, borderRadius: 8,
-                background: 'rgba(34,197,94,0.10)', border: '1px solid rgba(34,197,94,0.3)',
-                fontSize: 12, color: ACCENT,
-              }}>
-                ✅ 「{uploadResult.fileName}」を読み込みました（{(uploadResult.extractedText ?? '').length.toLocaleString()}字・{(uploadResult.sections ?? []).length}セクション）
+              <div style={{ marginTop: 10, display: 'flex', flexDirection: 'column' as const, gap: 6 }}>
+                <div style={{
+                  padding: 10, borderRadius: 8,
+                  background: 'rgba(34,197,94,0.10)', border: '1px solid rgba(34,197,94,0.3)',
+                  fontSize: 12, color: ACCENT,
+                }}>
+                  ✅ {uploadResult.successCount ?? 0}件のファイルを読み込みました
+                  {uploadResult.failedCount > 0 && (
+                    <span style={{ color: '#ea580c', marginLeft: 8 }}>
+                      ⚠️ {uploadResult.failedCount}件は読み込めませんでした
+                    </span>
+                  )}
+                </div>
+                {(uploadResult.fileResults ?? []).map((r: any, i: number) => (
+                  <div key={i} style={{
+                    fontSize: 11, padding: '4px 10px', borderRadius: 6,
+                    background: r.success ? 'var(--bg-primary)' : 'rgba(239,68,68,0.10)',
+                    color: r.success ? 'var(--text-secondary)' : '#dc2626',
+                    border: r.success ? '1px solid var(--border)' : '1px solid rgba(239,68,68,0.3)',
+                    display: 'flex', alignItems: 'center', gap: 6,
+                  }}>
+                    <span>{r.success ? '✅' : '❌'}</span>
+                    <span style={{ flex: 1, overflow: 'hidden' as const, textOverflow: 'ellipsis' as const, whiteSpace: 'nowrap' as const }}>
+                      {r.fileName}
+                    </span>
+                    {!r.success && r.error && (
+                      <span style={{ fontSize: 10, opacity: 0.8 }}>{r.error}</span>
+                    )}
+                  </div>
+                ))}
+                <div style={{ fontSize: 10, color: 'var(--text-muted)', marginTop: 2 }}>
+                  合計 {((uploadResult.extractedText ?? '').length).toLocaleString()}字 ／ {(uploadResult.sections ?? []).length}セクション生成
+                </div>
               </div>
             )}
           </div>
@@ -588,6 +628,7 @@ export default function ClinicSettingsPage() {
           0%, 100% { opacity: 1; }
           50% { opacity: 0.4; }
         }
+        @keyframes spin { to { transform: rotate(360deg); } }
       `}</style>
     </div>
   );
