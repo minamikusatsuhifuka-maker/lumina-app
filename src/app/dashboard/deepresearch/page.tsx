@@ -121,6 +121,22 @@ export default function DeepResearchPage() {
   const stuckTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const elapsedTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
+  const handleDeleteJob = async (jobId: number, status: string) => {
+    if (status === 'running') return;
+    if (!confirm('このジョブを削除しますか？')) return;
+    try {
+      const res = await fetch(`/api/batch-research?id=${jobId}`, { method: 'DELETE' });
+      if (res.ok) {
+        loadBatchJobs();
+      } else {
+        const data = await res.json().catch(() => ({}));
+        alert(`削除できませんでした: ${data.error || res.status}`);
+      }
+    } catch {
+      alert('削除中にエラーが発生しました');
+    }
+  };
+
   const loadBatchJobs = async () => {
     try {
       const res = await fetch('/api/batch-research?limit=10');
@@ -1288,7 +1304,7 @@ export default function DeepResearchPage() {
                         ⏰ 実行予定: {new Date(job.scheduled_at).toLocaleString('ja-JP')}
                       </div>
                     )}
-                    <div style={{ marginTop: 8, display: 'flex', gap: 6 }}>
+                    <div style={{ marginTop: 8, display: 'flex', gap: 6, flexWrap: 'wrap' as const }}>
                       <a
                         href={`/dashboard/context-library?batch=${job.id}`}
                         style={{ padding: '4px 10px', background: 'var(--accent-soft)', border: '1px solid var(--border-accent)', color: 'var(--text-primary)', borderRadius: 6, fontSize: 11, fontWeight: 600, textDecoration: 'none' }}
@@ -1304,6 +1320,25 @@ export default function DeepResearchPage() {
                           ▶️ いま実行
                         </button>
                       )}
+                      <button
+                        onClick={() => handleDeleteJob(job.id, job.status)}
+                        disabled={job.status === 'running'}
+                        title={job.status === 'running' ? '実行中は削除できません' : 'このジョブを削除'}
+                        style={{
+                          marginLeft: 'auto',
+                          padding: '4px 10px',
+                          background: 'transparent',
+                          border: `1px solid ${job.status === 'running' ? 'var(--border)' : '#ef4444'}`,
+                          color: job.status === 'running' ? 'var(--text-muted)' : '#ef4444',
+                          borderRadius: 6,
+                          cursor: job.status === 'running' ? 'not-allowed' : 'pointer',
+                          fontSize: 11,
+                          fontWeight: 600,
+                          opacity: job.status === 'running' ? 0.5 : 1,
+                        }}
+                      >
+                        🗑 削除
+                      </button>
                     </div>
                   </div>
                 ))}

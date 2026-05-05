@@ -97,6 +97,20 @@ export async function DELETE(req: NextRequest) {
 
   const sql = neon(process.env.DATABASE_URL!);
   const userId = (session.user as any).id;
-  await sql`DELETE FROM batch_research_jobs WHERE id = ${parseInt(id, 10)} AND user_id = ${userId}`;
+  const jobId = parseInt(id, 10);
+  if (isNaN(jobId)) return NextResponse.json({ error: '無効なidです' }, { status: 400 });
+
+  // ジョブの存在確認＆所有権チェック＆実行中チェック
+  const rows = await sql`
+    SELECT status FROM batch_research_jobs WHERE id = ${jobId} AND user_id = ${userId}
+  `;
+  if (rows.length === 0) {
+    return NextResponse.json({ error: 'ジョブが見つかりません' }, { status: 404 });
+  }
+  if (rows[0].status === 'running') {
+    return NextResponse.json({ error: '実行中のジョブは削除できません' }, { status: 409 });
+  }
+
+  await sql`DELETE FROM batch_research_jobs WHERE id = ${jobId} AND user_id = ${userId}`;
   return NextResponse.json({ success: true });
 }
