@@ -277,8 +277,8 @@ export default function DeepResearchPage() {
 
         <div style={{ display: 'flex', gap: 8, marginBottom: 14 }}>
           {[
-            { value: 'quick', label: '⚡ クイック', desc: '約500字' },
-            { value: 'standard', label: '📊 スタンダード', desc: '約1500字' },
+            { value: 'quick', label: '⚡ クイック', desc: '約1500字' },
+            { value: 'standard', label: '📊 スタンダード', desc: '約3000字' },
             { value: 'deep', label: '🔭 ディープ', desc: '約5000字+' },
           ].map(d => (
             <button

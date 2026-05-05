@@ -13,13 +13,19 @@ export async function POST(req: NextRequest) {
   }
 
   const depthPrompts: Record<string, string> = {
-    quick: '簡潔に3〜5つのポイントでまとめてください（500文字程度）',
-    standard: '詳しく調査し、概要・主要ポイント・最新動向・まとめの構成で報告してください（1500文字程度）',
-    deep: '徹底的に調査し、背景・現状・課題・事例・各セクションを5000文字以上で詳細に記述してください。事例・統計・引用元を豊富に含む充実したレポートを作成してください（5000文字以上）',
+    quick: '1500字程度で簡潔にまとめてください。要点を押さえつつ、初心者にも理解しやすい説明を心がけてください。',
+    standard: '3000字程度で詳しくまとめてください。概要・主要ポイント・最新動向・事例・まとめの構成で、具体例や数字を交えて読み応えのあるレポートにしてください。',
+    deep: '5000字以上で網羅的かつ詳細に記述してください。各セクションを深く掘り下げ、背景・現状・課題・具体事例・統計・今後の展望を豊富な引用元とともに記述してください。',
   };
 
-  // ディープモードはより多くの出力トークンを確保
-  const isDeep = (depth || 'standard') === 'deep';
+  // モードごとのmax_tokens
+  const depthMaxTokens: Record<string, number> = {
+    quick: 2500,
+    standard: 5000,
+    deep: 9000,
+  };
+  const selectedDepth = depth || 'standard';
+  const maxTokens = depthMaxTokens[selectedDepth] || 5000;
 
   const encoder = new TextEncoder();
 
@@ -37,7 +43,7 @@ export async function POST(req: NextRequest) {
           },
           body: JSON.stringify({
             model: 'claude-sonnet-4-6',
-            max_tokens: isDeep ? 16000 : 8000,
+            max_tokens: maxTokens,
             tools: [{ type: 'web_search_20250305', name: 'web_search' }],
             system: `あなたは優秀なリサーチアナリストです。
 与えられたトピックについてWebを検索し、信頼性の高い情報を収集・統合して、
