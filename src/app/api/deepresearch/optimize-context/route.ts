@@ -1,10 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
-import { GoogleGenerativeAI } from '@google/generative-ai';
 
 export const maxDuration = 120;
 
-// リサーチ結果をAI背景情報コンテキストとして再構造化するAPI
+// リサーチ結果をAI背景情報コンテキストとして再構造化するAPI（Claude Sonnet 4.6）
 export async function POST(req: NextRequest) {
   const session = await auth();
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
@@ -15,14 +14,14 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'topic と researchText は必須です' }, { status: 400 });
     }
 
-    const apiKey = process.env.GEMINI_API_KEY;
-    if (!apiKey) {
-      return NextResponse.json({ error: 'GEMINI_API_KEY が未設定です' }, { status: 500 });
+    const apiKey = process.env.ANTHROPIC_API_KEY;
+    if (!apiKey || apiKey === 'your_api_key_here') {
+      return NextResponse.json({ error: 'ANTHROPIC_API_KEY が未設定です' }, { status: 500 });
     }
 
     const today = new Date().toISOString().slice(0, 10);
 
-    const prompt = `あなたはAIに読み込ませる背景情報（コンテキスト）を整理する専門家です。
+    const system = `あなたはAIに読み込ませる背景情報（コンテキスト）を整理する専門家です。
 リサーチレポートを、AIが他のタスク（文章作成・SNS投稿・LP作成・資料作成）で活用しやすい
 コンパクトで構造化された背景情報に再構造化してください。
 
@@ -31,9 +30,9 @@ export async function POST(req: NextRequest) {
 - 各セクションを必ず埋める
 - 簡潔・正確・具体的に
 - URLは生のURLのみ
-- 前置きや後書きは書かず、いきなりMarkdownを出力する
+- 前置きや後書きは書かず、いきなりMarkdownを出力する`;
 
-# 元のリサーチトピック
+    const userPrompt = `# 元のリサーチトピック
 ${topic}
 
 # 元のリサーチテキスト
@@ -72,64 +71,65 @@ ${researchText}
 - お役立ちコラム：どのようなコラムネタになるか
 - 資料作成：どのようなスライド・資料に使えるか`;
 
-    const genAI = new GoogleGenerativeAI(apiKey);
-    const model = genAI.getGenerativeModel({
-      model: 'gemini-2.5-flash',
-      generationConfig: {
-        temperature: 0.5,
-        maxOutputTokens: 8000,
+    const response = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': apiKey,
+        'anthropic-version': '2023-06-01',
       },
+      body: JSON.stringify({
+        model: 'claude-sonnet-4-6',
+        max_tokens: 8000,
+        temperature: 0.5,
+        system,
+        messages: [{ role: 'user', content: userPrompt }],
+      }),
     });
 
-    const result = await model.generateContent({
-      contents: [{ role: 'user', parts: [{ text: prompt }] }],
-    });
-
-    // レスポンスの詳細を確認
-    const response = result.response;
-    const candidates = response?.candidates || [];
-    const finishReason = candidates[0]?.finishReason;
-    const safetyRatings = candidates[0]?.safetyRatings;
-    const promptFeedback = (response as any)?.promptFeedback;
-
-    // すべての text パートを連結（thinkingパートと混在する場合に対応）
-    let contextText = '';
-    try {
-      contextText = response.text() || '';
-    } catch (textErr) {
-      console.error('[optimize-context] response.text() failed:', textErr);
+    if (!response.ok) {
+      const errBody = await response.text();
+      console.error('[optimize-context] Anthropic API エラー:', response.status, errBody);
+      return NextResponse.json(
+        { error: `Anthropic APIエラー: ${response.status}` },
+        { status: 500 }
+      );
     }
 
-    // text() で取れなかった場合の手動連結
-    if (!contextText.trim()) {
-      const parts = candidates[0]?.content?.parts || [];
-      contextText = parts
-        .map((p: any) => (typeof p?.text === 'string' ? p.text : ''))
-        .filter(Boolean)
-        .join('\n');
+    const data = await response.json();
+
+    // すべての text ブロックを連結（thinking ブロック等が混在する場合に対応）
+    const blocks = Array.isArray(data?.content) ? data.content : [];
+    let contextText = blocks
+      .filter((b: any) => b?.type === 'text' && typeof b?.text === 'string')
+      .map((b: any) => b.text)
+      .join('\n')
+      .trim();
+
+    // フォールバック: contentがstring1個だけのケース
+    if (!contextText && typeof data?.content?.[0]?.text === 'string') {
+      contextText = data.content[0].text.trim();
     }
 
-    if (!contextText.trim()) {
+    if (!contextText) {
       console.error('[optimize-context] 空応答:', {
-        finishReason,
-        safetyRatings,
-        promptFeedback,
-        candidateCount: candidates.length,
+        stopReason: data?.stop_reason,
+        usage: data?.usage,
+        blockTypes: blocks.map((b: any) => b?.type),
         topicLength: topic.length,
         researchTextLength: researchText.length,
       });
 
-      // フォールバック: 元のリサーチテキストから最低限のコンテキストを生成
       const fallback = buildFallbackContext(topic, researchText, today);
       return NextResponse.json({
         contextText: fallback,
-        warning: `AIによる最適化が空応答だったため、簡易フォールバックを生成しました（finishReason: ${finishReason || 'unknown'}）。再生成をお試しください。`,
+        warning: `AIによる最適化が空応答だったため、簡易フォールバックを生成しました（stop_reason: ${data?.stop_reason || 'unknown'}）。再生成をお試しください。`,
       });
     }
 
     return NextResponse.json({ contextText });
   } catch (e: any) {
-    console.error('[optimize-context] エラー:', e);
+    console.error('[optimize-context] 例外:', e);
     return NextResponse.json(
       { error: e?.message || '最適化に失敗しました' },
       { status: 500 }
@@ -139,7 +139,6 @@ ${researchText}
 
 // AI応答が空のときに使うフォールバック生成
 function buildFallbackContext(topic: string, researchText: string, today: string): string {
-  // 簡易抽出: 行頭の箇条書き・URLなど
   const lines = researchText.split('\n').map(l => l.trim()).filter(Boolean);
   const bullets = lines.filter(l => l.startsWith('-') || l.startsWith('•') || /^\d+\./.test(l)).slice(0, 10);
   const urls = lines.filter(l => /https?:\/\//.test(l)).slice(0, 5);
