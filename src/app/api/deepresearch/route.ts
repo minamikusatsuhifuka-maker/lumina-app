@@ -1,8 +1,12 @@
 import { NextRequest } from 'next/server';
+import { auth } from '@/lib/auth';
+import { getClinicSystemPrompt } from '@/lib/clinicProfile';
 
 export const maxDuration = 300;
 
 export async function POST(req: NextRequest) {
+  const session = await auth();
+  const userId = session ? (session.user as any).id : '';
   const { topic, depth } = await req.json();
 
   const apiKey = process.env.ANTHROPIC_API_KEY;
@@ -11,6 +15,10 @@ export async function POST(req: NextRequest) {
       status: 500, headers: { 'Content-Type': 'application/json' },
     });
   }
+
+  // クリニック背景情報を取得（任意）
+  const clinicPrompt = userId ? await getClinicSystemPrompt('deepresearch', userId) : '';
+  const clinicStr = clinicPrompt ? `\n\n${clinicPrompt}` : '';
 
   // モード別の本文指示（文字数より完結性を最優先）
   const depthPrompts: Record<string, string> = {
@@ -74,7 +82,7 @@ export async function POST(req: NextRequest) {
 3. Markdownのリンク記法も禁止（[テキスト](URL)形式も使わない）
 4. 出典は「出典: サイト名 https://URL」の形式のみ
 5. URLの後に属性やスタイルは絶対に書かない
-6. 事実と推測を明確に区別してください`,
+6. 事実と推測を明確に区別してください${clinicStr}`,
             messages: [{
               role: 'user',
               content: `トピック：${topic}

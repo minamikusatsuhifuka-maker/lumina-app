@@ -1,17 +1,23 @@
 import { NextRequest } from 'next/server';
 import Anthropic from '@anthropic-ai/sdk';
+import { auth } from '@/lib/auth';
+import { getClinicSystemPrompt } from '@/lib/clinicProfile';
 
 export const maxDuration = 120;
 
 // AI文章改善API：読みやすさスコア等をもとに改善提案+改善後文章をストリームで返す（Claude Sonnet 4.6）
 export async function POST(req: NextRequest) {
   try {
+    const session = await auth();
+    const userId = session ? (session.user as any).id : '';
     const apiKey = process.env.ANTHROPIC_API_KEY;
     if (!apiKey || apiKey === 'your_api_key_here') {
       return new Response(JSON.stringify({ error: 'ANTHROPIC_API_KEY が未設定です' }), {
         status: 500, headers: { 'Content-Type': 'application/json' },
       });
     }
+    const clinicPrompt = userId ? await getClinicSystemPrompt('writing', userId) : '';
+    const clinicStr = clinicPrompt ? `\n\n${clinicPrompt}` : '';
 
     const {
       originalText,
@@ -89,7 +95,7 @@ ${originalText}
             model: 'claude-sonnet-4-6',
             max_tokens: 8000,
             stream: true,
-            system: systemPrompt,
+            system: systemPrompt + clinicStr,
             messages: [{ role: 'user', content: userPrompt }],
           });
 

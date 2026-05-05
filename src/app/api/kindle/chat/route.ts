@@ -1,6 +1,7 @@
 import { NextRequest } from 'next/server';
 import { auth } from '@/lib/auth';
 import Anthropic from '@anthropic-ai/sdk';
+import { getClinicSystemPrompt } from '@/lib/clinicProfile';
 
 export const maxDuration = 120;
 
@@ -89,6 +90,10 @@ export async function POST(req: NextRequest) {
     ? `\n\n現在の書籍情報:\n${JSON.stringify(bookContext, null, 2)}`
     : '';
 
+  const userId = (session.user as any).id;
+  const clinicPrompt = await getClinicSystemPrompt('kindle', userId);
+  const clinicStr = clinicPrompt ? `\n\n${clinicPrompt}` : '';
+
   const encoder = new TextEncoder();
   const stream = new ReadableStream({
     async start(controller) {
@@ -97,7 +102,7 @@ export async function POST(req: NextRequest) {
           model: 'claude-sonnet-4-6',
           max_tokens: 3000,
           stream: true,
-          system: SYSTEM_PROMPT + contextStr,
+          system: SYSTEM_PROMPT + clinicStr + contextStr,
           messages: (messages ?? []).map((m: { role: string; content: string }) => ({
             role: m.role,
             content: m.content,

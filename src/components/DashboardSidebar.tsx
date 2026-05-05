@@ -63,6 +63,7 @@ const navCategories: NavCategory[] = [
   {
     category: '管理・設定',
     items: [
+      { href: '/dashboard/clinic-settings', label: 'クリニック設定', icon: '🏥' },
       { href: '/dashboard/library', label: 'ライブラリ', icon: '📚' },
       { href: '/dashboard/memory', label: 'AIメモリ', icon: '🧠' },
       { href: '/dashboard/glossary', label: '用語解説', icon: '📘' },

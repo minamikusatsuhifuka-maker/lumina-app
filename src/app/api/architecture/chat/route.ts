@@ -1,6 +1,7 @@
 import { NextRequest } from 'next/server';
 import { auth } from '@/lib/auth';
 import Anthropic from '@anthropic-ai/sdk';
+import { getClinicSystemPrompt } from '@/lib/clinicProfile';
 
 export const maxDuration = 120;
 
@@ -76,6 +77,10 @@ export async function POST(req: NextRequest) {
     ? `\n\n現在の設計状況:\n${JSON.stringify(currentArchitecture, null, 2)}`
     : '';
 
+  const userId = (session.user as any).id;
+  const clinicPrompt = await getClinicSystemPrompt('architecture', userId);
+  const clinicStr = clinicPrompt ? `\n\n${clinicPrompt}` : '';
+
   const encoder = new TextEncoder();
   const stream = new ReadableStream({
     async start(controller) {
@@ -84,7 +89,7 @@ export async function POST(req: NextRequest) {
           model: 'claude-sonnet-4-6',
           max_tokens: 3000,
           stream: true,
-          system: SYSTEM_PROMPT + contextMessage,
+          system: SYSTEM_PROMPT + clinicStr + contextMessage,
           messages: (messages ?? []).map((m: { role: string; content: string }) => ({
             role: m.role,
             content: m.content,
