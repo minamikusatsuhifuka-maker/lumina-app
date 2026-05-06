@@ -448,7 +448,7 @@ ${architecture.mermaid}
               </div>
 
               {/* 入力 */}
-              <div style={{ borderTop: '1px solid var(--border)', background: 'var(--bg-secondary)', padding: 14 }}>
+              <div style={{ borderTop: '1px solid var(--border)', background: 'var(--bg-secondary)', padding: '14px 14px 88px' }}>
                 <div style={{ display: 'flex', flexWrap: 'wrap' as const, gap: 6, marginBottom: 10 }}>
                   {['詳しく教えてください', 'もっとシンプルにしたい', 'コスト重視で選んで', 'スピード重視で選んで', '確定して出力して'].map(q => (
                     <button
@@ -468,38 +468,39 @@ ${architecture.mermaid}
                     </button>
                   ))}
                 </div>
-                <div style={{ display: 'flex', gap: 10 }}>
-                  <textarea
-                    value={input}
-                    onChange={e => setInput(e.target.value)}
-                    placeholder="メッセージを入力... (Enterで改行・送信ボタンで送信)"
-                    rows={2}
-                    disabled={isLoading}
-                    style={{
-                      flex: 1, padding: '10px 14px',
-                      border: '1px solid var(--border)',
-                      borderRadius: 12, fontSize: 13,
-                      resize: 'none' as const,
-                      background: 'var(--bg-primary)',
-                      color: 'var(--text-primary)',
-                      fontFamily: 'inherit',
-                      outline: 'none',
-                    }}
-                  />
+                <textarea
+                  value={input}
+                  onChange={e => setInput(e.target.value)}
+                  placeholder="メッセージを入力... (Enterで改行・送信ボタンで送信)"
+                  rows={3}
+                  disabled={isLoading}
+                  style={{
+                    width: '100%', boxSizing: 'border-box',
+                    padding: '10px 14px',
+                    border: '1px solid var(--border)',
+                    borderRadius: 12, fontSize: 13,
+                    resize: 'none' as const,
+                    background: 'var(--bg-primary)',
+                    color: 'var(--text-primary)',
+                    fontFamily: 'inherit',
+                    outline: 'none',
+                    marginBottom: 8,
+                  }}
+                />
+                <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
                   <button
                     onClick={() => sendMessage(input)}
                     disabled={isLoading || !input.trim()}
                     style={{
-                      padding: '0 18px',
+                      padding: '10px 22px',
                       background: isLoading || !input.trim() ? 'var(--bg-secondary)' : 'linear-gradient(135deg, #8b5cf6, #6c63ff)',
                       color: isLoading || !input.trim() ? 'var(--text-muted)' : '#fff',
                       border: 'none', borderRadius: 12,
                       cursor: isLoading || !input.trim() ? 'not-allowed' : 'pointer',
                       fontSize: 13, fontWeight: 700,
-                      alignSelf: 'flex-end' as const, height: 60,
                     }}
                   >
-                    送信
+                    {isLoading ? '送信中...' : '送信'}
                   </button>
                 </div>
               </div>
