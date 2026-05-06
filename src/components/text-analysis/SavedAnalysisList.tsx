@@ -133,6 +133,62 @@ export default function SavedAnalysisList({
     return list;
   }, [records, activeFolder, searchTerm]);
 
+  // 表示中レコードから分析タイプ別の件数とラベルを動的に抽出
+  const typeStats = useMemo(() => {
+    const map = new Map<string, { label: string; count: number }>();
+    for (const r of visibleRecords) {
+      const type = r.analysis_type;
+      const existing = map.get(type);
+      if (existing) {
+        existing.count += 1;
+      } else {
+        map.set(type, {
+          label: r.analysis_label || type,
+          count: 1,
+        });
+      }
+    }
+    return Array.from(map.entries()).map(([type, info]) => ({ type, ...info }));
+  }, [visibleRecords]);
+
+  const handleSelectByType = (analysisType: string) => {
+    const targetIds = visibleRecords
+      .filter((r) => r.analysis_type === analysisType)
+      .map((r) => r.id);
+    if (targetIds.length === 0) return;
+    const allSelected = targetIds.every((id) => selectedIds.has(id));
+    const next = new Set(selectedIds);
+    if (allSelected) {
+      targetIds.forEach((id) => next.delete(id));
+    } else {
+      targetIds.forEach((id) => next.add(id));
+    }
+    setSelectedIds(next);
+  };
+
+  const isAllSelectedByType = (analysisType: string) => {
+    const targetIds = visibleRecords
+      .filter((r) => r.analysis_type === analysisType)
+      .map((r) => r.id);
+    if (targetIds.length === 0) return false;
+    return targetIds.every((id) => selectedIds.has(id));
+  };
+
+  const handleSelectAllVisible = () => {
+    const allIds = visibleRecords.map((r) => r.id);
+    if (allIds.length === 0) return;
+    const allSelected = allIds.every((id) => selectedIds.has(id));
+    if (allSelected) {
+      const next = new Set(selectedIds);
+      allIds.forEach((id) => next.delete(id));
+      setSelectedIds(next);
+    } else {
+      const next = new Set(selectedIds);
+      allIds.forEach((id) => next.add(id));
+      setSelectedIds(next);
+    }
+  };
+
   const handleBulkMove = async (folder: string) => {
     if (selectedIds.size === 0) return;
     const ids = Array.from(selectedIds);
@@ -468,6 +524,107 @@ export default function SavedAnalysisList({
               ✕ 選択をすべて解除
             </button>
           </div>
+          {/* 分析タイプ別一括選択 */}
+          {typeStats.length > 0 && (
+            <div style={{ marginTop: 4 }}>
+              <p
+                style={{
+                  fontSize: 11,
+                  fontWeight: 600,
+                  color: 'var(--accent)',
+                  margin: 0,
+                  marginBottom: 6,
+                }}
+              >
+                🏷 タイプ別一括選択
+              </p>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                {typeStats.map((stat) => {
+                  const allSelected = isAllSelectedByType(stat.type);
+                  return (
+                    <button
+                      key={stat.type}
+                      type="button"
+                      onClick={() => handleSelectByType(stat.type)}
+                      style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: 6,
+                        padding: '5px 12px',
+                        borderRadius: 999,
+                        fontSize: 11,
+                        fontWeight: 600,
+                        border: `1px solid ${allSelected ? '#9333ea' : 'var(--border)'}`,
+                        background: allSelected ? '#9333ea' : 'var(--bg-card)',
+                        color: allSelected ? '#fff' : 'var(--text-secondary)',
+                        cursor: 'pointer',
+                        transition: 'all 0.15s',
+                      }}
+                    >
+                      <span>{allSelected ? '✅' : '☐'}</span>
+                      <span>{stat.label}</span>
+                      <span
+                        style={{
+                          padding: '1px 7px',
+                          borderRadius: 999,
+                          fontSize: 10,
+                          fontWeight: 600,
+                          background: allSelected ? 'rgba(255,255,255,0.25)' : 'var(--bg-secondary)',
+                          color: allSelected ? '#fff' : 'var(--text-muted)',
+                        }}
+                      >
+                        {stat.count}
+                      </span>
+                    </button>
+                  );
+                })}
+                {visibleRecords.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={handleSelectAllVisible}
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: 6,
+                      padding: '5px 12px',
+                      borderRadius: 999,
+                      fontSize: 11,
+                      fontWeight: 600,
+                      border: `1px solid ${
+                        visibleRecords.every((r) => selectedIds.has(r.id))
+                          ? 'var(--text-primary)'
+                          : 'var(--border)'
+                      }`,
+                      background: visibleRecords.every((r) => selectedIds.has(r.id))
+                        ? 'var(--text-primary)'
+                        : 'var(--bg-card)',
+                      color: visibleRecords.every((r) => selectedIds.has(r.id))
+                        ? 'var(--bg-primary)'
+                        : 'var(--text-secondary)',
+                      cursor: 'pointer',
+                      transition: 'all 0.15s',
+                    }}
+                  >
+                    <span>📋</span>
+                    <span>表示中を全選択</span>
+                    <span
+                      style={{
+                        padding: '1px 7px',
+                        borderRadius: 999,
+                        fontSize: 10,
+                        fontWeight: 600,
+                        background: 'var(--bg-secondary)',
+                        color: 'var(--text-muted)',
+                      }}
+                    >
+                      {visibleRecords.length}
+                    </span>
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
+
           <p
             style={{
               fontSize: 11,
