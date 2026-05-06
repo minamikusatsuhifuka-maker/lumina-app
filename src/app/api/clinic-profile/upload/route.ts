@@ -12,6 +12,9 @@ export async function POST(req: NextRequest) {
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) return NextResponse.json({ error: 'ANTHROPIC_API_KEY未設定' }, { status: 500 });
 
+  // mode=extract: テキスト抽出のみ（高速） / mode=full: セクション分けまで実行
+  const mode = new URL(req.url).searchParams.get('mode') ?? 'extract';
+
   const formData = await req.formData();
   const files = formData.getAll('files') as File[];
   const singleFile = formData.get('file') as File | null;
@@ -109,9 +112,9 @@ export async function POST(req: NextRequest) {
     .map(r => `## ファイル: ${r.fileName}\n\n${r.extractedText}`)
     .join('\n\n---\n\n');
 
-  // AIでセクション分け
+  // AIでセクション分け（mode=fullの時のみ実行）
   let sections: any[] = [];
-  if (combinedText.trim()) {
+  if (mode === 'full' && combinedText.trim()) {
     try {
       const sectionResponse = await client.messages.create({
         model: 'claude-sonnet-4-6',

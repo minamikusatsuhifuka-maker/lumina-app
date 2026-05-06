@@ -39,6 +39,8 @@ export default function ClinicSettingsPage() {
   const [isSaving, setIsSaving] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
   const [showSections, setShowSections] = useState(false);
+  const [isSectionizing, setIsSectionizing] = useState(false);
+  const [sectionizeError, setSectionizeError] = useState('');
   const [editForm, setEditForm] = useState({
     name: '', description: '', content: '',
     sections: [] as ProfileSection[],
@@ -96,20 +98,22 @@ export default function ClinicSettingsPage() {
     try {
       const formData = new FormData();
       files.forEach(f => formData.append('files', f));
-      const res = await fetch('/api/clinic-profile/upload', { method: 'POST', body: formData });
+      // mode=extract: テキスト抽出のみ（高速）。セクション分けは任意で別ボタンから実行
+      const res = await fetch('/api/clinic-profile/upload?mode=extract', { method: 'POST', body: formData });
       const data = await res.json();
       if (!res.ok || data.error) {
         alert(`エラー: ${data.error || '読み込み失敗'}`);
         return;
       }
-      setUploadResult(data);
+      setUploadResult({ ...data, sections: [] });
+      setSectionizeError('');
       const autoName = files.length === 1
         ? files[0].name.replace(/\.(pdf|docx?|doc|txt|md)$/i, '')
         : `${files.length}件のファイル`;
       setEditForm(prev => ({
         ...prev,
         content: data.extractedText,
-        sections: data.sections ?? [],
+        sections: [],
         name: prev.name || autoName,
       }));
     } catch (err: any) {
@@ -154,6 +158,30 @@ export default function ClinicSettingsPage() {
       return;
     }
     await processFiles(files);
+  };
+
+  const handleSectionize = async () => {
+    if (!editForm.content.trim()) return;
+    setIsSectionizing(true);
+    setSectionizeError('');
+    try {
+      const res = await fetch('/api/clinic-profile/sectionize', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text: editForm.content }),
+      });
+      const data = await res.json();
+      if (!res.ok || data.error) {
+        setSectionizeError(data.error || 'セクション分けに失敗しました');
+        return;
+      }
+      setEditForm(prev => ({ ...prev, sections: data.sections ?? [] }));
+      setShowSections(true);
+    } catch (err) {
+      setSectionizeError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setIsSectionizing(false);
+    }
   };
 
   const handleSave = async () => {
@@ -611,6 +639,79 @@ export default function ClinicSettingsPage() {
               {editForm.content.length.toLocaleString()}字
             </p>
           </div>
+
+          {/* テキスト抽出完了 → セクション分け実行ボタン（任意） */}
+          {uploadResult && !isUploading && editForm.content && editForm.sections.length === 0 && (
+            <div style={{
+              padding: 14, borderRadius: 12,
+              background: 'rgba(59,130,246,0.08)',
+              border: '1px solid rgba(59,130,246,0.3)',
+              display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+              flexWrap: 'wrap' as const, gap: 12,
+            }}>
+              <div>
+                <p style={{ fontSize: 13, fontWeight: 600, color: '#2563eb', margin: 0 }}>
+                  ✅ テキスト抽出完了（{editForm.content.length.toLocaleString()}字）
+                </p>
+                <p style={{ fontSize: 11, color: '#3b82f6', margin: 0, marginTop: 2 }}>
+                  このまま保存できます。AIでセクション分けすると後から整理しやすくなります。
+                </p>
+                {sectionizeError && (
+                  <p style={{ fontSize: 11, color: '#dc2626', margin: 0, marginTop: 4 }}>
+                    {sectionizeError}
+                  </p>
+                )}
+              </div>
+              <button
+                type="button"
+                onClick={handleSectionize}
+                disabled={isSectionizing}
+                style={{
+                  padding: '10px 18px',
+                  background: isSectionizing ? 'var(--bg-secondary)' : '#2563eb',
+                  color: isSectionizing ? 'var(--text-muted)' : '#fff',
+                  border: 'none', borderRadius: 10,
+                  cursor: isSectionizing ? 'not-allowed' : 'pointer',
+                  fontSize: 12, fontWeight: 700, flexShrink: 0,
+                }}
+              >
+                {isSectionizing
+                  ? '🤖 セクション分け中...'
+                  : '📂 AIでセクション分けする（任意）'}
+              </button>
+            </div>
+          )}
+
+          {/* セクション分け完了通知 */}
+          {editForm.sections.length > 0 && (
+            <div style={{
+              padding: 12, borderRadius: 10,
+              background: 'rgba(34,197,94,0.10)',
+              border: '1px solid rgba(34,197,94,0.3)',
+              display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+              flexWrap: 'wrap' as const, gap: 10,
+            }}>
+              <span style={{ fontSize: 12, color: '#16a34a' }}>
+                ✅ {editForm.sections.length}件のセクションに整理されました
+              </span>
+              <button
+                type="button"
+                onClick={handleSectionize}
+                disabled={isSectionizing}
+                style={{
+                  fontSize: 11,
+                  color: '#16a34a',
+                  background: 'transparent',
+                  border: 'none',
+                  textDecoration: 'underline',
+                  cursor: isSectionizing ? 'not-allowed' : 'pointer',
+                  opacity: isSectionizing ? 0.4 : 1,
+                }}
+              >
+                {isSectionizing ? '再実行中...' : '🔄 再実行'}
+              </button>
+            </div>
+          )}
 
           {/* 保存（セクション分けの前に配置） */}
           <div style={{ display: 'flex', gap: 10 }}>
