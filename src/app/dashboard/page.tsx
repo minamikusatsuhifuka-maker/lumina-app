@@ -37,6 +37,7 @@ export default async function DashboardPage() {
     { icon: '🏠', title: 'HP内容生成', desc: '企業情報→HP全セクションを一括生成', href: '/dashboard/hp-generator', borderColor: '#00d4b825' },
     { icon: '🎨', title: '画像プロンプト', desc: 'Midjourney/SD向け最適プロンプト', href: '/dashboard/image-prompt', borderColor: '#f5a62325' },
     { icon: '📋', title: '資料プロンプト', desc: 'スライド別AIプロンプトを自動生成', href: '/dashboard/doc-prompt', borderColor: '#8b5cf625' },
+    { icon: '📝', title: 'テキスト分析', desc: '複数観点で同時分析・カテゴリ保存', href: '/dashboard/text-analysis', borderColor: '#3b82f625' },
   ];
 
   const modeLabel: Record<string, string> = {

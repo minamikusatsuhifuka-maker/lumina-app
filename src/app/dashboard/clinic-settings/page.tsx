@@ -37,6 +37,7 @@ export default function ClinicSettingsPage() {
   const [isUploading, setIsUploading] = useState(false);
   const [uploadResult, setUploadResult] = useState<any>(null);
   const [isSaving, setIsSaving] = useState(false);
+  const [isDragging, setIsDragging] = useState(false);
   const [editForm, setEditForm] = useState({
     name: '', description: '', content: '',
     sections: [] as ProfileSection[],
@@ -75,8 +76,18 @@ export default function ClinicSettingsPage() {
     setActiveTab('edit');
   };
 
-  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = Array.from(e.target.files ?? []);
+  // 受け入れる MIME / 拡張子の判定
+  const ACCEPTED_MIMES = [
+    'application/pdf',
+    'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    'application/msword',
+    'text/plain',
+    'text/markdown',
+  ];
+  const ACCEPTED_EXT_RE = /\.(pdf|docx?|doc|txt|md)$/i;
+
+  // ファイル処理のコアロジック（input change と DnD で共通）
+  const processFiles = async (files: File[]) => {
     if (files.length === 0) return;
     setIsUploading(true);
     setUploadResult(null);
@@ -105,6 +116,39 @@ export default function ClinicSettingsPage() {
       setIsUploading(false);
       if (fileInputRef.current) fileInputRef.current.value = '';
     }
+  };
+
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    await processFiles(Array.from(e.target.files ?? []));
+  };
+
+  const handleDragOver = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(true);
+  };
+
+  const handleDragLeave = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(false);
+  };
+
+  const handleDrop = async (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(false);
+
+    const dropped = Array.from(e.dataTransfer.files);
+    // MIMEタイプか拡張子で受け入れ判定（ブラウザによってはMIMEが空のため）
+    const files = dropped.filter(
+      f => ACCEPTED_MIMES.includes(f.type) || ACCEPTED_EXT_RE.test(f.name),
+    );
+    if (files.length === 0) {
+      alert('PDF・Word(.docx)・テキスト(.txt/.md) ファイルのみ対応しています');
+      return;
+    }
+    await processFiles(files);
   };
 
   const handleSave = async () => {
@@ -427,22 +471,52 @@ export default function ClinicSettingsPage() {
             </h3>
             <div
               onClick={() => fileInputRef.current?.click()}
+              onDragOver={handleDragOver}
+              onDragLeave={handleDragLeave}
+              onDrop={handleDrop}
               style={{
                 padding: 30, borderRadius: 12,
-                border: '2px dashed var(--border)', textAlign: 'center' as const,
-                cursor: 'pointer', background: 'var(--bg-primary)',
+                border: `2px dashed ${isDragging ? '#16a34a' : 'var(--border)'}`,
+                textAlign: 'center' as const,
+                cursor: 'pointer',
+                background: isDragging ? 'rgba(22,163,74,0.10)' : 'var(--bg-primary)',
+                transform: isDragging ? 'scale(1.01)' : 'scale(1)',
+                transition: 'all 0.18s ease',
+                userSelect: 'none' as const,
               }}
             >
-              <div style={{ fontSize: 30, marginBottom: 6 }}>📎</div>
-              <p style={{ fontSize: 12, color: 'var(--text-secondary)', fontWeight: 600 }}>
-                PDF・Word(.docx)・テキストをクリックして選択
-              </p>
-              <p style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4 }}>
-                複数ファイルを一度に選択できます（Ctrl/Cmd+クリック）
-              </p>
-              <p style={{ fontSize: 10, color: 'var(--text-muted)', marginTop: 4 }}>
-                AIが自動でテキスト抽出・セクション分けします
-              </p>
+              <div
+                style={{
+                  fontSize: 30,
+                  marginBottom: 6,
+                  transform: isDragging ? 'scale(1.25)' : 'scale(1)',
+                  transition: 'transform 0.18s ease',
+                }}
+              >
+                {isDragging ? '📂' : '📎'}
+              </div>
+              {isDragging ? (
+                <>
+                  <p style={{ fontSize: 13, fontWeight: 700, color: '#15803d' }}>
+                    ここにドロップしてアップロード
+                  </p>
+                  <p style={{ fontSize: 11, color: '#16a34a', marginTop: 4 }}>
+                    複数ファイルを一度に受け付けます
+                  </p>
+                </>
+              ) : (
+                <>
+                  <p style={{ fontSize: 12, color: 'var(--text-secondary)', fontWeight: 600 }}>
+                    ファイルをここにドラッグ&ドロップ、またはクリックして選択
+                  </p>
+                  <p style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4 }}>
+                    PDF・Word(.docx)・テキスト(.txt/.md) 対応 ／ 複数ファイル同時OK
+                  </p>
+                  <p style={{ fontSize: 10, color: 'var(--text-muted)', marginTop: 4 }}>
+                    AIが自動でテキスト抽出・セクション分けします
+                  </p>
+                </>
+              )}
             </div>
             <input
               ref={fileInputRef}
