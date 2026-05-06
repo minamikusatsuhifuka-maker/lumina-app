@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { usePathname } from 'next/navigation';
 
 type Step = 'input' | 'select' | 'explain' | 'done';
 
@@ -32,6 +33,11 @@ const LEVEL_LABELS: Record<string, string> = {
 };
 
 export function GlossaryPanel() {
+  const pathname = usePathname();
+  const isChatPage =
+    pathname?.includes('/architecture') || pathname?.includes('/kindle') || false;
+  const fabBottom = isChatPage ? 100 : 24;
+  const panelBottom = isChatPage ? 156 : 80;
   const [isOpen, setIsOpen] = useState(false);
   const [step, setStep] = useState<Step>('input');
   const [inputText, setInputText] = useState('');
@@ -161,7 +167,7 @@ export function GlossaryPanel() {
       <button
         onClick={() => setIsOpen(!isOpen)}
         style={{
-          position: 'fixed', bottom: 24, right: 152, zIndex: 9998,
+          position: 'fixed', bottom: fabBottom, right: 152, zIndex: 9998,
           width: 48, height: 48, borderRadius: '50%',
           background: isOpen ? '#1D9E75' : '#1a1a2e',
           border: isOpen ? '2px solid #1D9E75' : '1px solid rgba(29,158,117,0.3)',
@@ -177,7 +183,7 @@ export function GlossaryPanel() {
       {/* パネル本体 */}
       {isOpen && (
         <div style={{
-          position: 'fixed', bottom: 80, right: 110, zIndex: 9997,
+          position: 'fixed', bottom: panelBottom, right: 110, zIndex: 9997,
           width: 420, maxHeight: '80vh',
           background: 'var(--bg-secondary)',
           border: '1px solid var(--border)',

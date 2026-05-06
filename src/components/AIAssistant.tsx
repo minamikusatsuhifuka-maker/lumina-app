@@ -31,6 +31,10 @@ export function AIAssistant() {
   const [loading, setLoading] = useState(false);
   const [currentHistoryId, setCurrentHistoryId] = useState<string | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
+  // チャット系ページ（入力欄が下部固定）ではボタンを上にずらす
+  const isChatPage =
+    pathname?.includes('/architecture') || pathname?.includes('/kindle') || false;
+  const buttonBottom = isChatPage ? 100 : 24;
 
   // 会話履歴保存
   const saveHistory = async () => {
@@ -145,7 +149,7 @@ export function AIAssistant() {
 
   const windowStyle: React.CSSProperties = chatSize === 'max'
     ? { position: 'fixed', inset: 0, zIndex: 9998, width: '100vw', height: '100vh', background: 'var(--bg-secondary)', borderRadius: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' }
-    : { position: 'fixed', bottom: 88, right: 24, zIndex: 9998, width: size.width, height: size.height, background: 'var(--bg-secondary)', border: '1px solid var(--border-accent)', borderRadius: 20, display: 'flex', flexDirection: 'column', boxShadow: '0 8px 40px rgba(0,0,0,0.2)', overflow: 'hidden' };
+    : { position: 'fixed', bottom: buttonBottom + 64, right: 24, zIndex: 9998, width: size.width, height: size.height, background: 'var(--bg-secondary)', border: '1px solid var(--border-accent)', borderRadius: 20, display: 'flex', flexDirection: 'column', boxShadow: '0 8px 40px rgba(0,0,0,0.2)', overflow: 'hidden' };
 
   // リサイズハンドルの共通スタイル
   const handleBase: React.CSSProperties = { position: 'absolute', zIndex: 10 };
@@ -157,7 +161,7 @@ export function AIAssistant() {
         <button
           onClick={() => { if (open) saveHistory(); setOpen(!open); }}
           style={{
-            position: 'fixed', bottom: 24, right: 24, zIndex: 9999,
+            position: 'fixed', bottom: buttonBottom, right: 24, zIndex: 9999,
             width: 52, height: 52, borderRadius: '50%', border: 'none',
             background: 'linear-gradient(135deg, #6c63ff, #8b5cf6)',
             color: '#fff', fontSize: 22, cursor: 'pointer',
