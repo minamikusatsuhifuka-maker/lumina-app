@@ -16,6 +16,16 @@ export default function TextAnalysisPage() {
   const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState<TabType>('analyze');
   const [crossSelected, setCrossSelected] = useState<CrossArticle[]>([]);
+  const [highlightArticleId, setHighlightArticleId] = useState<number | null>(null);
+
+  const handleViewArticle = (articleId: number) => {
+    setHighlightArticleId(articleId);
+    setTab('saved');
+    setTimeout(() => {
+      const el = document.getElementById(`article-${articleId}`);
+      el?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }, 300);
+  };
 
   const reloadRecords = async () => {
     try {
@@ -139,6 +149,8 @@ export default function TextAnalysisPage() {
               setCrossSelected(articles);
               setTab('cross');
             }}
+            highlightId={highlightArticleId}
+            onHighlightClear={() => setHighlightArticleId(null)}
           />
         )}
       </div>
@@ -148,6 +160,7 @@ export default function TextAnalysisPage() {
           onArticlesChange={setCrossSelected}
           onSaved={reloadRecords}
           onJumpToSaves={() => setTab('saved')}
+          onViewArticle={handleViewArticle}
         />
       </div>
     </div>

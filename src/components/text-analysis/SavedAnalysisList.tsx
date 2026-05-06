@@ -44,9 +44,17 @@ interface Props {
   onSelectForCross?: (
     articles: { id: number; title: string; content: string; category?: string }[],
   ) => void;
+  highlightId?: number | null;
+  onHighlightClear?: () => void;
 }
 
-export default function SavedAnalysisList({ records, onRecordsChange, onSelectForCross }: Props) {
+export default function SavedAnalysisList({
+  records,
+  onRecordsChange,
+  onSelectForCross,
+  highlightId,
+  onHighlightClear,
+}: Props) {
   const { showToast } = useToast();
   const [activeFolder, setActiveFolder] = useState<string | null>(null);
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
@@ -471,18 +479,61 @@ export default function SavedAnalysisList({ records, onRecordsChange, onSelectFo
             const folderColor = record.folder
               ? getFolderColor(record.folder, uniqueFolders)
               : null;
+            const highlighted = highlightId === record.id;
             return (
               <div
                 key={record.id}
+                id={`article-${record.id}`}
+                onClick={() => {
+                  if (highlighted) onHighlightClear?.();
+                }}
                 style={{
-                  background: 'var(--bg-card)',
+                  background: highlighted ? 'rgba(147,51,234,0.08)' : 'var(--bg-card)',
                   border: `1px solid ${
-                    checked ? 'var(--accent)' : 'var(--border)'
+                    highlighted
+                      ? '#9333ea'
+                      : checked
+                        ? 'var(--accent)'
+                        : 'var(--border)'
                   }`,
                   borderRadius: 12,
                   padding: 12,
+                  boxShadow: highlighted ? '0 0 0 3px rgba(147,51,234,0.25)' : undefined,
+                  transition: 'all 0.2s',
                 }}
               >
+                {highlighted && (
+                  <div
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 6,
+                      marginBottom: 8,
+                      fontSize: 11,
+                      fontWeight: 600,
+                      color: '#9333ea',
+                    }}
+                  >
+                    <span>📎 横断まとめで使用した記事</span>
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onHighlightClear?.();
+                      }}
+                      style={{
+                        marginLeft: 'auto',
+                        background: 'transparent',
+                        border: 'none',
+                        color: '#9333ea',
+                        cursor: 'pointer',
+                        fontSize: 11,
+                      }}
+                    >
+                      ✕
+                    </button>
+                  </div>
+                )}
                 <div
                   style={{
                     display: 'flex',

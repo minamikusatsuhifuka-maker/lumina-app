@@ -14,6 +14,7 @@ interface Props {
   onArticlesChange: (articles: CrossArticle[]) => void;
   onSaved?: () => void;
   onJumpToSaves?: () => void;
+  onViewArticle?: (articleId: number) => void;
 }
 
 const PRESET_TYPES = [
@@ -33,6 +34,7 @@ export default function CrossAnalysisPanel({
   onArticlesChange,
   onSaved,
   onJumpToSaves,
+  onViewArticle,
 }: Props) {
   const [presetType, setPresetType] = useState('key_points');
   const [customPrompt, setCustomPrompt] = useState('');
@@ -126,13 +128,22 @@ export default function CrossAnalysisPanel({
       ? customPrompt.slice(0, 30)
       : preset?.label ?? '横断まとめ';
 
+    const sourceSection = `\n\n---\n\n## 📎 使用記事（${selectedArticles.length}件）\n${
+      selectedArticles
+        .map((a, i) =>
+          `${i + 1}. **${a.title || `記事 ${i + 1}`}**${a.category ? `（${a.category}）` : ''}`,
+        )
+        .join('\n')
+    }`;
+    const fullContent = result + sourceSection;
+
     try {
       const res = await fetch('/api/text-analysis/saves', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           title: `【横断まとめ】${titleBase}（${selectedArticles.length}件）`,
-          content: result,
+          content: fullContent,
           category: '横断まとめ',
           analysisType: presetType,
           analysisLabel: '横断まとめ',
@@ -367,6 +378,65 @@ export default function CrossAnalysisPanel({
             </div>
           </div>
 
+          {/* 使用記事リスト（クリックで該当記事へジャンプ） */}
+          {result && !isAnalyzing && selectedArticles.length > 0 && (
+            <div style={{ marginTop: 14, paddingTop: 14, borderTop: '1px solid var(--border)' }}>
+              <p style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-muted)', marginBottom: 8 }}>
+                📎 このまとめに使用した記事（{selectedArticles.length}件）
+              </p>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                {selectedArticles.map((article, i) => (
+                  <button
+                    key={article.id}
+                    type="button"
+                    onClick={() => onViewArticle?.(article.id)}
+                    className="cross-source-link"
+                    style={{
+                      width: '100%', display: 'flex', alignItems: 'center', gap: 8,
+                      padding: 8, borderRadius: 8, textAlign: 'left',
+                      background: 'transparent', border: '1px solid transparent',
+                      cursor: onViewArticle ? 'pointer' : 'default',
+                      transition: 'all 0.15s',
+                    }}
+                  >
+                    <span style={{
+                      width: 20, height: 20, borderRadius: '50%',
+                      background: 'rgba(147,51,234,0.15)', color: PURPLE,
+                      fontSize: 10, fontWeight: 700,
+                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      flexShrink: 0,
+                    }}>
+                      {i + 1}
+                    </span>
+                    <span style={{
+                      flex: 1, fontSize: 12, color: 'var(--text-secondary)',
+                      overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                    }}>
+                      {article.title || `記事 ${i + 1}`}
+                    </span>
+                    {article.category && (
+                      <span style={{
+                        fontSize: 10, color: 'var(--text-muted)',
+                        background: 'var(--bg-secondary)',
+                        padding: '2px 6px', borderRadius: 4, flexShrink: 0,
+                      }}>
+                        {article.category}
+                      </span>
+                    )}
+                    {onViewArticle && (
+                      <span className="cross-source-arrow" style={{
+                        fontSize: 11, color: PURPLE, flexShrink: 0,
+                        opacity: 0, transition: 'opacity 0.15s',
+                      }}>
+                        開く →
+                      </span>
+                    )}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
           {savedId && (
             <div style={{
               marginTop: 10, padding: 10, borderRadius: 8,
@@ -397,6 +467,13 @@ export default function CrossAnalysisPanel({
         @keyframes pulse {
           0%, 100% { opacity: 1; }
           50% { opacity: 0.3; }
+        }
+        .cross-source-link:hover {
+          background: rgba(147,51,234,0.08) !important;
+          border-color: rgba(147,51,234,0.25) !important;
+        }
+        .cross-source-link:hover .cross-source-arrow {
+          opacity: 1 !important;
         }
       `}</style>
     </div>
