@@ -325,7 +325,8 @@ export default function SavedAnalysisList({
             style={{
               display: 'flex',
               alignItems: 'center',
-              justifyContent: 'space-between',
+              gap: 10,
+              flexWrap: 'wrap',
             }}
           >
             <span
@@ -341,14 +342,20 @@ export default function SavedAnalysisList({
               type="button"
               onClick={() => setSelectedIds(new Set())}
               style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 4,
+                padding: '4px 12px',
                 fontSize: 11,
-                color: 'var(--text-muted)',
-                background: 'transparent',
-                border: 'none',
+                fontWeight: 600,
+                color: 'var(--accent)',
+                background: 'var(--bg-card)',
+                border: '1px solid var(--accent)',
+                borderRadius: 999,
                 cursor: 'pointer',
               }}
             >
-              選択解除
+              ✕ 選択をすべて解除
             </button>
           </div>
           <p
