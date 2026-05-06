@@ -44,9 +44,14 @@ export async function getClinicSystemPrompt(featureKey: string, userId: string):
 
 function buildSystemPrompt(name: string, content: string, sections: any): string {
   if (!content) return '';
+  // token制限対策：本文が長すぎる場合は先頭部分のみ
+  const maxLength = 8000;
+  const truncatedContent = content.length > maxLength
+    ? content.slice(0, maxLength) + '\n\n...(以下省略)'
+    : content;
   const sectionsText = Array.isArray(sections) && sections.length > 0
     ? sections.map((s: any) => `### ${s.title ?? ''}（${s.category ?? ''}）\n${s.content ?? ''}`).join('\n\n')
-    : content;
+    : truncatedContent;
 
   return `
 ## クリニック背景情報・理念（必ず参照して回答に反映してください）

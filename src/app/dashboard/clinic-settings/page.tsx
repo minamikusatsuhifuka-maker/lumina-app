@@ -44,6 +44,12 @@ export default function ClinicSettingsPage() {
   const [saveMode, setSaveMode] = useState<'combined' | 'individual' | null>(null);
   const [isBulkSaving, setIsBulkSaving] = useState(false);
   const [bulkSaveResult, setBulkSaveResult] = useState<{ count: number; names: string[] } | null>(null);
+  const [selectedProfileIds, setSelectedProfileIds] = useState<Set<number>>(new Set());
+  const [isBulkMode, setIsBulkMode] = useState(false);
+  const [isMerging, setIsMerging] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [mergeForm, setMergeForm] = useState({ name: '', description: '', deleteOriginals: true });
+  const [showMergeModal, setShowMergeModal] = useState(false);
   const [editForm, setEditForm] = useState({
     name: '', description: '', content: '',
     sections: [] as ProfileSection[],
@@ -164,6 +170,59 @@ export default function ClinicSettingsPage() {
       return;
     }
     await processFiles(files);
+  };
+
+  const handleBulkDelete = async () => {
+    if (selectedProfileIds.size === 0) return;
+    if (!confirm(`選択した${selectedProfileIds.size}件のプロファイルを削除しますか？`)) return;
+    setIsDeleting(true);
+    try {
+      const res = await fetch('/api/clinic-profile', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ids: Array.from(selectedProfileIds) }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        alert(`エラー: ${data.error || '削除に失敗しました'}`);
+        return;
+      }
+      setSelectedProfileIds(new Set());
+      setIsBulkMode(false);
+      await loadAll();
+    } finally {
+      setIsDeleting(false);
+    }
+  };
+
+  const handleMerge = async () => {
+    if (selectedProfileIds.size < 2) return;
+    setIsMerging(true);
+    try {
+      const res = await fetch('/api/clinic-profile/merge', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          profileIds: Array.from(selectedProfileIds),
+          mergedName: mergeForm.name || undefined,
+          mergedDescription: mergeForm.description || undefined,
+          deleteOriginals: mergeForm.deleteOriginals,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.merged) {
+        alert(`エラー: ${data.error || '統合に失敗しました'}`);
+        return;
+      }
+      setSelectedProfileIds(new Set());
+      setIsBulkMode(false);
+      setShowMergeModal(false);
+      setMergeForm({ name: '', description: '', deleteOriginals: true });
+      await loadAll();
+      alert(`✅ ${data.sourceCount}件を統合したプロファイルを作成しました！`);
+    } finally {
+      setIsMerging(false);
+    }
   };
 
   const handleBulkSave = async () => {
@@ -313,21 +372,115 @@ export default function ClinicSettingsPage() {
       {/* 一覧タブ */}
       {activeTab === 'profiles' && (
         <div>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16, flexWrap: 'wrap', gap: 8 }}>
             <h2 style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-primary)' }}>
               背景情報プロファイル一覧
             </h2>
-            <button
-              onClick={startCreate}
-              style={{
-                padding: '8px 16px', background: ACCENT_GRAD,
-                color: '#fff', border: 'none', borderRadius: 8,
-                cursor: 'pointer', fontSize: 12, fontWeight: 700,
-              }}
-            >
-              ＋ 新規プロファイル作成
-            </button>
+            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+              <button
+                type="button"
+                onClick={() => {
+                  setIsBulkMode(!isBulkMode);
+                  setSelectedProfileIds(new Set());
+                }}
+                style={{
+                  padding: '8px 14px',
+                  background: isBulkMode ? '#374151' : 'var(--bg-card)',
+                  color: isBulkMode ? '#fff' : 'var(--text-secondary)',
+                  border: `1px solid ${isBulkMode ? '#374151' : 'var(--border)'}`,
+                  borderRadius: 8, cursor: 'pointer', fontSize: 12, fontWeight: 700,
+                }}
+              >
+                {isBulkMode ? '✕ 選択モード解除' : '☑ 複数選択'}
+              </button>
+              <button
+                onClick={startCreate}
+                style={{
+                  padding: '8px 16px', background: ACCENT_GRAD,
+                  color: '#fff', border: 'none', borderRadius: 8,
+                  cursor: 'pointer', fontSize: 12, fontWeight: 700,
+                }}
+              >
+                ＋ 新規プロファイル作成
+              </button>
+            </div>
           </div>
+
+          {/* 一括操作バー */}
+          {isBulkMode && selectedProfileIds.size > 0 && (
+            <div style={{
+              marginBottom: 14, padding: 12, borderRadius: 12,
+              background: '#1f2937',
+              display: 'flex', alignItems: 'center', gap: 10,
+              flexWrap: 'wrap',
+            }}>
+              <span style={{ color: '#fff', fontSize: 13, fontWeight: 700 }}>
+                {selectedProfileIds.size}件を選択中
+              </span>
+              <button
+                type="button"
+                onClick={() => setSelectedProfileIds(new Set())}
+                style={{
+                  fontSize: 11, color: '#9ca3af',
+                  background: 'transparent', border: 'none', cursor: 'pointer',
+                }}
+              >
+                ✕ 選択解除
+              </button>
+              <div style={{ display: 'flex', gap: 6, marginLeft: 'auto', flexWrap: 'wrap' }}>
+                {selectedProfileIds.size >= 2 && (
+                  <button
+                    type="button"
+                    onClick={() => setShowMergeModal(true)}
+                    style={{
+                      padding: '7px 14px', borderRadius: 8,
+                      background: '#2563eb', color: '#fff',
+                      border: 'none', cursor: 'pointer',
+                      fontSize: 12, fontWeight: 700,
+                    }}
+                  >
+                    🔗 選択した{selectedProfileIds.size}件を1つに統合
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={handleBulkDelete}
+                  disabled={isDeleting}
+                  style={{
+                    padding: '7px 14px', borderRadius: 8,
+                    background: '#dc2626', color: '#fff',
+                    border: 'none',
+                    cursor: isDeleting ? 'not-allowed' : 'pointer',
+                    opacity: isDeleting ? 0.6 : 1,
+                    fontSize: 12, fontWeight: 700,
+                  }}
+                >
+                  {isDeleting ? '削除中...' : `🗑 ${selectedProfileIds.size}件を削除`}
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* 全選択/全解除（一括モード時） */}
+          {isBulkMode && profiles.length > 0 && (
+            <div style={{ display: 'flex', gap: 12, marginBottom: 10, fontSize: 11 }}>
+              <button
+                type="button"
+                onClick={() => setSelectedProfileIds(new Set(profiles.map((p) => p.id)))}
+                style={{ background: 'transparent', border: 'none', color: '#2563eb', cursor: 'pointer' }}
+              >
+                全て選択（{profiles.length}件）
+              </button>
+              <span style={{ color: 'var(--text-muted)' }}>|</span>
+              <button
+                type="button"
+                onClick={() => setSelectedProfileIds(new Set())}
+                style={{ background: 'transparent', border: 'none', color: 'var(--text-muted)', cursor: 'pointer' }}
+              >
+                全て解除
+              </button>
+            </div>
+          )}
 
           {profiles.length === 0 ? (
             <div style={{
@@ -351,12 +504,40 @@ export default function ClinicSettingsPage() {
             </div>
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column' as const, gap: 12 }}>
-              {profiles.map(p => (
+              {profiles.map(p => {
+                const checked = selectedProfileIds.has(p.id);
+                return (
                 <div key={p.id} style={{
                   padding: 16, borderRadius: 12,
-                  background: 'var(--bg-secondary)', border: '1px solid var(--border)',
+                  background: isBulkMode && checked ? 'rgba(37,99,235,0.10)' : 'var(--bg-secondary)',
+                  border: `1px solid ${isBulkMode && checked ? '#2563eb' : 'var(--border)'}`,
+                  cursor: isBulkMode ? 'pointer' : 'default',
+                  transition: 'all 0.15s',
+                }}
+                onClick={() => {
+                  if (!isBulkMode) return;
+                  setSelectedProfileIds(prev => {
+                    const next = new Set(prev);
+                    if (next.has(p.id)) next.delete(p.id); else next.add(p.id);
+                    return next;
+                  });
                 }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 14 }}>
+                    {isBulkMode && (
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        onChange={() => {
+                          setSelectedProfileIds(prev => {
+                            const next = new Set(prev);
+                            if (next.has(p.id)) next.delete(p.id); else next.add(p.id);
+                            return next;
+                          });
+                        }}
+                        onClick={(e) => e.stopPropagation()}
+                        style={{ marginTop: 4, accentColor: '#2563eb', flexShrink: 0, width: 16, height: 16, cursor: 'pointer' }}
+                      />
+                    )}
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4, flexWrap: 'wrap' as const }}>
                         <h3 style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-primary)' }}>{p.name}</h3>
@@ -380,31 +561,138 @@ export default function ClinicSettingsPage() {
                         {p.content.length.toLocaleString()}字 ／ {(p.sections ?? []).length}セクション
                       </p>
                     </div>
-                    <div style={{ display: 'flex', flexDirection: 'column' as const, gap: 6 }}>
-                      <button
-                        onClick={() => startEdit(p)}
-                        style={{
-                          padding: '6px 12px', fontSize: 11, fontWeight: 600,
-                          background: 'var(--bg-primary)', border: '1px solid var(--border)',
-                          color: 'var(--text-secondary)', borderRadius: 8, cursor: 'pointer',
-                        }}
-                      >
-                        ✏️ 編集
-                      </button>
-                      <button
-                        onClick={() => handleDelete(p.id)}
-                        style={{
-                          padding: '6px 12px', fontSize: 11, fontWeight: 600,
-                          background: 'var(--bg-primary)', border: '1px solid rgba(239,68,68,0.4)',
-                          color: '#ef4444', borderRadius: 8, cursor: 'pointer',
-                        }}
-                      >
-                        🗑 削除
-                      </button>
-                    </div>
+                    {!isBulkMode && (
+                      <div style={{ display: 'flex', flexDirection: 'column' as const, gap: 6 }}>
+                        <button
+                          onClick={() => startEdit(p)}
+                          style={{
+                            padding: '6px 12px', fontSize: 11, fontWeight: 600,
+                            background: 'var(--bg-primary)', border: '1px solid var(--border)',
+                            color: 'var(--text-secondary)', borderRadius: 8, cursor: 'pointer',
+                          }}
+                        >
+                          ✏️ 編集
+                        </button>
+                        <button
+                          onClick={() => handleDelete(p.id)}
+                          style={{
+                            padding: '6px 12px', fontSize: 11, fontWeight: 600,
+                            background: 'var(--bg-primary)', border: '1px solid rgba(239,68,68,0.4)',
+                            color: '#ef4444', borderRadius: 8, cursor: 'pointer',
+                          }}
+                        >
+                          🗑 削除
+                        </button>
+                      </div>
+                    )}
                   </div>
                 </div>
-              ))}
+                );
+              })}
+            </div>
+          )}
+
+          {/* 統合モーダル */}
+          {showMergeModal && (
+            <div
+              onClick={() => setShowMergeModal(false)}
+              style={{
+                position: 'fixed', inset: 0, zIndex: 1000,
+                background: 'rgba(0,0,0,0.5)',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                padding: 16,
+              }}
+            >
+              <div
+                onClick={(e) => e.stopPropagation()}
+                style={{
+                  background: 'var(--bg-card)',
+                  border: '1px solid var(--border)',
+                  borderRadius: 16, padding: 24,
+                  width: '100%', maxWidth: 460,
+                  boxShadow: '0 20px 50px rgba(0,0,0,0.4)',
+                }}
+              >
+                <h3 style={{ fontSize: 16, fontWeight: 800, color: 'var(--text-primary)', marginBottom: 4 }}>
+                  🔗 {selectedProfileIds.size}件を1つに統合
+                </h3>
+                <p style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 18 }}>
+                  選択したプロファイルの内容を結合して、1つの背景情報としてAIに渡せます。
+                </p>
+
+                <div style={{ display: 'flex', flexDirection: 'column' as const, gap: 12, marginBottom: 18 }}>
+                  <div>
+                    <label style={{ display: 'block', fontSize: 11, color: 'var(--text-secondary)', marginBottom: 4 }}>
+                      統合後のプロファイル名
+                    </label>
+                    <input
+                      value={mergeForm.name}
+                      onChange={(e) => setMergeForm((prev) => ({ ...prev, name: e.target.value }))}
+                      placeholder="例: 理念・人材育成・経営計画 統合版"
+                      style={{
+                        width: '100%', padding: '8px 12px', fontSize: 13,
+                        background: 'var(--bg-primary)', color: 'var(--text-primary)',
+                        border: '1px solid var(--border)', borderRadius: 8, outline: 'none',
+                      }}
+                    />
+                  </div>
+                  <div>
+                    <label style={{ display: 'block', fontSize: 11, color: 'var(--text-secondary)', marginBottom: 4 }}>
+                      説明（任意）
+                    </label>
+                    <input
+                      value={mergeForm.description}
+                      onChange={(e) => setMergeForm((prev) => ({ ...prev, description: e.target.value }))}
+                      placeholder="このプロファイルの用途・特徴"
+                      style={{
+                        width: '100%', padding: '8px 12px', fontSize: 13,
+                        background: 'var(--bg-primary)', color: 'var(--text-primary)',
+                        border: '1px solid var(--border)', borderRadius: 8, outline: 'none',
+                      }}
+                    />
+                  </div>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontSize: 12, color: 'var(--text-secondary)' }}>
+                    <input
+                      type="checkbox"
+                      checked={mergeForm.deleteOriginals}
+                      onChange={(e) => setMergeForm((prev) => ({ ...prev, deleteOriginals: e.target.checked }))}
+                      style={{ accentColor: '#2563eb' }}
+                    />
+                    統合後に元のプロファイルを削除する
+                  </label>
+                </div>
+
+                <div style={{ display: 'flex', gap: 10 }}>
+                  <button
+                    type="button"
+                    onClick={handleMerge}
+                    disabled={isMerging}
+                    style={{
+                      flex: 1, padding: '10px 16px',
+                      background: isMerging ? 'var(--bg-secondary)' : '#2563eb',
+                      color: isMerging ? 'var(--text-muted)' : '#fff',
+                      border: 'none', borderRadius: 12,
+                      cursor: isMerging ? 'not-allowed' : 'pointer',
+                      fontSize: 13, fontWeight: 700,
+                    }}
+                  >
+                    {isMerging ? '統合中...' : '🔗 統合する'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setShowMergeModal(false)}
+                    style={{
+                      padding: '10px 18px',
+                      background: 'transparent',
+                      color: 'var(--text-secondary)',
+                      border: '1px solid var(--border)', borderRadius: 12,
+                      cursor: 'pointer', fontSize: 13, fontWeight: 600,
+                    }}
+                  >
+                    キャンセル
+                  </button>
+                </div>
+              </div>
             </div>
           )}
         </div>

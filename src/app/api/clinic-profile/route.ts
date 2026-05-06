@@ -135,7 +135,27 @@ export async function DELETE(req: NextRequest) {
 
   const { searchParams } = new URL(req.url);
   const id = searchParams.get('id');
-  if (!id) return NextResponse.json({ error: 'idが必要' }, { status: 400 });
+
+  // bodyからidsを読み取る（複数削除）
+  let ids: number[] | null = null;
+  try {
+    const body = await req.json();
+    if (body && Array.isArray(body.ids)) {
+      ids = body.ids.map((v: unknown) => Number(v)).filter((v: number) => Number.isFinite(v));
+    }
+  } catch {
+    // bodyなし→単一削除パス
+  }
+
+  if (ids && ids.length > 0) {
+    await sql`
+      DELETE FROM clinic_profiles
+      WHERE id = ANY(${ids}) AND user_id = ${userId}
+    `;
+    return NextResponse.json({ success: true, deletedCount: ids.length });
+  }
+
+  if (!id) return NextResponse.json({ error: 'idまたはidsが必要' }, { status: 400 });
 
   await sql`
     DELETE FROM clinic_profiles
