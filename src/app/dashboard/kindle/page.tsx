@@ -596,7 +596,7 @@ export default function KindlePage() {
                 <div ref={messagesEndRef} />
               </div>
 
-              <div style={{ borderTop: '1px solid var(--border)', background: 'var(--bg-secondary)', padding: '14px 14px 88px' }}>
+              <div style={{ borderTop: '1px solid var(--border)', background: 'var(--bg-secondary)', padding: '14px 14px 170px' }}>
                 <div style={{ display: 'flex', flexWrap: 'wrap' as const, gap: 6, marginBottom: 10 }}>
                   {['もっと具体的に教えて', 'それで進めてください', '別の案も出して', 'ターゲットを絞りたい', '目次を確定して', 'マーケティング要素を強化して'].map(q => (
                     <button

@@ -448,7 +448,7 @@ ${architecture.mermaid}
               </div>
 
               {/* 入力 */}
-              <div style={{ borderTop: '1px solid var(--border)', background: 'var(--bg-secondary)', padding: '14px 14px 88px' }}>
+              <div style={{ borderTop: '1px solid var(--border)', background: 'var(--bg-secondary)', padding: '14px 14px 170px' }}>
                 <div style={{ display: 'flex', flexWrap: 'wrap' as const, gap: 6, marginBottom: 10 }}>
                   {['詳しく教えてください', 'もっとシンプルにしたい', 'コスト重視で選んで', 'スピード重視で選んで', '確定して出力して'].map(q => (
                     <button
