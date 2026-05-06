@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { copyToClipboard } from '@/lib/copyToClipboard';
 
 export interface CrossArticle {
   id: number;
@@ -43,6 +44,13 @@ export default function CrossAnalysisPanel({
   const [streamingText, setStreamingText] = useState('');
   const [isSaving, setIsSaving] = useState(false);
   const [savedId, setSavedId] = useState<number | null>(null);
+  const [copyStatus, setCopyStatus] = useState<'idle' | 'copied' | 'error'>('idle');
+
+  const handleCopy = async () => {
+    const success = await copyToClipboard(result);
+    setCopyStatus(success ? 'copied' : 'error');
+    setTimeout(() => setCopyStatus('idle'), 2000);
+  };
 
   const removeArticle = (id: number) => {
     onArticlesChange(selectedArticles.filter((a) => a.id !== id));
@@ -330,14 +338,37 @@ export default function CrossAnalysisPanel({
               <div style={{ display: 'flex', gap: 6 }}>
                 <button
                   type="button"
-                  onClick={() => navigator.clipboard.writeText(result)}
+                  onClick={handleCopy}
                   style={{
                     fontSize: 11, padding: '6px 12px', borderRadius: 8,
-                    background: 'var(--bg-secondary)', border: '1px solid var(--border)',
-                    color: 'var(--text-secondary)', cursor: 'pointer',
+                    background:
+                      copyStatus === 'copied'
+                        ? 'rgba(34,197,94,0.10)'
+                        : copyStatus === 'error'
+                          ? 'rgba(239,68,68,0.10)'
+                          : 'var(--bg-secondary)',
+                    border: `1px solid ${
+                      copyStatus === 'copied'
+                        ? 'rgba(34,197,94,0.4)'
+                        : copyStatus === 'error'
+                          ? 'rgba(239,68,68,0.4)'
+                          : 'var(--border)'
+                    }`,
+                    color:
+                      copyStatus === 'copied'
+                        ? '#16a34a'
+                        : copyStatus === 'error'
+                          ? '#dc2626'
+                          : 'var(--text-secondary)',
+                    cursor: 'pointer',
+                    transition: 'all 0.2s',
                   }}
                 >
-                  📋 コピー
+                  {copyStatus === 'copied'
+                    ? '✅ コピーしました'
+                    : copyStatus === 'error'
+                      ? '❌ コピー失敗'
+                      : '📋 コピー'}
                 </button>
                 <button
                   type="button"

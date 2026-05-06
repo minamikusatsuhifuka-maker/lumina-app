@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from 'react';
 import { useToast } from '@/components/ui/Toast';
+import { copyToClipboard } from '@/lib/copyToClipboard';
 
 export interface AnalysisRecord {
   id: number;
@@ -64,6 +65,18 @@ export default function SavedAnalysisList({
   const [editingCategory, setEditingCategory] = useState<string | null>(null);
   const [editingValue, setEditingValue] = useState('');
   const [isRenaming, setIsRenaming] = useState(false);
+  const [copiedId, setCopiedId] = useState<number | null>(null);
+
+  const handleCopy = async (id: number, text: string) => {
+    const success = await copyToClipboard(text);
+    if (success) {
+      setCopiedId(id);
+      showToast('コピーしました', 'success');
+      setTimeout(() => setCopiedId((curr) => (curr === id ? null : curr)), 2000);
+    } else {
+      showToast('コピーできませんでした。手動で選択してコピーしてください。', 'error');
+    }
+  };
 
   const handleRenameCategory = async (oldName: string) => {
     const newName = editingValue.trim();
@@ -766,13 +779,21 @@ export default function SavedAnalysisList({
                       </button>
                       <button
                         type="button"
-                        onClick={() => {
-                          navigator.clipboard.writeText(record.content);
-                          showToast('コピーしました', 'success');
+                        onClick={() => handleCopy(record.id, record.content)}
+                        style={{
+                          ...listBtnStyle(),
+                          background:
+                            copiedId === record.id
+                              ? 'rgba(34,197,94,0.12)'
+                              : listBtnStyle().background,
+                          borderColor:
+                            copiedId === record.id
+                              ? 'rgba(34,197,94,0.4)'
+                              : 'var(--border)',
+                          color: copiedId === record.id ? '#16a34a' : 'var(--text-secondary)',
                         }}
-                        style={listBtnStyle()}
                       >
-                        📋 コピー
+                        {copiedId === record.id ? '✅ コピー済み' : '📋 コピー'}
                       </button>
                       <button
                         type="button"
