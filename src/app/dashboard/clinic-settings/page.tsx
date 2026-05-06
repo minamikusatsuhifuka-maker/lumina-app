@@ -38,12 +38,14 @@ export default function ClinicSettingsPage() {
   const [uploadResult, setUploadResult] = useState<any>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
+  const [showSections, setShowSections] = useState(false);
   const [editForm, setEditForm] = useState({
     name: '', description: '', content: '',
     sections: [] as ProfileSection[],
     isDefault: false,
   });
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const saveButtonRef = useRef<HTMLButtonElement>(null);
 
   useEffect(() => { loadAll(); }, []);
 
@@ -115,6 +117,9 @@ export default function ClinicSettingsPage() {
     } finally {
       setIsUploading(false);
       if (fileInputRef.current) fileInputRef.current.value = '';
+      setTimeout(() => {
+        saveButtonRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }, 300);
     }
   };
 
@@ -607,68 +612,10 @@ export default function ClinicSettingsPage() {
             </p>
           </div>
 
-          {/* セクション分け */}
-          <div style={{ padding: 18, borderRadius: 12, background: 'var(--bg-secondary)', border: '1px solid var(--border)' }}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
-              <h3 style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-primary)' }}>
-                📂 セクション分け（任意・AIが自動生成）
-              </h3>
-              <button
-                onClick={addSection}
-                style={{ fontSize: 11, color: ACCENT, background: 'transparent', border: 'none', cursor: 'pointer', fontWeight: 600 }}
-              >
-                ＋ セクション追加
-              </button>
-            </div>
-            <div style={{ display: 'flex', flexDirection: 'column' as const, gap: 10 }}>
-              {editForm.sections.map((section, i) => (
-                <div key={i} style={{ padding: 12, borderRadius: 8, border: '1px solid var(--border)', background: 'var(--bg-primary)' }}>
-                  <div style={{ display: 'flex', gap: 6, marginBottom: 6 }}>
-                    <input
-                      value={section.title}
-                      onChange={e => updateSection(i, 'title', e.target.value)}
-                      placeholder="セクションタイトル"
-                      style={{ flex: 1, padding: '6px 10px', fontSize: 12, background: 'var(--bg-secondary)', color: 'var(--text-primary)', border: '1px solid var(--border)', borderRadius: 6, outline: 'none' }}
-                    />
-                    <select
-                      value={section.category}
-                      onChange={e => updateSection(i, 'category', e.target.value)}
-                      style={{ padding: '6px 8px', fontSize: 12, background: 'var(--bg-secondary)', color: 'var(--text-primary)', border: '1px solid var(--border)', borderRadius: 6 }}
-                    >
-                      {CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
-                    </select>
-                    <button
-                      onClick={() => removeSection(i)}
-                      style={{ padding: '0 10px', background: 'transparent', border: 'none', color: '#ef4444', fontSize: 14, cursor: 'pointer' }}
-                    >
-                      ✕
-                    </button>
-                  </div>
-                  <textarea
-                    value={section.content}
-                    onChange={e => updateSection(i, 'content', e.target.value)}
-                    placeholder="このセクションの内容"
-                    rows={3}
-                    style={{
-                      width: '100%', padding: 8, fontSize: 12,
-                      background: 'var(--bg-secondary)', color: 'var(--text-primary)',
-                      border: '1px solid var(--border)', borderRadius: 6,
-                      resize: 'vertical' as const, fontFamily: 'inherit', outline: 'none',
-                    }}
-                  />
-                </div>
-              ))}
-              {editForm.sections.length === 0 && (
-                <div style={{ fontSize: 11, color: 'var(--text-muted)', textAlign: 'center' as const, padding: 16 }}>
-                  セクション未設定（PDF/Wordインポート時に自動生成されます）
-                </div>
-              )}
-            </div>
-          </div>
-
-          {/* 保存 */}
+          {/* 保存（セクション分けの前に配置） */}
           <div style={{ display: 'flex', gap: 10 }}>
             <button
+              ref={saveButtonRef}
               onClick={handleSave}
               disabled={isSaving}
               style={{
@@ -693,6 +640,87 @@ export default function ClinicSettingsPage() {
             >
               キャンセル
             </button>
+          </div>
+
+          {/* セクション分け（折りたたみ・デフォルト非表示） */}
+          <div style={{ borderRadius: 12, background: 'var(--bg-secondary)', border: '1px solid var(--border)', overflow: 'hidden' }}>
+            <button
+              type="button"
+              onClick={() => setShowSections(v => !v)}
+              style={{
+                width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                padding: '12px 18px', background: 'transparent', border: 'none', cursor: 'pointer',
+              }}
+            >
+              <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-secondary)' }}>
+                📂 セクション分け（任意・詳細設定）
+              </span>
+              <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>
+                {showSections ? '▲ 閉じる' : '▼ 開いて設定する'}
+              </span>
+            </button>
+
+            {showSections && (
+              <div style={{ padding: 18, borderTop: '1px solid var(--border)', display: 'flex', flexDirection: 'column' as const, gap: 10 }}>
+                <p style={{ fontSize: 11, color: 'var(--text-muted)' }}>
+                  PDFアップロード時にAIが自動生成します。手動で追加・編集も可能です。
+                </p>
+                <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+                  <button
+                    type="button"
+                    onClick={addSection}
+                    style={{ fontSize: 11, color: ACCENT, background: 'transparent', border: 'none', cursor: 'pointer', fontWeight: 600 }}
+                  >
+                    ＋ セクション追加
+                  </button>
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column' as const, gap: 10 }}>
+                  {editForm.sections.map((section, i) => (
+                    <div key={i} style={{ padding: 12, borderRadius: 8, border: '1px solid var(--border)', background: 'var(--bg-primary)' }}>
+                      <div style={{ display: 'flex', gap: 6, marginBottom: 6 }}>
+                        <input
+                          value={section.title}
+                          onChange={e => updateSection(i, 'title', e.target.value)}
+                          placeholder="セクションタイトル"
+                          style={{ flex: 1, padding: '6px 10px', fontSize: 12, background: 'var(--bg-secondary)', color: 'var(--text-primary)', border: '1px solid var(--border)', borderRadius: 6, outline: 'none' }}
+                        />
+                        <select
+                          value={section.category}
+                          onChange={e => updateSection(i, 'category', e.target.value)}
+                          style={{ padding: '6px 8px', fontSize: 12, background: 'var(--bg-secondary)', color: 'var(--text-primary)', border: '1px solid var(--border)', borderRadius: 6 }}
+                        >
+                          {CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
+                        </select>
+                        <button
+                          type="button"
+                          onClick={() => removeSection(i)}
+                          style={{ padding: '0 10px', background: 'transparent', border: 'none', color: '#ef4444', fontSize: 14, cursor: 'pointer' }}
+                        >
+                          ✕
+                        </button>
+                      </div>
+                      <textarea
+                        value={section.content}
+                        onChange={e => updateSection(i, 'content', e.target.value)}
+                        placeholder="このセクションの内容"
+                        rows={3}
+                        style={{
+                          width: '100%', padding: 8, fontSize: 12,
+                          background: 'var(--bg-secondary)', color: 'var(--text-primary)',
+                          border: '1px solid var(--border)', borderRadius: 6,
+                          resize: 'vertical' as const, fontFamily: 'inherit', outline: 'none',
+                        }}
+                      />
+                    </div>
+                  ))}
+                  {editForm.sections.length === 0 && (
+                    <div style={{ fontSize: 11, color: 'var(--text-muted)', textAlign: 'center' as const, padding: 16 }}>
+                      セクション未設定（PDF/Wordインポート時に自動生成されます）
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
           </div>
         </div>
       )}
