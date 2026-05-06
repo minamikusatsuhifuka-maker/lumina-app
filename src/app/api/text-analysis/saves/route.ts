@@ -107,6 +107,24 @@ export async function PATCH(req: NextRequest) {
         SET auto_title = ${body.title ?? ''}, file_name = ${body.title ?? ''}, updated_at = NOW()
         WHERE id = ${id} AND user_id = ${userId}
       `;
+    } else if (action === 'rename_folder') {
+      const oldName = (body.oldName ?? '').trim();
+      const newName = (body.newName ?? '').trim();
+      if (!oldName || !newName) {
+        return NextResponse.json({ error: '変更前後の名前が必要です' }, { status: 400 });
+      }
+      if (oldName === newName) {
+        return NextResponse.json({ error: '同じ名前です' }, { status: 400 });
+      }
+      if (oldName === '横断まとめ') {
+        return NextResponse.json({ error: 'このカテゴリは変更できません' }, { status: 403 });
+      }
+      await sql`
+        UPDATE text_analysis_saves
+        SET folder = ${newName}, updated_at = NOW()
+        WHERE folder = ${oldName} AND user_id = ${userId}
+      `;
+      return NextResponse.json({ ok: true, oldName, newName });
     } else {
       return NextResponse.json({ error: '不正なaction' }, { status: 400 });
     }

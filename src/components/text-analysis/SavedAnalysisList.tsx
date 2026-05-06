@@ -61,6 +61,40 @@ export default function SavedAnalysisList({
   const [showCategoryGrid, setShowCategoryGrid] = useState(true);
   const [expandedId, setExpandedId] = useState<number | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
+  const [editingCategory, setEditingCategory] = useState<string | null>(null);
+  const [editingValue, setEditingValue] = useState('');
+  const [isRenaming, setIsRenaming] = useState(false);
+
+  const handleRenameCategory = async (oldName: string) => {
+    const newName = editingValue.trim();
+    if (!newName || newName === oldName) {
+      setEditingCategory(null);
+      return;
+    }
+    setIsRenaming(true);
+    try {
+      const res = await fetch('/api/text-analysis/saves', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'rename_folder', oldName, newName }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        alert(data?.error ?? '変更できませんでした');
+        return;
+      }
+      onRecordsChange(
+        records.map((r) => (r.folder === oldName ? { ...r, folder: newName } : r)),
+      );
+      if (activeFolder === oldName) setActiveFolder(newName);
+      showToast(`カテゴリ名を「${newName}」に変更しました`, 'success');
+    } catch {
+      showToast('変更に失敗しました', 'error');
+    } finally {
+      setIsRenaming(false);
+      setEditingCategory(null);
+    }
+  };
 
   const uniqueFolders = useMemo(() => {
     const set = new Set<string>();
@@ -143,6 +177,9 @@ export default function SavedAnalysisList({
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+      <style>{`
+        .category-card:hover .category-edit-btn { opacity: 1 !important; }
+      `}</style>
       {/* カテゴリ概覧ヘッダー */}
       <div
         style={{
@@ -217,11 +254,15 @@ export default function SavedAnalysisList({
             const count = records.filter((r) => r.folder === folder).length;
             const color = getFolderColor(folder, uniqueFolders);
             const active = activeFolder === folder;
+            const isEditing = editingCategory === folder;
+            const canRename = folder !== '横断まとめ';
             return (
-              <button
+              <div
                 key={folder}
-                type="button"
-                onClick={() => setActiveFolder(folder)}
+                onClick={() => {
+                  if (!isEditing) setActiveFolder(folder);
+                }}
+                className="category-card"
                 style={{
                   ...categoryCardStyle(active),
                   position: 'relative',
@@ -238,25 +279,85 @@ export default function SavedAnalysisList({
                     background: color,
                   }}
                 />
-                <span
-                  style={{ fontSize: 18, marginBottom: 2, paddingLeft: 6 }}
-                >
-                  📁
-                </span>
-                <span
-                  style={{
-                    fontSize: 11,
-                    fontWeight: 600,
-                    color: 'var(--text-secondary)',
-                    paddingLeft: 6,
-                    width: '100%',
-                    overflow: 'hidden',
-                    textOverflow: 'ellipsis',
-                    whiteSpace: 'nowrap',
-                  }}
-                >
-                  {folder}
-                </span>
+                <span style={{ fontSize: 18, marginBottom: 2, paddingLeft: 6 }}>📁</span>
+                {isEditing ? (
+                  <div
+                    style={{ paddingLeft: 6, width: '100%' }}
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    <input
+                      autoFocus
+                      value={editingValue}
+                      onChange={(e) => setEditingValue(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') handleRenameCategory(folder);
+                        if (e.key === 'Escape') setEditingCategory(null);
+                      }}
+                      onBlur={() => handleRenameCategory(folder)}
+                      disabled={isRenaming}
+                      style={{
+                        width: '100%',
+                        padding: '4px 6px',
+                        fontSize: 11,
+                        fontWeight: 600,
+                        background: 'var(--bg-primary)',
+                        color: 'var(--text-primary)',
+                        border: `1px solid ${color}`,
+                        borderRadius: 4,
+                        outline: 'none',
+                      }}
+                    />
+                  </div>
+                ) : (
+                  <div
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 4,
+                      paddingLeft: 6,
+                      width: '100%',
+                    }}
+                  >
+                    <span
+                      style={{
+                        fontSize: 11,
+                        fontWeight: 600,
+                        color: 'var(--text-secondary)',
+                        flex: 1,
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                        whiteSpace: 'nowrap',
+                      }}
+                    >
+                      {folder}
+                    </span>
+                    {canRename && (
+                      <button
+                        type="button"
+                        className="category-edit-btn"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setEditingCategory(folder);
+                          setEditingValue(folder);
+                        }}
+                        title="カテゴリ名を変更"
+                        style={{
+                          background: 'transparent',
+                          border: 'none',
+                          padding: 2,
+                          fontSize: 11,
+                          cursor: 'pointer',
+                          opacity: 0,
+                          transition: 'opacity 0.15s',
+                          color: 'var(--text-muted)',
+                          flexShrink: 0,
+                        }}
+                      >
+                        ✏️
+                      </button>
+                    )}
+                  </div>
+                )}
                 <div
                   style={{
                     display: 'flex',
@@ -265,11 +366,7 @@ export default function SavedAnalysisList({
                     paddingLeft: 6,
                   }}
                 >
-                  <span
-                    style={{ fontSize: 18, fontWeight: 700, color }}
-                  >
-                    {count}
-                  </span>
+                  <span style={{ fontSize: 18, fontWeight: 700, color }}>{count}</span>
                   <span
                     style={{
                       fontSize: 10,
@@ -280,7 +377,7 @@ export default function SavedAnalysisList({
                     件
                   </span>
                 </div>
-              </button>
+              </div>
             );
           })}
         </div>
