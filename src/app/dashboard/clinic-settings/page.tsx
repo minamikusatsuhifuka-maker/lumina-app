@@ -41,6 +41,9 @@ export default function ClinicSettingsPage() {
   const [showSections, setShowSections] = useState(false);
   const [isSectionizing, setIsSectionizing] = useState(false);
   const [sectionizeError, setSectionizeError] = useState('');
+  const [saveMode, setSaveMode] = useState<'combined' | 'individual' | null>(null);
+  const [isBulkSaving, setIsBulkSaving] = useState(false);
+  const [bulkSaveResult, setBulkSaveResult] = useState<{ count: number; names: string[] } | null>(null);
   const [editForm, setEditForm] = useState({
     name: '', description: '', content: '',
     sections: [] as ProfileSection[],
@@ -107,6 +110,9 @@ export default function ClinicSettingsPage() {
       }
       setUploadResult({ ...data, sections: [] });
       setSectionizeError('');
+      setBulkSaveResult(null);
+      // 単一ファイルなら自動的にcombined扱い、複数ファイルは未選択にする
+      setSaveMode(data.successCount > 1 ? null : 'combined');
       const autoName = files.length === 1
         ? files[0].name.replace(/\.(pdf|docx?|doc|txt|md)$/i, '')
         : `${files.length}件のファイル`;
@@ -158,6 +164,31 @@ export default function ClinicSettingsPage() {
       return;
     }
     await processFiles(files);
+  };
+
+  const handleBulkSave = async () => {
+    const fileTexts = uploadResult?.fileTexts;
+    if (!fileTexts || fileTexts.length === 0) return;
+    setIsBulkSaving(true);
+    try {
+      const res = await fetch('/api/clinic-profile/bulk-create', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ fileTexts }),
+      });
+      const data = await res.json();
+      if (!res.ok || data.error) {
+        alert(`エラー: ${data.error || '一括保存に失敗しました'}`);
+        return;
+      }
+      setBulkSaveResult({
+        count: data.count,
+        names: (data.created ?? []).map((c: { name: string }) => c.name),
+      });
+      await loadAll();
+    } finally {
+      setIsBulkSaving(false);
+    }
   };
 
   const handleSectionize = async () => {
@@ -640,8 +671,128 @@ export default function ClinicSettingsPage() {
             </p>
           </div>
 
-          {/* テキスト抽出完了 → セクション分け実行ボタン（任意） */}
-          {uploadResult && !isUploading && editForm.content && editForm.sections.length === 0 && (
+          {/* 複数ファイル時の保存方式選択 */}
+          {uploadResult && !isUploading && (uploadResult.successCount ?? 0) > 1 && !bulkSaveResult && (
+            <div style={{
+              padding: 16, borderRadius: 12,
+              background: 'var(--bg-secondary)', border: '1px solid var(--border)',
+            }}>
+              <p style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 10 }}>
+                📁 保存方式を選んでください
+              </p>
+              <div style={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
+                gap: 10,
+              }}>
+                {/* 方式A: 個別保存 */}
+                <button
+                  type="button"
+                  onClick={() => setSaveMode('individual')}
+                  style={{
+                    padding: 14, borderRadius: 12, textAlign: 'left',
+                    background: saveMode === 'individual' ? 'rgba(34,197,94,0.10)' : 'var(--bg-card)',
+                    border: `2px solid ${saveMode === 'individual' ? '#16a34a' : 'var(--border)'}`,
+                    cursor: 'pointer', transition: 'all 0.15s',
+                  }}
+                >
+                  <div style={{ fontSize: 18, marginBottom: 4 }}>📄×{uploadResult.successCount}</div>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-primary)' }}>
+                    ファイルごとに個別保存
+                  </div>
+                  <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4 }}>
+                    {uploadResult.successCount}件のプロファイルが作成されます。機能ごとに使い分けできます。
+                  </div>
+                  {saveMode === 'individual' && (
+                    <div style={{ marginTop: 6, fontSize: 11, color: '#16a34a', fontWeight: 700 }}>✓ 選択中</div>
+                  )}
+                </button>
+
+                {/* 方式B: まとめて保存 */}
+                <button
+                  type="button"
+                  onClick={() => setSaveMode('combined')}
+                  style={{
+                    padding: 14, borderRadius: 12, textAlign: 'left',
+                    background: saveMode === 'combined' ? 'rgba(59,130,246,0.10)' : 'var(--bg-card)',
+                    border: `2px solid ${saveMode === 'combined' ? '#2563eb' : 'var(--border)'}`,
+                    cursor: 'pointer', transition: 'all 0.15s',
+                  }}
+                >
+                  <div style={{ fontSize: 18, marginBottom: 4 }}>📚×1</div>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-primary)' }}>
+                    1つのプロファイルにまとめて保存
+                  </div>
+                  <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4 }}>
+                    全ファイルの内容を統合した1つのプロファイルになります。
+                  </div>
+                  {saveMode === 'combined' && (
+                    <div style={{ marginTop: 6, fontSize: 11, color: '#2563eb', fontWeight: 700 }}>✓ 選択中</div>
+                  )}
+                </button>
+              </div>
+
+              {saveMode === 'individual' && (
+                <button
+                  type="button"
+                  onClick={handleBulkSave}
+                  disabled={isBulkSaving}
+                  style={{
+                    marginTop: 12, width: '100%', padding: '12px 18px',
+                    background: isBulkSaving ? 'var(--bg-secondary)' : '#16a34a',
+                    color: isBulkSaving ? 'var(--text-muted)' : '#fff',
+                    border: 'none', borderRadius: 12,
+                    cursor: isBulkSaving ? 'not-allowed' : 'pointer',
+                    fontSize: 13, fontWeight: 700,
+                  }}
+                >
+                  {isBulkSaving
+                    ? '💾 保存中...'
+                    : `💾 ${uploadResult.successCount}件を個別プロファイルとして一括保存`}
+                </button>
+              )}
+
+              {saveMode === 'combined' && (
+                <p style={{ marginTop: 10, fontSize: 11, color: '#2563eb', textAlign: 'center' as const }}>
+                  ↓ 下の「💾 保存する」ボタンでプロファイル名を入力して保存してください
+                </p>
+              )}
+            </div>
+          )}
+
+          {/* 一括保存完了 */}
+          {bulkSaveResult && (
+            <div style={{
+              padding: 14, borderRadius: 12,
+              background: 'rgba(34,197,94,0.10)',
+              border: '1px solid rgba(34,197,94,0.3)',
+            }}>
+              <p style={{ fontSize: 13, fontWeight: 700, color: '#16a34a', margin: 0, marginBottom: 8 }}>
+                🎉 {bulkSaveResult.count}件のプロファイルを個別保存しました！
+              </p>
+              <div style={{ display: 'flex', flexDirection: 'column' as const, gap: 2, maxHeight: 140, overflowY: 'auto' as const }}>
+                {bulkSaveResult.names.map((name, i) => (
+                  <div key={i} style={{ fontSize: 11, color: '#16a34a' }}>✅ {name}</div>
+                ))}
+              </div>
+              <button
+                type="button"
+                onClick={() => setActiveTab('profiles')}
+                style={{
+                  marginTop: 10, width: '100%', padding: '10px 14px',
+                  background: '#16a34a', color: '#fff',
+                  border: 'none', borderRadius: 10,
+                  cursor: 'pointer', fontSize: 12, fontWeight: 700,
+                }}
+              >
+                📋 プロファイル一覧を確認する
+              </button>
+            </div>
+          )}
+
+          {/* テキスト抽出完了 → セクション分け実行ボタン（任意・combined or 単一ファイル時のみ） */}
+          {uploadResult && !isUploading && editForm.content && editForm.sections.length === 0 && !bulkSaveResult &&
+            (saveMode === 'combined' || (uploadResult.successCount ?? 0) === 1) && (
             <div style={{
               padding: 14, borderRadius: 12,
               background: 'rgba(59,130,246,0.08)',

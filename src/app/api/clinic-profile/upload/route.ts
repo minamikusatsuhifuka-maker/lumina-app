@@ -157,6 +157,9 @@ JSON形式のみで回答（前後の説明・コードブロック不要）:
 
   return NextResponse.json({
     extractedText: combinedText,
+    fileTexts: results
+      .filter(r => r.success)
+      .map(r => ({ fileName: r.fileName, text: r.extractedText })),
     sections,
     fileResults: results,
     totalFiles: allFiles.length,
