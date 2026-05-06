@@ -41,9 +41,12 @@ function getFolderColor(folder: string, allFolders: string[]): string {
 interface Props {
   records: AnalysisRecord[];
   onRecordsChange: (records: AnalysisRecord[]) => void;
+  onSelectForCross?: (
+    articles: { id: number; title: string; content: string; category?: string }[],
+  ) => void;
 }
 
-export default function SavedAnalysisList({ records, onRecordsChange }: Props) {
+export default function SavedAnalysisList({ records, onRecordsChange, onSelectForCross }: Props) {
   const { showToast } = useToast();
   const [activeFolder, setActiveFolder] = useState<string | null>(null);
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
@@ -407,6 +410,38 @@ export default function SavedAnalysisList({ records, onRecordsChange }: Props) {
               未分類に戻す
             </button>
           </div>
+
+          {selectedIds.size >= 2 && onSelectForCross && (
+            <div style={{ display: 'flex', justifyContent: 'center', marginTop: 6 }}>
+              <button
+                type="button"
+                onClick={() => {
+                  const articles = records
+                    .filter((r) => selectedIds.has(r.id))
+                    .map((r) => ({
+                      id: r.id,
+                      title: r.auto_title ?? r.file_name ?? '無題',
+                      content: r.content,
+                      category: r.folder ?? undefined,
+                    }));
+                  onSelectForCross(articles);
+                }}
+                style={{
+                  padding: '10px 22px',
+                  borderRadius: 12,
+                  fontSize: 13,
+                  fontWeight: 700,
+                  border: 'none',
+                  background: '#9333ea',
+                  color: '#fff',
+                  cursor: 'pointer',
+                  boxShadow: '0 4px 12px rgba(147,51,234,0.3)',
+                }}
+              >
+                🔀 選択した{selectedIds.size}件を横断分析する
+              </button>
+            </div>
+          )}
         </div>
       )}
 

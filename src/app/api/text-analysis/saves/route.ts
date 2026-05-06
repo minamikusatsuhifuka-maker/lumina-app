@@ -40,21 +40,29 @@ export async function POST(req: NextRequest) {
 
   try {
     const body = await req.json();
-    const fileName = body.autoTitle || body.fileName || '無題';
+    // title/categoryは横断分析用、autoTitle/fileName/folderはレガシー互換
+    const titleInput = body.title || body.autoTitle || body.fileName || '無題';
+    const folder = body.category ?? body.folder ?? '';
     const content = body.content ?? '';
     const tags: string[] = Array.isArray(body.tags) ? body.tags : [];
+    const isCross = body.isCrossAnalysis === true;
+    const sourceIds = Array.isArray(body.sourceIds) ? body.sourceIds : [];
+    const crossPrompt = body.crossPrompt ?? null;
+    const analysisLabel = body.analysisLabel ?? (isCross ? '横断まとめ' : '概要・要約');
 
     const rows = await sql`
       INSERT INTO text_analysis_saves
         (user_id, file_name, auto_title, analysis_type, analysis_label,
-         content, tags, folder, char_count)
+         content, tags, folder, char_count,
+         is_cross_analysis, source_ids, cross_prompt)
       VALUES
-        (${userId}, ${fileName}, ${body.autoTitle ?? null},
-         ${body.analysisType ?? 'summary'}, ${body.analysisLabel ?? '概要・要約'},
-         ${content}, ${tags}, ${body.folder ?? ''}, ${content.length})
+        (${userId}, ${titleInput}, ${titleInput},
+         ${body.analysisType ?? 'summary'}, ${analysisLabel},
+         ${content}, ${tags}, ${folder}, ${content.length},
+         ${isCross}, ${JSON.stringify(sourceIds)}, ${crossPrompt})
       RETURNING *
     `;
-    return NextResponse.json(rows[0]);
+    return NextResponse.json({ save: rows[0], ...rows[0] });
   } catch (error) {
     const message = error instanceof Error ? error.message : '不明なエラー';
     console.error('[text-analysis/saves POST]', message);
