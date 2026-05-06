@@ -10,6 +10,12 @@ type NavCategory = { category: string; items: NavItem[] };
 
 const navCategories: NavCategory[] = [
   {
+    category: 'ホーム',
+    items: [
+      { href: '/dashboard', label: 'ダッシュボード', icon: '🏠' },
+    ],
+  },
+  {
     category: '情報収集・調査',
     items: [
       { href: '/dashboard/intelligence', label: 'Intelligence Hub', icon: '🧠' },
@@ -39,6 +45,7 @@ const navCategories: NavCategory[] = [
   {
     category: 'コンテンツ作成',
     items: [
+      { href: '/dashboard/text-analysis', label: 'テキスト分析', icon: '📝' },
       { href: '/dashboard/write', label: '文章作成', icon: '✍️' },
       { href: '/dashboard/minutes', label: '議事録整理', icon: '📝' },
       { href: '/dashboard/genspark', label: 'Gensparkへ出力', icon: '🎯' },
@@ -75,7 +82,6 @@ const navCategories: NavCategory[] = [
       { href: '/dashboard/contacts', label: '問い合わせ管理', icon: '📞' },
       { href: '/dashboard/reviews', label: '口コミ管理', icon: '⭐' },
       { href: '/dashboard/stats', label: '使用状況', icon: '📊' },
-      { href: '/dashboard', label: 'ダッシュボード', icon: '🏠' },
     ],
   },
 ];
