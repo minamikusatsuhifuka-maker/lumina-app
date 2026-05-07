@@ -468,8 +468,8 @@ ${architecture.mermaid}
                     </button>
                   ))}
                 </div>
-                {/* textarea + 送信ボタン（右上絶対配置） */}
-                <div style={{ position: 'relative' as const }}>
+                {/* textarea + 送信ボタン（textareaの下・右寄せ、フローティングボタンと被らない位置） */}
+                <div>
                   <textarea
                     value={input}
                     onChange={e => setInput(e.target.value)}
@@ -478,7 +478,7 @@ ${architecture.mermaid}
                     disabled={isLoading}
                     style={{
                       width: '100%', boxSizing: 'border-box',
-                      padding: '10px 80px 10px 14px',
+                      padding: '10px 14px',
                       border: '1px solid var(--border)',
                       borderRadius: 12, fontSize: 14,
                       resize: 'none' as const,
@@ -488,28 +488,28 @@ ${architecture.mermaid}
                       outline: 'none',
                       opacity: isLoading ? 0.5 : 1,
                       display: 'block',
+                      marginBottom: 6,
                     }}
                   />
-                  <button
-                    onClick={() => sendMessage(input)}
-                    disabled={isLoading || !input.trim()}
-                    style={{
-                      position: 'absolute' as const,
-                      top: 8,
-                      right: 8,
-                      padding: '6px 14px',
-                      background: '#7c3aed',
-                      color: '#fff',
-                      border: 'none', borderRadius: 8,
-                      fontSize: 13, fontWeight: 500,
-                      cursor: isLoading || !input.trim() ? 'not-allowed' : 'pointer',
-                      opacity: isLoading || !input.trim() ? 0.4 : 1,
-                      whiteSpace: 'nowrap' as const,
-                      zIndex: 1,
-                    }}
-                  >
-                    {isLoading ? '...' : '送信'}
-                  </button>
+                  {/* paddingRight: 80 でフローティングボタン1列分（48px + 余白）を回避 */}
+                  <div style={{ display: 'flex', justifyContent: 'flex-end', paddingRight: 80 }}>
+                    <button
+                      onClick={() => sendMessage(input)}
+                      disabled={isLoading || !input.trim()}
+                      style={{
+                        padding: '7px 20px',
+                        background: isLoading || !input.trim() ? 'var(--bg-secondary)' : '#7c3aed',
+                        color: isLoading || !input.trim() ? 'var(--text-muted)' : '#fff',
+                        border: 'none', borderRadius: 8,
+                        fontSize: 13, fontWeight: 500,
+                        cursor: isLoading || !input.trim() ? 'not-allowed' : 'pointer',
+                        opacity: isLoading || !input.trim() ? 0.4 : 1,
+                        whiteSpace: 'nowrap' as const,
+                      }}
+                    >
+                      {isLoading ? '送信中...' : '送信'}
+                    </button>
+                  </div>
                 </div>
               </div>
             </>
