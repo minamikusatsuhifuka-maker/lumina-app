@@ -275,8 +275,8 @@ export function PipMemoPanel() {
       onClick={pipActive ? closePip : openPip}
       style={{
         position: 'fixed',
-        right: 88,
-        bottom: 24,
+        right: 16,
+        bottom: 80,
         zIndex: 9998,
         width: 48,
         height: 48,

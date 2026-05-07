@@ -596,17 +596,17 @@ export default function KindlePage() {
                 <div ref={messagesEndRef} />
               </div>
 
-              <div style={{ borderTop: '1px solid var(--border)', background: 'var(--bg-secondary)', padding: '14px 14px 170px' }}>
-                <div style={{ display: 'flex', flexWrap: 'wrap' as const, gap: 6, marginBottom: 10 }}>
+              <div style={{ borderTop: '1px solid var(--border)', background: 'var(--bg-secondary)', padding: '12px 16px 16px' }}>
+                <div style={{ display: 'flex', flexWrap: 'wrap' as const, gap: 6, marginBottom: 8 }}>
                   {['もっと具体的に教えて', 'それで進めてください', '別の案も出して', 'ターゲットを絞りたい', '目次を確定して', 'マーケティング要素を強化して'].map(q => (
                     <button
                       key={q}
                       onClick={() => sendMessage(q)}
                       disabled={isLoading}
                       style={{
-                        fontSize: 11, padding: '5px 12px', borderRadius: 999,
+                        fontSize: 11, padding: '5px 10px', borderRadius: 16,
                         background: 'rgba(99,102,241,0.08)', color: '#4f46e5',
-                        border: '1px solid rgba(99,102,241,0.3)',
+                        border: '1px solid rgba(99,102,241,0.25)',
                         cursor: isLoading ? 'not-allowed' : 'pointer',
                         opacity: isLoading ? 0.4 : 1,
                       }}
@@ -615,36 +615,44 @@ export default function KindlePage() {
                     </button>
                   ))}
                 </div>
-                <textarea
-                  value={input}
-                  onChange={e => setInput(e.target.value)}
-                  placeholder="メッセージを入力... (Enterで改行・送信ボタンで送信)"
-                  rows={3}
-                  disabled={isLoading}
-                  style={{
-                    width: '100%', boxSizing: 'border-box',
-                    padding: '10px 14px',
-                    border: '1px solid var(--border)', borderRadius: 12,
-                    fontSize: 13, resize: 'none' as const,
-                    background: 'var(--bg-primary)', color: 'var(--text-primary)',
-                    fontFamily: 'inherit', outline: 'none',
-                    marginBottom: 8,
-                  }}
-                />
-                <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+                {/* textarea + 送信ボタン（右上絶対配置） */}
+                <div style={{ position: 'relative' as const }}>
+                  <textarea
+                    value={input}
+                    onChange={e => setInput(e.target.value)}
+                    placeholder="メッセージを入力... (Enterで改行)"
+                    rows={3}
+                    disabled={isLoading}
+                    style={{
+                      width: '100%', boxSizing: 'border-box',
+                      padding: '10px 80px 10px 14px',
+                      border: '1px solid var(--border)', borderRadius: 12,
+                      fontSize: 14, resize: 'none' as const,
+                      background: 'var(--bg-primary)', color: 'var(--text-primary)',
+                      fontFamily: 'inherit', outline: 'none',
+                      opacity: isLoading ? 0.5 : 1,
+                      display: 'block',
+                    }}
+                  />
                   <button
                     onClick={() => sendMessage(input)}
                     disabled={isLoading || !input.trim()}
                     style={{
-                      padding: '10px 22px',
-                      background: isLoading || !input.trim() ? 'var(--bg-secondary)' : 'linear-gradient(135deg, #6366f1, #4f46e5)',
-                      color: isLoading || !input.trim() ? 'var(--text-muted)' : '#fff',
-                      border: 'none', borderRadius: 12,
+                      position: 'absolute' as const,
+                      top: 8,
+                      right: 8,
+                      padding: '6px 14px',
+                      background: '#4f46e5',
+                      color: '#fff',
+                      border: 'none', borderRadius: 8,
+                      fontSize: 13, fontWeight: 500,
                       cursor: isLoading || !input.trim() ? 'not-allowed' : 'pointer',
-                      fontSize: 13, fontWeight: 700,
+                      opacity: isLoading || !input.trim() ? 0.4 : 1,
+                      whiteSpace: 'nowrap' as const,
+                      zIndex: 1,
                     }}
                   >
-                    {isLoading ? '送信中...' : '送信'}
+                    {isLoading ? '...' : '送信'}
                   </button>
                 </div>
               </div>
