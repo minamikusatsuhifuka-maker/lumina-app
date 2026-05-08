@@ -36,6 +36,9 @@ export default function ArchitecturePage() {
   const [architecture, setArchitecture] = useState<Architecture | null>(null);
   const [activeTab, setActiveTab] = useState<'chat' | 'architecture' | 'output'>('chat');
   const [streamingText, setStreamingText] = useState('');
+  const [editingSessionId, setEditingSessionId] = useState<number | null>(null);
+  const [editingTitle, setEditingTitle] = useState('');
+  const [isSavingTitle, setIsSavingTitle] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => { loadSessions(); }, []);
@@ -91,6 +94,31 @@ export default function ArchitecturePage() {
       setArchitecture(null);
     }
     loadSessions();
+  };
+
+  const handleSaveTitle = async (sessionId: number) => {
+    const newTitle = editingTitle.trim();
+    if (!newTitle) {
+      setEditingSessionId(null);
+      return;
+    }
+
+    setIsSavingTitle(true);
+    try {
+      await fetch('/api/architecture', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: sessionId, title: newTitle }),
+      });
+
+      // ローカルのセッションリストを更新
+      setSessions(prev =>
+        prev.map(s => (s.id === sessionId ? { ...s, title: newTitle } : s))
+      );
+    } finally {
+      setIsSavingTitle(false);
+      setEditingSessionId(null);
+    }
   };
 
   const sendMessage = async (content: string) => {
@@ -307,11 +335,75 @@ ${architecture.mermaid}
                 cursor: 'pointer', transition: 'all 0.15s',
                 position: 'relative' as const,
               }}
-              onClick={() => loadSession(s.id)}
+              onClick={() => {
+                if (editingSessionId !== s.id) loadSession(s.id);
+              }}
             >
-              <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-primary)', overflow: 'hidden' as const, textOverflow: 'ellipsis' as const, whiteSpace: 'nowrap' as const, paddingRight: 18 }}>
-                {s.title}
-              </div>
+              {editingSessionId === s.id ? (
+                <div onClick={e => e.stopPropagation()} style={{ paddingRight: 18 }}>
+                  <input
+                    autoFocus
+                    value={editingTitle}
+                    onChange={e => setEditingTitle(e.target.value)}
+                    onKeyDown={e => {
+                      if (e.key === 'Enter') handleSaveTitle(s.id);
+                      if (e.key === 'Escape') setEditingSessionId(null);
+                    }}
+                    onBlur={() => handleSaveTitle(s.id)}
+                    disabled={isSavingTitle}
+                    style={{
+                      width: '100%',
+                      border: '1px solid #a78bfa',
+                      borderRadius: 6,
+                      padding: '2px 6px',
+                      fontSize: 12,
+                      fontWeight: 600,
+                      outline: 'none',
+                      boxSizing: 'border-box' as const,
+                      background: 'var(--bg-primary)',
+                      color: 'var(--text-primary)',
+                    }}
+                  />
+                  <div style={{ fontSize: 9, color: 'var(--text-muted)', marginTop: 2 }}>
+                    Enter で確定 / Esc でキャンセル
+                  </div>
+                </div>
+              ) : (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 4, paddingRight: 18 }}>
+                  <span
+                    onDoubleClick={e => {
+                      e.stopPropagation();
+                      setEditingSessionId(s.id);
+                      setEditingTitle(s.title);
+                    }}
+                    style={{
+                      flex: 1,
+                      fontSize: 12, fontWeight: 600, color: 'var(--text-primary)',
+                      overflow: 'hidden' as const, textOverflow: 'ellipsis' as const, whiteSpace: 'nowrap' as const,
+                    }}
+                  >
+                    {s.title}
+                  </span>
+                  <button
+                    onClick={e => {
+                      e.stopPropagation();
+                      setEditingSessionId(s.id);
+                      setEditingTitle(s.title);
+                    }}
+                    title="タイトルを変更"
+                    style={{
+                      background: 'none', border: 'none', cursor: 'pointer',
+                      padding: '1px 3px', borderRadius: 4,
+                      fontSize: 10, color: 'var(--text-muted)',
+                      flexShrink: 0, opacity: 0.6,
+                    }}
+                    onMouseEnter={e => (e.currentTarget.style.opacity = '1')}
+                    onMouseLeave={e => (e.currentTarget.style.opacity = '0.6')}
+                  >
+                    ✏️
+                  </button>
+                </div>
+              )}
               <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 4 }}>
                 <span style={{
                   fontSize: 9, padding: '1px 6px', borderRadius: 6, fontWeight: 700,
