@@ -17,6 +17,9 @@ export default function TextAnalysisPage() {
   const [tab, setTab] = useState<TabType>('analyze');
   const [crossSelected, setCrossSelected] = useState<CrossArticle[]>([]);
   const [highlightArticleId, setHighlightArticleId] = useState<number | null>(null);
+  // ディープリサーチからの引き継ぎテキスト
+  const [initialText, setInitialText] = useState('');
+  const [initialTopic, setInitialTopic] = useState('');
 
   const handleViewArticle = (articleId: number) => {
     setHighlightArticleId(articleId);
@@ -53,6 +56,32 @@ export default function TextAnalysisPage() {
     return () => {
       cancelled = true;
     };
+  }, []);
+
+  // ディープリサーチからの引き継ぎを確認しsessionStorageから自動読み込み
+  useEffect(() => {
+    const fromDeepResearch =
+      new URLSearchParams(window.location.search).get('from') === 'deepresearch';
+    if (!fromDeepResearch) return;
+
+    const savedText = sessionStorage.getItem('textAnalysisInput');
+    const savedTopic = sessionStorage.getItem('textAnalysisTopic');
+
+    if (savedText) {
+      setInitialText(savedText);
+      setInitialTopic(savedTopic ?? '');
+      // 使用済みのsessionStorageをクリア
+      sessionStorage.removeItem('textAnalysisInput');
+      sessionStorage.removeItem('textAnalysisTopic');
+      // 分析実行タブを表示
+      setTab('analyze');
+      // 通知（読み込み完了）
+      setTimeout(() => {
+        alert(
+          '✅ ディープリサーチの結果を読み込みました。\n分析タイプを選択して「分析実行」ボタンを押してください。',
+        );
+      }, 500);
+    }
   }, []);
 
   const handleSaved = (saved: AnalysisRecord) => {
@@ -128,7 +157,15 @@ export default function TextAnalysisPage() {
 
       {/* display:noneで状態を維持しつつ切り替え */}
       <div style={{ display: tab === 'analyze' ? 'block' : 'none' }}>
-        <TextAnalysisPanel onSaved={handleSaved} />
+        <TextAnalysisPanel
+          onSaved={handleSaved}
+          initialText={initialText}
+          initialTopic={initialTopic}
+          onInitialTextConsumed={() => {
+            setInitialText('');
+            setInitialTopic('');
+          }}
+        />
       </div>
       <div style={{ display: tab === 'saved' ? 'block' : 'none' }}>
         {loading ? (

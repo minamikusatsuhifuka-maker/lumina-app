@@ -820,6 +820,13 @@ ${contextText}
     window.location.href = '/dashboard/write';
   };
 
+  // ディープリサーチ結果をテキスト分析ページへ引き継ぐ
+  const handleSendToTextAnalysis = (text: string, sourceTopic: string) => {
+    sessionStorage.setItem('textAnalysisInput', text);
+    sessionStorage.setItem('textAnalysisTopic', sourceTopic);
+    window.open('/dashboard/text-analysis?from=deepresearch', '_blank');
+  };
+
   const download = () => {
     const a = document.createElement('a');
     a.href = URL.createObjectURL(new Blob([report], { type: 'text/plain' }));
@@ -961,6 +968,23 @@ ${contextText}
               </button>
               <button onClick={() => navigator.clipboard.writeText(report)} style={{ padding: '6px 14px', background: 'var(--bg-secondary)', border: '1px solid var(--border)', color: 'var(--text-secondary)', borderRadius: 6, cursor: 'pointer', fontSize: 12 }}>
                 📋 コピー
+              </button>
+              {/* テキスト分析へ送るボタン（要約・詳細まとめ・Genspark資料用まとめ等を実行） */}
+              <button
+                onClick={() => handleSendToTextAnalysis(report, topic)}
+                style={{
+                  padding: '6px 14px',
+                  background: 'rgba(99,102,241,0.1)',
+                  color: '#4f46e5',
+                  border: '1px solid rgba(99,102,241,0.3)',
+                  borderRadius: 6,
+                  cursor: 'pointer',
+                  fontSize: 12,
+                  fontWeight: 500,
+                }}
+                title="リサーチ結果をテキスト分析ページで要約・まとめできます"
+              >
+                📝 テキスト分析へ送る
               </button>
             </div>
           </div>

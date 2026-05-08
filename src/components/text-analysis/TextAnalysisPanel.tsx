@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   AnalysisType,
   ANALYSIS_OPTIONS,
@@ -192,12 +192,34 @@ function btnStyle(kind: 'primary' | 'success' | 'neutral'): React.CSSProperties 
 
 interface TextAnalysisPanelProps {
   onSaved?: (record: AnalysisRecord) => void;
+  // ディープリサーチからの引き継ぎ用
+  initialText?: string;
+  initialTopic?: string;
+  onInitialTextConsumed?: () => void;
 }
 
-export default function TextAnalysisPanel({ onSaved }: TextAnalysisPanelProps) {
+export default function TextAnalysisPanel({
+  onSaved,
+  initialText,
+  initialTopic,
+  onInitialTextConsumed,
+}: TextAnalysisPanelProps) {
   const { showToast } = useToast();
 
   const [inputText, setInputText] = useState('');
+
+  // initialTextが渡されたら入力欄に自動セット（ディープリサーチからの引き継ぎ）
+  useEffect(() => {
+    if (initialText) {
+      setInputText(initialText);
+      // トピックはpurposeに参考情報として入れる（空のときのみ）
+      if (initialTopic) {
+        setPurpose((prev) => (prev ? prev : initialTopic));
+      }
+      onInitialTextConsumed?.();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialText]);
   const [selectedTypes, setSelectedTypes] = useState<Set<AnalysisType>>(
     new Set(['summary']),
   );
