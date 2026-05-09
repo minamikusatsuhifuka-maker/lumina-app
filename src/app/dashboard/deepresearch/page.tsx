@@ -2056,6 +2056,8 @@ ${contextText}
                     <div style={{ marginTop: 8, display: 'flex', gap: 6, flexWrap: 'wrap' as const }}>
                       <a
                         href={`/dashboard/context-library?batch=${job.id}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
                         style={{ padding: '4px 10px', background: 'var(--accent-soft)', border: '1px solid var(--border-accent)', color: 'var(--text-primary)', borderRadius: 6, fontSize: 11, fontWeight: 600, textDecoration: 'none' }}
                       >
                         📚 コンテキスト確認
