@@ -1171,10 +1171,10 @@ ${contextText}
                     成功: {batchRelatedProgress.filter(p => p.status === 'done').length}件 ／ エラー: {batchRelatedProgress.filter(p => p.status === 'error').length}件
                   </div>
                   <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' as const }}>
-                    <a href="/dashboard/context-library" style={{ fontSize: 12, color: 'var(--accent)', textDecoration: 'none', fontWeight: 600 }}>
+                    <a href="/dashboard/context-library" target="_blank" rel="noopener noreferrer" style={{ fontSize: 12, color: 'var(--accent)', textDecoration: 'none', fontWeight: 600 }}>
                       🧠 コンテキストライブラリで確認 →
                     </a>
-                    <a href="/dashboard/knowledge-tree" style={{ fontSize: 12, color: 'var(--accent)', textDecoration: 'none', fontWeight: 600 }}>
+                    <a href="/dashboard/knowledge-tree" target="_blank" rel="noopener noreferrer" style={{ fontSize: 12, color: 'var(--accent)', textDecoration: 'none', fontWeight: 600 }}>
                       🌳 知識ツリーで確認 →
                     </a>
                     <button
@@ -1972,6 +1972,8 @@ ${contextText}
                     </div>
                     <a
                       href="/dashboard/context-library"
+                      target="_blank"
+                      rel="noopener noreferrer"
                       style={{
                         display: 'inline-block',
                         padding: '8px 16px',
