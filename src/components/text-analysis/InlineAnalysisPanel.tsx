@@ -8,13 +8,11 @@ const ANALYSIS_TYPES = [
     id: 'summary',
     apiType: 'summary',
     label: '📋 概要・要約',
-    desc: '要点を箇条書きで整理',
   },
   {
     id: 'detailed',
     apiType: 'detail_summary',
     label: '📖 詳細にまとめる',
-    desc: '背景・意図・示唆まで深掘り',
   },
 ] as const;
 
@@ -29,107 +27,138 @@ export default function InlineAnalysisPanel({
   text,
   topic,
 }: InlineAnalysisPanelProps) {
-  const [selectedType, setSelectedType] = useState<AnalysisId>('summary');
+  const [selectedTypes, setSelectedTypes] = useState<AnalysisId[]>(['summary']);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
-  const [result, setResult] = useState('');
-  const [streamingText, setStreamingText] = useState('');
+  const [results, setResults] = useState<Record<string, string>>({});
+  const [streamingResults, setStreamingResults] = useState<
+    Record<string, string>
+  >({});
   const [isSaved, setIsSaved] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
 
   const handleAnalyze = async () => {
+    if (selectedTypes.length === 0) {
+      setErrorMessage('分析タイプを選択してください');
+      return;
+    }
     if (!text.trim()) {
       setErrorMessage('分析対象のテキストがありません');
       return;
     }
-    setIsAnalyzing(true);
-    setResult('');
-    setStreamingText('');
-    setIsSaved(false);
+
     setErrorMessage('');
+    setIsAnalyzing(true);
+    setResults({});
+    setStreamingResults({});
+    setIsSaved(false);
 
-    const conf = ANALYSIS_TYPES.find((t) => t.id === selectedType);
-    if (!conf) {
-      setIsAnalyzing(false);
-      return;
-    }
+    // 選択したタイプを並列で実行
+    await Promise.all(
+      selectedTypes.map(async (typeId) => {
+        const conf = ANALYSIS_TYPES.find((t) => t.id === typeId);
+        if (!conf) return;
+        try {
+          const res = await fetch('/api/text-analysis/analyze', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              text,
+              type: conf.apiType,
+              purpose: topic ? `テーマ: ${topic}` : undefined,
+            }),
+          });
+          if (!res.ok || !res.body) {
+            console.error('分析リクエスト失敗:', res.status);
+            return;
+          }
 
-    try {
-      const res = await fetch('/api/text-analysis/analyze', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          text,
-          type: conf.apiType,
-          purpose: topic ? `テーマ: ${topic}` : undefined,
-        }),
-      });
+          const reader = res.body.getReader();
+          const decoder = new TextDecoder();
+          let fullText = '';
+          let buffer = '';
 
-      if (!res.ok || !res.body) {
-        setErrorMessage('分析リクエストに失敗しました');
-        setIsAnalyzing(false);
-        return;
-      }
-
-      const reader = res.body.getReader();
-      const decoder = new TextDecoder();
-      let fullText = '';
-      let buffer = '';
-
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        buffer += decoder.decode(value, { stream: true });
-        const parts = buffer.split('\n\n');
-        buffer = parts.pop() ?? '';
-        for (const part of parts) {
-          for (const line of part.split('\n')) {
-            if (!line.startsWith('data: ')) continue;
-            try {
-              const event = JSON.parse(line.slice(6));
-              if (event.type === 'delta') {
-                fullText += event.text;
-                setStreamingText(fullText);
-              } else if (event.type === 'done') {
-                setResult(fullText);
-                setStreamingText('');
-              } else if (event.type === 'error') {
-                setErrorMessage(event.message ?? 'エラーが発生しました');
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            buffer += decoder.decode(value, { stream: true });
+            const parts = buffer.split('\n\n');
+            buffer = parts.pop() ?? '';
+            for (const part of parts) {
+              for (const line of part.split('\n')) {
+                if (!line.startsWith('data: ')) continue;
+                try {
+                  const event = JSON.parse(line.slice(6));
+                  if (event.type === 'delta') {
+                    fullText += event.text;
+                    setStreamingResults((prev) => ({
+                      ...prev,
+                      [typeId]: fullText,
+                    }));
+                  } else if (event.type === 'done') {
+                    setResults((prev) => ({ ...prev, [typeId]: fullText }));
+                    setStreamingResults((prev) => {
+                      const next = { ...prev };
+                      delete next[typeId];
+                      return next;
+                    });
+                  }
+                } catch {
+                  /* skip */
+                }
               }
-            } catch {
-              /* skip */
             }
           }
+          // doneイベントが来なかった場合の保険
+          if (fullText) {
+            setResults((prev) =>
+              prev[typeId] ? prev : { ...prev, [typeId]: fullText },
+            );
+            setStreamingResults((prev) => {
+              const next = { ...prev };
+              delete next[typeId];
+              return next;
+            });
+          }
+        } catch (err) {
+          console.error(`分析エラー (${typeId}):`, err);
         }
-      }
-      // 最終的に done イベントが来なかった場合の保険
-      if (fullText && !result) {
-        setResult(fullText);
-        setStreamingText('');
-      }
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : '不明なエラー';
-      setErrorMessage(`通信エラー: ${msg}`);
-    } finally {
-      setIsAnalyzing(false);
-    }
+      }),
+    );
+
+    setIsAnalyzing(false);
+  };
+
+  const handleCopyAll = () => {
+    const allText = ANALYSIS_TYPES.filter((t) => results[t.id])
+      .map((t) => `## ${t.label}\n\n${results[t.id]}`)
+      .join('\n\n---\n\n');
+    if (allText) navigator.clipboard.writeText(allText);
   };
 
   const handleSave = async () => {
-    if (!result || isSaved) return;
+    if (Object.keys(results).length === 0 || isSaved) return;
     setIsSaving(true);
     try {
-      const conf = ANALYSIS_TYPES.find((t) => t.id === selectedType);
-      const analysisLabel = conf?.label.replace(/^[^\s]+\s/, '') ?? '';
+      const allText = ANALYSIS_TYPES.filter((t) => results[t.id])
+        .map((t) => `## ${t.label}\n\n${results[t.id]}`)
+        .join('\n\n---\n\n');
+      const apiTypes = ANALYSIS_TYPES.filter((t) => selectedTypes.includes(t.id))
+        .map((t) => t.apiType)
+        .join(',');
+      const labels = ANALYSIS_TYPES.filter((t) => results[t.id])
+        .map((t) => t.label.replace(/^[^\s]+\s/, ''))
+        .join('・');
+
       await fetch('/api/text-analysis/saves', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           title: `【ディープリサーチ分析】${topic || '無題'}`,
-          content: result,
+          content: allText,
           category: 'ディープリサーチ',
-          analysisType: conf?.apiType ?? selectedType,
-          analysisLabel,
+          analysisType: apiTypes,
+          analysisLabel: labels,
         }),
       });
       setIsSaved(true);
@@ -140,73 +169,241 @@ export default function InlineAnalysisPanel({
     }
   };
 
-  const displayText = streamingText || result;
+  const hasAnyResult =
+    Object.keys(results).length > 0 || Object.keys(streamingResults).length > 0;
 
   return (
-    <div className="mt-4 border rounded-xl overflow-hidden bg-gradient-to-br from-indigo-50 to-blue-50">
-      <div className="px-5 py-3 bg-indigo-600 flex items-center justify-between">
-        <span className="text-white font-medium text-sm">
-          ✨ リサーチ結果をブラッシュアップ
-        </span>
+    <div
+      style={{
+        marginTop: 16,
+        background: '#fff',
+        border: '1px solid #e5e7eb',
+        borderRadius: 12,
+        overflow: 'hidden',
+      }}
+    >
+      {/* ヘッダー（白ベース） */}
+      <div
+        style={{
+          padding: '12px 20px',
+          background: '#f8fafc',
+          borderBottom: '1px solid #e5e7eb',
+          color: '#374151',
+          fontSize: 14,
+          fontWeight: 600,
+        }}
+      >
+        ✨ リサーチ結果をブラッシュアップ
       </div>
 
-      <div className="p-5">
-        {/* 分析タイプ選択 */}
-        <div className="flex gap-3 mb-4 flex-wrap">
-          {ANALYSIS_TYPES.map((type) => (
-            <button
-              key={type.id}
-              type="button"
-              onClick={() => setSelectedType(type.id)}
-              disabled={isAnalyzing}
-              className={`px-4 py-2 rounded-lg text-sm border transition-all disabled:opacity-50 ${
-                selectedType === type.id
-                  ? 'bg-indigo-600 text-white border-indigo-600'
-                  : 'bg-white text-gray-700 border-gray-300 hover:border-indigo-300'
-              }`}
-              title={type.desc}
-            >
-              {type.label}
-            </button>
-          ))}
+      <div style={{ padding: 20 }}>
+        {/* 分析タイプ選択（チェックボックス） */}
+        <div
+          style={{
+            display: 'flex',
+            gap: 8,
+            flexWrap: 'wrap',
+            marginBottom: 12,
+          }}
+        >
+          {ANALYSIS_TYPES.map((type) => {
+            const checked = selectedTypes.includes(type.id);
+            return (
+              <label
+                key={type.id}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 6,
+                  padding: '8px 14px',
+                  background: checked ? '#ede9fe' : '#f9fafb',
+                  border: `1px solid ${checked ? '#a78bfa' : '#e5e7eb'}`,
+                  borderRadius: 8,
+                  cursor: isAnalyzing ? 'not-allowed' : 'pointer',
+                  fontSize: 13,
+                  color: checked ? '#5b21b6' : '#374151',
+                  userSelect: 'none',
+                  opacity: isAnalyzing ? 0.6 : 1,
+                }}
+              >
+                <input
+                  type="checkbox"
+                  checked={checked}
+                  disabled={isAnalyzing}
+                  onChange={(e) => {
+                    setSelectedTypes((prev) =>
+                      e.target.checked
+                        ? [...prev, type.id]
+                        : prev.filter((t) => t !== type.id),
+                    );
+                  }}
+                  style={{ accentColor: '#6d28d9' }}
+                />
+                {type.label}
+              </label>
+            );
+          })}
         </div>
 
+        {/* 実行ボタン */}
         <button
           type="button"
           onClick={handleAnalyze}
-          disabled={isAnalyzing || !text.trim()}
-          className="w-full py-2.5 bg-indigo-600 text-white rounded-xl font-medium hover:bg-indigo-700 disabled:opacity-40 mb-4"
+          disabled={isAnalyzing || !text.trim() || selectedTypes.length === 0}
+          style={{
+            width: '100%',
+            padding: '10px 16px',
+            background: '#4f46e5',
+            color: '#fff',
+            border: 'none',
+            borderRadius: 8,
+            fontSize: 14,
+            fontWeight: 600,
+            cursor:
+              isAnalyzing || !text.trim() || selectedTypes.length === 0
+                ? 'not-allowed'
+                : 'pointer',
+            opacity:
+              isAnalyzing || !text.trim() || selectedTypes.length === 0
+                ? 0.5
+                : 1,
+            marginBottom: 16,
+          }}
         >
           {isAnalyzing ? '🤖 分析中...' : '🚀 分析・ブラッシュアップする'}
         </button>
 
         {errorMessage && (
-          <div className="text-xs text-red-600 mb-2">{errorMessage}</div>
+          <div
+            style={{
+              fontSize: 12,
+              color: '#dc2626',
+              marginBottom: 8,
+            }}
+          >
+            {errorMessage}
+          </div>
         )}
 
-        {/* 分析結果 */}
-        {displayText && (
-          <div>
-            <div className="bg-white rounded-lg p-4 text-sm text-gray-700 whitespace-pre-wrap leading-relaxed max-h-80 overflow-y-auto mb-3">
-              {displayText}
-              {isAnalyzing && (
-                <span className="inline-block w-1.5 h-4 bg-gray-400 ml-0.5 animate-pulse" />
-              )}
-            </div>
-            {result && !isAnalyzing && (
-              <div className="flex gap-2 justify-end">
+        {/* 分析結果（タイプごとに表示） */}
+        {hasAnyResult && (
+          <div
+            style={{ display: 'flex', flexDirection: 'column', gap: 12 }}
+          >
+            {ANALYSIS_TYPES.filter(
+              (t) =>
+                results[t.id] !== undefined ||
+                streamingResults[t.id] !== undefined,
+            ).map((type) => {
+              const content =
+                streamingResults[type.id] ?? results[type.id] ?? '';
+              const isStreaming = !!streamingResults[type.id];
+              return (
+                <div
+                  key={type.id}
+                  style={{
+                    border: '1px solid #e5e7eb',
+                    borderRadius: 8,
+                    overflow: 'hidden',
+                  }}
+                >
+                  {/* タイプヘッダー */}
+                  <div
+                    style={{
+                      padding: '6px 12px',
+                      background: '#f3f4f6',
+                      borderBottom: '1px solid #e5e7eb',
+                      fontSize: 12,
+                      fontWeight: 600,
+                      color: '#4b5563',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 6,
+                    }}
+                  >
+                    {type.label}
+                    {isStreaming && (
+                      <span
+                        style={{
+                          fontSize: 11,
+                          color: '#6d28d9',
+                          animation: 'pulse 1s infinite',
+                        }}
+                      >
+                        生成中...
+                      </span>
+                    )}
+                  </div>
+                  {/* 本文 */}
+                  <div
+                    style={{
+                      padding: 12,
+                      fontSize: 13,
+                      color: '#374151',
+                      lineHeight: 1.7,
+                      whiteSpace: 'pre-wrap',
+                      maxHeight: 280,
+                      overflowY: 'auto',
+                      background: '#fff',
+                    }}
+                  >
+                    {content}
+                    {isStreaming && (
+                      <span
+                        style={{
+                          display: 'inline-block',
+                          width: 6,
+                          height: 14,
+                          background: '#6d28d9',
+                          marginLeft: 2,
+                          animation: 'pulse 0.8s infinite',
+                          verticalAlign: 'middle',
+                        }}
+                      />
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+
+            {/* ボタン */}
+            {!isAnalyzing && Object.keys(results).length > 0 && (
+              <div
+                style={{
+                  display: 'flex',
+                  gap: 8,
+                  justifyContent: 'flex-end',
+                }}
+              >
                 <button
                   type="button"
-                  onClick={() => navigator.clipboard.writeText(result)}
-                  className="text-xs px-3 py-1.5 border rounded-lg text-gray-600 hover:bg-gray-50"
+                  onClick={handleCopyAll}
+                  style={{
+                    fontSize: 12,
+                    padding: '6px 12px',
+                    border: '1px solid #e5e7eb',
+                    borderRadius: 6,
+                    background: '#fff',
+                    color: '#6b7280',
+                    cursor: 'pointer',
+                  }}
                 >
-                  📋 コピー
+                  📋 全てコピー
                 </button>
                 <button
                   type="button"
                   onClick={handleSave}
                   disabled={isSaved || isSaving}
-                  className="text-xs px-3 py-1.5 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-40"
+                  style={{
+                    fontSize: 12,
+                    padding: '6px 12px',
+                    border: 'none',
+                    borderRadius: 6,
+                    background: isSaved ? '#d1fae5' : '#4f46e5',
+                    color: isSaved ? '#065f46' : '#fff',
+                    cursor: isSaved || isSaving ? 'default' : 'pointer',
+                    opacity: isSaving ? 0.6 : 1,
+                  }}
                 >
                   {isSaved
                     ? '✅ 保存済み'
