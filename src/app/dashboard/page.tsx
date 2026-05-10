@@ -6,6 +6,8 @@ import { BriefingSection } from '@/components/BriefingSection';
 import { DashboardStats } from '@/components/DashboardStats';
 import { WeeklyReportButton } from '@/components/WeeklyReportButton';
 import { DashboardCustomize } from '@/components/DashboardCustomize';
+import ShortcutBar from '@/components/ShortcutBar';
+import StudioProgressCards from '@/components/StudioProgressCards';
 
 export default async function DashboardPage() {
   const session = await auth();
@@ -47,10 +49,13 @@ export default async function DashboardPage() {
 
   return (
     <div>
-      <div style={{ marginBottom: 32 }}>
+      <div style={{ marginBottom: 24 }}>
         <h1 style={{ fontSize: 28, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 4 }}>ダッシュボード</h1>
         <p style={{ color: 'var(--text-muted)' }}>おかえりなさい、{session?.user?.name}さん 👋</p>
       </div>
+
+      {/* ショートカットバー（カスタマイズ可能） */}
+      <ShortcutBar />
 
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16 }}>
         <BriefingSection />
@@ -89,6 +94,9 @@ export default async function DashboardPage() {
 
       {/* 統計カード（6枚・クリッカブル） */}
       <DashboardStats />
+
+      {/* 3スタジオ＋リサーチ進捗 */}
+      <StudioProgressCards />
 
       {/* クイックスタート */}
       <div style={{ marginBottom: 28 }}>

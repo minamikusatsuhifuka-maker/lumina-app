@@ -835,6 +835,13 @@ ${contextText}
     window.open('/dashboard/medical-studio?from=deepresearch', '_blank');
   };
 
+  // ディープリサーチ結果を収益化スタジオへ引き継ぐ
+  const handleSendToBusinessStudio = (text: string, sourceTopic: string) => {
+    sessionStorage.setItem('businessStudioResearch', text);
+    sessionStorage.setItem('businessStudioTopic', sourceTopic);
+    window.open('/dashboard/business-studio?from=deepresearch', '_blank');
+  };
+
   const download = () => {
     const a = document.createElement('a');
     a.href = URL.createObjectURL(new Blob([report], { type: 'text/plain' }));
@@ -1010,6 +1017,23 @@ ${contextText}
                 title="リサーチ結果を医療文書スタジオで同意書・説明書に活用できます"
               >
                 🏥 医療文書スタジオへ送る
+              </button>
+              {/* 収益化スタジオへ送る */}
+              <button
+                onClick={() => handleSendToBusinessStudio(report, topic)}
+                style={{
+                  padding: '6px 14px',
+                  background: 'rgba(79,70,229,0.1)',
+                  color: '#4f46e5',
+                  border: '1px solid rgba(79,70,229,0.3)',
+                  borderRadius: 6,
+                  cursor: 'pointer',
+                  fontSize: 12,
+                  fontWeight: 500,
+                }}
+                title="リサーチ結果を収益化スタジオで事業設計の起点として活用できます"
+              >
+                💰 収益化スタジオへ送る
               </button>
             </div>
           </div>

@@ -95,6 +95,48 @@ export default function BusinessStudioPage() {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, streamingText]);
 
+  // ディープリサーチからの自動連携
+  useEffect(() => {
+    const fromResearch =
+      new URLSearchParams(window.location.search).get('from') ===
+      'deepresearch';
+    if (!fromResearch) return;
+
+    const researchText = sessionStorage.getItem('businessStudioResearch');
+    const researchTopic = sessionStorage.getItem('businessStudioTopic');
+    if (!researchText) return;
+
+    sessionStorage.removeItem('businessStudioResearch');
+    sessionStorage.removeItem('businessStudioTopic');
+
+    const autoMsg = `以下のリサーチ結果を元に事業設計を始めてください。\n\nトピック: ${researchTopic ?? '新規事業'}\n\nリサーチ結果:\n${researchText.slice(0, 2000)}`;
+
+    void (async () => {
+      try {
+        const res = await fetch('/api/business', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            title: researchTopic
+              ? `事業設計：${researchTopic.slice(0, 40)}`
+              : '新規事業（ディープリサーチ起点）',
+          }),
+        });
+        const { project } = await res.json();
+        if (project?.id) {
+          await loadProject(project.id);
+          void loadProjects();
+          // currentProject の状態反映を少し待ってから送信
+          setTimeout(() => {
+            void sendMessage(autoMsg);
+          }, 1000);
+        }
+      } catch {
+        setErrorMessage('リサーチ結果の引き継ぎに失敗しました');
+      }
+    })();
+  }, []);
+
   const loadProjects = async () => {
     try {
       const res = await fetch('/api/business');
@@ -1111,6 +1153,33 @@ export default function BusinessStudioPage() {
                           </span>
                         </div>
                         <div style={{ display: 'flex', gap: 6 }}>
+                          {asset.asset_type === 'kindle' && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                sessionStorage.setItem(
+                                  'kindleOutline',
+                                  asset.content,
+                                );
+                                window.open(
+                                  '/dashboard/kindle?from=business',
+                                  '_blank',
+                                );
+                              }}
+                              style={{
+                                fontSize: 12,
+                                padding: '4px 10px',
+                                background: '#4f46e5',
+                                color: '#fff',
+                                border: 'none',
+                                borderRadius: 6,
+                                cursor: 'pointer',
+                              }}
+                              title="Kindleスタジオで続ける"
+                            >
+                              📖 Kindleスタジオへ
+                            </button>
+                          )}
                           <button
                             type="button"
                             onClick={() =>
