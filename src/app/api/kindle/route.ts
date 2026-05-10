@@ -44,6 +44,12 @@ function toCamelChapter(row: any) {
     isPolished: row.is_polished,
     spellChecked: row.spell_checked,
     status: row.status,
+    evaluationScore: row.evaluation_score,
+    evaluation_score: row.evaluation_score,
+    advice: row.advice,
+    improvedContent: row.improved_content,
+    improved_content: row.improved_content,
+    version: row.version ?? 1,
   };
 }
 

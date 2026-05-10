@@ -21,6 +21,13 @@ interface Chapter {
   status?: string;
   keyMessages?: string[];
   emotionalHook?: string;
+  // SSEベース評価・改善（新機能）
+  evaluationScore?: number | null;
+  evaluation_score?: number | null;
+  advice?: string | null;
+  improvedContent?: string | null;
+  improved_content?: string | null;
+  version?: number;
 }
 interface BookMeta {
   title?: string; subtitle?: string; catchphrase?: string; genre?: string;
@@ -59,6 +66,13 @@ export default function KindlePage() {
   const [evaluatingChapterId, setEvaluatingChapterId] = useState<number | null>(null);
   const [exportData, setExportData] = useState<any>(null);
   const [isExporting, setIsExporting] = useState(false);
+  // SSEベースの評価・改善（新機能）
+  const [evaluatingSseId, setEvaluatingSseId] = useState<number | null>(null);
+  const [improvingSseId, setImprovingSseId] = useState<number | null>(null);
+  const [selectedChapterForReview, setSelectedChapterForReview] = useState<number | null>(null);
+  const [streamingEvaluation, setStreamingEvaluation] = useState('');
+  const [streamingImprovement, setStreamingImprovement] = useState('');
+  const [showImproved, setShowImproved] = useState<Record<number, boolean>>({});
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => { loadBooks(); }, []);
@@ -306,6 +320,105 @@ export default function KindlePage() {
       alert(`生成エラー: ${err?.message || err}`);
     } finally {
       setGeneratingChapterId(null);
+    }
+  };
+
+  // SSEベース：章を分析・評価（advice欄に保存）
+  const handleEvaluateChapter = async (chapterId: number) => {
+    if (!currentBook) return;
+    setEvaluatingSseId(chapterId);
+    setSelectedChapterForReview(chapterId);
+    setStreamingEvaluation('');
+
+    try {
+      const res = await fetch('/api/kindle/evaluate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'evaluate', chapterId }),
+      });
+      if (!res.ok || !res.body) return;
+
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let fullText = '';
+      let buffer = '';
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const parts = buffer.split('\n\n');
+        buffer = parts.pop() ?? '';
+        for (const part of parts) {
+          for (const line of part.split('\n')) {
+            if (!line.startsWith('data: ')) continue;
+            try {
+              const event = JSON.parse(line.slice(6));
+              if (event.type === 'delta') {
+                fullText += event.text;
+                setStreamingEvaluation(fullText);
+              } else if (event.type === 'done') {
+                setStreamingEvaluation('');
+                await loadBook(currentBook.id);
+              }
+            } catch {
+              /* skip */
+            }
+          }
+        }
+      }
+    } finally {
+      setEvaluatingSseId(null);
+    }
+  };
+
+  // SSEベース：章をAIで自動改善（improved_contentに保存）
+  const handleImproveChapter = async (chapterId: number) => {
+    if (!currentBook) return;
+    setImprovingSseId(chapterId);
+    setSelectedChapterForReview(chapterId);
+    setStreamingImprovement('');
+
+    try {
+      const res = await fetch('/api/kindle/evaluate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'improve', chapterId }),
+      });
+      if (!res.ok || !res.body) return;
+
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let fullText = '';
+      let buffer = '';
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const parts = buffer.split('\n\n');
+        buffer = parts.pop() ?? '';
+        for (const part of parts) {
+          for (const line of part.split('\n')) {
+            if (!line.startsWith('data: ')) continue;
+            try {
+              const event = JSON.parse(line.slice(6));
+              if (event.type === 'delta') {
+                fullText += event.text;
+                setStreamingImprovement(fullText);
+              } else if (event.type === 'done') {
+                setStreamingImprovement('');
+                setShowImproved((prev) => ({ ...prev, [chapterId]: true }));
+                await loadBook(currentBook.id);
+              }
+            } catch {
+              /* skip */
+            }
+          }
+        }
+      }
+    } finally {
+      setImprovingSseId(null);
     }
   };
 
@@ -662,12 +775,107 @@ export default function KindlePage() {
           {/* 章管理タブ */}
           {activeTab === 'chapters' && (
             <div style={{ flex: 1, overflowY: 'auto' as const, padding: 20, background: 'var(--bg-primary)' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16, flexWrap: 'wrap' as const, gap: 8 }}>
                 <h3 style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-primary)' }}>📝 章管理・本文生成</h3>
-                <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>
-                  {(currentBook.currentWordCount ?? 0).toLocaleString()} / {(currentBook.targetWordCount ?? 0).toLocaleString()}字
+                <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+                  <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>
+                    {(currentBook.currentWordCount ?? 0).toLocaleString()} / {(currentBook.targetWordCount ?? 0).toLocaleString()}字
+                  </div>
+                  {/* 全章一括評価ボタン */}
+                  {chapters.length > 0 && chapters.some(c => c.content) && (
+                    <button
+                      onClick={async () => {
+                        if (!confirm(`本文生成済みの章を順番に評価します。よろしいですか？`)) return;
+                        for (const c of chapters) {
+                          if (!c.id || !c.content) continue;
+                          await handleEvaluateChapter(c.id);
+                        }
+                      }}
+                      disabled={evaluatingSseId !== null || improvingSseId !== null}
+                      style={{
+                        fontSize: 12, padding: '6px 14px', fontWeight: 600,
+                        background: '#f59e0b', color: '#fff',
+                        border: 'none', borderRadius: 6,
+                        cursor: (evaluatingSseId || improvingSseId) ? 'not-allowed' : 'pointer',
+                        opacity: (evaluatingSseId || improvingSseId) ? 0.5 : 1,
+                      }}
+                    >
+                      📊 全章を一括評価
+                    </button>
+                  )}
                 </div>
               </div>
+
+              {/* 書籍品質サマリー */}
+              {chapters.length > 0 && chapters.some(c => (c.evaluationScore ?? c.evaluation_score) != null) && (
+                <div style={{
+                  padding: 16, background: 'var(--bg-secondary)',
+                  border: '1px solid var(--border)', borderRadius: 12, marginBottom: 16,
+                }}>
+                  <h3 style={{ fontSize: 14, fontWeight: 600, marginBottom: 12, color: 'var(--text-primary)' }}>
+                    📈 書籍品質サマリー
+                  </h3>
+                  <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' as const, alignItems: 'center' }}>
+                    {(() => {
+                      const scored = chapters.filter(c => (c.evaluationScore ?? c.evaluation_score) != null);
+                      const avg = scored.length > 0
+                        ? Math.round(scored.reduce((sum, c) => sum + ((c.evaluationScore ?? c.evaluation_score) ?? 0), 0) / scored.length)
+                        : null;
+                      return avg !== null ? (
+                        <div style={{
+                          textAlign: 'center' as const, padding: '12px 20px',
+                          background: 'var(--bg-primary)', borderRadius: 8,
+                          border: '1px solid var(--border)',
+                        }}>
+                          <div style={{
+                            fontSize: 28, fontWeight: 700,
+                            color: avg >= 80 ? '#059669' : avg >= 60 ? '#d97706' : '#dc2626',
+                          }}>
+                            {avg}
+                          </div>
+                          <div style={{ fontSize: 11, color: 'var(--text-secondary)' }}>
+                            平均スコア/100
+                          </div>
+                        </div>
+                      ) : null;
+                    })()}
+                    {chapters.map((c, i) => {
+                      const score = c.evaluationScore ?? c.evaluation_score;
+                      return (
+                        <div
+                          key={c.id ?? i}
+                          onClick={() => c.id && setSelectedChapterForReview(c.id)}
+                          style={{
+                            textAlign: 'center' as const, padding: '8px 14px',
+                            background: 'var(--bg-primary)', borderRadius: 8,
+                            border: `1px solid ${score != null
+                              ? (score >= 80 ? '#6ee7b7' : score >= 60 ? '#fcd34d' : '#fca5a5')
+                              : 'var(--border)'}`,
+                            cursor: 'pointer', minWidth: 80,
+                          }}
+                        >
+                          <div style={{
+                            fontSize: 18, fontWeight: 700,
+                            color: score == null ? 'var(--text-muted)' :
+                                   score >= 80 ? '#059669' :
+                                   score >= 60 ? '#d97706' : '#dc2626',
+                          }}>
+                            {score ?? '—'}
+                          </div>
+                          <div style={{ fontSize: 10, color: 'var(--text-secondary)', marginTop: 2 }}>
+                            第{i + 1}章
+                          </div>
+                          {c.status === 'improved' && (
+                            <div style={{ fontSize: 9, color: '#4f46e5', marginTop: 1 }}>
+                              ✨改善済
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
 
               {chapters.length === 0 ? (
                 <div style={{ textAlign: 'center' as const, padding: 40, color: 'var(--text-muted)', fontSize: 12 }}>
@@ -705,6 +913,27 @@ export default function KindlePage() {
                               )}
                               {ch.spellChecked && (
                                 <span style={{ fontSize: 10, padding: '2px 8px', borderRadius: 999, background: 'rgba(20,184,166,0.18)', color: '#0d9488', fontWeight: 700 }}>🔤 誤字確認済み</span>
+                              )}
+                              {/* SSE評価スコアバッジ */}
+                              {(ch.evaluationScore ?? ch.evaluation_score) != null && (
+                                <span style={{
+                                  fontSize: 11, padding: '2px 8px', borderRadius: 10,
+                                  background: (ch.evaluationScore ?? ch.evaluation_score!) >= 80 ? '#d1fae5' :
+                                              (ch.evaluationScore ?? ch.evaluation_score!) >= 60 ? '#fef3c7' : '#fee2e2',
+                                  color: (ch.evaluationScore ?? ch.evaluation_score!) >= 80 ? '#065f46' :
+                                         (ch.evaluationScore ?? ch.evaluation_score!) >= 60 ? '#92400e' : '#991b1b',
+                                  fontWeight: 700,
+                                }}>
+                                  📊 {ch.evaluationScore ?? ch.evaluation_score}点
+                                </span>
+                              )}
+                              {ch.status === 'improved' && (
+                                <span style={{
+                                  fontSize: 11, padding: '2px 8px', borderRadius: 10,
+                                  background: '#dbeafe', color: '#1e40af', fontWeight: 700,
+                                }}>
+                                  ✨ 改善版 v{ch.version ?? 2}
+                                </span>
                               )}
                             </div>
                             <p style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 4 }}>{ch.summary}</p>
@@ -761,6 +990,49 @@ export default function KindlePage() {
                                 >
                                   {isEvaluating ? '処理中...' : '🔤 誤字チェック'}
                                 </button>
+                                {/* SSE分析・評価（新機能） */}
+                                <button
+                                  onClick={() => ch.id && handleEvaluateChapter(ch.id)}
+                                  disabled={evaluatingSseId !== null || improvingSseId !== null || !ch.id}
+                                  style={{
+                                    padding: '6px 12px', fontSize: 11, fontWeight: 600,
+                                    background: '#f59e0b', color: '#fff', border: 'none', borderRadius: 8,
+                                    cursor: 'pointer', opacity: (evaluatingSseId !== null || improvingSseId !== null) ? 0.4 : 1,
+                                  }}
+                                  title="多角的に分析してスコアと具体的アドバイスを生成"
+                                >
+                                  {evaluatingSseId === ch.id ? '📊 評価中...' : '📊 分析・評価'}
+                                </button>
+                                {/* AIブラッシュアップ（評価済みの場合のみ） */}
+                                {ch.advice && (
+                                  <button
+                                    onClick={() => ch.id && handleImproveChapter(ch.id)}
+                                    disabled={evaluatingSseId !== null || improvingSseId !== null || !ch.id}
+                                    style={{
+                                      padding: '6px 12px', fontSize: 11, fontWeight: 600,
+                                      background: '#4f46e5', color: '#fff', border: 'none', borderRadius: 8,
+                                      cursor: 'pointer', opacity: (evaluatingSseId !== null || improvingSseId !== null) ? 0.4 : 1,
+                                    }}
+                                    title="アドバイスを元にAIで章を自動改善"
+                                  >
+                                    {improvingSseId === ch.id ? '✨ 改善中...' : '✨ AIブラッシュアップ'}
+                                  </button>
+                                )}
+                                {/* 原版/改善版トグル */}
+                                {(ch.improvedContent || ch.improved_content) && ch.id && (
+                                  <button
+                                    onClick={() => setShowImproved(prev => ({ ...prev, [ch.id!]: !prev[ch.id!] }))}
+                                    style={{
+                                      padding: '5px 10px', fontSize: 11, fontWeight: 600,
+                                      background: showImproved[ch.id] ? '#ede9fe' : '#f3f4f6',
+                                      color: showImproved[ch.id] ? '#5b21b6' : '#6b7280',
+                                      border: `1px solid ${showImproved[ch.id] ? '#a78bfa' : '#e5e7eb'}`,
+                                      borderRadius: 8, cursor: 'pointer',
+                                    }}
+                                  >
+                                    {showImproved[ch.id] ? '✨ 改善版' : '📄 原版'}
+                                  </button>
+                                )}
                               </>
                             )}
                           </div>
@@ -799,6 +1071,155 @@ export default function KindlePage() {
                             <p style={{ fontSize: 11, color: 'var(--text-secondary)', lineHeight: 1.6, margin: 0 }}>
                               {ch.content.slice(0, 200)}...
                             </p>
+                          </div>
+                        )}
+
+                        {/* SSE評価・改善パネル（選択中の章のみ） */}
+                        {selectedChapterForReview === ch.id && (
+                          <div style={{ marginTop: 12, borderTop: '1px solid var(--border)', paddingTop: 12 }}>
+                            {/* ストリーミング中の評価 */}
+                            {streamingEvaluation && evaluatingSseId === ch.id && (
+                              <div style={{
+                                padding: 16, background: 'rgba(245,158,11,0.08)',
+                                border: '1px solid #fcd34d', borderRadius: 10, marginBottom: 12,
+                              }}>
+                                <p style={{ fontSize: 12, fontWeight: 600, color: '#92400e', marginBottom: 8 }}>
+                                  📊 分析・評価中...
+                                </p>
+                                <div style={{
+                                  fontSize: 13, lineHeight: 1.7, whiteSpace: 'pre-wrap' as const,
+                                  color: 'var(--text-primary)', maxHeight: 400, overflowY: 'auto' as const,
+                                }}>
+                                  {streamingEvaluation}
+                                  <span style={{
+                                    display: 'inline-block', width: 6, height: 14,
+                                    background: '#f59e0b', marginLeft: 2,
+                                    animation: 'pulse 0.8s infinite',
+                                  }} />
+                                </div>
+                              </div>
+                            )}
+
+                            {/* 保存済みアドバイス（評価レポート） */}
+                            {ch.advice && evaluatingSseId !== ch.id && (
+                              <div style={{
+                                padding: 16, background: 'rgba(245,158,11,0.06)',
+                                border: '1px solid #fcd34d', borderRadius: 10, marginBottom: 12,
+                              }}>
+                                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8, flexWrap: 'wrap' as const, gap: 6 }}>
+                                  <p style={{ fontSize: 12, fontWeight: 600, color: '#92400e' }}>
+                                    📊 分析・評価レポート
+                                    {(ch.evaluationScore ?? ch.evaluation_score) != null && (
+                                      <span style={{
+                                        marginLeft: 8, fontSize: 14, fontWeight: 700,
+                                        color: (ch.evaluationScore ?? ch.evaluation_score!) >= 80 ? '#059669' :
+                                               (ch.evaluationScore ?? ch.evaluation_score!) >= 60 ? '#d97706' : '#dc2626',
+                                      }}>
+                                        {ch.evaluationScore ?? ch.evaluation_score}点 / 100点
+                                      </span>
+                                    )}
+                                  </p>
+                                  <button
+                                    onClick={() => navigator.clipboard.writeText(ch.advice ?? '')}
+                                    style={{
+                                      fontSize: 11, padding: '3px 8px',
+                                      border: '1px solid var(--border)', borderRadius: 4,
+                                      background: 'var(--bg-primary)', color: 'var(--text-secondary)', cursor: 'pointer',
+                                    }}
+                                  >
+                                    📋 コピー
+                                  </button>
+                                </div>
+                                <div style={{
+                                  fontSize: 13, lineHeight: 1.7, whiteSpace: 'pre-wrap' as const,
+                                  color: 'var(--text-primary)', maxHeight: 400, overflowY: 'auto' as const,
+                                }}>
+                                  {ch.advice}
+                                </div>
+                                {!(ch.improvedContent || ch.improved_content) && ch.id && (
+                                  <button
+                                    onClick={() => handleImproveChapter(ch.id!)}
+                                    disabled={improvingSseId !== null || evaluatingSseId !== null}
+                                    style={{
+                                      marginTop: 10, width: '100%', padding: '10px',
+                                      background: '#4f46e5', color: '#fff', border: 'none',
+                                      borderRadius: 8, fontSize: 13, fontWeight: 600,
+                                      cursor: (improvingSseId || evaluatingSseId) ? 'not-allowed' : 'pointer',
+                                      opacity: (improvingSseId || evaluatingSseId) ? 0.5 : 1,
+                                    }}
+                                  >
+                                    ✨ このアドバイスを元にAIで章を自動改善する
+                                  </button>
+                                )}
+                              </div>
+                            )}
+
+                            {/* ストリーミング中の改善 */}
+                            {streamingImprovement && improvingSseId === ch.id && (
+                              <div style={{
+                                padding: 16, background: 'rgba(167,139,250,0.1)',
+                                border: '1px solid #a78bfa', borderRadius: 10, marginBottom: 12,
+                              }}>
+                                <p style={{ fontSize: 12, fontWeight: 600, color: '#5b21b6', marginBottom: 8 }}>
+                                  ✨ AIが章を改善中...
+                                </p>
+                                <div style={{
+                                  fontSize: 13, lineHeight: 1.8, whiteSpace: 'pre-wrap' as const,
+                                  color: 'var(--text-primary)', maxHeight: 400, overflowY: 'auto' as const,
+                                }}>
+                                  {streamingImprovement}
+                                  <span style={{
+                                    display: 'inline-block', width: 6, height: 14,
+                                    background: '#7c3aed', marginLeft: 2,
+                                    animation: 'pulse 0.8s infinite',
+                                  }} />
+                                </div>
+                              </div>
+                            )}
+
+                            {/* 改善版表示 */}
+                            {(ch.improvedContent || ch.improved_content) && improvingSseId !== ch.id && showImproved[ch.id ?? -1] && (
+                              <div style={{
+                                padding: 16, background: 'rgba(79,70,229,0.04)',
+                                border: '2px solid #a78bfa', borderRadius: 10,
+                              }}>
+                                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8, flexWrap: 'wrap' as const, gap: 6 }}>
+                                  <p style={{ fontSize: 12, fontWeight: 600, color: '#5b21b6' }}>
+                                    ✨ 改善版 v{ch.version ?? 2}
+                                  </p>
+                                  <div style={{ display: 'flex', gap: 6 }}>
+                                    <button
+                                      onClick={() => navigator.clipboard.writeText((ch.improvedContent ?? ch.improved_content) ?? '')}
+                                      style={{
+                                        fontSize: 11, padding: '3px 8px',
+                                        border: '1px solid #a78bfa', borderRadius: 4,
+                                        background: 'var(--bg-primary)', color: '#5b21b6', cursor: 'pointer',
+                                      }}
+                                    >
+                                      📋 コピー
+                                    </button>
+                                    <button
+                                      onClick={() => ch.id && handleImproveChapter(ch.id)}
+                                      disabled={improvingSseId !== null || evaluatingSseId !== null}
+                                      style={{
+                                        fontSize: 11, padding: '3px 8px',
+                                        background: '#4f46e5', color: '#fff', border: 'none',
+                                        borderRadius: 4, cursor: 'pointer',
+                                        opacity: (improvingSseId || evaluatingSseId) ? 0.5 : 1,
+                                      }}
+                                    >
+                                      🔄 再改善
+                                    </button>
+                                  </div>
+                                </div>
+                                <div style={{
+                                  fontSize: 13, lineHeight: 1.8, whiteSpace: 'pre-wrap' as const,
+                                  color: 'var(--text-primary)', maxHeight: 500, overflowY: 'auto' as const,
+                                }}>
+                                  {ch.improvedContent ?? ch.improved_content}
+                                </div>
+                              </div>
+                            )}
                           </div>
                         )}
                       </div>
