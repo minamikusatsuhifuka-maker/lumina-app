@@ -68,8 +68,9 @@ const navCategories: NavCategory[] = [
     ],
   },
   {
-    category: 'クリニック専門',
+    category: '事業・育成・医療',
     items: [
+      { href: '/dashboard/business-studio', label: '収益化スタジオ', icon: '💰' },
       { href: '/dashboard/medical-studio', label: '医療文書スタジオ', icon: '🏥' },
     ],
   },
