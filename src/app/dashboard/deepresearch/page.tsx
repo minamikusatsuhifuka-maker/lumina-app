@@ -828,6 +828,13 @@ ${contextText}
     window.open('/dashboard/text-analysis?from=deepresearch', '_blank');
   };
 
+  // ディープリサーチ結果を医療文書スタジオへ引き継ぐ
+  const handleSendToMedicalStudio = (text: string, sourceTopic: string) => {
+    sessionStorage.setItem('medicalDocResearch', text);
+    sessionStorage.setItem('medicalDocTopic', sourceTopic);
+    window.open('/dashboard/medical-studio?from=deepresearch', '_blank');
+  };
+
   const download = () => {
     const a = document.createElement('a');
     a.href = URL.createObjectURL(new Blob([report], { type: 'text/plain' }));
@@ -986,6 +993,23 @@ ${contextText}
                 title="リサーチ結果をテキスト分析ページで要約・まとめできます"
               >
                 📝 テキスト分析へ送る
+              </button>
+              {/* 医療文書スタジオへ送る */}
+              <button
+                onClick={() => handleSendToMedicalStudio(report, topic)}
+                style={{
+                  padding: '6px 14px',
+                  background: 'rgba(16,185,129,0.1)',
+                  color: '#059669',
+                  border: '1px solid rgba(16,185,129,0.3)',
+                  borderRadius: 6,
+                  cursor: 'pointer',
+                  fontSize: 12,
+                  fontWeight: 500,
+                }}
+                title="リサーチ結果を医療文書スタジオで同意書・説明書に活用できます"
+              >
+                🏥 医療文書スタジオへ送る
               </button>
             </div>
           </div>

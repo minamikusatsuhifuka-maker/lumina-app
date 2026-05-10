@@ -68,6 +68,12 @@ const navCategories: NavCategory[] = [
     ],
   },
   {
+    category: 'クリニック専門',
+    items: [
+      { href: '/dashboard/medical-studio', label: '医療文書スタジオ', icon: '🏥' },
+    ],
+  },
+  {
     category: '管理・設定',
     items: [
       { href: '/dashboard/clinic-settings', label: 'クリニック設定', icon: '🏥' },
