@@ -1416,6 +1416,19 @@ ${contextText}
                     >
                       {selectedTerms.size === extractedTerms.length ? '全解除' : '全選択'}
                     </button>
+                    <span style={{ fontSize: 11, color: 'var(--border)' }}>|</span>
+                    {/* alreadySaved が false のものだけ選択 */}
+                    <button
+                      onClick={() => {
+                        const unsavedTerms = extractedTerms
+                          .filter(t => !t.alreadySaved)
+                          .map(t => t.term);
+                        setSelectedTerms(new Set(unsavedTerms));
+                      }}
+                      style={{ fontSize: 11, color: '#16a34a', background: 'transparent', border: 'none', cursor: 'pointer', padding: '4px 8px', fontWeight: 600 }}
+                    >
+                      ✅ 保存済み以外を選択
+                    </button>
                     <span style={{ fontSize: 10, color: 'var(--text-muted)' }}>{selectedTerms.size}件選択中</span>
                     <button
                       onClick={handleExplainTerms}
