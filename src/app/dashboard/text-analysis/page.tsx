@@ -8,8 +8,9 @@ import SavedAnalysisList, {
 import CrossAnalysisPanel, {
   CrossArticle,
 } from '@/components/text-analysis/CrossAnalysisPanel';
+import UrlBatchAnalysisPanel from '@/components/text-analysis/UrlBatchAnalysisPanel';
 
-type TabType = 'analyze' | 'saved' | 'cross';
+type TabType = 'analyze' | 'saved' | 'cross' | 'url';
 
 export default function TextAnalysisPage() {
   const [records, setRecords] = useState<AnalysisRecord[]>([]);
@@ -119,6 +120,7 @@ export default function TextAnalysisPage() {
           { key: 'analyze' as const, label: '🚀 分析実行', count: undefined, color: 'var(--accent)' },
           { key: 'saved' as const, label: '🗂 保存一覧', count: records.length, color: 'var(--accent)' },
           { key: 'cross' as const, label: '🔀 横断分析', count: undefined, color: '#9333ea' },
+          { key: 'url' as const, label: '🌐 URL一括分析', count: undefined, color: '#16a34a' },
         ].map((t) => {
           const active = tab === t.key;
           return (
@@ -199,6 +201,9 @@ export default function TextAnalysisPage() {
           onJumpToSaves={() => setTab('saved')}
           onViewArticle={handleViewArticle}
         />
+      </div>
+      <div style={{ display: tab === 'url' ? 'block' : 'none' }}>
+        <UrlBatchAnalysisPanel />
       </div>
     </div>
   );

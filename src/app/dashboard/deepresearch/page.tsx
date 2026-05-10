@@ -5,6 +5,7 @@ import { VoiceInputButton } from '@/components/VoiceInputButton';
 import { useProgress } from '@/components/useProgress';
 import { SaveToLibraryButton } from '@/components/SaveToLibraryButton';
 import { DateRangePicker, DateRange, getDateCondition } from '@/components/DateRangePicker';
+import InlineAnalysisPanel from '@/components/text-analysis/InlineAnalysisPanel';
 
 const TEMPLATES = [
   { label: 'AI最新動向', topic: '2026年の生成AI・大規模言語モデルの最新動向と活用事例' },
@@ -992,6 +993,9 @@ ${contextText}
             style={{ fontSize: fontSize, color: 'var(--text-secondary)', lineHeight: 1.8, wordBreak: 'break-word' as const }}
             dangerouslySetInnerHTML={{ __html: formatReport(report) }}
           />
+
+          {/* インライン分析パネル（リサーチ結果の直下） */}
+          <InlineAnalysisPanel text={report} topic={topic} />
 
           {/* 関連タイトル案（知識ツリー） */}
           {(isLoadingTitles || suggestedTitles.length > 0) && (
