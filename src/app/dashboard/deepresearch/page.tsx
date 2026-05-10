@@ -842,6 +842,13 @@ ${contextText}
     window.open('/dashboard/business-studio?from=deepresearch', '_blank');
   };
 
+  // ディープリサーチ結果をnexusブログへ引き継ぐ
+  const handleSendToNexusBlog = (text: string, sourceTopic: string) => {
+    sessionStorage.setItem('nexusBlogResearch', text);
+    sessionStorage.setItem('nexusBlogTopic', sourceTopic);
+    window.open('/dashboard/nexus?from=deepresearch', '_blank');
+  };
+
   const download = () => {
     const a = document.createElement('a');
     a.href = URL.createObjectURL(new Blob([report], { type: 'text/plain' }));
@@ -1034,6 +1041,23 @@ ${contextText}
                 title="リサーチ結果を収益化スタジオで事業設計の起点として活用できます"
               >
                 💰 収益化スタジオへ送る
+              </button>
+              {/* nexusブログ記事にする */}
+              <button
+                onClick={() => handleSendToNexusBlog(report, topic)}
+                style={{
+                  padding: '6px 14px',
+                  background: 'rgba(99,102,241,0.1)',
+                  color: '#6366f1',
+                  border: '1px solid rgba(99,102,241,0.3)',
+                  borderRadius: 6,
+                  cursor: 'pointer',
+                  fontSize: 12,
+                  fontWeight: 500,
+                }}
+                title="リサーチ結果をnexusブランドのブログ記事として執筆できます"
+              >
+                🌐 nexusブログ記事にする
               </button>
             </div>
           </div>

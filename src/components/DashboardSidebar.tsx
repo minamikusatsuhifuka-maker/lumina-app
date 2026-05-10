@@ -73,6 +73,7 @@ const navCategories: NavCategory[] = [
       { href: '/dashboard/business-studio', label: '収益化スタジオ', icon: '💰' },
       { href: '/dashboard/hr-studio', label: '人材育成スタジオ', icon: '🌱' },
       { href: '/dashboard/medical-studio', label: '医療文書スタジオ', icon: '🏥' },
+      { href: '/dashboard/nexus', label: 'nexusブランドスタジオ', icon: '🌐' },
     ],
   },
   {
