@@ -358,12 +358,21 @@ export default function OrchestratorPage() {
         {PIPELINES.map((p) => {
           const active = activePipelineId === p.id;
           return (
-            <button
+            <div
               key={p.id}
-              type="button"
+              role="button"
+              tabIndex={0}
               onClick={() =>
                 setSelectedPipeline(p.id === selectedPipeline ? null : p.id)
               }
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault();
+                  setSelectedPipeline(
+                    p.id === selectedPipeline ? null : p.id,
+                  );
+                }
+              }}
               style={{
                 padding: '10px 14px',
                 borderRadius: 10,
@@ -471,7 +480,7 @@ export default function OrchestratorPage() {
                   </div>
                 );
               })()}
-            </button>
+            </div>
           );
         })}
       </div>
