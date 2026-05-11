@@ -13,6 +13,7 @@ const navCategories: NavCategory[] = [
     category: 'ホーム',
     items: [
       { href: '/dashboard', label: 'ダッシュボード', icon: '🏠' },
+      { href: '/dashboard/orchestrator', label: 'AIオーケストレーター', icon: '🤖' },
     ],
   },
   {
