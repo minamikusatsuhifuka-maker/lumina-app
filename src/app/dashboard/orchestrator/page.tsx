@@ -177,6 +177,72 @@ export default function OrchestratorPage() {
     }
   };
 
+  // 指定 jobId の execute ストリームを処理する共通関数
+  // handleStart（新規実行）と handleRetry（再実行）の両方から呼ばれる
+  const runExecuteStream = async (jobId: number): Promise<void> => {
+    const execRes = await fetch('/api/orchestrator/execute', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ jobId }),
+    });
+
+    if (!execRes.ok || !execRes.body) {
+      setErrorMessage('実行リクエストに失敗しました');
+      return;
+    }
+
+    const reader = execRes.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const parts = buffer.split('\n\n');
+      buffer = parts.pop() ?? '';
+
+      for (const part of parts) {
+        for (const line of part.split('\n')) {
+          if (!line.startsWith('data: ')) continue;
+          try {
+            const event: StreamEvent = JSON.parse(line.slice(6));
+            setStreamEvents((prev) => [...prev, event]);
+
+            if (event.type === 'step_complete') {
+              setCurrentJob((prev) =>
+                prev
+                  ? { ...prev, progress: event.progress ?? prev.progress }
+                  : null,
+              );
+            }
+            if (event.type === 'completed') {
+              setShowResults(true);
+              if (event.results) {
+                setCurrentJob((prev) =>
+                  prev
+                    ? {
+                        ...prev,
+                        progress: 100,
+                        status: 'completed',
+                        results: event.results!,
+                      }
+                    : null,
+                );
+              }
+              void loadJobs();
+            }
+            if (event.type === 'error') {
+              setErrorMessage(event.message ?? '実行エラー');
+            }
+          } catch {
+            /* skip */
+          }
+        }
+      }
+    }
+  };
+
   const handleStart = async () => {
     if (!intent.trim()) {
       setErrorMessage('意図を入力してください');
@@ -217,69 +283,27 @@ export default function OrchestratorPage() {
       const { job } = await createRes.json();
       setCurrentJob(job);
 
-      // パイプライン実行
-      const execRes = await fetch('/api/orchestrator/execute', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ jobId: job.id }),
-      });
+      await runExecuteStream(job.id);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : '不明なエラー';
+      setErrorMessage(`通信エラー: ${msg}`);
+    } finally {
+      setIsRunning(false);
+    }
+  };
 
-      if (!execRes.ok || !execRes.body) {
-        setErrorMessage('実行リクエストに失敗しました');
-        setIsRunning(false);
-        return;
-      }
+  // 失敗・途中停止したジョブを再実行する
+  // 既存ジョブIDをそのまま使うので、ステップ構成・意図は変わらない
+  const handleRetry = async (job: Job) => {
+    setErrorMessage('');
+    setIsRunning(true);
+    setStreamEvents([]);
+    setShowResults(false);
+    setCurrentJob(job);
+    setSelectedHistoryJob(null);
 
-      const reader = execRes.body.getReader();
-      const decoder = new TextDecoder();
-      let buffer = '';
-
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        buffer += decoder.decode(value, { stream: true });
-        const parts = buffer.split('\n\n');
-        buffer = parts.pop() ?? '';
-
-        for (const part of parts) {
-          for (const line of part.split('\n')) {
-            if (!line.startsWith('data: ')) continue;
-            try {
-              const event: StreamEvent = JSON.parse(line.slice(6));
-              setStreamEvents((prev) => [...prev, event]);
-
-              if (event.type === 'step_complete') {
-                setCurrentJob((prev) =>
-                  prev
-                    ? { ...prev, progress: event.progress ?? prev.progress }
-                    : null,
-                );
-              }
-              if (event.type === 'completed') {
-                setShowResults(true);
-                if (event.results) {
-                  setCurrentJob((prev) =>
-                    prev
-                      ? {
-                          ...prev,
-                          progress: 100,
-                          status: 'completed',
-                          results: event.results!,
-                        }
-                      : null,
-                  );
-                }
-                void loadJobs();
-              }
-              if (event.type === 'error') {
-                setErrorMessage(event.message ?? '実行エラー');
-              }
-            } catch {
-              /* skip */
-            }
-          }
-        }
-      }
+    try {
+      await runExecuteStream(job.id);
     } catch (err) {
       const msg = err instanceof Error ? err.message : '不明なエラー';
       setErrorMessage(`通信エラー: ${msg}`);
@@ -962,34 +986,68 @@ export default function OrchestratorPage() {
                         background:
                           job.status === 'completed'
                             ? 'rgba(5,150,105,0.15)'
-                            : job.status === 'running'
-                              ? 'rgba(30,64,175,0.15)'
-                              : job.status === 'failed'
-                                ? 'rgba(220,38,38,0.15)'
-                                : 'var(--bg-secondary)',
+                            : job.status === 'completed_with_errors'
+                              ? 'rgba(245,158,11,0.15)'
+                              : job.status === 'running'
+                                ? 'rgba(30,64,175,0.15)'
+                                : job.status === 'failed'
+                                  ? 'rgba(220,38,38,0.15)'
+                                  : 'var(--bg-secondary)',
                         color:
                           job.status === 'completed'
                             ? '#065f46'
-                            : job.status === 'running'
-                              ? '#1e40af'
-                              : job.status === 'failed'
-                                ? '#991b1b'
-                                : 'var(--text-secondary)',
+                            : job.status === 'completed_with_errors'
+                              ? '#92400e'
+                              : job.status === 'running'
+                                ? '#1e40af'
+                                : job.status === 'failed'
+                                  ? '#991b1b'
+                                  : 'var(--text-secondary)',
                       }}
                     >
                       {job.status === 'completed'
                         ? '✅ 完了'
-                        : job.status === 'running'
-                          ? '⏳ 実行中'
-                          : job.status === 'failed'
-                            ? '❌ 失敗'
-                            : '📋 計画中'}
+                        : job.status === 'completed_with_errors'
+                          ? '⚠️ 一部エラー'
+                          : job.status === 'running'
+                            ? '⏳ 実行中'
+                            : job.status === 'failed'
+                              ? '❌ 失敗'
+                              : '📋 計画中'}
                     </span>
-                    {job.status === 'completed' && (
+                    {(job.status === 'completed' ||
+                      job.status === 'completed_with_errors') && (
                       <span style={{ fontSize: 11, color: '#4f46e5' }}>
                         {isLoadingThis ? '読込中...' : '結果を見る →'}
                       </span>
                     )}
+                    {/* 失敗・途中停止ジョブには再実行ボタンを表示 */}
+                    {!isRunning &&
+                      job.status !== 'running' &&
+                      (job.status === 'failed' ||
+                        job.status === 'completed_with_errors' ||
+                        (job.status !== 'completed' && job.progress < 100)) && (
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            void handleRetry(job);
+                          }}
+                          style={{
+                            fontSize: 11,
+                            padding: '3px 10px',
+                            background: '#f59e0b',
+                            color: '#fff',
+                            border: 'none',
+                            borderRadius: 4,
+                            cursor: 'pointer',
+                            fontWeight: 600,
+                          }}
+                          title="このジョブを最初から再実行します"
+                        >
+                          🔄 再実行
+                        </button>
+                      )}
                   </div>
                 </div>
               );

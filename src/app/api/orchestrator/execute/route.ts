@@ -10,6 +10,13 @@ interface ExecuteRequest {
   jobId: number;
 }
 
+// 並列起動数の上限（Vercel関数の同時接続数・メモリを保護）
+const MAX_PARALLEL = 3;
+// 1ステップあたりの最大待機時間（ms）
+const STEP_TIMEOUT_MS = 90_000;
+// fetchレベルのタイムアウト（ms）- ステップタイムアウトより短くする
+const FETCH_TIMEOUT_MS = 85_000;
+
 // SSEストリームからテキストを収集
 // deepresearch: { type: 'text', content: ... } / { type: 'done' }
 // 他: { type: 'delta', text: ... } / { type: 'done' }
@@ -20,29 +27,42 @@ const collectSseText = async (res: Response): Promise<string> => {
   let fullText = '';
   let buffer = '';
 
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    buffer += decoder.decode(value, { stream: true });
-    const parts = buffer.split('\n\n');
-    buffer = parts.pop() ?? '';
-    for (const part of parts) {
-      for (const line of part.split('\n')) {
-        if (!line.startsWith('data: ')) continue;
-        try {
-          const event = JSON.parse(line.slice(6));
-          if (event.type === 'delta' && typeof event.text === 'string') {
-            fullText += event.text;
-          } else if (
-            event.type === 'text' &&
-            typeof event.content === 'string'
-          ) {
-            fullText += event.content;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const parts = buffer.split('\n\n');
+      buffer = parts.pop() ?? '';
+      for (const part of parts) {
+        for (const line of part.split('\n')) {
+          if (!line.startsWith('data: ')) continue;
+          try {
+            const event = JSON.parse(line.slice(6));
+            if (event.type === 'delta' && typeof event.text === 'string') {
+              fullText += event.text;
+            } else if (
+              event.type === 'text' &&
+              typeof event.content === 'string'
+            ) {
+              fullText += event.content;
+            } else if (event.type === 'error') {
+              throw new Error(event.message ?? 'ストリームエラー');
+            }
+          } catch (err) {
+            // パースエラーは無視、type==='error'の例外は再スロー
+            if (err instanceof Error && err.message !== 'Unexpected end of JSON input') {
+              if (err.message && !err.message.includes('JSON')) throw err;
+            }
           }
-        } catch {
-          /* skip */
         }
       }
+    }
+  } finally {
+    try {
+      reader.releaseLock();
+    } catch {
+      /* skip */
     }
   }
   return fullText;
@@ -61,6 +81,8 @@ const executeStep = async (
       cookie: cookieHeader,
     },
     body: JSON.stringify(input),
+    // fetchレベルのタイムアウト（ハング防止）
+    signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
   });
 
   if (!res.ok) {
@@ -177,7 +199,9 @@ export async function POST(req: NextRequest) {
           UPDATE pipeline_jobs
           SET status = 'running', started_at = NOW(), updated_at = NOW()
           WHERE id = ${jobId}
-        `;
+        `.catch(() => {
+          /* DB更新エラーは握りつぶして続行 */
+        });
         send({ type: 'started', jobId });
 
         const results: Record<string, StepResult> = {};
@@ -185,40 +209,53 @@ export async function POST(req: NextRequest) {
         const completed = new Set<string>();
         const running = new Set<string>();
         const failed = new Set<string>();
+        // 実行中のPromiseを stepId をキーに保持（重複起動防止）
+        const inflight = new Map<string, Promise<void>>();
 
-        // 実行可能なステップを取得（依存がすべて完了済みのもの）
+        // 実行可能なステップを取得（依存がすべて完了済みのもの。失敗依存も「進行可」と見なす）
         const getReadySteps = (): PipelineStep[] =>
           steps.filter((step) => {
             if (
               completed.has(step.id) ||
               running.has(step.id) ||
-              failed.has(step.id)
+              failed.has(step.id) ||
+              inflight.has(step.id)
             ) {
               return false;
             }
             if (!step.dependsOn || step.dependsOn.length === 0) return true;
-            return step.dependsOn.every((dep) => completed.has(dep));
+            // 依存ステップが完了または失敗していれば進める（依存失敗時は後段でスキップ判定）
+            return step.dependsOn.every(
+              (dep) => completed.has(dep) || failed.has(dep),
+            );
           });
 
-        // 1ステップを実行する非同期関数（必ず resolve、内部で例外を捕捉）
+        // 1ステップを実行する非同期関数（必ず resolve、内部で例外を捕捉、タイムアウト付き）
         const runStep = async (step: PipelineStep): Promise<void> => {
           running.add(step.id);
           send({ type: 'step_start', stepId: step.id, label: step.label });
 
+          // ステップ全体のタイムアウトPromise
+          const timeoutPromise = new Promise<never>((_, reject) =>
+            setTimeout(
+              () =>
+                reject(new Error(`タイムアウト(${STEP_TIMEOUT_MS / 1000}秒): ${step.label}`)),
+              STEP_TIMEOUT_MS,
+            ),
+          );
+
           try {
             const input = step.inputMapper(job.intent, results);
-            const result = await executeStep(
-              step,
-              input,
-              origin,
-              cookieHeader,
-            );
+            const result = await Promise.race([
+              executeStep(step, input, origin, cookieHeader),
+              timeoutPromise,
+            ]);
             results[step.id] = { result, status: 'completed' };
             completed.add(step.id);
             running.delete(step.id);
 
             const progress = Math.round(
-              (completed.size / steps.length) * 100,
+              ((completed.size + failed.size) / steps.length) * 100,
             );
 
             await sql`
@@ -227,7 +264,9 @@ export async function POST(req: NextRequest) {
                 progress = ${progress},
                 updated_at = NOW()
               WHERE id = ${jobId}
-            `;
+            `.catch(() => {
+              /* DB更新エラーは無視して続行 */
+            });
 
             send({
               type: 'step_complete',
@@ -241,80 +280,130 @@ export async function POST(req: NextRequest) {
             });
           } catch (err) {
             const errMsg = err instanceof Error ? err.message : String(err);
+            console.error(`[orchestrator] ステップ失敗 ${step.id}:`, errMsg);
             results[step.id] = { result: errMsg, status: 'failed' };
             failed.add(step.id);
             running.delete(step.id);
+
+            const progress = Math.round(
+              ((completed.size + failed.size) / steps.length) * 100,
+            );
+            await sql`
+              UPDATE pipeline_jobs SET
+                results = ${JSON.stringify(results)}::jsonb,
+                progress = ${progress},
+                updated_at = NOW()
+              WHERE id = ${jobId}
+            `.catch(() => {
+              /* DB更新エラーは無視 */
+            });
+
             send({
               type: 'step_error',
               stepId: step.id,
               label: step.label,
               message: errMsg,
             });
+          } finally {
+            inflight.delete(step.id);
           }
         };
 
-        // 並列実行ループ
-        const inflight: Set<Promise<void>> = new Set();
+        // メイン実行ループ（無限ループ防止のため最大反復回数を設定）
+        const MAX_LOOPS = steps.length * 10 + 50;
+        let loopCount = 0;
 
-        while (completed.size + failed.size < steps.length) {
+        while (
+          completed.size + failed.size < steps.length &&
+          loopCount < MAX_LOOPS
+        ) {
+          loopCount++;
           const readySteps = getReadySteps();
 
-          // 実行待ちもなく、実行中もなければデッドロック（依存が満たせないステップが残存）
-          if (readySteps.length === 0 && inflight.size === 0) {
-            // 残ったステップを依存スキップ扱いに
-            for (const s of steps) {
-              if (
-                !completed.has(s.id) &&
-                !failed.has(s.id) &&
-                !running.has(s.id)
-              ) {
-                const unmet = (s.dependsOn ?? []).filter(
-                  (d) => !completed.has(d),
-                );
-                results[s.id] = {
-                  result: `依存ステップ未完了: ${unmet.join(', ')}`,
-                  status: 'failed',
-                };
-                failed.add(s.id);
-                send({
-                  type: 'step_skip',
-                  stepId: s.id,
-                  label: s.label,
-                  reason: `依存ステップ未完了: ${unmet.join(', ')}`,
-                });
+          if (readySteps.length > 0) {
+            // 並列起動数を制限
+            const slotsAvailable = Math.max(0, MAX_PARALLEL - inflight.size);
+            const toRun = readySteps.slice(0, slotsAvailable);
+
+            if (toRun.length === 0) {
+              // 既に並列上限。inflightの完了待ち
+              if (inflight.size > 0) {
+                await Promise.race(Array.from(inflight.values()));
               }
+              continue;
+            }
+
+            if (toRun.length > 1) {
+              send({
+                type: 'parallel_start',
+                count: toRun.length,
+                labels: toRun.map((s) => s.label),
+              });
+            }
+
+            // 起動して inflight に登録
+            for (const step of toRun) {
+              const p = runStep(step);
+              inflight.set(step.id, p);
+            }
+
+            // 少なくとも1つが完了するまで待機
+            if (inflight.size > 0) {
+              await Promise.race(Array.from(inflight.values()));
+            }
+          } else if (inflight.size > 0) {
+            // 実行可能な新規ステップはないが、実行中ステップが残っている
+            await Promise.race(Array.from(inflight.values()));
+          } else {
+            // ready 0 & inflight 0 → デッドロック（依存スキップ判定）
+            const remaining = steps.filter(
+              (s) =>
+                !completed.has(s.id) && !failed.has(s.id) && !running.has(s.id),
+            );
+            console.error(
+              '[orchestrator] デッドロック検出。残りステップ:',
+              remaining.map((s) => s.id),
+            );
+            for (const s of remaining) {
+              const unmet = (s.dependsOn ?? []).filter(
+                (d) => !completed.has(d),
+              );
+              results[s.id] = {
+                result: `依存ステップ未完了: ${unmet.join(', ')}`,
+                status: 'failed',
+              };
+              failed.add(s.id);
+              send({
+                type: 'step_skip',
+                stepId: s.id,
+                label: s.label,
+                reason: `依存ステップ未完了: ${unmet.join(', ')}`,
+              });
             }
             break;
-          }
-
-          // 実行可能なステップを全て並列起動
-          if (readySteps.length > 1) {
-            send({
-              type: 'parallel_start',
-              count: readySteps.length,
-              labels: readySteps.map((s) => s.label),
-            });
-          }
-
-          for (const step of readySteps) {
-            const p = runStep(step).finally(() => {
-              inflight.delete(p);
-            });
-            inflight.add(p);
-          }
-
-          // 少なくとも1つ完了するまで待機（残ったinflightは次の周回で待つ）
-          if (inflight.size > 0) {
-            await Promise.race(Array.from(inflight));
           }
         }
 
         // 念のため残りのinflightが完了するのを待つ
         if (inflight.size > 0) {
-          await Promise.allSettled(Array.from(inflight));
+          await Promise.allSettled(Array.from(inflight.values()));
         }
 
-        const finalStatus = failed.size === 0 ? 'completed' : 'completed';
+        if (loopCount >= MAX_LOOPS) {
+          console.error(
+            '[orchestrator] MAX_LOOPS到達。強制終了:',
+            { completed: completed.size, failed: failed.size, total: steps.length },
+          );
+        }
+
+        // 最終ステータス判定
+        const finalStatus =
+          failed.size === steps.length
+            ? 'failed'
+            : failed.size > 0
+              ? 'completed_with_errors'
+              : 'completed';
+
         await sql`
           UPDATE pipeline_jobs SET
             status = ${finalStatus},
@@ -323,30 +412,37 @@ export async function POST(req: NextRequest) {
             completed_at = NOW(),
             updated_at = NOW()
           WHERE id = ${jobId}
-        `;
+        `.catch(() => {
+          /* DB更新エラーは無視 */
+        });
 
         send({
           type: 'completed',
           jobId,
           results,
           hadErrors: failed.size > 0,
+          completedCount: completed.size,
+          failedCount: failed.size,
         });
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
-        try {
-          await sql`
-            UPDATE pipeline_jobs SET
-              status = 'failed',
-              error_message = ${message},
-              updated_at = NOW()
-            WHERE id = ${jobId}
-          `;
-        } catch {
+        console.error('[orchestrator] パイプライン全体エラー:', message);
+        await sql`
+          UPDATE pipeline_jobs SET
+            status = 'failed',
+            error_message = ${message},
+            updated_at = NOW()
+          WHERE id = ${jobId}
+        `.catch(() => {
           /* skip */
-        }
+        });
         send({ type: 'error', message });
       } finally {
-        controller.close();
+        try {
+          controller.close();
+        } catch {
+          /* already closed */
+        }
       }
     },
   });

@@ -4,6 +4,7 @@ import { sql } from '@/lib/db';
 import { PIPELINES } from '@/lib/pipelines';
 
 export const runtime = 'nodejs';
+export const maxDuration = 60;
 
 interface OrchestratorPostBody {
   intent: string;
