@@ -29,6 +29,9 @@ interface StreamEvent {
   message?: string;
   reason?: string;
   results?: Record<string, { result: string; status: string }>;
+  count?: number;
+  labels?: string[];
+  hadErrors?: boolean;
 }
 
 const QUICK_INTENTS = [
@@ -474,74 +477,121 @@ export default function OrchestratorPage() {
               background: 'var(--bg-primary)',
             }}
           >
-            {streamEvents.map((event, i) => (
-              <div
-                key={i}
-                style={{
-                  display: 'flex',
-                  alignItems: 'flex-start',
-                  gap: 8,
-                  marginBottom: 8,
-                }}
-              >
-                <span style={{ fontSize: 16, flexShrink: 0 }}>
-                  {event.type === 'started'
-                    ? '🚀'
-                    : event.type === 'step_start'
-                      ? '⏳'
-                      : event.type === 'step_complete'
-                        ? '✅'
-                        : event.type === 'step_skip'
-                          ? '⤵️'
-                          : event.type === 'step_error'
-                            ? '❌'
-                            : event.type === 'completed'
-                              ? '🎉'
-                              : event.type === 'error'
-                                ? '⚠️'
-                                : 'ℹ️'}
-                </span>
-                <div style={{ flex: 1, minWidth: 0 }}>
+            {streamEvents.map((event, i) => {
+              // 並列実行開始は専用カード表示
+              if (event.type === 'parallel_start') {
+                return (
                   <div
+                    key={i}
                     style={{
-                      fontSize: 13,
-                      fontWeight: event.type === 'completed' ? 700 : 400,
-                      color: 'var(--text-primary)',
+                      padding: '8px 12px',
+                      marginBottom: 8,
+                      background: 'rgba(79,70,229,0.08)',
+                      border: '1px solid rgba(79,70,229,0.3)',
+                      borderRadius: 8,
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 8,
                     }}
                   >
-                    {event.type === 'started'
-                      ? 'パイプライン開始'
-                      : event.type === 'step_start'
-                        ? `${event.label} を実行中...`
-                        : event.type === 'step_complete'
-                          ? `${event.label} 完了（${event.progress}%）`
-                          : event.type === 'step_skip'
-                            ? `${event.label} スキップ: ${event.reason ?? ''}`
-                            : event.type === 'step_error'
-                              ? `${event.label} エラー: ${event.message ?? ''}`
-                              : event.type === 'completed'
-                                ? '🎉 全工程完了！結果を確認してください'
-                                : event.type === 'error'
-                                  ? `エラー: ${event.message ?? ''}`
-                                  : (event.message ?? '')}
+                    <span style={{ fontSize: 16, flexShrink: 0 }}>⚡</span>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div
+                        style={{
+                          fontSize: 13,
+                          fontWeight: 600,
+                          color: '#4f46e5',
+                        }}
+                      >
+                        {event.count}件を並列実行中
+                      </div>
+                      <div
+                        style={{
+                          fontSize: 11,
+                          color: 'var(--text-secondary)',
+                          marginTop: 2,
+                          overflow: 'hidden',
+                          textOverflow: 'ellipsis',
+                        }}
+                      >
+                        {(event.labels ?? []).join(' • ')}
+                      </div>
+                    </div>
                   </div>
-                  {event.preview && (
+                );
+              }
+
+              return (
+                <div
+                  key={i}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'flex-start',
+                    gap: 8,
+                    marginBottom: 8,
+                  }}
+                >
+                  <span style={{ fontSize: 16, flexShrink: 0 }}>
+                    {event.type === 'started'
+                      ? '🚀'
+                      : event.type === 'step_start'
+                        ? '⏳'
+                        : event.type === 'step_complete'
+                          ? '✅'
+                          : event.type === 'step_skip'
+                            ? '⤵️'
+                            : event.type === 'step_error'
+                              ? '❌'
+                              : event.type === 'completed'
+                                ? '🎉'
+                                : event.type === 'error'
+                                  ? '⚠️'
+                                  : 'ℹ️'}
+                  </span>
+                  <div style={{ flex: 1, minWidth: 0 }}>
                     <div
                       style={{
-                        fontSize: 11,
-                        color: 'var(--text-secondary)',
-                        marginTop: 2,
-                        overflow: 'hidden',
-                        textOverflow: 'ellipsis',
-                        whiteSpace: 'nowrap',
+                        fontSize: 13,
+                        fontWeight: event.type === 'completed' ? 700 : 400,
+                        color: 'var(--text-primary)',
                       }}
                     >
-                      {event.preview}
+                      {event.type === 'started'
+                        ? 'パイプライン開始'
+                        : event.type === 'step_start'
+                          ? `${event.label} を実行中...`
+                          : event.type === 'step_complete'
+                            ? `${event.label} 完了（${event.progress}%）`
+                            : event.type === 'step_skip'
+                              ? `${event.label} スキップ: ${event.reason ?? ''}`
+                              : event.type === 'step_error'
+                                ? `${event.label} エラー: ${event.message ?? ''}`
+                                : event.type === 'completed'
+                                  ? event.hadErrors
+                                    ? '⚠️ 一部エラーありで完了'
+                                    : '🎉 全工程完了！結果を確認してください'
+                                  : event.type === 'error'
+                                    ? `エラー: ${event.message ?? ''}`
+                                    : (event.message ?? '')}
                     </div>
-                  )}
+                    {event.preview && (
+                      <div
+                        style={{
+                          fontSize: 11,
+                          color: 'var(--text-secondary)',
+                          marginTop: 2,
+                          overflow: 'hidden',
+                          textOverflow: 'ellipsis',
+                          whiteSpace: 'nowrap',
+                        }}
+                      >
+                        {event.preview}
+                      </div>
+                    )}
+                  </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
             <div ref={eventsEndRef} />
           </div>
         </div>
