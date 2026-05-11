@@ -77,6 +77,9 @@ export default function OrchestratorPage() {
   const [streamEvents, setStreamEvents] = useState<StreamEvent[]>([]);
   const [showResults, setShowResults] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
+  // 履歴カードから「結果を見る」で開いた過去ジョブ
+  const [selectedHistoryJob, setSelectedHistoryJob] = useState<Job | null>(null);
+  const [isLoadingHistory, setIsLoadingHistory] = useState(false);
   // パイプラインごとのステップ有効/無効状態 { pipelineId: { stepId: boolean } }
   const [stepEnabled, setStepEnabled] = useState<
     Record<string, Record<string, boolean>>
@@ -91,6 +94,38 @@ export default function OrchestratorPage() {
     return initial;
   });
   const eventsEndRef = useRef<HTMLDivElement>(null);
+
+  // 履歴ジョブの結果を読み込んで表示する
+  // results がすでに揃っていれば即時表示、なければ /api/orchestrator?id= で再取得
+  const handleOpenHistory = async (job: Job) => {
+    setIsLoadingHistory(true);
+    try {
+      const hasResults =
+        job.results && Object.keys(job.results).length > 0;
+      if (hasResults) {
+        setSelectedHistoryJob(job);
+      } else {
+        const res = await fetch(`/api/orchestrator?id=${job.id}`);
+        if (!res.ok) {
+          setSelectedHistoryJob(job);
+        } else {
+          const data = (await res.json()) as { job: Job | null };
+          setSelectedHistoryJob(data.job ?? job);
+        }
+      }
+      // 結果表示エリアまでスクロール (DOM 反映を待つため次フレームで)
+      window.setTimeout(() => {
+        document
+          .getElementById('history-results')
+          ?.scrollIntoView({ behavior: 'smooth' });
+      }, 100);
+    } catch (err) {
+      console.error('[orchestrator] 履歴取得失敗:', err);
+      setSelectedHistoryJob(job);
+    } finally {
+      setIsLoadingHistory(false);
+    }
+  };
 
   // ステップのON/OFFを切り替え
   const toggleStep = (pipelineId: string, stepId: string) => {
@@ -833,20 +868,49 @@ export default function OrchestratorPage() {
           >
             {jobs.slice(0, 5).map((job) => {
               const p = PIPELINES.find((pp) => pp.id === job.pipeline_type);
+              const isSelected = selectedHistoryJob?.id === job.id;
+              const isLoadingThis =
+                isLoadingHistory && selectedHistoryJob?.id === job.id;
+              const seconds = job.completed_at
+                ? Math.round(
+                    (new Date(job.completed_at).getTime() -
+                      new Date(job.created_at).getTime()) /
+                      1000,
+                  )
+                : null;
               return (
                 <div
                   key={job.id}
+                  onClick={() => handleOpenHistory(job)}
                   style={{
-                    padding: '10px 14px',
-                    border: '1px solid var(--border)',
-                    borderRadius: 8,
-                    background: 'var(--bg-primary)',
+                    padding: '12px 16px',
+                    border: `1px solid ${isSelected ? '#4f46e5' : 'var(--border)'}`,
+                    borderRadius: 10,
+                    background: isSelected
+                      ? 'rgba(79,70,229,0.06)'
+                      : 'var(--bg-primary)',
                     display: 'flex',
                     alignItems: 'center',
                     gap: 12,
+                    cursor: 'pointer',
+                    transition: 'all 0.15s',
+                  }}
+                  onMouseEnter={(e) => {
+                    if (!isSelected) {
+                      (e.currentTarget as HTMLElement).style.borderColor =
+                        '#9ca3af';
+                    }
+                  }}
+                  onMouseLeave={(e) => {
+                    if (!isSelected) {
+                      (e.currentTarget as HTMLElement).style.borderColor =
+                        'var(--border)';
+                    }
                   }}
                 >
-                  <span style={{ fontSize: 20 }}>{p?.icon ?? '🤖'}</span>
+                  <span style={{ fontSize: 20, flexShrink: 0 }}>
+                    {p?.icon ?? '🤖'}
+                  </span>
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div
                       style={{
@@ -865,49 +929,352 @@ export default function OrchestratorPage() {
                         fontSize: 11,
                         color: 'var(--text-secondary)',
                         marginTop: 2,
+                        display: 'flex',
+                        gap: 8,
                       }}
                     >
-                      {p?.label} •{' '}
-                      {new Date(job.created_at).toLocaleDateString('ja-JP')}
+                      <span>{p?.label}</span>
+                      <span>•</span>
+                      <span>
+                        {new Date(job.created_at).toLocaleDateString('ja-JP')}
+                      </span>
+                      {seconds !== null && (
+                        <>
+                          <span>•</span>
+                          <span>{seconds}秒</span>
+                        </>
+                      )}
                     </div>
                   </div>
-                  <span
+                  <div
                     style={{
-                      fontSize: 11,
-                      padding: '3px 8px',
-                      borderRadius: 10,
-                      background:
-                        job.status === 'completed'
-                          ? 'rgba(5,150,105,0.15)'
-                          : job.status === 'running'
-                            ? 'rgba(30,64,175,0.15)'
-                            : job.status === 'failed'
-                              ? 'rgba(220,38,38,0.15)'
-                              : 'var(--bg-secondary)',
-                      color:
-                        job.status === 'completed'
-                          ? '#065f46'
-                          : job.status === 'running'
-                            ? '#1e40af'
-                            : job.status === 'failed'
-                              ? '#991b1b'
-                              : 'var(--text-secondary)',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 8,
+                      flexShrink: 0,
                     }}
                   >
-                    {job.status === 'completed'
-                      ? '✅ 完了'
-                      : job.status === 'running'
-                        ? '⏳ 実行中'
-                        : job.status === 'failed'
-                          ? '❌ 失敗'
-                          : '📋 計画中'}
-                  </span>
+                    <span
+                      style={{
+                        fontSize: 11,
+                        padding: '3px 8px',
+                        borderRadius: 10,
+                        background:
+                          job.status === 'completed'
+                            ? 'rgba(5,150,105,0.15)'
+                            : job.status === 'running'
+                              ? 'rgba(30,64,175,0.15)'
+                              : job.status === 'failed'
+                                ? 'rgba(220,38,38,0.15)'
+                                : 'var(--bg-secondary)',
+                        color:
+                          job.status === 'completed'
+                            ? '#065f46'
+                            : job.status === 'running'
+                              ? '#1e40af'
+                              : job.status === 'failed'
+                                ? '#991b1b'
+                                : 'var(--text-secondary)',
+                      }}
+                    >
+                      {job.status === 'completed'
+                        ? '✅ 完了'
+                        : job.status === 'running'
+                          ? '⏳ 実行中'
+                          : job.status === 'failed'
+                            ? '❌ 失敗'
+                            : '📋 計画中'}
+                    </span>
+                    {job.status === 'completed' && (
+                      <span style={{ fontSize: 11, color: '#4f46e5' }}>
+                        {isLoadingThis ? '読込中...' : '結果を見る →'}
+                      </span>
+                    )}
+                  </div>
                 </div>
               );
             })}
           </div>
+
+          {/* 履歴結果の詳細表示 */}
+          {selectedHistoryJob && (
+            <HistoryResultsPanel
+              job={selectedHistoryJob}
+              onClose={() => setSelectedHistoryJob(null)}
+            />
+          )}
         </div>
       )}
+    </div>
+  );
+}
+
+// ============================================================
+// 履歴結果の詳細パネル
+// ============================================================
+
+function HistoryResultsPanel({
+  job,
+  onClose,
+}: {
+  job: Job;
+  onClose: () => void;
+}) {
+  const pipeline = PIPELINES.find((p) => p.id === job.pipeline_type);
+  const steps = pipeline?.steps ?? [];
+  const resultsWithData = steps.filter(
+    (step) => job.results?.[step.id]?.result,
+  );
+
+  const handleCopyAll = () => {
+    const allText = resultsWithData
+      .map(
+        (step) =>
+          `## ${step.label}\n\n${job.results[step.id].result}`,
+      )
+      .join('\n\n---\n\n');
+    void navigator.clipboard.writeText(allText);
+  };
+
+  return (
+    <div
+      id="history-results"
+      style={{
+        marginTop: 20,
+        border: '2px solid #4f46e5',
+        borderRadius: 12,
+        overflow: 'hidden',
+      }}
+    >
+      {/* ヘッダー */}
+      <div
+        style={{
+          padding: '12px 16px',
+          background: 'rgba(79,70,229,0.08)',
+          borderBottom: '1px solid rgba(79,70,229,0.2)',
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          gap: 12,
+        }}
+      >
+        <div style={{ minWidth: 0, flex: 1 }}>
+          <span
+            style={{
+              fontSize: 15,
+              fontWeight: 700,
+              color: '#4f46e5',
+            }}
+          >
+            📋 実行結果:{job.intent}
+          </span>
+          <span
+            style={{
+              fontSize: 11,
+              color: 'var(--text-secondary)',
+              marginLeft: 10,
+              whiteSpace: 'nowrap',
+            }}
+          >
+            {new Date(job.created_at).toLocaleString('ja-JP')}
+          </span>
+        </div>
+        <button
+          type="button"
+          onClick={onClose}
+          style={{
+            fontSize: 13,
+            padding: '4px 10px',
+            border: '1px solid var(--border)',
+            borderRadius: 6,
+            background: 'var(--bg-primary)',
+            cursor: 'pointer',
+            color: 'var(--text-secondary)',
+            flexShrink: 0,
+          }}
+        >
+          ✕ 閉じる
+        </button>
+      </div>
+
+      {/* 全てコピーボタン */}
+      <div
+        style={{
+          padding: '10px 16px',
+          borderBottom: '1px solid var(--border)',
+          background: 'var(--bg-secondary)',
+          display: 'flex',
+          gap: 8,
+          alignItems: 'center',
+        }}
+      >
+        <button
+          type="button"
+          onClick={handleCopyAll}
+          disabled={resultsWithData.length === 0}
+          style={{
+            fontSize: 12,
+            padding: '6px 14px',
+            background:
+              resultsWithData.length === 0 ? '#9ca3af' : '#4f46e5',
+            color: '#fff',
+            border: 'none',
+            borderRadius: 6,
+            cursor:
+              resultsWithData.length === 0 ? 'not-allowed' : 'pointer',
+            fontWeight: 500,
+          }}
+        >
+          📋 全結果をまとめてコピー
+        </button>
+        <span
+          style={{
+            fontSize: 12,
+            color: 'var(--text-secondary)',
+          }}
+        >
+          {resultsWithData.length}ステップの結果
+        </span>
+      </div>
+
+      {/* 各ステップの結果 */}
+      <div
+        style={{
+          padding: 16,
+          display: 'flex',
+          flexDirection: 'column',
+          gap: 12,
+        }}
+      >
+        {resultsWithData.length === 0 ? (
+          <div
+            style={{
+              textAlign: 'center',
+              padding: '30px',
+              color: 'var(--text-secondary)',
+            }}
+          >
+            <p>結果データが見つかりません</p>
+          </div>
+        ) : (
+          resultsWithData.map((step) => (
+            <HistoryStepCard
+              key={step.id}
+              label={step.label}
+              rawResult={job.results[step.id].result}
+            />
+          ))
+        )}
+      </div>
+    </div>
+  );
+}
+
+// 1 ステップ分のカード。各カードが独立に「全て表示」状態を持つので
+// useState を使うためサブコンポーネントに切り出す。
+function HistoryStepCard({
+  label,
+  rawResult,
+}: {
+  label: string;
+  rawResult: unknown;
+}) {
+  const content =
+    typeof rawResult === 'string'
+      ? rawResult
+      : JSON.stringify(rawResult, null, 2);
+  const isLong = content.length > 500;
+  const [isExpanded, setIsExpanded] = useState(false);
+
+  return (
+    <div
+      style={{
+        border: '1px solid var(--border)',
+        borderRadius: 10,
+        overflow: 'hidden',
+      }}
+    >
+      {/* ステップヘッダー */}
+      <div
+        style={{
+          padding: '10px 14px',
+          background: 'var(--bg-secondary)',
+          borderBottom: '1px solid var(--border)',
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          gap: 8,
+        }}
+      >
+        <span style={{ fontSize: 13, fontWeight: 600 }}>{label}</span>
+        <div style={{ display: 'flex', gap: 6 }}>
+          {isLong && (
+            <button
+              type="button"
+              onClick={() => setIsExpanded((v) => !v)}
+              style={{
+                fontSize: 11,
+                padding: '3px 8px',
+                border: '1px solid var(--border)',
+                borderRadius: 4,
+                background: 'var(--bg-primary)',
+                cursor: 'pointer',
+                color: 'var(--text-secondary)',
+              }}
+            >
+              {isExpanded ? '▲ 折りたたむ' : '▼ 全て表示'}
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={() => {
+              void navigator.clipboard.writeText(content);
+            }}
+            style={{
+              fontSize: 11,
+              padding: '3px 8px',
+              border: '1px solid var(--border)',
+              borderRadius: 4,
+              background: 'var(--bg-primary)',
+              cursor: 'pointer',
+              color: 'var(--text-secondary)',
+            }}
+          >
+            📋 コピー
+          </button>
+        </div>
+      </div>
+
+      {/* 内容 */}
+      <div
+        style={{
+          padding: '12px 14px',
+          fontSize: 13,
+          lineHeight: 1.8,
+          whiteSpace: 'pre-wrap',
+          color: 'var(--text-primary)',
+          maxHeight: isExpanded || !isLong ? 'none' : 200,
+          overflowY: isExpanded || !isLong ? 'visible' : 'hidden',
+          position: 'relative',
+        }}
+      >
+        {content}
+        {/* 折りたたみ時のグラデーション */}
+        {isLong && !isExpanded && (
+          <div
+            style={{
+              position: 'absolute',
+              bottom: 0,
+              left: 0,
+              right: 0,
+              height: 60,
+              background:
+                'linear-gradient(to bottom, transparent, var(--bg-primary))',
+              pointerEvents: 'none',
+            }}
+          />
+        )}
+      </div>
     </div>
   );
 }
