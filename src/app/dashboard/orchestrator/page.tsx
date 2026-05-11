@@ -77,7 +77,51 @@ export default function OrchestratorPage() {
   const [streamEvents, setStreamEvents] = useState<StreamEvent[]>([]);
   const [showResults, setShowResults] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
+  // パイプラインごとのステップ有効/無効状態 { pipelineId: { stepId: boolean } }
+  const [stepEnabled, setStepEnabled] = useState<
+    Record<string, Record<string, boolean>>
+  >(() => {
+    const initial: Record<string, Record<string, boolean>> = {};
+    PIPELINES.forEach((pipeline) => {
+      initial[pipeline.id] = {};
+      pipeline.steps.forEach((step) => {
+        initial[pipeline.id][step.id] = true;
+      });
+    });
+    return initial;
+  });
   const eventsEndRef = useRef<HTMLDivElement>(null);
+
+  // ステップのON/OFFを切り替え
+  const toggleStep = (pipelineId: string, stepId: string) => {
+    setStepEnabled((prev) => ({
+      ...prev,
+      [pipelineId]: {
+        ...prev[pipelineId],
+        [stepId]: !(prev[pipelineId]?.[stepId] ?? true),
+      },
+    }));
+  };
+
+  // パイプラインの全ステップを再有効化
+  const resetPipelineSteps = (pipelineId: string) => {
+    const pipeline = PIPELINES.find((p) => p.id === pipelineId);
+    if (!pipeline) return;
+    setStepEnabled((prev) => ({
+      ...prev,
+      [pipelineId]: Object.fromEntries(
+        pipeline.steps.map((s) => [s.id, true]),
+      ),
+    }));
+  };
+
+  // 有効なステップIDのリストを取得
+  const getEnabledStepIds = (pipelineId: string): string[] => {
+    const map = stepEnabled[pipelineId] ?? {};
+    return Object.entries(map)
+      .filter(([, v]) => v)
+      .map(([k]) => k);
+  };
 
   useEffect(() => {
     void loadJobs();
@@ -116,12 +160,19 @@ export default function OrchestratorPage() {
     setStreamEvents([]);
     setShowResults(false);
 
+    const enabledStepIds = getEnabledStepIds(pipelineType);
+    if (enabledStepIds.length === 0) {
+      setErrorMessage('実行するステップが選択されていません');
+      setIsRunning(false);
+      return;
+    }
+
     try {
       // ジョブ作成
       const createRes = await fetch('/api/orchestrator', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ intent, pipelineType }),
+        body: JSON.stringify({ intent, pipelineType, enabledStepIds }),
       });
       if (!createRes.ok) {
         setErrorMessage('ジョブ作成に失敗しました');
@@ -343,25 +394,83 @@ export default function OrchestratorPage() {
                 style={{
                   display: 'flex',
                   gap: 4,
-                  marginTop: 6,
+                  marginTop: 8,
                   flexWrap: 'wrap',
                 }}
               >
-                {p.steps.map((s) => (
-                  <span
-                    key={s.id}
+                {p.steps.map((step) => {
+                  const isOn = stepEnabled[p.id]?.[step.id] !== false;
+                  return (
+                    <button
+                      key={step.id}
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        toggleStep(p.id, step.id);
+                      }}
+                      title={isOn ? 'クリックでスキップ' : 'クリックで有効化'}
+                      style={{
+                        fontSize: 11,
+                        padding: '3px 8px',
+                        borderRadius: 4,
+                        cursor: 'pointer',
+                        border: 'none',
+                        transition: 'all 0.15s',
+                        background: isOn
+                          ? 'rgba(79,70,229,0.12)'
+                          : 'rgba(0,0,0,0.05)',
+                        color: isOn ? '#4f46e5' : '#9ca3af',
+                        textDecoration: isOn ? 'none' : 'line-through',
+                        opacity: isOn ? 1 : 0.6,
+                      }}
+                    >
+                      {step.label}
+                      {!isOn && (
+                        <span style={{ marginLeft: 3, fontSize: 9 }}>✕</span>
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+              {/* 無効化されたステップ数の表示 */}
+              {(() => {
+                const disabledCount = p.steps.filter(
+                  (s) => stepEnabled[p.id]?.[s.id] === false,
+                ).length;
+                if (disabledCount === 0) return null;
+                return (
+                  <div
                     style={{
-                      fontSize: 10,
-                      padding: '2px 6px',
-                      background: 'rgba(79,70,229,0.08)',
-                      color: '#4f46e5',
-                      borderRadius: 4,
+                      marginTop: 6,
+                      fontSize: 11,
+                      color: 'var(--text-muted, #9ca3af)',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 4,
                     }}
                   >
-                    {s.label}
-                  </span>
-                ))}
-              </div>
+                    <span>⚠️ {disabledCount}件をスキップ</span>
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        resetPipelineSteps(p.id);
+                      }}
+                      style={{
+                        fontSize: 10,
+                        color: 'var(--text-secondary, #6b7280)',
+                        background: 'none',
+                        border: 'none',
+                        cursor: 'pointer',
+                        textDecoration: 'underline',
+                        padding: 0,
+                      }}
+                    >
+                      全て有効に戻す
+                    </button>
+                  </div>
+                );
+              })()}
             </button>
           );
         })}

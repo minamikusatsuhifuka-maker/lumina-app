@@ -114,7 +114,12 @@ export async function POST(req: NextRequest) {
     WHERE id = ${jobId} AND user_id = ${userId}
   `;
   const job = jobRows[0] as
-    | { id: number; intent: string; pipeline_type: string }
+    | {
+        id: number;
+        intent: string;
+        pipeline_type: string;
+        steps?: Array<{ id: string }> | null;
+      }
     | undefined;
 
   if (!job) {
@@ -124,13 +129,30 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  const pipeline = PIPELINES.find((p) => p.id === job.pipeline_type);
-  if (!pipeline) {
+  const basePipeline = PIPELINES.find((p) => p.id === job.pipeline_type);
+  if (!basePipeline) {
     return new Response(
       `data: ${JSON.stringify({ type: 'error', message: 'パイプラインが見つかりません' })}\n\n`,
       { headers: { 'Content-Type': 'text/event-stream' } },
     );
   }
+
+  // ジョブ作成時に保存された有効ステップIDを取得し、PIPELINES定義をフィルタ
+  // 依存ステップが除外されている場合は dependsOn からも自動的に除外
+  const enabledIds = new Set(
+    Array.isArray(job.steps) && job.steps.length > 0
+      ? job.steps.map((s) => s.id)
+      : basePipeline.steps.map((s) => s.id),
+  );
+  const pipeline = {
+    ...basePipeline,
+    steps: basePipeline.steps
+      .filter((s) => enabledIds.has(s.id))
+      .map((s) => ({
+        ...s,
+        dependsOn: s.dependsOn?.filter((d) => enabledIds.has(d)),
+      })),
+  };
 
   // クッキー・origin を取得してサブAPIに転送
   const cookieHeader = req.headers.get('cookie') ?? '';

@@ -8,6 +8,7 @@ export const runtime = 'nodejs';
 interface OrchestratorPostBody {
   intent: string;
   pipelineType?: string;
+  enabledStepIds?: string[];
 }
 
 const detectPipelineType = (intent: string): string => {
@@ -28,7 +29,7 @@ export async function POST(req: NextRequest) {
 
   try {
     const body = (await req.json()) as OrchestratorPostBody;
-    const { intent, pipelineType: forcedType } = body;
+    const { intent, pipelineType: forcedType, enabledStepIds } = body;
     if (!intent?.trim()) {
       return NextResponse.json(
         { error: 'intentは必須です' },
@@ -46,7 +47,13 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const initialSteps = pipeline.steps.map((s) => ({
+    // 有効ステップのフィルタリング（未指定なら全て有効）
+    const filteredSteps =
+      Array.isArray(enabledStepIds) && enabledStepIds.length > 0
+        ? pipeline.steps.filter((s) => enabledStepIds.includes(s.id))
+        : pipeline.steps;
+
+    const initialSteps = filteredSteps.map((s) => ({
       id: s.id,
       label: s.label,
       status: 'pending' as const,
@@ -64,7 +71,10 @@ export async function POST(req: NextRequest) {
       RETURNING *
     `;
 
-    return NextResponse.json({ job: rows[0], pipeline });
+    return NextResponse.json({
+      job: rows[0],
+      pipeline: { ...pipeline, steps: filteredSteps },
+    });
   } catch (err) {
     const message = err instanceof Error ? err.message : '不明なエラー';
     return NextResponse.json({ error: message }, { status: 500 });
