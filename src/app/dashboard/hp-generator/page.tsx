@@ -5,6 +5,7 @@ import ContextSelector, {
   buildContextText,
   type ContextItem,
 } from '@/components/ContextSelector';
+import DeepDiveChat from '@/components/DeepDiveChat';
 
 const INDUSTRIES = ['IT・SaaS', '医療・ヘルスケア', '飲食・フード', '不動産', '教育', 'コンサルティング', '製造業', '小売・EC', 'その他'];
 const TONES = ['親しみやすくプロフェッショナル', 'フォーマル・高級感', 'カジュアル・フレンドリー', 'シンプル・ミニマル'];
@@ -15,6 +16,8 @@ export default function HpGeneratorPage() {
   const [isLoading, setIsLoading] = useState(false);
   const [copied, setCopied] = useState<string | null>(null);
   const [hpContexts, setHpContexts] = useState<ContextItem[]>([]);
+  const [showDeepDive, setShowDeepDive] = useState(false);
+  const [deepDiveContent, setDeepDiveContent] = useState('');
 
   const handleGenerate = async () => {
     if (!form.companyName || !form.target || !form.usp) { alert('会社名・ターゲット・強みを入力してください'); return; }
@@ -44,6 +47,93 @@ export default function HpGeneratorPage() {
     <div style={{ maxWidth: 860, margin: '0 auto', paddingBottom: 60 }}>
       <h1 style={{ fontSize: 26, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 4 }}>🏠 HP内容自動生成</h1>
       <p style={{ color: 'var(--text-muted)', fontSize: 13, marginBottom: 12 }}>企業情報を入力するだけで、HPの全セクションコンテンツをAIが自動生成します。</p>
+
+      {/* AI対話で深掘りモード切替 */}
+      <div style={{ marginBottom: 14 }}>
+        <button
+          type="button"
+          onClick={() => setShowDeepDive((v) => !v)}
+          style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: 6,
+            padding: '8px 14px',
+            background: showDeepDive ? '#059669' : 'rgba(5,150,105,0.1)',
+            color: showDeepDive ? '#fff' : '#059669',
+            border: '1px solid rgba(5,150,105,0.35)',
+            borderRadius: 8,
+            fontSize: 13,
+            fontWeight: 600,
+            cursor: 'pointer',
+          }}
+        >
+          💬 {showDeepDive ? '対話モードを閉じる' : 'AI対話で深掘りモード'}
+        </button>
+      </div>
+      {showDeepDive && (
+        <div style={{ marginBottom: 20 }}>
+          <DeepDiveChat
+            featureType="hp_content"
+            featureLabel="HP内容"
+            featureIcon="🏠"
+            accentColor="#059669"
+            onGenerated={(content) => {
+              setDeepDiveContent(content);
+              setShowDeepDive(false);
+            }}
+          />
+        </div>
+      )}
+      {deepDiveContent && (
+        <div
+          style={{
+            marginBottom: 20,
+            padding: '12px 14px',
+            background: 'rgba(5,150,105,0.06)',
+            border: '1px solid rgba(5,150,105,0.25)',
+            borderRadius: 10,
+          }}
+        >
+          <div
+            style={{
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              marginBottom: 6,
+            }}
+          >
+            <span style={{ fontSize: 12, fontWeight: 600, color: '#059669' }}>
+              💬 AI対話で生成された下書き
+            </span>
+            <button
+              onClick={() => setDeepDiveContent('')}
+              style={{
+                fontSize: 11,
+                padding: '3px 8px',
+                border: '1px solid var(--border)',
+                borderRadius: 4,
+                background: 'var(--bg-primary)',
+                cursor: 'pointer',
+                color: 'var(--text-secondary)',
+              }}
+            >
+              ✕ 閉じる
+            </button>
+          </div>
+          <div
+            style={{
+              fontSize: 12,
+              lineHeight: 1.7,
+              maxHeight: 280,
+              overflowY: 'auto',
+              whiteSpace: 'pre-wrap',
+              color: 'var(--text-primary)',
+            }}
+          >
+            {deepDiveContent}
+          </div>
+        </div>
+      )}
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 20 }}>
         <span style={{ fontSize: 11, color: 'var(--text-muted)', alignSelf: 'center' }}>関連機能：</span>
         {[

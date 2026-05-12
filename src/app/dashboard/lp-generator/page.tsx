@@ -3,6 +3,7 @@ import { useState, useEffect } from 'react';
 import { ProgressBar } from '@/components/ProgressBar';
 import { useProgress } from '@/components/useProgress';
 import { SaveToLibraryButton } from '@/components/SaveToLibraryButton';
+import DeepDiveChat from '@/components/DeepDiveChat';
 
 const FRAMEWORKS = [
   { id: 'pasona', label: '🎯 PASONA', desc: '問題提起→共感→解決策→提案→行動', color: '#6c63ff' },
@@ -52,6 +53,7 @@ export default function LPGeneratorPage() {
   const [form, setForm] = useState<LPForm>(INITIAL_FORM);
   const [result, setResult] = useState<LPResult | null>(null);
   const [rawText, setRawText] = useState('');
+  const [showDeepDive, setShowDeepDive] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [contextHint, setContextHint] = useState('');
@@ -301,6 +303,43 @@ ${result.cta_sections[2] ? ctaBlock(result.cta_sections[2]) : ''}
       <p style={{ color: 'var(--text-muted)', marginBottom: 12 }}>
         セールスフレームワークに基づいて、LP（ランディングページ）の構成をAIが自動生成します
       </p>
+
+      {/* AI対話で深掘りモード切替 */}
+      <div style={{ marginBottom: 14 }}>
+        <button
+          type="button"
+          onClick={() => setShowDeepDive((v) => !v)}
+          style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: 6,
+            padding: '8px 14px',
+            background: showDeepDive ? '#ea580c' : 'rgba(234,88,12,0.1)',
+            color: showDeepDive ? '#fff' : '#ea580c',
+            border: '1px solid rgba(234,88,12,0.35)',
+            borderRadius: 8,
+            fontSize: 13,
+            fontWeight: 600,
+            cursor: 'pointer',
+          }}
+        >
+          💬 {showDeepDive ? '対話モードを閉じる' : 'AI対話で深掘りモード'}
+        </button>
+      </div>
+      {showDeepDive && (
+        <div style={{ marginBottom: 20 }}>
+          <DeepDiveChat
+            featureType="lp"
+            featureLabel="LP"
+            featureIcon="📄"
+            accentColor="#ea580c"
+            onGenerated={(content) => {
+              setRawText(content);
+              setShowDeepDive(false);
+            }}
+          />
+        </div>
+      )}
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 20 }}>
         <span style={{ fontSize: 11, color: 'var(--text-muted)', alignSelf: 'center' }}>関連機能：</span>
         {[

@@ -6,6 +6,7 @@ import { useProgress } from '@/components/useProgress';
 import { SaveToLibraryButton } from '@/components/SaveToLibraryButton';
 import { DateRangePicker, DateRange, getDateCondition } from '@/components/DateRangePicker';
 import InlineAnalysisPanel from '@/components/text-analysis/InlineAnalysisPanel';
+import DeepDiveChat from '@/components/DeepDiveChat';
 
 const TEMPLATES = [
   { label: 'AI最新動向', topic: '2026年の生成AI・大規模言語モデルの最新動向と活用事例' },
@@ -113,6 +114,7 @@ export default function DeepResearchPage() {
   const [contextFeatureTags, setContextFeatureTags] = useState<string[]>(['all']);
   const [contextSaving, setContextSaving] = useState(false);
   const [tab, setTab] = useState<'single' | 'batch'>('single');
+  const [showDeepDive, setShowDeepDive] = useState(false);
 
   // バッチリサーチ
   const [batchTopics, setBatchTopics] = useState<BatchTopic[]>([{ topic: '', mode: 'standard' }]);
@@ -928,6 +930,43 @@ ${contextText}
       <ProgressBar loading={progressLoading} progress={progress} label="🔭 ディープリサーチ実行中..." />
       <h1 style={{ fontSize: 28, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 8 }}>🔭 ディープリサーチ</h1>
       <p style={{ color: 'var(--text-muted)', marginBottom: 16 }}>Claude AIが複数ソースを統合し、徹底的なリサーチレポートを生成します</p>
+
+      {/* AI対話で深掘りモード切替 */}
+      <div style={{ marginBottom: 14 }}>
+        <button
+          type="button"
+          onClick={() => setShowDeepDive((v) => !v)}
+          style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: 6,
+            padding: '8px 14px',
+            background: showDeepDive ? '#6366f1' : 'rgba(99,102,241,0.1)',
+            color: showDeepDive ? '#fff' : '#6366f1',
+            border: '1px solid rgba(99,102,241,0.35)',
+            borderRadius: 8,
+            fontSize: 13,
+            fontWeight: 600,
+            cursor: 'pointer',
+          }}
+        >
+          💬 {showDeepDive ? '対話モードを閉じる' : 'AI対話で深掘りモード'}
+        </button>
+      </div>
+      {showDeepDive && (
+        <div style={{ marginBottom: 20 }}>
+          <DeepDiveChat
+            featureType="deepresearch"
+            featureLabel="リサーチ"
+            featureIcon="🔭"
+            accentColor="#6366f1"
+            onGenerated={(content) => {
+              setReport(content);
+              setShowDeepDive(false);
+            }}
+          />
+        </div>
+      )}
 
       {/* タブ切替 */}
       <div style={{ display: 'flex', gap: 8, marginBottom: 20 }}>

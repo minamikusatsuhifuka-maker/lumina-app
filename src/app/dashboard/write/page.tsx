@@ -9,6 +9,7 @@ import ContextSelector, {
   buildContextText,
   type ContextItem,
 } from '@/components/ContextSelector';
+import DeepDiveChat from '@/components/DeepDiveChat';
 
 const ALL_MODES = [
   { key: 'blog',          label: '📝 ブログ',        description: 'SEOを意識した読みやすい長文記事' },
@@ -83,6 +84,7 @@ export default function WritePage() {
   const [showAllModes, setShowAllModes] = useState(false);
   const [prompt, setPrompt] = useState('');
   const [writeContexts, setWriteContexts] = useState<ContextItem[]>([]);
+  const [showDeepDive, setShowDeepDive] = useState(false);
   const [style, setStyle] = useState('casual');
   const [length, setLength] = useState('medium');
   const [audience, setAudience] = useState('general');
@@ -549,7 +551,46 @@ export default function WritePage() {
           📚 下書き一覧
         </a>
       </div>
-      <p style={{ color: 'var(--text-muted)', marginBottom: 24 }}>Claude Sonnet 4.6 — 高精度ストリーミング生成</p>
+      <p style={{ color: 'var(--text-muted)', marginBottom: 16 }}>Claude Sonnet 4.6 — 高精度ストリーミング生成</p>
+
+      {/* AI対話で深掘りモード切替 */}
+      <div style={{ marginBottom: 20 }}>
+        <button
+          type="button"
+          onClick={() => setShowDeepDive((v) => !v)}
+          style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: 6,
+            padding: '8px 14px',
+            background: showDeepDive ? '#4f46e5' : 'rgba(79,70,229,0.1)',
+            color: showDeepDive ? '#fff' : '#4f46e5',
+            border: '1px solid rgba(79,70,229,0.35)',
+            borderRadius: 8,
+            fontSize: 13,
+            fontWeight: 600,
+            cursor: 'pointer',
+          }}
+          title="AIと対話しながら情報を整理して文章を生成します"
+        >
+          💬 {showDeepDive ? '対話モードを閉じる' : 'AI対話で深掘りモード'}
+        </button>
+      </div>
+
+      {showDeepDive && (
+        <div style={{ marginBottom: 24 }}>
+          <DeepDiveChat
+            featureType="write"
+            featureLabel="文章"
+            featureIcon="✍️"
+            accentColor="#4f46e5"
+            onGenerated={(content) => {
+              setOutput(content);
+              setShowDeepDive(false);
+            }}
+          />
+        </div>
+      )}
       <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 20 }}>
         {(showAllModes ? ALL_MODES : ALL_MODES.slice(0, 8)).map(m => (
           <div key={m.key} style={{ position: 'relative' }} className="group">

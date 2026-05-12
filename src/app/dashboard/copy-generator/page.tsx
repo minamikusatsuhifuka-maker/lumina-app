@@ -3,6 +3,7 @@ import { useState } from 'react';
 import { ProgressBar } from '@/components/ProgressBar';
 import { useProgress } from '@/components/useProgress';
 import { SaveToLibraryButton } from '@/components/SaveToLibraryButton';
+import DeepDiveChat from '@/components/DeepDiveChat';
 
 const FRAMEWORKS = [
   { id: 'PASONA', label: 'PASONA', desc: '共感→解決→限定→行動', color: '#6c63ff' },
@@ -43,6 +44,7 @@ export default function CopyGeneratorPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [copied, setCopied] = useState<string | null>(null);
+  const [showDeepDive, setShowDeepDive] = useState(false);
   const { progress, loading: progressLoading, startProgress, completeProgress, resetProgress } = useProgress();
 
   const fillSample = () => {
@@ -102,6 +104,43 @@ export default function CopyGeneratorPage() {
       <p style={{ color: 'var(--text-muted)', marginBottom: 12, fontSize: 14 }}>
         セールスフレームワークに基づいて、マーケティングコピーをAIが自動生成します
       </p>
+
+      {/* AI対話で深掘りモード切替 */}
+      <div style={{ marginBottom: 16 }}>
+        <button
+          type="button"
+          onClick={() => setShowDeepDive((v) => !v)}
+          style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: 6,
+            padding: '8px 14px',
+            background: showDeepDive ? '#7c3aed' : 'rgba(124,58,237,0.1)',
+            color: showDeepDive ? '#fff' : '#7c3aed',
+            border: '1px solid rgba(124,58,237,0.35)',
+            borderRadius: 8,
+            fontSize: 13,
+            fontWeight: 600,
+            cursor: 'pointer',
+          }}
+        >
+          💬 {showDeepDive ? '対話モードを閉じる' : 'AI対話で深掘りモード'}
+        </button>
+      </div>
+      {showDeepDive && (
+        <div style={{ marginBottom: 24 }}>
+          <DeepDiveChat
+            featureType="copy"
+            featureLabel="コピー"
+            featureIcon="💬"
+            accentColor="#7c3aed"
+            onGenerated={(content) => {
+              setRawText(content);
+              setShowDeepDive(false);
+            }}
+          />
+        </div>
+      )}
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 20 }}>
         <span style={{ fontSize: 11, color: 'var(--text-muted)', alignSelf: 'center' }}>関連機能：</span>
         {[
