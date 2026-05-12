@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
 import { sql } from '@/lib/db';
+import { triggerIntegrations } from '@/lib/integrationEngine';
 
 export const runtime = 'nodejs';
 
@@ -156,7 +157,38 @@ export async function PATCH(req: NextRequest) {
       WHERE id = ${id} AND user_id = ${userId}
       RETURNING *
     `;
-    return NextResponse.json({ post: rows[0] });
+    const post = rows[0] as
+      | {
+          id: number;
+          title: string;
+          content?: string;
+          excerpt?: string;
+          tags?: unknown;
+        }
+      | undefined;
+
+    // ブログ公開時にSaaS連携を発火
+    if (status === 'published' && post) {
+      const postTags = Array.isArray(post.tags)
+        ? (post.tags as string[])
+        : [];
+      await triggerIntegrations(
+        {
+          userId,
+          sourceType: 'blog',
+          sourceId: post.id,
+          title: post.title,
+          content: post.content ?? '',
+          summary: post.excerpt ?? (post.content ?? '').slice(0, 200),
+          tags: postTags,
+        },
+        'blog_published',
+      ).catch(() => {
+        /* 連携失敗はブログ公開に影響させない */
+      });
+    }
+
+    return NextResponse.json({ post });
   } catch (err) {
     const message = err instanceof Error ? err.message : '不明なエラー';
     return NextResponse.json({ error: message }, { status: 500 });

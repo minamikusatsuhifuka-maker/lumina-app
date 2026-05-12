@@ -2,6 +2,7 @@ import { NextRequest } from 'next/server';
 import { auth } from '@/lib/auth';
 import { sql } from '@/lib/db';
 import { PIPELINES, type PipelineStep, type StepResult } from '@/lib/pipelines';
+import { triggerIntegrations } from '@/lib/integrationEngine';
 
 export const runtime = 'nodejs';
 export const maxDuration = 300;
@@ -667,6 +668,30 @@ export async function POST(req: NextRequest) {
           totalTokens,
           costUsd: Math.round(costUsd * 1000) / 1000,
           costJpy,
+        });
+
+        // 外部SaaS連携（Make/Zapier/Notion/Sheets）を自動発火
+        await triggerIntegrations(
+          {
+            userId,
+            sourceType: 'pipeline',
+            sourceId: jobId,
+            title: `${pipeline.label} - ${job.intent}`,
+            content: Object.entries(results)
+              .filter(([, v]) => v?.result)
+              .map(([k, v]) => `## ${k}\n${v.result}`)
+              .join('\n\n'),
+            summary: job.intent,
+            tags: [pipeline.id, 'orchestrator'],
+            metadata: {
+              pipelineType: pipeline.id,
+              completedSteps: completedCount,
+              failedSteps: failedCount,
+            },
+          },
+          'pipeline_complete',
+        ).catch(() => {
+          /* 連携失敗はパイプライン本体に影響させない */
         });
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);

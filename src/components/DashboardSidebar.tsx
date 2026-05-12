@@ -95,6 +95,7 @@ const navCategories: NavCategory[] = [
       { href: '/dashboard/reviews', label: '口コミ管理', icon: '⭐' },
       { href: '/dashboard/stats', label: '使用状況', icon: '📊' },
       { href: '/dashboard/api-usage', label: 'API使用量', icon: '💴' },
+      { href: '/dashboard/integrations', label: '外部連携（SaaS）', icon: '🔗' },
     ],
   },
 ];
