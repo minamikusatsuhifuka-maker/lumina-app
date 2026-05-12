@@ -27,11 +27,14 @@ interface StreamEvent {
   progress?: number;
   preview?: string;
   message?: string;
+  error?: string;
   reason?: string;
   results?: Record<string, { result: string; status: string }>;
   count?: number;
   labels?: string[];
   hadErrors?: boolean;
+  completedCount?: number;
+  failedCount?: number;
 }
 
 const QUICK_INTENTS = [
@@ -646,16 +649,20 @@ export default function OrchestratorPage() {
             </div>
           )}
 
+          {/* ログ本体：ユーザーがドラッグでリサイズ可能 */}
           <div
             style={{
-              maxHeight: 300,
-              overflowY: 'auto',
+              overflow: 'auto',
               padding: 16,
               background: 'var(--bg-primary)',
+              resize: 'vertical',
+              minHeight: 200,
+              maxHeight: 600,
+              height: 300,
             }}
           >
             {streamEvents.map((event, i) => {
-              // 並列実行開始は専用カード表示
+              // 並列実行開始は専用カード表示（青背景）
               if (event.type === 'parallel_start') {
                 return (
                   <div
@@ -698,6 +705,8 @@ export default function OrchestratorPage() {
                 );
               }
 
+              // エラー行は赤背景でハイライト
+              const isError = event.type === 'step_error' || event.type === 'error';
               return (
                 <div
                   key={i}
@@ -706,6 +715,14 @@ export default function OrchestratorPage() {
                     alignItems: 'flex-start',
                     gap: 8,
                     marginBottom: 8,
+                    ...(isError
+                      ? {
+                          background: 'rgba(239,68,68,0.06)',
+                          border: '1px solid rgba(239,68,68,0.2)',
+                          borderRadius: 6,
+                          padding: '6px 8px',
+                        }
+                      : {}),
                   }}
                 >
                   <span style={{ fontSize: 16, flexShrink: 0 }}>
@@ -730,7 +747,11 @@ export default function OrchestratorPage() {
                       style={{
                         fontSize: 13,
                         fontWeight: event.type === 'completed' ? 700 : 400,
-                        color: 'var(--text-primary)',
+                        color: isError
+                          ? '#dc2626'
+                          : event.type === 'completed'
+                            ? '#059669'
+                            : 'var(--text-primary)',
                       }}
                     >
                       {event.type === 'started'
@@ -742,11 +763,9 @@ export default function OrchestratorPage() {
                             : event.type === 'step_skip'
                               ? `${event.label} スキップ: ${event.reason ?? ''}`
                               : event.type === 'step_error'
-                                ? `${event.label} エラー: ${event.message ?? ''}`
+                                ? `${event.label ?? ''} エラー: ${event.error ?? event.message ?? ''}`
                                 : event.type === 'completed'
-                                  ? event.hadErrors
-                                    ? '⚠️ 一部エラーありで完了'
-                                    : '🎉 全工程完了！結果を確認してください'
+                                  ? `🎉 全工程完了！（✅${event.completedCount ?? 0}件 / ❌${event.failedCount ?? 0}件）`
                                   : event.type === 'error'
                                     ? `エラー: ${event.message ?? ''}`
                                     : (event.message ?? '')}
@@ -770,6 +789,21 @@ export default function OrchestratorPage() {
               );
             })}
             <div ref={eventsEndRef} />
+          </div>
+
+          {/* リサイズヒント */}
+          <div
+            style={{
+              padding: '4px 12px',
+              background: 'var(--bg-secondary)',
+              borderTop: '1px solid var(--border)',
+              fontSize: 10,
+              color: '#9ca3af',
+              textAlign: 'center',
+              userSelect: 'none',
+            }}
+          >
+            ↕ 上のログ枠の下端をドラッグしてリサイズ
           </div>
         </div>
       )}

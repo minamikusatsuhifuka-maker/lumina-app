@@ -12,10 +12,30 @@ interface ExecuteRequest {
 
 // 並列起動数の上限（Vercel関数の同時接続数・メモリを保護）
 const MAX_PARALLEL = 3;
-// 1ステップあたりの最大待機時間（ms）
-const STEP_TIMEOUT_MS = 90_000;
-// fetchレベルのタイムアウト（ms）- ステップタイムアウトより短くする
-const FETCH_TIMEOUT_MS = 85_000;
+
+// ステップIDに応じたタイムアウト設定（ms）
+// 大量生成ステップ（LP・21通メール・SNS30日分など）は長めに確保する
+const STEP_TIMEOUTS: Record<string, number> = {
+  // 超長文生成（180秒〜240秒）
+  lp: 180_000, // LP全文 → 3分
+  step_mail: 240_000, // メール21通 → 4分
+  sns_30days: 180_000, // SNS30日分 → 3分
+  kindle_outline: 180_000, // Kindleアウトライン → 3分
+  outline: 180_000, // Kindle本文用アウトライン → 3分
+  chapter_hooks: 180_000, // 章ごとのフック → 3分
+  amazon_listing: 150_000, // Amazonリスティング → 2.5分
+  video_script: 150_000, // 動画台本 → 2.5分
+  podcast_script: 150_000, // ポッドキャスト台本 → 2.5分
+  seo_content_plan: 120_000, // SEOコンテンツ計画 → 2分
+  promotion_plan: 120_000, // プロモーション計画 → 2分
+  market_research: 120_000, // 市場リサーチ → 2分
+  research: 120_000, // 一般リサーチ → 2分
+};
+// デフォルト（通常ステップ）
+const DEFAULT_STEP_TIMEOUT_MS = 90_000;
+// fetch（Abort）はステップタイムアウトより5秒短く（最低60秒は確保）
+const fetchTimeoutFor = (stepTimeoutMs: number): number =>
+  Math.max(stepTimeoutMs - 5_000, 60_000);
 
 // SSEストリームからテキストを収集
 // deepresearch: { type: 'text', content: ... } / { type: 'done' }
@@ -73,6 +93,7 @@ const executeStep = async (
   input: Record<string, unknown>,
   origin: string,
   cookieHeader: string,
+  fetchTimeoutMs: number,
 ): Promise<string> => {
   const res = await fetch(`${origin}${step.apiEndpoint}`, {
     method: 'POST',
@@ -81,8 +102,8 @@ const executeStep = async (
       cookie: cookieHeader,
     },
     body: JSON.stringify(input),
-    // fetchレベルのタイムアウト（ハング防止）
-    signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+    // fetchレベルのタイムアウト（ステップ毎に動的に決定）
+    signal: AbortSignal.timeout(fetchTimeoutMs),
   });
 
   if (!res.ok) {
@@ -233,21 +254,29 @@ export async function POST(req: NextRequest) {
         // 1ステップを実行する非同期関数（必ず resolve、内部で例外を捕捉、タイムアウト付き）
         const runStep = async (step: PipelineStep): Promise<void> => {
           running.add(step.id);
+          // ステップIDから動的にタイムアウトを決定（大量生成は長めに）
+          const stepTimeout =
+            STEP_TIMEOUTS[step.id] ?? DEFAULT_STEP_TIMEOUT_MS;
+          const fetchTimeout = fetchTimeoutFor(stepTimeout);
           send({ type: 'step_start', stepId: step.id, label: step.label });
 
-          // ステップ全体のタイムアウトPromise
+          // ステップ全体のタイムアウトPromise（動的）
           const timeoutPromise = new Promise<never>((_, reject) =>
             setTimeout(
               () =>
-                reject(new Error(`タイムアウト(${STEP_TIMEOUT_MS / 1000}秒): ${step.label}`)),
-              STEP_TIMEOUT_MS,
+                reject(
+                  new Error(
+                    `タイムアウト(${stepTimeout / 1000}秒): ${step.label}`,
+                  ),
+                ),
+              stepTimeout,
             ),
           );
 
           try {
             const input = step.inputMapper(job.intent, results);
             const result = await Promise.race([
-              executeStep(step, input, origin, cookieHeader),
+              executeStep(step, input, origin, cookieHeader, fetchTimeout),
               timeoutPromise,
             ]);
             results[step.id] = { result, status: 'completed' };
