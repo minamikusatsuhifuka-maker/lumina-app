@@ -2,13 +2,28 @@ import { NextRequest, NextResponse } from 'next/server';
 import { sql } from '@/lib/db';
 import { auth } from '@/lib/auth';
 
-export async function GET(_req: NextRequest) {
+export async function GET(req: NextRequest) {
   const session = await auth();
   const userId = (session?.user as any)?.id;
+  const { searchParams } = new URL(req.url);
+  const id = searchParams.get('id');
+
+  if (id) {
+    const [s] = await sql`
+      SELECT * FROM automation_sessions
+      WHERE id = ${parseInt(id)} AND user_id = ${userId}
+    `;
+    return NextResponse.json({ session: s ?? null });
+  }
+
   const sessions = await sql`
-    SELECT id, title, domain, status, strategy_output IS NOT NULL as has_output, created_at, updated_at
+    SELECT id, title, domain, status,
+      strategy_output IS NOT NULL as has_strategy,
+      report_output IS NOT NULL as has_report,
+      jsonb_array_length(messages) as message_count,
+      created_at, updated_at
     FROM automation_sessions WHERE user_id = ${userId}
-    ORDER BY updated_at DESC LIMIT 20
+    ORDER BY updated_at DESC LIMIT 30
   `;
   return NextResponse.json({ sessions });
 }

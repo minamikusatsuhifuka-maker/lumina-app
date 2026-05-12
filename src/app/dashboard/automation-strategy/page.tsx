@@ -5,7 +5,9 @@ import { useEffect, useRef, useState } from 'react';
 interface Message { role: 'user' | 'assistant'; content: string; }
 interface Session {
   id: number; title: string; domain: string;
-  has_output: boolean; created_at: string; updated_at: string;
+  has_strategy?: boolean; has_report?: boolean; message_count?: number;
+  has_output?: boolean;
+  created_at: string; updated_at: string;
 }
 
 const DOMAINS = [
@@ -76,8 +78,12 @@ export default function AutomationStrategyPage() {
   const [isGeneratingStrategy, setIsGeneratingStrategy] = useState(false);
   const [strategyOutput, setStrategyOutput] = useState('');
   const [strategyStreaming, setStrategyStreaming] = useState('');
-  const [activeTab, setActiveTab] = useState<'chat' | 'strategy'>('chat');
+  const [activeTab, setActiveTab] = useState<'chat' | 'strategy' | 'report'>('chat');
   const [showStrategyReady, setShowStrategyReady] = useState(false);
+  const [reportOutput, setReportOutput] = useState('');
+  const [isGeneratingReport, setIsGeneratingReport] = useState(false);
+  const [sessionTitle, setSessionTitle] = useState('');
+  const [isEditingTitle, setIsEditingTitle] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -94,12 +100,67 @@ export default function AutomationStrategyPage() {
     setSessions(sessions ?? []);
   };
 
+  const loadSession = async (sessionId: number) => {
+    const res = await fetch(`/api/automation/sessions?id=${sessionId}`);
+    const { session: s } = await res.json();
+    if (!s) return;
+
+    setCurrentSessionId(s.id);
+    setSelectedDomain(s.domain ?? 'agent');
+    setMessages(s.messages ?? []);
+    setStrategyOutput(s.strategy_output ?? '');
+    setReportOutput(s.report_output ?? '');
+    setSessionTitle(s.title ?? '');
+    setActiveTab('chat');
+
+    if (s.strategy_output) setShowStrategyReady(true);
+  };
+
+  const handleGenerateReport = async () => {
+    let sid = currentSessionId;
+
+    if (!sid) {
+      const res = await fetch('/api/automation/sessions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          domain: selectedDomain,
+          messages,
+          title: `${currentDomain?.label}セッション`,
+        }),
+      });
+      const { session: s } = await res.json();
+      sid = s.id;
+      setCurrentSessionId(s.id);
+      setSessionTitle(s.title);
+    }
+
+    setIsGeneratingReport(true);
+    setReportOutput('');
+    setActiveTab('report');
+
+    try {
+      const res = await fetch('/api/automation/generate-report', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sessionId: sid }),
+      });
+      const { report } = await res.json();
+      setReportOutput(report ?? '');
+      await loadSessions();
+    } finally {
+      setIsGeneratingReport(false);
+    }
+  };
+
   const startNewSession = async (domain: string) => {
     setSelectedDomain(domain);
     setMessages([]);
     setStrategyOutput('');
     setStrategyStreaming('');
     setShowStrategyReady(false);
+    setReportOutput('');
+    setSessionTitle('');
     setCurrentSessionId(null);
     setActiveTab('chat');
     await fetchAIResponse('', [], domain);
@@ -166,16 +227,22 @@ export default function AutomationStrategyPage() {
       const res = await fetch('/api/automation/sessions', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ domain: selectedDomain, messages: updatedMessages }),
+        body: JSON.stringify({
+          domain: selectedDomain,
+          messages: updatedMessages,
+          title: `${currentDomain?.label} - ${new Date().toLocaleDateString('ja-JP')}`,
+        }),
       });
-      const { session } = await res.json();
-      setCurrentSessionId(session.id);
+      const { session: s } = await res.json();
+      setCurrentSessionId(s.id);
+      setSessionTitle(s.title);
+      await loadSessions();
     } else {
-      await fetch('/api/automation/sessions', {
+      fetch('/api/automation/sessions', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ id: currentSessionId, messages: updatedMessages }),
-      });
+      }).catch(() => {});
     }
 
     await fetchAIResponse(text, updatedMessages);
@@ -269,27 +336,26 @@ export default function AutomationStrategyPage() {
 
         <div style={{ flex: 1, overflowY: 'auto', padding: 12 }}>
           <p style={{ fontSize: 11, color: 'var(--text-secondary)', marginBottom: 8 }}>過去のセッション</p>
-          {sessions.slice(0, 10).map(s => {
+          {sessions.map(s => {
             const d = DOMAINS.find(d => d.id === s.domain);
             return (
               <button key={s.id}
-                onClick={() => {
-                  setCurrentSessionId(s.id);
-                  setSelectedDomain(s.domain);
-                  setActiveTab('chat');
-                }}
+                onClick={() => loadSession(s.id)}
                 style={{
-                  width: '100%', textAlign: 'left', padding: '8px 10px',
-                  borderRadius: 6, marginBottom: 4, cursor: 'pointer',
+                  width: '100%', textAlign: 'left', padding: '10px 12px',
+                  borderRadius: 8, marginBottom: 4, cursor: 'pointer',
                   border: `1px solid ${currentSessionId === s.id ? (d?.color ?? '#4f46e5') : 'var(--border-color)'}`,
-                  background: currentSessionId === s.id ? 'rgba(79,70,229,0.06)' : 'var(--bg-primary)',
+                  background: currentSessionId === s.id ? `${d?.color ?? '#4f46e5'}10` : 'var(--bg-primary)',
                 }}
               >
-                <div style={{ fontSize: 12, fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                  {d?.label ?? s.domain} {s.has_output ? '📄' : ''}
+                <div style={{ fontSize: 12, fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', marginBottom: 2 }}>
+                  {d?.icon} {s.title ?? `${d?.label}セッション`}
                 </div>
-                <div style={{ fontSize: 10, color: 'var(--text-secondary)' }}>
-                  {new Date(s.updated_at).toLocaleDateString('ja-JP')}
+                <div style={{ display: 'flex', gap: 4, alignItems: 'center', fontSize: 10, color: 'var(--text-secondary)' }}>
+                  <span>{s.message_count ?? 0}メッセージ</span>
+                  {s.has_strategy && <span style={{ color: '#4f46e5' }}>📋</span>}
+                  {s.has_report && <span style={{ color: '#059669' }}>📄</span>}
+                  <span>{new Date(s.updated_at).toLocaleDateString('ja-JP')}</span>
                 </div>
               </button>
             );
@@ -306,7 +372,37 @@ export default function AutomationStrategyPage() {
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
             <span style={{ fontSize: 20 }}>{currentDomain?.icon}</span>
             <div>
-              <h3 style={{ fontSize: 15, fontWeight: 700, color: currentDomain?.color }}>{currentDomain?.label}</h3>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                <h3 style={{ fontSize: 15, fontWeight: 700, color: currentDomain?.color }}>{currentDomain?.label}</h3>
+                {isEditingTitle ? (
+                  <input
+                    autoFocus
+                    value={sessionTitle}
+                    onChange={e => setSessionTitle(e.target.value)}
+                    onBlur={async () => {
+                      if (currentSessionId && sessionTitle) {
+                        await fetch('/api/automation/sessions', {
+                          method: 'PATCH',
+                          headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify({ id: currentSessionId, title: sessionTitle, messages }),
+                        });
+                        await loadSessions();
+                      }
+                      setIsEditingTitle(false);
+                    }}
+                    onKeyDown={e => { if (e.key === 'Enter') setIsEditingTitle(false); }}
+                    style={{ fontSize: 13, border: '1px solid var(--border-color)', borderRadius: 6, padding: '2px 8px', width: 220 }}
+                  />
+                ) : (
+                  <span
+                    onClick={() => setIsEditingTitle(true)}
+                    title="クリックで名前を変更"
+                    style={{ fontSize: 12, color: 'var(--text-secondary)', cursor: 'pointer', marginLeft: 4 }}
+                  >
+                    {sessionTitle || 'クリックで名前を付ける'} ✏️
+                  </span>
+                )}
+              </div>
               <div style={{ display: 'flex', gap: 4, marginTop: 2, flexWrap: 'wrap' }}>
                 {currentDomain?.tags.map(tag => (
                   <span key={tag} style={{ fontSize: 10, padding: '2px 6px', background: `${currentDomain.color}15`, color: currentDomain.color, borderRadius: 10, border: `1px solid ${currentDomain.color}30` }}>
@@ -321,6 +417,7 @@ export default function AutomationStrategyPage() {
             {[
               { id: 'chat', label: '💬 対話' },
               { id: 'strategy', label: '📋 設計書' },
+              { id: 'report', label: '📄 レポート' },
             ].map(tab => (
               <button key={tab.id} onClick={() => setActiveTab(tab.id as typeof activeTab)}
                 style={{
@@ -530,6 +627,90 @@ export default function AutomationStrategyPage() {
                   {isGeneratingStrategy && (
                     <span style={{ display: 'inline-block', width: 6, height: 12, background: currentDomain?.color ?? '#4f46e5', marginLeft: 2, animation: 'pulse 0.8s infinite' }} />
                   )}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {activeTab === 'report' && (
+          <div style={{ flex: 1, overflowY: 'auto', padding: 20 }}>
+
+            {!reportOutput && !isGeneratingReport && (
+              <div style={{ textAlign: 'center', padding: '40px 20px', border: '2px dashed var(--border-color)', borderRadius: 12 }}>
+                <div style={{ fontSize: 48, marginBottom: 12 }}>📄</div>
+                <h3 style={{ fontSize: 15, fontWeight: 600, marginBottom: 8 }}>対話レポートを生成</h3>
+                <p style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: 20, maxWidth: 400, margin: '0 auto 20px' }}>
+                  対話内容を分析して、目的・気づき・推奨アクション・リスクをまとめたレポートを自動生成します
+                </p>
+
+                {messages.length < 4 ? (
+                  <p style={{ fontSize: 12, color: '#9ca3af' }}>
+                    まず「💬 対話」タブでAIと対話してください（現在 {messages.length} メッセージ）
+                  </p>
+                ) : (
+                  <button
+                    onClick={handleGenerateReport}
+                    style={{
+                      padding: '12px 28px',
+                      background: currentDomain?.color ?? '#4f46e5',
+                      color: '#fff', border: 'none', borderRadius: 10,
+                      fontSize: 14, fontWeight: 700, cursor: 'pointer',
+                    }}
+                  >
+                    📄 対話レポートを生成する
+                  </button>
+                )}
+              </div>
+            )}
+
+            {isGeneratingReport && (
+              <div style={{ textAlign: 'center', padding: '60px 20px', color: 'var(--text-secondary)' }}>
+                <div style={{ fontSize: 40, marginBottom: 16, animation: 'pulse 1s infinite' }}>📄</div>
+                <p style={{ fontSize: 14 }}>対話内容を分析中...</p>
+              </div>
+            )}
+
+            {reportOutput && !isGeneratingReport && (
+              <div style={{ border: '1px solid var(--border-color)', borderRadius: 12, overflow: 'hidden' }}>
+                <div style={{
+                  padding: '12px 16px',
+                  background: 'rgba(5,150,105,0.08)',
+                  borderBottom: '1px solid var(--border-color)',
+                  display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                }}>
+                  <span style={{ fontSize: 14, fontWeight: 700, color: '#059669' }}>📄 対話レポート</span>
+                  <div style={{ display: 'flex', gap: 8 }}>
+                    <button
+                      onClick={() => navigator.clipboard.writeText(reportOutput)}
+                      style={{ fontSize: 12, padding: '5px 10px', border: '1px solid var(--border-color)', borderRadius: 6, background: 'var(--bg-primary)', cursor: 'pointer' }}
+                    >
+                      📋 コピー
+                    </button>
+                    <button
+                      onClick={() => {
+                        const blob = new Blob([reportOutput], { type: 'text/markdown; charset=utf-8' });
+                        const url = URL.createObjectURL(blob);
+                        const a = document.createElement('a');
+                        a.href = url;
+                        a.download = `自動化戦略レポート_${new Date().toISOString().slice(0, 10)}.md`;
+                        a.click();
+                        URL.revokeObjectURL(url);
+                      }}
+                      style={{ fontSize: 12, padding: '5px 10px', background: '#059669', color: '#fff', border: 'none', borderRadius: 6, cursor: 'pointer' }}
+                    >
+                      ⬇️ MDダウンロード
+                    </button>
+                    <button
+                      onClick={handleGenerateReport}
+                      style={{ fontSize: 12, padding: '5px 10px', border: '1px solid var(--border-color)', borderRadius: 6, background: 'var(--bg-primary)', cursor: 'pointer', color: 'var(--text-secondary)' }}
+                    >
+                      🔄 再生成
+                    </button>
+                  </div>
+                </div>
+                <div style={{ padding: 20, fontSize: 13, lineHeight: 1.9, whiteSpace: 'pre-wrap', color: 'var(--text-primary)' }}>
+                  {reportOutput}
                 </div>
               </div>
             )}
