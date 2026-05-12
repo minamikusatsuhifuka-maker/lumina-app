@@ -16,6 +16,8 @@ interface Job {
     result: string | null;
   }>;
   results: Record<string, { result: string; status: string }>;
+  quality_scores?: Record<string, { score: number; attempts: number; passed: boolean; reason?: string }>;
+  retry_logs?: Array<{ stepId: string; attempt: number; score: number; reason?: string; improvements?: string[] }>;
   created_at: string;
   completed_at: string | null;
 }
@@ -39,6 +41,11 @@ interface StreamEvent {
   totalTokens?: { inputTokens: number; outputTokens: number };
   costUsd?: number;
   costJpy?: number;
+  score?: number;
+  attempts?: number;
+  attempt?: number;
+  improvements?: string[];
+  bestScore?: number;
 }
 
 const QUICK_INTENTS = [
@@ -222,6 +229,35 @@ export default function OrchestratorPage() {
                   ? { ...prev, progress: event.progress ?? prev.progress }
                   : null,
               );
+            }
+            if (
+              (event.type === 'quality_passed' ||
+                event.type === 'quality_retry' ||
+                event.type === 'quality_warning') &&
+              event.stepId
+            ) {
+              setCurrentJob((prev) => {
+                if (!prev) return null;
+                const sid = event.stepId!;
+                const existing = prev.quality_scores ?? {};
+                const score =
+                  event.score ?? event.bestScore ?? existing[sid]?.score ?? 0;
+                const attempts =
+                  event.attempts ?? event.attempt ?? existing[sid]?.attempts ?? 0;
+                const passed = event.type === 'quality_passed';
+                return {
+                  ...prev,
+                  quality_scores: {
+                    ...existing,
+                    [sid]: {
+                      score,
+                      attempts,
+                      passed,
+                      reason: event.message,
+                    },
+                  },
+                };
+              });
             }
             if (event.type === 'completed') {
               setShowResults(true);
@@ -761,11 +797,17 @@ export default function OrchestratorPage() {
                             ? '⤵️'
                             : event.type === 'step_error'
                               ? '❌'
-                              : event.type === 'completed'
-                                ? '🎉'
-                                : event.type === 'error'
-                                  ? '⚠️'
-                                  : 'ℹ️'}
+                              : event.type === 'quality_passed'
+                                ? '📊'
+                                : event.type === 'quality_retry'
+                                  ? '🔄'
+                                  : event.type === 'quality_warning'
+                                    ? '⚠️'
+                                    : event.type === 'completed'
+                                      ? '🎉'
+                                      : event.type === 'error'
+                                        ? '⚠️'
+                                        : 'ℹ️'}
                   </span>
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div
@@ -789,16 +831,27 @@ export default function OrchestratorPage() {
                               ? `${event.label} スキップ: ${event.reason ?? ''}`
                               : event.type === 'step_error'
                                 ? `${event.label ?? ''} エラー: ${event.error ?? event.message ?? ''}`
-                                : event.type === 'completed'
-                                  ? `🎉 全工程完了！（✅${event.completedCount ?? 0}件 / ❌${event.failedCount ?? 0}件${
-                                      (event.skippedCount ?? 0) > 0
-                                        ? ` / ⏭${event.skippedCount}件`
-                                        : ''
-                                    }）`
-                                  : event.type === 'error'
-                                    ? `エラー: ${event.message ?? ''}`
-                                    : (event.message ?? '')}
+                                : event.type === 'quality_passed'
+                                  ? `${event.label} 品質OK（${event.score}点・${event.attempts}回目）`
+                                  : event.type === 'quality_retry'
+                                    ? `${event.label} 品質${event.score}点 → 自動改善して再試行中（${event.attempt}回目）`
+                                    : event.type === 'quality_warning'
+                                      ? `${event.label}: ${event.message ?? ''}`
+                                      : event.type === 'completed'
+                                        ? `🎉 全工程完了！（✅${event.completedCount ?? 0}件 / ❌${event.failedCount ?? 0}件${
+                                            (event.skippedCount ?? 0) > 0
+                                              ? ` / ⏭${event.skippedCount}件`
+                                              : ''
+                                          }）`
+                                        : event.type === 'error'
+                                          ? `エラー: ${event.message ?? ''}`
+                                          : (event.message ?? '')}
                     </div>
+                    {event.type === 'quality_retry' && event.improvements && event.improvements.length > 0 && (
+                      <div style={{ fontSize: 11, color: '#92400e', marginTop: 2 }}>
+                        改善点: {event.improvements.slice(0, 2).join(' / ')}
+                      </div>
+                    )}
                     {event.preview && (
                       <div
                         style={{
@@ -974,6 +1027,68 @@ export default function OrchestratorPage() {
         );
       })()}
 
+      {/* 品質サマリーパネル */}
+      {showResults && currentJob?.quality_scores && Object.keys(currentJob.quality_scores).length > 0 && (
+        <div
+          style={{
+            padding: '14px 16px',
+            marginBottom: 16,
+            background: 'rgba(79,70,229,0.06)',
+            border: '1px solid rgba(79,70,229,0.2)',
+            borderRadius: 10,
+          }}
+        >
+          <h4 style={{ fontSize: 13, fontWeight: 600, marginBottom: 10, color: '#4f46e5' }}>
+            📈 品質スコアサマリー
+          </h4>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+            {pipeline?.steps.map((step) => {
+              const qs = currentJob.quality_scores?.[step.id];
+              if (!qs) return null;
+              const color = qs.score >= 80 ? '#059669' : qs.score >= 60 ? '#d97706' : '#dc2626';
+              return (
+                <div
+                  key={step.id}
+                  style={{
+                    padding: '6px 10px',
+                    borderRadius: 8,
+                    background: `${color}10`,
+                    border: `1px solid ${color}20`,
+                    fontSize: 12,
+                    textAlign: 'center',
+                    minWidth: 80,
+                  }}
+                >
+                  <div style={{ fontWeight: 600, color }}>{qs.score}点</div>
+                  <div style={{ color: 'var(--text-secondary)', marginTop: 2 }}>
+                    {step.label.slice(0, 8)}
+                  </div>
+                  {qs.attempts > 1 && (
+                    <div style={{ fontSize: 10, color: '#d97706' }}>{qs.attempts}回試行</div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+          {(() => {
+            const scores = Object.values(currentJob.quality_scores ?? {})
+              .map((q) => q.score)
+              .filter((s) => typeof s === 'number' && s > 0);
+            const avg = scores.length > 0
+              ? Math.round(scores.reduce((a, b) => a + b, 0) / scores.length)
+              : 0;
+            return (
+              <div style={{ marginTop: 10, fontSize: 13, color: 'var(--text-secondary)' }}>
+                平均品質スコア：
+                <span style={{ fontWeight: 700, marginLeft: 4, color: avg >= 80 ? '#059669' : avg >= 60 ? '#d97706' : '#dc2626' }}>
+                  {avg}点
+                </span>
+              </div>
+            );
+          })()}
+        </div>
+      )}
+
       {/* 完成した結果表示 */}
       {showResults && currentJob && pipeline && (
         <div
@@ -1034,6 +1149,27 @@ export default function OrchestratorPage() {
                       {isError ? '❌ ' : ''}
                       {step.label}
                     </span>
+                    <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                      {currentJob.quality_scores?.[step.id] && (() => {
+                        const qs = currentJob.quality_scores![step.id];
+                        const color = qs.score >= 80 ? '#059669' : qs.score >= 60 ? '#d97706' : '#dc2626';
+                        return (
+                          <span
+                            title={qs.reason ?? ''}
+                            style={{
+                              fontSize: 11,
+                              padding: '2px 8px',
+                              borderRadius: 10,
+                              background: `${color}15`,
+                              color,
+                              border: `1px solid ${color}30`,
+                              fontWeight: 600,
+                            }}
+                          >
+                            📊 {qs.score}点{qs.attempts > 1 ? ` (${qs.attempts}回試行)` : ''}
+                          </span>
+                        );
+                      })()}
                     <button
                       type="button"
                       onClick={() =>
@@ -1051,6 +1187,7 @@ export default function OrchestratorPage() {
                     >
                       📋 全文コピー
                     </button>
+                    </div>
                   </div>
                   <div
                     style={{

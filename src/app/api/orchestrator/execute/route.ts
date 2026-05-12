@@ -20,6 +20,8 @@ interface TokenUsage {
 interface StepResultEx extends Omit<StepResult, 'status'> {
   status: 'completed' | 'failed' | 'skipped';
   tokens?: TokenUsage;
+  qualityScore?: number;
+  attempts?: number;
 }
 
 // 並列起動数の上限
@@ -295,90 +297,253 @@ export async function POST(req: NextRequest) {
           return out;
         };
 
-        // 1ステップ実行（必ずresolve）
-        const runStep = (step: PipelineStep): Promise<void> => {
+        // 品質チェック・再試行ループ設定
+        const QUALITY_THRESHOLD = 70;
+        const MAX_QUALITY_RETRIES = 3;
+
+        // 1ステップ実行（必ずresolve）— 品質チェック・自動改善・再試行ループ付き
+        const runStep = async (step: PipelineStep): Promise<void> => {
           running.add(step.id);
           const stepTimeout =
             STEP_TIMEOUTS[step.id] ?? DEFAULT_STEP_TIMEOUT_MS;
           const fetchTimeout = fetchTimeoutFor(stepTimeout);
           send({ type: 'step_start', stepId: step.id, label: step.label });
 
-          const timeoutPromise = new Promise<never>((_, reject) =>
-            setTimeout(
-              () =>
-                reject(
-                  new Error(
-                    `タイムアウト(${stepTimeout / 1000}秒): ${step.label}`,
+          const withTimeout = <T,>(p: Promise<T>): Promise<T> => {
+            const timeoutPromise = new Promise<never>((_, reject) =>
+              setTimeout(
+                () =>
+                  reject(
+                    new Error(
+                      `タイムアウト(${stepTimeout / 1000}秒): ${step.label}`,
+                    ),
                   ),
-                ),
-              stepTimeout,
-            ),
-          );
+                stepTimeout,
+              ),
+            );
+            return Promise.race([p, timeoutPromise]);
+          };
 
-          return Promise.race([
-            (async () => {
-              const input = step.inputMapper(job.intent, inputMapperResults());
-              return executeStep(step, input, origin, cookieHeader, fetchTimeout);
-            })(),
-            timeoutPromise,
-          ])
-            .then(({ content, tokens }) => {
-              results[step.id] = {
-                result: content,
-                status: 'completed',
-                tokens,
-              };
-              if (tokens) {
-                totalTokens.inputTokens += tokens.inputTokens;
-                totalTokens.outputTokens += tokens.outputTokens;
+          try {
+            const initialInput = step.inputMapper(
+              job.intent,
+              inputMapperResults(),
+            );
+            let currentInput: Record<string, unknown> = initialInput;
+
+            // 初回実行
+            const initial = await withTimeout(
+              executeStep(step, currentInput, origin, cookieHeader, fetchTimeout),
+            );
+            let content = initial.content;
+            let tokens = initial.tokens;
+            let bestContent = content;
+            let bestScore = 0;
+            let attempts = 0;
+
+            // 品質チェック・再試行ループ（200文字以上のコンテンツのみ）
+            while (attempts < MAX_QUALITY_RETRIES) {
+              if (!content || content.length < 200) break;
+              attempts++;
+
+              const qualityRes = await fetch(
+                `${origin}/api/orchestrator/quality-check`,
+                {
+                  method: 'POST',
+                  headers: {
+                    'Content-Type': 'application/json',
+                    cookie: cookieHeader,
+                  },
+                  body: JSON.stringify({
+                    stepId: step.id,
+                    stepLabel: step.label,
+                    content,
+                    intent: job.intent,
+                  }),
+                  signal: AbortSignal.timeout(45_000),
+                },
+              ).catch(() => null);
+
+              if (!qualityRes?.ok) break;
+
+              const qualityResult = (await qualityRes
+                .json()
+                .catch(() => null)) as {
+                score?: number;
+                passed?: boolean;
+                reason?: string;
+                improvements?: string[];
+              } | null;
+
+              if (!qualityResult || typeof qualityResult.score !== 'number') break;
+
+              const {
+                score,
+                passed,
+                reason,
+                improvements,
+              } = qualityResult;
+
+              if (score > bestScore) {
+                bestScore = score;
+                bestContent = content;
               }
-              done.add(step.id);
-              running.delete(step.id);
-              const progress = Math.round((done.size / steps.length) * 100);
-              send({
-                type: 'step_complete',
-                stepId: step.id,
-                label: step.label,
-                progress,
-                preview:
-                  typeof content === 'string'
-                    ? content.slice(0, 200)
-                    : JSON.stringify(content).slice(0, 200),
-              });
-              // DB非同期更新（失敗しても続行）
-              void sql`
+
+              await sql`
                 UPDATE pipeline_jobs SET
-                  results = ${JSON.stringify(results)}::jsonb,
-                  progress = ${progress},
+                  quality_scores = jsonb_set(
+                    COALESCE(quality_scores, '{}'::jsonb),
+                    ${`{${step.id}}`}::text[],
+                    ${JSON.stringify({ score, attempts, passed, reason })}::jsonb
+                  ),
+                  retry_logs = COALESCE(retry_logs, '[]'::jsonb) || ${JSON.stringify([
+                    {
+                      stepId: step.id,
+                      attempt: attempts,
+                      score,
+                      reason,
+                      improvements,
+                    },
+                  ])}::jsonb,
                   updated_at = NOW()
                 WHERE id = ${jobId}
               `.catch(() => {});
-            })
-            .catch((err) => {
-              const errMsg = err instanceof Error ? err.message : String(err);
-              console.error(`[orchestrator] ステップ失敗 ${step.id}:`, errMsg);
-              results[step.id] = {
-                result: errMsg,
-                status: 'failed',
-              };
-              done.add(step.id); // 失敗も「完了」扱いでループを進める
-              running.delete(step.id);
-              const progress = Math.round((done.size / steps.length) * 100);
+
+              if (passed || score >= QUALITY_THRESHOLD) {
+                send({
+                  type: 'quality_passed',
+                  stepId: step.id,
+                  label: step.label,
+                  score,
+                  attempts,
+                });
+                break;
+              }
+
+              if (attempts >= MAX_QUALITY_RETRIES) {
+                send({
+                  type: 'quality_warning',
+                  stepId: step.id,
+                  label: step.label,
+                  bestScore,
+                  message: `品質基準(${QUALITY_THRESHOLD}点)未達（最高${bestScore}点）。最良の結果を使用します`,
+                });
+                content = bestContent;
+                break;
+              }
+
               send({
-                type: 'step_error',
+                type: 'quality_retry',
                 stepId: step.id,
                 label: step.label,
-                error: errMsg,
-                message: errMsg,
+                score,
+                attempt: attempts,
+                improvements,
               });
-              void sql`
-                UPDATE pipeline_jobs SET
-                  results = ${JSON.stringify(results)}::jsonb,
-                  progress = ${progress},
-                  updated_at = NOW()
-                WHERE id = ${jobId}
-              `.catch(() => {});
+
+              const improveRes = await fetch(
+                `${origin}/api/orchestrator/improve-prompt`,
+                {
+                  method: 'POST',
+                  headers: {
+                    'Content-Type': 'application/json',
+                    cookie: cookieHeader,
+                  },
+                  body: JSON.stringify({
+                    originalInput: currentInput,
+                    failedContent: content,
+                    improvements,
+                    stepLabel: step.label,
+                    attempt: attempts,
+                  }),
+                  signal: AbortSignal.timeout(25_000),
+                },
+              ).catch(() => null);
+
+              if (improveRes?.ok) {
+                const improvedJson = (await improveRes
+                  .json()
+                  .catch(() => null)) as {
+                  improvedInput?: Record<string, unknown>;
+                } | null;
+                if (improvedJson?.improvedInput) {
+                  currentInput = improvedJson.improvedInput;
+                }
+              }
+
+              // 改善されたプロンプトで再生成
+              const retryFetchTimeout = Math.max(fetchTimeout - 5_000, 30_000);
+              const retryResult = await executeStep(
+                step,
+                currentInput,
+                origin,
+                cookieHeader,
+                retryFetchTimeout,
+              ).catch(() => ({ content, tokens: undefined as TokenUsage | undefined }));
+
+              content = retryResult.content ?? content;
+              if (retryResult.tokens) tokens = retryResult.tokens;
+            }
+
+            const finalContent =
+              bestScore > 0 && bestContent ? bestContent : content;
+
+            results[step.id] = {
+              result: finalContent,
+              status: 'completed',
+              tokens,
+              qualityScore: bestScore || undefined,
+              attempts: attempts || undefined,
+            };
+            if (tokens) {
+              totalTokens.inputTokens += tokens.inputTokens;
+              totalTokens.outputTokens += tokens.outputTokens;
+            }
+            done.add(step.id);
+            running.delete(step.id);
+            const progress = Math.round((done.size / steps.length) * 100);
+            send({
+              type: 'step_complete',
+              stepId: step.id,
+              label: step.label,
+              progress,
+              preview:
+                typeof finalContent === 'string'
+                  ? finalContent.slice(0, 200)
+                  : JSON.stringify(finalContent).slice(0, 200),
             });
+            void sql`
+              UPDATE pipeline_jobs SET
+                results = ${JSON.stringify(results)}::jsonb,
+                progress = ${progress},
+                updated_at = NOW()
+              WHERE id = ${jobId}
+            `.catch(() => {});
+          } catch (err) {
+            const errMsg = err instanceof Error ? err.message : String(err);
+            console.error(`[orchestrator] ステップ失敗 ${step.id}:`, errMsg);
+            results[step.id] = {
+              result: errMsg,
+              status: 'failed',
+            };
+            done.add(step.id);
+            running.delete(step.id);
+            const progress = Math.round((done.size / steps.length) * 100);
+            send({
+              type: 'step_error',
+              stepId: step.id,
+              label: step.label,
+              error: errMsg,
+              message: errMsg,
+            });
+            void sql`
+              UPDATE pipeline_jobs SET
+                results = ${JSON.stringify(results)}::jsonb,
+                progress = ${progress},
+                updated_at = NOW()
+              WHERE id = ${jobId}
+            `.catch(() => {});
+          }
         };
 
         // メインループ：全ステップが done になるまで繰り返す
