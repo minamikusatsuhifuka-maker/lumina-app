@@ -49,6 +49,19 @@ interface Props {
   onHighlightClear?: () => void;
 }
 
+interface AutoCategorizeResult {
+  categories?: Array<{
+    name: string;
+    description?: string;
+    color?: string;
+    icon?: string;
+    item_ids?: number[];
+  }>;
+  summary?: string;
+  updatedCount?: number;
+  totalItems?: number;
+}
+
 export default function SavedAnalysisList({
   records,
   onRecordsChange,
@@ -66,6 +79,56 @@ export default function SavedAnalysisList({
   const [editingValue, setEditingValue] = useState('');
   const [isRenaming, setIsRenaming] = useState(false);
   const [copiedId, setCopiedId] = useState<number | null>(null);
+  const [isAutoCategorizing, setIsAutoCategorizing] = useState(false);
+  const [categorizationResult, setCategorizationResult] =
+    useState<AutoCategorizeResult | null>(null);
+
+  // AIで保存済み全件を自動カテゴライズする
+  const handleAutoCategorize = async () => {
+    if (records.length === 0) {
+      showToast('保存済みテキストがありません', 'error');
+      return;
+    }
+    const ok = window.confirm(
+      `${records.length}件のテキストをAIが自動カテゴライズします。\n既存のカテゴリは上書きされます。よろしいですか？`,
+    );
+    if (!ok) return;
+
+    setIsAutoCategorizing(true);
+    setCategorizationResult(null);
+    try {
+      const res = await fetch('/api/text-analysis/auto-categorize', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ mode: 'categorize' }),
+      });
+      const data = (await res.json()) as AutoCategorizeResult & { error?: string };
+      if (!res.ok) {
+        showToast(data.error ?? '自動カテゴライズに失敗しました', 'error');
+        return;
+      }
+      setCategorizationResult(data);
+      showToast(
+        `${data.updatedCount ?? 0}件を${data.categories?.length ?? 0}カテゴリに分類しました`,
+        'success',
+      );
+      // 保存一覧をリロード
+      try {
+        const refreshed = await fetch('/api/text-analysis/saves');
+        if (refreshed.ok) {
+          const list = await refreshed.json();
+          if (Array.isArray(list)) onRecordsChange(list);
+        }
+      } catch {
+        /* skip */
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : '通信エラー';
+      showToast(message, 'error');
+    } finally {
+      setIsAutoCategorizing(false);
+    }
+  };
 
   const handleCopy = async (id: number, text: string) => {
     const success = await copyToClipboard(text);
@@ -256,6 +319,8 @@ export default function SavedAnalysisList({
           alignItems: 'center',
           justifyContent: 'space-between',
           marginBottom: -8,
+          flexWrap: 'wrap',
+          gap: 8,
         }}
       >
         <span
@@ -267,21 +332,144 @@ export default function SavedAnalysisList({
         >
           📂 カテゴリ概覧
         </span>
-        <button
-          type="button"
-          onClick={() => setShowCategoryGrid((v) => !v)}
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+          {/* AI自動カテゴライズ */}
+          <button
+            type="button"
+            onClick={handleAutoCategorize}
+            disabled={isAutoCategorizing || records.length === 0}
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 6,
+              padding: '6px 12px',
+              background: isAutoCategorizing
+                ? '#9ca3af'
+                : 'linear-gradient(135deg, #4f46e5, #7c3aed)',
+              color: '#fff',
+              border: 'none',
+              borderRadius: 8,
+              fontSize: 12,
+              fontWeight: 600,
+              cursor:
+                isAutoCategorizing || records.length === 0
+                  ? 'not-allowed'
+                  : 'pointer',
+              opacity: records.length === 0 ? 0.4 : 1,
+            }}
+            title="AIが全保存テキストを分析して最適なカテゴリへ自動分類します"
+          >
+            {isAutoCategorizing ? '🤖 カテゴライズ中...' : '🤖 AIが自動カテゴライズ'}
+          </button>
+          <button
+            type="button"
+            onClick={() => setShowCategoryGrid((v) => !v)}
+            style={{
+              fontSize: 11,
+              color: 'var(--accent)',
+              background: 'transparent',
+              border: 'none',
+              cursor: 'pointer',
+              textDecoration: 'underline',
+            }}
+          >
+            {showCategoryGrid ? '▲ 折りたたむ' : '▼ 展開'}
+          </button>
+        </div>
+      </div>
+
+      {/* カテゴライズ結果バナー */}
+      {categorizationResult && (
+        <div
           style={{
-            fontSize: 11,
-            color: 'var(--accent)',
-            background: 'transparent',
-            border: 'none',
-            cursor: 'pointer',
-            textDecoration: 'underline',
+            padding: '12px 16px',
+            background: 'rgba(79,70,229,0.08)',
+            border: '1px solid rgba(79,70,229,0.2)',
+            borderRadius: 10,
+            display: 'flex',
+            alignItems: 'flex-start',
+            justifyContent: 'space-between',
+            gap: 12,
+            flexWrap: 'wrap',
           }}
         >
-          {showCategoryGrid ? '▲ 折りたたむ' : '▼ 展開'}
-        </button>
-      </div>
+          <div style={{ flex: 1, minWidth: 200 }}>
+            <div
+              style={{
+                fontSize: 13,
+                fontWeight: 600,
+                color: '#4f46e5',
+                marginBottom: 2,
+              }}
+            >
+              ✅ {categorizationResult.updatedCount ?? 0}件を{' '}
+              {categorizationResult.categories?.length ?? 0}カテゴリに自動分類しました
+            </div>
+            {categorizationResult.summary && (
+              <p
+                style={{
+                  fontSize: 12,
+                  color: 'var(--text-secondary)',
+                  margin: 0,
+                  lineHeight: 1.6,
+                }}
+              >
+                {categorizationResult.summary}
+              </p>
+            )}
+            {categorizationResult.categories &&
+              categorizationResult.categories.length > 0 && (
+                <div
+                  style={{
+                    display: 'flex',
+                    flexWrap: 'wrap',
+                    gap: 6,
+                    marginTop: 8,
+                  }}
+                >
+                  {categorizationResult.categories.map((cat) => (
+                    <span
+                      key={cat.name}
+                      style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: 4,
+                        padding: '3px 9px',
+                        borderRadius: 12,
+                        fontSize: 11,
+                        background: `${cat.color ?? '#4f46e5'}20`,
+                        color: cat.color ?? '#4f46e5',
+                        border: `1px solid ${cat.color ?? '#4f46e5'}40`,
+                      }}
+                    >
+                      <span>{cat.icon ?? '📁'}</span>
+                      <span>{cat.name}</span>
+                      <span style={{ opacity: 0.8, fontSize: 10 }}>
+                        ({cat.item_ids?.length ?? 0})
+                      </span>
+                    </span>
+                  ))}
+                </div>
+              )}
+          </div>
+          <button
+            type="button"
+            onClick={() => setCategorizationResult(null)}
+            style={{
+              fontSize: 11,
+              padding: '3px 8px',
+              border: '1px solid var(--border)',
+              borderRadius: 4,
+              background: 'var(--bg-primary)',
+              cursor: 'pointer',
+              color: 'var(--text-secondary)',
+              flexShrink: 0,
+            }}
+          >
+            ✕
+          </button>
+        </div>
+      )}
 
       {showCategoryGrid && (
         <div

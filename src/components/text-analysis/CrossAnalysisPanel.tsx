@@ -24,6 +24,9 @@ const PRESET_TYPES = [
   { id: 'future_prediction', label: '🔮 今後の予測・示唆', desc: 'トレンドから未来を予測' },
   { id: 'learning', label: '📚 学びの要点', desc: '実践に活かせる知識を整理' },
   { id: 'summary', label: '📋 総合まとめ', desc: '全体を統合してインサイトを導く' },
+  { id: 'insights', label: '🔍 洞察・パターン', desc: '隠れたパターン・関連性を発見' },
+  { id: 'structure', label: '📁 情報の構造化', desc: '体系的に整理・マップ化' },
+  { id: 'compare', label: '⚖️ 比較分析', desc: '共通点・相違点・優位性を比較' },
   { id: 'custom', label: '✏️ カスタム', desc: '自由にプロンプトを入力' },
 ];
 
