@@ -98,6 +98,9 @@ type BatchJob = {
   scheduled_at: string | null;
   status: string;
   created_at: string;
+  completed_indices?: number[];
+  failed_indices?: number[];
+  last_completed_at?: string | null;
 };
 
 export default function DeepResearchPage() {
@@ -240,6 +243,18 @@ export default function DeepResearchPage() {
     if (stuckTimerRef.current) clearTimeout(stuckTimerRef.current);
     setIsStuck(false);
     stuckTimerRef.current = setTimeout(() => setIsStuck(true), 60000); // 60秒無応答でアラート
+  };
+
+  // 途中停止したジョブを続きから再開する（完了済みは自動でスキップされる）
+  const handleResumeBatch = async (job: BatchJob) => {
+    const completedCount = job.topics.filter((t) => t.status === 'completed').length;
+    const totalCount = job.topics.length;
+    const remaining = totalCount - completedCount;
+    const ok = window.confirm(
+      `${completedCount}/${totalCount}件 完了済みです。\n残り${remaining}件を続きから実行しますか？`,
+    );
+    if (!ok) return;
+    await runBatchJob(job.id);
   };
 
   const runBatchJob = async (jobId: number) => {
@@ -2180,19 +2195,38 @@ ${contextText}
                           fontSize: 10, padding: '2px 8px', borderRadius: 10, fontWeight: 700,
                           background:
                             job.status === 'completed' ? 'rgba(29,158,117,0.18)' :
+                            job.status === 'completed_with_errors' ? 'rgba(245,158,11,0.2)' :
                             job.status === 'running' ? 'rgba(108,99,255,0.18)' :
+                            job.status === 'paused' ? 'rgba(245,158,11,0.2)' :
                             job.status === 'failed' ? 'rgba(239,68,68,0.18)' :
                             'rgba(100,116,139,0.18)',
                           color:
                             job.status === 'completed' ? '#1D9E75' :
+                            job.status === 'completed_with_errors' ? '#92400e' :
                             job.status === 'running' ? '#6c63ff' :
+                            job.status === 'paused' ? '#92400e' :
                             job.status === 'failed' ? '#ef4444' :
                             '#64748b',
                         }}>
                           {job.status === 'completed' ? '✅ 完了' :
+                           job.status === 'completed_with_errors' ? '⚠️ 一部完了' :
                            job.status === 'running' ? '⏳ 実行中' :
+                           job.status === 'paused' ? '⏸ 一時停止' :
                            job.status === 'failed' ? '❌ 失敗' : '⏰ 待機中'}
                         </span>
+                        {/* 進捗カウント表示 */}
+                        {(() => {
+                          const done = job.topics.filter(t => t.status === 'completed').length;
+                          const total = job.topics.length;
+                          if (done > 0 && done < total) {
+                            return (
+                              <span style={{ fontSize: 11, color: 'var(--text-secondary)' }}>
+                                {done}/{total}件完了
+                              </span>
+                            );
+                          }
+                          return null;
+                        })()}
                         <span style={{ fontSize: 10, color: 'var(--text-muted)', padding: '1px 6px', background: 'var(--bg-primary)', borderRadius: 6 }}>
                           {job.schedule_type === 'immediate' ? '即時' : job.schedule_type === 'browser' ? 'ブラウザ' : 'cron'}
                         </span>
@@ -2231,6 +2265,51 @@ ${contextText}
                           ▶️ いま実行
                         </button>
                       )}
+                      {/* 続きから再開（途中停止・一部完了・失敗からの再実行） */}
+                      {(job.status === 'paused' ||
+                        job.status === 'completed_with_errors' ||
+                        job.status === 'failed') &&
+                        job.topics.some((t) => t.status !== 'completed') && (
+                          <button
+                            onClick={() => handleResumeBatch(job)}
+                            disabled={!!runningJobId}
+                            style={{
+                              padding: '4px 10px',
+                              background: '#f59e0b',
+                              border: 'none',
+                              color: '#fff',
+                              borderRadius: 6,
+                              cursor: runningJobId ? 'not-allowed' : 'pointer',
+                              fontSize: 11,
+                              fontWeight: 700,
+                              opacity: runningJobId ? 0.5 : 1,
+                            }}
+                          >
+                            ▶ 続きから再開
+                          </button>
+                        )}
+                      {/* runningだが5分以上更新されていない場合は孤児ジョブとして再開可能 */}
+                      {job.status === 'running' &&
+                        runningJobId !== job.id && (
+                          <button
+                            onClick={() => handleResumeBatch(job)}
+                            disabled={!!runningJobId}
+                            title="長時間更新されていない場合は孤児ジョブとして再開できます"
+                            style={{
+                              padding: '4px 10px',
+                              background: '#f59e0b',
+                              border: 'none',
+                              color: '#fff',
+                              borderRadius: 6,
+                              cursor: runningJobId ? 'not-allowed' : 'pointer',
+                              fontSize: 11,
+                              fontWeight: 700,
+                              opacity: runningJobId ? 0.5 : 1,
+                            }}
+                          >
+                            ▶ 強制再開
+                          </button>
+                        )}
                       <button
                         onClick={() => handleDeleteJob(job.id, job.status)}
                         disabled={job.status === 'running'}

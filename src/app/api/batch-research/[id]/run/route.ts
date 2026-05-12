@@ -55,16 +55,25 @@ export async function POST(
       headers: { 'Content-Type': 'application/json' },
     });
   }
+  // running状態でも updated_at から5分以上経過していれば孤児ジョブとして再開可能にする
   if (job.status === 'running') {
-    return new Response(JSON.stringify({ error: '既に実行中です' }), {
-      status: 409,
-      headers: { 'Content-Type': 'application/json' },
-    });
+    const lastUpdate = job.updated_at ? new Date(job.updated_at).getTime() : 0;
+    const stuckMs = Date.now() - lastUpdate;
+    if (stuckMs < 5 * 60 * 1000) {
+      return new Response(JSON.stringify({ error: '既に実行中です' }), {
+        status: 409,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+    // 5分以上スタック → 再開を許可
+    console.log(`[batch-research run] スタック検出 (${Math.round(stuckMs / 1000)}秒)、再開します`);
   }
 
   await sql`
     UPDATE batch_research_jobs
-    SET status = 'running', started_at = NOW(), updated_at = NOW()
+    SET status = 'running',
+        started_at = COALESCE(started_at, NOW()),
+        updated_at = NOW()
     WHERE id = ${jobId}
   `;
 
@@ -88,10 +97,49 @@ export async function POST(
           contextText: string | null;
         }> = job.topics;
 
-        send({ type: 'start', total: topics.length });
+        // 完了済みインデックスを集計（既存の topics.status から再構築）
+        const completedIndices = new Set<number>(
+          topics
+            .map((t, i) => (t.status === 'completed' ? i : -1))
+            .filter((i) => i >= 0),
+        );
+        const failedIndices = new Set<number>(
+          topics
+            .map((t, i) => (t.status === 'failed' ? i : -1))
+            .filter((i) => i >= 0),
+        );
+
+        send({
+          type: 'start',
+          total: topics.length,
+          completedCount: completedIndices.size,
+        });
+
+        if (completedIndices.size > 0) {
+          send({
+            type: 'resume',
+            message: `${completedIndices.size}件完了済み・残り${topics.length - completedIndices.size}件を続きから実行します`,
+            completed: completedIndices.size,
+            total: topics.length,
+          });
+        }
 
         for (let i = 0; i < topics.length; i++) {
           const item = topics[i];
+
+          // 完了済みはスキップ（再開対応）
+          if (completedIndices.has(i)) {
+            send({
+              type: 'topic_skip',
+              index: i,
+              topic: item.topic,
+              reason: 'completed',
+            });
+            continue;
+          }
+
+          // failed状態のものは再試行する（クリアして再実行）
+          failedIndices.delete(i);
           send({ type: 'topic_start', index: i, topic: item.topic });
 
           try {
@@ -202,7 +250,15 @@ ${researchResult}
               result: researchResult,
               contextText,
             };
-            send({ type: 'topic_done', index: i, topic: item.topic });
+            completedIndices.add(i);
+            send({
+              type: 'topic_done',
+              index: i,
+              topic: item.topic,
+              completed: completedIndices.size,
+              total: topics.length,
+              progress: Math.round((completedIndices.size / topics.length) * 100),
+            });
           } catch (err: any) {
             console.error(`[batch-research run] topic ${i} エラー:`, err);
             topics[i] = {
@@ -211,26 +267,40 @@ ${researchResult}
               result: String(err?.message || err),
               contextText: null,
             };
+            failedIndices.add(i);
             send({
               type: 'topic_error',
               index: i,
               topic: item.topic,
               error: String(err?.message || err),
             });
+            // エラーでも続行（次のトピックへ）
           }
 
-          // 進捗をDBに保存
+          // 進捗をDBに保存（completed_indices/failed_indicesも更新）
           await sql`
-            UPDATE batch_research_jobs
-            SET topics = ${JSON.stringify(topics)}, updated_at = NOW()
+            UPDATE batch_research_jobs SET
+              topics = ${JSON.stringify(topics)},
+              completed_indices = ${Array.from(completedIndices)}::integer[],
+              failed_indices = ${Array.from(failedIndices)}::integer[],
+              last_completed_at = NOW(),
+              updated_at = NOW()
             WHERE id = ${jobId}
-          `;
+          `.catch((dbErr) => {
+            console.error('[batch-research run] DB更新エラー:', dbErr);
+          });
         }
 
-        const allCompleted = topics.every((t) => t.status === 'completed');
+        // 最終ステータスを判定（完全完了 / 一部エラー / 全失敗）
+        const finalStatus =
+          failedIndices.size === topics.length
+            ? 'failed'
+            : failedIndices.size > 0
+              ? 'completed_with_errors'
+              : 'completed';
         await sql`
           UPDATE batch_research_jobs
-          SET status = ${allCompleted ? 'completed' : 'failed'},
+          SET status = ${finalStatus},
               completed_at = NOW(),
               updated_at = NOW()
           WHERE id = ${jobId}
@@ -245,14 +315,23 @@ ${researchResult}
           }
         }
 
-        send({ type: 'all_done', success: allCompleted, jobId });
+        send({
+          type: 'all_done',
+          success: finalStatus === 'completed',
+          jobId,
+          finalStatus,
+          completedCount: completedIndices.size,
+          failedCount: failedIndices.size,
+          total: topics.length,
+        });
       } catch (err: any) {
         console.error('[batch-research run] 全体エラー:', err);
+        // 致命的なエラーは「paused」状態にして続きから再開できるようにする
         await sql`
           UPDATE batch_research_jobs
-          SET status = 'failed', updated_at = NOW()
+          SET status = 'paused', updated_at = NOW()
           WHERE id = ${jobId}
-        `;
+        `.catch(() => {});
         send({ type: 'error', message: String(err?.message || err) });
       } finally {
         try {
