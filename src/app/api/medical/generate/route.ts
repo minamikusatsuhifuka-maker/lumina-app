@@ -119,6 +119,7 @@ interface GenerateRequest {
   additionalInfo?: string;
   researchText?: string;
   language?: string;
+  contextInfo?: string;
 }
 
 export async function POST(req: NextRequest) {
@@ -135,7 +136,8 @@ export async function POST(req: NextRequest) {
     return new Response('Bad Request', { status: 400 });
   }
 
-  const { docType, procedureName, additionalInfo, researchText } = body;
+  const { docType, procedureName, additionalInfo, researchText, contextInfo } =
+    body;
 
   const config = DOC_TYPE_CONFIGS[docType];
   if (!config) {
@@ -157,7 +159,7 @@ export async function POST(req: NextRequest) {
 
   const systemPrompt = `${config.systemPrompt}${
     clinicPrompt ? '\n\n【クリニック情報】\n' + clinicPrompt : ''
-  }`;
+  }${contextInfo ? '\n\n【参考背景情報】\n' + contextInfo : ''}`;
 
   const userPrompt = `【施術・診療名】
 ${procedureName}

@@ -103,6 +103,12 @@ type BatchJob = {
 export default function DeepResearchPage() {
   const [topic, setTopic] = useState('');
   const [depth, setDepth] = useState('standard');
+  // 背景情報として保存（モーダル制御）
+  const [contextSaved, setContextSaved] = useState(false);
+  const [showContextModal, setShowContextModal] = useState(false);
+  const [contextTitle, setContextTitle] = useState('');
+  const [contextFeatureTags, setContextFeatureTags] = useState<string[]>(['all']);
+  const [contextSaving, setContextSaving] = useState(false);
   const [tab, setTab] = useState<'single' | 'batch'>('single');
 
   // バッチリサーチ
@@ -849,6 +855,39 @@ ${contextText}
     window.open('/dashboard/nexus?from=deepresearch', '_blank');
   };
 
+  // ディープリサーチ結果を背景情報として保存（モーダルを開く）
+  const handleOpenContextModal = () => {
+    setContextTitle(topic || 'ディープリサーチ結果');
+    setContextFeatureTags(['all']);
+    setShowContextModal(true);
+  };
+
+  // 背景情報を確定保存
+  const handleConfirmSaveContext = async () => {
+    if (!report.trim()) return;
+    setContextSaving(true);
+    try {
+      const res = await fetch('/api/context', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          title: contextTitle || 'ディープリサーチ結果',
+          content: report,
+          category: 'deepresearch',
+          source: 'deepresearch',
+          featureTags: contextFeatureTags.length > 0 ? contextFeatureTags : ['all'],
+        }),
+      });
+      if (res.ok) {
+        setContextSaved(true);
+        setShowContextModal(false);
+        setTimeout(() => setContextSaved(false), 4000);
+      }
+    } finally {
+      setContextSaving(false);
+    }
+  };
+
   const download = () => {
     const a = document.createElement('a');
     a.href = URL.createObjectURL(new Blob([report], { type: 'text/plain' }));
@@ -1059,6 +1098,36 @@ ${contextText}
               >
                 🌐 nexusブログ記事にする
               </button>
+              {/* 背景情報として保存 */}
+              <button
+                onClick={handleOpenContextModal}
+                style={{
+                  padding: '6px 14px',
+                  background: 'rgba(234,88,12,0.1)',
+                  color: '#ea580c',
+                  border: '1px solid rgba(234,88,12,0.3)',
+                  borderRadius: 6,
+                  cursor: 'pointer',
+                  fontSize: 12,
+                  fontWeight: 500,
+                }}
+                title="リサーチ結果を背景情報として保存し、各スタジオでAIに読み込ませられます"
+              >
+                🧠 背景情報として保存
+              </button>
+              {contextSaved && (
+                <span
+                  style={{
+                    fontSize: 11,
+                    color: '#059669',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: 4,
+                  }}
+                >
+                  ✅ 背景情報に保存しました
+                </span>
+              )}
             </div>
           </div>
           <div
@@ -2248,6 +2317,188 @@ ${contextText}
                   padding: '8px 16px', background: 'transparent',
                   color: 'var(--text-muted)', border: 'none', borderRadius: 8,
                   fontSize: 12, cursor: 'pointer',
+                }}
+              >
+                キャンセル
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 背景情報として保存モーダル */}
+      {showContextModal && (
+        <div
+          style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(0,0,0,0.5)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 1000,
+          }}
+          onClick={() => setShowContextModal(false)}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              background: 'var(--bg-primary)',
+              borderRadius: 16,
+              padding: 24,
+              width: 'min(440px, 90vw)',
+              boxShadow: '0 20px 60px rgba(0,0,0,0.3)',
+              border: '1px solid var(--border)',
+            }}
+          >
+            <h3
+              style={{
+                fontSize: 16,
+                fontWeight: 700,
+                marginBottom: 16,
+                color: 'var(--text-primary)',
+              }}
+            >
+              🧠 背景情報として保存
+            </h3>
+
+            {/* タイトル */}
+            <div style={{ marginBottom: 12 }}>
+              <label
+                style={{
+                  fontSize: 12,
+                  color: 'var(--text-secondary)',
+                  display: 'block',
+                  marginBottom: 4,
+                }}
+              >
+                タイトル
+              </label>
+              <input
+                value={contextTitle}
+                onChange={(e) => setContextTitle(e.target.value)}
+                style={{
+                  width: '100%',
+                  boxSizing: 'border-box',
+                  border: '1px solid var(--border)',
+                  borderRadius: 8,
+                  padding: '8px 12px',
+                  fontSize: 13,
+                  background: 'var(--bg-secondary)',
+                  color: 'var(--text-primary)',
+                }}
+              />
+            </div>
+
+            {/* 活用する機能を選択 */}
+            <div style={{ marginBottom: 16 }}>
+              <label
+                style={{
+                  fontSize: 12,
+                  color: 'var(--text-secondary)',
+                  display: 'block',
+                  marginBottom: 8,
+                }}
+              >
+                どの機能で活用しますか？（複数選択可）
+              </label>
+              <div
+                style={{
+                  display: 'flex',
+                  flexWrap: 'wrap',
+                  gap: 6,
+                }}
+              >
+                {[
+                  { id: 'all', label: '全機能', icon: '🌐' },
+                  { id: 'medical', label: '医療文書', icon: '🏥' },
+                  { id: 'hr', label: '人材育成', icon: '🌱' },
+                  { id: 'business', label: '収益化', icon: '💰' },
+                  { id: 'kindle', label: 'Kindle', icon: '📚' },
+                  { id: 'blog', label: 'nexusブログ', icon: '📰' },
+                  { id: 'nexus', label: 'nexusサイト', icon: '🌐' },
+                ].map((opt) => {
+                  const selected = contextFeatureTags.includes(opt.id);
+                  return (
+                    <button
+                      key={opt.id}
+                      type="button"
+                      onClick={() => {
+                        if (opt.id === 'all') {
+                          setContextFeatureTags(['all']);
+                        } else {
+                          setContextFeatureTags((prev) => {
+                            const withoutAll = prev.filter((t) => t !== 'all');
+                            return withoutAll.includes(opt.id)
+                              ? withoutAll.filter((t) => t !== opt.id)
+                              : [...withoutAll, opt.id];
+                          });
+                        }
+                      }}
+                      style={{
+                        padding: '6px 12px',
+                        borderRadius: 6,
+                        fontSize: 12,
+                        cursor: 'pointer',
+                        background: selected ? '#ea580c' : 'var(--bg-secondary)',
+                        color: selected ? '#fff' : 'var(--text-secondary)',
+                        border: `1px solid ${selected ? '#ea580c' : 'var(--border)'}`,
+                      }}
+                    >
+                      {opt.icon} {opt.label}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* プレビュー */}
+            <div
+              style={{
+                fontSize: 12,
+                color: 'var(--text-secondary)',
+                padding: 10,
+                background: 'var(--bg-secondary)',
+                borderRadius: 8,
+                marginBottom: 16,
+                maxHeight: 80,
+                overflowY: 'auto',
+                whiteSpace: 'pre-wrap',
+                lineHeight: 1.5,
+              }}
+            >
+              {(report ?? '').slice(0, 200)}...
+            </div>
+
+            <div style={{ display: 'flex', gap: 10 }}>
+              <button
+                type="button"
+                onClick={handleConfirmSaveContext}
+                disabled={contextSaving}
+                style={{
+                  flex: 1,
+                  padding: '10px',
+                  background: contextSaving ? '#9ca3af' : '#ea580c',
+                  color: '#fff',
+                  border: 'none',
+                  borderRadius: 8,
+                  fontSize: 14,
+                  fontWeight: 600,
+                  cursor: contextSaving ? 'not-allowed' : 'pointer',
+                }}
+              >
+                {contextSaving ? '💾 保存中...' : '💾 保存する'}
+              </button>
+              <button
+                type="button"
+                onClick={() => setShowContextModal(false)}
+                style={{
+                  padding: '10px 16px',
+                  border: '1px solid var(--border)',
+                  borderRadius: 8,
+                  background: 'var(--bg-primary)',
+                  cursor: 'pointer',
+                  color: 'var(--text-primary)',
                 }}
               >
                 キャンセル

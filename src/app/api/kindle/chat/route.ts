@@ -86,9 +86,12 @@ export async function POST(req: NextRequest) {
   if (!apiKey) return new Response('ANTHROPIC_API_KEY未設定', { status: 500 });
 
   const client = new Anthropic({ apiKey });
-  const { messages, bookContext } = await req.json();
+  const { messages, bookContext, contextInfo } = await req.json();
   const contextStr = bookContext
     ? `\n\n現在の書籍情報:\n${JSON.stringify(bookContext, null, 2)}`
+    : '';
+  const extraContextStr = contextInfo
+    ? `\n\n【参考背景情報】\n${contextInfo}`
     : '';
 
   const userId = (session.user as any).id;
@@ -103,7 +106,7 @@ export async function POST(req: NextRequest) {
           model: 'claude-sonnet-4-6',
           max_tokens: 3000,
           stream: true,
-          system: SYSTEM_PROMPT + clinicStr + contextStr,
+          system: SYSTEM_PROMPT + clinicStr + contextStr + extraContextStr,
           messages: (messages ?? []).map((m: { role: string; content: string }) => ({
             role: m.role,
             content: m.content,

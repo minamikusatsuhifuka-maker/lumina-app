@@ -1,6 +1,10 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import ContextSelector, {
+  buildContextText,
+  type ContextItem,
+} from '@/components/ContextSelector';
 
 interface Service {
   name: string;
@@ -104,6 +108,7 @@ export default function NexusPage() {
   const [isGeneratingSite, setIsGeneratingSite] = useState(false);
   const [generatedHtml, setGeneratedHtml] = useState('');
   const [previewMode, setPreviewMode] = useState(false);
+  const [nexusContexts, setNexusContexts] = useState<ContextItem[]>([]);
 
   // ブログ
   const [blogMode, setBlogMode] = useState<'list' | 'write' | 'edit'>('list');
@@ -233,6 +238,7 @@ export default function NexusPage() {
           blogPosts: blogPosts
             .filter((p) => p.status === 'published')
             .slice(0, 6),
+          contextInfo: buildContextText(nexusContexts),
         }),
       });
       if (!res.ok) {
@@ -285,6 +291,7 @@ export default function NexusPage() {
           theme: blogTheme,
           researchText,
           brandInfo: brand,
+          contextInfo: buildContextText(nexusContexts),
         }),
       });
 
@@ -1586,6 +1593,9 @@ export default function NexusPage() {
                   })}
                 </div>
               </div>
+
+              {/* 背景情報セレクタ（blog/nexus両方の背景情報をサポート） */}
+              <ContextSelector featureKey="blog" onSelect={setNexusContexts} />
 
               {/* 執筆ボタン */}
               <button

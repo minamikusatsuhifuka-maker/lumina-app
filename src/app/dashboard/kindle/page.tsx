@@ -1,6 +1,10 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
+import ContextSelector, {
+  buildContextText,
+  type ContextItem,
+} from '@/components/ContextSelector';
 
 interface Message { role: 'user' | 'assistant'; content: string; timestamp: string }
 interface Chapter {
@@ -58,6 +62,7 @@ export default function KindlePage() {
   const [currentBook, setCurrentBook] = useState<Book | null>(null);
   const [chapters, setChapters] = useState<Chapter[]>([]);
   const [messages, setMessages] = useState<Message[]>([]);
+  const [kindleContexts, setKindleContexts] = useState<ContextItem[]>([]);
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [streamingText, setStreamingText] = useState('');
@@ -169,6 +174,7 @@ export default function KindlePage() {
             phase: currentBook.phase,
           },
           phase: currentBook.phase,
+          contextInfo: buildContextText(kindleContexts),
         }),
       });
       if (!res.body) throw new Error('レスポンスボディなし');
@@ -710,6 +716,8 @@ export default function KindlePage() {
               </div>
 
               <div style={{ borderTop: '1px solid var(--border)', background: 'var(--bg-secondary)', padding: '12px 16px 16px' }}>
+                {/* 背景情報セレクタ */}
+                <ContextSelector featureKey="kindle" onSelect={setKindleContexts} />
                 <div style={{ display: 'flex', flexWrap: 'wrap' as const, gap: 6, marginBottom: 8 }}>
                   {['もっと具体的に教えて', 'それで進めてください', '別の案も出して', 'ターゲットを絞りたい', '目次を確定して', 'マーケティング要素を強化して'].map(q => (
                     <button

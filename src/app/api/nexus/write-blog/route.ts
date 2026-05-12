@@ -33,6 +33,7 @@ interface WriteBlogRequest {
   theme?: string;
   researchText?: string;
   brandInfo?: unknown;
+  contextInfo?: string;
 }
 
 export async function POST(req: NextRequest) {
@@ -49,7 +50,7 @@ export async function POST(req: NextRequest) {
     return new Response('Bad Request', { status: 400 });
   }
 
-  const { sourceType, theme, researchText, brandInfo } = body;
+  const { sourceType, theme, researchText, brandInfo, contextInfo } = body;
 
   if (sourceType !== 'theme' && sourceType !== 'research') {
     return new Response('Invalid sourceType', { status: 400 });
@@ -67,6 +68,9 @@ export async function POST(req: NextRequest) {
     ? JSON.stringify(brandInfo)
     : 'AIコンサル・コーチングブランド';
 
+  const contextSection = contextInfo
+    ? `\n\n【参考背景情報】\n${contextInfo}\n`
+    : '';
   const userPrompt =
     sourceType === 'research'
       ? `以下のリサーチ内容を元に、nexusブランドのブログ記事を執筆してください。
@@ -82,7 +86,7 @@ ${researchText?.slice(0, 4000) ?? ''}
 2. 読者がすぐに実践できる内容を含める
 3. nexusのサービス・コーチングへの自然な導線を末尾に入れる
 4. SEOタイトル候補を記事末尾に3つ提示する
-
+${contextSection}
 記事を全文執筆してください。`
       : `以下のテーマでnexusブランドのブログ記事を執筆してください。
 
@@ -98,7 +102,7 @@ ${theme}
 3. 具体的な解決策・ステップを提示
 4. nexusのサービスへの自然な導線を末尾に入れる
 5. SEOタイトル候補を記事末尾に3つ提示する
-
+${contextSection}
 記事を全文執筆してください。`;
 
   const encoder = new TextEncoder();

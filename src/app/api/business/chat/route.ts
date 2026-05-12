@@ -72,6 +72,7 @@ interface ChatMessage {
 interface ChatRequest {
   messages: ChatMessage[];
   projectContext?: unknown;
+  contextInfo?: string;
 }
 
 export async function POST(req: NextRequest) {
@@ -88,7 +89,7 @@ export async function POST(req: NextRequest) {
     return new Response('Bad Request', { status: 400 });
   }
 
-  const { messages } = body;
+  const { messages, contextInfo } = body;
   if (!Array.isArray(messages) || messages.length === 0) {
     return new Response('messagesが必要です', { status: 400 });
   }
@@ -96,7 +97,8 @@ export async function POST(req: NextRequest) {
   const clinicPrompt = await getClinicSystemPrompt('business', userId);
   const fullSystem =
     SYSTEM_PROMPT +
-    (clinicPrompt ? '\n\n## クリニック・事業背景\n' + clinicPrompt : '');
+    (clinicPrompt ? '\n\n## クリニック・事業背景\n' + clinicPrompt : '') +
+    (contextInfo ? '\n\n## 参考背景情報\n' + contextInfo : '');
 
   const encoder = new TextEncoder();
   const stream = new ReadableStream({

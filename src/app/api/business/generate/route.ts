@@ -81,6 +81,7 @@ ${JSON.stringify(ctx, null, 2)}
 interface GenerateRequest {
   generateType: string;
   projectData: GenerateContext;
+  contextInfo?: string;
 }
 
 export async function POST(req: NextRequest) {
@@ -97,7 +98,7 @@ export async function POST(req: NextRequest) {
     return new Response('Bad Request', { status: 400 });
   }
 
-  const { generateType, projectData } = body;
+  const { generateType, projectData, contextInfo } = body;
   const promptFn = GENERATORS[generateType];
   if (!promptFn) {
     return new Response(
@@ -106,7 +107,11 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  const prompt = promptFn(projectData);
+  // 参考背景情報があれば末尾に追記
+  const basePrompt = promptFn(projectData);
+  const prompt = contextInfo
+    ? `${basePrompt}\n\n【参考背景情報】\n${contextInfo}`
+    : basePrompt;
   const encoder = new TextEncoder();
 
   const stream = new ReadableStream({

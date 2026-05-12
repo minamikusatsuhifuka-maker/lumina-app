@@ -73,7 +73,8 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: '不正なリクエスト' }, { status: 400 });
   }
 
-  const { brand, pageType, kindleBooks, blogPosts } = body;
+  const { brand, pageType, kindleBooks, blogPosts, contextInfo } = body as
+    typeof body & { contextInfo?: string };
   if (!brand || !pageType) {
     return NextResponse.json(
       { error: 'brandとpageTypeは必須です' },
@@ -116,6 +117,7 @@ ${blogPosts && blogPosts.length > 0 ? `【最新ブログ記事】\n${JSON.strin
 6. CTAボタンは目立つデザインに
 7. ヒーローセクション・実績・サービス・お客様の声・CTAの構成
 
+${contextInfo ? `【参考背景情報】\n${contextInfo}\n` : ''}
 完全なHTMLファイル（<!DOCTYPE html>から</html>まで）のみを出力してください。
 説明文・コードブロック記号は不要です。`;
 

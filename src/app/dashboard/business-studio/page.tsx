@@ -1,6 +1,10 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
+import ContextSelector, {
+  buildContextText,
+  type ContextItem,
+} from '@/components/ContextSelector';
 
 interface Message {
   role: 'user' | 'assistant';
@@ -81,6 +85,7 @@ export default function BusinessStudioPage() {
     'chat',
   );
   const [selectedGenerateType, setSelectedGenerateType] = useState('lp');
+  const [businessContexts, setBusinessContexts] = useState<ContextItem[]>([]);
   const [isGenerating, setIsGenerating] = useState(false);
   const [generatedContent, setGeneratedContent] = useState('');
   const [genStreaming, setGenStreaming] = useState('');
@@ -232,6 +237,7 @@ export default function BusinessStudioPage() {
         body: JSON.stringify({
           messages: updatedMessages,
           projectContext: currentProject,
+          contextInfo: buildContextText(businessContexts),
         }),
       });
 
@@ -328,6 +334,7 @@ export default function BusinessStudioPage() {
         body: JSON.stringify({
           generateType: selectedGenerateType,
           projectData,
+          contextInfo: buildContextText(businessContexts),
         }),
       });
 
@@ -804,6 +811,11 @@ export default function BusinessStudioPage() {
                   paddingBottom: 16,
                 }}
               >
+                {/* 背景情報セレクタ */}
+                <ContextSelector
+                  featureKey="business"
+                  onSelect={setBusinessContexts}
+                />
                 <div
                   style={{
                     display: 'flex',

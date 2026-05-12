@@ -216,10 +216,16 @@ export async function POST(req: NextRequest) {
   }
 
   const clinicPrompt = await getClinicSystemPrompt('hr', userId);
-  const basePrompt = promptFn(memberData ?? {}, extraData ?? {});
-  const fullPrompt = clinicPrompt
+  // extraData.contextInfo に背景情報が入っているので分離して扱う
+  const { contextInfo: extraContextInfo, ...extraDataRest } =
+    (extraData ?? {}) as Record<string, string>;
+  const basePrompt = promptFn(memberData ?? {}, extraDataRest);
+  let fullPrompt = clinicPrompt
     ? basePrompt + `\n\n【クリニック・組織の背景情報】\n${clinicPrompt}`
     : basePrompt;
+  if (extraContextInfo) {
+    fullPrompt += `\n\n【参考背景情報】\n${extraContextInfo}`;
+  }
 
   const encoder = new TextEncoder();
   const stream = new ReadableStream({

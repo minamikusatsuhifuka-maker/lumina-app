@@ -1,6 +1,10 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import ContextSelector, {
+  buildContextText,
+  type ContextItem,
+} from '@/components/ContextSelector';
 
 interface Member {
   id: number;
@@ -95,6 +99,7 @@ export default function HrStudioPage() {
   const [selectedGenerateType, setSelectedGenerateType] =
     useState<string>('possibility');
   const [extraInput, setExtraInput] = useState('');
+  const [hrContexts, setHrContexts] = useState<ContextItem[]>([]);
   const [isGenerating, setIsGenerating] = useState(false);
   const [generatedContent, setGeneratedContent] = useState('');
   const [streamingText, setStreamingText] = useState('');
@@ -194,7 +199,10 @@ export default function HrStudioPage() {
         body: JSON.stringify({
           generateType: selectedGenerateType,
           memberData: selectedMember,
-          extraData,
+          extraData: {
+            ...extraData,
+            contextInfo: buildContextText(hrContexts),
+          },
         }),
       });
 
@@ -667,6 +675,9 @@ export default function HrStudioPage() {
                   }}
                 />
               </div>
+
+              {/* 背景情報セレクタ */}
+              <ContextSelector featureKey="hr" onSelect={setHrContexts} />
 
               {/* 生成ボタン */}
               <button
