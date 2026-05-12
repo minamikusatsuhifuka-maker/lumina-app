@@ -10,43 +10,57 @@ interface ExecuteRequest {
   jobId: number;
 }
 
-// 並列起動数の上限（Vercel関数の同時接続数・メモリを保護）
+// トークン使用量
+interface TokenUsage {
+  inputTokens: number;
+  outputTokens: number;
+}
+
+// 拡張StepResult（実行詳細にトークン情報を含める）
+interface StepResultEx extends Omit<StepResult, 'status'> {
+  status: 'completed' | 'failed' | 'skipped';
+  tokens?: TokenUsage;
+}
+
+// 並列起動数の上限
 const MAX_PARALLEL = 3;
+// メインループのポーリング間隔（イベント駆動の代わり）
+const POLL_INTERVAL_MS = 200;
 
 // ステップIDに応じたタイムアウト設定（ms）
-// 大量生成ステップ（LP・21通メール・SNS30日分など）は長めに確保する
 const STEP_TIMEOUTS: Record<string, number> = {
   // 超長文生成（180秒〜240秒）
-  lp: 180_000, // LP全文 → 3分
-  step_mail: 240_000, // メール21通 → 4分
-  sns_30days: 180_000, // SNS30日分 → 3分
-  kindle_outline: 180_000, // Kindleアウトライン → 3分
-  outline: 180_000, // Kindle本文用アウトライン → 3分
-  chapter_hooks: 180_000, // 章ごとのフック → 3分
-  amazon_listing: 150_000, // Amazonリスティング → 2.5分
-  video_script: 150_000, // 動画台本 → 2.5分
-  podcast_script: 150_000, // ポッドキャスト台本 → 2.5分
-  seo_content_plan: 120_000, // SEOコンテンツ計画 → 2分
-  promotion_plan: 120_000, // プロモーション計画 → 2分
-  // 市場リサーチは内部Claude直接呼び出しでも長文生成のため余裕を持って3分
+  lp: 180_000,
+  step_mail: 240_000,
+  sns_30days: 180_000,
+  kindle: 180_000,
+  kindle_outline: 180_000,
+  outline: 180_000,
+  chapter_hooks: 180_000,
+  amazon_listing: 150_000,
+  video_script: 150_000,
+  podcast_script: 150_000,
+  seo_content_plan: 120_000,
+  promotion_plan: 120_000,
+  // 市場リサーチ系
   market_research: 180_000,
   research: 180_000,
 };
-// デフォルト（通常ステップ）
 const DEFAULT_STEP_TIMEOUT_MS = 90_000;
 // fetch（Abort）はステップタイムアウトより5秒短く（最低60秒は確保）
 const fetchTimeoutFor = (stepTimeoutMs: number): number =>
   Math.max(stepTimeoutMs - 5_000, 60_000);
 
-// SSEストリームからテキストを収集
-// deepresearch: { type: 'text', content: ... } / { type: 'done' }
-// 他: { type: 'delta', text: ... } / { type: 'done' }
-const collectSseText = async (res: Response): Promise<string> => {
-  if (!res.body) return '';
+// SSEストリームからテキスト＋トークン使用量を収集
+const collectSseTextAndTokens = async (
+  res: Response,
+): Promise<{ content: string; tokens?: TokenUsage }> => {
+  if (!res.body) return { content: '' };
   const reader = res.body.getReader();
   const decoder = new TextDecoder();
   let fullText = '';
   let buffer = '';
+  let tokens: TokenUsage | undefined;
 
   try {
     while (true) {
@@ -67,13 +81,22 @@ const collectSseText = async (res: Response): Promise<string> => {
               typeof event.content === 'string'
             ) {
               fullText += event.content;
+            } else if (event.type === 'done' && event.usage) {
+              tokens = {
+                inputTokens: event.usage.input_tokens ?? 0,
+                outputTokens: event.usage.output_tokens ?? 0,
+              };
             } else if (event.type === 'error') {
               throw new Error(event.message ?? 'ストリームエラー');
             }
           } catch (err) {
-            // パースエラーは無視、type==='error'の例外は再スロー
-            if (err instanceof Error && err.message !== 'Unexpected end of JSON input') {
-              if (err.message && !err.message.includes('JSON')) throw err;
+            if (
+              err instanceof Error &&
+              err.message &&
+              !err.message.includes('JSON') &&
+              err.message !== 'Unexpected end of JSON input'
+            ) {
+              throw err;
             }
           }
         }
@@ -86,16 +109,17 @@ const collectSseText = async (res: Response): Promise<string> => {
       /* skip */
     }
   }
-  return fullText;
+  return { content: fullText, tokens };
 };
 
+// ステップ実行（コンテンツとトークン消費を返す）
 const executeStep = async (
   step: PipelineStep,
   input: Record<string, unknown>,
   origin: string,
   cookieHeader: string,
   fetchTimeoutMs: number,
-): Promise<string> => {
+): Promise<{ content: string; tokens?: TokenUsage }> => {
   const res = await fetch(`${origin}${step.apiEndpoint}`, {
     method: 'POST',
     headers: {
@@ -103,7 +127,6 @@ const executeStep = async (
       cookie: cookieHeader,
     },
     body: JSON.stringify(input),
-    // fetchレベルのタイムアウト（ステップ毎に動的に決定）
     signal: AbortSignal.timeout(fetchTimeoutMs),
   });
 
@@ -121,17 +144,33 @@ const executeStep = async (
 
   const contentType = res.headers.get('content-type') ?? '';
   if (contentType.includes('text/event-stream')) {
-    return await collectSseText(res);
+    const { content, tokens } = await collectSseTextAndTokens(res);
+    return { content: content || '（結果なし）', tokens };
   }
 
   const data = (await res.json()) as Record<string, unknown>;
-  if (typeof data.content === 'string') return data.content;
-  if (typeof data.result === 'string') return data.result;
-  if (typeof data.html === 'string') return data.html;
-  if (data.saved && Array.isArray(data.saved)) {
-    return `${data.count ?? data.saved.length}件保存しました: ${JSON.stringify(data.saved).slice(0, 200)}`;
+  let content = '';
+  if (typeof data.content === 'string') content = data.content;
+  else if (typeof data.result === 'string') content = data.result;
+  else if (typeof data.html === 'string') content = data.html;
+  else if (data.saved && Array.isArray(data.saved)) {
+    content = `${data.count ?? data.saved.length}件保存しました: ${JSON.stringify(data.saved).slice(0, 200)}`;
+  } else {
+    content = JSON.stringify(data);
   }
-  return JSON.stringify(data);
+
+  // usage が含まれていればトークン情報も返す
+  let tokens: TokenUsage | undefined;
+  const usage = data.usage as
+    | { input_tokens?: number; output_tokens?: number }
+    | undefined;
+  if (usage) {
+    tokens = {
+      inputTokens: usage.input_tokens ?? 0,
+      outputTokens: usage.output_tokens ?? 0,
+    };
+  }
+  return { content, tokens };
 };
 
 export async function POST(req: NextRequest) {
@@ -181,8 +220,7 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  // ジョブ作成時に保存された有効ステップIDを取得し、PIPELINES定義をフィルタ
-  // 依存ステップが除外されている場合は dependsOn からも自動的に除外
+  // ジョブ作成時に保存された有効ステップIDでパイプラインをフィルタ
   const enabledIds = new Set(
     Array.isArray(job.steps) && job.steps.length > 0
       ? job.steps.map((s) => s.id)
@@ -198,7 +236,6 @@ export async function POST(req: NextRequest) {
       })),
   };
 
-  // クッキー・origin を取得してサブAPIに転送
   const cookieHeader = req.headers.get('cookie') ?? '';
   const origin = new URL(req.url).origin;
 
@@ -216,6 +253,10 @@ export async function POST(req: NextRequest) {
         }
       };
 
+      const steps = pipeline.steps;
+      const results: Record<string, StepResultEx> = {};
+      const totalTokens: TokenUsage = { inputTokens: 0, outputTokens: 0 };
+
       try {
         await sql`
           UPDATE pipeline_jobs
@@ -226,42 +267,42 @@ export async function POST(req: NextRequest) {
         });
         send({ type: 'started', jobId });
 
-        const results: Record<string, StepResult> = {};
-        const steps = pipeline.steps;
-        const completed = new Set<string>();
-        const running = new Set<string>();
-        const failed = new Set<string>();
-        // 実行中のPromiseを stepId をキーに保持（重複起動防止）
-        const inflight = new Map<string, Promise<void>>();
+        // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        // イベント駆動型並列実行エンジン（ポーリング200ms）
+        // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        const done = new Set<string>(); // 完了（成功 or 失敗 or スキップ）
+        const running = new Set<string>(); // 実行中
 
-        // 実行可能なステップを取得（依存がすべて完了済みのもの。失敗依存も「進行可」と見なす）
-        const getReadySteps = (): PipelineStep[] =>
+        // 実行可能なステップを取得
+        const getReady = (): PipelineStep[] =>
           steps.filter((step) => {
-            if (
-              completed.has(step.id) ||
-              running.has(step.id) ||
-              failed.has(step.id) ||
-              inflight.has(step.id)
-            ) {
-              return false;
-            }
+            if (done.has(step.id) || running.has(step.id)) return false;
             if (!step.dependsOn || step.dependsOn.length === 0) return true;
-            // 依存ステップが完了または失敗していれば進める（依存失敗時は後段でスキップ判定）
-            return step.dependsOn.every(
-              (dep) => completed.has(dep) || failed.has(dep),
-            );
+            // 依存ステップが完了済み（成功・失敗問わず）なら進める
+            return step.dependsOn.every((dep) => done.has(dep));
           });
 
-        // 1ステップを実行する非同期関数（必ず resolve、内部で例外を捕捉、タイムアウト付き）
-        const runStep = async (step: PipelineStep): Promise<void> => {
+        // inputMapperに渡す previous results（既存シグネチャを維持）
+        // StepResult { result: string; status: 'completed' | 'failed' } を期待している
+        const inputMapperResults = (): Record<string, StepResult> => {
+          const out: Record<string, StepResult> = {};
+          for (const [k, v] of Object.entries(results)) {
+            out[k] = {
+              result: v.result ?? '',
+              status: v.status === 'completed' ? 'completed' : 'failed',
+            };
+          }
+          return out;
+        };
+
+        // 1ステップ実行（必ずresolve）
+        const runStep = (step: PipelineStep): Promise<void> => {
           running.add(step.id);
-          // ステップIDから動的にタイムアウトを決定（大量生成は長めに）
           const stepTimeout =
             STEP_TIMEOUTS[step.id] ?? DEFAULT_STEP_TIMEOUT_MS;
           const fetchTimeout = fetchTimeoutFor(stepTimeout);
           send({ type: 'step_start', stepId: step.id, label: step.label });
 
-          // ステップ全体のタイムアウトPromise（動的）
           const timeoutPromise = new Promise<never>((_, reject) =>
             setTimeout(
               () =>
@@ -274,95 +315,85 @@ export async function POST(req: NextRequest) {
             ),
           );
 
-          try {
-            const input = step.inputMapper(job.intent, results);
-            const result = await Promise.race([
-              executeStep(step, input, origin, cookieHeader, fetchTimeout),
-              timeoutPromise,
-            ]);
-            results[step.id] = { result, status: 'completed' };
-            completed.add(step.id);
-            running.delete(step.id);
-
-            const progress = Math.round(
-              ((completed.size + failed.size) / steps.length) * 100,
-            );
-
-            await sql`
-              UPDATE pipeline_jobs SET
-                results = ${JSON.stringify(results)}::jsonb,
-                progress = ${progress},
-                updated_at = NOW()
-              WHERE id = ${jobId}
-            `.catch(() => {
-              /* DB更新エラーは無視して続行 */
+          return Promise.race([
+            (async () => {
+              const input = step.inputMapper(job.intent, inputMapperResults());
+              return executeStep(step, input, origin, cookieHeader, fetchTimeout);
+            })(),
+            timeoutPromise,
+          ])
+            .then(({ content, tokens }) => {
+              results[step.id] = {
+                result: content,
+                status: 'completed',
+                tokens,
+              };
+              if (tokens) {
+                totalTokens.inputTokens += tokens.inputTokens;
+                totalTokens.outputTokens += tokens.outputTokens;
+              }
+              done.add(step.id);
+              running.delete(step.id);
+              const progress = Math.round((done.size / steps.length) * 100);
+              send({
+                type: 'step_complete',
+                stepId: step.id,
+                label: step.label,
+                progress,
+                preview:
+                  typeof content === 'string'
+                    ? content.slice(0, 200)
+                    : JSON.stringify(content).slice(0, 200),
+              });
+              // DB非同期更新（失敗しても続行）
+              void sql`
+                UPDATE pipeline_jobs SET
+                  results = ${JSON.stringify(results)}::jsonb,
+                  progress = ${progress},
+                  updated_at = NOW()
+                WHERE id = ${jobId}
+              `.catch(() => {});
+            })
+            .catch((err) => {
+              const errMsg = err instanceof Error ? err.message : String(err);
+              console.error(`[orchestrator] ステップ失敗 ${step.id}:`, errMsg);
+              results[step.id] = {
+                result: errMsg,
+                status: 'failed',
+              };
+              done.add(step.id); // 失敗も「完了」扱いでループを進める
+              running.delete(step.id);
+              const progress = Math.round((done.size / steps.length) * 100);
+              send({
+                type: 'step_error',
+                stepId: step.id,
+                label: step.label,
+                error: errMsg,
+                message: errMsg,
+              });
+              void sql`
+                UPDATE pipeline_jobs SET
+                  results = ${JSON.stringify(results)}::jsonb,
+                  progress = ${progress},
+                  updated_at = NOW()
+                WHERE id = ${jobId}
+              `.catch(() => {});
             });
-
-            send({
-              type: 'step_complete',
-              stepId: step.id,
-              label: step.label,
-              progress,
-              preview:
-                typeof result === 'string'
-                  ? result.slice(0, 200)
-                  : JSON.stringify(result).slice(0, 200),
-            });
-          } catch (err) {
-            const errMsg = err instanceof Error ? err.message : String(err);
-            console.error(`[orchestrator] ステップ失敗 ${step.id}:`, errMsg);
-            results[step.id] = { result: errMsg, status: 'failed' };
-            failed.add(step.id);
-            running.delete(step.id);
-
-            const progress = Math.round(
-              ((completed.size + failed.size) / steps.length) * 100,
-            );
-            await sql`
-              UPDATE pipeline_jobs SET
-                results = ${JSON.stringify(results)}::jsonb,
-                progress = ${progress},
-                updated_at = NOW()
-              WHERE id = ${jobId}
-            `.catch(() => {
-              /* DB更新エラーは無視 */
-            });
-
-            send({
-              type: 'step_error',
-              stepId: step.id,
-              label: step.label,
-              message: errMsg,
-            });
-          } finally {
-            inflight.delete(step.id);
-          }
         };
 
-        // メイン実行ループ（無限ループ防止のため最大反復回数を設定）
-        const MAX_LOOPS = steps.length * 10 + 50;
+        // メインループ：全ステップが done になるまで繰り返す
+        const allPromises: Promise<void>[] = [];
+        // 無限ループ防止
+        const MAX_LOOPS = (steps.length + 10) * 10_000; // 最大2000秒相当
         let loopCount = 0;
 
-        while (
-          completed.size + failed.size < steps.length &&
-          loopCount < MAX_LOOPS
-        ) {
+        while (done.size < steps.length && loopCount < MAX_LOOPS) {
           loopCount++;
-          const readySteps = getReadySteps();
+          const ready = getReady();
+          const slots = MAX_PARALLEL - running.size;
+          const toRun = ready.slice(0, Math.max(0, slots));
 
-          if (readySteps.length > 0) {
-            // 並列起動数を制限
-            const slotsAvailable = Math.max(0, MAX_PARALLEL - inflight.size);
-            const toRun = readySteps.slice(0, slotsAvailable);
-
-            if (toRun.length === 0) {
-              // 既に並列上限。inflightの完了待ち
-              if (inflight.size > 0) {
-                await Promise.race(Array.from(inflight.values()));
-              }
-              continue;
-            }
-
+          if (toRun.length > 0) {
             if (toRun.length > 1) {
               send({
                 type: 'parallel_start',
@@ -370,67 +401,67 @@ export async function POST(req: NextRequest) {
                 labels: toRun.map((s) => s.label),
               });
             }
-
-            // 起動して inflight に登録
             for (const step of toRun) {
-              const p = runStep(step);
-              inflight.set(step.id, p);
+              allPromises.push(runStep(step));
             }
+          }
 
-            // 少なくとも1つが完了するまで待機
-            if (inflight.size > 0) {
-              await Promise.race(Array.from(inflight.values()));
-            }
-          } else if (inflight.size > 0) {
-            // 実行可能な新規ステップはないが、実行中ステップが残っている
-            await Promise.race(Array.from(inflight.values()));
-          } else {
-            // ready 0 & inflight 0 → デッドロック（依存スキップ判定）
-            const remaining = steps.filter(
-              (s) =>
-                !completed.has(s.id) && !failed.has(s.id) && !running.has(s.id),
-            );
-            console.error(
-              '[orchestrator] デッドロック検出。残りステップ:',
-              remaining.map((s) => s.id),
-            );
-            for (const s of remaining) {
+          // 実行中もなく、実行可能もない → デッドロック検出
+          if (
+            running.size === 0 &&
+            getReady().length === 0 &&
+            done.size < steps.length
+          ) {
+            const stuck = steps.filter((s) => !done.has(s.id));
+            for (const s of stuck) {
               const unmet = (s.dependsOn ?? []).filter(
-                (d) => !completed.has(d),
+                (d) =>
+                  !results[d] ||
+                  (results[d]?.status !== 'completed'),
               );
               results[s.id] = {
                 result: `依存ステップ未完了: ${unmet.join(', ')}`,
-                status: 'failed',
+                status: 'skipped',
               };
-              failed.add(s.id);
+              done.add(s.id);
               send({
-                type: 'step_skip',
+                type: 'step_error',
                 stepId: s.id,
                 label: s.label,
+                error: 'スキップ（依存ステップ失敗）',
                 reason: `依存ステップ未完了: ${unmet.join(', ')}`,
               });
             }
             break;
           }
+
+          // ポーリング間隔
+          await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
         }
 
-        // 念のため残りのinflightが完了するのを待つ
-        if (inflight.size > 0) {
-          await Promise.allSettled(Array.from(inflight.values()));
-        }
+        // 起動した全Promiseの完了を待つ
+        await Promise.allSettled(allPromises);
 
-        if (loopCount >= MAX_LOOPS) {
-          console.error(
-            '[orchestrator] MAX_LOOPS到達。強制終了:',
-            { completed: completed.size, failed: failed.size, total: steps.length },
-          );
-        }
+        const completedCount = Object.values(results).filter(
+          (r) => r.status === 'completed',
+        ).length;
+        const failedCount = Object.values(results).filter(
+          (r) => r.status === 'failed',
+        ).length;
+        const skippedCount = Object.values(results).filter(
+          (r) => r.status === 'skipped',
+        ).length;
 
-        // 最終ステータス判定
+        // コスト計算（claude-sonnet-4-6: input $3/1M, output $15/1M、1USD=150JPY）
+        const costUsd =
+          (totalTokens.inputTokens * 3 + totalTokens.outputTokens * 15) /
+          1_000_000;
+        const costJpy = Math.ceil(costUsd * 150);
+
         const finalStatus =
-          failed.size === steps.length
+          failedCount === steps.length
             ? 'failed'
-            : failed.size > 0
+            : failedCount > 0 || skippedCount > 0
               ? 'completed_with_errors'
               : 'completed';
 
@@ -442,17 +473,19 @@ export async function POST(req: NextRequest) {
             completed_at = NOW(),
             updated_at = NOW()
           WHERE id = ${jobId}
-        `.catch(() => {
-          /* DB更新エラーは無視 */
-        });
+        `.catch(() => {});
 
         send({
           type: 'completed',
           jobId,
           results,
-          hadErrors: failed.size > 0,
-          completedCount: completed.size,
-          failedCount: failed.size,
+          hadErrors: failedCount > 0 || skippedCount > 0,
+          completedCount,
+          failedCount,
+          skippedCount,
+          totalTokens,
+          costUsd: Math.round(costUsd * 1000) / 1000,
+          costJpy,
         });
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
@@ -463,9 +496,7 @@ export async function POST(req: NextRequest) {
             error_message = ${message},
             updated_at = NOW()
           WHERE id = ${jobId}
-        `.catch(() => {
-          /* skip */
-        });
+        `.catch(() => {});
         send({ type: 'error', message });
       } finally {
         try {

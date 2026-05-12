@@ -72,7 +72,13 @@ export async function POST(req: NextRequest) {
 
     const first = response.content[0];
     const content = first && first.type === 'text' ? first.text : '';
-    return NextResponse.json({ content });
+    return NextResponse.json({
+      content,
+      usage: {
+        input_tokens: response.usage.input_tokens,
+        output_tokens: response.usage.output_tokens,
+      },
+    });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     console.error('[market-research] エラー:', message);

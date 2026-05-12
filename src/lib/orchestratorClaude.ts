@@ -25,7 +25,14 @@ export const makeClaudeJsonHandler =
       const firstBlock = response.content[0];
       const content =
         firstBlock && firstBlock.type === 'text' ? firstBlock.text : '';
-      return NextResponse.json({ content });
+      return NextResponse.json({
+        content,
+        // オーケストレーターがコスト計算するためトークン消費量を返す
+        usage: {
+          input_tokens: response.usage.input_tokens,
+          output_tokens: response.usage.output_tokens,
+        },
+      });
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       return NextResponse.json({ error: message }, { status: 500 });

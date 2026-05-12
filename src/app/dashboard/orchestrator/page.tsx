@@ -35,6 +35,10 @@ interface StreamEvent {
   hadErrors?: boolean;
   completedCount?: number;
   failedCount?: number;
+  skippedCount?: number;
+  totalTokens?: { inputTokens: number; outputTokens: number };
+  costUsd?: number;
+  costJpy?: number;
 }
 
 const QUICK_INTENTS = [
@@ -786,7 +790,11 @@ export default function OrchestratorPage() {
                               : event.type === 'step_error'
                                 ? `${event.label ?? ''} エラー: ${event.error ?? event.message ?? ''}`
                                 : event.type === 'completed'
-                                  ? `🎉 全工程完了！（✅${event.completedCount ?? 0}件 / ❌${event.failedCount ?? 0}件）`
+                                  ? `🎉 全工程完了！（✅${event.completedCount ?? 0}件 / ❌${event.failedCount ?? 0}件${
+                                      (event.skippedCount ?? 0) > 0
+                                        ? ` / ⏭${event.skippedCount}件`
+                                        : ''
+                                    }）`
                                   : event.type === 'error'
                                     ? `エラー: ${event.message ?? ''}`
                                     : (event.message ?? '')}
@@ -828,6 +836,143 @@ export default function OrchestratorPage() {
           </div>
         </div>
       )}
+
+      {/* コスト・統計サマリーパネル（完了時） */}
+      {(() => {
+        const completedEvent = streamEvents.find(
+          (e) => e.type === 'completed',
+        );
+        if (!completedEvent) return null;
+        return (
+          <div
+            style={{
+              padding: '14px 20px',
+              background:
+                'linear-gradient(135deg, rgba(79,70,229,0.08), rgba(124,58,237,0.08))',
+              border: '1px solid rgba(79,70,229,0.2)',
+              borderRadius: 12,
+              marginBottom: 16,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              flexWrap: 'wrap',
+              gap: 12,
+            }}
+          >
+            <div>
+              <div
+                style={{
+                  fontSize: 15,
+                  fontWeight: 700,
+                  color: '#4f46e5',
+                  marginBottom: 4,
+                }}
+              >
+                🎉 全工程完了！
+                <span
+                  style={{
+                    fontSize: 13,
+                    fontWeight: 400,
+                    color: 'var(--text-secondary)',
+                    marginLeft: 10,
+                  }}
+                >
+                  ✅{completedEvent.completedCount ?? 0}件完了
+                  {(completedEvent.failedCount ?? 0) > 0 &&
+                    ` / ❌${completedEvent.failedCount}件失敗`}
+                  {(completedEvent.skippedCount ?? 0) > 0 &&
+                    ` / ⏭${completedEvent.skippedCount}件スキップ`}
+                </span>
+              </div>
+            </div>
+
+            {/* API使用料金 */}
+            {completedEvent.totalTokens && (
+              <div
+                style={{
+                  display: 'flex',
+                  gap: 16,
+                  alignItems: 'center',
+                  padding: '8px 16px',
+                  background: 'var(--bg-primary)',
+                  borderRadius: 8,
+                  border: '1px solid var(--border)',
+                }}
+              >
+                <div style={{ textAlign: 'center' }}>
+                  <div
+                    style={{
+                      fontSize: 11,
+                      color: 'var(--text-secondary)',
+                      marginBottom: 2,
+                    }}
+                  >
+                    入力トークン
+                  </div>
+                  <div style={{ fontSize: 14, fontWeight: 600 }}>
+                    {(
+                      completedEvent.totalTokens.inputTokens / 1000
+                    ).toFixed(1)}
+                    K
+                  </div>
+                </div>
+                <div style={{ textAlign: 'center' }}>
+                  <div
+                    style={{
+                      fontSize: 11,
+                      color: 'var(--text-secondary)',
+                      marginBottom: 2,
+                    }}
+                  >
+                    出力トークン
+                  </div>
+                  <div style={{ fontSize: 14, fontWeight: 600 }}>
+                    {(
+                      completedEvent.totalTokens.outputTokens / 1000
+                    ).toFixed(1)}
+                    K
+                  </div>
+                </div>
+                <div
+                  style={{
+                    width: 1,
+                    height: 30,
+                    background: 'var(--border)',
+                  }}
+                />
+                <div style={{ textAlign: 'center' }}>
+                  <div
+                    style={{
+                      fontSize: 11,
+                      color: 'var(--text-secondary)',
+                      marginBottom: 2,
+                    }}
+                  >
+                    API使用料
+                  </div>
+                  <div
+                    style={{
+                      fontSize: 16,
+                      fontWeight: 700,
+                      color: '#059669',
+                    }}
+                  >
+                    ≈ ¥{completedEvent.costJpy?.toLocaleString() ?? '—'}
+                  </div>
+                  <div
+                    style={{
+                      fontSize: 10,
+                      color: 'var(--text-secondary)',
+                    }}
+                  >
+                    ${completedEvent.costUsd?.toFixed(3) ?? '—'} USD
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        );
+      })()}
 
       {/* 完成した結果表示 */}
       {showResults && currentJob && pipeline && (
