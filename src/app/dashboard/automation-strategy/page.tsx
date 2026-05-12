@@ -227,7 +227,7 @@ export default function AutomationStrategyPage() {
   const displayStrategyText = strategyStreaming || strategyOutput;
 
   return (
-    <div style={{ display: 'flex', height: '100vh', overflow: 'hidden' }}>
+    <div style={{ display: 'flex', height: 'calc(100vh - 60px)', overflow: 'hidden' }}>
 
       <div style={{ width: 260, flexShrink: 0, borderRight: '1px solid var(--border-color)', background: 'var(--bg-secondary)', display: 'flex', flexDirection: 'column' }}>
         <div style={{ padding: 16, borderBottom: '1px solid var(--border-color)' }}>
@@ -297,7 +297,7 @@ export default function AutomationStrategyPage() {
         </div>
       </div>
 
-      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', minHeight: 0 }}>
 
         <div style={{
           padding: '12px 20px', borderBottom: '1px solid var(--border-color)',
@@ -337,7 +337,7 @@ export default function AutomationStrategyPage() {
 
         {activeTab === 'chat' && (
           <>
-            <div style={{ flex: 1, overflowY: 'auto', padding: 20, display: 'flex', flexDirection: 'column', gap: 16 }}>
+            <div style={{ flex: 1, overflowY: 'auto', padding: 20, display: 'flex', flexDirection: 'column', gap: 16, minHeight: 500 }}>
 
               {messages.length === 0 && !isLoading && (
                 <div style={{ textAlign: 'center', padding: '30px 20px' }}>
@@ -368,7 +368,7 @@ export default function AutomationStrategyPage() {
               {messages.map((msg, i) => (
                 <div key={i} style={{ display: 'flex', justifyContent: msg.role === 'user' ? 'flex-end' : 'flex-start' }}>
                   <div style={{
-                    maxWidth: '80%', padding: '12px 16px', borderRadius: 14,
+                    maxWidth: '85%', padding: '12px 16px', borderRadius: 14,
                     background: msg.role === 'user' ? (currentDomain?.color ?? '#4f46e5') : 'var(--bg-secondary)',
                     color: msg.role === 'user' ? '#fff' : 'var(--text-primary)',
                     border: msg.role === 'assistant' ? '1px solid var(--border-color)' : 'none',
@@ -382,7 +382,7 @@ export default function AutomationStrategyPage() {
               {streamingText && (
                 <div style={{ display: 'flex', justifyContent: 'flex-start' }}>
                   <div style={{
-                    maxWidth: '80%', padding: '12px 16px', borderRadius: 14,
+                    maxWidth: '85%', padding: '12px 16px', borderRadius: 14,
                     background: 'var(--bg-secondary)', border: '1px solid var(--border-color)',
                     fontSize: 13, lineHeight: 1.8, whiteSpace: 'pre-wrap', color: 'var(--text-primary)',
                   }}>
@@ -432,7 +432,7 @@ export default function AutomationStrategyPage() {
               <div ref={messagesEndRef} />
             </div>
 
-            <div style={{ borderTop: '1px solid var(--border-color)', padding: '12px 16px', background: 'var(--bg-primary)' }}>
+            <div style={{ flexShrink: 0, borderTop: '1px solid var(--border-color)', padding: '12px 16px', background: 'var(--bg-primary)' }}>
               {messages.length > 0 && (
                 <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 8 }}>
                   {['もっと詳しく', '具体例を教えて', 'リスクは？', 'コストは？', '設計書を出力して'].map(q => (
@@ -454,7 +454,7 @@ export default function AutomationStrategyPage() {
                   value={input}
                   onChange={e => setInput(e.target.value)}
                   placeholder="質問・相談内容を入力してください（送信ボタンで送信）"
-                  rows={3}
+                  rows={4}
                   disabled={isLoading}
                   style={{
                     width: '100%', boxSizing: 'border-box',
