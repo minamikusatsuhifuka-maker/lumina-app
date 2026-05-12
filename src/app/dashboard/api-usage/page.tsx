@@ -32,12 +32,13 @@ const FEATURE_LABELS: Record<
 > = {
   orchestrator: { label: 'AIオーケストレーター', icon: '🤖', color: '#4f46e5' },
   deepresearch: { label: 'ディープリサーチ', icon: '🔭', color: '#059669' },
+  text_analysis: { label: 'テキスト分析', icon: '📝', color: '#0891b2' },
   kindle: { label: 'Kindle生成', icon: '📚', color: '#d97706' },
   medical: { label: '医療文書', icon: '🏥', color: '#dc2626' },
   hr: { label: '人材育成', icon: '🌱', color: '#16a34a' },
-  blog: { label: 'ブログ生成', icon: '📝', color: '#7c3aed' },
   business: { label: '収益化スタジオ', icon: '💰', color: '#ea580c' },
-  nexus: { label: 'nexusブランド', icon: '🌐', color: '#0ea5e9' },
+  blog: { label: 'nexusブログ', icon: '📰', color: '#7c3aed' },
+  nexus: { label: 'nexusサイト生成', icon: '🌐', color: '#6366f1' },
   other: { label: 'その他', icon: '⚙️', color: '#6b7280' },
 };
 
@@ -475,6 +476,179 @@ export default function ApiUsagePage() {
               </span>
             </div>
           </div>
+
+          {/* 機能別ドーナツチャート */}
+          {byFeature.length > 0 && totalCostJpy > 0 && (
+            <div
+              style={{
+                padding: 20,
+                borderRadius: 12,
+                border: '1px solid var(--border)',
+                background: 'var(--bg-primary)',
+                marginBottom: 20,
+              }}
+            >
+              <h3
+                style={{
+                  fontSize: 14,
+                  fontWeight: 600,
+                  marginBottom: 16,
+                  color: 'var(--text-primary)',
+                }}
+              >
+                🥧 機能別コスト割合
+              </h3>
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 24,
+                  flexWrap: 'wrap',
+                }}
+              >
+                {/* SVGドーナツチャート */}
+                <svg
+                  width="160"
+                  height="160"
+                  viewBox="0 0 160 160"
+                  style={{ flexShrink: 0 }}
+                >
+                  {(() => {
+                    const total = byFeature.reduce(
+                      (sum, f) => sum + toInt(f.cost_jpy),
+                      0,
+                    );
+                    if (total === 0) return null;
+                    const radius = 60;
+                    const cx = 80;
+                    const cy = 80;
+                    const strokeWidth = 24;
+                    const dashArray = 2 * Math.PI * radius;
+                    let cumulative = 0;
+                    return byFeature.map((feature) => {
+                      const config =
+                        FEATURE_LABELS[feature.feature_key] ??
+                        FEATURE_LABELS.other;
+                      const costJpy = toInt(feature.cost_jpy);
+                      const pct = costJpy / total;
+                      const rotation = cumulative * 360 - 90;
+                      cumulative += pct;
+                      return (
+                        <circle
+                          key={feature.feature_key}
+                          cx={cx}
+                          cy={cy}
+                          r={radius}
+                          fill="none"
+                          stroke={config.color}
+                          strokeWidth={strokeWidth}
+                          strokeDasharray={`${dashArray * pct} ${dashArray * (1 - pct)}`}
+                          strokeDashoffset={0}
+                          transform={`rotate(${rotation}, ${cx}, ${cy})`}
+                          style={{ transition: 'all 0.5s' }}
+                        />
+                      );
+                    });
+                  })()}
+                  {/* 中央テキスト */}
+                  <text
+                    x="80"
+                    y="75"
+                    textAnchor="middle"
+                    style={{
+                      fontSize: 12,
+                      fill: 'var(--text-secondary)',
+                    }}
+                  >
+                    合計
+                  </text>
+                  <text
+                    x="80"
+                    y="95"
+                    textAnchor="middle"
+                    style={{
+                      fontSize: 14,
+                      fontWeight: 'bold',
+                      fill: 'var(--text-primary)',
+                    }}
+                  >
+                    ¥{totalCostJpy.toLocaleString()}
+                  </text>
+                </svg>
+
+                {/* 凡例 */}
+                <div
+                  style={{
+                    flex: 1,
+                    minWidth: 240,
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: 8,
+                  }}
+                >
+                  {byFeature.map((feature) => {
+                    const config =
+                      FEATURE_LABELS[feature.feature_key] ??
+                      FEATURE_LABELS.other;
+                    const costJpy = toInt(feature.cost_jpy);
+                    const pct =
+                      totalCostJpy > 0
+                        ? ((costJpy / totalCostJpy) * 100).toFixed(1)
+                        : '0';
+                    return (
+                      <div
+                        key={feature.feature_key}
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: 8,
+                        }}
+                      >
+                        <span
+                          style={{
+                            width: 12,
+                            height: 12,
+                            borderRadius: '50%',
+                            background: config.color,
+                            flexShrink: 0,
+                            display: 'inline-block',
+                          }}
+                        />
+                        <span
+                          style={{
+                            fontSize: 12,
+                            flex: 1,
+                            color: 'var(--text-primary)',
+                          }}
+                        >
+                          {config.icon} {config.label}
+                        </span>
+                        <span
+                          style={{
+                            fontSize: 12,
+                            color: 'var(--text-secondary)',
+                          }}
+                        >
+                          {pct}%
+                        </span>
+                        <span
+                          style={{
+                            fontSize: 12,
+                            fontWeight: 600,
+                            color: config.color,
+                            minWidth: 60,
+                            textAlign: 'right',
+                          }}
+                        >
+                          ¥{costJpy.toLocaleString()}
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+          )}
 
           {/* 機能別内訳 */}
           {byFeature.length > 0 && (

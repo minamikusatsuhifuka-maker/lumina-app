@@ -1,6 +1,7 @@
 import { NextRequest } from 'next/server';
 import { auth } from '@/lib/auth';
 import { getClinicSystemPrompt } from '@/lib/clinicProfile';
+import { trackUsage } from '@/lib/trackUsage';
 
 export const maxDuration = 300;
 
@@ -129,7 +130,21 @@ ${outline}
           await new Promise(r => setTimeout(r, 5));
         }
 
-        controller.enqueue(encoder.encode('data: {"type":"done"}\n\n'));
+        // 使用量を記録
+        const usageInput = data.usage?.input_tokens ?? 0;
+        const usageOutput = data.usage?.output_tokens ?? 0;
+        await trackUsage({
+          userId,
+          featureKey: 'deepresearch',
+          stepLabel: (topic ?? '').slice(0, 50),
+          inputTokens: usageInput,
+          outputTokens: usageOutput,
+        });
+        controller.enqueue(
+          encoder.encode(
+            `data: ${JSON.stringify({ type: 'done', usage: { input_tokens: usageInput, output_tokens: usageOutput } })}\n\n`,
+          ),
+        );
       } catch (error: any) {
         controller.enqueue(encoder.encode(`data: {"type":"error","message":"${error.message}"}\n\n`));
       } finally {

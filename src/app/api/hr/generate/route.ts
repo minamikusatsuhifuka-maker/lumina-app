@@ -2,6 +2,7 @@ import { NextRequest } from 'next/server';
 import Anthropic from '@anthropic-ai/sdk';
 import { auth } from '@/lib/auth';
 import { getClinicSystemPrompt } from '@/lib/clinicProfile';
+import { trackUsage } from '@/lib/trackUsage';
 
 export const runtime = 'nodejs';
 export const maxDuration = 300;
@@ -230,6 +231,8 @@ export async function POST(req: NextRequest) {
           stream: true,
           messages: [{ role: 'user', content: fullPrompt }],
         });
+        let usageInput = 0;
+        let usageOutput = 0;
         for await (const event of response) {
           if (
             event.type === 'content_block_delta' &&
@@ -241,9 +244,24 @@ export async function POST(req: NextRequest) {
               ),
             );
           }
+          if (event.type === 'message_start' && event.message?.usage) {
+            usageInput = event.message.usage.input_tokens ?? 0;
+          }
+          if (event.type === 'message_delta' && event.usage) {
+            usageOutput = event.usage.output_tokens ?? 0;
+          }
         }
+        await trackUsage({
+          userId,
+          featureKey: 'hr',
+          stepLabel: generateType,
+          inputTokens: usageInput,
+          outputTokens: usageOutput,
+        });
         controller.enqueue(
-          encoder.encode(`data: ${JSON.stringify({ type: 'done' })}\n\n`),
+          encoder.encode(
+            `data: ${JSON.stringify({ type: 'done', usage: { input_tokens: usageInput, output_tokens: usageOutput } })}\n\n`,
+          ),
         );
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);

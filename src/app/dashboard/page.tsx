@@ -17,6 +17,7 @@ export default async function DashboardPage() {
   let libCount = 0;
   let recentDrafts: any[] = [];
   let monthlyUsage: { total_cost_jpy: number; total_calls: number } | null = null;
+  let last7Days: Array<{ date: string; cost_jpy: number }> = [];
 
   if (userId) {
     try {
@@ -45,6 +46,31 @@ export default async function DashboardPage() {
       if (totalCostJpy > 0 || totalCalls > 0) {
         monthlyUsage = { total_cost_jpy: totalCostJpy, total_calls: totalCalls };
       }
+      // 直近7日分（ミニグラフ用、日付ゼロ埋め）
+      const last7Rows = await sql`
+        SELECT
+          TO_CHAR(DATE(recorded_at AT TIME ZONE 'Asia/Tokyo'), 'YYYY-MM-DD') AS date,
+          SUM(cost_jpy) AS cost_jpy
+        FROM api_usage_logs
+        WHERE user_id = ${userId}
+          AND recorded_at >= NOW() - INTERVAL '7 days'
+        GROUP BY DATE(recorded_at AT TIME ZONE 'Asia/Tokyo')
+        ORDER BY date ASC
+      `;
+      const map = new Map<string, number>();
+      for (const r of last7Rows) {
+        const d = String((r as any).date ?? '');
+        const c = parseInt(String((r as any).cost_jpy ?? 0), 10) || 0;
+        if (d) map.set(d, c);
+      }
+      // 過去6日〜今日（合計7日）をゼロ埋めで生成
+      const today = new Date();
+      last7Days = Array.from({ length: 7 }, (_, i) => {
+        const d = new Date(today);
+        d.setDate(today.getDate() - (6 - i));
+        const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+        return { date: key, cost_jpy: map.get(key) ?? 0 };
+      });
     } catch {}
   }
 
@@ -96,6 +122,45 @@ export default async function DashboardPage() {
           <div style={{ fontSize: 13, color: 'var(--text-secondary)' }}>
             📊 今月のAPI使用料
           </div>
+          {/* 直近7日のミニスパークライン */}
+          {last7Days.some((d) => d.cost_jpy > 0) && (
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'flex-end',
+                gap: 3,
+                height: 28,
+              }}
+              title={last7Days
+                .map((d) => `${d.date}: ¥${d.cost_jpy.toLocaleString()}`)
+                .join('\n')}
+            >
+              {(() => {
+                const maxJpy = Math.max(
+                  ...last7Days.map((d) => d.cost_jpy),
+                  1,
+                );
+                return last7Days.map((day) => {
+                  const h =
+                    day.cost_jpy > 0
+                      ? Math.max((day.cost_jpy / maxJpy) * 24, 3)
+                      : 2;
+                  return (
+                    <div
+                      key={day.date}
+                      style={{
+                        width: 6,
+                        height: h,
+                        background: day.cost_jpy > 0 ? '#4f46e5' : '#e5e7eb',
+                        borderRadius: 2,
+                        opacity: day.cost_jpy > 0 ? 0.85 : 0.4,
+                      }}
+                    />
+                  );
+                });
+              })()}
+            </div>
+          )}
           <div style={{ display: 'flex', gap: 20, alignItems: 'center', flexWrap: 'wrap' }}>
             <div>
               <span style={{ fontSize: 11, color: 'var(--text-secondary)' }}>合計 </span>

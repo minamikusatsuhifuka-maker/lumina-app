@@ -2,6 +2,7 @@ import { NextRequest } from 'next/server';
 import { auth } from '@/lib/auth';
 import Anthropic from '@anthropic-ai/sdk';
 import { getClinicSystemPrompt } from '@/lib/clinicProfile';
+import { trackUsage } from '@/lib/trackUsage';
 
 export const maxDuration = 120;
 
@@ -108,6 +109,8 @@ export async function POST(req: NextRequest) {
             content: m.content,
           })),
         });
+        let usageInput = 0;
+        let usageOutput = 0;
         for await (const event of response) {
           if (event.type === 'content_block_delta' && (event as any).delta?.type === 'text_delta') {
             const text = (event as any).delta.text;
@@ -115,8 +118,25 @@ export async function POST(req: NextRequest) {
               encoder.encode(`data: ${JSON.stringify({ type: 'delta', text })}\n\n`)
             );
           }
+          if (event.type === 'message_start' && (event as any).message?.usage) {
+            usageInput = (event as any).message.usage.input_tokens ?? 0;
+          }
+          if (event.type === 'message_delta' && (event as any).usage) {
+            usageOutput = (event as any).usage.output_tokens ?? 0;
+          }
         }
-        controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'done' })}\n\n`));
+        await trackUsage({
+          userId,
+          featureKey: 'kindle',
+          stepLabel: 'chat',
+          inputTokens: usageInput,
+          outputTokens: usageOutput,
+        });
+        controller.enqueue(
+          encoder.encode(
+            `data: ${JSON.stringify({ type: 'done', usage: { input_tokens: usageInput, output_tokens: usageOutput } })}\n\n`
+          )
+        );
         controller.close();
       } catch (err: any) {
         controller.enqueue(

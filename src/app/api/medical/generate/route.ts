@@ -2,6 +2,7 @@ import { NextRequest } from 'next/server';
 import Anthropic from '@anthropic-ai/sdk';
 import { auth } from '@/lib/auth';
 import { getClinicSystemPrompt } from '@/lib/clinicProfile';
+import { trackUsage } from '@/lib/trackUsage';
 
 export const runtime = 'nodejs';
 export const maxDuration = 300;
@@ -185,6 +186,8 @@ ${researchText ? `【参考リサーチ情報】\n${researchText.slice(0, 3000)}
           messages: [{ role: 'user', content: userPrompt }],
         });
 
+        let usageInput = 0;
+        let usageOutput = 0;
         for await (const event of response) {
           if (
             event.type === 'content_block_delta' &&
@@ -196,9 +199,24 @@ ${researchText ? `【参考リサーチ情報】\n${researchText.slice(0, 3000)}
               ),
             );
           }
+          if (event.type === 'message_start' && event.message?.usage) {
+            usageInput = event.message.usage.input_tokens ?? 0;
+          }
+          if (event.type === 'message_delta' && event.usage) {
+            usageOutput = event.usage.output_tokens ?? 0;
+          }
         }
+        await trackUsage({
+          userId,
+          featureKey: 'medical',
+          stepLabel: `${docType}:${procedureName}`,
+          inputTokens: usageInput,
+          outputTokens: usageOutput,
+        });
         controller.enqueue(
-          encoder.encode(`data: ${JSON.stringify({ type: 'done' })}\n\n`),
+          encoder.encode(
+            `data: ${JSON.stringify({ type: 'done', usage: { input_tokens: usageInput, output_tokens: usageOutput } })}\n\n`,
+          ),
         );
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);

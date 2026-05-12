@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import Anthropic from '@anthropic-ai/sdk';
 import { auth } from '@/lib/auth';
+import { trackUsage } from '@/lib/trackUsage';
 
 export const runtime = 'nodejs';
 export const maxDuration = 300;
@@ -63,6 +64,7 @@ export async function POST(req: NextRequest) {
   if (!session) {
     return NextResponse.json({ error: '認証が必要です' }, { status: 401 });
   }
+  const userId = (session.user as { id?: string })?.id ?? '';
 
   let body: GenerateSiteRequest;
   try {
@@ -132,6 +134,14 @@ ${blogPosts && blogPosts.length > 0 ? `【最新ブログ記事】\n${JSON.strin
       .replace(/^```(?:html)?\s*/i, '')
       .replace(/\s*```\s*$/i, '')
       .trim();
+
+    await trackUsage({
+      userId,
+      featureKey: 'nexus',
+      stepLabel: `サイト生成:${pageType}`,
+      inputTokens: response.usage.input_tokens,
+      outputTokens: response.usage.output_tokens,
+    });
 
     return NextResponse.json({ html, pageType });
   } catch (err) {
