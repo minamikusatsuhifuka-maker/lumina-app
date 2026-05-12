@@ -557,13 +557,7 @@ export default function DeepDiveChat({
             <textarea
               value={input}
               onChange={(e) => setInput(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' && !e.shiftKey) {
-                  e.preventDefault();
-                  void handleSend();
-                }
-              }}
-              placeholder="回答を入力... (Enterで送信、Shift+Enterで改行)"
+              placeholder="回答を入力... (送信ボタンで送信)"
               rows={2}
               disabled={isLoading || isGenerating}
               style={{
