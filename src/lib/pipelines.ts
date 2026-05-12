@@ -196,11 +196,12 @@ export const PIPELINES: Pipeline[] = [
         id: 'market_research',
         label: '📊 市場リサーチ',
         description: '市場・競合・トレンドを調査',
-        apiEndpoint: '/api/deepresearch',
-        estimatedSeconds: 30,
+        // 旧 /api/deepresearch は重く頻繁にタイムアウトしていたため
+        // オーケストレーター専用の軽量エンドポイントへ切り替え
+        apiEndpoint: '/api/orchestrator/market-research',
+        estimatedSeconds: 40,
         inputMapper: (intent) => ({
           topic: `${intent}の市場規模・競合・ターゲット・差別化ポイント`,
-          depth: 'standard',
         }),
       },
       {

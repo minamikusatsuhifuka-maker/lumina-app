@@ -28,8 +28,9 @@ const STEP_TIMEOUTS: Record<string, number> = {
   podcast_script: 150_000, // ポッドキャスト台本 → 2.5分
   seo_content_plan: 120_000, // SEOコンテンツ計画 → 2分
   promotion_plan: 120_000, // プロモーション計画 → 2分
-  market_research: 120_000, // 市場リサーチ → 2分
-  research: 120_000, // 一般リサーチ → 2分
+  // 市場リサーチは内部Claude直接呼び出しでも長文生成のため余裕を持って3分
+  market_research: 180_000,
+  research: 180_000,
 };
 // デフォルト（通常ステップ）
 const DEFAULT_STEP_TIMEOUT_MS = 90_000;

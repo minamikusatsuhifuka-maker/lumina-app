@@ -315,6 +315,27 @@ export default function OrchestratorPage() {
     }
   };
 
+  // 「実行中」のまま固まっているジョブを失敗扱いにリセットする
+  const handleReset = async (job: Job) => {
+    if (!window.confirm('このジョブをリセット（失敗扱いに）しますか？\n後で再実行できます。'))
+      return;
+    try {
+      const res = await fetch('/api/orchestrator/reset', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ jobId: job.id }),
+      });
+      if (!res.ok) {
+        setErrorMessage('リセットに失敗しました');
+        return;
+      }
+      await loadJobs();
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : '不明なエラー';
+      setErrorMessage(`リセット通信エラー: ${msg}`);
+    }
+  };
+
   const activePipelineId = selectedPipeline ?? detectPipeline(intent);
   const pipeline = PIPELINES.find((p) => p.id === activePipelineId);
 
@@ -1055,33 +1076,53 @@ export default function OrchestratorPage() {
                         {isLoadingThis ? '読込中...' : '結果を見る →'}
                       </span>
                     )}
-                    {/* 失敗・途中停止ジョブには再実行ボタンを表示 */}
-                    {!isRunning &&
-                      job.status !== 'running' &&
-                      (job.status === 'failed' ||
-                        job.status === 'completed_with_errors' ||
-                        (job.status !== 'completed' && job.progress < 100)) && (
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            void handleRetry(job);
-                          }}
-                          style={{
-                            fontSize: 11,
-                            padding: '3px 10px',
-                            background: '#f59e0b',
-                            color: '#fff',
-                            border: 'none',
-                            borderRadius: 4,
-                            cursor: 'pointer',
-                            fontWeight: 600,
-                          }}
-                          title="このジョブを最初から再実行します"
-                        >
-                          🔄 再実行
-                        </button>
-                      )}
+                    {/* 完了以外のジョブに再実行ボタンを表示（実行中ジョブも含む） */}
+                    {job.status !== 'completed' && (
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          void handleRetry(job);
+                        }}
+                        disabled={isRunning}
+                        style={{
+                          fontSize: 11,
+                          padding: '4px 10px',
+                          background: isRunning ? '#d1d5db' : '#f59e0b',
+                          color: '#fff',
+                          border: 'none',
+                          borderRadius: 4,
+                          cursor: isRunning ? 'not-allowed' : 'pointer',
+                          fontWeight: 600,
+                        }}
+                        title="このジョブを最初から再実行します"
+                      >
+                        🔄 再実行
+                      </button>
+                    )}
+                    {/* 実行中ジョブには手動リセットボタンを表示 */}
+                    {job.status === 'running' && (
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          void handleReset(job);
+                        }}
+                        style={{
+                          fontSize: 11,
+                          padding: '4px 10px',
+                          background: '#ef4444',
+                          color: '#fff',
+                          border: 'none',
+                          borderRadius: 4,
+                          cursor: 'pointer',
+                          fontWeight: 600,
+                        }}
+                        title="実行中状態を強制終了して失敗扱いにします"
+                      >
+                        ⏹ リセット
+                      </button>
+                    )}
                   </div>
                 </div>
               );
