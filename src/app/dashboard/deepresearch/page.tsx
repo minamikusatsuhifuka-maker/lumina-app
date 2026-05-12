@@ -207,6 +207,19 @@ export default function DeepResearchPage() {
     };
   }, [tab]);
 
+  // 背景情報保存モーダルを画面外クリックで閉じる
+  useEffect(() => {
+    if (!showContextModal) return;
+    const handler = (e: MouseEvent) => {
+      const target = e.target as HTMLElement | null;
+      if (target && !target.closest('[data-context-modal]')) {
+        setShowContextModal(false);
+      }
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [showContextModal]);
+
   // URLパラメータ ?q=...&fromNode=...&depth=... で自動リサーチ
   useEffect(() => {
     try {
@@ -1113,23 +1126,208 @@ ${contextText}
               >
                 🌐 nexusブログ記事にする
               </button>
-              {/* 背景情報として保存 */}
-              <button
-                onClick={handleOpenContextModal}
-                style={{
-                  padding: '6px 14px',
-                  background: 'rgba(234,88,12,0.1)',
-                  color: '#ea580c',
-                  border: '1px solid rgba(234,88,12,0.3)',
-                  borderRadius: 6,
-                  cursor: 'pointer',
-                  fontSize: 12,
-                  fontWeight: 500,
-                }}
-                title="リサーチ結果を背景情報として保存し、各スタジオでAIに読み込ませられます"
+              {/* 背景情報として保存（ボタン＋ドロップダウンモーダル） */}
+              <div
+                data-context-modal
+                style={{ position: 'relative', display: 'inline-block' }}
               >
-                🧠 背景情報として保存
-              </button>
+                <button
+                  onClick={handleOpenContextModal}
+                  style={{
+                    padding: '6px 14px',
+                    background: showContextModal
+                      ? '#ea580c'
+                      : 'rgba(234,88,12,0.1)',
+                    color: showContextModal ? '#fff' : '#ea580c',
+                    border: '1px solid rgba(234,88,12,0.3)',
+                    borderRadius: 6,
+                    cursor: 'pointer',
+                    fontSize: 12,
+                    fontWeight: 500,
+                  }}
+                  title="リサーチ結果を背景情報として保存し、各スタジオでAIに読み込ませられます"
+                >
+                  🧠 背景情報として保存
+                </button>
+
+                {/* ドロップダウン形式のモーダル */}
+                {showContextModal && (
+                  <div
+                    style={{
+                      position: 'absolute',
+                      top: '110%',
+                      left: 0,
+                      zIndex: 50,
+                      width: 380,
+                      maxWidth: 'calc(100vw - 32px)',
+                      background: 'var(--bg-primary)',
+                      border: '1px solid var(--border)',
+                      borderRadius: 12,
+                      boxShadow: '0 8px 32px rgba(0,0,0,0.15)',
+                      padding: 20,
+                    }}
+                  >
+                    <h3
+                      style={{
+                        fontSize: 14,
+                        fontWeight: 700,
+                        marginBottom: 14,
+                        color: 'var(--text-primary)',
+                      }}
+                    >
+                      🧠 背景情報として保存
+                    </h3>
+
+                    {/* タイトル */}
+                    <div style={{ marginBottom: 12 }}>
+                      <label
+                        style={{
+                          fontSize: 11,
+                          color: 'var(--text-secondary)',
+                          display: 'block',
+                          marginBottom: 4,
+                        }}
+                      >
+                        タイトル
+                      </label>
+                      <input
+                        value={contextTitle}
+                        onChange={(e) => setContextTitle(e.target.value)}
+                        style={{
+                          width: '100%',
+                          boxSizing: 'border-box',
+                          border: '1px solid var(--border)',
+                          borderRadius: 8,
+                          padding: '7px 10px',
+                          fontSize: 12,
+                          background: 'var(--bg-secondary)',
+                          color: 'var(--text-primary)',
+                        }}
+                      />
+                    </div>
+
+                    {/* 活用する機能を選択 */}
+                    <div style={{ marginBottom: 14 }}>
+                      <label
+                        style={{
+                          fontSize: 11,
+                          color: 'var(--text-secondary)',
+                          display: 'block',
+                          marginBottom: 6,
+                        }}
+                      >
+                        どの機能で活用しますか？（複数選択可）
+                      </label>
+                      <div
+                        style={{
+                          display: 'flex',
+                          flexWrap: 'wrap',
+                          gap: 5,
+                        }}
+                      >
+                        {[
+                          { id: 'all', label: '全機能', icon: '🌐' },
+                          { id: 'medical', label: '医療文書', icon: '🏥' },
+                          { id: 'hr', label: '人材育成', icon: '🌱' },
+                          { id: 'business', label: '収益化', icon: '💰' },
+                          { id: 'kindle', label: 'Kindle', icon: '📚' },
+                          { id: 'blog', label: 'nexusブログ', icon: '📰' },
+                          { id: 'nexus', label: 'nexusサイト', icon: '🌐' },
+                        ].map((opt) => {
+                          const selected = contextFeatureTags.includes(opt.id);
+                          return (
+                            <button
+                              key={opt.id}
+                              type="button"
+                              onClick={() => {
+                                if (opt.id === 'all') {
+                                  setContextFeatureTags(['all']);
+                                } else {
+                                  setContextFeatureTags((prev) => {
+                                    const withoutAll = prev.filter(
+                                      (t) => t !== 'all',
+                                    );
+                                    return withoutAll.includes(opt.id)
+                                      ? withoutAll.filter((t) => t !== opt.id)
+                                      : [...withoutAll, opt.id];
+                                  });
+                                }
+                              }}
+                              style={{
+                                padding: '4px 10px',
+                                borderRadius: 5,
+                                fontSize: 11,
+                                cursor: 'pointer',
+                                background: selected
+                                  ? '#ea580c'
+                                  : 'var(--bg-secondary)',
+                                color: selected ? '#fff' : 'var(--text-secondary)',
+                                border: `1px solid ${selected ? '#ea580c' : 'var(--border)'}`,
+                              }}
+                            >
+                              {opt.icon} {opt.label}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                    {/* プレビュー */}
+                    <div
+                      style={{
+                        fontSize: 11,
+                        color: 'var(--text-secondary)',
+                        padding: 8,
+                        background: 'var(--bg-secondary)',
+                        borderRadius: 8,
+                        marginBottom: 14,
+                        maxHeight: 70,
+                        overflowY: 'auto',
+                        whiteSpace: 'pre-wrap',
+                        lineHeight: 1.5,
+                      }}
+                    >
+                      {(report ?? '').slice(0, 200)}...
+                    </div>
+
+                    <div style={{ display: 'flex', gap: 8 }}>
+                      <button
+                        type="button"
+                        onClick={handleConfirmSaveContext}
+                        disabled={contextSaving}
+                        style={{
+                          flex: 1,
+                          padding: '8px',
+                          background: contextSaving ? '#9ca3af' : '#ea580c',
+                          color: '#fff',
+                          border: 'none',
+                          borderRadius: 6,
+                          fontSize: 13,
+                          fontWeight: 600,
+                          cursor: contextSaving ? 'not-allowed' : 'pointer',
+                        }}
+                      >
+                        {contextSaving ? '💾 保存中...' : '💾 保存する'}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setShowContextModal(false)}
+                        style={{
+                          padding: '8px 14px',
+                          border: '1px solid var(--border)',
+                          borderRadius: 6,
+                          background: 'var(--bg-primary)',
+                          cursor: 'pointer',
+                          color: 'var(--text-primary)',
+                          fontSize: 12,
+                        }}
+                      >
+                        キャンセル
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
               {contextSaved && (
                 <span
                   style={{
@@ -2396,188 +2594,6 @@ ${contextText}
                   padding: '8px 16px', background: 'transparent',
                   color: 'var(--text-muted)', border: 'none', borderRadius: 8,
                   fontSize: 12, cursor: 'pointer',
-                }}
-              >
-                キャンセル
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* 背景情報として保存モーダル */}
-      {showContextModal && (
-        <div
-          style={{
-            position: 'fixed',
-            inset: 0,
-            background: 'rgba(0,0,0,0.5)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            zIndex: 1000,
-          }}
-          onClick={() => setShowContextModal(false)}
-        >
-          <div
-            onClick={(e) => e.stopPropagation()}
-            style={{
-              background: 'var(--bg-primary)',
-              borderRadius: 16,
-              padding: 24,
-              width: 'min(440px, 90vw)',
-              boxShadow: '0 20px 60px rgba(0,0,0,0.3)',
-              border: '1px solid var(--border)',
-            }}
-          >
-            <h3
-              style={{
-                fontSize: 16,
-                fontWeight: 700,
-                marginBottom: 16,
-                color: 'var(--text-primary)',
-              }}
-            >
-              🧠 背景情報として保存
-            </h3>
-
-            {/* タイトル */}
-            <div style={{ marginBottom: 12 }}>
-              <label
-                style={{
-                  fontSize: 12,
-                  color: 'var(--text-secondary)',
-                  display: 'block',
-                  marginBottom: 4,
-                }}
-              >
-                タイトル
-              </label>
-              <input
-                value={contextTitle}
-                onChange={(e) => setContextTitle(e.target.value)}
-                style={{
-                  width: '100%',
-                  boxSizing: 'border-box',
-                  border: '1px solid var(--border)',
-                  borderRadius: 8,
-                  padding: '8px 12px',
-                  fontSize: 13,
-                  background: 'var(--bg-secondary)',
-                  color: 'var(--text-primary)',
-                }}
-              />
-            </div>
-
-            {/* 活用する機能を選択 */}
-            <div style={{ marginBottom: 16 }}>
-              <label
-                style={{
-                  fontSize: 12,
-                  color: 'var(--text-secondary)',
-                  display: 'block',
-                  marginBottom: 8,
-                }}
-              >
-                どの機能で活用しますか？（複数選択可）
-              </label>
-              <div
-                style={{
-                  display: 'flex',
-                  flexWrap: 'wrap',
-                  gap: 6,
-                }}
-              >
-                {[
-                  { id: 'all', label: '全機能', icon: '🌐' },
-                  { id: 'medical', label: '医療文書', icon: '🏥' },
-                  { id: 'hr', label: '人材育成', icon: '🌱' },
-                  { id: 'business', label: '収益化', icon: '💰' },
-                  { id: 'kindle', label: 'Kindle', icon: '📚' },
-                  { id: 'blog', label: 'nexusブログ', icon: '📰' },
-                  { id: 'nexus', label: 'nexusサイト', icon: '🌐' },
-                ].map((opt) => {
-                  const selected = contextFeatureTags.includes(opt.id);
-                  return (
-                    <button
-                      key={opt.id}
-                      type="button"
-                      onClick={() => {
-                        if (opt.id === 'all') {
-                          setContextFeatureTags(['all']);
-                        } else {
-                          setContextFeatureTags((prev) => {
-                            const withoutAll = prev.filter((t) => t !== 'all');
-                            return withoutAll.includes(opt.id)
-                              ? withoutAll.filter((t) => t !== opt.id)
-                              : [...withoutAll, opt.id];
-                          });
-                        }
-                      }}
-                      style={{
-                        padding: '6px 12px',
-                        borderRadius: 6,
-                        fontSize: 12,
-                        cursor: 'pointer',
-                        background: selected ? '#ea580c' : 'var(--bg-secondary)',
-                        color: selected ? '#fff' : 'var(--text-secondary)',
-                        border: `1px solid ${selected ? '#ea580c' : 'var(--border)'}`,
-                      }}
-                    >
-                      {opt.icon} {opt.label}
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-
-            {/* プレビュー */}
-            <div
-              style={{
-                fontSize: 12,
-                color: 'var(--text-secondary)',
-                padding: 10,
-                background: 'var(--bg-secondary)',
-                borderRadius: 8,
-                marginBottom: 16,
-                maxHeight: 80,
-                overflowY: 'auto',
-                whiteSpace: 'pre-wrap',
-                lineHeight: 1.5,
-              }}
-            >
-              {(report ?? '').slice(0, 200)}...
-            </div>
-
-            <div style={{ display: 'flex', gap: 10 }}>
-              <button
-                type="button"
-                onClick={handleConfirmSaveContext}
-                disabled={contextSaving}
-                style={{
-                  flex: 1,
-                  padding: '10px',
-                  background: contextSaving ? '#9ca3af' : '#ea580c',
-                  color: '#fff',
-                  border: 'none',
-                  borderRadius: 8,
-                  fontSize: 14,
-                  fontWeight: 600,
-                  cursor: contextSaving ? 'not-allowed' : 'pointer',
-                }}
-              >
-                {contextSaving ? '💾 保存中...' : '💾 保存する'}
-              </button>
-              <button
-                type="button"
-                onClick={() => setShowContextModal(false)}
-                style={{
-                  padding: '10px 16px',
-                  border: '1px solid var(--border)',
-                  borderRadius: 8,
-                  background: 'var(--bg-primary)',
-                  cursor: 'pointer',
-                  color: 'var(--text-primary)',
                 }}
               >
                 キャンセル
