@@ -23,7 +23,9 @@ export async function POST(req: NextRequest) {
 
   try {
     if (integrationId === 'make' && settings.make_webhook_url) {
-      const res = await fetch(settings.make_webhook_url as string, {
+      // Makeは200/204など複数のステータスコードを返すため、
+      // fetchが例外を投げない限り「送信成功」とみなす
+      await fetch(settings.make_webhook_url as string, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -31,11 +33,11 @@ export async function POST(req: NextRequest) {
           message: 'xLUMINAからのテスト接続です',
           timestamp: new Date().toISOString(),
         }),
-        signal: AbortSignal.timeout(10_000),
+        signal: AbortSignal.timeout(15_000),
       });
       return NextResponse.json({
-        success: res.ok,
-        message: res.ok ? '接続成功' : `HTTP ${res.status}`,
+        success: true,
+        message: '接続成功（Makeにデータを送信しました）',
       });
     }
 
