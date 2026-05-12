@@ -475,6 +475,22 @@ export async function POST(req: NextRequest) {
           WHERE id = ${jobId}
         `.catch(() => {});
 
+        // API使用量を api_usage_logs に記録（DB直接書き込みで内部fetchを回避）
+        if (totalTokens.inputTokens > 0 || totalTokens.outputTokens > 0) {
+          await sql`
+            INSERT INTO api_usage_logs
+              (user_id, feature_key, step_label, input_tokens, output_tokens, cost_usd, cost_jpy, model)
+            VALUES (
+              ${userId}, 'orchestrator', ${pipeline.label},
+              ${totalTokens.inputTokens}, ${totalTokens.outputTokens},
+              ${costUsd}, ${costJpy},
+              'claude-sonnet-4-6'
+            )
+          `.catch((err) => {
+            console.error('[orchestrator] 使用量記録失敗:', err);
+          });
+        }
+
         send({
           type: 'completed',
           jobId,

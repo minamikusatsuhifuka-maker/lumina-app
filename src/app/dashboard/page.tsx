@@ -16,6 +16,7 @@ export default async function DashboardPage() {
   let draftCount = 0;
   let libCount = 0;
   let recentDrafts: any[] = [];
+  let monthlyUsage: { total_cost_jpy: number; total_calls: number } | null = null;
 
   if (userId) {
     try {
@@ -25,6 +26,25 @@ export default async function DashboardPage() {
       const lc = await sql`SELECT COUNT(*) as c FROM library WHERE user_id = ${userId}`;
       libCount = lc[0]?.c || 0;
       recentDrafts = await sql`SELECT * FROM drafts WHERE user_id = ${userId} ORDER BY updated_at DESC LIMIT 3`;
+      // 今月のAPI使用量
+      const now = new Date();
+      const start = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
+      const end = new Date(now.getFullYear(), now.getMonth() + 1, 1).toISOString();
+      const usageRows = await sql`
+        SELECT
+          COALESCE(SUM(cost_jpy), 0) AS total_cost_jpy,
+          COUNT(*) AS total_calls
+        FROM api_usage_logs
+        WHERE user_id = ${userId}
+          AND recorded_at >= ${start}
+          AND recorded_at < ${end}
+      `;
+      const row = usageRows[0];
+      const totalCostJpy = parseInt(String(row?.total_cost_jpy ?? 0), 10) || 0;
+      const totalCalls = parseInt(String(row?.total_calls ?? 0), 10) || 0;
+      if (totalCostJpy > 0 || totalCalls > 0) {
+        monthlyUsage = { total_cost_jpy: totalCostJpy, total_calls: totalCalls };
+      }
     } catch {}
   }
 
@@ -56,6 +76,45 @@ export default async function DashboardPage() {
 
       {/* ショートカットバー（カスタマイズ可能） */}
       <ShortcutBar />
+
+      {/* 今月のAPI使用料サマリー（記録がある月のみ表示） */}
+      {monthlyUsage && (
+        <div
+          style={{
+            marginBottom: 16,
+            padding: '10px 16px',
+            background: 'var(--bg-secondary)',
+            border: '1px solid var(--border)',
+            borderRadius: 10,
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            flexWrap: 'wrap',
+            gap: 8,
+          }}
+        >
+          <div style={{ fontSize: 13, color: 'var(--text-secondary)' }}>
+            📊 今月のAPI使用料
+          </div>
+          <div style={{ display: 'flex', gap: 20, alignItems: 'center', flexWrap: 'wrap' }}>
+            <div>
+              <span style={{ fontSize: 11, color: 'var(--text-secondary)' }}>合計 </span>
+              <span style={{ fontSize: 16, fontWeight: 700, color: '#4f46e5' }}>
+                ¥{monthlyUsage.total_cost_jpy.toLocaleString()}
+              </span>
+            </div>
+            <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>
+              {monthlyUsage.total_calls.toLocaleString()}回の呼び出し
+            </div>
+            <Link
+              href="/dashboard/api-usage"
+              style={{ fontSize: 12, color: '#4f46e5', textDecoration: 'none' }}
+            >
+              詳細を見る →
+            </Link>
+          </div>
+        </div>
+      )}
 
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16 }}>
         <BriefingSection />
