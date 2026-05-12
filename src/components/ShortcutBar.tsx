@@ -27,6 +27,7 @@ const ALL_SHORTCUTS = [
   { id: 'analytics', label: 'アナリティクス', icon: '📈', href: '/dashboard/analytics' },
   { id: 'clinic-settings', label: 'クリニック設定', icon: '⚙️', href: '/dashboard/clinic-settings' },
   { id: 'batch-research', label: 'バッチリサーチ', icon: '⚡', href: '/dashboard/deepresearch?tab=batch' },
+  { id: 'automation', label: '自動化戦略', icon: '🚀', href: '/dashboard/automation-strategy' },
 ];
 
 const DEFAULT_SHORTCUTS = [
