@@ -20,6 +20,7 @@ const ALL_SHORTCUTS = [
   { id: 'business-studio', label: '収益化', icon: '💰', href: '/dashboard/business-studio' },
   { id: 'hr-studio', label: '人材育成', icon: '🌱', href: '/dashboard/hr-studio' },
   { id: 'medical-studio', label: '医療文書', icon: '🏥', href: '/dashboard/medical-studio' },
+  { id: 'pricing-strategy', label: '価格戦略', icon: '💴', href: '/dashboard/pricing-strategy' },
   { id: 'kindle', label: 'Kindle生成', icon: '📖', href: '/dashboard/kindle' },
   { id: 'kindle-studio', label: 'Kindle出版', icon: '📚', href: '/dashboard/kindle-studio' },
   { id: 'reviews', label: '口コミ管理', icon: '⭐', href: '/dashboard/reviews' },
