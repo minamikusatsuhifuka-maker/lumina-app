@@ -221,7 +221,7 @@ export default function TextAnalysisPanel({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [initialText]);
   const [selectedTypes, setSelectedTypes] = useState<Set<AnalysisType>>(
-    new Set(['summary']),
+    new Set(['summary', 'detail_summary']),
   );
   const [typeLengths, setTypeLengths] = useState<Record<string, string>>({});
   const [results, setResults] = useState<Map<AnalysisType, string>>(new Map());
