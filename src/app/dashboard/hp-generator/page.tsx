@@ -1,6 +1,10 @@
 'use client';
 
 import { useState } from 'react';
+import ContextSelector, {
+  buildContextText,
+  type ContextItem,
+} from '@/components/ContextSelector';
 
 const INDUSTRIES = ['IT・SaaS', '医療・ヘルスケア', '飲食・フード', '不動産', '教育', 'コンサルティング', '製造業', '小売・EC', 'その他'];
 const TONES = ['親しみやすくプロフェッショナル', 'フォーマル・高級感', 'カジュアル・フレンドリー', 'シンプル・ミニマル'];
@@ -10,12 +14,17 @@ export default function HpGeneratorPage() {
   const [result, setResult] = useState<any>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [copied, setCopied] = useState<string | null>(null);
+  const [hpContexts, setHpContexts] = useState<ContextItem[]>([]);
 
   const handleGenerate = async () => {
     if (!form.companyName || !form.target || !form.usp) { alert('会社名・ターゲット・強みを入力してください'); return; }
     setIsLoading(true);
     try {
-      const res = await fetch('/api/hp-generator', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(form) });
+      const res = await fetch('/api/hp-generator', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...form, contextInfo: buildContextText(hpContexts) }),
+      });
       setResult(await res.json());
     } finally { setIsLoading(false); }
   };
@@ -88,6 +97,8 @@ export default function HpGeneratorPage() {
             {TONES.map(t => <option key={t}>{t}</option>)}
           </select>
         </div>
+        {/* 背景情報セレクタ */}
+        <ContextSelector featureKey="all" onSelect={setHpContexts} />
         <button onClick={handleGenerate} disabled={isLoading} style={{
           width: '100%', padding: 14, borderRadius: 10, border: 'none', cursor: isLoading ? 'not-allowed' : 'pointer',
           background: isLoading ? 'rgba(108,99,255,0.4)' : 'linear-gradient(135deg, #6c63ff, #8b5cf6)',

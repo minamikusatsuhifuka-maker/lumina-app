@@ -5,6 +5,10 @@ import { VoiceInputButton } from '@/components/VoiceInputButton';
 import { useProgress } from '@/components/useProgress';
 import { SaveToLibraryButton } from '@/components/SaveToLibraryButton';
 import { useWritingTemplates } from '@/hooks/useWritingTemplates';
+import ContextSelector, {
+  buildContextText,
+  type ContextItem,
+} from '@/components/ContextSelector';
 
 const ALL_MODES = [
   { key: 'blog',          label: '📝 ブログ',        description: 'SEOを意識した読みやすい長文記事' },
@@ -78,6 +82,7 @@ export default function WritePage() {
   const [mode, setMode] = useState('blog');
   const [showAllModes, setShowAllModes] = useState(false);
   const [prompt, setPrompt] = useState('');
+  const [writeContexts, setWriteContexts] = useState<ContextItem[]>([]);
   const [style, setStyle] = useState('casual');
   const [length, setLength] = useState('medium');
   const [audience, setAudience] = useState('general');
@@ -327,7 +332,14 @@ export default function WritePage() {
       const res = await fetch('/api/generate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ prompt, mode, style, length, audience }),
+        body: JSON.stringify({
+          prompt,
+          mode,
+          style,
+          length,
+          audience,
+          contextInfo: buildContextText(writeContexts),
+        }),
       });
 
       console.log('[write] Response status:', res.status);
@@ -689,6 +701,10 @@ export default function WritePage() {
               </select>
             </div>
           ))}
+        </div>
+        {/* 背景情報セレクタ（保存済みのリサーチ結果等を選択してAIに参照させる） */}
+        <div style={{ marginTop: 14 }}>
+          <ContextSelector featureKey="all" onSelect={setWriteContexts} />
         </div>
         <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 14 }}>
           <button onClick={() => { setOutput(''); setPrompt(''); setTranslated(''); }} style={{ padding: '9px 16px', background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 8, color: 'var(--text-muted)', cursor: 'pointer', fontSize: 13 }}>🗑 クリア</button>

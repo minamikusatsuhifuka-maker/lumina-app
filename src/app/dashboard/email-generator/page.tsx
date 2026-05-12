@@ -3,6 +3,10 @@ import { useState } from 'react';
 import { ProgressBar } from '@/components/ProgressBar';
 import { useProgress } from '@/components/useProgress';
 import { SaveToLibraryButton } from '@/components/SaveToLibraryButton';
+import ContextSelector, {
+  buildContextText,
+  type ContextItem,
+} from '@/components/ContextSelector';
 
 const EMAIL_TYPES = ['ウェルカム', 'セールス', 'リテンション', 'カート放棄', 'ローンチ'];
 const STEP_COUNTS = ['3', '5', '7', '10'];
@@ -45,6 +49,7 @@ export default function EmailGeneratorPage() {
   const [error, setError] = useState('');
   const [activeStep, setActiveStep] = useState(0);
   const [copied, setCopied] = useState<string | null>(null);
+  const [mailContexts, setMailContexts] = useState<ContextItem[]>([]);
   const { progress, loading: progressLoading, startProgress, completeProgress, resetProgress } = useProgress();
 
   const fillSample = () => {
@@ -74,7 +79,14 @@ export default function EmailGeneratorPage() {
       const res = await fetch('/api/email-generator', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ product, target, goal, steps, emailType }),
+        body: JSON.stringify({
+          product,
+          target,
+          goal,
+          steps,
+          emailType,
+          contextInfo: buildContextText(mailContexts),
+        }),
       });
 
       if (!res.ok) {
@@ -222,6 +234,11 @@ export default function EmailGeneratorPage() {
             placeholder="例：無料トライアルから有料プランへの転換率を上げる"
             style={{ width: '100%', padding: '10px 14px', background: 'var(--bg-primary)', border: '1px solid var(--border)', borderRadius: 8, color: 'var(--text-primary)', fontSize: 14, outline: 'none', boxSizing: 'border-box' }}
           />
+        </div>
+
+        {/* 背景情報セレクタ */}
+        <div style={{ marginBottom: 12 }}>
+          <ContextSelector featureKey="business" onSelect={setMailContexts} />
         </div>
 
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>

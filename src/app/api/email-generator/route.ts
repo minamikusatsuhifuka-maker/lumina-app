@@ -8,7 +8,8 @@ export async function POST(req: NextRequest) {
   const session = await auth();
   if (!session?.user) return new Response('Unauthorized', { status: 401 });
 
-  const { product, target, goal, steps, emailType } = await req.json();
+  const { product, target, goal, steps, emailType, contextInfo } =
+    await req.json();
   const apiKey = process.env.ANTHROPIC_API_KEY!;
 
   const stepCount = parseInt(steps, 10) || 5;
@@ -56,7 +57,9 @@ JSON形式のみで返答。マークダウン不要：
 }`,
       messages: [{
         role: 'user',
-        content: `商品・サービス名：${product}\nターゲット：${target}\nシーケンスの目的：${goal}\nメール数：${stepCount}通\nメールタイプ：${emailType}\n\n上記の情報をもとに、高効果のステップメールシーケンスを設計してください。\n各メールは前のメールの内容を踏まえ、徐々に購買意欲を高める構成にしてください。`,
+        content: `商品・サービス名：${product}\nターゲット：${target}\nシーケンスの目的：${goal}\nメール数：${stepCount}通\nメールタイプ：${emailType}\n\n上記の情報をもとに、高効果のステップメールシーケンスを設計してください。\n各メールは前のメールの内容を踏まえ、徐々に購買意欲を高める構成にしてください。${
+          contextInfo ? `\n\n【参考背景情報】\n${contextInfo}` : ''
+        }`,
       }],
     }),
   });

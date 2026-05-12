@@ -8,7 +8,8 @@ export async function POST(req: NextRequest) {
   const session = await auth();
   if (!session?.user) return new Response('Unauthorized', { status: 401 });
 
-  const { companyName, industry, target, usp, tone } = await req.json();
+  const { companyName, industry, target, usp, tone, contextInfo } =
+    await req.json();
   const apiKey = process.env.ANTHROPIC_API_KEY!;
 
   const response = await fetch('https://api.anthropic.com/v1/messages', {
@@ -51,7 +52,9 @@ export async function POST(req: NextRequest) {
 }`,
       messages: [{
         role: 'user',
-        content: `会社名：${companyName}\n業種：${industry}\nターゲット：${target}\n強み・USP：${usp}\nトーン：${tone ?? '親しみやすくプロフェッショナル'}\n\n上記の情報をもとにHP全セクションのコンテンツを生成してください。`,
+        content: `会社名：${companyName}\n業種：${industry}\nターゲット：${target}\n強み・USP：${usp}\nトーン：${tone ?? '親しみやすくプロフェッショナル'}\n\n上記の情報をもとにHP全セクションのコンテンツを生成してください。${
+          contextInfo ? `\n\n【参考背景情報】\n${contextInfo}` : ''
+        }`,
       }],
     }),
   });
