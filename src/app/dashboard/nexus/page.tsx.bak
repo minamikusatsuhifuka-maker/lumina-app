@@ -9,8 +9,6 @@ import DefaultContextBar, {
   buildDefaultContextText,
   type DefaultContextItem,
 } from '@/components/DefaultContextBar';
-import ComputerUseTriggerButton from '@/components/ComputerUseTriggerButton';
-import { buildWordPressPublishPrompt } from '@/lib/computeruse/prompts/wordpress-publish';
 
 interface Service {
   name: string;
@@ -1382,34 +1380,6 @@ export default function NexusPage() {
                         >
                           🗑
                         </button>
-                        <ComputerUseTriggerButton
-                          label="🤖 WordPress自動投稿"
-                          confirmMessage={`「${post.title}」をWordPressに自動投稿します。よろしいですか？`}
-                          buildJob={() => {
-                            const wpUrl = (typeof window !== 'undefined' && localStorage.getItem('computeruse_wp_url')) || '';
-                            const wpUsername = (typeof window !== 'undefined' && localStorage.getItem('computeruse_wp_username')) || 'admin';
-                            const wpPassword = (typeof window !== 'undefined' && localStorage.getItem('computeruse_wp_password')) || '';
-                            if (!wpUrl || !wpPassword) {
-                              throw new Error('WordPress接続設定がありません。ngrok URL等を localStorage に保存してください（computeruse_wp_url, computeruse_wp_username, computeruse_wp_password）');
-                            }
-                            const prompt = buildWordPressPublishPrompt({
-                              wpUrl,
-                              wpUsername,
-                              wpPassword,
-                              title: post.title,
-                              contentHtml: post.content,
-                              category: post.category,
-                            });
-                            return {
-                              taskType: 'wordpress_publish',
-                              targetService: 'wordpress',
-                              sourceId: String(post.id),
-                              params: { wpUrl, title: post.title, category: post.category },
-                              prompt,
-                            };
-                          }}
-                          onCompleted={() => { void loadBlogPosts(); }}
-                        />
                       </div>
                     </div>
                   ))}
