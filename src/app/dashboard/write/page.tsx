@@ -9,6 +9,10 @@ import ContextSelector, {
   buildContextText,
   type ContextItem,
 } from '@/components/ContextSelector';
+import DefaultContextBar, {
+  buildDefaultContextText,
+  type DefaultContextItem,
+} from '@/components/DefaultContextBar';
 import DeepDiveChat from '@/components/DeepDiveChat';
 
 const ALL_MODES = [
@@ -84,6 +88,7 @@ export default function WritePage() {
   const [showAllModes, setShowAllModes] = useState(false);
   const [prompt, setPrompt] = useState('');
   const [writeContexts, setWriteContexts] = useState<ContextItem[]>([]);
+  const [defaultContexts, setDefaultContexts] = useState<DefaultContextItem[]>([]);
   const [showDeepDive, setShowDeepDive] = useState(false);
   const [style, setStyle] = useState('casual');
   const [length, setLength] = useState('medium');
@@ -340,7 +345,7 @@ export default function WritePage() {
           style,
           length,
           audience,
-          contextInfo: buildContextText(writeContexts),
+          contextInfo: [buildDefaultContextText(defaultContexts), buildContextText(writeContexts)].filter(Boolean).join('\n\n---\n\n'),
         }),
       });
 
@@ -742,6 +747,10 @@ export default function WritePage() {
               </select>
             </div>
           ))}
+        </div>
+        {/* 機能別デフォルト背景情報（自動読み込み） */}
+        <div style={{ marginTop: 14 }}>
+          <DefaultContextBar featureKey="write" onChange={setDefaultContexts} />
         </div>
         {/* 背景情報セレクタ（保存済みのリサーチ結果等を選択してAIに参照させる） */}
         <div style={{ marginTop: 14 }}>

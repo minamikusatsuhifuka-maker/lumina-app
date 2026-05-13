@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState, useMemo } from 'react';
+import FeatureDefaultContextSelector, { FEATURE_OPTIONS } from '@/components/FeatureDefaultContextSelector';
 
 type ContextSave = {
   id: number;
@@ -19,6 +20,8 @@ export default function ContextLibraryPage() {
   const [batchFilter, setBatchFilter] = useState<string | null>(null);
   const [expandedId, setExpandedId] = useState<number | null>(null);
   const [copiedId, setCopiedId] = useState<number | null>(null);
+  // contextSaveId -> 登録済み機能キー配列 のマップ
+  const [defaultMap, setDefaultMap] = useState<Record<number, string[]>>({});
 
   // URLパラメータから batchId を取得
   useEffect(() => {
@@ -48,6 +51,28 @@ export default function ContextLibraryPage() {
   };
 
   useEffect(() => { fetchItems(); }, []);
+
+  // items 取得後、各カードに対する「デフォルト登録機能マップ」を一括取得
+  useEffect(() => {
+    if (items.length === 0) return;
+    let cancelled = false;
+    (async () => {
+      const map: Record<number, string[]> = {};
+      await Promise.all(items.map(async (it) => {
+        try {
+          const res = await fetch(`/api/feature-default-contexts/by-context-save?contextSaveId=${it.id}`);
+          if (res.ok) {
+            const data = await res.json();
+            map[it.id] = data.featureKeys ?? [];
+          }
+        } catch {
+          map[it.id] = [];
+        }
+      }));
+      if (!cancelled) setDefaultMap(map);
+    })();
+    return () => { cancelled = true; };
+  }, [items]);
 
   // タグ一覧を集計
   const allTags = useMemo(() => {
@@ -283,6 +308,22 @@ export default function ContextLibraryPage() {
                 )}
               </div>
 
+              {/* 登録済み機能のバッジ */}
+              {(defaultMap[item.id]?.length ?? 0) > 0 && (
+                <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' as const, marginBottom: 8 }}>
+                  <span style={{ fontSize: 10, color: 'var(--text-muted)', alignSelf: 'center' }}>📌 デフォルト登録中:</span>
+                  {(defaultMap[item.id] ?? []).map(key => {
+                    const f = FEATURE_OPTIONS.find(o => o.key === key);
+                    if (!f) return null;
+                    return (
+                      <span key={key} style={{ background: 'rgba(108,99,255,0.15)', border: '1px solid var(--border-accent)', color: 'var(--text-primary)', padding: '2px 8px', borderRadius: 10, fontSize: 10 }}>
+                        {f.icon} {f.label}
+                      </span>
+                    );
+                  })}
+                </div>
+              )}
+
               <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' as const }}>
                 <button
                   onClick={() => handleCopy(item)}
@@ -314,6 +355,11 @@ export default function ContextLibraryPage() {
                 >
                   📊 資料作成へ
                 </button>
+                <FeatureDefaultContextSelector
+                  contextSaveId={item.id}
+                  initialRegistered={defaultMap[item.id] ?? []}
+                  onChange={(keys) => setDefaultMap(prev => ({ ...prev, [item.id]: keys }))}
+                />
                 <button
                   onClick={() => handleDelete(item.id)}
                   style={{ padding: '6px 12px', background: 'transparent', border: '1px solid #ef4444', color: '#ef4444', borderRadius: 6, cursor: 'pointer', fontSize: 11, fontWeight: 600, marginLeft: 'auto' }}

@@ -5,6 +5,10 @@ import ContextSelector, {
   buildContextText,
   type ContextItem,
 } from '@/components/ContextSelector';
+import DefaultContextBar, {
+  buildDefaultContextText,
+  type DefaultContextItem,
+} from '@/components/DefaultContextBar';
 
 interface MedicalDoc {
   id: number;
@@ -89,6 +93,7 @@ export default function MedicalStudioPage() {
   const [procedureName, setProcedureName] = useState('');
   const [additionalInfo, setAdditionalInfo] = useState('');
   const [selectedContexts, setSelectedContexts] = useState<ContextItem[]>([]);
+  const [defaultContexts, setDefaultContexts] = useState<DefaultContextItem[]>([]);
   const [isGenerating, setIsGenerating] = useState(false);
   const [generatedContent, setGeneratedContent] = useState('');
   const [streamingText, setStreamingText] = useState('');
@@ -154,7 +159,7 @@ export default function MedicalStudioPage() {
           procedureName,
           additionalInfo,
           researchText,
-          contextInfo: buildContextText(selectedContexts),
+          contextInfo: [buildDefaultContextText(defaultContexts), buildContextText(selectedContexts)].filter(Boolean).join('\n\n---\n\n'),
         }),
       });
 
@@ -544,6 +549,8 @@ export default function MedicalStudioPage() {
               />
             </div>
 
+            {/* 機能別デフォルト背景情報（自動読み込み） */}
+            <DefaultContextBar featureKey="medical-studio" onChange={setDefaultContexts} />
             {/* 背景情報セレクタ（保存済みのリサーチ結果等を選択してAIに参照させる） */}
             <ContextSelector featureKey="medical" onSelect={setSelectedContexts} />
 

@@ -5,6 +5,10 @@ import ContextSelector, {
   buildContextText,
   type ContextItem,
 } from '@/components/ContextSelector';
+import DefaultContextBar, {
+  buildDefaultContextText,
+  type DefaultContextItem,
+} from '@/components/DefaultContextBar';
 
 interface Message { role: 'user' | 'assistant'; content: string; timestamp: string }
 interface Chapter {
@@ -63,6 +67,7 @@ export default function KindlePage() {
   const [chapters, setChapters] = useState<Chapter[]>([]);
   const [messages, setMessages] = useState<Message[]>([]);
   const [kindleContexts, setKindleContexts] = useState<ContextItem[]>([]);
+  const [defaultContexts, setDefaultContexts] = useState<DefaultContextItem[]>([]);
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [streamingText, setStreamingText] = useState('');
@@ -174,7 +179,7 @@ export default function KindlePage() {
             phase: currentBook.phase,
           },
           phase: currentBook.phase,
-          contextInfo: buildContextText(kindleContexts),
+          contextInfo: [buildDefaultContextText(defaultContexts), buildContextText(kindleContexts)].filter(Boolean).join('\n\n---\n\n'),
         }),
       });
       if (!res.body) throw new Error('レスポンスボディなし');
@@ -716,6 +721,8 @@ export default function KindlePage() {
               </div>
 
               <div style={{ borderTop: '1px solid var(--border)', background: 'var(--bg-secondary)', padding: '12px 16px 16px' }}>
+                {/* 機能別デフォルト背景情報（自動読み込み） */}
+                <DefaultContextBar featureKey="kindle" onChange={setDefaultContexts} />
                 {/* 背景情報セレクタ */}
                 <ContextSelector featureKey="kindle" onSelect={setKindleContexts} />
                 <div style={{ display: 'flex', flexWrap: 'wrap' as const, gap: 6, marginBottom: 8 }}>

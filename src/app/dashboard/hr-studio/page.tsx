@@ -5,6 +5,10 @@ import ContextSelector, {
   buildContextText,
   type ContextItem,
 } from '@/components/ContextSelector';
+import DefaultContextBar, {
+  buildDefaultContextText,
+  type DefaultContextItem,
+} from '@/components/DefaultContextBar';
 
 interface Member {
   id: number;
@@ -100,6 +104,7 @@ export default function HrStudioPage() {
     useState<string>('possibility');
   const [extraInput, setExtraInput] = useState('');
   const [hrContexts, setHrContexts] = useState<ContextItem[]>([]);
+  const [defaultContexts, setDefaultContexts] = useState<DefaultContextItem[]>([]);
   const [isGenerating, setIsGenerating] = useState(false);
   const [generatedContent, setGeneratedContent] = useState('');
   const [streamingText, setStreamingText] = useState('');
@@ -201,7 +206,7 @@ export default function HrStudioPage() {
           memberData: selectedMember,
           extraData: {
             ...extraData,
-            contextInfo: buildContextText(hrContexts),
+            contextInfo: [buildDefaultContextText(defaultContexts), buildContextText(hrContexts)].filter(Boolean).join('\n\n---\n\n'),
           },
         }),
       });
@@ -676,6 +681,8 @@ export default function HrStudioPage() {
                 />
               </div>
 
+              {/* 機能別デフォルト背景情報（自動読み込み） */}
+              <DefaultContextBar featureKey="hr-studio" onChange={setDefaultContexts} />
               {/* 背景情報セレクタ */}
               <ContextSelector featureKey="hr" onSelect={setHrContexts} />
 

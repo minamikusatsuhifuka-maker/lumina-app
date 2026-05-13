@@ -5,6 +5,10 @@ import ContextSelector, {
   buildContextText,
   type ContextItem,
 } from '@/components/ContextSelector';
+import DefaultContextBar, {
+  buildDefaultContextText,
+  type DefaultContextItem,
+} from '@/components/DefaultContextBar';
 
 interface Message {
   role: 'user' | 'assistant';
@@ -86,6 +90,7 @@ export default function BusinessStudioPage() {
   );
   const [selectedGenerateType, setSelectedGenerateType] = useState('lp');
   const [businessContexts, setBusinessContexts] = useState<ContextItem[]>([]);
+  const [defaultContexts, setDefaultContexts] = useState<DefaultContextItem[]>([]);
   const [isGenerating, setIsGenerating] = useState(false);
   const [generatedContent, setGeneratedContent] = useState('');
   const [genStreaming, setGenStreaming] = useState('');
@@ -237,7 +242,7 @@ export default function BusinessStudioPage() {
         body: JSON.stringify({
           messages: updatedMessages,
           projectContext: currentProject,
-          contextInfo: buildContextText(businessContexts),
+          contextInfo: [buildDefaultContextText(defaultContexts), buildContextText(businessContexts)].filter(Boolean).join('\n\n---\n\n'),
         }),
       });
 
@@ -334,7 +339,7 @@ export default function BusinessStudioPage() {
         body: JSON.stringify({
           generateType: selectedGenerateType,
           projectData,
-          contextInfo: buildContextText(businessContexts),
+          contextInfo: [buildDefaultContextText(defaultContexts), buildContextText(businessContexts)].filter(Boolean).join('\n\n---\n\n'),
         }),
       });
 
@@ -811,6 +816,8 @@ export default function BusinessStudioPage() {
                   paddingBottom: 16,
                 }}
               >
+                {/* 機能別デフォルト背景情報（自動読み込み） */}
+                <DefaultContextBar featureKey="business-studio" onChange={setDefaultContexts} />
                 {/* 背景情報セレクタ */}
                 <ContextSelector
                   featureKey="business"

@@ -5,6 +5,10 @@ import ContextSelector, {
   buildContextText,
   type ContextItem,
 } from '@/components/ContextSelector';
+import DefaultContextBar, {
+  buildDefaultContextText,
+  type DefaultContextItem,
+} from '@/components/DefaultContextBar';
 import DeepDiveChat from '@/components/DeepDiveChat';
 
 const INDUSTRIES = ['IT・SaaS', '医療・ヘルスケア', '飲食・フード', '不動産', '教育', 'コンサルティング', '製造業', '小売・EC', 'その他'];
@@ -16,6 +20,7 @@ export default function HpGeneratorPage() {
   const [isLoading, setIsLoading] = useState(false);
   const [copied, setCopied] = useState<string | null>(null);
   const [hpContexts, setHpContexts] = useState<ContextItem[]>([]);
+  const [defaultContexts, setDefaultContexts] = useState<DefaultContextItem[]>([]);
   const [showDeepDive, setShowDeepDive] = useState(false);
   const [deepDiveContent, setDeepDiveContent] = useState('');
 
@@ -26,7 +31,7 @@ export default function HpGeneratorPage() {
       const res = await fetch('/api/hp-generator', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...form, contextInfo: buildContextText(hpContexts) }),
+        body: JSON.stringify({ ...form, contextInfo: [buildDefaultContextText(defaultContexts), buildContextText(hpContexts)].filter(Boolean).join('\n\n---\n\n') }),
       });
       setResult(await res.json());
     } finally { setIsLoading(false); }
@@ -187,6 +192,8 @@ export default function HpGeneratorPage() {
             {TONES.map(t => <option key={t}>{t}</option>)}
           </select>
         </div>
+        {/* 機能別デフォルト背景情報（自動読み込み） */}
+        <DefaultContextBar featureKey="hp-generator" onChange={setDefaultContexts} />
         {/* 背景情報セレクタ */}
         <ContextSelector featureKey="all" onSelect={setHpContexts} />
         <button onClick={handleGenerate} disabled={isLoading} style={{

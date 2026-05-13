@@ -3,6 +3,10 @@ import { useState } from 'react';
 import { ProgressBar } from '@/components/ProgressBar';
 import { useProgress } from '@/components/useProgress';
 import { SaveToLibraryButton } from '@/components/SaveToLibraryButton';
+import DefaultContextBar, {
+  buildDefaultContextText,
+  type DefaultContextItem,
+} from '@/components/DefaultContextBar';
 import DeepDiveChat from '@/components/DeepDiveChat';
 
 const FRAMEWORKS = [
@@ -45,6 +49,7 @@ export default function CopyGeneratorPage() {
   const [error, setError] = useState('');
   const [copied, setCopied] = useState<string | null>(null);
   const [showDeepDive, setShowDeepDive] = useState(false);
+  const [defaultContexts, setDefaultContexts] = useState<DefaultContextItem[]>([]);
   const { progress, loading: progressLoading, startProgress, completeProgress, resetProgress } = useProgress();
 
   const fillSample = () => {
@@ -72,7 +77,7 @@ export default function CopyGeneratorPage() {
       const res = await fetch('/api/copy-generator', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ product, target, problem, benefit, framework, copyType }),
+        body: JSON.stringify({ product, target, problem, benefit, framework, copyType, contextInfo: buildDefaultContextText(defaultContexts) }),
       });
 
       if (!res.ok) {
@@ -235,6 +240,9 @@ export default function CopyGeneratorPage() {
             ))}
           </select>
         </div>
+
+        {/* 機能別デフォルト背景情報（自動読み込み） */}
+        <DefaultContextBar featureKey="copy-generator" onChange={setDefaultContexts} />
 
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>* は必須項目です</div>

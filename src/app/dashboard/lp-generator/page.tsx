@@ -3,6 +3,10 @@ import { useState, useEffect } from 'react';
 import { ProgressBar } from '@/components/ProgressBar';
 import { useProgress } from '@/components/useProgress';
 import { SaveToLibraryButton } from '@/components/SaveToLibraryButton';
+import DefaultContextBar, {
+  buildDefaultContextText,
+  type DefaultContextItem,
+} from '@/components/DefaultContextBar';
 import DeepDiveChat from '@/components/DeepDiveChat';
 
 const FRAMEWORKS = [
@@ -57,6 +61,7 @@ export default function LPGeneratorPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [contextHint, setContextHint] = useState('');
+  const [defaultContexts, setDefaultContexts] = useState<DefaultContextItem[]>([]);
   const { progress, loading: progressLoading, startProgress, completeProgress, resetProgress } = useProgress();
 
   // コンテキストライブラリ・ディープリサーチからの背景情報受け取り
@@ -115,7 +120,7 @@ export default function LPGeneratorPage() {
       const res = await fetch('/api/lp-generator', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...form, framework }),
+        body: JSON.stringify({ ...form, framework, contextInfo: buildDefaultContextText(defaultContexts) }),
       });
 
       if (!res.ok) {
@@ -447,6 +452,9 @@ ${result.cta_sections[2] ? ctaBlock(result.cta_sections[2]) : ''}
             />
           </div>
         </div>
+
+        {/* 機能別デフォルト背景情報（自動読み込み） */}
+        <DefaultContextBar featureKey="lp-generator" onChange={setDefaultContexts} />
 
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>

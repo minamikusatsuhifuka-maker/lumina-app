@@ -5,6 +5,10 @@ import ContextSelector, {
   buildContextText,
   type ContextItem,
 } from '@/components/ContextSelector';
+import DefaultContextBar, {
+  buildDefaultContextText,
+  type DefaultContextItem,
+} from '@/components/DefaultContextBar';
 
 interface Service {
   name: string;
@@ -109,6 +113,7 @@ export default function NexusPage() {
   const [generatedHtml, setGeneratedHtml] = useState('');
   const [previewMode, setPreviewMode] = useState(false);
   const [nexusContexts, setNexusContexts] = useState<ContextItem[]>([]);
+  const [defaultContexts, setDefaultContexts] = useState<DefaultContextItem[]>([]);
 
   // ブログ
   const [blogMode, setBlogMode] = useState<'list' | 'write' | 'edit'>('list');
@@ -238,7 +243,7 @@ export default function NexusPage() {
           blogPosts: blogPosts
             .filter((p) => p.status === 'published')
             .slice(0, 6),
-          contextInfo: buildContextText(nexusContexts),
+          contextInfo: [buildDefaultContextText(defaultContexts), buildContextText(nexusContexts)].filter(Boolean).join('\n\n---\n\n'),
         }),
       });
       if (!res.ok) {
@@ -291,7 +296,7 @@ export default function NexusPage() {
           theme: blogTheme,
           researchText,
           brandInfo: brand,
-          contextInfo: buildContextText(nexusContexts),
+          contextInfo: [buildDefaultContextText(defaultContexts), buildContextText(nexusContexts)].filter(Boolean).join('\n\n---\n\n'),
         }),
       });
 
@@ -1594,6 +1599,8 @@ export default function NexusPage() {
                 </div>
               </div>
 
+              {/* 機能別デフォルト背景情報（自動読み込み） */}
+              <DefaultContextBar featureKey="nexus" onChange={setDefaultContexts} />
               {/* 背景情報セレクタ（blog/nexus両方の背景情報をサポート） */}
               <ContextSelector featureKey="blog" onSelect={setNexusContexts} />
 

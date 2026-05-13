@@ -7,6 +7,10 @@ import ContextSelector, {
   buildContextText,
   type ContextItem,
 } from '@/components/ContextSelector';
+import DefaultContextBar, {
+  buildDefaultContextText,
+  type DefaultContextItem,
+} from '@/components/DefaultContextBar';
 import DeepDiveChat from '@/components/DeepDiveChat';
 
 const EMAIL_TYPES = ['ウェルカム', 'セールス', 'リテンション', 'カート放棄', 'ローンチ'];
@@ -51,6 +55,7 @@ export default function EmailGeneratorPage() {
   const [activeStep, setActiveStep] = useState(0);
   const [copied, setCopied] = useState<string | null>(null);
   const [mailContexts, setMailContexts] = useState<ContextItem[]>([]);
+  const [defaultContexts, setDefaultContexts] = useState<DefaultContextItem[]>([]);
   const [showDeepDive, setShowDeepDive] = useState(false);
   const { progress, loading: progressLoading, startProgress, completeProgress, resetProgress } = useProgress();
 
@@ -87,7 +92,7 @@ export default function EmailGeneratorPage() {
           goal,
           steps,
           emailType,
-          contextInfo: buildContextText(mailContexts),
+          contextInfo: [buildDefaultContextText(defaultContexts), buildContextText(mailContexts)].filter(Boolean).join('\n\n---\n\n'),
         }),
       });
 
@@ -275,6 +280,8 @@ export default function EmailGeneratorPage() {
           />
         </div>
 
+        {/* 機能別デフォルト背景情報（自動読み込み） */}
+        <DefaultContextBar featureKey="email-generator" onChange={setDefaultContexts} />
         {/* 背景情報セレクタ */}
         <div style={{ marginBottom: 12 }}>
           <ContextSelector featureKey="business" onSelect={setMailContexts} />
