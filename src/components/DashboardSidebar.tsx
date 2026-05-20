@@ -15,6 +15,7 @@ const navCategories: NavCategory[] = [
       { href: '/dashboard', label: 'ダッシュボード', icon: '🏠' },
       { href: '/dashboard/orchestrator', label: 'AIオーケストレーター', icon: '🤖' },
       { href: '/dashboard/automation-strategy', label: '自動化戦略AI', icon: '🚀' },
+      { href: '/dashboard/text-analysis?tab=saved', label: '保存一覧', icon: '📁' },
     ],
   },
   {

@@ -1,6 +1,7 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { Suspense, useEffect, useState } from 'react';
+import { useSearchParams } from 'next/navigation';
 import TextAnalysisPanel from '@/components/text-analysis/TextAnalysisPanel';
 import SavedAnalysisList, {
   AnalysisRecord,
@@ -13,9 +14,32 @@ import UrlBatchAnalysisPanel from '@/components/text-analysis/UrlBatchAnalysisPa
 type TabType = 'analyze' | 'saved' | 'cross' | 'url';
 
 export default function TextAnalysisPage() {
+  return (
+    <Suspense
+      fallback={
+        <div style={{ padding: 40, textAlign: 'center', color: 'var(--text-muted)' }}>
+          読み込み中...
+        </div>
+      }
+    >
+      <TextAnalysisPageInner />
+    </Suspense>
+  );
+}
+
+function TextAnalysisPageInner() {
+  const searchParams = useSearchParams();
+  // クエリパラメータ ?tab=saved 等から初期タブを取得（不正値はanalyzeにフォールバック）
+  const initialTab: TabType = (() => {
+    const t = searchParams?.get('tab');
+    if (t === 'saved' || t === 'analyze' || t === 'cross' || t === 'url') {
+      return t;
+    }
+    return 'analyze';
+  })();
   const [records, setRecords] = useState<AnalysisRecord[]>([]);
   const [loading, setLoading] = useState(true);
-  const [tab, setTab] = useState<TabType>('analyze');
+  const [tab, setTab] = useState<TabType>(initialTab);
   const [crossSelected, setCrossSelected] = useState<CrossArticle[]>([]);
   const [highlightArticleId, setHighlightArticleId] = useState<number | null>(null);
   // ディープリサーチからの引き継ぎテキスト
