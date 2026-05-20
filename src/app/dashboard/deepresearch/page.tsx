@@ -28,6 +28,42 @@ async function retryFetch(url: string, options: RequestInit, maxRetries = 3): Pr
   return fetch(url, options);
 }
 
+// バイト数を人間可読フォーマットに（例: 1234 → "1.2 KB"）
+function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
+}
+
+// レポートを ## / ### のセクションに分割（## は配下の ### を内包する）
+type ReportSection = { level: 2 | 3; heading: string; text: string };
+function splitReportSections(report: string): ReportSection[] {
+  if (!report) return [];
+  const lines = report.split('\n');
+  const headings: Array<{ level: 2 | 3; heading: string; idx: number }> = [];
+  lines.forEach((line, i) => {
+    const m2 = line.match(/^##\s+(.+)$/);
+    const m3 = line.match(/^###\s+(.+)$/);
+    if (m2) headings.push({ level: 2, heading: m2[1], idx: i });
+    else if (m3) headings.push({ level: 3, heading: m3[1], idx: i });
+  });
+  return headings.map((h, i) => {
+    // 次の「同レベル以上」の見出しが終端
+    let endIdx = lines.length;
+    for (let j = i + 1; j < headings.length; j++) {
+      if (headings[j].level <= h.level) {
+        endIdx = headings[j].idx;
+        break;
+      }
+    }
+    return {
+      level: h.level,
+      heading: h.heading,
+      text: lines.slice(h.idx, endIdx).join('\n').trimEnd(),
+    };
+  });
+}
+
 const processInline = (text: string): string => {
   // 太字
   text = text.replace(/\*\*(.+?)\*\*/g,
@@ -424,6 +460,12 @@ export default function DeepResearchPage() {
   const [loading, setLoading] = useState(false);
   const [fontSize, setFontSize] = useState(14);
   const [elapsed, setElapsed] = useState(0);
+  // 結果取得通信の送受信バイト数（ポーリングは対象外、メイン通信のみ）
+  const [trafficStats, setTrafficStats] = useState<{
+    requestBytes: number;
+    responseBytes: number;
+    totalBytes: number;
+  } | null>(null);
   const { progress, loading: progressLoading, startProgress, completeProgress, resetProgress } = useProgress();
 
   // AI背景情報コンテキスト最適化
@@ -794,15 +836,20 @@ ${contextText}
     setElapsed(0);
     setSuggestedTitles([]);
     setCurrentNodeId(null);
+    setTrafficStats(null);
     if (startDepth !== null) setCurrentDepth(startDepth);
 
     const timer = setInterval(() => setElapsed(e => e + 1), 1000);
 
     try {
+      // 送信ボディのバイト数を計測
+      const reqBody = JSON.stringify({ topic: q + getDateCondition(dateRange), depth });
+      const requestBytes = new TextEncoder().encode(reqBody).length;
+
       const res = await retryFetch('/api/deepresearch', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ topic: q + getDateCondition(dateRange), depth }),
+        body: reqBody,
       });
 
       if (!res.ok || !res.body) {
@@ -815,10 +862,13 @@ ${contextText}
       const reader = res.body.getReader();
       const decoder = new TextDecoder();
       let accumulated = '';
+      let responseBytes = 0;
 
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
+        // ストリーミング受信バイト数を累積
+        if (value) responseBytes += value.byteLength;
 
         const lines = decoder.decode(value).split('\n');
         for (const line of lines) {
@@ -834,6 +884,13 @@ ${contextText}
           } catch {}
         }
       }
+
+      // 通信量を記録
+      setTrafficStats({
+        requestBytes,
+        responseBytes,
+        totalBytes: requestBytes + responseBytes,
+      });
 
       // 完了後：知識ツリーノード保存＋関連タイトル案生成＋専門用語抽出
       const finalDepth = startDepth !== null ? startDepth : 0;
@@ -1382,10 +1439,98 @@ ${contextText}
               )}
             </div>
           </div>
+          {/* セクション別コピー（折りたたみ式） */}
+          {report && splitReportSections(report).length > 0 && (
+            <details style={{ marginBottom: 16 }}>
+              <summary
+                style={{
+                  cursor: 'pointer',
+                  padding: '8px 12px',
+                  background: 'var(--bg-secondary)',
+                  borderRadius: 6,
+                  fontSize: 13,
+                  color: 'var(--text-secondary)',
+                  userSelect: 'none',
+                }}
+              >
+                📑 セクション別コピー（{splitReportSections(report).length} 件）
+              </summary>
+              <div style={{ marginTop: 8, display: 'flex', flexDirection: 'column', gap: 4 }}>
+                {splitReportSections(report).map((sec, i) => (
+                  <div
+                    key={i}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 8,
+                      padding: '6px 12px',
+                      paddingLeft: sec.level === 3 ? 24 : 12,
+                      fontSize: 13,
+                      background: sec.level === 2 ? 'var(--bg-secondary)' : 'transparent',
+                      borderRadius: 4,
+                    }}
+                  >
+                    <span
+                      style={{
+                        color: sec.level === 2 ? 'var(--accent)' : 'var(--text-muted)',
+                        flex: 1,
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                        whiteSpace: 'nowrap',
+                      }}
+                    >
+                      {sec.level === 2 ? '##' : '###'} {sec.heading}
+                    </span>
+                    <button
+                      onClick={() => navigator.clipboard.writeText(sec.text)}
+                      style={{
+                        padding: '4px 10px',
+                        background: 'var(--bg-secondary)',
+                        border: '1px solid var(--border)',
+                        color: 'var(--text-secondary)',
+                        borderRadius: 4,
+                        cursor: 'pointer',
+                        fontSize: 11,
+                        flexShrink: 0,
+                      }}
+                    >
+                      📋 コピー
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </details>
+          )}
+
           <div
             style={{ fontSize: fontSize, color: 'var(--text-secondary)', lineHeight: 1.8, wordBreak: 'break-word' as const }}
             dangerouslySetInnerHTML={{ __html: formatReport(report) }}
           />
+
+          {/* 通信量表示（結果取得通信のみ、ポーリングは対象外） */}
+          {trafficStats && (
+            <div
+              style={{
+                marginTop: 24,
+                padding: '12px 16px',
+                background: 'var(--bg-secondary)',
+                border: '1px solid var(--border)',
+                borderRadius: 8,
+                fontSize: 13,
+                color: 'var(--text-muted)',
+                display: 'flex',
+                gap: 16,
+                flexWrap: 'wrap' as const,
+              }}
+            >
+              <span>📊 通信量:</span>
+              <span>送信 {formatBytes(trafficStats.requestBytes)}</span>
+              <span>受信 {formatBytes(trafficStats.responseBytes)}</span>
+              <span>
+                合計 <strong>{formatBytes(trafficStats.totalBytes)}</strong>
+              </span>
+            </div>
+          )}
 
           {/* インライン分析パネル（リサーチ結果の直下） */}
           <InlineAnalysisPanel text={report} topic={topic} />
