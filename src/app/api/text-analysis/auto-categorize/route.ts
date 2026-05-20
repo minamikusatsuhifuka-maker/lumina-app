@@ -3,6 +3,7 @@ import Anthropic from '@anthropic-ai/sdk';
 import { auth } from '@/lib/auth';
 import { sql } from '@/lib/db';
 import { trackUsage } from '@/lib/trackUsage';
+import { sanitizeForJson } from '@/lib/sanitize';
 
 export const runtime = 'nodejs';
 export const maxDuration = 120;
@@ -54,9 +55,9 @@ ${saves
   .map(
     (s, i) => `
 [${i + 1}] ID:${s.id}
-タイトル: ${s.title ?? '無題'}
-現在のカテゴリ: ${s.category ?? '未分類'}
-内容プレビュー: ${(s.content ?? '').slice(0, 150)}
+タイトル: ${sanitizeForJson(s.title ?? '無題')}
+現在のカテゴリ: ${sanitizeForJson(s.category ?? '未分類')}
+内容プレビュー: ${sanitizeForJson(s.content ?? '').slice(0, 150)}
 `,
   )
   .join('\n---\n')}
@@ -78,12 +79,15 @@ ${saves
 }
 \`\`\``;
 
+  // 保険として prompt 全体にも一度サニタイズを通す
+  const safePrompt = sanitizeForJson(prompt);
+
   let response;
   try {
     response = await client.messages.create({
       model: 'claude-sonnet-4-6',
       max_tokens: 4000,
-      messages: [{ role: 'user', content: prompt }],
+      messages: [{ role: 'user', content: safePrompt }],
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
