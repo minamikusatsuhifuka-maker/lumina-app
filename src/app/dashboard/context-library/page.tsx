@@ -22,6 +22,10 @@ export default function ContextLibraryPage() {
   const [copiedId, setCopiedId] = useState<number | null>(null);
   // contextSaveId -> 登録済み機能キー配列 のマップ
   const [defaultMap, setDefaultMap] = useState<Record<number, string[]>>({});
+  // 要約・詳細ボタンの処理中／完了状態
+  const [processingId, setProcessingId] = useState<{ id: number; mode: 'summary' | 'detail' } | null>(null);
+  const [processedId, setProcessedId] = useState<{ id: number; mode: 'summary' | 'detail' } | null>(null);
+  const [toast, setToast] = useState<string>('');
 
   // URLパラメータから batchId を取得
   useEffect(() => {
@@ -109,6 +113,71 @@ export default function ContextLibraryPage() {
       const res = await fetch(`/api/context-saves?id=${id}`, { method: 'DELETE' });
       if (res.ok) setItems(prev => prev.filter(it => it.id !== id));
     } catch {}
+  };
+
+  // 要約／詳細生成 → text_analysis_saves に保存
+  const handleSummarize = async (item: ContextSave, mode: 'summary' | 'detail') => {
+    if (processingId) return; // 多重押下防止
+    setProcessingId({ id: item.id, mode });
+
+    try {
+      // 1) AI生成
+      const genRes = await fetch('/api/context-library/summarize', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          mode,
+          title: item.topic ?? '無題',
+          content: item.context_text ?? '',
+          tags: item.tags ?? [],
+        }),
+      });
+
+      if (!genRes.ok) {
+        const err = await genRes.json().catch(() => ({}));
+        throw new Error(err.error ?? `生成に失敗しました (HTTP ${genRes.status})`);
+      }
+
+      const genData = await genRes.json();
+      const generated: string = genData.generated;
+
+      // 2) 保存（text_analysis_saves）
+      const label = mode === 'summary' ? '要約' : '詳細';
+      const analysisLabel = mode === 'summary' ? '要約・概要' : '詳細解説';
+      const folder = mode === 'summary' ? 'コンテキスト要約' : 'コンテキスト詳細';
+
+      const saveRes = await fetch('/api/text-analysis/saves', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          title: `${item.topic ?? '無題'} - ${label}`,
+          content: generated,
+          analysisType: mode,
+          analysisLabel,
+          folder,
+          tags: ['コンテキスト由来', ...(item.tags ?? [])],
+        }),
+      });
+
+      if (!saveRes.ok) {
+        const err = await saveRes.json().catch(() => ({}));
+        throw new Error(err.error ?? `保存に失敗しました (HTTP ${saveRes.status})`);
+      }
+
+      // 3) 完了表示
+      setProcessedId({ id: item.id, mode });
+      setToast(`✅ テキスト分析・カテゴライズに「${label}」として保存しました`);
+      setTimeout(() => {
+        setProcessedId(null);
+        setToast('');
+      }, 3000);
+    } catch (e) {
+      const message = e instanceof Error ? e.message : String(e);
+      setToast(`❌ ${message}`);
+      setTimeout(() => setToast(''), 4000);
+    } finally {
+      setProcessingId(null);
+    }
   };
 
   const goToTool = (item: ContextSave, tool: 'write' | 'sns-post' | 'lp' | 'materials') => {
@@ -242,6 +311,25 @@ export default function ContextLibraryPage() {
         </div>
       )}
 
+      {/* 要約・詳細生成のトースト表示 */}
+      {toast && (
+        <div style={{
+          position: 'fixed',
+          bottom: 24,
+          left: '50%',
+          transform: 'translateX(-50%)',
+          background: '#1f2937',
+          color: '#fff',
+          padding: '12px 24px',
+          borderRadius: 8,
+          fontSize: 14,
+          zIndex: 9999,
+          boxShadow: '0 4px 12px rgba(0,0,0,0.3)',
+        }}>
+          {toast}
+        </div>
+      )}
+
       <div style={{ display: 'grid', gap: 14 }}>
         {filtered.map(item => {
           const expanded = expandedId === item.id;
@@ -354,6 +442,51 @@ export default function ContextLibraryPage() {
                   style={{ padding: '6px 12px', background: 'var(--accent-soft)', border: '1px solid var(--border-accent)', color: 'var(--text-primary)', borderRadius: 6, cursor: 'pointer', fontSize: 11, fontWeight: 600 }}
                 >
                   📊 資料作成へ
+                </button>
+                {/* 要約・詳細生成ボタン（AI生成 → text_analysis_saves へ保存） */}
+                <button
+                  onClick={() => handleSummarize(item, 'summary')}
+                  disabled={processingId !== null}
+                  style={{
+                    padding: '6px 12px',
+                    borderRadius: 6,
+                    border: '1px solid #a78bfa',
+                    background: processingId?.id === item.id && processingId.mode === 'summary'
+                      ? '#6b7280'
+                      : (processedId?.id === item.id && processedId.mode === 'summary' ? '#10b981' : '#8b5cf6'),
+                    color: '#fff',
+                    cursor: processingId ? 'not-allowed' : 'pointer',
+                    fontSize: 11,
+                    fontWeight: 600,
+                  }}
+                >
+                  {processingId?.id === item.id && processingId.mode === 'summary'
+                    ? '⏳ 生成中...'
+                    : processedId?.id === item.id && processedId.mode === 'summary'
+                    ? '✅ 保存済'
+                    : '📝 要約'}
+                </button>
+                <button
+                  onClick={() => handleSummarize(item, 'detail')}
+                  disabled={processingId !== null}
+                  style={{
+                    padding: '6px 12px',
+                    borderRadius: 6,
+                    border: '1px solid #60a5fa',
+                    background: processingId?.id === item.id && processingId.mode === 'detail'
+                      ? '#6b7280'
+                      : (processedId?.id === item.id && processedId.mode === 'detail' ? '#10b981' : '#3b82f6'),
+                    color: '#fff',
+                    cursor: processingId ? 'not-allowed' : 'pointer',
+                    fontSize: 11,
+                    fontWeight: 600,
+                  }}
+                >
+                  {processingId?.id === item.id && processingId.mode === 'detail'
+                    ? '⏳ 生成中...'
+                    : processedId?.id === item.id && processedId.mode === 'detail'
+                    ? '✅ 保存済'
+                    : '📖 詳細'}
                 </button>
                 <FeatureDefaultContextSelector
                   contextSaveId={item.id}
