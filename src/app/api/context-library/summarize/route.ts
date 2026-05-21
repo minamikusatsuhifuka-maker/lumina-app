@@ -85,6 +85,17 @@ export async function POST(req: NextRequest) {
       messages: [{ role: 'user', content: prompt }],
     });
 
+    // 観測ログ: detail モードの途中切れ原因調査用
+    console.log('[context-library/summarize] stop_reason:', response.stop_reason);
+    console.log('[context-library/summarize] usage:', JSON.stringify(response.usage));
+    console.log(
+      '[context-library/summarize] generated_length:',
+      response.content
+        .filter((b) => b.type === 'text')
+        .map((b) => (b as { text: string }).text)
+        .join('').length,
+    );
+
     const generated = response.content
       .filter((b) => b.type === 'text')
       .map((b) => (b as { text: string }).text)
