@@ -1,7 +1,17 @@
 'use client';
 
 import { useState } from 'react';
-import { getSavedModel } from '@/lib/model-preference';
+import {
+  getSavedModel,
+  getModelLabel,
+  getModelIcon,
+  type AIModel,
+} from '@/lib/model-preference';
+import {
+  generateTitleWithTimeout,
+  sanitizeFilename,
+  yyyymmdd,
+} from '@/lib/title-generator';
 
 // 既存の analyze API の type と対応
 const ANALYSIS_TYPES = [
@@ -34,8 +44,12 @@ export default function InlineAnalysisPanel({
   const [streamingResults, setStreamingResults] = useState<
     Record<string, string>
   >({});
+  // 各結果を生成したモデル（リクエスト送信時の getSavedModel() を記録）
+  const [resultModels, setResultModels] = useState<Record<string, AIModel>>({});
   const [isSaved, setIsSaved] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+  // どのパネルがタイトル生成中か（null = なし）
+  const [generatingTitleId, setGeneratingTitleId] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState('');
 
   const handleAnalyze = async () => {
@@ -52,6 +66,7 @@ export default function InlineAnalysisPanel({
     setIsAnalyzing(true);
     setResults({});
     setStreamingResults({});
+    setResultModels({});
     setIsSaved(false);
 
     // 選択したタイプを並列で実行
@@ -60,6 +75,9 @@ export default function InlineAnalysisPanel({
         const conf = ANALYSIS_TYPES.find((t) => t.id === typeId);
         if (!conf) return;
         try {
+          // リクエスト送信時のモデルを固定して記録
+          const modelAtRequest = getSavedModel();
+          setResultModels((prev) => ({ ...prev, [typeId]: modelAtRequest }));
           const res = await fetch('/api/text-analysis/analyze', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -67,7 +85,7 @@ export default function InlineAnalysisPanel({
               text,
               type: conf.apiType,
               purpose: topic ? `テーマ: ${topic}` : undefined,
-              model: getSavedModel(),
+              model: modelAtRequest,
             }),
           });
           if (!res.ok || !res.body) {
@@ -138,40 +156,39 @@ export default function InlineAnalysisPanel({
     if (allText) navigator.clipboard.writeText(allText);
   };
 
-  // ブラッシュアップ結果を .md ファイルとしてダウンロード
-  const handleDownloadMd = () => {
-    const completedTypes = ANALYSIS_TYPES.filter((t) => results[t.id]);
-    if (completedTypes.length === 0) return;
+  // 個別パネルの .md ダウンロード（AIタイトル生成 + モデル表記付き）
+  const handleDownloadPanelMd = async (typeId: AnalysisId) => {
+    const conf = ANALYSIS_TYPES.find((t) => t.id === typeId);
+    const content = results[typeId];
+    if (!conf || !content) return;
 
-    // YYYYMMDD 形式
-    const now = new Date();
-    const dateStr = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}`;
+    // ラベルから先頭の絵文字を除去
+    const labelText = conf.label.replace(/^[^\s]+\s/, '').trim();
+    setGeneratingTitleId(typeId);
+    try {
+      const fallback = labelText;
+      const autoTitle = await generateTitleWithTimeout(
+        content,
+        labelText,
+        fallback,
+      );
+      const fileTitle = sanitizeFilename(autoTitle);
+      const model = resultModels[typeId];
+      const modelLine = model
+        ? `> 生成AI: ${getModelIcon(model)} ${getModelLabel(model)}\n\n---\n\n`
+        : '';
+      const md = `# ${autoTitle}\n\n${modelLine}${content}`;
 
-    let title: string;
-    let content: string;
-    if (completedTypes.length === 1) {
-      // 1パネルのみ: パネル種別名（先頭絵文字を除去）
-      const t = completedTypes[0];
-      title = t.label.replace(/^[^\s]+\s/, '').trim();
-      content = `# ${title}\n\n${results[t.id]}`;
-    } else {
-      // 複数パネル: 統合して1ファイルに
-      title = 'テキスト分析';
-      content = completedTypes
-        .map((t) => {
-          const label = t.label.replace(/^[^\s]+\s/, '').trim();
-          return `# ${label}\n\n${results[t.id]}`;
-        })
-        .join('\n\n---\n\n');
+      const blob = new Blob([md], { type: 'text/markdown;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${fileTitle}_${yyyymmdd()}.md`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } finally {
+      setGeneratingTitleId(null);
     }
-
-    const blob = new Blob([content], { type: 'text/markdown;charset=utf-8' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `${title}_${dateStr}.md`;
-    a.click();
-    URL.revokeObjectURL(url);
   };
 
   const handleSave = async () => {
@@ -336,6 +353,8 @@ export default function InlineAnalysisPanel({
               const content =
                 streamingResults[type.id] ?? results[type.id] ?? '';
               const isStreaming = !!streamingResults[type.id];
+              const hasFinalResult = !!results[type.id];
+              const isGenTitle = generatingTitleId === type.id;
               return (
                 <div
                   key={type.id}
@@ -400,7 +419,7 @@ export default function InlineAnalysisPanel({
                       />
                     )}
                   </div>
-                  {/* 文字数表示（本文末尾、マークダウン記号含む） */}
+                  {/* 文字数表示 + 個別MDダウンロード */}
                   {content && (
                     <div
                       style={{
@@ -409,9 +428,34 @@ export default function InlineAnalysisPanel({
                         background: '#fafafa',
                         fontSize: 12,
                         color: '#6b7280',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        gap: 8,
                       }}
                     >
-                      📝 文字数: {content.length.toLocaleString()}字
+                      <span>📝 文字数: {content.length.toLocaleString()}字</span>
+                      {hasFinalResult && (
+                        <button
+                          type="button"
+                          onClick={() => handleDownloadPanelMd(type.id)}
+                          disabled={isGenTitle}
+                          style={{
+                            fontSize: 11,
+                            padding: '4px 10px',
+                            border: '1px solid #e5e7eb',
+                            borderRadius: 6,
+                            background: '#fff',
+                            color: '#6b7280',
+                            cursor: isGenTitle ? 'not-allowed' : 'pointer',
+                            opacity: isGenTitle ? 0.6 : 1,
+                          }}
+                        >
+                          {isGenTitle
+                            ? '⏳ タイトル生成中...'
+                            : '📥 MDダウンロード'}
+                        </button>
+                      )}
                     </div>
                   )}
                 </div>
@@ -441,21 +485,6 @@ export default function InlineAnalysisPanel({
                   }}
                 >
                   📋 全てコピー
-                </button>
-                <button
-                  type="button"
-                  onClick={handleDownloadMd}
-                  style={{
-                    fontSize: 12,
-                    padding: '6px 12px',
-                    border: '1px solid #e5e7eb',
-                    borderRadius: 6,
-                    background: '#fff',
-                    color: '#6b7280',
-                    cursor: 'pointer',
-                  }}
-                >
-                  📥 MDダウンロード
                 </button>
                 <button
                   type="button"

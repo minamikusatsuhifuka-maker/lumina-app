@@ -7,7 +7,17 @@ import { SaveToLibraryButton } from '@/components/SaveToLibraryButton';
 import { DateRangePicker, DateRange, getDateCondition } from '@/components/DateRangePicker';
 import InlineAnalysisPanel from '@/components/text-analysis/InlineAnalysisPanel';
 import DeepDiveChat from '@/components/DeepDiveChat';
-import { getSavedModel } from '@/lib/model-preference';
+import {
+  getSavedModel,
+  getModelLabel,
+  getModelIcon,
+  type AIModel,
+} from '@/lib/model-preference';
+import {
+  generateTitleWithTimeout,
+  sanitizeFilename,
+  yyyymmdd,
+} from '@/lib/title-generator';
 
 const TEMPLATES = [
   { label: 'AI最新動向', topic: '2026年の生成AI・大規模言語モデルの最新動向と活用事例' },
@@ -462,6 +472,10 @@ export default function DeepResearchPage() {
 
   const [dateRange, setDateRange] = useState<DateRange>({ start: null, end: null });
   const [report, setReport] = useState('');
+  // 現在の report を生成したモデル（リクエスト送信時の getSavedModel() を記録）
+  const [reportModel, setReportModel] = useState<AIModel | null>(null);
+  // MD ダウンロード時のタイトル生成中フラグ
+  const [downloadingMd, setDownloadingMd] = useState(false);
   const [loading, setLoading] = useState(false);
   const [fontSize, setFontSize] = useState(14);
   const [elapsed, setElapsed] = useState(0);
@@ -851,8 +865,10 @@ ${contextText}
     const timer = setInterval(() => setElapsed(e => e + 1), 1000);
 
     try {
-      // 送信ボディのバイト数を計測
-      const reqBody = JSON.stringify({ topic: q + getDateCondition(dateRange), depth, model: getSavedModel() });
+      // 送信ボディのバイト数を計測（モデルは送信時の値を固定化して記録）
+      const modelAtRequest = getSavedModel();
+      setReportModel(modelAtRequest);
+      const reqBody = JSON.stringify({ topic: q + getDateCondition(dateRange), depth, model: modelAtRequest });
       const requestBytes = new TextEncoder().encode(reqBody).length;
 
       const res = await retryFetch('/api/deepresearch', {
@@ -984,11 +1000,28 @@ ${contextText}
     }
   };
 
-  const download = () => {
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(new Blob([report], { type: 'text/plain' }));
-    a.download = `lumina_research_${Date.now()}.md`;
-    a.click();
+  const download = async () => {
+    if (!report.trim()) return;
+    setDownloadingMd(true);
+    try {
+      const label = 'ディープリサーチ';
+      const fallback = topic ? `${label}_${topic}` : label;
+      const autoTitle = await generateTitleWithTimeout(report, label, fallback);
+      const fileTitle = sanitizeFilename(autoTitle);
+      const modelLine = reportModel
+        ? `> 生成AI: ${getModelIcon(reportModel)} ${getModelLabel(reportModel)}\n\n---\n\n`
+        : '';
+      const md = `# ${autoTitle}\n\n${modelLine}${report}`;
+      const blob = new Blob([md], { type: 'text/markdown;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${fileTitle}_${yyyymmdd()}.md`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } finally {
+      setDownloadingMd(false);
+    }
   };
 
   return (
@@ -1028,6 +1061,8 @@ ${contextText}
             accentColor="#6366f1"
             onGenerated={(content) => {
               setReport(content);
+              // DeepDive 経由のレポートは生成元モデルが不明なので消す
+              setReportModel(null);
               setShowDeepDive(false);
             }}
           />
@@ -1157,8 +1192,8 @@ ${contextText}
               <button onClick={sendToWrite} style={{ padding: '6px 14px', background: 'linear-gradient(135deg, #6c63ff, #8b5cf6)', color: '#fff', border: 'none', borderRadius: 6, cursor: 'pointer', fontSize: 12, fontWeight: 600 }}>
                 ✍️ 文章作成に使う
               </button>
-              <button onClick={download} style={{ padding: '6px 14px', background: 'var(--bg-secondary)', border: '1px solid var(--border)', color: 'var(--text-secondary)', borderRadius: 6, cursor: 'pointer', fontSize: 12 }}>
-                💾 MD保存
+              <button onClick={download} disabled={downloadingMd || !report.trim()} style={{ padding: '6px 14px', background: 'var(--bg-secondary)', border: '1px solid var(--border)', color: 'var(--text-secondary)', borderRadius: 6, cursor: downloadingMd ? 'not-allowed' : 'pointer', fontSize: 12, opacity: downloadingMd ? 0.6 : 1 }}>
+                {downloadingMd ? '⏳ タイトル生成中...' : '💾 MDダウンロード'}
               </button>
               <button onClick={() => navigator.clipboard.writeText(report)} style={{ padding: '6px 14px', background: 'var(--bg-secondary)', border: '1px solid var(--border)', color: 'var(--text-secondary)', borderRadius: 6, cursor: 'pointer', fontSize: 12 }}>
                 📋 コピー

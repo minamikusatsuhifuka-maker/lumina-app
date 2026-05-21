@@ -18,6 +18,11 @@ import {
   type AIModel,
 } from '@/lib/model-preference';
 import { ModelBadge } from '@/components/ModelBadge';
+import {
+  generateTitleWithTimeout,
+  sanitizeFilename,
+  yyyymmdd,
+} from '@/lib/title-generator';
 
 const HEIGHT_PRESETS = [
   { label: 'S', h: 200 },
@@ -366,29 +371,6 @@ export default function TextAnalysisPanel({
     }
   };
 
-  const generateTitleWithTimeout = async (
-    text: string,
-    analysisLabel: string,
-    fallback: string,
-    timeoutMs = 15000,
-  ): Promise<string> => {
-    const generate = async () => {
-      const res = await fetch('/api/text-analysis/generate-title', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text, analysisLabel }),
-      });
-      const data = await res.json();
-      return data.title || fallback;
-    };
-    return Promise.race([
-      generate(),
-      new Promise<string>((resolve) =>
-        setTimeout(() => resolve(fallback), timeoutMs),
-      ),
-    ]);
-  };
-
   const saveResult = async (type: AnalysisType, text: string): Promise<boolean> => {
     const label = ANALYSIS_OPTIONS.find((o) => o.value === type)?.label ?? type;
     setGeneratingTitle(type);
@@ -422,15 +404,6 @@ export default function TextAnalysisPanel({
     } finally {
       setGeneratingTitle(null);
     }
-  };
-
-  // ファイル名に使えない文字（/ \ : * ? " < > |）を除去
-  const sanitizeFilename = (name: string) =>
-    name.replace(/[\\/:*?"<>|]/g, '').trim() || 'untitled';
-
-  const yyyymmdd = () => {
-    const now = new Date();
-    return `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}`;
   };
 
   // ファイル内に挿入する「生成AI: ...」表記（モデル未記録の旧データは出力なし）
