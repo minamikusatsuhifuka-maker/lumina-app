@@ -164,18 +164,18 @@ function ResultPanel({
         <button
           type="button"
           onClick={onDownloadTxt}
-          disabled={!text}
+          disabled={!text || generatingTitle}
           style={btnStyle('neutral')}
         >
-          ⬇ テキスト
+          {generatingTitle ? '⏳ タイトル生成中...' : '⬇ テキスト'}
         </button>
         <button
           type="button"
           onClick={onDownloadMd}
-          disabled={!text}
+          disabled={!text || generatingTitle}
           style={btnStyle('neutral')}
         >
-          📥 MD
+          {generatingTitle ? '⏳ タイトル生成中...' : '📥 MD'}
         </button>
         <button
           type="button"
@@ -405,29 +405,50 @@ export default function TextAnalysisPanel({
     }
   };
 
-  const downloadTxt = (type: AnalysisType, text: string) => {
-    const label = ANALYSIS_OPTIONS.find((o) => o.value === type)?.label ?? type;
-    const blob = new Blob([text], { type: 'text/plain;charset=utf-8' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `${label}_${new Date().toISOString().slice(0, 10)}.txt`;
-    a.click();
-    URL.revokeObjectURL(url);
+  // ファイル名に使えない文字（/ \ : * ? " < > |）を除去
+  const sanitizeFilename = (name: string) =>
+    name.replace(/[\\/:*?"<>|]/g, '').trim() || 'untitled';
+
+  const yyyymmdd = () => {
+    const now = new Date();
+    return `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}`;
   };
 
-  const downloadMd = (type: AnalysisType, text: string) => {
+  const downloadTxt = async (type: AnalysisType, text: string) => {
     const label = ANALYSIS_OPTIONS.find((o) => o.value === type)?.label ?? type;
-    const now = new Date();
-    const dateStr = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}`;
-    const content = `# ${label}\n\n${text}`;
-    const blob = new Blob([content], { type: 'text/markdown;charset=utf-8' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `${label}_${dateStr}.md`;
-    a.click();
-    URL.revokeObjectURL(url);
+    setGeneratingTitle(type);
+    try {
+      const autoTitle = await generateTitleWithTimeout(text, label, label);
+      const title = sanitizeFilename(autoTitle);
+      const blob = new Blob([text], { type: 'text/plain;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${title}_${yyyymmdd()}.txt`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } finally {
+      setGeneratingTitle(null);
+    }
+  };
+
+  const downloadMd = async (type: AnalysisType, text: string) => {
+    const label = ANALYSIS_OPTIONS.find((o) => o.value === type)?.label ?? type;
+    setGeneratingTitle(type);
+    try {
+      const autoTitle = await generateTitleWithTimeout(text, label, label);
+      const title = sanitizeFilename(autoTitle);
+      const content = `# ${autoTitle}\n\n${text}`;
+      const blob = new Blob([content], { type: 'text/markdown;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${title}_${yyyymmdd()}.md`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } finally {
+      setGeneratingTitle(null);
+    }
   };
 
   const simplifyText = async (type: AnalysisType, text: string) => {
