@@ -1507,11 +1507,31 @@ ${contextText}
             dangerouslySetInnerHTML={{ __html: formatReport(report) }}
           />
 
+          {/* 文字数表示（生成本文の長さ、マークダウン記号含む） */}
+          {report && (
+            <div
+              style={{
+                marginTop: 24,
+                padding: '12px 16px',
+                background: 'var(--bg-secondary)',
+                border: '1px solid var(--border)',
+                borderRadius: 8,
+                fontSize: 13,
+                color: 'var(--text-muted)',
+                display: 'flex',
+                gap: 16,
+                flexWrap: 'wrap' as const,
+              }}
+            >
+              <span>📝 文字数: {report.length.toLocaleString()}字</span>
+            </div>
+          )}
+
           {/* 通信量表示（結果取得通信のみ、ポーリングは対象外） */}
           {trafficStats && (
             <div
               style={{
-                marginTop: 24,
+                marginTop: 12,
                 padding: '12px 16px',
                 background: 'var(--bg-secondary)',
                 border: '1px solid var(--border)',

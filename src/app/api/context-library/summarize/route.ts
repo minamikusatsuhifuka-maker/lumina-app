@@ -74,7 +74,8 @@ export async function POST(req: NextRequest) {
     const client = new Anthropic({ apiKey });
     const response = await client.messages.create({
       model: 'claude-sonnet-4-20250514',
-      max_tokens: 4096,
+      // detail モードは1500〜2500字の長文生成のため上限を拡張（4096では途中で切れる）
+      max_tokens: mode === 'detail' ? 16384 : 4096,
       messages: [{ role: 'user', content: prompt }],
     });
 

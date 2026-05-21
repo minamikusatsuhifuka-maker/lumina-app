@@ -362,6 +362,20 @@ export default function InlineAnalysisPanel({
                       />
                     )}
                   </div>
+                  {/* 文字数表示（本文末尾、マークダウン記号含む） */}
+                  {content && (
+                    <div
+                      style={{
+                        padding: '6px 12px',
+                        borderTop: '1px solid #e5e7eb',
+                        background: '#fafafa',
+                        fontSize: 12,
+                        color: '#6b7280',
+                      }}
+                    >
+                      📝 文字数: {content.length.toLocaleString()}字
+                    </div>
+                  )}
                 </div>
               );
             })}
