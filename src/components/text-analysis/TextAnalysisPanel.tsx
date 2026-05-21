@@ -25,7 +25,8 @@ interface ResultPanelProps {
   text: string;
   simplifying: boolean;
   generatingTitle: boolean;
-  onSave: () => void;
+  // 保存成功時は true、失敗時は false を返す（state 制御のため）
+  onSave: () => Promise<boolean> | boolean | void;
   onCopy: () => void;
   onDownloadTxt: () => void;
   onSimplify: () => void;
@@ -42,7 +43,22 @@ function ResultPanel({
   onSimplify,
 }: ResultPanelProps) {
   const [panelHeight, setPanelHeight] = useState(350);
+  // 保存成功フィードバック（3秒間「✅ 保存済」表示）
+  const [saved, setSaved] = useState(false);
   const currentLength = text.length;
+
+  const handleSave = async () => {
+    try {
+      const result = await onSave();
+      // 戻り値が undefined（void） or true なら成功扱い、false なら失敗扱い
+      if (result !== false) {
+        setSaved(true);
+        setTimeout(() => setSaved(false), 3000);
+      }
+    } catch {
+      // 親側で error トーストを出しているのでここでは何もしない（重複防止）
+    }
+  };
 
   return (
     <div
@@ -152,11 +168,15 @@ function ResultPanel({
         </button>
         <button
           type="button"
-          onClick={onSave}
-          disabled={!text || generatingTitle}
-          style={btnStyle('primary')}
+          onClick={handleSave}
+          disabled={!text || generatingTitle || saved}
+          style={btnStyle(saved ? 'success' : 'primary')}
         >
-          {generatingTitle ? '⏳ タイトル生成中...' : '💾 ストック保存'}
+          {generatingTitle
+            ? '⏳ タイトル生成中...'
+            : saved
+              ? '✅ 保存済'
+              : '💾 ストック保存'}
         </button>
         <button
           type="button"
@@ -338,7 +358,7 @@ export default function TextAnalysisPanel({
     ]);
   };
 
-  const saveResult = async (type: AnalysisType, text: string) => {
+  const saveResult = async (type: AnalysisType, text: string): Promise<boolean> => {
     const label = ANALYSIS_OPTIONS.find((o) => o.value === type)?.label ?? type;
     setGeneratingTitle(type);
     try {
@@ -363,9 +383,11 @@ export default function TextAnalysisPanel({
       const saved = await res.json();
       onSaved?.(saved);
       showToast(`「${autoTitle}」として保存しました`, 'success');
+      return true;
     } catch (err) {
       const msg = err instanceof Error ? err.message : '保存に失敗しました';
       showToast(msg, 'error');
+      return false;
     } finally {
       setGeneratingTitle(null);
     }
