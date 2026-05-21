@@ -136,6 +136,42 @@ export default function InlineAnalysisPanel({
     if (allText) navigator.clipboard.writeText(allText);
   };
 
+  // ブラッシュアップ結果を .md ファイルとしてダウンロード
+  const handleDownloadMd = () => {
+    const completedTypes = ANALYSIS_TYPES.filter((t) => results[t.id]);
+    if (completedTypes.length === 0) return;
+
+    // YYYYMMDD 形式
+    const now = new Date();
+    const dateStr = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}`;
+
+    let title: string;
+    let content: string;
+    if (completedTypes.length === 1) {
+      // 1パネルのみ: パネル種別名（先頭絵文字を除去）
+      const t = completedTypes[0];
+      title = t.label.replace(/^[^\s]+\s/, '').trim();
+      content = `# ${title}\n\n${results[t.id]}`;
+    } else {
+      // 複数パネル: 統合して1ファイルに
+      title = 'テキスト分析';
+      content = completedTypes
+        .map((t) => {
+          const label = t.label.replace(/^[^\s]+\s/, '').trim();
+          return `# ${label}\n\n${results[t.id]}`;
+        })
+        .join('\n\n---\n\n');
+    }
+
+    const blob = new Blob([content], { type: 'text/markdown;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${title}_${dateStr}.md`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
   const handleSave = async () => {
     if (Object.keys(results).length === 0 || isSaved) return;
     setIsSaving(true);
@@ -403,6 +439,21 @@ export default function InlineAnalysisPanel({
                   }}
                 >
                   📋 全てコピー
+                </button>
+                <button
+                  type="button"
+                  onClick={handleDownloadMd}
+                  style={{
+                    fontSize: 12,
+                    padding: '6px 12px',
+                    border: '1px solid #e5e7eb',
+                    borderRadius: 6,
+                    background: '#fff',
+                    color: '#6b7280',
+                    cursor: 'pointer',
+                  }}
+                >
+                  📥 MDダウンロード
                 </button>
                 <button
                   type="button"
