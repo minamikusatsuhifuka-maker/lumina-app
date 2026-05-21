@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { getSavedModel } from '@/lib/model-preference';
 
 // 既存の analyze API の type と対応
 const ANALYSIS_TYPES = [
@@ -155,6 +156,7 @@ export default function UrlBatchAnalysisPanel() {
               text: result.text,
               type: conf.apiType,
               purpose: `元URL: ${result.url}`,
+              model: getSavedModel(),
             }),
           });
 

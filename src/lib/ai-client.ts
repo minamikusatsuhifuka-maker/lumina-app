@@ -1,6 +1,8 @@
 import { GoogleGenerativeAI } from '@google/generative-ai';
 
 export type AIModel = 'claude' | 'gemini';
+// SSEの出力フォーマット: 'standard' = {type:'text', content}、'delta' = {type:'delta', text}
+export type StreamFormat = 'standard' | 'delta';
 
 export const MODEL_OPTIONS = [
   {
@@ -12,12 +14,15 @@ export const MODEL_OPTIONS = [
   },
   {
     id: 'gemini' as AIModel,
-    name: 'Gemini 2.5 Pro',
+    name: 'Gemini 3.5 Flash',
     provider: 'Google',
     description: '安定・高精度。複雑な分析・長文処理に強い',
     icon: '✨',
   },
 ];
+
+const GEMINI_MODEL_ID = 'gemini-3.5-flash';
+const CLAUDE_MODEL_ID = 'claude-sonnet-4-6';
 
 function getGemini() {
   return new GoogleGenerativeAI(process.env.GEMINI_API_KEY!);
@@ -33,7 +38,7 @@ export async function generateWithModel(
   if (model === 'gemini') {
     const genAI = getGemini();
     const geminiModel = genAI.getGenerativeModel({
-      model: 'gemini-2.5-pro',
+      model: GEMINI_MODEL_ID,
       ...(systemPrompt && { systemInstruction: systemPrompt }),
     });
     const result = await geminiModel.generateContent({
@@ -49,7 +54,7 @@ export async function generateWithModel(
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' },
     body: JSON.stringify({
-      model: 'claude-sonnet-4-6',
+      model: CLAUDE_MODEL_ID,
       max_tokens: maxTokens,
       ...(systemPrompt && { system: systemPrompt }),
       messages: [{ role: 'user', content: prompt }],
@@ -60,18 +65,32 @@ export async function generateWithModel(
 }
 
 // SSEストリーミング生成
+// format で SSE 出力形式を選択（既存 API との互換性のため）
+// 戻り値で input/output トークン使用量を返す（trackUsage 用）
 export async function streamWithModel(
   model: AIModel,
   prompt: string,
   systemPrompt: string,
   controller: ReadableStreamDefaultController,
   encoder: TextEncoder,
-  maxTokens = 8000
-) {
+  maxTokens = 8000,
+  format: StreamFormat = 'standard',
+): Promise<{ inputTokens: number; outputTokens: number }> {
+  let inputTokens = 0;
+  let outputTokens = 0;
+
+  const enqueueText = (text: string) => {
+    const payload =
+      format === 'delta'
+        ? { type: 'delta', text }
+        : { type: 'text', content: text };
+    controller.enqueue(encoder.encode(`data: ${JSON.stringify(payload)}\n\n`));
+  };
+
   if (model === 'gemini') {
     const genAI = getGemini();
     const geminiModel = genAI.getGenerativeModel({
-      model: 'gemini-2.5-pro',
+      model: GEMINI_MODEL_ID,
       systemInstruction: systemPrompt,
     });
     const result = await geminiModel.generateContentStream({
@@ -80,11 +99,14 @@ export async function streamWithModel(
     });
     for await (const chunk of result.stream) {
       const text = chunk.text();
-      if (text) {
-        controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'text', content: text })}\n\n`));
-      }
+      if (text) enqueueText(text);
     }
-    controller.enqueue(encoder.encode('data: {"type":"done"}\n\n'));
+    const finalResponse = await result.response;
+    inputTokens = finalResponse.usageMetadata?.promptTokenCount ?? 0;
+    outputTokens = finalResponse.usageMetadata?.candidatesTokenCount ?? 0;
+    if (format === 'standard') {
+      controller.enqueue(encoder.encode('data: {"type":"done"}\n\n'));
+    }
   } else {
     // Claude streaming
     const apiKey = process.env.ANTHROPIC_API_KEY!;
@@ -92,7 +114,7 @@ export async function streamWithModel(
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' },
       body: JSON.stringify({
-        model: 'claude-sonnet-4-6',
+        model: CLAUDE_MODEL_ID,
         max_tokens: maxTokens,
         stream: true,
         system: systemPrompt,
@@ -106,17 +128,26 @@ export async function streamWithModel(
       if (done) break;
       const chunk = decoder.decode(value);
       for (const line of chunk.split('\n')) {
-        if (line.startsWith('data: ')) {
-          try {
-            const data = JSON.parse(line.slice(6));
-            if (data.type === 'content_block_delta' && data.delta?.type === 'text_delta') {
-              controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'text', content: data.delta.text })}\n\n`));
-            } else if (data.type === 'message_stop') {
+        if (!line.startsWith('data: ')) continue;
+        try {
+          const data = JSON.parse(line.slice(6));
+          if (data.type === 'message_start' && data.message?.usage) {
+            inputTokens = data.message.usage.input_tokens ?? 0;
+          } else if (
+            data.type === 'content_block_delta' &&
+            data.delta?.type === 'text_delta'
+          ) {
+            enqueueText(data.delta.text);
+          } else if (data.type === 'message_delta' && data.usage) {
+            outputTokens = data.usage.output_tokens ?? 0;
+          } else if (data.type === 'message_stop') {
+            if (format === 'standard') {
               controller.enqueue(encoder.encode('data: {"type":"done"}\n\n'));
             }
-          } catch {}
-        }
+          }
+        } catch {}
       }
     }
   }
+  return { inputTokens, outputTokens };
 }

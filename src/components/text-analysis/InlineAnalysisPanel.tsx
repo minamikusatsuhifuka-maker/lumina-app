@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { getSavedModel } from '@/lib/model-preference';
 
 // 既存の analyze API の type と対応
 const ANALYSIS_TYPES = [
@@ -66,6 +67,7 @@ export default function InlineAnalysisPanel({
               text,
               type: conf.apiType,
               purpose: topic ? `テーマ: ${topic}` : undefined,
+              model: getSavedModel(),
             }),
           });
           if (!res.ok || !res.body) {

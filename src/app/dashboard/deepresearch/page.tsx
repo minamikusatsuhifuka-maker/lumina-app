@@ -7,6 +7,7 @@ import { SaveToLibraryButton } from '@/components/SaveToLibraryButton';
 import { DateRangePicker, DateRange, getDateCondition } from '@/components/DateRangePicker';
 import InlineAnalysisPanel from '@/components/text-analysis/InlineAnalysisPanel';
 import DeepDiveChat from '@/components/DeepDiveChat';
+import { getSavedModel } from '@/lib/model-preference';
 
 const TEMPLATES = [
   { label: 'AI最新動向', topic: '2026年の生成AI・大規模言語モデルの最新動向と活用事例' },
@@ -324,7 +325,11 @@ export default function DeepResearchPage() {
     resetStuckTimer();
 
     try {
-      const res = await fetch(`/api/batch-research/${jobId}/run`, { method: 'POST' });
+      const res = await fetch(`/api/batch-research/${jobId}/run`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ model: getSavedModel() }),
+      });
       if (!res.ok || !res.body) {
         const err = await res.text();
         alert(`実行エラー: ${err.slice(0, 200)}`);
@@ -576,7 +581,11 @@ export default function DeepResearchPage() {
         const jobId = jobData.job?.id;
 
         // SSEで完了まで待機
-        const runRes = await fetch(`/api/batch-research/${jobId}/run`, { method: 'POST' });
+        const runRes = await fetch(`/api/batch-research/${jobId}/run`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ model: getSavedModel() }),
+        });
         if (!runRes.ok || !runRes.body) throw new Error('実行開始失敗');
         const reader = runRes.body.getReader();
         const decoder = new TextDecoder();
@@ -843,7 +852,7 @@ ${contextText}
 
     try {
       // 送信ボディのバイト数を計測
-      const reqBody = JSON.stringify({ topic: q + getDateCondition(dateRange), depth });
+      const reqBody = JSON.stringify({ topic: q + getDateCondition(dateRange), depth, model: getSavedModel() });
       const requestBytes = new TextEncoder().encode(reqBody).length;
 
       const res = await retryFetch('/api/deepresearch', {

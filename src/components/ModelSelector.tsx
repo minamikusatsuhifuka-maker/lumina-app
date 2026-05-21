@@ -5,7 +5,7 @@ import type { AIModel } from '@/lib/model-preference';
 
 const MODELS = [
   { id: 'claude' as AIModel, name: 'Claude', fullName: 'Claude Sonnet 4.6', icon: '🤖', color: '#6c63ff' },
-  { id: 'gemini' as AIModel, name: 'Gemini', fullName: 'Gemini 2.5 Pro', icon: '✨', color: '#4285f4' },
+  { id: 'gemini' as AIModel, name: 'Gemini', fullName: 'Gemini 3.5 Flash', icon: '✨', color: '#4285f4' },
 ];
 
 export function ModelSelector() {

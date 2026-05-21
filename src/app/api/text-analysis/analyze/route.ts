@@ -1,5 +1,4 @@
 import { NextRequest } from 'next/server';
-import Anthropic from '@anthropic-ai/sdk';
 import { auth } from '@/lib/auth';
 import {
   ANALYSIS_PROMPTS,
@@ -12,17 +11,18 @@ import {
 } from '@/lib/analysis-prompts';
 import { getClinicSystemPrompt } from '@/lib/clinicProfile';
 import { trackUsage } from '@/lib/trackUsage';
+import { streamWithModel, type AIModel } from '@/lib/ai-client';
 
 export const runtime = 'nodejs';
 export const maxDuration = 300;
-
-const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY! });
 
 interface AnalyzeRequest {
   text: string;
   type: AnalysisType;
   purpose?: string;
   targetLength?: string;
+  // AIモデル選択（claude / gemini）。未指定なら claude
+  model?: AIModel;
   // Gensparkスライド設定（genspark_slideの場合のみ使用）
   gsTarget?: string;
   gsLevel?: string;
@@ -42,6 +42,7 @@ export async function POST(req: NextRequest) {
     type,
     purpose,
     targetLength,
+    model = 'claude',
     gsTarget,
     gsLevel,
     gsPurpose,
@@ -82,45 +83,27 @@ export async function POST(req: NextRequest) {
     async start(controller) {
       const encoder = new TextEncoder();
       try {
-        const response = await client.messages.create({
-          model: 'claude-sonnet-4-6',
-          // 4000 だと「詳細にまとめる」等で約4000〜4500字（≒4000トークン）で途中切れする問題に対応
-          // 日本語約12,000〜20,000字まで生成可能に
-          max_tokens: 16000,
-          stream: true,
-          system: systemPrompt,
-          messages: [{ role: 'user', content: text }],
-        });
-        let usageInput = 0;
-        let usageOutput = 0;
-        for await (const event of response) {
-          if (
-            event.type === 'content_block_delta' &&
-            event.delta.type === 'text_delta'
-          ) {
-            controller.enqueue(
-              encoder.encode(
-                `data: ${JSON.stringify({ type: 'delta', text: event.delta.text })}\n\n`,
-              ),
-            );
-          }
-          if (event.type === 'message_start' && event.message?.usage) {
-            usageInput = event.message.usage.input_tokens ?? 0;
-          }
-          if (event.type === 'message_delta' && event.usage) {
-            usageOutput = event.usage.output_tokens ?? 0;
-          }
-        }
+        // streamWithModel は format='delta' で {type:'delta', text:...} を流す（既存クライアント互換）
+        // max_tokens 16000 維持
+        const usage = await streamWithModel(
+          model,
+          text,
+          systemPrompt,
+          controller,
+          encoder,
+          16000,
+          'delta',
+        );
         await trackUsage({
           userId,
           featureKey: 'text_analysis',
           stepLabel: type,
-          inputTokens: usageInput,
-          outputTokens: usageOutput,
+          inputTokens: usage.inputTokens,
+          outputTokens: usage.outputTokens,
         });
         controller.enqueue(
           encoder.encode(
-            `data: ${JSON.stringify({ type: 'done', usage: { input_tokens: usageInput, output_tokens: usageOutput } })}\n\n`,
+            `data: ${JSON.stringify({ type: 'done', usage: { input_tokens: usage.inputTokens, output_tokens: usage.outputTokens } })}\n\n`,
           ),
         );
       } catch (err) {

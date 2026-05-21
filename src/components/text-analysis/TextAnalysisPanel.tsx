@@ -11,6 +11,7 @@ import {
 } from '@/lib/analysis-prompts';
 import { useToast } from '@/components/ui/Toast';
 import type { AnalysisRecord } from '@/components/text-analysis/SavedAnalysisList';
+import { getSavedModel } from '@/lib/model-preference';
 
 const HEIGHT_PRESETS = [
   { label: 'S', h: 200 },
@@ -271,6 +272,7 @@ export default function TextAnalysisPanel({
         type,
         purpose,
         targetLength: typeLengths[type] || '',
+        model: getSavedModel(),
         gsTarget,
         gsLevel,
         gsPurpose,

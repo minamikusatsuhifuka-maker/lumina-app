@@ -1,7 +1,7 @@
 import { NextRequest } from 'next/server';
 import { auth } from '@/lib/auth';
 import { neon } from '@neondatabase/serverless';
-import Anthropic from '@anthropic-ai/sdk';
+import { generateWithModel, type AIModel } from '@/lib/ai-client';
 
 export const maxDuration = 300;
 
@@ -27,6 +27,15 @@ export async function POST(
       headers: { 'Content-Type': 'application/json' },
     });
   }
+
+  // リクエスト body から model を受け取る（cron や旧クライアントは body 空の可能性あり）
+  let model: AIModel = 'claude';
+  try {
+    const reqBody = await req.json().catch(() => null);
+    if (reqBody && (reqBody.model === 'claude' || reqBody.model === 'gemini')) {
+      model = reqBody.model;
+    }
+  } catch {}
 
   const { id } = await params;
   const jobId = parseInt(id, 10);
@@ -76,8 +85,6 @@ export async function POST(
         updated_at = NOW()
     WHERE id = ${jobId}
   `;
-
-  const client = new Anthropic({ apiKey });
 
   const encoder = new TextEncoder();
   const stream = new ReadableStream({
@@ -164,20 +171,14 @@ ${item.topic}
 ## 実践・活用方法
 ## まとめ・結論`;
 
-            // ディープリサーチ実行
-            let researchResult = '';
-            const researchStream = await client.messages.create({
-              model: 'claude-sonnet-4-6',
-              max_tokens: Math.max(targetChars + 2000, 4000),
-              stream: true,
-              messages: [{ role: 'user', content: researchPrompt }],
-            });
-
-            for await (const event of researchStream as any) {
-              if (event.type === 'content_block_delta' && event.delta?.type === 'text_delta') {
-                researchResult += event.delta.text || '';
-              }
-            }
+            // ディープリサーチ実行（model に応じて Claude / Gemini を切替）
+            const researchMaxTokens = Math.max(targetChars + 2000, 4000);
+            const researchResult = await generateWithModel(
+              model,
+              researchPrompt,
+              undefined,
+              researchMaxTokens,
+            );
 
             send({ type: 'research_done', index: i, topic: item.topic });
 
@@ -218,19 +219,13 @@ ${researchResult}
 - お役立ちコラム
 - 資料作成`;
 
-            let contextText = '';
-            const contextStream = await client.messages.create({
-              model: 'claude-sonnet-4-6',
-              max_tokens: 4000,
-              stream: true,
-              messages: [{ role: 'user', content: contextPrompt }],
-            });
-
-            for await (const event of contextStream as any) {
-              if (event.type === 'content_block_delta' && event.delta?.type === 'text_delta') {
-                contextText += event.delta.text || '';
-              }
-            }
+            // コンテキスト最適化（model に応じて Claude / Gemini を切替）
+            const contextText = await generateWithModel(
+              model,
+              contextPrompt,
+              undefined,
+              4000,
+            );
 
             // コンテキストライブラリに保存（バッチタグ付き）
             await sql`
