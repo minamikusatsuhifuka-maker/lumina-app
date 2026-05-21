@@ -3,6 +3,16 @@
 import { useMemo, useState } from 'react';
 import { useToast } from '@/components/ui/Toast';
 import { copyToClipboard } from '@/lib/copyToClipboard';
+import {
+  generateTitleWithTimeout,
+  sanitizeFilename,
+  yyyymmdd,
+} from '@/lib/title-generator';
+import {
+  getModelLabel,
+  getModelIcon,
+  type AIModel,
+} from '@/lib/model-preference';
 
 export interface AnalysisRecord {
   id: number;
@@ -19,6 +29,8 @@ export interface AnalysisRecord {
   char_count: number;
   created_at: string;
   updated_at: string;
+  // 生成AIモデル（保存時に記録されていれば。旧データは undefined）
+  model?: AIModel;
 }
 
 const FOLDER_PALETTE = [
@@ -79,6 +91,8 @@ export default function SavedAnalysisList({
   const [editingValue, setEditingValue] = useState('');
   const [isRenaming, setIsRenaming] = useState(false);
   const [copiedId, setCopiedId] = useState<number | null>(null);
+  // MDダウンロード中のID（タイトル生成中の同時押し防止）
+  const [downloadingId, setDownloadingId] = useState<number | null>(null);
   const [isAutoCategorizing, setIsAutoCategorizing] = useState(false);
   const [categorizationResult, setCategorizationResult] =
     useState<AutoCategorizeResult | null>(null);
@@ -138,6 +152,43 @@ export default function SavedAnalysisList({
       setTimeout(() => setCopiedId((curr) => (curr === id ? null : curr)), 2000);
     } else {
       showToast('コピーできませんでした。手動で選択してコピーしてください。', 'error');
+    }
+  };
+
+  // 個別レコードを .md ファイルとしてダウンロード（AIタイトル生成 + モデル表記付き）
+  const handleDownloadMd = async (record: AnalysisRecord) => {
+    if (downloadingId !== null) return; // 同時押し防止
+    setDownloadingId(record.id);
+    try {
+      const label =
+        record.analysis_label || record.analysis_type || '分析結果';
+      const fallback = record.auto_title || record.file_name || label;
+      const autoTitle = await generateTitleWithTimeout(
+        record.content,
+        label,
+        fallback,
+      );
+      const safeTitle = sanitizeFilename(autoTitle);
+      // モデル情報があれば生成AI行を追加（旧データは undefined → 出力なし）
+      const modelLine = record.model
+        ? `> 生成AI: ${getModelIcon(record.model)} ${getModelLabel(record.model)}\n\n---\n\n`
+        : '';
+      const mdContent = `# ${autoTitle}\n\n${modelLine}${record.content}`;
+
+      const blob = new Blob([mdContent], {
+        type: 'text/markdown;charset=utf-8',
+      });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${safeTitle}_${yyyymmdd()}.md`;
+      a.click();
+      URL.revokeObjectURL(url);
+      showToast('MDファイルをダウンロードしました', 'success');
+    } catch {
+      showToast('ダウンロードに失敗しました', 'error');
+    } finally {
+      setDownloadingId(null);
     }
   };
 
@@ -1139,6 +1190,21 @@ export default function SavedAnalysisList({
                         }}
                       >
                         {copiedId === record.id ? '✅ コピー済み' : '📋 コピー'}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleDownloadMd(record)}
+                        disabled={downloadingId === record.id}
+                        style={{
+                          ...listBtnStyle(),
+                          cursor:
+                            downloadingId === record.id ? 'not-allowed' : 'pointer',
+                          opacity: downloadingId === record.id ? 0.6 : 1,
+                        }}
+                      >
+                        {downloadingId === record.id
+                          ? '⏳ タイトル生成中...'
+                          : '📥 MDダウンロード'}
                       </button>
                       <button
                         type="button"
