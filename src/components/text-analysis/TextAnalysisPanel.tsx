@@ -30,6 +30,7 @@ interface ResultPanelProps {
   onSave: () => Promise<boolean> | boolean | void;
   onCopy: () => void;
   onDownloadTxt: () => void;
+  onDownloadMd: () => void;
   onSimplify: () => void;
 }
 
@@ -41,6 +42,7 @@ function ResultPanel({
   onSave,
   onCopy,
   onDownloadTxt,
+  onDownloadMd,
   onSimplify,
 }: ResultPanelProps) {
   const [panelHeight, setPanelHeight] = useState(350);
@@ -166,6 +168,14 @@ function ResultPanel({
           style={btnStyle('neutral')}
         >
           ⬇ テキスト
+        </button>
+        <button
+          type="button"
+          onClick={onDownloadMd}
+          disabled={!text}
+          style={btnStyle('neutral')}
+        >
+          📥 MD
         </button>
         <button
           type="button"
@@ -402,6 +412,20 @@ export default function TextAnalysisPanel({
     const a = document.createElement('a');
     a.href = url;
     a.download = `${label}_${new Date().toISOString().slice(0, 10)}.txt`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const downloadMd = (type: AnalysisType, text: string) => {
+    const label = ANALYSIS_OPTIONS.find((o) => o.value === type)?.label ?? type;
+    const now = new Date();
+    const dateStr = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}`;
+    const content = `# ${label}\n\n${text}`;
+    const blob = new Blob([content], { type: 'text/markdown;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${label}_${dateStr}.md`;
     a.click();
     URL.revokeObjectURL(url);
   };
@@ -785,6 +809,7 @@ export default function TextAnalysisPanel({
                 showToast('コピーしました', 'success');
               }}
               onDownloadTxt={() => downloadTxt(type, text)}
+              onDownloadMd={() => downloadMd(type, text)}
               onSimplify={() => simplifyText(type, text)}
             />
           ))}
