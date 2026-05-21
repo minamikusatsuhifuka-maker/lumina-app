@@ -11,7 +11,13 @@ import {
 } from '@/lib/analysis-prompts';
 import { useToast } from '@/components/ui/Toast';
 import type { AnalysisRecord } from '@/components/text-analysis/SavedAnalysisList';
-import { getSavedModel } from '@/lib/model-preference';
+import {
+  getSavedModel,
+  getModelLabel,
+  getModelIcon,
+  type AIModel,
+} from '@/lib/model-preference';
+import { ModelBadge } from '@/components/ModelBadge';
 
 const HEIGHT_PRESETS = [
   { label: 'S', h: 200 },
@@ -24,6 +30,8 @@ interface ResultPanelProps {
   type: AnalysisType;
   label: string;
   text: string;
+  // この結果を生成したモデル（リクエスト送信時の値）。旧データは undefined
+  model?: AIModel;
   simplifying: boolean;
   generatingTitle: boolean;
   // 保存成功時は true、失敗時は false を返す（state 制御のため）
@@ -37,6 +45,7 @@ interface ResultPanelProps {
 function ResultPanel({
   label,
   text,
+  model,
   simplifying,
   generatingTitle,
   onSave,
@@ -76,9 +85,12 @@ function ResultPanel({
       }}
     >
       {/* ヘッダー */}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-        <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--accent)' }}>
-          {label}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, flexWrap: 'wrap' }}>
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+          <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--accent)' }}>
+            {label}
+          </span>
+          {model && <ModelBadge model={model} size="sm" />}
         </span>
         <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>
           {currentLength.toLocaleString()} 文字
@@ -139,8 +151,9 @@ function ResultPanel({
         </div>
       </div>
 
-      <div style={{ textAlign: 'right', fontSize: 11, color: 'var(--text-muted)' }}>
-        {currentLength.toLocaleString()} 文字
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 8, fontSize: 11, color: 'var(--text-muted)' }}>
+        <span>📝 {currentLength.toLocaleString()} 文字</span>
+        {model && <ModelBadge model={model} size="sm" />}
       </div>
 
       {/* アクション */}
@@ -256,6 +269,8 @@ export default function TextAnalysisPanel({
   );
   const [typeLengths, setTypeLengths] = useState<Record<string, string>>({});
   const [results, setResults] = useState<Map<AnalysisType, string>>(new Map());
+  // 各結果を生成したモデル（リクエスト送信時の getSavedModel() を記録）
+  const [resultModels, setResultModels] = useState<Map<AnalysisType, AIModel>>(new Map());
 
   const [generatingTitle, setGeneratingTitle] = useState<AnalysisType | null>(null);
   const [simplifying, setSimplifying] = useState<AnalysisType | null>(null);
@@ -274,6 +289,9 @@ export default function TextAnalysisPanel({
     type: AnalysisType,
     text: string,
   ): Promise<string> => {
+    // リクエスト送信時のモデルを固定（途中で切替えられても結果に影響しないように）
+    const modelAtRequest = getSavedModel();
+    setResultModels((prev) => new Map(prev).set(type, modelAtRequest));
     const res = await fetch('/api/text-analysis/analyze', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -282,7 +300,7 @@ export default function TextAnalysisPanel({
         type,
         purpose,
         targetLength: typeLengths[type] || '',
-        model: getSavedModel(),
+        model: modelAtRequest,
         gsTarget,
         gsLevel,
         gsPurpose,
@@ -331,6 +349,7 @@ export default function TextAnalysisPanel({
     const types = Array.from(selectedTypes);
     setLoading(true);
     setResults(new Map());
+    setResultModels(new Map());
     try {
       for (let i = 0; i < types.length; i++) {
         const label = ANALYSIS_OPTIONS.find((o) => o.value === types[i])?.label;
@@ -414,13 +433,21 @@ export default function TextAnalysisPanel({
     return `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}`;
   };
 
+  // ファイル内に挿入する「生成AI: ...」表記（モデル未記録の旧データは出力なし）
+  const modelLineTxt = (model: AIModel | undefined) =>
+    model ? `[生成AI: ${getModelIcon(model)} ${getModelLabel(model)}]\n\n---\n\n` : '';
+  const modelLineMd = (model: AIModel | undefined) =>
+    model ? `> 生成AI: ${getModelIcon(model)} ${getModelLabel(model)}\n\n---\n\n` : '';
+
   const downloadTxt = async (type: AnalysisType, text: string) => {
     const label = ANALYSIS_OPTIONS.find((o) => o.value === type)?.label ?? type;
     setGeneratingTitle(type);
     try {
       const autoTitle = await generateTitleWithTimeout(text, label, label);
       const title = sanitizeFilename(autoTitle);
-      const blob = new Blob([text], { type: 'text/plain;charset=utf-8' });
+      const model = resultModels.get(type);
+      const content = `${autoTitle}\n\n${modelLineTxt(model)}${text}`;
+      const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
@@ -438,7 +465,8 @@ export default function TextAnalysisPanel({
     try {
       const autoTitle = await generateTitleWithTimeout(text, label, label);
       const title = sanitizeFilename(autoTitle);
-      const content = `# ${autoTitle}\n\n${text}`;
+      const model = resultModels.get(type);
+      const content = `# ${autoTitle}\n\n${modelLineMd(model)}${text}`;
       const blob = new Blob([content], { type: 'text/markdown;charset=utf-8' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
@@ -822,6 +850,7 @@ export default function TextAnalysisPanel({
                 ANALYSIS_OPTIONS.find((o) => o.value === type)?.label ?? type
               }
               text={text}
+              model={resultModels.get(type)}
               simplifying={simplifying === type}
               generatingTitle={generatingTitle === type}
               onSave={() => saveResult(type, text)}
