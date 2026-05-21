@@ -73,9 +73,10 @@ export async function POST(req: NextRequest) {
 
     const client = new Anthropic({ apiKey });
     const response = await client.messages.create({
-      model: 'claude-sonnet-4-20250514',
-      // detail モードは1500〜2500字の長文生成のため上限を拡張（4096では途中で切れる）
-      max_tokens: mode === 'detail' ? 16384 : 4096,
+      // Sonnet 4 は 2026-06-15 retire 予定のため Sonnet 4.6 に乗り換え
+      model: 'claude-sonnet-4-6',
+      // detail モードは長文入力（5000〜6000字）でも途中切れしないよう Sonnet 4 系の上限近く 64000 まで拡張
+      max_tokens: mode === 'detail' ? 64000 : 4096,
       messages: [{ role: 'user', content: prompt }],
     });
 
