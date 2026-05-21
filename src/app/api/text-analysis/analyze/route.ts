@@ -84,7 +84,9 @@ export async function POST(req: NextRequest) {
       try {
         const response = await client.messages.create({
           model: 'claude-sonnet-4-6',
-          max_tokens: 4000,
+          // 4000 だと「詳細にまとめる」等で約4000〜4500字（≒4000トークン）で途中切れする問題に対応
+          // 日本語約12,000〜20,000字まで生成可能に
+          max_tokens: 16000,
           stream: true,
           system: systemPrompt,
           messages: [{ role: 'user', content: text }],
