@@ -1046,6 +1046,16 @@ ${contextText}
     window.open('/dashboard/nexus?from=deepresearch', '_blank');
   };
 
+  // ディープリサーチ結果を note 記事生成へ引き継ぐ
+  const handleSendToNoteArticle = (text: string, sourceTopic: string) => {
+    sessionStorage.setItem('note-article-research-source', JSON.stringify({
+      content: text,
+      topic: sourceTopic,
+      savedAt: new Date().toISOString(),
+    }));
+    window.open('/dashboard/note-article?from=deepresearch', '_blank');
+  };
+
   // ディープリサーチ結果を背景情報として保存（モーダルを開く）
   const handleOpenContextModal = () => {
     setContextTitle(topic || 'ディープリサーチ結果');
@@ -1398,6 +1408,23 @@ ${contextText}
                 title="リサーチ結果をnexusブランドのブログ記事として執筆できます"
               >
                 🌐 nexusブログ記事にする
+              </button>
+              {/* note 記事にする */}
+              <button
+                onClick={() => handleSendToNoteArticle(report, topic)}
+                style={{
+                  padding: '6px 14px',
+                  background: 'rgba(236,72,153,0.1)',
+                  color: '#ec4899',
+                  border: '1px solid rgba(236,72,153,0.3)',
+                  borderRadius: 6,
+                  cursor: 'pointer',
+                  fontSize: 12,
+                  fontWeight: 500,
+                }}
+                title="リサーチ結果を参考情報として note 記事の下書きを生成します"
+              >
+                ✍️ note 記事にする
               </button>
               {/* 背景情報として保存（ボタン＋ドロップダウンモーダル） */}
               <div

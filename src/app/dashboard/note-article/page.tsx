@@ -1,0 +1,659 @@
+'use client';
+import { useEffect, useState } from 'react';
+import { ProgressBar } from '@/components/ProgressBar';
+import { useProgress } from '@/components/useProgress';
+import { SaveToLibraryButton } from '@/components/SaveToLibraryButton';
+import {
+  getSavedModel,
+  getModelLabel,
+  getModelIcon,
+  type AIModel,
+} from '@/lib/model-preference';
+import {
+  sanitizeFilename,
+  yyyymmdd,
+} from '@/lib/title-generator';
+
+type Length = 'short' | 'medium' | 'long';
+
+interface BuzzReference {
+  id: string;
+  title: string;
+  content: string;
+  tags?: string;
+  created_at?: string;
+}
+
+const LENGTH_OPTIONS: Array<{ value: Length; label: string; desc: string }> = [
+  { value: 'short', label: '📄 短め', desc: '1500〜2500字 / 約30秒' },
+  { value: 'medium', label: '📑 標準', desc: '3000〜4500字 / 約60秒' },
+  { value: 'long', label: '📚 長め', desc: '5000〜7000字 / 約120秒' },
+];
+
+async function retryFetch(url: string, options: RequestInit, maxRetries = 3): Promise<Response> {
+  for (let i = 0; i < maxRetries; i++) {
+    const res = await fetch(url, options);
+    if (res.status !== 429) return res;
+    await new Promise(r => setTimeout(r, (i + 1) * 3000));
+  }
+  return fetch(url, options);
+}
+
+function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
+}
+
+const processInline = (text: string): string => {
+  text = text.replace(/\*\*(.+?)\*\*/g,
+    '<strong style="color:var(--text-primary);font-weight:600;">$1</strong>');
+  text = text.replace(
+    /(?<![="'(])(https?:\/\/[^\s）\]。、！？\n"'<>]+)/g,
+    '<a href="$1" target="_blank" rel="noopener noreferrer" style="color:#00d4b8;text-decoration:underline;font-size:0.9em;">$1 ↗</a>'
+  );
+  return text;
+};
+
+const formatReport = (text: string): string => {
+  if (!text) return '';
+  const lines = text.split('\n');
+  const html = lines.map(line => {
+    const t = line.trim();
+    if (t.startsWith('# ')) return `<div style="font-size:1.4em;font-weight:700;color:var(--text-primary);margin:20px 0 12px;padding-bottom:10px;border-bottom:2px solid var(--border-accent);">${processInline(t.slice(2))}</div>`;
+    if (t.startsWith('## ')) return `<div style="font-size:1.2em;font-weight:600;color:var(--text-secondary);margin:18px 0 8px;padding-left:8px;border-left:3px solid var(--accent);">${processInline(t.slice(3))}</div>`;
+    if (t.startsWith('### ')) return `<div style="font-size:1.05em;font-weight:600;color:var(--text-muted);margin:12px 0 6px;">${processInline(t.slice(4))}</div>`;
+    if (t.match(/^\d+\.\s/)) {
+      const match = t.match(/^(\d+)\.\s(.+)/);
+      if (match) return `<div style="display:flex;gap:8px;padding:4px 0;line-height:1.8;"><span style="color:var(--accent);font-weight:700;min-width:20px;">${match[1]}.</span><span>${processInline(match[2])}</span></div>`;
+    }
+    if (t.startsWith('- ') || t.startsWith('• ')) {
+      return `<div style="display:flex;gap:8px;padding:3px 0;line-height:1.8;"><span style="color:var(--accent);margin-top:2px;">•</span><span>${processInline(t.slice(2))}</span></div>`;
+    }
+    if (t.startsWith('> ')) {
+      return `<div style="padding:8px 14px;margin:6px 0;border-left:3px solid var(--accent);background:var(--bg-primary);color:var(--text-muted);font-style:italic;line-height:1.75;">${processInline(t.slice(2))}</div>`;
+    }
+    if (t.match(/^---+$/)) return '<hr style="border:none;border-top:1px solid var(--border);margin:14px 0;">';
+    if (t === '') return '<div style="height:10px"></div>';
+    return `<div style="line-height:1.95;margin:4px 0;">${processInline(t)}</div>`;
+  });
+  return html.join('');
+};
+
+export default function NoteArticleGenerationPage() {
+  const [theme, setTheme] = useState('');
+  const [buzzReferences, setBuzzReferences] = useState<BuzzReference[]>([]);
+  const [deepResearch, setDeepResearch] = useState('');
+  const [deepResearchTopic, setDeepResearchTopic] = useState('');
+  const [tonePreference, setTonePreference] = useState('');
+  const [personalNotes, setPersonalNotes] = useState('');
+  const [length, setLength] = useState<Length>('medium');
+  const [article, setArticle] = useState('');
+  const [editedArticle, setEditedArticle] = useState('');
+  const [editMode, setEditMode] = useState(false);
+  const [reportModel, setReportModel] = useState<AIModel | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [elapsed, setElapsed] = useState(0);
+  const [fontSize, setFontSize] = useState(15);
+  const [errorMsg, setErrorMsg] = useState('');
+  const [trafficStats, setTrafficStats] = useState<{ requestBytes: number; responseBytes: number; totalBytes: number } | null>(null);
+  const { progress, loading: progressLoading, startProgress, completeProgress, resetProgress } = useProgress();
+
+  // sessionStorage からの読込（マウント時のみ、読込後はクリア）
+  useEffect(() => {
+    try {
+      const buzzCtx = sessionStorage.getItem('buzz-analysis-context');
+      if (buzzCtx) {
+        const parsed = JSON.parse(buzzCtx);
+        if (Array.isArray(parsed.records)) {
+          setBuzzReferences(
+            parsed.records.map((r: any) => ({
+              id: String(r.id),
+              title: r.title || '(無題)',
+              content: r.content || '',
+              tags: r.tags,
+              created_at: r.created_at,
+            })),
+          );
+        }
+        sessionStorage.removeItem('buzz-analysis-context');
+      }
+    } catch {}
+
+    try {
+      const researchCtx = sessionStorage.getItem('note-article-research-source');
+      if (researchCtx) {
+        const parsed = JSON.parse(researchCtx);
+        setDeepResearch(parsed.content || '');
+        setDeepResearchTopic(parsed.topic || '');
+        if (parsed.topic && !theme) {
+          // テーマが空の場合、リサーチのトピックをテーマ初期値として提案
+          setTheme(parsed.topic);
+        }
+        sessionStorage.removeItem('note-article-research-source');
+      }
+    } catch {}
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const removeBuzzRef = (id: string) => {
+    setBuzzReferences(prev => prev.filter(r => r.id !== id));
+  };
+
+  const clearDeepResearch = () => {
+    setDeepResearch('');
+    setDeepResearchTopic('');
+  };
+
+  const generate = async () => {
+    if (!theme.trim()) {
+      setErrorMsg('テーマを入力してください');
+      return;
+    }
+    setErrorMsg('');
+    setLoading(true);
+    startProgress();
+    setArticle('');
+    setEditedArticle('');
+    setEditMode(false);
+    setElapsed(0);
+    setTrafficStats(null);
+
+    const timer = setInterval(() => setElapsed(e => e + 1), 1000);
+
+    try {
+      const modelAtRequest = getSavedModel();
+      setReportModel(modelAtRequest);
+      const reqBody = JSON.stringify({
+        theme: theme.trim(),
+        buzzReferences: buzzReferences.map(b => b.content),
+        deepResearch,
+        tonePreference,
+        personalNotes,
+        length,
+        model: modelAtRequest,
+      });
+      const requestBytes = new TextEncoder().encode(reqBody).length;
+
+      const res = await retryFetch('/api/note-article', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: reqBody,
+      });
+
+      if (!res.ok || !res.body) {
+        const errData = await res.json().catch(() => ({}));
+        setErrorMsg(errData.error || `エラーが発生しました（HTTP ${res.status}）`);
+        clearInterval(timer);
+        setLoading(false);
+        resetProgress();
+        return;
+      }
+
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let accumulated = '';
+      let responseBytes = 0;
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        if (value) responseBytes += value.byteLength;
+        const lines = decoder.decode(value).split('\n');
+        for (const line of lines) {
+          if (!line.startsWith('data: ')) continue;
+          try {
+            const json = JSON.parse(line.slice(6));
+            if (json.type === 'text') {
+              accumulated += json.content;
+              setArticle(accumulated);
+            } else if (json.type === 'error') {
+              setErrorMsg(`エラー: ${json.message}`);
+            }
+          } catch {}
+        }
+      }
+
+      setEditedArticle(accumulated);
+      setTrafficStats({
+        requestBytes,
+        responseBytes,
+        totalBytes: requestBytes + responseBytes,
+      });
+    } catch (e: any) {
+      setErrorMsg(`通信エラー: ${e?.message || e}`);
+      resetProgress();
+    } finally {
+      clearInterval(timer);
+      setLoading(false);
+      completeProgress();
+    }
+  };
+
+  // 現在の本文（編集モードなら編集版）
+  const currentContent = editMode ? editedArticle : article;
+
+  const download = () => {
+    if (!currentContent.trim()) return;
+    const baseTitle = `note記事下書き_${theme.slice(0, 40)}`;
+    const fileTitle = sanitizeFilename(baseTitle);
+    const modelLine = reportModel
+      ? `> 生成AI: ${getModelIcon(reportModel)} ${getModelLabel(reportModel)}\n`
+      : '';
+    const lengthLine = `> 長さ: ${LENGTH_OPTIONS.find(l => l.value === length)?.label}\n`;
+    const md = `# note記事下書き: ${theme}\n\n${modelLine}${lengthLine}\n---\n\n${currentContent}`;
+    const blob = new Blob([md], { type: 'text/markdown;charset=utf-8' });
+    const blobUrl = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = blobUrl;
+    a.download = `${fileTitle}_${yyyymmdd()}.md`;
+    a.click();
+    URL.revokeObjectURL(blobUrl);
+  };
+
+  return (
+    <div>
+      <ProgressBar loading={progressLoading} progress={progress} label="✍️ note 記事を生成中..." />
+      <h1 style={{ fontSize: 28, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 8 }}>✍️ note 記事生成</h1>
+      <p style={{ color: 'var(--text-muted)', marginBottom: 16, lineHeight: 1.7 }}>
+        Claude AI または Gemini 3.5 Flash が、バズり分析・ディープリサーチ記事を参考に note 記事の下書きを生成します。<br />
+        <strong style={{ color: '#f59e0b' }}>⚠️ 生成された記事は下書きです。必ずあなたの独自の経験・視点を加えて編集してから投稿してください。</strong>
+      </p>
+
+      <div style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 14, padding: 20, marginBottom: 20 }}>
+
+        {/* テーマ */}
+        <div style={{ marginBottom: 14 }}>
+          <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.06em' }}>📝 テーマ <span style={{ color: '#ef4444' }}>*必須</span></div>
+          <textarea
+            value={theme}
+            onChange={e => setTheme(e.target.value)}
+            placeholder={'例：副業ブログで月3万を達成するまでの道のり\n例：30代から始めるプログラミング学習のリアル'}
+            style={{
+              width: '100%',
+              minHeight: 70,
+              background: 'var(--bg-primary)',
+              border: '1px solid var(--border)',
+              borderRadius: 8,
+              color: 'var(--text-primary)',
+              fontSize: 14,
+              padding: 12,
+              outline: 'none',
+              fontFamily: 'inherit',
+              lineHeight: 1.7,
+              boxSizing: 'border-box',
+              resize: 'vertical',
+            }}
+          />
+        </div>
+
+        {/* バズり分析の参考情報 */}
+        <div style={{ marginBottom: 14 }}>
+          <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+            🧠 参考にする分析 {buzzReferences.length > 0 && <span style={{ color: 'var(--accent)' }}>（{buzzReferences.length}件読み込み済み）</span>}
+          </div>
+          {buzzReferences.length === 0 ? (
+            <div style={{
+              padding: '12px 14px',
+              background: 'var(--bg-primary)',
+              border: '1px dashed var(--border)',
+              borderRadius: 8,
+              fontSize: 12,
+              color: 'var(--text-muted)',
+            }}>
+              バズり分析の蓄積一覧から「✍️ note 記事に活用」で送ると、ここに自動読込されます
+            </div>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              {buzzReferences.map((b, i) => (
+                <div key={b.id} style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 10,
+                  padding: '8px 12px',
+                  background: 'var(--bg-primary)',
+                  border: '1px solid var(--border)',
+                  borderRadius: 8,
+                }}>
+                  <span style={{ fontSize: 11, color: 'var(--accent)', fontWeight: 600, minWidth: 32 }}>#{i + 1}</span>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 13, color: 'var(--text-primary)', fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {b.title}
+                    </div>
+                    <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2 }}>
+                      {b.content.length.toLocaleString()} 字
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => removeBuzzRef(b.id)}
+                    title="この分析を参考情報から外す"
+                    style={{
+                      padding: '4px 10px',
+                      background: 'transparent',
+                      border: '1px solid var(--border)',
+                      color: 'var(--text-muted)',
+                      borderRadius: 6,
+                      cursor: 'pointer',
+                      fontSize: 11,
+                    }}
+                  >
+                    ✕ 削除
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* ディープリサーチ参考情報 */}
+        <div style={{ marginBottom: 14 }}>
+          <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+            🔭 参考にするディープリサーチ記事 {deepResearch && <span style={{ color: 'var(--accent)' }}>（{deepResearch.length.toLocaleString()}字 読み込み済み）</span>}
+          </div>
+          {!deepResearch ? (
+            <div style={{
+              padding: '12px 14px',
+              background: 'var(--bg-primary)',
+              border: '1px dashed var(--border)',
+              borderRadius: 8,
+              fontSize: 12,
+              color: 'var(--text-muted)',
+            }}>
+              ディープリサーチページから「✍️ note 記事にする」で送ると、ここに自動読込されます（任意）
+            </div>
+          ) : (
+            <div style={{
+              padding: '10px 12px',
+              background: 'var(--bg-primary)',
+              border: '1px solid var(--border)',
+              borderRadius: 8,
+              display: 'flex',
+              alignItems: 'center',
+              gap: 10,
+            }}>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 13, color: 'var(--text-primary)', fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {deepResearchTopic || 'ディープリサーチ結果'}
+                </div>
+                <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2 }}>
+                  {deepResearch.length.toLocaleString()} 字
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={clearDeepResearch}
+                style={{
+                  padding: '4px 10px',
+                  background: 'transparent',
+                  border: '1px solid var(--border)',
+                  color: 'var(--text-muted)',
+                  borderRadius: 6,
+                  cursor: 'pointer',
+                  fontSize: 11,
+                }}
+              >
+                ✕ 削除
+              </button>
+            </div>
+          )}
+        </div>
+
+        {/* 文体・口調 */}
+        <div style={{ marginBottom: 14 }}>
+          <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.06em' }}>✍️ 文体・口調の好み（任意）</div>
+          <textarea
+            value={tonePreference}
+            onChange={e => setTonePreference(e.target.value)}
+            placeholder="例：親しみやすく、ですます調で。専門用語は最小限に。"
+            style={{
+              width: '100%',
+              minHeight: 50,
+              background: 'var(--bg-primary)',
+              border: '1px solid var(--border)',
+              borderRadius: 8,
+              color: 'var(--text-primary)',
+              fontSize: 13,
+              padding: 10,
+              outline: 'none',
+              fontFamily: 'inherit',
+              lineHeight: 1.6,
+              boxSizing: 'border-box',
+              resize: 'vertical',
+            }}
+          />
+        </div>
+
+        {/* 自分の経験・視点メモ */}
+        <div style={{ marginBottom: 14 }}>
+          <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.06em' }}>💡 自分の経験・視点メモ（任意）</div>
+          <textarea
+            value={personalNotes}
+            onChange={e => setPersonalNotes(e.target.value)}
+            placeholder="例：副業で月3万を達成した経験。挫折と成功の両方を書きたい。"
+            style={{
+              width: '100%',
+              minHeight: 60,
+              background: 'var(--bg-primary)',
+              border: '1px solid var(--border)',
+              borderRadius: 8,
+              color: 'var(--text-primary)',
+              fontSize: 13,
+              padding: 10,
+              outline: 'none',
+              fontFamily: 'inherit',
+              lineHeight: 1.6,
+              boxSizing: 'border-box',
+              resize: 'vertical',
+            }}
+          />
+        </div>
+
+        {/* 記事の長さ */}
+        <div style={{ marginBottom: 14 }}>
+          <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.06em' }}>📏 記事の長さ</div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 8 }}>
+            {LENGTH_OPTIONS.map(l => (
+              <button
+                key={l.value}
+                onClick={() => setLength(l.value)}
+                style={{
+                  padding: '10px 8px',
+                  borderRadius: 8,
+                  border: length === l.value ? '2px solid var(--accent)' : '1px solid var(--border)',
+                  cursor: 'pointer',
+                  background: length === l.value ? 'var(--accent-soft)' : 'var(--bg-primary)',
+                  color: length === l.value ? 'var(--text-secondary)' : 'var(--text-muted)',
+                  fontSize: 13,
+                  fontWeight: 600,
+                  textAlign: 'center' as const,
+                }}
+              >
+                <div>{l.label}</div>
+                <div style={{ fontSize: 11, marginTop: 3, fontWeight: 400 }}>{l.desc}</div>
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {errorMsg && (
+          <div style={{
+            marginBottom: 12,
+            padding: '10px 14px',
+            background: 'rgba(239,68,68,0.08)',
+            border: '1px solid rgba(239,68,68,0.3)',
+            borderRadius: 8,
+            fontSize: 13,
+            color: '#ef4444',
+          }}>
+            ⚠️ {errorMsg}
+          </div>
+        )}
+
+        <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+          <button
+            onClick={generate}
+            disabled={loading}
+            style={{
+              padding: '10px 28px',
+              background: 'linear-gradient(135deg, #ec4899, #8b5cf6)',
+              color: '#fff',
+              border: 'none',
+              borderRadius: 8,
+              fontWeight: 700,
+              fontSize: 14,
+              cursor: loading ? 'not-allowed' : 'pointer',
+              opacity: loading ? 0.7 : 1,
+            }}
+          >
+            {loading ? `✍️ 生成中... ${elapsed}秒` : '🚀 note 記事の下書きを生成'}
+          </button>
+        </div>
+      </div>
+
+      {loading && (
+        <div style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 12, padding: 32, textAlign: 'center' }}>
+          <div style={{ width: 40, height: 40, border: '3px solid var(--border-accent)', borderTopColor: 'var(--accent)', borderRadius: '50%', animation: 'spin 0.8s linear infinite', margin: '0 auto 16px' }} />
+          <div style={{ color: 'var(--text-secondary)', fontWeight: 600, marginBottom: 6 }}>note 記事の下書きを執筆中...（混雑時は自動でリトライします）</div>
+          <div style={{ color: 'var(--text-muted)', fontSize: 13 }}>{elapsed}秒経過 / 生成には30〜150秒かかります</div>
+        </div>
+      )}
+
+      {article && !loading && (
+        <div style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 12, padding: 24 }}>
+          {/* 編集前の警告 */}
+          <div style={{
+            marginBottom: 16,
+            padding: '10px 14px',
+            background: 'rgba(245,158,11,0.08)',
+            border: '1px solid rgba(245,158,11,0.3)',
+            borderRadius: 8,
+            fontSize: 12,
+            color: '#f59e0b',
+            lineHeight: 1.6,
+          }}>
+            ⚠️ これは下書きです。あなたの独自の経験・視点を加えて編集してから投稿してください
+          </div>
+
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16, flexWrap: 'wrap', gap: 8 }}>
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+              <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-secondary)' }}>✍️ note 記事下書き</span>
+              <SaveToLibraryButton
+                title={`note記事下書き: ${theme.slice(0, 60)}`}
+                content={currentContent}
+                type="note-article"
+                groupName="note記事"
+                tags="note記事,下書き"
+                metadata={{
+                  theme,
+                  length,
+                  buzzRefCount: buzzReferences.length,
+                  hasDeepResearch: !!deepResearch,
+                }}
+              />
+            </div>
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+              <button
+                onClick={() => setEditMode(v => !v)}
+                style={{
+                  padding: '6px 14px',
+                  background: editMode ? 'var(--accent-soft)' : 'var(--bg-secondary)',
+                  border: editMode ? '1px solid var(--accent)' : '1px solid var(--border)',
+                  color: editMode ? 'var(--accent)' : 'var(--text-secondary)',
+                  borderRadius: 6,
+                  cursor: 'pointer',
+                  fontSize: 12,
+                  fontWeight: editMode ? 600 : 500,
+                }}
+                title={editMode ? 'プレビューに戻す' : 'テキストエリアで編集する'}
+              >
+                {editMode ? '👁 プレビューに戻す' : '✏️ 編集モード'}
+              </button>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>文字サイズ</span>
+                <button onClick={() => setFontSize(f => Math.max(12, f - 1))} style={{ width: 24, height: 24, borderRadius: 4, border: '1px solid var(--border)', background: 'var(--bg-secondary)', color: 'var(--text-secondary)', cursor: 'pointer', fontSize: 14 }}>−</button>
+                <span style={{ fontSize: 12, color: 'var(--text-muted)', fontFamily: 'monospace', minWidth: 20, textAlign: 'center' }}>{fontSize}</span>
+                <button onClick={() => setFontSize(f => Math.min(22, f + 1))} style={{ width: 24, height: 24, borderRadius: 4, border: '1px solid var(--border)', background: 'var(--bg-secondary)', color: 'var(--text-secondary)', cursor: 'pointer', fontSize: 14 }}>＋</button>
+              </div>
+              <button
+                onClick={download}
+                disabled={!currentContent.trim()}
+                style={{
+                  padding: '6px 14px',
+                  background: 'var(--bg-secondary)',
+                  border: '1px solid var(--border)',
+                  color: 'var(--text-secondary)',
+                  borderRadius: 6,
+                  cursor: !currentContent.trim() ? 'not-allowed' : 'pointer',
+                  fontSize: 12,
+                  opacity: !currentContent.trim() ? 0.5 : 1,
+                }}
+              >
+                📥 MDダウンロード
+              </button>
+              <button
+                onClick={() => navigator.clipboard.writeText(currentContent)}
+                style={{
+                  padding: '6px 14px',
+                  background: 'var(--bg-secondary)',
+                  border: '1px solid var(--border)',
+                  color: 'var(--text-secondary)',
+                  borderRadius: 6,
+                  cursor: 'pointer',
+                  fontSize: 12,
+                }}
+              >
+                📋 コピー
+              </button>
+            </div>
+          </div>
+
+          {editMode ? (
+            <textarea
+              value={editedArticle}
+              onChange={e => setEditedArticle(e.target.value)}
+              style={{
+                width: '100%',
+                minHeight: 500,
+                background: 'var(--bg-primary)',
+                border: '1px solid var(--border)',
+                borderRadius: 8,
+                color: 'var(--text-primary)',
+                fontSize,
+                padding: 16,
+                outline: 'none',
+                fontFamily: 'inherit',
+                lineHeight: 1.85,
+                boxSizing: 'border-box',
+                resize: 'vertical',
+              }}
+            />
+          ) : (
+            <div
+              style={{ fontSize, color: 'var(--text-secondary)' }}
+              dangerouslySetInnerHTML={{ __html: formatReport(currentContent) }}
+            />
+          )}
+
+          {/* メタ情報 */}
+          <div style={{ marginTop: 16, paddingTop: 12, borderTop: '1px solid var(--border)', display: 'flex', gap: 16, flexWrap: 'wrap', fontSize: 11, color: 'var(--text-muted)' }}>
+            <span>文字数: {currentContent.length.toLocaleString()}</span>
+            <span>長さ: {LENGTH_OPTIONS.find(l => l.value === length)?.label}</span>
+            {reportModel && (
+              <span>使用モデル: {getModelIcon(reportModel)} {getModelLabel(reportModel)}</span>
+            )}
+            {buzzReferences.length > 0 && (
+              <span>参考: バズり分析 {buzzReferences.length}件</span>
+            )}
+            {deepResearch && (
+              <span>参考: ディープリサーチ ✓</span>
+            )}
+            {trafficStats && (
+              <span>通信量: {formatBytes(trafficStats.totalBytes)}（送信 {formatBytes(trafficStats.requestBytes)} / 受信 {formatBytes(trafficStats.responseBytes)}）</span>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
