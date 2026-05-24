@@ -8,6 +8,7 @@ export const runtime = 'nodejs';
 export const maxDuration = 300;
 
 type Depth = 'light' | 'standard' | 'deep';
+type Mode = 'single' | 'multi' | 'pattern';
 
 // 深さ別の出力目安と max_tokens
 const DEPTH_CONFIG: Record<Depth, { maxTokens: number; charTarget: string }> = {
@@ -16,40 +17,15 @@ const DEPTH_CONFIG: Record<Depth, { maxTokens: number; charTarget: string }> = {
   deep: { maxTokens: 12000, charTarget: '8000字程度' },
 };
 
-export async function POST(req: NextRequest) {
-  const session = await auth();
-  if (!session) {
-    return new Response(JSON.stringify({ error: '認証が必要です' }), {
-      status: 401,
-      headers: { 'Content-Type': 'application/json' },
-    });
-  }
-  const userId = (session.user as any).id ?? '';
-
-  const {
-    url,
-    depth = 'standard',
-    model = 'claude',
-  } = (await req.json()) as { url: string; depth?: Depth; model?: AIModel };
-
-  // URL バリデーション
-  if (!url || typeof url !== 'string' || !/^https?:\/\//.test(url)) {
-    return new Response(JSON.stringify({ error: 'URLが正しくありません（http/https）' }), {
-      status: 400,
-      headers: { 'Content-Type': 'application/json' },
-    });
-  }
-
-  const apiKey = process.env.ANTHROPIC_API_KEY;
-  if (!apiKey || apiKey === 'your_api_key_here') {
-    return new Response(JSON.stringify({ error: 'APIキーが設定されていません' }), {
-      status: 500,
-      headers: { 'Content-Type': 'application/json' },
-    });
-  }
-
-  // Step 1: URLから本文抽出（extract-url と同等のロジックを内製化）
-  let extractedText = '';
+// 1本のURLから本文を抽出（extract-url と同等のロジック）
+async function extractArticle(
+  url: string,
+  client: Anthropic,
+  userId: string,
+): Promise<
+  | { ok: true; text: string }
+  | { ok: false; error: string }
+> {
   try {
     const fetchRes = await fetch(url, {
       headers: {
@@ -59,14 +35,10 @@ export async function POST(req: NextRequest) {
       signal: AbortSignal.timeout(15000),
     });
     if (!fetchRes.ok) {
-      return new Response(
-        JSON.stringify({ error: `URLの取得に失敗しました（HTTP ${fetchRes.status}）` }),
-        { status: 400, headers: { 'Content-Type': 'application/json' } },
-      );
+      return { ok: false, error: `HTTP ${fetchRes.status}` };
     }
     const html = await fetchRes.text();
 
-    const client = new Anthropic({ apiKey });
     const response = await client.messages.create({
       model: 'claude-sonnet-4-6',
       max_tokens: 4000,
@@ -100,14 +72,7 @@ ${html.slice(0, 20000)}`,
     });
 
     const firstBlock = response.content[0];
-    extractedText = firstBlock && firstBlock.type === 'text' ? firstBlock.text : '';
-
-    if (!extractedText.trim()) {
-      return new Response(JSON.stringify({ error: '本文を抽出できませんでした' }), {
-        status: 400,
-        headers: { 'Content-Type': 'application/json' },
-      });
-    }
+    const text = firstBlock && firstBlock.type === 'text' ? firstBlock.text : '';
 
     // 抽出に使ったトークンも記録
     await trackUsage({
@@ -118,17 +83,78 @@ ${html.slice(0, 20000)}`,
       outputTokens: response.usage?.output_tokens ?? 0,
       model: 'claude-sonnet-4-6',
     });
+
+    if (!text.trim()) {
+      return { ok: false, error: '本文を抽出できませんでした' };
+    }
+    return { ok: true, text };
   } catch (err: any) {
-    return new Response(
-      JSON.stringify({ error: `URLコンテンツ取得エラー: ${String(err?.message || err).slice(0, 200)}` }),
-      { status: 500, headers: { 'Content-Type': 'application/json' } },
-    );
+    return { ok: false, error: String(err?.message || err).slice(0, 200) };
   }
+}
+
+export async function POST(req: NextRequest) {
+  const session = await auth();
+  if (!session) {
+    return new Response(JSON.stringify({ error: '認証が必要です' }), {
+      status: 401,
+      headers: { 'Content-Type': 'application/json' },
+    });
+  }
+  const userId = (session.user as any).id ?? '';
+
+  const {
+    mode = 'single',
+    url,
+    urls,
+    field,
+    depth = 'standard',
+    model = 'claude',
+  } = (await req.json()) as {
+    mode?: Mode;
+    url?: string;
+    urls?: string[];
+    field?: string;
+    depth?: Depth;
+    model?: AIModel;
+  };
+
+  const apiKey = process.env.ANTHROPIC_API_KEY;
+  if (!apiKey || apiKey === 'your_api_key_here') {
+    return new Response(JSON.stringify({ error: 'APIキーが設定されていません' }), {
+      status: 500,
+      headers: { 'Content-Type': 'application/json' },
+    });
+  }
+  const client = new Anthropic({ apiKey });
 
   const { maxTokens, charTarget } = DEPTH_CONFIG[depth];
 
-  // Step 2: バズり要素分析
-  const systemPrompt = `あなたは note や Web 記事の「バズり要素」を分析する優秀なコンテンツマーケターです。読者心理、文体、構成、SEO 要素を多角的に分析し、自分の記事に活かせる学びを言語化してください。
+  let systemPrompt = '';
+  let userPrompt = '';
+  let stepLabel = '';
+
+  // ========== モード別: プロンプト生成 ==========
+
+  if (mode === 'single') {
+    // 既存ロジックを維持
+    if (!url || typeof url !== 'string' || !/^https?:\/\//.test(url)) {
+      return new Response(JSON.stringify({ error: 'URLが正しくありません（http/https）' }), {
+        status: 400,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+
+    const extractRes = await extractArticle(url, client, userId);
+    if (!extractRes.ok) {
+      return new Response(
+        JSON.stringify({ error: `URLコンテンツ取得エラー: ${extractRes.error}` }),
+        { status: 400, headers: { 'Content-Type': 'application/json' } },
+      );
+    }
+
+    stepLabel = url.slice(0, 50);
+    systemPrompt = `あなたは note や Web 記事の「バズり要素」を分析する優秀なコンテンツマーケターです。読者心理、文体、構成、SEO 要素を多角的に分析し、自分の記事に活かせる学びを言語化してください。
 
 絶対に守るルール：
 1. URLは生のURLのみ記載（例: https://example.com）
@@ -137,13 +163,13 @@ ${html.slice(0, 20000)}`,
 4. 客観的に分析し、推測は「〜と考えられる」と明示
 5. 必ず最後の「🔑 重要キーワード」まで完結させる（出力目安: ${charTarget}）`;
 
-  const userPrompt = `以下の記事を分析し、バズり要素を言語化してください。
+    userPrompt = `以下の記事を分析し、バズり要素を言語化してください。
 
 # 記事URL
 ${url}
 
 # 記事本文
-${extractedText}
+${extractRes.text}
 
 # 分析の観点
 
@@ -188,14 +214,191 @@ ${extractedText}
 - 客観的に分析、推測は「〜と考えられる」と明示
 - 出力目安: ${charTarget}
 - 必ず最後まで完結させてください`;
+  } else if (mode === 'multi') {
+    // 5本まとめ分析
+    if (!Array.isArray(urls) || urls.length === 0) {
+      return new Response(JSON.stringify({ error: 'URL配列が必要です' }), {
+        status: 400,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+    const cleanUrls = urls
+      .map(u => (typeof u === 'string' ? u.trim() : ''))
+      .filter(u => /^https?:\/\//.test(u));
+    if (cleanUrls.length < 2) {
+      return new Response(
+        JSON.stringify({ error: 'http/https で始まるURLを2本以上入力してください' }),
+        { status: 400, headers: { 'Content-Type': 'application/json' } },
+      );
+    }
+    if (cleanUrls.length > 5) {
+      return new Response(JSON.stringify({ error: 'URLは最大5本までです' }), {
+        status: 400,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
 
+    // 全URLを並列抽出
+    const extractResults = await Promise.all(
+      cleanUrls.map(u => extractArticle(u, client, userId)),
+    );
+    const successful: Array<{ url: string; text: string }> = [];
+    const failed: Array<{ url: string; error: string }> = [];
+    extractResults.forEach((r, i) => {
+      if (r.ok) successful.push({ url: cleanUrls[i], text: r.text });
+      else failed.push({ url: cleanUrls[i], error: r.error });
+    });
+
+    // 「5本中3本以上成功」が必須、または2本入力時は2本成功必須
+    const minRequired = Math.min(3, cleanUrls.length);
+    if (successful.length < minRequired) {
+      return new Response(
+        JSON.stringify({
+          error: `URL本文取得に失敗しました（成功 ${successful.length} / ${cleanUrls.length}本）。${minRequired}本以上の取得が必要です。`,
+          failed,
+        }),
+        { status: 400, headers: { 'Content-Type': 'application/json' } },
+      );
+    }
+
+    stepLabel = `[multi ${successful.length}/${cleanUrls.length}] ${successful[0].url.slice(0, 30)}`;
+
+    systemPrompt = `あなたは note や Web 記事の「バズり要素」を分析する優秀なコンテンツマーケターです。複数の記事を比較分析し、共通するバズり要素を言語化してください。
+
+絶対に守るルール：
+1. URLは生のURLのみ記載
+2. HTMLタグは一切使用禁止
+3. Markdownのリンク記法も禁止
+4. 客観的に分析し、推測は「〜と考えられる」と明示
+5. 必ず最後の「🔑 重要キーワード」まで完結させる（出力目安: ${charTarget}）`;
+
+    const articlesSection = successful
+      .map(
+        (a, i) => `# 記事${i + 1}
+URL: ${a.url}
+本文:
+${a.text}`,
+      )
+      .join('\n\n');
+
+    const failedNote = failed.length > 0
+      ? `\n\n# 取得失敗（参考）
+${failed.map(f => `- ${f.url}: ${f.error}`).join('\n')}
+※ 上記は本文取得に失敗したため分析対象から除外しました。`
+      : '';
+
+    userPrompt = `以下の${successful.length}本の記事を比較分析し、共通する「バズり要素 TOP5」を言語化してください。
+
+${articlesSection}${failedNote}
+
+# 出力構成
+
+## 📊 共通するバズり要素 TOP5
+（${successful.length}記事に共通する成功要素を、重要度順に5つ）
+
+### 1. [要素名]
+- 各記事での具体例
+- なぜこれがバズるか
+
+### 2. [要素名]
+（以下同様）
+
+### 3. [要素名]
+
+### 4. [要素名]
+
+### 5. [要素名]
+
+## 🎯 各記事の独自要素
+（各記事固有の工夫、独自の強み）
+
+## 💡 学びポイント・応用方法
+（自分の記事に応用する具体的なアイデア）
+
+## 🔑 重要キーワード
+（${successful.length}記事から抽出した10〜15個のキーワード）
+
+# 注意
+- ${successful.length}記事すべてを横断的に比較分析
+- 客観的に分析、推測は「〜と考えられる」と明示
+- 出力目安: ${charTarget}
+- 必ず最後まで完結させてください`;
+  } else if (mode === 'pattern') {
+    // 分野別バズりパターン
+    if (!field || typeof field !== 'string' || !field.trim()) {
+      return new Response(JSON.stringify({ error: '分野名を入力してください' }), {
+        status: 400,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+    const cleanField = field.trim().slice(0, 100);
+
+    stepLabel = `[pattern] ${cleanField}`;
+    systemPrompt = `あなたは note のコンテンツマーケティングを分析する優秀な専門家です。指定された分野でバズる記事の典型パターンを言語化してください。実在の記事ではなく、構造的パターンとして分析してください。
+
+絶対に守るルール：
+1. 実在の記事タイトルや具体的な数値（PV数等）の捏造は絶対にしない
+2. URLは記載しない（生成しない）
+3. HTMLタグは一切使用禁止
+4. Markdownのリンク記法も禁止
+5. 必ず最後の「🔑 この分野で頻出するキーワード」まで完結させる（出力目安: ${charTarget}）`;
+
+    userPrompt = `以下の分野で note や Web 記事でバズる「典型的なパターン」を5つに分類して言語化してください。
+
+# 分野
+${cleanField}
+
+# 出力構成
+
+## 🎯 この分野でバズる5つの典型パターン
+
+### パターン1: [パターン名]
+- 特徴
+- 典型的なタイトル例（3つ）
+- 構成テンプレート
+- 口調・文体の例
+- マーケティング要素
+- 心理トリガー
+- 想定読者ペルソナ
+
+### パターン2: [パターン名]
+（同様）
+
+### パターン3: [パターン名]
+（同様）
+
+### パターン4: [パターン名]
+（同様）
+
+### パターン5: [パターン名]
+（同様）
+
+## 💡 自分の記事への応用方法
+- 各パターンを使い分ける指針
+- 自分の強みと組み合わせる方法
+
+## 🔑 この分野で頻出するキーワード
+（10〜15個）
+
+# 注意
+- 実在の記事ではなく、構造パターンとして分析
+- 各パターンに再現可能な具体例を含める
+- 出力目安: ${charTarget}
+- 必ず最後まで完結させてください`;
+  } else {
+    return new Response(JSON.stringify({ error: '不正なmodeです（single/multi/pattern）' }), {
+      status: 400,
+      headers: { 'Content-Type': 'application/json' },
+    });
+  }
+
+  // ========== ストリーミング応答 ==========
   const encoder = new TextEncoder();
   const stream = new ReadableStream({
     async start(controller) {
       try {
         controller.enqueue(encoder.encode('data: {"type":"start"}\n\n'));
 
-        // 投資予測と同じく streamWithModel で SSE 配信（Claude/Gemini 共通）
         const usage = await streamWithModel(
           model,
           userPrompt,
@@ -209,7 +412,7 @@ ${extractedText}
         await trackUsage({
           userId,
           featureKey: 'buzz-analysis',
-          stepLabel: url.slice(0, 50),
+          stepLabel,
           inputTokens: usage.inputTokens,
           outputTokens: usage.outputTokens,
           model: 'claude-sonnet-4-6',

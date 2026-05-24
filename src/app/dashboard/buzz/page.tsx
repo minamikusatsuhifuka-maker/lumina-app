@@ -16,6 +16,13 @@ import {
 } from '@/lib/title-generator';
 
 type Depth = 'light' | 'standard' | 'deep';
+type Mode = 'single' | 'multi' | 'pattern';
+
+const MODE_OPTIONS: Array<{ value: Mode; label: string; desc: string }> = [
+  { value: 'single', label: '📚 単一URL分析', desc: '1本の記事を多角的に分析' },
+  { value: 'multi', label: '📋 5本まとめ分析', desc: '複数記事から共通要素を抽出' },
+  { value: 'pattern', label: '🎯 分野別バズりパターン', desc: '分野の典型パターンを5つ生成' },
+];
 
 const DEPTH_OPTIONS: Array<{ value: Depth; label: string; desc: string }> = [
   { value: 'light', label: '⚡ ライト', desc: 'ざっくり要点（〜2000字 / 約20秒）' },
@@ -23,10 +30,19 @@ const DEPTH_OPTIONS: Array<{ value: Depth; label: string; desc: string }> = [
   { value: 'deep', label: '🔬 ディープ', desc: '徹底分析（〜8000字 / 約90秒）' },
 ];
 
-const TEMPLATES = [
+const SINGLE_TEMPLATES = [
   { label: 'note 人気記事の構成分析', placeholder: 'https://note.com/xxx/n/xxx' },
   { label: 'Web メディアのバズり記事', placeholder: 'https://example.com/article' },
   { label: '自分の競合記事を学ぶ', placeholder: 'https://competitor.com/post' },
+];
+
+const FIELD_TEMPLATES = [
+  '副業ブログ',
+  '育児・子育て',
+  '学び・スキルアップ',
+  'ビジネス・キャリア',
+  '健康・ライフスタイル',
+  '自己啓発・マインドセット',
 ];
 
 async function retryFetch(url: string, options: RequestInit, maxRetries = 3): Promise<Response> {
@@ -45,7 +61,6 @@ function formatBytes(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
 }
 
-// 投資予測ページと共通: インライン整形（太字 / URL リンク化）
 const processInline = (text: string): string => {
   text = text.replace(/\*\*(.+?)\*\*/g,
     '<strong style="color:var(--text-primary);font-weight:600;">$1</strong>');
@@ -79,10 +94,14 @@ const formatReport = (text: string): string => {
 };
 
 export default function BuzzAnalysisPage() {
+  const [mode, setMode] = useState<Mode>('single');
   const [url, setUrl] = useState('');
+  const [urls, setUrls] = useState<string[]>(['', '', '', '', '']);
+  const [field, setField] = useState('');
   const [depth, setDepth] = useState<Depth>('standard');
   const [report, setReport] = useState('');
   const [reportModel, setReportModel] = useState<AIModel | null>(null);
+  const [reportMode, setReportMode] = useState<Mode | null>(null);
   const [loading, setLoading] = useState(false);
   const [downloadingMd, setDownloadingMd] = useState(false);
   const [elapsed, setElapsed] = useState(0);
@@ -97,14 +116,47 @@ export default function BuzzAnalysisPage() {
 
   const isValidUrl = (s: string) => /^https?:\/\/.+/.test(s.trim());
 
-  const analyze = async (targetUrl?: string) => {
-    const u = (targetUrl || url).trim();
-    if (!u) {
-      setErrorMsg('URL を入力してください');
-      return;
+  // モード切替時にエラー・結果をクリア
+  const switchMode = (newMode: Mode) => {
+    if (loading) return;
+    setMode(newMode);
+    setErrorMsg('');
+  };
+
+  // multi モード: 個別URLの更新
+  const updateMultiUrl = (idx: number, value: string) => {
+    setUrls(prev => prev.map((u, i) => (i === idx ? value : u)));
+  };
+
+  // 実行前バリデーション → リクエストボディ組み立て
+  const buildRequestBody = (): { body: any; label: string } | { error: string } => {
+    if (mode === 'single') {
+      const u = url.trim();
+      if (!u) return { error: 'URL を入力してください' };
+      if (!isValidUrl(u)) return { error: 'URL は http:// または https:// で始めてください' };
+      return { body: { mode: 'single', url: u }, label: u };
     }
-    if (!isValidUrl(u)) {
-      setErrorMsg('URL は http:// または https:// で始めてください');
+    if (mode === 'multi') {
+      const cleanUrls = urls.map(u => u.trim()).filter(u => u.length > 0);
+      if (cleanUrls.length < 2) {
+        return { error: '2本以上のURLを入力してください（最大5本）' };
+      }
+      const invalid = cleanUrls.filter(u => !isValidUrl(u));
+      if (invalid.length > 0) {
+        return { error: `URL は http:// または https:// で始めてください（不正: ${invalid.length}件）` };
+      }
+      return { body: { mode: 'multi', urls: cleanUrls }, label: `${cleanUrls.length}本まとめ` };
+    }
+    // pattern
+    const f = field.trim();
+    if (!f) return { error: '分野名を入力してください' };
+    return { body: { mode: 'pattern', field: f }, label: f };
+  };
+
+  const analyze = async () => {
+    const built = buildRequestBody();
+    if ('error' in built) {
+      setErrorMsg(built.error);
       return;
     }
 
@@ -120,7 +172,8 @@ export default function BuzzAnalysisPage() {
     try {
       const modelAtRequest = getSavedModel();
       setReportModel(modelAtRequest);
-      const reqBody = JSON.stringify({ url: u, depth, model: modelAtRequest });
+      setReportMode(mode);
+      const reqBody = JSON.stringify({ ...built.body, depth, model: modelAtRequest });
       const requestBytes = new TextEncoder().encode(reqBody).length;
 
       const res = await retryFetch('/api/buzz-analysis', {
@@ -178,17 +231,48 @@ export default function BuzzAnalysisPage() {
     }
   };
 
+  // 結果保存・MDダウンロード用のメタ情報（モード別）
+  const getSaveMeta = () => {
+    const m = reportMode || mode;
+    if (m === 'single') {
+      return {
+        title: `バズり分析: ${url.slice(0, 60)}`,
+        tags: 'バズり分析,単一URL',
+        downloadLabel: 'バズり分析',
+        downloadHeader: `> 対象URL: ${url}\n`,
+        fallback: url ? `バズり分析_${url.slice(0, 40)}` : 'バズり分析',
+      };
+    }
+    if (m === 'multi') {
+      const cleanUrls = urls.filter(u => u.trim());
+      return {
+        title: `バズり分析(${cleanUrls.length}本まとめ): ${cleanUrls[0]?.slice(0, 40) || ''}`,
+        tags: 'バズり分析,5本まとめ',
+        downloadLabel: 'バズり分析_5本まとめ',
+        downloadHeader: `> 対象URL一覧:\n${cleanUrls.map(u => `> - ${u}`).join('\n')}\n`,
+        fallback: 'バズり分析_5本まとめ',
+      };
+    }
+    // pattern
+    return {
+      title: `バズり分析(分野別): ${field}`,
+      tags: 'バズり分析,分野別パターン',
+      downloadLabel: 'バズり分析_分野別パターン',
+      downloadHeader: `> 対象分野: ${field}\n`,
+      fallback: field ? `バズり分析_${field}` : 'バズり分析_分野別',
+    };
+  };
+
   const download = async () => {
     if (!report.trim()) return;
     setDownloadingMd(true);
     try {
-      const label = 'バズり分析';
-      const fallback = url ? `${label}_${url.slice(0, 40)}` : label;
-      const autoTitle = await generateTitleWithTimeout(report, label, fallback);
+      const meta = getSaveMeta();
+      const autoTitle = await generateTitleWithTimeout(report, meta.downloadLabel, meta.fallback);
       const fileTitle = sanitizeFilename(autoTitle);
       const modelLine = reportModel
-        ? `> 生成AI: ${getModelIcon(reportModel)} ${getModelLabel(reportModel)}\n> 対象URL: ${url}\n\n---\n\n`
-        : `> 対象URL: ${url}\n\n---\n\n`;
+        ? `> 生成AI: ${getModelIcon(reportModel)} ${getModelLabel(reportModel)}\n${meta.downloadHeader}\n---\n\n`
+        : `${meta.downloadHeader}\n---\n\n`;
       const md = `# ${autoTitle}\n\n${modelLine}${report}`;
       const blob = new Blob([md], { type: 'text/markdown;charset=utf-8' });
       const blobUrl = URL.createObjectURL(blob);
@@ -202,15 +286,61 @@ export default function BuzzAnalysisPage() {
     }
   };
 
+  // 実行ボタンラベル
+  const submitLabel = () => {
+    if (loading) return `🔍 分析中... ${elapsed}秒`;
+    if (mode === 'single') return '🚀 バズり要素を分析';
+    if (mode === 'multi') return '🚀 5本まとめてバズり要素を分析';
+    return '🚀 この分野のバズりパターンを分析';
+  };
+
+  // ローディング中の説明文
+  const loadingMsg = () => {
+    if (mode === 'single') return '記事の本文取得 → バズり要素分析中...（混雑時は自動でリトライします）';
+    if (mode === 'multi') return '複数記事の本文を並列取得 → 共通要素を分析中...（混雑時は自動でリトライします）';
+    return '分野別の典型バズりパターンを生成中...';
+  };
+
+  const saveMeta = getSaveMeta();
+
   return (
     <div>
       <ProgressBar loading={progressLoading} progress={progress} label="📊 バズり要素を分析中..." />
       <h1 style={{ fontSize: 28, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 8 }}>📊 バズり分析</h1>
       <p style={{ color: 'var(--text-muted)', marginBottom: 16 }}>
-        Claude AI または Gemini 3.5 Flash が note・Web 記事のバズり要素を分析し、構成・口調・マーケティング要素を言語化します。
+        Claude AI または Gemini 3.5 Flash が note・Web 記事のバズり要素を3つのモードで言語化します。
       </p>
 
       <div style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 14, padding: 20, marginBottom: 20 }}>
+
+        {/* モード選択タブ */}
+        <div style={{ marginBottom: 14 }}>
+          <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.06em' }}>分析モード</div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 8 }}>
+            {MODE_OPTIONS.map(m => (
+              <button
+                key={m.value}
+                onClick={() => switchMode(m.value)}
+                disabled={loading}
+                style={{
+                  padding: '12px 8px',
+                  borderRadius: 8,
+                  border: mode === m.value ? '2px solid var(--accent)' : '1px solid var(--border)',
+                  cursor: loading ? 'not-allowed' : 'pointer',
+                  background: mode === m.value ? 'var(--accent-soft)' : 'var(--bg-primary)',
+                  color: mode === m.value ? 'var(--text-secondary)' : 'var(--text-muted)',
+                  fontSize: 13,
+                  fontWeight: 600,
+                  textAlign: 'center' as const,
+                  opacity: loading ? 0.6 : 1,
+                }}
+              >
+                <div>{m.label}</div>
+                <div style={{ fontSize: 11, marginTop: 3, fontWeight: 400 }}>{m.desc}</div>
+              </button>
+            ))}
+          </div>
+        </div>
 
         {/* 深さ選択 */}
         <div style={{ marginBottom: 14 }}>
@@ -239,34 +369,125 @@ export default function BuzzAnalysisPage() {
           </div>
         </div>
 
-        {/* URL 入力 */}
-        <div style={{ marginBottom: 12 }}>
-          <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.06em' }}>分析する記事の URL</div>
-          <input
-            type="url"
-            value={url}
-            onChange={e => setUrl(e.target.value)}
-            placeholder="https://note.com/xxx/n/xxx"
-            style={{
-              width: '100%',
-              background: 'var(--bg-primary)',
-              border: '1px solid var(--border)',
-              borderRadius: 8,
-              color: 'var(--text-primary)',
-              fontSize: 14,
-              padding: '12px 14px',
-              outline: 'none',
-              fontFamily: 'inherit',
-              boxSizing: 'border-box',
-            }}
-            onKeyDown={e => {
-              if (e.key === 'Enter' && !loading) analyze();
-            }}
-          />
-          <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 6 }}>
-            ※ note 記事、ブログ、ニュース、メディア記事など Web 上の公開 URL に対応します
+        {/* モード別: 入力欄 */}
+        {mode === 'single' && (
+          <div style={{ marginBottom: 12 }}>
+            <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.06em' }}>分析する記事の URL</div>
+            <input
+              type="url"
+              value={url}
+              onChange={e => setUrl(e.target.value)}
+              placeholder="https://note.com/xxx/n/xxx"
+              style={{
+                width: '100%',
+                background: 'var(--bg-primary)',
+                border: '1px solid var(--border)',
+                borderRadius: 8,
+                color: 'var(--text-primary)',
+                fontSize: 14,
+                padding: '12px 14px',
+                outline: 'none',
+                fontFamily: 'inherit',
+                boxSizing: 'border-box',
+              }}
+              onKeyDown={e => {
+                if (e.key === 'Enter' && !loading) analyze();
+              }}
+            />
+            <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 6 }}>
+              ※ note 記事、ブログ、ニュース、メディア記事など Web 上の公開 URL に対応します
+            </div>
           </div>
-        </div>
+        )}
+
+        {mode === 'multi' && (
+          <div style={{ marginBottom: 12 }}>
+            <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.06em' }}>比較する記事の URL（最大5本、最低2本）</div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              {urls.map((u, i) => (
+                <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <span style={{ fontSize: 12, color: 'var(--text-muted)', minWidth: 36, fontWeight: 600 }}>#{i + 1}</span>
+                  <input
+                    type="url"
+                    value={u}
+                    onChange={e => updateMultiUrl(i, e.target.value)}
+                    placeholder={i === 0 ? 'https://note.com/xxx/n/xxx（1本目）' : `URL ${i + 1} 本目（任意）`}
+                    style={{
+                      flex: 1,
+                      background: 'var(--bg-primary)',
+                      border: '1px solid var(--border)',
+                      borderRadius: 8,
+                      color: 'var(--text-primary)',
+                      fontSize: 13,
+                      padding: '10px 12px',
+                      outline: 'none',
+                      fontFamily: 'inherit',
+                      boxSizing: 'border-box',
+                    }}
+                  />
+                </div>
+              ))}
+            </div>
+            <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 6 }}>
+              ※ 全URLの本文取得後、共通するバズり要素 TOP5 を1回の AI 分析で生成します（5本中3本以上の取得成功が必要）
+            </div>
+          </div>
+        )}
+
+        {mode === 'pattern' && (
+          <div style={{ marginBottom: 12 }}>
+            <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.06em' }}>分析する分野・テーマ</div>
+            <input
+              type="text"
+              value={field}
+              onChange={e => setField(e.target.value)}
+              placeholder="例: 副業ブログ / 育児 / ビジネス書レビュー"
+              style={{
+                width: '100%',
+                background: 'var(--bg-primary)',
+                border: '1px solid var(--border)',
+                borderRadius: 8,
+                color: 'var(--text-primary)',
+                fontSize: 14,
+                padding: '12px 14px',
+                outline: 'none',
+                fontFamily: 'inherit',
+                boxSizing: 'border-box',
+              }}
+              onKeyDown={e => {
+                if (e.key === 'Enter' && !loading) analyze();
+              }}
+            />
+            <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 6 }}>
+              ※ URL 取得は不要です。分野名から AI が「典型バズりパターン」を5つ生成します
+            </div>
+
+            {/* 分野別クイックテンプレート */}
+            <div style={{ marginTop: 12 }}>
+              <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 6 }}>分野をクイック選択：</div>
+              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                {FIELD_TEMPLATES.map(f => (
+                  <button
+                    key={f}
+                    type="button"
+                    onClick={() => setField(f)}
+                    style={{
+                      padding: '6px 14px',
+                      borderRadius: 20,
+                      border: field === f ? '1px solid var(--accent)' : '1px solid var(--border)',
+                      background: field === f ? 'var(--accent-soft)' : 'var(--bg-primary)',
+                      color: 'var(--text-secondary)',
+                      cursor: 'pointer',
+                      fontSize: 12,
+                    }}
+                  >
+                    {f}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
 
         {errorMsg && (
           <div style={{
@@ -298,40 +519,42 @@ export default function BuzzAnalysisPage() {
               opacity: loading ? 0.7 : 1,
             }}
           >
-            {loading ? `🔍 分析中... ${elapsed}秒` : '🚀 バズり要素を分析'}
+            {submitLabel()}
           </button>
         </div>
       </div>
 
-      {/* クイックテンプレート */}
-      <div style={{ marginBottom: 20 }}>
-        <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 8, textTransform: 'uppercase', letterSpacing: '0.06em' }}>クイックテンプレート（URL の参考プレースホルダ）</div>
-        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-          {TEMPLATES.map(t => (
-            <button
-              key={t.label}
-              onClick={() => setUrl(t.placeholder)}
-              style={{
-                padding: '6px 14px',
-                borderRadius: 20,
-                border: '1px solid var(--border)',
-                background: 'var(--accent-soft)',
-                color: 'var(--text-secondary)',
-                cursor: 'pointer',
-                fontSize: 12,
-              }}
-            >
-              {t.label}
-            </button>
-          ))}
+      {/* single モードのみ: URL クイックテンプレート（プレースホルダ） */}
+      {mode === 'single' && (
+        <div style={{ marginBottom: 20 }}>
+          <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 8, textTransform: 'uppercase', letterSpacing: '0.06em' }}>クイックテンプレート（URL の参考プレースホルダ）</div>
+          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+            {SINGLE_TEMPLATES.map(t => (
+              <button
+                key={t.label}
+                onClick={() => setUrl(t.placeholder)}
+                style={{
+                  padding: '6px 14px',
+                  borderRadius: 20,
+                  border: '1px solid var(--border)',
+                  background: 'var(--accent-soft)',
+                  color: 'var(--text-secondary)',
+                  cursor: 'pointer',
+                  fontSize: 12,
+                }}
+              >
+                {t.label}
+              </button>
+            ))}
+          </div>
         </div>
-      </div>
+      )}
 
       {loading && (
         <div style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 12, padding: 32, textAlign: 'center' }}>
           <div style={{ width: 40, height: 40, border: '3px solid var(--border-accent)', borderTopColor: 'var(--accent)', borderRadius: '50%', animation: 'spin 0.8s linear infinite', margin: '0 auto 16px' }} />
-          <div style={{ color: 'var(--text-secondary)', fontWeight: 600, marginBottom: 6 }}>記事の本文取得 → バズり要素分析中...（混雑時は自動でリトライします）</div>
-          <div style={{ color: 'var(--text-muted)', fontSize: 13 }}>{elapsed}秒経過 / 分析には20〜90秒かかります</div>
+          <div style={{ color: 'var(--text-secondary)', fontWeight: 600, marginBottom: 6 }}>{loadingMsg()}</div>
+          <div style={{ color: 'var(--text-muted)', fontSize: 13 }}>{elapsed}秒経過 / 分析には20〜120秒かかります</div>
         </div>
       )}
 
@@ -341,12 +564,18 @@ export default function BuzzAnalysisPage() {
             <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
               <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-secondary)' }}>📊 バズり分析レポート</span>
               <SaveToLibraryButton
-                title={`バズり分析: ${url.slice(0, 60)}`}
+                title={saveMeta.title}
                 content={report}
                 type="buzz-analysis"
                 groupName="バズり分析"
-                tags="バズり分析"
-                metadata={{ url, depth }}
+                tags={saveMeta.tags}
+                metadata={{
+                  mode: reportMode || mode,
+                  depth,
+                  url: reportMode === 'single' ? url : undefined,
+                  urls: reportMode === 'multi' ? urls.filter(u => u.trim()) : undefined,
+                  field: reportMode === 'pattern' ? field : undefined,
+                }}
               />
             </div>
             <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
@@ -397,6 +626,7 @@ export default function BuzzAnalysisPage() {
           {/* メタ情報 */}
           <div style={{ marginTop: 16, paddingTop: 12, borderTop: '1px solid var(--border)', display: 'flex', gap: 16, flexWrap: 'wrap', fontSize: 11, color: 'var(--text-muted)' }}>
             <span>文字数: {report.length.toLocaleString()}</span>
+            <span>モード: {MODE_OPTIONS.find(m => m.value === (reportMode || mode))?.label}</span>
             <span>深さ: {DEPTH_OPTIONS.find(d => d.value === depth)?.label}</span>
             {reportModel && (
               <span>使用モデル: {getModelIcon(reportModel)} {getModelLabel(reportModel)}</span>
