@@ -577,7 +577,7 @@ export default function InvestmentResearchPage() {
         <div style={{ marginTop: 16, background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 12, padding: 24 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12, flexWrap: 'wrap', gap: 8 }}>
             <span style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-secondary)' }}>📝 要約（1000字以内）</span>
-            <div style={{ display: 'flex', gap: 8 }}>
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
               <button
                 onClick={() => navigator.clipboard.writeText(insights.summary)}
                 style={{ padding: '5px 12px', background: 'var(--bg-primary)', border: '1px solid var(--border)', color: 'var(--text-secondary)', borderRadius: 6, cursor: 'pointer', fontSize: 12 }}
@@ -591,6 +591,13 @@ export default function InvestmentResearchPage() {
               >
                 {downloadingSummary ? '⏳ 生成中...' : '📥 MD'}
               </button>
+              <SaveToLibraryButton
+                title={`投資予測 要約: ${topic}`}
+                content={insights.summary}
+                type="deepresearch"
+                groupName="投資予測"
+                tags="投資予測,要約"
+              />
             </div>
           </div>
           <div style={{ fontSize: 14, color: 'var(--text-secondary)', lineHeight: 1.85, whiteSpace: 'pre-wrap' }}>
@@ -607,7 +614,7 @@ export default function InvestmentResearchPage() {
         <div style={{ marginTop: 16, background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 12, padding: 24 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12, flexWrap: 'wrap', gap: 8 }}>
             <span style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-secondary)' }}>💡 AI 投資アドバイス（2000字以内）</span>
-            <div style={{ display: 'flex', gap: 8 }}>
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
               <button
                 onClick={() => navigator.clipboard.writeText(insights.advice)}
                 style={{ padding: '5px 12px', background: 'var(--bg-primary)', border: '1px solid var(--border)', color: 'var(--text-secondary)', borderRadius: 6, cursor: 'pointer', fontSize: 12 }}
@@ -621,6 +628,13 @@ export default function InvestmentResearchPage() {
               >
                 {downloadingAdvice ? '⏳ 生成中...' : '📥 MD'}
               </button>
+              <SaveToLibraryButton
+                title={`投資予測 AIアドバイス: ${topic}`}
+                content={insights.advice}
+                type="deepresearch"
+                groupName="投資予測"
+                tags="投資予測,AIアドバイス"
+              />
             </div>
           </div>
           <div style={{ fontSize: 14, color: 'var(--text-secondary)', lineHeight: 1.85, whiteSpace: 'pre-wrap' }}>
