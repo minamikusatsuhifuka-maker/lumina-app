@@ -3,6 +3,7 @@ import { useState } from 'react';
 import { ProgressBar } from '@/components/ProgressBar';
 import { useProgress } from '@/components/useProgress';
 import { SaveToLibraryButton } from '@/components/SaveToLibraryButton';
+import BuzzLibraryList from '@/components/buzz/BuzzLibraryList';
 import {
   getSavedModel,
   getModelLabel,
@@ -17,6 +18,7 @@ import {
 
 type Depth = 'light' | 'standard' | 'deep';
 type Mode = 'single' | 'multi' | 'pattern';
+type TabKey = 'execute' | 'library';
 
 const MODE_OPTIONS: Array<{ value: Mode; label: string; desc: string }> = [
   { value: 'single', label: '📚 単一URL分析', desc: '1本の記事を多角的に分析' },
@@ -94,6 +96,9 @@ const formatReport = (text: string): string => {
 };
 
 export default function BuzzAnalysisPage() {
+  const [tab, setTab] = useState<TabKey>('execute');
+  // 蓄積一覧の再フェッチトリガ（保存後にインクリメント）
+  const [libraryRefreshKey, setLibraryRefreshKey] = useState(0);
   const [mode, setMode] = useState<Mode>('single');
   const [url, setUrl] = useState('');
   const [urls, setUrls] = useState<string[]>(['', '', '', '', '']);
@@ -303,6 +308,19 @@ export default function BuzzAnalysisPage() {
 
   const saveMeta = getSaveMeta();
 
+  // タブ切替（蓄積一覧に切替時は最新化）
+  const switchTab = (next: TabKey) => {
+    setTab(next);
+    if (next === 'library') {
+      setLibraryRefreshKey(k => k + 1);
+    }
+  };
+
+  const TABS: Array<{ key: TabKey; label: string; color: string }> = [
+    { key: 'execute', label: '🚀 分析実行', color: 'var(--accent)' },
+    { key: 'library', label: '📁 蓄積一覧', color: '#8b5cf6' },
+  ];
+
   return (
     <div>
       <ProgressBar loading={progressLoading} progress={progress} label="📊 バズり要素を分析中..." />
@@ -310,6 +328,44 @@ export default function BuzzAnalysisPage() {
       <p style={{ color: 'var(--text-muted)', marginBottom: 16 }}>
         Claude AI または Gemini 3.5 Flash が note・Web 記事のバズり要素を3つのモードで言語化します。
       </p>
+
+      {/* タブ */}
+      <div style={{ display: 'flex', gap: 4, marginBottom: 20, borderBottom: '1px solid var(--border)' }}>
+        {TABS.map(t => {
+          const active = tab === t.key;
+          return (
+            <button
+              key={t.key}
+              type="button"
+              onClick={() => switchTab(t.key)}
+              style={{
+                padding: '10px 18px',
+                background: 'transparent',
+                border: 'none',
+                borderBottom: `2px solid ${active ? t.color : 'transparent'}`,
+                color: active ? t.color : 'var(--text-muted)',
+                fontSize: 13,
+                fontWeight: active ? 600 : 500,
+                cursor: 'pointer',
+                marginBottom: -1,
+              }}
+            >
+              {t.label}
+            </button>
+          );
+        })}
+      </div>
+
+      {/* 蓄積一覧タブ */}
+      <div style={{ display: tab === 'library' ? 'block' : 'none' }}>
+        <BuzzLibraryList
+          refreshKey={libraryRefreshKey}
+          onSwitchToExecute={() => switchTab('execute')}
+        />
+      </div>
+
+      {/* 分析実行タブ（既存3モード機能） */}
+      <div style={{ display: tab === 'execute' ? 'block' : 'none' }}>
 
       <div style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 14, padding: 20, marginBottom: 20 }}>
 
@@ -637,6 +693,8 @@ export default function BuzzAnalysisPage() {
           </div>
         </div>
       )}
+
+      </div>{/* /分析実行タブ */}
     </div>
   );
 }

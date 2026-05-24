@@ -9,24 +9,42 @@ export async function GET(req: NextRequest) {
   const sql = neon(process.env.DATABASE_URL!);
   const userId = (session.user as any).id;
   const q = req.nextUrl.searchParams.get('q')?.trim();
+  // type フィルタ（任意）。指定があれば type=xxx で絞り込み、なければ従来通り全件
+  const typeFilter = req.nextUrl.searchParams.get('type')?.trim();
 
   if (q) {
-    const rows = await sql`
-      SELECT *, CASE
-        WHEN title ILIKE ${'%' + q + '%'} THEN 1
-        WHEN content ILIKE ${'%' + q + '%'} THEN 2
-        ELSE 3
-      END as relevance
-      FROM library
-      WHERE user_id = ${userId}
-        AND (title ILIKE ${'%' + q + '%'} OR content ILIKE ${'%' + q + '%'})
-      ORDER BY relevance ASC, created_at DESC
-      LIMIT 50
-    `;
+    const rows = typeFilter
+      ? await sql`
+        SELECT *, CASE
+          WHEN title ILIKE ${'%' + q + '%'} THEN 1
+          WHEN content ILIKE ${'%' + q + '%'} THEN 2
+          ELSE 3
+        END as relevance
+        FROM library
+        WHERE user_id = ${userId}
+          AND type = ${typeFilter}
+          AND (title ILIKE ${'%' + q + '%'} OR content ILIKE ${'%' + q + '%'})
+        ORDER BY relevance ASC, created_at DESC
+        LIMIT 50
+      `
+      : await sql`
+        SELECT *, CASE
+          WHEN title ILIKE ${'%' + q + '%'} THEN 1
+          WHEN content ILIKE ${'%' + q + '%'} THEN 2
+          ELSE 3
+        END as relevance
+        FROM library
+        WHERE user_id = ${userId}
+          AND (title ILIKE ${'%' + q + '%'} OR content ILIKE ${'%' + q + '%'})
+        ORDER BY relevance ASC, created_at DESC
+        LIMIT 50
+      `;
     return NextResponse.json(rows);
   }
 
-  const rows = await sql`SELECT * FROM library WHERE user_id = ${userId} ORDER BY is_favorite DESC, created_at DESC`;
+  const rows = typeFilter
+    ? await sql`SELECT * FROM library WHERE user_id = ${userId} AND type = ${typeFilter} ORDER BY is_favorite DESC, created_at DESC`
+    : await sql`SELECT * FROM library WHERE user_id = ${userId} ORDER BY is_favorite DESC, created_at DESC`;
   return NextResponse.json(rows);
 }
 
