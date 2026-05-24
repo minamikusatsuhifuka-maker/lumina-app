@@ -5,7 +5,6 @@ import { VoiceInputButton } from '@/components/VoiceInputButton';
 import { useProgress } from '@/components/useProgress';
 import { SaveToLibraryButton } from '@/components/SaveToLibraryButton';
 import { DateRangePicker, DateRange, getDateCondition } from '@/components/DateRangePicker';
-import InlineAnalysisPanel from '@/components/text-analysis/InlineAnalysisPanel';
 import DeepDiveChat from '@/components/DeepDiveChat';
 import {
   getSavedModel,
@@ -474,6 +473,17 @@ export default function DeepResearchPage() {
   // 対象期間（API側の periodStart / periodEnd に渡す。任意項目）
   const [periodStart, setPeriodStart] = useState('');
   const [periodEnd, setPeriodEnd] = useState('');
+  // 自動生成 insights（要約・詳細・キーワード・活用アドバイス）
+  const [insights, setInsights] = useState<{
+    summary: string;
+    detail: string;
+    keywords: string[];
+    advice: string;
+  } | null>(null);
+  const [insightsLoading, setInsightsLoading] = useState(false);
+  const [downloadingSummary, setDownloadingSummary] = useState(false);
+  const [downloadingDetail, setDownloadingDetail] = useState(false);
+  const [downloadingAdvice, setDownloadingAdvice] = useState(false);
   const [report, setReport] = useState('');
   // 現在の report を生成したモデル（リクエスト送信時の getSavedModel() を記録）
   const [reportModel, setReportModel] = useState<AIModel | null>(null);
@@ -853,12 +863,71 @@ ${contextText}
     window.open(url, '_blank', 'noopener,noreferrer');
   };
 
+  // 要約・詳細・キーワード・活用アドバイスを自動生成（メインレポート完了後）
+  const fetchInsights = async (reportText: string, reportTopic: string) => {
+    if (!reportText.trim() || !reportTopic.trim()) return;
+    setInsightsLoading(true);
+    setInsights(null);
+    try {
+      const res = await fetch('/api/deepresearch/insights', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ report: reportText, topic: reportTopic, model: getSavedModel() }),
+      });
+      if (!res.ok) return;
+      const data = await res.json();
+      setInsights({
+        summary: data.summary ?? '',
+        detail: data.detail ?? '',
+        keywords: Array.isArray(data.keywords) ? data.keywords : [],
+        advice: data.advice ?? '',
+      });
+    } catch {
+      // メインレポートには影響させない
+    } finally {
+      setInsightsLoading(false);
+    }
+  };
+
+  // insights カードを MD としてダウンロード
+  const downloadInsightMd = async (
+    kind: 'summary' | 'detail' | 'advice',
+    body: string,
+    setBusy: (b: boolean) => void,
+  ) => {
+    if (!body.trim()) return;
+    setBusy(true);
+    try {
+      const label =
+        kind === 'summary' ? 'ディープリサーチ_要約'
+        : kind === 'detail' ? 'ディープリサーチ_詳細'
+        : 'ディープリサーチ_活用アドバイス';
+      const fallback = topic ? `${label}_${topic}` : label;
+      const autoTitle = await generateTitleWithTimeout(body, label, fallback);
+      const fileTitle = sanitizeFilename(autoTitle);
+      const modelLine = reportModel
+        ? `> 生成AI: ${getModelIcon(reportModel)} ${getModelLabel(reportModel)}\n\n---\n\n`
+        : '';
+      const md = `# ${autoTitle}\n\n${modelLine}${body}`;
+      const blob = new Blob([md], { type: 'text/markdown;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${fileTitle}_${yyyymmdd()}.md`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const research = async (t?: string, parentId: number | null = null, startDepth: number | null = null) => {
     const q = t || topic;
     if (!q.trim()) return;
     setLoading(true);
     startProgress();
     setReport('');
+    setInsights(null);
     setElapsed(0);
     setSuggestedTitles([]);
     setCurrentNodeId(null);
@@ -926,12 +995,13 @@ ${contextText}
         totalBytes: requestBytes + responseBytes,
       });
 
-      // 完了後：知識ツリーノード保存＋関連タイトル案生成＋専門用語抽出
+      // 完了後：知識ツリーノード保存＋関連タイトル案生成＋専門用語抽出＋insights 自動生成
       const finalDepth = startDepth !== null ? startDepth : 0;
       const finalParentId = parentId;
       if (accumulated.trim() && !accumulated.startsWith('エラー')) {
         saveNodeAndSuggestTitles(q, accumulated, finalParentId, finalDepth).catch(e => console.error(e));
         extractTermsFromResearch(accumulated, q).catch(e => console.error(e));
+        fetchInsights(accumulated, q).catch(e => console.error(e));
       }
     } catch (error: any) {
       setReport(`通信エラー: ${error.message}`);
@@ -1659,8 +1729,84 @@ ${contextText}
             </div>
           )}
 
-          {/* インライン分析パネル（リサーチ結果の直下） */}
-          <InlineAnalysisPanel text={report} topic={topic} />
+          {/* 自動生成: 要約・詳細・キーワード・活用アドバイス（生成中） */}
+          {insightsLoading && (
+            <div style={{ marginTop: 24, padding: 16, background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 8, textAlign: 'center' }}>
+              <div style={{ display: 'inline-block', width: 18, height: 18, border: '2px solid var(--border-accent)', borderTopColor: 'var(--accent)', borderRadius: '50%', animation: 'spin 0.8s linear infinite', verticalAlign: 'middle', marginRight: 8 }} />
+              <span style={{ color: 'var(--text-secondary)', fontSize: 13 }}>要約・詳細・キーワード・活用アドバイスを生成中...</span>
+            </div>
+          )}
+
+          {/* 📋 概要・要約カード */}
+          {insights && insights.summary && (
+            <section style={{ marginTop: 24, padding: 20, background: 'var(--bg-secondary)', borderRadius: 12, border: '1px solid var(--border)' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12, flexWrap: 'wrap' as const, gap: 8 }}>
+                <span style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-secondary)' }}>📋 概要・要約（1000字以内）</span>
+                <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                  <button onClick={() => navigator.clipboard.writeText(insights.summary)} style={{ padding: '5px 12px', background: 'var(--bg-primary)', border: '1px solid var(--border)', color: 'var(--text-secondary)', borderRadius: 6, cursor: 'pointer', fontSize: 12 }}>📋 コピー</button>
+                  <button onClick={() => downloadInsightMd('summary', insights.summary, setDownloadingSummary)} disabled={downloadingSummary} style={{ padding: '5px 12px', background: 'var(--bg-primary)', border: '1px solid var(--border)', color: 'var(--text-secondary)', borderRadius: 6, cursor: downloadingSummary ? 'not-allowed' : 'pointer', fontSize: 12, opacity: downloadingSummary ? 0.6 : 1 }}>{downloadingSummary ? '⏳ 生成中...' : '📥 MD'}</button>
+                  <SaveToLibraryButton title={`ディープリサーチ 要約: ${topic}`} content={insights.summary} type="deepresearch" groupName="ディープリサーチ" tags="ディープリサーチ,要約" />
+                </div>
+              </div>
+              <div style={{ fontSize: 14, color: 'var(--text-secondary)', lineHeight: 1.85, whiteSpace: 'pre-wrap' }}>{insights.summary}</div>
+              <div style={{ marginTop: 10, fontSize: 11, color: 'var(--text-muted)', textAlign: 'right' }}>📝 {insights.summary.length.toLocaleString()} 字</div>
+            </section>
+          )}
+
+          {/* 📖 詳細にまとめるカード */}
+          {insights && insights.detail && (
+            <section style={{ marginTop: 16, padding: 20, background: 'var(--bg-secondary)', borderRadius: 12, border: '1px solid var(--border)' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12, flexWrap: 'wrap' as const, gap: 8 }}>
+                <span style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-secondary)' }}>📖 詳細にまとめる（2000〜3000字）</span>
+                <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                  <button onClick={() => navigator.clipboard.writeText(insights.detail)} style={{ padding: '5px 12px', background: 'var(--bg-primary)', border: '1px solid var(--border)', color: 'var(--text-secondary)', borderRadius: 6, cursor: 'pointer', fontSize: 12 }}>📋 コピー</button>
+                  <button onClick={() => downloadInsightMd('detail', insights.detail, setDownloadingDetail)} disabled={downloadingDetail} style={{ padding: '5px 12px', background: 'var(--bg-primary)', border: '1px solid var(--border)', color: 'var(--text-secondary)', borderRadius: 6, cursor: downloadingDetail ? 'not-allowed' : 'pointer', fontSize: 12, opacity: downloadingDetail ? 0.6 : 1 }}>{downloadingDetail ? '⏳ 生成中...' : '📥 MD'}</button>
+                  <SaveToLibraryButton title={`ディープリサーチ 詳細: ${topic}`} content={insights.detail} type="deepresearch" groupName="ディープリサーチ" tags="ディープリサーチ,詳細" />
+                </div>
+              </div>
+              <div
+                style={{ fontSize: 14, color: 'var(--text-secondary)' }}
+                dangerouslySetInnerHTML={{ __html: formatReport(insights.detail) }}
+              />
+              <div style={{ marginTop: 10, fontSize: 11, color: 'var(--text-muted)', textAlign: 'right' }}>📝 {insights.detail.length.toLocaleString()} 字</div>
+            </section>
+          )}
+
+          {/* 🔑 重要キーワードカード */}
+          {insights && insights.keywords.length > 0 && (
+            <section style={{ marginTop: 16, padding: 20, background: 'var(--bg-secondary)', borderRadius: 12, border: '1px solid var(--border)' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12, flexWrap: 'wrap' as const, gap: 8 }}>
+                <span style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-secondary)' }}>🔑 重要キーワード（{insights.keywords.length}件）</span>
+                <button onClick={() => navigator.clipboard.writeText(insights.keywords.join(', '))} style={{ padding: '5px 12px', background: 'var(--bg-primary)', border: '1px solid var(--border)', color: 'var(--text-secondary)', borderRadius: 6, cursor: 'pointer', fontSize: 12 }}>📋 まとめてコピー</button>
+              </div>
+              <div style={{ display: 'flex', flexWrap: 'wrap' as const, gap: 8 }}>
+                {insights.keywords.map((kw, i) => (
+                  <span key={`${kw}-${i}`} style={{ padding: '6px 12px', borderRadius: 16, background: 'var(--bg-primary)', border: '1px solid var(--border)', fontSize: 13, color: 'var(--text-secondary)' }}>
+                    {kw}
+                  </span>
+                ))}
+              </div>
+            </section>
+          )}
+
+          {/* 💡 活用アドバイスカード */}
+          {insights && insights.advice && (
+            <section style={{ marginTop: 16, padding: 20, background: 'var(--bg-secondary)', borderRadius: 12, border: '1px solid var(--border)' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12, flexWrap: 'wrap' as const, gap: 8 }}>
+                <span style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-secondary)' }}>💡 活用アドバイス（2000字以内）</span>
+                <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                  <button onClick={() => navigator.clipboard.writeText(insights.advice)} style={{ padding: '5px 12px', background: 'var(--bg-primary)', border: '1px solid var(--border)', color: 'var(--text-secondary)', borderRadius: 6, cursor: 'pointer', fontSize: 12 }}>📋 コピー</button>
+                  <button onClick={() => downloadInsightMd('advice', insights.advice, setDownloadingAdvice)} disabled={downloadingAdvice} style={{ padding: '5px 12px', background: 'var(--bg-primary)', border: '1px solid var(--border)', color: 'var(--text-secondary)', borderRadius: 6, cursor: downloadingAdvice ? 'not-allowed' : 'pointer', fontSize: 12, opacity: downloadingAdvice ? 0.6 : 1 }}>{downloadingAdvice ? '⏳ 生成中...' : '📥 MD'}</button>
+                  <SaveToLibraryButton title={`ディープリサーチ 活用アドバイス: ${topic}`} content={insights.advice} type="deepresearch" groupName="ディープリサーチ" tags="ディープリサーチ,活用アドバイス" />
+                </div>
+              </div>
+              <div
+                style={{ fontSize: 14, color: 'var(--text-secondary)' }}
+                dangerouslySetInnerHTML={{ __html: formatReport(insights.advice) }}
+              />
+              <div style={{ marginTop: 10, fontSize: 11, color: 'var(--text-muted)', textAlign: 'right' }}>📝 {insights.advice.length.toLocaleString()} 字</div>
+            </section>
+          )}
 
           {/* 関連タイトル案（知識ツリー） */}
           {(isLoadingTitles || suggestedTitles.length > 0) && (
