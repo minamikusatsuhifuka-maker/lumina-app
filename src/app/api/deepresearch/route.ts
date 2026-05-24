@@ -9,11 +9,18 @@ export const maxDuration = 300;
 export async function POST(req: NextRequest) {
   const session = await auth();
   const userId = session ? (session.user as any).id : '';
-  const { topic, depth, model = 'claude' } = (await req.json()) as {
+  const { topic, depth, periodStart, periodEnd, model = 'claude' } = (await req.json()) as {
     topic: string;
     depth?: string;
+    periodStart?: string;
+    periodEnd?: string;
     model?: AIModel;
   };
+
+  // 対象期間セクション（指定がある場合のみ。未指定時は既存と完全互換）
+  const periodSection = (periodStart || periodEnd)
+    ? `\n\n# 対象期間\n${periodStart || '指定なし'} 〜 ${periodEnd || '現在まで'}\n上記の期間における情報・出来事・データを中心に分析してください。それ以外の期間の情報は、必要な背景説明としてのみ参照してください。`
+    : '';
 
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey || apiKey === 'your_api_key_here') {
@@ -74,7 +81,7 @@ export async function POST(req: NextRequest) {
 5. URLの後に属性やスタイルは絶対に書かない
 6. 事実と推測を明確に区別してください${clinicStr}`;
 
-  const userPrompt = `トピック：${topic}
+  const userPrompt = `トピック：${topic}${periodSection}
 調査深度の指示：${depthPrompts[selectedDepth]}
 
 【必須要件】

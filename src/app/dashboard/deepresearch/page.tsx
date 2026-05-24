@@ -471,6 +471,9 @@ export default function DeepResearchPage() {
   };
 
   const [dateRange, setDateRange] = useState<DateRange>({ start: null, end: null });
+  // 対象期間（API側の periodStart / periodEnd に渡す。任意項目）
+  const [periodStart, setPeriodStart] = useState('');
+  const [periodEnd, setPeriodEnd] = useState('');
   const [report, setReport] = useState('');
   // 現在の report を生成したモデル（リクエスト送信時の getSavedModel() を記録）
   const [reportModel, setReportModel] = useState<AIModel | null>(null);
@@ -868,7 +871,13 @@ ${contextText}
       // 送信ボディのバイト数を計測（モデルは送信時の値を固定化して記録）
       const modelAtRequest = getSavedModel();
       setReportModel(modelAtRequest);
-      const reqBody = JSON.stringify({ topic: q + getDateCondition(dateRange), depth, model: modelAtRequest });
+      const reqBody = JSON.stringify({
+        topic: q + getDateCondition(dateRange),
+        depth,
+        periodStart: periodStart || undefined,
+        periodEnd: periodEnd || undefined,
+        model: modelAtRequest,
+      });
       const requestBytes = new TextEncoder().encode(reqBody).length;
 
       const res = await retryFetch('/api/deepresearch', {
@@ -1135,6 +1144,60 @@ ${contextText}
           <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>調査期間：</span>
           <DateRangePicker value={dateRange} onChange={setDateRange} placeholder="期間を指定（任意）" />
         </div>
+
+        {/* 対象期間（プロンプトに埋め込み AI に指示）— 任意項目 */}
+        <details style={{ marginBottom: 12 }}>
+          <summary style={{
+            cursor: 'pointer',
+            padding: '8px 12px',
+            background: 'var(--bg-primary)',
+            border: '1px solid var(--border)',
+            borderRadius: 6,
+            fontSize: 13,
+            color: 'var(--text-secondary)',
+          }}>
+            📅 対象期間を指定する（任意）
+            {(periodStart || periodEnd) && (
+              <span style={{ marginLeft: 8, fontSize: 11, color: 'var(--accent)' }}>
+                ✓ {periodStart || '指定なし'} 〜 {periodEnd || '現在まで'}
+              </span>
+            )}
+          </summary>
+          <div style={{ marginTop: 10, display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
+            <div>
+              <label style={{ display: 'block', fontSize: 11, color: 'var(--text-muted)', marginBottom: 4 }}>開始日</label>
+              <input
+                type="date"
+                value={periodStart}
+                onChange={(e) => setPeriodStart(e.target.value)}
+                style={{ padding: '6px 10px', border: '1px solid var(--border)', borderRadius: 4, background: 'var(--bg-primary)', color: 'var(--text-primary)', fontSize: 13 }}
+              />
+            </div>
+            <span style={{ color: 'var(--text-muted)', marginTop: 16 }}>〜</span>
+            <div>
+              <label style={{ display: 'block', fontSize: 11, color: 'var(--text-muted)', marginBottom: 4 }}>終了日</label>
+              <input
+                type="date"
+                value={periodEnd}
+                onChange={(e) => setPeriodEnd(e.target.value)}
+                style={{ padding: '6px 10px', border: '1px solid var(--border)', borderRadius: 4, background: 'var(--bg-primary)', color: 'var(--text-primary)', fontSize: 13 }}
+              />
+            </div>
+            {(periodStart || periodEnd) && (
+              <button
+                type="button"
+                onClick={() => { setPeriodStart(''); setPeriodEnd(''); }}
+                style={{ padding: '6px 12px', fontSize: 12, background: 'transparent', border: '1px solid var(--border)', borderRadius: 4, cursor: 'pointer', color: 'var(--text-secondary)', marginTop: 16 }}
+              >
+                クリア
+              </button>
+            )}
+          </div>
+          <p style={{ marginTop: 8, fontSize: 11, color: 'var(--text-muted)', lineHeight: 1.6 }}>
+            ※ 指定した期間の情報を中心に分析するよう AI に指示します。AI 検索の制約により完全な絞り込みではありませんが、精度を高めます。
+          </p>
+        </details>
+
         <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
           <button
             onClick={() => research()}
