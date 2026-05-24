@@ -69,11 +69,24 @@ export default function BuzzLibraryList({ onSwitchToExecute, refreshKey = 0 }: P
   const [favOnly, setFavOnly] = useState(false);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [downloadingId, setDownloadingId] = useState<string | null>(null);
+  // 複数選択（フィルタを切替えても選択状態は維持）
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [bulkDownloading, setBulkDownloading] = useState(false);
   const [toast, setToast] = useState('');
 
   const showToast = (msg: string) => {
     setToast(msg);
     setTimeout(() => setToast(''), 2500);
+  };
+
+  // 個別チェック
+  const toggleSelect = (id: string) => {
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
   };
 
   // 取得
@@ -127,6 +140,127 @@ export default function BuzzLibraryList({ onSwitchToExecute, refreshKey = 0 }: P
     });
   }, [items, search, modeFilter, favOnly]);
 
+  // 表示中(filtered)の全選択 / 全解除トグル
+  const filteredIds = useMemo(() => filtered.map(it => it.id), [filtered]);
+  const allFilteredSelected =
+    filteredIds.length > 0 && filteredIds.every(id => selectedIds.has(id));
+  const toggleSelectAllFiltered = () => {
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      if (allFilteredSelected) {
+        filteredIds.forEach(id => next.delete(id));
+      } else {
+        filteredIds.forEach(id => next.add(id));
+      }
+      return next;
+    });
+  };
+
+  // 選択中レコード（items から取得、フィルタ外も含む）
+  const selectedRecords = useMemo(
+    () => items.filter(it => selectedIds.has(it.id)),
+    [items, selectedIds],
+  );
+
+  // 一括コピー
+  const handleBulkCopy = async () => {
+    if (selectedRecords.length === 0) return;
+    const text = selectedRecords
+      .map(r => `# ${r.title || '(無題)'}\n\n${r.content || ''}`)
+      .join('\n\n---\n\n');
+    try {
+      await navigator.clipboard.writeText(text);
+      showToast(`📋 ${selectedRecords.length}件をコピーしました`);
+    } catch {
+      showToast('❌ コピーに失敗しました');
+    }
+  };
+
+  // 一括MDダウンロード（1ファイルにまとめて出力）
+  const handleBulkDownloadMd = async () => {
+    if (selectedRecords.length === 0) return;
+    setBulkDownloading(true);
+    try {
+      const date = yyyymmdd();
+      const baseTitle = `バズり分析まとめ_${selectedRecords.length}件`;
+      const fileTitle = sanitizeFilename(baseTitle);
+
+      const indexLines = selectedRecords
+        .map((r, i) => `${i + 1}. ${r.title || '(無題)'}`)
+        .join('\n');
+
+      const body = selectedRecords
+        .map(r => {
+          const modeKey = detectMode(r.tags);
+          const modeLabel = MODE_LABELS[modeKey].label;
+          const meta = r.metadata || {};
+          const metaHeader =
+            modeKey === 'single' && meta.url
+              ? `> 対象URL: ${meta.url}`
+              : modeKey === 'multi' && Array.isArray(meta.urls)
+              ? `> 対象URL一覧:\n${meta.urls.map((u: string) => `> - ${u}`).join('\n')}`
+              : modeKey === 'pattern' && meta.field
+              ? `> 対象分野: ${meta.field}`
+              : '';
+          return `# ${r.title || '(無題)'}
+
+> 保存日時: ${formatDate(r.created_at)}
+> モード: ${modeLabel}
+${metaHeader ? metaHeader + '\n' : ''}
+${r.content || ''}`;
+        })
+        .join('\n\n---\n\n');
+
+      const md = `# ${baseTitle}
+
+> 出力日: ${new Date().toLocaleString('ja-JP')}
+> 件数: ${selectedRecords.length}件
+
+## 📋 目次
+${indexLines}
+
+---
+
+${body}`;
+
+      const blob = new Blob([md], { type: 'text/markdown;charset=utf-8' });
+      const blobUrl = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = blobUrl;
+      a.download = `${fileTitle}_${date}.md`;
+      a.click();
+      URL.revokeObjectURL(blobUrl);
+      showToast(`📥 ${selectedRecords.length}件のMDをダウンロードしました`);
+    } finally {
+      setBulkDownloading(false);
+    }
+  };
+
+  // note 記事生成（Step 3）への引き渡し: sessionStorage に保管
+  const handlePrepareForNoteArticle = () => {
+    if (selectedRecords.length === 0) return;
+    try {
+      sessionStorage.setItem(
+        'buzz-analysis-context',
+        JSON.stringify({
+          records: selectedRecords.map(r => ({
+            id: r.id,
+            title: r.title,
+            content: r.content,
+            tags: r.tags,
+            created_at: r.created_at,
+          })),
+          savedAt: new Date().toISOString(),
+        }),
+      );
+      showToast(
+        `✍️ ${selectedRecords.length}件を「note 記事生成」の参考情報として準備しました（Step 3 実装後に活用予定）`,
+      );
+    } catch {
+      showToast('❌ 準備に失敗しました（ブラウザストレージ制限）');
+    }
+  };
+
   // お気に入りトグル
   const toggleFavorite = async (item: LibraryItem) => {
     const nextFav = Number(item.is_favorite) ? false : true;
@@ -159,6 +293,13 @@ export default function BuzzLibraryList({ onSwitchToExecute, refreshKey = 0 }: P
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       setItems(prev => prev.filter(it => it.id !== item.id));
       if (expandedId === item.id) setExpandedId(null);
+      // 選択からも除外
+      setSelectedIds(prev => {
+        if (!prev.has(item.id)) return prev;
+        const next = new Set(prev);
+        next.delete(item.id);
+        return next;
+      });
       showToast('🗑 削除しました');
     } catch {
       showToast('❌ 削除に失敗しました');
@@ -306,6 +447,25 @@ export default function BuzzLibraryList({ onSwitchToExecute, refreshKey = 0 }: P
           <FilterButton value="pattern" label="🎯 分野別パターン" />
           {counts.other > 0 && <FilterButton value="other" label="📦 その他" />}
           <div style={{ flex: 1 }} />
+          {filteredIds.length > 0 && (
+            <button
+              type="button"
+              onClick={toggleSelectAllFiltered}
+              style={{
+                padding: '6px 14px',
+                borderRadius: 20,
+                border: allFilteredSelected ? '1px solid var(--accent)' : '1px solid var(--border)',
+                background: allFilteredSelected ? 'var(--accent-soft)' : 'var(--bg-primary)',
+                color: allFilteredSelected ? 'var(--text-secondary)' : 'var(--text-muted)',
+                cursor: 'pointer',
+                fontSize: 12,
+                fontWeight: allFilteredSelected ? 600 : 500,
+              }}
+              title={allFilteredSelected ? '表示中をすべて解除' : '表示中をすべて選択'}
+            >
+              {allFilteredSelected ? '☑ 表示中を全解除' : '☐ 表示中を全選択'}
+            </button>
+          )}
           <button
             type="button"
             onClick={() => setFavOnly(v => !v)}
@@ -359,6 +519,97 @@ export default function BuzzLibraryList({ onSwitchToExecute, refreshKey = 0 }: P
         </div>
       )}
 
+      {/* 選択中アクションバー（スティッキー） */}
+      {selectedIds.size > 0 && (
+        <div style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 12,
+          padding: '12px 16px',
+          background: 'var(--bg-secondary)',
+          border: '1px solid var(--accent)',
+          borderRadius: 10,
+          position: 'sticky',
+          top: 0,
+          zIndex: 10,
+          marginBottom: 12,
+          boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
+          flexWrap: 'wrap',
+        }}>
+          <span style={{ fontWeight: 700, color: 'var(--text-primary)', fontSize: 13 }}>
+            ☑ 選択中: <span style={{ color: 'var(--accent)' }}>{selectedIds.size}件</span>
+          </span>
+          <div style={{ display: 'flex', gap: 8, marginLeft: 'auto', flexWrap: 'wrap' }}>
+            <button
+              type="button"
+              onClick={handleBulkCopy}
+              style={{
+                padding: '6px 14px',
+                background: 'var(--bg-primary)',
+                border: '1px solid var(--border)',
+                color: 'var(--text-secondary)',
+                borderRadius: 6,
+                cursor: 'pointer',
+                fontSize: 12,
+                fontWeight: 600,
+              }}
+            >
+              📋 まとめてコピー
+            </button>
+            <button
+              type="button"
+              onClick={handleBulkDownloadMd}
+              disabled={bulkDownloading}
+              style={{
+                padding: '6px 14px',
+                background: 'var(--bg-primary)',
+                border: '1px solid var(--border)',
+                color: 'var(--text-secondary)',
+                borderRadius: 6,
+                cursor: bulkDownloading ? 'not-allowed' : 'pointer',
+                fontSize: 12,
+                fontWeight: 600,
+                opacity: bulkDownloading ? 0.6 : 1,
+              }}
+            >
+              {bulkDownloading ? '⏳ 生成中...' : '📥 まとめてMD保存'}
+            </button>
+            <button
+              type="button"
+              onClick={handlePrepareForNoteArticle}
+              style={{
+                padding: '6px 14px',
+                background: 'linear-gradient(135deg, #ec4899, #8b5cf6)',
+                border: 'none',
+                color: '#fff',
+                borderRadius: 6,
+                cursor: 'pointer',
+                fontSize: 12,
+                fontWeight: 600,
+              }}
+            >
+              ✍️ note 記事に活用
+            </button>
+            <button
+              type="button"
+              onClick={() => setSelectedIds(new Set())}
+              style={{
+                padding: '6px 14px',
+                marginLeft: 4,
+                background: 'transparent',
+                border: '1px solid var(--border)',
+                color: 'var(--text-muted)',
+                borderRadius: 6,
+                cursor: 'pointer',
+                fontSize: 12,
+              }}
+            >
+              ✕ 解除
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* カード一覧 */}
       <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
         {filtered.map(item => {
@@ -366,21 +617,50 @@ export default function BuzzLibraryList({ onSwitchToExecute, refreshKey = 0 }: P
           const modeInfo = MODE_LABELS[modeKey];
           const isExpanded = expandedId === item.id;
           const isFav = !!Number(item.is_favorite);
+          const isSelected = selectedIds.has(item.id);
           const preview = (item.content || '').replace(/[#*>`-]/g, '').slice(0, 200);
+
+          // 選択中 > お気に入り > 通常 の優先で枠線色
+          const borderColor = isSelected
+            ? 'var(--accent)'
+            : isFav
+            ? 'rgba(245,166,35,0.4)'
+            : 'var(--border)';
 
           return (
             <div
               key={item.id}
               style={{
-                background: 'var(--bg-secondary)',
-                border: isFav ? '1px solid rgba(245,166,35,0.4)' : '1px solid var(--border)',
+                background: isSelected ? 'var(--accent-soft)' : 'var(--bg-secondary)',
+                border: `${isSelected ? '2px' : '1px'} solid ${borderColor}`,
                 borderRadius: 12,
                 padding: 16,
-                transition: 'border-color 0.15s',
+                transition: 'border-color 0.15s, background 0.15s',
               }}
             >
-              {/* ヘッダー: タイトル + バッジ */}
+              {/* ヘッダー: チェックボックス + タイトル + バッジ */}
               <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10, marginBottom: 8 }}>
+                <label
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    cursor: 'pointer',
+                    paddingTop: 2,
+                  }}
+                  title={isSelected ? '選択を外す' : '一括処理用に選択'}
+                >
+                  <input
+                    type="checkbox"
+                    checked={isSelected}
+                    onChange={() => toggleSelect(item.id)}
+                    style={{
+                      width: 16,
+                      height: 16,
+                      cursor: 'pointer',
+                      accentColor: 'var(--accent)',
+                    }}
+                  />
+                </label>
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 4, flexWrap: 'wrap' }}>
                     <span style={{
