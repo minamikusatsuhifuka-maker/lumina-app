@@ -1,9 +1,10 @@
 'use client';
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { ProgressBar } from '@/components/ProgressBar';
 import { VoiceInputButton } from '@/components/VoiceInputButton';
 import { useProgress } from '@/components/useProgress';
 import { SaveToLibraryButton } from '@/components/SaveToLibraryButton';
+import InlineAnalysisPanel from '@/components/text-analysis/InlineAnalysisPanel';
 import {
   getSavedModel,
   getModelLabel,
@@ -15,6 +16,12 @@ import {
   sanitizeFilename,
   yyyymmdd,
 } from '@/lib/title-generator';
+
+type Insights = {
+  summary: string;
+  advice: string;
+  keywords: string[];
+};
 
 type InvestmentMode = 'world' | 'sector' | 'future' | 'custom';
 
@@ -105,7 +112,83 @@ export default function InvestmentResearchPage() {
     responseBytes: number;
     totalBytes: number;
   } | null>(null);
+  // 追加機能: 要約・アドバイス・関連キーワード
+  const [insights, setInsights] = useState<Insights | null>(null);
+  const [insightsLoading, setInsightsLoading] = useState(false);
+  const [downloadingSummary, setDownloadingSummary] = useState(false);
+  const [downloadingAdvice, setDownloadingAdvice] = useState(false);
+  const topicInputRef = useRef<HTMLTextAreaElement | null>(null);
   const { progress, loading: progressLoading, startProgress, completeProgress, resetProgress } = useProgress();
+
+  // 要約・アドバイス・関連キーワードを取得
+  const fetchInsights = async (reportText: string, reportTopic: string) => {
+    if (!reportText.trim() || !reportTopic.trim()) return;
+    setInsightsLoading(true);
+    setInsights(null);
+    try {
+      const res = await fetch('/api/investment-research/insights', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ report: reportText, topic: reportTopic, model: getSavedModel() }),
+      });
+      if (!res.ok) return;
+      const data = (await res.json()) as Insights & { error?: string };
+      setInsights({
+        summary: data.summary ?? '',
+        advice: data.advice ?? '',
+        keywords: Array.isArray(data.keywords) ? data.keywords : [],
+      });
+    } catch {
+      // メインレポートには影響させない
+    } finally {
+      setInsightsLoading(false);
+    }
+  };
+
+  // 関連キーワードをクリック → 再リサーチ（ループ可能）
+  const handleKeywordClick = (keyword: string) => {
+    setTopic(keyword);
+    setReport('');
+    setInsights(null);
+    // 入力欄へスクロール
+    setTimeout(() => {
+      topicInputRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      topicInputRef.current?.focus();
+    }, 50);
+    // state 反映後にリサーチ実行
+    setTimeout(() => {
+      research(keyword);
+    }, 100);
+  };
+
+  // 要約・アドバイスを MD としてダウンロード
+  const downloadInsightMd = async (
+    kind: 'summary' | 'advice',
+    body: string,
+    setBusy: (b: boolean) => void,
+  ) => {
+    if (!body.trim()) return;
+    setBusy(true);
+    try {
+      const label = kind === 'summary' ? '投資予測_要約' : '投資予測_AIアドバイス';
+      const fallback = topic ? `${label}_${topic}` : label;
+      const autoTitle = await generateTitleWithTimeout(body, label, fallback);
+      const fileTitle = sanitizeFilename(autoTitle);
+      const modelLine = reportModel
+        ? `> 生成AI: ${getModelIcon(reportModel)} ${getModelLabel(reportModel)}\n\n---\n\n`
+        : '';
+      const md = `# ${autoTitle}\n\n${modelLine}${body}`;
+      const blob = new Blob([md], { type: 'text/markdown;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${fileTitle}_${yyyymmdd()}.md`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } finally {
+      setBusy(false);
+    }
+  };
 
   const research = async (t?: string) => {
     const q = t || topic;
@@ -113,6 +196,7 @@ export default function InvestmentResearchPage() {
     setLoading(true);
     startProgress();
     setReport('');
+    setInsights(null);
     setElapsed(0);
     setTrafficStats(null);
 
@@ -172,6 +256,11 @@ export default function InvestmentResearchPage() {
         responseBytes,
         totalBytes: requestBytes + responseBytes,
       });
+
+      // メインレポート完了後、追加機能（要約・アドバイス・関連キーワード）を生成
+      if (accumulated.trim() && !accumulated.startsWith('エラー') && !accumulated.startsWith('通信エラー')) {
+        fetchInsights(accumulated, q).catch(() => {});
+      }
     } catch (error: any) {
       setReport(`通信エラー: ${error.message}`);
       resetProgress();
@@ -248,6 +337,7 @@ export default function InvestmentResearchPage() {
           <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.06em' }}>テーマ・検証対象</div>
           <div style={{ position: 'relative' }}>
             <textarea
+              ref={topicInputRef}
               value={topic}
               onChange={e => setTopic(e.target.value)}
               placeholder={'例：米中対立の半導体業界への影響と注目企業\n例：トヨタ自動車の中長期的な競争力検証'}
@@ -471,6 +561,126 @@ export default function InvestmentResearchPage() {
               <span>通信量: {formatBytes(trafficStats.totalBytes)}（送信 {formatBytes(trafficStats.requestBytes)} / 受信 {formatBytes(trafficStats.responseBytes)}）</span>
             )}
           </div>
+        </div>
+      )}
+
+      {/* 追加機能: 生成中インジケータ */}
+      {report && !loading && insightsLoading && (
+        <div style={{ marginTop: 16, background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 12, padding: 20, textAlign: 'center' }}>
+          <div style={{ width: 28, height: 28, border: '2px solid var(--border-accent)', borderTopColor: 'var(--accent)', borderRadius: '50%', animation: 'spin 0.8s linear infinite', margin: '0 auto 10px' }} />
+          <div style={{ color: 'var(--text-secondary)', fontSize: 13 }}>要約・アドバイス・関連キーワードを生成中...</div>
+        </div>
+      )}
+
+      {/* 要約カード */}
+      {report && !loading && insights && insights.summary && (
+        <div style={{ marginTop: 16, background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 12, padding: 24 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12, flexWrap: 'wrap', gap: 8 }}>
+            <span style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-secondary)' }}>📝 要約（1000字以内）</span>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button
+                onClick={() => navigator.clipboard.writeText(insights.summary)}
+                style={{ padding: '5px 12px', background: 'var(--bg-primary)', border: '1px solid var(--border)', color: 'var(--text-secondary)', borderRadius: 6, cursor: 'pointer', fontSize: 12 }}
+              >
+                📋 コピー
+              </button>
+              <button
+                onClick={() => downloadInsightMd('summary', insights.summary, setDownloadingSummary)}
+                disabled={downloadingSummary}
+                style={{ padding: '5px 12px', background: 'var(--bg-primary)', border: '1px solid var(--border)', color: 'var(--text-secondary)', borderRadius: 6, cursor: downloadingSummary ? 'not-allowed' : 'pointer', fontSize: 12, opacity: downloadingSummary ? 0.6 : 1 }}
+              >
+                {downloadingSummary ? '⏳ 生成中...' : '📥 MD'}
+              </button>
+            </div>
+          </div>
+          <div style={{ fontSize: 14, color: 'var(--text-secondary)', lineHeight: 1.85, whiteSpace: 'pre-wrap' }}>
+            {insights.summary}
+          </div>
+          <div style={{ marginTop: 10, fontSize: 11, color: 'var(--text-muted)', textAlign: 'right' }}>
+            {insights.summary.length.toLocaleString()} 字
+          </div>
+        </div>
+      )}
+
+      {/* AI アドバイスカード */}
+      {report && !loading && insights && insights.advice && (
+        <div style={{ marginTop: 16, background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 12, padding: 24 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12, flexWrap: 'wrap', gap: 8 }}>
+            <span style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-secondary)' }}>💡 AI 投資アドバイス（2000字以内）</span>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button
+                onClick={() => navigator.clipboard.writeText(insights.advice)}
+                style={{ padding: '5px 12px', background: 'var(--bg-primary)', border: '1px solid var(--border)', color: 'var(--text-secondary)', borderRadius: 6, cursor: 'pointer', fontSize: 12 }}
+              >
+                📋 コピー
+              </button>
+              <button
+                onClick={() => downloadInsightMd('advice', insights.advice, setDownloadingAdvice)}
+                disabled={downloadingAdvice}
+                style={{ padding: '5px 12px', background: 'var(--bg-primary)', border: '1px solid var(--border)', color: 'var(--text-secondary)', borderRadius: 6, cursor: downloadingAdvice ? 'not-allowed' : 'pointer', fontSize: 12, opacity: downloadingAdvice ? 0.6 : 1 }}
+              >
+                {downloadingAdvice ? '⏳ 生成中...' : '📥 MD'}
+              </button>
+            </div>
+          </div>
+          <div style={{ fontSize: 14, color: 'var(--text-secondary)', lineHeight: 1.85, whiteSpace: 'pre-wrap' }}>
+            {insights.advice}
+          </div>
+          <div style={{ marginTop: 10, fontSize: 11, color: 'var(--text-muted)', textAlign: 'right' }}>
+            {insights.advice.length.toLocaleString()} 字
+          </div>
+          <div style={{ marginTop: 10, padding: '8px 12px', background: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.25)', borderRadius: 6, fontSize: 11, color: 'var(--text-muted)', lineHeight: 1.6 }}>
+            ⚠️ 本アドバイスは情報提供を目的とした AI 生成内容です。投資判断は最終的に自己責任でお願いします。
+          </div>
+        </div>
+      )}
+
+      {/* 関連キーワードカード */}
+      {report && !loading && insights && insights.keywords.length > 0 && (
+        <div style={{ marginTop: 16, background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 12, padding: 24 }}>
+          <div style={{ marginBottom: 12 }}>
+            <span style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-secondary)' }}>🔗 関連情報・関連キーワード</span>
+            <span style={{ marginLeft: 8, fontSize: 11, color: 'var(--text-muted)' }}>
+              （クリックで再リサーチ）
+            </span>
+          </div>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+            {insights.keywords.map((kw, i) => (
+              <button
+                key={`${kw}-${i}`}
+                onClick={() => handleKeywordClick(kw)}
+                style={{
+                  padding: '8px 14px',
+                  borderRadius: 20,
+                  border: '1px solid rgba(245,158,11,0.35)',
+                  background: 'rgba(245,158,11,0.08)',
+                  color: 'var(--text-secondary)',
+                  cursor: 'pointer',
+                  fontSize: 13,
+                  fontWeight: 500,
+                  transition: 'all 0.15s',
+                }}
+                onMouseEnter={e => {
+                  e.currentTarget.style.background = 'rgba(245,158,11,0.18)';
+                  e.currentTarget.style.borderColor = '#f59e0b';
+                }}
+                onMouseLeave={e => {
+                  e.currentTarget.style.background = 'rgba(245,158,11,0.08)';
+                  e.currentTarget.style.borderColor = 'rgba(245,158,11,0.35)';
+                }}
+                title={`「${kw}」で再リサーチ`}
+              >
+                🔍 {kw}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* ブラッシュアップ（既存 InlineAnalysisPanel 埋め込み） */}
+      {report && !loading && (
+        <div style={{ marginTop: 16 }}>
+          <InlineAnalysisPanel text={report} topic={topic} />
         </div>
       )}
     </div>
