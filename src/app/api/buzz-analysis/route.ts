@@ -9,6 +9,7 @@ export const maxDuration = 300;
 
 type Depth = 'light' | 'standard' | 'deep';
 type Mode = 'single' | 'multi' | 'pattern';
+type MediaType = 'note' | 'x' | 'blog' | 'instagram' | 'lp' | 'ad';
 
 // 深さ別の出力目安と max_tokens
 const DEPTH_CONFIG: Record<Depth, { maxTokens: number; charTarget: string }> = {
@@ -16,6 +17,104 @@ const DEPTH_CONFIG: Record<Depth, { maxTokens: number; charTarget: string }> = {
   standard: { maxTokens: 6500, charTarget: '4000字程度' },
   deep: { maxTokens: 12000, charTarget: '8000字程度' },
 };
+
+// 媒体名（systemPrompt の冒頭で使用）
+function getMediaName(mediaType: string): string {
+  const map: Record<string, string> = {
+    note: 'note記事',
+    x: 'X（旧Twitter）投稿',
+    blog: 'ブログ記事',
+    instagram: 'Instagram投稿',
+    lp: 'ランディングページ',
+    ad: '広告コピー',
+  };
+  return map[mediaType] || 'コンテンツ';
+}
+
+// 媒体別の分析観点コンテキスト
+function getMediaContext(mediaType: string): string {
+  switch (mediaType) {
+    case 'note':
+      return `【媒体: note記事】
+- note は知識・体験をストーリーで伝える長文プラットフォーム
+- 共感・実用性・専門性のバランスが鍵
+- 「読み終わった後の行動変容」を促す構成が多い`;
+    case 'x':
+      return `【媒体: X（旧Twitter）投稿】
+- 140〜280字の短文で衝撃・共感を生む必要
+- ツリー投稿で深掘りも可
+- 強烈な書き出し（フック）が9割
+- リプライ・引用RT誘発が拡散の鍵`;
+    case 'blog':
+      return `【媒体: ブログ記事】
+- SEO対策と網羅性が重要
+- 見出し階層・検索意図への回答
+- 内部リンク・関連記事誘導でPV最大化`;
+    case 'instagram':
+      return `【媒体: Instagram投稿】
+- 1枚目（カバー）で止まらせる
+- 10枚カルーセルで深掘り
+- 保存・シェアを促す構成
+- ハッシュタグ戦略`;
+    case 'lp':
+      return `【媒体: ランディングページ】
+- ファーストビューでベネフィット即提示
+- CTA配置とコンバージョン最適化
+- 信頼性証拠（実績、レビュー、保証）の配置
+- スクロール誘発の流れ`;
+    case 'ad':
+      return `【媒体: 広告コピー】
+- 短く強い言葉で注意を引く
+- ベネフィットの即時提示
+- ターゲットの感情に直接訴える
+- スクロールを止めるフック`;
+    default:
+      return '';
+  }
+}
+
+// 5フレームワーク分析セクション（3モード共通でプロンプト末尾に挿入）
+const ADVANCED_ANALYSIS_SECTION = `
+## 🧠 高度な分析（5フレームワーク）
+
+### 影響力の武器6原則（チャルディーニ）
+以下のうち、活用されているもの・効果的に使われているものを分析:
+- **返報性**: 読者に何かを「与えて」いるか（無料情報、ノウハウ等）
+- **コミットメントと一貫性**: 読者に小さな同意を積み重ねさせる構造があるか
+- **社会的証明**: 「みんなが」「多くの人が」等の表現、事例・体験談
+- **好意**: 親しみやすさ、共通点、ユーモア、自己開示
+- **権威**: 専門家性、資格・経歴、信頼できる引用
+- **希少性**: 限定性、緊急性、独自性の演出
+
+各原則について「使われ方の具体例」「効果の強さ」を記述。
+
+### 行動経済学・認知バイアス
+以下のうち活用されているもの:
+- **損失回避**: 「失う」「逃す」「後悔」を強調
+- **アンカリング**: 比較対象を先に提示
+- **フレーミング効果**: 同じ内容でも表現で印象を変える
+- **バンドワゴン効果**: 流行・トレンド感の演出
+- **保有効果**: 「あなたの〜」と所有感を喚起
+- **現在バイアス**: 「今すぐ」「すぐに」の即時性訴求
+- **ナッジ**: 行動を促す穏やかな後押し
+- **ピーク・エンドの法則**: 印象的な瞬間と締めの設計
+
+各バイアスについて「具体的な活用例」「効果の説明」を記述。
+
+### コピーライティング技法
+以下の観点で分析:
+- **構成フレームワーク**: PASONA / AIDMA / QUEST / PREP のどれを使っているか
+- **見出し技法**: 数字、疑問形、緊急性、ベネフィット型 等
+- **CTA（行動喚起）技法**: 命令形 / 利益強調 / 限定性 / 簡単さアピール
+- **ストーリーテリング**: 起承転結、共感→課題→解決の流れ
+- **比喩・例え**: わかりやすさを生む比喩表現
+
+### 学びの抽出（自分のコンテンツに活かすコツ）
+3〜5個、具体的なアクションとして記述:
+- 「次に自分が書くなら、〇〇を真似たい」
+- 「この見出し技法は△△の文脈でも使える」
+- 「この心理トリガーは□□のテーマで応用できる」
+`;
 
 // 1本のURLから本文を抽出（extract-url と同等のロジック）
 async function extractArticle(
@@ -109,6 +208,7 @@ export async function POST(req: NextRequest) {
     urls,
     field,
     depth = 'standard',
+    mediaType = 'note',
     model = 'claude',
   } = (await req.json()) as {
     mode?: Mode;
@@ -116,8 +216,12 @@ export async function POST(req: NextRequest) {
     urls?: string[];
     field?: string;
     depth?: Depth;
+    mediaType?: MediaType;
     model?: AIModel;
   };
+
+  const mediaName = getMediaName(mediaType);
+  const mediaContext = getMediaContext(mediaType);
 
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey || apiKey === 'your_api_key_here') {
@@ -153,8 +257,10 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    stepLabel = url.slice(0, 50);
-    systemPrompt = `あなたは note や Web 記事の「バズり要素」を分析する優秀なコンテンツマーケターです。読者心理、文体、構成、SEO 要素を多角的に分析し、自分の記事に活かせる学びを言語化してください。
+    stepLabel = `[${mediaType}] ${url.slice(0, 50)}`;
+    systemPrompt = `あなたは ${mediaName} の「バズり要素」を分析する優秀なコンテンツマーケターです。読者心理、行動経済学、影響力の武器（チャルディーニの6原則）、コピーライティング技法を駆使して、バズる構造を多角的に分析し、自分のコンテンツに活かせる学びを言語化してください。
+
+${mediaContext}
 
 絶対に守るルール：
 1. URLは生のURLのみ記載（例: https://example.com）
@@ -206,7 +312,7 @@ ${extractRes.text}
 ## 💡 学びポイント・応用方法
 - この記事から学べる5つの再現可能な技
 - 自分の記事に応用する具体的なアイデア
-
+${ADVANCED_ANALYSIS_SECTION}
 ## 🔑 重要キーワード
 （記事を象徴する10〜15個のキーワード）
 
@@ -261,9 +367,11 @@ ${extractRes.text}
       );
     }
 
-    stepLabel = `[multi ${successful.length}/${cleanUrls.length}] ${successful[0].url.slice(0, 30)}`;
+    stepLabel = `[multi ${successful.length}/${cleanUrls.length}][${mediaType}] ${successful[0].url.slice(0, 30)}`;
 
-    systemPrompt = `あなたは note や Web 記事の「バズり要素」を分析する優秀なコンテンツマーケターです。複数の記事を比較分析し、共通するバズり要素を言語化してください。
+    systemPrompt = `あなたは ${mediaName} の「バズり要素」を分析する優秀なコンテンツマーケターです。複数のコンテンツを比較分析し、共通するバズり要素を、心理学・行動経済学・影響力の武器（チャルディーニの6原則）・コピーライティング技法の観点から多角的に言語化してください。
+
+${mediaContext}
 
 絶対に守るルール：
 1. URLは生のURLのみ記載
@@ -314,7 +422,7 @@ ${articlesSection}${failedNote}
 
 ## 💡 学びポイント・応用方法
 （自分の記事に応用する具体的なアイデア）
-
+${ADVANCED_ANALYSIS_SECTION}
 ## 🔑 重要キーワード
 （${successful.length}記事から抽出した10〜15個のキーワード）
 
@@ -333,7 +441,7 @@ ${articlesSection}${failedNote}
     }
     const cleanField = field.trim().slice(0, 100);
 
-    stepLabel = `[pattern:${depth}] ${cleanField}`;
+    stepLabel = `[pattern:${depth}][${mediaType}] ${cleanField}`;
 
     // depth 別に「最終セクション名」と「パターン数」を変える
     const patternCount = depth === 'light' ? 3 : 5;
@@ -342,7 +450,9 @@ ${articlesSection}${failedNote}
         ? '🎯 投稿運用のヒント'
         : '🔑 この分野で頻出するキーワード';
 
-    systemPrompt = `あなたは note のコンテンツマーケティングを分析する優秀な専門家です。指定された分野でバズる記事の典型パターンを言語化してください。実在の記事ではなく、構造的パターンとして分析してください。
+    systemPrompt = `あなたは ${mediaName} のコンテンツマーケティングを分析する優秀な専門家です。指定された分野でバズるコンテンツの典型パターンを、心理学・行動経済学・影響力の武器（チャルディーニの6原則）・コピーライティング技法の観点から多角的に言語化してください。実在の記事ではなく、構造的パターンとして分析してください。
+
+${mediaContext}
 
 絶対に守るルール：
 1. 実在の記事タイトルや具体的な数値（PV数等）の捏造は絶対にしない
@@ -377,7 +487,7 @@ ${cleanField}
 
 ## 💡 自分の記事への応用方法
 - 3パターンを使い分ける指針（5行程度）
-
+${ADVANCED_ANALYSIS_SECTION}
 ## 🔑 この分野で頻出するキーワード
 （8〜10個）
 
@@ -423,7 +533,7 @@ ${cleanField}
 - 自分の強みと組み合わせる方法
 - 5パターンを順番に投稿することでの読者育成シナリオ
 - よくある失敗例と回避策
-
+${ADVANCED_ANALYSIS_SECTION}
 ## 🔑 この分野で頻出するキーワード
 （15〜20個）
 
@@ -470,7 +580,7 @@ ${cleanField}
 ## 💡 自分の記事への応用方法
 - 各パターンを使い分ける指針
 - 自分の強みと組み合わせる方法
-
+${ADVANCED_ANALYSIS_SECTION}
 ## 🔑 この分野で頻出するキーワード
 （10〜15個）
 

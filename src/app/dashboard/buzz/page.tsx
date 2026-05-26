@@ -26,6 +26,17 @@ const MODE_OPTIONS: Array<{ value: Mode; label: string; desc: string }> = [
   { value: 'pattern', label: '🎯 分野別バズりパターン', desc: '分野の典型パターンを5つ生成' },
 ];
 
+// 媒体（メディアタイプ）— 未指定時は 'note' で従来動作
+const MEDIA_TYPES = [
+  { key: 'note', label: '📝 note記事' },
+  { key: 'x', label: '🐦 X投稿' },
+  { key: 'blog', label: '📰 ブログ記事' },
+  { key: 'instagram', label: '📷 Instagram投稿' },
+  { key: 'lp', label: '🎯 ランディングページ' },
+  { key: 'ad', label: '💰 広告コピー' },
+] as const;
+type MediaType = typeof MEDIA_TYPES[number]['key'];
+
 const DEPTH_OPTIONS: Array<{ value: Depth; label: string; desc: string }> = [
   { value: 'light', label: '⚡ ライト', desc: 'ざっくり要点（〜2000字 / 約20秒）' },
   { value: 'standard', label: '📊 スタンダード', desc: 'バランス重視（〜4000字 / 約40秒）' },
@@ -100,6 +111,7 @@ export default function BuzzAnalysisPage() {
   // 蓄積一覧の再フェッチトリガ（保存後にインクリメント）
   const [libraryRefreshKey, setLibraryRefreshKey] = useState(0);
   const [mode, setMode] = useState<Mode>('single');
+  const [mediaType, setMediaType] = useState<MediaType>('note');
   const [url, setUrl] = useState('');
   const [urls, setUrls] = useState<string[]>(['', '', '', '', '']);
   const [field, setField] = useState('');
@@ -178,7 +190,7 @@ export default function BuzzAnalysisPage() {
       const modelAtRequest = getSavedModel();
       setReportModel(modelAtRequest);
       setReportMode(mode);
-      const reqBody = JSON.stringify({ ...built.body, depth, model: modelAtRequest });
+      const reqBody = JSON.stringify({ ...built.body, depth, mediaType, model: modelAtRequest });
       const requestBytes = new TextEncoder().encode(reqBody).length;
 
       const res = await retryFetch('/api/buzz-analysis', {
@@ -368,6 +380,39 @@ export default function BuzzAnalysisPage() {
       <div style={{ display: tab === 'execute' ? 'block' : 'none' }}>
 
       <div style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 14, padding: 20, marginBottom: 20 }}>
+
+        {/* 媒体選択（3モード共通） */}
+        <div style={{ marginBottom: 14 }}>
+          <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.06em' }}>📺 媒体を選択</div>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+            {MEDIA_TYPES.map(m => (
+              <button
+                key={m.key}
+                type="button"
+                onClick={() => setMediaType(m.key)}
+                disabled={loading}
+                style={{
+                  padding: '8px 16px',
+                  borderRadius: 20,
+                  border: mediaType === m.key ? '1px solid transparent' : '1px solid var(--border)',
+                  background: mediaType === m.key
+                    ? 'linear-gradient(135deg, #6c63ff, #8b5cf6)'
+                    : 'var(--bg-primary)',
+                  color: mediaType === m.key ? '#fff' : 'var(--text-secondary)',
+                  cursor: loading ? 'not-allowed' : 'pointer',
+                  fontSize: 13,
+                  fontWeight: mediaType === m.key ? 700 : 500,
+                  opacity: loading ? 0.6 : 1,
+                }}
+              >
+                {m.label}
+              </button>
+            ))}
+          </div>
+          <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 6 }}>
+            ※ 選択した媒体の特性に応じて分析観点を最適化します（未選択時は note 記事として分析）
+          </div>
+        </div>
 
         {/* モード選択タブ */}
         <div style={{ marginBottom: 14 }}>
