@@ -88,6 +88,12 @@ export default function NoteArticleGenerationPage() {
   const [tonePreference, setTonePreference] = useState('');
   const [personalNotes, setPersonalNotes] = useState('');
   const [length, setLength] = useState<Length>('medium');
+  // バズりパターン辞書連携
+  const [allPatterns, setAllPatterns] = useState<any[]>([]);
+  const [selectedPatternIds, setSelectedPatternIds] = useState<Set<string>>(new Set());
+  const [suggestingPatterns, setSuggestingPatterns] = useState(false);
+  const [showPatternModal, setShowPatternModal] = useState(false);
+  const [aiSuggestedPatterns, setAiSuggestedPatterns] = useState<any[] | null>(null);
   const [article, setArticle] = useState('');
   const [editedArticle, setEditedArticle] = useState('');
   const [editMode, setEditMode] = useState(false);
@@ -136,8 +142,80 @@ export default function NoteArticleGenerationPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // バズりパターン辞書を初期ロード
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await fetch('/api/library?type=buzz-pattern');
+        const data = await res.json();
+        setAllPatterns(Array.isArray(data) ? data : data.items || []);
+      } catch (e) {
+        console.error(e);
+      }
+    })();
+  }, []);
+
   const removeBuzzRef = (id: string) => {
     setBuzzReferences(prev => prev.filter(r => r.id !== id));
+  };
+
+  // metadata 解析（文字列でもオブジェクトでも対応）
+  const parsePatternMeta = (metadata: any): any => {
+    if (!metadata) return {};
+    if (typeof metadata === 'string') {
+      try { return JSON.parse(metadata); } catch { return {}; }
+    }
+    return metadata;
+  };
+
+  // AIにパターン推奨を依頼
+  const handleSuggestPatterns = async () => {
+    if (!theme.trim()) {
+      alert('まずテーマを入力してください');
+      return;
+    }
+    setSuggestingPatterns(true);
+    try {
+      const contextParts: string[] = [];
+      if (personalNotes) contextParts.push(`【経験・視点】${personalNotes}`);
+      if (deepResearch) contextParts.push(`【リサーチ参考】${deepResearch.slice(0, 1500)}`);
+      const context = contextParts.join('\n\n');
+
+      const res = await fetch('/api/note-pattern-suggest', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ topic: theme, context }),
+      });
+      const data = await res.json();
+      if (res.ok && Array.isArray(data.patterns)) {
+        if (data.patterns.length === 0) {
+          alert(data.message || 'パターン辞書が空です。バズり分析からパターンを抽出してください。');
+        } else {
+          setAiSuggestedPatterns(data.patterns);
+          // AI 推奨を初期選択（既存の選択にマージ）
+          setSelectedPatternIds(prev => {
+            const next = new Set(prev);
+            data.patterns.forEach((p: any) => next.add(String(p.id)));
+            return next;
+          });
+        }
+      } else {
+        alert(data.message || data.error || '推奨取得失敗');
+      }
+    } catch (e: any) {
+      alert(`通信エラー: ${e?.message || e}`);
+    } finally {
+      setSuggestingPatterns(false);
+    }
+  };
+
+  const togglePatternId = (pid: string) => {
+    setSelectedPatternIds(prev => {
+      const next = new Set(prev);
+      if (next.has(pid)) next.delete(pid);
+      else next.add(pid);
+      return next;
+    });
   };
 
   const clearDeepResearch = () => {
@@ -164,6 +242,21 @@ export default function NoteArticleGenerationPage() {
     try {
       const modelAtRequest = getSavedModel();
       setReportModel(modelAtRequest);
+
+      // 選択中のパターンを送信用に整形
+      const selectedPatternsForPrompt = Array.from(selectedPatternIds)
+        .map(pid => allPatterns.find(a => String(a.id) === String(pid)))
+        .filter(Boolean)
+        .map((p: any) => {
+          const meta = parsePatternMeta(p.metadata);
+          return {
+            title: p.title,
+            category: meta?.category || '',
+            framework: meta?.framework || '',
+            content: p.content || '',
+          };
+        });
+
       const reqBody = JSON.stringify({
         theme: theme.trim(),
         buzzReferences: buzzReferences.map(b => b.content),
@@ -172,6 +265,7 @@ export default function NoteArticleGenerationPage() {
         personalNotes,
         length,
         model: modelAtRequest,
+        selectedPatterns: selectedPatternsForPrompt,
       });
       const requestBytes = new TextEncoder().encode(reqBody).length;
 
@@ -449,6 +543,164 @@ export default function NoteArticleGenerationPage() {
           />
         </div>
 
+        {/* バズりパターン辞書から選択 */}
+        <div style={{ marginBottom: 14 }}>
+          <div style={{
+            fontSize: 11, color: 'var(--text-muted)', marginBottom: 6,
+            textTransform: 'uppercase', letterSpacing: '0.06em',
+            display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+            flexWrap: 'wrap', gap: 8,
+          }}>
+            <span>
+              📖 バズりパターン辞書から選択
+              {selectedPatternIds.size > 0 && (
+                <span style={{ color: 'var(--accent)', marginLeft: 8 }}>
+                  （{selectedPatternIds.size}件選択中）
+                </span>
+              )}
+            </span>
+            <span style={{ textTransform: 'none', color: 'var(--text-muted)', fontSize: 10 }}>
+              {allPatterns.length > 0 ? `辞書: ${allPatterns.length}件` : '辞書: 0件'}
+            </span>
+          </div>
+
+          <div style={{
+            padding: 12,
+            background: 'var(--bg-primary)',
+            border: '1px solid var(--border)',
+            borderRadius: 8,
+          }}>
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 10 }}>
+              <button
+                type="button"
+                onClick={handleSuggestPatterns}
+                disabled={suggestingPatterns || !theme.trim() || allPatterns.length === 0}
+                style={{
+                  padding: '6px 14px',
+                  borderRadius: 16,
+                  border: 'none',
+                  background: (suggestingPatterns || !theme.trim() || allPatterns.length === 0)
+                    ? 'var(--bg-secondary)'
+                    : 'linear-gradient(135deg, #f59e0b, #ef4444)',
+                  color: (suggestingPatterns || !theme.trim() || allPatterns.length === 0)
+                    ? 'var(--text-muted)' : '#fff',
+                  cursor: (suggestingPatterns || !theme.trim() || allPatterns.length === 0)
+                    ? 'not-allowed' : 'pointer',
+                  fontSize: 12,
+                  fontWeight: 700,
+                }}
+                title={!theme.trim() ? 'テーマを入力してください' : ''}
+              >
+                {suggestingPatterns ? '🔄 推奨中...' : '✨ AIに推奨してもらう'}
+              </button>
+              <button
+                type="button"
+                onClick={() => setShowPatternModal(true)}
+                disabled={allPatterns.length === 0}
+                style={{
+                  padding: '6px 14px',
+                  borderRadius: 16,
+                  border: '1px solid var(--border)',
+                  background: 'var(--bg-secondary)',
+                  color: 'var(--text-secondary)',
+                  cursor: allPatterns.length === 0 ? 'not-allowed' : 'pointer',
+                  fontSize: 12,
+                  opacity: allPatterns.length === 0 ? 0.5 : 1,
+                }}
+              >
+                📋 一覧から手動選択
+              </button>
+              {selectedPatternIds.size > 0 && (
+                <button
+                  type="button"
+                  onClick={() => { setSelectedPatternIds(new Set()); setAiSuggestedPatterns(null); }}
+                  style={{
+                    padding: '6px 14px',
+                    borderRadius: 16,
+                    border: '1px solid rgba(239,68,68,0.4)',
+                    background: 'transparent',
+                    color: '#ef4444',
+                    cursor: 'pointer',
+                    fontSize: 12,
+                  }}
+                >
+                  ✕ 選択クリア
+                </button>
+              )}
+            </div>
+
+            {allPatterns.length === 0 && (
+              <p style={{ fontSize: 12, color: 'var(--text-muted)', margin: 0 }}>
+                パターン辞書が空です。<a href="/dashboard/buzz" style={{ color: 'var(--accent)' }}>バズり分析</a> でパターンを抽出してください。
+              </p>
+            )}
+
+            {/* AI推奨の理由表示 */}
+            {aiSuggestedPatterns && aiSuggestedPatterns.length > 0 && (
+              <div style={{
+                marginTop: 4, padding: 10,
+                background: 'rgba(245,158,11,0.06)',
+                border: '1px solid rgba(245,158,11,0.2)',
+                borderRadius: 6,
+              }}>
+                <div style={{ fontSize: 11, color: '#f59e0b', fontWeight: 700, marginBottom: 6 }}>
+                  ✨ AI推奨パターン（自動で選択中）
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                  {aiSuggestedPatterns.map((p: any) => (
+                    <div key={p.id} style={{ fontSize: 11, color: 'var(--text-secondary)', lineHeight: 1.5 }}>
+                      <strong style={{ color: 'var(--text-primary)' }}>・{p.title}</strong>
+                      {p.reason && <span style={{ color: 'var(--text-muted)' }}> — {p.reason}</span>}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* 選択中パターン一覧 */}
+            {selectedPatternIds.size > 0 && (
+              <div style={{ marginTop: 10, paddingTop: 10, borderTop: '1px solid var(--border)' }}>
+                <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginBottom: 6, fontWeight: 600 }}>
+                  🎯 選択中（{selectedPatternIds.size}件）
+                </div>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                  {Array.from(selectedPatternIds).map((pid: string) => {
+                    const p = allPatterns.find(a => String(a.id) === String(pid));
+                    if (!p) return null;
+                    return (
+                      <div key={pid} style={{
+                        padding: '4px 10px',
+                        background: 'linear-gradient(135deg, #6c63ff, #8b5cf6)',
+                        color: '#fff',
+                        borderRadius: 12,
+                        fontSize: 11,
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 6,
+                        fontWeight: 600,
+                      }}>
+                        {p.title}
+                        <button
+                          type="button"
+                          onClick={() => togglePatternId(pid)}
+                          style={{
+                            background: 'transparent', border: 'none',
+                            color: '#fff', cursor: 'pointer',
+                            padding: 0, fontSize: 14, lineHeight: 1,
+                          }}
+                          aria-label="解除"
+                        >
+                          ×
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+
         {/* 記事の長さ */}
         <div style={{ marginBottom: 14 }}>
           <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.06em' }}>📏 記事の長さ</div>
@@ -651,6 +903,143 @@ export default function NoteArticleGenerationPage() {
             {trafficStats && (
               <span>通信量: {formatBytes(trafficStats.totalBytes)}（送信 {formatBytes(trafficStats.requestBytes)} / 受信 {formatBytes(trafficStats.responseBytes)}）</span>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* バズりパターン手動選択モーダル */}
+      {showPatternModal && (
+        <div
+          style={{
+            position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
+            background: 'rgba(0,0,0,0.6)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            zIndex: 1000, padding: 20,
+          }}
+          onClick={() => setShowPatternModal(false)}
+        >
+          <div
+            style={{
+              background: 'var(--bg-primary)',
+              border: '1px solid var(--border)',
+              borderRadius: 12,
+              padding: 24,
+              maxWidth: 880,
+              maxHeight: '85vh',
+              overflowY: 'auto',
+              width: '100%',
+              boxShadow: '0 20px 50px rgba(0,0,0,0.4)',
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h2 style={{ marginTop: 0, color: 'var(--text-primary)', fontSize: 20 }}>
+              📖 パターン辞書から選択
+            </h2>
+            <p style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 12 }}>
+              生成に活かしたいパターンをクリックで選択/解除（{selectedPatternIds.size}/{allPatterns.length} 件選択中）
+            </p>
+
+            <div style={{ display: 'flex', gap: 8, marginBottom: 12, flexWrap: 'wrap' }}>
+              <button
+                type="button"
+                onClick={() => setSelectedPatternIds(new Set(allPatterns.map(p => String(p.id))))}
+                style={{
+                  padding: '6px 12px', borderRadius: 6,
+                  border: '1px solid var(--border)', background: 'var(--bg-secondary)',
+                  color: 'var(--text-secondary)', cursor: 'pointer', fontSize: 12,
+                }}
+              >
+                すべて選択
+              </button>
+              <button
+                type="button"
+                onClick={() => setSelectedPatternIds(new Set())}
+                style={{
+                  padding: '6px 12px', borderRadius: 6,
+                  border: '1px solid var(--border)', background: 'var(--bg-secondary)',
+                  color: 'var(--text-secondary)', cursor: 'pointer', fontSize: 12,
+                }}
+              >
+                すべて解除
+              </button>
+            </div>
+
+            {allPatterns.length === 0 ? (
+              <div style={{ padding: 24, textAlign: 'center', color: 'var(--text-muted)', fontSize: 13 }}>
+                パターン辞書が空です。バズり分析からパターンを抽出してください。
+              </div>
+            ) : (
+              <div style={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))',
+                gap: 8,
+              }}>
+                {allPatterns.map((p: any) => {
+                  const pid = String(p.id);
+                  const isSelected = selectedPatternIds.has(pid);
+                  const meta = parsePatternMeta(p.metadata);
+                  return (
+                    <div
+                      key={pid}
+                      onClick={() => togglePatternId(pid)}
+                      style={{
+                        padding: 12,
+                        background: isSelected ? 'rgba(108,99,255,0.1)' : 'var(--bg-secondary)',
+                        border: isSelected ? '2px solid var(--accent)' : '1px solid var(--border)',
+                        borderRadius: 8,
+                        cursor: 'pointer',
+                        transition: 'background 0.15s',
+                      }}
+                    >
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 6 }}>
+                        <strong style={{ fontSize: 13, color: 'var(--text-primary)', lineHeight: 1.4 }}>
+                          {p.title}
+                        </strong>
+                        {isSelected && (
+                          <span style={{ color: 'var(--accent)', fontSize: 14, fontWeight: 700 }}>✓</span>
+                        )}
+                      </div>
+                      <div style={{ fontSize: 10, color: 'var(--text-muted)', marginTop: 4, display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+                        {meta?.category && (
+                          <span style={{ padding: '1px 6px', borderRadius: 8, background: 'var(--accent-soft)', color: 'var(--accent)' }}>
+                            {meta.category}
+                          </span>
+                        )}
+                        {meta?.framework && (
+                          <span style={{ padding: '1px 6px', borderRadius: 8, background: 'rgba(139,92,246,0.12)', color: '#8b5cf6' }}>
+                            {meta.framework}
+                          </span>
+                        )}
+                      </div>
+                      {meta?.description && (
+                        <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginTop: 6, lineHeight: 1.5 }}>
+                          {meta.description.slice(0, 100)}{meta.description.length > 100 && '...'}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+
+            <div style={{ marginTop: 16, display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+              <button
+                type="button"
+                onClick={() => setShowPatternModal(false)}
+                style={{
+                  padding: '10px 20px',
+                  borderRadius: 8,
+                  background: 'linear-gradient(135deg, #6c63ff, #8b5cf6)',
+                  color: '#fff',
+                  border: 'none',
+                  cursor: 'pointer',
+                  fontWeight: 700,
+                  fontSize: 13,
+                }}
+              >
+                ✓ {selectedPatternIds.size} 件を選択完了
+              </button>
+            </div>
           </div>
         </div>
       )}

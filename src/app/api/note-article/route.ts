@@ -32,6 +32,7 @@ export async function POST(req: NextRequest) {
     personalNotes = '',
     length = 'medium',
     model = 'claude',
+    selectedPatterns = [],
   } = (await req.json()) as {
     theme: string;
     buzzReferences?: string[];
@@ -40,6 +41,12 @@ export async function POST(req: NextRequest) {
     personalNotes?: string;
     length?: Length;
     model?: AIModel;
+    selectedPatterns?: Array<{
+      title?: string;
+      category?: string;
+      framework?: string;
+      content?: string;
+    }>;
   };
 
   if (!theme || typeof theme !== 'string' || !theme.trim()) {
@@ -81,6 +88,24 @@ export async function POST(req: NextRequest) {
     ? `\n# 筆者の経験・視点（記事に自然に織り込む）\n${personalNotes}\n\n上記を記事に自然に織り込んでください。プレースホルダではなく、文章として完結させてください。`
     : '';
 
+  // バズりパターン辞書から選択されたパターン（空なら従来通り何も付与しない）
+  const patternList = Array.isArray(selectedPatterns)
+    ? selectedPatterns.filter(p => p && typeof p === 'object' && (p.title || p.content)).slice(0, 10)
+    : [];
+  const patternsSection = patternList.length > 0
+    ? `\n# 📖 活用するバズりパターン（${patternList.length}件）
+以下のパターン・型を意識して記事を執筆してください。それぞれの構造や心理的効果を理解し、自然に記事に組み込んでください。
+
+${patternList.map((p, i) => `## パターン${i + 1}: ${p.title || '(無題)'}
+カテゴリ: ${p.category || '-'}
+フレームワーク: ${p.framework || '-'}
+
+${(p.content || '').slice(0, 2000)}
+`).join('\n---\n\n')}
+
+上記パターンを参考に、表面的な模倣ではなく、構造・心理効果を理解して記事に活かしてください。`
+    : '';
+
   const systemPrompt = `あなたは note プラットフォームで読者を惹きつける記事を執筆する優秀なライターです。SEO・心理学・マーケティングの知識を駆使しつつ、読者の心に響く文章を生成してください。
 
 重要な制約:
@@ -98,7 +123,7 @@ ${theme}
 
 # 記事の長さ
 ${config.label}（${config.chars}）
-${buzzSection}${researchSection}${toneSection}${personalSection}
+${buzzSection}${researchSection}${toneSection}${personalSection}${patternsSection}
 
 # 記事の構成
 
