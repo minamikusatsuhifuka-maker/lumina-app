@@ -405,6 +405,10 @@ export default function StaffTrainingPage() {
   // 一括ライブラリ保存
   const [bulkSaving, setBulkSaving] = useState(false);
   const [bulkSaveStatus, setBulkSaveStatus] = useState<{ done: number; total: number } | null>(null);
+  // テンプレート保存・読み込み
+  const [showTemplateModal, setShowTemplateModal] = useState(false);
+  const [templates, setTemplates] = useState<any[]>([]);
+  const [loadingTemplates, setLoadingTemplates] = useState(false);
 
   const addTopic = () => {
     if (topicInputs.length >= 10) return;
@@ -718,6 +722,115 @@ ${r.expertContent || '（未生成）'}
     (r) => r.beginnerStatus === 'done' && r.expertStatus === 'done',
   ).length;
 
+  // ============== テンプレート保存・読み込み ==============
+
+  // 入力中のトピック10件 + カテゴリの組み合わせをテンプレとして library に保存
+  const handleSaveTemplate = async () => {
+    const hasAnyInput = topicInputs.some((t) => t.topic.trim());
+    if (!hasAnyInput) {
+      alert('保存対象がありません。トピックを1件以上入力してください。');
+      return;
+    }
+    const name = prompt('テンプレ名を入力', '');
+    if (name === null) return; // キャンセル
+    const trimmed = name.trim();
+    if (!trimmed) return; // 空文字
+
+    try {
+      const res = await fetch('/api/library', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          type: 'staff-training-template',
+          title: trimmed,
+          content: JSON.stringify(topicInputs),
+          group_name: 'スタッフ育成テンプレ',
+          tags: 'スタッフ育成,テンプレート',
+          metadata: {
+            topicCount: topicInputs.length,
+            savedAt: new Date().toISOString(),
+          },
+        }),
+      });
+      if (res.ok) {
+        alert('✅ 保存しました');
+      } else {
+        alert('保存エラーが発生しました');
+      }
+    } catch (e: any) {
+      alert(`通信エラー: ${e?.message || e}`);
+    }
+  };
+
+  // モーダルを開くと同時にテンプレ一覧を取得
+  const handleOpenTemplateModal = async () => {
+    setShowTemplateModal(true);
+    setLoadingTemplates(true);
+    try {
+      const res = await fetch('/api/library?type=staff-training-template');
+      const data = await res.json();
+      const list = Array.isArray(data) ? data : data.items || [];
+      setTemplates(list);
+    } catch (e) {
+      console.error(e);
+      setTemplates([]);
+    } finally {
+      setLoadingTemplates(false);
+    }
+  };
+
+  // 選択したテンプレを topicInputs に適用
+  const handleApplyTemplate = (tpl: any) => {
+    try {
+      const parsed = JSON.parse(tpl.content || '[]');
+      if (!Array.isArray(parsed)) {
+        alert('テンプレ形式が不正です');
+        return;
+      }
+      // 復元データを TopicInput[] に整形（10件にトリム）
+      const restored: TopicInput[] = parsed
+        .slice(0, 10)
+        .map((t: any) => ({
+          topic: typeof t?.topic === 'string' ? t.topic : '',
+          category:
+            typeof t?.category === 'string' && t.category
+              ? t.category
+              : '皮膚疾患',
+        }));
+      if (restored.length === 0) {
+        alert('テンプレに有効なデータがありません');
+        return;
+      }
+
+      // 既存入力がある場合は確認
+      const hasExisting = topicInputs.some((t) => t.topic.trim());
+      if (hasExisting && !confirm('現在の入力を上書きしますか？')) {
+        return;
+      }
+
+      setTopicInputs(restored);
+      setShowTemplateModal(false);
+    } catch (e: any) {
+      alert(`テンプレ読み込み失敗: ${e?.message || e}`);
+    }
+  };
+
+  // テンプレ削除（既存 library API: DELETE + body { id }）
+  const handleDeleteTemplate = async (id: string) => {
+    if (!confirm('このテンプレを削除しますか？')) return;
+    try {
+      await fetch('/api/library', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id }),
+      });
+      setTemplates((prev) => prev.filter((t) => t.id !== id));
+    } catch (e) {
+      console.error(e);
+      alert('削除に失敗しました');
+    }
+  };
+
   // ================== スタイル ==================
   const sectionStyle: React.CSSProperties = {
     background: 'var(--bg-secondary)',
@@ -855,6 +968,51 @@ ${r.expertContent || '（未生成）'}
               alignItems: 'center',
             }}
           >
+            <button
+              onClick={handleSaveTemplate}
+              disabled={loading}
+              style={{
+                padding: '6px 12px',
+                background: 'transparent',
+                border: '1px solid var(--border)',
+                borderRadius: 8,
+                color: 'var(--text-secondary)',
+                fontSize: 12,
+                fontWeight: 600,
+                cursor: loading ? 'not-allowed' : 'pointer',
+                opacity: loading ? 0.5 : 1,
+              }}
+              title="入力中のトピック10件+カテゴリをテンプレとして保存"
+            >
+              💾 テンプレ保存
+            </button>
+            <button
+              onClick={handleOpenTemplateModal}
+              disabled={loading}
+              style={{
+                padding: '6px 12px',
+                background: 'transparent',
+                border: '1px solid var(--border)',
+                borderRadius: 8,
+                color: 'var(--text-secondary)',
+                fontSize: 12,
+                fontWeight: 600,
+                cursor: loading ? 'not-allowed' : 'pointer',
+                opacity: loading ? 0.5 : 1,
+              }}
+              title="保存済みテンプレを読み込み"
+            >
+              📂 テンプレ読み込み
+            </button>
+            <span
+              style={{
+                width: 1,
+                height: 20,
+                background: 'var(--border)',
+                margin: '0 4px',
+              }}
+              aria-hidden="true"
+            />
             <button
               onClick={addTopic}
               disabled={loading || topicInputs.length >= 10}
@@ -1168,6 +1326,147 @@ ${r.expertContent || '（未生成）'}
           {results.map((r, i) => (
             <TopicResultCard key={i} result={r} displayMode={displayMode} />
           ))}
+        </div>
+      )}
+
+      {/* テンプレ読み込みモーダル */}
+      {showTemplateModal && (
+        <div
+          style={{
+            position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
+            background: 'rgba(0,0,0,0.6)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            zIndex: 1000, padding: 20,
+          }}
+          onClick={() => setShowTemplateModal(false)}
+        >
+          <div
+            style={{
+              background: 'var(--bg-primary)',
+              border: '1px solid var(--border)',
+              borderRadius: 12,
+              padding: 24,
+              maxWidth: 720,
+              maxHeight: '85vh',
+              overflowY: 'auto',
+              width: '100%',
+              boxShadow: '0 20px 50px rgba(0,0,0,0.4)',
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16, gap: 12 }}>
+              <h2 style={{ margin: 0, fontSize: 20, color: 'var(--text-primary)' }}>
+                📂 テンプレを読み込み
+              </h2>
+              <button
+                type="button"
+                onClick={() => setShowTemplateModal(false)}
+                style={{
+                  background: 'transparent', border: 'none',
+                  fontSize: 24, cursor: 'pointer', color: 'var(--text-muted)',
+                  width: 32, height: 32, borderRadius: 6,
+                }}
+                aria-label="閉じる"
+              >
+                ×
+              </button>
+            </div>
+
+            {loadingTemplates ? (
+              <div style={{ padding: 24, textAlign: 'center', color: 'var(--text-muted)', fontSize: 13 }}>
+                読み込み中...
+              </div>
+            ) : templates.length === 0 ? (
+              <div style={{
+                padding: 40, textAlign: 'center',
+                color: 'var(--text-muted)', fontSize: 13,
+                background: 'var(--bg-secondary)',
+                border: '1px dashed var(--border)',
+                borderRadius: 10,
+              }}>
+                <div style={{ fontSize: 36, marginBottom: 8 }}>📭</div>
+                <div>保存済みテンプレがありません</div>
+                <div style={{ fontSize: 11, marginTop: 6 }}>トピックを入力して「💾 テンプレ保存」から登録してください</div>
+              </div>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                {templates.map((tpl: any) => {
+                  const meta =
+                    typeof tpl.metadata === 'string'
+                      ? (() => { try { return JSON.parse(tpl.metadata); } catch { return {}; } })()
+                      : tpl.metadata || {};
+                  const topicCount = meta?.topicCount;
+                  const savedAt = meta?.savedAt
+                    ? new Date(meta.savedAt).toLocaleString('ja-JP')
+                    : tpl.created_at
+                      ? new Date(tpl.created_at).toLocaleString('ja-JP')
+                      : '';
+                  return (
+                    <div
+                      key={tpl.id}
+                      style={{
+                        padding: 14,
+                        background: 'var(--bg-secondary)',
+                        border: '1px solid var(--border)',
+                        borderRadius: 10,
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 12,
+                        flexWrap: 'wrap',
+                      }}
+                    >
+                      <div style={{ flex: 1, minWidth: 200 }}>
+                        <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 4 }}>
+                          {tpl.title || '(無題テンプレ)'}
+                        </div>
+                        <div style={{ fontSize: 11, color: 'var(--text-muted)', display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                          {typeof topicCount === 'number' && (
+                            <span style={{ padding: '1px 8px', borderRadius: 10, background: 'var(--accent-soft)', color: 'var(--accent)' }}>
+                              {topicCount}件
+                            </span>
+                          )}
+                          {savedAt && <span>{savedAt}</span>}
+                        </div>
+                      </div>
+                      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                        <button
+                          type="button"
+                          onClick={() => handleApplyTemplate(tpl)}
+                          style={{
+                            padding: '6px 14px',
+                            borderRadius: 8,
+                            border: 'none',
+                            background: 'linear-gradient(135deg, #6c63ff, #8b5cf6)',
+                            color: '#fff',
+                            cursor: 'pointer',
+                            fontSize: 12,
+                            fontWeight: 700,
+                          }}
+                        >
+                          ✓ 読み込む
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleDeleteTemplate(tpl.id)}
+                          style={{
+                            padding: '6px 12px',
+                            borderRadius: 8,
+                            border: '1px solid rgba(239,68,68,0.3)',
+                            background: 'rgba(239,68,68,0.04)',
+                            color: '#ef4444',
+                            cursor: 'pointer',
+                            fontSize: 12,
+                          }}
+                        >
+                          🗑 削除
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
         </div>
       )}
     </div>
