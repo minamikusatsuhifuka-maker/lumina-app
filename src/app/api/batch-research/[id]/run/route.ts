@@ -227,12 +227,30 @@ ${researchResult}
               4000,
             );
 
+            // AI タイトル自動生成（失敗・タイムアウト時は入力トピック名にフォールバック）
+            let savedTopic = item.topic;
+            try {
+              const aiTitle = await generateBatchTitle(
+                researchResult,
+                item.topic,
+                8000,
+              );
+              if (aiTitle && aiTitle.trim().length > 0 && aiTitle !== item.topic) {
+                savedTopic = aiTitle.trim();
+              }
+            } catch (titleErr) {
+              console.warn(
+                `[batch-research run] AIタイトル生成失敗 (item ${i}):`,
+                titleErr,
+              );
+            }
+
             // コンテキストライブラリに保存（バッチタグ付き）
             await sql`
               INSERT INTO context_saves (user_id, topic, context_text, research_text, tags)
               VALUES (
                 ${job.user_id},
-                ${item.topic},
+                ${savedTopic},
                 ${contextText},
                 ${researchResult},
                 ${[`batch:${jobId}`, `group:${job.group_name}`]}
@@ -343,6 +361,38 @@ ${researchResult}
       Connection: 'keep-alive',
     },
   });
+}
+
+// AI でバッチ保存用タイトルを生成（タイムアウト + フォールバック付き）
+// 既存 /api/text-analysis/generate-title と同じプロンプト方針
+async function generateBatchTitle(
+  text: string,
+  fallback: string,
+  timeoutMs: number,
+): Promise<string> {
+  const prompt =
+    `以下のリサーチ記事の内容を表す、短くわかりやすいタイトルを1つだけ生成してください。\n\n` +
+    `【条件】\n- 20〜40文字程度\n- 日本語\n- 内容の核心を一言で表す\n` +
+    `- タイトルだけを出力し、説明・前置き・記号は不要\n\n` +
+    `【記事（先頭2000文字）】\n${text.slice(0, 2000)}`;
+  try {
+    const titlePromise = generateWithModel('claude', prompt, undefined, 100);
+    const timeoutPromise = new Promise<string>((_, reject) =>
+      setTimeout(
+        () => reject(new Error('title generation timeout')),
+        timeoutMs,
+      ),
+    );
+    const raw = await Promise.race([titlePromise, timeoutPromise]);
+    const title = raw
+      .replace(/^["「『【]|["」』】]$/g, '')
+      .replace(/\n/g, '')
+      .trim()
+      .slice(0, 50);
+    return title || fallback;
+  } catch {
+    return fallback;
+  }
 }
 
 // 完了通知メール（Resend経由）
