@@ -1,5 +1,6 @@
 'use client';
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, Suspense } from 'react';
+import { useSearchParams } from 'next/navigation';
 import { LibraryItemRow } from '@/components/LibraryItemRow';
 import { LibraryPreviewPanel } from '@/components/LibraryPreviewPanel';
 
@@ -7,6 +8,7 @@ import { LibraryPreviewPanel } from '@/components/LibraryPreviewPanel';
 const TABS = [
   { key: 'all',       label: 'すべて' },
   { key: 'favorite',  label: '★お気に入り' },
+  { key: 'スタッフ育成資料', label: '📚 スタッフ育成資料' },
   { key: 'Intelligence Hub', label: '🧠 Intelligence Hub' },
   { key: 'Web情報収集', label: '🌐 Web情報収集' },
   { key: 'note検索',   label: '📓 note検索' },
@@ -38,7 +40,17 @@ function normalizeGroup(g: string): string {
   return GROUP_ALIASES[g] || g;
 }
 
-export default function LibraryPage() {
+function LibraryPageInner() {
+  const searchParams = useSearchParams();
+  // URLクエリ ?tab=... を初期タブとして反映（TABS の key と完全一致が条件）
+  const initialTab = useMemo<TabKey>(() => {
+    const q = searchParams.get('tab');
+    if (q && (TABS as readonly { key: string }[]).some(t => t.key === q)) {
+      return q as TabKey;
+    }
+    return 'all';
+  }, [searchParams]);
+
   const [items, setItems] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
@@ -51,7 +63,7 @@ export default function LibraryPage() {
   const [editTags, setEditTags] = useState('');
   const [editGroup, setEditGroup] = useState('');
   const [expandedId, setExpandedId] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<TabKey>('all');
+  const [activeTab, setActiveTab] = useState<TabKey>(initialTab);
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
   const [favFilterInTab, setFavFilterInTab] = useState(false);
   // フォルダ
@@ -66,6 +78,11 @@ export default function LibraryPage() {
       .then(r => r.json())
       .then(data => { if (Array.isArray(data)) setItems(data); setLoading(false); });
   }, []);
+
+  // サイドバーから ?tab=... 付きで再訪したときにも追従させる
+  useEffect(() => {
+    setActiveTab(initialTab);
+  }, [initialTab]);
 
   /* ── アクション ── */
   const generateMergeReport = async () => {
@@ -492,5 +509,13 @@ export default function LibraryPage() {
       )}
       <LibraryPreviewPanel item={previewItem} onClose={() => setPreviewItem(null)} />
     </div>
+  );
+}
+
+export default function LibraryPage() {
+  return (
+    <Suspense fallback={<div style={{ color: 'var(--text-muted)', padding: 40 }}>読み込み中...</div>}>
+      <LibraryPageInner />
+    </Suspense>
   );
 }

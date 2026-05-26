@@ -399,6 +399,9 @@ export default function StaffTrainingPage() {
   const [currentIndex, setCurrentIndex] = useState(-1);
   // 結果の表示モード（タブ切替 / 左右並列）
   const [displayMode, setDisplayMode] = useState<'tabs' | 'sideBySide'>('tabs');
+  // 一括ライブラリ保存
+  const [bulkSaving, setBulkSaving] = useState(false);
+  const [bulkSaveStatus, setBulkSaveStatus] = useState<{ done: number; total: number } | null>(null);
 
   const addTopic = () => {
     if (topicInputs.length >= 10) return;
@@ -607,6 +610,98 @@ ${r.expertContent || '（未生成）'}
     URL.revokeObjectURL(url);
   };
 
+  // ライブラリへ一括保存（基本資料 + エキスパート用の両方をPOST）
+  const handleBulkSave = async () => {
+    const doneResults = results.filter(
+      (r) => r.beginnerStatus === 'done' && r.expertStatus === 'done',
+    );
+
+    if (doneResults.length === 0) {
+      alert('保存対象がありません（両レベルとも生成完了している必要があります）');
+      return;
+    }
+
+    if (
+      !confirm(
+        `${doneResults.length} トピック × 2レベル = ${doneResults.length * 2} 件をライブラリに保存します。よろしいですか？`,
+      )
+    ) {
+      return;
+    }
+
+    setBulkSaving(true);
+    setBulkSaveStatus({ done: 0, total: doneResults.length * 2 });
+
+    let savedCount = 0;
+    let errorCount = 0;
+
+    for (const r of doneResults) {
+      // 基本資料（初心者用）
+      try {
+        const res = await fetch('/api/library', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            type: 'staff-training',
+            title: `${r.topic}(基本資料)`,
+            content: r.beginnerContent,
+            metadata: {
+              category: r.category,
+              level: 'beginner',
+              savedAt: new Date().toISOString(),
+            },
+            tags: `スタッフ育成,${r.category},基本資料`,
+            group_name: 'スタッフ育成資料',
+          }),
+        });
+        if (res.ok) savedCount++;
+        else errorCount++;
+      } catch {
+        errorCount++;
+      }
+      setBulkSaveStatus((prev) =>
+        prev ? { ...prev, done: prev.done + 1 } : null,
+      );
+
+      // エキスパート用
+      try {
+        const res = await fetch('/api/library', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            type: 'staff-training',
+            title: `${r.topic}(エキスパート用)`,
+            content: r.expertContent,
+            metadata: {
+              category: r.category,
+              level: 'expert',
+              savedAt: new Date().toISOString(),
+            },
+            tags: `スタッフ育成,${r.category},エキスパート用`,
+            group_name: 'スタッフ育成資料',
+          }),
+        });
+        if (res.ok) savedCount++;
+        else errorCount++;
+      } catch {
+        errorCount++;
+      }
+      setBulkSaveStatus((prev) =>
+        prev ? { ...prev, done: prev.done + 1 } : null,
+      );
+    }
+
+    setBulkSaving(false);
+
+    if (errorCount === 0) {
+      alert(
+        `✅ ${savedCount} 件すべてライブラリに保存しました。\nサイドバーの「✍️ スタッフ育成ライブラリ」から確認できます。`,
+      );
+    } else {
+      alert(`保存完了: ${savedCount} 件成功 / ${errorCount} 件エラー`);
+    }
+  };
+
   const allDone =
     results.length > 0 &&
     results.every(
@@ -614,6 +709,11 @@ ${r.expertContent || '（未生成）'}
         (r.beginnerStatus === 'done' || r.beginnerStatus === 'error') &&
         (r.expertStatus === 'done' || r.expertStatus === 'error'),
     );
+
+  // 一括保存可能なトピック数（両レベル done）
+  const bulkSavableCount = results.filter(
+    (r) => r.beginnerStatus === 'done' && r.expertStatus === 'done',
+  ).length;
 
   // ================== スタイル ==================
   const sectionStyle: React.CSSProperties = {
@@ -950,24 +1050,69 @@ ${r.expertContent || '（未生成）'}
             >
               📊 生成結果（{results.length}件）
             </h2>
-            {allDone && (
+            <div
+              style={{
+                display: 'flex',
+                gap: 8,
+                flexWrap: 'wrap',
+                alignItems: 'center',
+              }}
+            >
+              {/* ライブラリへ一括保存 */}
               <button
-                onClick={handleDownloadAll}
+                onClick={handleBulkSave}
+                disabled={bulkSaving || bulkSavableCount === 0}
                 style={{
                   padding: '8px 16px',
-                  background:
-                    'linear-gradient(135deg, #1D9E75, #00d4b8)',
-                  color: '#fff',
-                  border: 'none',
                   borderRadius: 8,
-                  fontSize: 13,
+                  border: 'none',
+                  background:
+                    bulkSaving || bulkSavableCount === 0
+                      ? 'var(--bg-secondary)'
+                      : 'linear-gradient(135deg, #6c63ff, #8b5cf6)',
+                  color:
+                    bulkSaving || bulkSavableCount === 0
+                      ? 'var(--text-muted)'
+                      : '#fff',
                   fontWeight: 700,
-                  cursor: 'pointer',
+                  cursor: bulkSaving
+                    ? 'wait'
+                    : bulkSavableCount === 0
+                      ? 'not-allowed'
+                      : 'pointer',
+                  fontSize: 13,
+                  opacity: bulkSavableCount === 0 && !bulkSaving ? 0.6 : 1,
                 }}
+                title={
+                  bulkSavableCount === 0
+                    ? '両レベルとも生成完了したトピックがありません'
+                    : `${bulkSavableCount}トピック × 2レベル = ${bulkSavableCount * 2}件を保存`
+                }
               >
-                📥 全資料をMDで一括ダウンロード
+                {bulkSaving && bulkSaveStatus
+                  ? `🔄 保存中... ${bulkSaveStatus.done}/${bulkSaveStatus.total}`
+                  : '✍️ すべてライブラリに一括保存'}
               </button>
-            )}
+
+              {allDone && (
+                <button
+                  onClick={handleDownloadAll}
+                  style={{
+                    padding: '8px 16px',
+                    background:
+                      'linear-gradient(135deg, #1D9E75, #00d4b8)',
+                    color: '#fff',
+                    border: 'none',
+                    borderRadius: 8,
+                    fontSize: 13,
+                    fontWeight: 700,
+                    cursor: 'pointer',
+                  }}
+                >
+                  📥 全資料をMDで一括ダウンロード
+                </button>
+              )}
+            </div>
           </div>
 
           {/* 表示モード切替トグル */}

@@ -29,6 +29,7 @@ const navCategories: NavCategory[] = [
       { href: '/dashboard/buzz', label: 'バズり分析', icon: '📊' },
       { href: '/dashboard/note-article', label: 'note記事生成', icon: '✍️' },
       { href: '/dashboard/staff-training', label: 'スタッフ育成資料', icon: '📚' },
+      { href: '/dashboard/library?tab=スタッフ育成資料', label: 'スタッフ育成ライブラリ', icon: '✍️' },
       { href: '/dashboard/knowledge-tree', label: '知識ツリー', icon: '🌳' },
       { href: '/dashboard/research-glossary', label: '専門用語集', icon: '📚' },
       { href: '/dashboard/context-library', label: 'コンテキストライブラリ', icon: '🧠' },
