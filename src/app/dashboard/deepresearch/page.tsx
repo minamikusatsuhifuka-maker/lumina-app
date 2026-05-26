@@ -276,6 +276,8 @@ export default function DeepResearchPage() {
   const [batchResults, setBatchResults] = useState<Record<number, BatchResult[]>>({});
   // 展開中トピックのキー（`${jobId}-${index}`）
   const [expandedTopics, setExpandedTopics] = useState<Set<string>>(new Set());
+  // 直近で完了したバッチ ID（runningJobId が null になった後もクリック展開を有効にする）
+  const [lastCompletedJobId, setLastCompletedJobId] = useState<number | null>(null);
   const [isStuck, setIsStuck] = useState(false);
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const browserTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -464,6 +466,9 @@ export default function DeepResearchPage() {
     setTopicStatuses({});
     setIsStuck(false);
     setElapsedSeconds(0);
+    // 前回完了バッチの展開キャッシュをクリア（新バッチで古い展開状態が混ざるのを防ぐ）
+    setLastCompletedJobId(null);
+    setExpandedTopics(new Set());
 
     // 経過時間カウンター
     elapsedTimerRef.current = setInterval(() => {
@@ -516,11 +521,15 @@ export default function DeepResearchPage() {
               setTopicStatuses(prev => ({ ...prev, [idx]: 'error' }));
             } else if (event.type === 'all_done' || event.type === 'error') {
               clearBatchTimers();
+              if (event.type === 'all_done') {
+                // 先に完了 jobId を確定させてからクリア（UI のクリック判定を維持）
+                setLastCompletedJobId(jobId);
+                // 本文をプリロード（クリック展開の体感速度向上）
+                loadBatchResults(jobId);
+              }
               setRunningJobId(null);
               setIsStuck(false);
               loadBatchJobs();
-              // バッチ完了後、本文をプリロード（クリック展開の体感速度向上）
-              if (event.type === 'all_done') loadBatchResults(jobId);
             }
           } catch {}
         }
@@ -2875,11 +2884,13 @@ ${contextText}
                         error: { text: '✗ エラーが発生しました', color: '#ef4444' },
                       };
                       const isPulsing = status === 'researching' || status === 'generating';
-                      const expandKey = runningJobId !== null ? `${runningJobId}-${i}` : '';
+                      // 実効 jobId: 実行中なら runningJobId、完了後なら lastCompletedJobId
+                      const effectiveJobId = runningJobId ?? lastCompletedJobId;
+                      const expandKey = effectiveJobId !== null ? `${effectiveJobId}-${i}` : '';
                       const isExpanded = expandKey ? expandedTopics.has(expandKey) : false;
-                      const resultsForJob = runningJobId !== null ? batchResults[runningJobId] : undefined;
+                      const resultsForJob = effectiveJobId !== null ? batchResults[effectiveJobId] : undefined;
                       const resultData = resultsForJob?.[i];
-                      const isClickable = status === 'done' && runningJobId !== null;
+                      const isClickable = status === 'done' && effectiveJobId !== null;
                       const displayTopic =
                         status === 'done' && resultData ? resultData.topic : item.topic;
 
@@ -2888,7 +2899,7 @@ ${contextText}
                           borderBottom: i < validTopics.length - 1 ? '1px solid var(--border)' : 'none',
                         }}>
                           <div
-                            onClick={() => isClickable && runningJobId !== null && toggleTopicExpand(runningJobId, i)}
+                            onClick={() => isClickable && effectiveJobId !== null && toggleTopicExpand(effectiveJobId, i)}
                             style={{
                               padding: '12px 18px',
                               display: 'flex',
