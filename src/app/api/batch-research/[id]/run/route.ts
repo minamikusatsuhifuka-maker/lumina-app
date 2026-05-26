@@ -29,7 +29,7 @@ export async function POST(
   }
 
   // リクエスト body から model を受け取る（cron や旧クライアントは body 空の可能性あり）
-  let model: AIModel = 'claude';
+  let model: AIModel = 'gemini';
   try {
     const reqBody = await req.json().catch(() => null);
     if (reqBody && (reqBody.model === 'claude' || reqBody.model === 'gemini')) {

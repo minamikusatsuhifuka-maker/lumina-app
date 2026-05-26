@@ -337,7 +337,7 @@ export default function DeepResearchPage() {
       const res = await fetch(`/api/batch-research/${jobId}/run`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ model: getSavedModel() }),
+        body: JSON.stringify({ model: 'gemini' }),
       });
       if (!res.ok || !res.body) {
         const err = await res.text();
@@ -611,7 +611,7 @@ export default function DeepResearchPage() {
         const runRes = await fetch(`/api/batch-research/${jobId}/run`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ model: getSavedModel() }),
+          body: JSON.stringify({ model: 'gemini' }),
         });
         if (!runRes.ok || !runRes.body) throw new Error('実行開始失敗');
         const reader = runRes.body.getReader();
