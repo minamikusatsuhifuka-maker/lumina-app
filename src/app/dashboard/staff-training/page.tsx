@@ -405,6 +405,33 @@ export default function StaffTrainingPage() {
     setTopicInputs((prev) => [...prev, { topic: '', category: '皮膚疾患' }]);
   };
 
+  // 指定件数をまとめて追加（10件上限を超えない範囲で追加）
+  const addMultipleTopics = (count: number) => {
+    setTopicInputs((prev) => {
+      const remaining = 10 - prev.length;
+      if (remaining <= 0) return prev;
+      const addCount = Math.min(count, remaining);
+      const newTopics: TopicInput[] = Array.from({ length: addCount }, () => ({
+        topic: '',
+        category: '皮膚疾患',
+      }));
+      return [...prev, ...newTopics];
+    });
+  };
+
+  // 現在の件数を10件まで埋める
+  const fillToMax = () => {
+    setTopicInputs((prev) => {
+      const remaining = 10 - prev.length;
+      if (remaining <= 0) return prev;
+      const newTopics: TopicInput[] = Array.from({ length: remaining }, () => ({
+        topic: '',
+        category: '皮膚疾患',
+      }));
+      return [...prev, ...newTopics];
+    });
+  };
+
   const removeTopic = (i: number) => {
     setTopicInputs((prev) =>
       prev.length > 1 ? prev.filter((_, idx) => idx !== i) : prev,
@@ -696,17 +723,129 @@ ${r.expertContent || '（未生成）'}
 
       {/* トピック入力 */}
       <div style={sectionStyle}>
-        <h2
+        {/* 見出し + 追加ボタン群（PC: 横並び / モバイル: 折り返し） */}
+        <div
           style={{
-            fontSize: 16,
-            fontWeight: 700,
-            color: 'var(--text-primary)',
-            marginTop: 0,
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            gap: 10,
             marginBottom: 14,
+            flexWrap: 'wrap',
           }}
         >
-          📝 トピック入力（最大10件）
-        </h2>
+          <h2
+            style={{
+              fontSize: 16,
+              fontWeight: 700,
+              color: 'var(--text-primary)',
+              margin: 0,
+            }}
+          >
+            📝 トピック入力（最大10件）
+          </h2>
+          <div
+            style={{
+              display: 'flex',
+              gap: 6,
+              flexWrap: 'wrap',
+              alignItems: 'center',
+            }}
+          >
+            <button
+              onClick={addTopic}
+              disabled={loading || topicInputs.length >= 10}
+              style={{
+                padding: '6px 12px',
+                background: 'transparent',
+                border: '1px dashed var(--border)',
+                borderRadius: 8,
+                color:
+                  topicInputs.length >= 10
+                    ? 'var(--text-muted)'
+                    : 'var(--text-secondary)',
+                fontSize: 12,
+                fontWeight: 600,
+                cursor:
+                  loading || topicInputs.length >= 10
+                    ? 'not-allowed'
+                    : 'pointer',
+                opacity: topicInputs.length >= 10 ? 0.5 : 1,
+              }}
+            >
+              + 1件
+            </button>
+            <button
+              onClick={() => addMultipleTopics(3)}
+              disabled={loading || topicInputs.length >= 10}
+              style={{
+                padding: '6px 12px',
+                background: 'transparent',
+                border: '1px dashed var(--border)',
+                borderRadius: 8,
+                color:
+                  topicInputs.length >= 10
+                    ? 'var(--text-muted)'
+                    : 'var(--text-secondary)',
+                fontSize: 12,
+                fontWeight: 600,
+                cursor:
+                  loading || topicInputs.length >= 10
+                    ? 'not-allowed'
+                    : 'pointer',
+                opacity: topicInputs.length >= 10 ? 0.5 : 1,
+              }}
+            >
+              + 3件
+            </button>
+            <button
+              onClick={() => addMultipleTopics(5)}
+              disabled={loading || topicInputs.length >= 10}
+              style={{
+                padding: '6px 12px',
+                background: 'transparent',
+                border: '1px dashed var(--border)',
+                borderRadius: 8,
+                color:
+                  topicInputs.length >= 10
+                    ? 'var(--text-muted)'
+                    : 'var(--text-secondary)',
+                fontSize: 12,
+                fontWeight: 600,
+                cursor:
+                  loading || topicInputs.length >= 10
+                    ? 'not-allowed'
+                    : 'pointer',
+                opacity: topicInputs.length >= 10 ? 0.5 : 1,
+              }}
+            >
+              + 5件
+            </button>
+            <button
+              onClick={fillToMax}
+              disabled={loading || topicInputs.length >= 10}
+              style={{
+                padding: '6px 12px',
+                background: 'transparent',
+                border: '1px dashed var(--border)',
+                borderRadius: 8,
+                color:
+                  topicInputs.length >= 10
+                    ? 'var(--text-muted)'
+                    : 'var(--text-secondary)',
+                fontSize: 12,
+                fontWeight: 600,
+                cursor:
+                  loading || topicInputs.length >= 10
+                    ? 'not-allowed'
+                    : 'pointer',
+                opacity: topicInputs.length >= 10 ? 0.5 : 1,
+              }}
+            >
+              + 10件まで
+            </button>
+          </div>
+        </div>
 
         {topicInputs.map((t, i) => (
           <div
@@ -761,25 +900,6 @@ ${r.expertContent || '（未生成）'}
           </div>
         ))}
 
-        {topicInputs.length < 10 && (
-          <button
-            onClick={addTopic}
-            disabled={loading}
-            style={{
-              marginTop: 6,
-              padding: '8px 14px',
-              background: 'transparent',
-              border: '1px dashed var(--border)',
-              borderRadius: 8,
-              color: 'var(--text-secondary)',
-              fontSize: 12,
-              fontWeight: 600,
-              cursor: loading ? 'not-allowed' : 'pointer',
-            }}
-          >
-            + トピックを追加
-          </button>
-        )}
       </div>
 
       {/* 実行ボタン */}
