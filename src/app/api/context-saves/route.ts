@@ -53,6 +53,18 @@ export async function GET(req: NextRequest) {
       return NextResponse.json(rows[0]);
     }
 
+    // タグフィルタ（バッチリサーチ結果取得用、created_at ASC で実行順）
+    const tagFilter = searchParams.get('tag');
+    if (tagFilter) {
+      const rows = await sql`
+        SELECT id, topic, context_text, research_text, tags, created_at
+        FROM context_saves
+        WHERE user_id = ${userId} AND ${tagFilter} = ANY(tags)
+        ORDER BY created_at ASC
+      `;
+      return NextResponse.json(rows);
+    }
+
     // 一覧取得
     const rows = await sql`
       SELECT id, topic, context_text, research_text, tags, created_at

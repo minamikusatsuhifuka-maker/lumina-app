@@ -135,6 +135,105 @@ const formatReport = (text: string): string => {
   return html.join('');
 };
 
+type BatchResult = {
+  id: number;
+  topic: string;
+  context_text: string;
+  research_text: string;
+  created_at: string;
+};
+
+// バッチ完了トピックの本文インライン展開コンポーネント
+function BatchExpandedContent({ result }: { result: BatchResult }) {
+  const [viewMode, setViewMode] = useState<'research' | 'context'>('research');
+  const [copied, setCopied] = useState(false);
+  const currentText =
+    viewMode === 'research' ? result.research_text : result.context_text;
+
+  const handleCopy = async () => {
+    try {
+      await navigator.clipboard.writeText(currentText || '');
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch {}
+  };
+
+  const handleDownload = () => {
+    const blob = new Blob([currentText || ''], {
+      type: 'text/markdown;charset=utf-8',
+    });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    const date = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+    const safeTopic = (result.topic || 'untitled')
+      .replace(/[/\\:*?"<>|]/g, '')
+      .slice(0, 30);
+    a.download = `${safeTopic}_${viewMode}_${date}.md`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const tabStyle = (active: boolean): React.CSSProperties => ({
+    padding: '6px 12px',
+    borderRadius: 6,
+    fontSize: 12,
+    fontWeight: 700,
+    border: '1px solid var(--border)',
+    cursor: 'pointer',
+    background: active ? 'linear-gradient(135deg, #6c63ff, #8b5cf6)' : 'transparent',
+    color: active ? '#fff' : 'var(--text-secondary)',
+  });
+
+  const iconBtnStyle: React.CSSProperties = {
+    padding: '6px 10px',
+    borderRadius: 6,
+    fontSize: 12,
+    fontWeight: 600,
+    border: '1px solid var(--border)',
+    background: 'var(--bg-primary)',
+    color: 'var(--text-primary)',
+    cursor: 'pointer',
+  };
+
+  return (
+    <div>
+      <div style={{ display: 'flex', gap: 6, marginBottom: 10, flexWrap: 'wrap' }}>
+        <button onClick={() => setViewMode('research')} style={tabStyle(viewMode === 'research')}>
+          📄 リサーチ本文
+        </button>
+        <button onClick={() => setViewMode('context')} style={tabStyle(viewMode === 'context')}>
+          🧠 コンテキスト
+        </button>
+        <div style={{ marginLeft: 'auto', display: 'flex', gap: 6 }}>
+          <button onClick={handleCopy} style={iconBtnStyle}>
+            {copied ? '✓ コピー済' : '📋 コピー'}
+          </button>
+          <button onClick={handleDownload} style={iconBtnStyle}>
+            📥 MD
+          </button>
+        </div>
+      </div>
+      <div
+        style={{
+          maxHeight: 500,
+          overflowY: 'auto',
+          whiteSpace: 'pre-wrap',
+          fontSize: 13,
+          lineHeight: 1.7,
+          padding: 12,
+          background: 'var(--bg-primary)',
+          borderRadius: 6,
+          border: '1px solid var(--border)',
+          color: 'var(--text-primary)',
+        }}
+      >
+        {currentText || '（本文がありません）'}
+      </div>
+    </div>
+  );
+}
+
 type BatchTopic = { topic: string; mode: 'quick' | 'standard' | 'deep' };
 type ProgressEvent = { type: string; index?: number; topic?: string; total?: number; error?: string; success?: boolean; jobId?: number; message?: string };
 type BatchJob = {
@@ -173,6 +272,10 @@ export default function DeepResearchPage() {
   const [batchProgress, setBatchProgress] = useState<ProgressEvent[]>([]);
   type TopicStatus = 'pending' | 'researching' | 'generating' | 'done' | 'error';
   const [topicStatuses, setTopicStatuses] = useState<Record<number, TopicStatus>>({});
+  // バッチ結果（jobId → context_saves から取得した本文配列、実行順）
+  const [batchResults, setBatchResults] = useState<Record<number, BatchResult[]>>({});
+  // 展開中トピックのキー（`${jobId}-${index}`）
+  const [expandedTopics, setExpandedTopics] = useState<Set<string>>(new Set());
   const [isStuck, setIsStuck] = useState(false);
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const browserTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -237,6 +340,43 @@ export default function DeepResearchPage() {
     } catch {
       alert('削除中にエラーが発生しました');
     }
+  };
+
+  // バッチ結果本文を取得（タグフィルタで context_saves から）
+  const loadBatchResults = async (jobId: number): Promise<BatchResult[]> => {
+    if (batchResults[jobId]) return batchResults[jobId];
+    try {
+      const res = await fetch(`/api/context-saves?tag=batch:${jobId}`);
+      if (!res.ok) {
+        console.error('[loadBatchResults] HTTP error:', res.status);
+        return [];
+      }
+      const data: BatchResult[] = await res.json();
+      setBatchResults(prev => ({ ...prev, [jobId]: data }));
+      return data;
+    } catch (e) {
+      console.error('[loadBatchResults] error:', e);
+      return [];
+    }
+  };
+
+  // トピック行の展開トグル
+  const toggleTopicExpand = async (jobId: number, index: number) => {
+    const key = `${jobId}-${index}`;
+    if (expandedTopics.has(key)) {
+      setExpandedTopics(prev => {
+        const next = new Set(prev);
+        next.delete(key);
+        return next;
+      });
+      return;
+    }
+    await loadBatchResults(jobId);
+    setExpandedTopics(prev => {
+      const next = new Set(prev);
+      next.add(key);
+      return next;
+    });
   };
 
   const loadBatchJobs = async () => {
@@ -379,6 +519,8 @@ export default function DeepResearchPage() {
               setRunningJobId(null);
               setIsStuck(false);
               loadBatchJobs();
+              // バッチ完了後、本文をプリロード（クリック展開の体感速度向上）
+              if (event.type === 'all_done') loadBatchResults(jobId);
             }
           } catch {}
         }
@@ -2733,63 +2875,109 @@ ${contextText}
                         error: { text: '✗ エラーが発生しました', color: '#ef4444' },
                       };
                       const isPulsing = status === 'researching' || status === 'generating';
+                      const expandKey = runningJobId !== null ? `${runningJobId}-${i}` : '';
+                      const isExpanded = expandKey ? expandedTopics.has(expandKey) : false;
+                      const resultsForJob = runningJobId !== null ? batchResults[runningJobId] : undefined;
+                      const resultData = resultsForJob?.[i];
+                      const isClickable = status === 'done' && runningJobId !== null;
+                      const displayTopic =
+                        status === 'done' && resultData ? resultData.topic : item.topic;
 
                       return (
                         <div key={i} style={{
-                          padding: '12px 18px',
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: 12,
                           borderBottom: i < validTopics.length - 1 ? '1px solid var(--border)' : 'none',
                         }}>
-                          <div style={{ width: 32, flexShrink: 0, display: 'flex', justifyContent: 'center' }}>
-                            {status === 'pending' && (
-                              <span style={{
-                                width: 22, height: 22, borderRadius: '50%',
-                                border: '2px solid var(--border)',
-                                display: 'flex', alignItems: 'center', justifyContent: 'center',
-                                fontSize: 10, color: 'var(--text-muted)',
+                          <div
+                            onClick={() => isClickable && runningJobId !== null && toggleTopicExpand(runningJobId, i)}
+                            style={{
+                              padding: '12px 18px',
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: 12,
+                              cursor: isClickable ? 'pointer' : 'default',
+                              transition: 'background 0.15s ease',
+                              background: isExpanded ? 'var(--bg-secondary)' : 'transparent',
+                            }}
+                            onMouseEnter={(e) => {
+                              if (isClickable && !isExpanded) {
+                                (e.currentTarget as HTMLDivElement).style.background = 'var(--bg-secondary)';
+                              }
+                            }}
+                            onMouseLeave={(e) => {
+                              if (isClickable && !isExpanded) {
+                                (e.currentTarget as HTMLDivElement).style.background = 'transparent';
+                              }
+                            }}
+                          >
+                            <div style={{ width: 32, flexShrink: 0, display: 'flex', justifyContent: 'center' }}>
+                              {status === 'pending' && (
+                                <span style={{
+                                  width: 22, height: 22, borderRadius: '50%',
+                                  border: '2px solid var(--border)',
+                                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                  fontSize: 10, color: 'var(--text-muted)',
+                                }}>
+                                  {i + 1}
+                                </span>
+                              )}
+                              {status === 'researching' && (
+                                <div style={{
+                                  width: 22, height: 22,
+                                  border: '3px solid rgba(108,99,255,0.2)',
+                                  borderTopColor: '#6c63ff',
+                                  borderRadius: '50%',
+                                  animation: 'spin 0.8s linear infinite',
+                                }} />
+                              )}
+                              {status === 'generating' && (
+                                <div style={{
+                                  width: 22, height: 22,
+                                  border: '3px solid rgba(139,92,246,0.2)',
+                                  borderTopColor: '#8b5cf6',
+                                  borderRadius: '50%',
+                                  animation: 'spin 0.8s linear infinite',
+                                }} />
+                              )}
+                              {status === 'done' && <span style={{ fontSize: 18 }}>✅</span>}
+                              {status === 'error' && <span style={{ fontSize: 18 }}>❌</span>}
+                            </div>
+                            <div style={{ flex: 1, minWidth: 0 }}>
+                              <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis' as const, whiteSpace: 'nowrap' as const }}>
+                                {displayTopic}
+                              </div>
+                              <div style={{
+                                fontSize: 11,
+                                color: labels[status].color,
+                                marginTop: 2,
+                                animation: isPulsing ? 'pulse 1.6s ease-in-out infinite' : 'none',
                               }}>
-                                {i + 1}
+                                {labels[status].text}
+                              </div>
+                            </div>
+                            <span style={{ fontSize: 10, color: 'var(--text-muted)', flexShrink: 0 }}>
+                              {item.mode === 'deep' ? '5000字' : item.mode === 'standard' ? '3000字' : '1500字'}
+                            </span>
+                            {isClickable && (
+                              <span style={{ fontSize: 11, color: 'var(--text-secondary)', flexShrink: 0, marginLeft: 4 }}>
+                                {isExpanded ? '▲' : '▼'}
                               </span>
                             )}
-                            {status === 'researching' && (
-                              <div style={{
-                                width: 22, height: 22,
-                                border: '3px solid rgba(108,99,255,0.2)',
-                                borderTopColor: '#6c63ff',
-                                borderRadius: '50%',
-                                animation: 'spin 0.8s linear infinite',
-                              }} />
-                            )}
-                            {status === 'generating' && (
-                              <div style={{
-                                width: 22, height: 22,
-                                border: '3px solid rgba(139,92,246,0.2)',
-                                borderTopColor: '#8b5cf6',
-                                borderRadius: '50%',
-                                animation: 'spin 0.8s linear infinite',
-                              }} />
-                            )}
-                            {status === 'done' && <span style={{ fontSize: 18 }}>✅</span>}
-                            {status === 'error' && <span style={{ fontSize: 18 }}>❌</span>}
                           </div>
-                          <div style={{ flex: 1, minWidth: 0 }}>
-                            <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis' as const, whiteSpace: 'nowrap' as const }}>
-                              {item.topic}
-                            </div>
+                          {isExpanded && (
                             <div style={{
-                              fontSize: 11,
-                              color: labels[status].color,
-                              marginTop: 2,
-                              animation: isPulsing ? 'pulse 1.6s ease-in-out infinite' : 'none',
+                              padding: '12px 18px 18px 18px',
+                              background: 'var(--bg-secondary)',
+                              borderTop: '1px solid var(--border)',
                             }}>
-                              {labels[status].text}
+                              {resultData ? (
+                                <BatchExpandedContent result={resultData} />
+                              ) : (
+                                <div style={{ fontSize: 12, color: 'var(--text-muted)', padding: 8 }}>
+                                  本文を読み込み中...
+                                </div>
+                              )}
                             </div>
-                          </div>
-                          <span style={{ fontSize: 10, color: 'var(--text-muted)', flexShrink: 0 }}>
-                            {item.mode === 'deep' ? '5000字' : item.mode === 'standard' ? '3000字' : '1500字'}
-                          </span>
+                          )}
                         </div>
                       );
                     })}
