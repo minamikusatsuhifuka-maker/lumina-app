@@ -40,45 +40,186 @@ interface SseEvent {
 
 // ================== サブコンポーネント ==================
 
-function TopicResultCard({ result }: { result: TopicResult }) {
-  const [activeTab, setActiveTab] = useState<'beginner' | 'expert'>('beginner');
-  const [copied, setCopied] = useState(false);
+const STATUS_BADGE: Record<Status, string> = {
+  done: '✓',
+  generating: '⏳',
+  error: '✗',
+  pending: '...',
+};
 
-  const currentContent =
+const COMPACT_BTN_STYLE: React.CSSProperties = {
+  padding: '6px 10px',
+  borderRadius: 6,
+  fontSize: 11,
+  fontWeight: 600,
+  border: '1px solid var(--border)',
+  background: 'var(--bg-primary)',
+  color: 'var(--text-primary)',
+  cursor: 'pointer',
+};
+
+const ACTION_BTN_STYLE: React.CSSProperties = {
+  padding: '7px 12px',
+  borderRadius: 6,
+  fontSize: 12,
+  fontWeight: 600,
+  border: '1px solid var(--border)',
+  background: 'var(--bg-primary)',
+  color: 'var(--text-primary)',
+  cursor: 'pointer',
+};
+
+// 本文の状態別表示（pending/generating/error/done）
+function ContentBody({
+  status,
+  content,
+}: {
+  status: Status;
+  content: string;
+}) {
+  if (status === 'pending')
+    return <span style={{ color: 'var(--text-muted)' }}>待機中...</span>;
+  if (status === 'generating')
+    return <span style={{ color: '#6c63ff' }}>🌀 生成中...</span>;
+  if (status === 'error')
+    return (
+      <span style={{ color: '#ef4444' }}>
+        ✗ 生成エラー（このタブの内容を取得できませんでした）
+      </span>
+    );
+  return <>{content || '（本文がありません）'}</>;
+}
+
+// 左右並列モードの片側1列
+function ColumnView({
+  title,
+  content,
+  status,
+  level,
+  topic,
+  category,
+  onCopy,
+  onDownload,
+  copied,
+}: {
+  title: string;
+  content: string;
+  status: Status;
+  level: 'beginner' | 'expert';
+  topic: string;
+  category: string;
+  onCopy: (text: string, level: 'beginner' | 'expert') => void;
+  onDownload: (text: string, level: 'beginner' | 'expert') => void;
+  copied: 'beginner' | 'expert' | null;
+}) {
+  const levelLabel = level === 'beginner' ? '初心者用' : 'エキスパート用';
+  return (
+    <div
+      style={{
+        padding: 14,
+        background: 'var(--bg-primary)',
+        borderRadius: 8,
+        border: '1px solid var(--border)',
+        display: 'flex',
+        flexDirection: 'column',
+        gap: 10,
+      }}
+    >
+      <div
+        style={{
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          gap: 8,
+          flexWrap: 'wrap',
+        }}
+      >
+        <h4
+          style={{
+            margin: 0,
+            fontSize: 13,
+            fontWeight: 700,
+            color: 'var(--text-primary)',
+          }}
+        >
+          {title} {STATUS_BADGE[status]}
+        </h4>
+      </div>
+
+      {status === 'done' && (
+        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+          <button onClick={() => onCopy(content, level)} style={COMPACT_BTN_STYLE}>
+            {copied === level ? '✓ コピー済' : '📋 コピー'}
+          </button>
+          <button onClick={() => onDownload(content, level)} style={COMPACT_BTN_STYLE}>
+            📥 MD
+          </button>
+          <SaveToLibraryButton
+            title={`${topic}（${levelLabel}）`}
+            content={content}
+            type="staff-training"
+            groupName="スタッフ育成資料"
+            tags={`スタッフ育成,${category},${levelLabel}`}
+          />
+        </div>
+      )}
+
+      <div
+        style={{
+          maxHeight: 600,
+          overflowY: 'auto',
+          padding: 12,
+          background: 'var(--bg-secondary)',
+          borderRadius: 6,
+          border: '1px solid var(--border)',
+          fontSize: 13,
+          lineHeight: 1.75,
+          color: 'var(--text-primary)',
+          whiteSpace: 'pre-wrap',
+        }}
+      >
+        <ContentBody status={status} content={content} />
+      </div>
+    </div>
+  );
+}
+
+function TopicResultCard({
+  result,
+  displayMode,
+}: {
+  result: TopicResult;
+  displayMode: 'tabs' | 'sideBySide';
+}) {
+  const [activeTab, setActiveTab] = useState<'beginner' | 'expert'>('beginner');
+  const [copied, setCopied] = useState<'beginner' | 'expert' | null>(null);
+
+  const tabContent =
     activeTab === 'beginner' ? result.beginnerContent : result.expertContent;
-  const currentStatus =
+  const tabStatus =
     activeTab === 'beginner' ? result.beginnerStatus : result.expertStatus;
 
-  const handleCopy = async () => {
-    if (!currentContent) return;
+  const copyText = async (text: string, level: 'beginner' | 'expert') => {
+    if (!text) return;
     try {
-      await navigator.clipboard.writeText(currentContent);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1500);
+      await navigator.clipboard.writeText(text);
+      setCopied(level);
+      setTimeout(() => setCopied(null), 1500);
     } catch {}
   };
 
-  const handleDownload = () => {
-    if (!currentContent) return;
-    const blob = new Blob([currentContent], {
-      type: 'text/markdown;charset=utf-8',
-    });
+  const downloadText = (text: string, level: 'beginner' | 'expert') => {
+    if (!text) return;
+    const blob = new Blob([text], { type: 'text/markdown;charset=utf-8' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
     const date = yyyymmdd();
-    const levelLabel = activeTab === 'beginner' ? '初心者用' : 'エキスパート用';
+    const levelLabel = level === 'beginner' ? '初心者用' : 'エキスパート用';
     a.download =
       sanitizeFilename(`${result.topic}_${levelLabel}_${date}`) + '.md';
     a.click();
     URL.revokeObjectURL(url);
-  };
-
-  const statusBadge = (status: Status) => {
-    if (status === 'done') return '✓';
-    if (status === 'generating') return '⏳';
-    if (status === 'error') return '✗';
-    return '...';
   };
 
   const tabBtnStyle = (active: boolean): React.CSSProperties => ({
@@ -95,17 +236,6 @@ function TopicResultCard({ result }: { result: TopicResult }) {
     color: active ? '#fff' : 'var(--text-secondary)',
     transition: 'all 0.15s ease',
   });
-
-  const actionBtnStyle: React.CSSProperties = {
-    padding: '7px 12px',
-    borderRadius: 6,
-    fontSize: 12,
-    fontWeight: 600,
-    border: '1px solid var(--border)',
-    background: 'var(--bg-primary)',
-    color: 'var(--text-primary)',
-    cursor: 'pointer',
-  };
 
   return (
     <div
@@ -153,77 +283,107 @@ function TopicResultCard({ result }: { result: TopicResult }) {
         </div>
       </div>
 
-      {/* タブ切替 */}
-      <div style={{ display: 'flex', gap: 8, marginBottom: 14 }}>
-        <button
-          onClick={() => setActiveTab('beginner')}
-          style={tabBtnStyle(activeTab === 'beginner')}
-        >
-          📘 初心者用 (1000字以内) {statusBadge(result.beginnerStatus)}
-        </button>
-        <button
-          onClick={() => setActiveTab('expert')}
-          style={tabBtnStyle(activeTab === 'expert')}
-        >
-          📕 エキスパート用 (2000字以内) {statusBadge(result.expertStatus)}
-        </button>
-      </div>
-
-      {/* アクションバー */}
-      {currentStatus === 'done' && (
+      {displayMode === 'sideBySide' ? (
+        // ================== 左右並列モード ==================
         <div
           style={{
-            display: 'flex',
-            gap: 8,
-            marginBottom: 12,
-            flexWrap: 'wrap',
-            alignItems: 'center',
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))',
+            gap: 14,
+            alignItems: 'start',
           }}
         >
-          <button onClick={handleCopy} style={actionBtnStyle}>
-            {copied ? '✓ コピー済' : '📋 コピー'}
-          </button>
-          <button onClick={handleDownload} style={actionBtnStyle}>
-            📥 MD ダウンロード
-          </button>
-          <SaveToLibraryButton
-            title={`${result.topic}（${activeTab === 'beginner' ? '初心者用' : 'エキスパート用'}）`}
-            content={currentContent}
-            type="staff-training"
-            groupName="スタッフ育成資料"
-            tags={`スタッフ育成,${result.category},${activeTab === 'beginner' ? '初心者用' : 'エキスパート用'}`}
+          <ColumnView
+            title="📘 初心者用 (1000字以内)"
+            content={result.beginnerContent}
+            status={result.beginnerStatus}
+            level="beginner"
+            topic={result.topic}
+            category={result.category}
+            onCopy={copyText}
+            onDownload={downloadText}
+            copied={copied}
+          />
+          <ColumnView
+            title="📕 エキスパート用 (2000字以内)"
+            content={result.expertContent}
+            status={result.expertStatus}
+            level="expert"
+            topic={result.topic}
+            category={result.category}
+            onCopy={copyText}
+            onDownload={downloadText}
+            copied={copied}
           />
         </div>
-      )}
+      ) : (
+        // ================== タブ切替モード ==================
+        <>
+          <div style={{ display: 'flex', gap: 8, marginBottom: 14 }}>
+            <button
+              onClick={() => setActiveTab('beginner')}
+              style={tabBtnStyle(activeTab === 'beginner')}
+            >
+              📘 初心者用 (1000字以内) {STATUS_BADGE[result.beginnerStatus]}
+            </button>
+            <button
+              onClick={() => setActiveTab('expert')}
+              style={tabBtnStyle(activeTab === 'expert')}
+            >
+              📕 エキスパート用 (2000字以内) {STATUS_BADGE[result.expertStatus]}
+            </button>
+          </div>
 
-      {/* 本文表示 */}
-      <div
-        style={{
-          maxHeight: 500,
-          overflowY: 'auto',
-          padding: 14,
-          background: 'var(--bg-primary)',
-          borderRadius: 8,
-          border: '1px solid var(--border)',
-          fontSize: 13,
-          lineHeight: 1.75,
-          color: 'var(--text-primary)',
-          whiteSpace: 'pre-wrap',
-        }}
-      >
-        {currentStatus === 'pending' && (
-          <span style={{ color: 'var(--text-muted)' }}>待機中...</span>
-        )}
-        {currentStatus === 'generating' && (
-          <span style={{ color: '#6c63ff' }}>🌀 生成中...</span>
-        )}
-        {currentStatus === 'error' && (
-          <span style={{ color: '#ef4444' }}>
-            ✗ 生成エラー（このタブの内容を取得できませんでした）
-          </span>
-        )}
-        {currentStatus === 'done' && (currentContent || '（本文がありません）')}
-      </div>
+          {tabStatus === 'done' && (
+            <div
+              style={{
+                display: 'flex',
+                gap: 8,
+                marginBottom: 12,
+                flexWrap: 'wrap',
+                alignItems: 'center',
+              }}
+            >
+              <button
+                onClick={() => copyText(tabContent, activeTab)}
+                style={ACTION_BTN_STYLE}
+              >
+                {copied === activeTab ? '✓ コピー済' : '📋 コピー'}
+              </button>
+              <button
+                onClick={() => downloadText(tabContent, activeTab)}
+                style={ACTION_BTN_STYLE}
+              >
+                📥 MD ダウンロード
+              </button>
+              <SaveToLibraryButton
+                title={`${result.topic}（${activeTab === 'beginner' ? '初心者用' : 'エキスパート用'}）`}
+                content={tabContent}
+                type="staff-training"
+                groupName="スタッフ育成資料"
+                tags={`スタッフ育成,${result.category},${activeTab === 'beginner' ? '初心者用' : 'エキスパート用'}`}
+              />
+            </div>
+          )}
+
+          <div
+            style={{
+              maxHeight: 500,
+              overflowY: 'auto',
+              padding: 14,
+              background: 'var(--bg-primary)',
+              borderRadius: 8,
+              border: '1px solid var(--border)',
+              fontSize: 13,
+              lineHeight: 1.75,
+              color: 'var(--text-primary)',
+              whiteSpace: 'pre-wrap',
+            }}
+          >
+            <ContentBody status={tabStatus} content={tabContent} />
+          </div>
+        </>
+      )}
     </div>
   );
 }
@@ -237,6 +397,8 @@ export default function StaffTrainingPage() {
   const [results, setResults] = useState<TopicResult[]>([]);
   const [loading, setLoading] = useState(false);
   const [currentIndex, setCurrentIndex] = useState(-1);
+  // 結果の表示モード（タブ切替 / 左右並列）
+  const [displayMode, setDisplayMode] = useState<'tabs' | 'sideBySide'>('tabs');
 
   const addTopic = () => {
     if (topicInputs.length >= 10) return;
@@ -688,8 +850,55 @@ ${r.expertContent || '（未生成）'}
             )}
           </div>
 
+          {/* 表示モード切替トグル */}
+          <div
+            style={{
+              marginBottom: 16,
+              display: 'flex',
+              alignItems: 'center',
+              gap: 10,
+              flexWrap: 'wrap',
+            }}
+          >
+            <span style={{ fontSize: 13, color: 'var(--text-secondary)' }}>
+              🎚 表示モード:
+            </span>
+            <div style={{ display: 'inline-flex', gap: 6 }}>
+              {(
+                [
+                  { id: 'tabs', label: '📑 タブ切替' },
+                  { id: 'sideBySide', label: '🔀 左右並列' },
+                ] as const
+              ).map((m) => {
+                const active = displayMode === m.id;
+                return (
+                  <button
+                    key={m.id}
+                    onClick={() => setDisplayMode(m.id)}
+                    style={{
+                      padding: '6px 14px',
+                      borderRadius: 99,
+                      border: active
+                        ? '1px solid transparent'
+                        : '1px solid var(--border)',
+                      background: active
+                        ? 'linear-gradient(135deg, #6c63ff, #8b5cf6)'
+                        : 'var(--bg-primary)',
+                      color: active ? '#fff' : 'var(--text-secondary)',
+                      fontSize: 12,
+                      fontWeight: 700,
+                      cursor: 'pointer',
+                    }}
+                  >
+                    {m.label}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
           {results.map((r, i) => (
-            <TopicResultCard key={i} result={r} />
+            <TopicResultCard key={i} result={r} displayMode={displayMode} />
           ))}
         </div>
       )}
