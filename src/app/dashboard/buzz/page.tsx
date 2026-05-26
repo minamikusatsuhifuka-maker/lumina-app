@@ -112,6 +112,11 @@ export default function BuzzAnalysisPage() {
   const [libraryRefreshKey, setLibraryRefreshKey] = useState(0);
   const [mode, setMode] = useState<Mode>('single');
   const [mediaType, setMediaType] = useState<MediaType>('note');
+  // バズりパターン抽出
+  const [extractingPatterns, setExtractingPatterns] = useState(false);
+  const [extractedPatterns, setExtractedPatterns] = useState<any[] | null>(null);
+  const [selectedPatternIndices, setSelectedPatternIndices] = useState<Set<number>>(new Set());
+  const [savingPatterns, setSavingPatterns] = useState(false);
   const [url, setUrl] = useState('');
   const [urls, setUrls] = useState<string[]>(['', '', '', '', '']);
   const [field, setField] = useState('');
@@ -301,6 +306,98 @@ export default function BuzzAnalysisPage() {
     } finally {
       setDownloadingMd(false);
     }
+  };
+
+  // パターン抽出（バズり分析結果から再利用可能な型を抽出）
+  const handleExtractPatterns = async () => {
+    if (!report.trim()) return;
+    setExtractingPatterns(true);
+    try {
+      const res = await fetch('/api/buzz-pattern-extract', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          analysisContent: report,
+          mediaType,
+        }),
+      });
+      const data = await res.json();
+      if (res.ok && Array.isArray(data.patterns)) {
+        setExtractedPatterns(data.patterns);
+        setSelectedPatternIndices(new Set(data.patterns.map((_: any, i: number) => i)));
+      } else {
+        alert(`抽出エラー: ${data.error || '不明なエラー'}`);
+      }
+    } catch (e: any) {
+      alert(`通信エラー: ${e.message}`);
+    } finally {
+      setExtractingPatterns(false);
+    }
+  };
+
+  // 選択したパターンを library テーブルに type='buzz-pattern' で保存
+  const handleSaveSelectedPatterns = async () => {
+    if (!extractedPatterns) return;
+    const selected = extractedPatterns.filter((_, i) => selectedPatternIndices.has(i));
+    if (selected.length === 0) {
+      alert('保存するパターンを選択してください');
+      return;
+    }
+    setSavingPatterns(true);
+    let saved = 0;
+    for (const p of selected) {
+      try {
+        const examples = Array.isArray(p.examples) ? p.examples : [];
+        const scenarios = Array.isArray(p.applicableScenarios) ? p.applicableScenarios : [];
+        const content = `## ${p.title}
+
+### カテゴリ
+${p.category}
+
+### フレームワーク
+${p.framework}
+
+### 説明
+${p.description}
+
+### 構造・テンプレート
+${p.structure}
+
+### 具体例
+${examples.map((ex: string, i: number) => `${i + 1}. ${ex}`).join('\n')}
+
+### 使えるシーン
+${scenarios.map((sc: string) => `- ${sc}`).join('\n')}
+`;
+        const res = await fetch('/api/library', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            type: 'buzz-pattern',
+            title: p.title,
+            content,
+            metadata: {
+              category: p.category,
+              framework: p.framework,
+              mediaType,
+              description: p.description,
+              structure: p.structure,
+              examples,
+              applicableScenarios: scenarios,
+              extractedAt: new Date().toISOString(),
+            },
+            tags: p.tags || `${p.category},${p.framework}`,
+            group_name: 'バズりパターン辞書',
+            is_favorite: false,
+          }),
+        });
+        if (res.ok) saved++;
+      } catch {}
+    }
+    setSavingPatterns(false);
+    alert(`✅ ${saved}/${selected.length} 件のパターンを辞書に保存しました。\nサイドバーの「📖 バズりパターン辞書」から確認できます。`);
+    setExtractedPatterns(null);
+    setSelectedPatternIndices(new Set());
   };
 
   // 実行ボタンラベル
@@ -716,6 +813,25 @@ export default function BuzzAnalysisPage() {
               >
                 📋 コピー
               </button>
+              <button
+                onClick={handleExtractPatterns}
+                disabled={extractingPatterns || !report.trim()}
+                style={{
+                  padding: '6px 14px',
+                  background: extractingPatterns
+                    ? 'var(--bg-secondary)'
+                    : 'linear-gradient(135deg, #f59e0b, #ef4444)',
+                  border: 'none',
+                  color: extractingPatterns ? 'var(--text-muted)' : '#fff',
+                  borderRadius: 6,
+                  cursor: extractingPatterns ? 'wait' : 'pointer',
+                  fontSize: 12,
+                  fontWeight: 700,
+                }}
+                title="分析結果から再利用可能な型・パターンを抽出して辞書に追加"
+              >
+                {extractingPatterns ? '🔄 抽出中...' : '📖 パターンを抽出して辞書に追加'}
+              </button>
             </div>
           </div>
 
@@ -740,6 +856,175 @@ export default function BuzzAnalysisPage() {
       )}
 
       </div>{/* /分析実行タブ */}
+
+      {/* バズりパターン抽出プレビューモーダル */}
+      {extractedPatterns && (
+        <div
+          style={{
+            position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
+            background: 'rgba(0,0,0,0.6)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            zIndex: 1000, padding: 20,
+          }}
+          onClick={() => !savingPatterns && setExtractedPatterns(null)}
+        >
+          <div
+            style={{
+              background: 'var(--bg-primary)',
+              border: '1px solid var(--border)',
+              borderRadius: 12,
+              padding: 24,
+              maxWidth: 900,
+              maxHeight: '90vh',
+              overflowY: 'auto',
+              width: '100%',
+              boxShadow: '0 20px 50px rgba(0,0,0,0.4)',
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h2 style={{ marginTop: 0, color: 'var(--text-primary)', fontSize: 20 }}>
+              📖 抽出されたパターン（{extractedPatterns.length}件）
+            </h2>
+            <p style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: 16 }}>
+              辞書に保存するパターンを選択してください。カードをクリックで選択/解除。
+            </p>
+
+            <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
+              <button
+                type="button"
+                onClick={() => setSelectedPatternIndices(new Set(extractedPatterns.map((_, i) => i)))}
+                style={{
+                  padding: '6px 12px', borderRadius: 6,
+                  border: '1px solid var(--border)', background: 'var(--bg-secondary)',
+                  color: 'var(--text-secondary)', cursor: 'pointer', fontSize: 12,
+                }}
+              >
+                すべて選択
+              </button>
+              <button
+                type="button"
+                onClick={() => setSelectedPatternIndices(new Set())}
+                style={{
+                  padding: '6px 12px', borderRadius: 6,
+                  border: '1px solid var(--border)', background: 'var(--bg-secondary)',
+                  color: 'var(--text-secondary)', cursor: 'pointer', fontSize: 12,
+                }}
+              >
+                すべて解除
+              </button>
+            </div>
+
+            {extractedPatterns.map((p, i) => {
+              const isSelected = selectedPatternIndices.has(i);
+              return (
+                <div
+                  key={i}
+                  onClick={() => {
+                    const next = new Set(selectedPatternIndices);
+                    if (next.has(i)) next.delete(i);
+                    else next.add(i);
+                    setSelectedPatternIndices(next);
+                  }}
+                  style={{
+                    padding: 16,
+                    marginBottom: 12,
+                    background: 'var(--bg-secondary)',
+                    borderRadius: 8,
+                    border: isSelected ? '2px solid var(--accent)' : '1px solid var(--border)',
+                    cursor: 'pointer',
+                  }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                    <input
+                      type="checkbox"
+                      checked={isSelected}
+                      readOnly
+                      style={{ width: 16, height: 16, cursor: 'pointer' }}
+                    />
+                    <h3 style={{ margin: 0, fontSize: 15, color: 'var(--text-primary)' }}>{p.title}</h3>
+                    <span style={{
+                      fontSize: 11, color: 'var(--text-secondary)',
+                      padding: '2px 8px', borderRadius: 10,
+                      background: 'var(--accent-soft)',
+                    }}>
+                      {p.category} / {p.framework}
+                    </span>
+                  </div>
+                  <p style={{ fontSize: 13, marginTop: 8, marginBottom: 8, color: 'var(--text-secondary)', lineHeight: 1.6 }}>
+                    {p.description}
+                  </p>
+                  <details
+                    style={{ fontSize: 12, color: 'var(--text-muted)' }}
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    <summary style={{ cursor: 'pointer', userSelect: 'none' }}>詳細を見る</summary>
+                    <div style={{ marginTop: 8, paddingLeft: 8 }}>
+                      <div style={{ fontWeight: 700, marginBottom: 4 }}>構造・テンプレート:</div>
+                      <pre style={{ whiteSpace: 'pre-wrap', fontSize: 12, background: 'var(--bg-primary)', padding: 8, borderRadius: 6, color: 'var(--text-secondary)' }}>
+{p.structure}
+                      </pre>
+                      {Array.isArray(p.examples) && p.examples.length > 0 && (
+                        <>
+                          <div style={{ fontWeight: 700, margin: '8px 0 4px' }}>具体例:</div>
+                          <ul style={{ margin: 0, paddingLeft: 20, color: 'var(--text-secondary)' }}>
+                            {p.examples.map((ex: string, j: number) => <li key={j}>{ex}</li>)}
+                          </ul>
+                        </>
+                      )}
+                      {Array.isArray(p.applicableScenarios) && p.applicableScenarios.length > 0 && (
+                        <>
+                          <div style={{ fontWeight: 700, margin: '8px 0 4px' }}>使えるシーン:</div>
+                          <ul style={{ margin: 0, paddingLeft: 20, color: 'var(--text-secondary)' }}>
+                            {p.applicableScenarios.map((sc: string, j: number) => <li key={j}>{sc}</li>)}
+                          </ul>
+                        </>
+                      )}
+                    </div>
+                  </details>
+                </div>
+              );
+            })}
+
+            <div style={{ display: 'flex', gap: 12, justifyContent: 'flex-end', marginTop: 20, flexWrap: 'wrap' }}>
+              <button
+                onClick={() => setExtractedPatterns(null)}
+                disabled={savingPatterns}
+                style={{
+                  padding: '10px 20px',
+                  borderRadius: 8,
+                  border: '1px solid var(--border)',
+                  background: 'transparent',
+                  color: 'var(--text-secondary)',
+                  cursor: savingPatterns ? 'not-allowed' : 'pointer',
+                  fontSize: 13,
+                }}
+              >
+                キャンセル
+              </button>
+              <button
+                onClick={handleSaveSelectedPatterns}
+                disabled={savingPatterns || selectedPatternIndices.size === 0}
+                style={{
+                  padding: '10px 20px',
+                  borderRadius: 8,
+                  border: 'none',
+                  background: savingPatterns || selectedPatternIndices.size === 0
+                    ? 'var(--bg-secondary)'
+                    : 'linear-gradient(135deg, #6c63ff, #8b5cf6)',
+                  color: savingPatterns || selectedPatternIndices.size === 0 ? 'var(--text-muted)' : '#fff',
+                  cursor: savingPatterns ? 'wait' : selectedPatternIndices.size === 0 ? 'not-allowed' : 'pointer',
+                  fontWeight: 700,
+                  fontSize: 13,
+                }}
+              >
+                {savingPatterns
+                  ? '💾 保存中...'
+                  : `✓ 選択した ${selectedPatternIndices.size} 件を辞書に保存`}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
