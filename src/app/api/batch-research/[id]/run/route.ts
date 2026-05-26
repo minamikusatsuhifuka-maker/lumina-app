@@ -376,7 +376,7 @@ async function generateBatchTitle(
     `- タイトルだけを出力し、説明・前置き・記号は不要\n\n` +
     `【記事（先頭2000文字）】\n${text.slice(0, 2000)}`;
   try {
-    const titlePromise = generateWithModel('claude', prompt, undefined, 100);
+    const titlePromise = generateWithModel('gemini', prompt, undefined, 100);
     const timeoutPromise = new Promise<string>((_, reject) =>
       setTimeout(
         () => reject(new Error('title generation timeout')),
