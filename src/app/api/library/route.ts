@@ -89,7 +89,7 @@ export async function POST(req: NextRequest) {
 export async function PUT(req: NextRequest) {
   const session = await auth();
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  const { id, is_favorite, tags, group_name, title, folder_name } = await req.json();
+  const { id, is_favorite, tags, group_name, title, folder_name, content, metadata } = await req.json();
   const sql = neon(process.env.DATABASE_URL!);
   const userId = (session.user as any).id;
   if (is_favorite !== undefined) {
@@ -106,6 +106,12 @@ export async function PUT(req: NextRequest) {
   }
   if (folder_name !== undefined) {
     await sql`UPDATE library SET folder_name = ${folder_name} WHERE id = ${id} AND user_id = ${userId}`;
+  }
+  if (content !== undefined) {
+    await sql`UPDATE library SET content = ${content} WHERE id = ${id} AND user_id = ${userId}`;
+  }
+  if (metadata !== undefined) {
+    await sql`UPDATE library SET metadata = ${JSON.stringify(metadata)} WHERE id = ${id} AND user_id = ${userId}`;
   }
   return NextResponse.json({ success: true });
 }

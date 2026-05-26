@@ -3,7 +3,6 @@
 import { useState } from 'react';
 import { getSavedModel } from '@/lib/model-preference';
 import { sanitizeFilename, yyyymmdd } from '@/lib/title-generator';
-import { SaveToLibraryButton } from '@/components/SaveToLibraryButton';
 
 const CATEGORIES = [
   '皮膚疾患',
@@ -30,6 +29,12 @@ interface TopicResult {
   expertContent: string;
   beginnerStatus: Status;
   expertStatus: Status;
+  // その場編集モード
+  beginnerEditing: boolean;
+  expertEditing: boolean;
+  // ライブラリに保存済みなら id を保持（編集保存で PUT に切替）
+  beginnerLibraryId: string | null;
+  expertLibraryId: string | null;
 }
 
 // ストリームイベントの型
@@ -72,15 +77,23 @@ const ACTION_BTN_STYLE: React.CSSProperties = {
   cursor: 'pointer',
 };
 
-// 本文の状態別表示（pending/generating/error/done）
+// 本文の状態別表示（pending/generating/error/done）+ 編集モード
 function ContentBody({
   status,
   content,
   onRetry,
+  isEditing,
+  onContentChange,
+  onSaveEdit,
+  onCancelEdit,
 }: {
   status: Status;
   content: string;
   onRetry?: () => void;
+  isEditing?: boolean;
+  onContentChange?: (newContent: string) => void;
+  onSaveEdit?: () => void;
+  onCancelEdit?: () => void;
 }) {
   if (status === 'pending')
     return <span style={{ color: 'var(--text-muted)' }}>待機中...</span>;
@@ -112,6 +125,71 @@ function ContentBody({
         )}
       </div>
     );
+
+  // 編集モード
+  if (isEditing && onContentChange) {
+    return (
+      <div style={{ width: '100%' }}>
+        <textarea
+          value={content}
+          onChange={(e) => onContentChange(e.target.value)}
+          style={{
+            width: '100%',
+            minHeight: 400,
+            padding: 12,
+            borderRadius: 6,
+            border: '2px solid var(--accent)',
+            background: 'var(--bg-primary)',
+            color: 'var(--text-primary)',
+            fontSize: 13,
+            lineHeight: 1.7,
+            fontFamily: 'inherit',
+            outline: 'none',
+            resize: 'vertical',
+            boxSizing: 'border-box',
+          }}
+        />
+        <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+          {onSaveEdit && (
+            <button
+              type="button"
+              onClick={onSaveEdit}
+              style={{
+                padding: '8px 16px',
+                borderRadius: 6,
+                border: 'none',
+                background: 'linear-gradient(135deg, #6c63ff, #8b5cf6)',
+                color: '#fff',
+                cursor: 'pointer',
+                fontWeight: 700,
+                fontSize: 12,
+              }}
+            >
+              💾 編集を保存
+            </button>
+          )}
+          {onCancelEdit && (
+            <button
+              type="button"
+              onClick={onCancelEdit}
+              style={{
+                padding: '8px 16px',
+                borderRadius: 6,
+                border: '1px solid var(--border)',
+                background: 'transparent',
+                color: 'var(--text-secondary)',
+                cursor: 'pointer',
+                fontSize: 12,
+              }}
+            >
+              ✕ キャンセル
+            </button>
+          )}
+        </div>
+      </div>
+    );
+  }
+
   return <>{content || '（本文がありません）'}</>;
 }
 
@@ -124,9 +202,14 @@ function ColumnView({
   topic,
   category,
   index,
+  isEditing,
+  isSavedToLibrary,
   onCopy,
   onDownload,
   onRetryGenerate,
+  onToggleEdit,
+  onContentChange,
+  onSaveEdit,
   copied,
 }: {
   title: string;
@@ -136,9 +219,14 @@ function ColumnView({
   topic: string;
   category: string;
   index: number;
+  isEditing: boolean;
+  isSavedToLibrary: boolean;
   onCopy: (text: string, level: 'beginner' | 'expert') => void;
   onDownload: (text: string, level: 'beginner' | 'expert') => void;
   onRetryGenerate?: (index: number, level: 'beginner' | 'expert') => void;
+  onToggleEdit: (index: number, level: 'beginner' | 'expert') => void;
+  onContentChange: (index: number, level: 'beginner' | 'expert', newContent: string) => void;
+  onSaveEdit: (index: number, level: 'beginner' | 'expert') => Promise<boolean> | void;
   copied: 'beginner' | 'expert' | null;
 }) {
   const levelLabel = level === 'beginner' ? '初心者用' : 'エキスパート用';
@@ -175,7 +263,7 @@ function ColumnView({
         </h4>
       </div>
 
-      {status === 'done' && (
+      {status === 'done' && !isEditing && (
         <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
           <button onClick={() => onCopy(content, level)} style={COMPACT_BTN_STYLE}>
             {copied === level ? '✓ コピー済' : '📋 コピー'}
@@ -183,13 +271,33 @@ function ColumnView({
           <button onClick={() => onDownload(content, level)} style={COMPACT_BTN_STYLE}>
             📥 MD
           </button>
-          <SaveToLibraryButton
-            title={`${topic}（${levelLabel}）`}
-            content={content}
-            type="staff-training"
-            groupName="スタッフ育成資料"
-            tags={`スタッフ育成,${category},${levelLabel}`}
-          />
+          <button
+            type="button"
+            onClick={() => onToggleEdit(index, level)}
+            style={COMPACT_BTN_STYLE}
+            title="その場で編集"
+          >
+            ✏️ 編集
+          </button>
+          <button
+            type="button"
+            onClick={() => onSaveEdit(index, level)}
+            style={{
+              padding: '6px 12px',
+              borderRadius: 6,
+              border: 'none',
+              background: isSavedToLibrary
+                ? 'rgba(0,212,184,0.15)'
+                : 'linear-gradient(135deg, #1D9E75, #0fa56e)',
+              color: isSavedToLibrary ? '#1D9E75' : '#fff',
+              fontSize: 11,
+              fontWeight: 700,
+              cursor: 'pointer',
+            }}
+            title={isSavedToLibrary ? '同じIDに上書き保存' : '新規でライブラリ保存'}
+          >
+            {isSavedToLibrary ? '✅ 保存済み（上書き）' : '💾 ライブラリに保存'}
+          </button>
           {onRetryGenerate && (
             <button
               type="button"
@@ -205,8 +313,8 @@ function ColumnView({
 
       <div
         style={{
-          maxHeight: 600,
-          overflowY: 'auto',
+          maxHeight: isEditing ? 'none' : 600,
+          overflowY: isEditing ? 'visible' : 'auto',
           padding: 12,
           background: 'var(--bg-secondary)',
           borderRadius: 6,
@@ -221,6 +329,10 @@ function ColumnView({
           status={status}
           content={content}
           onRetry={onRetryGenerate ? () => onRetryGenerate(index, level) : undefined}
+          isEditing={isEditing}
+          onContentChange={(newContent) => onContentChange(index, level, newContent)}
+          onSaveEdit={() => onSaveEdit(index, level)}
+          onCancelEdit={() => onToggleEdit(index, level)}
         />
       </div>
     </div>
@@ -232,11 +344,17 @@ function TopicResultCard({
   displayMode,
   index,
   onRetryGenerate,
+  onToggleEdit,
+  onContentChange,
+  onSaveEdit,
 }: {
   result: TopicResult;
   displayMode: 'tabs' | 'sideBySide';
   index: number;
   onRetryGenerate?: (index: number, level: 'beginner' | 'expert') => void;
+  onToggleEdit: (index: number, level: 'beginner' | 'expert') => void;
+  onContentChange: (index: number, level: 'beginner' | 'expert', newContent: string) => void;
+  onSaveEdit: (index: number, level: 'beginner' | 'expert') => Promise<boolean> | void;
 }) {
   const [activeTab, setActiveTab] = useState<'beginner' | 'expert'>('beginner');
   const [copied, setCopied] = useState<'beginner' | 'expert' | null>(null);
@@ -245,6 +363,12 @@ function TopicResultCard({
     activeTab === 'beginner' ? result.beginnerContent : result.expertContent;
   const tabStatus =
     activeTab === 'beginner' ? result.beginnerStatus : result.expertStatus;
+  const tabEditing =
+    activeTab === 'beginner' ? result.beginnerEditing : result.expertEditing;
+  const tabSaved =
+    activeTab === 'beginner'
+      ? !!result.beginnerLibraryId
+      : !!result.expertLibraryId;
 
   const copyText = async (text: string, level: 'beginner' | 'expert') => {
     if (!text) return;
@@ -348,9 +472,14 @@ function TopicResultCard({
             topic={result.topic}
             category={result.category}
             index={index}
+            isEditing={result.beginnerEditing}
+            isSavedToLibrary={!!result.beginnerLibraryId}
             onCopy={copyText}
             onDownload={downloadText}
             onRetryGenerate={onRetryGenerate}
+            onToggleEdit={onToggleEdit}
+            onContentChange={onContentChange}
+            onSaveEdit={onSaveEdit}
             copied={copied}
           />
           <ColumnView
@@ -361,9 +490,14 @@ function TopicResultCard({
             topic={result.topic}
             category={result.category}
             index={index}
+            isEditing={result.expertEditing}
+            isSavedToLibrary={!!result.expertLibraryId}
             onCopy={copyText}
             onDownload={downloadText}
             onRetryGenerate={onRetryGenerate}
+            onToggleEdit={onToggleEdit}
+            onContentChange={onContentChange}
+            onSaveEdit={onSaveEdit}
             copied={copied}
           />
         </div>
@@ -385,7 +519,7 @@ function TopicResultCard({
             </button>
           </div>
 
-          {tabStatus === 'done' && (
+          {tabStatus === 'done' && !tabEditing && (
             <div
               style={{
                 display: 'flex',
@@ -407,13 +541,33 @@ function TopicResultCard({
               >
                 📥 MD ダウンロード
               </button>
-              <SaveToLibraryButton
-                title={`${result.topic}（${activeTab === 'beginner' ? '初心者用' : 'エキスパート用'}）`}
-                content={tabContent}
-                type="staff-training"
-                groupName="スタッフ育成資料"
-                tags={`スタッフ育成,${result.category},${activeTab === 'beginner' ? '初心者用' : 'エキスパート用'}`}
-              />
+              <button
+                type="button"
+                onClick={() => onToggleEdit(index, activeTab)}
+                style={ACTION_BTN_STYLE}
+                title="その場で編集"
+              >
+                ✏️ 編集
+              </button>
+              <button
+                type="button"
+                onClick={() => onSaveEdit(index, activeTab)}
+                style={{
+                  padding: '7px 14px',
+                  borderRadius: 6,
+                  border: 'none',
+                  background: tabSaved
+                    ? 'rgba(0,212,184,0.15)'
+                    : 'linear-gradient(135deg, #1D9E75, #0fa56e)',
+                  color: tabSaved ? '#1D9E75' : '#fff',
+                  fontSize: 12,
+                  fontWeight: 700,
+                  cursor: 'pointer',
+                }}
+                title={tabSaved ? '同じIDに上書き保存' : '新規でライブラリ保存'}
+              >
+                {tabSaved ? '✅ 保存済み（上書き）' : '💾 ライブラリに保存'}
+              </button>
               {onRetryGenerate && (
                 <button
                   type="button"
@@ -429,8 +583,8 @@ function TopicResultCard({
 
           <div
             style={{
-              maxHeight: 500,
-              overflowY: 'auto',
+              maxHeight: tabEditing ? 'none' : 500,
+              overflowY: tabEditing ? 'visible' : 'auto',
               padding: 14,
               background: 'var(--bg-primary)',
               borderRadius: 8,
@@ -445,6 +599,10 @@ function TopicResultCard({
               status={tabStatus}
               content={tabContent}
               onRetry={onRetryGenerate ? () => onRetryGenerate(index, activeTab) : undefined}
+              isEditing={tabEditing}
+              onContentChange={(newContent) => onContentChange(index, activeTab, newContent)}
+              onSaveEdit={() => onSaveEdit(index, activeTab)}
+              onCancelEdit={() => onToggleEdit(index, activeTab)}
             />
           </div>
         </>
@@ -598,6 +756,10 @@ export default function StaffTrainingPage() {
         expertContent: '',
         beginnerStatus: 'pending',
         expertStatus: 'pending',
+        beginnerEditing: false,
+        expertEditing: false,
+        beginnerLibraryId: null,
+        expertLibraryId: null,
       })),
     );
 
@@ -677,6 +839,118 @@ ${r.expertContent || '（未生成）'}
       '.md';
     a.click();
     URL.revokeObjectURL(url);
+  };
+
+  // ============== その場編集 → ライブラリ保存 ==============
+
+  // 編集モードを切替
+  const handleToggleEdit = (index: number, level: 'beginner' | 'expert') => {
+    setResults((prev) =>
+      prev.map((r, i) => {
+        if (i !== index) return r;
+        if (level === 'beginner') return { ...r, beginnerEditing: !r.beginnerEditing };
+        return { ...r, expertEditing: !r.expertEditing };
+      }),
+    );
+  };
+
+  // 編集中の本文を更新
+  const handleContentEdit = (
+    index: number,
+    level: 'beginner' | 'expert',
+    newContent: string,
+  ) => {
+    setResults((prev) =>
+      prev.map((r, i) => {
+        if (i !== index) return r;
+        if (level === 'beginner') return { ...r, beginnerContent: newContent };
+        return { ...r, expertContent: newContent };
+      }),
+    );
+  };
+
+  // 編集内容（または現在の本文）をライブラリに保存
+  // libraryId があれば PUT で上書き、無ければ POST で新規保存
+  const handleSaveEdit = async (
+    index: number,
+    level: 'beginner' | 'expert',
+  ): Promise<boolean> => {
+    const target = results[index];
+    if (!target) return false;
+
+    const content =
+      level === 'beginner' ? target.beginnerContent : target.expertContent;
+    const libraryId =
+      level === 'beginner' ? target.beginnerLibraryId : target.expertLibraryId;
+    const levelLabel = level === 'beginner' ? '基本資料' : 'エキスパート用';
+
+    if (!content || !content.trim()) {
+      alert('保存対象の本文が空です');
+      return false;
+    }
+
+    try {
+      if (libraryId) {
+        // 既存レコードを上書き
+        const res = await fetch('/api/library', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            id: libraryId,
+            content,
+            metadata: {
+              category: target.category,
+              level,
+              editedAt: new Date().toISOString(),
+            },
+          }),
+        });
+        if (!res.ok) throw new Error('更新失敗');
+      } else {
+        // 新規保存
+        const res = await fetch('/api/library', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            type: 'staff-training',
+            title: `${target.topic}(${levelLabel})`,
+            content,
+            metadata: {
+              category: target.category,
+              level,
+              savedAt: new Date().toISOString(),
+            },
+            tags: `スタッフ育成,${target.category},${levelLabel}`,
+            group_name: 'スタッフ育成資料',
+          }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error('保存失敗');
+
+        if (data?.id) {
+          setResults((prev) =>
+            prev.map((r, i) => {
+              if (i !== index) return r;
+              if (level === 'beginner') return { ...r, beginnerLibraryId: data.id };
+              return { ...r, expertLibraryId: data.id };
+            }),
+          );
+        }
+      }
+
+      // 編集モード解除
+      setResults((prev) =>
+        prev.map((r, i) => {
+          if (i !== index) return r;
+          if (level === 'beginner') return { ...r, beginnerEditing: false };
+          return { ...r, expertEditing: false };
+        }),
+      );
+      return true;
+    } catch (e: any) {
+      alert(`保存エラー: ${e?.message || e}`);
+      return false;
+    }
   };
 
   // 単一トピック × 単一レベル の再生成
@@ -820,6 +1094,11 @@ ${r.expertContent || '（未生成）'}
     let errorCount = 0;
 
     for (const r of doneResults) {
+      // results 上の元 index を特定（filter 後のため）
+      const originalIndex = results.findIndex(
+        (x) => x.topic === r.topic && x.category === r.category,
+      );
+
       // 基本資料（初心者用）
       try {
         const res = await fetch('/api/library', {
@@ -838,8 +1117,17 @@ ${r.expertContent || '（未生成）'}
             group_name: 'スタッフ育成資料',
           }),
         });
-        if (res.ok) savedCount++;
-        else errorCount++;
+        if (res.ok) {
+          savedCount++;
+          const data = await res.json().catch(() => ({}));
+          if (data?.id && originalIndex >= 0) {
+            setResults((prev) =>
+              prev.map((x, i) =>
+                i === originalIndex ? { ...x, beginnerLibraryId: data.id } : x,
+              ),
+            );
+          }
+        } else errorCount++;
       } catch {
         errorCount++;
       }
@@ -865,8 +1153,17 @@ ${r.expertContent || '（未生成）'}
             group_name: 'スタッフ育成資料',
           }),
         });
-        if (res.ok) savedCount++;
-        else errorCount++;
+        if (res.ok) {
+          savedCount++;
+          const data = await res.json().catch(() => ({}));
+          if (data?.id && originalIndex >= 0) {
+            setResults((prev) =>
+              prev.map((x, i) =>
+                i === originalIndex ? { ...x, expertLibraryId: data.id } : x,
+              ),
+            );
+          }
+        } else errorCount++;
       } catch {
         errorCount++;
       }
@@ -1507,6 +1804,9 @@ ${r.expertContent || '（未生成）'}
               displayMode={displayMode}
               index={i}
               onRetryGenerate={handleRetryGenerate}
+              onToggleEdit={handleToggleEdit}
+              onContentChange={handleContentEdit}
+              onSaveEdit={handleSaveEdit}
             />
           ))}
         </div>
