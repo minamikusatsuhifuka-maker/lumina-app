@@ -10,9 +10,13 @@ interface Topic {
   category?: string;
 }
 
+type LevelKey = 'beginner' | 'expert';
+
 interface RequestBody {
   topics: Topic[];
   model?: AIModel;
+  // 単一レベルだけ再生成したい場合に指定。未指定なら両方（既存動作）
+  levels?: LevelKey[];
 }
 
 // 医療クリニック向けスタッフ育成資料を SSE ストリームで生成
@@ -27,11 +31,17 @@ export async function POST(req: NextRequest) {
   }
 
   const body = (await req.json().catch(() => ({}))) as RequestBody;
-  const { topics = [], model: requestedModel } = body;
+  const { topics = [], model: requestedModel, levels } = body;
   const model: AIModel =
     requestedModel === 'claude' || requestedModel === 'gemini'
       ? requestedModel
       : 'gemini';
+
+  // levels 未指定なら両方生成（既存動作）。指定があれば該当レベルのみ
+  const targetLevels: Set<LevelKey> =
+    Array.isArray(levels) && levels.length > 0
+      ? new Set(levels.filter((l): l is LevelKey => l === 'beginner' || l === 'expert'))
+      : new Set<LevelKey>(['beginner', 'expert']);
 
   if (!Array.isArray(topics) || topics.length === 0) {
     return new Response(JSON.stringify({ error: 'topics is required' }), {
@@ -62,7 +72,11 @@ export async function POST(req: NextRequest) {
 
           send({ type: 'topic_start', index: i, topic: item.topic });
 
+          let beginnerText = '';
+          let expertText = '';
+
           // 初心者用（1000字以内）
+          if (targetLevels.has('beginner')) {
           send({ type: 'beginner_start', index: i });
           const beginnerPrompt = `医療クリニックのスタッフ向けに、以下のトピックについて基本資料を作成してください。新人の理解にも、中堅以上の復習にも使える汎用ドキュメントとします。
 
@@ -103,7 +117,6 @@ ${item.topic}${categoryHint}
 - すべて箇条書きまたは短い段落で
 - 患者さん向けではなく「スタッフ教育用」`;
 
-          let beginnerText = '';
           try {
             beginnerText = await generateWithModel(
               model,
@@ -116,8 +129,10 @@ ${item.topic}${categoryHint}
             const errMsg = e instanceof Error ? e.message : String(e);
             send({ type: 'beginner_error', index: i, error: errMsg });
           }
+          } // end if beginner
 
           // エキスパート用（2000字以内）
+          if (targetLevels.has('expert')) {
           send({ type: 'expert_start', index: i });
           const expertPrompt = `医療クリニックのベテランスタッフ向けに、以下のトピックについてエキスパート用の育成資料を作成してください。
 
@@ -164,7 +179,6 @@ ${item.topic}${categoryHint}
 - 箇条書きと段落を適切に使い分け
 - スタッフ教育用（患者向けではない）`;
 
-          let expertText = '';
           try {
             expertText = await generateWithModel(
               model,
@@ -177,6 +191,7 @@ ${item.topic}${categoryHint}
             const errMsg = e instanceof Error ? e.message : String(e);
             send({ type: 'expert_error', index: i, error: errMsg });
           }
+          } // end if expert
 
           send({
             type: 'topic_complete',

@@ -76,9 +76,11 @@ const ACTION_BTN_STYLE: React.CSSProperties = {
 function ContentBody({
   status,
   content,
+  onRetry,
 }: {
   status: Status;
   content: string;
+  onRetry?: () => void;
 }) {
   if (status === 'pending')
     return <span style={{ color: 'var(--text-muted)' }}>待機中...</span>;
@@ -86,9 +88,29 @@ function ContentBody({
     return <span style={{ color: '#6c63ff' }}>🌀 生成中...</span>;
   if (status === 'error')
     return (
-      <span style={{ color: '#ef4444' }}>
-        ✗ 生成エラー（このタブの内容を取得できませんでした）
-      </span>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 8, alignItems: 'flex-start' }}>
+        <span style={{ color: '#ef4444' }}>
+          ✗ 生成エラー（このタブの内容を取得できませんでした）
+        </span>
+        {onRetry && (
+          <button
+            type="button"
+            onClick={onRetry}
+            style={{
+              padding: '6px 14px',
+              borderRadius: 16,
+              border: '1px solid #ef4444',
+              background: 'transparent',
+              color: '#ef4444',
+              cursor: 'pointer',
+              fontSize: 12,
+              fontWeight: 700,
+            }}
+          >
+            🔄 再生成
+          </button>
+        )}
+      </div>
     );
   return <>{content || '（本文がありません）'}</>;
 }
@@ -101,8 +123,10 @@ function ColumnView({
   level,
   topic,
   category,
+  index,
   onCopy,
   onDownload,
+  onRetryGenerate,
   copied,
 }: {
   title: string;
@@ -111,8 +135,10 @@ function ColumnView({
   level: 'beginner' | 'expert';
   topic: string;
   category: string;
+  index: number;
   onCopy: (text: string, level: 'beginner' | 'expert') => void;
   onDownload: (text: string, level: 'beginner' | 'expert') => void;
+  onRetryGenerate?: (index: number, level: 'beginner' | 'expert') => void;
   copied: 'beginner' | 'expert' | null;
 }) {
   const levelLabel = level === 'beginner' ? '初心者用' : 'エキスパート用';
@@ -164,6 +190,16 @@ function ColumnView({
             groupName="スタッフ育成資料"
             tags={`スタッフ育成,${category},${levelLabel}`}
           />
+          {onRetryGenerate && (
+            <button
+              type="button"
+              onClick={() => onRetryGenerate(index, level)}
+              title="この内容を再生成（同じレベルで上書き）"
+              style={{ ...COMPACT_BTN_STYLE, fontSize: 11 }}
+            >
+              🔄 再生成
+            </button>
+          )}
         </div>
       )}
 
@@ -181,7 +217,11 @@ function ColumnView({
           whiteSpace: 'pre-wrap',
         }}
       >
-        <ContentBody status={status} content={content} />
+        <ContentBody
+          status={status}
+          content={content}
+          onRetry={onRetryGenerate ? () => onRetryGenerate(index, level) : undefined}
+        />
       </div>
     </div>
   );
@@ -190,9 +230,13 @@ function ColumnView({
 function TopicResultCard({
   result,
   displayMode,
+  index,
+  onRetryGenerate,
 }: {
   result: TopicResult;
   displayMode: 'tabs' | 'sideBySide';
+  index: number;
+  onRetryGenerate?: (index: number, level: 'beginner' | 'expert') => void;
 }) {
   const [activeTab, setActiveTab] = useState<'beginner' | 'expert'>('beginner');
   const [copied, setCopied] = useState<'beginner' | 'expert' | null>(null);
@@ -303,8 +347,10 @@ function TopicResultCard({
             level="beginner"
             topic={result.topic}
             category={result.category}
+            index={index}
             onCopy={copyText}
             onDownload={downloadText}
+            onRetryGenerate={onRetryGenerate}
             copied={copied}
           />
           <ColumnView
@@ -314,8 +360,10 @@ function TopicResultCard({
             level="expert"
             topic={result.topic}
             category={result.category}
+            index={index}
             onCopy={copyText}
             onDownload={downloadText}
+            onRetryGenerate={onRetryGenerate}
             copied={copied}
           />
         </div>
@@ -366,6 +414,16 @@ function TopicResultCard({
                 groupName="スタッフ育成資料"
                 tags={`スタッフ育成,${result.category},${activeTab === 'beginner' ? '初心者用' : 'エキスパート用'}`}
               />
+              {onRetryGenerate && (
+                <button
+                  type="button"
+                  onClick={() => onRetryGenerate(index, activeTab)}
+                  title="この内容を再生成（同じレベルで上書き）"
+                  style={{ ...ACTION_BTN_STYLE, fontSize: 11 }}
+                >
+                  🔄 再生成
+                </button>
+              )}
             </div>
           )}
 
@@ -383,7 +441,11 @@ function TopicResultCard({
               whiteSpace: 'pre-wrap',
             }}
           >
-            <ContentBody status={tabStatus} content={tabContent} />
+            <ContentBody
+              status={tabStatus}
+              content={tabContent}
+              onRetry={onRetryGenerate ? () => onRetryGenerate(index, activeTab) : undefined}
+            />
           </div>
         </>
       )}
@@ -615,6 +677,121 @@ ${r.expertContent || '（未生成）'}
       '.md';
     a.click();
     URL.revokeObjectURL(url);
+  };
+
+  // 単一トピック × 単一レベル の再生成
+  const handleRetryGenerate = async (
+    index: number,
+    level: 'beginner' | 'expert',
+  ) => {
+    const target = results[index];
+    if (!target) return;
+
+    // 該当レベルを generating に
+    setResults((prev) =>
+      prev.map((r, i) =>
+        i === index
+          ? {
+              ...r,
+              ...(level === 'beginner'
+                ? { beginnerStatus: 'generating' as Status }
+                : { expertStatus: 'generating' as Status }),
+            }
+          : r,
+      ),
+    );
+
+    try {
+      const res = await fetch('/api/staff-training', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          topics: [{ topic: target.topic, category: target.category }],
+          model: getSavedModel(),
+          levels: [level],
+        }),
+      });
+
+      if (!res.ok || !res.body) {
+        const errText = await res.text().catch(() => '');
+        throw new Error(`再生成リクエスト失敗: ${errText.slice(0, 200)}`);
+      }
+
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || '';
+
+        for (const line of lines) {
+          if (!line.startsWith('data: ')) continue;
+          const json = line.slice(6).trim();
+          if (!json) continue;
+          try {
+            const event = JSON.parse(json) as SseEvent;
+            // event.index は API 内の 0 番目を指す。フロント側は呼び出し時の index を使う
+            if (event.type === 'beginner_done' && level === 'beginner') {
+              setResults((prev) =>
+                prev.map((r, i) =>
+                  i === index
+                    ? {
+                        ...r,
+                        beginnerContent: event.content || '',
+                        beginnerStatus: 'done',
+                      }
+                    : r,
+                ),
+              );
+            } else if (event.type === 'expert_done' && level === 'expert') {
+              setResults((prev) =>
+                prev.map((r, i) =>
+                  i === index
+                    ? {
+                        ...r,
+                        expertContent: event.content || '',
+                        expertStatus: 'done',
+                      }
+                    : r,
+                ),
+              );
+            } else if (event.type === 'beginner_error' && level === 'beginner') {
+              setResults((prev) =>
+                prev.map((r, i) =>
+                  i === index ? { ...r, beginnerStatus: 'error' } : r,
+                ),
+              );
+            } else if (event.type === 'expert_error' && level === 'expert') {
+              setResults((prev) =>
+                prev.map((r, i) =>
+                  i === index ? { ...r, expertStatus: 'error' } : r,
+                ),
+              );
+            } else if (event.type === 'error') {
+              alert(`再生成エラー: ${event.error || '不明なエラー'}`);
+            }
+          } catch {}
+        }
+      }
+    } catch (e: any) {
+      alert(`再生成エラー: ${e?.message || e}`);
+      setResults((prev) =>
+        prev.map((r, i) =>
+          i === index
+            ? {
+                ...r,
+                ...(level === 'beginner'
+                  ? { beginnerStatus: 'error' as Status }
+                  : { expertStatus: 'error' as Status }),
+              }
+            : r,
+        ),
+      );
+    }
   };
 
   // ライブラリへ一括保存（基本資料 + エキスパート用の両方をPOST）
@@ -1324,7 +1501,13 @@ ${r.expertContent || '（未生成）'}
           </div>
 
           {results.map((r, i) => (
-            <TopicResultCard key={i} result={r} displayMode={displayMode} />
+            <TopicResultCard
+              key={i}
+              result={r}
+              displayMode={displayMode}
+              index={i}
+              onRetryGenerate={handleRetryGenerate}
+            />
           ))}
         </div>
       )}
