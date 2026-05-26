@@ -11,6 +11,9 @@ const CATEGORIES = [
   '使用薬剤',
   'スキンケア製品',
   '手技・術式',
+  '治療説明',
+  'スキンケア指導',
+  '検査',
 ];
 
 type Status = 'pending' | 'generating' | 'done' | 'error';
