@@ -2,7 +2,7 @@
 import { useState, useEffect, useMemo, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { LibraryItemRow } from '@/components/LibraryItemRow';
-import { LibraryPreviewPanel } from '@/components/LibraryPreviewPanel';
+// LibraryPreviewPanel は廃止（カード内インライン展開に統一）
 
 /* ── タブ定義（サイドメニュー対応） ── */
 const TABS = [
@@ -71,7 +71,6 @@ function LibraryPageInner() {
   const [folderInput, setFolderInput] = useState('');
   const [collapsedFolders, setCollapsedFolders] = useState<Set<string>>(new Set());
   const [showMergeModal, setShowMergeModal] = useState(false);
-  const [previewItem, setPreviewItem] = useState<any>(null);
 
   useEffect(() => {
     fetch('/api/library')
@@ -242,7 +241,7 @@ function LibraryPageInner() {
         onExportPdf={async (it) => { const { exportToPdf } = await import('@/lib/exportPdf'); await exportToPdf(it.title?.slice(0, 40) || 'ライブラリ', it.content || ''); }}
         onUseInWrite={(it) => { localStorage.setItem('lumina_research_context', it.content || ''); window.location.href = '/dashboard/write'; }}
         onStartTagEdit={(it) => { setEditingId(it.id); setEditTags(it.tags || ''); setEditGroup(it.group_name || '未分類'); }}
-        onExpandToggle={() => setPreviewItem(item)}
+        onExpandToggle={(id) => setExpandedId(expandedId === id ? null : id)}
         isExpanded={expandedId === item.id}
         onMoveToFolder={openFolderModal}
       />
@@ -256,25 +255,6 @@ function LibraryPageInner() {
           <button onClick={() => saveEdit(item.id)} style={{ padding: '6px 14px', background: 'linear-gradient(135deg, #6c63ff, #8b5cf6)', color: '#fff', border: 'none', borderRadius: 6, cursor: 'pointer', fontSize: 12, fontWeight: 600 }}>保存</button>
           <button onClick={() => setEditingId(null)} style={{ padding: '6px 10px', background: 'var(--bg-secondary)', border: '1px solid var(--border)', color: 'var(--text-muted)', borderRadius: 6, cursor: 'pointer', fontSize: 12 }}>✕</button>
         </div>
-      )}
-
-      {expandedId === item.id && item.content && (
-        <div style={{
-          padding: '12px 16px', marginTop: -1,
-          border: '1px solid var(--border)', borderTopColor: 'transparent',
-          borderRadius: '0 0 10px 10px', background: 'var(--bg-secondary)',
-          fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.8,
-          whiteSpace: 'pre-wrap', wordBreak: 'break-word', maxHeight: '60vh', overflowY: 'auto',
-        }}
-          dangerouslySetInnerHTML={{
-            __html: item.content
-              .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-              .replace(/(https?:\/\/[^\s）\]。、！？\n"'<>&]+)/g, '<a href="$1" target="_blank" rel="noopener noreferrer" style="color:var(--accent);text-decoration:underline;word-break:break-all;">$1 ↗</a>')
-              .replace(/^## (.+)$/gm, '<div style="font-size:14px;font-weight:700;color:var(--text-primary);margin:16px 0 8px;padding-bottom:4px;border-bottom:1px solid var(--border);">$1</div>')
-              .replace(/^# (.+)$/gm, '<div style="font-size:16px;font-weight:700;color:var(--text-primary);margin:0 0 12px;">$1</div>')
-              .replace(/^---$/gm, '<hr style="border:none;border-top:1px solid var(--border);margin:12px 0;">')
-          }}
-        />
       )}
     </div>
   );
@@ -299,7 +279,7 @@ function LibraryPageInner() {
           <span style={{ color: 'var(--text-muted)', fontWeight: 400 }}>({folderItems.length})</span>
         </button>
         {!isCollapsed && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 6, paddingLeft: 12 }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 12, paddingLeft: 12 }}>
             {folderItems.map(renderItem)}
           </div>
         )}
@@ -401,7 +381,7 @@ function LibraryPageInner() {
           {groupedByFolder.sortedFolders.map(([name, folderItems]) => renderFolderSection(name, folderItems))}
           {/* フォルダなしアイテム */}
           {groupedByFolder.noFolder.length > 0 && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
               {groupedByFolder.sortedFolders.length > 0 && (
                 <div style={{ fontSize: 11, color: 'var(--text-muted)', padding: '4px 10px', fontWeight: 600 }}>未整理</div>
               )}
@@ -507,7 +487,6 @@ function LibraryPageInner() {
           </div>
         </div>
       )}
-      <LibraryPreviewPanel item={previewItem} onClose={() => setPreviewItem(null)} />
     </div>
   );
 }

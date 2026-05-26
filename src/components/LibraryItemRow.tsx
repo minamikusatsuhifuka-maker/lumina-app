@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useRef, useEffect } from 'react';
+import { useState } from 'react';
 
 const CATEGORY_CONFIG: Record<string, { icon: string; badgeBg: string; badgeColor: string }> = {
   'Intelligence Hub':   { icon: '🧠', badgeBg: 'rgba(108,99,255,0.1)',  badgeColor: '#6c63ff' },
@@ -25,219 +25,271 @@ const CATEGORY_CONFIG: Record<string, { icon: string; badgeBg: string; badgeColo
   'Gensparkへ出力':     { icon: '🎯', badgeBg: 'rgba(236,72,153,0.1)', badgeColor: '#ec4899' },
   'ワークフロー':       { icon: '⚡', badgeBg: 'rgba(234,179,8,0.1)',   badgeColor: '#eab308' },
   '統合レポート':       { icon: '🔗', badgeBg: 'rgba(108,99,255,0.1)', badgeColor: '#6c63ff' },
+  'バズりパターン辞書': { icon: '📖', badgeBg: 'rgba(245,158,11,0.1)',  badgeColor: '#f59e0b' },
+  'スタッフ育成資料':   { icon: '📚', badgeBg: 'rgba(168,85,247,0.1)',  badgeColor: '#a855f7' },
+  'バズり分析':         { icon: '📊', badgeBg: 'rgba(236,72,153,0.1)',  badgeColor: '#ec4899' },
 };
 
+// 既存呼び出し側との互換性のため、未使用 props も受け取れる形のままにする
 interface Props {
   item: any;
-  openMenuId: string | null;
-  setOpenMenuId: (id: string | null) => void;
+  openMenuId?: string | null;
+  setOpenMenuId?: (id: string | null) => void;
   mergeMode: boolean;
   selected: boolean;
   onSelectToggle: (id: string, checked: boolean) => void;
   onFavoriteToggle: (item: any) => void;
   onDelete: (id: string) => void;
-  onEdit: (item: any) => void;
-  onExportTxt: (item: any) => void;
+  onEdit?: (item: any) => void;
+  onExportTxt?: (item: any) => void;
   onExportMd: (item: any) => void;
-  onExportPdf: (item: any) => void;
-  onUseInWrite: (item: any) => void;
-  onStartTagEdit: (item: any) => void;
+  onExportPdf?: (item: any) => void;
+  onUseInWrite?: (item: any) => void;
+  onStartTagEdit?: (item: any) => void;
   onExpandToggle: (id: string) => void;
   isExpanded: boolean;
-  onMoveToFolder: (item: any) => void;
+  onMoveToFolder?: (item: any) => void;
 }
 
 export function LibraryItemRow({
-  item, openMenuId, setOpenMenuId,
-  mergeMode, selected, onSelectToggle,
-  onFavoriteToggle, onDelete,
-  onExportTxt, onExportMd, onExportPdf,
-  onUseInWrite, onStartTagEdit,
-  onExpandToggle, isExpanded,
-  onMoveToFolder,
+  item,
+  mergeMode,
+  selected,
+  onSelectToggle,
+  onFavoriteToggle,
+  onDelete,
+  onExportMd,
+  onExpandToggle,
+  isExpanded,
 }: Props) {
-  const menuRef = useRef<HTMLDivElement>(null);
-  const [shareUrl, setShareUrl] = useState('');
-  const [showShareModal, setShowShareModal] = useState(false);
-  const groupName = item.group_name || '未分類';
-  const config = CATEGORY_CONFIG[groupName] ?? { icon: '📄', badgeBg: 'rgba(156,163,175,0.1)', badgeColor: '#9ca3af' };
-  const isMenuOpen = openMenuId === item.id;
+  const [copied, setCopied] = useState(false);
 
-  const handleShare = async (expiresDays: number | null) => {
-    const res = await fetch('/api/share', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ libraryItemId: item.id, expiresDays }),
-    });
-    const data = await res.json();
-    setShareUrl(data.shareUrl);
-    setShowShareModal(true);
-    setOpenMenuId(null);
+  const groupName = item.group_name || '未分類';
+  const config = CATEGORY_CONFIG[groupName] ?? {
+    icon: '📄',
+    badgeBg: 'rgba(156,163,175,0.1)',
+    badgeColor: '#9ca3af',
   };
 
-  useEffect(() => {
-    if (!isMenuOpen) return;
-    const handler = (e: MouseEvent) => {
-      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
-        setOpenMenuId(null);
-      }
-    };
-    document.addEventListener('mousedown', handler);
-    return () => document.removeEventListener('mousedown', handler);
-  }, [isMenuOpen, setOpenMenuId]);
+  const content = item.content || '';
+  const charCount = content.length;
+  const previewText = content.slice(0, 180);
+
+  const tagsArr: string[] = Array.isArray(item.tags)
+    ? item.tags
+    : typeof item.tags === 'string'
+      ? item.tags.split(',').map((t: string) => t.trim()).filter(Boolean)
+      : [];
+
+  const createdDate = item.created_at
+    ? new Date(item.created_at).toLocaleDateString('ja-JP', {
+        year: 'numeric', month: 'numeric', day: 'numeric',
+      })
+    : '';
+
+  const handleCopy = async () => {
+    if (!content) return;
+    try {
+      await navigator.clipboard.writeText(content);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  const btnStyle: React.CSSProperties = {
+    padding: '6px 12px',
+    borderRadius: 6,
+    border: '1px solid var(--border)',
+    background: 'var(--bg-primary)',
+    color: 'var(--text-secondary)',
+    cursor: 'pointer',
+    fontSize: 12,
+    fontWeight: 500,
+    whiteSpace: 'nowrap',
+  };
 
   return (
-    <div style={{
-      display: 'flex', alignItems: 'center', gap: 10,
-      padding: '8px 12px', borderRadius: 10,
-      border: `1px solid ${item.is_favorite ? 'rgba(245,166,35,0.3)' : 'var(--border)'}`,
-      background: 'var(--bg-secondary)',
-      cursor: 'pointer',
-      transition: 'background 0.15s',
-    }}
-      onMouseEnter={e => (e.currentTarget.style.background = 'var(--bg-card, var(--bg-secondary))')}
-      onMouseLeave={e => (e.currentTarget.style.background = 'var(--bg-secondary)')}
+    <div
+      style={{
+        padding: 16,
+        background: 'var(--bg-secondary)',
+        borderRadius: 10,
+        border: selected
+          ? '2px solid var(--accent)'
+          : item.is_favorite
+            ? '1px solid rgba(245,166,35,0.4)'
+            : '1px solid var(--border)',
+        transition: 'border-color 0.15s',
+      }}
     >
-      {mergeMode && (
-        <input
-          type="checkbox"
-          checked={selected}
-          onChange={e => onSelectToggle(item.id, e.target.checked)}
-          style={{ width: 16, height: 16, cursor: 'pointer', flexShrink: 0 }}
-        />
-      )}
-
-      <div style={{
-        width: 28, height: 28, borderRadius: 6,
-        display: 'flex', alignItems: 'center', justifyContent: 'center',
-        fontSize: 14, flexShrink: 0,
-        background: config.badgeBg,
-      }}>
-        {config.icon}
-      </div>
-
-      <div style={{ flex: 1, minWidth: 0 }} onClick={() => onExpandToggle(item.id)}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-          {item.is_favorite ? <span style={{ color: '#f5a623', fontSize: 12 }}>★</span> : null}
-          <span style={{
-            fontSize: 13, fontWeight: 600, color: 'var(--text-primary)',
-            overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-          }}>
-            {item.title}
-          </span>
-        </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 2 }}>
-          <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>
-            {new Date(item.created_at).toLocaleDateString('ja-JP', { month: 'numeric', day: 'numeric' })}
-          </span>
-          {item.folder_name && (
-            <span style={{ fontSize: 10, padding: '0 6px', borderRadius: 10, background: 'rgba(108,99,255,0.08)', color: '#6c63ff' }}>
-              📁 {item.folder_name}
-            </span>
-          )}
-          {item.tags && item.tags.split(',').filter(Boolean).slice(0, 3).map((tag: string) => (
-            <span key={tag.trim()} style={{
-              fontSize: 10, padding: '0 6px', borderRadius: 10,
-              background: config.badgeBg, color: config.badgeColor,
-            }}>
-              #{tag.trim()}
-            </span>
-          ))}
-        </div>
-      </div>
-
-      <div ref={menuRef} style={{ position: 'relative', flexShrink: 0 }}>
-        <button
-          onClick={e => { e.stopPropagation(); setOpenMenuId(isMenuOpen ? null : item.id); }}
+      {/* ヘッダー */}
+      <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10, marginBottom: 10 }}>
+        {mergeMode && (
+          <input
+            type="checkbox"
+            checked={selected}
+            onChange={(e) => onSelectToggle(item.id, e.target.checked)}
+            style={{ marginTop: 4, width: 16, height: 16, cursor: 'pointer', flexShrink: 0 }}
+          />
+        )}
+        <div
           style={{
-            width: 28, height: 28, display: 'flex', alignItems: 'center', justifyContent: 'center',
-            borderRadius: 6, border: '1px solid var(--border)',
-            background: 'var(--bg-secondary)', color: 'var(--text-muted)',
-            fontSize: 14, cursor: 'pointer',
+            width: 32, height: 32, borderRadius: 8,
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            fontSize: 16, flexShrink: 0,
+            background: config.badgeBg,
           }}
         >
-          ⋯
-        </button>
-
-        {isMenuOpen && (
-          <div style={{
-            position: 'absolute', right: 0, top: 32, zIndex: 50,
-            width: 180, background: 'var(--bg-secondary)',
-            border: '1px solid var(--border)', borderRadius: 10,
-            boxShadow: '0 8px 24px rgba(0,0,0,0.2)',
-            padding: '4px 0', fontSize: 13,
-          }}>
-            {[
-              { label: item.is_favorite ? '★ お気に入り解除' : '☆ お気に入りに追加', action: () => onFavoriteToggle(item) },
-              { label: '📁 フォルダに移動', action: () => onMoveToFolder(item) },
-              { label: '✍️ 文章作成に使う', action: () => onUseInWrite(item) },
-              { label: '🏷 タグ・グループ編集', action: () => onStartTagEdit(item) },
-              null,
-              { label: '📄 TXT', action: () => onExportTxt(item) },
-              { label: '📝 Markdown', action: () => onExportMd(item) },
-              { label: '📄 PDF', action: () => onExportPdf(item) },
-              null,
-              { label: '🔗 7日間共有', action: () => handleShare(7) },
-              { label: '🔗 30日間共有', action: () => handleShare(30) },
-              { label: '🔗 無期限共有', action: () => handleShare(null) },
-              null,
-              { label: '🗑 削除', action: () => onDelete(item.id), color: '#ff6b6b' },
-            ].map((entry, i) =>
-              entry === null ? (
-                <div key={`sep-${i}`} style={{ borderTop: '1px solid var(--border)', margin: '4px 0' }} />
-              ) : (
-                <button
-                  key={entry.label}
-                  onClick={e => { e.stopPropagation(); entry.action(); setOpenMenuId(null); }}
-                  style={{
-                    width: '100%', textAlign: 'left', padding: '6px 12px',
-                    background: 'none', border: 'none', cursor: 'pointer',
-                    color: entry.color || 'var(--text-secondary)', fontSize: 12,
-                  }}
-                  onMouseEnter={e => (e.currentTarget.style.background = 'var(--border)')}
-                  onMouseLeave={e => (e.currentTarget.style.background = 'none')}
-                >
-                  {entry.label}
-                </button>
-              )
-            )}
-          </div>
-        )}
-      </div>
-
-      {/* 共有URLモーダル */}
-      {showShareModal && (
-        <div
-          style={{ position: 'fixed', inset: 0, zIndex: 9999, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
-          onClick={() => setShowShareModal(false)}
-        >
-          <div
-            style={{ background: 'var(--bg-secondary)', borderRadius: 12, padding: 24, width: 400, border: '1px solid var(--border)', boxShadow: '0 8px 32px rgba(0,0,0,0.3)' }}
-            onClick={e => e.stopPropagation()}
-          >
-            <h3 style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 12 }}>🔗 共有リンク</h3>
-            <div style={{ display: 'flex', gap: 8 }}>
-              <input
-                value={shareUrl}
-                readOnly
-                style={{ flex: 1, fontSize: 12, border: '1px solid var(--border)', borderRadius: 8, padding: '8px 12px', background: 'var(--bg-primary)', color: 'var(--text-primary)', outline: 'none' }}
-              />
-              <button
-                onClick={() => { navigator.clipboard.writeText(shareUrl); }}
-                style={{ padding: '8px 14px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--bg-card)', color: 'var(--text-secondary)', cursor: 'pointer', fontSize: 14 }}
-              >
-                📋
-              </button>
-            </div>
-            <button
-              onClick={() => setShowShareModal(false)}
-              style={{ marginTop: 12, fontSize: 12, color: 'var(--text-muted)', background: 'none', border: 'none', cursor: 'pointer' }}
+          {config.icon}
+        </div>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+            {item.is_favorite ? (
+              <span style={{ color: '#f5a623', fontSize: 13 }}>★</span>
+            ) : null}
+            <strong
+              style={{
+                fontSize: 14,
+                fontWeight: 700,
+                color: 'var(--text-primary)',
+                wordBreak: 'break-word',
+              }}
             >
-              閉じる
-            </button>
+              {item.title || '(無題)'}
+            </strong>
+            <span
+              style={{
+                padding: '2px 8px',
+                borderRadius: 12,
+                background: config.badgeBg,
+                color: config.badgeColor,
+                fontSize: 11,
+                fontWeight: 700,
+              }}
+            >
+              {groupName}
+            </span>
+          </div>
+          <div
+            style={{
+              fontSize: 11,
+              color: 'var(--text-muted)',
+              marginTop: 4,
+              display: 'flex',
+              alignItems: 'center',
+              gap: 8,
+              flexWrap: 'wrap',
+            }}
+          >
+            {createdDate && <span>{createdDate}</span>}
+            <span>・</span>
+            <span>{charCount.toLocaleString()}文字</span>
+            {item.folder_name && (
+              <span
+                style={{
+                  padding: '1px 8px',
+                  borderRadius: 10,
+                  background: 'rgba(108,99,255,0.08)',
+                  color: '#6c63ff',
+                  fontSize: 10,
+                }}
+              >
+                📁 {item.folder_name}
+              </span>
+            )}
+            {tagsArr.slice(0, 5).map((t) => (
+              <span
+                key={t}
+                style={{
+                  padding: '1px 8px',
+                  borderRadius: 10,
+                  background: config.badgeBg,
+                  color: config.badgeColor,
+                  fontSize: 10,
+                }}
+              >
+                #{t}
+              </span>
+            ))}
           </div>
         </div>
-      )}
+      </div>
+
+      {/* プレビュー or 全文 */}
+      <div
+        style={{
+          padding: 12,
+          background: 'var(--bg-primary)',
+          borderRadius: 6,
+          border: '1px solid var(--border)',
+          fontSize: 13,
+          lineHeight: 1.7,
+          color: 'var(--text-secondary)',
+          whiteSpace: 'pre-wrap',
+          wordBreak: 'break-word',
+          maxHeight: isExpanded ? 600 : 110,
+          overflowY: isExpanded ? 'auto' : 'hidden',
+          position: 'relative',
+        }}
+      >
+        {isExpanded ? content : previewText}
+        {!isExpanded && charCount > 180 && '...'}
+      </div>
+
+      {/* アクションバー */}
+      <div
+        style={{
+          display: 'flex',
+          gap: 8,
+          marginTop: 12,
+          flexWrap: 'wrap',
+        }}
+      >
+        <button
+          type="button"
+          onClick={() => onExpandToggle(item.id)}
+          style={btnStyle}
+        >
+          {isExpanded ? '▲ 閉じる' : '▼ 全文表示'}
+        </button>
+        <button type="button" onClick={handleCopy} style={btnStyle}>
+          📋 {copied ? 'コピー済' : 'コピー'}
+        </button>
+        <button type="button" onClick={() => onExportMd(item)} style={btnStyle}>
+          📥 MDダウンロード
+        </button>
+        <button
+          type="button"
+          onClick={() => onFavoriteToggle(item)}
+          style={{
+            ...btnStyle,
+            color: item.is_favorite ? '#f59e0b' : 'var(--text-secondary)',
+            borderColor: item.is_favorite ? 'rgba(245,158,11,0.4)' : 'var(--border)',
+            background: item.is_favorite ? 'rgba(245,158,11,0.08)' : 'var(--bg-primary)',
+          }}
+        >
+          {item.is_favorite ? '⭐ お気に入り' : '☆ お気に入り'}
+        </button>
+        <button
+          type="button"
+          onClick={() => {
+            if (confirm('このアイテムを削除しますか？')) {
+              onDelete(item.id);
+            }
+          }}
+          style={{
+            ...btnStyle,
+            color: '#ef4444',
+            borderColor: 'rgba(239,68,68,0.3)',
+            background: 'rgba(239,68,68,0.04)',
+            marginLeft: 'auto',
+          }}
+        >
+          🗑 削除
+        </button>
+      </div>
     </div>
   );
 }
