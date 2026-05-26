@@ -245,13 +245,26 @@ ${researchResult}
               );
             }
 
+            // 1000字要約生成（失敗時は null、コンテキストは無変更で保存）
+            const summaryText = await generateBatchSummary(
+              researchResult,
+              savedTopic,
+              model,
+              15000,
+            );
+
+            // 要約をコンテキストの冒頭に統合（要約なしなら既存通りコンテキストのみ）
+            const combinedContext = summaryText
+              ? `## 📋 要約（1000字以内）\n\n${summaryText}\n\n---\n\n## 📚 詳細コンテキスト\n\n${contextText}`
+              : contextText;
+
             // コンテキストライブラリに保存（バッチタグ付き）
             await sql`
               INSERT INTO context_saves (user_id, topic, context_text, research_text, tags)
               VALUES (
                 ${job.user_id},
                 ${savedTopic},
-                ${contextText},
+                ${combinedContext},
                 ${researchResult},
                 ${[`batch:${jobId}`, `group:${job.group_name}`]}
               )
@@ -392,6 +405,46 @@ async function generateBatchTitle(
     return title || fallback;
   } catch {
     return fallback;
+  }
+}
+
+// AI で 1000字以内の要約を生成（タイムアウト + フォールバック付き）
+// 失敗・タイムアウト時は null を返し、呼び出し側はコンテキストに要約を追加せず保存する
+async function generateBatchSummary(
+  text: string,
+  topic: string,
+  model: AIModel,
+  timeoutMs: number = 15000,
+): Promise<string | null> {
+  const prompt = `以下のリサーチ記事を1000字以内に要約してください。
+
+【要件】
+- 1000字以内
+- 重要なポイントを網羅
+- 箇条書きも活用してわかりやすく
+- 専門用語があれば簡単な説明を併記
+- 「要約：」「以下は要約です」のような前置きは不要、本文だけ
+
+【トピック】
+${topic}
+
+【記事本文】
+${text.slice(0, 6000)}`;
+
+  try {
+    const summaryPromise = generateWithModel(model, prompt, undefined, 2500);
+    const timeoutPromise = new Promise<string>((_, reject) =>
+      setTimeout(
+        () => reject(new Error('summary generation timeout')),
+        timeoutMs,
+      ),
+    );
+    const raw = await Promise.race([summaryPromise, timeoutPromise]);
+    const summary = raw.trim();
+    return summary.length > 50 ? summary : null;
+  } catch (e) {
+    console.warn('[batch-research] summary generation failed:', e);
+    return null;
   }
 }
 

@@ -143,25 +143,64 @@ type BatchResult = {
   created_at: string;
 };
 
+// コンテキスト本文から「## 📋 要約」と「## 📚 詳細コンテキスト」セクションを分離
+// 既存データ（要約セクションなし）の場合は summarySection: null、detailContext に全文を返す
+function parseContextWithSummary(contextText: string): {
+  summarySection: string | null;
+  detailContext: string;
+} {
+  if (!contextText) return { summarySection: null, detailContext: '' };
+  const summaryHeader = '## 📋 要約';
+  const detailHeader = '## 📚 詳細コンテキスト';
+  if (!contextText.startsWith(summaryHeader)) {
+    return { summarySection: null, detailContext: contextText };
+  }
+  const detailIdx = contextText.indexOf(detailHeader);
+  if (detailIdx === -1) {
+    // 要約ヘッダはあるが詳細ヘッダがない → 全文を要約として扱わず安全側に倒す
+    return { summarySection: null, detailContext: contextText };
+  }
+  // 要約セクション = 要約ヘッダ直後〜詳細ヘッダ手前（区切り --- を除去）
+  const rawSummary = contextText.slice(summaryHeader.length, detailIdx);
+  const summarySection = rawSummary
+    .replace(/^[^\n]*\n+/, '')
+    .replace(/\n+---\n*$/, '')
+    .trim();
+  const detailContext = contextText
+    .slice(detailIdx + detailHeader.length)
+    .replace(/^\n+/, '')
+    .trim();
+  return {
+    summarySection: summarySection || null,
+    detailContext: detailContext || contextText,
+  };
+}
+
 // バッチ完了トピックの本文インライン展開コンポーネント
 function BatchExpandedContent({ result }: { result: BatchResult }) {
   const [viewMode, setViewMode] = useState<'research' | 'context'>('research');
-  const [copied, setCopied] = useState(false);
-  const currentText =
-    viewMode === 'research' ? result.research_text : result.context_text;
+  const [copied, setCopied] = useState<string | null>(null);
 
-  const handleCopy = async () => {
+  const { summarySection, detailContext } = parseContextWithSummary(
+    result.context_text || '',
+  );
+
+  const currentText =
+    viewMode === 'research' ? result.research_text : detailContext;
+  const currentLabel = viewMode === 'research' ? 'リサーチ本文' : '詳細コンテキスト';
+
+  const handleCopy = async (text: string, key: string) => {
+    if (!text) return;
     try {
-      await navigator.clipboard.writeText(currentText || '');
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1500);
+      await navigator.clipboard.writeText(text);
+      setCopied(key);
+      setTimeout(() => setCopied(null), 1500);
     } catch {}
   };
 
-  const handleDownload = () => {
-    const blob = new Blob([currentText || ''], {
-      type: 'text/markdown;charset=utf-8',
-    });
+  const handleDownload = (text: string, label: string) => {
+    if (!text) return;
+    const blob = new Blob([text], { type: 'text/markdown;charset=utf-8' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
@@ -169,7 +208,7 @@ function BatchExpandedContent({ result }: { result: BatchResult }) {
     const safeTopic = (result.topic || 'untitled')
       .replace(/[/\\:*?"<>|]/g, '')
       .slice(0, 30);
-    a.download = `${safeTopic}_${viewMode}_${date}.md`;
+    a.download = `${safeTopic}_${label}_${date}.md`;
     a.click();
     URL.revokeObjectURL(url);
   };
@@ -196,20 +235,97 @@ function BatchExpandedContent({ result }: { result: BatchResult }) {
     cursor: 'pointer',
   };
 
+  const compactBtnStyle: React.CSSProperties = {
+    padding: '4px 8px',
+    borderRadius: 5,
+    fontSize: 11,
+    fontWeight: 600,
+    border: '1px solid var(--border)',
+    background: 'var(--bg-primary)',
+    color: 'var(--text-primary)',
+    cursor: 'pointer',
+  };
+
   return (
     <div>
+      {/* 要約セクション（常時上部表示、保存データに要約があるときのみ） */}
+      {summarySection && (
+        <div
+          style={{
+            marginBottom: 14,
+            padding: 14,
+            background: 'rgba(108,99,255,0.06)',
+            borderLeft: '3px solid #6c63ff',
+            borderRadius: 8,
+          }}
+        >
+          <div
+            style={{
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              marginBottom: 8,
+              flexWrap: 'wrap',
+              gap: 6,
+            }}
+          >
+            <span
+              style={{
+                fontSize: 13,
+                fontWeight: 700,
+                color: 'var(--text-primary)',
+              }}
+            >
+              📋 要約（1000字以内）
+            </span>
+            <div style={{ display: 'flex', gap: 6 }}>
+              <button
+                onClick={() => handleCopy(summarySection, 'summary')}
+                style={compactBtnStyle}
+              >
+                {copied === 'summary' ? '✓' : '📋'}
+              </button>
+              <button
+                onClick={() => handleDownload(summarySection, '要約')}
+                style={compactBtnStyle}
+              >
+                📥
+              </button>
+            </div>
+          </div>
+          <div
+            style={{
+              whiteSpace: 'pre-wrap',
+              fontSize: 13,
+              lineHeight: 1.75,
+              maxHeight: 300,
+              overflowY: 'auto',
+              color: 'var(--text-primary)',
+            }}
+          >
+            {summarySection}
+          </div>
+        </div>
+      )}
+
       <div style={{ display: 'flex', gap: 6, marginBottom: 10, flexWrap: 'wrap' }}>
         <button onClick={() => setViewMode('research')} style={tabStyle(viewMode === 'research')}>
           📄 リサーチ本文
         </button>
         <button onClick={() => setViewMode('context')} style={tabStyle(viewMode === 'context')}>
-          🧠 コンテキスト
+          🧠 詳細コンテキスト
         </button>
         <div style={{ marginLeft: 'auto', display: 'flex', gap: 6 }}>
-          <button onClick={handleCopy} style={iconBtnStyle}>
-            {copied ? '✓ コピー済' : '📋 コピー'}
+          <button
+            onClick={() => handleCopy(currentText, 'tab')}
+            style={iconBtnStyle}
+          >
+            {copied === 'tab' ? '✓ コピー済' : '📋 コピー'}
           </button>
-          <button onClick={handleDownload} style={iconBtnStyle}>
+          <button
+            onClick={() => handleDownload(currentText, currentLabel)}
+            style={iconBtnStyle}
+          >
             📥 MD
           </button>
         </div>
