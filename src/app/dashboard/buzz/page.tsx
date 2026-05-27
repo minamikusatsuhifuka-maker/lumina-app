@@ -321,15 +321,29 @@ export default function BuzzAnalysisPage() {
           mediaType,
         }),
       });
+
+      // 非OK時は JSON でない可能性があるので text() で読んでからフォールバック解析
+      if (!res.ok) {
+        const text = await res.text();
+        let errMsg = text;
+        try {
+          const j = JSON.parse(text);
+          errMsg = j.error || j.message || text;
+        } catch {
+          // text のまま
+        }
+        throw new Error(`抽出失敗 (${res.status}): ${errMsg.slice(0, 200)}`);
+      }
+
       const data = await res.json();
-      if (res.ok && Array.isArray(data.patterns)) {
+      if (Array.isArray(data.patterns)) {
         setExtractedPatterns(data.patterns);
         setSelectedPatternIndices(new Set(data.patterns.map((_: any, i: number) => i)));
       } else {
         alert(`抽出エラー: ${data.error || '不明なエラー'}`);
       }
     } catch (e: any) {
-      alert(`通信エラー: ${e.message}`);
+      alert(`通信エラー: ${e?.message || e}`);
     } finally {
       setExtractingPatterns(false);
     }

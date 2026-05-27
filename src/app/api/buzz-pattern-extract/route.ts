@@ -1,9 +1,10 @@
-import { NextRequest } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
 import { generateWithModel, type AIModel } from '@/lib/ai-client';
 
 export const runtime = 'nodejs';
-export const maxDuration = 60;
+// Vercel デフォルト 300s に合わせる（Claude/Gemini で大きめ max_tokens を使うため）
+export const maxDuration = 300;
 
 interface RequestBody {
   analysisContent: string;
@@ -13,29 +14,47 @@ interface RequestBody {
 }
 
 export async function POST(req: NextRequest) {
-  const session = await auth();
-  if (!session) {
-    return new Response(JSON.stringify({ error: 'Unauthorized' }), {
-      status: 401,
-      headers: { 'Content-Type': 'application/json' },
-    });
-  }
+  // すべての例外を NextResponse.json で返す外殻
+  try {
+    const session = await auth();
+    if (!session) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
 
-  const {
-    analysisContent,
-    mediaType = 'note',
-    sourceAnalysisId,
-    model = 'claude',
-  } = (await req.json()) as RequestBody;
+    const body = (await req.json().catch(() => null)) as RequestBody | null;
+    if (!body) {
+      return NextResponse.json(
+        { error: 'リクエストボディが不正です' },
+        { status: 400 },
+      );
+    }
 
-  if (!analysisContent || analysisContent.length < 100) {
-    return new Response(
-      JSON.stringify({ error: 'analysisContent is required (min 100 chars)' }),
-      { status: 400, headers: { 'Content-Type': 'application/json' } },
-    );
-  }
+    const {
+      analysisContent,
+      mediaType = 'note',
+      sourceAnalysisId,
+      model = 'claude',
+    } = body;
 
-  const systemPrompt = `あなたはコンテンツマーケティング・コピーライティングの専門家として、バズり分析の結果から「再利用可能な型・パターン・テクニック」を抽出する役割です。
+    if (
+      !analysisContent ||
+      typeof analysisContent !== 'string' ||
+      analysisContent.length < 100
+    ) {
+      return NextResponse.json(
+        { error: 'analysisContent is required (min 100 chars)' },
+        { status: 400 },
+      );
+    }
+
+    // 入力長の安全装置（極端に長い入力でモデルがタイムアウトするのを防ぐ）
+    const MAX_INPUT_CHARS = 30000;
+    const safeText =
+      analysisContent.length > MAX_INPUT_CHARS
+        ? analysisContent.slice(0, MAX_INPUT_CHARS)
+        : analysisContent;
+
+    const systemPrompt = `あなたはコンテンツマーケティング・コピーライティングの専門家として、バズり分析の結果から「再利用可能な型・パターン・テクニック」を抽出する役割です。
 
 抽出する条件:
 - 他の記事・コンテンツでも応用できる汎用性のある型のみ
@@ -45,10 +64,10 @@ export async function POST(req: NextRequest) {
 
 出力は厳密にJSON形式で、配列形式で複数のパターンを返してください。`;
 
-  const userPrompt = `以下のバズり分析の結果から、再利用可能なパターン・型・テクニックを3〜7個抽出してください。
+    const userPrompt = `以下のバズり分析の結果から、再利用可能なパターン・型・テクニックを3〜7個抽出してください。
 
 【分析結果】
-${analysisContent.slice(0, 8000)}
+${safeText.slice(0, 8000)}
 
 【出力形式】JSON配列のみを返してください。説明文や前置きは不要です。
 
@@ -68,8 +87,26 @@ ${analysisContent.slice(0, 8000)}
 【媒体】${mediaType}
 【件数】3〜7個（質を優先、無理に増やさない）`;
 
-  try {
-    const raw = await generateWithModel(model, userPrompt, systemPrompt, 8000);
+    // AI 呼び出しは個別に try-catch（タイムアウト/レート制限/safety filter を区別）
+    let raw: string;
+    try {
+      raw = await generateWithModel(model, userPrompt, systemPrompt, 8000);
+    } catch (geminiErr: any) {
+      console.error('[buzz-pattern-extract] AI呼び出し失敗:', geminiErr);
+      return NextResponse.json(
+        {
+          error: `AI抽出に失敗しました: ${geminiErr?.message || 'unknown'}`,
+        },
+        { status: 502 },
+      );
+    }
+
+    if (!raw || !raw.trim()) {
+      return NextResponse.json(
+        { error: 'AIから空の応答が返りました（safety filter等の可能性）' },
+        { status: 502 },
+      );
+    }
 
     // JSON 抽出（モデルが余計な装飾を付けるケースに対応）
     let jsonText = raw.trim();
@@ -84,25 +121,40 @@ ${analysisContent.slice(0, 8000)}
       jsonText = jsonText.slice(startIdx, endIdx + 1);
     }
 
-    const patterns = JSON.parse(jsonText);
-    if (!Array.isArray(patterns)) {
-      throw new Error('Expected array of patterns');
+    let patterns: unknown;
+    try {
+      patterns = JSON.parse(jsonText);
+    } catch (parseErr: any) {
+      console.error(
+        '[buzz-pattern-extract] JSONパース失敗。生応答 (先頭500字):',
+        raw.slice(0, 500),
+      );
+      return NextResponse.json(
+        {
+          error: `AI応答のJSON解析に失敗しました: ${parseErr?.message || 'parse error'}`,
+        },
+        { status: 502 },
+      );
     }
 
-    return new Response(
-      JSON.stringify({
-        patterns,
-        sourceAnalysisId,
-        mediaType,
-        extractedAt: new Date().toISOString(),
-      }),
-      { status: 200, headers: { 'Content-Type': 'application/json' } },
-    );
-  } catch (e: any) {
-    console.error('[buzz-pattern-extract] error:', e);
-    return new Response(
-      JSON.stringify({ error: e?.message || 'Pattern extraction failed' }),
-      { status: 500, headers: { 'Content-Type': 'application/json' } },
+    if (!Array.isArray(patterns)) {
+      return NextResponse.json(
+        { error: 'AI応答が配列形式ではありません' },
+        { status: 502 },
+      );
+    }
+
+    return NextResponse.json({
+      patterns,
+      sourceAnalysisId,
+      mediaType,
+      extractedAt: new Date().toISOString(),
+    });
+  } catch (err: any) {
+    console.error('[buzz-pattern-extract] 致命的エラー:', err);
+    return NextResponse.json(
+      { error: err?.message || 'サーバー内部エラー' },
+      { status: 500 },
     );
   }
 }
