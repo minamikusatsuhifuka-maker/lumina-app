@@ -54,6 +54,59 @@ function tryParseJsonObject(raw: string): any | null {
   }
 }
 
+/**
+ * ディープリサーチ等の保存テキストから「本文」を抽出する。
+ * 進捗メッセージや調査ログを除去し、AI分類に適した本体だけを返す。
+ */
+function extractMainContent(rawContent: string): string {
+  if (!rawContent || typeof rawContent !== 'string') return '';
+
+  let text = rawContent.trim();
+
+  // 戦略1: --- 区切り線で分割し、最後の最大ブロックを本文として採用
+  // ディープリサーチでは「進捗テキスト --- レポート本体」の形が多い
+  if (text.includes('---')) {
+    const parts = text.split(/\n---+\n/);
+    if (parts.length >= 2) {
+      const lastPart = parts[parts.length - 1].trim();
+      const largestPart = parts.reduce(
+        (max, cur) => (cur.length > max.length ? cur : max),
+        '',
+      );
+      // 最後のパートが十分長ければ採用、そうでなければ最大パート
+      text = lastPart.length > 200 ? lastPart : largestPart;
+    }
+  }
+
+  // 戦略2: 既知の進捗テキスト先頭フレーズで始まる行を除去
+  const progressPatterns = [
+    /^.*?情報が十分に集まりました.*?$/gm,
+    /^.*?調査が完了しました.*?$/gm,
+    /^.*?以上の調査結果をもとに.*?$/gm,
+    /^.*?では、トピックに関連する.*?$/gm,
+    /^.*?各トピックについて調査します.*?$/gm,
+    /^.*?非常に重要な一次情報を.*?$/gm,
+    /^.*?これら以外で.*?についても補足情報.*?$/gm,
+    /^.*?では、完全なリサーチレポートを作成.*?$/gm,
+    /^.*?では、最新情報を収集するために.*?$/gm,
+    /^.*?膨大な情報が収集できました.*?$/gm,
+    /^.*?では、これらを統合した詳細な.*?$/gm,
+  ];
+  for (const pattern of progressPatterns) {
+    text = text.replace(pattern, '');
+  }
+
+  // 戦略3: 連続改行を整理
+  text = text.replace(/\n{3,}/g, '\n\n').trim();
+
+  // 戦略4: 結果が短すぎたら元テキストを使う（全削除事故防止）
+  if (text.length < 200 && rawContent.trim().length > 200) {
+    text = rawContent.trim();
+  }
+
+  return text;
+}
+
 // metadata 列の解析
 function parseMeta(metadata: any): any {
   if (!metadata) return {};
@@ -158,7 +211,11 @@ export async function POST(req: NextRequest) {
 - 既存サブカテゴリ一覧で近いものがあれば、必ずそれをそのまま使う（表記揺れを生まない）
 - 全体のサブカテゴリ数が12を超えないよう、できるだけ既存に寄せる
 - タグは内容から具体的キーワードを5〜8個抽出
-- 出力は単一JSONオブジェクトのみ。前後の説明・コードフェンス禁止`;
+- 出力は単一JSONオブジェクトのみ。前後の説明・コードフェンス禁止
+
+【重要】
+- 本文に「情報が十分に集まりました」「調査が完了しました」のような進捗メッセージが含まれていても無視し、実際のレポート内容のみから分類してください
+- それ以外の出力ルール（JSON のみ・コードフェンス禁止）は厳守`;
 
     // 失敗時の DB 更新ヘルパー（catch内で使う・二重失敗時はログのみ）
     const writeFailureToDb = async (item: any, errMessage: string): Promise<{ code: string; label: string }> => {
@@ -203,7 +260,14 @@ export async function POST(req: NextRequest) {
         return { id: item.id, subCategory: '', tags: [], ok: false, error: errMsg, errorCode: errCat.code };
       }
 
-      const content = contentRaw.slice(0, 5000);
+      // 進捗メッセージ等を除去して本文だけ抽出してから AI に渡す
+      const cleanContent = extractMainContent(contentRaw);
+      if (cleanContent.length !== contentRaw.length) {
+        console.log(
+          `[auto-categorize] ${item.id} 前処理: ${contentRaw.length}字 → ${cleanContent.length}字`,
+        );
+      }
+      const content = cleanContent.slice(0, 5000);
       const userPrompt = `【カテゴリ】${filterGroup}
 
 【既存のサブカテゴリ一覧（${existingSubList.length}個）】
