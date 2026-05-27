@@ -40,6 +40,16 @@ function normalizeGroup(g: string): string {
   return GROUP_ALIASES[g] || g;
 }
 
+// metadata は TEXT 格納 or オブジェクトのどちらでも対応
+function parseMetadata(raw: any): any {
+  if (!raw) return {};
+  if (typeof raw === 'object') return raw;
+  if (typeof raw === 'string') {
+    try { return JSON.parse(raw); } catch { return {}; }
+  }
+  return {};
+}
+
 function LibraryPageInner() {
   const searchParams = useSearchParams();
   // URLクエリ ?tab=... を初期タブとして反映（TABS の key と完全一致が条件）
@@ -57,6 +67,11 @@ function LibraryPageInner() {
   const [searchScope, setSearchScope] = useState<'current' | 'all'>('current');
   const [bulkCategorizing, setBulkCategorizing] = useState(false);
   const [categorizeElapsed, setCategorizeElapsed] = useState(0);
+  // サブカテゴリ絞り込み（タブ内の二段目フィルタ）
+  const [selectedSubCategory, setSelectedSubCategory] = useState<string | null>(null);
+  // 未分類リトライ
+  const [retrying, setRetrying] = useState(false);
+  const [retryElapsed, setRetryElapsed] = useState(0);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [mergeMode, setMergeMode] = useState(false);
   const [mergeResult, setMergeResult] = useState('');
@@ -213,18 +228,79 @@ function LibraryPageInner() {
         throw new Error(`分類失敗 (${res.status}): ${msg.slice(0, 200)}`);
       }
       const data = await res.json();
-      // 最新化（metadata 反映）
-      const refresh = await fetch('/api/library');
-      const refreshed = await refresh.json();
-      if (Array.isArray(refreshed)) setItems(refreshed);
-      alert(
-        `✅ 完了：成功 ${data.updated?.length || 0}件 / 失敗 ${data.failed?.length || 0}件`,
-      );
+      const okCount = data.updated?.length || 0;
+      const ngCount = data.failed?.length || 0;
+
+      // 最新化（失敗してもアプリは継続）
+      const refetchOk = await refetchItems();
+      if (refetchOk) {
+        alert(`✅ 完了：成功 ${okCount}件 / 失敗 ${ngCount}件`);
+      } else {
+        alert(
+          `分類完了：成功 ${okCount}件 / 失敗 ${ngCount}件\n最新状態を見るためにページを再読込してください。`,
+        );
+      }
     } catch (err: any) {
       alert(`❌ ${err?.message || err}`);
     } finally {
       clearInterval(timer);
       setBulkCategorizing(false);
+    }
+  };
+
+  // サブカテゴリが付いていない未分類アイテムだけを再分類
+  const handleRetryUncategorized = async () => {
+    if (uncategorizedItems.length === 0) return;
+    if (
+      !confirm(
+        `サブカテゴリが付いていない${uncategorizedItems.length}件を再分類します。実行しますか？`,
+      )
+    ) {
+      return;
+    }
+    setRetrying(true);
+    setRetryElapsed(0);
+    const t0 = Date.now();
+    const timer = setInterval(
+      () => setRetryElapsed(Math.floor((Date.now() - t0) / 1000)),
+      1000,
+    );
+    try {
+      const res = await fetch('/api/library/auto-categorize', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          mode: 'bulk',
+          itemIds: uncategorizedItems.map((i) => i.id),
+          category: activeTab,
+        }),
+      });
+      if (!res.ok) {
+        const text = await res.text();
+        let msg = text;
+        try {
+          const j = JSON.parse(text);
+          msg = j.error || text;
+        } catch {}
+        throw new Error(`再分類失敗 (${res.status}): ${msg.slice(0, 200)}`);
+      }
+      const data = await res.json();
+      const okCount = data.updated?.length || 0;
+      const ngCount = data.failed?.length || 0;
+
+      const refetchOk = await refetchItems();
+      if (refetchOk) {
+        alert(`✅ 再分類完了：成功 ${okCount}件 / 失敗 ${ngCount}件`);
+      } else {
+        alert(
+          `再分類完了：成功 ${okCount}件 / 失敗 ${ngCount}件\n最新状態を見るためにページを再読込してください。`,
+        );
+      }
+    } catch (err: any) {
+      alert(`❌ ${err?.message || err}`);
+    } finally {
+      clearInterval(timer);
+      setRetrying(false);
     }
   };
 
@@ -253,7 +329,7 @@ function LibraryPageInner() {
     if (search.trim() && searchScope === 'all') {
       return filterBySearch(items);
     }
-    // それ以外は従来通り（タブ → 検索 → お気に入り絞り込み）
+    // それ以外は従来通り（タブ → 検索 → お気に入り絞り込み → サブカテゴリ絞り込み）
     let list = items;
     if (activeTab === 'favorite') {
       list = list.filter(i => i.is_favorite);
@@ -264,9 +340,59 @@ function LibraryPageInner() {
     if (favFilterInTab && activeTab !== 'favorite') {
       list = list.filter(i => i.is_favorite);
     }
+    if (selectedSubCategory) {
+      list = list.filter(i => parseMetadata(i.metadata)?.subCategory === selectedSubCategory);
+    }
     return list;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [items, search, searchScope, activeTab, favFilterInTab]);
+  }, [items, search, searchScope, activeTab, favFilterInTab, selectedSubCategory]);
+
+  // タブ内で利用可能なサブカテゴリ一覧（all/favorite では空）
+  const availableSubCategories = useMemo<string[]>(() => {
+    if (activeTab === 'all' || activeTab === 'favorite') return [];
+    const targetItems = items.filter(
+      (i) => normalizeGroup(i.group_name || '') === activeTab,
+    );
+    const subs = targetItems
+      .map((i) => parseMetadata(i.metadata)?.subCategory)
+      .filter((s: any): s is string => typeof s === 'string' && s.trim().length > 0)
+      .map((s: string) => s.trim());
+    return Array.from(new Set(subs)).sort((a, b) => a.localeCompare(b, 'ja'));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [items, activeTab]);
+
+  // 未分類アイテム（subCategory なし）
+  const uncategorizedItems = useMemo(() => {
+    if (activeTab === 'all' || activeTab === 'favorite') return [];
+    return items.filter(
+      (i) =>
+        normalizeGroup(i.group_name || '') === activeTab &&
+        !parseMetadata(i.metadata)?.subCategory,
+    );
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [items, activeTab]);
+
+  // タブ切替時にサブカテゴリ絞り込みをリセット
+  useEffect(() => {
+    setSelectedSubCategory(null);
+  }, [activeTab]);
+
+  // /api/library を再取得（失敗時 false を返す）
+  const refetchItems = async (): Promise<boolean> => {
+    try {
+      const r = await fetch('/api/library');
+      if (!r.ok) {
+        console.warn('[library] refetch failed:', r.status);
+        return false;
+      }
+      const d = await r.json();
+      if (Array.isArray(d)) setItems(d);
+      return true;
+    } catch (e) {
+      console.warn('[library] refetch例外:', e);
+      return false;
+    }
+  };
 
   /* フォルダ別グルーピング */
   const groupedByFolder = useMemo(() => {
@@ -320,6 +446,7 @@ function LibraryPageInner() {
         onExpandToggle={(id) => setExpandedId(expandedId === id ? null : id)}
         isExpanded={expandedId === item.id}
         onMoveToFolder={openFolderModal}
+        onTagClick={(t) => setSearch(t)}
       />
 
       {editingId === item.id && (
@@ -452,7 +579,7 @@ function LibraryPageInner() {
           <button
             type="button"
             onClick={handleBulkCategorize}
-            disabled={bulkCategorizing}
+            disabled={bulkCategorizing || retrying}
             style={{
               padding: '8px 14px', borderRadius: 8, border: 'none', fontWeight: 700, fontSize: 12,
               background: bulkCategorizing
@@ -467,6 +594,29 @@ function LibraryPageInner() {
             {bulkCategorizing
               ? `⟳ 分類中... ${categorizeElapsed}秒`
               : `♻️ ${activeTab}を一括AI分類`}
+          </button>
+        )}
+
+        {/* 未分類だけを再分類（all/favorite 以外で未分類がある場合のみ） */}
+        {activeTab !== 'all' && activeTab !== 'favorite' && uncategorizedItems.length > 0 && (
+          <button
+            type="button"
+            onClick={handleRetryUncategorized}
+            disabled={retrying || bulkCategorizing}
+            style={{
+              padding: '8px 14px', borderRadius: 8, border: 'none', fontWeight: 700, fontSize: 12,
+              background: retrying
+                ? 'var(--bg-secondary)'
+                : 'linear-gradient(135deg, #f59e0b, #f97316)',
+              color: retrying ? 'var(--text-muted)' : '#fff',
+              cursor: retrying ? 'wait' : 'pointer',
+              whiteSpace: 'nowrap',
+            }}
+            title={`サブカテゴリが付いていない${uncategorizedItems.length}件を再分類`}
+          >
+            {retrying
+              ? `⟳ 再分類中... ${retryElapsed}秒`
+              : `🔄 未分類${uncategorizedItems.length}件を再分類`}
           </button>
         )}
       </div>
@@ -517,6 +667,50 @@ function LibraryPageInner() {
           );
         })}
       </div>
+
+      {/* ── サブカテゴリ絞り込みチップ（タブ内2段目フィルタ） ── */}
+      {activeTab !== 'all' && activeTab !== 'favorite' && availableSubCategories.length > 0 && (
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 16 }}>
+          <button
+            type="button"
+            onClick={() => setSelectedSubCategory(null)}
+            style={{
+              padding: '4px 12px',
+              borderRadius: 12,
+              border: 'none',
+              fontSize: 11,
+              fontWeight: 600,
+              cursor: 'pointer',
+              background: !selectedSubCategory ? '#8b5cf6' : 'var(--bg-secondary)',
+              color: !selectedSubCategory ? '#fff' : 'var(--text-muted)',
+            }}
+          >
+            すべて
+          </button>
+          {availableSubCategories.map((sub) => {
+            const active = selectedSubCategory === sub;
+            return (
+              <button
+                key={sub}
+                type="button"
+                onClick={() => setSelectedSubCategory(active ? null : sub)}
+                style={{
+                  padding: '4px 12px',
+                  borderRadius: 12,
+                  border: 'none',
+                  fontSize: 11,
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                  background: active ? '#8b5cf6' : 'var(--bg-secondary)',
+                  color: active ? '#fff' : 'var(--text-secondary)',
+                }}
+              >
+                🏷 {sub}
+              </button>
+            );
+          })}
+        </div>
+      )}
 
       {/* ── アイテムリスト（フォルダグルーピング） ── */}
       {loading ? (

@@ -30,6 +30,16 @@ const CATEGORY_CONFIG: Record<string, { icon: string; badgeBg: string; badgeColo
   'バズり分析':         { icon: '📊', badgeBg: 'rgba(236,72,153,0.1)',  badgeColor: '#ec4899' },
 };
 
+// metadata は TEXT 格納（JSON.stringify）または既にパース済みオブジェクトのどちらでも対応
+function parseMetadata(raw: any): any {
+  if (!raw) return {};
+  if (typeof raw === 'object') return raw;
+  if (typeof raw === 'string') {
+    try { return JSON.parse(raw); } catch { return {}; }
+  }
+  return {};
+}
+
 // 既存呼び出し側との互換性のため、未使用 props も受け取れる形のままにする
 interface Props {
   item: any;
@@ -49,6 +59,8 @@ interface Props {
   onExpandToggle: (id: string) => void;
   isExpanded: boolean;
   onMoveToFolder?: (item: any) => void;
+  // AIタグクリック→検索欄に流す（オプション）
+  onTagClick?: (tag: string) => void;
 }
 
 export function LibraryItemRow({
@@ -61,7 +73,13 @@ export function LibraryItemRow({
   onExportMd,
   onExpandToggle,
   isExpanded,
+  onTagClick,
 }: Props) {
+  const meta = parseMetadata(item.metadata);
+  const subCategory: string | undefined = typeof meta?.subCategory === 'string' ? meta.subCategory : undefined;
+  const aiTags: string[] = Array.isArray(meta?.tags)
+    ? meta.tags.filter((t: any): t is string => typeof t === 'string' && t.trim().length > 0)
+    : [];
   const [copied, setCopied] = useState(false);
 
   const groupName = item.group_name || '未分類';
@@ -214,6 +232,64 @@ export function LibraryItemRow({
               </span>
             ))}
           </div>
+
+          {/* AI 自動分類: サブカテゴリ + AIタグ */}
+          {(subCategory || aiTags.length > 0) && (
+            <div
+              style={{
+                marginTop: 6,
+                display: 'flex',
+                gap: 6,
+                flexWrap: 'wrap',
+                alignItems: 'center',
+              }}
+            >
+              {subCategory && (
+                <span
+                  style={{
+                    padding: '2px 10px',
+                    borderRadius: 12,
+                    background: 'rgba(139,92,246,0.12)',
+                    color: '#8b5cf6',
+                    fontSize: 11,
+                    fontWeight: 700,
+                  }}
+                  title="AIが付与したサブカテゴリ"
+                >
+                  🏷 {subCategory}
+                </span>
+              )}
+              {aiTags.slice(0, 6).map((t, idx) => (
+                <span
+                  key={`ai-${idx}`}
+                  onClick={
+                    onTagClick
+                      ? (e) => {
+                          e.stopPropagation();
+                          onTagClick(t);
+                        }
+                      : undefined
+                  }
+                  style={{
+                    padding: '1px 8px',
+                    borderRadius: 10,
+                    background: 'rgba(59,130,246,0.08)',
+                    color: '#3b82f6',
+                    fontSize: 10,
+                    cursor: onTagClick ? 'pointer' : 'default',
+                  }}
+                  title={onTagClick ? `「${t}」で検索` : undefined}
+                >
+                  #{t}
+                </span>
+              ))}
+              {aiTags.length > 6 && (
+                <span style={{ fontSize: 10, color: 'var(--text-muted)' }}>
+                  +{aiTags.length - 6}
+                </span>
+              )}
+            </div>
+          )}
         </div>
       </div>
 
