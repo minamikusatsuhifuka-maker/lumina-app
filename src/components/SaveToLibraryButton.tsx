@@ -52,6 +52,18 @@ export function SaveToLibraryButton({ title, content, type, groupName, tags, met
           setShowFavoriteOption(true);
           showToast('✅ ライブラリに保存しました！');
         }
+        // ディープリサーチ保存時はバックグラウンドで自動カテゴライズ（失敗許容）
+        if (data?.id && groupName === 'ディープリサーチ') {
+          fetch('/api/library/auto-categorize', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              mode: 'single',
+              itemIds: [data.id],
+              category: 'ディープリサーチ',
+            }),
+          }).catch((err) => console.warn('[auto-categorize] 失敗:', err));
+        }
       } else {
         showToast('❌ 保存に失敗しました');
       }

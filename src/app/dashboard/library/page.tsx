@@ -54,6 +54,9 @@ function LibraryPageInner() {
   const [items, setItems] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
+  const [searchScope, setSearchScope] = useState<'current' | 'all'>('current');
+  const [bulkCategorizing, setBulkCategorizing] = useState(false);
+  const [categorizeElapsed, setCategorizeElapsed] = useState(0);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [mergeMode, setMergeMode] = useState(false);
   const [mergeResult, setMergeResult] = useState('');
@@ -165,6 +168,66 @@ function LibraryPageInner() {
     setFolderModal(null);
   };
 
+  // 現在のタブ（メインカテゴリ）を一括 AI 分類
+  const handleBulkCategorize = async () => {
+    // 'all' / 'favorite' 以外のタブが対象
+    if (activeTab === 'all' || activeTab === 'favorite') return;
+    const targetItems = items.filter(
+      (i) => normalizeGroup(i.group_name || '') === activeTab,
+    );
+    if (targetItems.length === 0) {
+      alert('このカテゴリに対象アイテムがありません');
+      return;
+    }
+    if (
+      !confirm(
+        `${targetItems.length}件をAIで分類します。1〜3分かかる可能性があります。\n（サブカテゴリ + タグが metadata に追加されます）\n実行しますか？`,
+      )
+    ) {
+      return;
+    }
+    setBulkCategorizing(true);
+    setCategorizeElapsed(0);
+    const t0 = Date.now();
+    const timer = setInterval(
+      () => setCategorizeElapsed(Math.floor((Date.now() - t0) / 1000)),
+      1000,
+    );
+    try {
+      const res = await fetch('/api/library/auto-categorize', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          mode: 'bulk',
+          itemIds: targetItems.map((i) => i.id),
+          category: activeTab,
+        }),
+      });
+      if (!res.ok) {
+        const text = await res.text();
+        let msg = text;
+        try {
+          const j = JSON.parse(text);
+          msg = j.error || text;
+        } catch {}
+        throw new Error(`分類失敗 (${res.status}): ${msg.slice(0, 200)}`);
+      }
+      const data = await res.json();
+      // 最新化（metadata 反映）
+      const refresh = await fetch('/api/library');
+      const refreshed = await refresh.json();
+      if (Array.isArray(refreshed)) setItems(refreshed);
+      alert(
+        `✅ 完了：成功 ${data.updated?.length || 0}件 / 失敗 ${data.failed?.length || 0}件`,
+      );
+    } catch (err: any) {
+      alert(`❌ ${err?.message || err}`);
+    } finally {
+      clearInterval(timer);
+      setBulkCategorizing(false);
+    }
+  };
+
   const toggleFolder = (key: string) => {
     setCollapsedFolders(prev => {
       const next = new Set(prev);
@@ -174,23 +237,36 @@ function LibraryPageInner() {
   };
 
   /* ── フィルタリング ── */
-  const filtered = items.filter(i => {
-    if (!search) return true;
-    return i.title?.includes(search) || i.content?.includes(search) || i.tags?.includes(search);
-  });
+  // 検索フィルタ（タイトル + 本文 + タグ、大文字小文字区別なし）
+  const filterBySearch = (list: any[]): any[] => {
+    const q = search.trim().toLowerCase();
+    if (!q) return list;
+    return list.filter(i =>
+      (i.title || '').toLowerCase().includes(q) ||
+      (i.content || '').toLowerCase().includes(q) ||
+      (i.tags || '').toLowerCase().includes(q)
+    );
+  };
 
   const tabFilteredItems = useMemo(() => {
-    let list = filtered;
+    // searchScope='all' で検索クエリ有のときはタブ無視で全体検索
+    if (search.trim() && searchScope === 'all') {
+      return filterBySearch(items);
+    }
+    // それ以外は従来通り（タブ → 検索 → お気に入り絞り込み）
+    let list = items;
     if (activeTab === 'favorite') {
       list = list.filter(i => i.is_favorite);
     } else if (activeTab !== 'all') {
       list = list.filter(i => normalizeGroup(i.group_name || '') === activeTab);
     }
+    list = filterBySearch(list);
     if (favFilterInTab && activeTab !== 'favorite') {
       list = list.filter(i => i.is_favorite);
     }
     return list;
-  }, [filtered, activeTab, favFilterInTab]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [items, search, searchScope, activeTab, favFilterInTab]);
 
   /* フォルダ別グルーピング */
   const groupedByFolder = useMemo(() => {
@@ -314,17 +390,94 @@ function LibraryPageInner() {
         </div>
       )}
 
-      {/* 検索 + お気に入り絞り込み */}
-      <div style={{ display: 'flex', gap: 8, marginBottom: 16, alignItems: 'center', flexWrap: 'wrap' }}>
-        <input value={search} onChange={e => setSearch(e.target.value)} placeholder="🔍 タイトル・内容・タグを検索..."
-          style={{ flex: 1, minWidth: 200, maxWidth: 480, padding: '9px 14px', background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 8, color: 'var(--text-primary)', fontSize: 13, outline: 'none', boxSizing: 'border-box' }} />
+      {/* 検索 + スコープ切替 + お気に入り絞り込み + 一括AI分類 */}
+      <div style={{ display: 'flex', gap: 8, marginBottom: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+        <input
+          value={search}
+          onChange={e => setSearch(e.target.value)}
+          placeholder="🔍 タイトル・本文・タグを検索..."
+          style={{ flex: 1, minWidth: 200, maxWidth: 480, padding: '9px 14px', background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 8, color: 'var(--text-primary)', fontSize: 13, outline: 'none', boxSizing: 'border-box' }}
+        />
+
+        {/* 検索スコープ切替（カテゴリ内 / 全体） */}
+        <div style={{ display: 'inline-flex', borderRadius: 8, overflow: 'hidden', border: '1px solid var(--border)' }}>
+          <button
+            type="button"
+            onClick={() => setSearchScope('current')}
+            style={{
+              padding: '8px 12px', fontSize: 12, fontWeight: 600, cursor: 'pointer',
+              background: searchScope === 'current' ? 'var(--accent)' : 'var(--bg-secondary)',
+              color: searchScope === 'current' ? '#fff' : 'var(--text-muted)',
+              border: 'none',
+            }}
+            title="現在のカテゴリ内のみ検索"
+          >
+            📂 カテゴリ内
+          </button>
+          <button
+            type="button"
+            onClick={() => setSearchScope('all')}
+            style={{
+              padding: '8px 12px', fontSize: 12, fontWeight: 600, cursor: 'pointer',
+              background: searchScope === 'all' ? 'var(--accent)' : 'var(--bg-secondary)',
+              color: searchScope === 'all' ? '#fff' : 'var(--text-muted)',
+              border: 'none',
+            }}
+            title="全カテゴリを横断検索"
+          >
+            🌐 全体
+          </button>
+        </div>
+
+        {search && (
+          <button
+            type="button"
+            onClick={() => setSearch('')}
+            style={{ padding: '8px 12px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--bg-secondary)', color: 'var(--text-muted)', fontSize: 12, cursor: 'pointer' }}
+            title="検索をクリア"
+          >
+            ✕ クリア
+          </button>
+        )}
+
         {activeTab !== 'favorite' && (
           <button onClick={() => setFavFilterInTab(!favFilterInTab)}
             style={{ padding: '8px 14px', borderRadius: 8, border: `1px solid ${favFilterInTab ? 'rgba(245,166,35,0.4)' : 'var(--border)'}`, background: favFilterInTab ? 'rgba(245,166,35,0.1)' : 'var(--bg-secondary)', color: favFilterInTab ? '#f5a623' : 'var(--text-muted)', fontSize: 12, cursor: 'pointer', fontWeight: 600, whiteSpace: 'nowrap' }}>
             ★ お気に入りのみ
           </button>
         )}
+
+        {/* このカテゴリを一括AI分類（all/favorite 以外で表示） */}
+        {activeTab !== 'all' && activeTab !== 'favorite' && (
+          <button
+            type="button"
+            onClick={handleBulkCategorize}
+            disabled={bulkCategorizing}
+            style={{
+              padding: '8px 14px', borderRadius: 8, border: 'none', fontWeight: 700, fontSize: 12,
+              background: bulkCategorizing
+                ? 'var(--bg-secondary)'
+                : 'linear-gradient(135deg, #6c63ff, #8b5cf6)',
+              color: bulkCategorizing ? 'var(--text-muted)' : '#fff',
+              cursor: bulkCategorizing ? 'wait' : 'pointer',
+              whiteSpace: 'nowrap',
+            }}
+            title="このカテゴリのアイテムにサブカテゴリ・タグをAIで付与"
+          >
+            {bulkCategorizing
+              ? `⟳ 分類中... ${categorizeElapsed}秒`
+              : `♻️ ${activeTab}を一括AI分類`}
+          </button>
+        )}
       </div>
+
+      {/* 検索結果件数 */}
+      {search.trim() && (
+        <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 12 }}>
+          🔍 「{search}」の検索結果: {tabFilteredItems.length}件
+          {searchScope === 'all' ? '（全カテゴリ横断）' : `（${activeTab === 'all' ? '全件' : activeTab === 'favorite' ? 'お気に入り' : activeTab + ' タブ'}内）`}
+        </div>
+      )}
 
       {/* 統計 */}
       <div style={{ display: 'flex', gap: 12, marginBottom: 20, flexWrap: 'wrap' }}>
@@ -340,8 +493,8 @@ function LibraryPageInner() {
         ))}
       </div>
 
-      {/* ── タブバー（横スクロール） ── */}
-      <div style={{ display: 'flex', gap: 0, borderBottom: '1px solid var(--border)', overflowX: 'auto', marginBottom: 16, scrollbarWidth: 'thin' }}>
+      {/* ── タブバー（2行折り返し表示） ── */}
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginBottom: 16, paddingBottom: 4, borderBottom: '1px solid var(--border)' }}>
         {TABS.map(tab => {
           const count = tabCount(tab.key);
           return (
@@ -349,14 +502,13 @@ function LibraryPageInner() {
               key={tab.key}
               onClick={() => { setActiveTab(tab.key); setFavFilterInTab(false); }}
               style={{
-                flexShrink: 0, padding: '8px 14px', fontSize: 12,
-                borderBottom: `2px solid ${activeTab === tab.key ? 'var(--accent)' : 'transparent'}`,
-                background: 'none', border: 'none',
-                borderBottomWidth: 2, borderBottomStyle: 'solid',
-                borderBottomColor: activeTab === tab.key ? 'var(--accent)' : 'transparent',
+                flexShrink: 0, padding: '6px 12px', fontSize: 12,
+                borderRadius: 6,
+                background: activeTab === tab.key ? 'var(--accent-soft)' : 'transparent',
+                border: `1px solid ${activeTab === tab.key ? 'var(--accent)' : 'transparent'}`,
                 color: activeTab === tab.key ? 'var(--text-primary)' : 'var(--text-muted)',
                 fontWeight: activeTab === tab.key ? 600 : 400,
-                cursor: 'pointer', whiteSpace: 'nowrap', transition: 'color 0.15s',
+                cursor: 'pointer', whiteSpace: 'nowrap', transition: 'all 0.15s',
               }}
             >
               {tab.label}
