@@ -97,20 +97,27 @@ export async function POST(req: NextRequest) {
     }
 
     // 2. 既存サブカテゴリ一覧（同じカテゴリ内）を取得し AI に渡す
+    // metadata カラムは TEXT 型に JSON.stringify で格納されているため
+    // SQL の ->> 演算子は使わず、JS 側でパースしてユニーク化する
     const filterGroup = category || targetItems[0]?.group_name || '';
-    const existingSubs = filterGroup
+    const rawMetaRows = filterGroup
       ? ((await sql`
-          SELECT DISTINCT metadata->>'subCategory' AS sub
+          SELECT metadata
           FROM library
           WHERE user_id = ${userId}
             AND group_name = ${filterGroup}
-            AND metadata->>'subCategory' IS NOT NULL
-            AND metadata->>'subCategory' <> ''
         `) as any[])
       : [];
-    const existingSubList: string[] = existingSubs
-      .map((r) => r.sub)
-      .filter((s: any): s is string => typeof s === 'string' && s.length > 0);
+    const existingSubList: string[] = Array.from(
+      new Set(
+        rawMetaRows
+          .map((row) => parseMeta(row?.metadata)?.subCategory)
+          .filter(
+            (s: any): s is string => typeof s === 'string' && s.trim().length > 0,
+          )
+          .map((s: string) => s.trim()),
+      ),
+    );
 
     const systemPrompt = `あなたはライブラリ管理者として、保存されたコンテンツに最適なサブカテゴリ名と関連タグを判定します。
 
