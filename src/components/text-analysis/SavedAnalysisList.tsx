@@ -1125,43 +1125,14 @@ export default function SavedAnalysisList({
                       {new Date(record.created_at).toLocaleString('ja-JP')} ・
                       {record.char_count?.toLocaleString() ?? 0}文字
                     </div>
-                    {expanded ? (
-                      <div
-                        style={{
-                          padding: 10,
-                          background: 'rgba(255,255,255,0.02)',
-                          borderRadius: 6,
-                          border: '1px solid var(--border)',
-                          maxHeight: 400,
-                          overflowY: 'auto',
-                          whiteSpace: 'pre-wrap',
-                          fontSize: 12,
-                          color: 'var(--text-primary)',
-                          lineHeight: 1.7,
-                        }}
-                      >
-                        {record.content}
-                      </div>
-                    ) : (
-                      <div
-                        style={{
-                          fontSize: 12,
-                          color: 'var(--text-secondary)',
-                          overflow: 'hidden',
-                          display: '-webkit-box',
-                          WebkitLineClamp: 2,
-                          WebkitBoxOrient: 'vertical',
-                        }}
-                      >
-                        {record.content}
-                      </div>
-                    )}
+                    {/* ── アクションバー（タイトル直下に配置） ── */}
                     <div
                       style={{
                         display: 'flex',
-                        gap: 8,
-                        marginTop: 8,
+                        gap: 6,
+                        marginBottom: 8,
                         flexWrap: 'wrap',
+                        alignItems: 'center',
                       }}
                     >
                       <button
@@ -1204,7 +1175,7 @@ export default function SavedAnalysisList({
                       >
                         {downloadingId === record.id
                           ? '⏳ タイトル生成中...'
-                          : '📥 MDダウンロード'}
+                          : '📥 MD'}
                       </button>
                       <button
                         type="button"
@@ -1219,11 +1190,77 @@ export default function SavedAnalysisList({
                         style={{
                           ...listBtnStyle(),
                           color: '#ef4444',
+                          marginLeft: 'auto',
                         }}
                       >
                         🗑 削除
                       </button>
                     </div>
+                    {expanded ? (
+                      <div
+                        style={{
+                          padding: 10,
+                          background: 'rgba(255,255,255,0.02)',
+                          borderRadius: 6,
+                          border: '1px solid var(--border)',
+                          maxHeight: 400,
+                          overflowY: 'auto',
+                          whiteSpace: 'pre-wrap',
+                          fontSize: 12,
+                          color: 'var(--text-primary)',
+                          lineHeight: 1.7,
+                          position: 'relative',
+                        }}
+                      >
+                        {/* 展開時のみ右上 sticky な閉じるボタン */}
+                        <div
+                          style={{
+                            position: 'sticky',
+                            top: 4,
+                            float: 'right',
+                            zIndex: 5,
+                            marginLeft: 'auto',
+                            marginBottom: -28,
+                          }}
+                        >
+                          <button
+                            type="button"
+                            onClick={() => setExpandedId(null)}
+                            style={{
+                              padding: '4px 10px',
+                              fontSize: 11,
+                              fontWeight: 500,
+                              background: 'rgba(255, 255, 255, 0.92)',
+                              color: '#374151',
+                              border: '1px solid var(--border)',
+                              borderRadius: 6,
+                              cursor: 'pointer',
+                              boxShadow: '0 2px 6px rgba(0,0,0,0.12)',
+                              backdropFilter: 'blur(4px)',
+                              WebkitBackdropFilter: 'blur(4px)',
+                              whiteSpace: 'nowrap',
+                            }}
+                            title="このアイテムを閉じる"
+                          >
+                            ▲ 閉じる
+                          </button>
+                        </div>
+                        {record.content}
+                      </div>
+                    ) : (
+                      <div
+                        style={{
+                          fontSize: 12,
+                          color: 'var(--text-secondary)',
+                          overflow: 'hidden',
+                          display: '-webkit-box',
+                          WebkitLineClamp: 2,
+                          WebkitBoxOrient: 'vertical',
+                        }}
+                      >
+                        {record.content}
+                      </div>
+                    )}
                   </div>
                 </div>
               </div>
