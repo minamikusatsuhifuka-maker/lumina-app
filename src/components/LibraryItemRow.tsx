@@ -127,15 +127,16 @@ export function LibraryItemRow({
   };
 
   const btnStyle: React.CSSProperties = {
-    padding: '6px 12px',
+    padding: '4px 10px',
     borderRadius: 6,
     border: '1px solid var(--border)',
     background: 'var(--bg-primary)',
     color: 'var(--text-secondary)',
     cursor: 'pointer',
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: 500,
     whiteSpace: 'nowrap',
+    lineHeight: 1.4,
   };
 
   return (
@@ -316,6 +317,61 @@ export function LibraryItemRow({
               )}
             </div>
           )}
+
+          {/* ── アクションバー（タイトル直下に配置） ── */}
+          <div
+            style={{
+              display: 'flex',
+              gap: 6,
+              marginTop: 8,
+              marginBottom: 2,
+              flexWrap: 'wrap',
+              alignItems: 'center',
+            }}
+          >
+            <button
+              type="button"
+              onClick={() => onExpandToggle(item.id)}
+              style={btnStyle}
+            >
+              {isExpanded ? '▲ 閉じる' : '▼ 全文表示'}
+            </button>
+            <button type="button" onClick={handleCopy} style={btnStyle}>
+              📋 {copied ? 'コピー済' : 'コピー'}
+            </button>
+            <button type="button" onClick={() => onExportMd(item)} style={btnStyle}>
+              📥 MD
+            </button>
+            <button
+              type="button"
+              onClick={() => onFavoriteToggle(item)}
+              style={{
+                ...btnStyle,
+                color: item.is_favorite ? '#f59e0b' : 'var(--text-secondary)',
+                borderColor: item.is_favorite ? 'rgba(245,158,11,0.4)' : 'var(--border)',
+                background: item.is_favorite ? 'rgba(245,158,11,0.08)' : 'var(--bg-primary)',
+              }}
+            >
+              {item.is_favorite ? '⭐ お気に入り' : '☆ お気に入り'}
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                if (confirm('このアイテムを削除しますか？')) {
+                  onDelete(item.id);
+                }
+              }}
+              style={{
+                ...btnStyle,
+                color: '#ef4444',
+                borderColor: 'rgba(239,68,68,0.3)',
+                background: 'rgba(239,68,68,0.04)',
+                marginLeft: 'auto',
+              }}
+            >
+              🗑 削除
+            </button>
+          </div>
         </div>
       </div>
 
@@ -336,61 +392,43 @@ export function LibraryItemRow({
           position: 'relative',
         }}
       >
+        {/* 展開時のみ右上に sticky な閉じるボタン（スクロール追従） */}
+        {isExpanded && (
+          <div
+            style={{
+              position: 'sticky',
+              top: 4,
+              float: 'right',
+              zIndex: 5,
+              marginLeft: 'auto',
+              marginBottom: -28,
+            }}
+          >
+            <button
+              type="button"
+              onClick={() => onExpandToggle(item.id)}
+              style={{
+                padding: '4px 10px',
+                fontSize: 11,
+                fontWeight: 500,
+                background: 'rgba(255, 255, 255, 0.92)',
+                color: '#374151',
+                border: '1px solid var(--border)',
+                borderRadius: 6,
+                cursor: 'pointer',
+                boxShadow: '0 2px 6px rgba(0,0,0,0.12)',
+                backdropFilter: 'blur(4px)',
+                WebkitBackdropFilter: 'blur(4px)',
+                whiteSpace: 'nowrap',
+              }}
+              title="このアイテムを閉じる"
+            >
+              ▲ 閉じる
+            </button>
+          </div>
+        )}
         {isExpanded ? content : previewText}
         {!isExpanded && charCount > 180 && '...'}
-      </div>
-
-      {/* アクションバー */}
-      <div
-        style={{
-          display: 'flex',
-          gap: 8,
-          marginTop: 12,
-          flexWrap: 'wrap',
-        }}
-      >
-        <button
-          type="button"
-          onClick={() => onExpandToggle(item.id)}
-          style={btnStyle}
-        >
-          {isExpanded ? '▲ 閉じる' : '▼ 全文表示'}
-        </button>
-        <button type="button" onClick={handleCopy} style={btnStyle}>
-          📋 {copied ? 'コピー済' : 'コピー'}
-        </button>
-        <button type="button" onClick={() => onExportMd(item)} style={btnStyle}>
-          📥 MDダウンロード
-        </button>
-        <button
-          type="button"
-          onClick={() => onFavoriteToggle(item)}
-          style={{
-            ...btnStyle,
-            color: item.is_favorite ? '#f59e0b' : 'var(--text-secondary)',
-            borderColor: item.is_favorite ? 'rgba(245,158,11,0.4)' : 'var(--border)',
-            background: item.is_favorite ? 'rgba(245,158,11,0.08)' : 'var(--bg-primary)',
-          }}
-        >
-          {item.is_favorite ? '⭐ お気に入り' : '☆ お気に入り'}
-        </button>
-        <button
-          type="button"
-          onClick={() => {
-            if (confirm('このアイテムを削除しますか？')) {
-              onDelete(item.id);
-            }
-          }}
-          style={{
-            ...btnStyle,
-            color: '#ef4444',
-            borderColor: 'rgba(239,68,68,0.3)',
-            background: 'rgba(239,68,68,0.04)',
-            marginLeft: 'auto',
-          }}
-        >
-          🗑 削除
-        </button>
       </div>
     </div>
   );
