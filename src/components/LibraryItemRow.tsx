@@ -80,6 +80,16 @@ export function LibraryItemRow({
   const aiTags: string[] = Array.isArray(meta?.tags)
     ? meta.tags.filter((t: any): t is string => typeof t === 'string' && t.trim().length > 0)
     : [];
+  // 分類失敗情報（subCategory が無く、かつ classifyError がある場合のみ表示）
+  const classifyError: string | undefined =
+    typeof meta?.classifyError === 'string' && meta.classifyError.trim().length > 0
+      ? meta.classifyError
+      : undefined;
+  const classifyErrorDetail: string | undefined =
+    typeof meta?.classifyErrorDetail === 'string' ? meta.classifyErrorDetail : undefined;
+  const classifyAttempts: number | undefined =
+    typeof meta?.classifyAttempts === 'number' ? meta.classifyAttempts : undefined;
+  const hasClassifyError = !!classifyError && !subCategory;
   const [copied, setCopied] = useState(false);
 
   const groupName = item.group_name || '未分類';
@@ -233,8 +243,8 @@ export function LibraryItemRow({
             ))}
           </div>
 
-          {/* AI 自動分類: サブカテゴリ + AIタグ */}
-          {(subCategory || aiTags.length > 0) && (
+          {/* AI 自動分類: サブカテゴリ + AIタグ / または分類失敗バッジ */}
+          {(subCategory || aiTags.length > 0 || hasClassifyError) && (
             <div
               style={{
                 marginTop: 6,
@@ -244,7 +254,7 @@ export function LibraryItemRow({
                 alignItems: 'center',
               }}
             >
-              {subCategory && (
+              {subCategory ? (
                 <span
                   style={{
                     padding: '2px 10px',
@@ -258,7 +268,23 @@ export function LibraryItemRow({
                 >
                   🏷 {subCategory}
                 </span>
-              )}
+              ) : hasClassifyError ? (
+                <span
+                  style={{
+                    padding: '2px 10px',
+                    borderRadius: 12,
+                    background: 'rgba(239,68,68,0.12)',
+                    color: '#dc2626',
+                    fontSize: 11,
+                    fontWeight: 700,
+                    cursor: 'help',
+                  }}
+                  title={classifyErrorDetail || classifyError}
+                >
+                  🚫 {classifyError}
+                  {classifyAttempts && classifyAttempts > 1 ? ` (${classifyAttempts}回試行)` : ''}
+                </span>
+              ) : null}
               {aiTags.slice(0, 6).map((t, idx) => (
                 <span
                   key={`ai-${idx}`}

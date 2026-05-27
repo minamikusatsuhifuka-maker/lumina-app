@@ -69,6 +69,8 @@ function LibraryPageInner() {
   const [categorizeElapsed, setCategorizeElapsed] = useState(0);
   // サブカテゴリ絞り込み（タブ内の二段目フィルタ）
   const [selectedSubCategory, setSelectedSubCategory] = useState<string | null>(null);
+  // 分類失敗のみ表示（タブ内の二段目フィルタ、サブカテゴリと排他）
+  const [showFailedOnly, setShowFailedOnly] = useState(false);
   // 未分類リトライ
   const [retrying, setRetrying] = useState(false);
   const [retryElapsed, setRetryElapsed] = useState(0);
@@ -343,9 +345,15 @@ function LibraryPageInner() {
     if (selectedSubCategory) {
       list = list.filter(i => parseMetadata(i.metadata)?.subCategory === selectedSubCategory);
     }
+    if (showFailedOnly) {
+      list = list.filter(i => {
+        const m = parseMetadata(i.metadata);
+        return !!m?.classifyError && !m?.subCategory;
+      });
+    }
     return list;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [items, search, searchScope, activeTab, favFilterInTab, selectedSubCategory]);
+  }, [items, search, searchScope, activeTab, favFilterInTab, selectedSubCategory, showFailedOnly]);
 
   // タブ内で利用可能なサブカテゴリ一覧（all/favorite では空）
   const availableSubCategories = useMemo<string[]>(() => {
@@ -372,10 +380,27 @@ function LibraryPageInner() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [items, activeTab]);
 
-  // タブ切替時にサブカテゴリ絞り込みをリセット
+  // 現在のタブ内で「分類失敗」が記録されているアイテム数
+  const failedCount = useMemo(() => {
+    if (activeTab === 'all' || activeTab === 'favorite') return 0;
+    return items.filter((i) => {
+      if (normalizeGroup(i.group_name || '') !== activeTab) return false;
+      const m = parseMetadata(i.metadata);
+      return !!m?.classifyError && !m?.subCategory;
+    }).length;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [items, activeTab]);
+
+  // タブ切替時にサブカテゴリ絞り込み・失敗フィルタをリセット
   useEffect(() => {
     setSelectedSubCategory(null);
+    setShowFailedOnly(false);
   }, [activeTab]);
+
+  // サブカテゴリ選択時は失敗フィルタを解除（排他制御）
+  useEffect(() => {
+    if (selectedSubCategory) setShowFailedOnly(false);
+  }, [selectedSubCategory]);
 
   // /api/library を再取得（失敗時 false を返す）
   const refetchItems = async (): Promise<boolean> => {
@@ -669,11 +694,11 @@ function LibraryPageInner() {
       </div>
 
       {/* ── サブカテゴリ絞り込みチップ（タブ内2段目フィルタ） ── */}
-      {activeTab !== 'all' && activeTab !== 'favorite' && availableSubCategories.length > 0 && (
+      {activeTab !== 'all' && activeTab !== 'favorite' && (availableSubCategories.length > 0 || failedCount > 0) && (
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 16 }}>
           <button
             type="button"
-            onClick={() => setSelectedSubCategory(null)}
+            onClick={() => { setSelectedSubCategory(null); setShowFailedOnly(false); }}
             style={{
               padding: '4px 12px',
               borderRadius: 12,
@@ -681,8 +706,8 @@ function LibraryPageInner() {
               fontSize: 11,
               fontWeight: 600,
               cursor: 'pointer',
-              background: !selectedSubCategory ? '#8b5cf6' : 'var(--bg-secondary)',
-              color: !selectedSubCategory ? '#fff' : 'var(--text-muted)',
+              background: !selectedSubCategory && !showFailedOnly ? '#8b5cf6' : 'var(--bg-secondary)',
+              color: !selectedSubCategory && !showFailedOnly ? '#fff' : 'var(--text-muted)',
             }}
           >
             すべて
@@ -709,6 +734,49 @@ function LibraryPageInner() {
               </button>
             );
           })}
+          {/* 失敗フィルタチップ（失敗が1件以上ある時のみ） */}
+          {failedCount > 0 && (
+            <button
+              type="button"
+              onClick={() => {
+                setShowFailedOnly((prev) => !prev);
+                setSelectedSubCategory(null);
+              }}
+              style={{
+                padding: '4px 12px',
+                borderRadius: 12,
+                fontSize: 11,
+                fontWeight: 600,
+                cursor: 'pointer',
+                background: showFailedOnly ? '#ef4444' : 'rgba(239,68,68,0.08)',
+                color: showFailedOnly ? '#fff' : '#dc2626',
+                border: showFailedOnly ? 'none' : '1px solid rgba(239,68,68,0.3)',
+              }}
+              title="サブカテゴリ分類に失敗したアイテムだけを表示"
+            >
+              🚫 分類失敗 {failedCount}
+            </button>
+          )}
+        </div>
+      )}
+
+      {/* ── 失敗フィルタON時の説明バナー ── */}
+      {showFailedOnly && (
+        <div
+          style={{
+            marginBottom: 12,
+            padding: '10px 14px',
+            background: 'rgba(239,68,68,0.06)',
+            border: '1px solid rgba(239,68,68,0.3)',
+            borderRadius: 8,
+            fontSize: 12,
+            color: '#b91c1c',
+            lineHeight: 1.6,
+          }}
+        >
+          🚫 サブカテゴリの自動分類に失敗したアイテムを表示中（{tabFilteredItems.length}件）
+          <br />
+          バッジにマウスホバーすると詳細エラーが見えます。「🔄 未分類N件を再分類」で再試行できます。
         </div>
       )}
 
