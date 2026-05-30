@@ -203,6 +203,14 @@ body {
   }
 }
 
+/* ─── モデル比較グリッド（3モデル）: タブレット以下で縦積み ─── */
+@media (max-width: 1024px) {
+  .handbook-compare-grid,
+  .handbook-summary-grid {
+    grid-template-columns: 1fr !important;
+  }
+}
+
 /* ─── カスタムスクロールバー ─── */
 ::-webkit-scrollbar {
   width: 6px;

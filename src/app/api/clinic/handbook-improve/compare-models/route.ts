@@ -3,10 +3,12 @@ import Anthropic from '@anthropic-ai/sdk';
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
-const MODELS = {
-  sonnet: 'claude-sonnet-4-6',
-  opus:   'claude-opus-4-7',
-};
+// 比較対象モデル（key はレスポンス／UIで共通利用）
+const COMPARISON_MODELS = [
+  { key: 'sonnet', id: 'claude-sonnet-4-6' },
+  { key: 'opus',   id: 'claude-opus-4-7'  },
+  { key: 'opus48', id: 'claude-opus-4-8'  }, // 🆕 Opus 4.8（2026/5/28リリース）
+] as const;
 
 async function generateWithModel(
   model: string,
@@ -83,20 +85,21 @@ ${improved}
 export async function POST(req: Request) {
   const { content, templateLabel, templatePrompt } = await req.json();
 
-  // Sonnet・Opusで同時生成
-  const [sonnetText, opusText] = await Promise.all([
-    generateWithModel(MODELS.sonnet, content, templateLabel, templatePrompt),
-    generateWithModel(MODELS.opus,   content, templateLabel, templatePrompt),
-  ]);
+  // 全モデルで同時生成
+  const texts = await Promise.all(
+    COMPARISON_MODELS.map(m => generateWithModel(m.id, content, templateLabel, templatePrompt))
+  );
 
-  // 生成後に両モデルで採点（それぞれ自身のモデルで採点）
-  const [sonnetScore, opusScore] = await Promise.all([
-    scoreWithModel(MODELS.sonnet, content, sonnetText, templateLabel),
-    scoreWithModel(MODELS.opus,   content, opusText,   templateLabel),
-  ]);
+  // 生成後に各モデル自身で採点
+  const scores = await Promise.all(
+    COMPARISON_MODELS.map((m, i) => scoreWithModel(m.id, content, texts[i], templateLabel))
+  );
 
-  return NextResponse.json({
-    sonnet: { result: sonnetText, scoring: sonnetScore },
-    opus:   { result: opusText,   scoring: opusScore   },
+  // { sonnet: {...}, opus: {...}, opus48: {...} } 形式で返す
+  const result: Record<string, { result: string; scoring: unknown }> = {};
+  COMPARISON_MODELS.forEach((m, i) => {
+    result[m.key] = { result: texts[i], scoring: scores[i] };
   });
+
+  return NextResponse.json(result);
 }

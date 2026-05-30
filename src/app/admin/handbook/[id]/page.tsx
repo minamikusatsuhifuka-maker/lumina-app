@@ -6,6 +6,13 @@ import { AITextReviser } from '@/components/clinic/AITextReviser';
 
 const QUICK_INSTRUCTIONS = ['わかりやすく', '理念に沿って', '箇条書き化', '具体例を追加', 'トーンを丁寧に'];
 
+// モデル比較で使うモデル定義（key はAPIレスポンス／stateと共通）
+const COMPARISON_MODELS = [
+  { key: 'sonnet', id: 'claude-sonnet-4-6', label: 'Sonnet 4.6', icon: '⚡', color: '#1d9e75' },
+  { key: 'opus',   id: 'claude-opus-4-7',  label: 'Opus 4.7',  icon: '🏆', color: '#7c3aed' },
+  { key: 'opus48', id: 'claude-opus-4-8',  label: 'Opus 4.8',  icon: '✨', color: '#db2777' }, // 🆕
+] as const;
+
 function renderMarkdown(text: string): string {
   const lines = text.split('\n');
   const result: string[] = [];
@@ -153,16 +160,15 @@ export default function HandbookEditorPage({ params }: { params: Promise<{ id: s
   const [compareTemplate, setCompareTemplate]             = useState('');
   const [compareTemplatePrompt, setCompareTemplatePrompt] = useState('');
   const [isComparing, setIsComparing]                     = useState(false);
-  const [compareResult, setCompareResult]                 = useState<{
-    sonnet: { result: string; scoring: any };
-    opus:   { result: string; scoring: any };
-  } | null>(null);
+  const [compareResult, setCompareResult]                 = useState<
+    Record<string, { result: string; scoring: any }>
+  | null>(null);
   const [compareSaved, setCompareSaved]                   = useState(false);
   const [compareHistory, setCompareHistory]               = useState<any[]>([]);
   const [showCompareHistory, setShowCompareHistory]       = useState(false);
 
   // スコアサマリー全文展開用
-  const [expandedSummaryModel, setExpandedSummaryModel]   = useState<'sonnet' | 'opus' | null>(null);
+  const [expandedSummaryModel, setExpandedSummaryModel]   = useState<string | null>(null);
   // 履歴コメント全文展開用（key: `${id}-sonnet` / `${id}-opus`）
   const [expandedHistoryComment, setExpandedHistoryComment] = useState<string | null>(null);
 
@@ -475,11 +481,12 @@ export default function HandbookEditorPage({ params }: { params: Promise<{ id: s
   };
 
   // 採用してエディタに反映
-  const handleAdoptModel = (modelKey: 'sonnet' | 'opus') => {
+  const handleAdoptModel = (modelKey: string) => {
     if (!compareResult) return;
     const text = compareResult[modelKey].result;
     setEditContent(text);
-    handleSaveComparison(modelKey === 'sonnet' ? 'claude-sonnet-4-6' : 'claude-opus-4-7');
+    const adoptedId = COMPARISON_MODELS.find(m => m.key === modelKey)?.id ?? null;
+    handleSaveComparison(adoptedId ?? undefined);
     setMessage('✅ 選択したモデルの結果をエディタに反映しました');
     setTimeout(() => setMessage(''), 2000);
   };
@@ -2210,7 +2217,7 @@ export default function HandbookEditorPage({ params }: { params: Promise<{ id: s
                   <span style={{ fontSize: '16px' }}>🔬</span>
                   <span style={{ fontWeight: 'bold', fontSize: '15px' }}>モデル比較</span>
                   <span style={{ fontSize: '12px', background: '#ede9fe', color: '#7c3aed', padding: '2px 8px', borderRadius: '9999px', fontWeight: 'bold' }}>
-                    Sonnet 4.6 vs Opus 4.7
+                    {COMPARISON_MODELS.map(m => m.label).join(' vs ')}
                   </span>
                 </div>
                 <span style={{ color: '#9ca3af' }}>{showModelCompare ? '▲' : '▼'}</span>
@@ -2220,7 +2227,7 @@ export default function HandbookEditorPage({ params }: { params: Promise<{ id: s
                 <div style={{ padding: '0 20px 20px', borderTop: '1px solid #f3f4f6' }}>
 
                   <p style={{ fontSize: '13px', color: '#6b7280', margin: '12px 0 16px' }}>
-                    同じ文章・同じテンプレートでSonnet 4.6とOpus 4.7を同時生成し、品質を比較します。
+                    同じ文章・同じテンプレートで{COMPARISON_MODELS.map(m => m.label).join('・')}を同時生成し、品質を比較します。
                   </p>
 
                   {/* テンプレート選択（ラジオ） */}
@@ -2268,14 +2275,14 @@ export default function HandbookEditorPage({ params }: { params: Promise<{ id: s
                       marginBottom: '20px',
                     }}
                   >
-                    {isComparing ? '⏳ Sonnet・Opusで同時生成中...' : '🔬 2モデルで同時生成・比較'}
+                    {isComparing ? `⏳ ${COMPARISON_MODELS.length}モデルで同時生成中...` : `🔬 ${COMPARISON_MODELS.length}モデルで同時生成・比較`}
                   </button>
 
                   {/* 比較結果 */}
                   {compareResult && (
                     <div>
-                      {/* 3カラム比較テーブル */}
-                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '12px', marginBottom: '16px' }}>
+                      {/* 比較テーブル（元の文章 + 各モデル）。狭幅では縦積み（globals.css） */}
+                      <div className="handbook-compare-grid" style={{ display: 'grid', gridTemplateColumns: `repeat(${COMPARISON_MODELS.length + 1}, 1fr)`, gap: '12px', marginBottom: '16px' }}>
 
                         {/* 元の文章 */}
                         <div style={{ borderRadius: '12px', border: '1px solid #e5e7eb', overflow: 'hidden' }}>
@@ -2289,11 +2296,13 @@ export default function HandbookEditorPage({ params }: { params: Promise<{ id: s
                           </div>
                         </div>
 
-                        {/* Sonnet・Opus結果 */}
-                        {(['sonnet', 'opus'] as const).map(modelKey => {
+                        {/* 各モデルの結果 */}
+                        {COMPARISON_MODELS.map(m => {
+                          const modelKey = m.key;
                           const data = compareResult[modelKey];
-                          const label = modelKey === 'sonnet' ? '⚡ Sonnet 4.6' : '🏆 Opus 4.7';
-                          const color = modelKey === 'sonnet' ? '#1d9e75' : '#7c3aed';
+                          if (!data) return null;
+                          const label = `${m.icon} ${m.label}`;
+                          const color = m.color;
                           return (
                             <div key={modelKey} style={{ borderRadius: '12px', border: `2px solid ${color}`, overflow: 'hidden' }}>
                               {/* モデルヘッダー */}
@@ -2388,17 +2397,20 @@ export default function HandbookEditorPage({ params }: { params: Promise<{ id: s
                       </div>
 
                       {/* スコアサマリー比較 */}
-                      {compareResult.sonnet.scoring?.score > 0 && compareResult.opus.scoring?.score > 0 && (
+                      {COMPARISON_MODELS.every(m => compareResult[m.key]?.scoring?.score > 0) && (() => {
+                        // 最高スコア（複数モデルで同点なら最初のモデルを高スコア扱い）
+                        const topScore = Math.max(...COMPARISON_MODELS.map(m => compareResult[m.key].scoring.score));
+                        const winnerKey = COMPARISON_MODELS.find(m => compareResult[m.key].scoring.score === topScore)?.key;
+                        return (
                         <div style={{ marginTop: '16px', padding: '14px 16px', background: '#f9fafb', borderRadius: '12px', border: '1px solid #e5e7eb' }}>
                           <p style={{ fontWeight: 'bold', fontSize: '13px', marginBottom: '10px' }}>📊 スコアサマリー</p>
-                          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
-                            {(['sonnet', 'opus'] as const).map(modelKey => {
+                          <div className="handbook-summary-grid" style={{ display: 'grid', gridTemplateColumns: `repeat(${COMPARISON_MODELS.length}, 1fr)`, gap: '12px' }}>
+                            {COMPARISON_MODELS.map(m => {
+                              const modelKey = m.key;
                               const s = compareResult[modelKey].scoring;
-                              const label = modelKey === 'sonnet' ? '⚡ Sonnet 4.6' : '🏆 Opus 4.7';
-                              const color = modelKey === 'sonnet' ? '#1d9e75' : '#7c3aed';
-                              const isWinner = modelKey === 'sonnet'
-                                ? compareResult.sonnet.scoring.score >= compareResult.opus.scoring.score
-                                : compareResult.opus.scoring.score > compareResult.sonnet.scoring.score;
+                              const label = `${m.icon} ${m.label}`;
+                              const color = m.color;
+                              const isWinner = modelKey === winnerKey;
                               return (
                                 <div key={modelKey} style={{ padding: '12px', borderRadius: '10px', border: `2px solid ${isWinner ? color : '#e5e7eb'}`, background: isWinner ? `${color}10` : '#fff' }}>
                                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
@@ -2440,7 +2452,8 @@ export default function HandbookEditorPage({ params }: { params: Promise<{ id: s
                             })}
                           </div>
                         </div>
-                      )}
+                        );
+                      })()}
                     </div>
                   )}
 
