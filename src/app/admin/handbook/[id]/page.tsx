@@ -111,7 +111,17 @@ export default function HandbookEditorPage({ params }: { params: Promise<{ id: s
 
   // Step1・2 同時評価＆採点
   const [evaluationResult, setEvaluationResult] = useState<string | null>(null);
-  const [scoreResult, setScoreResult] = useState<{ score: number; comment: string; suggestions: string[] } | null>(null);
+  const [scoreResult, setScoreResult] = useState<{ score: number; comment: string; suggestions: string[]; error?: string } | null>(null);
+  const [isRetryingScore, setIsRetryingScore] = useState(false);
+
+  // 改善案に沿った自動文章修正（Part C）
+  const [revising, setRevising] = useState(false);
+  const [reviseElapsed, setReviseElapsed] = useState(0);
+  const [revisedContent, setRevisedContent] = useState<string | null>(null);
+  const [reviseCopied, setReviseCopied] = useState(false);
+  const [autoReviseOnScore, setAutoReviseOnScore] = useState(false);
+  const REVISE_MODEL = 'claude-opus-4-8';
+  const reviseModelLabel = COMPARISON_MODELS.find(m => m.id === REVISE_MODEL)?.label ?? 'Opus 4.8';
   const [evaluationSaved, setEvaluationSaved] = useState(false);
   const [isEvaluating, setIsEvaluating] = useState(false);
   const [originalContent, setOriginalContent] = useState('');
@@ -363,11 +373,89 @@ export default function HandbookEditorPage({ params }: { params: Promise<{ id: s
       const evalData = await evalRes.json();
       const scoreData = await scoreRes.json();
       if (evalData.result) setEvaluationResult(evalData.result);
-      if (scoreData.score !== undefined) {
+      if (scoreData.error) {
+        // 採点失敗：0点ではなくエラーとして表示し、再試行を促す
+        setScoreResult({ score: 0, comment: '', suggestions: [], error: scoreData.error });
+      } else if (scoreData.score !== undefined) {
         setScoreResult({ score: scoreData.score, comment: scoreData.reason || '', suggestions: scoreData.points || [] });
         setIdeologyScore(scoreData);
+        // オプション：採点完了と同時に修正案も生成
+        if (autoReviseOnScore) handleAutoRevise(scoreData);
       }
     } catch {} finally { setIsEvaluating(false); }
+  };
+
+  // 採点だけを再試行（評価はそのまま）
+  const handleRetryScore = async () => {
+    setIsRetryingScore(true);
+    try {
+      const res = await fetch('/api/clinic/handbooks/ideology-score', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ chapterContent: originalContent || editContent }),
+      });
+      const scoreData = await res.json();
+      if (scoreData.error) {
+        setScoreResult({ score: 0, comment: '', suggestions: [], error: scoreData.error });
+      } else if (scoreData.score !== undefined) {
+        setScoreResult({ score: scoreData.score, comment: scoreData.reason || '', suggestions: scoreData.points || [] });
+        setIdeologyScore(scoreData);
+        if (autoReviseOnScore) handleAutoRevise(scoreData);
+      }
+    } catch {
+      setScoreResult({ score: 0, comment: '', suggestions: [], error: '通信エラー' });
+    } finally { setIsRetryingScore(false); }
+  };
+
+  // 改善案を反映して文章を自動修正（Part C）
+  const handleAutoRevise = async (score?: { comment: string; suggestions: string[] } | null) => {
+    const base = score ?? scoreResult;
+    setRevising(true);
+    setRevisedContent(null);
+    setReviseCopied(false);
+    setReviseElapsed(0);
+    const timer = setInterval(() => setReviseElapsed(prev => prev + 1), 1000);
+    try {
+      const res = await fetch('/api/clinic/handbook-improve/auto-revise', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          original: originalContent || editContent,
+          evaluation: [evaluationResult, base?.comment].filter(Boolean).join('\n\n'),
+          improvements: base?.suggestions ?? [],
+          model: REVISE_MODEL,
+        }),
+      });
+      const data = await res.json();
+      if (data.revised) {
+        setRevisedContent(data.revised);
+      } else {
+        setMessage(`⚠️ 修正文の生成に失敗しました（${data.error || '不明なエラー'}）`);
+        setTimeout(() => setMessage(''), 3000);
+      }
+    } catch {
+      setMessage('⚠️ 修正文の生成に失敗しました（通信エラー）');
+      setTimeout(() => setMessage(''), 3000);
+    } finally {
+      clearInterval(timer);
+      setRevising(false);
+    }
+  };
+
+  // 修正案を本文に反映（DB保存はせず、エディタ本文の書き換えのみ）
+  const applyRevised = () => {
+    if (!revisedContent) return;
+    if (!confirm('修正案を本文に反映します。元の文章は上書きされます。よろしいですか？')) return;
+    setEditContent(revisedContent);
+    setRevisedContent(null);
+    setMessage('✅ 修正案を本文に反映しました（保存は「💾 保存」ボタンで）');
+    setTimeout(() => setMessage(''), 2500);
+  };
+
+  // 修正案をコピー
+  const copyRevised = async () => {
+    if (!revisedContent) return;
+    await navigator.clipboard.writeText(revisedContent);
+    setReviseCopied(true);
+    setTimeout(() => setReviseCopied(false), 1500);
   };
 
   // 元文章＋評価＋採点をセットで保存
@@ -473,6 +561,10 @@ export default function HandbookEditorPage({ params }: { params: Promise<{ id: s
         opus_score:     compareResult.opus.scoring?.score,
         opus_comment:   compareResult.opus.scoring?.comment,
         opus_balance:   compareResult.opus.scoring?.balance,
+        opus48_result:  compareResult.opus48?.result,
+        opus48_score:   compareResult.opus48?.scoring?.score,
+        opus48_comment: compareResult.opus48?.scoring?.comment,
+        opus48_balance: compareResult.opus48?.scoring?.balance,
         selected_model: selectedModel ?? null,
       }),
     });
@@ -1593,6 +1685,12 @@ export default function HandbookEditorPage({ params }: { params: Promise<{ id: s
                   {isEvaluating ? '⏳ 評価・採点中...' : evaluationResult ? '🔍 再評価 ＆ 再採点する' : '🔍 評価 ＆ 採点する'}
                 </button>
 
+                {/* オプション：採点と同時に修正案も生成 */}
+                <label style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 10, fontSize: 12, color: 'var(--text-secondary)', cursor: 'pointer' }}>
+                  <input type="checkbox" checked={autoReviseOnScore} onChange={e => setAutoReviseOnScore(e.target.checked)} style={{ accentColor: '#7c3aed' }} />
+                  採点と同時に修正案も生成する（{reviseModelLabel}・コスト高）
+                </label>
+
                 {evaluationResult && (
                   <div style={{ marginTop: 14, display: 'flex', flexDirection: 'column', gap: 10 }}>
 
@@ -1613,8 +1711,21 @@ export default function HandbookEditorPage({ params }: { params: Promise<{ id: s
                       />
                     </div>
 
+                    {/* Step2 採点失敗時：0点ではなくエラー表示＋再試行 */}
+                    {scoreResult?.error && (
+                      <div style={{ padding: 14, background: 'rgba(239,68,68,0.05)', borderRadius: 10, border: '1px solid rgba(239,68,68,0.2)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
+                        <span style={{ fontSize: 13, color: '#b91c1c', fontWeight: 600 }}>
+                          ⚠️ 採点を取得できませんでした（{scoreResult.error}）
+                        </span>
+                        <button onClick={handleRetryScore} disabled={isRetryingScore}
+                          style={{ padding: '6px 16px', borderRadius: 8, border: 'none', background: isRetryingScore ? '#e5e7eb' : '#ef4444', color: '#fff', fontSize: 12, fontWeight: 700, cursor: isRetryingScore ? 'not-allowed' : 'pointer' }}>
+                          {isRetryingScore ? '⏳ 再採点中...' : '🔄 採点を再試行'}
+                        </button>
+                      </div>
+                    )}
+
                     {/* Step2 採点結果（緑） */}
-                    {scoreResult && (
+                    {scoreResult && !scoreResult.error && (
                       <div style={{ padding: 14, background: 'rgba(29,158,117,0.05)', borderRadius: 10, border: '1px solid rgba(29,158,117,0.15)' }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 10 }}>
                           <span style={{
@@ -1642,6 +1753,57 @@ export default function HandbookEditorPage({ params }: { params: Promise<{ id: s
                             ))}
                           </div>
                         )}
+                      </div>
+                    )}
+
+                    {/* 改善案を反映して自動修正（Part C） */}
+                    {scoreResult && !scoreResult.error && (
+                      <div>
+                        <button
+                          onClick={() => handleAutoRevise()}
+                          disabled={revising}
+                          style={{
+                            width: '100%', padding: '10px', borderRadius: 10, border: 'none',
+                            background: revising ? 'rgba(124,58,237,0.3)' : 'linear-gradient(135deg, #7c3aed, #db2777)',
+                            color: '#fff', fontWeight: 700, fontSize: 13, cursor: revising ? 'not-allowed' : 'pointer',
+                          }}
+                        >
+                          {revising ? `⏳ 修正文を生成中... ${reviseElapsed}秒` : `✍️ 改善案を反映して修正（${reviseModelLabel}）`}
+                        </button>
+                      </div>
+                    )}
+
+                    {/* 修正案を元文と並列表示（狭幅で縦積み） */}
+                    {revisedContent && (
+                      <div className="handbook-revise-compare" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+                        {/* 元の文章 */}
+                        <div style={{ borderRadius: 10, border: '1px solid var(--border)', overflow: 'hidden' }}>
+                          <div style={{ padding: '8px 12px', background: 'var(--bg-secondary)', borderBottom: '1px solid var(--border)', fontSize: 12, fontWeight: 700, color: 'var(--text-muted)' }}>📄 元の文章</div>
+                          <div style={{ padding: 12, maxHeight: 320, overflowY: 'auto', fontSize: 13, color: 'var(--text-secondary)', whiteSpace: 'pre-wrap', lineHeight: 1.7 }}>
+                            {originalContent || editContent}
+                          </div>
+                        </div>
+                        {/* 修正案 */}
+                        <div style={{ borderRadius: 10, border: '2px solid #7c3aed', overflow: 'hidden' }}>
+                          <div style={{ padding: '8px 12px', background: 'rgba(124,58,237,0.08)', borderBottom: '1px solid rgba(124,58,237,0.2)', fontSize: 12, fontWeight: 700, color: '#7c3aed' }}>✨ 修正案（{reviseModelLabel}）</div>
+                          <div style={{ padding: 12, maxHeight: 320, overflowY: 'auto', fontSize: 13, color: 'var(--text-primary)', whiteSpace: 'pre-wrap', lineHeight: 1.7 }}>
+                            {revisedContent}
+                          </div>
+                          <div style={{ display: 'flex', gap: 8, padding: '8px 12px', borderTop: '1px solid var(--border)', flexWrap: 'wrap' }}>
+                            <button onClick={applyRevised}
+                              style={{ flex: 1, minWidth: 120, padding: '6px', background: '#7c3aed', color: '#fff', borderRadius: 8, border: 'none', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>
+                              ✅ この修正を本文に反映
+                            </button>
+                            <button onClick={copyRevised}
+                              style={{ padding: '6px 12px', background: 'transparent', color: '#7c3aed', borderRadius: 8, border: '1px solid rgba(124,58,237,0.3)', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>
+                              {reviseCopied ? '✓ コピー済み' : '📋 コピー'}
+                            </button>
+                            <button onClick={() => setRevisedContent(null)}
+                              style={{ padding: '6px 12px', background: 'transparent', color: 'var(--text-muted)', borderRadius: 8, border: '1px solid var(--border)', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>
+                              ✕ 閉じる
+                            </button>
+                          </div>
+                        </div>
                       </div>
                     )}
 
@@ -2513,7 +2675,7 @@ export default function HandbookEditorPage({ params }: { params: Promise<{ id: s
                                       fontSize: '11px', background: '#dcfce7', color: '#16a34a',
                                       padding: '1px 8px', borderRadius: '9999px', fontWeight: 'bold',
                                     }}>
-                                      ✅ {h.selected_model === 'claude-sonnet-4-6' ? 'Sonnet採用' : 'Opus採用'}
+                                      ✅ {(COMPARISON_MODELS.find(m => m.id === h.selected_model)?.label ?? 'モデル')}採用
                                     </span>
                                   )}
                                 </div>
@@ -2535,165 +2697,106 @@ export default function HandbookEditorPage({ params }: { params: Promise<{ id: s
                                 </div>
                               </div>
 
-                              {/* スコアサマリー行 */}
+                              {/* スコアサマリー行（各モデル。opus48 は過去データだと null のことがある） */}
                               <div style={{
                                 display: 'flex',
-                                gap: '16px',
+                                gap: '12px',
+                                flexWrap: 'wrap',
+                                alignItems: 'center',
                                 padding: '10px 16px',
                                 fontSize: '13px',
                                 borderBottom: expandedHistory === h.id ? '1px solid #f3f4f6' : 'none',
                               }}>
-                                <span style={{ color: '#1d9e75', fontWeight: 'bold' }}>
-                                  ⚡ Sonnet: {h.sonnet_score}点
-                                </span>
-                                <span style={{ color: '#9ca3af' }}>vs</span>
-                                <span style={{ color: '#7c3aed', fontWeight: 'bold' }}>
-                                  🏆 Opus: {h.opus_score}点
-                                </span>
-                                {h.sonnet_score !== h.opus_score && (
-                                  <span style={{
-                                    fontSize: '12px', color: '#6b7280',
-                                    background: '#f3f4f6', padding: '1px 8px', borderRadius: '9999px',
-                                  }}>
-                                    {h.opus_score > h.sonnet_score
-                                      ? `Opusが${h.opus_score - h.sonnet_score}点上回る`
-                                      : `Sonnetが${h.sonnet_score - h.opus_score}点上回る`}
-                                  </span>
-                                )}
+                                {COMPARISON_MODELS.map((m, mi) => {
+                                  const score = h[`${m.key}_score`];
+                                  if (score === null || score === undefined) return null;
+                                  return (
+                                    <span key={m.key} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                      {mi > 0 && <span style={{ color: '#9ca3af' }}>vs</span>}
+                                      <span style={{ color: m.color, fontWeight: 'bold' }}>
+                                        {m.icon} {m.label}: {score}点
+                                      </span>
+                                    </span>
+                                  );
+                                })}
                               </div>
 
-                              {/* 展開時：全文表示 */}
+                              {/* 展開時：全文表示（各モデル。過去データに opus48 が無い場合はそのカードを省略） */}
                               {expandedHistory === h.id && (
                                 <div style={{ padding: '16px' }}>
-                                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                                  <div className="handbook-compare-grid" style={{ display: 'grid', gridTemplateColumns: `repeat(${COMPARISON_MODELS.filter(m => h[`${m.key}_result`]).length || 1}, 1fr)`, gap: '12px' }}>
 
-                                    {/* Sonnet */}
-                                    <div style={{ borderRadius: '10px', border: '2px solid #1d9e75', overflow: 'hidden' }}>
-                                      <div style={{ padding: '8px 12px', background: '#f0fdf4', borderBottom: '1px solid #bbf7d0', display: 'flex', justifyContent: 'space-between' }}>
-                                        <span style={{ fontWeight: 'bold', fontSize: '13px', color: '#1d9e75' }}>⚡ Sonnet 4.6</span>
-                                        <span style={{ fontWeight: 'bold', color: '#1d9e75' }}>{h.sonnet_score}点</span>
-                                      </div>
-                                      <div style={{ padding: '12px', maxHeight: '300px', overflowY: 'auto' }}>
-                                        <p style={{ fontSize: '13px', color: '#374151', whiteSpace: 'pre-wrap', lineHeight: '1.7', marginBottom: '8px' }}>
-                                          {h.sonnet_result}
-                                        </p>
-                                        <p style={{
-                                          fontSize: '12px',
-                                          color: '#6b7280',
-                                          fontStyle: 'italic',
-                                          borderTop: '1px solid #f3f4f6',
-                                          paddingTop: '8px',
-                                          lineHeight: '1.6',
-                                          display: '-webkit-box',
-                                          WebkitLineClamp: expandedHistoryComment === `${h.id}-sonnet` ? undefined : 3,
-                                          WebkitBoxOrient: 'vertical' as const,
-                                          overflow: expandedHistoryComment === `${h.id}-sonnet` ? 'visible' : 'hidden',
-                                        }}>
-                                          {h.sonnet_comment}
-                                        </p>
-                                        {h.sonnet_comment && h.sonnet_comment.length > 80 && (
-                                          <button
-                                            onClick={() => setExpandedHistoryComment(expandedHistoryComment === `${h.id}-sonnet` ? null : `${h.id}-sonnet`)}
-                                            style={{
-                                              fontSize: '11px', color: '#1d9e75',
-                                              background: 'none', border: 'none',
-                                              cursor: 'pointer', fontWeight: 'bold', padding: 0, marginTop: '4px',
-                                            }}
-                                          >
-                                            {expandedHistoryComment === `${h.id}-sonnet` ? '▲ 閉じる' : '▼ 全文を読む'}
-                                          </button>
-                                        )}
-                                      </div>
-                                      {/* 採用ボタン */}
-                                      {!h.selected_model && (
-                                        <div style={{ padding: '8px 12px', borderTop: '1px solid #f3f4f6' }}>
-                                          <button
-                                            onClick={async () => {
-                                              setEditContent(h.sonnet_result);
-                                              await fetch('/api/clinic/handbook-model-compare', {
-                                                method: 'PATCH',
-                                                headers: { 'Content-Type': 'application/json' },
-                                                body: JSON.stringify({ id: h.id, selected_model: 'claude-sonnet-4-6' }),
-                                              });
-                                              fetchCompareHistory();
-                                              setMessage('✅ Sonnetの案をエディタに反映しました');
-                                              setTimeout(() => setMessage(''), 2000);
-                                            }}
-                                            style={{
-                                              width: '100%', padding: '6px', background: '#1d9e75',
-                                              color: '#fff', borderRadius: '8px', border: 'none',
-                                              fontSize: '12px', fontWeight: 'bold', cursor: 'pointer',
-                                            }}
-                                          >
-                                            ✅ この案を採用
-                                          </button>
+                                    {COMPARISON_MODELS.map(m => {
+                                      const result  = h[`${m.key}_result`];
+                                      const score   = h[`${m.key}_score`];
+                                      const comment = h[`${m.key}_comment`];
+                                      if (!result) return null; // 旧データに無いモデルは表示しない
+                                      const commentKey = `${h.id}-${m.key}`;
+                                      return (
+                                        <div key={m.key} style={{ borderRadius: '10px', border: `2px solid ${m.color}`, overflow: 'hidden' }}>
+                                          <div style={{ padding: '8px 12px', background: `${m.color}12`, borderBottom: `1px solid ${m.color}30`, display: 'flex', justifyContent: 'space-between' }}>
+                                            <span style={{ fontWeight: 'bold', fontSize: '13px', color: m.color }}>{m.icon} {m.label}</span>
+                                            <span style={{ fontWeight: 'bold', color: m.color }}>{score}点</span>
+                                          </div>
+                                          <div style={{ padding: '12px', maxHeight: '300px', overflowY: 'auto' }}>
+                                            <p style={{ fontSize: '13px', color: '#374151', whiteSpace: 'pre-wrap', lineHeight: '1.7', marginBottom: '8px' }}>
+                                              {result}
+                                            </p>
+                                            <p style={{
+                                              fontSize: '12px',
+                                              color: '#6b7280',
+                                              fontStyle: 'italic',
+                                              borderTop: '1px solid #f3f4f6',
+                                              paddingTop: '8px',
+                                              lineHeight: '1.6',
+                                              display: '-webkit-box',
+                                              WebkitLineClamp: expandedHistoryComment === commentKey ? undefined : 3,
+                                              WebkitBoxOrient: 'vertical' as const,
+                                              overflow: expandedHistoryComment === commentKey ? 'visible' : 'hidden',
+                                            }}>
+                                              {comment}
+                                            </p>
+                                            {comment && comment.length > 80 && (
+                                              <button
+                                                onClick={() => setExpandedHistoryComment(expandedHistoryComment === commentKey ? null : commentKey)}
+                                                style={{
+                                                  fontSize: '11px', color: m.color,
+                                                  background: 'none', border: 'none',
+                                                  cursor: 'pointer', fontWeight: 'bold', padding: 0, marginTop: '4px',
+                                                }}
+                                              >
+                                                {expandedHistoryComment === commentKey ? '▲ 閉じる' : '▼ 全文を読む'}
+                                              </button>
+                                            )}
+                                          </div>
+                                          {/* 採用ボタン */}
+                                          {!h.selected_model && (
+                                            <div style={{ padding: '8px 12px', borderTop: '1px solid #f3f4f6' }}>
+                                              <button
+                                                onClick={async () => {
+                                                  setEditContent(result);
+                                                  await fetch('/api/clinic/handbook-model-compare', {
+                                                    method: 'PATCH',
+                                                    headers: { 'Content-Type': 'application/json' },
+                                                    body: JSON.stringify({ id: h.id, selected_model: m.id }),
+                                                  });
+                                                  fetchCompareHistory();
+                                                  setMessage(`✅ ${m.label}の案をエディタに反映しました`);
+                                                  setTimeout(() => setMessage(''), 2000);
+                                                }}
+                                                style={{
+                                                  width: '100%', padding: '6px', background: m.color,
+                                                  color: '#fff', borderRadius: '8px', border: 'none',
+                                                  fontSize: '12px', fontWeight: 'bold', cursor: 'pointer',
+                                                }}
+                                              >
+                                                ✅ この案を採用
+                                              </button>
+                                            </div>
+                                          )}
                                         </div>
-                                      )}
-                                    </div>
-
-                                    {/* Opus */}
-                                    <div style={{ borderRadius: '10px', border: '2px solid #7c3aed', overflow: 'hidden' }}>
-                                      <div style={{ padding: '8px 12px', background: '#faf5ff', borderBottom: '1px solid #e9d5ff', display: 'flex', justifyContent: 'space-between' }}>
-                                        <span style={{ fontWeight: 'bold', fontSize: '13px', color: '#7c3aed' }}>🏆 Opus 4.7</span>
-                                        <span style={{ fontWeight: 'bold', color: '#7c3aed' }}>{h.opus_score}点</span>
-                                      </div>
-                                      <div style={{ padding: '12px', maxHeight: '300px', overflowY: 'auto' }}>
-                                        <p style={{ fontSize: '13px', color: '#374151', whiteSpace: 'pre-wrap', lineHeight: '1.7', marginBottom: '8px' }}>
-                                          {h.opus_result}
-                                        </p>
-                                        <p style={{
-                                          fontSize: '12px',
-                                          color: '#6b7280',
-                                          fontStyle: 'italic',
-                                          borderTop: '1px solid #f3f4f6',
-                                          paddingTop: '8px',
-                                          lineHeight: '1.6',
-                                          display: '-webkit-box',
-                                          WebkitLineClamp: expandedHistoryComment === `${h.id}-opus` ? undefined : 3,
-                                          WebkitBoxOrient: 'vertical' as const,
-                                          overflow: expandedHistoryComment === `${h.id}-opus` ? 'visible' : 'hidden',
-                                        }}>
-                                          {h.opus_comment}
-                                        </p>
-                                        {h.opus_comment && h.opus_comment.length > 80 && (
-                                          <button
-                                            onClick={() => setExpandedHistoryComment(expandedHistoryComment === `${h.id}-opus` ? null : `${h.id}-opus`)}
-                                            style={{
-                                              fontSize: '11px', color: '#7c3aed',
-                                              background: 'none', border: 'none',
-                                              cursor: 'pointer', fontWeight: 'bold', padding: 0, marginTop: '4px',
-                                            }}
-                                          >
-                                            {expandedHistoryComment === `${h.id}-opus` ? '▲ 閉じる' : '▼ 全文を読む'}
-                                          </button>
-                                        )}
-                                      </div>
-                                      {/* 採用ボタン */}
-                                      {!h.selected_model && (
-                                        <div style={{ padding: '8px 12px', borderTop: '1px solid #f3f4f6' }}>
-                                          <button
-                                            onClick={async () => {
-                                              setEditContent(h.opus_result);
-                                              await fetch('/api/clinic/handbook-model-compare', {
-                                                method: 'PATCH',
-                                                headers: { 'Content-Type': 'application/json' },
-                                                body: JSON.stringify({ id: h.id, selected_model: 'claude-opus-4-7' }),
-                                              });
-                                              fetchCompareHistory();
-                                              setMessage('✅ Opusの案をエディタに反映しました');
-                                              setTimeout(() => setMessage(''), 2000);
-                                            }}
-                                            style={{
-                                              width: '100%', padding: '6px', background: '#7c3aed',
-                                              color: '#fff', borderRadius: '8px', border: 'none',
-                                              fontSize: '12px', fontWeight: 'bold', cursor: 'pointer',
-                                            }}
-                                          >
-                                            ✅ この案を採用
-                                          </button>
-                                        </div>
-                                      )}
-                                    </div>
+                                      );
+                                    })}
 
                                   </div>
                                 </div>

@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import Anthropic from '@anthropic-ai/sdk';
+import { robustJsonParse } from '@/lib/ai-json-parser';
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
@@ -74,9 +75,8 @@ ${improved}
   });
 
   const raw = message.content[0].type === 'text' ? message.content[0].text : '{}';
-  const cleaned = raw.replace(/```json|```/g, '').trim();
   try {
-    return JSON.parse(cleaned);
+    return robustJsonParse(raw);
   } catch {
     return { score: 0, comment: '採点失敗', good_points: [], improve_points: [], balance: {} };
   }

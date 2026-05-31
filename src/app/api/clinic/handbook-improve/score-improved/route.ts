@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import Anthropic from '@anthropic-ai/sdk';
+import { robustJsonParse } from '@/lib/ai-json-parser';
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
@@ -54,30 +55,18 @@ ${improved}
   });
 
   const raw = message.content[0].type === 'text' ? message.content[0].text : '';
-  console.log('[score-improved] raw response:', raw.slice(0, 300));
-
-  // コードブロックを除去
-  const cleaned = raw
-    .replace(/^```json\s*/m, '')
-    .replace(/^```\s*/m, '')
-    .replace(/\s*```$/m, '')
-    .trim();
-
-  console.log('[score-improved] cleaned:', cleaned.slice(0, 300));
 
   try {
-    const data = JSON.parse(cleaned);
-    console.log('[score-improved] parse success, score:', data.score);
+    const data = robustJsonParse(raw);
     return NextResponse.json(data);
-  } catch (e) {
-    console.error('[score-improved] JSON parse failed:', e);
-    console.error('[score-improved] cleaned text:', cleaned);
+  } catch (e: any) {
+    console.error('[score-improved] JSON修復失敗:', e?.message);
 
     // parse失敗時は rawテキストをcommentに入れて返す（デバッグ用）
     return NextResponse.json({
       score: 0,
       score_diff: 0,
-      comment: `⚠️ 採点結果のパースに失敗しました。生の返答：${cleaned.slice(0, 200)}`,
+      comment: `⚠️ 採点結果のパースに失敗しました。生の返答：${raw.slice(0, 200)}`,
       good_points: [],
       improve_points: [],
       balance: {

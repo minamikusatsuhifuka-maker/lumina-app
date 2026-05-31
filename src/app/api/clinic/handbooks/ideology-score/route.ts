@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
 import { buildSystemContext } from '@/lib/clinic-context';
+import { robustJsonParse } from '@/lib/ai-json-parser';
 
 export async function POST(req: NextRequest) {
   const session = await auth();
@@ -46,7 +47,12 @@ ${chapterContent}
     "（改善ポイント②）",
     "（改善ポイント③）"
   ]
-}`,
+}
+
+【出力ルール（厳守）】
+- 必ず上記のJSON形式のみで出力。前置き・後書き・コードフェンス（\`\`\`）禁止。
+- score は必ず 0〜100 の整数。
+- reason は文字列、points は文字列の配列。`,
       }],
     }),
   });
@@ -55,10 +61,17 @@ ${chapterContent}
   const text = (data.content || []).filter((b: any) => b.type === 'text').map((b: any) => b.text).join('');
 
   try {
-    const clean = text.replace(/```json|```/g, '').trim();
-    const json = JSON.parse(clean);
-    return NextResponse.json(json);
-  } catch {
-    return NextResponse.json({ score: 0, reason: '採点に失敗しました。', points: [] });
+    const json = robustJsonParse(text);
+    // score を 0〜100 の整数に正規化
+    const score = Math.max(0, Math.min(100, Math.round(Number(json.score))));
+    if (!Number.isFinite(score)) throw new Error('score が数値ではありません');
+    return NextResponse.json({
+      score,
+      reason: typeof json.reason === 'string' ? json.reason : '',
+      points: Array.isArray(json.points) ? json.points : [],
+    });
+  } catch (e: any) {
+    // 0点ではなく error を返し、UI 側でエラーと採点結果を区別できるようにする
+    return NextResponse.json({ error: e?.message || '採点結果を解析できませんでした' });
   }
 }

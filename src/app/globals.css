@@ -206,7 +206,8 @@ body {
 /* ─── モデル比較グリッド（3モデル）: タブレット以下で縦積み ─── */
 @media (max-width: 1024px) {
   .handbook-compare-grid,
-  .handbook-summary-grid {
+  .handbook-summary-grid,
+  .handbook-revise-compare {
     grid-template-columns: 1fr !important;
   }
 }

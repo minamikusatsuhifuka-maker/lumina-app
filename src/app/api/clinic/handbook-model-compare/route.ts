@@ -20,6 +20,14 @@ async function ensureTable() {
       created_at          TIMESTAMP DEFAULT NOW()
     )
   `;
+  // Opus 4.8 用カラム追加（既存テーブルにも冪等に適用。既存データは壊さない）
+  await sql`
+    ALTER TABLE handbook_model_comparisons
+      ADD COLUMN IF NOT EXISTS opus48_result  TEXT,
+      ADD COLUMN IF NOT EXISTS opus48_score   INTEGER,
+      ADD COLUMN IF NOT EXISTS opus48_comment TEXT,
+      ADD COLUMN IF NOT EXISTS opus48_balance TEXT
+  `;
 }
 
 // GET: 章の比較履歴一覧
@@ -45,6 +53,7 @@ export async function POST(req: Request) {
       chapter_id, chapter_content, template_label,
       sonnet_result, sonnet_score, sonnet_comment, sonnet_balance,
       opus_result, opus_score, opus_comment, opus_balance,
+      opus48_result, opus48_score, opus48_comment, opus48_balance,
       selected_model
     ) VALUES (
       ${body.chapter_id}, ${body.chapter_content}, ${body.template_label},
@@ -52,6 +61,8 @@ export async function POST(req: Request) {
       ${JSON.stringify(body.sonnet_balance ?? {})},
       ${body.opus_result}, ${body.opus_score}, ${body.opus_comment},
       ${JSON.stringify(body.opus_balance ?? {})},
+      ${body.opus48_result ?? null}, ${body.opus48_score ?? null}, ${body.opus48_comment ?? null},
+      ${JSON.stringify(body.opus48_balance ?? {})},
       ${body.selected_model ?? null}
     )
   `;
