@@ -120,8 +120,10 @@ export default function HandbookEditorPage({ params }: { params: Promise<{ id: s
   const [revisedContent, setRevisedContent] = useState<string | null>(null);
   const [reviseCopied, setReviseCopied] = useState(false);
   const [autoReviseOnScore, setAutoReviseOnScore] = useState(false);
-  const REVISE_MODEL = 'claude-opus-4-8';
-  const reviseModelLabel = COMPARISON_MODELS.find(m => m.id === REVISE_MODEL)?.label ?? 'Opus 4.8';
+  // Part D: 採点モデル・修正モデルを個別に選択可能に（デフォルト Opus 4.8）
+  const [scoreModel, setScoreModel] = useState('claude-opus-4-8');
+  const [reviseModel, setReviseModel] = useState('claude-opus-4-8');
+  const reviseModelLabel = COMPARISON_MODELS.find(m => m.id === reviseModel)?.label ?? 'Opus 4.8';
   const [evaluationSaved, setEvaluationSaved] = useState(false);
   const [isEvaluating, setIsEvaluating] = useState(false);
   const [originalContent, setOriginalContent] = useState('');
@@ -367,7 +369,7 @@ export default function HandbookEditorPage({ params }: { params: Promise<{ id: s
         }),
         fetch('/api/clinic/handbooks/ideology-score', {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ chapterContent: editContent }),
+          body: JSON.stringify({ chapterContent: editContent, model: scoreModel }),
         }),
       ]);
       const evalData = await evalRes.json();
@@ -391,7 +393,7 @@ export default function HandbookEditorPage({ params }: { params: Promise<{ id: s
     try {
       const res = await fetch('/api/clinic/handbooks/ideology-score', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ chapterContent: originalContent || editContent }),
+        body: JSON.stringify({ chapterContent: originalContent || editContent, model: scoreModel }),
       });
       const scoreData = await res.json();
       if (scoreData.error) {
@@ -421,7 +423,7 @@ export default function HandbookEditorPage({ params }: { params: Promise<{ id: s
           original: originalContent || editContent,
           evaluation: [evaluationResult, base?.comment].filter(Boolean).join('\n\n'),
           improvements: base?.suggestions ?? [],
-          model: REVISE_MODEL,
+          model: reviseModel,
         }),
       });
       const data = await res.json();
@@ -1677,6 +1679,18 @@ export default function HandbookEditorPage({ params }: { params: Promise<{ id: s
                 <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 12 }}>
                   現在の文章を評価し、理念一致度スコアを同時に生成します
                 </div>
+
+                {/* Part D: 採点モデル選択（デフォルト Opus 4.8） */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+                  <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-muted)' }}>採点モデル:</label>
+                  <select value={scoreModel} onChange={e => setScoreModel(e.target.value)} disabled={isEvaluating || isRetryingScore}
+                    style={{ padding: '4px 8px', borderRadius: 6, border: '1px solid var(--border)', background: 'var(--bg-card)', color: 'var(--text-primary)', fontSize: 12, cursor: 'pointer' }}>
+                    {COMPARISON_MODELS.map(m => (
+                      <option key={m.id} value={m.id}>{m.icon} {m.label}</option>
+                    ))}
+                  </select>
+                </div>
+
                 <button onClick={handleEvaluateAndScore} disabled={isEvaluating} style={{
                   width: '100%', padding: '12px', borderRadius: 10, border: 'none', cursor: 'pointer',
                   background: isEvaluating ? 'rgba(108,99,255,0.3)' : 'linear-gradient(135deg, #6c63ff, #8b5cf6)',
@@ -1759,6 +1773,16 @@ export default function HandbookEditorPage({ params }: { params: Promise<{ id: s
                     {/* 改善案を反映して自動修正（Part C） */}
                     {scoreResult && !scoreResult.error && (
                       <div>
+                        {/* Part D: 修正モデル選択（採点モデルとは別に選択可・デフォルト Opus 4.8） */}
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+                          <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-muted)' }}>修正モデル:</label>
+                          <select value={reviseModel} onChange={e => setReviseModel(e.target.value)} disabled={revising}
+                            style={{ padding: '4px 8px', borderRadius: 6, border: '1px solid var(--border)', background: 'var(--bg-card)', color: 'var(--text-primary)', fontSize: 12, cursor: 'pointer' }}>
+                            {COMPARISON_MODELS.map(m => (
+                              <option key={m.id} value={m.id}>{m.icon} {m.label}</option>
+                            ))}
+                          </select>
+                        </div>
                         <button
                           onClick={() => handleAutoRevise()}
                           disabled={revising}

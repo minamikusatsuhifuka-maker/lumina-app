@@ -7,8 +7,10 @@ export async function POST(req: NextRequest) {
   const session = await auth();
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-  const { chapterContent } = await req.json();
+  const { chapterContent, model } = await req.json();
   const apiKey = process.env.ANTHROPIC_API_KEY!;
+  // Part D: 採点モデルを選択可能に（デフォルト Opus 4.8）
+  const scoreModel = typeof model === 'string' && model ? model : 'claude-opus-4-8';
 
   const systemPrompt = await buildSystemContext(
     `あなたはクリニックの理念・哲学の専門家です。
@@ -21,7 +23,7 @@ export async function POST(req: NextRequest) {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' },
     body: JSON.stringify({
-      model: 'claude-sonnet-4-6',
+      model: scoreModel,
       max_tokens: 600,
       system: systemPrompt,
       messages: [{
