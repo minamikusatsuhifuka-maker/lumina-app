@@ -7,7 +7,8 @@ import { sanitizeFilename, yyyymmdd } from '@/lib/title-generator';
 const CATEGORIES = [
   '皮膚疾患',
   '美容診療機器',
-  '使用薬剤',
+  '美容施術薬剤',
+  '保険診療薬剤',
   'スキンケア製品',
   '手技・術式',
   '治療説明',
