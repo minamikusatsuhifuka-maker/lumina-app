@@ -305,7 +305,7 @@ export default function ClinicSettingsPage() {
 
   const handleSave = async () => {
     if (!editForm.name.trim()) return alert('プロファイル名を入力してください');
-    if (!editForm.content.trim()) return alert('背景情報を入力してください');
+    if (!editForm.content.trim()) return alert('背景資料を入力してください');
     setIsSaving(true);
     try {
       const method = selectedProfile ? 'PATCH' : 'POST';
@@ -389,7 +389,7 @@ export default function ClinicSettingsPage() {
       {/* タブ */}
       <div style={{ display: 'flex', gap: 4, borderBottom: '1px solid var(--border)', marginBottom: 20 }}>
         {([
-          { id: 'profiles', label: '📋 背景情報プロファイル' },
+          { id: 'profiles', label: '📋 背景資料プロファイル' },
           { id: 'features', label: '⚙️ 機能ごとの設定' },
           { id: 'edit', label: selectedProfile ? '✏️ プロファイル編集' : '➕ 新規作成' },
         ] as const).map(t => (
@@ -417,7 +417,7 @@ export default function ClinicSettingsPage() {
         <div>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16, flexWrap: 'wrap', gap: 8 }}>
             <h2 style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-primary)' }}>
-              背景情報プロファイル一覧
+              背景資料プロファイル一覧
             </h2>
             <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
               <button
@@ -532,7 +532,7 @@ export default function ClinicSettingsPage() {
               color: 'var(--text-muted)',
             }}>
               <div style={{ fontSize: 38, marginBottom: 8 }}>🏥</div>
-              <p style={{ fontSize: 13, fontWeight: 600, marginBottom: 4 }}>背景情報がまだ登録されていません</p>
+              <p style={{ fontSize: 13, fontWeight: 600, marginBottom: 4 }}>背景資料がまだ登録されていません</p>
               <p style={{ fontSize: 11, marginBottom: 16 }}>クリニックの理念・方針・マーケティング要素を登録してください</p>
               <button
                 onClick={startCreate}
@@ -660,7 +660,7 @@ export default function ClinicSettingsPage() {
                   🔗 {selectedProfileIds.size}件を1つに統合
                 </h3>
                 <p style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 18 }}>
-                  選択したプロファイルの内容を結合して、1つの背景情報としてAIに渡せます。
+                  選択したプロファイルの内容を結合して、1つの背景資料としてAIに渡せます。
                 </p>
 
                 <div style={{ display: 'flex', flexDirection: 'column' as const, gap: 12, marginBottom: 18 }}>
@@ -745,7 +745,7 @@ export default function ClinicSettingsPage() {
       {activeTab === 'features' && (
         <div>
           <h2 style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 4 }}>
-            機能ごとの背景情報設定
+            機能ごとの背景資料設定
           </h2>
           <p style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 16 }}>
             各機能でどのプロファイルを使うか設定します。未設定の場合はデフォルトプロファイルが使われます。
@@ -753,7 +753,7 @@ export default function ClinicSettingsPage() {
 
           {profiles.length === 0 ? (
             <div style={{ textAlign: 'center' as const, padding: 30, fontSize: 12, color: 'var(--text-muted)' }}>
-              まず背景情報プロファイルを作成してください
+              まず背景資料プロファイルを作成してください
             </div>
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column' as const, gap: 10 }}>
