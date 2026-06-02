@@ -169,7 +169,7 @@ export default function FeatureDefaultContextSelector({
             📌 このコンテキストをどの機能の
           </div>
           <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginBottom: 10 }}>
-            デフォルト背景情報にしますか？
+            デフォルトコンテキストにしますか？
           </div>
 
           {loading ? (

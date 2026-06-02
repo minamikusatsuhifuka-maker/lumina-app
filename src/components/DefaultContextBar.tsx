@@ -107,7 +107,7 @@ export default function DefaultContextBar({ featureKey, onChange }: Props) {
     >
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10, flexWrap: 'wrap' as const, gap: 8 }}>
         <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-primary)' }}>
-          📌 現在の背景情報（デフォルト読み込み済み）
+          📌 現在のコンテキスト（デフォルト読み込み済み）
         </div>
         <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
           <span style={{ fontSize: 11, color: overLimit ? '#ef4444' : 'var(--text-muted)' }}>

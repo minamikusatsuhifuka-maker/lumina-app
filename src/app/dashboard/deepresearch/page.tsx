@@ -1712,9 +1712,9 @@ ${contextText}
                     fontSize: 12,
                     fontWeight: 500,
                   }}
-                  title="リサーチ結果を背景情報として保存し、各スタジオでAIに読み込ませられます"
+                  title="リサーチ結果をコンテキストとして保存し、各スタジオでAIに読み込ませられます"
                 >
-                  🧠 背景情報として保存
+                  🧠 コンテキストとして保存
                 </button>
 
                 {/* ドロップダウン形式のモーダル */}
@@ -1742,7 +1742,7 @@ ${contextText}
                         color: 'var(--text-primary)',
                       }}
                     >
-                      🧠 背景情報として保存
+                      🧠 コンテキストとして保存
                     </h3>
 
                     {/* タイトル */}
@@ -1905,7 +1905,7 @@ ${contextText}
                     gap: 4,
                   }}
                 >
-                  ✅ 背景情報に保存しました
+                  ✅ コンテキストに保存しました
                 </span>
               )}
             </div>
@@ -2619,7 +2619,7 @@ ${contextText}
                     boxShadow: '0 4px 12px rgba(108,99,255,0.25)',
                   }}
                 >
-                  🧠 AI背景情報として最適化
+                  🧠 コンテキストとして最適化
                 </button>
               </div>
             )}
@@ -2627,7 +2627,7 @@ ${contextText}
             {optimizing && (
               <div style={{ textAlign: 'center', padding: 24 }}>
                 <div style={{ width: 32, height: 32, border: '3px solid var(--border-accent)', borderTopColor: 'var(--accent)', borderRadius: '50%', animation: 'spin 0.8s linear infinite', margin: '0 auto 12px' }} />
-                <div style={{ color: 'var(--text-secondary)', fontWeight: 600 }}>背景情報コンテキストを生成中...</div>
+                <div style={{ color: 'var(--text-secondary)', fontWeight: 600 }}>コンテキストを生成中...</div>
               </div>
             )}
 
@@ -2635,7 +2635,7 @@ ${contextText}
               <div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12, flexWrap: 'wrap' as const, gap: 8 }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                    <span style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-primary)' }}>🧠 AI背景情報コンテキスト</span>
+                    <span style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-primary)' }}>🧠 コンテキスト</span>
                     {saveStatus && <span style={{ fontSize: 12, color: '#00d4b8', fontWeight: 600 }}>{saveStatus}</span>}
                   </div>
                   <button

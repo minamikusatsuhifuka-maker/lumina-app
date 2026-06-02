@@ -75,7 +75,7 @@ export default function LPGeneratorPage() {
         setForm(prev => ({
           ...prev,
           productName: prev.productName || (topic || ''),
-          problem: prev.problem || `（背景情報を参照）${text.slice(0, 200)}`,
+          problem: prev.problem || `（コンテキストを参照）${text.slice(0, 200)}`,
         }));
       };
       if (contextId) {

@@ -207,7 +207,7 @@ export default function ContextLibraryPage() {
     <div>
       <div style={{ marginBottom: 24 }}>
         <h1 style={{ fontSize: 28, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 8 }}>🧠 コンテキストライブラリ</h1>
-        <p style={{ color: 'var(--text-muted)', fontSize: 14 }}>AIに読み込ませる背景情報を管理します。文章作成・SNS投稿・LP作成・資料作成にワンクリックで活用できます。</p>
+        <p style={{ color: 'var(--text-muted)', fontSize: 14 }}>AIに読み込ませるコンテキストを管理します。文章作成・SNS投稿・LP作成・資料作成にワンクリックで活用できます。</p>
       </div>
 
       {batchFilter && (
@@ -306,7 +306,7 @@ export default function ContextLibraryPage() {
             {items.length === 0 ? 'まだ保存されたコンテキストはありません' : '条件に一致するコンテキストがありません'}
           </div>
           <div style={{ color: 'var(--text-muted)', fontSize: 13 }}>
-            ディープリサーチ実行後、「🧠 AI背景情報として最適化」→「💾 保存」でこちらに追加されます。
+            ディープリサーチ実行後、「🧠 コンテキストとして最適化」→「💾 保存」でこちらに追加されます。
           </div>
         </div>
       )}
