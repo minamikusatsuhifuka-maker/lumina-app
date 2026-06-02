@@ -25,7 +25,6 @@ const ALL_SHORTCUTS = [
   { id: 'kindle-studio', label: 'Kindle出版', icon: '📚', href: '/dashboard/kindle-studio' },
   { id: 'reviews', label: '口コミ管理', icon: '⭐', href: '/dashboard/reviews' },
   { id: 'analytics', label: 'アナリティクス', icon: '📈', href: '/dashboard/analytics' },
-  { id: 'clinic-settings', label: 'クリニック設定', icon: '⚙️', href: '/dashboard/clinic-settings' },
   { id: 'batch-research', label: 'バッチリサーチ', icon: '⚡', href: '/dashboard/deepresearch?tab=batch' },
   { id: 'automation', label: '自動化戦略', icon: '🚀', href: '/dashboard/automation-strategy' },
 ];

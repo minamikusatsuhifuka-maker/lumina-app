@@ -63,6 +63,12 @@ const navGroups: NavGroup[] = [
       { href: '/staff/quotes', label: '金言コレクション', icon: '📚' },
     ],
   },
+  {
+    category: '設定',
+    items: [
+      { href: '/admin/clinic-settings', label: '背景情報', icon: '🏥' },
+    ],
+  },
 ];
 
 export function AdminSidebar({ userName }: { userName: string }) {
