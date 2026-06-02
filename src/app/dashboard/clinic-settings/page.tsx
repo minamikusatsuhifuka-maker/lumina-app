@@ -43,7 +43,7 @@ export default function ClinicSettingsPage() {
   const [sectionizeError, setSectionizeError] = useState('');
   const [saveMode, setSaveMode] = useState<'combined' | 'individual' | null>(null);
   const [isBulkSaving, setIsBulkSaving] = useState(false);
-  const [bulkSaveResult, setBulkSaveResult] = useState<{ count: number; names: string[] } | null>(null);
+  const [bulkSaveResult, setBulkSaveResult] = useState<{ count: number; inserted: number; updated: number; names: string[] } | null>(null);
   const [selectedProfileIds, setSelectedProfileIds] = useState<Set<number>>(new Set());
   const [isBulkMode, setIsBulkMode] = useState(false);
   const [isMerging, setIsMerging] = useState(false);
@@ -230,10 +230,37 @@ export default function ClinicSettingsPage() {
     if (!fileTexts || fileTexts.length === 0) return;
     setIsBulkSaving(true);
     try {
+      // 1. まず dryRun で重複チェック（既存と同じタイトルが何件あるか）
+      const checkRes = await fetch('/api/clinic-profile/bulk-create', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ fileTexts, dryRun: true }),
+      });
+      const check = await checkRes.json();
+      if (!checkRes.ok || check.error) {
+        alert(`エラー: ${check.error || '重複チェックに失敗しました'}`);
+        return;
+      }
+
+      // 2. 重複があれば確認ダイアログを出す（重複0件ならそのまま取り込む）
+      if ((check.willUpdate ?? 0) > 0) {
+        const dupTitles: string[] = check.duplicateTitles ?? [];
+        const shown = dupTitles.slice(0, 10).join('\n');
+        const more = dupTitles.length > 10 ? `\n…他${dupTitles.length - 10}件` : '';
+        const ok = confirm(
+          `${check.willUpdate}件のタイトルが既存の資料と重複します。\n` +
+          `重複するタイトル:\n${shown}${more}\n\n` +
+          `上書きして取り込みますか？\n` +
+          `（新規 ${check.willInsert}件 + 上書き ${check.willUpdate}件）`,
+        );
+        if (!ok) return; // キャンセル → 何もしない
+      }
+
+      // 3. 実際に保存（上書き含む）
       const res = await fetch('/api/clinic-profile/bulk-create', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ fileTexts }),
+        body: JSON.stringify({ fileTexts, dryRun: false }),
       });
       const data = await res.json();
       if (!res.ok || data.error) {
@@ -241,8 +268,10 @@ export default function ClinicSettingsPage() {
         return;
       }
       setBulkSaveResult({
-        count: data.count,
-        names: (data.created ?? []).map((c: { name: string }) => c.name),
+        count: data.count ?? 0,
+        inserted: data.inserted ?? (data.created ?? []).length,
+        updated: data.updatedCount ?? (data.updated ?? []).length,
+        names: [...(data.created ?? []), ...(data.updated ?? [])].map((c: { name: string }) => c.name),
       });
       await loadAll();
     } finally {
@@ -1056,7 +1085,8 @@ export default function ClinicSettingsPage() {
               border: '1px solid rgba(34,197,94,0.3)',
             }}>
               <p style={{ fontSize: 13, fontWeight: 700, color: '#16a34a', margin: 0, marginBottom: 8 }}>
-                🎉 {bulkSaveResult.count}件のプロファイルを個別保存しました！
+                🎉 {bulkSaveResult.count}件のプロファイルを取り込みました！
+                （新規 {bulkSaveResult.inserted}件 / 上書き {bulkSaveResult.updated}件）
               </p>
               <div style={{ display: 'flex', flexDirection: 'column' as const, gap: 2, maxHeight: 140, overflowY: 'auto' as const }}>
                 {bulkSaveResult.names.map((name, i) => (
