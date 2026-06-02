@@ -1,5 +1,6 @@
 'use client';
 import { useState, useEffect } from 'react';
+import { copyToClipboard } from '@/lib/copyToClipboard';
 
 const PURPOSES = [
   { key: 'handbook',  icon: '📖', label: 'ハンドブック・マニュアル', color: '#6c63ff', scoreLabel: '理念一致度スコア', scoreDesc: 'インサイドアウト・先払い・リードマネジメントとの一致度' },
@@ -267,7 +268,7 @@ export default function TextImprovePage() {
                     style={{ padding: '8px 20px', borderRadius: 8, border: 'none', background: '#1D9E75', color: '#fff', fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>
                     ✅ この改善案を採用する
                   </button>
-                  <button onClick={() => navigator.clipboard.writeText(improvedText).then(() => setMessage('📋 コピーしました！'))}
+                  <button onClick={() => copyToClipboard(improvedText).then(() => setMessage('📋 コピーしました！'))}
                     style={{ padding: '8px 16px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--bg-card)', color: 'var(--text-muted)', fontSize: 13, cursor: 'pointer' }}>
                     📋 コピー
                   </button>
@@ -428,7 +429,7 @@ export default function TextImprovePage() {
                       style={{ width: '100%', padding: '10px', borderRadius: 10, border: 'none', background: 'linear-gradient(135deg,#1D9E75,#4ade80)', color: '#fff', fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>
                       ✅ この改善案を採用する
                     </button>
-                    <button onClick={() => navigator.clipboard.writeText(improvedText).then(() => setMessage('📋 コピーしました！'))}
+                    <button onClick={() => copyToClipboard(improvedText).then(() => setMessage('📋 コピーしました！'))}
                       style={{ width: '100%', padding: '8px', borderRadius: 10, border: '1px solid var(--border)', background: 'var(--bg-card)', color: 'var(--text-muted)', fontSize: 12, cursor: 'pointer' }}>
                       📋 コピーだけする
                     </button>

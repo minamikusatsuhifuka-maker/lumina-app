@@ -16,6 +16,8 @@ import {
   sanitizeFilename,
   yyyymmdd,
 } from '@/lib/title-generator';
+import { copyToClipboard } from '@/lib/copyToClipboard';
+import { triggerDownload } from '@/lib/download';
 
 type Insights = {
   summary: string;
@@ -178,13 +180,7 @@ export default function InvestmentResearchPage() {
         ? `> 生成AI: ${getModelIcon(reportModel)} ${getModelLabel(reportModel)}\n\n---\n\n`
         : '';
       const md = `# ${autoTitle}\n\n${modelLine}${body}`;
-      const blob = new Blob([md], { type: 'text/markdown;charset=utf-8' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `${fileTitle}_${yyyymmdd()}.md`;
-      a.click();
-      URL.revokeObjectURL(url);
+      triggerDownload(`${fileTitle}_${yyyymmdd()}.md`, md, 'text/markdown;charset=utf-8');
     } finally {
       setBusy(false);
     }
@@ -283,13 +279,7 @@ export default function InvestmentResearchPage() {
         ? `> 生成AI: ${getModelIcon(reportModel)} ${getModelLabel(reportModel)}\n\n---\n\n`
         : '';
       const md = `# ${autoTitle}\n\n${modelLine}${report}`;
-      const blob = new Blob([md], { type: 'text/markdown;charset=utf-8' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `${fileTitle}_${yyyymmdd()}.md`;
-      a.click();
-      URL.revokeObjectURL(url);
+      triggerDownload(`${fileTitle}_${yyyymmdd()}.md`, md, 'text/markdown;charset=utf-8');
     } finally {
       setDownloadingMd(false);
     }
@@ -530,7 +520,7 @@ export default function InvestmentResearchPage() {
                 {downloadingMd ? '⏳ タイトル生成中...' : '💾 MDダウンロード'}
               </button>
               <button
-                onClick={() => navigator.clipboard.writeText(report)}
+                onClick={() => copyToClipboard(report)}
                 style={{
                   padding: '6px 14px',
                   background: 'var(--bg-secondary)',
@@ -579,7 +569,7 @@ export default function InvestmentResearchPage() {
             <span style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-secondary)' }}>📝 要約（1000字以内）</span>
             <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
               <button
-                onClick={() => navigator.clipboard.writeText(insights.summary)}
+                onClick={() => copyToClipboard(insights.summary)}
                 style={{ padding: '5px 12px', background: 'var(--bg-primary)', border: '1px solid var(--border)', color: 'var(--text-secondary)', borderRadius: 6, cursor: 'pointer', fontSize: 12 }}
               >
                 📋 コピー
@@ -616,7 +606,7 @@ export default function InvestmentResearchPage() {
             <span style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-secondary)' }}>💡 AI 投資アドバイス（2000字以内）</span>
             <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
               <button
-                onClick={() => navigator.clipboard.writeText(insights.advice)}
+                onClick={() => copyToClipboard(insights.advice)}
                 style={{ padding: '5px 12px', background: 'var(--bg-primary)', border: '1px solid var(--border)', color: 'var(--text-secondary)', borderRadius: 6, cursor: 'pointer', fontSize: 12 }}
               >
                 📋 コピー

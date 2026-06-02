@@ -1,5 +1,6 @@
 'use client';
 import { useState, useEffect } from 'react';
+import { copyToClipboard } from '@/lib/copyToClipboard';
 
 const REPORT_TYPES = [
   {
@@ -690,7 +691,7 @@ export default function NearMissPage() {
                   </p>
                 </div>
                 <button
-                  onClick={() => { navigator.clipboard.writeText(`${monthlyYear}年${monthlyMonth}月 チームまとめ\n\n${monthlySummary}`); }}
+                  onClick={() => { copyToClipboard(`${monthlyYear}年${monthlyMonth}月 チームまとめ\n\n${monthlySummary}`); }}
                   style={{ fontSize: '12px', color: '#7c3aed', background: 'none', border: 'none', cursor: 'pointer', fontWeight: 'bold' }}
                 >
                   📋 コピーする

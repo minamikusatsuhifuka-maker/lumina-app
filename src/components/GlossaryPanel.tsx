@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { triggerDownload } from '@/lib/download';
 
 type Step = 'input' | 'select' | 'explain' | 'done';
 
@@ -146,11 +147,7 @@ export function GlossaryPanel() {
         ).join('\n');
     }
     const ext = format === 'html' ? 'html' : format === 'table' ? 'csv' : 'txt';
-    const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url; a.download = `glossary.${ext}`; a.click();
-    URL.revokeObjectURL(url);
+    triggerDownload(`glossary.${ext}`, content, 'text/plain;charset=utf-8');
   };
 
   const reset = () => {

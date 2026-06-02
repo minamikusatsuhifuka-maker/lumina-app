@@ -23,6 +23,8 @@ import {
   sanitizeFilename,
   yyyymmdd,
 } from '@/lib/title-generator';
+import { copyToClipboard } from '@/lib/copyToClipboard';
+import { triggerDownload } from '@/lib/download';
 
 const HEIGHT_PRESETS = [
   { label: 'S', h: 200 },
@@ -420,13 +422,7 @@ export default function TextAnalysisPanel({
       const title = sanitizeFilename(autoTitle);
       const model = resultModels.get(type);
       const content = `${autoTitle}\n\n${modelLineTxt(model)}${text}`;
-      const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `${title}_${yyyymmdd()}.txt`;
-      a.click();
-      URL.revokeObjectURL(url);
+      triggerDownload(`${title}_${yyyymmdd()}.txt`, content, 'text/plain');
     } finally {
       setGeneratingTitle(null);
     }
@@ -440,13 +436,7 @@ export default function TextAnalysisPanel({
       const title = sanitizeFilename(autoTitle);
       const model = resultModels.get(type);
       const content = `# ${autoTitle}\n\n${modelLineMd(model)}${text}`;
-      const blob = new Blob([content], { type: 'text/markdown;charset=utf-8' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `${title}_${yyyymmdd()}.md`;
-      a.click();
-      URL.revokeObjectURL(url);
+      triggerDownload(`${title}_${yyyymmdd()}.md`, content, 'text/markdown;charset=utf-8');
     } finally {
       setGeneratingTitle(null);
     }
@@ -828,7 +818,7 @@ export default function TextAnalysisPanel({
               generatingTitle={generatingTitle === type}
               onSave={() => saveResult(type, text)}
               onCopy={() => {
-                navigator.clipboard.writeText(text);
+                copyToClipboard(text);
                 showToast('コピーしました', 'success');
               }}
               onDownloadTxt={() => downloadTxt(type, text)}

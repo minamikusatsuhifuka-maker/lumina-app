@@ -1,5 +1,6 @@
 'use client';
 import { useState } from 'react';
+import { copyToClipboard } from '@/lib/copyToClipboard';
 import { ProgressBar } from '@/components/ProgressBar';
 import { useProgress } from '@/components/useProgress';
 import { SaveToLibraryButton } from '@/components/SaveToLibraryButton';
@@ -111,13 +112,13 @@ export default function ImagePromptPage() {
   };
 
   const copyText = async (text: string, setter: (v: boolean) => void) => {
-    await navigator.clipboard.writeText(text);
+    await copyToClipboard(text);
     setter(true);
     setTimeout(() => setter(false), 2000);
   };
 
   const copyVariation = async (text: string, idx: number) => {
-    await navigator.clipboard.writeText(text);
+    await copyToClipboard(text);
     setCopiedIdx(idx);
     setTimeout(() => setCopiedIdx(null), 2000);
   };

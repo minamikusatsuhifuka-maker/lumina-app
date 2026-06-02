@@ -14,6 +14,8 @@ import DefaultContextBar, {
   type DefaultContextItem,
 } from '@/components/DefaultContextBar';
 import DeepDiveChat from '@/components/DeepDiveChat';
+import { copyToClipboard } from '@/lib/copyToClipboard';
+import { triggerDownload } from '@/lib/download';
 
 const ALL_MODES = [
   { key: 'blog',          label: '📝 ブログ',        description: 'SEOを意識した読みやすい長文記事' },
@@ -540,11 +542,9 @@ export default function WritePage() {
     setSelectedTemplateId(id);
   };
 
-  const copy = () => navigator.clipboard.writeText(output).then(() => alert('コピーしました！'));
+  const copy = () => copyToClipboard(output).then(() => alert('コピーしました！'));
   const download = (ext: string) => {
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(new Blob([output], { type: 'text/plain' }));
-    a.download = `lumina_${Date.now()}.${ext}`; a.click();
+    triggerDownload(`lumina_${Date.now()}.${ext}`, output, 'text/plain');
   };
 
   return (
@@ -861,11 +861,11 @@ export default function WritePage() {
                       null,
                       { label: '📝 noteに投稿', action: () => {
                         const noteContent = output.replace(/^# (.+)$/gm, '$1\n').replace(/^## (.+)$/gm, '\n■ $1\n').replace(/^### (.+)$/gm, '\n▶ $1\n').replace(/\*\*(.+?)\*\*/g, '$1').replace(/---/g, '\n---\n');
-                        navigator.clipboard.writeText(noteContent).then(() => { window.open('https://note.com/notes/new', '_blank'); alert('✅ note形式でコピーしました！'); });
+                        copyToClipboard(noteContent).then(() => { window.open('https://note.com/notes/new', '_blank'); alert('✅ note形式でコピーしました！'); });
                       }},
                       { label: '🌐 WP用HTML', action: () => {
                         const html = output.replace(/^# (.+)$/gm, '<h1>$1</h1>').replace(/^## (.+)$/gm, '<h2>$1</h2>').replace(/^### (.+)$/gm, '<h3>$1</h3>').replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>').replace(/\*(.+?)\*/g, '<em>$1</em>').replace(/^- (.+)$/gm, '<li>$1</li>').replace(/(<li>.*<\/li>\n?)+/g, '<ul>$&</ul>').replace(/^(?!<[h1-6ul]).+$/gm, '<p>$&</p>').replace(/---/g, '<hr>');
-                        navigator.clipboard.writeText(html).then(() => alert('✅ HTML形式でコピーしました！'));
+                        copyToClipboard(html).then(() => alert('✅ HTML形式でコピーしました！'));
                       }},
                     ].map((entry, i) => entry === null
                       ? <div key={`sep-${i}`} style={{ borderTop: '1px solid var(--border)', margin: '4px 0' }} />
@@ -1379,7 +1379,7 @@ export default function WritePage() {
               </div>
               <div style={{ display: 'flex', gap: 8 }}>
                 <button
-                  onClick={() => navigator.clipboard.writeText(gensparkResult).then(() => alert('コピーしました！'))}
+                  onClick={() => copyToClipboard(gensparkResult).then(() => alert('コピーしました！'))}
                   style={{ padding: '6px 14px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--bg-secondary)', color: 'var(--text-secondary)', cursor: 'pointer', fontSize: 12 }}
                 >
                   📋 コピー
@@ -1420,13 +1420,9 @@ export default function WritePage() {
             <>
               <div style={{ fontSize: 14, color: 'var(--text-secondary)', lineHeight: 1.9, whiteSpace: 'pre-wrap', borderTop: '1px solid rgba(0,212,184,0.1)', paddingTop: 12, maxHeight: 260, overflowY: 'auto' }}>{translated}</div>
               <div style={{ display: 'flex', gap: 6, marginTop: 8 }}>
-                <button onClick={() => navigator.clipboard.writeText(translated)} style={{ padding: '5px 12px', background: 'var(--bg-secondary)', border: '1px solid rgba(0,212,184,0.2)', color: '#00d4b8', borderRadius: 6, cursor: 'pointer', fontSize: 12 }}>📋 コピー</button>
+                <button onClick={() => copyToClipboard(translated)} style={{ padding: '5px 12px', background: 'var(--bg-secondary)', border: '1px solid rgba(0,212,184,0.2)', color: '#00d4b8', borderRadius: 6, cursor: 'pointer', fontSize: 12 }}>📋 コピー</button>
                 <button onClick={() => {
-                  const blob = new Blob([translated], { type: 'text/plain;charset=utf-8' });
-                  const url = URL.createObjectURL(blob);
-                  const a = document.createElement('a');
-                  a.href = url; a.download = `translated_${targetLang}.txt`; a.click();
-                  URL.revokeObjectURL(url);
+                  triggerDownload(`translated_${targetLang}.txt`, translated, 'text/plain');
                 }} style={{ padding: '5px 12px', background: 'var(--bg-secondary)', border: '1px solid rgba(0,212,184,0.2)', color: '#00d4b8', borderRadius: 6, cursor: 'pointer', fontSize: 12 }}>💾 TXTで保存</button>
               </div>
             </>

@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
+import { triggerDownload } from '@/lib/download';
 
 export type AnalysisPageType = 'seo' | 'conversion' | 'competitor' | 'contacts';
 
@@ -78,15 +79,7 @@ export function AnalysisHistory<T>({
 
   const downloadMd = (s: SaveRecord<T>) => {
     const md = buildMarkdown(s.data);
-    const blob = new Blob([md], { type: 'text/markdown;charset=utf-8' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `${pageType}-${s.id}-${s.created_at.slice(0, 10)}.md`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
+    triggerDownload(`${pageType}-${s.id}-${s.created_at.slice(0, 10)}.md`, md, 'text/markdown;charset=utf-8');
   };
 
   const deleteSave = async (id: number) => {

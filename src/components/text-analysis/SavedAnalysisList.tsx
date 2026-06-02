@@ -8,6 +8,7 @@ import {
   sanitizeFilename,
   yyyymmdd,
 } from '@/lib/title-generator';
+import { triggerDownload } from '@/lib/download';
 import {
   getModelLabel,
   getModelIcon,
@@ -175,15 +176,7 @@ export default function SavedAnalysisList({
         : '';
       const mdContent = `# ${autoTitle}\n\n${modelLine}${record.content}`;
 
-      const blob = new Blob([mdContent], {
-        type: 'text/markdown;charset=utf-8',
-      });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `${safeTitle}_${yyyymmdd()}.md`;
-      a.click();
-      URL.revokeObjectURL(url);
+      triggerDownload(`${safeTitle}_${yyyymmdd()}.md`, mdContent, 'text/markdown;charset=utf-8');
       showToast('MDファイルをダウンロードしました', 'success');
     } catch {
       showToast('ダウンロードに失敗しました', 'error');

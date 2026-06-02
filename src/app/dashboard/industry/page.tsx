@@ -3,6 +3,7 @@ import { useState } from 'react';
 import { SaveToLibraryButton } from '@/components/SaveToLibraryButton';
 import { getSavedModel } from '@/lib/model-preference';
 import { ModelBadge } from '@/components/ModelBadge';
+import { copyToClipboard } from '@/lib/copyToClipboard';
 
 const POPULAR = ['医療・ヘルスケア', 'AI・SaaS', '不動産', '飲食・フードテック', '教育・EdTech', '金融・FinTech', 'EC・小売', '製造・IoT', '広告・マーケ', '人材・HR'];
 
@@ -91,7 +92,7 @@ export default function IndustryPage() {
               {usedModel && <ModelBadge model={usedModel} />}
             </span>
             <div style={{ display: 'flex', gap: 8 }}>
-              <button onClick={() => navigator.clipboard.writeText(result)} style={{ padding: '5px 12px', borderRadius: 6, border: '1px solid var(--border)', background: 'var(--bg-card)', color: 'var(--text-muted)', fontSize: 12, cursor: 'pointer' }}>コピー</button>
+              <button onClick={() => copyToClipboard(result)} style={{ padding: '5px 12px', borderRadius: 6, border: '1px solid var(--border)', background: 'var(--bg-card)', color: 'var(--text-muted)', fontSize: 12, cursor: 'pointer' }}>コピー</button>
               <SaveToLibraryButton title={`業界レポート: ${industry}`} content={result} type="web" tags="業界レポート" groupName="業界レポート" />
             </div>
           </div>

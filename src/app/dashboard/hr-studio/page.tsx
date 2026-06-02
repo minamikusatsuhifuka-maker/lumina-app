@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { copyToClipboard } from '@/lib/copyToClipboard';
 import ContextSelector, {
   buildContextText,
   type ContextItem,
@@ -757,7 +758,7 @@ export default function HrStudioPage() {
                         <button
                           type="button"
                           onClick={() =>
-                            navigator.clipboard.writeText(generatedContent)
+                            copyToClipboard(generatedContent)
                           }
                           style={{
                             fontSize: 12,
@@ -903,7 +904,7 @@ export default function HrStudioPage() {
                             <button
                               type="button"
                               onClick={() =>
-                                navigator.clipboard.writeText(record.content)
+                                copyToClipboard(record.content)
                               }
                               style={{
                                 fontSize: 12,

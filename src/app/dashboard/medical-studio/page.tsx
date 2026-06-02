@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { copyToClipboard } from '@/lib/copyToClipboard';
 import ContextSelector, {
   buildContextText,
   type ContextItem,
@@ -659,7 +660,7 @@ export default function MedicalStudioPage() {
                       <button
                         type="button"
                         onClick={() =>
-                          navigator.clipboard.writeText(generatedContent)
+                          copyToClipboard(generatedContent)
                         }
                         style={{
                           fontSize: 12,
@@ -1057,7 +1058,7 @@ export default function MedicalStudioPage() {
                         <button
                           type="button"
                           onClick={() =>
-                            navigator.clipboard.writeText(editingContent)
+                            copyToClipboard(editingContent)
                           }
                           style={{
                             padding: '8px 12px',

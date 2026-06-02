@@ -1,6 +1,7 @@
 'use client';
 import { useState, useRef, useCallback, useEffect } from 'react';
 import { loadMemoSheets, saveMemoSheets, type MemoSheet } from '@/lib/memo-storage';
+import { copyToClipboard } from '@/lib/copyToClipboard';
 
 declare global {
   interface Window {
@@ -125,7 +126,7 @@ export function PipMemoPanel() {
         const current = sheetsRef.current[0];
         const lines = current?.content ? current.content.split('\n').filter(l => l.trim()) : [];
         const text = lines[idx] || '';
-        pw.navigator.clipboard.writeText(text).then(() => {
+        copyToClipboard(text).then(() => {
           btn.textContent = '✅';
           setTimeout(() => { btn.textContent = '📋'; }, 1000);
         }).catch(() => {});
@@ -216,7 +217,7 @@ export function PipMemoPanel() {
         const current = sheetsRef.current[0];
         const text = current?.content || '';
         if (!text) { showPipToast(pw, 'メモがありません'); return; }
-        pw.navigator.clipboard.writeText(text).then(() => {
+        copyToClipboard(text).then(() => {
           showPipToast(pw, '✅ コピーしました');
         }).catch(() => {
           showPipToast(pw, 'コピーに失敗しました');

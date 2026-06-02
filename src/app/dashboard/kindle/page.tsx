@@ -9,6 +9,8 @@ import DefaultContextBar, {
   buildDefaultContextText,
   type DefaultContextItem,
 } from '@/components/DefaultContextBar';
+import { copyToClipboard } from '@/lib/copyToClipboard';
+import { triggerDownload } from '@/lib/download';
 
 interface Message { role: 'user' | 'assistant'; content: string; timestamp: string }
 interface Chapter {
@@ -501,15 +503,7 @@ export default function KindlePage() {
   };
 
   const downloadFile = (content: string, filename: string) => {
-    const blob = new Blob([content], { type: 'text/markdown; charset=utf-8' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = filename;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
+    triggerDownload(filename, content, 'text/markdown;charset=utf-8');
   };
 
   const renderContent = (content: string) => content
@@ -1135,7 +1129,7 @@ export default function KindlePage() {
                                     )}
                                   </p>
                                   <button
-                                    onClick={() => navigator.clipboard.writeText(ch.advice ?? '')}
+                                    onClick={() => copyToClipboard(ch.advice ?? '')}
                                     style={{
                                       fontSize: 11, padding: '3px 8px',
                                       border: '1px solid var(--border)', borderRadius: 4,
@@ -1204,7 +1198,7 @@ export default function KindlePage() {
                                   </p>
                                   <div style={{ display: 'flex', gap: 6 }}>
                                     <button
-                                      onClick={() => navigator.clipboard.writeText((ch.improvedContent ?? ch.improved_content) ?? '')}
+                                      onClick={() => copyToClipboard((ch.improvedContent ?? ch.improved_content) ?? '')}
                                       style={{
                                         fontSize: 11, padding: '3px 8px',
                                         border: '1px solid #a78bfa', borderRadius: 4,

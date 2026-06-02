@@ -6,6 +6,8 @@ import {
   sanitizeFilename,
   yyyymmdd,
 } from '@/lib/title-generator';
+import { copyToClipboard } from '@/lib/copyToClipboard';
+import { triggerDownload } from '@/lib/download';
 
 // /api/library から返ってくる行（library テーブルそのまま）
 interface LibraryItem {
@@ -169,7 +171,7 @@ export default function BuzzLibraryList({ onSwitchToExecute, refreshKey = 0 }: P
       .map(r => `# ${r.title || '(無題)'}\n\n${r.content || ''}`)
       .join('\n\n---\n\n');
     try {
-      await navigator.clipboard.writeText(text);
+      await copyToClipboard(text);
       showToast(`📋 ${selectedRecords.length}件をコピーしました`);
     } catch {
       showToast('❌ コピーに失敗しました');
@@ -223,13 +225,7 @@ ${indexLines}
 
 ${body}`;
 
-      const blob = new Blob([md], { type: 'text/markdown;charset=utf-8' });
-      const blobUrl = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = blobUrl;
-      a.download = `${fileTitle}_${date}.md`;
-      a.click();
-      URL.revokeObjectURL(blobUrl);
+      triggerDownload(`${fileTitle}_${date}.md`, md, 'text/markdown;charset=utf-8');
       showToast(`📥 ${selectedRecords.length}件のMDをダウンロードしました`);
     } finally {
       setBulkDownloading(false);
@@ -309,7 +305,7 @@ ${body}`;
   // コピー
   const copyContent = async (item: LibraryItem) => {
     try {
-      await navigator.clipboard.writeText(item.content || '');
+      await copyToClipboard(item.content || '');
       showToast('📋 コピーしました');
     } catch {
       showToast('❌ コピーに失敗しました');
@@ -338,13 +334,7 @@ ${body}`;
         '';
       const dateLine = `> 保存日時: ${formatDate(item.created_at)}\n`;
       const md = `# ${autoTitle}\n\n${dateLine}${metaHeader}\n---\n\n${item.content}`;
-      const blob = new Blob([md], { type: 'text/markdown;charset=utf-8' });
-      const blobUrl = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = blobUrl;
-      a.download = `${fileTitle}_${yyyymmdd()}.md`;
-      a.click();
-      URL.revokeObjectURL(blobUrl);
+      triggerDownload(`${fileTitle}_${yyyymmdd()}.md`, md, 'text/markdown;charset=utf-8');
     } finally {
       setDownloadingId(null);
     }

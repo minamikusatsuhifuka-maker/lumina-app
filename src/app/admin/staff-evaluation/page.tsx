@@ -1,6 +1,7 @@
 'use client';
 import { useState, useEffect } from 'react';
 import { RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, Radar, Tooltip } from 'recharts';
+import { copyToClipboard } from '@/lib/copyToClipboard';
 
 const GRADE_COLORS: Record<string, string> = {
   G1: '#94a3b8', G2: '#60a5fa', G3: '#4ade80', G4: '#06b6d4', G5: '#8b5cf6',
@@ -365,7 +366,7 @@ export default function StaffEvaluationPage() {
                           {promotionMessage}
                         </div>
                         <div style={{ display: 'flex', gap: 8 }}>
-                          <button onClick={() => navigator.clipboard.writeText(promotionMessage).then(() => setMessage('📋 コピーしました！'))}
+                          <button onClick={() => copyToClipboard(promotionMessage).then(() => setMessage('📋 コピーしました！'))}
                             style={{ padding: '5px 14px', borderRadius: 8, border: 'none', background: '#4ade80', color: '#000', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>
                             📋 コピー
                           </button>

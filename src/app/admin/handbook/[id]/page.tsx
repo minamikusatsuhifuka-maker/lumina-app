@@ -3,6 +3,8 @@ import { useState, useEffect, use } from 'react';
 import { getSavedModel } from '@/lib/model-preference';
 import { ModelBadge } from '@/components/ModelBadge';
 import { AITextReviser } from '@/components/clinic/AITextReviser';
+import { copyToClipboard } from '@/lib/copyToClipboard';
+import { triggerDownload } from '@/lib/download';
 
 const QUICK_INSTRUCTIONS = ['わかりやすく', '理念に沿って', '箇条書き化', '具体例を追加', 'トーンを丁寧に'];
 
@@ -455,7 +457,7 @@ export default function HandbookEditorPage({ params }: { params: Promise<{ id: s
   // 修正案をコピー
   const copyRevised = async () => {
     if (!revisedContent) return;
-    await navigator.clipboard.writeText(revisedContent);
+    await copyToClipboard(revisedContent);
     setReviseCopied(true);
     setTimeout(() => setReviseCopied(false), 1500);
   };
@@ -804,7 +806,7 @@ export default function HandbookEditorPage({ params }: { params: Promise<{ id: s
   const handleCopyAll = async () => {
     const text = buildExportText();
     try {
-      await navigator.clipboard.writeText(text);
+      await copyToClipboard(text);
       setExportCopied(true);
       setTimeout(() => setExportCopied(false), 2500);
     } catch (e) {
@@ -816,16 +818,10 @@ export default function HandbookEditorPage({ params }: { params: Promise<{ id: s
   // .txtファイルとしてダウンロード
   const handleDownloadAll = () => {
     const text = buildExportText();
-    const blob = new Blob([text], { type: 'text/plain;charset=utf-8' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
     const dateStr = new Date().toISOString().slice(0, 10);
     const chapter = chapters[activeIdx];
     const titleStr = (chapter?.title ?? editTitle ?? 'chapter').replace(/[\\/:*?"<>|]/g, '_');
-    a.download = `LUMINA_改善レポート_${titleStr}_${dateStr}.txt`;
-    a.click();
-    URL.revokeObjectURL(url);
+    triggerDownload(`LUMINA_改善レポート_${titleStr}_${dateStr}.txt`, text, 'text/plain');
   };
 
   // === 90点超え自動再改善ライター ===
@@ -1600,7 +1596,7 @@ export default function HandbookEditorPage({ params }: { params: Promise<{ id: s
                     ✅ この変換を採用する
                   </button>
                   <button
-                    onClick={() => navigator.clipboard.writeText(bossAfterContent)
+                    onClick={() => copyToClipboard(bossAfterContent)
                       .then(() => setMessage('📋 コピーしました！'))}
                     style={{
                       padding: '8px 16px', borderRadius: 8,
@@ -1648,7 +1644,7 @@ export default function HandbookEditorPage({ params }: { params: Promise<{ id: s
                         ✅ 章末に追加する
                       </button>
                       <button
-                        onClick={() => navigator.clipboard.writeText(questionResult).then(() => setMessage('📋 コピーしました！'))}
+                        onClick={() => copyToClipboard(questionResult).then(() => setMessage('📋 コピーしました！'))}
                         style={{ padding: '5px 12px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--bg-card)', color: 'var(--text-muted)', fontSize: 12, cursor: 'pointer' }}
                       >
                         📋 コピー

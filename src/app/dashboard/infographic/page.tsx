@@ -3,6 +3,8 @@ import { useState } from 'react';
 import { SaveToLibraryButton } from '@/components/SaveToLibraryButton';
 import { ProgressBar } from '@/components/ProgressBar';
 import { useProgress } from '@/components/useProgress';
+import { copyToClipboard } from '@/lib/copyToClipboard';
+import { triggerDownload } from '@/lib/download';
 
 interface InfographicSection {
   heading: string;
@@ -125,11 +127,7 @@ export default function InfographicPage() {
     lines.push('');
     lines.push(`ハッシュタグ: ${(result.hashtags || []).join(' ')}`);
 
-    const blob = new Blob([lines.join('\n')], { type: 'text/plain; charset=utf-8' });
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(blob);
-    a.download = `infographic_${platform}_${Date.now()}.txt`;
-    a.click();
+    triggerDownload(`infographic_${platform}_${Date.now()}.txt`, lines.join('\n'), 'text/plain');
   };
 
   const inputStyle = {
@@ -394,7 +392,7 @@ export default function InfographicPage() {
                   fontSize: 11, padding: '4px 12px', borderRadius: 16,
                   background: 'rgba(108,99,255,0.08)', border: '1px solid rgba(108,99,255,0.2)',
                   color: '#6c63ff', cursor: 'pointer',
-                }} onClick={() => navigator.clipboard.writeText(tag)}>
+                }} onClick={() => copyToClipboard(tag)}>
                   {tag}
                 </span>
               ))}

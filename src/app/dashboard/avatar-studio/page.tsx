@@ -3,6 +3,8 @@ import { useState, useEffect } from 'react';
 import { ProgressBar } from '@/components/ProgressBar';
 import { useProgress } from '@/components/useProgress';
 import { SaveToLibraryButton } from '@/components/SaveToLibraryButton';
+import { copyToClipboard } from '@/lib/copyToClipboard';
+import { triggerDownload } from '@/lib/download';
 
 /* ========== 型定義 ========== */
 interface AvatarProfile {
@@ -274,7 +276,7 @@ export default function AvatarStudioPage() {
 
   /* --- コピー --- */
   const copyText = (text: string, idx?: number) => {
-    navigator.clipboard.writeText(text);
+    copyToClipboard(text);
     if (idx !== undefined) {
       setCopiedIdx(idx);
       setTimeout(() => setCopiedIdx(null), 2000);
@@ -412,11 +414,7 @@ export default function AvatarStudioPage() {
       lines.push(`ハッシュタグ: ${post.hashtags.map(h => `#${h}`).join(' ')}`);
       lines.push('');
     });
-    const blob = new Blob([lines.join('\n')], { type: 'text/plain; charset=utf-8' });
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(blob);
-    a.download = `avatar_posts_${avatar.name}_${Date.now()}.txt`;
-    a.click();
+    triggerDownload(`avatar_posts_${avatar.name}_${Date.now()}.txt`, lines.join('\n'), 'text/plain');
   };
 
   /* ========== レンダリング ========== */

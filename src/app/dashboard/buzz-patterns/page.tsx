@@ -1,5 +1,6 @@
 'use client';
 import { useState, useEffect, useMemo } from 'react';
+import { copyToClipboard } from '@/lib/copyToClipboard';
 
 const CATEGORIES = [
   'すべて',
@@ -370,7 +371,7 @@ export default function BuzzPatternsPage() {
             <div style={{ display: 'flex', gap: 8, marginTop: 20, flexWrap: 'wrap' }}>
               <button
                 onClick={() => {
-                  navigator.clipboard.writeText(selectedPattern.content);
+                  copyToClipboard(selectedPattern.content);
                   alert('コピーしました');
                 }}
                 style={{

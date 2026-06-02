@@ -1,6 +1,8 @@
 'use client';
 
 import { useState } from 'react';
+import { copyToClipboard } from '@/lib/copyToClipboard';
+import { triggerDownload } from '@/lib/download';
 import ContextSelector, {
   buildContextText,
   type ContextItem,
@@ -37,15 +39,12 @@ export default function HpGeneratorPage() {
     } finally { setIsLoading(false); }
   };
 
-  const copyText = (text: string, key: string) => { navigator.clipboard.writeText(text); setCopied(key); setTimeout(() => setCopied(null), 2000); };
+  const copyText = (text: string, key: string) => { copyToClipboard(text); setCopied(key); setTimeout(() => setCopied(null), 2000); };
 
   const exportAll = () => {
     if (!result) return;
     const text = `# ${form.companyName} HP コンテンツ\n\n## ヒーローセクション\nキャッチコピー：${result.hero?.headline}\nサブキャッチ：${result.hero?.subheadline}\n説明文：${result.hero?.description}\nCTAボタン：${result.hero?.cta}\n\n## サービス\n${result.services?.map((s: any) => `### ${s.icon} ${s.title}\n${s.description}`).join('\n\n')}\n\n## 特徴\n${result.features?.map((f: any) => `### ${f.title}\n${f.description}`).join('\n\n')}\n\n## 会社概要\n${result.about}\n\n## FAQ\n${result.faq?.map((f: any) => `Q: ${f.question}\nA: ${f.answer}`).join('\n\n')}\n\n## メタディスクリプション\n${result.meta_description}`;
-    const blob = new Blob([text], { type: 'text/plain;charset=utf-8' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a'); a.href = url; a.download = `${form.companyName}_HP_コンテンツ.txt`; a.click();
-    URL.revokeObjectURL(url);
+    triggerDownload(`${form.companyName}_HP_コンテンツ.txt`, text, 'text/plain');
   };
 
   return (

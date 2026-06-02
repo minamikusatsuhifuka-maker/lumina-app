@@ -4,6 +4,8 @@ import { useRouter } from 'next/navigation';
 import { SaveToLibraryButton } from '@/components/SaveToLibraryButton';
 import { ProgressBar } from '@/components/ProgressBar';
 import { useProgress } from '@/components/useProgress';
+import { copyToClipboard } from '@/lib/copyToClipboard';
+import { triggerDownload } from '@/lib/download';
 
 interface StorytellingResult {
   title: string;
@@ -106,7 +108,7 @@ export default function StorytellingPage() {
 
   const copyStory = () => {
     if (!result) return;
-    navigator.clipboard.writeText(result.story);
+    copyToClipboard(result.story);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   };
@@ -146,11 +148,7 @@ export default function StorytellingPage() {
       result.suggested_visuals.forEach(v => lines.push(`・${v}`));
     }
 
-    const blob = new Blob([lines.join('\n')], { type: 'text/plain; charset=utf-8' });
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(blob);
-    a.download = `story_${structure}_${Date.now()}.txt`;
-    a.click();
+    triggerDownload(`story_${structure}_${Date.now()}.txt`, lines.join('\n'), 'text/plain');
   };
 
   const inputStyle = {

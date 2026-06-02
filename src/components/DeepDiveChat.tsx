@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { copyToClipboard } from '@/lib/copyToClipboard';
 
 interface Message {
   role: 'user' | 'assistant';
@@ -451,7 +452,7 @@ export default function DeepDiveChat({
               <div style={{ display: 'flex', gap: 8 }}>
                 <button
                   onClick={() =>
-                    navigator.clipboard.writeText(generatedContent)
+                    copyToClipboard(generatedContent)
                   }
                   style={{
                     fontSize: 12,

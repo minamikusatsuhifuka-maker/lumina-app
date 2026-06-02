@@ -3,6 +3,8 @@
 import { useState } from 'react';
 import { getSavedModel } from '@/lib/model-preference';
 import { sanitizeFilename, yyyymmdd } from '@/lib/title-generator';
+import { copyToClipboard } from '@/lib/copyToClipboard';
+import { triggerDownload } from '@/lib/download';
 
 const CATEGORIES = [
   '皮膚疾患',
@@ -374,7 +376,7 @@ function TopicResultCard({
   const copyText = async (text: string, level: 'beginner' | 'expert') => {
     if (!text) return;
     try {
-      await navigator.clipboard.writeText(text);
+      await copyToClipboard(text);
       setCopied(level);
       setTimeout(() => setCopied(null), 1500);
     } catch {}
@@ -382,16 +384,13 @@ function TopicResultCard({
 
   const downloadText = (text: string, level: 'beginner' | 'expert') => {
     if (!text) return;
-    const blob = new Blob([text], { type: 'text/markdown;charset=utf-8' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
     const date = yyyymmdd();
     const levelLabel = level === 'beginner' ? '初心者用' : 'エキスパート用';
-    a.download =
-      sanitizeFilename(`${result.topic}_${levelLabel}_${date}`) + '.md';
-    a.click();
-    URL.revokeObjectURL(url);
+    triggerDownload(
+      sanitizeFilename(`${result.topic}_${levelLabel}_${date}`) + '.md',
+      text,
+      'text/markdown;charset=utf-8',
+    );
   };
 
   const tabBtnStyle = (active: boolean): React.CSSProperties => ({
@@ -829,17 +828,11 @@ ${r.expertContent || '（未生成）'}
       )
       .join('\n\n');
 
-    const blob = new Blob([allContent], {
-      type: 'text/markdown;charset=utf-8',
-    });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download =
-      sanitizeFilename(`スタッフ育成資料まとめ_${results.length}件_${date}`) +
-      '.md';
-    a.click();
-    URL.revokeObjectURL(url);
+    triggerDownload(
+      sanitizeFilename(`スタッフ育成資料まとめ_${results.length}件_${date}`) + '.md',
+      allContent,
+      'text/markdown;charset=utf-8',
+    );
   };
 
   // ============== その場編集 → ライブラリ保存 ==============

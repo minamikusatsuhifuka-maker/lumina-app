@@ -3,6 +3,7 @@ import { useState } from 'react';
 import { ProgressBar } from '@/components/ProgressBar';
 import { useProgress } from '@/components/useProgress';
 import { SaveToLibraryButton } from '@/components/SaveToLibraryButton';
+import { triggerDownload } from '@/lib/download';
 
 const INDUSTRIES = ['IT・SaaS', '医療・ヘルスケア', '飲食・フード', '不動産', '教育・研修', 'コンサルティング', '製造業', '小売・EC', '金融・保険', '美容・エステ', 'その他'];
 const AGE_RANGES = ['18〜24歳', '25〜34歳', '35〜44歳', '45〜54歳', '55〜64歳', '65歳以上', '指定なし'];
@@ -126,11 +127,7 @@ export default function PersonaPage() {
     lines.push(`【マーケティング戦略】`);
     lines.push(result.marketing_strategy);
 
-    const blob = new Blob([lines.join('\n')], { type: 'text/plain; charset=utf-8' });
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(blob);
-    a.download = `persona_${product}_${Date.now()}.txt`;
-    a.click();
+    triggerDownload(`persona_${product}_${Date.now()}.txt`, lines.join('\n'), 'text/plain; charset=utf-8');
   };
 
   return (

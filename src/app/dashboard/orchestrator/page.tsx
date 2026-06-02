@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { PIPELINES } from '@/lib/pipelines';
+import { copyToClipboard } from '@/lib/copyToClipboard';
 
 interface Job {
   id: number;
@@ -1173,7 +1174,7 @@ export default function OrchestratorPage() {
                     <button
                       type="button"
                       onClick={() =>
-                        navigator.clipboard.writeText(result.result)
+                        copyToClipboard(result.result)
                       }
                       style={{
                         fontSize: 11,
@@ -1448,7 +1449,7 @@ function HistoryResultsPanel({
           `## ${step.label}\n\n${job.results[step.id].result}`,
       )
       .join('\n\n---\n\n');
-    void navigator.clipboard.writeText(allText);
+    void copyToClipboard(allText);
   };
 
   return (
@@ -1643,7 +1644,7 @@ function HistoryStepCard({
           <button
             type="button"
             onClick={() => {
-              void navigator.clipboard.writeText(content);
+              void copyToClipboard(content);
             }}
             style={{
               fontSize: 11,

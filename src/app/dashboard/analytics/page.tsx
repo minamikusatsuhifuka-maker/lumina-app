@@ -1,6 +1,8 @@
 'use client';
 
 import { useState, useRef, useEffect, useCallback } from 'react';
+import { copyToClipboard } from '@/lib/copyToClipboard';
+import { triggerDownload } from '@/lib/download';
 import {
   BarChart, Bar, PieChart, Pie, Cell,
   XAxis, YAxis, CartesianGrid, Tooltip,
@@ -547,13 +549,7 @@ export default function AnalyticsPage() {
         });
       }
     }
-    const blob = new Blob([lines.join('\n')], { type: 'text/markdown' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `ga4_report_${snap.date_start}_${snap.date_end}.md`;
-    a.click();
-    URL.revokeObjectURL(url);
+    triggerDownload(`ga4_report_${snap.date_start}_${snap.date_end}.md`, lines.join('\n'), 'text/markdown;charset=utf-8');
   };
 
   // アクションプランをクリップボードにコピー
@@ -580,7 +576,7 @@ export default function AnalyticsPage() {
         lines.push('');
       });
     }
-    await navigator.clipboard.writeText(lines.join('\n'));
+    await copyToClipboard(lines.join('\n'));
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   };
@@ -720,13 +716,7 @@ export default function AnalyticsPage() {
       `> 💡 ヒント: 一度に全タスクを依頼するより、2〜3タスクずつ依頼すると精度が上がります。`,
     );
 
-    const blob = new Blob([lines.join('\n')], { type: 'text/markdown' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `xlumina_claude_code_tasks_${today}.md`;
-    a.click();
-    URL.revokeObjectURL(url);
+    triggerDownload(`xlumina_claude_code_tasks_${today}.md`, lines.join('\n'), 'text/markdown;charset=utf-8');
   };
 
   const kpis = metrics ? buildKpis(metrics) : [];

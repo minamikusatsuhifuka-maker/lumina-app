@@ -12,6 +12,8 @@ import {
   sanitizeFilename,
   yyyymmdd,
 } from '@/lib/title-generator';
+import { copyToClipboard } from '@/lib/copyToClipboard';
+import { triggerDownload } from '@/lib/download';
 
 // 既存の analyze API の type と対応
 const ANALYSIS_TYPES = [
@@ -153,7 +155,7 @@ export default function InlineAnalysisPanel({
     const allText = ANALYSIS_TYPES.filter((t) => results[t.id])
       .map((t) => `## ${t.label}\n\n${results[t.id]}`)
       .join('\n\n---\n\n');
-    if (allText) navigator.clipboard.writeText(allText);
+    if (allText) copyToClipboard(allText);
   };
 
   // 個別パネルの .md ダウンロード（AIタイトル生成 + モデル表記付き）
@@ -179,13 +181,7 @@ export default function InlineAnalysisPanel({
         : '';
       const md = `# ${autoTitle}\n\n${modelLine}${content}`;
 
-      const blob = new Blob([md], { type: 'text/markdown;charset=utf-8' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `${fileTitle}_${yyyymmdd()}.md`;
-      a.click();
-      URL.revokeObjectURL(url);
+      triggerDownload(`${fileTitle}_${yyyymmdd()}.md`, md, 'text/markdown;charset=utf-8');
     } finally {
       setGeneratingTitleId(null);
     }

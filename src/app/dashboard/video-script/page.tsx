@@ -3,6 +3,7 @@ import { useState } from 'react';
 import { ProgressBar } from '@/components/ProgressBar';
 import { useProgress } from '@/components/useProgress';
 import { SaveToLibraryButton } from '@/components/SaveToLibraryButton';
+import { triggerDownload } from '@/lib/download';
 
 interface ScriptSection {
   heading: string;
@@ -163,11 +164,7 @@ export default function VideoScriptPage() {
     lines.push('--- 撮影・編集のコツ ---');
     (result.tips || []).forEach(t => lines.push(`・${t}`));
 
-    const blob = new Blob([lines.join('\n')], { type: 'text/plain; charset=utf-8' });
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(blob);
-    a.download = `script_${platform}_${Date.now()}.txt`;
-    a.click();
+    triggerDownload(`script_${platform}_${Date.now()}.txt`, lines.join('\n'), 'text/plain; charset=utf-8');
   };
 
   return (

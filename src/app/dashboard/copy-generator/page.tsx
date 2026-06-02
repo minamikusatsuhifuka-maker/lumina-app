@@ -8,6 +8,7 @@ import DefaultContextBar, {
   type DefaultContextItem,
 } from '@/components/DefaultContextBar';
 import DeepDiveChat from '@/components/DeepDiveChat';
+import { copyToClipboard } from '@/lib/copyToClipboard';
 
 const FRAMEWORKS = [
   { id: 'PASONA', label: 'PASONA', desc: '共感→解決→限定→行動', color: '#6c63ff' },
@@ -60,7 +61,7 @@ export default function CopyGeneratorPage() {
   };
 
   const copyText = (text: string, key: string) => {
-    navigator.clipboard.writeText(text);
+    copyToClipboard(text);
     setCopied(key);
     setTimeout(() => setCopied(null), 2000);
   };

@@ -2,6 +2,7 @@
 import { useState, useEffect } from 'react';
 import { ProgressBar } from '@/components/ProgressBar';
 import { useProgress } from '@/components/useProgress';
+import { triggerDownload } from '@/lib/download';
 
 type Term = {
   word: string;
@@ -561,9 +562,7 @@ export default function GlossaryPage() {
       content = '用語,解説,業界,難易度\n' + items.map((i: any) => `"${i.term}","${i.definition}","${i.industry}","${i.level}"`).join('\n');
     }
     const ext = format === 'csv' ? 'csv' : 'txt';
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(new Blob([content], { type: 'text/plain;charset=utf-8' }));
-    a.download = `glossary_saved.${ext}`; a.click();
+    triggerDownload(`glossary_saved.${ext}`, content, 'text/plain');
   };
 
   const savedFilteredItems = savedItems.filter(i => {

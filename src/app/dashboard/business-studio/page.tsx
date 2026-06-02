@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
+import { copyToClipboard } from '@/lib/copyToClipboard';
 import ContextSelector, {
   buildContextText,
   type ContextItem,
@@ -1039,7 +1040,7 @@ export default function BusinessStudioPage() {
                         <button
                           type="button"
                           onClick={() =>
-                            navigator.clipboard.writeText(generatedContent)
+                            copyToClipboard(generatedContent)
                           }
                           style={{
                             fontSize: 12,
@@ -1202,7 +1203,7 @@ export default function BusinessStudioPage() {
                           <button
                             type="button"
                             onClick={() =>
-                              navigator.clipboard.writeText(asset.content)
+                              copyToClipboard(asset.content)
                             }
                             style={{
                               fontSize: 12,

@@ -3,6 +3,8 @@ import { useState, useEffect } from 'react';
 import { ProgressBar } from '@/components/ProgressBar';
 import { useProgress } from '@/components/useProgress';
 import { SaveToLibraryButton } from '@/components/SaveToLibraryButton';
+import { copyToClipboard } from '@/lib/copyToClipboard';
+import { triggerDownload } from '@/lib/download';
 
 const PRESENTATION_TYPES = [
   { id: 'business', label: '💼 ビジネス提案', desc: '提案・報告・計画書', color: '#6c63ff' },
@@ -59,7 +61,7 @@ export default function GensparkPage() {
   };
 
   const copyAndOpenGenspark = async () => {
-    await navigator.clipboard.writeText(result);
+    await copyToClipboard(result);
     setCopied(true);
     setTimeout(() => {
       window.open('https://www.genspark.ai', '_blank');
@@ -68,10 +70,7 @@ export default function GensparkPage() {
   };
 
   const downloadMd = () => {
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(new Blob([result], { type: 'text/plain' }));
-    a.download = `genspark_${title || 'presentation'}_${Date.now()}.md`;
-    a.click();
+    triggerDownload(`genspark_${title || 'presentation'}_${Date.now()}.md`, result, 'text/plain');
   };
 
   const selectedType = PRESENTATION_TYPES.find(t => t.id === presentationType);

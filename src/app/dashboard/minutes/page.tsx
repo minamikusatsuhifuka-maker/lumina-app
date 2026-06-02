@@ -2,6 +2,7 @@
 import { useState } from 'react';
 import { SaveToLibraryButton } from '@/components/SaveToLibraryButton';
 import { VoiceInputButton } from '@/components/VoiceInputButton';
+import { copyToClipboard } from '@/lib/copyToClipboard';
 
 const TEMPLATES = [
   { label: '定例会議', text: '参加者：田中、鈴木、佐藤\n日時：毎週月曜10時\n\n・先週のタスク確認\n・今週の目標設定\n・課題の共有' },
@@ -88,7 +89,7 @@ export default function MinutesPage() {
           <div style={{ padding: '12px 20px', borderBottom: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--accent)' }}>📋 整理済み議事録</span>
             <div style={{ display: 'flex', gap: 8 }}>
-              <button onClick={() => navigator.clipboard.writeText(result)} style={{ padding: '5px 12px', borderRadius: 6, border: '1px solid var(--border)', background: 'var(--bg-card)', color: 'var(--text-muted)', fontSize: 12, cursor: 'pointer' }}>コピー</button>
+              <button onClick={() => copyToClipboard(result)} style={{ padding: '5px 12px', borderRadius: 6, border: '1px solid var(--border)', background: 'var(--bg-card)', color: 'var(--text-muted)', fontSize: 12, cursor: 'pointer' }}>コピー</button>
               <SaveToLibraryButton title={`議事録: ${new Date().toLocaleDateString('ja-JP')}`} content={result} type="web" tags="議事録" groupName="議事録" />
             </div>
           </div>

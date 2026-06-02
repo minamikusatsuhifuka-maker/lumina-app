@@ -3,6 +3,8 @@ import { useState, useEffect } from 'react';
 import { ProgressBar } from '@/components/ProgressBar';
 import { useProgress } from '@/components/useProgress';
 import { SaveToLibraryButton } from '@/components/SaveToLibraryButton';
+import { copyToClipboard } from '@/lib/copyToClipboard';
+import { triggerDownload } from '@/lib/download';
 
 const STRATEGY_TYPES = [
   { id: 'mvv', label: '🌟 MVV策定', desc: 'Mission・Vision・Values を策定', color: '#6c63ff' },
@@ -168,10 +170,7 @@ export default function StrategyPage() {
   };
 
   const download = () => {
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(new Blob([result], { type: 'text/plain' }));
-    a.download = `lumina_strategy_${strategyType}_${Date.now()}.md`;
-    a.click();
+    triggerDownload(`lumina_strategy_${strategyType}_${Date.now()}.md`, result, 'text/plain');
   };
 
   const selectedType = STRATEGY_TYPES.find(t => t.id === strategyType);
@@ -284,7 +283,7 @@ export default function StrategyPage() {
               >
                 📄 PDF
               </button>
-              <button onClick={() => navigator.clipboard.writeText(result)} style={{ padding: '5px 12px', background: 'var(--bg-secondary)', border: '1px solid var(--border)', color: 'var(--text-secondary)', borderRadius: 6, cursor: 'pointer', fontSize: 12 }}>📋 コピー</button>
+              <button onClick={() => copyToClipboard(result)} style={{ padding: '5px 12px', background: 'var(--bg-secondary)', border: '1px solid var(--border)', color: 'var(--text-secondary)', borderRadius: 6, cursor: 'pointer', fontSize: 12 }}>📋 コピー</button>
             </div>
           </div>
           {loading && (

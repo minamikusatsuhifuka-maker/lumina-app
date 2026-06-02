@@ -13,6 +13,8 @@ import {
   sanitizeFilename,
   yyyymmdd,
 } from '@/lib/title-generator';
+import { copyToClipboard } from '@/lib/copyToClipboard';
+import { triggerDownload } from '@/lib/download';
 
 type Length = 'short' | 'medium' | 'long';
 
@@ -336,13 +338,7 @@ export default function NoteArticleGenerationPage() {
       : '';
     const lengthLine = `> 長さ: ${LENGTH_OPTIONS.find(l => l.value === length)?.label}\n`;
     const md = `# note記事下書き: ${theme}\n\n${modelLine}${lengthLine}\n---\n\n${currentContent}`;
-    const blob = new Blob([md], { type: 'text/markdown;charset=utf-8' });
-    const blobUrl = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = blobUrl;
-    a.download = `${fileTitle}_${yyyymmdd()}.md`;
-    a.click();
-    URL.revokeObjectURL(blobUrl);
+    triggerDownload(`${fileTitle}_${yyyymmdd()}.md`, md, 'text/markdown;charset=utf-8');
   };
 
   return (
@@ -844,7 +840,7 @@ export default function NoteArticleGenerationPage() {
                 📥 MDダウンロード
               </button>
               <button
-                onClick={() => navigator.clipboard.writeText(currentContent)}
+                onClick={() => copyToClipboard(currentContent)}
                 style={{
                   padding: '6px 14px',
                   background: 'var(--bg-secondary)',

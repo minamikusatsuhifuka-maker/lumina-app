@@ -1,6 +1,8 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
+import { copyToClipboard } from '@/lib/copyToClipboard';
+import { triggerDownload } from '@/lib/download';
 
 interface Message { role: 'user' | 'assistant'; content: string; }
 interface Session {
@@ -615,7 +617,7 @@ export default function AutomationStrategyPage() {
                   </span>
                   {strategyOutput && !isGeneratingStrategy && (
                     <div style={{ display: 'flex', gap: 8 }}>
-                      <button onClick={() => navigator.clipboard.writeText(strategyOutput)}
+                      <button onClick={() => copyToClipboard(strategyOutput)}
                         style={{ fontSize: 12, padding: '5px 10px', border: '1px solid var(--border-color)', borderRadius: 6, background: 'var(--bg-primary)', cursor: 'pointer' }}>
                         📋 コピー
                       </button>
@@ -682,20 +684,14 @@ export default function AutomationStrategyPage() {
                   <span style={{ fontSize: 14, fontWeight: 700, color: '#059669' }}>📄 対話レポート</span>
                   <div style={{ display: 'flex', gap: 8 }}>
                     <button
-                      onClick={() => navigator.clipboard.writeText(reportOutput)}
+                      onClick={() => copyToClipboard(reportOutput)}
                       style={{ fontSize: 12, padding: '5px 10px', border: '1px solid var(--border-color)', borderRadius: 6, background: 'var(--bg-primary)', cursor: 'pointer' }}
                     >
                       📋 コピー
                     </button>
                     <button
                       onClick={() => {
-                        const blob = new Blob([reportOutput], { type: 'text/markdown; charset=utf-8' });
-                        const url = URL.createObjectURL(blob);
-                        const a = document.createElement('a');
-                        a.href = url;
-                        a.download = `自動化戦略レポート_${new Date().toISOString().slice(0, 10)}.md`;
-                        a.click();
-                        URL.revokeObjectURL(url);
+                        triggerDownload(`自動化戦略レポート_${new Date().toISOString().slice(0, 10)}.md`, reportOutput, 'text/markdown;charset=utf-8');
                       }}
                       style={{ fontSize: 12, padding: '5px 10px', background: '#059669', color: '#fff', border: 'none', borderRadius: 6, cursor: 'pointer' }}
                     >

@@ -4,6 +4,7 @@ import { ProgressBar } from '@/components/ProgressBar';
 import { VoiceInputButton } from '@/components/VoiceInputButton';
 import { useProgress } from '@/components/useProgress';
 import { DateRangePicker, DateRange, getDateCondition } from '@/components/DateRangePicker';
+import { copyToClipboard } from '@/lib/copyToClipboard';
 
 const QUICK_SEARCHES = [
   'AIの最新トレンド2026年', 'ChatGPT活用事例ビジネス', 'note ブログ収益化のコツ',
@@ -451,7 +452,7 @@ export default function WebSearchPage() {
               <button onClick={sendToWrite} style={{ padding: '6px 14px', background: 'linear-gradient(135deg, #6c63ff, #8b5cf6)', color: '#fff', border: 'none', borderRadius: 6, cursor: 'pointer', fontSize: 12, fontWeight: 600 }}>
                 ✍️ 文章作成に使う
               </button>
-              <button onClick={() => { navigator.clipboard.writeText(result); setToast('✅ コピーしました！'); setTimeout(() => setToast(''), 2000); }} style={{ padding: '6px 14px', background: 'var(--bg-secondary)', border: '1px solid var(--border)', color: 'var(--text-secondary)', borderRadius: 6, cursor: 'pointer', fontSize: 12 }}>
+              <button onClick={() => { copyToClipboard(result); setToast('✅ コピーしました！'); setTimeout(() => setToast(''), 2000); }} style={{ padding: '6px 14px', background: 'var(--bg-secondary)', border: '1px solid var(--border)', color: 'var(--text-secondary)', borderRadius: 6, cursor: 'pointer', fontSize: 12 }}>
                 📋 コピー
               </button>
               <button

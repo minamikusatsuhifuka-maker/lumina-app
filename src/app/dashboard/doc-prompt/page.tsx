@@ -3,6 +3,8 @@ import { useState } from 'react';
 import { ProgressBar } from '@/components/ProgressBar';
 import { useProgress } from '@/components/useProgress';
 import { SaveToLibraryButton } from '@/components/SaveToLibraryButton';
+import { copyToClipboard } from '@/lib/copyToClipboard';
+import { triggerDownload } from '@/lib/download';
 
 const DOC_TYPES = [
   { id: 'proposal', label: '📋 提案書', desc: '企業向け提案・見積', color: '#6c63ff' },
@@ -92,7 +94,7 @@ export default function DocPromptPage() {
   };
 
   const copySection = async (key: string, text: string) => {
-    await navigator.clipboard.writeText(text);
+    await copyToClipboard(text);
     setCopiedSection(key);
     setTimeout(() => setCopiedSection(null), 2000);
   };
@@ -136,11 +138,7 @@ export default function DocPromptPage() {
       result.tips.forEach(t => lines.push(`・${t}`));
     }
 
-    const blob = new Blob([lines.join('\n')], { type: 'text/plain; charset=utf-8' });
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(blob);
-    a.download = `doc_prompt_${form.theme || 'output'}_${Date.now()}.txt`;
-    a.click();
+    triggerDownload(`doc_prompt_${form.theme || 'output'}_${Date.now()}.txt`, lines.join('\n'), 'text/plain');
   };
 
   const selectedDoc = DOC_TYPES.find(d => d.id === docType);

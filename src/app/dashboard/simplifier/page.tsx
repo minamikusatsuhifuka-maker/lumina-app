@@ -3,6 +3,7 @@ import { useState } from 'react';
 import { ProgressBar } from '@/components/ProgressBar';
 import { useProgress } from '@/components/useProgress';
 import { SaveToLibraryButton } from '@/components/SaveToLibraryButton';
+import { copyToClipboard as copyToClipboardUtil } from '@/lib/copyToClipboard';
 
 interface KeyTerm {
   original: string;
@@ -75,7 +76,7 @@ export default function SimplifierPage() {
 
   const copyToClipboard = () => {
     if (!result) return;
-    navigator.clipboard.writeText(result.converted_text);
+    copyToClipboardUtil(result.converted_text);
   };
 
   const sendToWriter = () => {

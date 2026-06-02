@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { triggerDownload } from '@/lib/download';
 import ContextSelector, {
   buildContextText,
   type ContextItem,
@@ -263,15 +264,7 @@ export default function NexusPage() {
   };
 
   const handleDownloadHtml = () => {
-    const blob = new Blob([generatedHtml], {
-      type: 'text/html; charset=utf-8',
-    });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `nexus-${selectedPageType}-${new Date().toISOString().slice(0, 10)}.html`;
-    a.click();
-    URL.revokeObjectURL(url);
+    triggerDownload(`nexus-${selectedPageType}-${new Date().toISOString().slice(0, 10)}.html`, generatedHtml, 'text/html; charset=utf-8');
   };
 
   const handleWriteBlog = async () => {

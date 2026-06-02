@@ -1,6 +1,8 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
+import { copyToClipboard } from '@/lib/copyToClipboard';
+import { triggerDownload } from '@/lib/download';
 
 interface Message {
   role: 'user' | 'assistant';
@@ -240,15 +242,7 @@ ${(architecture.roadmap || []).map(r => `### Phase ${r.phase}: ${r.title}（${r.
 ## チャット履歴
 ${messages.map(m => `### ${m.role === 'user' ? '👤 ユーザー' : '🤖 AI'}\n${m.content}`).join('\n\n---\n\n')}
 `;
-    const blob = new Blob([content], { type: 'text/markdown; charset=utf-8' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `${dateStr}_architecture.md`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
+    triggerDownload(`${dateStr}_architecture.md`, content, 'text/markdown;charset=utf-8');
   };
 
   const downloadClaudeCode = () => {
@@ -279,15 +273,7 @@ ${architecture.mermaid}
 上記の仕様に基づいて、Phase 1から順番に実装してください。
 各フェーズ完了後に動作確認を行い、次のフェーズに進んでください。
 `;
-    const blob = new Blob([content], { type: 'text/markdown; charset=utf-8' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `${dateStr}_claude_code_instructions.md`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
+    triggerDownload(`${dateStr}_claude_code_instructions.md`, content, 'text/markdown;charset=utf-8');
   };
 
   // architecture-jsonブロックを表示から除外
@@ -820,7 +806,7 @@ ${architecture.mermaid}
                     <button
                       onClick={() => {
                         if (architecture?.mermaid) {
-                          navigator.clipboard.writeText(architecture.mermaid);
+                          copyToClipboard(architecture.mermaid);
                           alert('Mermaidコードをコピーしました！\nmermaid.live に貼り付けて可視化してください。');
                         }
                       }}

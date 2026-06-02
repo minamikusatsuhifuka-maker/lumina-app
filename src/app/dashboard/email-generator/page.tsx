@@ -3,6 +3,8 @@ import { useState } from 'react';
 import { ProgressBar } from '@/components/ProgressBar';
 import { useProgress } from '@/components/useProgress';
 import { SaveToLibraryButton } from '@/components/SaveToLibraryButton';
+import { copyToClipboard } from '@/lib/copyToClipboard';
+import { triggerDownload } from '@/lib/download';
 import ContextSelector, {
   buildContextText,
   type ContextItem,
@@ -68,7 +70,7 @@ export default function EmailGeneratorPage() {
   };
 
   const copyText = (text: string, key: string) => {
-    navigator.clipboard.writeText(text);
+    copyToClipboard(text);
     setCopied(key);
     setTimeout(() => setCopied(null), 2000);
   };
@@ -141,11 +143,7 @@ export default function EmailGeneratorPage() {
     lines.push(`【開封率アップのヒント】`);
     result.open_rate_tips.forEach(tip => lines.push(`  - ${tip}`));
 
-    const blob = new Blob([lines.join('\n')], { type: 'text/plain; charset=utf-8' });
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(blob);
-    a.download = `step_email_${product}_${Date.now()}.txt`;
-    a.click();
+    triggerDownload(`step_email_${product}_${Date.now()}.txt`, lines.join('\n'), 'text/plain');
   };
 
   const copyCurrentEmail = () => {

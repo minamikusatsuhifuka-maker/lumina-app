@@ -3,6 +3,8 @@ import { useState } from 'react';
 import { ProgressBar } from '@/components/ProgressBar';
 import { useProgress } from '@/components/useProgress';
 import { SaveToLibraryButton } from '@/components/SaveToLibraryButton';
+import { copyToClipboard as libCopyToClipboard } from '@/lib/copyToClipboard';
+import { triggerDownload } from '@/lib/download';
 
 /* ---------- 型定義 ---------- */
 interface ChapterOutline {
@@ -211,7 +213,7 @@ export default function KindleStudioPage() {
 
   /* --- ヘルパー: クリップボードコピー --- */
   const copyToClipboard = (text: string, key: string) => {
-    navigator.clipboard.writeText(text);
+    libCopyToClipboard(text);
     setCopiedKey(key);
     setTimeout(() => setCopiedKey(''), 2000);
   };
@@ -629,11 +631,7 @@ export default function KindleStudioPage() {
       lines.push(outline.afterword_outline);
     }
 
-    const blob = new Blob([lines.join('\n')], { type: 'text/plain; charset=utf-8' });
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(blob);
-    a.download = `kindle_${outline.book_title.replace(/\s/g, '_')}_${Date.now()}.txt`;
-    a.click();
+    triggerDownload(`kindle_${outline.book_title.replace(/\s/g, '_')}_${Date.now()}.txt`, lines.join('\n'), 'text/plain');
   };
 
   const completedCount = outline ? outline.chapters.filter(ch => chapters[ch.chapter_num]).length : 0;

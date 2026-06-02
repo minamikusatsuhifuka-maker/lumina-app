@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useMemo } from 'react';
 import FeatureDefaultContextSelector, { FEATURE_OPTIONS } from '@/components/FeatureDefaultContextSelector';
+import { copyToClipboard } from '@/lib/copyToClipboard';
 
 type ContextSave = {
   id: number;
@@ -101,7 +102,7 @@ export default function ContextLibraryPage() {
 
   const handleCopy = async (item: ContextSave) => {
     try {
-      await navigator.clipboard.writeText(item.context_text);
+      await copyToClipboard(item.context_text);
       setCopiedId(item.id);
       setTimeout(() => setCopiedId(null), 2000);
     } catch {}

@@ -3,6 +3,8 @@ import { useState } from 'react';
 import { SaveToLibraryButton } from '@/components/SaveToLibraryButton';
 import { ProgressBar } from '@/components/ProgressBar';
 import { useProgress } from '@/components/useProgress';
+import { copyToClipboard } from '@/lib/copyToClipboard';
+import { triggerDownload } from '@/lib/download';
 
 interface CitationResult {
   citation: string;
@@ -82,7 +84,7 @@ export default function CitationPage() {
   };
 
   const copyText = (text: string, label: string) => {
-    navigator.clipboard.writeText(text);
+    copyToClipboard(text);
     setCopied(label);
     setTimeout(() => setCopied(''), 2000);
   };
@@ -111,11 +113,7 @@ export default function CitationPage() {
       lines.push(result.tips);
     }
 
-    const blob = new Blob([lines.join('\n')], { type: 'text/plain; charset=utf-8' });
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(blob);
-    a.download = `citation_${style}_${Date.now()}.txt`;
-    a.click();
+    triggerDownload(`citation_${style}_${Date.now()}.txt`, lines.join('\n'), 'text/plain');
   };
 
   const inputStyle = {

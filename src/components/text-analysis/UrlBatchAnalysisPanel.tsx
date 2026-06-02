@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { getSavedModel } from '@/lib/model-preference';
+import { copyToClipboard } from '@/lib/copyToClipboard';
 
 // 既存の analyze API の type と対応
 const ANALYSIS_TYPES = [
@@ -407,7 +408,7 @@ export default function UrlBatchAnalysisPanel() {
                         <button
                           type="button"
                           onClick={() =>
-                            navigator.clipboard.writeText(a.content)
+                            copyToClipboard(a.content)
                           }
                           className="text-xs px-3 py-1.5 border rounded-lg text-gray-600 hover:bg-gray-50"
                         >

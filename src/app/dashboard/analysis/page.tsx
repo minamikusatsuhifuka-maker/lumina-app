@@ -3,6 +3,8 @@ import { useState, useEffect } from 'react';
 import { ProgressBar } from '@/components/ProgressBar';
 import { useProgress } from '@/components/useProgress';
 import { SaveToLibraryButton } from '@/components/SaveToLibraryButton';
+import { copyToClipboard } from '@/lib/copyToClipboard';
+import { triggerDownload } from '@/lib/download';
 
 const ANALYSIS_TYPES = [
   { id: 'swot', label: '📊 SWOT分析', desc: '強み・弱み・機会・脅威を体系化' },
@@ -145,11 +147,9 @@ export default function AnalysisPage() {
                 📚 保存
               </button>
               <button onClick={sendToWriter} style={{ padding: '5px 14px', background: 'linear-gradient(135deg, #6c63ff, #8b5cf6)', color: '#fff', border: 'none', borderRadius: 6, cursor: 'pointer', fontSize: 12, fontWeight: 600 }}>✍️ 文章作成</button>
-              <button onClick={() => navigator.clipboard.writeText(result)} style={{ padding: '5px 12px', background: 'var(--bg-secondary)', border: '1px solid var(--border)', color: 'var(--text-secondary)', borderRadius: 6, cursor: 'pointer', fontSize: 12 }}>📋 コピー</button>
+              <button onClick={() => copyToClipboard(result)} style={{ padding: '5px 12px', background: 'var(--bg-secondary)', border: '1px solid var(--border)', color: 'var(--text-secondary)', borderRadius: 6, cursor: 'pointer', fontSize: 12 }}>📋 コピー</button>
               <button onClick={() => {
-                const a = document.createElement('a');
-                a.href = URL.createObjectURL(new Blob([result], { type: 'text/plain' }));
-                a.download = `lumina_analysis_${Date.now()}.md`; a.click();
+                triggerDownload(`lumina_analysis_${Date.now()}.md`, result, 'text/plain');
               }} style={{ padding: '5px 12px', background: 'var(--bg-secondary)', border: '1px solid var(--border)', color: 'var(--text-secondary)', borderRadius: 6, cursor: 'pointer', fontSize: 12 }}>💾 保存</button>
               <button
                 onClick={async () => {

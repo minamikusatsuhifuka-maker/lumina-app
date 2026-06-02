@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
+import { copyToClipboard } from '@/lib/copyToClipboard';
 
 const TREATMENT_CATEGORIES = [
   {
@@ -1149,7 +1150,7 @@ export default function PricingStrategyPage() {
                     <div style={{ display: 'flex', gap: 8 }}>
                       <button
                         onClick={() =>
-                          navigator.clipboard.writeText(analysisResult)
+                          copyToClipboard(analysisResult)
                         }
                         style={{
                           fontSize: 12,

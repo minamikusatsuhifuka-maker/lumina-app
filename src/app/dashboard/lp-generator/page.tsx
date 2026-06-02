@@ -3,6 +3,8 @@ import { useState, useEffect } from 'react';
 import { ProgressBar } from '@/components/ProgressBar';
 import { useProgress } from '@/components/useProgress';
 import { SaveToLibraryButton } from '@/components/SaveToLibraryButton';
+import { copyToClipboard } from '@/lib/copyToClipboard';
+import { triggerDownload } from '@/lib/download';
 import DefaultContextBar, {
   buildDefaultContextText,
   type DefaultContextItem,
@@ -177,11 +179,7 @@ export default function LPGeneratorPage() {
       lines.push('');
     });
 
-    const blob = new Blob([lines.join('\n')], { type: 'text/plain; charset=utf-8' });
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(blob);
-    a.download = `lp_${form.productName || 'output'}_${Date.now()}.txt`;
-    a.click();
+    triggerDownload(`lp_${form.productName || 'output'}_${Date.now()}.txt`, lines.join('\n'), 'text/plain');
   };
 
   /** HTMLエクスポート — スタンドアロンHTML */
@@ -290,11 +288,7 @@ ${result.cta_sections[2] ? ctaBlock(result.cta_sections[2]) : ''}
 </body>
 </html>`;
 
-    const blob = new Blob([html], { type: 'text/html; charset=utf-8' });
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(blob);
-    a.download = `lp_${form.productName || 'landing_page'}_${Date.now()}.html`;
-    a.click();
+    triggerDownload(`lp_${form.productName || 'landing_page'}_${Date.now()}.html`, html);
   };
 
   const selectedFramework = FRAMEWORKS.find(f => f.id === framework);
@@ -505,7 +499,7 @@ ${result.cta_sections[2] ? ctaBlock(result.cta_sections[2]) : ''}
             <button onClick={exportHtml} style={{ padding: '6px 14px', background: 'linear-gradient(135deg, #667eea, #764ba2)', color: '#fff', border: 'none', borderRadius: 6, cursor: 'pointer', fontSize: 12, fontWeight: 600 }}>
               🌐 HTMLエクスポート
             </button>
-            <button onClick={() => navigator.clipboard.writeText(rawText)} style={{ padding: '6px 14px', background: 'var(--bg-secondary)', border: '1px solid var(--border)', color: 'var(--text-secondary)', borderRadius: 6, cursor: 'pointer', fontSize: 12 }}>
+            <button onClick={() => copyToClipboard(rawText)} style={{ padding: '6px 14px', background: 'var(--bg-secondary)', border: '1px solid var(--border)', color: 'var(--text-secondary)', borderRadius: 6, cursor: 'pointer', fontSize: 12 }}>
               📋 JSONコピー
             </button>
           </div>

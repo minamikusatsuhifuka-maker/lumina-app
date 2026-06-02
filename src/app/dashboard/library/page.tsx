@@ -1,6 +1,8 @@
 'use client';
 import { useState, useEffect, useMemo, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
+import { copyToClipboard } from '@/lib/copyToClipboard';
+import { triggerDownload } from '@/lib/download';
 import { LibraryItemRow } from '@/components/LibraryItemRow';
 // LibraryPreviewPanel は廃止（カード内インライン展開に統一）
 
@@ -163,11 +165,11 @@ function LibraryPageInner() {
 
   const downloadTxt = (item: any) => {
     const text = `${item.title}\n${'='.repeat(40)}\n作成日: ${new Date(item.created_at).toLocaleDateString('ja-JP')}\nタグ: ${item.tags || 'なし'}\n\n${item.content || ''}`;
-    const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([text], { type: 'text/plain' })); a.download = `${item.title.slice(0, 30)}.txt`; a.click();
+    triggerDownload(`${item.title.slice(0, 30)}.txt`, text, 'text/plain');
   };
   const downloadMd = (item: any) => {
     const text = `# ${item.title}\n\n> 作成日: ${new Date(item.created_at).toLocaleDateString('ja-JP')}\n\n${item.content || ''}`;
-    const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([text], { type: 'text/plain' })); a.download = `${item.title.slice(0, 30)}.md`; a.click();
+    triggerDownload(`${item.title.slice(0, 30)}.md`, text, 'text/plain');
   };
 
   /* ── フォルダ操作 ── */
@@ -893,7 +895,7 @@ function LibraryPageInner() {
                 style={{ padding: '8px 16px', borderRadius: 8, border: 'none', background: isSaving ? 'rgba(108,99,255,0.3)' : 'linear-gradient(135deg, #6c63ff, #8b5cf6)', color: '#fff', fontWeight: 700, fontSize: 13, cursor: isSaving ? 'not-allowed' : 'pointer' }}>
                 {isSaving ? '保存中...' : '📚 ライブラリに保存'}
               </button>
-              <button onClick={() => navigator.clipboard.writeText(mergeResult).then(() => alert('コピーしました！'))}
+              <button onClick={() => copyToClipboard(mergeResult).then(() => alert('コピーしました！'))}
                 style={{ padding: '8px 16px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--bg-secondary)', color: 'var(--text-secondary)', cursor: 'pointer', fontSize: 13 }}>
                 📋 コピー
               </button>

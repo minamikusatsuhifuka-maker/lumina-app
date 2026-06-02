@@ -3,6 +3,8 @@ import { useState } from 'react';
 import { ProgressBar } from '@/components/ProgressBar';
 import { useProgress } from '@/components/useProgress';
 import { SaveToLibraryButton } from '@/components/SaveToLibraryButton';
+import { copyToClipboard } from '@/lib/copyToClipboard';
+import { triggerDownload } from '@/lib/download';
 import BuzzLibraryList from '@/components/buzz/BuzzLibraryList';
 import {
   getSavedModel,
@@ -296,13 +298,7 @@ export default function BuzzAnalysisPage() {
         ? `> 生成AI: ${getModelIcon(reportModel)} ${getModelLabel(reportModel)}\n${meta.downloadHeader}\n---\n\n`
         : `${meta.downloadHeader}\n---\n\n`;
       const md = `# ${autoTitle}\n\n${modelLine}${report}`;
-      const blob = new Blob([md], { type: 'text/markdown;charset=utf-8' });
-      const blobUrl = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = blobUrl;
-      a.download = `${fileTitle}_${yyyymmdd()}.md`;
-      a.click();
-      URL.revokeObjectURL(blobUrl);
+      triggerDownload(`${fileTitle}_${yyyymmdd()}.md`, md, 'text/markdown;charset=utf-8');
     } finally {
       setDownloadingMd(false);
     }
@@ -814,7 +810,7 @@ ${scenarios.map((sc: string) => `- ${sc}`).join('\n')}
                 {downloadingMd ? '⏳ タイトル生成中...' : '💾 MDダウンロード'}
               </button>
               <button
-                onClick={() => navigator.clipboard.writeText(report)}
+                onClick={() => copyToClipboard(report)}
                 style={{
                   padding: '6px 14px',
                   background: 'var(--bg-secondary)',

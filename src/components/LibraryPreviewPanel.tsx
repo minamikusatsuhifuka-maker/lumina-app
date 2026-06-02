@@ -1,6 +1,8 @@
 'use client';
 
 import { useEffect } from 'react';
+import { copyToClipboard } from '@/lib/copyToClipboard';
+import { triggerDownload } from '@/lib/download';
 
 interface Props {
   item: {
@@ -49,7 +51,7 @@ export function LibraryPreviewPanel({ item, onClose }: Props) {
             </div>
           </div>
           <div style={{ display: 'flex', gap: 6, marginLeft: 12 }}>
-            <button onClick={() => navigator.clipboard.writeText(item.content)} style={{
+            <button onClick={() => copyToClipboard(item.content)} style={{
               padding: '5px 12px', borderRadius: 8, border: '1px solid var(--border)',
               background: 'var(--bg-secondary)', color: 'var(--text-secondary)', cursor: 'pointer', fontSize: 12,
             }}>📋 コピー</button>
@@ -78,11 +80,7 @@ export function LibraryPreviewPanel({ item, onClose }: Props) {
             background: 'var(--bg-secondary)', color: 'var(--text-secondary)', cursor: 'pointer', fontSize: 12,
           }}>✍️ 文章作成に使う</button>
           <button onClick={() => {
-            const blob = new Blob([item.content], { type: 'text/plain;charset=utf-8' });
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = url; a.download = `${item.title}.txt`; a.click();
-            URL.revokeObjectURL(url);
+            triggerDownload(`${item.title}.txt`, item.content, 'text/plain');
           }} style={{
             padding: '6px 14px', borderRadius: 8, border: '1px solid var(--border)',
             background: 'var(--bg-secondary)', color: 'var(--text-secondary)', cursor: 'pointer', fontSize: 12,
