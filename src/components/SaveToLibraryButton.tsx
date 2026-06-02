@@ -1,6 +1,9 @@
 'use client';
 import { useState } from 'react';
 
+// 保存時の自動カテゴライズ（デフォルト有効）。将来オフにしたい時のためのフラグ（UIには出さない）。
+const AUTO_CATEGORIZE_ENABLED = true;
+
 type Props = {
   title: string;
   content: string;
@@ -52,17 +55,19 @@ export function SaveToLibraryButton({ title, content, type, groupName, tags, met
           setShowFavoriteOption(true);
           showToast('✅ ライブラリに保存しました！');
         }
-        // ディープリサーチ保存時はバックグラウンドで自動カテゴライズ（失敗許容）
-        if (data?.id && groupName === 'ディープリサーチ') {
+        // 保存成功後、全経路でバックグラウンド自動カテゴライズ（fire-and-forget、失敗許容）
+        // ・保存は既に完了してユーザーに即フィードバック済み → 分類は裏で非同期実行
+        // ・分類失敗は保存成功を妨げない（ログのみ、ユーザー通知なし）
+        if (data?.id && AUTO_CATEGORIZE_ENABLED) {
           fetch('/api/library/auto-categorize', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
               mode: 'single',
               itemIds: [data.id],
-              category: 'ディープリサーチ',
+              category: groupName,
             }),
-          }).catch((err) => console.warn('[auto-categorize] 失敗:', err));
+          }).catch((err) => console.warn('[auto-categorize] バックグラウンド分類失敗:', err));
         }
       } else {
         showToast('❌ 保存に失敗しました');
