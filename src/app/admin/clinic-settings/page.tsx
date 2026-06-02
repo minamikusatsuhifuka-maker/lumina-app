@@ -365,11 +365,25 @@ export default function ClinicSettingsPage() {
     <div style={{ padding: 24, maxWidth: 1100, margin: '0 auto' }}>
       <div style={{ marginBottom: 22 }}>
         <h1 style={{ fontSize: 22, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 4 }}>
-          🏥 クリニック設定
+          🏥 背景資料
         </h1>
         <p style={{ fontSize: 12, color: 'var(--text-muted)' }}>
-          理念・方針・マーケティング要素をAIに学習させ、全機能に反映させます
+          方針・マーケティング要素などの資料をAIに学習させ、全機能に反映させます
         </p>
+      </div>
+
+      {/* 理念管理との住み分け注記 */}
+      <div style={{
+        background: 'var(--info-bg, #eef4ff)',
+        border: '1px solid var(--info-border, #c7d8f5)',
+        borderRadius: 8,
+        padding: '10px 14px',
+        marginBottom: 16,
+        fontSize: 13,
+        color: 'var(--text-muted, #555)',
+      }}>
+        ℹ️ ここは記事・SNS・LP などの<strong>生成 AI に読ませる資料</strong>を登録する場所です。
+        クリニックの<strong>経営理念</strong>は「💡 理念管理」で設定します。
       </div>
 
       {/* タブ */}

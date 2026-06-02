@@ -54,12 +54,12 @@ function buildSystemPrompt(name: string, content: string, sections: any): string
     : truncatedContent;
 
   return `
-## クリニック背景情報・理念（必ず参照して回答に反映してください）
+## クリニック背景情報（参照資料・必ず参照して回答に反映してください）
 プロファイル名: ${name}
 
 ${sectionsText}
 
 ---
-上記の理念・方針・マーケティング要素を深く理解し、全ての回答・生成物に自然に反映してください。
+上記の方針・マーケティング要素を深く理解し、全ての回答・生成物に自然に反映してください。
 `.trim();
 }

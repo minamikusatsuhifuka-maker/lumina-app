@@ -66,7 +66,7 @@ const navGroups: NavGroup[] = [
   {
     category: '設定',
     items: [
-      { href: '/admin/clinic-settings', label: '背景情報', icon: '🏥' },
+      { href: '/admin/clinic-settings', label: '背景資料', icon: '🏥' },
     ],
   },
 ];
