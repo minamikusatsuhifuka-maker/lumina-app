@@ -694,29 +694,8 @@ ${body}`;
                 </div>
               </div>
 
-              {/* プレビュー or 全文 */}
-              <div
-                style={{
-                  fontSize: 12,
-                  color: 'var(--text-muted)',
-                  lineHeight: 1.7,
-                  marginBottom: 10,
-                  cursor: 'pointer',
-                  whiteSpace: isExpanded ? 'pre-wrap' : 'normal',
-                  background: isExpanded ? 'var(--bg-primary)' : 'transparent',
-                  padding: isExpanded ? 12 : 0,
-                  borderRadius: isExpanded ? 8 : 0,
-                  border: isExpanded ? '1px solid var(--border)' : 'none',
-                  maxHeight: isExpanded ? 600 : 'none',
-                  overflowY: isExpanded ? 'auto' : 'visible',
-                }}
-                onClick={() => setExpandedId(isExpanded ? null : item.id)}
-              >
-                {isExpanded ? (item.content || '') : preview + (item.content && item.content.length > 200 ? '…' : '')}
-              </div>
-
-              {/* アクション */}
-              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+              {/* アクション（タイトル直下に配置 / v8・v9パターン） */}
+              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center', marginTop: 8, marginBottom: 8 }}>
                 <button
                   onClick={() => setExpandedId(isExpanded ? null : item.id)}
                   style={{
@@ -729,7 +708,7 @@ ${body}`;
                     fontSize: 11,
                   }}
                 >
-                  {isExpanded ? '🔼 折りたたむ' : '🔽 全文表示'}
+                  {isExpanded ? '▲ 閉じる' : '▼ 全文表示'}
                 </button>
                 <button
                   onClick={() => copyContent(item)}
@@ -775,7 +754,6 @@ ${body}`;
                 >
                   {isFav ? '⭐ お気に入り' : '☆ お気に入り'}
                 </button>
-                <div style={{ flex: 1 }} />
                 <button
                   onClick={() => deleteItem(item)}
                   style={{
@@ -786,10 +764,57 @@ ${body}`;
                     borderRadius: 6,
                     cursor: 'pointer',
                     fontSize: 11,
+                    marginLeft: 'auto',
                   }}
                 >
                   🗑 削除
                 </button>
+              </div>
+
+              {/* プレビュー or 全文 */}
+              <div
+                style={{
+                  fontSize: 12,
+                  color: 'var(--text-muted)',
+                  lineHeight: 1.7,
+                  marginBottom: 10,
+                  cursor: 'pointer',
+                  whiteSpace: isExpanded ? 'pre-wrap' : 'normal',
+                  background: isExpanded ? 'var(--bg-primary)' : 'transparent',
+                  padding: isExpanded ? 12 : 0,
+                  borderRadius: isExpanded ? 8 : 0,
+                  border: isExpanded ? '1px solid var(--border)' : 'none',
+                  maxHeight: isExpanded ? 600 : 'none',
+                  overflowY: isExpanded ? 'auto' : 'visible',
+                  position: 'relative',
+                }}
+                onClick={() => setExpandedId(isExpanded ? null : item.id)}
+              >
+                {/* 展開時のみ右上に sticky な閉じるボタン（スクロール追従） */}
+                {isExpanded && (
+                  <div style={{ position: 'sticky', top: 4, float: 'right', zIndex: 5, marginBottom: -28 }}>
+                    <button
+                      onClick={(e) => { e.stopPropagation(); setExpandedId(null); }}
+                      style={{
+                        padding: '4px 10px',
+                        fontSize: 11,
+                        background: 'rgba(255,255,255,0.92)',
+                        color: '#374151',
+                        border: '1px solid var(--border)',
+                        borderRadius: 6,
+                        cursor: 'pointer',
+                        boxShadow: '0 2px 6px rgba(0,0,0,0.12)',
+                        backdropFilter: 'blur(4px)',
+                        WebkitBackdropFilter: 'blur(4px)',
+                        whiteSpace: 'nowrap',
+                      }}
+                      title="このアイテムを閉じる"
+                    >
+                      ▲ 閉じる
+                    </button>
+                  </div>
+                )}
+                {isExpanded ? (item.content || '') : preview + (item.content && item.content.length > 200 ? '…' : '')}
               </div>
             </div>
           );
