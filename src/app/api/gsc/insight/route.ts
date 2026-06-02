@@ -101,7 +101,7 @@ ${topPages
 3. keywordOpportunities: 順位11〜20位かつ表示回数が多いキーワードを中心に4〜6個ピックアップ。`;
 
     const genAI = new GoogleGenerativeAI(apiKey);
-    const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
+    const model = genAI.getGenerativeModel({ model: 'gemini-3.5-flash' });
     const result = await model.generateContent({
       contents: [{ role: 'user', parts: [{ text: prompt }] }],
     });

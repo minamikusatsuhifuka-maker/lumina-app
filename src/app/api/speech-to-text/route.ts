@@ -34,7 +34,7 @@ export async function POST(request: Request) {
       }
 
       const response = await genai.models.generateContent({
-        model: "gemini-2.5-flash",
+        model: "gemini-3.5-flash",
         contents: `以下は音声認識の結果です。ビジネス・経営・AI・テクノロジーの文脈で誤認識を修正してください。修正後のテキストのみ返してください。説明や注釈は不要です。元のテキストが正しい場合はそのまま返してください。\n\n${text}`,
         config: {
           temperature: 0.1,
@@ -52,7 +52,7 @@ export async function POST(request: Request) {
     }
 
     const response = await genai.models.generateContent({
-      model: "gemini-2.5-flash",
+      model: "gemini-3.5-flash",
       contents: [
         {
           role: "user",
