@@ -363,6 +363,9 @@ type BatchJob = {
 
 export default function DeepResearchPage() {
   const [topic, setTopic] = useState('');
+  // 検索ワード履歴（実行したお題の候補表示用）
+  const [queryHistory, setQueryHistory] = useState<string[]>([]);
+  const [showQuerySuggest, setShowQuerySuggest] = useState(false);
   const [depth, setDepth] = useState('standard');
   // 背景情報として保存（モーダル制御）
   const [contextSaved, setContextSaved] = useState(false);
@@ -427,6 +430,14 @@ export default function DeepResearchPage() {
     const interval = setInterval(update, 1000);
     return () => clearInterval(interval);
   }, [browserCountdown]);
+
+  // 検索ワード履歴をページ読込時に取得（重複除去・新しい順、失敗しても本体に影響なし）
+  useEffect(() => {
+    fetch('/api/deepresearch/query-history')
+      .then(r => r.json())
+      .then(data => setQueryHistory((data.queries || []).map((q: { query: string }) => q.query)))
+      .catch(() => {});
+  }, []);
 
   // ページ離脱時の警告（タイマー待機中のみ）
   useEffect(() => {
@@ -1170,6 +1181,19 @@ ${contextText}
     }
   };
 
+  // 実行されたお題を検索ワード履歴に保存（fire-and-forget・失敗してもリサーチを妨げない）
+  const saveQueryHistory = (q: string) => {
+    const trimmed = q.trim();
+    if (!trimmed) return;
+    // ローカルの候補も即時更新（重複除去・先頭に追加）
+    setQueryHistory(prev => [trimmed, ...prev.filter(h => h !== trimmed)].slice(0, 30));
+    fetch('/api/deepresearch/query-history', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ query: trimmed }),
+    }).catch(() => {});
+  };
+
   const research = async (t?: string, parentId: number | null = null, startDepth: number | null = null) => {
     const q = t || topic;
     if (!q.trim()) return;
@@ -1251,6 +1275,8 @@ ${contextText}
         saveNodeAndSuggestTitles(q, accumulated, finalParentId, finalDepth).catch(e => console.error(e));
         extractTermsFromResearch(accumulated, q).catch(e => console.error(e));
         fetchInsights(accumulated, q).catch(e => console.error(e));
+        // 実際に実行されたお題(検索ワード)を履歴に保存（fire-and-forget・失敗許容）
+        saveQueryHistory(q);
       }
     } catch (error: any) {
       setReport(`通信エラー: ${error.message}`);
@@ -1437,12 +1463,38 @@ ${contextText}
             <textarea
               value={topic}
               onChange={e => setTopic(e.target.value)}
+              onFocus={() => setShowQuerySuggest(true)}
+              onBlur={() => setTimeout(() => setShowQuerySuggest(false), 150)}
               placeholder={'調査したいテーマを詳しく入力してください\n例：AIを活用したブログ記事の自動生成と収益化の最新事例'}
               style={{ width: '100%', minHeight: 80, background: 'var(--bg-primary)', border: '1px solid var(--border)', borderRadius: 8, color: 'var(--text-primary)', fontSize: 14, padding: 12, paddingRight: 48, resize: 'vertical', outline: 'none', fontFamily: 'inherit', lineHeight: 1.7, boxSizing: 'border-box' }}
             />
             <div style={{ position: 'absolute', right: 10, bottom: 10 }}>
               <VoiceInputButton size="sm" onResult={(text) => setTopic(prev => prev + text)} />
             </div>
+            {/* 過去に実行したお題の候補表示（入力で絞り込み・クリックで入力欄に反映） */}
+            {showQuerySuggest && (() => {
+              const kw = topic.trim().toLowerCase();
+              const suggestions = queryHistory
+                .filter(h => h !== topic && (kw === '' || h.toLowerCase().includes(kw)))
+                .slice(0, 8);
+              if (suggestions.length === 0) return null;
+              return (
+                <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, marginTop: 4, zIndex: 30, background: 'var(--bg-primary)', border: '1px solid var(--border)', borderRadius: 8, boxShadow: '0 8px 24px rgba(0,0,0,0.18)', maxHeight: 260, overflowY: 'auto' }}>
+                  <div style={{ fontSize: 10, color: 'var(--text-muted)', padding: '8px 12px 4px', textTransform: 'uppercase', letterSpacing: '0.06em' }}>📋 過去のお題</div>
+                  {suggestions.map((h, i) => (
+                    <div
+                      key={i}
+                      onMouseDown={(e) => { e.preventDefault(); setTopic(h); setShowQuerySuggest(false); }}
+                      style={{ padding: '8px 12px', fontSize: 13, color: 'var(--text-primary)', cursor: 'pointer', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}
+                      onMouseEnter={(e) => (e.currentTarget.style.background = 'var(--bg-secondary)')}
+                      onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
+                    >
+                      {h}
+                    </div>
+                  ))}
+                </div>
+              );
+            })()}
           </div>
         </div>
 
