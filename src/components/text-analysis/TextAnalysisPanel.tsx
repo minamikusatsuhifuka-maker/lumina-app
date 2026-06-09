@@ -18,6 +18,7 @@ import {
   type AIModel,
 } from '@/lib/model-preference';
 import { ModelBadge } from '@/components/ModelBadge';
+import { renderMarkdown } from '@/lib/markdown-renderer';
 import {
   generateTitleWithTimeout,
   sanitizeFilename,
@@ -39,6 +40,8 @@ interface ResultPanelProps {
   text: string;
   // この結果を生成したモデル（リクエスト送信時の値）。旧データは undefined
   model?: AIModel;
+  // ストリーミング中（生成途中）は Markdown が崩れるので pre-wrap 表示にする
+  isStreaming?: boolean;
   simplifying: boolean;
   generatingTitle: boolean;
   // 保存成功時は true、失敗時は false を返す（state 制御のため）
@@ -53,6 +56,7 @@ function ResultPanel({
   label,
   text,
   model,
+  isStreaming,
   simplifying,
   generatingTitle,
   onSave,
@@ -146,16 +150,26 @@ function ResultPanel({
           minHeight: 120,
         }}
       >
-        <div
-          style={{
-            whiteSpace: 'pre-wrap',
-            color: 'var(--text-primary)',
-            fontSize: 13,
-            lineHeight: 1.7,
-          }}
-        >
-          {text || '（分析結果がここに表示されます）'}
-        </div>
+        {text && !isStreaming ? (
+          // 生成完了後は Markdown をリッチ描画
+          <div
+            className="markdown-body"
+            style={{ color: 'var(--text-primary)', fontSize: 13 }}
+            dangerouslySetInnerHTML={{ __html: renderMarkdown(text) }}
+          />
+        ) : (
+          // 生成途中・未生成は生テキスト（崩れ防止）
+          <div
+            style={{
+              whiteSpace: 'pre-wrap',
+              color: 'var(--text-primary)',
+              fontSize: 13,
+              lineHeight: 1.7,
+            }}
+          >
+            {text || '（分析結果がここに表示されます）'}
+          </div>
+        )}
       </div>
 
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 8, fontSize: 11, color: 'var(--text-muted)' }}>
@@ -814,6 +828,7 @@ export default function TextAnalysisPanel({
               }
               text={text}
               model={resultModels.get(type)}
+              isStreaming={loading}
               simplifying={simplifying === type}
               generatingTitle={generatingTitle === type}
               onSave={() => saveResult(type, text)}

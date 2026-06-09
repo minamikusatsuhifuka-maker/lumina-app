@@ -3,6 +3,7 @@
 import { useMemo, useState } from 'react';
 import { useToast } from '@/components/ui/Toast';
 import { copyToClipboard } from '@/lib/copyToClipboard';
+import { renderMarkdown } from '@/lib/markdown-renderer';
 import {
   generateTitleWithTimeout,
   sanitizeFilename,
@@ -1198,10 +1199,8 @@ export default function SavedAnalysisList({
                           border: '1px solid var(--border)',
                           maxHeight: 400,
                           overflowY: 'auto',
-                          whiteSpace: 'pre-wrap',
                           fontSize: 12,
                           color: 'var(--text-primary)',
-                          lineHeight: 1.7,
                           position: 'relative',
                         }}
                       >
@@ -1238,7 +1237,11 @@ export default function SavedAnalysisList({
                             ▲ 閉じる
                           </button>
                         </div>
-                        {record.content}
+                        {/* 保存済み結果を Markdown リッチ描画 */}
+                        <div
+                          className="markdown-body"
+                          dangerouslySetInnerHTML={{ __html: renderMarkdown(record.content) }}
+                        />
                       </div>
                     ) : (
                       <div

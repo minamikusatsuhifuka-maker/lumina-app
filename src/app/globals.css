@@ -367,3 +367,33 @@ a[href*="dashboard"]:hover {
   background: var(--brand-primary-light);
   color: var(--brand-primary);
 }
+
+/* Markdown リッチ描画（renderMarkdown の出力用、src/lib/markdown-renderer.ts） */
+.markdown-body { line-height: 1.7; word-break: break-word; }
+.markdown-body h2 {
+  font-size: 1.2em; font-weight: 700; margin: 14px 0 6px;
+  padding-bottom: 6px; border-bottom: 1px solid var(--border, #2a2a3a);
+}
+.markdown-body h3 {
+  font-size: 1.1em; font-weight: 700; margin: 12px 0 5px;
+  padding-left: 8px; border-left: 3px solid var(--accent, #6c63ff);
+}
+.markdown-body h4 { font-size: 1em; font-weight: 700; margin: 10px 0 4px; }
+.markdown-body ul { margin: 6px 0; padding-left: 1.4em; }
+.markdown-body li { margin: 3px 0; list-style: disc; }
+.markdown-body p  { margin: 6px 0; line-height: 1.7; }
+.markdown-body strong { font-weight: 700; color: inherit; }
+.markdown-body a {
+  color: var(--accent-secondary, #00d4b8);
+  text-decoration: underline; word-break: break-all;
+}
+.markdown-body hr {
+  border: none; border-top: 1px solid var(--border, #2a2a3a); margin: 12px 0;
+}
+.markdown-body .md-gap { height: 6px; }
+.markdown-body .md-source {
+  font-size: 0.85em; color: var(--text-muted, #7878a0);
+  padding: 4px 0 4px 12px;
+  border-left: 2px solid rgba(0, 212, 184, 0.3); margin: 4px 0;
+}
+.markdown-body > :first-child { margin-top: 0; }

@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { copyToClipboard } from '@/lib/copyToClipboard';
+import { renderMarkdown } from '@/lib/markdown-renderer';
 
 export interface CrossArticle {
   id: number;
@@ -397,19 +398,29 @@ export default function CrossAnalysisPanel({
             maxHeight: 600, overflowY: 'auto',
             border: '1px solid var(--border)',
           }}>
-            <div style={{
-              fontSize: 13, color: 'var(--text-primary)',
-              whiteSpace: 'pre-wrap', lineHeight: 1.7,
-            }}>
-              {displayText}
-              {isAnalyzing && (
-                <span style={{
-                  display: 'inline-block', width: 6, height: 14,
-                  background: PURPLE, marginLeft: 2,
-                  animation: 'pulse 1s infinite',
-                }} />
-              )}
-            </div>
+            {displayText && !isAnalyzing ? (
+              // 生成完了後は Markdown リッチ描画
+              <div
+                className="markdown-body"
+                style={{ fontSize: 13, color: 'var(--text-primary)' }}
+                dangerouslySetInnerHTML={{ __html: renderMarkdown(displayText) }}
+              />
+            ) : (
+              // 生成途中は pre-wrap（崩れ防止）
+              <div style={{
+                fontSize: 13, color: 'var(--text-primary)',
+                whiteSpace: 'pre-wrap', lineHeight: 1.7,
+              }}>
+                {displayText}
+                {isAnalyzing && (
+                  <span style={{
+                    display: 'inline-block', width: 6, height: 14,
+                    background: PURPLE, marginLeft: 2,
+                    animation: 'pulse 1s infinite',
+                  }} />
+                )}
+              </div>
+            )}
           </div>
 
           {/* 使用記事リスト（クリックで該当記事へジャンプ） */}

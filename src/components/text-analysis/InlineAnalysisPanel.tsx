@@ -14,6 +14,7 @@ import {
 } from '@/lib/title-generator';
 import { copyToClipboard } from '@/lib/copyToClipboard';
 import { triggerDownload } from '@/lib/download';
+import { renderMarkdown } from '@/lib/markdown-renderer';
 
 // 既存の analyze API の type と対応
 const ANALYSIS_TYPES = [
@@ -387,34 +388,49 @@ export default function InlineAnalysisPanel({
                       </span>
                     )}
                   </div>
-                  {/* 本文 */}
-                  <div
-                    style={{
-                      padding: 12,
-                      fontSize: 13,
-                      color: '#374151',
-                      lineHeight: 1.7,
-                      whiteSpace: 'pre-wrap',
-                      maxHeight: 280,
-                      overflowY: 'auto',
-                      background: '#fff',
-                    }}
-                  >
-                    {content}
-                    {isStreaming && (
-                      <span
-                        style={{
-                          display: 'inline-block',
-                          width: 6,
-                          height: 14,
-                          background: '#6d28d9',
-                          marginLeft: 2,
-                          animation: 'pulse 0.8s infinite',
-                          verticalAlign: 'middle',
-                        }}
-                      />
-                    )}
-                  </div>
+                  {/* 本文：生成完了後は Markdown リッチ描画、生成中は pre-wrap */}
+                  {content && !isStreaming ? (
+                    <div
+                      className="markdown-body"
+                      style={{
+                        padding: 12,
+                        fontSize: 13,
+                        color: '#374151',
+                        maxHeight: 280,
+                        overflowY: 'auto',
+                        background: '#fff',
+                      }}
+                      dangerouslySetInnerHTML={{ __html: renderMarkdown(content) }}
+                    />
+                  ) : (
+                    <div
+                      style={{
+                        padding: 12,
+                        fontSize: 13,
+                        color: '#374151',
+                        lineHeight: 1.7,
+                        whiteSpace: 'pre-wrap',
+                        maxHeight: 280,
+                        overflowY: 'auto',
+                        background: '#fff',
+                      }}
+                    >
+                      {content}
+                      {isStreaming && (
+                        <span
+                          style={{
+                            display: 'inline-block',
+                            width: 6,
+                            height: 14,
+                            background: '#6d28d9',
+                            marginLeft: 2,
+                            animation: 'pulse 0.8s infinite',
+                            verticalAlign: 'middle',
+                          }}
+                        />
+                      )}
+                    </div>
+                  )}
                   {/* 文字数表示 + 個別MDダウンロード */}
                   {content && (
                     <div

@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { getSavedModel } from '@/lib/model-preference';
 import { copyToClipboard } from '@/lib/copyToClipboard';
+import { renderMarkdown } from '@/lib/markdown-renderer';
 
 // 既存の analyze API の type と対応
 const ANALYSIS_TYPES = [
@@ -401,9 +402,10 @@ export default function UrlBatchAnalysisPanel() {
                           </span>
                         )}
                       </div>
-                      <div className="p-4 text-sm text-gray-700 whitespace-pre-wrap leading-relaxed max-h-80 overflow-y-auto">
-                        {a.content}
-                      </div>
+                      <div
+                        className="markdown-body p-4 text-sm text-gray-700 max-h-80 overflow-y-auto"
+                        dangerouslySetInnerHTML={{ __html: renderMarkdown(a.content) }}
+                      />
                       <div className="px-4 pb-3 flex gap-2">
                         <button
                           type="button"
