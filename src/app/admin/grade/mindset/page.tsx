@@ -1,5 +1,6 @@
 'use client';
 import { useState, useEffect, useRef } from 'react';
+import { renderMarkdown } from '@/lib/markdown-renderer';
 
 const CORE_VALUES = [
   { key: 'self_love', label: '💎 自己愛', color: '#ec4899' },
@@ -377,7 +378,7 @@ export default function MindsetPage() {
                 {aiResult && (
                   <div style={{ padding: 12, background: 'rgba(108,99,255,0.05)', border: '1px solid rgba(108,99,255,0.15)', borderRadius: 10 }}>
                     <div style={{ fontSize: 11, color: '#6c63ff', fontWeight: 700, marginBottom: 6 }}>🤖 AI提案</div>
-                    <div style={{ fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.7, whiteSpace: 'pre-wrap', marginBottom: 8 }}>{aiResult}</div>
+                    <div className="markdown-body" style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 8 }} dangerouslySetInnerHTML={{ __html: renderMarkdown(aiResult) }} />
                     <div style={{ display: 'flex', gap: 6 }}>
                       <button onClick={() => applyAIResult('mission')} style={{ padding: '4px 12px', borderRadius: 6, border: 'none', background: '#6c63ff', color: '#fff', fontSize: 11, fontWeight: 700, cursor: 'pointer' }}>ミッションに反映</button>
                       <button onClick={() => applyAIResult('question')} style={{ padding: '4px 12px', borderRadius: 6, border: 'none', background: '#6c63ff', color: '#fff', fontSize: 11, fontWeight: 700, cursor: 'pointer' }}>問いかけに反映</button>

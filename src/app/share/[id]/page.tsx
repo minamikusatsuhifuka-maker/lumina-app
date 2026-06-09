@@ -1,5 +1,6 @@
 import { neon } from '@neondatabase/serverless';
 import { notFound } from 'next/navigation';
+import { renderMarkdown } from '@/lib/markdown-renderer';
 
 export default async function SharePage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -37,14 +38,16 @@ export default async function SharePage({ params }: { params: Promise<{ id: stri
         <h1 style={{ fontSize: 24, fontWeight: 700, color: '#1a1a2e', marginBottom: 4 }}>{item.title}</h1>
         <p style={{ fontSize: 12, color: '#888' }}>xLUMINA で共有されたコンテンツ</p>
       </div>
-      <div style={{
-        fontSize: 14, lineHeight: 1.9, color: '#333',
-        whiteSpace: 'pre-wrap', wordBreak: 'break-word',
-        padding: 24, background: '#fafafa', borderRadius: 12,
-        border: '1px solid #eee',
-      }}>
-        {item.content}
-      </div>
+      <div
+        className="markdown-body"
+        style={{
+          fontSize: 14, color: '#333',
+          wordBreak: 'break-word',
+          padding: 24, background: '#fafafa', borderRadius: 12,
+          border: '1px solid #eee',
+        }}
+        dangerouslySetInnerHTML={{ __html: renderMarkdown(item.content) }}
+      />
       <div style={{ marginTop: 32, paddingTop: 16, borderTop: '1px solid #eee', textAlign: 'center' }}>
         <a href="https://xlumina.jp" style={{ fontSize: 13, color: '#6c63ff', textDecoration: 'none' }}>
           xLUMINA でAI調査・分析を始める →

@@ -2,6 +2,7 @@
 import { useState, useEffect } from 'react';
 import { RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, Radar, Tooltip } from 'recharts';
 import { copyToClipboard } from '@/lib/copyToClipboard';
+import { renderMarkdown } from '@/lib/markdown-renderer';
 
 const GRADE_COLORS: Record<string, string> = {
   G1: '#94a3b8', G2: '#60a5fa', G3: '#4ade80', G4: '#06b6d4', G5: '#8b5cf6',
@@ -362,9 +363,7 @@ export default function StaffEvaluationPage() {
                       <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>メッセージを生成中...</div>
                     ) : (
                       <>
-                        <div style={{ fontSize: 13, color: 'var(--text-primary)', lineHeight: 1.8, whiteSpace: 'pre-wrap', padding: '10px 12px', background: 'var(--bg-card)', borderRadius: 8, border: '1px solid var(--border)', marginBottom: 8 }}>
-                          {promotionMessage}
-                        </div>
+                        <div className="markdown-body" style={{ fontSize: 13, color: 'var(--text-primary)', padding: '10px 12px', background: 'var(--bg-card)', borderRadius: 8, border: '1px solid var(--border)', marginBottom: 8 }} dangerouslySetInnerHTML={{ __html: renderMarkdown(promotionMessage) }} />
                         <div style={{ display: 'flex', gap: 8 }}>
                           <button onClick={() => copyToClipboard(promotionMessage).then(() => setMessage('📋 コピーしました！'))}
                             style={{ padding: '5px 14px', borderRadius: 8, border: 'none', background: '#4ade80', color: '#000', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>
@@ -424,9 +423,7 @@ export default function StaffEvaluationPage() {
                     </div>
                   </div>
 
-                  <div style={{ padding: 12, background: 'rgba(108,99,255,0.05)', border: '1px solid rgba(108,99,255,0.15)', borderRadius: 10, fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.8 }}>
-                    {aiResult.ai_evaluation}
-                  </div>
+                  <div className="markdown-body" style={{ padding: 12, background: 'rgba(108,99,255,0.05)', border: '1px solid rgba(108,99,255,0.15)', borderRadius: 10, fontSize: 13, color: 'var(--text-secondary)' }} dangerouslySetInnerHTML={{ __html: renderMarkdown(aiResult.ai_evaluation || '') }} />
                 </div>
               )}
             </div>

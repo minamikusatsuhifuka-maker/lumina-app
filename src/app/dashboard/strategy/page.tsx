@@ -5,6 +5,7 @@ import { useProgress } from '@/components/useProgress';
 import { SaveToLibraryButton } from '@/components/SaveToLibraryButton';
 import { copyToClipboard } from '@/lib/copyToClipboard';
 import { triggerDownload } from '@/lib/download';
+import { renderMarkdown } from '@/lib/markdown-renderer';
 
 const STRATEGY_TYPES = [
   { id: 'mvv', label: '🌟 MVV策定', desc: 'Mission・Vision・Values を策定', color: '#6c63ff' },
@@ -292,9 +293,13 @@ export default function StrategyPage() {
               生成中...
             </div>
           )}
-          <div style={{ fontSize: fontSize, color: 'var(--text-secondary)', lineHeight: 1.9, whiteSpace: 'pre-wrap', wordBreak: 'break-word' as const }}>
-            {result}
-          </div>
+          {loading ? (
+            <div style={{ fontSize: fontSize, color: 'var(--text-secondary)', lineHeight: 1.9, whiteSpace: 'pre-wrap', wordBreak: 'break-word' as const }}>
+              {result}
+            </div>
+          ) : (
+            <div className="markdown-body" style={{ fontSize: fontSize, color: 'var(--text-secondary)', wordBreak: 'break-word' as const }} dangerouslySetInnerHTML={{ __html: renderMarkdown(result) }} />
+          )}
         </div>
       )}
       <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>

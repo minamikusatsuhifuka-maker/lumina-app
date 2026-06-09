@@ -5,6 +5,7 @@ import { getSavedModel } from '@/lib/model-preference';
 import { sanitizeFilename, yyyymmdd } from '@/lib/title-generator';
 import { copyToClipboard } from '@/lib/copyToClipboard';
 import { triggerDownload } from '@/lib/download';
+import { renderMarkdown } from '@/lib/markdown-renderer';
 
 const CATEGORIES = [
   '皮膚疾患',
@@ -193,7 +194,13 @@ function ContentBody({
     );
   }
 
-  return <>{content || '（本文がありません）'}</>;
+  if (!content) return <>（本文がありません）</>;
+  return (
+    <div
+      className="markdown-body"
+      dangerouslySetInnerHTML={{ __html: renderMarkdown(content) }}
+    />
+  );
 }
 
 // 左右並列モードの片側1列

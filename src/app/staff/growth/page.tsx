@@ -1,6 +1,7 @@
 'use client';
 import { useState, useEffect } from 'react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
+import { renderMarkdown } from '@/lib/markdown-renderer';
 
 type Tab = 'mygrowth' | 'growth' | 'discovery' | 'goals' | 'alignment' | 'log';
 
@@ -424,7 +425,7 @@ export default function StaffGrowthPage() {
               {goalAiSuggestion && goalAiField === field.key && (
                 <div style={{ marginTop: 8, padding: 12, background: 'rgba(108,99,255,0.06)', border: '1px solid rgba(108,99,255,0.2)', borderRadius: 8 }}>
                   <div style={{ fontSize: 11, color: '#6c63ff', fontWeight: 700, marginBottom: 6 }}>💡 AI提案</div>
-                  <div style={{ fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.7, whiteSpace: 'pre-wrap', marginBottom: 8 }}>{goalAiSuggestion}</div>
+                  <div className="markdown-body" style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 8 }} dangerouslySetInnerHTML={{ __html: renderMarkdown(goalAiSuggestion) }} />
                   <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                     {goalAiSuggestion.split(/【提案[①②③]】/).filter(s => s.trim()).map((s, i) => (
                       <button key={i} onClick={() => { setGf(f => ({ ...f, [field.key]: s.trim() })); setGoalAiSuggestion(''); }}
@@ -464,7 +465,7 @@ export default function StaffGrowthPage() {
               {goalAiSuggestion && goalAiField === field.key && (
                 <div style={{ marginTop: 8, padding: 12, background: 'rgba(108,99,255,0.06)', border: '1px solid rgba(108,99,255,0.2)', borderRadius: 8 }}>
                   <div style={{ fontSize: 11, color: '#6c63ff', fontWeight: 700, marginBottom: 6 }}>💡 AI提案</div>
-                  <div style={{ fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.7, whiteSpace: 'pre-wrap', marginBottom: 8 }}>{goalAiSuggestion}</div>
+                  <div className="markdown-body" style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 8 }} dangerouslySetInnerHTML={{ __html: renderMarkdown(goalAiSuggestion) }} />
                   <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                     {goalAiSuggestion.split(/【提案[①②③]】/).filter(s => s.trim()).map((s, i) => (
                       <button key={i} onClick={() => { setGf(f => ({ ...f, [field.key]: s.trim() })); setGoalAiSuggestion(''); }}

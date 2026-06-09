@@ -5,6 +5,7 @@ import { useProgress } from '@/components/useProgress';
 import { SaveToLibraryButton } from '@/components/SaveToLibraryButton';
 import { copyToClipboard } from '@/lib/copyToClipboard';
 import { triggerDownload } from '@/lib/download';
+import { renderMarkdown } from '@/lib/markdown-renderer';
 
 const ANALYSIS_TYPES = [
   { id: 'swot', label: '📊 SWOT分析', desc: '強み・弱み・機会・脅威を体系化' },
@@ -169,9 +170,13 @@ export default function AnalysisPage() {
               分析中...
             </div>
           )}
-          <div style={{ fontSize: fontSize, color: 'var(--text-secondary)', lineHeight: 1.8, whiteSpace: 'pre-wrap', wordBreak: 'break-word' as const }}>
-            {result}
-          </div>
+          {loading ? (
+            <div style={{ fontSize: fontSize, color: 'var(--text-secondary)', lineHeight: 1.8, whiteSpace: 'pre-wrap', wordBreak: 'break-word' as const }}>
+              {result}
+            </div>
+          ) : (
+            <div className="markdown-body" style={{ fontSize: fontSize, color: 'var(--text-secondary)', wordBreak: 'break-word' as const }} dangerouslySetInnerHTML={{ __html: renderMarkdown(result) }} />
+          )}
         </div>
       )}
       <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>

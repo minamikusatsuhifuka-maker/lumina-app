@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { ModelBadge } from '@/components/ModelBadge';
 import { AIDialogueButton } from '@/components/clinic/AIDialogueButton';
+import { renderMarkdown } from '@/lib/markdown-renderer';
 
 const CATS = [
   { key: '', label: '全て' }, { key: 'marketing', label: '📣 マーケティング' }, { key: 'branding', label: '🎨 ブランディング' },
@@ -193,7 +194,9 @@ export default function StrategyBoardPage() {
             ))}
           </div>
           <div style={{ flex: 1, overflowY: 'auto', marginBottom: 10 }}>
-            {chatResult && <div style={{ padding: 10, background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 8, fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.7, whiteSpace: 'pre-wrap' }}>{chatResult}</div>}
+            {chatResult && (chatting
+              ? <div style={{ padding: 10, background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 8, fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.7, whiteSpace: 'pre-wrap' }}>{chatResult}</div>
+              : <div className="markdown-body" style={{ padding: 10, background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 8, fontSize: 12, color: 'var(--text-secondary)' }} dangerouslySetInnerHTML={{ __html: renderMarkdown(chatResult) }} />)}
           </div>
           <div style={{ display: 'flex', gap: 6 }}>
             <input value={chatMsg} onChange={e => setChatMsg(e.target.value)} placeholder="質問を入力..." style={{ flex: 1, padding: '8px 10px', background: 'var(--input-bg)', border: '1px solid var(--input-border)', borderRadius: 8, color: 'var(--text-primary)', fontSize: 12, outline: 'none' }} />

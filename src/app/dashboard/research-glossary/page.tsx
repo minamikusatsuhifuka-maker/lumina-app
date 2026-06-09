@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState, useMemo } from 'react';
+import { renderMarkdown } from '@/lib/markdown-renderer';
 
 type GlossaryTerm = {
   id: number;
@@ -277,11 +278,7 @@ export default function ResearchGlossaryPage() {
                 </span>
               </div>
 
-              <div style={{ background: 'var(--bg-primary)', border: '1px solid var(--border)', borderRadius: 8, padding: 12, marginBottom: 12 }}>
-                <p style={{ fontSize: 12, color: 'var(--text-secondary)', margin: 0, lineHeight: 1.8, whiteSpace: 'pre-wrap' as const }}>
-                  {selectedTerm.explanation}
-                </p>
-              </div>
+              <div className="markdown-body" style={{ background: 'var(--bg-primary)', border: '1px solid var(--border)', borderRadius: 8, padding: 12, marginBottom: 12, fontSize: 12, color: 'var(--text-secondary)' }} dangerouslySetInnerHTML={{ __html: renderMarkdown(selectedTerm.explanation) }} />
 
               {selectedTerm.source_topic && (
                 <div style={{ fontSize: 10, color: 'var(--text-muted)', marginBottom: 12 }}>

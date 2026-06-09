@@ -6,6 +6,7 @@ import {
   Tooltip, Legend,
 } from 'recharts';
 import { copyToClipboard } from '@/lib/copyToClipboard';
+import { renderMarkdown } from '@/lib/markdown-renderer';
 
 const NEEDS_LABELS: Record<string, string> = {
   survival: '🏠 生存',
@@ -444,9 +445,7 @@ export default function OneOnOnePage() {
                       <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>メッセージを生成中...</div>
                     ) : (
                       <>
-                        <div style={{ fontSize: 13, color: 'var(--text-primary)', lineHeight: 1.8, whiteSpace: 'pre-wrap', padding: '10px 12px', background: 'var(--bg-card)', borderRadius: 8, border: '1px solid var(--border)', marginBottom: 8 }}>
-                          {praiseMessage}
-                        </div>
+                        <div className="markdown-body" style={{ fontSize: 13, color: 'var(--text-primary)', padding: '10px 12px', background: 'var(--bg-card)', borderRadius: 8, border: '1px solid var(--border)', marginBottom: 8 }} dangerouslySetInnerHTML={{ __html: renderMarkdown(praiseMessage) }} />
                         <button onClick={() => copyToClipboard(praiseMessage).then(() => setMessage('📋 コピーしました！'))}
                           style={{ padding: '5px 14px', borderRadius: 8, border: 'none', background: '#ec4899', color: '#fff', fontSize: 12, fontWeight: 700, cursor: 'pointer', marginRight: 8 }}>
                           📋 コピー

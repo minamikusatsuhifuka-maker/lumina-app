@@ -1,6 +1,7 @@
 'use client';
 import { useState, useEffect } from 'react';
 import { VoiceInputButton } from '@/components/VoiceInputButton';
+import { renderMarkdown } from '@/lib/markdown-renderer';
 
 type WorkflowStep = {
   stepNumber: number;
@@ -343,9 +344,7 @@ export default function WorkflowPage() {
                   {done && <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>{expandedStep === i ? '▲' : '▼'}</span>}
                 </div>
                 {expandedStep === i && stepResults[i] && (
-                  <div style={{ padding: '12px 16px', margin: '-1px 0 0', border: '1px solid var(--border)', borderTopColor: 'transparent', borderRadius: '0 0 10px 10px', background: 'var(--bg-secondary)', fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.7, whiteSpace: 'pre-wrap', maxHeight: 300, overflowY: 'auto' }}>
-                    {stepResults[i]}
-                  </div>
+                  <div className="markdown-body" style={{ padding: '12px 16px', margin: '-1px 0 0', border: '1px solid var(--border)', borderTopColor: 'transparent', borderRadius: '0 0 10px 10px', background: 'var(--bg-secondary)', fontSize: 13, color: 'var(--text-secondary)', maxHeight: 300, overflowY: 'auto' }} dangerouslySetInnerHTML={{ __html: renderMarkdown(stepResults[i]) }} />
                 )}
               </div>
             );
@@ -384,9 +383,7 @@ export default function WorkflowPage() {
 
             {/* 結果表示 */}
             {stepResults[currentStep] && (
-              <div style={{ padding: '12px 16px', background: 'rgba(34,197,94,0.05)', border: '1px solid rgba(34,197,94,0.2)', borderRadius: 10, fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.7, whiteSpace: 'pre-wrap', maxHeight: 400, overflowY: 'auto', marginBottom: 16 }}>
-                {stepResults[currentStep]}
-              </div>
+              <div className="markdown-body" style={{ padding: '12px 16px', background: 'rgba(34,197,94,0.05)', border: '1px solid rgba(34,197,94,0.2)', borderRadius: 10, fontSize: 13, color: 'var(--text-secondary)', maxHeight: 400, overflowY: 'auto', marginBottom: 16 }} dangerouslySetInnerHTML={{ __html: renderMarkdown(stepResults[currentStep]) }} />
             )}
 
             {/* ボタン */}
@@ -448,9 +445,7 @@ export default function WorkflowPage() {
                 <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>{expandedStep === i ? '▲' : '▼'}</span>
               </div>
               {expandedStep === i && stepResults[i] && (
-                <div style={{ padding: '12px 16px', margin: '-1px 0 0', border: '1px solid var(--border)', borderTopColor: 'transparent', borderRadius: '0 0 8px 8px', background: 'var(--bg-secondary)', fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.7, whiteSpace: 'pre-wrap', maxHeight: 400, overflowY: 'auto' }}>
-                  {stepResults[i]}
-                </div>
+                <div className="markdown-body" style={{ padding: '12px 16px', margin: '-1px 0 0', border: '1px solid var(--border)', borderTopColor: 'transparent', borderRadius: '0 0 8px 8px', background: 'var(--bg-secondary)', fontSize: 13, color: 'var(--text-secondary)', maxHeight: 400, overflowY: 'auto' }} dangerouslySetInnerHTML={{ __html: renderMarkdown(stepResults[i]) }} />
               )}
             </div>
           ))}

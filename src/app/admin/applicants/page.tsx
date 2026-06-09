@@ -5,6 +5,7 @@ import {
   Radar, Tooltip,
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Cell,
 } from 'recharts';
+import { renderMarkdown } from '@/lib/markdown-renderer';
 
 const POSITIONS = ['看護師', 'マルチタスク医療事務'];
 
@@ -677,7 +678,7 @@ export default function ApplicantsPage() {
                         {note.ai_comment ? (
                           <div style={{ padding: '8px 10px', background: 'rgba(108,99,255,0.06)', border: '1px solid rgba(108,99,255,0.15)', borderRadius: 8 }}>
                             <div style={{ fontSize: 11, fontWeight: 700, color: '#6c63ff', marginBottom: 4 }}>🤖 AIコメント</div>
-                            <div style={{ fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.6 }}>{note.ai_comment}</div>
+                            <div className="markdown-body" style={{ fontSize: 12, color: 'var(--text-secondary)' }} dangerouslySetInnerHTML={{ __html: renderMarkdown(note.ai_comment) }} />
                           </div>
                         ) : (
                           <button onClick={() => generateAiComment(note)} disabled={aiCommenting === note.id}
@@ -822,9 +823,7 @@ export default function ApplicantsPage() {
                     <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-muted)', marginBottom: 6 }}>
                       🤖 AI総合コメント
                     </div>
-                    <div style={{ fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.7 }}>
-                      {selected.ai_comment}
-                    </div>
+                    <div className="markdown-body" style={{ fontSize: 13, color: 'var(--text-secondary)' }} dangerouslySetInnerHTML={{ __html: renderMarkdown(selected.ai_comment) }} />
                   </div>
                 )}
 
@@ -854,9 +853,7 @@ export default function ApplicantsPage() {
                     <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-muted)', marginBottom: 6 }}>
                       💡 性格・欲求バランス
                     </div>
-                    <div style={{ fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.7 }}>
-                      {selected.personality_summary}
-                    </div>
+                    <div className="markdown-body" style={{ fontSize: 12, color: 'var(--text-secondary)' }} dangerouslySetInnerHTML={{ __html: renderMarkdown(selected.personality_summary) }} />
                   </div>
                 )}
                 </div>}

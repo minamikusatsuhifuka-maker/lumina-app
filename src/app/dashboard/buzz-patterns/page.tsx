@@ -1,6 +1,7 @@
 'use client';
 import { useState, useEffect, useMemo } from 'react';
 import { copyToClipboard } from '@/lib/copyToClipboard';
+import { renderMarkdown } from '@/lib/markdown-renderer';
 
 const CATEGORIES = [
   'すべて',
@@ -355,19 +356,17 @@ export default function BuzzPatternsPage() {
               </button>
             </div>
             <div
+              className="markdown-body"
               style={{
-                whiteSpace: 'pre-wrap',
                 fontSize: 14,
-                lineHeight: 1.8,
                 color: 'var(--text-secondary)',
                 background: 'var(--bg-secondary)',
                 padding: 16,
                 borderRadius: 8,
                 border: '1px solid var(--border)',
               }}
-            >
-              {selectedPattern.content}
-            </div>
+              dangerouslySetInnerHTML={{ __html: renderMarkdown(selectedPattern.content) }}
+            />
             <div style={{ display: 'flex', gap: 8, marginTop: 20, flexWrap: 'wrap' }}>
               <button
                 onClick={() => {

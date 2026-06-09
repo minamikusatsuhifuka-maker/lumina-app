@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import { parseSSEStream } from '@/lib/streamUtils';
 import { copyToClipboard } from '@/lib/copyToClipboard';
+import { renderMarkdown } from '@/lib/markdown-renderer';
 
 // 資料作成（コンテキストライブラリ連携対応・最小実装）
 export default function MaterialsPage() {
@@ -156,9 +157,13 @@ export default function MaterialsPage() {
               📋 コピー
             </button>
           </div>
-          <pre style={{ margin: 0, whiteSpace: 'pre-wrap' as const, wordBreak: 'break-word' as const, fontSize: 13, fontFamily: 'inherit', color: 'var(--text-secondary)', lineHeight: 1.8 }}>
-            {output}
-          </pre>
+          {loading ? (
+            <pre style={{ margin: 0, whiteSpace: 'pre-wrap' as const, wordBreak: 'break-word' as const, fontSize: 13, fontFamily: 'inherit', color: 'var(--text-secondary)', lineHeight: 1.8 }}>
+              {output}
+            </pre>
+          ) : (
+            <div className="markdown-body" style={{ wordBreak: 'break-word' as const, fontSize: 13, color: 'var(--text-secondary)' }} dangerouslySetInnerHTML={{ __html: renderMarkdown(output) }} />
+          )}
         </div>
       )}
     </div>

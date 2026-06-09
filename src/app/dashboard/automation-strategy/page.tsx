@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { copyToClipboard } from '@/lib/copyToClipboard';
 import { triggerDownload } from '@/lib/download';
+import { renderMarkdown } from '@/lib/markdown-renderer';
 
 interface Message { role: 'user' | 'assistant'; content: string; }
 interface Session {
@@ -624,12 +625,14 @@ export default function AutomationStrategyPage() {
                     </div>
                   )}
                 </div>
-                <div style={{ padding: 20, fontSize: 13, lineHeight: 1.9, whiteSpace: 'pre-wrap', color: 'var(--text-primary)' }}>
-                  {displayStrategyText}
-                  {isGeneratingStrategy && (
+                {isGeneratingStrategy ? (
+                  <div style={{ padding: 20, fontSize: 13, lineHeight: 1.9, whiteSpace: 'pre-wrap', color: 'var(--text-primary)' }}>
+                    {displayStrategyText}
                     <span style={{ display: 'inline-block', width: 6, height: 12, background: currentDomain?.color ?? '#4f46e5', marginLeft: 2, animation: 'pulse 0.8s infinite' }} />
-                  )}
-                </div>
+                  </div>
+                ) : (
+                  <div className="markdown-body" style={{ padding: 20, fontSize: 13, color: 'var(--text-primary)' }} dangerouslySetInnerHTML={{ __html: renderMarkdown(displayStrategyText) }} />
+                )}
               </div>
             )}
           </div>
@@ -705,9 +708,7 @@ export default function AutomationStrategyPage() {
                     </button>
                   </div>
                 </div>
-                <div style={{ padding: 20, fontSize: 13, lineHeight: 1.9, whiteSpace: 'pre-wrap', color: 'var(--text-primary)' }}>
-                  {reportOutput}
-                </div>
+                <div className="markdown-body" style={{ padding: 20, fontSize: 13, color: 'var(--text-primary)' }} dangerouslySetInnerHTML={{ __html: renderMarkdown(reportOutput) }} />
               </div>
             )}
           </div>

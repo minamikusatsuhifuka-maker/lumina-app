@@ -1,6 +1,7 @@
 'use client';
 import { useState, useEffect } from 'react';
 import { copyToClipboard } from '@/lib/copyToClipboard';
+import { renderMarkdown } from '@/lib/markdown-renderer';
 
 const REPORT_TYPES = [
   {
@@ -686,9 +687,7 @@ export default function NearMissPage() {
                   <p style={{ fontSize: '14px', fontWeight: 'bold', color: '#7c3aed', marginBottom: '8px' }}>
                     📝 {monthlyYear}年{monthlyMonth}月 チームまとめ
                   </p>
-                  <p style={{ fontSize: '13px', color: '#374151', lineHeight: '1.8', whiteSpace: 'pre-wrap' }}>
-                    {monthlySummary}
-                  </p>
+                  <div className="markdown-body" style={{ fontSize: '13px', color: '#374151' }} dangerouslySetInnerHTML={{ __html: renderMarkdown(monthlySummary) }} />
                 </div>
                 <button
                   onClick={() => { copyToClipboard(`${monthlyYear}年${monthlyMonth}月 チームまとめ\n\n${monthlySummary}`); }}

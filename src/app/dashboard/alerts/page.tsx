@@ -3,6 +3,7 @@ import { useState, useEffect } from 'react';
 import { ProgressBar } from '@/components/ProgressBar';
 import { useProgress } from '@/components/useProgress';
 import { DateRangePicker, DateRange, getDateCondition } from '@/components/DateRangePicker';
+import { renderMarkdown } from '@/lib/markdown-renderer';
 
 const FREQUENCIES = [
   { id: 'daily', label: '毎日', desc: '毎朝最新情報を収集' },
@@ -376,14 +377,11 @@ export default function AlertsPage() {
                       </div>
                     )}
 
-                    <div style={{
+                    <div className="markdown-body" style={{
                       padding: 16, background: 'var(--bg-primary)',
                       fontSize: 13, color: 'var(--text-secondary)',
-                      lineHeight: 1.8, whiteSpace: 'pre-wrap',
                       maxHeight: '50vh', overflowY: 'auto',
-                    }}>
-                      {currentResult || latestSaved?.text}
-                    </div>
+                    }} dangerouslySetInnerHTML={{ __html: renderMarkdown(currentResult || latestSaved?.text || '') }} />
 
                     {history.length > 1 && (
                       <div style={{ padding: '8px 16px 16px', borderTop: '1px solid var(--border)' }}>
@@ -399,15 +397,12 @@ export default function AlertsPage() {
                             }}>
                               📅 {h.date}
                             </summary>
-                            <div style={{
+                            <div className="markdown-body" style={{
                               marginTop: 6, padding: 12,
                               background: 'var(--bg-primary)', borderRadius: 8,
                               fontSize: 12, color: 'var(--text-secondary)',
-                              lineHeight: 1.8, whiteSpace: 'pre-wrap',
                               maxHeight: 300, overflowY: 'auto',
-                            }}>
-                              {h.text}
-                            </div>
+                            }} dangerouslySetInnerHTML={{ __html: renderMarkdown(h.text) }} />
                           </details>
                         ))}
                       </div>

@@ -2,6 +2,7 @@
 import { useState, useEffect, use } from 'react';
 import { HiringScoreChart } from '@/components/clinic/HiringScoreChart';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, Radar } from 'recharts';
+import { renderMarkdown } from '@/lib/markdown-renderer';
 
 type DetailTab = 'summary' | 'growth_chart' | 'timeline' | 'documents' | 'notes' | 'grades' | 'score' | 'growth';
 type NoteType = 'interview' | 'training' | 'praise' | 'incident' | 'other';
@@ -542,7 +543,7 @@ export default function StaffDetailPage({ params }: { params: Promise<{ id: stri
                   </button>
                 </div>
                 {aiInsight ? (
-                  <div style={{ fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.8, whiteSpace: 'pre-wrap' }}>{aiInsight}</div>
+                  <div className="markdown-body" style={{ fontSize: 13, color: 'var(--text-secondary)' }} dangerouslySetInnerHTML={{ __html: renderMarkdown(aiInsight) }} />
                 ) : (
                   <div style={{ fontSize: 12, color: 'var(--text-muted)', textAlign: 'center', padding: '10px 0' }}>
                     「AI所見を生成」ボタンで、このスタッフの成長ポイントと次のステップをAIが分析します

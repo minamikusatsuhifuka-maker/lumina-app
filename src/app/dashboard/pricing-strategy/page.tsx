@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { copyToClipboard } from '@/lib/copyToClipboard';
+import { renderMarkdown } from '@/lib/markdown-renderer';
 
 const TREATMENT_CATEGORIES = [
   {
@@ -1182,17 +1183,15 @@ export default function PricingStrategyPage() {
                     </div>
                   </div>
                   <div
+                    className="markdown-body"
                     style={{
                       fontSize: 13,
-                      lineHeight: 1.8,
-                      whiteSpace: 'pre-wrap',
                       color: 'var(--text-primary)',
                       maxHeight: 600,
                       overflowY: 'auto',
                     }}
-                  >
-                    {analysisResult}
-                  </div>
+                    dangerouslySetInnerHTML={{ __html: renderMarkdown(analysisResult) }}
+                  />
                 </div>
               </div>
             )}

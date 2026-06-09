@@ -1,5 +1,6 @@
 'use client';
 import { useState, useEffect, use } from 'react';
+import { renderMarkdown } from '@/lib/markdown-renderer';
 
 type Tab = 'overview' | 'tasks' | 'progress' | 'chat';
 const STATUS_COLS = ['todo', 'in_progress', 'done'];
@@ -254,7 +255,7 @@ export default function StrategyDetailPage({ params }: { params: Promise<{ id: s
           {chatHistory.map((h, i) => (
             <div key={i}>
               <div style={{ padding: '6px 10px', background: 'rgba(108,99,255,0.1)', borderRadius: '10px 10px 2px 10px', fontSize: 12, color: 'var(--text-primary)', marginBottom: 4 }}>{h.msg}</div>
-              <div style={{ padding: '8px 10px', background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: '2px 10px 10px 10px', fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.6, whiteSpace: 'pre-wrap' }}>{h.res}</div>
+              <div className="markdown-body" style={{ padding: '8px 10px', background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: '2px 10px 10px 10px', fontSize: 12, color: 'var(--text-secondary)' }} dangerouslySetInnerHTML={{ __html: renderMarkdown(h.res) }} />
             </div>
           ))}
           {chatResult && !chatHistory.find(h => h.res === chatResult) && (

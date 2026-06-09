@@ -1,6 +1,7 @@
 'use client';
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
+import { renderMarkdown } from '@/lib/markdown-renderer';
 
 export default function GradeComparePage() {
   const [grades, setGrades] = useState<any[]>([]);
@@ -146,9 +147,7 @@ ${g.name}（G${g.level_number}）:
           <div style={{ fontSize: 14, fontWeight: 700, color: '#6c63ff', marginBottom: 10 }}>
             🤖 AIギャップ分析結果（{selectedPosition}）
           </div>
-          <div style={{ fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.8, whiteSpace: 'pre-wrap' }}>
-            {gapAnalysis}
-          </div>
+          <div className="markdown-body" style={{ fontSize: 13, color: 'var(--text-secondary)' }} dangerouslySetInnerHTML={{ __html: renderMarkdown(gapAnalysis) }} />
         </div>
       )}
 

@@ -11,6 +11,7 @@ import DefaultContextBar, {
 } from '@/components/DefaultContextBar';
 import { copyToClipboard } from '@/lib/copyToClipboard';
 import { triggerDownload } from '@/lib/download';
+import { renderMarkdown } from '@/lib/markdown-renderer';
 
 interface Message { role: 'user' | 'assistant'; content: string; timestamp: string }
 interface Chapter {
@@ -1139,12 +1140,14 @@ export default function KindlePage() {
                                     📋 コピー
                                   </button>
                                 </div>
-                                <div style={{
-                                  fontSize: 13, lineHeight: 1.7, whiteSpace: 'pre-wrap' as const,
-                                  color: 'var(--text-primary)', maxHeight: 400, overflowY: 'auto' as const,
-                                }}>
-                                  {ch.advice}
-                                </div>
+                                <div
+                                  className="markdown-body"
+                                  style={{
+                                    fontSize: 13,
+                                    color: 'var(--text-primary)', maxHeight: 400, overflowY: 'auto' as const,
+                                  }}
+                                  dangerouslySetInnerHTML={{ __html: renderMarkdown(ch.advice ?? '') }}
+                                />
                                 {!(ch.improvedContent || ch.improved_content) && ch.id && (
                                   <button
                                     onClick={() => handleImproveChapter(ch.id!)}
@@ -1221,12 +1224,14 @@ export default function KindlePage() {
                                     </button>
                                   </div>
                                 </div>
-                                <div style={{
-                                  fontSize: 13, lineHeight: 1.8, whiteSpace: 'pre-wrap' as const,
-                                  color: 'var(--text-primary)', maxHeight: 500, overflowY: 'auto' as const,
-                                }}>
-                                  {ch.improvedContent ?? ch.improved_content}
-                                </div>
+                                <div
+                                  className="markdown-body"
+                                  style={{
+                                    fontSize: 13,
+                                    color: 'var(--text-primary)', maxHeight: 500, overflowY: 'auto' as const,
+                                  }}
+                                  dangerouslySetInnerHTML={{ __html: renderMarkdown((ch.improvedContent ?? ch.improved_content) ?? '') }}
+                                />
                               </div>
                             )}
                           </div>
@@ -1356,13 +1361,14 @@ export default function KindlePage() {
                       <h4 style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 10 }}>
                         📈 マーケティング戦略プレビュー
                       </h4>
-                      <div style={{
-                        fontSize: 12, color: 'var(--text-secondary)',
-                        whiteSpace: 'pre-wrap' as const, lineHeight: 1.7,
-                        maxHeight: 400, overflowY: 'auto' as const,
-                      }}>
-                        {exportData.marketingStrategy}
-                      </div>
+                      <div
+                        className="markdown-body"
+                        style={{
+                          fontSize: 12, color: 'var(--text-secondary)',
+                          maxHeight: 400, overflowY: 'auto' as const,
+                        }}
+                        dangerouslySetInnerHTML={{ __html: renderMarkdown(exportData.marketingStrategy ?? '') }}
+                      />
                     </div>
                   </>
                 )}

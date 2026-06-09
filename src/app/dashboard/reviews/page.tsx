@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { copyToClipboard } from '@/lib/copyToClipboard';
+import { renderMarkdown } from '@/lib/markdown-renderer';
 
 // ─── 型定義 ───
 
@@ -663,12 +664,13 @@ export default function ReviewsPage() {
                                       </button>
                                     </div>
                                   </div>
-                                  <div style={{
-                                    fontSize: 12, lineHeight: 1.8, color: 'var(--text-primary)',
-                                    whiteSpace: 'pre-wrap',
-                                  }}>
-                                    {d.text}
-                                  </div>
+                                  <div
+                                    className="markdown-body"
+                                    style={{
+                                      fontSize: 12, color: 'var(--text-primary)',
+                                    }}
+                                    dangerouslySetInnerHTML={{ __html: renderMarkdown(d.text) }}
+                                  />
                                 </div>
                               );
                             })}
@@ -698,14 +700,16 @@ export default function ReviewsPage() {
           {aiAnalysis && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
               {/* サマリー */}
-              <div style={{
-                padding: '16px 20px', borderRadius: 12,
-                background: 'linear-gradient(135deg, rgba(108,99,255,0.06), rgba(0,212,184,0.06))',
-                border: '1px solid rgba(108,99,255,0.15)',
-                fontSize: 14, color: 'var(--text-primary)', lineHeight: 1.7, fontWeight: 500,
-              }}>
-                {aiAnalysis.summary}
-              </div>
+              <div
+                className="markdown-body"
+                style={{
+                  padding: '16px 20px', borderRadius: 12,
+                  background: 'linear-gradient(135deg, rgba(108,99,255,0.06), rgba(0,212,184,0.06))',
+                  border: '1px solid rgba(108,99,255,0.15)',
+                  fontSize: 14, color: 'var(--text-primary)', fontWeight: 500,
+                }}
+                dangerouslySetInnerHTML={{ __html: renderMarkdown(aiAnalysis.summary) }}
+              />
 
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20 }}>
                 {/* 良い点 */}

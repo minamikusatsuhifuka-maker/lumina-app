@@ -2,6 +2,7 @@
 import { useState, useEffect } from 'react';
 import { ModelBadge } from '@/components/ModelBadge';
 import { AIDialogueButton } from '@/components/clinic/AIDialogueButton';
+import { renderMarkdown } from '@/lib/markdown-renderer';
 import { AITextReviser } from '@/components/clinic/AITextReviser';
 import { AIBrushupChat } from '@/components/clinic/AIBrushupChat';
 
@@ -451,7 +452,7 @@ export default function GradePage() {
                   {brushupResult && (
                     <div style={{ marginTop: 12, padding: 14, background: 'rgba(108,99,255,0.05)', border: '1px solid rgba(108,99,255,0.15)', borderRadius: 10 }}>
                       <div style={{ fontSize: 11, color: '#6c63ff', fontWeight: 700, marginBottom: 6 }}>🤖 AI提案</div>
-                      <div style={{ fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.7, whiteSpace: 'pre-wrap' }}>{brushupResult}</div>
+                      <div className="markdown-body" style={{ fontSize: 12, color: 'var(--text-secondary)' }} dangerouslySetInnerHTML={{ __html: renderMarkdown(brushupResult) }} />
                       <button onClick={() => setBrushupResult('')} style={{ marginTop: 8, padding: '4px 12px', borderRadius: 6, border: '1px solid var(--border)', background: 'var(--bg-card)', color: 'var(--text-muted)', fontSize: 11, cursor: 'pointer' }}>閉じる</button>
                     </div>
                   )}
@@ -500,12 +501,12 @@ export default function GradePage() {
           {consultHistory.map((h, i) => (
             <div key={i}>
               <div style={{ padding: '6px 10px', background: 'rgba(108,99,255,0.1)', borderRadius: '10px 10px 2px 10px', fontSize: 12, color: 'var(--text-primary)', marginBottom: 4 }}>{h.msg}</div>
-              <div style={{ padding: '8px 10px', background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: '2px 10px 10px 10px', fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.6, whiteSpace: 'pre-wrap' }}>{h.res}</div>
+              <div className="markdown-body" style={{ padding: '8px 10px', background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: '2px 10px 10px 10px', fontSize: 12, color: 'var(--text-secondary)' }} dangerouslySetInnerHTML={{ __html: renderMarkdown(h.res) }} />
             </div>
           ))}
-          {consultResult && !consultHistory.find(h => h.res === consultResult) && (
-            <div style={{ padding: '8px 10px', background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 8, fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.6, whiteSpace: 'pre-wrap' }}>{consultResult}</div>
-          )}
+          {consultResult && !consultHistory.find(h => h.res === consultResult) && (consulting
+            ? <div style={{ padding: '8px 10px', background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 8, fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.6, whiteSpace: 'pre-wrap' }}>{consultResult}</div>
+            : <div className="markdown-body" style={{ padding: '8px 10px', background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 8, fontSize: 12, color: 'var(--text-secondary)' }} dangerouslySetInnerHTML={{ __html: renderMarkdown(consultResult) }} />)}
         </div>
         <div style={{ display: 'flex', gap: 6 }}>
           <input value={consultMsg} onChange={e => setConsultMsg(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); runConsult(); } }} placeholder="質問を入力..." style={{ flex: 1, padding: '8px 10px', background: 'var(--input-bg)', border: '1px solid var(--input-border)', borderRadius: 8, color: 'var(--text-primary)', fontSize: 12, outline: 'none' }} />

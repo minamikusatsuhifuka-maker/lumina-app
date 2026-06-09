@@ -4,6 +4,7 @@ import { ProgressBar } from '@/components/ProgressBar';
 import { useProgress } from '@/components/useProgress';
 import { SaveToLibraryButton } from '@/components/SaveToLibraryButton';
 import { copyToClipboard as copyToClipboardUtil } from '@/lib/copyToClipboard';
+import { renderMarkdown } from '@/lib/markdown-renderer';
 
 interface KeyTerm {
   original: string;
@@ -253,9 +254,7 @@ export default function SimplifierPage() {
             <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 10 }}>
               変換後テキスト
             </div>
-            <div style={{ fontSize: 14, color: 'var(--text-secondary)', lineHeight: 1.8, whiteSpace: 'pre-wrap' }}>
-              {result.converted_text}
-            </div>
+            <div className="markdown-body" style={{ fontSize: 14, color: 'var(--text-secondary)' }} dangerouslySetInnerHTML={{ __html: renderMarkdown(result.converted_text) }} />
           </div>
 
           {/* 用語変換テーブル */}

@@ -1,5 +1,6 @@
 'use client';
 import { useState, useEffect } from 'react';
+import { renderMarkdown } from '@/lib/markdown-renderer';
 
 const GROWTH_STAGE_COLORS: Record<string, string> = {
   'Lv1知る': '#94a3b8',
@@ -108,7 +109,7 @@ export default function StaffOneOnOnePage() {
               {selected.ai_analysis && (
                 <div style={{ marginTop: 8, padding: '10px 12px', background: 'rgba(108,99,255,0.06)', border: '1px solid rgba(108,99,255,0.2)', borderRadius: 10 }}>
                   <div style={{ fontSize: 11, fontWeight: 700, color: '#6c63ff', marginBottom: 6 }}>🤖 AI分析</div>
-                  <div style={{ fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.7 }}>{selected.ai_analysis}</div>
+                  <div className="markdown-body" style={{ fontSize: 12, color: 'var(--text-secondary)' }} dangerouslySetInnerHTML={{ __html: renderMarkdown(selected.ai_analysis) }} />
                 </div>
               )}
 

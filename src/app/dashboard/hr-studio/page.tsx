@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { copyToClipboard } from '@/lib/copyToClipboard';
+import { renderMarkdown } from '@/lib/markdown-renderer';
 import ContextSelector, {
   buildContextText,
   type ContextItem,
@@ -793,20 +794,20 @@ export default function HrStudioPage() {
                       </div>
                     )}
                   </div>
-                  <div
-                    style={{
-                      padding: 20,
-                      fontSize: 13,
-                      lineHeight: 1.8,
-                      whiteSpace: 'pre-wrap',
-                      maxHeight: 550,
-                      overflowY: 'auto',
-                      color: 'var(--text-primary)',
-                      background: 'var(--bg-primary)',
-                    }}
-                  >
-                    {displayText}
-                    {isGenerating && (
+                  {isGenerating ? (
+                    <div
+                      style={{
+                        padding: 20,
+                        fontSize: 13,
+                        lineHeight: 1.8,
+                        whiteSpace: 'pre-wrap',
+                        maxHeight: 550,
+                        overflowY: 'auto',
+                        color: 'var(--text-primary)',
+                        background: 'var(--bg-primary)',
+                      }}
+                    >
+                      {displayText}
                       <span
                         style={{
                           display: 'inline-block',
@@ -818,8 +819,21 @@ export default function HrStudioPage() {
                           verticalAlign: 'middle',
                         }}
                       />
-                    )}
-                  </div>
+                    </div>
+                  ) : (
+                    <div
+                      className="markdown-body"
+                      style={{
+                        padding: 20,
+                        fontSize: 13,
+                        maxHeight: 550,
+                        overflowY: 'auto',
+                        color: 'var(--text-primary)',
+                        background: 'var(--bg-primary)',
+                      }}
+                      dangerouslySetInnerHTML={{ __html: renderMarkdown(displayText) }}
+                    />
+                  )}
                 </div>
               )}
             </div>

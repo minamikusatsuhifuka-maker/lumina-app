@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { triggerDownload } from '@/lib/download';
+import { renderMarkdown } from '@/lib/markdown-renderer';
 import ContextSelector, {
   buildContextText,
   type ContextItem,
@@ -1713,20 +1714,20 @@ export default function NexusPage() {
                       </div>
                     )}
                   </div>
-                  <div
-                    style={{
-                      padding: 20,
-                      fontSize: 13,
-                      lineHeight: 1.8,
-                      whiteSpace: 'pre-wrap',
-                      maxHeight: 600,
-                      overflowY: 'auto',
-                      color: 'var(--text-primary)',
-                      background: 'var(--bg-primary)',
-                    }}
-                  >
-                    {displayBlogText}
-                    {isWritingBlog && (
+                  {isWritingBlog ? (
+                    <div
+                      style={{
+                        padding: 20,
+                        fontSize: 13,
+                        lineHeight: 1.8,
+                        whiteSpace: 'pre-wrap',
+                        maxHeight: 600,
+                        overflowY: 'auto',
+                        color: 'var(--text-primary)',
+                        background: 'var(--bg-primary)',
+                      }}
+                    >
+                      {displayBlogText}
                       <span
                         style={{
                           display: 'inline-block',
@@ -1738,8 +1739,21 @@ export default function NexusPage() {
                           verticalAlign: 'middle',
                         }}
                       />
-                    )}
-                  </div>
+                    </div>
+                  ) : (
+                    <div
+                      className="markdown-body"
+                      style={{
+                        padding: 20,
+                        fontSize: 13,
+                        maxHeight: 600,
+                        overflowY: 'auto',
+                        color: 'var(--text-primary)',
+                        background: 'var(--bg-primary)',
+                      }}
+                      dangerouslySetInnerHTML={{ __html: renderMarkdown(displayBlogText) }}
+                    />
+                  )}
                 </div>
               )}
             </div>

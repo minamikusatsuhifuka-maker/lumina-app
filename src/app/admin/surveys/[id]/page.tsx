@@ -1,5 +1,6 @@
 'use client';
 import { useState, useEffect, use } from 'react';
+import { renderMarkdown } from '@/lib/markdown-renderer';
 
 export default function SurveyDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
@@ -36,7 +37,7 @@ export default function SurveyDetailPage({ params }: { params: Promise<{ id: str
       </div>
 
       {trendAnalysis && (
-        <div style={{ padding: 16, background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 12, marginBottom: 20, fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.7, whiteSpace: 'pre-wrap' }}>{trendAnalysis}</div>
+        <div className="markdown-body" style={{ padding: 16, background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 12, marginBottom: 20, fontSize: 13, color: 'var(--text-secondary)' }} dangerouslySetInnerHTML={{ __html: renderMarkdown(trendAnalysis) }} />
       )}
 
       <h2 style={{ fontSize: 16, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 12 }}>回答一覧（{survey.responses?.length || 0}件）</h2>

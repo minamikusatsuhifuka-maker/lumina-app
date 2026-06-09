@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { copyToClipboard } from '@/lib/copyToClipboard';
+import { renderMarkdown } from '@/lib/markdown-renderer';
 import ContextSelector, {
   buildContextText,
   type ContextItem,
@@ -737,20 +738,20 @@ export default function MedicalStudioPage() {
                 </div>
 
                 {/* 文書本文 */}
-                <div
-                  style={{
-                    padding: 20,
-                    fontSize: 13,
-                    lineHeight: 1.8,
-                    color: 'var(--text-primary)',
-                    whiteSpace: 'pre-wrap',
-                    maxHeight: 600,
-                    overflowY: 'auto',
-                    background: 'var(--bg-primary)',
-                  }}
-                >
-                  {displayText}
-                  {isGenerating && (
+                {isGenerating ? (
+                  <div
+                    style={{
+                      padding: 20,
+                      fontSize: 13,
+                      lineHeight: 1.8,
+                      color: 'var(--text-primary)',
+                      whiteSpace: 'pre-wrap',
+                      maxHeight: 600,
+                      overflowY: 'auto',
+                      background: 'var(--bg-primary)',
+                    }}
+                  >
+                    {displayText}
                     <span
                       style={{
                         display: 'inline-block',
@@ -762,8 +763,21 @@ export default function MedicalStudioPage() {
                         verticalAlign: 'middle',
                       }}
                     />
-                  )}
-                </div>
+                  </div>
+                ) : (
+                  <div
+                    className="markdown-body"
+                    style={{
+                      padding: 20,
+                      fontSize: 13,
+                      color: 'var(--text-primary)',
+                      maxHeight: 600,
+                      overflowY: 'auto',
+                      background: 'var(--bg-primary)',
+                    }}
+                    dangerouslySetInnerHTML={{ __html: renderMarkdown(displayText) }}
+                  />
+                )}
               </div>
             )}
           </div>
@@ -1075,18 +1089,16 @@ export default function MedicalStudioPage() {
                     </div>
                   ) : (
                     <div
+                      className="markdown-body"
                       style={{
                         padding: 16,
                         fontSize: 12,
-                        lineHeight: 1.8,
                         color: 'var(--text-primary)',
-                        whiteSpace: 'pre-wrap',
                         maxHeight: 500,
                         overflowY: 'auto',
                       }}
-                    >
-                      {selectedDoc.content}
-                    </div>
+                      dangerouslySetInnerHTML={{ __html: renderMarkdown(selectedDoc.content) }}
+                    />
                   )}
                 </div>
               </div>

@@ -16,6 +16,7 @@ import DefaultContextBar, {
 import DeepDiveChat from '@/components/DeepDiveChat';
 import { copyToClipboard } from '@/lib/copyToClipboard';
 import { triggerDownload } from '@/lib/download';
+import { renderMarkdown } from '@/lib/markdown-renderer';
 
 const ALL_MODES = [
   { key: 'blog',          label: '📝 ブログ',        description: 'SEOを意識した読みやすい長文記事' },
@@ -882,7 +883,9 @@ export default function WritePage() {
             </div>
           </div>
           <textarea value={output} onChange={e => setOutput(e.target.value)} readOnly={loading} style={{ display: preview ? 'none' : 'block', width: '100%', minHeight: 400, background: 'var(--bg-secondary)', border: `1px solid ${loading ? 'var(--accent)' : 'var(--border)'}`, borderRadius: 12, color: 'var(--text-secondary)', fontSize: 14, padding: 20, resize: 'vertical', outline: 'none', fontFamily: 'inherit', lineHeight: 1.8, boxSizing: 'border-box' }} />
-          {preview && <div style={{ minHeight: 400, background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 12, padding: '20px 28px', color: 'var(--text-secondary)', fontSize: 15, lineHeight: 1.9, whiteSpace: 'pre-wrap' }}>{output}</div>}
+          {preview && (loading
+            ? <div style={{ minHeight: 400, background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 12, padding: '20px 28px', color: 'var(--text-secondary)', fontSize: 15, lineHeight: 1.9, whiteSpace: 'pre-wrap' }}>{output}</div>
+            : <div className="markdown-body" style={{ minHeight: 400, background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 12, padding: '20px 28px', color: 'var(--text-secondary)', fontSize: 15 }} dangerouslySetInnerHTML={{ __html: renderMarkdown(output) }} />)}
         </div>
       )}
 
