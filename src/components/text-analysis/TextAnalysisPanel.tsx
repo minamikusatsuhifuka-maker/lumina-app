@@ -517,7 +517,7 @@ export default function TextAnalysisPanel({
             borderRadius: 8,
             padding: 10,
             color: 'var(--text-primary)',
-            fontSize: 13,
+            fontSize: 16, // スマホ(iOS Safari)の自動ズーム防止のため16px以上
             resize: 'vertical',
             fontFamily: 'inherit',
           }}
@@ -536,15 +536,19 @@ export default function TextAnalysisPanel({
             type="button"
             onClick={() => setInputText('')}
             disabled={!inputText}
+            title="入力をクリア"
             style={{
-              fontSize: 11,
-              color: 'var(--text-muted)',
+              padding: '4px 10px',
+              fontSize: 12,
+              color: inputText ? 'var(--text-secondary)' : 'var(--text-muted)',
               background: 'transparent',
-              border: 'none',
+              border: '1px solid var(--border)',
+              borderRadius: 6,
+              opacity: inputText ? 1 : 0.5,
               cursor: inputText ? 'pointer' : 'not-allowed',
             }}
           >
-            クリア
+            ✕ クリア
           </button>
         </div>
       </div>

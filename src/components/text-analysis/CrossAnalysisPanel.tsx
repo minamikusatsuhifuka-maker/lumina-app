@@ -297,7 +297,7 @@ export default function CrossAnalysisPanel({
               placeholder="例：医院経営に活かせる点を抽出して、優先度順にまとめてください。特にスタッフ教育と患者体験に関する示唆を重点的に。"
               rows={4}
               style={{
-                width: '100%', padding: '8px 12px', fontSize: 13,
+                width: '100%', padding: '8px 12px', fontSize: 16, // スマホ自動ズーム防止
                 background: 'var(--bg-primary)', color: 'var(--text-primary)',
                 border: '1px solid var(--border)', borderRadius: 8,
                 resize: 'vertical', fontFamily: 'inherit', outline: 'none',

@@ -262,7 +262,7 @@ export default function UrlBatchAnalysisPanel() {
           onChange={(e) => setUrlInput(e.target.value)}
           placeholder={`https://example.com/article1\nhttps://example.com/article2\nhttps://example.com/article3`}
           rows={6}
-          className="w-full border rounded-lg px-3 py-2 text-sm resize-y font-mono"
+          className="w-full border rounded-lg px-3 py-2 text-base resize-y font-mono"
         />
         <div className="flex items-center justify-between mt-2">
           <span className="text-xs text-gray-400">
