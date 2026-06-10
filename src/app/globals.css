@@ -379,6 +379,8 @@ a[href*="dashboard"]:hover {
   padding-left: 8px; border-left: 3px solid var(--accent, #6c63ff);
 }
 .markdown-body h4 { font-size: 1em; font-weight: 700; margin: 10px 0 4px; }
+.markdown-body h5 { font-size: 0.95em; font-weight: 700; margin: 8px 0 4px; }
+.markdown-body h6 { font-size: 0.9em;  font-weight: 700; margin: 6px 0 3px; }
 .markdown-body ul { margin: 6px 0; padding-left: 1.4em; }
 .markdown-body li { margin: 3px 0; list-style: disc; }
 .markdown-body p  { margin: 6px 0; line-height: 1.7; }

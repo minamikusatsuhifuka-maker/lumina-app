@@ -1,6 +1,6 @@
 // 共通 Markdown→HTML レンダラ
 // deepresearch の formatReport / processInline をベースに共通化したもの。
-// 対応記法: 見出し(#/##/###)、箇条書き(-/*/・)、番号リスト(1. 2. ...)、太字(**)、
+// 対応記法: 見出し(# 〜 ######)、箇条書き(-/*/・)、番号リスト(1. 2. ...)、太字(**)、
 //           出典行整形、URL自動リンク、区切り線(---)。
 //
 // 使い方: <div className="markdown-body" dangerouslySetInnerHTML={{ __html: renderMarkdown(text) }} />
@@ -62,10 +62,14 @@ export function renderMarkdown(raw: string): string {
       continue;
     }
 
-    // 見出し（### → h4 / ## → h3 / # → h2）
-    if (t.startsWith('### ')) { closeList(); html.push(`<h4>${processInline(t.slice(4))}</h4>`); continue; }
-    if (t.startsWith('## '))  { closeList(); html.push(`<h3>${processInline(t.slice(3))}</h3>`); continue; }
-    if (t.startsWith('# '))   { closeList(); html.push(`<h2>${processInline(t.slice(2))}</h2>`); continue; }
+    // 見出し（長いシャープから先に判定: ###### → h6 / ##### → h6 / #### → h5
+    //         / ### → h4 / ## → h3 / # → h2）
+    if (t.startsWith('###### ')) { closeList(); html.push(`<h6>${processInline(t.slice(7))}</h6>`); continue; }
+    if (t.startsWith('##### '))  { closeList(); html.push(`<h6>${processInline(t.slice(6))}</h6>`); continue; }
+    if (t.startsWith('#### '))   { closeList(); html.push(`<h5>${processInline(t.slice(5))}</h5>`); continue; }
+    if (t.startsWith('### '))    { closeList(); html.push(`<h4>${processInline(t.slice(4))}</h4>`); continue; }
+    if (t.startsWith('## '))     { closeList(); html.push(`<h3>${processInline(t.slice(3))}</h3>`); continue; }
+    if (t.startsWith('# '))      { closeList(); html.push(`<h2>${processInline(t.slice(2))}</h2>`); continue; }
 
     // 区切り線
     if (/^---+$/.test(t)) { closeList(); html.push('<hr/>'); continue; }
