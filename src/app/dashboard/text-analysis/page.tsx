@@ -110,7 +110,17 @@ function TextAnalysisPageInner() {
   }, []);
 
   const handleSaved = (saved: AnalysisRecord) => {
-    setRecords((prev) => [saved, ...prev]);
+    // POST応答は RETURNING * で input_text 本体を含む。一覧stateには本体を持たず
+    // has_input/文字数だけ持たせて、展開時に単体取得する方式（一覧APIと整合）。
+    const { input_text, ...rest } = saved as AnalysisRecord & {
+      input_text?: string | null;
+    };
+    const normalized: AnalysisRecord = {
+      ...rest,
+      has_input: !!input_text,
+      input_char_count: input_text ? input_text.length : 0,
+    };
+    setRecords((prev) => [normalized, ...prev]);
   };
 
   return (

@@ -4,16 +4,50 @@ import { sql } from '@/lib/db';
 
 export const runtime = 'nodejs';
 
-// 一覧取得
-export async function GET() {
+// input_text カラムを冪等に用意（ADD COLUMN IF NOT EXISTS、既存データは非破壊・NULL）
+// プロセス内で1回だけ実行（リクエスト毎の ALTER を避ける）
+let inputTextColumnReady: Promise<unknown> | null = null;
+function ensureInputTextColumn() {
+  if (!inputTextColumnReady) {
+    inputTextColumnReady = sql`
+      ALTER TABLE text_analysis_saves ADD COLUMN IF NOT EXISTS input_text TEXT
+    `.catch((e) => {
+      // 失敗時は次回再試行できるようリセット
+      inputTextColumnReady = null;
+      throw e;
+    });
+  }
+  return inputTextColumnReady;
+}
+
+// 一覧取得 / 展開時の元入力単体取得
+export async function GET(req: NextRequest) {
   const session = await auth();
   if (!session) return new Response('Unauthorized', { status: 401 });
   const userId = (session.user as { id?: string })?.id ?? '';
 
   try {
+    await ensureInputTextColumn();
+    const { searchParams } = new URL(req.url);
+    const id = searchParams.get('id');
+    const withInput = searchParams.get('withInput');
+
+    // 展開時の単体取得（案a）: input_text だけを返す軽量レスポンス
+    if (id && withInput) {
+      const rows = await sql`
+        SELECT id, input_text
+        FROM text_analysis_saves
+        WHERE id = ${id} AND user_id = ${userId}
+      `;
+      return NextResponse.json(rows[0] ?? { id: Number(id), input_text: null });
+    }
+
+    // 一覧: input_text 本体は返さない（ペイロード対策）。有無と文字数のみ。
     const rows = await sql`
       SELECT id, user_id, file_name, auto_title, analysis_type, analysis_label,
-             content, tags, folder, favorite, locked, char_count, created_at, updated_at
+             content, tags, folder, favorite, locked, char_count, created_at, updated_at,
+             (input_text IS NOT NULL) AS has_input,
+             COALESCE(LENGTH(input_text), 0) AS input_char_count
       FROM text_analysis_saves
       WHERE user_id = ${userId}
       ORDER BY created_at DESC
@@ -39,6 +73,7 @@ export async function POST(req: NextRequest) {
   }
 
   try {
+    await ensureInputTextColumn();
     const body = await req.json();
     // title/categoryは横断分析用、autoTitle/fileName/folderはレガシー互換
     const titleInput = body.title || body.autoTitle || body.fileName || '無題';
@@ -49,17 +84,22 @@ export async function POST(req: NextRequest) {
     const sourceIds = Array.isArray(body.sourceIds) ? body.sourceIds : [];
     const crossPrompt = body.crossPrompt ?? null;
     const analysisLabel = body.analysisLabel ?? (isCross ? '横断まとめ' : '概要・要約');
+    // 元の入力テキスト（任意項目。空・未指定なら NULL。他producerは無改修で動く）
+    const inputText =
+      typeof body.inputText === 'string' && body.inputText.trim()
+        ? body.inputText
+        : null;
 
     const rows = await sql`
       INSERT INTO text_analysis_saves
         (user_id, file_name, auto_title, analysis_type, analysis_label,
          content, tags, folder, char_count,
-         is_cross_analysis, source_ids, cross_prompt)
+         is_cross_analysis, source_ids, cross_prompt, input_text)
       VALUES
         (${userId}, ${titleInput}, ${titleInput},
          ${body.analysisType ?? 'summary'}, ${analysisLabel},
          ${content}, ${tags}, ${folder}, ${content.length},
-         ${isCross}, ${JSON.stringify(sourceIds)}, ${crossPrompt})
+         ${isCross}, ${JSON.stringify(sourceIds)}, ${crossPrompt}, ${inputText})
       RETURNING *
     `;
     return NextResponse.json({ save: rows[0], ...rows[0] });

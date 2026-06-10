@@ -406,6 +406,8 @@ export default function TextAnalysisPanel({
           tags: [],
           folder: '',
           charCount: text.length,
+          // 分析した元の入力テキストを一緒に保存（空なら送らない＝APIでNULL扱い）
+          inputText: inputText.trim() ? inputText : undefined,
         }),
       });
       if (!res.ok) throw new Error('保存に失敗しました');

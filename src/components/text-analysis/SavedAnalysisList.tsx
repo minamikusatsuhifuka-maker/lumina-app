@@ -33,6 +33,9 @@ export interface AnalysisRecord {
   updated_at: string;
   // 生成AIモデル（保存時に記録されていれば。旧データは undefined）
   model?: AIModel;
+  // 元の入力テキストの有無・文字数（一覧APIが返す。input_text本体は展開時に単体取得）
+  has_input?: boolean;
+  input_char_count?: number;
 }
 
 const FOLDER_PALETTE = [
@@ -89,6 +92,11 @@ export default function SavedAnalysisList({
   const [showCategoryGrid, setShowCategoryGrid] = useState(true);
   const [expandedId, setExpandedId] = useState<number | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
+  // 「入力付き」仮想フィルタ（実フォルダは作らない＝auto-categorize対策）
+  const [inputOnly, setInputOnly] = useState(false);
+  // 展開時に単体取得した元入力のキャッシュ（再展開では再取得しない）
+  const [loadedInputTexts, setLoadedInputTexts] = useState<Record<number, string>>({});
+  const [inputTextLoading, setInputTextLoading] = useState<Record<number, boolean>>({});
   const [editingCategory, setEditingCategory] = useState<string | null>(null);
   const [editingValue, setEditingValue] = useState('');
   const [isRenaming, setIsRenaming] = useState(false);
@@ -217,6 +225,33 @@ export default function SavedAnalysisList({
     }
   };
 
+  // 展開時に元の入力テキストを単体取得（キャッシュ済み・取得中なら何もしない）
+  const loadInputText = async (id: number) => {
+    if (loadedInputTexts[id] !== undefined || inputTextLoading[id]) return;
+    setInputTextLoading((prev) => ({ ...prev, [id]: true }));
+    try {
+      const res = await fetch(`/api/text-analysis/saves?id=${id}&withInput=1`);
+      const data = await res.json();
+      setLoadedInputTexts((prev) => ({
+        ...prev,
+        [id]: typeof data?.input_text === 'string' ? data.input_text : '',
+      }));
+    } catch {
+      setLoadedInputTexts((prev) => ({ ...prev, [id]: '' }));
+    } finally {
+      setInputTextLoading((prev) => ({ ...prev, [id]: false }));
+    }
+  };
+
+  // 全文表示トグル（展開時、入力があれば元入力を取得）
+  const handleToggleExpand = (record: AnalysisRecord) => {
+    const next = expandedId === record.id ? null : record.id;
+    setExpandedId(next);
+    if (next !== null && record.has_input) {
+      void loadInputText(record.id);
+    }
+  };
+
   const uniqueFolders = useMemo(() => {
     const set = new Set<string>();
     records.forEach((r) => {
@@ -230,6 +265,9 @@ export default function SavedAnalysisList({
     if (activeFolder !== null) {
       list = list.filter((r) => (r.folder ?? '') === activeFolder);
     }
+    if (inputOnly) {
+      list = list.filter((r) => r.has_input === true);
+    }
     if (searchTerm.trim()) {
       const q = searchTerm.toLowerCase();
       list = list.filter(
@@ -239,7 +277,7 @@ export default function SavedAnalysisList({
       );
     }
     return list;
-  }, [records, activeFolder, searchTerm]);
+  }, [records, activeFolder, inputOnly, searchTerm]);
 
   // 表示中レコードから分析タイプ別の件数とラベルを動的に抽出
   const typeStats = useMemo(() => {
@@ -702,6 +740,24 @@ export default function SavedAnalysisList({
             fontSize: 12,
           }}
         />
+        <button
+          type="button"
+          onClick={() => setInputOnly((v) => !v)}
+          title="元の入力テキストが保存されている分析だけを表示"
+          style={{
+            padding: '8px 12px',
+            fontSize: 12,
+            fontWeight: 600,
+            whiteSpace: 'nowrap',
+            borderRadius: 8,
+            cursor: 'pointer',
+            border: `1px solid ${inputOnly ? 'var(--accent)' : 'var(--border)'}`,
+            background: inputOnly ? 'var(--accent)' : 'transparent',
+            color: inputOnly ? '#fff' : 'var(--text-secondary)',
+          }}
+        >
+          📥 入力付き
+        </button>
         <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>
           {visibleRecords.length}件 / 全{records.length}件
         </span>
@@ -1131,9 +1187,7 @@ export default function SavedAnalysisList({
                     >
                       <button
                         type="button"
-                        onClick={() =>
-                          setExpandedId(expanded ? null : record.id)
-                        }
+                        onClick={() => handleToggleExpand(record)}
                         style={listBtnStyle()}
                       >
                         {expanded ? '▲ 閉じる' : '▼ 全文表示'}
@@ -1242,6 +1296,50 @@ export default function SavedAnalysisList({
                           className="markdown-body"
                           dangerouslySetInnerHTML={{ __html: renderMarkdown(record.content) }}
                         />
+                        {/* 📥 元の入力テキスト（紐付け表示）。入力はユーザーの生テキストなので
+                            renderMarkdown には流さず pre-wrap の生表示にする */}
+                        {record.has_input && (
+                          <div
+                            style={{
+                              marginTop: 12,
+                              borderTop: '1px dashed var(--border)',
+                              paddingTop: 10,
+                            }}
+                          >
+                            <div
+                              style={{
+                                fontSize: 12,
+                                fontWeight: 700,
+                                color: 'var(--text-secondary)',
+                                marginBottom: 6,
+                              }}
+                            >
+                              📥 元の入力テキスト（{(record.input_char_count ?? 0).toLocaleString()}文字）
+                            </div>
+                            {inputTextLoading[record.id] ? (
+                              <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>
+                                読み込み中...
+                              </div>
+                            ) : (
+                              <div
+                                style={{
+                                  whiteSpace: 'pre-wrap',
+                                  wordBreak: 'break-word',
+                                  fontSize: 13,
+                                  lineHeight: 1.6,
+                                  background: 'var(--bg-secondary, rgba(255,255,255,0.03))',
+                                  padding: 10,
+                                  borderRadius: 8,
+                                  maxHeight: 300,
+                                  overflowY: 'auto',
+                                  color: 'var(--text-primary)',
+                                }}
+                              >
+                                {loadedInputTexts[record.id] || '（入力テキストを取得できませんでした）'}
+                              </div>
+                            )}
+                          </div>
+                        )}
                       </div>
                     ) : (
                       <div
