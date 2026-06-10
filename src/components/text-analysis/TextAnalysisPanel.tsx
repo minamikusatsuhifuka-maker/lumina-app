@@ -305,6 +305,8 @@ export default function TextAnalysisPanel({
   const [purpose, setPurpose] = useState('');
   const [loading, setLoading] = useState(false);
   const [progress, setProgress] = useState('');
+  // 分析が全タイプ完了したか（ラベル横の「✅ 分析終了」バッジ用）
+  const [analysisDone, setAnalysisDone] = useState(false);
 
   const analyzeOne = async (
     type: AnalysisType,
@@ -369,6 +371,7 @@ export default function TextAnalysisPanel({
     }
     const types = Array.from(selectedTypes);
     setLoading(true);
+    setAnalysisDone(false); // 再分析開始時にリセット
     setResults(new Map());
     setResultModels(new Map());
     try {
@@ -382,8 +385,10 @@ export default function TextAnalysisPanel({
       const msg = err instanceof Error ? err.message : '分析に失敗しました';
       showToast(msg, 'error');
     } finally {
+      // 全タイプの実行が終わった時点で完了（エラー終了も「終了」として表示）
       setLoading(false);
       setProgress('');
+      setAnalysisDone(true);
     }
   };
 
@@ -496,20 +501,50 @@ export default function TextAnalysisPanel({
           padding: 16,
         }}
       >
-        <label
+        <div
           style={{
-            display: 'block',
-            fontSize: 12,
-            fontWeight: 600,
-            color: 'var(--text-secondary)',
+            display: 'flex',
+            alignItems: 'center',
+            gap: 8,
             marginBottom: 8,
           }}
         >
-          分析対象テキスト
-        </label>
+          <label
+            style={{
+              fontSize: 12,
+              fontWeight: 600,
+              color: 'var(--text-secondary)',
+            }}
+          >
+            分析対象テキスト
+          </label>
+          {loading && (
+            <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>
+              🔄 分析中...
+            </span>
+          )}
+          {!loading && analysisDone && (
+            <span
+              style={{
+                fontSize: 12,
+                fontWeight: 700,
+                color: '#16a34a',
+                background: '#f0fdf4',
+                border: '1px solid #bbf7d0',
+                borderRadius: 999,
+                padding: '2px 10px',
+              }}
+            >
+              ✅ 分析終了
+            </span>
+          )}
+        </div>
         <textarea
           value={inputText}
-          onChange={(e) => setInputText(e.target.value)}
+          onChange={(e) => {
+            setInputText(e.target.value);
+            setAnalysisDone(false); // 入力変更で古い完了表示を消す
+          }}
           placeholder="ここに分析したいテキストを貼り付けてください..."
           rows={8}
           style={{
@@ -536,7 +571,10 @@ export default function TextAnalysisPanel({
           <span>{inputText.length.toLocaleString()} 文字</span>
           <button
             type="button"
-            onClick={() => setInputText('')}
+            onClick={() => {
+              setInputText('');
+              setAnalysisDone(false);
+            }}
             disabled={!inputText}
             title="入力をクリア"
             style={{
