@@ -97,6 +97,9 @@ export default function SavedAnalysisList({
   // 展開時に単体取得した元入力のキャッシュ（再展開では再取得しない）
   const [loadedInputTexts, setLoadedInputTexts] = useState<Record<number, string>>({});
   const [inputTextLoading, setInputTextLoading] = useState<Record<number, boolean>>({});
+  // 「📥 元の入力テキスト」の折りたたみ状態（デフォルト閉）とコピー中ID
+  const [inputTextOpen, setInputTextOpen] = useState<Record<number, boolean>>({});
+  const [copyingInputId, setCopyingInputId] = useState<number | null>(null);
   const [editingCategory, setEditingCategory] = useState<string | null>(null);
   const [editingValue, setEditingValue] = useState('');
   const [isRenaming, setIsRenaming] = useState(false);
@@ -225,31 +228,58 @@ export default function SavedAnalysisList({
     }
   };
 
-  // 展開時に元の入力テキストを単体取得（キャッシュ済み・取得中なら何もしない）
-  const loadInputText = async (id: number) => {
-    if (loadedInputTexts[id] !== undefined || inputTextLoading[id]) return;
+  // 元の入力テキストを単体取得してキャッシュし、本文を返す（取得済みならそれを返す）
+  const fetchInputText = async (id: number): Promise<string> => {
+    if (loadedInputTexts[id] !== undefined) return loadedInputTexts[id];
     setInputTextLoading((prev) => ({ ...prev, [id]: true }));
     try {
       const res = await fetch(`/api/text-analysis/saves?id=${id}&withInput=1`);
       const data = await res.json();
-      setLoadedInputTexts((prev) => ({
-        ...prev,
-        [id]: typeof data?.input_text === 'string' ? data.input_text : '',
-      }));
+      const text = typeof data?.input_text === 'string' ? data.input_text : '';
+      setLoadedInputTexts((prev) => ({ ...prev, [id]: text }));
+      return text;
     } catch {
       setLoadedInputTexts((prev) => ({ ...prev, [id]: '' }));
+      return '';
     } finally {
       setInputTextLoading((prev) => ({ ...prev, [id]: false }));
     }
   };
 
-  // 全文表示トグル（展開時、入力があれば元入力を取得）
-  const handleToggleExpand = (record: AnalysisRecord) => {
-    const next = expandedId === record.id ? null : record.id;
-    setExpandedId(next);
-    if (next !== null && record.has_input) {
-      void loadInputText(record.id);
+  // 「📥 元の入力テキスト」の折りたたみトグル（開く時に未取得なら遅延取得）
+  const toggleInputText = (id: number) => {
+    setInputTextOpen((prev) => {
+      const opening = !prev[id];
+      if (opening && loadedInputTexts[id] === undefined) {
+        void fetchInputText(id);
+      }
+      return { ...prev, [id]: opening };
+    });
+  };
+
+  // 元の入力テキストをコピー（未取得なら取得してからコピー。copyToClipboard共通util）
+  const copyInputText = async (id: number) => {
+    if (copyingInputId === id) return; // 二度押し防止
+    setCopyingInputId(id);
+    try {
+      const text = await fetchInputText(id);
+      if (!text) {
+        showToast('入力テキストがありません', 'error');
+        return;
+      }
+      const ok = await copyToClipboard(text);
+      showToast(
+        ok ? '✅ 入力テキストをコピーしました' : '❌ コピーに失敗しました',
+        ok ? 'success' : 'error',
+      );
+    } finally {
+      setCopyingInputId(null);
     }
+  };
+
+  // カード本体の全文表示トグル（入力テキストの取得はここではしない＝v35で遅延化）
+  const handleToggleExpand = (record: AnalysisRecord) => {
+    setExpandedId(expandedId === record.id ? null : record.id);
   };
 
   const uniqueFolders = useMemo(() => {
@@ -1306,38 +1336,72 @@ export default function SavedAnalysisList({
                               paddingTop: 10,
                             }}
                           >
+                            {/* 見出し行: 文字数 + 表示トグル + コピー（デフォルト折りたたみ） */}
                             <div
                               style={{
-                                fontSize: 12,
-                                fontWeight: 700,
-                                color: 'var(--text-secondary)',
-                                marginBottom: 6,
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: 8,
+                                flexWrap: 'wrap',
+                                marginBottom: inputTextOpen[record.id] ? 6 : 0,
                               }}
                             >
-                              📥 元の入力テキスト（{(record.input_char_count ?? 0).toLocaleString()}文字）
-                            </div>
-                            {inputTextLoading[record.id] ? (
-                              <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>
-                                読み込み中...
-                              </div>
-                            ) : (
-                              <div
+                              <span
                                 style={{
-                                  whiteSpace: 'pre-wrap',
-                                  wordBreak: 'break-word',
-                                  fontSize: 13,
-                                  lineHeight: 1.6,
-                                  background: 'var(--bg-secondary, rgba(255,255,255,0.03))',
-                                  padding: 10,
-                                  borderRadius: 8,
-                                  maxHeight: 300,
-                                  overflowY: 'auto',
-                                  color: 'var(--text-primary)',
+                                  fontSize: 12,
+                                  fontWeight: 700,
+                                  color: 'var(--text-secondary)',
                                 }}
                               >
-                                {loadedInputTexts[record.id] || '（入力テキストを取得できませんでした）'}
-                              </div>
-                            )}
+                                📥 元の入力テキスト（{(record.input_char_count ?? 0).toLocaleString()}文字）
+                              </span>
+                              <button
+                                type="button"
+                                onClick={() => toggleInputText(record.id)}
+                                style={listBtnStyle()}
+                              >
+                                {inputTextOpen[record.id] ? '▲ 閉じる' : '▼ 表示'}
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => copyInputText(record.id)}
+                                disabled={copyingInputId === record.id}
+                                style={{
+                                  ...listBtnStyle(),
+                                  cursor:
+                                    copyingInputId === record.id
+                                      ? 'not-allowed'
+                                      : 'pointer',
+                                  opacity: copyingInputId === record.id ? 0.6 : 1,
+                                }}
+                              >
+                                {copyingInputId === record.id ? '⏳ 取得中...' : '📋 コピー'}
+                              </button>
+                            </div>
+                            {inputTextOpen[record.id] &&
+                              (inputTextLoading[record.id] ? (
+                                <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>
+                                  読み込み中...
+                                </div>
+                              ) : (
+                                <div
+                                  style={{
+                                    whiteSpace: 'pre-wrap',
+                                    wordBreak: 'break-word',
+                                    fontSize: 13,
+                                    lineHeight: 1.6,
+                                    background: 'var(--bg-secondary, rgba(255,255,255,0.03))',
+                                    padding: 10,
+                                    borderRadius: 8,
+                                    maxHeight: 300,
+                                    overflowY: 'auto',
+                                    color: 'var(--text-primary)',
+                                  }}
+                                >
+                                  {loadedInputTexts[record.id] ||
+                                    '（入力テキストを取得できませんでした）'}
+                                </div>
+                              ))}
                           </div>
                         )}
                       </div>
