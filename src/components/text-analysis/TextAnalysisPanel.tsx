@@ -66,20 +66,28 @@ function ResultPanel({
   onSimplify,
 }: ResultPanelProps) {
   const [panelHeight, setPanelHeight] = useState(350);
-  // 保存成功フィードバック（3秒間「✅ 保存済」表示）
-  const [saved, setSaved] = useState(false);
+  // 保存状態（カードごとに独立）: 未保存 / 保存中 / 保存済み
+  // トーストは消えてしまうため、ボタン自体を「✅ 保存済み」に変化させて残す
+  const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved'>('idle');
+  // 結果テキストが変わったら未保存に戻す（再分析・わかりやすく変換などで内容が更新されたとき）
+  useEffect(() => {
+    setSaveStatus('idle');
+  }, [text]);
   const currentLength = text.length;
 
   const handleSave = async () => {
+    setSaveStatus('saving');
     try {
       const result = await onSave();
       // 戻り値が undefined（void） or true なら成功扱い、false なら失敗扱い
       if (result !== false) {
-        setSaved(true);
-        setTimeout(() => setSaved(false), 3000);
+        setSaveStatus('saved'); // ✅ 保存済み（トーストと違い残り続ける）
+      } else {
+        setSaveStatus('idle'); // 失敗なら未保存に戻す（嘘の保存済みを表示しない）
       }
     } catch {
       // 親側で error トーストを出しているのでここでは何もしない（重複防止）
+      setSaveStatus('idle');
     }
   };
 
@@ -214,14 +222,27 @@ function ResultPanel({
         <button
           type="button"
           onClick={handleSave}
-          disabled={!text || generatingTitle || saved}
-          style={btnStyle(saved ? 'success' : 'primary')}
+          // 保存中のみ無効化。保存済みでも押せるまま（修正後にまた保存できる）
+          disabled={!text || generatingTitle || saveStatus === 'saving'}
+          style={
+            saveStatus === 'saved'
+              ? // 緑系（v36「分析終了」バッジと配色を統一）
+                {
+                  ...btnStyle('primary'),
+                  background: '#f0fdf4',
+                  color: '#16a34a',
+                  border: '1px solid #bbf7d0',
+                }
+              : btnStyle('primary')
+          }
         >
           {generatingTitle
             ? '⏳ タイトル生成中...'
-            : saved
-              ? '✅ 保存済'
-              : '💾 ストック保存'}
+            : saveStatus === 'saving'
+              ? '⏳ 保存中...'
+              : saveStatus === 'saved'
+                ? '✅ 保存済み'
+                : '💾 ストック保存'}
         </button>
         <button
           type="button"
