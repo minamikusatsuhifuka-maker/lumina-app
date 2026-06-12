@@ -94,6 +94,8 @@ export default function SavedAnalysisList({
   const [searchTerm, setSearchTerm] = useState('');
   // 「入力付き」仮想フィルタ（実フォルダは作らない＝auto-categorize対策）
   const [inputOnly, setInputOnly] = useState(false);
+  // 「お気に入り」絞り込み（inputOnly と AND）
+  const [favoriteOnly, setFavoriteOnly] = useState(false);
   // 展開時に単体取得した元入力のキャッシュ（再展開では再取得しない）
   const [loadedInputTexts, setLoadedInputTexts] = useState<Record<number, string>>({});
   const [inputTextLoading, setInputTextLoading] = useState<Record<number, boolean>>({});
@@ -303,6 +305,9 @@ export default function SavedAnalysisList({
     if (inputOnly) {
       list = list.filter((r) => r.has_input === true);
     }
+    if (favoriteOnly) {
+      list = list.filter((r) => r.favorite === true);
+    }
     if (searchTerm.trim()) {
       const q = searchTerm.toLowerCase();
       list = list.filter(
@@ -312,7 +317,7 @@ export default function SavedAnalysisList({
       );
     }
     return list;
-  }, [records, activeFolder, inputOnly, searchTerm]);
+  }, [records, activeFolder, inputOnly, favoriteOnly, searchTerm]);
 
   // 表示中レコードから分析タイプ別の件数とラベルを動的に抽出
   const typeStats = useMemo(() => {
@@ -846,6 +851,24 @@ export default function SavedAnalysisList({
         >
           📥 入力付き
         </button>
+        <button
+          type="button"
+          onClick={() => setFavoriteOnly((v) => !v)}
+          title="お気に入り登録した分析だけを表示"
+          style={{
+            padding: '8px 12px',
+            fontSize: 12,
+            fontWeight: 600,
+            whiteSpace: 'nowrap',
+            borderRadius: 8,
+            cursor: 'pointer',
+            border: `1px solid ${favoriteOnly ? '#f59e0b' : 'var(--border)'}`,
+            background: favoriteOnly ? '#f59e0b' : 'transparent',
+            color: favoriteOnly ? '#fff' : 'var(--text-secondary)',
+          }}
+        >
+          ⭐ お気に入り
+        </button>
         <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>
           {visibleRecords.length}件 / 全{records.length}件
         </span>
@@ -1151,6 +1174,16 @@ export default function SavedAnalysisList({
                   padding: 12,
                   boxShadow: highlighted ? '0 0 0 3px rgba(147,51,234,0.25)' : undefined,
                   transition: 'all 0.2s',
+                  // お気に入りは金色の左ボーダー+淡アンバー背景で一目で区別
+                  // （ハイライト/選択中はそちらの強調を優先）
+                  ...(record.favorite && !highlighted
+                    ? {
+                        borderLeft: '4px solid #f59e0b',
+                        background: checked
+                          ? 'rgba(108,99,255,0.08)'
+                          : 'rgba(245,158,11,0.08)',
+                      }
+                    : {}),
                 }}
               >
                 {highlighted && (
@@ -1250,7 +1283,16 @@ export default function SavedAnalysisList({
                         </span>
                       )}
                       {record.favorite && (
-                        <span style={{ fontSize: 12 }}>⭐</span>
+                        <span
+                          style={{
+                            fontSize: 18,
+                            lineHeight: 1,
+                            filter: 'drop-shadow(0 1px 1px rgba(245,158,11,0.4))',
+                          }}
+                          title="お気に入り"
+                        >
+                          ⭐
+                        </span>
                       )}
                     </div>
                     <div
@@ -1316,7 +1358,17 @@ export default function SavedAnalysisList({
                       <button
                         type="button"
                         onClick={() => handleToggleFavorite(record.id)}
-                        style={listBtnStyle()}
+                        style={
+                          record.favorite
+                            ? {
+                                ...listBtnStyle(),
+                                background: '#fef3c7',
+                                border: '1px solid #f59e0b',
+                                color: '#b45309',
+                                fontWeight: 700,
+                              }
+                            : listBtnStyle()
+                        }
                       >
                         {record.favorite ? '⭐ 解除' : '☆ お気に入り'}
                       </button>
