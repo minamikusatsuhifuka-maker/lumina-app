@@ -147,6 +147,23 @@ export async function PATCH(req: NextRequest) {
         SET auto_title = ${body.title ?? ''}, file_name = ${body.title ?? ''}, updated_at = NOW()
         WHERE id = ${id} AND user_id = ${userId}
       `;
+    } else if (action === 'update') {
+      // タイトル + 本文の編集（input_text は対象外＝元入力は記録のため改変しない）
+      const title = (body.title ?? '').trim();
+      const content = (body.content ?? '').trim();
+      if (!title || !content) {
+        return NextResponse.json(
+          { error: 'タイトルと本文は空にできません' },
+          { status: 400 },
+        );
+      }
+      await sql`
+        UPDATE text_analysis_saves
+        SET auto_title = ${title}, file_name = ${title},
+            content = ${content}, char_count = ${content.length},
+            updated_at = NOW()
+        WHERE id = ${id} AND user_id = ${userId}
+      `;
     } else if (action === 'rename_folder') {
       const oldName = (body.oldName ?? '').trim();
       const newName = (body.newName ?? '').trim();

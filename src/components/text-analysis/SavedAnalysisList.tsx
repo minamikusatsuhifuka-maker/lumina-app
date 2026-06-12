@@ -104,6 +104,11 @@ export default function SavedAnalysisList({
   const [editingValue, setEditingValue] = useState('');
   const [isRenaming, setIsRenaming] = useState(false);
   const [copiedId, setCopiedId] = useState<number | null>(null);
+  // 保存済み分析の編集（タイトル+本文。同時編集は1件のみ）
+  const [editingId, setEditingId] = useState<number | null>(null);
+  const [editTitle, setEditTitle] = useState('');
+  const [editContent, setEditContent] = useState('');
+  const [editSaving, setEditSaving] = useState(false);
   // MDダウンロード中のID（タイトル生成中の同時押し防止）
   const [downloadingId, setDownloadingId] = useState<number | null>(null);
   const [isAutoCategorizing, setIsAutoCategorizing] = useState(false);
@@ -417,6 +422,59 @@ export default function SavedAnalysisList({
       showToast('削除しました', 'success');
     } catch {
       showToast('削除に失敗しました', 'error');
+    }
+  };
+
+  // 「✏️ 編集」押下 → 現在のタイトル/本文を編集 state にコピーして編集モードへ
+  const startEdit = (record: AnalysisRecord) => {
+    setExpandedId(record.id); // 編集UIは展開ビュー内に出るので展開も保証
+    setEditingId(record.id);
+    setEditTitle(record.auto_title || record.file_name || '');
+    setEditContent(record.content);
+  };
+
+  // 編集内容を保存（PATCH action=update。タイトル+本文のみ、input_text は不変）
+  const saveEdit = async (id: number) => {
+    if (!editTitle.trim() || !editContent.trim()) {
+      showToast('タイトルと本文は空にできません', 'error');
+      return;
+    }
+    setEditSaving(true);
+    try {
+      const res = await fetch('/api/text-analysis/saves', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'update',
+          id,
+          title: editTitle.trim(),
+          content: editContent.trim(),
+        }),
+      });
+      if (!res.ok) throw new Error();
+      // ローカル state を楽観的更新（タイトル両カラム・本文・文字数も更新）
+      const newTitle = editTitle.trim();
+      const newContent = editContent.trim();
+      onRecordsChange(
+        records.map((r) =>
+          r.id === id
+            ? {
+                ...r,
+                auto_title: newTitle,
+                file_name: newTitle,
+                content: newContent,
+                char_count: newContent.length,
+              }
+            : r,
+        ),
+      );
+      setEditingId(null);
+      showToast('✅ 更新しました', 'success');
+    } catch {
+      // 失敗時は編集モードを維持（入力内容を失わない）
+      showToast('❌ 更新に失敗しました', 'error');
+    } finally {
+      setEditSaving(false);
     }
   };
 
@@ -1264,6 +1322,31 @@ export default function SavedAnalysisList({
                       </button>
                       <button
                         type="button"
+                        onClick={() =>
+                          editingId === record.id
+                            ? setEditingId(null)
+                            : startEdit(record)
+                        }
+                        style={{
+                          ...listBtnStyle(),
+                          background:
+                            editingId === record.id
+                              ? 'rgba(108,99,255,0.12)'
+                              : listBtnStyle().background,
+                          borderColor:
+                            editingId === record.id
+                              ? 'var(--accent)'
+                              : 'var(--border)',
+                          color:
+                            editingId === record.id
+                              ? 'var(--accent)'
+                              : 'var(--text-secondary)',
+                        }}
+                      >
+                        {editingId === record.id ? '✏️ 編集中' : '✏️ 編集'}
+                      </button>
+                      <button
+                        type="button"
                         onClick={() => handleDelete(record.id)}
                         style={{
                           ...listBtnStyle(),
@@ -1321,11 +1404,94 @@ export default function SavedAnalysisList({
                             ▲ 閉じる
                           </button>
                         </div>
-                        {/* 保存済み結果を Markdown リッチ描画 */}
-                        <div
-                          className="markdown-body"
-                          dangerouslySetInnerHTML={{ __html: renderMarkdown(record.content) }}
-                        />
+                        {/* 編集モード: タイトルinput + 本文textarea（生Markdown）。
+                            通常時: 保存済み結果を Markdown リッチ描画 */}
+                        {editingId === record.id ? (
+                          <div onClick={(e) => e.stopPropagation()}>
+                            <input
+                              value={editTitle}
+                              onChange={(e) => setEditTitle(e.target.value)}
+                              placeholder="タイトル"
+                              style={{
+                                width: '100%',
+                                fontSize: 16,
+                                fontWeight: 700,
+                                padding: 8,
+                                marginBottom: 8,
+                                boxSizing: 'border-box',
+                                background: 'var(--input-bg, var(--bg-primary))',
+                                color: 'var(--text-primary)',
+                                border: '1px solid var(--border)',
+                                borderRadius: 6,
+                              }}
+                            />
+                            <textarea
+                              value={editContent}
+                              onChange={(e) => setEditContent(e.target.value)}
+                              placeholder="本文（Markdown）"
+                              style={{
+                                width: '100%',
+                                minHeight: 300,
+                                fontSize: 14,
+                                lineHeight: 1.6,
+                                padding: 10,
+                                boxSizing: 'border-box',
+                                background: 'var(--input-bg, var(--bg-primary))',
+                                color: 'var(--text-primary)',
+                                border: '1px solid var(--border)',
+                                borderRadius: 8,
+                                whiteSpace: 'pre-wrap',
+                                fontFamily: 'inherit',
+                                resize: 'vertical',
+                              }}
+                            />
+                            <div
+                              style={{ display: 'flex', gap: 8, marginTop: 8 }}
+                            >
+                              <button
+                                type="button"
+                                onClick={() => saveEdit(record.id)}
+                                disabled={editSaving}
+                                style={{
+                                  padding: '8px 16px',
+                                  fontSize: 13,
+                                  fontWeight: 600,
+                                  borderRadius: 8,
+                                  border: 'none',
+                                  background: editSaving
+                                    ? '#9ca3af'
+                                    : 'var(--accent)',
+                                  color: '#fff',
+                                  cursor: editSaving ? 'not-allowed' : 'pointer',
+                                }}
+                              >
+                                {editSaving ? '⏳ 保存中...' : '💾 保存'}
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setEditingId(null)}
+                                disabled={editSaving}
+                                style={{
+                                  padding: '8px 16px',
+                                  fontSize: 13,
+                                  fontWeight: 500,
+                                  borderRadius: 8,
+                                  border: '1px solid var(--border)',
+                                  background: 'var(--bg-card)',
+                                  color: 'var(--text-secondary)',
+                                  cursor: editSaving ? 'not-allowed' : 'pointer',
+                                }}
+                              >
+                                キャンセル
+                              </button>
+                            </div>
+                          </div>
+                        ) : (
+                          <div
+                            className="markdown-body"
+                            dangerouslySetInnerHTML={{ __html: renderMarkdown(record.content) }}
+                          />
+                        )}
                         {/* 📥 元の入力テキスト（紐付け表示）。入力はユーザーの生テキストなので
                             renderMarkdown には流さず pre-wrap の生表示にする */}
                         {record.has_input && (
