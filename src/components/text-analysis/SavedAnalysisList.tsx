@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useToast } from '@/components/ui/Toast';
 import { copyToClipboard } from '@/lib/copyToClipboard';
 import { renderMarkdown } from '@/lib/markdown-renderer';
@@ -89,7 +89,28 @@ export default function SavedAnalysisList({
   const { showToast } = useToast();
   const [activeFolder, setActiveFolder] = useState<string | null>(null);
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
-  const [showCategoryGrid, setShowCategoryGrid] = useState(true);
+  // カテゴリ概覧の開閉（デフォルト閉。開閉状態は localStorage で記憶）
+  const [showCategoryGrid, setShowCategoryGrid] = useState(false);
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem('ta_category_open');
+      if (saved !== null) setShowCategoryGrid(saved === '1');
+      // saved が null（初回）なら false=折りたたみのまま
+    } catch {
+      /* localStorage 不可環境では既定値（閉）のまま */
+    }
+  }, []);
+  const toggleCategoryGrid = () => {
+    setShowCategoryGrid((prev) => {
+      const next = !prev;
+      try {
+        localStorage.setItem('ta_category_open', next ? '1' : '0');
+      } catch {
+        /* 保存失敗は無視（開閉自体は機能する） */
+      }
+      return next;
+    });
+  };
   const [expandedId, setExpandedId] = useState<number | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
   // 「入力付き」仮想フィルタ（実フォルダは作らない＝auto-categorize対策）
@@ -487,6 +508,16 @@ export default function SavedAnalysisList({
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
       <style>{`
         .category-card:hover .category-edit-btn { opacity: 1 !important; }
+        /* カテゴリ概覧グリッド: 画面幅に応じて列数を自動調整（PCは多列、コンパクト1行表示） */
+        .category-grid {
+          display: grid;
+          grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+          gap: 8px;
+        }
+        /* スマホ(≤640px)は確実に2列 */
+        @media (max-width: 640px) {
+          .category-grid { grid-template-columns: 1fr 1fr; }
+        }
       `}</style>
       {/* カテゴリ概覧ヘッダー */}
       <div
@@ -539,7 +570,7 @@ export default function SavedAnalysisList({
           </button>
           <button
             type="button"
-            onClick={() => setShowCategoryGrid((v) => !v)}
+            onClick={toggleCategoryGrid}
             style={{
               fontSize: 11,
               color: 'var(--accent)',
@@ -648,39 +679,37 @@ export default function SavedAnalysisList({
       )}
 
       {showCategoryGrid && (
-        <div
-          style={{
-            display: 'grid',
-            gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))',
-            gap: 8,
-          }}
-        >
+        <div className="category-grid">
           {/* すべて */}
           <button
             type="button"
             onClick={() => setActiveFolder(null)}
             style={categoryCardStyle(activeFolder === null)}
           >
-            <span style={{ fontSize: 18, marginBottom: 2 }}>📂</span>
+            <span style={{ fontSize: 15 }}>📂</span>
             <span
               style={{
-                fontSize: 11,
+                fontSize: 12,
                 fontWeight: 600,
                 color: 'var(--text-secondary)',
+                flex: 1,
+                textAlign: 'left',
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                whiteSpace: 'nowrap',
               }}
             >
               すべて
             </span>
             <span
               style={{
-                fontSize: 18,
+                fontSize: 14,
                 fontWeight: 700,
                 color: 'var(--accent)',
               }}
             >
               {records.length}
             </span>
-            <span style={{ fontSize: 10, color: 'var(--text-muted)' }}>件</span>
           </button>
 
           {uniqueFolders.map((folder) => {
@@ -712,10 +741,10 @@ export default function SavedAnalysisList({
                     background: color,
                   }}
                 />
-                <span style={{ fontSize: 18, marginBottom: 2, paddingLeft: 6 }}>📁</span>
+                <span style={{ fontSize: 15, paddingLeft: 6, flexShrink: 0 }}>📁</span>
                 {isEditing ? (
                   <div
-                    style={{ paddingLeft: 6, width: '100%' }}
+                    style={{ flex: 1, minWidth: 0 }}
                     onClick={(e) => e.stopPropagation()}
                   >
                     <input
@@ -731,7 +760,7 @@ export default function SavedAnalysisList({
                       style={{
                         width: '100%',
                         padding: '4px 6px',
-                        fontSize: 11,
+                        fontSize: 12,
                         fontWeight: 600,
                         background: 'var(--bg-primary)',
                         color: 'var(--text-primary)',
@@ -742,21 +771,14 @@ export default function SavedAnalysisList({
                     />
                   </div>
                 ) : (
-                  <div
-                    style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: 4,
-                      paddingLeft: 6,
-                      width: '100%',
-                    }}
-                  >
+                  <>
                     <span
                       style={{
-                        fontSize: 11,
+                        fontSize: 12,
                         fontWeight: 600,
                         color: 'var(--text-secondary)',
                         flex: 1,
+                        textAlign: 'left',
                         overflow: 'hidden',
                         textOverflow: 'ellipsis',
                         whiteSpace: 'nowrap',
@@ -789,27 +811,13 @@ export default function SavedAnalysisList({
                         ✏️
                       </button>
                     )}
-                  </div>
+                  </>
                 )}
-                <div
-                  style={{
-                    display: 'flex',
-                    alignItems: 'flex-end',
-                    gap: 4,
-                    paddingLeft: 6,
-                  }}
+                <span
+                  style={{ fontSize: 14, fontWeight: 700, color, flexShrink: 0 }}
                 >
-                  <span style={{ fontSize: 18, fontWeight: 700, color }}>{count}</span>
-                  <span
-                    style={{
-                      fontSize: 10,
-                      color: 'var(--text-muted)',
-                      marginBottom: 2,
-                    }}
-                  >
-                    件
-                  </span>
-                </div>
+                  {count}
+                </span>
               </div>
             );
           })}
@@ -1649,17 +1657,20 @@ export default function SavedAnalysisList({
 }
 
 function categoryCardStyle(active: boolean): React.CSSProperties {
+  // 1行コンパクト表示: アイコン・名前・件数を横並びに詰める
   return {
     display: 'flex',
-    flexDirection: 'column',
-    alignItems: 'flex-start',
-    padding: 12,
-    borderRadius: 12,
-    border: `2px solid ${active ? 'var(--accent)' : 'var(--border)'}`,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    padding: '7px 10px',
+    borderRadius: 8,
+    border: `1px solid ${active ? 'var(--accent)' : 'var(--border)'}`,
     background: active ? 'rgba(108,99,255,0.08)' : 'var(--bg-card)',
     textAlign: 'left',
     cursor: 'pointer',
     transition: 'all 0.15s',
+    minWidth: 0,
   };
 }
 
