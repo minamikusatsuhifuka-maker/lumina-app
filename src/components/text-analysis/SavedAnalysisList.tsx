@@ -21,9 +21,9 @@ import {
 // 値は生成結果カード(TextAnalysisPanel の ResultPanel)の HEIGHT_PRESETS と統一。
 type SavedHeightMode = 'S' | 'M' | 'L' | 'full';
 const SAVED_HEIGHT_VALUES: Record<SavedHeightMode, number> = {
-  S: 200,
-  M: 350,
-  L: 500,
+  S: 350,
+  M: 550,
+  L: 800,
   full: 0, // 0 = 高さ制限なし（全文表示）
 };
 const SAVED_HEIGHT_KEY = 'ta_saved_height';

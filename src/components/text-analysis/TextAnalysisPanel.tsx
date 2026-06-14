@@ -28,9 +28,9 @@ import { copyToClipboard } from '@/lib/copyToClipboard';
 import { triggerDownload } from '@/lib/download';
 
 const HEIGHT_PRESETS = [
-  { label: 'S', h: 200 },
-  { label: 'M', h: 350 },
-  { label: 'L', h: 500 },
+  { label: 'S', h: 350 },
+  { label: 'M', h: 550 },
+  { label: 'L', h: 800 },
   { label: '全', h: 9999 },
 ];
 
