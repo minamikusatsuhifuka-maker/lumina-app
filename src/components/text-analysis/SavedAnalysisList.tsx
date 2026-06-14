@@ -10,6 +10,7 @@ import {
   yyyymmdd,
 } from '@/lib/title-generator';
 import { triggerDownload } from '@/lib/download';
+import JSZip from 'jszip';
 import {
   getModelLabel,
   getModelIcon,
@@ -134,6 +135,8 @@ export default function SavedAnalysisList({
   const [editSaving, setEditSaving] = useState(false);
   // MDダウンロード中のID（タイトル生成中の同時押し防止）
   const [downloadingId, setDownloadingId] = useState<number | null>(null);
+  // 選択項目の一括MDダウンロード（ZIP）中フラグ（二度押し防止）
+  const [bulkDownloading, setBulkDownloading] = useState(false);
   const [isAutoCategorizing, setIsAutoCategorizing] = useState(false);
   const [categorizationResult, setCategorizationResult] =
     useState<AutoCategorizeResult | null>(null);
@@ -222,6 +225,70 @@ export default function SavedAnalysisList({
       showToast('ダウンロードに失敗しました', 'error');
     } finally {
       setDownloadingId(null);
+    }
+  };
+
+  // 選択中の各レコードを個別の .md にして JSZip で1つのZIPにまとめてダウンロード。
+  // MD整形は単体DL（handleDownloadMd）と同じ「# タイトル + 生成AI行 + 本文」を流用。
+  // 件数が多いと重いため、ファイル名は AIタイトル生成は行わず既存の auto_title/file_name を使う。
+  // 本文(content)は一覧APIが返すため records から取得（単体取得は不要）。
+  const handleBulkDownload = async () => {
+    if (bulkDownloading || selectedIds.size === 0) return;
+    setBulkDownloading(true);
+    try {
+      const zip = new JSZip();
+      const usedNames = new Set<string>();
+      const ids = Array.from(selectedIds);
+      let added = 0;
+
+      for (const id of ids) {
+        const rec = records.find((r) => r.id === id);
+        if (!rec) continue;
+
+        const label = rec.analysis_label || rec.analysis_type || '分析結果';
+        const title = rec.auto_title || rec.file_name || label;
+        // モデル情報があれば生成AI行を追加（旧データは undefined → 出力なし）
+        const modelLine = rec.model
+          ? `> 生成AI: ${getModelIcon(rec.model)} ${getModelLabel(rec.model)}\n\n---\n\n`
+          : '';
+        const md = `# ${title}\n\n${modelLine}${rec.content ?? ''}`;
+
+        // ファイル名（サニタイズ + 同名タイトルの重複は連番で回避）
+        const base = sanitizeFilename(title) || `analysis_${id}`;
+        let name = `${base}.md`;
+        let i = 2;
+        while (usedNames.has(name)) {
+          name = `${base}_${i}.md`;
+          i++;
+        }
+        usedNames.add(name);
+
+        zip.file(name, md);
+        added++;
+      }
+
+      if (added === 0) {
+        showToast('ダウンロード対象が見つかりませんでした', 'error');
+        return;
+      }
+
+      // triggerDownload(v25) は文字列専用でBlob非対応のため、ZIPはここで直接DLする
+      const blob = await zip.generateAsync({ type: 'blob' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `text-analysis_${yyyymmdd()}.zip`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+
+      showToast(`${added}件をZIPでダウンロードしました`, 'success');
+    } catch (e) {
+      console.error('[bulk-download]', e);
+      showToast('ダウンロードに失敗しました', 'error');
+    } finally {
+      setBulkDownloading(false);
     }
   };
 
@@ -1101,8 +1168,47 @@ export default function SavedAnalysisList({
             </button>
           </div>
 
-          {selectedIds.size >= 2 && onSelectForCross && (
-            <div style={{ display: 'flex', justifyContent: 'center', marginTop: 6 }}>
+          <div
+            style={{
+              display: 'flex',
+              flexWrap: 'wrap',
+              gap: 8,
+              justifyContent: 'center',
+              marginTop: 6,
+            }}
+          >
+            {/* 選択項目の一括MDダウンロード（ZIP） */}
+            <button
+              type="button"
+              onClick={handleBulkDownload}
+              disabled={bulkDownloading || selectedIds.size === 0}
+              style={{
+                padding: '10px 22px',
+                borderRadius: 12,
+                fontSize: 13,
+                fontWeight: 700,
+                border: 'none',
+                background:
+                  bulkDownloading || selectedIds.size === 0
+                    ? 'var(--border)'
+                    : '#0ea5e9',
+                color: '#fff',
+                cursor:
+                  bulkDownloading || selectedIds.size === 0
+                    ? 'not-allowed'
+                    : 'pointer',
+                boxShadow:
+                  bulkDownloading || selectedIds.size === 0
+                    ? 'none'
+                    : '0 4px 12px rgba(14,165,233,0.3)',
+              }}
+            >
+              {bulkDownloading
+                ? '⏳ 生成中...'
+                : `📥 選択した${selectedIds.size}件をMDダウンロード`}
+            </button>
+
+            {selectedIds.size >= 2 && onSelectForCross && (
               <button
                 type="button"
                 onClick={() => {
@@ -1130,8 +1236,8 @@ export default function SavedAnalysisList({
               >
                 🔀 選択した{selectedIds.size}件を横断分析する
               </button>
-            </div>
-          )}
+            )}
+          </div>
         </div>
       )}
 
