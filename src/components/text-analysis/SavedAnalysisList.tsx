@@ -17,6 +17,17 @@ import {
   type AIModel,
 } from '@/lib/model-preference';
 
+// 展開ビューの本文表示枠の高さ切替（S/M/L/全）。
+// 値は生成結果カード(TextAnalysisPanel の ResultPanel)の HEIGHT_PRESETS と統一。
+type SavedHeightMode = 'S' | 'M' | 'L' | 'full';
+const SAVED_HEIGHT_VALUES: Record<SavedHeightMode, number> = {
+  S: 200,
+  M: 350,
+  L: 500,
+  full: 0, // 0 = 高さ制限なし（全文表示）
+};
+const SAVED_HEIGHT_KEY = 'ta_saved_height';
+
 export interface AnalysisRecord {
   id: number;
   user_id: string;
@@ -113,6 +124,24 @@ export default function SavedAnalysisList({
     });
   };
   const [expandedId, setExpandedId] = useState<number | null>(null);
+  // 展開ビュー本文枠の高さ（保存一覧全体で共通・localStorage記憶）。デフォルトはMで流用元と統一
+  const [heightMode, setHeightMode] = useState<SavedHeightMode>('M');
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem(SAVED_HEIGHT_KEY) as SavedHeightMode | null;
+      if (saved && saved in SAVED_HEIGHT_VALUES) setHeightMode(saved);
+    } catch {
+      /* skip */
+    }
+  }, []);
+  const changeHeight = (m: SavedHeightMode) => {
+    setHeightMode(m);
+    try {
+      localStorage.setItem(SAVED_HEIGHT_KEY, m);
+    } catch {
+      /* skip */
+    }
+  };
   const [searchTerm, setSearchTerm] = useState('');
   // 「入力付き」仮想フィルタ（実フォルダは作らない＝auto-categorize対策）
   const [inputOnly, setInputOnly] = useState(false);
@@ -1524,14 +1553,62 @@ export default function SavedAnalysisList({
                       </button>
                     </div>
                     {expanded ? (
+                      <>
+                      {/* 本文表示枠の高さ切替（S/M/L/全）。生成結果カードと同じ仕様・見た目 */}
+                      <div
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: 4,
+                          marginBottom: 6,
+                        }}
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        <span
+                          style={{
+                            fontSize: 10,
+                            color: 'var(--text-muted)',
+                            marginRight: 4,
+                          }}
+                        >
+                          高さ:
+                        </span>
+                        {(['S', 'M', 'L', 'full'] as SavedHeightMode[]).map((m) => (
+                          <button
+                            key={m}
+                            type="button"
+                            onClick={() => changeHeight(m)}
+                            style={{
+                              padding: '2px 8px',
+                              fontSize: 10,
+                              borderRadius: 4,
+                              border: '1px solid',
+                              borderColor:
+                                heightMode === m ? 'var(--accent)' : 'var(--border)',
+                              background:
+                                heightMode === m ? 'var(--accent)' : 'transparent',
+                              color: heightMode === m ? '#fff' : 'var(--text-muted)',
+                              cursor: 'pointer',
+                              transition: 'all 0.15s',
+                            }}
+                          >
+                            {m === 'full' ? '全' : m}
+                          </button>
+                        ))}
+                      </div>
                       <div
                         style={{
                           padding: 10,
                           background: 'rgba(255,255,255,0.02)',
                           borderRadius: 6,
                           border: '1px solid var(--border)',
-                          maxHeight: 400,
-                          overflowY: 'auto',
+                          // 「全」(full=0)は高さ制限なしで全文表示、S/M/Lは枠内スクロール
+                          ...(heightMode === 'full'
+                            ? {}
+                            : {
+                                maxHeight: SAVED_HEIGHT_VALUES[heightMode],
+                                overflowY: 'auto',
+                              }),
                           fontSize: 12,
                           color: 'var(--text-primary)',
                           position: 'relative',
@@ -1737,6 +1814,7 @@ export default function SavedAnalysisList({
                           </div>
                         )}
                       </div>
+                      </>
                     ) : (
                       <div
                         style={{
