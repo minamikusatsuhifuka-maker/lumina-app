@@ -1,7 +1,7 @@
-import { randomBytes } from 'crypto';
+import { randomBytes, createHash, timingSafeEqual } from 'crypto';
 import { neon } from '@neondatabase/serverless';
 
-// 日程調整機能の共通基盤（DBスキーマ冪等作成・公開トークン生成・状態機械）
+// 日程調整機能の共通基盤（DBスキーマ冪等作成・公開トークン生成・状態機械・OTP）
 // 追加式。既存テーブルには一切触れない。
 
 type Sql = ReturnType<typeof neon<false, false>>;
@@ -12,6 +12,32 @@ type Sql = ReturnType<typeof neon<false, false>>;
 export function generateEventToken(): string {
   return randomBytes(18).toString('base64url');
 }
+
+// ── OTP（本人確認コード）────────────────────────────────────
+// 6桁の確認コードを生成（先頭ゼロ保持）。
+export function generateOtpCode(): string {
+  // 000000〜999999 を一様に
+  const n = randomBytes(4).readUInt32BE(0) % 1_000_000;
+  return n.toString().padStart(6, '0');
+}
+
+// OTPはハッシュで保存（平文保存しない）。pepper に AUTH/NEXTAUTH_SECRET を混ぜる。
+export function hashOtp(code: string): string {
+  const pepper = process.env.AUTH_SECRET || process.env.NEXTAUTH_SECRET || '';
+  return createHash('sha256').update(`${code}:${pepper}`).digest('hex');
+}
+
+// 定数時間でハッシュ比較
+export function verifyOtp(code: string, storedHash: string | null | undefined): boolean {
+  if (!storedHash) return false;
+  const a = Buffer.from(hashOtp(code), 'hex');
+  const b = Buffer.from(storedHash, 'hex');
+  if (a.length !== b.length) return false;
+  return timingSafeEqual(a, b);
+}
+
+export const OTP_TTL_MS = 10 * 60 * 1000; // 有効期限10分
+export const OTP_MAX_ATTEMPTS = 5; // 5回失敗でロック
 
 // ── 状態機械（scheduling_events.status）───────────────────────
 export type SchedulingStatus =
@@ -79,6 +105,13 @@ export async function ensureSchedulingTables(sql: Sql): Promise<void> {
   )`;
   await sql`CREATE INDEX IF NOT EXISTS idx_scheduling_participants_event ON scheduling_participants (event_id)`;
 
+  // OTP（本人確認）用カラムを冪等に追加（フェーズ④。既存行は NULL で非破壊）。
+  // ハッシュのみ保存・期限・試行回数・最終送信時刻（送信間隔制限用）。
+  await sql`ALTER TABLE scheduling_participants ADD COLUMN IF NOT EXISTS otp_hash TEXT`;
+  await sql`ALTER TABLE scheduling_participants ADD COLUMN IF NOT EXISTS otp_expires_at TIMESTAMPTZ`;
+  await sql`ALTER TABLE scheduling_participants ADD COLUMN IF NOT EXISTS otp_attempts INT NOT NULL DEFAULT 0`;
+  await sql`ALTER TABLE scheduling_participants ADD COLUMN IF NOT EXISTS otp_last_sent_at TIMESTAMPTZ`;
+
   // 参加者ごとのNG日
   await sql`CREATE TABLE IF NOT EXISTS scheduling_ng_dates (
     id SERIAL PRIMARY KEY,
@@ -101,4 +134,82 @@ export async function ensureSchedulingTables(sql: Sql): Promise<void> {
   await sql`CREATE INDEX IF NOT EXISTS idx_scheduling_notifications_event ON scheduling_notifications (event_id)`;
 
   ensured = true;
+}
+
+// ── 入力検証ヘルパー ─────────────────────────────────────────
+const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+export function isValidDateStr(s: unknown): s is string {
+  if (typeof s !== 'string' || !DATE_RE.test(s)) return false;
+  const d = new Date(`${s}T00:00:00Z`);
+  return !Number.isNaN(d.getTime()) && s === d.toISOString().slice(0, 10);
+}
+
+// 簡易メール形式チェック（厳密すぎない実用判定）
+export function isValidEmail(s: unknown): s is string {
+  return typeof s === 'string' && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(s) && s.length <= 254;
+}
+
+// candidate_dates（JSONB）を 'YYYY-MM-DD' の配列へ正規化（不正値は除去）
+export function parseCandidateDates(raw: unknown): string[] {
+  let arr: unknown = raw;
+  if (typeof raw === 'string') {
+    try {
+      arr = JSON.parse(raw);
+    } catch {
+      arr = [];
+    }
+  }
+  if (!Array.isArray(arr)) return [];
+  return Array.from(new Set(arr.filter(isValidDateStr))).sort();
+}
+
+// ── 公開フロー用ローダ ───────────────────────────────────────
+export interface SchedulingEventRow {
+  id: string;
+  owner_user_id: string;
+  title: string;
+  description: string | null;
+  type: string;
+  status: SchedulingStatus;
+  candidate_dates: unknown;
+}
+
+// token（=id）でイベントを取得（公開情報のみ。存在しなければ null）
+export async function loadEventByToken(
+  sql: Sql,
+  token: string
+): Promise<SchedulingEventRow | null> {
+  const rows = await sql`
+    SELECT id, owner_user_id, title, description, type, status, candidate_dates
+    FROM scheduling_events
+    WHERE id = ${token}
+  `;
+  return (rows[0] as SchedulingEventRow) ?? null;
+}
+
+export interface ParticipantRow {
+  id: number;
+  email: string;
+  email_verified_at: string | null;
+  responded_at: string | null;
+  otp_hash: string | null;
+  otp_expires_at: string | null;
+  otp_attempts: number;
+  otp_last_sent_at: string | null;
+}
+
+// event_id + email で参加者を取得（本人のみ。存在しなければ null）
+export async function loadParticipant(
+  sql: Sql,
+  eventId: string,
+  email: string
+): Promise<ParticipantRow | null> {
+  const rows = await sql`
+    SELECT id, email, email_verified_at, responded_at,
+           otp_hash, otp_expires_at, otp_attempts, otp_last_sent_at
+    FROM scheduling_participants
+    WHERE event_id = ${eventId} AND email = ${email}
+  `;
+  return (rows[0] as ParticipantRow) ?? null;
 }
