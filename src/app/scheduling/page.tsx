@@ -1,4 +1,7 @@
 export const runtime = 'nodejs';
+// host rewrite（/ や予約パスからの内部書き換え）の宛先。静的プリレンダではなく
+// 動的解決にして、サブドメインからの rewrite が確実に解決されるようにする。
+export const dynamic = 'force-dynamic';
 
 // 予約サブドメインのルート（token無し）。管理画面・ログインには絶対に飛ばさない。
 // 「URLが必要です」的な軽い案内のみ。

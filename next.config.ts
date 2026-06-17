@@ -15,20 +15,30 @@ const nextConfig: NextConfig = {
   // xlumina.jp 等は host 条件に一致しないため一切影響なし（管理画面はそのまま）。
   async rewrites() {
     const host = [{ type: "host" as const, value: SCHEDULING_HOST }];
+    const toInfo = (source: string) => ({ source, has: host, destination: "/scheduling" });
     return {
       beforeFiles: [
-        // 管理画面・ログイン・院内向けは予約サブドメインからは見せない（案内へ寄せる）。
-        { source: "/dashboard/:path*", has: host, destination: "/scheduling" },
-        { source: "/admin/:path*", has: host, destination: "/scheduling" },
-        { source: "/staff/:path*", has: host, destination: "/scheduling" },
-        { source: "/auth/:path*", has: host, destination: "/scheduling" },
-        // ルート → 案内、/<token> → 公開ページ本体。
-        { source: "/", has: host, destination: "/scheduling" },
+        // 1) 有効トークンのみ公開ページ本体へ。
+        //    公開トークンは base64url 24文字（randomBytes(18)）。最小長 {20,} を課して
+        //    "scheduling"(10) "dashboard"(9) "auth"(4) 等の短い予約語を拾わないようにする。
+        //    /api・/_next・ドット付き静的ファイルは単一英数セグメントでないため不一致＝素通り（CORS不要を維持）。
         {
-          source: "/:token([A-Za-z0-9_-]+)",
+          source: "/:token([A-Za-z0-9_-]{20,})",
           has: host,
           destination: "/scheduling/:token",
         },
+        // 2) ルート → 案内ページ。
+        toInfo("/"),
+        // 3) 管理画面・ログイン・院内向け・内部パスは案内へ寄せて非露出に。
+        toInfo("/dashboard/:path*"),
+        toInfo("/dashboard"),
+        toInfo("/auth/:path*"),
+        toInfo("/auth"),
+        toInfo("/admin/:path*"),
+        toInfo("/admin"),
+        toInfo("/staff/:path*"),
+        toInfo("/staff"),
+        toInfo("/scheduling"),
       ],
     };
   },
