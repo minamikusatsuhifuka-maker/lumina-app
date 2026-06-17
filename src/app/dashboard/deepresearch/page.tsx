@@ -106,6 +106,7 @@ const formatReport = (text: string): string => {
     // 見出し
     if (t.startsWith('# ')) return `<div style="font-size:1.25em;font-weight:700;color:var(--text-primary);margin:20px 0 10px;padding-bottom:8px;border-bottom:2px solid var(--border-accent);">${processInline(t.slice(2))}</div>`;
     if (t.startsWith('## ')) return `<div style="font-size:1.1em;font-weight:600;color:var(--text-secondary);margin:16px 0 8px;padding-left:8px;border-left:3px solid var(--accent);">${processInline(t.slice(3))}</div>`;
+    if (t.startsWith('#### ')) return `<div style="font-size:0.92em;font-weight:600;color:var(--text-muted);margin:8px 0 3px;">${processInline(t.slice(5))}</div>`;
     if (t.startsWith('### ')) return `<div style="font-size:1em;font-weight:600;color:var(--text-muted);margin:10px 0 4px;">${processInline(t.slice(4))}</div>`;
 
     // 番号付きリスト
@@ -2070,7 +2071,10 @@ ${contextText}
                   <SaveToLibraryButton title={`ディープリサーチ 要約: ${topic}`} content={insights.summary} type="deepresearch" groupName="ディープリサーチ" tags="ディープリサーチ,要約" />
                 </div>
               </div>
-              <div style={{ fontSize: 14, color: 'var(--text-secondary)', lineHeight: 1.85, whiteSpace: 'pre-wrap' }}>{insights.summary}</div>
+              <div
+                style={{ fontSize: 14, color: 'var(--text-secondary)' }}
+                dangerouslySetInnerHTML={{ __html: formatReport(insights.summary) }}
+              />
               <div style={{ marginTop: 10, fontSize: 11, color: 'var(--text-muted)', textAlign: 'right' }}>📝 {insights.summary.length.toLocaleString()} 字</div>
             </section>
           )}
