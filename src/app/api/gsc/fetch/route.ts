@@ -1,11 +1,12 @@
 import { NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
-import { fetchSearchConsoleData } from '@/lib/gsc-client';
+import { fetchSearchConsoleData, GSC_SITE_URL } from '@/lib/gsc-client';
 
 export const runtime = 'nodejs';
 export const maxDuration = 120;
 
-const SITE_URL = 'https://www.mkhifuka11.com/';
+// GSC_SITE_URL（env優先・現値フォールバック）を共通定数から参照
+const SITE_URL = GSC_SITE_URL;
 
 export async function POST(req: Request) {
   const session = await auth();

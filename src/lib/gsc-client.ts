@@ -6,6 +6,10 @@ import { JWT } from 'google-auth-library';
 
 const GSC_SCOPES = ['https://www.googleapis.com/auth/webmasters.readonly'];
 
+// 対象サイトURL。env 優先・未設定なら従来のハードコード値にフォールバック。
+// route / cron 双方からこの定数を参照する。
+export const GSC_SITE_URL = process.env.GSC_SITE_URL || 'https://www.mkhifuka11.com/';
+
 function getJwtClient() {
   const email = process.env.GA4_SERVICE_ACCOUNT_EMAIL!;
   let key = process.env.GA4_PRIVATE_KEY!;
