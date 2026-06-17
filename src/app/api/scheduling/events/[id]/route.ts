@@ -21,7 +21,7 @@ export async function GET(
   // 本人のイベントのみ（owner_user_id で絞り、他人のイベントは404扱い）
   const events = await sql`
     SELECT id, owner_user_id, title, description, type, status,
-           candidate_dates, finalized_date, created_at, updated_at
+           candidate_dates, finalized_date, compute_result, created_at, updated_at
     FROM scheduling_events
     WHERE id = ${id} AND owner_user_id = ${userId}
   `;

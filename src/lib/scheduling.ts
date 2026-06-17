@@ -112,6 +112,9 @@ export async function ensureSchedulingTables(sql: Sql): Promise<void> {
   await sql`ALTER TABLE scheduling_participants ADD COLUMN IF NOT EXISTS otp_attempts INT NOT NULL DEFAULT 0`;
   await sql`ALTER TABLE scheduling_participants ADD COLUMN IF NOT EXISTS otp_last_sent_at TIMESTAMPTZ`;
 
+  // ⑤の算出結果（ランク・理由など）を保持（フェーズ⑤。既存行は NULL で非破壊）
+  await sql`ALTER TABLE scheduling_events ADD COLUMN IF NOT EXISTS compute_result JSONB`;
+
   // 参加者ごとのNG日
   await sql`CREATE TABLE IF NOT EXISTS scheduling_ng_dates (
     id SERIAL PRIMARY KEY,
