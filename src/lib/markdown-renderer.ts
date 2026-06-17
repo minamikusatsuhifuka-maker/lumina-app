@@ -1,7 +1,7 @@
 // 共通 Markdown→HTML レンダラ
 // deepresearch の formatReport / processInline をベースに共通化したもの。
 // 対応記法: 見出し(# 〜 ######)、箇条書き(-/*/・)、番号リスト(1. 2. ...)、太字(**)、
-//           出典行整形、URL自動リンク、区切り線(---)。
+//           出典行整形、URL自動リンク、区切り線(---)、テーブル(|a|b|、区切り行必須)。
 //
 // 使い方: <div className="markdown-body" dangerouslySetInnerHTML={{ __html: renderMarkdown(text) }} />
 // スタイルは globals.css の .markdown-body 配下で当てる。
@@ -39,6 +39,44 @@ function processInline(raw: string): string {
   return text;
 }
 
+// テーブルブロックの解析。区切り行（|---|---|）が必須で、無ければ null を返す
+// （本文中の縦棒を誤ってテーブル化しないための誤検出防止）。
+// startIdx を先頭行とみなし、ヘッダ + 区切り行 + データ行を <table> に変換する。
+function parseTableBlock(
+  lines: string[],
+  startIdx: number,
+): { html: string; nextIdx: number } | null {
+  const headerLine = lines[startIdx];
+  const sepLine = lines[startIdx + 1];
+  // 1行目がテーブル行か
+  if (!/^\s*\|.*\|\s*$/.test(headerLine)) return null;
+  // 2行目が区切り行（|---|---|、:--/:-:/--: の寄せ指定も許容）か。無ければテーブルとみなさない
+  if (!sepLine || !/^\s*\|[\s:|-]+\|\s*$/.test(sepLine)) return null;
+
+  // | で分割し、前後の空セル（行頭・行末の | による空文字）を除去
+  const splitRow = (row: string) =>
+    row.trim().replace(/^\||\|$/g, '').split('|').map((c) => c.trim());
+
+  const headers = splitRow(headerLine);
+  const rows: string[][] = [];
+  let i = startIdx + 2;
+  while (i < lines.length && /^\s*\|.*\|\s*$/.test(lines[i])) {
+    rows.push(splitRow(lines[i]));
+    i++;
+  }
+
+  const thead = `<thead><tr>${headers
+    .map((h) => `<th>${processInline(h)}</th>`)
+    .join('')}</tr></thead>`;
+  const tbody = `<tbody>${rows
+    .map((r) => `<tr>${r.map((c) => `<td>${processInline(c)}</td>`).join('')}</tr>`)
+    .join('')}</tbody>`;
+
+  // 広いテーブルでも崩れないよう、ラッパー div で横スクロール対応
+  const html = `<div class="md-table-wrap"><table class="md-table">${thead}${tbody}</table></div>`;
+  return { html, nextIdx: i };
+}
+
 export function renderMarkdown(raw: string): string {
   if (!raw) return '';
 
@@ -52,8 +90,20 @@ export function renderMarkdown(raw: string): string {
     }
   };
 
-  for (const line of lines) {
+  for (let idx = 0; idx < lines.length; idx++) {
+    const line = lines[idx];
     const t = line.trim();
+
+    // テーブル（区切り行が続く場合のみ）。誤検出防止のため最優先で判定
+    if (/^\s*\|.*\|\s*$/.test(line)) {
+      const table = parseTableBlock(lines, idx);
+      if (table) {
+        closeList();
+        html.push(table.html);
+        idx = table.nextIdx - 1; // for ループの idx++ で nextIdx に進む
+        continue;
+      }
+    }
 
     // 空行
     if (t === '') {

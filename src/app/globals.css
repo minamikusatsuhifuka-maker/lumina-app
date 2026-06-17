@@ -398,4 +398,14 @@ a[href*="dashboard"]:hover {
   padding: 4px 0 4px 12px;
   border-left: 2px solid rgba(0, 212, 184, 0.3); margin: 4px 0;
 }
+/* テーブル（区切り行必須で解析した | a | b | を <table> 描画） */
+.markdown-body .md-table-wrap { overflow-x: auto; margin: 10px 0; }
+.markdown-body .md-table { border-collapse: collapse; width: 100%; font-size: 13px; }
+.markdown-body .md-table th,
+.markdown-body .md-table td {
+  border: 1px solid var(--border, #2a2a3a); padding: 6px 10px; text-align: left;
+}
+.markdown-body .md-table th {
+  background: var(--bg-secondary, #1a1a2a); font-weight: 700;
+}
 .markdown-body > :first-child { margin-top: 0; }
