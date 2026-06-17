@@ -1,6 +1,6 @@
 import { notFound } from 'next/navigation';
 import { neon } from '@neondatabase/serverless';
-import { ensureSchedulingTables, loadEventByToken, parseCandidateDates } from '@/lib/scheduling';
+import { ensureSchedulingTables, loadEventByToken, parseCandidateDates, parseTimeSlots } from '@/lib/scheduling';
 import PublicSchedulingFlow from './PublicSchedulingFlow';
 
 export const runtime = 'nodejs';
@@ -48,6 +48,7 @@ export default async function SchedulingPublicPage({
   }
 
   const candidateDates = parseCandidateDates(event.candidate_dates);
+  const timeSlots = parseTimeSlots(event.time_slots);
 
   return (
     <div style={wrap}>
@@ -55,7 +56,9 @@ export default async function SchedulingPublicPage({
         token={event.id}
         title={event.title}
         description={event.description}
+        type={event.type === 'one_on_one' ? 'one_on_one' : 'multi'}
         candidateDates={candidateDates}
+        timeSlots={timeSlots}
       />
     </div>
   );

@@ -15,10 +15,15 @@ const STATUS: Record<string, { label: string; color: string; bg: string }> = {
 
 interface RankedDay { date: string; availableCount: number; ngCount: number; rank: number; reason: string }
 interface ComputeResult { verifiedCount: number; summary: string; aiUsed: boolean; ranked: RankedDay[]; allAvailable: string[] }
-interface Participant { id: number; email: string; email_verified_at: string | null; responded_at: string | null; ng_dates: string[] }
+interface TimeSlot { start: string; end: string }
+interface Participant { id: number; email: string; email_verified_at: string | null; responded_at: string | null; ng_dates: string[]; selected_slot: TimeSlot | null }
 interface EventDetail {
   id: string; title: string; description: string | null; type: string; status: string;
-  candidate_dates: string[]; finalized_date: string | null; compute_result: ComputeResult | null;
+  candidate_dates: string[]; time_slots: TimeSlot[]; finalized_date: string | null; compute_result: ComputeResult | null;
+}
+
+function slotText(s: TimeSlot): string {
+  return `${s.start.replace('T', ' ')}〜${s.end.split('T')[1]}`;
 }
 
 export default function SchedulingDetailPage({ params }: { params: Promise<{ id: string }> }) {
@@ -94,6 +99,14 @@ export default function SchedulingDetailPage({ params }: { params: Promise<{ id:
       load();
     }
   };
+  const finalizeSlot = async (slotStart: string) => {
+    const r = await act('finalize', { slotStart }, `finalize:${slotStart}`);
+    if (r) {
+      setNotifyResult({ sent: r.sent, failed: r.failed, recipients: r.recipients });
+      showToast(`確定しました（送信 ${r.sent}/${r.recipients}名）`, 'success');
+      load();
+    }
+  };
 
   const copyUrl = async () => {
     try {
@@ -125,7 +138,18 @@ export default function SchedulingDetailPage({ params }: { params: Promise<{ id:
         {event.status === 'draft' ? (
           <div>
             <div style={sectionTitle}>公開</div>
-            <p style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 10 }}>公開すると参加者がNG日を回答できるようになります（status: 収集中）。</p>
+            {event.type === 'one_on_one' && (event.time_slots ?? []).length > 0 && (
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 10 }}>
+                {event.time_slots.map((s) => (
+                  <span key={s.start} style={{ fontSize: 12, padding: '4px 10px', borderRadius: 16, background: 'var(--accent-soft)', color: 'var(--text-primary)' }}>{slotText(s)}</span>
+                ))}
+              </div>
+            )}
+            <p style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 10 }}>
+              {event.type === 'one_on_one'
+                ? '公開すると相手が時間枠を選べるようになります（status: 収集中）。'
+                : '公開すると参加者がNG日を回答できるようになります（status: 収集中）。'}
+            </p>
             <button onClick={publish} disabled={busy === 'publish'} style={btnPrimary}>
               {busy === 'publish' ? '公開中...' : 'このイベントを公開する'}
             </button>
@@ -161,8 +185,39 @@ export default function SchedulingDetailPage({ params }: { params: Promise<{ id:
         </div>
       )}
 
-      {/* 算出（collecting）*/}
-      {event.status === 'collecting' && (
+      {/* 1対1: 時間枠と選択状況（collecting）*/}
+      {event.type === 'one_on_one' && event.status === 'collecting' && (
+        <div style={card}>
+          <div style={sectionTitle}>面談枠の確定</div>
+          {(() => {
+            const selectedStarts = new Set(
+              participants.map((p) => p.selected_slot?.start).filter(Boolean) as string[]
+            );
+            return (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                {(event.time_slots ?? []).map((s) => {
+                  const chosen = selectedStarts.has(s.start);
+                  return (
+                    <div key={s.start} style={{ border: '1px solid var(--border)', borderRadius: 10, padding: 12, background: 'var(--bg-primary)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
+                      <div>
+                        <span style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-primary)' }}>{slotText(s)}</span>
+                        {chosen && <span style={{ fontSize: 12, color: '#6c63ff', marginLeft: 8 }}>← 相手が選択</span>}
+                      </div>
+                      <button onClick={() => finalizeSlot(s.start)} disabled={busy === `finalize:${s.start}`} style={btnConfirm}>
+                        {busy === `finalize:${s.start}` ? '確定中...' : 'この枠で確定'}
+                      </button>
+                    </div>
+                  );
+                })}
+                {(event.time_slots ?? []).length === 0 && <p style={{ fontSize: 13, color: 'var(--text-muted)' }}>枠がありません。</p>}
+              </div>
+            );
+          })()}
+        </div>
+      )}
+
+      {/* 算出（collecting・複数名のみ）*/}
+      {event.type === 'multi' && event.status === 'collecting' && (
         <div style={card}>
           <div style={sectionTitle}>最適日の算出</div>
           <p style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 10 }}>集まったNG日から、全員が参加できる候補日を算出します。</p>

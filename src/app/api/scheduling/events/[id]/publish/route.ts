@@ -5,6 +5,7 @@ import {
   ensureSchedulingTables,
   canTransition,
   parseCandidateDates,
+  parseTimeSlots,
   type SchedulingStatus,
 } from '@/lib/scheduling';
 
@@ -25,7 +26,7 @@ export async function POST(
   await ensureSchedulingTables(sql);
 
   const events = await sql`
-    SELECT id, status, candidate_dates
+    SELECT id, type, status, candidate_dates, time_slots
     FROM scheduling_events
     WHERE id = ${id} AND owner_user_id = ${userId}
   `;
@@ -33,6 +34,7 @@ export async function POST(
     return NextResponse.json({ error: 'イベントが見つかりません' }, { status: 404 });
   }
   const current = events[0].status as SchedulingStatus;
+  const type = events[0].type as string;
 
   if (!canTransition(current, 'collecting')) {
     return NextResponse.json(
@@ -41,8 +43,31 @@ export async function POST(
     );
   }
 
-  // candidate_dates: リクエスト指定があればそれを、なければ既存値を採用。
   const body = await req.json().catch(() => ({}));
+
+  // 1対1（one_on_one）は time_slots、複数名（multi）は candidate_dates が必須。
+  if (type === 'one_on_one') {
+    const fromBody = parseTimeSlots(body.time_slots);
+    const existing = parseTimeSlots(events[0].time_slots);
+    const timeSlots = fromBody.length > 0 ? fromBody : existing;
+    if (timeSlots.length === 0) {
+      return NextResponse.json(
+        { error: '提示する時間枠（time_slots）が必要です' },
+        { status: 400 }
+      );
+    }
+    const rows = await sql`
+      UPDATE scheduling_events
+      SET status = 'collecting',
+          time_slots = ${JSON.stringify(timeSlots)}::jsonb,
+          updated_at = now()
+      WHERE id = ${id} AND owner_user_id = ${userId}
+      RETURNING id, status, time_slots, updated_at
+    `;
+    return NextResponse.json({ event: rows[0], publicUrl: `/scheduling/${id}` });
+  }
+
+  // candidate_dates: リクエスト指定があればそれを、なければ既存値を採用。
   const fromBody = parseCandidateDates(body.candidate_dates);
   const existing = parseCandidateDates(events[0].candidate_dates);
   const candidateDates = fromBody.length > 0 ? fromBody : existing;

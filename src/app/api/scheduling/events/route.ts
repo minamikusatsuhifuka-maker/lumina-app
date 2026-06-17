@@ -4,6 +4,7 @@ import { neon } from '@neondatabase/serverless';
 import {
   ensureSchedulingTables,
   generateEventToken,
+  parseTimeSlots,
   type SchedulingStatus,
 } from '@/lib/scheduling';
 
@@ -28,16 +29,19 @@ export async function POST(req: NextRequest) {
   const type: 'one_on_one' | 'multi' = body.type === 'one_on_one' ? 'one_on_one' : 'multi';
   const description = typeof body.description === 'string' ? body.description : null;
   const candidateDates = Array.isArray(body.candidate_dates) ? body.candidate_dates : [];
+  // 1対1は time_slots（[{start,end}]）を受ける。複数名は従来どおり candidate_dates。
+  const timeSlots = type === 'one_on_one' ? parseTimeSlots(body.time_slots) : [];
   const status: SchedulingStatus = 'draft';
 
   const id = generateEventToken();
 
   const rows = await sql`
     INSERT INTO scheduling_events
-      (id, owner_user_id, title, description, type, status, candidate_dates)
+      (id, owner_user_id, title, description, type, status, candidate_dates, time_slots)
     VALUES
-      (${id}, ${userId}, ${title}, ${description}, ${type}, ${status}, ${JSON.stringify(candidateDates)}::jsonb)
-    RETURNING id, owner_user_id, title, description, type, status, candidate_dates, finalized_date, created_at, updated_at
+      (${id}, ${userId}, ${title}, ${description}, ${type}, ${status},
+       ${JSON.stringify(candidateDates)}::jsonb, ${JSON.stringify(timeSlots)}::jsonb)
+    RETURNING id, owner_user_id, title, description, type, status, candidate_dates, time_slots, finalized_date, created_at, updated_at
   `;
 
   return NextResponse.json({ event: rows[0], token: id });

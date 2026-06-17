@@ -47,6 +47,11 @@ export default function SchedulingListPage() {
   const [type, setType] = useState<'multi' | 'one_on_one'>('multi');
   const [dateInput, setDateInput] = useState('');
   const [candidateDates, setCandidateDates] = useState<string[]>([]);
+  // 1対1の時間枠入力
+  const [slotDate, setSlotDate] = useState('');
+  const [slotStart, setSlotStart] = useState('');
+  const [slotEnd, setSlotEnd] = useState('');
+  const [timeSlots, setTimeSlots] = useState<{ start: string; end: string }[]>([]);
 
   const load = async () => {
     setLoading(true);
@@ -68,13 +73,36 @@ export default function SchedulingListPage() {
     setDateInput('');
   };
 
+  const addSlot = () => {
+    if (!slotDate || !slotStart || !slotEnd) {
+      showToast('日付・開始・終了を入力してください', 'warning');
+      return;
+    }
+    if (slotStart >= slotEnd) {
+      showToast('終了は開始より後にしてください', 'warning');
+      return;
+    }
+    const slot = { start: `${slotDate}T${slotStart}`, end: `${slotDate}T${slotEnd}` };
+    setTimeSlots((prev) =>
+      prev.some((s) => s.start === slot.start && s.end === slot.end)
+        ? prev
+        : [...prev, slot].sort((a, b) => a.start.localeCompare(b.start))
+    );
+    setSlotStart('');
+    setSlotEnd('');
+  };
+
   const create = async () => {
     if (!title.trim()) {
       showToast('タイトルを入力してください', 'warning');
       return;
     }
-    if (candidateDates.length === 0) {
+    if (type === 'multi' && candidateDates.length === 0) {
       showToast('候補日を1つ以上追加してください', 'warning');
+      return;
+    }
+    if (type === 'one_on_one' && timeSlots.length === 0) {
+      showToast('時間枠を1つ以上追加してください', 'warning');
       return;
     }
     setCreating(true);
@@ -82,7 +110,7 @@ export default function SchedulingListPage() {
       const res = await fetch('/api/scheduling/events', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ title, description, type, candidate_dates: candidateDates }),
+        body: JSON.stringify({ title, description, type, candidate_dates: candidateDates, time_slots: timeSlots }),
       });
       if (!res.ok) {
         const d = await res.json().catch(() => ({}));
@@ -92,6 +120,7 @@ export default function SchedulingListPage() {
       setTitle('');
       setDescription('');
       setCandidateDates([]);
+      setTimeSlots([]);
       setType('multi');
       load();
     } catch (e) {
@@ -126,23 +155,46 @@ export default function SchedulingListPage() {
           ))}
         </div>
 
-        <div style={{ marginTop: 12 }}>
-          <label style={{ fontSize: 12, color: 'var(--text-muted)', display: 'block', marginBottom: 4 }}>候補日（検討する日付）</label>
-          <div style={{ display: 'flex', gap: 8 }}>
-            <input type="date" value={dateInput} onChange={(e) => setDateInput(e.target.value)} style={{ ...input, flex: 1 }} />
-            <button onClick={addDate} style={btnSecondary}>追加</button>
-          </div>
-          {candidateDates.length > 0 && (
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 8 }}>
-              {candidateDates.map((d) => (
-                <span key={d} style={{ fontSize: 12, padding: '4px 10px', borderRadius: 16, background: 'var(--accent-soft)', color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: 6 }}>
-                  {d}
-                  <button onClick={() => setCandidateDates((prev) => prev.filter((x) => x !== d))} style={{ border: 'none', background: 'transparent', color: 'var(--text-muted)', cursor: 'pointer', fontSize: 13 }}>✕</button>
-                </span>
-              ))}
+        {type === 'multi' ? (
+          <div style={{ marginTop: 12 }}>
+            <label style={{ fontSize: 12, color: 'var(--text-muted)', display: 'block', marginBottom: 4 }}>候補日（検討する日付）</label>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <input type="date" value={dateInput} onChange={(e) => setDateInput(e.target.value)} style={{ ...input, flex: 1 }} />
+              <button onClick={addDate} style={btnSecondary}>追加</button>
             </div>
-          )}
-        </div>
+            {candidateDates.length > 0 && (
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 8 }}>
+                {candidateDates.map((d) => (
+                  <span key={d} style={{ fontSize: 12, padding: '4px 10px', borderRadius: 16, background: 'var(--accent-soft)', color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: 6 }}>
+                    {d}
+                    <button onClick={() => setCandidateDates((prev) => prev.filter((x) => x !== d))} style={{ border: 'none', background: 'transparent', color: 'var(--text-muted)', cursor: 'pointer', fontSize: 13 }}>✕</button>
+                  </span>
+                ))}
+              </div>
+            )}
+          </div>
+        ) : (
+          <div style={{ marginTop: 12 }}>
+            <label style={{ fontSize: 12, color: 'var(--text-muted)', display: 'block', marginBottom: 4 }}>提示する時間枠（日付＋開始〜終了）</label>
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+              <input type="date" value={slotDate} onChange={(e) => setSlotDate(e.target.value)} style={{ ...input, flex: '1 1 140px' }} />
+              <input type="time" value={slotStart} onChange={(e) => setSlotStart(e.target.value)} style={{ ...input, width: 110 }} />
+              <span style={{ alignSelf: 'center', color: 'var(--text-muted)' }}>〜</span>
+              <input type="time" value={slotEnd} onChange={(e) => setSlotEnd(e.target.value)} style={{ ...input, width: 110 }} />
+              <button onClick={addSlot} style={btnSecondary}>追加</button>
+            </div>
+            {timeSlots.length > 0 && (
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 8 }}>
+                {timeSlots.map((s) => (
+                  <span key={`${s.start}|${s.end}`} style={{ fontSize: 12, padding: '4px 10px', borderRadius: 16, background: 'var(--accent-soft)', color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: 6 }}>
+                    {s.start.replace('T', ' ')}〜{s.end.split('T')[1]}
+                    <button onClick={() => setTimeSlots((prev) => prev.filter((x) => !(x.start === s.start && x.end === s.end)))} style={{ border: 'none', background: 'transparent', color: 'var(--text-muted)', cursor: 'pointer', fontSize: 13 }}>✕</button>
+                  </span>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
 
         <button onClick={create} disabled={creating} style={{ ...btnPrimary, marginTop: 14 }}>
           {creating ? '作成中...' : 'イベントを作成'}

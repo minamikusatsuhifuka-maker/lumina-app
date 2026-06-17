@@ -8,6 +8,8 @@ import { useState } from 'react';
 
 type Step = 'email' | 'otp' | 'ng' | 'done';
 
+interface TimeSlot { start: string; end: string }
+
 const WEEK = ['日', '月', '火', '水', '木', '金', '土'];
 function dateLabel(d: string): string {
   // 'YYYY-MM-DD' をローカル日付ラベルへ（曜日付き）
@@ -15,22 +17,32 @@ function dateLabel(d: string): string {
   const wd = new Date(y, (m || 1) - 1, day || 1).getDay();
   return `${m}/${day}（${WEEK[wd] ?? ''}）`;
 }
+function slotLabel(s: TimeSlot): string {
+  const [d, t] = s.start.split('T');
+  const endT = s.end.split('T')[1];
+  return `${dateLabel(d)} ${t}〜${endT}`;
+}
 
 export default function PublicSchedulingFlow({
   token,
   title,
   description,
+  type,
   candidateDates,
+  timeSlots,
 }: {
   token: string;
   title: string;
   description: string | null;
+  type: 'one_on_one' | 'multi';
   candidateDates: string[];
+  timeSlots: TimeSlot[];
 }) {
   const [step, setStep] = useState<Step>('email');
   const [email, setEmail] = useState('');
   const [code, setCode] = useState('');
   const [ngSet, setNgSet] = useState<Set<string>>(new Set());
+  const [selectedSlot, setSelectedSlot] = useState<TimeSlot | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [info, setInfo] = useState('');
@@ -85,10 +97,12 @@ export default function PublicSchedulingFlow({
         setError(data.error || '確認に失敗しました');
         return;
       }
-      // 本人確認後、既存のNG回答があれば復元
-      const me = await post('me', { token, email });
-      if (me.ok && Array.isArray(me.data.ngDates)) {
-        setNgSet(new Set(me.data.ngDates));
+      // 本人確認後、複数名なら既存のNG回答を復元（1対1は枠選択へ）
+      if (type === 'multi') {
+        const me = await post('me', { token, email });
+        if (me.ok && Array.isArray(me.data.ngDates)) {
+          setNgSet(new Set(me.data.ngDates));
+        }
       }
       setStep('ng');
     } finally {
@@ -117,6 +131,23 @@ export default function PublicSchedulingFlow({
       });
       if (!ok) {
         setError(data.error || '保存に失敗しました');
+        return;
+      }
+      setStep('done');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const submitSlot = async () => {
+    if (!selectedSlot) return;
+    setError('');
+    setInfo('');
+    setLoading(true);
+    try {
+      const { ok, data } = await post('select-slot', { token, email, slot: selectedSlot });
+      if (!ok) {
+        setError(data.error || '送信に失敗しました');
         return;
       }
       setStep('done');
@@ -190,7 +221,38 @@ export default function PublicSchedulingFlow({
         </div>
       )}
 
-      {step === 'ng' && (
+      {step === 'ng' && type === 'one_on_one' && (
+        <div>
+          <label style={label}>希望の面談枠を1つ選んでください</label>
+          <p style={hint}>下記からご都合の良い時間枠を1つお選びください。</p>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8, margin: '12px 0' }}>
+            {timeSlots.map((s) => {
+              const on = selectedSlot?.start === s.start && selectedSlot?.end === s.end;
+              return (
+                <button
+                  key={`${s.start}|${s.end}`}
+                  onClick={() => setSelectedSlot(s)}
+                  style={{
+                    padding: '12px 14px', borderRadius: 10, cursor: 'pointer', fontSize: 14, fontWeight: 600,
+                    textAlign: 'left' as const,
+                    border: on ? '2px solid #6c63ff' : '1px solid #d6dae6',
+                    background: on ? '#f1f0ff' : '#fff',
+                    color: on ? '#4b45c6' : '#3a4051',
+                  }}
+                >
+                  {on ? '✓ ' : ''}{slotLabel(s)}
+                </button>
+              );
+            })}
+            {timeSlots.length === 0 && <p style={hint}>提示された枠がありません。主催者にお問い合わせください。</p>}
+          </div>
+          <button onClick={submitSlot} disabled={loading || !selectedSlot} style={btnPrimary}>
+            {loading ? '送信中...' : 'この枠で回答する'}
+          </button>
+        </div>
+      )}
+
+      {step === 'ng' && type === 'multi' && (
         <div>
           <label style={label}>参加できない日を選んでください（NG日）</label>
           <p style={hint}>タップで選択／解除。選んだ日が「参加できない日」です。</p>

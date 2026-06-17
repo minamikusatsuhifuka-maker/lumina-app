@@ -115,6 +115,11 @@ export async function ensureSchedulingTables(sql: Sql): Promise<void> {
   // ⑤の算出結果（ランク・理由など）を保持（フェーズ⑤。既存行は NULL で非破壊）
   await sql`ALTER TABLE scheduling_events ADD COLUMN IF NOT EXISTS compute_result JSONB`;
 
+  // ③-1（1対1 手動スロット）。time_slots=[{start,end}] のJSONB。既存行は NULL で非破壊。
+  // candidate_dates（複数名用・日付のみ）とは別カラムで、日付検証を壊さない。
+  await sql`ALTER TABLE scheduling_events ADD COLUMN IF NOT EXISTS time_slots JSONB`;
+  await sql`ALTER TABLE scheduling_participants ADD COLUMN IF NOT EXISTS selected_slot JSONB`;
+
   // 参加者ごとのNG日
   await sql`CREATE TABLE IF NOT EXISTS scheduling_ng_dates (
     id SERIAL PRIMARY KEY,
@@ -153,6 +158,52 @@ export function isValidEmail(s: unknown): s is string {
   return typeof s === 'string' && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(s) && s.length <= 254;
 }
 
+// ── 1対1 時間スロット（③-1）──────────────────────────────
+// 壁時計のJST想定で 'YYYY-MM-DDTHH:MM' 形式（日付検証 DATE_RE とは別系統）。
+const SLOT_DT_RE = /^\d{4}-\d{2}-\d{2}T([01]\d|2[0-3]):[0-5]\d$/;
+
+export interface TimeSlot {
+  start: string;
+  end: string;
+}
+
+export function isValidSlotDateTime(s: unknown): s is string {
+  return typeof s === 'string' && SLOT_DT_RE.test(s);
+}
+
+export function isValidSlot(slot: unknown): slot is TimeSlot {
+  if (!slot || typeof slot !== 'object') return false;
+  const s = slot as Record<string, unknown>;
+  return (
+    isValidSlotDateTime(s.start) &&
+    isValidSlotDateTime(s.end) &&
+    (s.start as string) < (s.end as string) // 固定長フォーマットゆえ文字列比較で時系列比較が成立
+  );
+}
+
+// time_slots（JSONB）を正規化：不正除去・start<end・重複除去・start昇順
+export function parseTimeSlots(raw: unknown): TimeSlot[] {
+  let arr: unknown = raw;
+  if (typeof raw === 'string') {
+    try {
+      arr = JSON.parse(raw);
+    } catch {
+      arr = [];
+    }
+  }
+  if (!Array.isArray(arr)) return [];
+  const seen = new Set<string>();
+  const out: TimeSlot[] = [];
+  for (const item of arr) {
+    if (!isValidSlot(item)) continue;
+    const key = `${item.start}|${item.end}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push({ start: item.start, end: item.end });
+  }
+  return out.sort((a, b) => a.start.localeCompare(b.start));
+}
+
 // candidate_dates（JSONB）を 'YYYY-MM-DD' の配列へ正規化（不正値は除去）
 export function parseCandidateDates(raw: unknown): string[] {
   let arr: unknown = raw;
@@ -176,6 +227,7 @@ export interface SchedulingEventRow {
   type: string;
   status: SchedulingStatus;
   candidate_dates: unknown;
+  time_slots: unknown;
 }
 
 // token（=id）でイベントを取得（公開情報のみ。存在しなければ null）
@@ -184,7 +236,7 @@ export async function loadEventByToken(
   token: string
 ): Promise<SchedulingEventRow | null> {
   const rows = await sql`
-    SELECT id, owner_user_id, title, description, type, status, candidate_dates
+    SELECT id, owner_user_id, title, description, type, status, candidate_dates, time_slots
     FROM scheduling_events
     WHERE id = ${token}
   `;
