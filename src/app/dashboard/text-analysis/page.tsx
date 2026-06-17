@@ -109,6 +109,21 @@ function TextAnalysisPageInner() {
     }
   }, []);
 
+  // 保存一覧メニュー（/dashboard/saved）からの横断分析選択を受け取る（sessionStorage handoff）
+  useEffect(() => {
+    try {
+      const raw = sessionStorage.getItem('lumina_cross_selected');
+      if (raw) {
+        const arr = JSON.parse(raw);
+        sessionStorage.removeItem('lumina_cross_selected');
+        if (Array.isArray(arr) && arr.length > 0) {
+          setCrossSelected(arr as CrossArticle[]);
+          setTab('cross');
+        }
+      }
+    } catch {}
+  }, []);
+
   const handleSaved = (saved: AnalysisRecord) => {
     // POST応答は RETURNING * で input_text 本体を含む。一覧stateには本体を持たず
     // has_input/文字数だけ持たせて、展開時に単体取得する方式（一覧APIと整合）。
