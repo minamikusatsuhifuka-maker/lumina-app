@@ -55,6 +55,7 @@ const navCategories: NavCategory[] = [
     category: 'コンテンツ作成',
     items: [
       { href: '/dashboard/text-analysis', label: 'テキスト分析', icon: '📝' },
+      { href: '/dashboard/proofread', label: 'テキスト校正', icon: '🔎' },
       { href: '/dashboard/write', label: '文章作成', icon: '✍️' },
       { href: '/dashboard/minutes', label: '議事録整理', icon: '📝' },
       { href: '/dashboard/genspark', label: 'Gensparkへ出力', icon: '🎯' },
