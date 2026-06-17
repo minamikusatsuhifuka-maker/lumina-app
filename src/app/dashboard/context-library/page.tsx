@@ -3,6 +3,7 @@
 import { useEffect, useState, useMemo } from 'react';
 import FeatureDefaultContextSelector, { FEATURE_OPTIONS } from '@/components/FeatureDefaultContextSelector';
 import { copyToClipboard } from '@/lib/copyToClipboard';
+import { renderMarkdown } from '@/lib/markdown-renderer';
 
 type ContextSave = {
   id: number;
@@ -12,6 +13,14 @@ type ContextSave = {
   tags: string[] | null;
   created_at: string;
 };
+
+// 生成元（どのメニューで作られたか）をタグからベストエフォート推定して人間可読ラベルに。
+// context_saves は概ね「ディープリサーチ → コンテキスト最適化 → 保存」由来。batch タグがあればバッチ実行。
+function originLabel(tags: string[] | null): { icon: string; label: string } {
+  const ts = tags ?? [];
+  if (ts.some((t) => t.startsWith('batch:'))) return { icon: '📚', label: 'ディープリサーチ（バッチ）' };
+  return { icon: '🔭', label: 'ディープリサーチ' };
+}
 
 export default function ContextLibraryPage() {
   const [items, setItems] = useState<ContextSave[]>([]);
@@ -352,6 +361,17 @@ export default function ContextLibraryPage() {
                   <div style={{ fontSize: 16, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 4 }}>
                     {item.topic}
                   </div>
+                  {/* 生成元バッジ（どのメニューから作られたか） */}
+                  <div style={{ marginBottom: 4 }}>
+                    {(() => {
+                      const o = originLabel(item.tags);
+                      return (
+                        <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--accent)', background: 'var(--accent-soft)', padding: '2px 10px', borderRadius: 10 }}>
+                          生成元: {o.icon} {o.label}
+                        </span>
+                      );
+                    })()}
+                  </div>
                   <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>
                     📅 {fmtDate(item.created_at)}
                     {item.tags && item.tags.length > 0 && (
@@ -384,9 +404,12 @@ export default function ContextLibraryPage() {
                 }}
               >
                 {expanded ? (
-                  <pre style={{ margin: 0, whiteSpace: 'pre-wrap' as const, wordBreak: 'break-word' as const, fontFamily: 'inherit' }}>
-                    {item.context_text}
-                  </pre>
+                  // 本文(AI生成Markdown)は共通レンダラで見出し・太字・箇条書きを描画（生記号を出さない）
+                  <div
+                    className="markdown-body"
+                    style={{ color: 'var(--text-primary)' }}
+                    dangerouslySetInnerHTML={{ __html: renderMarkdown(item.context_text) }}
+                  />
                 ) : (
                   <>
                     {preview}{item.context_text.length > 120 ? '...' : ''}
