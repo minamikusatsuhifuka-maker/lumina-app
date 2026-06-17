@@ -2,7 +2,24 @@
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
+import { DayPicker } from 'react-day-picker';
+import 'react-day-picker/style.css';
 import { useToast } from '@/components/ui/Toast';
+
+interface DescTemplate {
+  id: string;
+  title: string;
+  body: string;
+  updated_at: string;
+}
+
+// Date(ローカル) → 'YYYY-MM-DD'
+function toYmd(d: Date): string {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
 
 interface EventRow {
   id: string;
@@ -47,11 +64,15 @@ export default function SchedulingListPage() {
   const [type, setType] = useState<'multi' | 'one_on_one'>('multi');
   const [dateInput, setDateInput] = useState('');
   const [candidateDates, setCandidateDates] = useState<string[]>([]);
+  // カレンダー複数選択
+  const [pickedDays, setPickedDays] = useState<Date[]>([]);
   // 1対1の時間枠入力
   const [slotDate, setSlotDate] = useState('');
   const [slotStart, setSlotStart] = useState('');
   const [slotEnd, setSlotEnd] = useState('');
   const [timeSlots, setTimeSlots] = useState<{ start: string; end: string }[]>([]);
+  // 説明文テンプレート
+  const [templates, setTemplates] = useState<DescTemplate[]>([]);
 
   const load = async () => {
     setLoading(true);
@@ -63,14 +84,75 @@ export default function SchedulingListPage() {
       setLoading(false);
     }
   };
+  const loadTemplates = async () => {
+    try {
+      const res = await fetch('/api/scheduling/templates');
+      if (res.ok) {
+        const data = await res.json();
+        setTemplates(Array.isArray(data.templates) ? data.templates : []);
+      }
+    } catch {}
+  };
   useEffect(() => {
     load();
+    loadTemplates();
   }, []);
+
+  // テンプレ選択 → 説明文に流し込み（上書き）
+  const applyTemplate = (id: string) => {
+    const t = templates.find((x) => x.id === id);
+    if (t) setDescription(t.body);
+  };
+  // 現在の説明文をテンプレ保存
+  const saveTemplate = async () => {
+    if (!description.trim()) {
+      showToast('説明文を入力してから保存してください', 'warning');
+      return;
+    }
+    const name = window.prompt('テンプレート名を入力してください');
+    if (!name || !name.trim()) return;
+    try {
+      const res = await fetch('/api/scheduling/templates', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ title: name.trim(), body: description }),
+      });
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}));
+        throw new Error(d.error || '保存に失敗しました');
+      }
+      showToast('テンプレートを保存しました', 'success');
+      loadTemplates();
+    } catch (e) {
+      showToast(e instanceof Error ? e.message : '保存に失敗しました', 'error');
+    }
+  };
+  const deleteTemplate = async (id: string) => {
+    if (!window.confirm('このテンプレートを削除しますか？')) return;
+    try {
+      await fetch(`/api/scheduling/templates/${id}`, { method: 'DELETE' });
+      showToast('テンプレートを削除しました', 'success');
+      loadTemplates();
+    } catch {
+      showToast('削除に失敗しました', 'error');
+    }
+  };
 
   const addDate = () => {
     if (!dateInput) return;
     setCandidateDates((prev) => (prev.includes(dateInput) ? prev : [...prev, dateInput].sort()));
     setDateInput('');
+  };
+
+  // カレンダーで選択した複数日を chips にまとめて追加（重複排除・昇順）
+  const addPickedDays = () => {
+    if (pickedDays.length === 0) {
+      showToast('カレンダーで日付を選択してください', 'warning');
+      return;
+    }
+    const ymds = pickedDays.map(toYmd);
+    setCandidateDates((prev) => Array.from(new Set([...prev, ...ymds])).sort());
+    setPickedDays([]);
   };
 
   const addSlot = () => {
@@ -120,6 +202,7 @@ export default function SchedulingListPage() {
       setTitle('');
       setDescription('');
       setCandidateDates([]);
+      setPickedDays([]);
       setTimeSlots([]);
       setType('multi');
       load();
@@ -141,6 +224,35 @@ export default function SchedulingListPage() {
       <div style={card}>
         <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--accent)', marginBottom: 12 }}>新規イベント作成</div>
         <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="タイトル（例: 院内ミーティング）" style={input} />
+
+        {/* 説明文テンプレート（保存・選択） */}
+        <div style={{ display: 'flex', gap: 8, marginTop: 10, flexWrap: 'wrap', alignItems: 'center' }}>
+          <select
+            defaultValue=""
+            onChange={(e) => {
+              if (e.target.value) applyTemplate(e.target.value);
+              e.currentTarget.selectedIndex = 0;
+            }}
+            style={{ ...input, flex: '1 1 200px', cursor: 'pointer' }}
+          >
+            <option value="">📋 テンプレートから選択…</option>
+            {templates.map((t) => (
+              <option key={t.id} value={t.id}>{t.title}</option>
+            ))}
+          </select>
+          <button onClick={saveTemplate} style={btnSecondary}>現在の文をテンプレ保存</button>
+        </div>
+        {templates.length > 0 && (
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 6 }}>
+            {templates.map((t) => (
+              <span key={t.id} style={{ fontSize: 11, padding: '2px 8px', borderRadius: 12, background: 'var(--bg-primary)', border: '1px solid var(--border)', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: 4 }}>
+                {t.title}
+                <button onClick={() => deleteTemplate(t.id)} title="削除" style={{ border: 'none', background: 'transparent', color: 'var(--text-muted)', cursor: 'pointer', fontSize: 12 }}>✕</button>
+              </span>
+            ))}
+          </div>
+        )}
+
         <textarea value={description} onChange={(e) => setDescription(e.target.value)} placeholder="説明（任意）" rows={2} style={{ ...input, marginTop: 10, resize: 'vertical', fontFamily: 'inherit' }} />
         <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
           {(['multi', 'one_on_one'] as const).map((t) => (
@@ -158,6 +270,25 @@ export default function SchedulingListPage() {
         {type === 'multi' ? (
           <div style={{ marginTop: 12 }}>
             <label style={{ fontSize: 12, color: 'var(--text-muted)', display: 'block', marginBottom: 4 }}>候補日（検討する日付）</label>
+
+            {/* カレンダー複数選択（主導線）。過去日は選択不可。 */}
+            <div style={{ background: 'var(--bg-primary)', border: '1px solid var(--border)', borderRadius: 10, padding: 10, marginBottom: 8, display: 'inline-block' }}>
+              <DayPicker
+                mode="multiple"
+                selected={pickedDays}
+                onSelect={(days) => setPickedDays(days ?? [])}
+                disabled={{ before: new Date() }}
+                weekStartsOn={0}
+              />
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 6 }}>
+                <button onClick={addPickedDays} style={btnSecondary}>選択した日をまとめて追加（{pickedDays.length}）</button>
+                {pickedDays.length > 0 && (
+                  <button onClick={() => setPickedDays([])} style={{ border: 'none', background: 'transparent', color: 'var(--text-muted)', cursor: 'pointer', fontSize: 12 }}>選択クリア</button>
+                )}
+              </div>
+            </div>
+
+            {/* 単一入力（手入力派の保険） */}
             <div style={{ display: 'flex', gap: 8 }}>
               <input type="date" value={dateInput} onChange={(e) => setDateInput(e.target.value)} style={{ ...input, flex: 1 }} />
               <button onClick={addDate} style={btnSecondary}>追加</button>

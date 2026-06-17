@@ -141,6 +141,17 @@ export async function ensureSchedulingTables(sql: Sql): Promise<void> {
   )`;
   await sql`CREATE INDEX IF NOT EXISTS idx_scheduling_notifications_event ON scheduling_notifications (event_id)`;
 
+  // 説明文テンプレート（機能109）。作成者単位。既存行は無く非破壊。
+  await sql`CREATE TABLE IF NOT EXISTS scheduling_description_templates (
+    id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
+    created_by TEXT NOT NULL,
+    title TEXT NOT NULL,
+    body TEXT NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+  )`;
+  await sql`CREATE INDEX IF NOT EXISTS idx_sched_desc_tmpl_owner ON scheduling_description_templates (created_by, updated_at DESC)`;
+
   ensured = true;
 }
 
