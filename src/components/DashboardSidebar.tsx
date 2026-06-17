@@ -203,6 +203,9 @@ export function DashboardSidebar({ userName }: { userName: string }) {
         @media (max-width: 768px) {
           .mobile-hamburger { display: flex !important; }
           .sidebar-nav {
+            /* globals.css の「nav { display:none !important }」に勝つため明示（詳細度: .sidebar-nav > nav）。
+               これが無いとドロワー本体が描画されず開かない。 */
+            display: flex !important;
             position: fixed !important;
             top: 0; left: 0; z-index: 45;
             transform: translateX(-100%);
