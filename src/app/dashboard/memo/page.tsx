@@ -3,12 +3,13 @@
 // AIメモ機能（xLUMINA）
 //  Phase1: 目標設定→AI仕分け(目標逆算)→4象限/カテゴリ。第2象限を強調。
 //  Phase2: 横断TODOビュー(象限優先) / 今日・今週 / カレンダー(due_date・予定日・.ics)。
+//  Phase3: 第2象限フォーカス(目標寄与度順＋予定日を置く)/ 今週の第2象限カード / 短文コーチング。
 // デザインは xLUMINA ダッシュボードのインラインスタイル/CSS変数トーンに合わせる。
 
 import { useEffect, useState, useCallback, useMemo } from 'react';
 import { useToast } from '@/components/ui/Toast';
 
-type View = 'inbox' | 'plan' | 'calendar' | 'category' | 'matrix';
+type View = 'inbox' | 'plan' | 'calendar' | 'focus' | 'category' | 'matrix';
 type QuadrantNum = 1 | 2 | 3 | 4;
 type MemoKind = 'task' | 'idea' | 'note' | 'reference';
 
@@ -177,6 +178,13 @@ export default function MemoPage() {
     await fetch('/api/memo-todos', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id, ...patch }) });
   };
 
+  // Q2フォーカスから「実行予定」を作る（todoが無いメモを予定に落とす）
+  const addTodo = async (memoId: string, title: string, extra: Partial<Todo> = {}) => {
+    const res = await fetch('/api/memo-todos', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ memo_id: memoId, title, ...extra }) });
+    if (res.ok) { const d = await res.json(); setTodos((p) => [...p, d.todo]); return d.todo as Todo; }
+    return null;
+  };
+
   const addGoal = async () => {
     const title = goalTitle.trim();
     if (!title) return;
@@ -192,6 +200,12 @@ export default function MemoPage() {
   const triaged = useMemo(() => memos.filter((m) => m.status === 'triaged' || m.status === 'done'), [memos]);
   const todosByMemo = useCallback((id: string) => todos.filter((t) => t.memo_id === id), [todos]);
 
+  // 今週の第2象限カード用：未完了のQ2メモを重要度降順（目標紐付け優先）
+  const q2Memos = useMemo(() =>
+    triaged.filter((m) => (m.quadrant ?? 4) === 2 && m.status !== 'done')
+      .sort((a, b) => (b.importance ?? 0) - (a.importance ?? 0) || (a.goal_ref ? -1 : 0) - (b.goal_ref ? -1 : 0)),
+    [triaged]);
+
   const card: React.CSSProperties = { background: 'var(--bg-secondary, #fff)', border: '1px solid var(--border-color, #e5e7eb)', borderRadius: 12, padding: 14 };
 
   return (
@@ -203,6 +217,11 @@ export default function MemoPage() {
           <span style={{ color: '#1D9E75', fontWeight: 700 }}>第2象限（重要×非緊急）</span>を見逃さず先回りで提案します。
         </p>
       </div>
+
+      {/* 今週の第2象限カード（Phase3 ナッジ） */}
+      {!loading && q2Memos.length > 0 && (
+        <WeeklyQ2Card memos={q2Memos} todos={todos} goalTitleById={goalTitleById} onOpen={() => setView('focus')} />
+      )}
 
       {/* 目標・目的の設定 */}
       <div style={{ ...card, marginBottom: 14 }}>
@@ -241,8 +260,8 @@ export default function MemoPage() {
 
       {/* ビュー切替 */}
       <div style={{ display: 'flex', gap: 4, background: 'var(--bg-tertiary,#f3f4f6)', padding: 4, borderRadius: 10, marginBottom: 14, flexWrap: 'wrap' }}>
-        {([['inbox', 'インボックス'], ['plan', '計画'], ['calendar', 'カレンダー'], ['category', 'カテゴリ別'], ['matrix', '4象限']] as [View, string][]).map(([v, label]) => (
-          <button key={v} onClick={() => setView(v)} style={{ flex: '1 0 auto', minWidth: 92, padding: '8px 0', borderRadius: 7, border: 'none', cursor: 'pointer', fontSize: 13, fontWeight: 600, background: view === v ? 'var(--bg-secondary,#fff)' : 'transparent', color: view === v ? 'var(--text-primary)' : 'var(--text-secondary,#6b7280)' }}>{label}</button>
+        {([['inbox', 'インボックス'], ['plan', '計画'], ['calendar', 'カレンダー'], ['focus', '第2象限'], ['category', 'カテゴリ別'], ['matrix', '4象限']] as [View, string][]).map(([v, label]) => (
+          <button key={v} onClick={() => setView(v)} style={{ flex: '1 0 auto', minWidth: 92, padding: '8px 0', borderRadius: 7, border: 'none', cursor: 'pointer', fontSize: 13, fontWeight: 600, background: view === v ? 'var(--bg-secondary,#fff)' : 'transparent', color: view === v ? (v === 'focus' ? '#1D9E75' : 'var(--text-primary)') : 'var(--text-secondary,#6b7280)' }}>{label}</button>
         ))}
       </div>
 
@@ -275,6 +294,8 @@ export default function MemoPage() {
           <PlanView todos={todos} memoById={memoById} categories={categories} categoryName={categoryName} effQuadrant={effQuadrant} onToggle={toggleTodo} onPatch={patchTodo} />
         ) : view === 'calendar' ? (
           <CalendarView todos={todos} memoById={memoById} onToggle={toggleTodo} />
+        ) : view === 'focus' ? (
+          <FocusView memos={q2Memos} todos={todos} goalTitleById={goalTitleById} onToggleTodo={toggleTodo} onPatchTodo={patchTodo} onAddTodo={addTodo} />
         ) : view === 'category' ? (
           <CategoryView memos={triaged} categories={categories} categoryName={categoryName} />
         ) : (
@@ -290,6 +311,38 @@ const btnGhost: React.CSSProperties = { background: 'transparent', color: '#1D9E
 const linkBtn: React.CSSProperties = { background: 'none', border: 'none', color: '#9ca3af', cursor: 'pointer', fontSize: 12 };
 const sectionTitle: React.CSSProperties = { fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.5, color: '#9ca3af', marginBottom: 8 };
 const dateInput: React.CSSProperties = { border: '1px solid var(--border-color,#d1d5db)', borderRadius: 6, padding: '3px 6px', fontSize: 11, background: 'var(--bg-primary,#fff)', color: 'var(--text-primary)' };
+
+// ============================================================
+// 今週の第2象限カード（Phase3 ナッジ）
+// ============================================================
+function WeeklyQ2Card(props: { memos: Memo[]; todos: Todo[]; goalTitleById: (id: string | null) => string | null; onOpen: () => void }) {
+  const { memos, todos, goalTitleById, onOpen } = props;
+  const { start, end } = weekRange();
+  // 今週すでに予定枠に入っているQ2の数
+  const scheduledThisWeek = todos.filter((t) => (t.quadrant ?? 2) === 2 && !t.done && inRange(t.scheduled_date, start, end)).length;
+  const top = memos.slice(0, 3);
+  return (
+    <div style={{ border: '1px solid #1D9E75', background: 'rgba(29,158,117,0.08)', borderRadius: 12, padding: 14, marginBottom: 14, boxShadow: '0 0 0 2px rgba(29,158,117,0.18)' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+        <h2 style={{ fontSize: 14, fontWeight: 800, margin: 0, color: '#1D9E75' }}>🌱 今週の第2象限</h2>
+        <span style={{ fontSize: 11, color: 'var(--text-secondary,#6b7280)' }}>予定済み {scheduledThisWeek}件 / 候補 {memos.length}件</span>
+      </div>
+      <p style={{ fontSize: 12, color: 'var(--text-secondary,#6b7280)', margin: '0 0 8px' }}>
+        緊急ではないが、最も人生を前に進める領域。<b style={{ color: '#1D9E75' }}>ここに先に時間を払う（代価の先払い）。</b>
+      </p>
+      <ul style={{ listStyle: 'none', padding: 0, margin: '0 0 10px' }}>
+        {top.map((m) => (
+          <li key={m.id} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, padding: '4px 0' }}>
+            <span style={{ fontSize: 10, fontWeight: 700, color: '#1D9E75', background: '#fff', padding: '1px 7px', borderRadius: 10 }}>重要{m.importance ?? '-'}</span>
+            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>{m.ai_summary || m.raw_text}</span>
+            {goalTitleById(m.goal_ref) && <span style={{ fontSize: 10, color: '#1D9E75', flexShrink: 0 }}>🎯</span>}
+          </li>
+        ))}
+      </ul>
+      <button onClick={onOpen} style={{ ...btnPrimary, padding: '6px 14px' }}>第2象限を予定に落とす →</button>
+    </div>
+  );
+}
 
 // ============================================================
 // 整理済みカード（Phase1）
@@ -589,6 +642,100 @@ function CalendarView(props: { todos: Todo[]; memoById: (id: string) => Memo | n
             </div>
           );
         })}
+    </div>
+  );
+}
+
+// ============================================================
+// 第2象限フォーカスビュー（Phase3）
+// ============================================================
+function FocusView(props: {
+  memos: Memo[]; todos: Todo[]; goalTitleById: (id: string | null) => string | null;
+  onToggleTodo: (t: Todo) => void; onPatchTodo: (id: string, p: Partial<Todo>) => void;
+  onAddTodo: (memoId: string, title: string, extra?: Partial<Todo>) => Promise<Todo | null>;
+}) {
+  const { memos, todos, goalTitleById, onToggleTodo, onPatchTodo, onAddTodo } = props;
+  const [coach, setCoach] = useState<Record<string, { loading: boolean; message: string }>>({});
+
+  const fetchCoach = async (m: Memo) => {
+    if (coach[m.id]?.loading) return;
+    setCoach((p) => ({ ...p, [m.id]: { loading: true, message: '' } }));
+    try {
+      const res = await fetch('/api/memo-coach', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ summary: m.ai_summary || m.raw_text, goal: goalTitleById(m.goal_ref) || '' }),
+      });
+      const d = res.ok ? await res.json() : { message: '' };
+      setCoach((p) => ({ ...p, [m.id]: { loading: false, message: d.message || '' } }));
+    } catch {
+      setCoach((p) => ({ ...p, [m.id]: { loading: false, message: '' } }));
+    }
+  };
+
+  if (memos.length === 0) return (
+    <div style={{ textAlign: 'center', color: '#9ca3af', padding: 32, fontSize: 13 }}>
+      第2象限（重要×非緊急）の項目はまだありません。<br />メモを整理すると、緊急ではないが目標に資するものがここに集まります。
+    </div>
+  );
+
+  return (
+    <div>
+      <div style={{ border: '1px solid #1D9E75', background: 'rgba(29,158,117,0.06)', borderRadius: 12, padding: 14, marginBottom: 14 }}>
+        <h2 style={{ fontSize: 15, fontWeight: 800, margin: '0 0 4px', color: '#1D9E75' }}>🌱 第2象限フォーカス</h2>
+        <p style={{ fontSize: 12, color: 'var(--text-secondary,#6b7280)', margin: 0 }}>
+          緊急ではないが、最も人生を前に進める領域。ここに先に時間を払う（<b style={{ color: '#1D9E75' }}>代価の先払い</b>）。<br />
+          目標への寄与度が高い順に並べています。「いつ投資する？」に予定日を置き、予定に落とし込みましょう。
+        </p>
+      </div>
+
+      {memos.map((m) => {
+        const mt = todos.filter((t) => t.memo_id === m.id);
+        const c = coach[m.id];
+        return (
+          <div key={m.id} style={{ border: '1px solid #1D9E75', background: 'rgba(29,158,117,0.10)', borderRadius: 12, padding: 14, marginBottom: 10, boxShadow: '0 0 0 2px rgba(29,158,117,0.12)' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10 }}>
+              <div style={{ minWidth: 0, flex: 1 }}>
+                <p style={{ fontSize: 14, fontWeight: 700, margin: 0 }}>{m.ai_summary || m.raw_text}</p>
+                {goalTitleById(m.goal_ref) && <p style={{ fontSize: 12, color: '#1D9E75', margin: '4px 0 0' }}>🎯 {goalTitleById(m.goal_ref)}</p>}
+              </div>
+              <span style={{ flexShrink: 0, fontSize: 11, fontWeight: 700, color: '#1D9E75', background: '#fff', padding: '2px 10px', borderRadius: 20, height: 'fit-content' }}>寄与 {m.importance ?? '-'}/5</span>
+            </div>
+
+            {/* TODOがある場合：各TODOに予定日 */}
+            {mt.length > 0 ? (
+              <ul style={{ listStyle: 'none', padding: 0, margin: '10px 0 0', borderTop: '1px solid #00000010', paddingTop: 10 }}>
+                {mt.map((t) => (
+                  <li key={t.id} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, padding: '3px 0' }}>
+                    <input type="checkbox" checked={t.done} onChange={() => onToggleTodo(t)} />
+                    <span style={{ flex: 1, textDecoration: t.done ? 'line-through' : 'none', color: t.done ? '#9ca3af' : 'inherit', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{t.title}</span>
+                    <label style={{ fontSize: 10, color: '#1D9E75', flexShrink: 0 }}>いつ投資する？
+                      <input type="date" value={t.scheduled_date ?? ''} onChange={(e) => onPatchTodo(t.id, { scheduled_date: e.target.value || null })} style={{ ...dateInput, marginLeft: 4 }} />
+                    </label>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              // TODOが無い（アイデア/メモ）場合：実行予定を作って予定に落とす
+              <div style={{ marginTop: 10, borderTop: '1px solid #00000010', paddingTop: 10, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                <span style={{ fontSize: 11, color: '#1D9E75' }}>いつ投資する？</span>
+                <input type="date" onChange={(e) => { if (e.target.value) onAddTodo(m.id, m.ai_summary || m.raw_text.slice(0, 40), { scheduled_date: e.target.value, quadrant: 2 }); }} style={dateInput} />
+                <span style={{ fontSize: 10, color: '#9ca3af' }}>日付を選ぶと実行予定が作成され、計画/カレンダーに表示されます</span>
+              </div>
+            )}
+
+            {/* コーチング（任意・短文・AI失敗時は非表示） */}
+            <div style={{ marginTop: 10 }}>
+              {!c ? (
+                <button onClick={() => fetchCoach(m)} style={{ ...linkBtn, color: '#1D9E75', fontSize: 12 }}>💬 コーチングを見る</button>
+              ) : c.loading ? (
+                <span style={{ fontSize: 12, color: '#9ca3af' }}>💬 …</span>
+              ) : c.message ? (
+                <p style={{ fontSize: 12, color: '#1D9E75', fontStyle: 'italic', margin: 0, background: '#fff', borderRadius: 8, padding: '8px 10px' }}>💬 {c.message}</p>
+              ) : null}
+            </div>
+          </div>
+        );
+      })}
     </div>
   );
 }
