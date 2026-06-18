@@ -33,7 +33,7 @@ export async function GET(req: NextRequest) {
   `;
 
   const todos = await sql`
-    SELECT id, memo_id, owner, title, done, sort_order, due_date, created_at
+    SELECT id, memo_id, owner, title, done, sort_order, due_date, scheduled_date, quadrant, created_at
     FROM memo_todos WHERE owner = ${owner} ORDER BY sort_order
   `;
 

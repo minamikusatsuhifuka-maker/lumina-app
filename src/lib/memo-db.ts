@@ -63,7 +63,9 @@ export interface MemoTodo {
   title: string;
   done: boolean;
   sort_order: number;
-  due_date: string | null;
+  due_date: string | null;        // 締切
+  scheduled_date: string | null;  // 実行予定日(締切と分離。Q2を「予定に落とす」用)
+  quadrant: QuadrantNum | null;   // 由来メモの象限を引き継ぎ。TODO単位で上書き可
   created_at: string;
 }
 
@@ -136,6 +138,10 @@ export async function ensureMemoTables(sql: Sql): Promise<void> {
   )`;
   await sql`CREATE INDEX IF NOT EXISTS idx_memo_todos_memo ON memo_todos(memo_id)`;
   await sql`CREATE INDEX IF NOT EXISTS idx_memo_todos_owner ON memo_todos(owner)`;
+
+  // Phase2: TODOに象限引き継ぎ・実行予定日を追加(冪等)
+  await sql`ALTER TABLE memo_todos ADD COLUMN IF NOT EXISTS scheduled_date date`;
+  await sql`ALTER TABLE memo_todos ADD COLUMN IF NOT EXISTS quadrant int`;
 }
 
 // ============================================================
@@ -286,7 +292,8 @@ export async function triageMemo(
     await sql`DELETE FROM memo_todos WHERE memo_id = ${memo.id} AND owner = ${owner}`;
     const items = parsed.todos.filter((t) => typeof t === 'string' && t.trim()).slice(0, 8);
     for (let i = 0; i < items.length; i++) {
-      await sql`INSERT INTO memo_todos (memo_id, owner, title, sort_order) VALUES (${memo.id}, ${owner}, ${items[i].trim()}, ${i})`;
+      // 由来メモの象限をTODOへ引き継ぎ(横断ビューの象限優先ソート用)
+      await sql`INSERT INTO memo_todos (memo_id, owner, title, sort_order, quadrant) VALUES (${memo.id}, ${owner}, ${items[i].trim()}, ${i}, ${quadrant})`;
     }
     todosCreated = items.length;
   }

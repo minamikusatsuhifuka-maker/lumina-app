@@ -1,16 +1,14 @@
 'use client';
 
-// AIメモ機能 Phase1（xLUMINA）
-//   1. 目標・目的の設定(memo_goals) … AI重要度逆算の基準
-//   2. クイックメモ入力(インボックス) + 「整理する」でAI(Gemini)が目標逆算で仕分け
-//   3. 結果カードを人が確認・修正して確定（AIは提案・確定は人）
-//   4. カテゴリ別ビュー / 4象限ビュー(第2象限を緑＋「ここに投資を」で強調)
+// AIメモ機能（xLUMINA）
+//  Phase1: 目標設定→AI仕分け(目標逆算)→4象限/カテゴリ。第2象限を強調。
+//  Phase2: 横断TODOビュー(象限優先) / 今日・今週 / カレンダー(due_date・予定日・.ics)。
 // デザインは xLUMINA ダッシュボードのインラインスタイル/CSS変数トーンに合わせる。
 
 import { useEffect, useState, useCallback, useMemo } from 'react';
 import { useToast } from '@/components/ui/Toast';
 
-type View = 'inbox' | 'category' | 'matrix';
+type View = 'inbox' | 'plan' | 'calendar' | 'category' | 'matrix';
 type QuadrantNum = 1 | 2 | 3 | 4;
 type MemoKind = 'task' | 'idea' | 'note' | 'reference';
 
@@ -28,7 +26,10 @@ interface Memo {
   ai_reason: string | null;
   created_at: string;
 }
-interface Todo { id: string; memo_id: string; title: string; done: boolean; sort_order: number; }
+interface Todo {
+  id: string; memo_id: string; title: string; done: boolean; sort_order: number;
+  due_date: string | null; scheduled_date: string | null; quadrant: QuadrantNum | null;
+}
 interface Category { id: string; name: string; color: string | null; }
 interface Goal { id: string; title: string; domain: string | null; detail: string | null; }
 
@@ -40,6 +41,48 @@ const QUADRANT: Record<QuadrantNum, { short: string; full: string; color: string
 };
 const KIND_LABEL: Record<MemoKind, string> = { task: 'タスク', idea: 'アイデア', note: 'メモ', reference: '参考' };
 const KINDS: MemoKind[] = ['task', 'idea', 'note', 'reference'];
+
+// ============================================================
+// 日付ヘルパ（ローカル基準。Postgresのdate列は 'YYYY-MM-DD' 文字列で返る前提）
+// ============================================================
+const pad = (n: number) => String(n).padStart(2, '0');
+const fmtDate = (d: Date) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+const localToday = () => fmtDate(new Date());
+function weekRange(): { start: string; end: string } {
+  const d = new Date();
+  const dow = (d.getDay() + 6) % 7; // 月曜=0
+  const start = new Date(d); start.setDate(d.getDate() - dow);
+  const end = new Date(start); end.setDate(start.getDate() + 6);
+  return { start: fmtDate(start), end: fmtDate(end) };
+}
+const inRange = (s: string | null, a: string, b: string) => !!s && s >= a && s <= b;
+const planDate = (t: Todo) => t.scheduled_date || t.due_date || null; // 計画上の日付（予定日優先）
+
+// ============================================================
+// .ics 生成（OAuth不要・どのカレンダーにも取り込める）
+// ============================================================
+function icsEscape(s: string) { return s.replace(/\\/g, '\\\\').replace(/;/g, '\\;').replace(/,/g, '\\,').replace(/\n/g, '\\n'); }
+function icsStamp() { return new Date().toISOString().replace(/[-:]/g, '').replace(/\.\d{3}/, ''); }
+function addOneDay(ymd: string) { const d = new Date(`${ymd}T00:00:00`); d.setDate(d.getDate() + 1); return fmtDate(d).replace(/-/g, ''); }
+function buildICS(events: { uid: string; title: string; date: string }[]): string {
+  const stamp = icsStamp();
+  const lines = ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//xLUMINA//AIメモ//JA', 'CALSCALE:GREGORIAN'];
+  for (const e of events) {
+    const dt = e.date.replace(/-/g, '');
+    lines.push('BEGIN:VEVENT', `UID:${e.uid}@xlumina.jp`, `DTSTAMP:${stamp}`,
+      `DTSTART;VALUE=DATE:${dt}`, `DTEND;VALUE=DATE:${addOneDay(e.date)}`,
+      `SUMMARY:${icsEscape(e.title)}`, 'END:VEVENT');
+  }
+  lines.push('END:VCALENDAR');
+  return lines.join('\r\n');
+}
+function downloadICS(filename: string, content: string) {
+  const blob = new Blob([content], { type: 'text/calendar;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = filename; document.body.appendChild(a); a.click();
+  document.body.removeChild(a); URL.revokeObjectURL(url);
+}
 
 export default function MemoPage() {
   const { showToast } = useToast();
@@ -73,8 +116,11 @@ export default function MemoPage() {
 
   useEffect(() => { load(); }, [load]);
 
+  const memoById = useCallback((id: string) => memos.find((m) => m.id === id) ?? null, [memos]);
   const categoryName = useCallback((id: string | null) => categories.find((c) => c.id === id)?.name ?? null, [categories]);
   const goalTitleById = useCallback((id: string | null) => goals.find((g) => g.id === id)?.title ?? null, [goals]);
+  // TODOの実効象限（TODO自身→由来メモ→Q4）
+  const effQuadrant = useCallback((t: Todo): QuadrantNum => (t.quadrant ?? memoById(t.memo_id)?.quadrant ?? 4) as QuadrantNum, [memoById]);
 
   const addMemo = async () => {
     const text = input.trim();
@@ -116,12 +162,19 @@ export default function MemoPage() {
 
   const deleteMemo = async (id: string) => {
     setMemos((p) => p.filter((m) => m.id !== id));
+    setTodos((p) => p.filter((t) => t.memo_id !== id));
     await fetch(`/api/memos/${id}`, { method: 'DELETE' });
   };
 
   const toggleTodo = async (t: Todo) => {
     setTodos((p) => p.map((x) => (x.id === t.id ? { ...x, done: !x.done } : x)));
     await fetch('/api/memo-todos', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: t.id, done: !t.done }) });
+  };
+
+  // TODOの締切/予定日/象限/並びを更新（楽観的）
+  const patchTodo = async (id: string, patch: Partial<Todo>) => {
+    setTodos((p) => p.map((x) => (x.id === id ? { ...x, ...patch } : x)));
+    await fetch('/api/memo-todos', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id, ...patch }) });
   };
 
   const addGoal = async () => {
@@ -142,7 +195,7 @@ export default function MemoPage() {
   const card: React.CSSProperties = { background: 'var(--bg-secondary, #fff)', border: '1px solid var(--border-color, #e5e7eb)', borderRadius: 12, padding: 14 };
 
   return (
-    <div style={{ maxWidth: 860, margin: '0 auto' }}>
+    <div style={{ maxWidth: 880, margin: '0 auto' }}>
       <div style={{ marginBottom: 16 }}>
         <h1 style={{ fontSize: 22, fontWeight: 800, margin: 0 }}>🧭 AIメモ</h1>
         <p style={{ fontSize: 13, color: 'var(--text-secondary, #6b7280)', marginTop: 6 }}>
@@ -187,9 +240,9 @@ export default function MemoPage() {
       </div>
 
       {/* ビュー切替 */}
-      <div style={{ display: 'flex', gap: 4, background: 'var(--bg-tertiary,#f3f4f6)', padding: 4, borderRadius: 10, marginBottom: 14 }}>
-        {([['inbox', 'インボックス'], ['category', 'カテゴリ別'], ['matrix', '4象限']] as [View, string][]).map(([v, label]) => (
-          <button key={v} onClick={() => setView(v)} style={{ flex: 1, padding: '8px 0', borderRadius: 7, border: 'none', cursor: 'pointer', fontSize: 13, fontWeight: 600, background: view === v ? 'var(--bg-secondary,#fff)' : 'transparent', color: view === v ? 'var(--text-primary)' : 'var(--text-secondary,#6b7280)' }}>{label}</button>
+      <div style={{ display: 'flex', gap: 4, background: 'var(--bg-tertiary,#f3f4f6)', padding: 4, borderRadius: 10, marginBottom: 14, flexWrap: 'wrap' }}>
+        {([['inbox', 'インボックス'], ['plan', '計画'], ['calendar', 'カレンダー'], ['category', 'カテゴリ別'], ['matrix', '4象限']] as [View, string][]).map(([v, label]) => (
+          <button key={v} onClick={() => setView(v)} style={{ flex: '1 0 auto', minWidth: 92, padding: '8px 0', borderRadius: 7, border: 'none', cursor: 'pointer', fontSize: 13, fontWeight: 600, background: view === v ? 'var(--bg-secondary,#fff)' : 'transparent', color: view === v ? 'var(--text-primary)' : 'var(--text-secondary,#6b7280)' }}>{label}</button>
         ))}
       </div>
 
@@ -218,6 +271,10 @@ export default function MemoPage() {
                 ))}
             </section>
           </>
+        ) : view === 'plan' ? (
+          <PlanView todos={todos} memoById={memoById} categories={categories} categoryName={categoryName} effQuadrant={effQuadrant} onToggle={toggleTodo} onPatch={patchTodo} />
+        ) : view === 'calendar' ? (
+          <CalendarView todos={todos} memoById={memoById} onToggle={toggleTodo} />
         ) : view === 'category' ? (
           <CategoryView memos={triaged} categories={categories} categoryName={categoryName} />
         ) : (
@@ -232,7 +289,11 @@ const btnPrimary: React.CSSProperties = { background: '#1D9E75', color: '#fff', 
 const btnGhost: React.CSSProperties = { background: 'transparent', color: '#1D9E75', border: '1px solid #1D9E75', borderRadius: 8, padding: '8px 14px', fontSize: 13, fontWeight: 600, cursor: 'pointer' };
 const linkBtn: React.CSSProperties = { background: 'none', border: 'none', color: '#9ca3af', cursor: 'pointer', fontSize: 12 };
 const sectionTitle: React.CSSProperties = { fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.5, color: '#9ca3af', marginBottom: 8 };
+const dateInput: React.CSSProperties = { border: '1px solid var(--border-color,#d1d5db)', borderRadius: 6, padding: '3px 6px', fontSize: 11, background: 'var(--bg-primary,#fff)', color: 'var(--text-primary)' };
 
+// ============================================================
+// 整理済みカード（Phase1）
+// ============================================================
 function TriagedCard(props: {
   memo: Memo; categories: Category[]; goals: Goal[];
   categoryName: (id: string | null) => string | null; goalTitleById: (id: string | null) => string | null;
@@ -261,6 +322,7 @@ function TriagedCard(props: {
             <li key={t.id} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, padding: '2px 0' }}>
               <input type="checkbox" checked={t.done} onChange={() => onToggleTodo(t)} />
               <span style={{ textDecoration: t.done ? 'line-through' : 'none', color: t.done ? '#9ca3af' : 'inherit' }}>{t.title}</span>
+              {t.scheduled_date && <span style={{ fontSize: 10, color: '#1D9E75', marginLeft: 'auto' }}>📅 {t.scheduled_date}</span>}
             </li>
           ))}
         </ul>
@@ -293,6 +355,247 @@ function TriagedCard(props: {
   );
 }
 
+// ============================================================
+// 計画ビュー（横断TODO + 今日/今週）Phase2
+// ============================================================
+type SortMode = 'quadrant' | 'due' | 'manual';
+function PlanView(props: {
+  todos: Todo[]; memoById: (id: string) => Memo | null; categories: Category[];
+  categoryName: (id: string | null) => string | null; effQuadrant: (t: Todo) => QuadrantNum;
+  onToggle: (t: Todo) => void; onPatch: (id: string, p: Partial<Todo>) => void;
+}) {
+  const { todos, memoById, categories, categoryName, effQuadrant, onToggle, onPatch } = props;
+  const [openOnly, setOpenOnly] = useState(true);
+  const [quadFilter, setQuadFilter] = useState<0 | QuadrantNum>(0);
+  const [catFilter, setCatFilter] = useState<string>('');
+  const [sortMode, setSortMode] = useState<SortMode>('quadrant');
+
+  const today = localToday();
+  const { start, end } = weekRange();
+  const catOf = (t: Todo) => memoById(t.memo_id)?.category_id ?? null;
+
+  const filtered = useMemo(() => {
+    let list = todos.slice();
+    if (openOnly) list = list.filter((t) => !t.done);
+    if (quadFilter) list = list.filter((t) => effQuadrant(t) === quadFilter);
+    if (catFilter) list = list.filter((t) => catOf(t) === catFilter);
+    list.sort((a, b) => {
+      if (a.done !== b.done) return a.done ? 1 : -1;
+      if (sortMode === 'manual') return a.sort_order - b.sort_order;
+      if (sortMode === 'due') {
+        const da = planDate(a), db = planDate(b);
+        if (da && db && da !== db) return da < db ? -1 : 1;
+        if (!!da !== !!db) return da ? -1 : 1;
+        return effQuadrant(a) - effQuadrant(b);
+      }
+      // quadrant
+      const qa = effQuadrant(a), qb = effQuadrant(b);
+      if (qa !== qb) return qa - qb;
+      const da = planDate(a), db = planDate(b);
+      if (da && db && da !== db) return da < db ? -1 : 1;
+      if (!!da !== !!db) return da ? -1 : 1;
+      return a.sort_order - b.sort_order;
+    });
+    return list;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [todos, openOnly, quadFilter, catFilter, sortMode, effQuadrant]);
+
+  // 今日/今週やること（未完了）
+  const todayItems = useMemo(() => todos.filter((t) => !t.done && (planDate(t) === today || effQuadrant(t) === 1)), [todos, today, effQuadrant]);
+  const weekItems = useMemo(() => todos.filter((t) => !t.done && inRange(planDate(t), start, end)), [todos, start, end]);
+
+  const move = (t: Todo, dir: -1 | 1) => {
+    const idx = filtered.indexOf(t);
+    const swap = filtered[idx + dir];
+    if (!swap) return;
+    onPatch(t.id, { sort_order: swap.sort_order });
+    onPatch(swap.id, { sort_order: t.sort_order });
+  };
+
+  const usedCats = categories.filter((c) => todos.some((t) => catOf(t) === c.id));
+
+  return (
+    <div>
+      {/* 今日/今週 */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 10, marginBottom: 14 }}>
+        <TodayWeekBox title="今日やること" hint="Q1(重要×緊急)は即・本日期日/予定" items={todayItems} memoById={memoById} onToggle={onToggle} />
+        <TodayWeekBox title="今週やること" hint="今週の期日・予定日に入っているもの" items={weekItems} memoById={memoById} onToggle={onToggle} />
+      </div>
+
+      {/* フィルタ/ソート */}
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center', marginBottom: 10 }}>
+        <label style={{ fontSize: 12, display: 'flex', alignItems: 'center', gap: 4 }}>
+          <input type="checkbox" checked={openOnly} onChange={(e) => setOpenOnly(e.target.checked)} /> 未完了のみ
+        </label>
+        <select value={quadFilter} onChange={(e) => setQuadFilter(Number(e.target.value) as 0 | QuadrantNum)} style={{ ...dateInput, fontSize: 12 }}>
+          <option value={0}>全象限</option>
+          {([1, 2, 3, 4] as QuadrantNum[]).map((n) => <option key={n} value={n}>{QUADRANT[n].short}: {QUADRANT[n].full}</option>)}
+        </select>
+        <select value={catFilter} onChange={(e) => setCatFilter(e.target.value)} style={{ ...dateInput, fontSize: 12 }}>
+          <option value="">全カテゴリ</option>
+          {usedCats.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+        </select>
+        <select value={sortMode} onChange={(e) => setSortMode(e.target.value as SortMode)} style={{ ...dateInput, fontSize: 12, marginLeft: 'auto' }}>
+          <option value="quadrant">並び: 象限優先</option>
+          <option value="due">並び: 期日近い順</option>
+          <option value="manual">並び: 手動</option>
+        </select>
+      </div>
+
+      {filtered.length === 0 ? <p style={{ textAlign: 'center', color: '#9ca3af', padding: 24, fontSize: 13 }}>該当するTODOがありません</p>
+        : filtered.map((t) => {
+          const m = memoById(t.memo_id);
+          const q = effQuadrant(t);
+          const s = QUADRANT[q];
+          return (
+            <div key={t.id} style={{ display: 'flex', alignItems: 'center', gap: 8, border: '1px solid var(--border-color,#e5e7eb)', borderLeft: `3px solid ${s.color}`, borderRadius: 8, padding: '8px 10px', marginBottom: 6, background: 'var(--bg-secondary,#fff)' }}>
+              <input type="checkbox" checked={t.done} onChange={() => onToggle(t)} />
+              <div style={{ minWidth: 0, flex: 1 }}>
+                <div style={{ fontSize: 13, textDecoration: t.done ? 'line-through' : 'none', color: t.done ? '#9ca3af' : 'inherit', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{t.title}</div>
+                {m && <div style={{ fontSize: 11, color: '#9ca3af', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{m.ai_summary || m.raw_text}{categoryName(m.category_id) && ` ・ #${categoryName(m.category_id)}`}</div>}
+              </div>
+              <span style={{ flexShrink: 0, fontSize: 10, fontWeight: 700, color: s.color, background: s.bg, padding: '2px 7px', borderRadius: 10 }}>{s.short}</span>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                <label style={{ fontSize: 9, color: '#9ca3af' }}>締切
+                  <input type="date" value={t.due_date ?? ''} onChange={(e) => onPatch(t.id, { due_date: e.target.value || null })} style={{ ...dateInput, marginLeft: 4 }} />
+                </label>
+                <label style={{ fontSize: 9, color: '#1D9E75' }}>予定
+                  <input type="date" value={t.scheduled_date ?? ''} onChange={(e) => onPatch(t.id, { scheduled_date: e.target.value || null })} style={{ ...dateInput, marginLeft: 4 }} />
+                </label>
+              </div>
+              <button onClick={() => downloadICS(`todo-${t.id}.ics`, buildICS([{ uid: t.id, title: t.title, date: planDate(t) || localToday() }]))} title=".icsで書き出し" style={{ ...linkBtn, fontSize: 14 }}>📅</button>
+              {sortMode === 'manual' && (
+                <div style={{ display: 'flex', flexDirection: 'column' }}>
+                  <button onClick={() => move(t, -1)} style={{ ...linkBtn, lineHeight: 1, padding: 0 }}>▲</button>
+                  <button onClick={() => move(t, 1)} style={{ ...linkBtn, lineHeight: 1, padding: 0 }}>▼</button>
+                </div>
+              )}
+            </div>
+          );
+        })}
+    </div>
+  );
+}
+
+function TodayWeekBox(props: { title: string; hint: string; items: Todo[]; memoById: (id: string) => Memo | null; onToggle: (t: Todo) => void }) {
+  const { title, hint, items, memoById, onToggle } = props;
+  return (
+    <div style={{ background: 'var(--bg-secondary,#fff)', border: '1px solid var(--border-color,#e5e7eb)', borderRadius: 12, padding: 12 }}>
+      <h3 style={{ fontSize: 13, fontWeight: 700, margin: '0 0 2px' }}>{title} <span style={{ fontSize: 11, fontWeight: 400, color: '#9ca3af' }}>{items.length}</span></h3>
+      <p style={{ fontSize: 10, color: '#9ca3af', margin: '0 0 8px' }}>{hint}</p>
+      {items.length === 0 ? <p style={{ fontSize: 12, color: '#9ca3af', textAlign: 'center', padding: 8 }}>なし</p>
+        : <ul style={{ listStyle: 'none', padding: 0, margin: 0 }}>
+          {items.slice(0, 8).map((t) => {
+            const q = (t.quadrant ?? memoById(t.memo_id)?.quadrant ?? 4) as QuadrantNum;
+            return (
+              <li key={t.id} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, padding: '3px 0' }}>
+                <input type="checkbox" checked={t.done} onChange={() => onToggle(t)} />
+                <span style={{ flexShrink: 0, width: 6, height: 6, borderRadius: 3, background: QUADRANT[q].color }} />
+                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{t.title}</span>
+              </li>
+            );
+          })}
+        </ul>}
+    </div>
+  );
+}
+
+// ============================================================
+// カレンダービュー（月ビュー + アジェンダ + .ics一括）Phase2
+// ============================================================
+function CalendarView(props: { todos: Todo[]; memoById: (id: string) => Memo | null; onToggle: (t: Todo) => void }) {
+  const { todos, memoById, onToggle } = props;
+  const now = new Date();
+  const [ym, setYm] = useState<{ y: number; m: number }>({ y: now.getFullYear(), m: now.getMonth() }); // m: 0-11
+
+  // 日付→TODO（予定日優先、なければ締切）
+  const byDate = useMemo(() => {
+    const map = new Map<string, Todo[]>();
+    for (const t of todos) {
+      const d = planDate(t);
+      if (!d) continue;
+      if (!map.has(d)) map.set(d, []);
+      map.get(d)!.push(t);
+    }
+    return map;
+  }, [todos]);
+
+  const first = new Date(ym.y, ym.m, 1);
+  const startPad = (first.getDay() + 6) % 7; // 月曜始まり
+  const daysInMonth = new Date(ym.y, ym.m + 1, 0).getDate();
+  const cells: (string | null)[] = [];
+  for (let i = 0; i < startPad; i++) cells.push(null);
+  for (let d = 1; d <= daysInMonth; d++) cells.push(`${ym.y}-${pad(ym.m + 1)}-${pad(d)}`);
+  const today = localToday();
+
+  const prev = () => setYm((s) => (s.m === 0 ? { y: s.y - 1, m: 11 } : { y: s.y, m: s.m - 1 }));
+  const next = () => setYm((s) => (s.m === 11 ? { y: s.y + 1, m: 0 } : { y: s.y, m: s.m + 1 }));
+
+  // アジェンダ（今日以降の予定/締切、近い順）
+  const agenda = useMemo(() =>
+    todos.filter((t) => !t.done && planDate(t) && planDate(t)! >= today)
+      .sort((a, b) => (planDate(a)! < planDate(b)! ? -1 : 1)).slice(0, 30),
+    [todos, today]);
+
+  const exportAll = () => {
+    const events = todos.filter((t) => planDate(t)).map((t) => ({ uid: t.id, title: t.title, date: planDate(t)! }));
+    if (events.length === 0) return;
+    downloadICS('xlumina-memo-todos.ics', buildICS(events));
+  };
+
+  return (
+    <div>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <button onClick={prev} style={{ ...btnGhost, padding: '4px 10px' }}>‹</button>
+          <span style={{ fontSize: 15, fontWeight: 700 }}>{ym.y}年{ym.m + 1}月</span>
+          <button onClick={next} style={{ ...btnGhost, padding: '4px 10px' }}>›</button>
+        </div>
+        <button onClick={exportAll} style={{ ...btnGhost, padding: '6px 12px' }}>📅 全予定を.icsで書き出し</button>
+      </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 2, marginBottom: 16 }}>
+        {['月', '火', '水', '木', '金', '土', '日'].map((w) => (
+          <div key={w} style={{ textAlign: 'center', fontSize: 11, fontWeight: 700, color: '#9ca3af', padding: '4px 0' }}>{w}</div>
+        ))}
+        {cells.map((d, i) => (
+          <div key={i} style={{ minHeight: 64, border: '1px solid var(--border-color,#eee)', borderRadius: 6, padding: 3, background: d === today ? 'rgba(29,158,117,0.08)' : 'var(--bg-secondary,#fff)', opacity: d ? 1 : 0.3 }}>
+            {d && <>
+              <div style={{ fontSize: 10, color: d === today ? '#1D9E75' : '#9ca3af', fontWeight: d === today ? 700 : 400 }}>{Number(d.slice(-2))}</div>
+              {(byDate.get(d) || []).slice(0, 3).map((t) => {
+                const q = (t.quadrant ?? memoById(t.memo_id)?.quadrant ?? 4) as QuadrantNum;
+                return (
+                  <div key={t.id} title={t.title} style={{ fontSize: 9, marginTop: 1, padding: '1px 3px', borderRadius: 3, background: QUADRANT[q].bg, color: QUADRANT[q].color, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', textDecoration: t.done ? 'line-through' : 'none' }}>{t.title}</div>
+                );
+              })}
+              {(byDate.get(d) || []).length > 3 && <div style={{ fontSize: 9, color: '#9ca3af' }}>+{(byDate.get(d) || []).length - 3}</div>}
+            </>}
+          </div>
+        ))}
+      </div>
+
+      <h3 style={{ ...sectionTitle, marginBottom: 8 }}>今後の予定（アジェンダ）</h3>
+      {agenda.length === 0 ? <p style={{ textAlign: 'center', color: '#9ca3af', padding: 16, fontSize: 13 }}>予定日・締切のあるTODOがありません</p>
+        : agenda.map((t) => {
+          const m = memoById(t.memo_id);
+          const q = (t.quadrant ?? m?.quadrant ?? 4) as QuadrantNum;
+          return (
+            <div key={t.id} style={{ display: 'flex', alignItems: 'center', gap: 8, border: '1px solid var(--border-color,#e5e7eb)', borderRadius: 8, padding: '6px 10px', marginBottom: 6, fontSize: 13, background: 'var(--bg-secondary,#fff)' }}>
+              <input type="checkbox" checked={t.done} onChange={() => onToggle(t)} />
+              <span style={{ flexShrink: 0, fontSize: 11, fontWeight: 700, color: '#1D9E75', minWidth: 78 }}>{planDate(t)}{t.scheduled_date ? ' 予定' : ' 締切'}</span>
+              <span style={{ flexShrink: 0, fontSize: 10, fontWeight: 700, color: QUADRANT[q].color, background: QUADRANT[q].bg, padding: '2px 6px', borderRadius: 10 }}>{QUADRANT[q].short}</span>
+              <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{t.title}</span>
+              <button onClick={() => downloadICS(`todo-${t.id}.ics`, buildICS([{ uid: t.id, title: t.title, date: planDate(t)! }]))} style={{ ...linkBtn, marginLeft: 'auto', fontSize: 14 }}>📅</button>
+            </div>
+          );
+        })}
+    </div>
+  );
+}
+
+// ============================================================
+// カテゴリ別ビュー（Phase1）
+// ============================================================
 function CategoryView(props: { memos: Memo[]; categories: Category[]; categoryName: (id: string | null) => string | null }) {
   const { memos, categories, categoryName } = props;
   const groups = useMemo(() => {
@@ -326,6 +629,9 @@ function CategoryView(props: { memos: Memo[]; categories: Category[]; categoryNa
   );
 }
 
+// ============================================================
+// 4象限ビュー（Phase1）
+// ============================================================
 function MatrixView(props: { memos: Memo[]; categoryName: (id: string | null) => string | null }) {
   const { memos, categoryName } = props;
   if (memos.length === 0) return <p style={{ textAlign: 'center', color: '#9ca3af', padding: 24, fontSize: 13 }}>整理済みメモがありません</p>;
