@@ -25,11 +25,14 @@ interface Memo {
   goal_ref: string | null;
   ai_summary: string | null;
   ai_reason: string | null;
+  due_at: string | null;   // AI抽出の絶対日時(ISO)。終日は has_time=false
+  has_time: boolean;       // 時刻指定の有無
   created_at: string;
 }
 interface Todo {
   id: string; memo_id: string; title: string; done: boolean; sort_order: number;
   due_date: string | null; scheduled_date: string | null; quadrant: QuadrantNum | null;
+  due_at: string | null; has_time: boolean;
 }
 interface Category { id: string; name: string; color: string | null; }
 interface Goal { id: string; title: string; domain: string | null; detail: string | null; }
@@ -60,19 +63,51 @@ const inRange = (s: string | null, a: string, b: string) => !!s && s >= a && s <
 const planDate = (t: Todo) => t.scheduled_date || t.due_date || null; // 計画上の日付（予定日優先）
 
 // ============================================================
+// 日時(due_at)ヘルパ。ユーザーはJST(Asia/Tokyo)前提のため、ブラウザのローカル時刻＝JSTで扱う。
+// ============================================================
+const timeOf = (iso: string) => { const d = new Date(iso); return `${pad(d.getHours())}:${pad(d.getMinutes())}`; };
+// 表示用: has_time:true は「M/D HH:mm」、false は「M/D」
+function fmtDueAt(iso: string | null, hasTime: boolean): string {
+  if (!iso) return '';
+  const d = new Date(iso);
+  const base = `${d.getMonth() + 1}/${d.getDate()}`;
+  return hasTime ? `${base} ${pad(d.getHours())}:${pad(d.getMinutes())}` : base;
+}
+// <input type="datetime-local"> 値(YYYY-MM-DDTHH:mm)
+function isoToLocalDT(iso: string | null): string {
+  if (!iso) return '';
+  const d = new Date(iso);
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+// <input type="date"> 値(YYYY-MM-DD)
+const isoToDateInput = (iso: string | null): string => (iso ? fmtDate(new Date(iso)) : '');
+// 入力値 → ISO(UTC)
+function localDTToISO(v: string): string | null { if (!v) return null; const d = new Date(v); return isNaN(d.getTime()) ? null : d.toISOString(); }
+function dateToISO(v: string): string | null { if (!v) return null; const d = new Date(`${v}T00:00:00`); return isNaN(d.getTime()) ? null : d.toISOString(); }
+
+// ============================================================
 // .ics 生成（OAuth不要・どのカレンダーにも取り込める）
 // ============================================================
 function icsEscape(s: string) { return s.replace(/\\/g, '\\\\').replace(/;/g, '\\;').replace(/,/g, '\\,').replace(/\n/g, '\\n'); }
 function icsStamp() { return new Date().toISOString().replace(/[-:]/g, '').replace(/\.\d{3}/, ''); }
 function addOneDay(ymd: string) { const d = new Date(`${ymd}T00:00:00`); d.setDate(d.getDate() + 1); return fmtDate(d).replace(/-/g, ''); }
-function buildICS(events: { uid: string; title: string; date: string }[]): string {
+// ローカル(=JST)壁時計を YYYYMMDDTHHMMSS で。TZID=Asia/Tokyo と併用。
+function icsLocalStamp(d: Date) { return `${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}T${pad(d.getHours())}${pad(d.getMinutes())}00`; }
+// has_time:true は時刻つきイベント(VALUE=DATE-TIME, TZID=Asia/Tokyo, 既定60分)、false は終日(VALUE=DATE)。
+function buildICS(events: { uid: string; title: string; date: string; dueAt?: string | null; hasTime?: boolean }[]): string {
   const stamp = icsStamp();
   const lines = ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//xLUMINA//AIメモ//JA', 'CALSCALE:GREGORIAN'];
   for (const e of events) {
-    const dt = e.date.replace(/-/g, '');
-    lines.push('BEGIN:VEVENT', `UID:${e.uid}@xlumina.jp`, `DTSTAMP:${stamp}`,
-      `DTSTART;VALUE=DATE:${dt}`, `DTEND;VALUE=DATE:${addOneDay(e.date)}`,
-      `SUMMARY:${icsEscape(e.title)}`, 'END:VEVENT');
+    lines.push('BEGIN:VEVENT', `UID:${e.uid}@xlumina.jp`, `DTSTAMP:${stamp}`);
+    if (e.hasTime && e.dueAt) {
+      const start = new Date(e.dueAt);
+      const end = new Date(start.getTime() + 60 * 60 * 1000);
+      lines.push(`DTSTART;TZID=Asia/Tokyo:${icsLocalStamp(start)}`, `DTEND;TZID=Asia/Tokyo:${icsLocalStamp(end)}`);
+    } else {
+      const dt = e.date.replace(/-/g, '');
+      lines.push(`DTSTART;VALUE=DATE:${dt}`, `DTEND;VALUE=DATE:${addOneDay(e.date)}`);
+    }
+    lines.push(`SUMMARY:${icsEscape(e.title)}`, 'END:VEVENT');
   }
   lines.push('END:VCALENDAR');
   return lines.join('\r\n');
@@ -286,7 +321,7 @@ export default function MemoPage() {
               <h2 style={sectionTitle}>整理済み（AI提案・人が確定/修正）</h2>
               {triaged.length === 0 ? <p style={{ textAlign: 'center', color: '#9ca3af', padding: 24, fontSize: 13 }}>まだありません</p>
                 : triaged.map((m) => (
-                  <TriagedCard key={m.id} memo={m} categories={categories} goals={goals} categoryName={categoryName} goalTitleById={goalTitleById} todos={todosByMemo(m.id)} onPatch={patchMemo} onDelete={deleteMemo} onToggleTodo={toggleTodo} />
+                  <TriagedCard key={m.id} memo={m} categories={categories} goals={goals} categoryName={categoryName} goalTitleById={goalTitleById} todos={todosByMemo(m.id)} onPatch={patchMemo} onDelete={deleteMemo} onToggleTodo={toggleTodo} collapsible />
                 ))}
             </section>
           </>
@@ -347,63 +382,99 @@ function WeeklyQ2Card(props: { memos: Memo[]; todos: Todo[]; goalTitleById: (id:
 // ============================================================
 // 整理済みカード（Phase1）
 // ============================================================
+// AI抽出日時の確認・編集・クリア（human-in-the-loop）。終日⇄時刻つきを「時刻指定」で切替。
+function DueAtField(props: { memo: Memo; onPatch: (id: string, p: Partial<Memo>) => void }) {
+  const { memo, onPatch } = props;
+  const hasTime = memo.has_time;
+  return (
+    <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8, marginTop: 10, borderTop: '1px solid #00000010', paddingTop: 10 }}>
+      <span style={{ fontSize: 11, color: '#1D9E75', fontWeight: 600 }}>📅 日時（AI抽出・編集可）</span>
+      {hasTime ? (
+        <input type="datetime-local" value={isoToLocalDT(memo.due_at)} onChange={(e) => onPatch(memo.id, { due_at: localDTToISO(e.target.value), has_time: true })} style={dateInput} />
+      ) : (
+        <input type="date" value={isoToDateInput(memo.due_at)} onChange={(e) => onPatch(memo.id, { due_at: dateToISO(e.target.value), has_time: false })} style={dateInput} />
+      )}
+      <label style={{ fontSize: 11, color: '#6b7280', display: 'flex', alignItems: 'center', gap: 3 }}>
+        <input type="checkbox" checked={hasTime} onChange={(e) => onPatch(memo.id, { has_time: e.target.checked })} /> 時刻指定
+      </label>
+      {memo.due_at
+        ? <button onClick={() => onPatch(memo.id, { due_at: null, has_time: false })} style={linkBtn}>クリア</button>
+        : <span style={{ fontSize: 10, color: '#9ca3af' }}>日付を選ぶとカレンダー/計画に表示</span>}
+    </div>
+  );
+}
+
 function TriagedCard(props: {
   memo: Memo; categories: Category[]; goals: Goal[];
   categoryName: (id: string | null) => string | null; goalTitleById: (id: string | null) => string | null;
   todos: Todo[]; onPatch: (id: string, p: Partial<Memo>) => void; onDelete: (id: string) => void; onToggleTodo: (t: Todo) => void;
+  collapsible?: boolean; // true: 折りたたみ式（1行・クリックで展開）。インボックスで使用
 }) {
-  const { memo, categories, goals, categoryName, goalTitleById, todos, onPatch, onDelete, onToggleTodo } = props;
+  const { memo, categories, goals, categoryName, goalTitleById, todos, onPatch, onDelete, onToggleTodo, collapsible } = props;
+  const [open, setOpen] = useState(!collapsible); // 折りたたみ対象は既定で閉じる
   const q = (memo.quadrant ?? 4) as QuadrantNum;
   const s = QUADRANT[q];
   const sel: React.CSSProperties = { border: '1px solid var(--border-color,#d1d5db)', borderRadius: 6, padding: '4px 6px', fontSize: 12, background: 'var(--bg-primary,#fff)', color: 'var(--text-primary)' };
+  const title = memo.ai_summary || memo.raw_text.split('\n')[0];
+  const catName = categoryName(memo.category_id);
 
   return (
-    <div style={{ border: `1px solid ${s.color}`, background: s.bg, borderRadius: 12, padding: 14, marginBottom: 10, boxShadow: s.emphasis ? `0 0 0 2px ${s.color}33` : undefined }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10 }}>
-        <div style={{ minWidth: 0, flex: 1 }}>
-          {memo.ai_summary && <p style={{ fontSize: 14, fontWeight: 600, margin: 0 }}>{memo.ai_summary}</p>}
-          <p style={{ fontSize: 12, color: 'var(--text-secondary,#6b7280)', margin: '2px 0 0', whiteSpace: 'pre-wrap' }}>{memo.raw_text}</p>
-        </div>
-        <span style={{ flexShrink: 0, fontSize: 11, fontWeight: 700, color: s.color, background: '#ffffffcc', padding: '2px 10px', borderRadius: 20, height: 'fit-content' }}>{s.short}{s.emphasis && ' ★'}</span>
-      </div>
-      {memo.ai_reason && <p style={{ fontSize: 12, color: 'var(--text-secondary,#6b7280)', marginTop: 8 }}>💡 {memo.ai_reason}</p>}
-      {goalTitleById(memo.goal_ref) && <p style={{ fontSize: 12, color: '#1D9E75', marginTop: 4 }}>🎯 {goalTitleById(memo.goal_ref)}</p>}
+    <div style={{ border: `1px solid ${s.color}`, background: s.bg, borderRadius: 12, marginBottom: 10, boxShadow: s.emphasis ? `0 0 0 2px ${s.color}33` : undefined, overflow: 'hidden' }}>
+      {/* 1行ヘッダ（クリックで開閉・アコーディオン） */}
+      <button onClick={() => setOpen((o) => !o)} aria-expanded={open} style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 8, padding: '10px 12px', background: 'none', border: 'none', cursor: 'pointer', textAlign: 'left', color: 'var(--text-primary)' }}>
+        <span style={{ flexShrink: 0, fontSize: 11, fontWeight: 700, color: s.color, background: '#ffffffcc', padding: '2px 9px', borderRadius: 20 }}>{s.short}{s.emphasis && ' ★'}</span>
+        <span style={{ flex: 1, minWidth: 0, fontSize: 13, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{title}</span>
+        {catName && <span style={{ flexShrink: 0, fontSize: 10, color: '#6b7280', background: '#ffffffaa', padding: '1px 7px', borderRadius: 10 }}>#{catName}</span>}
+        {memo.due_at && <span style={{ flexShrink: 0, fontSize: 10, color: '#1D9E75' }}>📅 {fmtDueAt(memo.due_at, memo.has_time)}</span>}
+        <span style={{ flexShrink: 0, fontSize: 11, color: '#9ca3af' }} aria-hidden>{open ? '▲' : '▼'}</span>
+      </button>
 
-      {todos.length > 0 && (
-        <ul style={{ listStyle: 'none', padding: 0, margin: '8px 0 0', borderTop: '1px solid #00000010', paddingTop: 8 }}>
-          {todos.map((t) => (
-            <li key={t.id} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, padding: '2px 0' }}>
-              <input type="checkbox" checked={t.done} onChange={() => onToggleTodo(t)} />
-              <span style={{ textDecoration: t.done ? 'line-through' : 'none', color: t.done ? '#9ca3af' : 'inherit' }}>{t.title}</span>
-              {t.scheduled_date && <span style={{ fontSize: 10, color: '#1D9E75', marginLeft: 'auto' }}>📅 {t.scheduled_date}</span>}
-            </li>
-          ))}
-        </ul>
+      {open && (
+        <div style={{ padding: '0 14px 14px' }}>
+          <p style={{ fontSize: 12, color: 'var(--text-secondary,#6b7280)', margin: 0, whiteSpace: 'pre-wrap' }}>{memo.raw_text}</p>
+          {memo.ai_reason && <p style={{ fontSize: 12, color: 'var(--text-secondary,#6b7280)', marginTop: 8 }}>💡 {memo.ai_reason}</p>}
+          {goalTitleById(memo.goal_ref) && <p style={{ fontSize: 12, color: '#1D9E75', marginTop: 4 }}>🎯 {goalTitleById(memo.goal_ref)}</p>}
+
+          {todos.length > 0 && (
+            <ul style={{ listStyle: 'none', padding: 0, margin: '8px 0 0', borderTop: '1px solid #00000010', paddingTop: 8 }}>
+              {todos.map((t) => (
+                <li key={t.id} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, padding: '2px 0' }}>
+                  <input type="checkbox" checked={t.done} onChange={() => onToggleTodo(t)} />
+                  <span style={{ textDecoration: t.done ? 'line-through' : 'none', color: t.done ? '#9ca3af' : 'inherit' }}>{t.title}</span>
+                  {t.scheduled_date && <span style={{ fontSize: 10, color: '#1D9E75', marginLeft: 'auto' }}>📅 {t.scheduled_date}</span>}
+                </li>
+              ))}
+            </ul>
+          )}
+
+          {/* AI抽出日時（確認・編集・クリア） */}
+          <DueAtField memo={memo} onPatch={onPatch} />
+
+          <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8, marginTop: 10, borderTop: '1px solid #00000010', paddingTop: 10 }}>
+            <select value={q} onChange={(e) => onPatch(memo.id, { quadrant: Number(e.target.value) as QuadrantNum })} style={sel}>
+              {([1, 2, 3, 4] as QuadrantNum[]).map((n) => <option key={n} value={n}>{QUADRANT[n].short}: {QUADRANT[n].full}</option>)}
+            </select>
+            <select value={memo.kind ?? 'note'} onChange={(e) => onPatch(memo.id, { kind: e.target.value as MemoKind })} style={sel}>
+              {KINDS.map((k) => <option key={k} value={k}>{KIND_LABEL[k]}</option>)}
+            </select>
+            <select value={memo.category_id ?? ''} onChange={(e) => onPatch(memo.id, { category_id: e.target.value || null })} style={sel}>
+              <option value="">(カテゴリなし)</option>
+              {categories.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+            </select>
+            <select value={memo.goal_ref ?? ''} onChange={(e) => onPatch(memo.id, { goal_ref: e.target.value || null })} style={sel}>
+              <option value="">(目標なし)</option>
+              {goals.map((g) => <option key={g.id} value={g.id}>{g.title}</option>)}
+            </select>
+            <span style={{ fontSize: 11, color: '#9ca3af' }}>重要{memo.importance ?? '-'}/緊急{memo.urgency ?? '-'}</span>
+            <div style={{ marginLeft: 'auto', display: 'flex', gap: 8 }}>
+              {memo.status !== 'done'
+                ? <button onClick={() => onPatch(memo.id, { status: 'done' })} style={{ ...btnGhost, padding: '4px 10px' }}>完了</button>
+                : <button onClick={() => onPatch(memo.id, { status: 'triaged' })} style={{ ...linkBtn, border: '1px solid #d1d5db', borderRadius: 6, padding: '4px 10px' }}>戻す</button>}
+              <button onClick={() => onDelete(memo.id)} style={linkBtn}>削除</button>
+            </div>
+          </div>
+        </div>
       )}
-
-      <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8, marginTop: 10, borderTop: '1px solid #00000010', paddingTop: 10 }}>
-        <select value={q} onChange={(e) => onPatch(memo.id, { quadrant: Number(e.target.value) as QuadrantNum })} style={sel}>
-          {([1, 2, 3, 4] as QuadrantNum[]).map((n) => <option key={n} value={n}>{QUADRANT[n].short}: {QUADRANT[n].full}</option>)}
-        </select>
-        <select value={memo.kind ?? 'note'} onChange={(e) => onPatch(memo.id, { kind: e.target.value as MemoKind })} style={sel}>
-          {KINDS.map((k) => <option key={k} value={k}>{KIND_LABEL[k]}</option>)}
-        </select>
-        <select value={memo.category_id ?? ''} onChange={(e) => onPatch(memo.id, { category_id: e.target.value || null })} style={sel}>
-          <option value="">(カテゴリなし)</option>
-          {categories.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-        </select>
-        <select value={memo.goal_ref ?? ''} onChange={(e) => onPatch(memo.id, { goal_ref: e.target.value || null })} style={sel}>
-          <option value="">(目標なし)</option>
-          {goals.map((g) => <option key={g.id} value={g.id}>{g.title}</option>)}
-        </select>
-        <span style={{ fontSize: 11, color: '#9ca3af' }}>重要{memo.importance ?? '-'}/緊急{memo.urgency ?? '-'}</span>
-        <div style={{ marginLeft: 'auto', display: 'flex', gap: 8 }}>
-          {memo.status !== 'done'
-            ? <button onClick={() => onPatch(memo.id, { status: 'done' })} style={{ ...btnGhost, padding: '4px 10px' }}>完了</button>
-            : <button onClick={() => onPatch(memo.id, { status: 'triaged' })} style={{ ...linkBtn, border: '1px solid #d1d5db', borderRadius: 6, padding: '4px 10px' }}>戻す</button>}
-          <button onClick={() => onDelete(memo.id)} style={linkBtn}>削除</button>
-        </div>
-      </div>
     </div>
   );
 }
@@ -516,7 +587,7 @@ function PlanView(props: {
                   <input type="date" value={t.scheduled_date ?? ''} onChange={(e) => onPatch(t.id, { scheduled_date: e.target.value || null })} style={{ ...dateInput, marginLeft: 4 }} />
                 </label>
               </div>
-              <button onClick={() => downloadICS(`todo-${t.id}.ics`, buildICS([{ uid: t.id, title: t.title, date: planDate(t) || localToday() }]))} title=".icsで書き出し" style={{ ...linkBtn, fontSize: 14 }}>📅</button>
+              <button onClick={() => downloadICS(`todo-${t.id}.ics`, buildICS([{ uid: t.id, title: t.title, date: planDate(t) || localToday(), dueAt: t.due_at, hasTime: t.has_time }]))} title=".icsで書き出し" style={{ ...linkBtn, fontSize: 14 }}>📅</button>
               {sortMode === 'manual' && (
                 <div style={{ display: 'flex', flexDirection: 'column' }}>
                   <button onClick={() => move(t, -1)} style={{ ...linkBtn, lineHeight: 1, padding: 0 }}>▲</button>
@@ -591,7 +662,7 @@ function CalendarView(props: { todos: Todo[]; memoById: (id: string) => Memo | n
     [todos, today]);
 
   const exportAll = () => {
-    const events = todos.filter((t) => planDate(t)).map((t) => ({ uid: t.id, title: t.title, date: planDate(t)! }));
+    const events = todos.filter((t) => planDate(t)).map((t) => ({ uid: t.id, title: t.title, date: planDate(t)!, dueAt: t.due_at, hasTime: t.has_time }));
     if (events.length === 0) return;
     downloadICS('xlumina-memo-todos.ics', buildICS(events));
   };
@@ -618,7 +689,7 @@ function CalendarView(props: { todos: Todo[]; memoById: (id: string) => Memo | n
               {(byDate.get(d) || []).slice(0, 3).map((t) => {
                 const q = (t.quadrant ?? memoById(t.memo_id)?.quadrant ?? 4) as QuadrantNum;
                 return (
-                  <div key={t.id} title={t.title} style={{ fontSize: 9, marginTop: 1, padding: '1px 3px', borderRadius: 3, background: QUADRANT[q].bg, color: QUADRANT[q].color, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', textDecoration: t.done ? 'line-through' : 'none' }}>{t.title}</div>
+                  <div key={t.id} title={t.title} style={{ fontSize: 9, marginTop: 1, padding: '1px 3px', borderRadius: 3, background: QUADRANT[q].bg, color: QUADRANT[q].color, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', textDecoration: t.done ? 'line-through' : 'none' }}>{t.has_time && t.due_at ? `${timeOf(t.due_at)} ` : ''}{t.title}</div>
                 );
               })}
               {(byDate.get(d) || []).length > 3 && <div style={{ fontSize: 9, color: '#9ca3af' }}>+{(byDate.get(d) || []).length - 3}</div>}
@@ -635,10 +706,10 @@ function CalendarView(props: { todos: Todo[]; memoById: (id: string) => Memo | n
           return (
             <div key={t.id} style={{ display: 'flex', alignItems: 'center', gap: 8, border: '1px solid var(--border-color,#e5e7eb)', borderRadius: 8, padding: '6px 10px', marginBottom: 6, fontSize: 13, background: 'var(--bg-secondary,#fff)' }}>
               <input type="checkbox" checked={t.done} onChange={() => onToggle(t)} />
-              <span style={{ flexShrink: 0, fontSize: 11, fontWeight: 700, color: '#1D9E75', minWidth: 78 }}>{planDate(t)}{t.scheduled_date ? ' 予定' : ' 締切'}</span>
+              <span style={{ flexShrink: 0, fontSize: 11, fontWeight: 700, color: '#1D9E75', minWidth: 78 }}>{planDate(t)}{t.has_time && t.due_at ? ` ${timeOf(t.due_at)}` : ''}{t.scheduled_date ? ' 予定' : ' 締切'}</span>
               <span style={{ flexShrink: 0, fontSize: 10, fontWeight: 700, color: QUADRANT[q].color, background: QUADRANT[q].bg, padding: '2px 6px', borderRadius: 10 }}>{QUADRANT[q].short}</span>
               <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{t.title}</span>
-              <button onClick={() => downloadICS(`todo-${t.id}.ics`, buildICS([{ uid: t.id, title: t.title, date: planDate(t)! }]))} style={{ ...linkBtn, marginLeft: 'auto', fontSize: 14 }}>📅</button>
+              <button onClick={() => downloadICS(`todo-${t.id}.ics`, buildICS([{ uid: t.id, title: t.title, date: planDate(t)!, dueAt: t.due_at, hasTime: t.has_time }]))} style={{ ...linkBtn, marginLeft: 'auto', fontSize: 14 }}>📅</button>
             </div>
           );
         })}

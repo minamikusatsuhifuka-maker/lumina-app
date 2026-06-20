@@ -62,6 +62,11 @@ export const RUBRIC = `# 判定ルール(ルブリック)
 - todos: kind=task のときのみ具体的な実行ステップを2〜5個。それ以外は空配列[]。
 - category: 既存カテゴリになるべく寄せる。合うものが無ければ新規名を提案し is_new_category=true(乱立防止)。
 - summary: 後で思い出せる一言要約。reason: 重要度/緊急度の根拠を短く。
+- due_at: メモ本文に期日・予定・日時の言及があれば、「現在日時」を基準に ISO8601(タイムゾーンは必ず +09:00 / Asia/Tokyo)で絶対日時に解決する。
+  - 相対表現(今日/明日/明後日/今週金曜/来週月曜/N日後/今日中/今週中/週末/月末 等)は現在日時から算出する。
+  - 絶対表現(6/25, 6/25まで, 2026-07-01, 15:00, 来週月曜10:00 等)はそのまま解決する。年の記載が無ければ、現在日時から見て最も近い未来の同月日にする。
+  - 時刻の指定があれば has_time:true(その時刻を反映。例 "明日15時"→T15:00:00+09:00)。日付のみで時刻が無ければ has_time:false(時刻は 00:00:00+09:00 とする)。
+  - 期日・日時の言及がまったく無い場合は due_at:null, has_time:false。
 - ※象限(quadrant)はシステムが importance/urgency から確定するため、あなたは importance/urgency の評価精度に集中すること。`;
 
 // ============================================================
@@ -82,7 +87,7 @@ export const FEWSHOT = `# 判定例(特に「重要だが締切なし=第2象限
   → importance=4, urgency=1(後回しにされがちだが目標に資する第2象限を明示的に拾う)`;
 
 // AI に返させる JSON の形(前後に説明を付けず、これ「のみ」を返させる)。
-export const TRIAGE_JSON_SCHEMA = `{"kind":"task|idea|note|reference","category":"カテゴリ名","is_new_category":true,"importance":1,"urgency":1,"quadrant":2,"goal_ref":"目標title","summary":"…","reason":"…","todos":["…"]}`;
+export const TRIAGE_JSON_SCHEMA = `{"kind":"task|idea|note|reference","category":"カテゴリ名","is_new_category":true,"importance":1,"urgency":1,"quadrant":2,"goal_ref":"目標title","summary":"…","reason":"…","todos":["…"],"due_at":"2026-06-25T15:00:00+09:00 または null","has_time":false}`;
 
 // ============================================================
 // プロンプト組み立て(本体はここに集約)
@@ -93,13 +98,20 @@ interface GoalLike {
   detail?: string | null;
 }
 
-export function buildTriagePrompt(rawText: string, goals: GoalLike[], categoryNames: string[]): string {
+/**
+ * @param nowText 相対日時(明日/今週金曜 等)解決の基準となる「現在日時」(JST / Asia/Tokyo)。
+ *                例: "2026-06-21(土) 14:30 JST(Asia/Tokyo, UTC+9)"。サーバ(Vercel=UTC)からJSTに変換して渡すこと。
+ */
+export function buildTriagePrompt(rawText: string, goals: GoalLike[], categoryNames: string[], nowText: string): string {
   const goalLines = goals.length
     ? goals.map((g) => `- ${g.title}${g.domain ? `（分野:${g.domain}）` : ''}${g.detail ? ` … ${g.detail}` : ''}`).join('\n')
     : '（目標が未設定です。一般的な重要度で判断し、importance は中庸に寄せてください）';
   const catList = categoryNames.length ? categoryNames.join(' / ') : '（既存カテゴリなし）';
 
   return `あなたは「7つの習慣」の時間管理マトリックスに基づき、ユーザーのメモを目標から逆算して仕分けるアシスタントです。
+
+# 現在日時(相対表現の解決基準・タイムゾーンは Asia/Tokyo / UTC+9)
+${nowText}
 
 # ユーザーの目標(重要度を逆算する基準)
 ${goalLines}

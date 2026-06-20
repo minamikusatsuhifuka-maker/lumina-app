@@ -33,7 +33,7 @@ export async function GET(req: NextRequest) {
 
   const rows = await c.sql`
     SELECT t.id, t.memo_id, t.owner, t.title, t.done, t.sort_order,
-           t.due_date, t.scheduled_date, t.created_at,
+           t.due_date, t.scheduled_date, t.due_at, t.has_time, t.created_at,
            COALESCE(t.quadrant, m.quadrant) AS quadrant,
            m.ai_summary AS memo_summary, m.raw_text AS memo_text,
            m.category_id, m.goal_ref
@@ -68,13 +68,14 @@ export async function POST(req: NextRequest) {
   const quadrant = typeof body.quadrant === 'number' ? body.quadrant : (owns[0].quadrant ?? null);
 
   const rows = await c.sql`
-    INSERT INTO memo_todos (memo_id, owner, title, sort_order, due_date, scheduled_date, quadrant)
+    INSERT INTO memo_todos (memo_id, owner, title, sort_order, due_date, scheduled_date, due_at, has_time, quadrant)
     VALUES (
       ${memoId}, ${c.owner}, ${title},
       ${typeof body.sort_order === 'number' ? body.sort_order : 0},
-      ${body.due_date || null}, ${body.scheduled_date || null}, ${quadrant}
+      ${body.due_date || null}, ${body.scheduled_date || null},
+      ${body.due_at || null}, ${typeof body.has_time === 'boolean' ? body.has_time : false}, ${quadrant}
     )
-    RETURNING id, memo_id, owner, title, done, sort_order, due_date, scheduled_date, quadrant, created_at
+    RETURNING id, memo_id, owner, title, done, sort_order, due_date, scheduled_date, due_at, has_time, quadrant, created_at
   `;
   return NextResponse.json({ todo: rows[0] });
 }
@@ -94,6 +95,9 @@ export async function PATCH(req: NextRequest) {
   const due = hasDue ? (body.due_date || null) : null;
   const hasSched = Object.prototype.hasOwnProperty.call(body, 'scheduled_date');
   const sched = hasSched ? (body.scheduled_date || null) : null;
+  const hasDueAt = Object.prototype.hasOwnProperty.call(body, 'due_at');
+  const dueAt = hasDueAt ? (body.due_at || null) : null;
+  const hasTime = typeof body.has_time === 'boolean' ? body.has_time : null;
 
   const rows = await c.sql`
     UPDATE memo_todos SET
@@ -102,9 +106,11 @@ export async function PATCH(req: NextRequest) {
       sort_order     = COALESCE(${sortOrder}::int, sort_order),
       quadrant       = COALESCE(${quadrant}::int, quadrant),
       due_date       = CASE WHEN ${hasDue} THEN ${due}::date ELSE due_date END,
-      scheduled_date = CASE WHEN ${hasSched} THEN ${sched}::date ELSE scheduled_date END
+      scheduled_date = CASE WHEN ${hasSched} THEN ${sched}::date ELSE scheduled_date END,
+      due_at         = CASE WHEN ${hasDueAt} THEN ${dueAt}::timestamptz ELSE due_at END,
+      has_time       = COALESCE(${hasTime}::boolean, has_time)
     WHERE id = ${id} AND owner = ${c.owner}
-    RETURNING id, memo_id, owner, title, done, sort_order, due_date, scheduled_date, quadrant, created_at
+    RETURNING id, memo_id, owner, title, done, sort_order, due_date, scheduled_date, due_at, has_time, quadrant, created_at
   `;
   if (rows.length === 0) return NextResponse.json({ error: 'not found' }, { status: 404 });
   return NextResponse.json({ todo: rows[0] });

@@ -29,11 +29,14 @@ function getGemini() {
 }
 
 // 通常生成（非ストリーミング）
+// geminiGenerationConfig: gemini の generationConfig を追加上書きする（例: responseMimeType:'application/json'）。
+//   既存呼び出しは未指定のため挙動不変。JSON抽出が必要な用途(AIメモtriage等)でのみ渡す。
 export async function generateWithModel(
   model: AIModel,
   prompt: string,
   systemPrompt?: string,
-  maxTokens = 4000
+  maxTokens = 4000,
+  geminiGenerationConfig?: Record<string, unknown>,
 ): Promise<string> {
   if (model === 'gemini') {
     const genAI = getGemini();
@@ -43,7 +46,7 @@ export async function generateWithModel(
     });
     const result = await geminiModel.generateContent({
       contents: [{ role: 'user', parts: [{ text: prompt }] }],
-      generationConfig: { maxOutputTokens: maxTokens },
+      generationConfig: { maxOutputTokens: maxTokens, ...geminiGenerationConfig },
     });
     return result.response.text();
   }

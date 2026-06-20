@@ -23,7 +23,7 @@ export async function GET(req: NextRequest) {
   // 一覧は本文(raw_text)を含むが、メモは短文想定。肥大化時はここで要約のみ返す方針に切替可。
   const rows = await sql`
     SELECT id, owner, raw_text, status, kind, category_id, importance, urgency,
-           quadrant, goal_ref, ai_summary, ai_reason, created_at, triaged_at
+           quadrant, goal_ref, ai_summary, ai_reason, due_at, has_time, created_at, triaged_at
     FROM memos
     WHERE owner = ${owner}
       AND (${status}::text IS NULL OR status = ${status})
@@ -33,7 +33,7 @@ export async function GET(req: NextRequest) {
   `;
 
   const todos = await sql`
-    SELECT id, memo_id, owner, title, done, sort_order, due_date, scheduled_date, quadrant, created_at
+    SELECT id, memo_id, owner, title, done, sort_order, due_date, scheduled_date, due_at, has_time, quadrant, created_at
     FROM memo_todos WHERE owner = ${owner} ORDER BY sort_order
   `;
 

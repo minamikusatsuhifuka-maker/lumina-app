@@ -33,6 +33,10 @@ export async function PATCH(req: NextRequest, { params }: Ctx) {
   const categoryId = hasCategory ? (body.category_id || null) : null;
   const hasGoal = Object.prototype.hasOwnProperty.call(body, 'goal_ref');
   const goalRef = hasGoal ? (body.goal_ref || null) : null;
+  // due_at(AI抽出日時)の人手編集・クリア(human-in-the-loop)。null で終日/日時クリア。
+  const hasDueAt = Object.prototype.hasOwnProperty.call(body, 'due_at');
+  const dueAt = hasDueAt ? (body.due_at || null) : null;
+  const hasTime = typeof body.has_time === 'boolean' ? body.has_time : null;
 
   const rows = await sql`
     UPDATE memos SET
@@ -44,7 +48,9 @@ export async function PATCH(req: NextRequest, { params }: Ctx) {
       raw_text    = COALESCE(${rawText}, raw_text),
       ai_summary  = COALESCE(${aiSummary}, ai_summary),
       category_id = CASE WHEN ${hasCategory} THEN ${categoryId}::uuid ELSE category_id END,
-      goal_ref    = CASE WHEN ${hasGoal} THEN ${goalRef}::uuid ELSE goal_ref END
+      goal_ref    = CASE WHEN ${hasGoal} THEN ${goalRef}::uuid ELSE goal_ref END,
+      due_at      = CASE WHEN ${hasDueAt} THEN ${dueAt}::timestamptz ELSE due_at END,
+      has_time    = COALESCE(${hasTime}::boolean, has_time)
     WHERE id = ${id} AND owner = ${owner}
     RETURNING *
   `;

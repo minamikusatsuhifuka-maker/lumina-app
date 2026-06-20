@@ -21,6 +21,36 @@ import {
 type Sql = ReturnType<typeof neon<false, false>>;
 
 // ============================================================
+// 日時ヘルパ(JST / Asia/Tokyo)
+//   Vercel実行環境はUTCのため、相対日時(明日/今週金曜 等)の解決基準として
+//   必ずJSTに明示変換してプロンプトへ渡す。
+// ============================================================
+const pad2 = (n: number) => String(n).padStart(2, '0');
+
+// 現在日時をJSTの人間可読文字列で返す(プロンプトの基準)。
+function nowJstText(): string {
+  const jst = new Date(Date.now() + 9 * 3600 * 1000);
+  const wd = ['日', '月', '火', '水', '木', '金', '土'][jst.getUTCDay()];
+  return `${jst.getUTCFullYear()}-${pad2(jst.getUTCMonth() + 1)}-${pad2(jst.getUTCDate())}(${wd}) ${pad2(jst.getUTCHours())}:${pad2(jst.getUTCMinutes())} JST(Asia/Tokyo, UTC+9)`;
+}
+
+// 任意のDate(UTC内部表現)をJSTの 'YYYY-MM-DD' に変換(due_date橋渡し用)。
+function jstDateStr(d: Date): string {
+  const jst = new Date(d.getTime() + 9 * 3600 * 1000);
+  return `${jst.getUTCFullYear()}-${pad2(jst.getUTCMonth() + 1)}-${pad2(jst.getUTCDate())}`;
+}
+
+// AIが返した due_at(ISO8601, 通常 +09:00 付き)を検証し、保存用の絶対ISO(UTC)とJST日付に正規化。
+// 解析できなければ両方 null(=日時指定なし扱い)。
+function parseDueAt(raw: unknown): { dueAtIso: string | null; dueDate: string | null } {
+  if (typeof raw !== 'string' || !raw.trim()) return { dueAtIso: null, dueDate: null };
+  const t = Date.parse(raw.trim());
+  if (!Number.isFinite(t)) return { dueAtIso: null, dueDate: null };
+  const d = new Date(t);
+  return { dueAtIso: d.toISOString(), dueDate: jstDateStr(d) };
+}
+
+// ============================================================
 // 型
 // ============================================================
 export type MemoStatus = 'inbox' | 'triaged' | 'done' | 'archived';
@@ -58,6 +88,8 @@ export interface Memo {
   goal_ref: string | null;
   ai_summary: string | null;
   ai_reason: string | null;
+  due_at: string | null;          // AI抽出の絶対日時(timestamptz)。終日は has_time=false
+  has_time: boolean;              // 時刻指定の有無(false=終日)
   created_at: string;
   triaged_at: string | null;
 }
@@ -69,8 +101,10 @@ export interface MemoTodo {
   title: string;
   done: boolean;
   sort_order: number;
-  due_date: string | null;        // 締切
+  due_date: string | null;        // 締切(date)
   scheduled_date: string | null;  // 実行予定日(締切と分離。Q2を「予定に落とす」用)
+  due_at: string | null;          // 時刻つき締切(timestamptz)。due_date と整合
+  has_time: boolean;              // 時刻指定の有無(false=終日)
   quadrant: QuadrantNum | null;   // 由来メモの象限を引き継ぎ。TODO単位で上書き可
   created_at: string;
 }
@@ -87,6 +121,8 @@ interface TriageRaw {
   summary: string;
   reason: string;
   todos: string[];
+  due_at?: string | null; // ISO8601(+09:00) or null
+  has_time?: boolean;
 }
 
 // ============================================================
@@ -148,6 +184,13 @@ export async function ensureMemoTables(sql: Sql): Promise<void> {
   // Phase2: TODOに象限引き継ぎ・実行予定日を追加(冪等)
   await sql`ALTER TABLE memo_todos ADD COLUMN IF NOT EXISTS scheduled_date date`;
   await sql`ALTER TABLE memo_todos ADD COLUMN IF NOT EXISTS quadrant int`;
+
+  // 115: AIによる日時抽出。時刻つき絶対日時を保持(has_time=false は終日扱い)。
+  //   既存の due_date(date)/scheduled_date(date) と整合させ、due_at があれば日付部分を due_date にも反映。
+  await sql`ALTER TABLE memos ADD COLUMN IF NOT EXISTS due_at timestamptz`;
+  await sql`ALTER TABLE memos ADD COLUMN IF NOT EXISTS has_time boolean NOT NULL DEFAULT false`;
+  await sql`ALTER TABLE memo_todos ADD COLUMN IF NOT EXISTS due_at timestamptz`;
+  await sql`ALTER TABLE memo_todos ADD COLUMN IF NOT EXISTS has_time boolean NOT NULL DEFAULT false`;
 }
 
 // ============================================================
@@ -181,12 +224,16 @@ export async function triageMemo(
   const goals = (await sql`SELECT id, owner, title, domain, detail, created_at FROM memo_goals WHERE owner = ${owner} ORDER BY created_at`) as unknown as MemoGoal[];
   const cats = (await sql`SELECT id, name FROM memo_categories WHERE owner = ${owner}`) as unknown as { id: string; name: string }[];
 
-  const prompt = buildTriagePrompt(memo.raw_text, goals, cats.map((c) => c.name));
+  const prompt = buildTriagePrompt(memo.raw_text, goals, cats.map((c) => c.name), nowJstText());
 
   let parsed: TriageRaw | null = null;
   let fallback = false;
   try {
-    const raw = await generateWithModel('gemini', prompt, undefined, 2048);
+    // responseMimeType:'application/json' で本文をJSONに固定。
+    // gemini-3.5-flash は思考が既定ONでトークンを消費し、枠が小さいとJSONが途中で切れて
+    // importance/goal_ref が欠落→FIELD_DEFAULT(3)・目標未設定に落ちる症状が出るため、
+    // JSON固定 + 枠を 4096 に拡張して欠落を防ぐ(判定方針自体は不変)。
+    const raw = await generateWithModel('gemini', prompt, undefined, 4096, { responseMimeType: 'application/json' });
     parsed = robustJsonParse<TriageRaw>(raw);
   } catch {
     parsed = null;
@@ -212,6 +259,10 @@ export async function triageMemo(
   const urgency = clamp(parsed.urgency, 1, 5, FIELD_DEFAULT.urgency);
   const quadrant = deriveQuadrant(importance, urgency);
   const kind: MemoKind = (['task', 'idea', 'note', 'reference'] as const).includes(parsed.kind) ? parsed.kind : 'note';
+
+  // AI抽出の日時(任意)。解析できれば絶対ISO+JST日付に正規化。時刻はAIのhas_timeに従う。
+  const due = parseDueAt(parsed.due_at);
+  const hasTime = due.dueAtIso ? Boolean(parsed.has_time) : false;
 
   // カテゴリ解決(既存に寄せる / 新規なら作成)
   let categoryId: string | null = null;
@@ -247,6 +298,8 @@ export async function triageMemo(
       goal_ref = ${goalId},
       ai_summary = ${parsed.summary || null},
       ai_reason = ${parsed.reason || null},
+      due_at = ${due.dueAtIso},
+      has_time = ${hasTime},
       triaged_at = ${triagedAt}
     WHERE id = ${memo.id} AND owner = ${owner}
     RETURNING *
@@ -258,8 +311,10 @@ export async function triageMemo(
     await sql`DELETE FROM memo_todos WHERE memo_id = ${memo.id} AND owner = ${owner}`;
     const items = parsed.todos.filter((t) => typeof t === 'string' && t.trim()).slice(0, 8);
     for (let i = 0; i < items.length; i++) {
-      // 由来メモの象限をTODOへ引き継ぎ(横断ビューの象限優先ソート用)
-      await sql`INSERT INTO memo_todos (memo_id, owner, title, sort_order, quadrant) VALUES (${memo.id}, ${owner}, ${items[i].trim()}, ${i}, ${quadrant})`;
+      // 由来メモの象限をTODOへ引き継ぎ(横断ビューの象限優先ソート用)。
+      // メモに日時があれば各ステップにも締切として反映(due_at/due_date/has_time)。カレンダー/計画に時刻つきで出る。
+      await sql`INSERT INTO memo_todos (memo_id, owner, title, sort_order, quadrant, due_at, due_date, has_time)
+        VALUES (${memo.id}, ${owner}, ${items[i].trim()}, ${i}, ${quadrant}, ${due.dueAtIso}, ${due.dueDate}, ${hasTime})`;
     }
     todosCreated = items.length;
   }
