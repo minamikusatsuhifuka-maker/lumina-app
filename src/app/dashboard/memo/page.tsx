@@ -128,6 +128,10 @@ export default function MemoPage() {
   const [goals, setGoals] = useState<Goal[]>([]);
   const [view, setView] = useState<View>('inbox');
   const [input, setInput] = useState('');
+  // メモのまとめて追加（一括入力・1行1メモ）モード
+  const [memoBulkMode, setMemoBulkMode] = useState(false);
+  const [memoBulkText, setMemoBulkText] = useState('');
+  const [memoBulkBusy, setMemoBulkBusy] = useState(false);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [triagingId, setTriagingId] = useState<string | null>(null);
@@ -171,6 +175,36 @@ export default function MemoPage() {
       if (res.ok) { const d = await res.json(); setMemos((p) => [d.memo, ...p]); setInput(''); }
       else showToast('保存に失敗しました', 'error');
     } finally { setBusy(false); }
+  };
+
+  // 一括入力テキストを「1行＝1メモ」で追加（空行スキップ・トリムはAPI側でも実施）
+  const bulkAddMemos = async () => {
+    const texts = memoBulkText.split('\n').map((l) => l.trim()).filter(Boolean);
+    if (texts.length === 0) { showToast('追加できる行がありません', 'warning'); return; }
+    setMemoBulkBusy(true);
+    try {
+      const res = await fetch('/api/memos/bulk', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ texts }),
+      });
+      const d = await res.json().catch(() => ({}));
+      if (!res.ok) { showToast(d.error ?? '一括追加に失敗しました', 'error'); return; }
+      if (Array.isArray(d.memos) && d.memos.length > 0) {
+        // 入力順で返るため、新しい順の一覧へは逆順で先頭に積む
+        setMemos((p) => [...[...d.memos].reverse(), ...p]);
+      }
+      setMemoBulkText('');
+      setMemoBulkMode(false);
+      const parts = [`${d.inserted ?? 0}件を追加`];
+      if (d.skipped) parts.push(`重複${d.skipped}件スキップ`);
+      if (d.truncated) parts.push(`上限超過${d.truncated}件`);
+      showToast(parts.join(' / '), 'success');
+    } catch {
+      showToast('通信エラー', 'error');
+    } finally {
+      setMemoBulkBusy(false);
+    }
   };
 
   const triage = async (id: string) => {
@@ -356,14 +390,38 @@ export default function MemoPage() {
 
       {/* メモ入力 */}
       <div style={{ ...card, marginBottom: 14 }}>
-        <textarea value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => { if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') addMemo(); }} placeholder="メモを入力（⌘/Ctrl+Enterで保存）…" rows={2} style={{ ...inputStyle, width: '100%', resize: 'none', boxSizing: 'border-box' }} />
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 8 }}>
-          <span style={{ fontSize: 12, color: 'var(--text-secondary,#9ca3af)' }}>インボックス {inbox.length}件</span>
-          <div style={{ display: 'flex', gap: 8 }}>
-            {inbox.length > 0 && <button onClick={triageAll} disabled={busy} style={btnGhost}>{busy ? '整理中…' : 'まとめて整理'}</button>}
-            <button onClick={addMemo} disabled={busy || !input.trim()} style={btnPrimary}>追加</button>
-          </div>
-        </div>
+        {!memoBulkMode ? (
+          <>
+            <textarea value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => { if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') addMemo(); }} placeholder="メモを入力（⌘/Ctrl+Enterで保存）…" rows={2} style={{ ...inputStyle, width: '100%', resize: 'none', boxSizing: 'border-box' }} />
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 8, flexWrap: 'wrap', gap: 8 }}>
+              <span style={{ fontSize: 12, color: 'var(--text-secondary,#9ca3af)' }}>インボックス {inbox.length}件</span>
+              <div style={{ display: 'flex', gap: 8 }}>
+                <button onClick={() => setMemoBulkMode(true)} style={{ ...btnGhost, padding: '8px 12px', fontSize: 12 }}>📋 まとめて追加</button>
+                {inbox.length > 0 && <button onClick={triageAll} disabled={busy} style={btnGhost}>{busy ? '整理中…' : 'まとめて整理'}</button>}
+                <button onClick={addMemo} disabled={busy || !input.trim()} style={btnPrimary}>追加</button>
+              </div>
+            </div>
+          </>
+        ) : (
+          <>
+            <textarea
+              value={memoBulkText}
+              onChange={(e) => setMemoBulkText(e.target.value)}
+              placeholder={'1行＝1メモ。空行はスキップ。最大100件。複数行の長いメモは単一入力欄を使ってください。\n例:\n院内勉強会の年間カリキュラムを設計する\n選択理論の本を1日10ページ読み進める\nアチーブメント受講費を6/25までに支払う'}
+              rows={7}
+              style={{ ...inputStyle, width: '100%', boxSizing: 'border-box', resize: 'vertical', fontFamily: 'inherit', lineHeight: 1.6 }}
+            />
+            <p style={{ fontSize: 11, color: 'var(--text-secondary,#6b7280)', margin: '6px 0 0' }}>
+              追加後はインボックスに <code>未整理</code> で入ります。各メモは「整理する」/「まとめて整理」で象限判定されます（自動では実行しません）。
+            </p>
+            <div style={{ display: 'flex', gap: 6, marginTop: 8 }}>
+              <button onClick={bulkAddMemos} disabled={memoBulkBusy || !memoBulkText.trim()} style={{ ...btnPrimary, opacity: memoBulkBusy || !memoBulkText.trim() ? 0.6 : 1 }}>
+                {memoBulkBusy ? '⏳ 追加中...' : '一括追加'}
+              </button>
+              <button onClick={() => { setMemoBulkMode(false); setMemoBulkText(''); }} disabled={memoBulkBusy} style={btnGhost}>キャンセル</button>
+            </div>
+          </>
+        )}
       </div>
 
       {/* ビュー切替 */}
