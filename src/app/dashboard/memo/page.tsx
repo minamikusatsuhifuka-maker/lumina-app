@@ -136,6 +136,10 @@ export default function MemoPage() {
   // 目標フォーム
   const [goalTitle, setGoalTitle] = useState('');
   const [goalDomain, setGoalDomain] = useState('');
+  // まとめて登録（一括入力）モード
+  const [bulkMode, setBulkMode] = useState(false);
+  const [bulkText, setBulkText] = useState('');
+  const [bulkBusy, setBulkBusy] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -231,6 +235,51 @@ export default function MemoPage() {
     await fetch(`/api/memo-goals?id=${id}`, { method: 'DELETE' });
   };
 
+  // 一括入力テキストを「1行＝1目標」でパース。
+  // 各行を最初の区切り（: ： ｜ | タブ）で domain / title に分割。区切り無しは title のみ。
+  const parseBulkGoals = (text: string): { title: string; domain: string | null }[] => {
+    const out: { title: string; domain: string | null }[] = [];
+    for (const rawLine of text.split('\n')) {
+      const line = rawLine.trim();
+      if (!line) continue; // 空行スキップ
+      const m = line.match(/^(.*?)\s*[:：｜|\t]\s*(.*)$/);
+      if (m && m[2].trim()) {
+        out.push({ domain: m[1].trim() || null, title: m[2].trim() });
+      } else {
+        out.push({ domain: null, title: line });
+      }
+    }
+    return out;
+  };
+
+  const bulkAddGoals = async () => {
+    const items = parseBulkGoals(bulkText);
+    if (items.length === 0) { showToast('登録できる行がありません', 'warning'); return; }
+    setBulkBusy(true);
+    try {
+      const res = await fetch('/api/memo-goals/bulk', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ items }),
+      });
+      const d = await res.json().catch(() => ({}));
+      if (!res.ok) { showToast(d.error ?? '一括登録に失敗しました', 'error'); return; }
+      if (Array.isArray(d.goals) && d.goals.length > 0) {
+        setGoals((p) => [...p, ...d.goals]);
+      }
+      setBulkText('');
+      setBulkMode(false);
+      const parts = [`${d.inserted ?? 0}件を登録`];
+      if (d.skipped) parts.push(`重複${d.skipped}件スキップ`);
+      if (d.truncated) parts.push(`上限超過${d.truncated}件`);
+      showToast(parts.join(' / '), 'success');
+    } catch {
+      showToast('通信エラー', 'error');
+    } finally {
+      setBulkBusy(false);
+    }
+  };
+
   const inbox = useMemo(() => memos.filter((m) => m.status === 'inbox'), [memos]);
   const triaged = useMemo(() => memos.filter((m) => m.status === 'triaged' || m.status === 'done'), [memos]);
   const todosByMemo = useCallback((id: string) => todos.filter((t) => t.memo_id === id), [todos]);
@@ -272,11 +321,35 @@ export default function MemoPage() {
                 <button onClick={() => deleteGoal(g.id)} style={{ background: 'none', border: 'none', color: '#9ca3af', cursor: 'pointer', fontSize: 12 }}>削除</button>
               </div>
             ))}
-            <div style={{ display: 'flex', gap: 6, marginTop: 10 }}>
-              <input value={goalTitle} onChange={(e) => setGoalTitle(e.target.value)} placeholder="目標（例：年内に学会発表）" style={inputStyle} />
-              <input value={goalDomain} onChange={(e) => setGoalDomain(e.target.value)} placeholder="分野(任意)" style={{ ...inputStyle, width: 110 }} />
-              <button onClick={addGoal} disabled={!goalTitle.trim()} style={btnPrimary}>追加</button>
-            </div>
+            {!bulkMode ? (
+              <>
+                <div style={{ display: 'flex', gap: 6, marginTop: 10, flexWrap: 'wrap' }}>
+                  <input value={goalTitle} onChange={(e) => setGoalTitle(e.target.value)} placeholder="目標（例：年内に学会発表）" style={inputStyle} />
+                  <input value={goalDomain} onChange={(e) => setGoalDomain(e.target.value)} placeholder="分野(任意)" style={{ ...inputStyle, width: 110 }} />
+                  <button onClick={addGoal} disabled={!goalTitle.trim()} style={btnPrimary}>追加</button>
+                </div>
+                <button onClick={() => setBulkMode(true)} style={{ ...btnGhost, marginTop: 8, padding: '6px 12px', fontSize: 12 }}>📋 まとめて登録</button>
+              </>
+            ) : (
+              <div style={{ marginTop: 10 }}>
+                <textarea
+                  value={bulkText}
+                  onChange={(e) => setBulkText(e.target.value)}
+                  placeholder={'1行に1目標。「分野: 目標本文」の形式（分野は任意）。\n例:\n健康: 週3回の運動を習慣化する\n育成: 自律的に成長する組織をつくる\n最新知見を継続的にアップデートする'}
+                  rows={6}
+                  style={{ ...inputStyle, width: '100%', boxSizing: 'border-box', resize: 'vertical', fontFamily: 'inherit', lineHeight: 1.6 }}
+                />
+                <p style={{ fontSize: 11, color: 'var(--text-secondary,#6b7280)', margin: '6px 0 0' }}>
+                  区切りは <code>:</code> <code>：</code> <code>｜</code> <code>|</code> タブ のいずれか。区切りなしの行は目標本文のみ。最大50件・重複はスキップ。
+                </p>
+                <div style={{ display: 'flex', gap: 6, marginTop: 8 }}>
+                  <button onClick={bulkAddGoals} disabled={bulkBusy || !bulkText.trim()} style={{ ...btnPrimary, opacity: bulkBusy || !bulkText.trim() ? 0.6 : 1 }}>
+                    {bulkBusy ? '⏳ 登録中...' : '一括登録'}
+                  </button>
+                  <button onClick={() => { setBulkMode(false); setBulkText(''); }} disabled={bulkBusy} style={btnGhost}>キャンセル</button>
+                </div>
+              </div>
+            )}
           </div>
         )}
       </div>
