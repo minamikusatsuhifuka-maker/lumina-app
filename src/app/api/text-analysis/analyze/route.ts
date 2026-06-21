@@ -71,8 +71,14 @@ export async function POST(req: NextRequest) {
       (gsNotes ? `- 追加要望: ${gsNotes}\n` : '');
   }
 
+  // 出力フォーマット指示: LaTeX/数式記法を禁止し矢印等はプレーン記号で（生表示 $\rightarrow$ 防止）
+  const formatInstruction =
+    `\n\n【出力フォーマット】LaTeX や数式記法（$...$ や \\rightarrow など）は使わないでください。` +
+    `矢印は → ← ↔ ⇒ ⇔、四則は × ÷ ・、比較は ≤ ≥ ≠ ≈ ± のようにプレーンな Unicode 記号で書き、` +
+    `装飾は Markdown（見出し・太字・箇条書き・表）のみで行ってください。`;
+
   const systemPromptBase =
-    basePrompt + purposeInstruction + lengthInstruction + gensparkInstruction;
+    basePrompt + purposeInstruction + lengthInstruction + gensparkInstruction + formatInstruction;
 
   // クリニック背景情報を末尾に注入
   const clinicContext = await getClinicSystemPrompt('text_analysis', userId);

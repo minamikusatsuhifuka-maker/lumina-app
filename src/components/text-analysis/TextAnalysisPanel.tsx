@@ -18,7 +18,7 @@ import {
   type AIModel,
 } from '@/lib/model-preference';
 import { ModelBadge } from '@/components/ModelBadge';
-import { renderMarkdown } from '@/lib/markdown-renderer';
+import { renderMarkdown, sanitizeLatex } from '@/lib/markdown-renderer';
 import {
   generateTitleWithTimeout,
   sanitizeFilename,
@@ -463,7 +463,7 @@ export default function TextAnalysisPanel({
       const autoTitle = await generateTitleWithTimeout(text, label, label);
       const title = sanitizeFilename(autoTitle);
       const model = resultModels.get(type);
-      const content = `${autoTitle}\n\n${modelLineTxt(model)}${text}`;
+      const content = `${autoTitle}\n\n${modelLineTxt(model)}${sanitizeLatex(text)}`;
       triggerDownload(`${title}_${yyyymmdd()}.txt`, content, 'text/plain');
     } finally {
       setGeneratingTitle(null);
@@ -477,7 +477,7 @@ export default function TextAnalysisPanel({
       const autoTitle = await generateTitleWithTimeout(text, label, label);
       const title = sanitizeFilename(autoTitle);
       const model = resultModels.get(type);
-      const content = `# ${autoTitle}\n\n${modelLineMd(model)}${text}`;
+      const content = `# ${autoTitle}\n\n${modelLineMd(model)}${sanitizeLatex(text)}`;
       triggerDownload(`${title}_${yyyymmdd()}.md`, content, 'text/markdown;charset=utf-8');
     } finally {
       setGeneratingTitle(null);
@@ -898,7 +898,8 @@ export default function TextAnalysisPanel({
               generatingTitle={generatingTitle === type}
               onSave={() => saveResult(type, text)}
               onCopy={() => {
-                copyToClipboard(text);
+                // コピー内容にも LaTeX 正規化を適用（$\rightarrow$ 等を残さない）
+                copyToClipboard(sanitizeLatex(text));
                 showToast('コピーしました', 'success');
               }}
               onDownloadTxt={() => downloadTxt(type, text)}

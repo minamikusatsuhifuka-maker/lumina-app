@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useToast } from '@/components/ui/Toast';
 import { copyToClipboard } from '@/lib/copyToClipboard';
-import { renderMarkdown } from '@/lib/markdown-renderer';
+import { renderMarkdown, sanitizeLatex } from '@/lib/markdown-renderer';
 import {
   generateTitleWithTimeout,
   sanitizeFilename,
@@ -218,7 +218,8 @@ export default function SavedAnalysisList({
   };
 
   const handleCopy = async (id: number, text: string) => {
-    const success = await copyToClipboard(text);
+    // コピー内容にも LaTeX 正規化を適用（$\rightarrow$ 等を残さない）
+    const success = await copyToClipboard(sanitizeLatex(text));
     if (success) {
       setCopiedId(id);
       showToast('コピーしました', 'success');
@@ -246,10 +247,43 @@ export default function SavedAnalysisList({
       const modelLine = record.model
         ? `> 生成AI: ${getModelIcon(record.model)} ${getModelLabel(record.model)}\n\n---\n\n`
         : '';
-      const mdContent = `# ${autoTitle}\n\n${modelLine}${record.content}`;
+      const mdContent = `# ${autoTitle}\n\n${modelLine}${sanitizeLatex(record.content)}`;
 
       triggerDownload(`${safeTitle}_${yyyymmdd()}.md`, mdContent, 'text/markdown;charset=utf-8');
       showToast('MDファイルをダウンロードしました', 'success');
+    } catch {
+      showToast('ダウンロードに失敗しました', 'error');
+    } finally {
+      setDownloadingId(null);
+    }
+  };
+
+  // 個別レコードを .txt ファイルとしてダウンロード。
+  // 分析実行カード（TextAnalysisPanel.downloadTxt）の挙動を流用:
+  //   「タイトル + [生成AI: ...] 行 + 本文」、拡張子 .txt、text/plain、ファイル名 タイトル_日付.txt。
+  // MD と同じく downloadingId で同時押しを抑止する。
+  const handleDownloadTxt = async (record: AnalysisRecord) => {
+    if (downloadingId !== null) return; // 同時押し防止（MDと共用）
+    setDownloadingId(record.id);
+    try {
+      const label =
+        record.analysis_label || record.analysis_type || '分析結果';
+      const fallback = record.auto_title || record.file_name || label;
+      const autoTitle = await generateTitleWithTimeout(
+        record.content,
+        label,
+        fallback,
+      );
+      const safeTitle = sanitizeFilename(autoTitle);
+      // モデル情報があれば生成AI行を追加（txt は角括弧表記。旧データは undefined → 出力なし）
+      const modelLine = record.model
+        ? `[生成AI: ${getModelIcon(record.model)} ${getModelLabel(record.model)}]\n\n---\n\n`
+        : '';
+      // 書き出し本文にも LaTeX 正規化を適用（$\rightarrow$ 等を残さない）
+      const txtContent = `${autoTitle}\n\n${modelLine}${sanitizeLatex(record.content)}`;
+
+      triggerDownload(`${safeTitle}_${yyyymmdd()}.txt`, txtContent, 'text/plain');
+      showToast('テキストファイルをダウンロードしました', 'success');
     } catch {
       showToast('ダウンロードに失敗しました', 'error');
     } finally {
@@ -280,7 +314,7 @@ export default function SavedAnalysisList({
         const modelLine = rec.model
           ? `> 生成AI: ${getModelIcon(rec.model)} ${getModelLabel(rec.model)}\n\n---\n\n`
           : '';
-        const md = `# ${title}\n\n${modelLine}${rec.content ?? ''}`;
+        const md = `# ${title}\n\n${modelLine}${sanitizeLatex(rec.content ?? '')}`;
 
         // ファイル名（サニタイズ + 同名タイトルの重複は連番で回避）
         const base = sanitizeFilename(title) || `analysis_${id}`;
@@ -1482,6 +1516,21 @@ export default function SavedAnalysisList({
                         }}
                       >
                         {copiedId === record.id ? '✅ コピー済み' : '📋 コピー'}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleDownloadTxt(record)}
+                        disabled={downloadingId === record.id}
+                        style={{
+                          ...listBtnStyle(),
+                          cursor:
+                            downloadingId === record.id ? 'not-allowed' : 'pointer',
+                          opacity: downloadingId === record.id ? 0.6 : 1,
+                        }}
+                      >
+                        {downloadingId === record.id
+                          ? '⏳ タイトル生成中...'
+                          : '⬇ テキスト'}
                       </button>
                       <button
                         type="button"
