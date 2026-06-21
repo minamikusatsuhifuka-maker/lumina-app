@@ -392,7 +392,7 @@ export default function MemoPage() {
       <div style={{ ...card, marginBottom: 14 }}>
         {!memoBulkMode ? (
           <>
-            <textarea value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => { if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') addMemo(); }} placeholder="メモを入力（⌘/Ctrl+Enterで保存）…" rows={2} style={{ ...inputStyle, width: '100%', resize: 'none', boxSizing: 'border-box' }} />
+            <textarea value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => { if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') addMemo(); }} placeholder="メモを入力（⌘/Ctrl+Enterで保存）…" rows={5} style={{ ...inputStyle, width: '100%', minHeight: 120, maxHeight: '70vh', resize: 'vertical', boxSizing: 'border-box', fontFamily: 'inherit', lineHeight: 1.6 }} />
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 8, flexWrap: 'wrap', gap: 8 }}>
               <span style={{ fontSize: 12, color: 'var(--text-secondary,#9ca3af)' }}>インボックス {inbox.length}件</span>
               <div style={{ display: 'flex', gap: 8 }}>
@@ -408,8 +408,8 @@ export default function MemoPage() {
               value={memoBulkText}
               onChange={(e) => setMemoBulkText(e.target.value)}
               placeholder={'1行＝1メモ。空行はスキップ。最大100件。複数行の長いメモは単一入力欄を使ってください。\n例:\n院内勉強会の年間カリキュラムを設計する\n選択理論の本を1日10ページ読み進める\nアチーブメント受講費を6/25までに支払う'}
-              rows={7}
-              style={{ ...inputStyle, width: '100%', boxSizing: 'border-box', resize: 'vertical', fontFamily: 'inherit', lineHeight: 1.6 }}
+              rows={10}
+              style={{ ...inputStyle, width: '100%', minHeight: 220, maxHeight: '70vh', boxSizing: 'border-box', resize: 'vertical', fontFamily: 'inherit', lineHeight: 1.6 }}
             />
             <p style={{ fontSize: 11, color: 'var(--text-secondary,#6b7280)', margin: '6px 0 0' }}>
               追加後はインボックスに <code>未整理</code> で入ります。各メモは「整理する」/「まとめて整理」で象限判定されます（自動では実行しません）。
