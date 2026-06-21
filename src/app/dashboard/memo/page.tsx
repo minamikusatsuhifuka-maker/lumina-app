@@ -126,7 +126,7 @@ export default function MemoPage() {
   const [todos, setTodos] = useState<Todo[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [goals, setGoals] = useState<Goal[]>([]);
-  const [view, setView] = useState<View>('inbox');
+  const [view, setView] = useState<View>('matrix'); // 初期表示は4象限（121）
   const [input, setInput] = useState('');
   // メモのまとめて追加（一括入力・1行1メモ）モード
   const [memoBulkMode, setMemoBulkMode] = useState(false);
