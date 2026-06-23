@@ -7,7 +7,8 @@
 // デザインは xLUMINA ダッシュボードのインラインスタイル/CSS変数トーンに合わせる。
 
 import { useEffect, useState, useCallback, useMemo, useRef } from 'react';
-import { DndContext, useDraggable, useDroppable, DragOverlay, PointerSensor, TouchSensor, useSensor, useSensors, type DragEndEvent, type DragStartEvent } from '@dnd-kit/core';
+import { DndContext, useDraggable, useDroppable, DragOverlay, PointerSensor, TouchSensor, useSensor, useSensors, MeasuringStrategy, type DragEndEvent, type DragStartEvent } from '@dnd-kit/core';
+import { snapCenterToCursor } from '@dnd-kit/modifiers';
 import { useToast } from '@/components/ui/Toast';
 
 type View = 'inbox' | 'plan' | 'calendar' | 'focus' | 'category' | 'matrix' | 'done' | 'input' | 'goals';
@@ -559,7 +560,11 @@ export default function MemoPage() {
   return (
     <div style={{ maxWidth: 880, margin: '0 auto' }}>
       <div style={{ marginBottom: 14 }}>
-        <h1 style={{ fontSize: 22, fontWeight: 800, margin: 0 }}>🧭 AIメモ</h1>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10 }}>
+          <h1 style={{ fontSize: 22, fontWeight: 800, margin: 0 }}>🧭 AIメモ</h1>
+          {/* 128: どのタブからでも使えるクイック入力。右下FAB→ヘッダーのラベル付きボタンへ（他のフローティングUIと重ならない） */}
+          <button onClick={() => setFabOpen(true)} style={{ ...btnPrimary, flexShrink: 0, padding: '8px 14px', display: 'flex', alignItems: 'center', gap: 6 }}>＋ クイックメモ</button>
+        </div>
         <p style={{ fontSize: 13, color: 'var(--text-secondary, #6b7280)', marginTop: 6 }}>
           思いついたことをまず書き留め、「整理する」で目標から逆算してAIが仕分け。
           <span style={{ color: '#1D9E75', fontWeight: 700 }}>第2象限（重要×非緊急）</span>を見逃さず先回りで提案します。
@@ -647,22 +652,15 @@ export default function MemoPage() {
         />
       )}
 
-      {/* 125: どこからでもクイック入力(FAB)。どのタブでも右下＋で1行メモを即投入。 */}
-      <button
-        onClick={() => setFabOpen(true)}
-        aria-label="メモをクイック追加"
-        title="メモをクイック追加"
-        style={{ position: 'fixed', right: 20, bottom: 24, zIndex: 60, width: 56, height: 56, borderRadius: '50%', border: 'none', cursor: 'pointer', background: '#1D9E75', color: '#fff', fontSize: 28, lineHeight: 1, boxShadow: '0 6px 20px rgba(29,158,117,0.45)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
-      >＋</button>
-
+      {/* 125/128: クイック入力。右下FABは既存のAIアシスタント等と重なるため、ヘッダーのラベル付きボタンに変更（上方に分かりやすく配置） */}
       {fabOpen && (
         <div
           onClick={() => setFabOpen(false)}
-          style={{ position: 'fixed', inset: 0, zIndex: 70, background: 'rgba(0,0,0,0.35)', display: 'flex', alignItems: 'flex-end', justifyContent: 'center', padding: 16 }}
+          style={{ position: 'fixed', inset: 0, zIndex: 10000, background: 'rgba(0,0,0,0.35)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}
         >
           <div
             onClick={(e) => e.stopPropagation()}
-            style={{ width: '100%', maxWidth: 520, background: 'var(--bg-secondary,#fff)', border: '1px solid var(--border-color,#e5e7eb)', borderRadius: 14, padding: 16, boxShadow: '0 12px 40px rgba(0,0,0,0.25)', marginBottom: 'env(safe-area-inset-bottom, 0px)' }}
+            style={{ width: '100%', maxWidth: 520, maxHeight: '85vh', overflowY: 'auto', background: 'var(--bg-secondary,#fff)', border: '1px solid var(--border-color,#e5e7eb)', borderRadius: 14, padding: 16, boxShadow: '0 16px 48px rgba(0,0,0,0.3)' }}
           >
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
               <span style={{ fontSize: 14, fontWeight: 700 }}>⚡ クイック入力</span>
@@ -781,7 +779,8 @@ function WeeklyReviewWizard(props: {
     } finally { setSaving(false); }
   };
 
-  const wrapStyle: React.CSSProperties = { position: 'fixed', inset: 0, zIndex: 80, background: 'rgba(0,0,0,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 };
+  // 128: 既存のフローティングUI(AIアシスタント z9999)より上に出し、中央表示で見切れない。
+  const wrapStyle: React.CSSProperties = { position: 'fixed', inset: 0, zIndex: 10000, background: 'rgba(0,0,0,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 };
   const panelStyle: React.CSSProperties = { width: '100%', maxWidth: 560, maxHeight: '88vh', overflowY: 'auto', background: 'var(--bg-secondary,#fff)', border: '1px solid var(--border-color,#e5e7eb)', borderRadius: 14, padding: 18, boxShadow: '0 16px 48px rgba(0,0,0,0.3)' };
 
   return (
@@ -1483,7 +1482,8 @@ function MatrixView(props: { memos: Memo[]; categoryName: (id: string | null) =>
   };
 
   return (
-    <DndContext sensors={sensors} onDragStart={onDragStart} onDragEnd={onDragEnd} onDragCancel={() => setActiveId(null)}>
+    // 128: スクロールコンテナ内の座標ずれ対策。Always測定で再計測し、autoScrollで縦長カラムも追従。
+    <DndContext sensors={sensors} onDragStart={onDragStart} onDragEnd={onDragEnd} onDragCancel={() => setActiveId(null)} autoScroll measuring={{ droppable: { strategy: MeasuringStrategy.Always } }}>
       <p style={{ fontSize: 11, color: '#9ca3af', margin: '0 0 8px' }}>カードの <b>⠿</b> をドラッグして象限を移動できます（手修正は再整理から保護 🔒）。「なぜ?」で判定理由を確認。</p>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 12 }}>
         {([2, 1, 4, 3] as QuadrantNum[]).map((q) => {
@@ -1498,9 +1498,10 @@ function MatrixView(props: { memos: Memo[]; categoryName: (id: string | null) =>
           );
         })}
       </div>
-      <DragOverlay>
+      {/* 128: snapCenterToCursor でプレビューをカーソル中心に合わせ、つかみ位置とのズレを解消 */}
+      <DragOverlay modifiers={[snapCenterToCursor]} dropAnimation={null}>
         {activeMemo ? (
-          <div style={{ background: '#fff', borderRadius: 8, padding: '6px 10px', fontSize: 12, fontWeight: 600, boxShadow: '0 8px 24px rgba(0,0,0,0.25)', border: `1px solid ${QUADRANT[(activeMemo.quadrant ?? 4) as QuadrantNum].color}` }}>
+          <div style={{ background: '#fff', borderRadius: 8, padding: '6px 10px', fontSize: 12, fontWeight: 600, boxShadow: '0 8px 24px rgba(0,0,0,0.25)', border: `1px solid ${QUADRANT[(activeMemo.quadrant ?? 4) as QuadrantNum].color}`, maxWidth: 260, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
             {activeMemo.ai_summary || activeMemo.raw_text}
           </div>
         ) : null}
