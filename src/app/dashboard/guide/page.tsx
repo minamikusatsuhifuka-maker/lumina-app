@@ -1,5 +1,6 @@
 'use client';
 import { useState } from 'react';
+import Link from 'next/link';
 
 type Step = { text: string };
 type FAQ = { q: string; a: string };
@@ -461,6 +462,111 @@ const sections: Section[] = [
   },
 ];
 
+// 131: 全機能一覧（グループ別カタログ）。サイドバー（DashboardSidebar）の実メニューと一致させること。
+// 実在する機能のみを1行説明＋リンクで掲載。純静的（AI/DB/API不使用）。
+type CatalogItem = { href: string; label: string; emoji: string; desc: string };
+type CatalogGroup = { group: string; emoji: string; items: CatalogItem[] };
+const FEATURE_GROUPS: CatalogGroup[] = [
+  {
+    group: 'ホーム', emoji: '🏠',
+    items: [
+      { href: '/dashboard', label: 'ダッシュボード', emoji: '🏠', desc: 'GA4・Search Console・口コミ等の主要指標を一画面で把握' },
+      { href: '/dashboard/orchestrator', label: 'AIオーケストレーター', emoji: '🤖', desc: '複数のAI機能を束ねて連携させる中枢' },
+      { href: '/dashboard/automation-strategy', label: '自動化戦略AI', emoji: '🚀', desc: 'マーケ・運用の自動化戦略をAIが立案' },
+      { href: '/dashboard/saved', label: '保存一覧', emoji: '🗃', desc: '各機能で保存した分析・リサーチ結果を一元管理' },
+      { href: '/dashboard/memo', label: 'AIメモ', emoji: '🧭', desc: '思いつき→AIが4象限に自動仕分けするタスク管理（ページ内に❓使い方あり）' },
+      { href: '/dashboard/guide', label: '使い方ガイド', emoji: '📖', desc: 'このページ。全機能の概要と各機能の詳しい使い方' },
+    ],
+  },
+  {
+    group: '情報収集・調査', emoji: '🔎',
+    items: [
+      { href: '/dashboard/intelligence', label: 'Intelligence Hub', emoji: '🧠', desc: '情報収集・調査のハブ' },
+      { href: '/dashboard/websearch', label: 'Web情報収集', emoji: '🌐', desc: 'Web情報を収集・整理' },
+      { href: '/dashboard/note', label: 'note検索', emoji: '📓', desc: 'noteの記事を検索' },
+      { href: '/dashboard/deepresearch', label: 'ディープリサーチ', emoji: '🔭', desc: 'テーマを深掘りし根拠つき資料を生成' },
+      { href: '/dashboard/investment', label: '投資予測', emoji: '📈', desc: '投資・市場の予測・分析' },
+      { href: '/dashboard/buzz', label: 'バズり分析', emoji: '📊', desc: '伸びる投稿の傾向を分析' },
+      { href: '/dashboard/buzz-patterns', label: 'バズりパターン辞書', emoji: '📖', desc: 'バズのパターンを蓄積・参照' },
+      { href: '/dashboard/note-article', label: 'note記事生成', emoji: '✍️', desc: 'note記事のドラフトをAIで生成' },
+      { href: '/dashboard/staff-training', label: 'スタッフ育成資料', emoji: '📚', desc: '研修・育成資料を生成' },
+      { href: '/dashboard/library?tab=スタッフ育成資料', label: 'スタッフ育成ライブラリ', emoji: '✍️', desc: '育成資料を保管・再利用' },
+      { href: '/dashboard/knowledge-tree', label: '知識ツリー', emoji: '🌳', desc: '知識を体系的に整理' },
+      { href: '/dashboard/research-glossary', label: '専門用語集', emoji: '📚', desc: 'リサーチ用の専門用語を登録・参照' },
+      { href: '/dashboard/context-library', label: 'コンテキストライブラリ', emoji: '🧠', desc: 'その都度参照するコンテキストを蓄積' },
+      { href: '/dashboard/research', label: '文献検索', emoji: '🔬', desc: '文献・論文を検索' },
+      { href: '/dashboard/alerts', label: '定期アラート', emoji: '🔔', desc: '定期収集・通知を自動化' },
+      { href: '/dashboard/fact-check', label: 'ファクトチェック', emoji: '✅', desc: '情報の真偽を確認' },
+      { href: '/dashboard/citation', label: '引用元生成', emoji: '📚', desc: '引用元・出典を生成' },
+    ],
+  },
+  {
+    group: 'AI分析・戦略', emoji: '🧩',
+    items: [
+      { href: '/dashboard/analysis', label: 'AI分析エンジン', emoji: '🧩', desc: '長文・データを複数観点で分析' },
+      { href: '/dashboard/strategy', label: '経営インテリジェンス', emoji: '💼', desc: '経営戦略の立案を支援' },
+      { href: '/dashboard/industry', label: '業界レポート', emoji: '📊', desc: '業界動向のレポートを生成' },
+      { href: '/dashboard/personas', label: 'AIペルソナ', emoji: '🤖', desc: 'AIペルソナで多視点に検討' },
+      { href: '/dashboard/brainstorm', label: 'ブレスト', emoji: '💡', desc: 'アイデア発想を支援' },
+      { href: '/dashboard/architecture', label: 'アーキテクチャ設計', emoji: '🏗', desc: '構成・設計を整理' },
+    ],
+  },
+  {
+    group: 'コンテンツ作成', emoji: '✍️',
+    items: [
+      { href: '/dashboard/text-analysis', label: 'テキスト分析', emoji: '📝', desc: '長文を複数観点で分析・保存・分類（テキスト/MD書き出し可）' },
+      { href: '/dashboard/proofread', label: 'テキスト校正', emoji: '🔎', desc: '文章を校正' },
+      { href: '/dashboard/scheduling', label: '日程調整', emoji: '🗓️', desc: '公開URL（schedule.xlumina.jp）で日程調整' },
+      { href: '/dashboard/write', label: '文章作成', emoji: '✍️', desc: '各種文章をAIで作成' },
+      { href: '/dashboard/minutes', label: '議事録整理', emoji: '📝', desc: '議事録を整理' },
+      { href: '/dashboard/genspark', label: 'Gensparkへ出力', emoji: '🎯', desc: 'Genspark向けに出力' },
+      { href: '/dashboard/workflow', label: 'ワークフロー', emoji: '⚡', desc: '複数機能を連結して実行' },
+      { href: '/dashboard/hp-generator', label: 'HP内容生成', emoji: '🏠', desc: 'ホームページの掲載内容を生成' },
+      { href: '/dashboard/copy-generator', label: 'コピー生成', emoji: '💬', desc: 'キャッチコピーを生成' },
+      { href: '/dashboard/ab-test', label: 'ABテスト生成', emoji: '🔀', desc: 'ABテスト案を生成' },
+      { href: '/dashboard/persona', label: 'ペルソナ生成', emoji: '👤', desc: 'ペルソナを生成' },
+      { href: '/dashboard/email-generator', label: 'ステップメール', emoji: '📧', desc: 'ステップメールを生成' },
+      { href: '/dashboard/lp-generator', label: 'LP自動生成', emoji: '📊', desc: 'ランディングページ構成を自動生成' },
+      { href: '/dashboard/image-prompt', label: '画像プロンプト', emoji: '🎨', desc: '画像生成用プロンプトを作成' },
+      { href: '/dashboard/doc-prompt', label: '資料プロンプト', emoji: '📋', desc: '資料生成用プロンプトを作成' },
+      { href: '/dashboard/simplifier', label: '難易度変換', emoji: '🎓', desc: '文章の難易度を変換' },
+      { href: '/dashboard/video-script', label: '動画スクリプト', emoji: '🎬', desc: '動画の台本を生成' },
+      { href: '/dashboard/infographic', label: 'インフォグラフィック', emoji: '📊', desc: 'インフォグラフィック案を生成' },
+      { href: '/dashboard/storytelling', label: 'ストーリーテリング', emoji: '📖', desc: '物語形式で構成' },
+      { href: '/dashboard/kindle', label: 'Kindle書籍生成', emoji: '📚', desc: 'Kindle書籍の原稿を生成' },
+      { href: '/dashboard/kindle-studio', label: 'Kindle出版スタジオ', emoji: '📚', desc: 'Kindle出版を一括支援' },
+      { href: '/dashboard/avatar-studio', label: 'SNSアバタースタジオ', emoji: '🎭', desc: 'SNS用アバターを作成' },
+    ],
+  },
+  {
+    group: '事業・育成・医療', emoji: '💰',
+    items: [
+      { href: '/dashboard/business-studio', label: '収益化スタジオ', emoji: '💰', desc: '収益化の企画を支援' },
+      { href: '/dashboard/hr-studio', label: '人材育成スタジオ', emoji: '🌱', desc: '人材育成を支援' },
+      { href: '/dashboard/medical-studio', label: '医療文書スタジオ', emoji: '🏥', desc: '医療文書を作成' },
+      { href: '/dashboard/nexus', label: 'nexusブランドスタジオ', emoji: '🌐', desc: 'ブランド設計を支援' },
+      { href: '/dashboard/pricing-strategy', label: '価格戦略', emoji: '💴', desc: '価格戦略を立案' },
+    ],
+  },
+  {
+    group: '管理・設定', emoji: '⚙️',
+    items: [
+      { href: '/dashboard/library', label: 'ライブラリ', emoji: '📚', desc: '保存物の蓄積・自動カテゴライズ' },
+      { href: '/dashboard/memory', label: 'AIメモリ', emoji: '🧠', desc: 'AIが参照する記憶を管理' },
+      { href: '/dashboard/glossary', label: '用語解説', emoji: '📘', desc: '用語を解説' },
+      { href: '/dashboard/analytics', label: 'アナリティクス', emoji: '📈', desc: 'アクセス解析' },
+      { href: '/dashboard/seo', label: 'SEO分析', emoji: '🔍', desc: 'SEOを分析' },
+      { href: '/dashboard/competitor', label: '競合分析', emoji: '🔬', desc: '競合を分析' },
+      { href: '/dashboard/conversion', label: 'CV分析', emoji: '💰', desc: 'コンバージョンを分析' },
+      { href: '/dashboard/contacts', label: '問い合わせ管理', emoji: '📞', desc: '問い合わせを管理' },
+      { href: '/dashboard/reviews', label: '口コミ管理', emoji: '⭐', desc: 'Google口コミ等を管理' },
+      { href: '/dashboard/stats', label: '使用状況', emoji: '📊', desc: '利用状況を確認' },
+      { href: '/dashboard/api-usage', label: 'API使用量', emoji: '💴', desc: 'API使用量を確認' },
+      { href: '/dashboard/integrations', label: '外部連携（SaaS）', emoji: '🔗', desc: '外部SaaSとの連携を設定' },
+    ],
+  },
+];
+
 export default function GuidePage() {
   const [activeSection, setActiveSection] = useState('overview');
   const [openFaq, setOpenFaq] = useState<string | null>(null);
@@ -479,6 +585,57 @@ export default function GuidePage() {
           中学生でもわかるやさしい解説。具体例・手順・よくある質問付き。
         </p>
       </div>
+
+      {/* 131: 全機能一覧（グループ別カタログ）。サイドバーの実メニューと一致。各機能から該当ページへ遷移できる */}
+      <div style={{ marginBottom: 28 }}>
+        <h2 style={{ fontSize: 18, fontWeight: 700, color: T.heading, marginBottom: 4 }}>
+          🗂 全機能一覧（グループ別）
+        </h2>
+        <p style={{ color: T.secondary, fontSize: 13, marginBottom: 16 }}>
+          サイドバーのメニューと同じ並びです。各機能名を押すとそのページへ移動します。
+          下のタブでは主要機能の<strong style={{ color: '#6c63ff' }}>詳しい使い方</strong>を確認できます。
+        </p>
+        <div style={{
+          background: 'rgba(108,99,255,0.05)', border: '1px solid rgba(108,99,255,0.18)',
+          borderRadius: 10, padding: '12px 16px', marginBottom: 18,
+        }}>
+          <p style={{ fontSize: 13, color: T.primary, lineHeight: 1.7, margin: 0 }}>
+            <strong>まず使うなら：</strong>① ダッシュボードで数字を把握 → ② AIメモでやること整理 →
+            ③ ディープリサーチ／テキスト分析で調査 → ④ スタッフ育成資料で教育コンテンツ → ⑤ 保存一覧で一元管理
+          </p>
+        </div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
+          {FEATURE_GROUPS.map(g => (
+            <div key={g.group}>
+              <h3 style={{ fontSize: 14, fontWeight: 700, color: T.heading, marginBottom: 10 }}>
+                {g.emoji} {g.group}
+              </h3>
+              <div style={{
+                display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))', gap: 8,
+              }}>
+                {g.items.map(item => (
+                  <Link key={item.href} href={item.href} style={{
+                    display: 'flex', gap: 10, alignItems: 'flex-start',
+                    padding: '10px 14px', borderRadius: 10, textDecoration: 'none',
+                    background: 'rgba(255,255,255,0.03)', border: '1px solid var(--border)',
+                  }}>
+                    <span style={{ fontSize: 16, flexShrink: 0, lineHeight: 1.3 }}>{item.emoji}</span>
+                    <span style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                      <span style={{ fontSize: 13, fontWeight: 600, color: T.primary }}>{item.label}</span>
+                      <span style={{ fontSize: 12, color: T.secondary, lineHeight: 1.5 }}>{item.desc}</span>
+                    </span>
+                  </Link>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* 主要機能の詳しい使い方（タブ式の深掘りガイド） */}
+      <h2 style={{ fontSize: 18, fontWeight: 700, color: T.heading, marginBottom: 12 }}>
+        📚 主要機能の詳しい使い方
+      </h2>
 
       {/* タブナビゲーション */}
       <div style={{

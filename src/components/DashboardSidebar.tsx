@@ -17,6 +17,7 @@ const navCategories: NavCategory[] = [
       { href: '/dashboard/automation-strategy', label: '自動化戦略AI', icon: '🚀' },
       { href: '/dashboard/saved', label: '保存一覧', icon: '🗃' },
       { href: '/dashboard/memo', label: 'AIメモ', icon: '🧭' },
+      { href: '/dashboard/guide', label: '使い方ガイド', icon: '📖' },
     ],
   },
   {
@@ -95,7 +96,6 @@ const navCategories: NavCategory[] = [
       { href: '/dashboard/library', label: 'ライブラリ', icon: '📚' },
       { href: '/dashboard/memory', label: 'AIメモリ', icon: '🧠' },
       { href: '/dashboard/glossary', label: '用語解説', icon: '📘' },
-      { href: '/dashboard/guide', label: '活用ガイド', icon: '📖' },
       { href: '/dashboard/analytics', label: 'アナリティクス', icon: '📈' },
       { href: '/dashboard/seo', label: 'SEO分析', icon: '🔍' },
       { href: '/dashboard/competitor', label: '競合分析', icon: '🔬' },
