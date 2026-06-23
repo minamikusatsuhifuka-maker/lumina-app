@@ -10,6 +10,7 @@ import { useEffect, useState, useCallback, useMemo, useRef } from 'react';
 import { DndContext, useDraggable, useDroppable, DragOverlay, PointerSensor, TouchSensor, useSensor, useSensors, MeasuringStrategy, type DragEndEvent, type DragStartEvent } from '@dnd-kit/core';
 import { snapCenterToCursor } from '@dnd-kit/modifiers';
 import { useToast } from '@/components/ui/Toast';
+import { renderMarkdown } from '@/lib/markdown-renderer';
 
 type View = 'inbox' | 'plan' | 'calendar' | 'focus' | 'category' | 'matrix' | 'done' | 'input' | 'goals';
 type QuadrantNum = 1 | 2 | 3 | 4;
@@ -49,6 +50,44 @@ const QUADRANT: Record<QuadrantNum, { short: string; full: string; color: string
 };
 const KIND_LABEL: Record<MemoKind, string> = { task: 'タスク', idea: 'アイデア', note: 'メモ', reference: '参考' };
 const KINDS: MemoKind[] = ['task', 'idea', 'note', 'reference'];
+
+// 130: アプリ内マニュアル（使い方ヘルプ）の本文。純静的。既存 renderMarkdown で描画。
+// 文言の編集はこの定数だけ直せばよい（AI/DB/API は一切呼ばない）。
+const MEMO_MANUAL_MD = `# 📘 AIメモ 使い方
+
+## これは何？
+思いついたこと・やることを書くと、AIが目標から逆算して「重要度 × 緊急度」の4象限に自動で仕分けします。特に第2象限（重要だが急がない＝最も人生を前に進める領域）を見逃さず先回りで提案します。
+
+## 基本の流れ（4ステップ）
+1. 目標を登録（最初の1回）…「🎯目標・目的」タブで登録。これがAIの判断基準。※目標が無いと第2象限（Q2）が出ません
+2. メモを入れる…「📝メモ入力」or「＋クイックメモ」。箇条書きは「まとめて追加」。期限は文中に書けばAIが読み取ります（例「6/28までに」「明日15時」）
+3. 整理する…AIが4象限・カテゴリ・目標紐付け・TODO分解を自動実行
+4. 進める・終わらせる…第2象限から予定に落とす／チェックで完了→「完了」タブ／期限が近づくと通知
+
+## 4象限の意味
+- Q1 重要×緊急：すぐやる
+- Q2 重要×非緊急：ここに先に時間を投資（代価の先払い）
+- Q3 非重要×緊急：効率化・任せる
+- Q4 非重要×非緊急：減らす
+
+## タブ
+📝メモ入力／🎯目標・目的／4象限／第2象限／計画／カレンダー／カテゴリ別／インボックス／完了
+
+## 便利機能
+- ＋クイックメモ：どこからでも素早く入力
+- 自動整理トグル：追加したら自動でAI仕分け
+- ドラッグ&ドロップ：カードを別象限へ。手で直した分は🔒で保護され再整理で戻りません（傾向をAIが学習）
+- 「なぜ?」：AIの判定理由を表示
+- 週次レビュー：今週のQ2を3つ選んで予定に落とす
+- 期限アラート：7日/3日/1日前に通知（色バッジ）
+
+## よくある質問
+- 目標を入れたのにQ2が出ない → 目標は「メモ」ではなく「🎯目標・目的」タブに登録
+- チェックしたTODOはどこ？ → 「完了」タブの「完了TODO」。↩元に戻せます。消えるのは削除時のみ
+- AIの仕分けが違う → カードをドラッグで修正（🔒で保護・学習されます）
+- 期限アラートが来ない → メモに期限が入っているか確認（通知は毎朝8:00）
+
+ヒント：迷ったら「思いつくままメモに入れて→整理する」だけでOK。第2象限に先に時間を払うのが肝です。`;
 
 // ============================================================
 // 日付ヘルパ（ローカル基準。Postgresのdate列は 'YYYY-MM-DD' 文字列で返る前提）
@@ -179,6 +218,7 @@ export default function MemoPage() {
   const [fabOpen, setFabOpen] = useState(false);
   const [fabText, setFabText] = useState('');
   const [fabBusy, setFabBusy] = useState(false);
+  const [helpOpen, setHelpOpen] = useState(false); // 130: アプリ内マニュアル（使い方ヘルプ）モーダル
 
   // 127: 週次Q2レビュー（ウィザード）と今週のフォーカス選択記録
   const [reviewOpen, setReviewOpen] = useState(false);
@@ -586,8 +626,12 @@ export default function MemoPage() {
       <div style={{ marginBottom: 14 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10 }}>
           <h1 style={{ fontSize: 22, fontWeight: 800, margin: 0 }}>🧭 AIメモ</h1>
-          {/* 128: どのタブからでも使えるクイック入力。右下FAB→ヘッダーのラベル付きボタンへ（他のフローティングUIと重ならない） */}
-          <button onClick={() => setFabOpen(true)} style={{ ...btnPrimary, flexShrink: 0, padding: '8px 14px', display: 'flex', alignItems: 'center', gap: 6 }}>＋ クイックメモ</button>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
+            {/* 130: アプリ内マニュアル（使い方ヘルプ）。押すと中央モーダルで静的マニュアルを表示（AI/DB不使用） */}
+            <button onClick={() => setHelpOpen(true)} style={{ ...btnGhost, padding: '8px 12px' }} aria-label="使い方">❓ 使い方</button>
+            {/* 128: どのタブからでも使えるクイック入力。右下FAB→ヘッダーのラベル付きボタンへ（他のフローティングUIと重ならない） */}
+            <button onClick={() => setFabOpen(true)} style={{ ...btnPrimary, padding: '8px 14px', display: 'flex', alignItems: 'center', gap: 6 }}>＋ クイックメモ</button>
+          </div>
         </div>
         <p style={{ fontSize: 13, color: 'var(--text-secondary, #6b7280)', marginTop: 6 }}>
           思いついたことをまず書き留め、「整理する」で目標から逆算してAIが仕分け。
@@ -710,6 +754,28 @@ export default function MemoPage() {
               <button onClick={() => setFabOpen(false)} disabled={fabBusy} style={btnGhost}>キャンセル</button>
               <button onClick={submitFab} disabled={fabBusy || !fabText.trim()} style={{ ...btnPrimary, opacity: fabBusy || !fabText.trim() ? 0.6 : 1 }}>{fabBusy ? '⏳ 追加中...' : '追加'}</button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* 130: アプリ内マニュアル（使い方ヘルプ）。128の中央モーダル作法を踏襲（inset-0/中央/max-height85vh/内スクロール/z-10000）。純静的・renderMarkdownで描画 */}
+      {helpOpen && (
+        <div
+          onClick={() => setHelpOpen(false)}
+          onKeyDown={(e) => { if (e.key === 'Escape') { e.preventDefault(); setHelpOpen(false); } }}
+          tabIndex={-1}
+          ref={(el) => el?.focus()}
+          style={{ position: 'fixed', inset: 0, zIndex: 10000, background: 'rgba(0,0,0,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16, outline: 'none' }}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{ width: '100%', maxWidth: 640, maxHeight: '85vh', overflowY: 'auto', background: 'var(--bg-secondary,#fff)', border: '1px solid var(--border-color,#e5e7eb)', borderRadius: 14, padding: 20, boxShadow: '0 16px 48px rgba(0,0,0,0.3)' }}
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+              <span style={{ fontSize: 14, fontWeight: 700, color: '#1D9E75' }}>❓ 使い方</span>
+              <button onClick={() => setHelpOpen(false)} style={{ ...linkBtn, fontSize: 18 }} aria-label="閉じる">×</button>
+            </div>
+            <div className="markdown-body" style={{ fontSize: 14, color: 'var(--text-primary)', lineHeight: 1.7 }} dangerouslySetInnerHTML={{ __html: renderMarkdown(MEMO_MANUAL_MD) }} />
           </div>
         </div>
       )}
