@@ -23,7 +23,7 @@ export async function GET(req: NextRequest) {
   // 一覧は本文(raw_text)を含むが、メモは短文想定。肥大化時はここで要約のみ返す方針に切替可。
   const rows = await sql`
     SELECT id, owner, raw_text, status, kind, category_id, importance, urgency,
-           quadrant, goal_ref, ai_summary, ai_reason, due_at, has_time, completed_at, created_at, triaged_at
+           quadrant, quadrant_locked, goal_ref, ai_summary, ai_reason, due_at, has_time, completed_at, created_at, triaged_at
     FROM memos
     WHERE owner = ${owner}
       AND (${status}::text IS NULL OR status = ${status})

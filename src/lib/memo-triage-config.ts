@@ -98,15 +98,36 @@ interface GoalLike {
   detail?: string | null;
 }
 
+// 126: このユーザーが過去に手修正した象限の例(動的few-shot)。
+//   静的FEWSHOTのベースに「このユーザーの感覚」を上乗せして学習させる。
+export interface CorrectionExample {
+  rawText: string;
+  quadrant: 1 | 2 | 3 | 4;
+}
+const QUAD_LABEL: Record<number, string> = { 1: '第1象限(重要×緊急)', 2: '第2象限(重要×非緊急)', 3: '第3象限(非重要×緊急)', 4: '第4象限(非重要×非緊急)' };
+
+// 訂正例セクションを組み立て。件数・1件あたり文字数に上限(プロンプト肥大/truncation防止=v17の教訓)。
+function buildCorrectionSection(corrections: CorrectionExample[]): string {
+  const items = corrections
+    .filter((c) => c.rawText && c.rawText.trim() && c.quadrant >= 1 && c.quadrant <= 4)
+    .slice(0, 5) // 最大5件
+    .map((c) => `- 「${c.rawText.replace(/\s+/g, ' ').trim().slice(0, 50)}」→ ${QUAD_LABEL[c.quadrant]}`);
+  if (items.length === 0) return '';
+  return `\n# このユーザー自身の訂正例(あなたの一般則よりこの人の感覚を優先して学ぶ)
+${items.join('\n')}\n`;
+}
+
 /**
  * @param nowText 相対日時(明日/今週金曜 等)解決の基準となる「現在日時」(JST / Asia/Tokyo)。
  *                例: "2026-06-21(土) 14:30 JST(Asia/Tokyo, UTC+9)"。サーバ(Vercel=UTC)からJSTに変換して渡すこと。
+ * @param corrections このユーザーが手修正した象限の直近例(動的few-shot・任意)。
  */
-export function buildTriagePrompt(rawText: string, goals: GoalLike[], categoryNames: string[], nowText: string): string {
+export function buildTriagePrompt(rawText: string, goals: GoalLike[], categoryNames: string[], nowText: string, corrections: CorrectionExample[] = []): string {
   const goalLines = goals.length
     ? goals.map((g) => `- ${g.title}${g.domain ? `（分野:${g.domain}）` : ''}${g.detail ? ` … ${g.detail}` : ''}`).join('\n')
     : '（目標が未設定です。一般的な重要度で判断し、importance は中庸に寄せてください）';
   const catList = categoryNames.length ? categoryNames.join(' / ') : '（既存カテゴリなし）';
+  const correctionSection = buildCorrectionSection(corrections);
 
   return `あなたは「7つの習慣」の時間管理マトリックスに基づき、ユーザーのメモを目標から逆算して仕分けるアシスタントです。
 
@@ -127,7 +148,7 @@ ${rawText}
 ${RUBRIC}
 
 ${FEWSHOT}
-
+${correctionSection}
 以下のJSONのみを返してください(前後に説明文・コードブロック記号(\`\`\`)を付けない):
 ${TRIAGE_JSON_SCHEMA}`;
 }

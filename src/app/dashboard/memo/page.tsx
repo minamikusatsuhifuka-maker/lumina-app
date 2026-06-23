@@ -7,6 +7,7 @@
 // デザインは xLUMINA ダッシュボードのインラインスタイル/CSS変数トーンに合わせる。
 
 import { useEffect, useState, useCallback, useMemo, useRef } from 'react';
+import { DndContext, useDraggable, useDroppable, DragOverlay, PointerSensor, TouchSensor, useSensor, useSensors, type DragEndEvent, type DragStartEvent } from '@dnd-kit/core';
 import { useToast } from '@/components/ui/Toast';
 
 type View = 'inbox' | 'plan' | 'calendar' | 'focus' | 'category' | 'matrix' | 'done' | 'input' | 'goals';
@@ -28,6 +29,7 @@ interface Memo {
   due_at: string | null;   // AI抽出の絶対日時(ISO)。終日は has_time=false
   has_time: boolean;       // 時刻指定の有無
   completed_at: string | null; // 完了印の時刻(done時)。未完了化でnull
+  quadrant_locked?: boolean;   // 象限を人手修正でロック(再triageで保護)
   created_at: string;
 }
 interface Todo {
@@ -597,7 +599,7 @@ export default function MemoPage() {
           <>
             {/* 123: ⏰期限が近いTODOアラートは既定の4象限ビュー先頭に表示（読み込み時に気づける） */}
             <UpcomingDueCard memos={active} />
-            <MatrixView memos={active} categoryName={categoryName} />
+            <MatrixView memos={active} categoryName={categoryName} onPatch={patchMemo} />
           </>
         )}
 
@@ -1224,36 +1226,103 @@ function CategoryView(props: { memos: Memo[]; categories: Category[]; categoryNa
 }
 
 // ============================================================
-// 4象限ビュー（Phase1）
+// 4象限ビュー（Phase1 / 126: D&D象限修正・手修正ロック・判定理由ワンタップ）
 // ============================================================
-function MatrixView(props: { memos: Memo[]; categoryName: (id: string | null) => string | null }) {
-  const { memos, categoryName } = props;
+// 1枚のメモカード（ドラッグハンドル＋「なぜ?」理由トグル）。ハンドルだけドラッグ可。
+function DraggableMemoCard(props: { memo: Memo; categoryName: (id: string | null) => string | null }) {
+  const { memo, categoryName } = props;
+  const { attributes, listeners, setNodeRef, isDragging } = useDraggable({ id: memo.id });
+  const [showReason, setShowReason] = useState(false);
+  const di = dueInfo(memo.due_at);
+  const catName = categoryName(memo.category_id);
+  return (
+    <li ref={setNodeRef} style={{ background: '#ffffffcc', borderRadius: 8, padding: '6px 10px', marginBottom: 6, fontSize: 12, opacity: isDragging ? 0.4 : 1 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+        <span {...attributes} {...listeners} title="ドラッグで象限を変更" aria-label="ドラッグして象限を移動" style={{ cursor: 'grab', touchAction: 'none', color: '#9ca3af', fontSize: 14, flexShrink: 0, lineHeight: 1 }}>⠿</span>
+        <span style={{ fontWeight: 600, flex: 1, minWidth: 0 }}>{memo.ai_summary || memo.raw_text}</span>
+        {memo.quadrant_locked && <span title="象限を手動修正（再整理から保護中）" style={{ fontSize: 10, flexShrink: 0 }}>🔒</span>}
+        {memo.ai_reason && <button onClick={() => setShowReason((v) => !v)} title="なぜこの象限？" style={{ flexShrink: 0, background: 'none', border: '1px solid #d1d5db', borderRadius: 10, color: '#6b7280', cursor: 'pointer', fontSize: 10, padding: '0 6px', lineHeight: '16px' }}>なぜ?</button>}
+      </div>
+      {(catName || di) && (
+        <div style={{ display: 'flex', gap: 6, marginTop: 3, flexWrap: 'wrap', alignItems: 'center' }}>
+          {catName && <span style={{ fontSize: 10, color: '#9ca3af' }}>#{catName}</span>}
+          {di && <span style={{ fontSize: 9, fontWeight: 700, color: '#fff', background: di.color, padding: '1px 6px', borderRadius: 8 }}>{di.label}</span>}
+        </div>
+      )}
+      {showReason && (
+        <div style={{ marginTop: 6, fontSize: 11, color: '#6b7280', background: '#fff', borderRadius: 6, padding: '6px 8px', border: '1px solid var(--border-color,#eee)' }}>
+          💡 {memo.ai_reason}
+          <div style={{ marginTop: 2, color: '#9ca3af' }}>重要 {memo.importance ?? '-'} / 緊急 {memo.urgency ?? '-'}</div>
+        </div>
+      )}
+    </li>
+  );
+}
+
+// 象限のドロップ先（カードをここに落とすと quadrant 更新）。
+function DroppableQuadrant(props: { q: QuadrantNum; children: React.ReactNode }) {
+  const { q, children } = props;
+  const s = QUADRANT[q];
+  const { setNodeRef, isOver } = useDroppable({ id: `q-${q}` });
+  return (
+    <div ref={setNodeRef} style={{ border: `1px solid ${s.color}`, background: isOver ? `${s.color}22` : s.bg, borderRadius: 12, padding: 14, boxShadow: s.emphasis ? `0 0 0 2px ${s.color}33` : undefined, outline: isOver ? `2px dashed ${s.color}` : 'none', transition: 'background 0.12s' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+        <h3 style={{ fontSize: 14, fontWeight: 700, margin: 0, color: s.color }}>{s.short} <span style={{ fontSize: 12, fontWeight: 400, color: 'var(--text-secondary,#6b7280)' }}>{s.full}</span></h3>
+        {s.emphasis && <span style={{ fontSize: 10, fontWeight: 700, color: '#fff', background: s.color, padding: '2px 8px', borderRadius: 12 }}>ここに投資を</span>}
+      </div>
+      {children}
+    </div>
+  );
+}
+
+function MatrixView(props: { memos: Memo[]; categoryName: (id: string | null) => string | null; onPatch: (id: string, p: Partial<Memo>) => void }) {
+  const { memos, categoryName, onPatch } = props;
+  const [activeId, setActiveId] = useState<string | null>(null);
+  // PC=ポインタ(微小移動で開始)、モバイル=長押し(200ms)でドラッグ開始しスクロールと両立。
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
+    useSensor(TouchSensor, { activationConstraint: { delay: 200, tolerance: 8 } }),
+  );
+
   if (memos.length === 0) return <p style={{ textAlign: 'center', color: '#9ca3af', padding: 24, fontSize: 13 }}>整理済みメモがありません</p>;
   const by = (q: QuadrantNum) => memos.filter((m) => (m.quadrant ?? 4) === q);
+  const activeMemo = activeId ? memos.find((m) => m.id === activeId) ?? null : null;
+
+  const onDragStart = (e: DragStartEvent) => setActiveId(String(e.active.id));
+  const onDragEnd = (e: DragEndEvent) => {
+    setActiveId(null);
+    const overId = e.over?.id ? String(e.over.id) : '';
+    if (!overId.startsWith('q-')) return;
+    const target = Number(overId.slice(2)) as QuadrantNum;
+    const m = memos.find((x) => x.id === String(e.active.id));
+    if (!m || (m.quadrant ?? 4) === target) return;
+    // 手修正＝象限ロック。再triageでAIに上書きさせない（サーバも quadrant 指定で自動ロック）。
+    onPatch(m.id, { quadrant: target, quadrant_locked: true });
+  };
+
   return (
-    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 12 }}>
-      {([2, 1, 4, 3] as QuadrantNum[]).map((q) => {
-        const s = QUADRANT[q];
-        const list = by(q);
-        return (
-          <div key={q} style={{ border: `1px solid ${s.color}`, background: s.bg, borderRadius: 12, padding: 14, boxShadow: s.emphasis ? `0 0 0 2px ${s.color}33` : undefined }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-              <h3 style={{ fontSize: 14, fontWeight: 700, margin: 0, color: s.color }}>{s.short} <span style={{ fontSize: 12, fontWeight: 400, color: 'var(--text-secondary,#6b7280)' }}>{s.full}</span></h3>
-              {s.emphasis && <span style={{ fontSize: 10, fontWeight: 700, color: '#fff', background: s.color, padding: '2px 8px', borderRadius: 12 }}>ここに投資を</span>}
-            </div>
-            {list.length === 0 ? <p style={{ textAlign: 'center', color: '#9ca3af', fontSize: 12, padding: 8 }}>なし</p>
-              : <ul style={{ listStyle: 'none', padding: 0, margin: 0 }}>
-                {list.map((m) => (
-                  <li key={m.id} style={{ background: '#ffffffaa', borderRadius: 8, padding: '6px 10px', marginBottom: 6, fontSize: 12 }}>
-                    <span style={{ fontWeight: 600 }}>{m.ai_summary || m.raw_text}</span>
-                    {categoryName(m.category_id) && <span style={{ fontSize: 10, color: '#9ca3af', marginLeft: 6 }}>#{categoryName(m.category_id)}</span>}
-                    {(() => { const di = dueInfo(m.due_at); return di ? <span style={{ fontSize: 9, fontWeight: 700, color: '#fff', background: di.color, padding: '1px 6px', borderRadius: 8, marginLeft: 6 }}>{di.label}</span> : null; })()}
-                  </li>
-                ))}
-              </ul>}
+    <DndContext sensors={sensors} onDragStart={onDragStart} onDragEnd={onDragEnd} onDragCancel={() => setActiveId(null)}>
+      <p style={{ fontSize: 11, color: '#9ca3af', margin: '0 0 8px' }}>カードの <b>⠿</b> をドラッグして象限を移動できます（手修正は再整理から保護 🔒）。「なぜ?」で判定理由を確認。</p>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 12 }}>
+        {([2, 1, 4, 3] as QuadrantNum[]).map((q) => {
+          const list = by(q);
+          return (
+            <DroppableQuadrant key={q} q={q}>
+              {list.length === 0 ? <p style={{ textAlign: 'center', color: '#9ca3af', fontSize: 12, padding: 8 }}>なし（ここにドラッグで移動）</p>
+                : <ul style={{ listStyle: 'none', padding: 0, margin: 0 }}>
+                  {list.map((m) => <DraggableMemoCard key={m.id} memo={m} categoryName={categoryName} />)}
+                </ul>}
+            </DroppableQuadrant>
+          );
+        })}
+      </div>
+      <DragOverlay>
+        {activeMemo ? (
+          <div style={{ background: '#fff', borderRadius: 8, padding: '6px 10px', fontSize: 12, fontWeight: 600, boxShadow: '0 8px 24px rgba(0,0,0,0.25)', border: `1px solid ${QUADRANT[(activeMemo.quadrant ?? 4) as QuadrantNum].color}` }}>
+            {activeMemo.ai_summary || activeMemo.raw_text}
           </div>
-        );
-      })}
-    </div>
+        ) : null}
+      </DragOverlay>
+    </DndContext>
   );
 }

@@ -26,6 +26,10 @@ export async function PATCH(req: NextRequest, { params }: Ctx) {
   const importance = typeof body.importance === 'number' ? Math.min(5, Math.max(1, Math.round(body.importance))) : null;
   const urgency = typeof body.urgency === 'number' ? Math.min(5, Math.max(1, Math.round(body.urgency))) : null;
   const quadrant = typeof body.quadrant === 'number' && body.quadrant >= 1 && body.quadrant <= 4 ? Math.round(body.quadrant) : null;
+  // 126: 象限の人手修正(D&D/セレクト)はロック=trueにし、再triageでAIに上書きさせない。
+  //   body.quadrant_locked を明示false で渡せばロック解除も可(任意)。
+  const hasLock = Object.prototype.hasOwnProperty.call(body, 'quadrant_locked');
+  const lockExplicit = hasLock ? Boolean(body.quadrant_locked) : null;
   const rawText = typeof body.raw_text === 'string' ? body.raw_text : null;
   const aiSummary = typeof body.ai_summary === 'string' ? body.ai_summary : null;
   // category_id / goal_ref は null での明示クリアを許可するため has フラグで判定
@@ -45,6 +49,11 @@ export async function PATCH(req: NextRequest, { params }: Ctx) {
       importance  = COALESCE(${importance}::int, importance),
       urgency     = COALESCE(${urgency}::int, urgency),
       quadrant    = COALESCE(${quadrant}::int, quadrant),
+      -- 明示ロック指定が最優先。無指定でも象限を手修正したら自動ロック。
+      quadrant_locked = CASE
+        WHEN ${lockExplicit}::boolean IS NOT NULL THEN ${lockExplicit}::boolean
+        WHEN ${quadrant}::int IS NOT NULL THEN true
+        ELSE quadrant_locked END,
       raw_text    = COALESCE(${rawText}, raw_text),
       ai_summary  = COALESCE(${aiSummary}, ai_summary),
       category_id = CASE WHEN ${hasCategory} THEN ${categoryId}::uuid ELSE category_id END,

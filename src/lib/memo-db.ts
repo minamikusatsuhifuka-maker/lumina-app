@@ -91,6 +91,7 @@ export interface Memo {
   due_at: string | null;          // AI抽出の絶対日時(timestamptz)。終日は has_time=false
   has_time: boolean;              // 時刻指定の有無(false=終日)
   completed_at: string | null;    // 完了印の時刻(status='done'時にセット。未完了化でNULL)
+  quadrant_locked: boolean;       // 象限を人手修正でロック。再triageでAIに上書きさせない
   created_at: string;
   triaged_at: string | null;
 }
@@ -200,6 +201,10 @@ export async function ensureMemoTables(sql: Sql): Promise<void> {
   await sql`ALTER TABLE memos ADD COLUMN IF NOT EXISTS completed_at timestamptz`;
   await sql`ALTER TABLE memo_todos ADD COLUMN IF NOT EXISTS completed_at timestamptz`;
 
+  // 126: 象限の人手修正ロック。D&D/セレクトで象限を手修正したら true にし、
+  //   再triageでAIに上書きさせない(human-in-the-loop / 手修正が消える事故を防ぐ)。
+  await sql`ALTER TABLE memos ADD COLUMN IF NOT EXISTS quadrant_locked boolean NOT NULL DEFAULT false`;
+
   // 122: 期限アラートの二重送信防止。due_at の 7d/3d/1d 閾値ごとに1回だけ送る記録。
   //   UNIQUE(memo_id, threshold) で同一閾値の重複通知を防ぐ。
   await sql`CREATE TABLE IF NOT EXISTS memo_alerts (
@@ -244,7 +249,23 @@ export async function triageMemo(
   const goals = (await sql`SELECT id, owner, title, domain, detail, created_at FROM memo_goals WHERE owner = ${owner} ORDER BY created_at`) as unknown as MemoGoal[];
   const cats = (await sql`SELECT id, name FROM memo_categories WHERE owner = ${owner}`) as unknown as { id: string; name: string }[];
 
-  const prompt = buildTriagePrompt(memo.raw_text, goals, cats.map((c) => c.name), nowJstText());
+  // 126: このメモ自身の象限ロック状態(再triageで象限を保護する判定に使用)。
+  const cur = (await sql`SELECT quadrant, quadrant_locked FROM memos WHERE id = ${memo.id} AND owner = ${owner}`) as unknown as { quadrant: number | null; quadrant_locked: boolean }[];
+  const isLocked = Boolean(cur[0]?.quadrant_locked);
+  const lockedQuadrant = cur[0]?.quadrant ?? null;
+
+  // 126: このユーザーが手修正した象限の直近例を動的few-shotとして注入(件数上限はconfig側)。
+  const corrRows = (await sql`
+    SELECT raw_text, quadrant FROM memos
+    WHERE owner = ${owner} AND quadrant_locked = true AND quadrant IS NOT NULL
+    ORDER BY triaged_at DESC NULLS LAST, created_at DESC
+    LIMIT 5
+  `) as unknown as { raw_text: string; quadrant: number }[];
+  const corrections = corrRows
+    .filter((r) => r.raw_text !== memo.raw_text) // 自分自身は除外
+    .map((r) => ({ rawText: r.raw_text, quadrant: r.quadrant as 1 | 2 | 3 | 4 }));
+
+  const prompt = buildTriagePrompt(memo.raw_text, goals, cats.map((c) => c.name), nowJstText(), corrections);
 
   let parsed: TriageRaw | null = null;
   let fallback = false;
@@ -277,7 +298,8 @@ export async function triageMemo(
 
   const importance = clamp(parsed.importance, 1, 5, FIELD_DEFAULT.importance);
   const urgency = clamp(parsed.urgency, 1, 5, FIELD_DEFAULT.urgency);
-  const quadrant = deriveQuadrant(importance, urgency);
+  // 126: 人手ロック済みなら象限はユーザー値を維持(AIに上書きさせない)。未ロックはAI判定。
+  const quadrant = (isLocked && lockedQuadrant) ? (lockedQuadrant as QuadrantNum) : deriveQuadrant(importance, urgency);
   const kind: MemoKind = (['task', 'idea', 'note', 'reference'] as const).includes(parsed.kind) ? parsed.kind : 'note';
 
   // AI抽出の日時(任意)。解析できれば絶対ISO+JST日付に正規化。時刻はAIのhas_timeに従う。
