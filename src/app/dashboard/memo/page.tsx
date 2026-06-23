@@ -179,15 +179,22 @@ export default function MemoPage() {
   const [fabText, setFabText] = useState('');
   const [fabBusy, setFabBusy] = useState(false);
 
+  // 127: 週次Q2レビュー（ウィザード）と今週のフォーカス選択記録
+  const [reviewOpen, setReviewOpen] = useState(false);
+  const [focusPicks, setFocusPicks] = useState<string[]>([]); // 今週フォーカスに選んだ memo_id
+
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const [m, c, g] = await Promise.all([
+      const wk = weekRange().start;
+      const [m, c, g, f] = await Promise.all([
         fetch('/api/memos'), fetch('/api/memo-categories'), fetch('/api/memo-goals'),
+        fetch(`/api/memo-focus?week=${wk}`),
       ]);
       if (m.ok) { const d = await m.json(); setMemos(d.memos || []); setTodos(d.todos || []); }
       if (c.ok) setCategories((await c.json()).categories || []);
       if (g.ok) setGoals((await g.json()).goals || []);
+      if (f.ok) { const d = await f.json(); setFocusPicks((d.picks || []).map((p: { memo_id: string }) => p.memo_id)); }
     } catch { showToast('読み込みに失敗しました', 'error'); }
     finally { setLoading(false); }
   }, [showToast]);
@@ -339,6 +346,27 @@ export default function MemoPage() {
     if (res.ok) { const d = await res.json(); setTodos((p) => [...p, d.todo]); return d.todo as Todo; }
     return null;
   };
+
+  // 127: 週次レビューで選んだメモを「予定に落とす」。既存TODOがあれば先頭に予定日、無ければ新規作成（既存導線流用）。
+  const scheduleFocus = useCallback(async (memoId: string, date: string) => {
+    const existing = todos.filter((t) => t.memo_id === memoId);
+    if (existing.length > 0) await patchTodo(existing[0].id, { scheduled_date: date });
+    else {
+      const m = memos.find((x) => x.id === memoId);
+      await addTodo(memoId, (m?.ai_summary || m?.raw_text || 'メモ').slice(0, 40), { scheduled_date: date, quadrant: 2 });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [todos, memos]);
+
+  // 127: 今週フォーカスに選んだメモIDを記録（任意・カードの件数表示に反映）。
+  const saveFocusPicks = useCallback(async (memoIds: string[]) => {
+    const week = weekRange().start;
+    setFocusPicks(memoIds);
+    try {
+      const res = await fetch('/api/memo-focus', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ week, memo_ids: memoIds }) });
+      if (res.ok) { const d = await res.json(); setFocusPicks((d.picks || []).map((p: { memo_id: string }) => p.memo_id)); }
+    } catch { /* 記録失敗はscheduled_date反映を妨げない */ }
+  }, []);
 
   const addGoal = async () => {
     const title = goalTitle.trim();
@@ -588,7 +616,7 @@ export default function MemoPage() {
         ) : view === 'focus' ? (
           <>
             {/* 123: 「今週の第2象限」カードは常時最上部固定をやめ、第2象限タブ先頭へ移設 */}
-            {q2Memos.length > 0 && <WeeklyQ2Card memos={q2Memos} todos={todos} goalTitleById={goalTitleById} onOpen={() => setView('focus')} />}
+            {q2Memos.length > 0 && <WeeklyQ2Card memos={q2Memos} todos={todos} goalTitleById={goalTitleById} onOpen={() => setView('focus')} picksCount={focusPicks.length} onStartReview={() => setReviewOpen(true)} />}
             <FocusView memos={q2Memos} todos={todos} goalTitleById={goalTitleById} onToggleTodo={toggleTodo} onPatchTodo={patchTodo} onAddTodo={addTodo} />
           </>
         ) : view === 'category' ? (
@@ -602,6 +630,22 @@ export default function MemoPage() {
             <MatrixView memos={active} categoryName={categoryName} onPatch={patchMemo} />
           </>
         )}
+
+      {/* 127: 週次Q2レビューウィザード（候補選択→予定日→確認） */}
+      {reviewOpen && (
+        <WeeklyReviewWizard
+          memos={q2Memos}
+          todos={todos}
+          goalTitleById={goalTitleById}
+          weekStart={weekRange().start}
+          weekEnd={weekRange().end}
+          initialPicks={focusPicks}
+          onSchedule={scheduleFocus}
+          onSavePicks={saveFocusPicks}
+          showToast={showToast}
+          onClose={() => setReviewOpen(false)}
+        />
+      )}
 
       {/* 125: どこからでもクイック入力(FAB)。どのタブでも右下＋で1行メモを即投入。 */}
       <button
@@ -661,8 +705,8 @@ const dateInput: React.CSSProperties = { border: '1px solid var(--border-color,#
 // ============================================================
 // 今週の第2象限カード（Phase3 ナッジ）
 // ============================================================
-function WeeklyQ2Card(props: { memos: Memo[]; todos: Todo[]; goalTitleById: (id: string | null) => string | null; onOpen: () => void }) {
-  const { memos, todos, goalTitleById, onOpen } = props;
+function WeeklyQ2Card(props: { memos: Memo[]; todos: Todo[]; goalTitleById: (id: string | null) => string | null; onOpen: () => void; picksCount?: number; onStartReview?: () => void }) {
+  const { memos, todos, goalTitleById, onOpen, picksCount, onStartReview } = props;
   const { start, end } = weekRange();
   // 今週すでに予定枠に入っているQ2の数
   const scheduledThisWeek = todos.filter((t) => (t.quadrant ?? 2) === 2 && !t.done && inRange(t.scheduled_date, start, end)).length;
@@ -671,7 +715,7 @@ function WeeklyQ2Card(props: { memos: Memo[]; todos: Todo[]; goalTitleById: (id:
     <div style={{ border: '1px solid #1D9E75', background: 'rgba(29,158,117,0.08)', borderRadius: 12, padding: 14, marginBottom: 14, boxShadow: '0 0 0 2px rgba(29,158,117,0.18)' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
         <h2 style={{ fontSize: 14, fontWeight: 800, margin: 0, color: '#1D9E75' }}>🌱 今週の第2象限</h2>
-        <span style={{ fontSize: 11, color: 'var(--text-secondary,#6b7280)' }}>予定済み {scheduledThisWeek}件 / 候補 {memos.length}件</span>
+        <span style={{ fontSize: 11, color: 'var(--text-secondary,#6b7280)' }}>{typeof picksCount === 'number' ? `フォーカス ${picksCount}件 / ` : ''}予定済み {scheduledThisWeek}件 / 候補 {memos.length}件</span>
       </div>
       <p style={{ fontSize: 12, color: 'var(--text-secondary,#6b7280)', margin: '0 0 8px' }}>
         緊急ではないが、最も人生を前に進める領域。<b style={{ color: '#1D9E75' }}>ここに先に時間を払う（代価の先払い）。</b>
@@ -685,7 +729,145 @@ function WeeklyQ2Card(props: { memos: Memo[]; todos: Todo[]; goalTitleById: (id:
           </li>
         ))}
       </ul>
-      <button onClick={onOpen} style={{ ...btnPrimary, padding: '6px 14px' }}>第2象限を予定に落とす →</button>
+      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+        {onStartReview && <button onClick={onStartReview} style={{ ...btnPrimary, padding: '6px 14px' }}>📋 週次レビューを始める</button>}
+        <button onClick={onOpen} style={{ ...btnGhost, padding: '6px 14px' }}>第2象限を予定に落とす →</button>
+      </div>
+    </div>
+  );
+}
+
+// ============================================================
+// 週次Q2レビューウィザード（127）: 第2象限を「実行」に落とす3ステップの儀式。
+//   Step1 選ぶ（importance降順・上限3件） → Step2 予定日を置く → Step3 確認。
+//   既存データ(memos quadrant=2 / memo_todos scheduled_date)を読む・書くだけ（新分類ロジックなし）。
+// ============================================================
+const FOCUS_MAX = 3;
+function WeeklyReviewWizard(props: {
+  memos: Memo[]; todos: Todo[]; goalTitleById: (id: string | null) => string | null;
+  weekStart: string; weekEnd: string; initialPicks: string[];
+  onSchedule: (memoId: string, date: string) => Promise<void>;
+  onSavePicks: (memoIds: string[]) => Promise<void>;
+  showToast: (msg: string, type?: 'success' | 'error' | 'warning' | 'info') => void;
+  onClose: () => void;
+}) {
+  const { memos, todos, goalTitleById, weekStart, weekEnd, initialPicks, onSchedule, onSavePicks, showToast, onClose } = props;
+  const [step, setStep] = useState<1 | 2 | 3>(1);
+  const [selected, setSelected] = useState<string[]>(() => initialPicks.filter((id) => memos.some((m) => m.id === id)).slice(0, FOCUS_MAX));
+  const [dates, setDates] = useState<Record<string, string>>({});
+  const [saving, setSaving] = useState(false);
+
+  // メモが今週すでに予定枠に入っているか（区別表示）／既存の予定日（プリフィル用）
+  const scheduledDateOf = useCallback((memoId: string): string => {
+    const t = todos.find((x) => x.memo_id === memoId && x.scheduled_date);
+    return t?.scheduled_date ?? '';
+  }, [todos]);
+  const isScheduledThisWeek = useCallback((memoId: string): boolean => {
+    return todos.some((x) => x.memo_id === memoId && inRange(x.scheduled_date, weekStart, weekEnd) && !x.done);
+  }, [todos, weekStart, weekEnd]);
+
+  const dateFor = (memoId: string) => dates[memoId] ?? scheduledDateOf(memoId);
+  const toggleSelect = (id: string) => {
+    setSelected((p) => p.includes(id) ? p.filter((x) => x !== id) : (p.length < FOCUS_MAX ? [...p, id] : p));
+  };
+
+  const finish = async () => {
+    setSaving(true);
+    try {
+      for (const id of selected) { const d = dateFor(id); if (d) await onSchedule(id, d); }
+      await onSavePicks(selected);
+      showToast(`今週は ${selected.length} 件の第2象限に投資します`, 'success');
+      onClose();
+    } finally { setSaving(false); }
+  };
+
+  const wrapStyle: React.CSSProperties = { position: 'fixed', inset: 0, zIndex: 80, background: 'rgba(0,0,0,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 };
+  const panelStyle: React.CSSProperties = { width: '100%', maxWidth: 560, maxHeight: '88vh', overflowY: 'auto', background: 'var(--bg-secondary,#fff)', border: '1px solid var(--border-color,#e5e7eb)', borderRadius: 14, padding: 18, boxShadow: '0 16px 48px rgba(0,0,0,0.3)' };
+
+  return (
+    <div style={wrapStyle} onClick={onClose}>
+      <div style={panelStyle} onClick={(e) => e.stopPropagation()}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+          <h2 style={{ fontSize: 16, fontWeight: 800, margin: 0, color: '#1D9E75' }}>🌱 週次レビュー</h2>
+          <button onClick={onClose} style={{ ...linkBtn, fontSize: 18 }} aria-label="閉じる">×</button>
+        </div>
+        <p style={{ fontSize: 11, color: '#9ca3af', margin: '0 0 12px' }}>{weekStart} 〜 {weekEnd} ／ ステップ {step}/3</p>
+
+        {step === 1 && (
+          <>
+            <h3 style={{ fontSize: 14, fontWeight: 700, margin: '0 0 6px' }}>① 今週フォーカスする第2象限を選ぶ（最大{FOCUS_MAX}件）</h3>
+            <p style={{ fontSize: 12, color: 'var(--text-secondary,#6b7280)', margin: '0 0 10px' }}>目標寄与度（重要度）の高い順。緊急に追われず、最も人生を前に進めるものを選びます。</p>
+            {memos.length === 0 ? <p style={{ textAlign: 'center', color: '#9ca3af', fontSize: 13, padding: 16 }}>第2象限の候補がありません</p>
+              : memos.map((m) => {
+                const checked = selected.includes(m.id);
+                const disabled = !checked && selected.length >= FOCUS_MAX;
+                const sched = isScheduledThisWeek(m.id);
+                return (
+                  <label key={m.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 10px', marginBottom: 6, borderRadius: 8, border: `1px solid ${checked ? '#1D9E75' : 'var(--border-color,#e5e7eb)'}`, background: checked ? 'rgba(29,158,117,0.08)' : 'var(--bg-primary,#fff)', cursor: disabled ? 'not-allowed' : 'pointer', opacity: disabled ? 0.5 : 1 }}>
+                    <input type="checkbox" checked={checked} disabled={disabled} onChange={() => toggleSelect(m.id)} />
+                    <span style={{ fontSize: 10, fontWeight: 700, color: '#1D9E75', background: '#fff', padding: '1px 7px', borderRadius: 10, flexShrink: 0 }}>寄与{m.importance ?? '-'}</span>
+                    <span style={{ flex: 1, minWidth: 0, fontSize: 13, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{m.ai_summary || m.raw_text}</span>
+                    {goalTitleById(m.goal_ref) && <span title={goalTitleById(m.goal_ref) || ''} style={{ fontSize: 11, flexShrink: 0 }}>🎯</span>}
+                    {sched && <span style={{ fontSize: 9, fontWeight: 700, color: '#1D9E75', background: 'rgba(29,158,117,0.12)', padding: '1px 6px', borderRadius: 8, flexShrink: 0 }}>今週予定済み</span>}
+                  </label>
+                );
+              })}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 12 }}>
+              <span style={{ fontSize: 12, color: '#9ca3af' }}>選択 {selected.length}/{FOCUS_MAX}</span>
+              <button onClick={() => setStep(2)} disabled={selected.length === 0} style={{ ...btnPrimary, opacity: selected.length === 0 ? 0.5 : 1 }}>次へ →</button>
+            </div>
+          </>
+        )}
+
+        {step === 2 && (
+          <>
+            <h3 style={{ fontSize: 14, fontWeight: 700, margin: '0 0 6px' }}>② 予定に落とす（いつ投資する？）</h3>
+            <p style={{ fontSize: 12, color: 'var(--text-secondary,#6b7280)', margin: '0 0 10px' }}>各テーマに予定日を置くと、計画／カレンダーに反映されます。</p>
+            {selected.map((id) => {
+              const m = memos.find((x) => x.id === id);
+              if (!m) return null;
+              return (
+                <div key={id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 10px', marginBottom: 6, borderRadius: 8, border: '1px solid var(--border-color,#e5e7eb)' }}>
+                  <span style={{ flex: 1, minWidth: 0, fontSize: 13, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{m.ai_summary || m.raw_text}</span>
+                  <input type="date" value={dateFor(id)} min={weekStart} onChange={(e) => setDates((p) => ({ ...p, [id]: e.target.value }))} style={dateInput} />
+                </div>
+              );
+            })}
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 12 }}>
+              <button onClick={() => setStep(1)} style={btnGhost}>← 戻る</button>
+              <button onClick={() => setStep(3)} style={btnPrimary}>確認へ →</button>
+            </div>
+          </>
+        )}
+
+        {step === 3 && (
+          <>
+            <h3 style={{ fontSize: 14, fontWeight: 700, margin: '0 0 6px' }}>③ 確認</h3>
+            <div style={{ border: '1px solid #1D9E75', background: 'rgba(29,158,117,0.06)', borderRadius: 10, padding: 12, marginBottom: 10 }}>
+              <p style={{ fontSize: 13, fontWeight: 700, margin: '0 0 8px', color: '#1D9E75' }}>今週はこの{selected.length}つに投資します</p>
+              <ul style={{ listStyle: 'none', padding: 0, margin: 0 }}>
+                {selected.map((id) => {
+                  const m = memos.find((x) => x.id === id);
+                  if (!m) return null;
+                  const d = dateFor(id);
+                  return (
+                    <li key={id} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, padding: '4px 0' }}>
+                      <span style={{ color: '#1D9E75' }}>•</span>
+                      <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{m.ai_summary || m.raw_text}</span>
+                      <span style={{ fontSize: 11, color: d ? '#1D9E75' : '#9ca3af', flexShrink: 0 }}>{d ? `📅 ${d}` : '日付未設定'}</span>
+                    </li>
+                  );
+                })}
+              </ul>
+            </div>
+            <p style={{ fontSize: 12, color: '#1D9E75', fontStyle: 'italic', margin: '0 0 12px' }}>緊急に追われず、最も人生を前に進める{selected.length}つに先に時間を払う。</p>
+            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+              <button onClick={() => setStep(2)} disabled={saving} style={btnGhost}>← 戻る</button>
+              <button onClick={finish} disabled={saving} style={{ ...btnPrimary, opacity: saving ? 0.6 : 1 }}>{saving ? '⏳ 反映中...' : '今週はこれで投資する'}</button>
+            </div>
+          </>
+        )}
+      </div>
     </div>
   );
 }

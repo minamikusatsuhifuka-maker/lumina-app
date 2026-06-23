@@ -216,6 +216,18 @@ export async function ensureMemoTables(sql: Sql): Promise<void> {
     UNIQUE(memo_id, threshold)
   )`;
   await sql`CREATE INDEX IF NOT EXISTS idx_memo_alerts_owner ON memo_alerts(owner)`;
+
+  // 127: 週次Q2レビューで「今週フォーカスに選んだメモ」を記録(任意・件数表示/可視化用)。
+  //   week は週初(月曜)の 'YYYY-MM-DD'。同一週・同一メモの重複は UNIQUE で防止。
+  await sql`CREATE TABLE IF NOT EXISTS memo_focus_picks (
+    id         uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    owner      text NOT NULL,
+    memo_id    uuid NOT NULL REFERENCES memos(id) ON DELETE CASCADE,
+    week       text NOT NULL,
+    created_at timestamptz NOT NULL DEFAULT now(),
+    UNIQUE(owner, memo_id, week)
+  )`;
+  await sql`CREATE INDEX IF NOT EXISTS idx_memo_focus_picks_owner_week ON memo_focus_picks(owner, week)`;
 }
 
 // ============================================================
