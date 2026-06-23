@@ -9,7 +9,7 @@
 import { useEffect, useState, useCallback, useMemo } from 'react';
 import { useToast } from '@/components/ui/Toast';
 
-type View = 'inbox' | 'plan' | 'calendar' | 'focus' | 'category' | 'matrix';
+type View = 'inbox' | 'plan' | 'calendar' | 'focus' | 'category' | 'matrix' | 'done';
 type QuadrantNum = 1 | 2 | 3 | 4;
 type MemoKind = 'task' | 'idea' | 'note' | 'reference';
 
@@ -27,12 +27,13 @@ interface Memo {
   ai_reason: string | null;
   due_at: string | null;   // AI抽出の絶対日時(ISO)。終日は has_time=false
   has_time: boolean;       // 時刻指定の有無
+  completed_at: string | null; // 完了印の時刻(done時)。未完了化でnull
   created_at: string;
 }
 interface Todo {
   id: string; memo_id: string; title: string; done: boolean; sort_order: number;
   due_date: string | null; scheduled_date: string | null; quadrant: QuadrantNum | null;
-  due_at: string | null; has_time: boolean;
+  due_at: string | null; has_time: boolean; completed_at: string | null;
 }
 interface Category { id: string; name: string; color: string | null; }
 interface Goal { id: string; title: string; domain: string | null; detail: string | null; }
@@ -73,6 +74,27 @@ function fmtDueAt(iso: string | null, hasTime: boolean): string {
   const base = `${d.getMonth() + 1}/${d.getDate()}`;
   return hasTime ? `${base} ${pad(d.getHours())}:${pad(d.getMinutes())}` : base;
 }
+// 122: 期限の近さ(残り日数)を色付きバッジ情報に。due_at が 7日以内/超過のときのみ返す。
+//   1日前=赤 / 3日前=橙 / 7日前=黄 / 超過=濃赤(暦日差・ローカル=JST基準)。
+function dueInfo(iso: string | null): { days: number; label: string; color: string } | null {
+  if (!iso) return null;
+  const t0 = new Date(); t0.setHours(0, 0, 0, 0);
+  const d0 = new Date(iso); if (isNaN(d0.getTime())) return null; d0.setHours(0, 0, 0, 0);
+  const days = Math.round((d0.getTime() - t0.getTime()) / 86400000);
+  if (days > 7) return null;
+  if (days < 0) return { days, label: '期限超過', color: '#dc2626' };
+  if (days === 0) return { days, label: '今日まで', color: '#ef4444' };
+  if (days <= 1) return { days, label: 'あと1日', color: '#ef4444' };
+  if (days <= 3) return { days, label: `あと${days}日`, color: '#EF9F27' };
+  return { days, label: `あと${days}日`, color: '#eab308' };
+}
+// 完了日時の表示(M/D HH:mm)。
+function fmtCompleted(iso: string | null): string {
+  if (!iso) return '';
+  const d = new Date(iso);
+  return `${d.getMonth() + 1}/${d.getDate()} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
 // <input type="datetime-local"> 値(YYYY-MM-DDTHH:mm)
 function isoToLocalDT(iso: string | null): string {
   if (!iso) return '';
@@ -231,7 +253,9 @@ export default function MemoPage() {
 
   const patchMemo = async (id: string, patch: Partial<Memo>) => {
     setMemos((p) => p.map((m) => (m.id === id ? { ...m, ...patch } : m)));
-    await fetch(`/api/memos/${id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(patch) });
+    const res = await fetch(`/api/memos/${id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(patch) });
+    // サーバ確定値(completed_at 等)を反映。完了タブの完了日時を即時に表示するため。
+    if (res.ok) { const d = await res.json().catch(() => null); if (d?.memo) setMemos((p) => p.map((m) => (m.id === id ? d.memo : m))); }
   };
 
   const deleteMemo = async (id: string) => {
@@ -315,14 +339,20 @@ export default function MemoPage() {
   };
 
   const inbox = useMemo(() => memos.filter((m) => m.status === 'inbox'), [memos]);
-  const triaged = useMemo(() => memos.filter((m) => m.status === 'triaged' || m.status === 'done'), [memos]);
+  // アクティブ(整理済み・未完了)。4象限/カテゴリ/インボックス整理済み・第2象限の表示はこれを使う。
+  const active = useMemo(() => memos.filter((m) => m.status === 'triaged'), [memos]);
+  // 完了(終了フォルダ)。完了日の新しい順。
+  const doneMemos = useMemo(
+    () => memos.filter((m) => m.status === 'done').sort((a, b) => (b.completed_at ?? '').localeCompare(a.completed_at ?? '')),
+    [memos],
+  );
   const todosByMemo = useCallback((id: string) => todos.filter((t) => t.memo_id === id), [todos]);
 
   // 今週の第2象限カード用：未完了のQ2メモを重要度降順（目標紐付け優先）
   const q2Memos = useMemo(() =>
-    triaged.filter((m) => (m.quadrant ?? 4) === 2 && m.status !== 'done')
+    active.filter((m) => (m.quadrant ?? 4) === 2)
       .sort((a, b) => (b.importance ?? 0) - (a.importance ?? 0) || (a.goal_ref ? -1 : 0) - (b.goal_ref ? -1 : 0)),
-    [triaged]);
+    [active]);
 
   const card: React.CSSProperties = { background: 'var(--bg-secondary, #fff)', border: '1px solid var(--border-color, #e5e7eb)', borderRadius: 12, padding: 14 };
 
@@ -340,6 +370,9 @@ export default function MemoPage() {
       {!loading && q2Memos.length > 0 && (
         <WeeklyQ2Card memos={q2Memos} todos={todos} goalTitleById={goalTitleById} onOpen={() => setView('focus')} />
       )}
+
+      {/* ⏰ 期限が近いTODO（122・アプリ内アラート。7/3/1日前を色分けで上位表示） */}
+      {!loading && <UpcomingDueCard memos={active} />}
 
       {/* 目標・目的の設定 */}
       <div style={{ ...card, marginBottom: 14 }}>
@@ -426,7 +459,7 @@ export default function MemoPage() {
 
       {/* ビュー切替 */}
       <div style={{ display: 'flex', gap: 4, background: 'var(--bg-tertiary,#f3f4f6)', padding: 4, borderRadius: 10, marginBottom: 14, flexWrap: 'wrap' }}>
-        {([['inbox', 'インボックス'], ['plan', '計画'], ['calendar', 'カレンダー'], ['focus', '第2象限'], ['category', 'カテゴリ別'], ['matrix', '4象限']] as [View, string][]).map(([v, label]) => (
+        {([['inbox', 'インボックス'], ['plan', '計画'], ['calendar', 'カレンダー'], ['focus', '第2象限'], ['category', 'カテゴリ別'], ['matrix', '4象限'], ['done', '完了']] as [View, string][]).map(([v, label]) => (
           <button key={v} onClick={() => setView(v)} style={{ flex: '1 0 auto', minWidth: 92, padding: '8px 0', borderRadius: 7, border: 'none', cursor: 'pointer', fontSize: 13, fontWeight: 600, background: view === v ? 'var(--bg-secondary,#fff)' : 'transparent', color: view === v ? (v === 'focus' ? '#1D9E75' : 'var(--text-primary)') : 'var(--text-secondary,#6b7280)' }}>{label}</button>
         ))}
       </div>
@@ -450,8 +483,8 @@ export default function MemoPage() {
             )}
             <section>
               <h2 style={sectionTitle}>整理済み（AI提案・人が確定/修正）</h2>
-              {triaged.length === 0 ? <p style={{ textAlign: 'center', color: '#9ca3af', padding: 24, fontSize: 13 }}>まだありません</p>
-                : triaged.map((m) => (
+              {active.length === 0 ? <p style={{ textAlign: 'center', color: '#9ca3af', padding: 24, fontSize: 13 }}>まだありません</p>
+                : active.map((m) => (
                   <TriagedCard key={m.id} memo={m} categories={categories} goals={goals} categoryName={categoryName} goalTitleById={goalTitleById} todos={todosByMemo(m.id)} onPatch={patchMemo} onDelete={deleteMemo} onToggleTodo={toggleTodo} collapsible />
                 ))}
             </section>
@@ -463,9 +496,11 @@ export default function MemoPage() {
         ) : view === 'focus' ? (
           <FocusView memos={q2Memos} todos={todos} goalTitleById={goalTitleById} onToggleTodo={toggleTodo} onPatchTodo={patchTodo} onAddTodo={addTodo} />
         ) : view === 'category' ? (
-          <CategoryView memos={triaged} categories={categories} categoryName={categoryName} />
+          <CategoryView memos={active} categories={categories} categoryName={categoryName} />
+        ) : view === 'done' ? (
+          <DoneView memos={doneMemos} categoryName={categoryName} onPatch={patchMemo} onDelete={deleteMemo} />
         ) : (
-          <MatrixView memos={triaged} categoryName={categoryName} />
+          <MatrixView memos={active} categoryName={categoryName} />
         )}
     </div>
   );
@@ -506,6 +541,72 @@ function WeeklyQ2Card(props: { memos: Memo[]; todos: Todo[]; goalTitleById: (id:
         ))}
       </ul>
       <button onClick={onOpen} style={{ ...btnPrimary, padding: '6px 14px' }}>第2象限を予定に落とす →</button>
+    </div>
+  );
+}
+
+// ============================================================
+// ⏰ 期限が近いTODO（122・アプリ内アラート）
+//   アクティブな整理済みメモのうち due_at が7日以内/超過のものを、近い順に色分け表示。
+//   既存の通知センター(🔔)に加えて、画面上でも確実に気づけるようにする常設セクション。
+// ============================================================
+function UpcomingDueCard(props: { memos: Memo[] }) {
+  const items = props.memos
+    .map((m) => ({ m, info: dueInfo(m.due_at) }))
+    .filter((x): x is { m: Memo; info: NonNullable<ReturnType<typeof dueInfo>> } => x.info !== null)
+    .sort((a, b) => a.info.days - b.info.days);
+  if (items.length === 0) return null;
+  return (
+    <div style={{ border: '1px solid #EF9F27', background: 'rgba(239,159,39,0.08)', borderRadius: 12, padding: 14, marginBottom: 14 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+        <h2 style={{ fontSize: 14, fontWeight: 800, margin: 0, color: '#EF9F27' }}>⏰ 期限が近いTODO</h2>
+        <span style={{ fontSize: 11, color: 'var(--text-secondary,#6b7280)' }}>{items.length}件</span>
+      </div>
+      <ul style={{ listStyle: 'none', padding: 0, margin: 0 }}>
+        {items.slice(0, 8).map(({ m, info }) => (
+          <li key={m.id} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, padding: '4px 0' }}>
+            <span style={{ flexShrink: 0, fontSize: 10, fontWeight: 700, color: '#fff', background: info.color, padding: '1px 8px', borderRadius: 10, minWidth: 52, textAlign: 'center' }}>{info.label}</span>
+            <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{m.ai_summary || m.raw_text}</span>
+            {m.due_at && <span style={{ flexShrink: 0, fontSize: 10, color: '#9ca3af' }}>{fmtDueAt(m.due_at, m.has_time)}</span>}
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+// ============================================================
+// 完了ビュー（終了フォルダ・122）
+//   チェック/「完了」で done 化したメモを完了日の新しい順に一覧。
+//   「元に戻す（未完了化）」と「削除」を用意。アクティブ表示からは外れている。
+// ============================================================
+function DoneView(props: {
+  memos: Memo[]; categoryName: (id: string | null) => string | null;
+  onPatch: (id: string, p: Partial<Memo>) => void; onDelete: (id: string) => void;
+}) {
+  const { memos, categoryName, onPatch, onDelete } = props;
+  if (memos.length === 0) return <p style={{ textAlign: 'center', color: '#9ca3af', padding: 24, fontSize: 13 }}>完了したメモはまだありません</p>;
+  return (
+    <div>
+      <p style={{ fontSize: 12, color: 'var(--text-secondary,#6b7280)', margin: '0 0 10px' }}>
+        チェック/「完了」で終えたメモが、完了日の新しい順にここに集まります（{memos.length}件）。
+      </p>
+      {memos.map((m) => {
+        const q = (m.quadrant ?? 4) as QuadrantNum;
+        const s = QUADRANT[q];
+        const catName = categoryName(m.category_id);
+        return (
+          <div key={m.id} style={{ display: 'flex', alignItems: 'center', gap: 8, border: '1px solid var(--border-color,#e5e7eb)', borderLeft: `3px solid ${s.color}`, borderRadius: 8, padding: '8px 12px', marginBottom: 6, background: 'var(--bg-secondary,#fff)' }}>
+            <span style={{ flexShrink: 0, color: '#1D9E75', fontSize: 14 }}>✓</span>
+            <span style={{ flexShrink: 0, fontSize: 10, fontWeight: 700, color: s.color, background: s.bg, padding: '2px 7px', borderRadius: 10 }}>{s.short}</span>
+            <span style={{ flex: 1, minWidth: 0, fontSize: 13, color: '#6b7280', textDecoration: 'line-through', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{m.ai_summary || m.raw_text}</span>
+            {catName && <span style={{ flexShrink: 0, fontSize: 10, color: '#9ca3af' }}>#{catName}</span>}
+            {m.completed_at && <span style={{ flexShrink: 0, fontSize: 10, color: '#1D9E75' }}>完了 {fmtCompleted(m.completed_at)}</span>}
+            <button onClick={() => onPatch(m.id, { status: 'triaged' })} style={{ ...linkBtn, border: '1px solid #d1d5db', borderRadius: 6, padding: '3px 8px', flexShrink: 0 }}>元に戻す</button>
+            <button onClick={() => onDelete(m.id)} style={{ ...linkBtn, flexShrink: 0 }}>削除</button>
+          </div>
+        );
+      })}
     </div>
   );
 }
@@ -557,6 +658,7 @@ function TriagedCard(props: {
         <span style={{ flex: 1, minWidth: 0, fontSize: 13, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{title}</span>
         {catName && <span style={{ flexShrink: 0, fontSize: 10, color: '#6b7280', background: '#ffffffaa', padding: '1px 7px', borderRadius: 10 }}>#{catName}</span>}
         {memo.due_at && <span style={{ flexShrink: 0, fontSize: 10, color: '#1D9E75' }}>📅 {fmtDueAt(memo.due_at, memo.has_time)}</span>}
+        {(() => { const di = dueInfo(memo.due_at); return di ? <span style={{ flexShrink: 0, fontSize: 10, fontWeight: 700, color: '#fff', background: di.color, padding: '1px 7px', borderRadius: 10 }}>{di.label}</span> : null; })()}
         <span style={{ flexShrink: 0, fontSize: 11, color: '#9ca3af' }} aria-hidden>{open ? '▲' : '▼'}</span>
       </button>
 
@@ -1002,6 +1104,7 @@ function MatrixView(props: { memos: Memo[]; categoryName: (id: string | null) =>
                   <li key={m.id} style={{ background: '#ffffffaa', borderRadius: 8, padding: '6px 10px', marginBottom: 6, fontSize: 12 }}>
                     <span style={{ fontWeight: 600 }}>{m.ai_summary || m.raw_text}</span>
                     {categoryName(m.category_id) && <span style={{ fontSize: 10, color: '#9ca3af', marginLeft: 6 }}>#{categoryName(m.category_id)}</span>}
+                    {(() => { const di = dueInfo(m.due_at); return di ? <span style={{ fontSize: 9, fontWeight: 700, color: '#fff', background: di.color, padding: '1px 6px', borderRadius: 8, marginLeft: 6 }}>{di.label}</span> : null; })()}
                   </li>
                 ))}
               </ul>}

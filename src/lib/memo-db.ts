@@ -90,6 +90,7 @@ export interface Memo {
   ai_reason: string | null;
   due_at: string | null;          // AI抽出の絶対日時(timestamptz)。終日は has_time=false
   has_time: boolean;              // 時刻指定の有無(false=終日)
+  completed_at: string | null;    // 完了印の時刻(status='done'時にセット。未完了化でNULL)
   created_at: string;
   triaged_at: string | null;
 }
@@ -106,6 +107,7 @@ export interface MemoTodo {
   due_at: string | null;          // 時刻つき締切(timestamptz)。due_date と整合
   has_time: boolean;              // 時刻指定の有無(false=終日)
   quadrant: QuadrantNum | null;   // 由来メモの象限を引き継ぎ。TODO単位で上書き可
+  completed_at: string | null;    // 完了印の時刻(done=true時にセット。未完了化でNULL)
   created_at: string;
 }
 
@@ -191,6 +193,24 @@ export async function ensureMemoTables(sql: Sql): Promise<void> {
   await sql`ALTER TABLE memos ADD COLUMN IF NOT EXISTS has_time boolean NOT NULL DEFAULT false`;
   await sql`ALTER TABLE memo_todos ADD COLUMN IF NOT EXISTS due_at timestamptz`;
   await sql`ALTER TABLE memo_todos ADD COLUMN IF NOT EXISTS has_time boolean NOT NULL DEFAULT false`;
+
+  // 122: 完了フォルダ。完了印の時刻を保持(完了日順の一覧・元に戻す/削除用)。
+  //   完了状態は既存の status='done'(memos) / done=true(memo_todos) を活用し、
+  //   チェック時に completed_at=now() をセット、未完了化で NULL に戻す(冪等ALTER)。
+  await sql`ALTER TABLE memos ADD COLUMN IF NOT EXISTS completed_at timestamptz`;
+  await sql`ALTER TABLE memo_todos ADD COLUMN IF NOT EXISTS completed_at timestamptz`;
+
+  // 122: 期限アラートの二重送信防止。due_at の 7d/3d/1d 閾値ごとに1回だけ送る記録。
+  //   UNIQUE(memo_id, threshold) で同一閾値の重複通知を防ぐ。
+  await sql`CREATE TABLE IF NOT EXISTS memo_alerts (
+    id         uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    owner      text NOT NULL,
+    memo_id    uuid NOT NULL REFERENCES memos(id) ON DELETE CASCADE,
+    threshold  text NOT NULL,
+    sent_at    timestamptz NOT NULL DEFAULT now(),
+    UNIQUE(memo_id, threshold)
+  )`;
+  await sql`CREATE INDEX IF NOT EXISTS idx_memo_alerts_owner ON memo_alerts(owner)`;
 }
 
 // ============================================================

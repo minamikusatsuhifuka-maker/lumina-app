@@ -33,7 +33,7 @@ export async function GET(req: NextRequest) {
 
   const rows = await c.sql`
     SELECT t.id, t.memo_id, t.owner, t.title, t.done, t.sort_order,
-           t.due_date, t.scheduled_date, t.due_at, t.has_time, t.created_at,
+           t.due_date, t.scheduled_date, t.due_at, t.has_time, t.completed_at, t.created_at,
            COALESCE(t.quadrant, m.quadrant) AS quadrant,
            m.ai_summary AS memo_summary, m.raw_text AS memo_text,
            m.category_id, m.goal_ref
@@ -75,7 +75,7 @@ export async function POST(req: NextRequest) {
       ${body.due_date || null}, ${body.scheduled_date || null},
       ${body.due_at || null}, ${typeof body.has_time === 'boolean' ? body.has_time : false}, ${quadrant}
     )
-    RETURNING id, memo_id, owner, title, done, sort_order, due_date, scheduled_date, due_at, has_time, quadrant, created_at
+    RETURNING id, memo_id, owner, title, done, sort_order, due_date, scheduled_date, due_at, has_time, quadrant, completed_at, created_at
   `;
   return NextResponse.json({ todo: rows[0] });
 }
@@ -108,9 +108,14 @@ export async function PATCH(req: NextRequest) {
       due_date       = CASE WHEN ${hasDue} THEN ${due}::date ELSE due_date END,
       scheduled_date = CASE WHEN ${hasSched} THEN ${sched}::date ELSE scheduled_date END,
       due_at         = CASE WHEN ${hasDueAt} THEN ${dueAt}::timestamptz ELSE due_at END,
-      has_time       = COALESCE(${hasTime}::boolean, has_time)
+      has_time       = COALESCE(${hasTime}::boolean, has_time),
+      -- 122: チェックで完了→completed_at セット(既存値維持)、未完了化で NULL。
+      completed_at   = CASE
+        WHEN ${done}::boolean IS TRUE THEN COALESCE(completed_at, now())
+        WHEN ${done}::boolean IS FALSE THEN NULL
+        ELSE completed_at END
     WHERE id = ${id} AND owner = ${c.owner}
-    RETURNING id, memo_id, owner, title, done, sort_order, due_date, scheduled_date, due_at, has_time, quadrant, created_at
+    RETURNING id, memo_id, owner, title, done, sort_order, due_date, scheduled_date, due_at, has_time, quadrant, completed_at, created_at
   `;
   if (rows.length === 0) return NextResponse.json({ error: 'not found' }, { status: 404 });
   return NextResponse.json({ todo: rows[0] });

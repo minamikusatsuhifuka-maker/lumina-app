@@ -50,7 +50,12 @@ export async function PATCH(req: NextRequest, { params }: Ctx) {
       category_id = CASE WHEN ${hasCategory} THEN ${categoryId}::uuid ELSE category_id END,
       goal_ref    = CASE WHEN ${hasGoal} THEN ${goalRef}::uuid ELSE goal_ref END,
       due_at      = CASE WHEN ${hasDueAt} THEN ${dueAt}::timestamptz ELSE due_at END,
-      has_time    = COALESCE(${hasTime}::boolean, has_time)
+      has_time    = COALESCE(${hasTime}::boolean, has_time),
+      -- 122: 完了印。done化で completed_at をセット(既存値は維持)、他状態へ変更で NULL。
+      completed_at = CASE
+        WHEN ${status} = 'done' THEN COALESCE(completed_at, now())
+        WHEN ${status} IS NOT NULL THEN NULL
+        ELSE completed_at END
     WHERE id = ${id} AND owner = ${owner}
     RETURNING *
   `;
