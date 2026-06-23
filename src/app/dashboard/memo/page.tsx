@@ -167,6 +167,16 @@ export default function MemoPage() {
   const [bulkText, setBulkText] = useState('');
   const [bulkBusy, setBulkBusy] = useState(false);
 
+  // 125: 「追加したら自動で整理」トグル(localStorage記憶・既定OFF)
+  const [autoTriage, setAutoTriage] = useState(false);
+  useEffect(() => { try { setAutoTriage(localStorage.getItem('memo_auto_triage') === '1'); } catch { /* SSR/権限なし */ } }, []);
+  const toggleAutoTriage = (v: boolean) => { setAutoTriage(v); try { localStorage.setItem('memo_auto_triage', v ? '1' : '0'); } catch { /* noop */ } };
+
+  // 125: どこからでも使えるクイック入力(FAB)
+  const [fabOpen, setFabOpen] = useState(false);
+  const [fabText, setFabText] = useState('');
+  const [fabBusy, setFabBusy] = useState(false);
+
   const load = useCallback(async () => {
     setLoading(true);
     try {
@@ -188,15 +198,53 @@ export default function MemoPage() {
   // TODOの実効象限（TODO自身→由来メモ→Q4）
   const effQuadrant = useCallback((t: Todo): QuadrantNum => (t.quadrant ?? memoById(t.memo_id)?.quadrant ?? 4) as QuadrantNum, [memoById]);
 
+  // 125: メモ1件を作成しstate反映。成功なら新規memo idを返す(自動整理の連結用)。単一入力/FAB共用。
+  const createMemo = useCallback(async (text: string): Promise<string | null> => {
+    const res = await fetch('/api/memos', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ raw_text: text }) });
+    if (!res.ok) return null;
+    const d = await res.json();
+    if (d.memo) setMemos((p) => [d.memo, ...p]);
+    return d.memo?.id ?? null;
+  }, []);
+
+  // 125: 追加直後の自動整理(既存triageを流用・新ロジックは作らない)。AIは提案・人が確定は維持。
+  const runAutoTriage = useCallback(async (id: string) => {
+    try {
+      const res = await fetch(`/api/memos/${id}/triage`, { method: 'POST' });
+      if (res.ok) {
+        const d = await res.json();
+        await load();
+        if (d.fallback) showToast('追加→AI判定に失敗（暫定値で保存）', 'error');
+        else showToast('追加して整理しました', 'success');
+      } else { await load(); showToast('追加しました（整理は失敗）', 'warning'); }
+    } catch { await load(); showToast('追加しました（整理は失敗）', 'warning'); }
+  }, [load, showToast]);
+
   const addMemo = async () => {
     const text = input.trim();
     if (!text || busy) return;
     setBusy(true);
     try {
-      const res = await fetch('/api/memos', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ raw_text: text }) });
-      if (res.ok) { const d = await res.json(); setMemos((p) => [d.memo, ...p]); setInput(''); }
-      else showToast('保存に失敗しました', 'error');
+      const id = await createMemo(text);
+      if (!id) { showToast('保存に失敗しました', 'error'); return; }
+      setInput('');
+      if (autoTriage) { setTriagingId(id); await runAutoTriage(id); setTriagingId(null); }
     } finally { setBusy(false); }
+  };
+
+  // 125: FABクイック入力の保存(タブ切替なしで即投入)。自動整理ONなら追加直後にtriage。
+  const submitFab = async () => {
+    const text = fabText.trim();
+    if (!text || fabBusy) return;
+    setFabBusy(true);
+    try {
+      const id = await createMemo(text);
+      if (!id) { showToast('保存に失敗しました', 'error'); return; }
+      setFabText('');
+      setFabOpen(false);
+      if (autoTriage) await runAutoTriage(id);
+      else showToast('追加しました', 'success');
+    } finally { setFabBusy(false); }
   };
 
   // 一括入力テキストを「1行＝1メモ」で追加（空行スキップ・トリムはAPI側でも実施）
@@ -222,6 +270,14 @@ export default function MemoPage() {
       if (d.skipped) parts.push(`重複${d.skipped}件スキップ`);
       if (d.truncated) parts.push(`上限超過${d.truncated}件`);
       showToast(parts.join(' / '), 'success');
+      // 125: 自動整理ONなら既存のバッチtriage(triage-all)で一気に整理(レート配慮は既存に倣う)。
+      if (autoTriage && (d.inserted ?? 0) > 0) {
+        try {
+          const r = await fetch('/api/memos/triage-all', { method: 'POST' });
+          if (r.ok) { const dd = await r.json(); showToast(`自動整理: ${dd.triaged}件成功${dd.failed ? ` / ${dd.failed}件失敗` : ''}`, dd.failed ? 'error' : 'success'); }
+          await load();
+        } catch { /* 整理失敗は黙ってinboxに残す(後追い可) */ }
+      }
     } catch {
       showToast('通信エラー', 'error');
     } finally {
@@ -456,6 +512,11 @@ export default function MemoPage() {
           </div>
         </>
       )}
+      {/* 125: 追加したら自動で整理(既定OFF・localStorage記憶)。ONでも後から手修正可。 */}
+      <label style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 12, paddingTop: 12, borderTop: '1px solid var(--border-color,#f0f0f0)', fontSize: 12, color: 'var(--text-secondary,#6b7280)', cursor: 'pointer' }}>
+        <input type="checkbox" checked={autoTriage} onChange={(e) => toggleAutoTriage(e.target.checked)} />
+        <span>⚡ 追加したら自動で整理（AIが象限・カテゴリ・目標まで判定）<span style={{ color: '#9ca3af' }}>※既定OFF・AI実行</span></span>
+      </label>
     </div>
   );
 
@@ -539,6 +600,51 @@ export default function MemoPage() {
             <MatrixView memos={active} categoryName={categoryName} />
           </>
         )}
+
+      {/* 125: どこからでもクイック入力(FAB)。どのタブでも右下＋で1行メモを即投入。 */}
+      <button
+        onClick={() => setFabOpen(true)}
+        aria-label="メモをクイック追加"
+        title="メモをクイック追加"
+        style={{ position: 'fixed', right: 20, bottom: 24, zIndex: 60, width: 56, height: 56, borderRadius: '50%', border: 'none', cursor: 'pointer', background: '#1D9E75', color: '#fff', fontSize: 28, lineHeight: 1, boxShadow: '0 6px 20px rgba(29,158,117,0.45)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+      >＋</button>
+
+      {fabOpen && (
+        <div
+          onClick={() => setFabOpen(false)}
+          style={{ position: 'fixed', inset: 0, zIndex: 70, background: 'rgba(0,0,0,0.35)', display: 'flex', alignItems: 'flex-end', justifyContent: 'center', padding: 16 }}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{ width: '100%', maxWidth: 520, background: 'var(--bg-secondary,#fff)', border: '1px solid var(--border-color,#e5e7eb)', borderRadius: 14, padding: 16, boxShadow: '0 12px 40px rgba(0,0,0,0.25)', marginBottom: 'env(safe-area-inset-bottom, 0px)' }}
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+              <span style={{ fontSize: 14, fontWeight: 700 }}>⚡ クイック入力</span>
+              <button onClick={() => setFabOpen(false)} style={{ ...linkBtn, fontSize: 18 }} aria-label="閉じる">×</button>
+            </div>
+            <textarea
+              autoFocus
+              value={fabText}
+              onChange={(e) => setFabText(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Escape') { e.preventDefault(); setFabOpen(false); }
+                if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') { e.preventDefault(); submitFab(); }
+              }}
+              placeholder="思いついたことを1行で（⌘/Ctrl+Enterで保存・Escで閉じる）…"
+              rows={3}
+              style={{ ...inputStyle, width: '100%', boxSizing: 'border-box', resize: 'vertical', fontFamily: 'inherit', lineHeight: 1.6 }}
+            />
+            <label style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 10, fontSize: 12, color: 'var(--text-secondary,#6b7280)', cursor: 'pointer' }}>
+              <input type="checkbox" checked={autoTriage} onChange={(e) => toggleAutoTriage(e.target.checked)} />
+              <span>⚡ 追加したら自動で整理<span style={{ color: '#9ca3af' }}>（既定OFF・AI実行）</span></span>
+            </label>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 10 }}>
+              <button onClick={() => setFabOpen(false)} disabled={fabBusy} style={btnGhost}>キャンセル</button>
+              <button onClick={submitFab} disabled={fabBusy || !fabText.trim()} style={{ ...btnPrimary, opacity: fabBusy || !fabText.trim() ? 0.6 : 1 }}>{fabBusy ? '⏳ 追加中...' : '追加'}</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
