@@ -330,9 +330,27 @@ export default function MemoPage() {
     await fetch(`/api/memos/${id}`, { method: 'DELETE' });
   };
 
-  const toggleTodo = async (t: Todo) => {
-    setTodos((p) => p.map((x) => (x.id === t.id ? { ...x, done: !x.done } : x)));
-    await fetch('/api/memo-todos', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: t.id, done: !t.done }) });
+  // 129: メモを完了化し、直後に即時アンドゥ用トーストを出す（チェック直後に取り消せる）。
+  const completeMemo = async (id: string) => {
+    await patchMemo(id, { status: 'done' });
+    showToast('完了にしました', 'success', { action: { label: '↩ 元に戻す', onClick: () => patchMemo(id, { status: 'triaged' }) } });
+  };
+
+  // 129: TODOの完了/未完了を切替。完了化でcompleted_at記録、未完了化でNULL（サーバ確定値を反映）。
+  const setTodoDone = async (id: string, done: boolean) => {
+    setTodos((p) => p.map((x) => (x.id === id ? { ...x, done } : x)));
+    const res = await fetch('/api/memo-todos', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id, done }) });
+    // completed_at をサーバ確定値で反映（完了TODO一覧の完了日時を即時表示するため）。
+    if (res.ok) { const d = await res.json().catch(() => null); if (d?.todo) setTodos((p) => p.map((x) => (x.id === id ? d.todo : x))); }
+  };
+
+  const toggleTodo = (t: Todo) => {
+    const next = !t.done;
+    setTodoDone(t.id, next);
+    // 129: チェックで完了した直後に即時アンドゥ用トースト（誤チェックをその場で取り消せる）。
+    if (next) {
+      showToast('完了にしました', 'success', { action: { label: '↩ 元に戻す', onClick: () => setTodoDone(t.id, false) } });
+    }
   };
 
   // TODOの締切/予定日/象限/並びを更新（楽観的）
@@ -434,6 +452,12 @@ export default function MemoPage() {
     [memos],
   );
   const todosByMemo = useCallback((id: string) => todos.filter((t) => t.memo_id === id), [todos]);
+
+  // 129: 完了TODO(サブタスク)。completed_atの新しい順。完了タブの「完了TODO」一覧で使う。
+  const doneTodos = useMemo(
+    () => todos.filter((t) => t.done).sort((a, b) => (b.completed_at ?? '').localeCompare(a.completed_at ?? '')),
+    [todos],
+  );
 
   // 今週の第2象限カード用：未完了のQ2メモを重要度降順（目標紐付け優先）
   const q2Memos = useMemo(() =>
@@ -610,7 +634,7 @@ export default function MemoPage() {
               <h2 style={sectionTitle}>整理済み（AI提案・人が確定/修正）</h2>
               {active.length === 0 ? <p style={{ textAlign: 'center', color: '#9ca3af', padding: 24, fontSize: 13 }}>まだありません</p>
                 : active.map((m) => (
-                  <TriagedCard key={m.id} memo={m} categories={categories} goals={goals} categoryName={categoryName} goalTitleById={goalTitleById} todos={todosByMemo(m.id)} onPatch={patchMemo} onDelete={deleteMemo} onToggleTodo={toggleTodo} collapsible />
+                  <TriagedCard key={m.id} memo={m} categories={categories} goals={goals} categoryName={categoryName} goalTitleById={goalTitleById} todos={todosByMemo(m.id)} onPatch={patchMemo} onComplete={completeMemo} onDelete={deleteMemo} onToggleTodo={toggleTodo} collapsible />
                 ))}
             </section>
           </>
@@ -627,7 +651,7 @@ export default function MemoPage() {
         ) : view === 'category' ? (
           <CategoryView memos={active} categories={categories} categoryName={categoryName} />
         ) : view === 'done' ? (
-          <DoneView memos={doneMemos} categoryName={categoryName} onPatch={patchMemo} onDelete={deleteMemo} />
+          <DoneView memos={doneMemos} doneTodos={doneTodos} memoById={memoById} categoryName={categoryName} onPatch={patchMemo} onDelete={deleteMemo} onRestoreTodo={(id) => setTodoDone(id, false)} />
         ) : (
           <>
             {/* 123: ⏰期限が近いTODOアラートは既定の4象限ビュー先頭に表示（読み込み時に気づける） */}
@@ -907,32 +931,64 @@ function UpcomingDueCard(props: { memos: Memo[] }) {
 //   「元に戻す（未完了化）」と「削除」を用意。アクティブ表示からは外れている。
 // ============================================================
 function DoneView(props: {
-  memos: Memo[]; categoryName: (id: string | null) => string | null;
+  memos: Memo[]; doneTodos: Todo[]; memoById: (id: string) => Memo | null;
+  categoryName: (id: string | null) => string | null;
   onPatch: (id: string, p: Partial<Memo>) => void; onDelete: (id: string) => void;
+  onRestoreTodo: (id: string) => void;
 }) {
-  const { memos, categoryName, onPatch, onDelete } = props;
-  if (memos.length === 0) return <p style={{ textAlign: 'center', color: '#9ca3af', padding: 24, fontSize: 13 }}>完了したメモはまだありません</p>;
+  const { memos, doneTodos, memoById, categoryName, onPatch, onDelete, onRestoreTodo } = props;
+  // 129: 完了メモ(122)と完了TODO(サブタスク)の2階層。どちらも「行き先」が見え、↩元に戻せる。
+  if (memos.length === 0 && doneTodos.length === 0)
+    return <p style={{ textAlign: 'center', color: '#9ca3af', padding: 24, fontSize: 13 }}>完了したメモ・TODOはまだありません</p>;
+
   return (
     <div>
-      <p style={{ fontSize: 12, color: 'var(--text-secondary,#6b7280)', margin: '0 0 10px' }}>
-        チェック/「完了」で終えたメモが、完了日の新しい順にここに集まります（{memos.length}件）。
+      {/* 129: ヘルプ — 完了は消えずにここへ保管され、↩元に戻せる。消えるのは削除時のみ。 */}
+      <p style={{ fontSize: 12, color: 'var(--text-secondary,#6b7280)', margin: '0 0 12px', lineHeight: 1.6 }}>
+        チェックしたメモ・TODOはここに保管され、<strong style={{ color: '#1D9E75' }}>↩元に戻す</strong>で復元できます。完全に消えるのは「削除」時のみです。
       </p>
-      {memos.map((m) => {
-        const q = (m.quadrant ?? 4) as QuadrantNum;
-        const s = QUADRANT[q];
-        const catName = categoryName(m.category_id);
-        return (
-          <div key={m.id} style={{ display: 'flex', alignItems: 'center', gap: 8, border: '1px solid var(--border-color,#e5e7eb)', borderLeft: `3px solid ${s.color}`, borderRadius: 8, padding: '8px 12px', marginBottom: 6, background: 'var(--bg-secondary,#fff)' }}>
-            <span style={{ flexShrink: 0, color: '#1D9E75', fontSize: 14 }}>✓</span>
-            <span style={{ flexShrink: 0, fontSize: 10, fontWeight: 700, color: s.color, background: s.bg, padding: '2px 7px', borderRadius: 10 }}>{s.short}</span>
-            <span style={{ flex: 1, minWidth: 0, fontSize: 13, color: '#6b7280', textDecoration: 'line-through', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{m.ai_summary || m.raw_text}</span>
-            {catName && <span style={{ flexShrink: 0, fontSize: 10, color: '#9ca3af' }}>#{catName}</span>}
-            {m.completed_at && <span style={{ flexShrink: 0, fontSize: 10, color: '#1D9E75' }}>完了 {fmtCompleted(m.completed_at)}</span>}
-            <button onClick={() => onPatch(m.id, { status: 'triaged' })} style={{ ...linkBtn, border: '1px solid #d1d5db', borderRadius: 6, padding: '3px 8px', flexShrink: 0 }}>元に戻す</button>
-            <button onClick={() => onDelete(m.id)} style={{ ...linkBtn, flexShrink: 0 }}>削除</button>
-          </div>
-        );
-      })}
+
+      {/* 完了メモ（終了フォルダ・122） */}
+      <h3 style={{ fontSize: 13, fontWeight: 700, margin: '0 0 8px', color: 'var(--text-primary)' }}>完了メモ <span style={{ fontSize: 11, fontWeight: 400, color: '#9ca3af' }}>{memos.length}</span></h3>
+      {memos.length === 0 ? <p style={{ color: '#9ca3af', padding: '4px 0 12px', fontSize: 12 }}>完了したメモはまだありません</p>
+        : memos.map((m) => {
+          const q = (m.quadrant ?? 4) as QuadrantNum;
+          const s = QUADRANT[q];
+          const catName = categoryName(m.category_id);
+          return (
+            <div key={m.id} style={{ display: 'flex', alignItems: 'center', gap: 8, border: '1px solid var(--border-color,#e5e7eb)', borderLeft: `3px solid ${s.color}`, borderRadius: 8, padding: '8px 12px', marginBottom: 6, background: 'var(--bg-secondary,#fff)' }}>
+              <span style={{ flexShrink: 0, color: '#1D9E75', fontSize: 14 }}>✓</span>
+              <span style={{ flexShrink: 0, fontSize: 10, fontWeight: 700, color: s.color, background: s.bg, padding: '2px 7px', borderRadius: 10 }}>{s.short}</span>
+              <span style={{ flex: 1, minWidth: 0, fontSize: 13, color: '#6b7280', textDecoration: 'line-through', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{m.ai_summary || m.raw_text}</span>
+              {catName && <span style={{ flexShrink: 0, fontSize: 10, color: '#9ca3af' }}>#{catName}</span>}
+              {m.completed_at && <span style={{ flexShrink: 0, fontSize: 10, color: '#1D9E75' }}>完了 {fmtCompleted(m.completed_at)}</span>}
+              <button onClick={() => onPatch(m.id, { status: 'triaged' })} style={{ ...linkBtn, border: '1px solid #d1d5db', borderRadius: 6, padding: '3px 8px', flexShrink: 0 }}>↩元に戻す</button>
+              <button onClick={() => onDelete(m.id)} style={{ ...linkBtn, flexShrink: 0 }}>削除</button>
+            </div>
+          );
+        })}
+
+      {/* 129: 完了TODO（サブタスク）— 親メモ名・カテゴリ・完了日時つき。↩で未完了へ復元。 */}
+      <h3 style={{ fontSize: 13, fontWeight: 700, margin: '16px 0 8px', color: 'var(--text-primary)' }}>完了TODO <span style={{ fontSize: 11, fontWeight: 400, color: '#9ca3af' }}>{doneTodos.length}</span></h3>
+      {doneTodos.length === 0 ? <p style={{ color: '#9ca3af', padding: '4px 0', fontSize: 12 }}>完了したTODOはまだありません</p>
+        : doneTodos.map((t) => {
+          const m = memoById(t.memo_id);
+          const q = (t.quadrant ?? m?.quadrant ?? 4) as QuadrantNum;
+          const s = QUADRANT[q];
+          const catName = categoryName(m?.category_id ?? null);
+          return (
+            <div key={t.id} style={{ display: 'flex', alignItems: 'center', gap: 8, border: '1px solid var(--border-color,#e5e7eb)', borderLeft: `3px solid ${s.color}`, borderRadius: 8, padding: '8px 12px', marginBottom: 6, background: 'var(--bg-secondary,#fff)' }}>
+              <span style={{ flexShrink: 0, color: '#1D9E75', fontSize: 14 }}>✓</span>
+              <span style={{ flexShrink: 0, fontSize: 10, fontWeight: 700, color: s.color, background: s.bg, padding: '2px 7px', borderRadius: 10 }}>{s.short}</span>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 13, color: '#6b7280', textDecoration: 'line-through', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{t.title}</div>
+                {m && <div style={{ fontSize: 10, color: '#9ca3af', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>↳ {m.ai_summary || m.raw_text}{catName && ` ・ #${catName}`}</div>}
+              </div>
+              {t.completed_at && <span style={{ flexShrink: 0, fontSize: 10, color: '#1D9E75' }}>完了 {fmtCompleted(t.completed_at)}</span>}
+              <button onClick={() => onRestoreTodo(t.id)} style={{ ...linkBtn, border: '1px solid #d1d5db', borderRadius: 6, padding: '3px 8px', flexShrink: 0 }}>↩元に戻す</button>
+            </div>
+          );
+        })}
     </div>
   );
 }
@@ -966,9 +1022,10 @@ function TriagedCard(props: {
   memo: Memo; categories: Category[]; goals: Goal[];
   categoryName: (id: string | null) => string | null; goalTitleById: (id: string | null) => string | null;
   todos: Todo[]; onPatch: (id: string, p: Partial<Memo>) => void; onDelete: (id: string) => void; onToggleTodo: (t: Todo) => void;
+  onComplete?: (id: string) => void; // 129: 完了化（アンドゥトースト付き）。無ければonPatchにフォールバック
   collapsible?: boolean; // true: 折りたたみ式（1行・クリックで展開）。インボックスで使用
 }) {
-  const { memo, categories, goals, categoryName, goalTitleById, todos, onPatch, onDelete, onToggleTodo, collapsible } = props;
+  const { memo, categories, goals, categoryName, goalTitleById, todos, onPatch, onComplete, onDelete, onToggleTodo, collapsible } = props;
   const [open, setOpen] = useState(!collapsible); // 折りたたみ対象は既定で閉じる
   const q = (memo.quadrant ?? 4) as QuadrantNum;
   const s = QUADRANT[q];
@@ -1027,7 +1084,7 @@ function TriagedCard(props: {
             <span style={{ fontSize: 11, color: '#9ca3af' }}>重要{memo.importance ?? '-'}/緊急{memo.urgency ?? '-'}</span>
             <div style={{ marginLeft: 'auto', display: 'flex', gap: 8 }}>
               {memo.status !== 'done'
-                ? <button onClick={() => onPatch(memo.id, { status: 'done' })} style={{ ...btnGhost, padding: '4px 10px' }}>完了</button>
+                ? <button onClick={() => (onComplete ? onComplete(memo.id) : onPatch(memo.id, { status: 'done' }))} style={{ ...btnGhost, padding: '4px 10px' }}>完了</button>
                 : <button onClick={() => onPatch(memo.id, { status: 'triaged' })} style={{ ...linkBtn, border: '1px solid #d1d5db', borderRadius: 6, padding: '4px 10px' }}>戻す</button>}
               <button onClick={() => onDelete(memo.id)} style={linkBtn}>削除</button>
             </div>
@@ -1134,7 +1191,7 @@ function PlanView(props: {
             <div key={t.id} style={{ display: 'flex', alignItems: 'center', gap: 8, border: '1px solid var(--border-color,#e5e7eb)', borderLeft: `3px solid ${s.color}`, borderRadius: 8, padding: '8px 10px', marginBottom: 6, background: 'var(--bg-secondary,#fff)' }}>
               <input type="checkbox" checked={t.done} onChange={() => onToggle(t)} />
               <div style={{ minWidth: 0, flex: 1 }}>
-                <div style={{ fontSize: 13, textDecoration: t.done ? 'line-through' : 'none', color: t.done ? '#9ca3af' : 'inherit', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{t.title}</div>
+                <div style={{ fontSize: 13, textDecoration: t.done ? 'line-through' : 'none', color: t.done ? '#9ca3af' : 'inherit', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{t.title}{t.done && t.completed_at && <span style={{ marginLeft: 6, fontSize: 10, color: '#1D9E75', textDecoration: 'none' }}>完了 {fmtCompleted(t.completed_at)}</span>}</div>
                 {m && <div style={{ fontSize: 11, color: '#9ca3af', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{m.ai_summary || m.raw_text}{categoryName(m.category_id) && ` ・ #${categoryName(m.category_id)}`}</div>}
               </div>
               <span style={{ flexShrink: 0, fontSize: 10, fontWeight: 700, color: s.color, background: s.bg, padding: '2px 7px', borderRadius: 10 }}>{s.short}</span>

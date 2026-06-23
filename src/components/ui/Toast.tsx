@@ -4,14 +4,19 @@ import { useState, useEffect, createContext, useContext, useCallback } from 'rea
 
 type ToastType = 'success' | 'error' | 'info' | 'warning';
 
+// 129: アクション付きトースト（誤チェックの即時アンドゥ等）。任意なので既存呼び出しは無変更で動く。
+interface ToastAction { label: string; onClick: () => void; }
+interface ToastOptions { action?: ToastAction; duration?: number; }
+
 interface ToastItem {
   id: string;
   message: string;
   type: ToastType;
+  action?: ToastAction;
 }
 
 const ToastContext = createContext<{
-  showToast: (message: string, type?: ToastType) => void;
+  showToast: (message: string, type?: ToastType, options?: ToastOptions) => void;
 }>({ showToast: () => {} });
 
 const ICONS: Record<ToastType, string> = { success: '✅', error: '❌', info: '💬', warning: '⚠️' };
@@ -31,11 +36,18 @@ const TEXT_COLORS: Record<ToastType, string> = {
 export function ToastProvider({ children }: { children: React.ReactNode }) {
   const [toasts, setToasts] = useState<ToastItem[]>([]);
 
-  const showToast = useCallback((message: string, type: ToastType = 'success') => {
+  const showToast = useCallback((message: string, type: ToastType = 'success', options?: ToastOptions) => {
     const id = Math.random().toString(36).slice(2);
-    setToasts(prev => [...prev, { id, message, type }]);
-    setTimeout(() => setToasts(prev => prev.filter(t => t.id !== id)), 3000);
+    // アクション付き（アンドゥ）は積み重ねず直近1件のみ残す。表示も少し長め。
+    if (options?.action) {
+      setToasts(prev => [...prev.filter(t => !t.action), { id, message, type, action: options.action }]);
+    } else {
+      setToasts(prev => [...prev, { id, message, type }]);
+    }
+    setTimeout(() => setToasts(prev => prev.filter(t => t.id !== id)), options?.duration ?? (options?.action ? 5000 : 3000));
   }, []);
+
+  const dismiss = useCallback((id: string) => setToasts(prev => prev.filter(t => t.id !== id)), []);
 
   return (
     <ToastContext.Provider value={{ showToast }}>
@@ -58,6 +70,19 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
           >
             <span>{ICONS[toast.type]}</span>
             <span>{toast.message}</span>
+            {toast.action && (
+              <button
+                onClick={() => { toast.action!.onClick(); dismiss(toast.id); }}
+                style={{
+                  marginLeft: 4, padding: '3px 10px', borderRadius: 8,
+                  background: TEXT_COLORS[toast.type], color: '#fff',
+                  border: 'none', fontSize: 12, fontWeight: 700, cursor: 'pointer',
+                  whiteSpace: 'nowrap',
+                }}
+              >
+                {toast.action.label}
+              </button>
+            )}
           </div>
         ))}
       </div>
