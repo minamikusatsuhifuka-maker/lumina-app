@@ -9,7 +9,7 @@
 import { useEffect, useState, useCallback, useMemo } from 'react';
 import { useToast } from '@/components/ui/Toast';
 
-type View = 'inbox' | 'plan' | 'calendar' | 'focus' | 'category' | 'matrix' | 'done';
+type View = 'inbox' | 'plan' | 'calendar' | 'focus' | 'category' | 'matrix' | 'done' | 'input' | 'goals';
 type QuadrantNum = 1 | 2 | 3 | 4;
 type MemoKind = 'task' | 'idea' | 'note' | 'reference';
 
@@ -356,9 +356,102 @@ export default function MemoPage() {
 
   const card: React.CSSProperties = { background: 'var(--bg-secondary, #fff)', border: '1px solid var(--border-color, #e5e7eb)', borderRadius: 12, padding: 14 };
 
+  // 123: 「目標・目的」タブの中身（旧・常時表示セクションを機能無変更で移設）
+  const goalsSection = (
+    <div style={{ ...card }}>
+      <button onClick={() => setShowGoals((v) => !v)} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 14, fontWeight: 700, color: 'var(--text-primary)', padding: 0, display: 'flex', alignItems: 'center', gap: 6 }}>
+        🎯 目標・目的（AI判断の基準）<span style={{ fontSize: 12, color: 'var(--text-secondary,#6b7280)' }}>{goals.length}件 {showGoals ? '▲' : '▼'}</span>
+      </button>
+      {showGoals && (
+        <div style={{ marginTop: 10 }}>
+          {goals.length === 0 && <p style={{ fontSize: 12, color: '#EF9F27' }}>目標が未設定です。設定するとAIの重要度判定が目標逆算になります。</p>}
+          {goals.map((g) => (
+            <div key={g.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 0', borderBottom: '1px solid var(--border-color,#f0f0f0)' }}>
+              <span style={{ fontSize: 13, flex: 1 }}>{g.title}{g.domain && <span style={{ fontSize: 11, color: 'var(--text-secondary,#6b7280)', marginLeft: 6 }}>#{g.domain}</span>}</span>
+              <button onClick={() => deleteGoal(g.id)} style={{ background: 'none', border: 'none', color: '#9ca3af', cursor: 'pointer', fontSize: 12 }}>削除</button>
+            </div>
+          ))}
+          {!bulkMode ? (
+            <>
+              <div style={{ display: 'flex', gap: 6, marginTop: 10, flexWrap: 'wrap' }}>
+                <input value={goalTitle} onChange={(e) => setGoalTitle(e.target.value)} placeholder="目標（例：年内に学会発表）" style={inputStyle} />
+                <input value={goalDomain} onChange={(e) => setGoalDomain(e.target.value)} placeholder="分野(任意)" style={{ ...inputStyle, width: 110 }} />
+                <button onClick={addGoal} disabled={!goalTitle.trim()} style={btnPrimary}>追加</button>
+              </div>
+              <button onClick={() => setBulkMode(true)} style={{ ...btnGhost, marginTop: 8, padding: '6px 12px', fontSize: 12 }}>📋 まとめて登録</button>
+            </>
+          ) : (
+            <div style={{ marginTop: 10 }}>
+              <textarea
+                value={bulkText}
+                onChange={(e) => setBulkText(e.target.value)}
+                placeholder={'1行に1目標。「分野: 目標本文」の形式（分野は任意）。\n例:\n健康: 週3回の運動を習慣化する\n育成: 自律的に成長する組織をつくる\n最新知見を継続的にアップデートする'}
+                rows={6}
+                style={{ ...inputStyle, width: '100%', boxSizing: 'border-box', resize: 'vertical', fontFamily: 'inherit', lineHeight: 1.6 }}
+              />
+              <p style={{ fontSize: 11, color: 'var(--text-secondary,#6b7280)', margin: '6px 0 0' }}>
+                区切りは <code>:</code> <code>：</code> <code>｜</code> <code>|</code> タブ のいずれか。区切りなしの行は目標本文のみ。最大50件・重複はスキップ。
+              </p>
+              <div style={{ display: 'flex', gap: 6, marginTop: 8 }}>
+                <button onClick={bulkAddGoals} disabled={bulkBusy || !bulkText.trim()} style={{ ...btnPrimary, opacity: bulkBusy || !bulkText.trim() ? 0.6 : 1 }}>
+                  {bulkBusy ? '⏳ 登録中...' : '一括登録'}
+                </button>
+                <button onClick={() => { setBulkMode(false); setBulkText(''); }} disabled={bulkBusy} style={btnGhost}>キャンセル</button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+
+  // 123: 「メモ入力」タブの中身（旧・常時表示セクションを機能無変更で移設）
+  const memoInputSection = (
+    <div style={{ ...card }}>
+      {!memoBulkMode ? (
+        <>
+          <textarea value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => { if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') addMemo(); }} placeholder="メモを入力（⌘/Ctrl+Enterで保存）…" rows={5} style={{ ...inputStyle, width: '100%', minHeight: 120, maxHeight: '70vh', resize: 'vertical', boxSizing: 'border-box', fontFamily: 'inherit', lineHeight: 1.6 }} />
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 8, flexWrap: 'wrap', gap: 8 }}>
+            <span style={{ fontSize: 12, color: 'var(--text-secondary,#9ca3af)' }}>インボックス {inbox.length}件</span>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button onClick={() => setMemoBulkMode(true)} style={{ ...btnGhost, padding: '8px 12px', fontSize: 12 }}>📋 まとめて追加</button>
+              {inbox.length > 0 && <button onClick={triageAll} disabled={busy} style={btnGhost}>{busy ? '整理中…' : 'まとめて整理'}</button>}
+              <button onClick={addMemo} disabled={busy || !input.trim()} style={btnPrimary}>追加</button>
+            </div>
+          </div>
+        </>
+      ) : (
+        <>
+          <textarea
+            value={memoBulkText}
+            onChange={(e) => setMemoBulkText(e.target.value)}
+            placeholder={'1行＝1メモ。空行はスキップ。最大100件。複数行の長いメモは単一入力欄を使ってください。\n例:\n院内勉強会の年間カリキュラムを設計する\n選択理論の本を1日10ページ読み進める\nアチーブメント受講費を6/25までに支払う'}
+            rows={10}
+            style={{ ...inputStyle, width: '100%', minHeight: 220, maxHeight: '70vh', boxSizing: 'border-box', resize: 'vertical', fontFamily: 'inherit', lineHeight: 1.6 }}
+          />
+          <p style={{ fontSize: 11, color: 'var(--text-secondary,#6b7280)', margin: '6px 0 0' }}>
+            追加後はインボックスに <code>未整理</code> で入ります。各メモは「整理する」/「まとめて整理」で象限判定されます（自動では実行しません）。
+          </p>
+          <div style={{ display: 'flex', gap: 6, marginTop: 8 }}>
+            <button onClick={bulkAddMemos} disabled={memoBulkBusy || !memoBulkText.trim()} style={{ ...btnPrimary, opacity: memoBulkBusy || !memoBulkText.trim() ? 0.6 : 1 }}>
+              {memoBulkBusy ? '⏳ 追加中...' : '一括追加'}
+            </button>
+            <button onClick={() => { setMemoBulkMode(false); setMemoBulkText(''); }} disabled={memoBulkBusy} style={btnGhost}>キャンセル</button>
+          </div>
+        </>
+      )}
+    </div>
+  );
+
+  // 123: タブ順（メモ入力を先頭・目標を末尾。既定は4象限のまま）
+  const TABS: [View, string][] = [
+    ['input', '📝 メモ入力'], ['matrix', '4象限'], ['focus', '第2象限'], ['plan', '計画'],
+    ['calendar', 'カレンダー'], ['category', 'カテゴリ別'], ['inbox', 'インボックス'], ['done', '完了'], ['goals', '🎯 目標・目的'],
+  ];
+
   return (
     <div style={{ maxWidth: 880, margin: '0 auto' }}>
-      <div style={{ marginBottom: 16 }}>
+      <div style={{ marginBottom: 14 }}>
         <h1 style={{ fontSize: 22, fontWeight: 800, margin: 0 }}>🧭 AIメモ</h1>
         <p style={{ fontSize: 13, color: 'var(--text-secondary, #6b7280)', marginTop: 6 }}>
           思いついたことをまず書き留め、「整理する」で目標から逆算してAIが仕分け。
@@ -366,105 +459,16 @@ export default function MemoPage() {
         </p>
       </div>
 
-      {/* 今週の第2象限カード（Phase3 ナッジ） */}
-      {!loading && q2Memos.length > 0 && (
-        <WeeklyQ2Card memos={q2Memos} todos={todos} goalTitleById={goalTitleById} onOpen={() => setView('focus')} />
-      )}
-
-      {/* ⏰ 期限が近いTODO（122・アプリ内アラート。7/3/1日前を色分けで上位表示） */}
-      {!loading && <UpcomingDueCard memos={active} />}
-
-      {/* 目標・目的の設定 */}
-      <div style={{ ...card, marginBottom: 14 }}>
-        <button onClick={() => setShowGoals((v) => !v)} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 14, fontWeight: 700, color: 'var(--text-primary)', padding: 0, display: 'flex', alignItems: 'center', gap: 6 }}>
-          🎯 目標・目的（AI判断の基準）<span style={{ fontSize: 12, color: 'var(--text-secondary,#6b7280)' }}>{goals.length}件 {showGoals ? '▲' : '▼'}</span>
-        </button>
-        {showGoals && (
-          <div style={{ marginTop: 10 }}>
-            {goals.length === 0 && <p style={{ fontSize: 12, color: '#EF9F27' }}>目標が未設定です。設定するとAIの重要度判定が目標逆算になります。</p>}
-            {goals.map((g) => (
-              <div key={g.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 0', borderBottom: '1px solid var(--border-color,#f0f0f0)' }}>
-                <span style={{ fontSize: 13, flex: 1 }}>{g.title}{g.domain && <span style={{ fontSize: 11, color: 'var(--text-secondary,#6b7280)', marginLeft: 6 }}>#{g.domain}</span>}</span>
-                <button onClick={() => deleteGoal(g.id)} style={{ background: 'none', border: 'none', color: '#9ca3af', cursor: 'pointer', fontSize: 12 }}>削除</button>
-              </div>
-            ))}
-            {!bulkMode ? (
-              <>
-                <div style={{ display: 'flex', gap: 6, marginTop: 10, flexWrap: 'wrap' }}>
-                  <input value={goalTitle} onChange={(e) => setGoalTitle(e.target.value)} placeholder="目標（例：年内に学会発表）" style={inputStyle} />
-                  <input value={goalDomain} onChange={(e) => setGoalDomain(e.target.value)} placeholder="分野(任意)" style={{ ...inputStyle, width: 110 }} />
-                  <button onClick={addGoal} disabled={!goalTitle.trim()} style={btnPrimary}>追加</button>
-                </div>
-                <button onClick={() => setBulkMode(true)} style={{ ...btnGhost, marginTop: 8, padding: '6px 12px', fontSize: 12 }}>📋 まとめて登録</button>
-              </>
-            ) : (
-              <div style={{ marginTop: 10 }}>
-                <textarea
-                  value={bulkText}
-                  onChange={(e) => setBulkText(e.target.value)}
-                  placeholder={'1行に1目標。「分野: 目標本文」の形式（分野は任意）。\n例:\n健康: 週3回の運動を習慣化する\n育成: 自律的に成長する組織をつくる\n最新知見を継続的にアップデートする'}
-                  rows={6}
-                  style={{ ...inputStyle, width: '100%', boxSizing: 'border-box', resize: 'vertical', fontFamily: 'inherit', lineHeight: 1.6 }}
-                />
-                <p style={{ fontSize: 11, color: 'var(--text-secondary,#6b7280)', margin: '6px 0 0' }}>
-                  区切りは <code>:</code> <code>：</code> <code>｜</code> <code>|</code> タブ のいずれか。区切りなしの行は目標本文のみ。最大50件・重複はスキップ。
-                </p>
-                <div style={{ display: 'flex', gap: 6, marginTop: 8 }}>
-                  <button onClick={bulkAddGoals} disabled={bulkBusy || !bulkText.trim()} style={{ ...btnPrimary, opacity: bulkBusy || !bulkText.trim() ? 0.6 : 1 }}>
-                    {bulkBusy ? '⏳ 登録中...' : '一括登録'}
-                  </button>
-                  <button onClick={() => { setBulkMode(false); setBulkText(''); }} disabled={bulkBusy} style={btnGhost}>キャンセル</button>
-                </div>
-              </div>
-            )}
-          </div>
-        )}
-      </div>
-
-      {/* メモ入力 */}
-      <div style={{ ...card, marginBottom: 14 }}>
-        {!memoBulkMode ? (
-          <>
-            <textarea value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => { if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') addMemo(); }} placeholder="メモを入力（⌘/Ctrl+Enterで保存）…" rows={5} style={{ ...inputStyle, width: '100%', minHeight: 120, maxHeight: '70vh', resize: 'vertical', boxSizing: 'border-box', fontFamily: 'inherit', lineHeight: 1.6 }} />
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 8, flexWrap: 'wrap', gap: 8 }}>
-              <span style={{ fontSize: 12, color: 'var(--text-secondary,#9ca3af)' }}>インボックス {inbox.length}件</span>
-              <div style={{ display: 'flex', gap: 8 }}>
-                <button onClick={() => setMemoBulkMode(true)} style={{ ...btnGhost, padding: '8px 12px', fontSize: 12 }}>📋 まとめて追加</button>
-                {inbox.length > 0 && <button onClick={triageAll} disabled={busy} style={btnGhost}>{busy ? '整理中…' : 'まとめて整理'}</button>}
-                <button onClick={addMemo} disabled={busy || !input.trim()} style={btnPrimary}>追加</button>
-              </div>
-            </div>
-          </>
-        ) : (
-          <>
-            <textarea
-              value={memoBulkText}
-              onChange={(e) => setMemoBulkText(e.target.value)}
-              placeholder={'1行＝1メモ。空行はスキップ。最大100件。複数行の長いメモは単一入力欄を使ってください。\n例:\n院内勉強会の年間カリキュラムを設計する\n選択理論の本を1日10ページ読み進める\nアチーブメント受講費を6/25までに支払う'}
-              rows={10}
-              style={{ ...inputStyle, width: '100%', minHeight: 220, maxHeight: '70vh', boxSizing: 'border-box', resize: 'vertical', fontFamily: 'inherit', lineHeight: 1.6 }}
-            />
-            <p style={{ fontSize: 11, color: 'var(--text-secondary,#6b7280)', margin: '6px 0 0' }}>
-              追加後はインボックスに <code>未整理</code> で入ります。各メモは「整理する」/「まとめて整理」で象限判定されます（自動では実行しません）。
-            </p>
-            <div style={{ display: 'flex', gap: 6, marginTop: 8 }}>
-              <button onClick={bulkAddMemos} disabled={memoBulkBusy || !memoBulkText.trim()} style={{ ...btnPrimary, opacity: memoBulkBusy || !memoBulkText.trim() ? 0.6 : 1 }}>
-                {memoBulkBusy ? '⏳ 追加中...' : '一括追加'}
-              </button>
-              <button onClick={() => { setMemoBulkMode(false); setMemoBulkText(''); }} disabled={memoBulkBusy} style={btnGhost}>キャンセル</button>
-            </div>
-          </>
-        )}
-      </div>
-
-      {/* ビュー切替 */}
-      <div style={{ display: 'flex', gap: 4, background: 'var(--bg-tertiary,#f3f4f6)', padding: 4, borderRadius: 10, marginBottom: 14, flexWrap: 'wrap' }}>
-        {([['inbox', 'インボックス'], ['plan', '計画'], ['calendar', 'カレンダー'], ['focus', '第2象限'], ['category', 'カテゴリ別'], ['matrix', '4象限'], ['done', '完了']] as [View, string][]).map(([v, label]) => (
-          <button key={v} onClick={() => setView(v)} style={{ flex: '1 0 auto', minWidth: 92, padding: '8px 0', borderRadius: 7, border: 'none', cursor: 'pointer', fontSize: 13, fontWeight: 600, background: view === v ? 'var(--bg-secondary,#fff)' : 'transparent', color: view === v ? (v === 'focus' ? '#1D9E75' : 'var(--text-primary)') : 'var(--text-secondary,#6b7280)' }}>{label}</button>
+      {/* 123: ビュー切替タブ（ページ最上部・タイトル直下）。9タブのため狭幅は横スクロール。 */}
+      <div style={{ display: 'flex', gap: 4, background: 'var(--bg-tertiary,#f3f4f6)', padding: 4, borderRadius: 10, marginBottom: 14, overflowX: 'auto', WebkitOverflowScrolling: 'touch' }}>
+        {TABS.map(([v, label]) => (
+          <button key={v} onClick={() => setView(v)} style={{ flex: '0 0 auto', whiteSpace: 'nowrap', minWidth: 84, padding: '8px 14px', borderRadius: 7, border: 'none', cursor: 'pointer', fontSize: 13, fontWeight: 600, background: view === v ? 'var(--bg-secondary,#fff)' : 'transparent', color: view === v ? (v === 'focus' ? '#1D9E75' : 'var(--text-primary)') : 'var(--text-secondary,#6b7280)' }}>{label}</button>
         ))}
       </div>
 
       {loading ? <p style={{ textAlign: 'center', color: '#9ca3af', padding: 40 }}>読み込み中…</p>
+        : view === 'input' ? memoInputSection
+        : view === 'goals' ? goalsSection
         : view === 'inbox' ? (
           <>
             {inbox.length > 0 && (
@@ -494,13 +498,21 @@ export default function MemoPage() {
         ) : view === 'calendar' ? (
           <CalendarView todos={todos} memoById={memoById} onToggle={toggleTodo} />
         ) : view === 'focus' ? (
-          <FocusView memos={q2Memos} todos={todos} goalTitleById={goalTitleById} onToggleTodo={toggleTodo} onPatchTodo={patchTodo} onAddTodo={addTodo} />
+          <>
+            {/* 123: 「今週の第2象限」カードは常時最上部固定をやめ、第2象限タブ先頭へ移設 */}
+            {q2Memos.length > 0 && <WeeklyQ2Card memos={q2Memos} todos={todos} goalTitleById={goalTitleById} onOpen={() => setView('focus')} />}
+            <FocusView memos={q2Memos} todos={todos} goalTitleById={goalTitleById} onToggleTodo={toggleTodo} onPatchTodo={patchTodo} onAddTodo={addTodo} />
+          </>
         ) : view === 'category' ? (
           <CategoryView memos={active} categories={categories} categoryName={categoryName} />
         ) : view === 'done' ? (
           <DoneView memos={doneMemos} categoryName={categoryName} onPatch={patchMemo} onDelete={deleteMemo} />
         ) : (
-          <MatrixView memos={active} categoryName={categoryName} />
+          <>
+            {/* 123: ⏰期限が近いTODOアラートは既定の4象限ビュー先頭に表示（読み込み時に気づける） */}
+            <UpcomingDueCard memos={active} />
+            <MatrixView memos={active} categoryName={categoryName} />
+          </>
         )}
     </div>
   );
