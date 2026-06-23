@@ -6,7 +6,7 @@
 //  Phase3: 第2象限フォーカス(目標寄与度順＋予定日を置く)/ 今週の第2象限カード / 短文コーチング。
 // デザインは xLUMINA ダッシュボードのインラインスタイル/CSS変数トーンに合わせる。
 
-import { useEffect, useState, useCallback, useMemo } from 'react';
+import { useEffect, useState, useCallback, useMemo, useRef } from 'react';
 import { useToast } from '@/components/ui/Toast';
 
 type View = 'inbox' | 'plan' | 'calendar' | 'focus' | 'category' | 'matrix' | 'done' | 'input' | 'goals';
@@ -354,6 +354,22 @@ export default function MemoPage() {
       .sort((a, b) => (b.importance ?? 0) - (a.importance ?? 0) || (a.goal_ref ? -1 : 0) - (b.goal_ref ? -1 : 0)),
     [active]);
 
+  // 124: タブバー横スクロールの手がかり（続きがある側にフェードを出し、端到達で消す）
+  const tabBarRef = useRef<HTMLDivElement>(null);
+  const [tabFade, setTabFade] = useState({ left: false, right: false });
+  const updateTabFade = useCallback(() => {
+    const el = tabBarRef.current;
+    if (!el) return;
+    const left = el.scrollLeft > 1;
+    const right = el.scrollLeft + el.clientWidth < el.scrollWidth - 1;
+    setTabFade((p) => (p.left === left && p.right === right ? p : { left, right }));
+  }, []);
+  useEffect(() => {
+    updateTabFade();
+    window.addEventListener('resize', updateTabFade);
+    return () => window.removeEventListener('resize', updateTabFade);
+  }, [updateTabFade]);
+
   const card: React.CSSProperties = { background: 'var(--bg-secondary, #fff)', border: '1px solid var(--border-color, #e5e7eb)', borderRadius: 12, padding: 14 };
 
   // 123: 「目標・目的」タブの中身（旧・常時表示セクションを機能無変更で移設）
@@ -443,10 +459,10 @@ export default function MemoPage() {
     </div>
   );
 
-  // 123: タブ順（メモ入力を先頭・目標を末尾。既定は4象限のまま）
+  // 124: タブ順（よく使う「メモ入力」「目標・目的」を先頭2つに固める。既定は4象限のまま）
   const TABS: [View, string][] = [
-    ['input', '📝 メモ入力'], ['matrix', '4象限'], ['focus', '第2象限'], ['plan', '計画'],
-    ['calendar', 'カレンダー'], ['category', 'カテゴリ別'], ['inbox', 'インボックス'], ['done', '完了'], ['goals', '🎯 目標・目的'],
+    ['input', '📝 メモ入力'], ['goals', '🎯 目標・目的'], ['matrix', '4象限'], ['focus', '第2象限'], ['plan', '計画'],
+    ['calendar', 'カレンダー'], ['category', 'カテゴリ別'], ['inbox', 'インボックス'], ['done', '完了'],
   ];
 
   return (
@@ -459,11 +475,20 @@ export default function MemoPage() {
         </p>
       </div>
 
-      {/* 123: ビュー切替タブ（ページ最上部・タイトル直下）。9タブのため狭幅は横スクロール。 */}
-      <div style={{ display: 'flex', gap: 4, background: 'var(--bg-tertiary,#f3f4f6)', padding: 4, borderRadius: 10, marginBottom: 14, overflowX: 'auto', WebkitOverflowScrolling: 'touch' }}>
-        {TABS.map(([v, label]) => (
-          <button key={v} onClick={() => setView(v)} style={{ flex: '0 0 auto', whiteSpace: 'nowrap', minWidth: 84, padding: '8px 14px', borderRadius: 7, border: 'none', cursor: 'pointer', fontSize: 13, fontWeight: 600, background: view === v ? 'var(--bg-secondary,#fff)' : 'transparent', color: view === v ? (v === 'focus' ? '#1D9E75' : 'var(--text-primary)') : 'var(--text-secondary,#6b7280)' }}>{label}</button>
-        ))}
+      {/* 123/124: ビュー切替タブ（ページ最上部）。9タブで狭幅は横スクロール＋続きがある側にフェードの手がかり。 */}
+      <div style={{ position: 'relative', marginBottom: 14 }}>
+        <div ref={tabBarRef} onScroll={updateTabFade} style={{ display: 'flex', gap: 4, background: 'var(--bg-tertiary,#f3f4f6)', padding: 4, borderRadius: 10, overflowX: 'auto', WebkitOverflowScrolling: 'touch' }}>
+          {TABS.map(([v, label]) => (
+            <button key={v} onClick={() => setView(v)} style={{ flex: '0 0 auto', whiteSpace: 'nowrap', minWidth: 84, padding: '8px 14px', borderRadius: 7, border: 'none', cursor: 'pointer', fontSize: 13, fontWeight: 600, background: view === v ? 'var(--bg-secondary,#fff)' : 'transparent', color: view === v ? (v === 'focus' ? '#1D9E75' : 'var(--text-primary)') : 'var(--text-secondary,#6b7280)' }}>{label}</button>
+          ))}
+        </div>
+        {/* 左/右フェード（端到達で非表示・クリックを妨げない pointerEvents:none） */}
+        {tabFade.left && (
+          <div aria-hidden style={{ position: 'absolute', top: 4, bottom: 4, left: 4, width: 32, pointerEvents: 'none', borderRadius: '7px 0 0 7px', background: 'linear-gradient(to left, transparent, var(--bg-tertiary,#f3f4f6))', display: 'flex', alignItems: 'center', justifyContent: 'flex-start', color: 'var(--text-secondary,#9ca3af)', fontSize: 14, paddingLeft: 2 }}>‹</div>
+        )}
+        {tabFade.right && (
+          <div aria-hidden style={{ position: 'absolute', top: 4, bottom: 4, right: 4, width: 32, pointerEvents: 'none', borderRadius: '0 7px 7px 0', background: 'linear-gradient(to right, transparent, var(--bg-tertiary,#f3f4f6))', display: 'flex', alignItems: 'center', justifyContent: 'flex-end', color: 'var(--text-secondary,#9ca3af)', fontSize: 14, paddingRight: 2 }}>›</div>
+        )}
       </div>
 
       {loading ? <p style={{ textAlign: 'center', color: '#9ca3af', padding: 40 }}>読み込み中…</p>
