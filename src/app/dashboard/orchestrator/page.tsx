@@ -209,6 +209,8 @@ export default function OrchestratorPage() {
     const reader = execRes.body.getReader();
     const decoder = new TextDecoder();
     let buffer = '';
+    // completed を受け取らずにストリームが閉じた場合（関数killなど）の検知用
+    let receivedCompleted = false;
 
     while (true) {
       const { done, value } = await reader.read();
@@ -261,6 +263,7 @@ export default function OrchestratorPage() {
               });
             }
             if (event.type === 'completed') {
+              receivedCompleted = true;
               setShowResults(true);
               if (event.results) {
                 setCurrentJob((prev) =>
@@ -285,6 +288,52 @@ export default function OrchestratorPage() {
         }
       }
     }
+
+    // 切断復帰: completed を受け取らずにストリームが閉じた（maxDuration kill 等）場合、
+    // 実ジョブ状態を数回ポーリングして最終状態（完了/部分失敗/失敗）をUIへ反映する。
+    // これにより「78%のまま無言で凍結」を根絶する。
+    if (!receivedCompleted) {
+      await reconcileJobState(jobId);
+    }
+  };
+
+  // ジョブ状態をサーバから取得してUIへ反映（切断復帰用）。
+  // 端末状態（completed / completed_with_errors / failed）になるまで数回ポーリング。
+  const reconcileJobState = async (jobId: number): Promise<void> => {
+    const TERMINAL = ['completed', 'completed_with_errors', 'failed'];
+    for (let attempt = 0; attempt < 5; attempt++) {
+      await new Promise((r) => setTimeout(r, 2500));
+      try {
+        const res = await fetch(`/api/orchestrator?id=${jobId}`);
+        if (!res.ok) continue;
+        const data = await res.json();
+        const job = data.job as Job | null;
+        if (!job) continue;
+
+        // 取得できた最新状態を反映（進捗・ステータス・結果）
+        setCurrentJob((prev) =>
+          prev && prev.id === job.id ? { ...prev, ...job } : prev ?? job,
+        );
+
+        if (TERMINAL.includes(job.status)) {
+          setShowResults(true);
+          await loadJobs();
+          if (job.status !== 'completed') {
+            setErrorMessage(
+              '一部のステップが未完または失敗で終了しました（時間制限の可能性）。各ステップの状態をご確認のうえ、必要なら再実行してください。',
+            );
+          }
+          return;
+        }
+      } catch {
+        /* 次の試行へ */
+      }
+    }
+    // ポーリングしても端末状態にならない＝処理が中断した可能性。無言凍結にしない。
+    setErrorMessage(
+      '処理が中断した可能性があります。履歴から状態を確認し、「再実行」または「リセット」してください。',
+    );
+    await loadJobs();
   };
 
   const handleStart = async () => {
@@ -1119,12 +1168,14 @@ export default function OrchestratorPage() {
               const result = currentJob.results[step.id];
               if (!result?.result) return null;
               const isError = result.status === 'failed';
+              // 時間予算/依存失敗でスキップされたステップも「未完」として明示する
+              const isSkipped = result.status === 'skipped';
               return (
                 <div
                   key={step.id}
                   style={{
                     marginBottom: 16,
-                    border: `1px solid ${isError ? '#fca5a5' : 'var(--border)'}`,
+                    border: `1px solid ${isError ? '#fca5a5' : isSkipped ? '#fcd34d' : 'var(--border)'}`,
                     borderRadius: 8,
                     overflow: 'hidden',
                   }}
@@ -1144,10 +1195,10 @@ export default function OrchestratorPage() {
                       style={{
                         fontSize: 13,
                         fontWeight: 600,
-                        color: isError ? '#dc2626' : 'var(--text-primary)',
+                        color: isError ? '#dc2626' : isSkipped ? '#b45309' : 'var(--text-primary)',
                       }}
                     >
-                      {isError ? '❌ ' : ''}
+                      {isError ? '❌ ' : isSkipped ? '⚠️ ' : ''}
                       {step.label}
                     </span>
                     <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>

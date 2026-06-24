@@ -25,10 +25,21 @@ interface StepResultEx extends Omit<StepResult, 'status'> {
   attempts?: number;
 }
 
-// 並列起動数の上限
-const MAX_PARALLEL = 3;
+// 並列起動数の上限（依存最深の末端ステップが最終ウェーブに回る問題を緩和するため 3→4）
+// ※ Gemini/Claude のレート上限に注意。429 が出るなら下げる。
+const MAX_PARALLEL = 4;
 // メインループのポーリング間隔（イベント駆動の代わり）
 const POLL_INTERVAL_MS = 200;
+
+// ━━ 時間予算（maxDuration=300 で関数 kill される前に必ず終わらせる）━━
+// 全体デッドライン: 関数開始から余裕をもって 270 秒。接近したら未着手をスキップして completed へ。
+const OVERALL_DEADLINE_MS = 270_000;
+// デッドライン残りがこの値未満なら、新規ステップ着手や品質リトライを止める安全マージン
+const DEADLINE_SAFETY_MS = 20_000;
+// 1ステップが品質ループ（再生成）に費やせる上限。これを超えたら最良版で確定。
+const STEP_QUALITY_BUDGET_MS = 60_000;
+// 品質ループ継続に必要な全体残り時間（これを下回ったらリトライせず最良版で確定）
+const QUALITY_MIN_REMAINING_MS = 75_000;
 
 // ステップIDに応じたタイムアウト設定（ms）
 const STEP_TIMEOUTS: Record<string, number> = {
@@ -260,6 +271,12 @@ export async function POST(req: NextRequest) {
       const results: Record<string, StepResultEx> = {};
       const totalTokens: TokenUsage = { inputTokens: 0, outputTokens: 0 };
 
+      // 全体デッドライン管理（関数開始からの経過で残り時間を判定）
+      const engineStartedAt = Date.now();
+      const elapsedMs = () => Date.now() - engineStartedAt;
+      const remainingMs = () => OVERALL_DEADLINE_MS - elapsedMs();
+      const deadlineReached = () => remainingMs() <= DEADLINE_SAFETY_MS;
+
       try {
         await sql`
           UPDATE pipeline_jobs
@@ -305,21 +322,28 @@ export async function POST(req: NextRequest) {
         // 1ステップ実行（必ずresolve）— 品質チェック・自動改善・再試行ループ付き
         const runStep = async (step: PipelineStep): Promise<void> => {
           running.add(step.id);
+          const stepStarted = Date.now();
           const stepTimeout =
             STEP_TIMEOUTS[step.id] ?? DEFAULT_STEP_TIMEOUT_MS;
           const fetchTimeout = fetchTimeoutFor(stepTimeout);
           send({ type: 'step_start', stepId: step.id, label: step.label });
 
+          // 個々の生成呼び出しの上限。ただし全体デッドラインの残り時間も超えない
+          // （1ステップが関数全体の時間を独占しないための安全網）。
+          const callTimeout = Math.max(
+            Math.min(stepTimeout, remainingMs() - 5_000),
+            20_000,
+          );
           const withTimeout = <T,>(p: Promise<T>): Promise<T> => {
             const timeoutPromise = new Promise<never>((_, reject) =>
               setTimeout(
                 () =>
                   reject(
                     new Error(
-                      `タイムアウト(${stepTimeout / 1000}秒): ${step.label}`,
+                      `タイムアウト(${Math.round(callTimeout / 1000)}秒): ${step.label}`,
                     ),
                   ),
-                stepTimeout,
+                callTimeout,
               ),
             );
             return Promise.race([p, timeoutPromise]);
@@ -341,10 +365,29 @@ export async function POST(req: NextRequest) {
             let bestContent = content;
             let bestScore = 0;
             let attempts = 0;
+            const qualityLoopStarted = Date.now();
 
             // 品質チェック・再試行ループ（200文字以上のコンテンツのみ）
             while (attempts < MAX_QUALITY_RETRIES) {
               if (!content || content.length < 200) break;
+
+              // 時間予算制: このステップの品質ループ予算超過、または全体デッドライン残りが
+              // 少ないときは、リトライ回数が残っていても最良版で確定して打ち切る。
+              // （品質ループがステップタイムアウトの外で時間を膨張させ 300 秒 kill を招く問題の対策）
+              if (
+                Date.now() - qualityLoopStarted > STEP_QUALITY_BUDGET_MS ||
+                remainingMs() < QUALITY_MIN_REMAINING_MS
+              ) {
+                send({
+                  type: 'quality_warning',
+                  stepId: step.id,
+                  label: step.label,
+                  bestScore,
+                  message: `時間予算により品質改善を打ち切り、最良版（最高${bestScore}点）を採用`,
+                });
+                if (bestScore > 0 && bestContent) content = bestContent;
+                break;
+              }
               attempts++;
 
               const qualityRes = await fetch(
@@ -549,12 +592,39 @@ export async function POST(req: NextRequest) {
 
         // メインループ：全ステップが done になるまで繰り返す
         const allPromises: Promise<void>[] = [];
-        // 無限ループ防止
-        const MAX_LOOPS = (steps.length + 10) * 10_000; // 最大2000秒相当
+        // 無限ループ防止（全体デッドライン=270秒前提で POLL 間隔から算出。2000秒→300秒前提に縮小）
+        const MAX_LOOPS =
+          Math.ceil((OVERALL_DEADLINE_MS + 30_000) / POLL_INTERVAL_MS) +
+          steps.length +
+          50;
         let loopCount = 0;
 
         while (done.size < steps.length && loopCount < MAX_LOOPS) {
           loopCount++;
+
+          // 全体デッドライン接近: 未着手ステップを「時間予算スキップ」（部分失敗扱い）にして
+          // 安全に completed へ。実行中ステップは allSettled で待つ（各自 時間予算で速やかに収束）。
+          if (deadlineReached()) {
+            const notStarted = steps.filter(
+              (s) => !done.has(s.id) && !running.has(s.id),
+            );
+            for (const s of notStarted) {
+              results[s.id] = {
+                result: '時間予算により未実行（全体が300秒制限に接近したためスキップ）',
+                status: 'skipped',
+              };
+              done.add(s.id);
+              send({
+                type: 'step_error',
+                stepId: s.id,
+                label: s.label,
+                error: 'スキップ（時間予算）',
+                reason: '全体の実行時間が上限に接近したため未実行',
+              });
+            }
+            break;
+          }
+
           const ready = getReady();
           const slots = MAX_PARALLEL - running.size;
           const toRun = ready.slice(0, Math.max(0, slots));
