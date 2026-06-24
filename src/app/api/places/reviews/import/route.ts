@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
 import { neon } from '@neondatabase/serverless';
+import { ensureReviewSyncSchema, upsertReviews } from '@/lib/places-reviews';
 
 export const runtime = 'nodejs';
 
@@ -10,6 +11,7 @@ interface ImportReview {
   text?: string;
   review_date?: string;
   source?: string;
+  external_id?: string;
 }
 
 // 口コミを一括保存
@@ -37,23 +39,29 @@ export async function POST(req: Request) {
 
     const sql = neon(process.env.DATABASE_URL!);
 
-    const inserted = [];
-    for (const r of reviews) {
-      const rows = await sql`
-        INSERT INTO clinic_reviews (author_name, rating, text, review_date, source)
-        VALUES (
-          ${r.author_name},
-          ${r.rating},
-          ${r.text ?? ''},
-          ${r.review_date ?? null},
-          ${r.source ?? 'manual'}
-        )
-        RETURNING id, author_name, rating, text, review_date, source, created_at
-      `;
-      inserted.push(rows[0]);
-    }
+    // external_id 列 + UNIQUE(source, external_id) を冪等に用意（既存行は NULL で非破壊）
+    await ensureReviewSyncSchema(sql);
 
-    return NextResponse.json({ success: true, count: inserted.length, reviews: inserted });
+    // UPSERT 化（手動入力は external_id=NULL のため従来どおり常に新規挿入）
+    const { inserted, updated, rows } = await upsertReviews(
+      sql,
+      reviews.map((r) => ({
+        author_name: r.author_name,
+        rating: r.rating,
+        text: r.text ?? '',
+        review_date: r.review_date ?? null,
+        source: r.source ?? 'manual',
+        external_id: r.external_id ?? null,
+      })),
+    );
+
+    return NextResponse.json({
+      success: true,
+      count: rows.length,
+      inserted,
+      updated,
+      reviews: rows,
+    });
 
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : '不明なエラー';
