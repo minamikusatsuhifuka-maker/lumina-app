@@ -17,6 +17,7 @@ import {
   TRIAGE_FAIL_FALLBACK,
   FIELD_DEFAULT,
 } from '@/lib/memo-triage-config';
+import { ensureQuadrantCriteria, listEnabledCriteria, formatCriteriaForPrompt } from '@/lib/quadrant-criteria';
 
 type Sql = ReturnType<typeof neon<false, false>>;
 
@@ -277,7 +278,17 @@ export async function triageMemo(
     .filter((r) => r.raw_text !== memo.raw_text) // 自分自身は除外
     .map((r) => ({ rawText: r.raw_text, quadrant: r.quadrant as 1 | 2 | 3 | 4 }));
 
-  const prompt = buildTriagePrompt(memo.raw_text, goals, cats.map((c) => c.name), nowJstText(), corrections);
+  // 象限の判断基準(編集可能ナレッジ)を“上乗せ”材料としてプロンプトに注入。
+  // 0件・取得失敗でも従来通り動く(非回帰)よう、失敗は握りつぶして注入を省略。
+  let criteriaBlock = '';
+  try {
+    await ensureQuadrantCriteria(sql);
+    criteriaBlock = formatCriteriaForPrompt(await listEnabledCriteria(sql, owner));
+  } catch (e) {
+    console.error('[triage] quadrant_criteria load failed (continuing without):', e);
+  }
+
+  const prompt = buildTriagePrompt(memo.raw_text, goals, cats.map((c) => c.name), nowJstText(), corrections, criteriaBlock);
 
   let parsed: TriageRaw | null = null;
   let fallback = false;

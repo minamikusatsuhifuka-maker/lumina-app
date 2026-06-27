@@ -122,7 +122,7 @@ ${items.join('\n')}\n`;
  *                例: "2026-06-21(土) 14:30 JST(Asia/Tokyo, UTC+9)"。サーバ(Vercel=UTC)からJSTに変換して渡すこと。
  * @param corrections このユーザーが手修正した象限の直近例(動的few-shot・任意)。
  */
-export function buildTriagePrompt(rawText: string, goals: GoalLike[], categoryNames: string[], nowText: string, corrections: CorrectionExample[] = []): string {
+export function buildTriagePrompt(rawText: string, goals: GoalLike[], categoryNames: string[], nowText: string, corrections: CorrectionExample[] = [], criteriaBlock: string = ''): string {
   const goalLines = goals.length
     ? goals.map((g) => `- ${g.title}${g.domain ? `（分野:${g.domain}）` : ''}${g.detail ? ` … ${g.detail}` : ''}`).join('\n')
     : '（目標が未設定です。一般的な重要度で判断し、importance は中庸に寄せてください）';
@@ -136,7 +136,7 @@ ${nowText}
 
 # ユーザーの目標(重要度を逆算する基準)
 ${goalLines}
-
+${criteriaBlock}
 # 既存カテゴリ(なるべくこの中から選ぶ。合うものが無ければ新規名を提案)
 ${catList}
 

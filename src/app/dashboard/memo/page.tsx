@@ -10,6 +10,7 @@ import { useEffect, useState, useCallback, useMemo, useRef } from 'react';
 import { DndContext, useDraggable, useDroppable, DragOverlay, PointerSensor, TouchSensor, useSensor, useSensors, MeasuringStrategy, type DragEndEvent, type DragStartEvent } from '@dnd-kit/core';
 import { snapCenterToCursor } from '@dnd-kit/modifiers';
 import { useToast } from '@/components/ui/Toast';
+import QuadrantCriteriaPanel from '@/components/QuadrantCriteriaPanel';
 import { renderMarkdown } from '@/lib/markdown-renderer';
 
 type View = 'inbox' | 'plan' | 'calendar' | 'focus' | 'category' | 'matrix' | 'done' | 'input' | 'goals';
@@ -657,7 +658,7 @@ export default function MemoPage() {
 
       {loading ? <p style={{ textAlign: 'center', color: '#9ca3af', padding: 40 }}>読み込み中…</p>
         : view === 'input' ? memoInputSection
-        : view === 'goals' ? goalsSection
+        : view === 'goals' ? (<>{goalsSection}<QuadrantCriteriaPanel /></>)
         : view === 'inbox' ? (
           <>
             {inbox.length > 0 && (
