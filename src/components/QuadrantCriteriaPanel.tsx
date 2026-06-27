@@ -15,6 +15,7 @@ interface Criterion {
   body: string;
   enabled: boolean;
   sort_order: number;
+  is_default: boolean;
 }
 
 const TABS: { key: Quadrant | 'all'; label: string }[] = [
@@ -107,6 +108,19 @@ export default function QuadrantCriteriaPanel() {
     if (!res.ok) { showToast('削除に失敗しました', 'error'); setItems(prev); }
   };
 
+  // 既定(is_default=true)のみ §最新のクリニック向けに置換。ユーザー追加/編集分は保持。
+  const reloadDefaults = async () => {
+    if (!window.confirm('既定の判断基準を最新のクリニック向け内容に置き換えます。\nあなたが追加・編集した基準はそのまま保持されます。よろしいですか？')) return;
+    setBusy(true);
+    try {
+      const res = await fetch('/api/quadrant-criteria/reset-defaults', { method: 'POST' });
+      const d = await res.json().catch(() => ({}));
+      if (!res.ok) { showToast(d.error ?? '再読込に失敗しました', 'error'); return; }
+      setItems(Array.isArray(d.criteria) ? d.criteria : []);
+      showToast('デフォルト判断基準を再読込しました', 'success');
+    } finally { setBusy(false); }
+  };
+
   const startEdit = (c: Criterion) => { setEditingId(c.id); setEditTitle(c.title); setEditBody(c.body); };
   const saveEdit = async () => {
     if (!editingId) return;
@@ -134,6 +148,9 @@ export default function QuadrantCriteriaPanel() {
           <p style={{ fontSize: 11, color: 'var(--text-secondary,#6b7280)', margin: '0 0 8px' }}>
             各象限の一般的な判断基準です。AI分類のたびにプロンプトへ加味されます（重要度＝目標逆算・緊急度＝期限 と併用）。AIは提案で、確定は人が行います。
           </p>
+          <div style={{ marginBottom: 10 }}>
+            <button onClick={reloadDefaults} disabled={busy} style={{ ...btnGhost, opacity: busy ? 0.6 : 1 }} title="既定(クリニック向け土台)のみ最新内容に置換。追加・編集した分は保持。">🔄 デフォルト判断基準を再読込（置換）</button>
+          </div>
 
           {/* 象限タブ */}
           <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 10 }}>
@@ -160,6 +177,7 @@ export default function QuadrantCriteriaPanel() {
                   <div style={{ flex: 1, opacity: c.enabled ? 1 : 0.45 }}>
                     <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-primary)' }}>
                       <span style={{ fontSize: 10, color: '#6b7280', marginRight: 6 }}>{QLABEL[c.quadrant]}</span>{c.title || '（無題）'}
+                      {c.is_default && <span style={{ fontSize: 9, color: '#1D9E75', border: '1px solid #1D9E75', borderRadius: 4, padding: '0 4px', marginLeft: 6, fontWeight: 600 }}>既定</span>}
                     </div>
                     {c.body && <div style={{ fontSize: 12, color: 'var(--text-secondary,#6b7280)', marginTop: 2, whiteSpace: 'pre-wrap' }}>{c.body}</div>}
                   </div>

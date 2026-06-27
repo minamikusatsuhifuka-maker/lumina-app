@@ -4,6 +4,7 @@ import { auth } from '@/lib/auth';
 import {
   ensureQuadrantCriteria,
   seedDefaultsIfEmpty,
+  migrateDefaults,
   listCriteria,
   createCriterion,
 } from '@/lib/quadrant-criteria';
@@ -26,6 +27,8 @@ export async function GET() {
   const sql = neon(process.env.DATABASE_URL!);
   await ensureQuadrantCriteria(sql);
   await seedDefaultsIfEmpty(sql, owner);
+  // 旧・汎用デフォルトのみ持つ owner は一度だけクリニック向けへ置換(編集/追加分は保護)。二度目以降はno-op。
+  await migrateDefaults(sql, owner);
   const criteria = await listCriteria(sql, owner);
   return NextResponse.json({ criteria });
 }
