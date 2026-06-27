@@ -93,9 +93,9 @@ export default function QuadrantCriteriaPanel() {
   // 楽観更新＋API反映。失敗時は再読み込みで整合。
   const patch = async (id: string, fields: Partial<Pick<Criterion, 'title' | 'body' | 'enabled' | 'sort_order' | 'quadrant'>>) => {
     setItems((p) => p.map((c) => (c.id === id ? { ...c, ...fields } : c)));
-    const res = await fetch('/api/quadrant-criteria', {
+    const res = await fetch(`/api/quadrant-criteria/${encodeURIComponent(id)}`, {
       method: 'PATCH', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ id, ...fields }),
+      body: JSON.stringify(fields),
     });
     if (!res.ok) { showToast('更新に失敗しました', 'error'); load(); }
   };
@@ -103,7 +103,7 @@ export default function QuadrantCriteriaPanel() {
   const remove = async (id: string) => {
     const prev = items;
     setItems((p) => p.filter((c) => c.id !== id));
-    const res = await fetch(`/api/quadrant-criteria?id=${encodeURIComponent(id)}`, { method: 'DELETE' });
+    const res = await fetch(`/api/quadrant-criteria/${encodeURIComponent(id)}`, { method: 'DELETE' });
     if (!res.ok) { showToast('削除に失敗しました', 'error'); setItems(prev); }
   };
 

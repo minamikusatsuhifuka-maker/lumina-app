@@ -6,8 +6,6 @@ import {
   seedDefaultsIfEmpty,
   listCriteria,
   createCriterion,
-  updateCriterion,
-  deleteCriterion,
 } from '@/lib/quadrant-criteria';
 
 export const runtime = 'nodejs';
@@ -43,29 +41,4 @@ export async function POST(req: NextRequest) {
   return NextResponse.json({ criterion });
 }
 
-// PATCH: 編集(title/body/enabled/sort_order/quadrant)。id は body に含める。
-export async function PATCH(req: NextRequest) {
-  const owner = await getOwner();
-  if (!owner) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  const body = await req.json().catch(() => ({}));
-  const id = (body?.id ?? '').toString();
-  if (!id) return NextResponse.json({ error: 'id required' }, { status: 400 });
-  const sql = neon(process.env.DATABASE_URL!);
-  await ensureQuadrantCriteria(sql);
-  const criterion = await updateCriterion(sql, owner, id, body);
-  if (!criterion) return NextResponse.json({ error: 'not found' }, { status: 404 });
-  return NextResponse.json({ criterion });
-}
-
-// DELETE: 削除(?id=...)。
-export async function DELETE(req: NextRequest) {
-  const owner = await getOwner();
-  if (!owner) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  const id = req.nextUrl.searchParams.get('id') || '';
-  if (!id) return NextResponse.json({ error: 'id required' }, { status: 400 });
-  const sql = neon(process.env.DATABASE_URL!);
-  await ensureQuadrantCriteria(sql);
-  const ok = await deleteCriterion(sql, owner, id);
-  if (!ok) return NextResponse.json({ error: 'not found' }, { status: 404 });
-  return NextResponse.json({ ok: true });
-}
+// PATCH/DELETE は個別ルート /api/quadrant-criteria/[id] を参照。
