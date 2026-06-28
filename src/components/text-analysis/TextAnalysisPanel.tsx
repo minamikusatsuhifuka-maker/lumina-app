@@ -26,6 +26,7 @@ import {
 } from '@/lib/title-generator';
 import { copyToClipboard } from '@/lib/copyToClipboard';
 import { triggerDownload } from '@/lib/download';
+import { markdownToReadableText } from '@/lib/markdownToText';
 
 const HEIGHT_PRESETS = [
   { label: 'S', h: 350 },
@@ -464,7 +465,12 @@ export default function TextAnalysisPanel({
       const title = sanitizeFilename(autoTitle);
       const model = resultModels.get(type);
       const content = `${autoTitle}\n\n${modelLineTxt(model)}${sanitizeLatex(text)}`;
-      triggerDownload(`${title}_${yyyymmdd()}.txt`, content, 'text/plain');
+      // .txt は Markdown 記号を除去した読みやすいプレーンテキストへ変換して書き出す
+      triggerDownload(
+        `${title}_${yyyymmdd()}.txt`,
+        markdownToReadableText(content),
+        'text/plain;charset=utf-8',
+      );
     } finally {
       setGeneratingTitle(null);
     }
