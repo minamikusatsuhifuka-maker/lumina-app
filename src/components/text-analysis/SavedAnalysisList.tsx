@@ -10,6 +10,8 @@ import {
   yyyymmdd,
 } from '@/lib/title-generator';
 import { triggerDownload } from '@/lib/download';
+import { markdownToReadableText } from '@/lib/markdownToText';
+import FullscreenReader from '@/components/text-analysis/FullscreenReader';
 import JSZip from 'jszip';
 import {
   getModelLabel,
@@ -147,6 +149,8 @@ export default function SavedAnalysisList({
   const [inputOnly, setInputOnly] = useState(false);
   // 「お気に入り」絞り込み（inputOnly と AND）
   const [favoriteOnly, setFavoriteOnly] = useState(false);
+  // 全画面リーダーで表示中のレコード（null=非表示）
+  const [readerRecord, setReaderRecord] = useState<AnalysisRecord | null>(null);
   // 展開時に単体取得した元入力のキャッシュ（再展開では再取得しない）
   const [loadedInputTexts, setLoadedInputTexts] = useState<Record<number, string>>({});
   const [inputTextLoading, setInputTextLoading] = useState<Record<number, boolean>>({});
@@ -282,7 +286,12 @@ export default function SavedAnalysisList({
       // 書き出し本文にも LaTeX 正規化を適用（$\rightarrow$ 等を残さない）
       const txtContent = `${autoTitle}\n\n${modelLine}${sanitizeLatex(record.content)}`;
 
-      triggerDownload(`${safeTitle}_${yyyymmdd()}.txt`, txtContent, 'text/plain');
+      // .txt は Markdown 記号を除去した読みやすいプレーンテキストへ変換して書き出す
+      triggerDownload(
+        `${safeTitle}_${yyyymmdd()}.txt`,
+        markdownToReadableText(txtContent),
+        'text/plain;charset=utf-8',
+      );
       showToast('テキストファイルをダウンロードしました', 'success');
     } catch {
       showToast('ダウンロードに失敗しました', 'error');
@@ -1501,6 +1510,14 @@ export default function SavedAnalysisList({
                       </button>
                       <button
                         type="button"
+                        onClick={() => setReaderRecord(record)}
+                        style={listBtnStyle()}
+                        title="全画面のリーダー表示で読む"
+                      >
+                        ⛶ 全画面
+                      </button>
+                      <button
+                        type="button"
                         onClick={() => handleCopy(record.id, record.content)}
                         style={{
                           ...listBtnStyle(),
@@ -1781,6 +1798,11 @@ export default function SavedAnalysisList({
                         ) : (
                           <div
                             className="markdown-body"
+                            style={{
+                              lineHeight: 1.75,
+                              overflowWrap: 'anywhere',
+                              wordBreak: 'break-word',
+                            }}
                             dangerouslySetInnerHTML={{ __html: renderMarkdown(record.content) }}
                           />
                         )}
@@ -1885,6 +1907,18 @@ export default function SavedAnalysisList({
           })}
         </div>
       )}
+
+      {/* 全画面リーダー（保存テキストを読み物表示） */}
+      <FullscreenReader
+        open={readerRecord !== null}
+        title={
+          readerRecord?.auto_title ||
+          readerRecord?.file_name ||
+          '無題'
+        }
+        content={readerRecord?.content ?? ''}
+        onClose={() => setReaderRecord(null)}
+      />
     </div>
   );
 }

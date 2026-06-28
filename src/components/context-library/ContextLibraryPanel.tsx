@@ -4,6 +4,7 @@ import { useEffect, useState, useMemo } from 'react';
 import FeatureDefaultContextSelector, { FEATURE_OPTIONS } from '@/components/FeatureDefaultContextSelector';
 import { copyToClipboard } from '@/lib/copyToClipboard';
 import { renderMarkdown } from '@/lib/markdown-renderer';
+import FullscreenReader from '@/components/text-analysis/FullscreenReader';
 
 type ContextSave = {
   id: number;
@@ -12,6 +13,7 @@ type ContextSave = {
   research_text: string | null;
   tags: string[] | null;
   created_at: string;
+  is_favorite?: boolean;
 };
 
 // 生成元（どのメニューで作られたか）をタグからベストエフォート推定して人間可読ラベルに。
@@ -28,8 +30,12 @@ export default function ContextLibraryPanel() {
   const [search, setSearch] = useState('');
   const [tagFilter, setTagFilter] = useState('');
   const [batchFilter, setBatchFilter] = useState<string | null>(null);
+  // お気に入り絞り込み（コンテキストライブラリ内で完結＝テキスト分析とは別管理）
+  const [favoriteOnly, setFavoriteOnly] = useState(false);
   const [expandedId, setExpandedId] = useState<number | null>(null);
   const [copiedId, setCopiedId] = useState<number | null>(null);
+  // 全画面リーダーで表示中のアイテム（null=非表示）
+  const [readerItem, setReaderItem] = useState<ContextSave | null>(null);
   // contextSaveId -> 登録済み機能キー配列 のマップ
   const [defaultMap, setDefaultMap] = useState<Record<number, string[]>>({});
   // 要約・詳細ボタンの処理中／完了状態
@@ -105,9 +111,10 @@ export default function ContextLibraryPanel() {
         }
       }
       if (tagFilter && !(it.tags || []).includes(tagFilter)) return false;
+      if (favoriteOnly && !it.is_favorite) return false;
       return true;
     });
-  }, [items, search, tagFilter]);
+  }, [items, search, tagFilter, favoriteOnly]);
 
   const handleCopy = async (item: ContextSave) => {
     try {
@@ -115,6 +122,24 @@ export default function ContextLibraryPanel() {
       setCopiedId(item.id);
       setTimeout(() => setCopiedId(null), 2000);
     } catch {}
+  };
+
+  // お気に入りトグル（楽観更新 → 失敗時ロールバック）。コンテキストライブラリ専用。
+  const handleToggleFavorite = async (item: ContextSave) => {
+    const next = !item.is_favorite;
+    setItems(prev => prev.map(it => it.id === item.id ? { ...it, is_favorite: next } : it));
+    try {
+      const res = await fetch('/api/context-saves', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'toggle_favorite', id: item.id }),
+      });
+      if (!res.ok) throw new Error();
+    } catch {
+      setItems(prev => prev.map(it => it.id === item.id ? { ...it, is_favorite: !next } : it));
+      setToast('❌ お気に入りの更新に失敗しました');
+      setTimeout(() => setToast(''), 3000);
+    }
   };
 
   const handleDelete = async (id: number) => {
@@ -292,6 +317,23 @@ export default function ContextLibraryPanel() {
             {allTags.map(t => <option key={t} value={t}>{t}</option>)}
           </select>
         )}
+        <button
+          type="button"
+          onClick={() => setFavoriteOnly(v => !v)}
+          title="お気に入り登録したコンテキストだけを表示"
+          style={{
+            padding: '8px 14px',
+            borderRadius: 8,
+            border: `1px solid ${favoriteOnly ? '#f59e0b' : 'var(--border)'}`,
+            background: favoriteOnly ? '#f59e0b' : 'transparent',
+            color: favoriteOnly ? '#fff' : 'var(--text-secondary)',
+            fontSize: 12,
+            fontWeight: 600,
+            cursor: 'pointer',
+          }}
+        >
+          ⭐ お気に入り
+        </button>
         <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>
           {filtered.length} / {items.length} 件
         </span>
@@ -348,8 +390,12 @@ export default function ContextLibraryPanel() {
             <div
               key={item.id}
               style={{
-                background: 'linear-gradient(135deg, var(--bg-secondary), var(--bg-primary))',
+                background: item.is_favorite
+                  ? 'rgba(245,158,11,0.08)'
+                  : 'linear-gradient(135deg, var(--bg-secondary), var(--bg-primary))',
                 border: '1px solid var(--border)',
+                // お気に入りは金色の左ボーダーで一目で区別
+                ...(item.is_favorite ? { borderLeft: '4px solid #f59e0b' } : {}),
                 borderRadius: 14,
                 padding: 18,
                 boxShadow: '0 2px 6px rgba(0,0,0,0.06)',
@@ -407,7 +453,7 @@ export default function ContextLibraryPanel() {
                   // 本文(AI生成Markdown)は共通レンダラで見出し・太字・箇条書きを描画（生記号を出さない）
                   <div
                     className="markdown-body"
-                    style={{ color: 'var(--text-primary)' }}
+                    style={{ color: 'var(--text-primary)', overflowWrap: 'anywhere', wordBreak: 'break-word' }}
                     dangerouslySetInnerHTML={{ __html: renderMarkdown(item.context_text) }}
                   />
                 ) : (
@@ -442,6 +488,29 @@ export default function ContextLibraryPanel() {
                   style={{ padding: '6px 12px', background: 'var(--bg-secondary)', border: '1px solid var(--border)', color: 'var(--text-secondary)', borderRadius: 6, cursor: 'pointer', fontSize: 11, fontWeight: 600 }}
                 >
                   {copiedId === item.id ? '✅ コピー済' : '📋 コピー'}
+                </button>
+                <button
+                  onClick={() => setReaderItem(item)}
+                  title="全画面のリーダー表示で読む"
+                  style={{ padding: '6px 12px', background: 'var(--bg-secondary)', border: '1px solid var(--border)', color: 'var(--text-secondary)', borderRadius: 6, cursor: 'pointer', fontSize: 11, fontWeight: 600 }}
+                >
+                  ⛶ 全画面
+                </button>
+                <button
+                  onClick={() => handleToggleFavorite(item)}
+                  title={item.is_favorite ? 'お気に入りを解除' : 'お気に入りに登録'}
+                  style={{
+                    padding: '6px 12px',
+                    borderRadius: 6,
+                    cursor: 'pointer',
+                    fontSize: 11,
+                    fontWeight: item.is_favorite ? 700 : 600,
+                    border: `1px solid ${item.is_favorite ? '#f59e0b' : 'var(--border)'}`,
+                    background: item.is_favorite ? '#fef3c7' : 'var(--bg-secondary)',
+                    color: item.is_favorite ? '#b45309' : 'var(--text-secondary)',
+                  }}
+                >
+                  {item.is_favorite ? '⭐ 解除' : '☆ お気に入り'}
                 </button>
                 <button
                   onClick={() => goToTool(item, 'write')}
@@ -528,6 +597,14 @@ export default function ContextLibraryPanel() {
           );
         })}
       </div>
+
+      {/* 全画面リーダー（コンテキスト本文を読み物表示） */}
+      <FullscreenReader
+        open={readerItem !== null}
+        title={readerItem?.topic ?? '無題'}
+        content={readerItem?.context_text ?? ''}
+        onClose={() => setReaderItem(null)}
+      />
     </div>
   );
 }
