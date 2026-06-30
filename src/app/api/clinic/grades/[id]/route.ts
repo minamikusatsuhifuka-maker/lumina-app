@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
 import { neon } from '@neondatabase/serverless';
+import { ensureGradeWeightColumns } from '@/lib/ensure-grade-weights';
 
 export async function GET(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const session = await auth();
@@ -18,6 +19,25 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   const { id } = await params;
   const body = await req.json();
   const sql = neon(process.env.DATABASE_URL!);
+
+  // 評価配分（グレード別）の重み更新。3項目が来たら合計100バリデーション（100以外は弾く）。
+  const hasWeight =
+    body.weightKnowledge !== undefined ||
+    body.weightSkill !== undefined ||
+    body.weightMind !== undefined;
+  if (hasWeight) {
+    const wk = Number(body.weightKnowledge);
+    const ws = Number(body.weightSkill);
+    const wm = Number(body.weightMind);
+    if (![wk, ws, wm].every((n) => Number.isInteger(n) && n >= 0 && n <= 100)) {
+      return NextResponse.json({ error: '配分は0〜100の整数で指定してください' }, { status: 400 });
+    }
+    if (wk + ws + wm !== 100) {
+      return NextResponse.json({ error: '配分の合計は100%にしてください' }, { status: 400 });
+    }
+    await ensureGradeWeightColumns(sql);
+    await sql`UPDATE grade_levels SET weight_knowledge = ${wk}, weight_skill = ${ws}, weight_mind = ${wm}, updated_at = NOW() WHERE id = ${id}`;
+  }
 
   const updates: [string, unknown][] = [];
   const map: Record<string, string> = {

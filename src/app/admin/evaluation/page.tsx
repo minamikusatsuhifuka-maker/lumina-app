@@ -43,6 +43,11 @@ export default function EvaluationPage() {
   // AI生成
   const [generating, setGenerating] = useState(false);
 
+  // 評価配分（グレード別。weight_knowledge/skill/mind。合計100%）
+  const [weights, setWeights] = useState<{ k: number; s: number; m: number }>({ k: 25, s: 25, m: 50 });
+  const [editingWeights, setEditingWeights] = useState(false);
+  const [savingWeights, setSavingWeights] = useState(false);
+
   // フレームワーク（マインド5段階・実の原則）
   const [mindsetLevels, setMindsetLevels] = useState<any[]>(DEFAULT_MINDSET_LEVELS);
   const [realPrinciples, setRealPrinciples] = useState<any[]>(DEFAULT_REAL_PRINCIPLES);
@@ -97,6 +102,13 @@ export default function EvaluationPage() {
     setKnowledgeCriteria(parseArr(selectedGrade.knowledge));
     setSkillCriteria(parseArr(selectedGrade.skills));
     setMindsetCriteria(parseArr(selectedGrade.mindset));
+    // グレード別の評価配分（未設定の旧データは 25/25/50 を既定とする）
+    setWeights({
+      k: Number(selectedGrade.weight_knowledge ?? 25),
+      s: Number(selectedGrade.weight_skill ?? 25),
+      m: Number(selectedGrade.weight_mind ?? 50),
+    });
+    setEditingWeights(false);
     setEditingSection(null);
   }, [selectedGradeId]);
 
@@ -129,6 +141,33 @@ export default function EvaluationPage() {
       setTimeout(() => setMessage(''), 2000);
     } catch { setMessage('保存に失敗しました'); }
     finally { setSaving(false); }
+  };
+
+  const weightSum = weights.k + weights.s + weights.m;
+
+  // 評価配分（グレード別）を保存。合計100%以外は弾く（API側でも100検証）。
+  const saveWeights = async () => {
+    if (!selectedGradeId) return;
+    if (weightSum !== 100) {
+      setMessage('配分の合計は100%にしてください');
+      setTimeout(() => setMessage(''), 2000);
+      return;
+    }
+    setSavingWeights(true);
+    try {
+      const res = await fetch(`/api/clinic/grades/${selectedGradeId}`, {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ weightKnowledge: weights.k, weightSkill: weights.s, weightMind: weights.m }),
+      });
+      if (!res.ok) throw new Error();
+      setGrades(prev => prev.map(g => g.id === selectedGradeId
+        ? { ...g, weight_knowledge: weights.k, weight_skill: weights.s, weight_mind: weights.m }
+        : g));
+      setEditingWeights(false);
+      setMessage('保存しました');
+      setTimeout(() => setMessage(''), 2000);
+    } catch { setMessage('保存に失敗しました'); }
+    finally { setSavingWeights(false); }
   };
 
   const handleDragStart = (section: string, index: number) => {
@@ -279,19 +318,11 @@ export default function EvaluationPage() {
   return (
     <div style={{ maxWidth: 900, margin: '0 auto', paddingBottom: 60 }}>
       <h1 style={{ fontSize: 26, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 4 }}>📋 評価制度</h1>
-      <p style={{ color: 'var(--text-muted)', fontSize: 13, marginBottom: 20 }}>等級別の評価基準（知識25%・スキル25%・マインド50%）を直接編集・AIで生成</p>
+      <p style={{ color: 'var(--text-muted)', fontSize: 13, marginBottom: 20 }}>等級別の評価基準・評価配分を直接編集・AIで生成（配分はグレードごとに設定できます）</p>
 
       {message && <div style={{ padding: 10, background: message.includes('失敗') ? 'rgba(239,68,68,0.1)' : 'rgba(74,222,128,0.1)', borderRadius: 8, fontSize: 13, color: message.includes('失敗') ? '#ef4444' : '#4ade80', marginBottom: 12 }}>{message}</div>}
 
-      {/* 評価配分バー */}
-      <div style={{ ...cardStyle, marginBottom: 20, padding: 16 }}>
-        <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 8 }}>評価配分</div>
-        <div style={{ display: 'flex', borderRadius: 8, overflow: 'hidden', height: 36 }}>
-          <div style={{ width: '25%', background: 'linear-gradient(135deg, #3b82f6, #60a5fa)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: 700, color: '#fff' }}>📚 知識 25%</div>
-          <div style={{ width: '25%', background: 'linear-gradient(135deg, #f59e0b, #fbbf24)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: 700, color: '#fff' }}>🎯 スキル 25%</div>
-          <div style={{ width: '50%', background: 'linear-gradient(135deg, #8b5cf6, #a78bfa)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: 700, color: '#fff' }}>💎 マインド 50%</div>
-        </div>
-      </div>
+      {/* 評価配分バーは選択中グレードに紐づくため、下の「選択中の等級」セクションへ移動 */}
 
       {/* アチーブメント原則（編集可能） */}
       <div style={{ ...cardStyle, marginBottom: 20, padding: 16 }}>
@@ -432,9 +463,54 @@ export default function EvaluationPage() {
             </button>
           </div>
 
-          {renderSection('knowledge', '知識評価基準（25%）', '📚', '#3b82f6', knowledgeCriteria, setKnowledgeCriteria)}
-          {renderSection('skills', 'スキル評価基準（25%）', '🎯', '#f59e0b', skillCriteria, setSkillCriteria)}
-          {renderSection('mindset', 'マインド評価基準（50%）', '💎', '#8b5cf6', mindsetCriteria, setMindsetCriteria)}
+          {/* 評価配分（このグレード）— 動的描画＋編集（合計100%必須） */}
+          <div style={{ ...cardStyle, marginBottom: 16, padding: 16 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+              <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>評価配分（このグレード）</div>
+              {!editingWeights && (
+                <button onClick={() => setEditingWeights(true)} style={{ fontSize: 12, color: '#6c63ff', background: 'none', border: 'none', cursor: 'pointer' }}>✏️ 編集</button>
+              )}
+            </div>
+            {editingWeights ? (
+              <div>
+                <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', alignItems: 'flex-end' }}>
+                  {([['k', '📚 知識', '#3b82f6'], ['s', '🎯 スキル', '#f59e0b'], ['m', '💎 マインド', '#8b5cf6']] as const).map(([key, lbl, col]) => (
+                    <div key={key}>
+                      <div style={{ fontSize: 12, fontWeight: 700, color: col, marginBottom: 4 }}>{lbl}</div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                        <input
+                          type="number" min={0} max={100} value={weights[key]}
+                          onChange={e => { const n = Math.max(0, Math.min(100, Number(e.target.value) || 0)); setWeights(prev => ({ ...prev, [key]: n })); }}
+                          style={{ ...inputStyle, width: 80 }}
+                        />
+                        <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>%</span>
+                      </div>
+                    </div>
+                  ))}
+                  <div style={{ fontSize: 13, fontWeight: 700, color: weightSum === 100 ? '#4ade80' : '#ef4444' }}>
+                    合計 {weightSum}%
+                  </div>
+                </div>
+                {weightSum !== 100 && (
+                  <div style={{ fontSize: 11, color: '#ef4444', marginTop: 6 }}>⚠️ 合計が100%になっていません（保存できません）</div>
+                )}
+                <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
+                  <button onClick={saveWeights} disabled={savingWeights || weightSum !== 100} style={{ padding: '7px 16px', borderRadius: 8, border: 'none', background: weightSum === 100 ? '#6c63ff' : 'var(--border)', color: '#fff', fontSize: 12, fontWeight: 700, cursor: (savingWeights || weightSum !== 100) ? 'not-allowed' : 'pointer' }}>{savingWeights ? '保存中...' : '💾 保存'}</button>
+                  <button onClick={() => { setEditingWeights(false); setWeights({ k: Number(selectedGrade.weight_knowledge ?? 25), s: Number(selectedGrade.weight_skill ?? 25), m: Number(selectedGrade.weight_mind ?? 50) }); }} style={{ padding: '7px 12px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--bg-card)', color: 'var(--text-muted)', fontSize: 12, cursor: 'pointer' }}>キャンセル</button>
+                </div>
+              </div>
+            ) : (
+              <div style={{ display: 'flex', borderRadius: 8, overflow: 'hidden', height: 36 }}>
+                <div style={{ width: `${weights.k}%`, background: 'linear-gradient(135deg, #3b82f6, #60a5fa)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: 700, color: '#fff', minWidth: 0, overflow: 'hidden', whiteSpace: 'nowrap' }}>📚 知識 {weights.k}%</div>
+                <div style={{ width: `${weights.s}%`, background: 'linear-gradient(135deg, #f59e0b, #fbbf24)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: 700, color: '#fff', minWidth: 0, overflow: 'hidden', whiteSpace: 'nowrap' }}>🎯 スキル {weights.s}%</div>
+                <div style={{ width: `${weights.m}%`, background: 'linear-gradient(135deg, #8b5cf6, #a78bfa)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: 700, color: '#fff', minWidth: 0, overflow: 'hidden', whiteSpace: 'nowrap' }}>💎 マインド {weights.m}%</div>
+              </div>
+            )}
+          </div>
+
+          {renderSection('knowledge', `知識評価基準（${weights.k}%）`, '📚', '#3b82f6', knowledgeCriteria, setKnowledgeCriteria)}
+          {renderSection('skills', `スキル評価基準（${weights.s}%）`, '🎯', '#f59e0b', skillCriteria, setSkillCriteria)}
+          {renderSection('mindset', `マインド評価基準（${weights.m}%）`, '💎', '#8b5cf6', mindsetCriteria, setMindsetCriteria)}
         </>
       )}
 
