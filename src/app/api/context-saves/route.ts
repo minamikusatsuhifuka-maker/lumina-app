@@ -105,26 +105,47 @@ export async function PATCH(req: NextRequest) {
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
   try {
-    const { action, id } = await req.json();
-    if (action !== 'toggle_favorite') {
-      return NextResponse.json({ error: '不正なactionです' }, { status: 400 });
-    }
+    const body = await req.json();
+    const { action, id } = body;
     if (!id) return NextResponse.json({ error: 'id が必須です' }, { status: 400 });
 
     const sql = neon(process.env.DATABASE_URL!);
-    await ensureFavoriteColumn();
     const userId = (session.user as any).id;
 
+    // タイトル・本文の編集（コンテキストライブラリのカード編集。owner検証込み）。
+    // テキスト分析(text_analysis_saves)の編集と同等動作を context_saves に対して行う。
+    if (action === 'update') {
+      const topic = typeof body.topic === 'string' ? body.topic.trim() : '';
+      const contextText = typeof body.contextText === 'string' ? body.contextText.trim() : '';
+      if (!topic || !contextText) {
+        return NextResponse.json({ error: 'topic と contextText は必須です' }, { status: 400 });
+      }
+      const rows = await sql`
+        UPDATE context_saves
+        SET topic = ${topic}, context_text = ${contextText}
+        WHERE id = ${parseInt(String(id), 10)} AND user_id = ${userId}
+        RETURNING id
+      `;
+      if (rows.length === 0) return NextResponse.json({ error: 'Not found' }, { status: 404 });
+      return NextResponse.json({ success: true, id: rows[0].id });
+    }
+
+    // お気に入りトグル（コンテキストライブラリ専用＝テキスト分析とは別管理）。
     // owner検証込みでトグル。favorited_at は ON 時のみ現在時刻、OFF 時は NULL。
-    const rows = await sql`
-      UPDATE context_saves
-      SET is_favorite = NOT is_favorite,
-          favorited_at = CASE WHEN NOT is_favorite THEN NOW() ELSE NULL END
-      WHERE id = ${parseInt(String(id), 10)} AND user_id = ${userId}
-      RETURNING id, is_favorite, favorited_at
-    `;
-    if (rows.length === 0) return NextResponse.json({ error: 'Not found' }, { status: 404 });
-    return NextResponse.json({ success: true, ...rows[0] });
+    if (action === 'toggle_favorite') {
+      await ensureFavoriteColumn();
+      const rows = await sql`
+        UPDATE context_saves
+        SET is_favorite = NOT is_favorite,
+            favorited_at = CASE WHEN NOT is_favorite THEN NOW() ELSE NULL END
+        WHERE id = ${parseInt(String(id), 10)} AND user_id = ${userId}
+        RETURNING id, is_favorite, favorited_at
+      `;
+      if (rows.length === 0) return NextResponse.json({ error: 'Not found' }, { status: 404 });
+      return NextResponse.json({ success: true, ...rows[0] });
+    }
+
+    return NextResponse.json({ error: '不正なactionです' }, { status: 400 });
   } catch (e: any) {
     return NextResponse.json({ error: e.message || '更新に失敗しました' }, { status: 500 });
   }

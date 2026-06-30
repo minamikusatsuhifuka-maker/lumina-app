@@ -1887,20 +1887,7 @@ export default function SavedAnalysisList({
                         )}
                       </div>
                       </>
-                    ) : (
-                      <div
-                        style={{
-                          fontSize: 12,
-                          color: 'var(--text-secondary)',
-                          overflow: 'hidden',
-                          display: '-webkit-box',
-                          WebkitLineClamp: 2,
-                          WebkitBoxOrient: 'vertical',
-                        }}
-                      >
-                        {record.content}
-                      </div>
-                    )}
+                    ) : null /* 本文プレビューは非表示。閲覧は「▼全文表示」/「⛶全画面」に集約 */}
                   </div>
                 </div>
               </div>

@@ -3,7 +3,14 @@
 import { useEffect, useState, useMemo } from 'react';
 import FeatureDefaultContextSelector, { FEATURE_OPTIONS } from '@/components/FeatureDefaultContextSelector';
 import { copyToClipboard } from '@/lib/copyToClipboard';
-import { renderMarkdown } from '@/lib/markdown-renderer';
+import { renderMarkdown, sanitizeLatex } from '@/lib/markdown-renderer';
+import {
+  generateTitleWithTimeout,
+  sanitizeFilename,
+  yyyymmdd,
+} from '@/lib/title-generator';
+import { triggerDownload } from '@/lib/download';
+import { markdownToReadableText } from '@/lib/markdownToText';
 import FullscreenReader from '@/components/text-analysis/FullscreenReader';
 import { cardActionBtnStyle } from '@/components/text-analysis/cardActionButtonStyle';
 
@@ -37,6 +44,13 @@ export default function ContextLibraryPanel() {
   // 下部アクション（文章作成へ〜要約・詳細）のアコーディオン開閉。カードごと・既定は閉（誤発火防止）。
   const [actionsOpen, setActionsOpen] = useState<Record<number, boolean>>({});
   const [copiedId, setCopiedId] = useState<number | null>(null);
+  // テキスト/MD ダウンロード中のID（タイトル生成中の同時押し防止。txt/MD共用）
+  const [downloadingId, setDownloadingId] = useState<number | null>(null);
+  // カード編集（タイトル=topic + 本文=context_text。同時編集は1件のみ）
+  const [editingId, setEditingId] = useState<number | null>(null);
+  const [editTitle, setEditTitle] = useState('');
+  const [editContent, setEditContent] = useState('');
+  const [editSaving, setEditSaving] = useState(false);
   // 全画面リーダーで表示中のアイテム（null=非表示）
   const [readerItem, setReaderItem] = useState<ContextSave | null>(null);
   // contextSaveId -> 登録済み機能キー配列 のマップ
@@ -121,10 +135,106 @@ export default function ContextLibraryPanel() {
 
   const handleCopy = async (item: ContextSave) => {
     try {
-      await copyToClipboard(item.context_text);
+      // コピー内容にも LaTeX 正規化を適用（テキスト分析側と挙動を揃える）
+      await copyToClipboard(sanitizeLatex(item.context_text));
       setCopiedId(item.id);
       setTimeout(() => setCopiedId(null), 2000);
     } catch {}
+  };
+
+  // 一時トースト表示の共通ヘルパー
+  const flashToast = (msg: string, ms = 3000) => {
+    setToast(msg);
+    setTimeout(() => setToast(''), ms);
+  };
+
+  // .txt ダウンロード（テキスト分析 handleDownloadTxt 流用。context_saves 対象）。
+  // AIタイトル生成 + Markdown記号を除去した読みやすいプレーンテキストで書き出す。
+  const handleDownloadTxt = async (item: ContextSave) => {
+    if (downloadingId !== null) return; // 同時押し防止（MDと共用）
+    setDownloadingId(item.id);
+    try {
+      const label = 'コンテキスト';
+      const fallback = item.topic || label;
+      const autoTitle = await generateTitleWithTimeout(item.context_text, label, fallback);
+      const safeTitle = sanitizeFilename(autoTitle);
+      const txtContent = `${autoTitle}\n\n${sanitizeLatex(item.context_text)}`;
+      triggerDownload(
+        `${safeTitle}_${yyyymmdd()}.txt`,
+        markdownToReadableText(txtContent),
+        'text/plain;charset=utf-8',
+      );
+      flashToast('✅ テキストファイルをダウンロードしました');
+    } catch {
+      flashToast('❌ ダウンロードに失敗しました');
+    } finally {
+      setDownloadingId(null);
+    }
+  };
+
+  // .md ダウンロード（テキスト分析 handleDownloadMd 流用。context_saves 対象）。
+  const handleDownloadMd = async (item: ContextSave) => {
+    if (downloadingId !== null) return; // 同時押し防止（txtと共用）
+    setDownloadingId(item.id);
+    try {
+      const label = 'コンテキスト';
+      const fallback = item.topic || label;
+      const autoTitle = await generateTitleWithTimeout(item.context_text, label, fallback);
+      const safeTitle = sanitizeFilename(autoTitle);
+      const mdContent = `# ${autoTitle}\n\n${sanitizeLatex(item.context_text)}`;
+      triggerDownload(
+        `${safeTitle}_${yyyymmdd()}.md`,
+        mdContent,
+        'text/markdown;charset=utf-8',
+      );
+      flashToast('✅ MDファイルをダウンロードしました');
+    } catch {
+      flashToast('❌ ダウンロードに失敗しました');
+    } finally {
+      setDownloadingId(null);
+    }
+  };
+
+  // 「✏️ 編集」: 現在の topic/context_text を編集 state にコピーして編集モードへ（展開も保証）
+  const startEdit = (item: ContextSave) => {
+    setExpandedId(item.id);
+    setEditingId(item.id);
+    setEditTitle(item.topic || '');
+    setEditContent(item.context_text);
+  };
+
+  // 編集内容を保存（PATCH action=update。topic + context_text のみ更新）
+  const saveEdit = async (id: number) => {
+    if (!editTitle.trim() || !editContent.trim()) {
+      flashToast('❌ タイトルと本文は空にできません');
+      return;
+    }
+    setEditSaving(true);
+    try {
+      const res = await fetch('/api/context-saves', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'update',
+          id,
+          topic: editTitle.trim(),
+          contextText: editContent.trim(),
+        }),
+      });
+      if (!res.ok) throw new Error();
+      const newTopic = editTitle.trim();
+      const newContent = editContent.trim();
+      setItems(prev =>
+        prev.map(it => (it.id === id ? { ...it, topic: newTopic, context_text: newContent } : it)),
+      );
+      setEditingId(null);
+      flashToast('✅ 更新しました');
+    } catch {
+      // 失敗時は編集モードを維持（入力内容を失わない）
+      flashToast('❌ 更新に失敗しました', 4000);
+    } finally {
+      setEditSaving(false);
+    }
   };
 
   // お気に入りトグル（楽観更新 → 失敗時ロールバック）。コンテキストライブラリ専用。
@@ -388,7 +498,6 @@ export default function ContextLibraryPanel() {
       <div style={{ display: 'grid', gap: 14 }}>
         {filtered.map(item => {
           const expanded = expandedId === item.id;
-          const preview = item.context_text.replace(/\n/g, ' ').slice(0, 120);
           return (
             <div
               key={item.id}
@@ -436,38 +545,7 @@ export default function ContextLibraryPanel() {
                 </div>
               </div>
 
-              <div
-                onClick={() => setExpandedId(expanded ? null : item.id)}
-                style={{
-                  cursor: 'pointer',
-                  background: 'var(--bg-primary)',
-                  border: '1px solid var(--border)',
-                  borderRadius: 8,
-                  padding: 12,
-                  marginBottom: 12,
-                  fontSize: 13,
-                  color: 'var(--text-secondary)',
-                  lineHeight: 1.7,
-                  maxHeight: expanded ? 600 : 'auto',
-                  overflowY: expanded ? 'auto' : 'hidden',
-                }}
-              >
-                {expanded ? (
-                  // 本文(AI生成Markdown)は共通レンダラで見出し・太字・箇条書きを描画（生記号を出さない）
-                  <div
-                    className="markdown-body"
-                    style={{ color: 'var(--text-primary)', overflowWrap: 'anywhere', wordBreak: 'break-word' }}
-                    dangerouslySetInnerHTML={{ __html: renderMarkdown(item.context_text) }}
-                  />
-                ) : (
-                  <>
-                    {preview}{item.context_text.length > 120 ? '...' : ''}
-                    <span style={{ marginLeft: 8, fontSize: 11, color: 'var(--accent)', fontWeight: 600 }}>
-                      クリックで全文表示
-                    </span>
-                  </>
-                )}
-              </div>
+              {/* 本文プレビューは非表示（A）。閲覧は「▼全文表示」/「⛶全画面」に集約。 */}
 
               {/* 登録済み機能のバッジ */}
               {(defaultMap[item.id]?.length ?? 0) > 0 && (
@@ -485,9 +563,16 @@ export default function ContextLibraryPanel() {
                 </div>
               )}
 
-              {/* ── 共通操作バー（テキスト分析と並び・見た目・ラベルを統一）──
-                  全画面 / コピー / お気に入り … 活用する(アコーディオン) / デフォルト登録 / 削除(右端) */}
+              {/* ── 共通操作バー（テキスト分析 SavedAnalysisList と並び・見た目・ラベルを完全統一）──
+                  ▼全文表示 / ⛶全画面 / 📋コピー / ⬇テキスト / 📥MD / ☆お気に入り / ✏編集 / 🗑削除(右端)。
+                  flex-wrap で自然に2行になる（テキスト分析と同一実装）。 */}
               <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' as const, alignItems: 'center' }}>
+                <button
+                  onClick={() => setExpandedId(expanded ? null : item.id)}
+                  style={cardActionBtnStyle()}
+                >
+                  {expanded ? '▲ 閉じる' : '▼ 全文表示'}
+                </button>
                 <button
                   onClick={() => setReaderItem(item)}
                   title="全画面のリーダー表示で読む"
@@ -507,6 +592,28 @@ export default function ContextLibraryPanel() {
                   {copiedId === item.id ? '✅ コピー済み' : '📋 コピー'}
                 </button>
                 <button
+                  onClick={() => handleDownloadTxt(item)}
+                  disabled={downloadingId === item.id}
+                  style={{
+                    ...cardActionBtnStyle(),
+                    cursor: downloadingId === item.id ? 'not-allowed' : 'pointer',
+                    opacity: downloadingId === item.id ? 0.6 : 1,
+                  }}
+                >
+                  {downloadingId === item.id ? '⏳ タイトル生成中...' : '⬇ テキスト'}
+                </button>
+                <button
+                  onClick={() => handleDownloadMd(item)}
+                  disabled={downloadingId === item.id}
+                  style={{
+                    ...cardActionBtnStyle(),
+                    cursor: downloadingId === item.id ? 'not-allowed' : 'pointer',
+                    opacity: downloadingId === item.id ? 0.6 : 1,
+                  }}
+                >
+                  {downloadingId === item.id ? '⏳ タイトル生成中...' : '📥 MD'}
+                </button>
+                <button
                   onClick={() => handleToggleFavorite(item)}
                   title={item.is_favorite ? 'お気に入りを解除' : 'お気に入りに登録'}
                   style={
@@ -517,6 +624,132 @@ export default function ContextLibraryPanel() {
                 >
                   {item.is_favorite ? '⭐ 解除' : '☆ お気に入り'}
                 </button>
+                <button
+                  onClick={() =>
+                    editingId === item.id ? setEditingId(null) : startEdit(item)
+                  }
+                  style={{
+                    ...cardActionBtnStyle(),
+                    ...(editingId === item.id
+                      ? { background: 'rgba(108,99,255,0.12)', borderColor: 'var(--accent)', color: 'var(--accent)' }
+                      : {}),
+                  }}
+                >
+                  {editingId === item.id ? '✏️ 編集中' : '✏️ 編集'}
+                </button>
+                <button
+                  onClick={() => handleDelete(item.id)}
+                  style={{ ...cardActionBtnStyle(), color: '#ef4444', marginLeft: 'auto' }}
+                >
+                  🗑 削除
+                </button>
+              </div>
+
+              {/* 全文表示（カード内インライン展開）。編集モード時は topic/本文の編集フォーム。 */}
+              {expanded && (
+                <div
+                  style={{
+                    marginTop: 12,
+                    background: 'var(--bg-primary)',
+                    border: '1px solid var(--border)',
+                    borderRadius: 8,
+                    padding: 12,
+                  }}
+                >
+                  {editingId === item.id ? (
+                    <div>
+                      <input
+                        value={editTitle}
+                        onChange={(e) => setEditTitle(e.target.value)}
+                        placeholder="タイトル"
+                        style={{
+                          width: '100%',
+                          fontSize: 16,
+                          fontWeight: 700,
+                          padding: 8,
+                          marginBottom: 8,
+                          boxSizing: 'border-box',
+                          background: 'var(--bg-secondary)',
+                          color: 'var(--text-primary)',
+                          border: '1px solid var(--border)',
+                          borderRadius: 6,
+                        }}
+                      />
+                      <textarea
+                        value={editContent}
+                        onChange={(e) => setEditContent(e.target.value)}
+                        placeholder="本文（Markdown）"
+                        style={{
+                          width: '100%',
+                          minHeight: 300,
+                          fontSize: 14,
+                          lineHeight: 1.6,
+                          padding: 10,
+                          boxSizing: 'border-box',
+                          background: 'var(--bg-secondary)',
+                          color: 'var(--text-primary)',
+                          border: '1px solid var(--border)',
+                          borderRadius: 8,
+                          whiteSpace: 'pre-wrap',
+                          fontFamily: 'inherit',
+                          resize: 'vertical',
+                        }}
+                      />
+                      <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+                        <button
+                          onClick={() => saveEdit(item.id)}
+                          disabled={editSaving}
+                          style={{
+                            padding: '8px 16px',
+                            fontSize: 13,
+                            fontWeight: 600,
+                            borderRadius: 8,
+                            border: 'none',
+                            background: editSaving ? '#9ca3af' : 'var(--accent)',
+                            color: '#fff',
+                            cursor: editSaving ? 'not-allowed' : 'pointer',
+                          }}
+                        >
+                          {editSaving ? '⏳ 保存中...' : '💾 保存'}
+                        </button>
+                        <button
+                          onClick={() => setEditingId(null)}
+                          disabled={editSaving}
+                          style={{
+                            padding: '8px 16px',
+                            fontSize: 13,
+                            fontWeight: 500,
+                            borderRadius: 8,
+                            border: '1px solid var(--border)',
+                            background: 'var(--bg-secondary)',
+                            color: 'var(--text-secondary)',
+                            cursor: editSaving ? 'not-allowed' : 'pointer',
+                          }}
+                        >
+                          キャンセル
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    // 本文(AI生成Markdown)は共通レンダラで見出し・太字・箇条書きを描画（生記号を出さない）
+                    <div
+                      className="markdown-body"
+                      style={{
+                        maxHeight: 600,
+                        overflowY: 'auto',
+                        color: 'var(--text-primary)',
+                        overflowWrap: 'anywhere',
+                        wordBreak: 'break-word',
+                        lineHeight: 1.75,
+                      }}
+                      dangerouslySetInnerHTML={{ __html: renderMarkdown(item.context_text) }}
+                    />
+                  )}
+                </div>
+              )}
+
+              {/* ── コンテキスト固有のアクション（活用する）。テキスト分析には無い別枠。── */}
+              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' as const, alignItems: 'center', marginTop: 8 }}>
                 {/* 活用する：下部アクションのアコーディオン開閉（既定閉・誤発火防止） */}
                 <button
                   onClick={() => setActionsOpen(prev => ({ ...prev, [item.id]: !prev[item.id] }))}
@@ -537,12 +770,6 @@ export default function ContextLibraryPanel() {
                   initialRegistered={defaultMap[item.id] ?? []}
                   onChange={(keys) => setDefaultMap(prev => ({ ...prev, [item.id]: keys }))}
                 />
-                <button
-                  onClick={() => handleDelete(item.id)}
-                  style={{ ...cardActionBtnStyle(), color: '#ef4444', marginLeft: 'auto' }}
-                >
-                  🗑 削除
-                </button>
               </div>
 
               {/* ── 下部アクション（アコーディオン格納・既定折りたたみ）──
