@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
 import { GoogleGenerativeAI } from '@google/generative-ai';
+import { robustJsonParse } from '@/lib/ai-json-parser';
 
 export const runtime = 'nodejs';
 export const maxDuration = 60;
@@ -35,7 +36,8 @@ export async function POST(req: Request) {
         'ご来院への感謝を伝えつつ、ご意見への丁寧な受け止めと今後の改善姿勢を示すバランスの取れたトーンで。',
     };
 
-    const prompt = `あなたは皮膚科クリニックの院長秘書です。患者さまからの口コミに対する返信文案を3パターン作成してください。
+    const prompt = `あなたは皮膚科クリニックの院長秘書で、医療広告規制（医療法・医療広告ガイドライン／薬機法）にも精通しています。
+患者さまからの口コミに対する返信文案を3パターン作成し、各案に医療広告規制チェックを併記してください。
 
 ## 口コミ情報
 - 投稿者: ${author || '匿名'}
@@ -52,30 +54,45 @@ ${toneInstructions[tone]}
 - 冒頭で「この度はご来院ありがとうございました」系の挨拶を入れる
 - 3パターンは文体・切り口を変えて差別化する
 
-## 出力フォーマット（必ずこのJSON）
+## 医療広告規制チェック（必須）— 以下に該当する表現は使わない
+- 効果・効能の保証（「必ず治る」「絶対」「効果を保証」等）
+- 誇大・最上級（「日本一」「最高」「No.1」根拠なし）
+- ビフォーアフターや他患者の体験談的表現の誘導
+- 割引・キャンペーンなどの利益誘導
+- 未承認・自由診療の不適切な効果訴求
+各返信案について、上記NG表現が含まれないか自己チェックし、結果（status と findings）を返す。
+
+## 出力フォーマット（必ずこのJSONのみ。前置き・コードフェンス禁止）
 {
   "tone": "${tone}",
   "drafts": [
-    { "style": "パターン名", "text": "返信本文" },
-    { "style": "パターン名", "text": "返信本文" },
-    { "style": "パターン名", "text": "返信本文" }
+    {
+      "style": "パターン名",
+      "text": "返信本文（NG表現を含まないこと）",
+      "ad_check": { "status": "ok", "findings": [] }
+    }
   ]
-}`;
+}
+- ad_check.status: NG表現が無ければ "ok"、懸念があれば "warn"
+- ad_check.findings: warn の場合に該当箇所と理由を簡潔に列挙（ok なら空配列）
+- drafts は3件`;
 
     const genAI = new GoogleGenerativeAI(apiKey);
     const model = genAI.getGenerativeModel({ model: 'gemini-3.5-flash' });
     const result = await model.generateContent({
       contents: [{ role: 'user', parts: [{ text: prompt }] }],
+      generationConfig: { responseMimeType: 'application/json', maxOutputTokens: 4096 },
     });
     const resText = result.response.text();
-    const jsonMatch = resText.match(/\{[\s\S]*\}/);
-    if (!jsonMatch) {
+    let parsed: { tone?: string; drafts?: Array<Record<string, unknown>> };
+    try {
+      parsed = robustJsonParse(resText);
+    } catch {
       return NextResponse.json({
         tone,
-        drafts: [{ style: '標準', text: resText.slice(0, 400) }],
+        drafts: [{ style: '標準', text: resText.slice(0, 400), ad_check: { status: 'ok', findings: [] } }],
       });
     }
-    const parsed = JSON.parse(jsonMatch[0]);
     return NextResponse.json({
       tone: parsed.tone || tone,
       drafts: parsed.drafts || [],

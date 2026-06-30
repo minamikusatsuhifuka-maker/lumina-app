@@ -25,11 +25,24 @@ interface DbReview {
   created_at: string;
   replied_at: string | null;
   reply_text: string | null;
+  // 145 口コミ管理：リスク判定列
+  risk_flag?: boolean | null;
+  risk_type?: string | null;
+  risk_reason?: string | null;
+  risk_score?: number | null;
+  review_status?: string | null;
+  analyzed_at?: string | null;
+}
+
+interface AdCheck {
+  status?: 'ok' | 'warn';
+  findings?: string[];
 }
 
 interface ReplyDraft {
   style: string;
   text: string;
+  ad_check?: AdCheck;
 }
 
 interface ReplyDraftState {
@@ -38,6 +51,37 @@ interface ReplyDraftState {
   drafts?: ReplyDraft[];
   error?: string;
 }
+
+// 通報支援パネルの状態（レビューIDをキーに保持）
+interface ReportState {
+  loading?: boolean;
+  policy?: string;
+  confidence?: string;
+  reportText?: string;
+  error?: string;
+  saving?: boolean;
+  saved?: boolean;
+}
+
+interface ReportRecord {
+  id: number;
+  review_id: number;
+  policy: string | null;
+  report_text: string | null;
+  status: string;
+  reported_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+// Googleの公式報告導線（固定リンク。外部アプリからの自動送信は不可）
+const GOOGLE_REPORT_LINKS = [
+  { label: 'Googleマップでクチコミを報告', url: 'https://support.google.com/business/answer/4596773', note: 'クチコミ横の「︙」→「クチコミを報告」' },
+  { label: 'ポリシー違反の報告フォーム', url: 'https://support.google.com/business/contact/business_review_reports_tool', note: 'マップ報告で対応されない場合の追加導線' },
+  { label: '禁止コンテンツ（ポリシー本文）', url: 'https://support.google.com/contributionpolicy/answer/7400114', note: 'なりすまし・利益相反・スパム等の定義' },
+];
+const ANONYMITY_NOTICE = 'Googleへの報告は匿名で行われ、投稿者に「誰が報告したか」は通知されません。安心してご報告いただけます。';
+const REPORT_STATUS_OPTIONS = ['未通報', '通報済み', '削除確認', '却下'];
 
 interface PlaceData {
   placeId: string;
@@ -101,6 +145,117 @@ export default function ReviewsPage() {
   // 返信文生成関連（レビューIDをキーにstateを保持）
   const [replyDrafts, setReplyDrafts] = useState<Record<number, ReplyDraftState>>({});
   const [copiedId, setCopiedId] = useState<string | null>(null);
+
+  // ─── 145 口コミ管理 ───
+  // ① 検知
+  const [detecting, setDetecting] = useState(false);
+  const [detectMsg, setDetectMsg] = useState<string | null>(null);
+  const [filterFlagged, setFilterFlagged] = useState(false);
+  // ② 通報支援（レビューIDをキーに保持）
+  const [reportPanels, setReportPanels] = useState<Record<number, ReportState>>({});
+  const [openReportId, setOpenReportId] = useState<number | null>(null);
+  const [reports, setReports] = useState<ReportRecord[]>([]);
+  // ③ 返信下書き保存メッセージ
+  const [savedDraftKey, setSavedDraftKey] = useState<string | null>(null);
+
+  // 通報記録の取得
+  const fetchReports = useCallback(async () => {
+    try {
+      const res = await fetch('/api/reviews/reports');
+      if (!res.ok) return;
+      const json = await res.json();
+      setReports(json.reports ?? []);
+    } catch { /* 無視 */ }
+  }, []);
+
+  // ① 悪質口コミを検知（全DB口コミにリスク判定を付与）
+  const detectMalicious = async () => {
+    setDetecting(true);
+    setDetectMsg(null);
+    try {
+      const res = await fetch('/api/reviews/analyze', { method: 'POST' });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || '検知に失敗しました');
+      await fetchDbReviews();
+      setDetectMsg(`✅ ${json.analyzed}件を判定（フラグ付き ${json.flagged ?? 0}件）`);
+      if ((json.flagged ?? 0) > 0) setFilterFlagged(true);
+    } catch (e: unknown) {
+      setDetectMsg(`⚠️ ${e instanceof Error ? e.message : '検知に失敗しました'}`);
+    } finally {
+      setDetecting(false);
+    }
+  };
+
+  // ② 通報文を生成
+  const generateReport = async (r: DbReview) => {
+    setReportPanels((prev) => ({ ...prev, [r.id]: { ...prev[r.id], loading: true, error: undefined } }));
+    try {
+      const res = await fetch('/api/reviews/report-draft', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ author: r.author_name, rating: r.rating, text: r.text, riskType: r.risk_type }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || '生成に失敗しました');
+      setReportPanels((prev) => ({
+        ...prev,
+        [r.id]: { loading: false, policy: json.policy, confidence: json.confidence, reportText: json.report_text },
+      }));
+    } catch (e: unknown) {
+      setReportPanels((prev) => ({
+        ...prev,
+        [r.id]: { loading: false, error: e instanceof Error ? e.message : '生成に失敗しました' },
+      }));
+    }
+  };
+
+  // ② 通報記録を保存
+  const saveReport = async (reviewId: number, status: string) => {
+    const panel = reportPanels[reviewId];
+    setReportPanels((prev) => ({ ...prev, [reviewId]: { ...prev[reviewId], saving: true } }));
+    try {
+      const res = await fetch('/api/reviews/reports', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ reviewId, policy: panel?.policy, reportText: panel?.reportText, status }),
+      });
+      if (!res.ok) throw new Error('保存に失敗しました');
+      await fetchReports();
+      setReportPanels((prev) => ({ ...prev, [reviewId]: { ...prev[reviewId], saving: false, saved: true } }));
+    } catch (e: unknown) {
+      setReportPanels((prev) => ({ ...prev, [reviewId]: { ...prev[reviewId], saving: false, error: e instanceof Error ? e.message : '保存に失敗しました' } }));
+    }
+  };
+
+  // ② 通報記録のステータス更新
+  const updateReportStatus = async (id: number, status: string) => {
+    try {
+      const res = await fetch('/api/reviews/reports', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id, status }),
+      });
+      if (!res.ok) throw new Error('更新に失敗しました');
+      await fetchReports();
+    } catch (e: unknown) {
+      alert(e instanceof Error ? e.message : '更新に失敗しました');
+    }
+  };
+
+  // ③ 返信下書きを履歴に保存
+  const saveReplyDraft = async (reviewId: number, draft: ReplyDraft, tone?: string, key?: string) => {
+    try {
+      const res = await fetch('/api/reviews/reply-drafts', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ reviewId, draftText: draft.text, tone, adCheckResult: draft.ad_check ?? null }),
+      });
+      if (!res.ok) throw new Error('保存に失敗しました');
+      if (key) { setSavedDraftKey(key); setTimeout(() => setSavedDraftKey(null), 2000); }
+    } catch (e: unknown) {
+      alert(e instanceof Error ? e.message : '保存に失敗しました');
+    }
+  };
 
   // 返信文案を生成
   const generateReply = async (r: DbReview) => {
@@ -169,8 +324,8 @@ export default function ReviewsPage() {
     }
   }, []);
 
-  // 初回読み込み時にDB口コミを取得
-  useEffect(() => { fetchDbReviews(); }, [fetchDbReviews]);
+  // 初回読み込み時にDB口コミ・通報記録を取得
+  useEffect(() => { fetchDbReviews(); fetchReports(); }, [fetchDbReviews, fetchReports]);
 
   // 手動登録を保存
   const saveManualReview = async () => {
@@ -205,6 +360,39 @@ export default function ReviewsPage() {
       alert(e instanceof Error ? e.message : '保存に失敗しました');
     } finally {
       setSaving(false);
+    }
+  };
+
+  // Google Places取得分を管理対象（DB）に取り込む。time+投稿者で external_id 生成→重複取り込み防止
+  const [importingKey, setImportingKey] = useState<string | null>(null);
+  const importPlaceReview = async (review: Review) => {
+    const key = `${review.timestamp}-${review.author}`;
+    setImportingKey(key);
+    try {
+      const reviewDate = review.timestamp
+        ? new Date(review.timestamp * 1000).toISOString().split('T')[0]
+        : null;
+      const res = await fetch('/api/places/reviews/import', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          reviews: [{
+            author_name: review.author,
+            rating: Math.round(review.rating) || 1,
+            text: review.text,
+            review_date: reviewDate,
+            source: 'google_maps',
+            time: review.timestamp,
+          }],
+        }),
+      });
+      if (!res.ok) throw new Error('取り込みに失敗しました');
+      await fetchDbReviews();
+      setActiveTab('manual');
+    } catch (e: unknown) {
+      alert(e instanceof Error ? e.message : '取り込みに失敗しました');
+    } finally {
+      setImportingKey(null);
     }
   };
 
@@ -464,8 +652,27 @@ export default function ReviewsPage() {
                 >
                   {aiLoading ? '🤖 分析中...' : `🤖 AIで口コミ分析（${data.reviews.length + dbReviews.length}件）`}
                 </button>
+                <button
+                  onClick={detectMalicious}
+                  disabled={detecting}
+                  title="登録済み口コミにAIでリスク判定（悪質口コミの検知）を行います"
+                  style={{
+                    padding: '9px 20px', borderRadius: 10, border: 'none',
+                    cursor: detecting ? 'not-allowed' : 'pointer',
+                    background: 'linear-gradient(135deg, #ef4444, #f97316)', color: '#fff',
+                    fontWeight: 700, fontSize: 12, opacity: detecting ? 0.6 : 1,
+                    boxShadow: '0 3px 12px rgba(239,68,68,0.25)',
+                  }}
+                >
+                  {detecting ? '🚨 検知中...' : '🚨 悪質口コミを検知'}
+                </button>
               </div>
             </div>
+
+            {/* 検知結果メッセージ */}
+            {detectMsg && (
+              <div style={{ marginBottom: 12, fontSize: 12, color: 'var(--text-secondary)' }}>{detectMsg}</div>
+            )}
 
             {/* タブ切り替え */}
             <div style={{ display: 'flex', gap: 4, marginBottom: 12, borderBottom: '1px solid var(--border)' }}>
@@ -533,6 +740,22 @@ export default function ReviewsPage() {
                           {review.text}
                         </div>
                       )}
+                      {/* 管理対象（DB）へ取り込む：検知・通報支援・返信の対象にできる */}
+                      <div style={{ paddingLeft: 42, marginTop: 10 }}>
+                        <button
+                          onClick={() => importPlaceReview(review)}
+                          disabled={importingKey === `${review.timestamp}-${review.author}`}
+                          title="この口コミを管理対象（検知・通報支援・返信）に追加します"
+                          style={{
+                            padding: '6px 12px', borderRadius: 8, border: '1px solid var(--border)',
+                            background: 'var(--bg-primary)', color: 'var(--text-secondary)',
+                            fontSize: 11, fontWeight: 700,
+                            cursor: importingKey === `${review.timestamp}-${review.author}` ? 'not-allowed' : 'pointer',
+                          }}
+                        >
+                          {importingKey === `${review.timestamp}-${review.author}` ? '⏳ 取り込み中…' : '⬇️ 取り込んで管理'}
+                        </button>
+                      </div>
                     </div>
                   ))
                 ) : (
@@ -543,11 +766,34 @@ export default function ReviewsPage() {
               </div>
             )}
 
-            {/* 手動登録分 */}
-            {activeTab === 'manual' && (
+            {/* 手動登録分（管理対象） */}
+            {activeTab === 'manual' && (() => {
+              const flaggedCount = dbReviews.filter((r) => r.risk_flag).length;
+              const visible = filterFlagged ? dbReviews.filter((r) => r.risk_flag) : dbReviews;
+              return (
+              <>
+              {/* 管理ツールバー：フラグ絞り込み */}
+              {dbReviews.length > 0 && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10, flexWrap: 'wrap' }}>
+                  <button
+                    onClick={() => setFilterFlagged((v) => !v)}
+                    style={{
+                      padding: '6px 12px', borderRadius: 8, fontSize: 12, fontWeight: 700, cursor: 'pointer',
+                      border: filterFlagged ? '1px solid #ef4444' : '1px solid var(--border)',
+                      background: filterFlagged ? 'rgba(239,68,68,0.08)' : 'var(--bg-secondary)',
+                      color: filterFlagged ? '#ef4444' : 'var(--text-secondary)',
+                    }}
+                  >
+                    🚩 フラグ付きのみ{flaggedCount > 0 ? `（${flaggedCount}）` : ''}
+                  </button>
+                  <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>
+                    {flaggedCount > 0 ? `要対応の疑い ${flaggedCount}件` : '「🚨 悪質口コミを検知」でリスク判定できます'}
+                  </span>
+                </div>
+              )}
               <div className="review-card" style={{ overflow: 'hidden' }}>
-                {dbReviews.length > 0 ? (
-                  dbReviews.map((r, i) => (
+                {visible.length > 0 ? (
+                  visible.map((r, i) => (
                     <div key={r.id} className="review-item" style={{ animationDelay: `${i * 0.08}s` }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
                         <div style={{
@@ -584,6 +830,165 @@ export default function ReviewsPage() {
                       {r.text && (
                         <div style={{ fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.7, paddingLeft: 42 }}>
                           {r.text}
+                        </div>
+                      )}
+
+                      {/* ① リスク判定バッジ */}
+                      {r.analyzed_at && (
+                        <div style={{ paddingLeft: 42, marginTop: 10 }}>
+                          {r.risk_flag ? (
+                            <div style={{
+                              padding: '8px 12px', borderRadius: 8,
+                              background: 'rgba(239,68,68,0.06)', border: '1px solid rgba(239,68,68,0.25)',
+                            }}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                                <span style={{ fontSize: 11, fontWeight: 800, color: '#ef4444', padding: '2px 8px', borderRadius: 6, background: 'rgba(239,68,68,0.12)' }}>
+                                  🚩 要対応の疑い
+                                </span>
+                                {r.risk_type && (
+                                  <span style={{ fontSize: 11, fontWeight: 700, color: '#ef4444' }}>{r.risk_type}</span>
+                                )}
+                                {typeof r.risk_score === 'number' && (
+                                  <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>リスク {r.risk_score}/100</span>
+                                )}
+                              </div>
+                              {r.risk_reason && (
+                                <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 6, lineHeight: 1.6 }}>
+                                  判定理由: {r.risk_reason}
+                                </div>
+                              )}
+                            </div>
+                          ) : (
+                            <span style={{ fontSize: 11, fontWeight: 700, color: '#10b981', padding: '2px 8px', borderRadius: 6, background: 'rgba(16,185,129,0.08)' }}>
+                              ✅ 問題なし{r.risk_type === '単なる低評価' ? '（実体験の低評価／ポリシー違反ではありません）' : ''}
+                            </span>
+                          )}
+                        </div>
+                      )}
+
+                      {/* ② 通報支援（フラグ付きのみ） */}
+                      {r.risk_flag && (
+                        <div style={{ paddingLeft: 42, marginTop: 10 }}>
+                          <button
+                            onClick={() => setOpenReportId(openReportId === r.id ? null : r.id)}
+                            style={{
+                              padding: '7px 14px', borderRadius: 8,
+                              border: '1px solid rgba(239,68,68,0.3)', background: 'rgba(239,68,68,0.06)',
+                              color: '#ef4444', fontSize: 12, fontWeight: 700, cursor: 'pointer',
+                            }}
+                          >
+                            📣 Google通報支援
+                          </button>
+
+                          {openReportId === r.id && (
+                            <div style={{ marginTop: 10, padding: 14, borderRadius: 10, background: 'var(--bg-primary)', border: '1px solid var(--border)', display: 'flex', flexDirection: 'column', gap: 12 }}>
+                              {/* 匿名性の明記 */}
+                              <div style={{ fontSize: 11, color: 'var(--text-secondary)', padding: '8px 10px', borderRadius: 6, background: 'rgba(16,185,129,0.06)', border: '1px solid rgba(16,185,129,0.2)' }}>
+                                🔒 {ANONYMITY_NOTICE}
+                              </div>
+
+                              {/* 通報文生成 */}
+                              <div>
+                                <button
+                                  onClick={() => generateReport(r)}
+                                  disabled={reportPanels[r.id]?.loading}
+                                  style={{
+                                    padding: '6px 12px', borderRadius: 8, border: '1px solid var(--border)',
+                                    background: 'var(--bg-secondary)', color: 'var(--text-primary)',
+                                    fontSize: 12, fontWeight: 700,
+                                    cursor: reportPanels[r.id]?.loading ? 'not-allowed' : 'pointer',
+                                  }}
+                                >
+                                  {reportPanels[r.id]?.loading ? '🤖 生成中…' : '🤖 該当ポリシー指摘＋通報文を生成'}
+                                </button>
+                                {reportPanels[r.id]?.error && (
+                                  <div style={{ fontSize: 12, color: '#ef4444', marginTop: 6 }}>⚠️ {reportPanels[r.id]?.error}</div>
+                                )}
+                              </div>
+
+                              {reportPanels[r.id]?.reportText && (
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                                  <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-primary)' }}>
+                                    該当ポリシー: <span style={{ color: '#ef4444' }}>{reportPanels[r.id]?.policy}</span>
+                                    <span style={{ marginLeft: 8, fontSize: 11, color: 'var(--text-muted)', fontWeight: 600 }}>
+                                      （違反の確からしさ: {reportPanels[r.id]?.confidence}）
+                                    </span>
+                                  </div>
+                                  <div style={{ position: 'relative' }}>
+                                    <textarea
+                                      value={reportPanels[r.id]?.reportText}
+                                      onChange={(e) => setReportPanels((prev) => ({ ...prev, [r.id]: { ...prev[r.id], reportText: e.target.value } }))}
+                                      rows={5}
+                                      style={{ width: '100%', padding: '10px 12px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--bg-secondary)', color: 'var(--text-primary)', fontSize: 12, lineHeight: 1.6, boxSizing: 'border-box', resize: 'vertical', fontFamily: 'inherit' }}
+                                    />
+                                  </div>
+                                  <button
+                                    onClick={() => copyReply(`report-${r.id}`, reportPanels[r.id]?.reportText || '')}
+                                    style={{ alignSelf: 'flex-start', padding: '4px 12px', borderRadius: 6, fontSize: 11, border: '1px solid var(--border)', background: 'var(--bg-secondary)', color: 'var(--text-primary)', cursor: 'pointer', fontWeight: 600 }}
+                                  >
+                                    {copiedId === `report-${r.id}` ? '✓ コピー完了' : '📋 通報文をコピー'}
+                                  </button>
+                                </div>
+                              )}
+
+                              {/* Google通報導線＋手順チェックリスト */}
+                              <div>
+                                <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 6 }}>📌 Googleへの通報手順（外部アプリからの自動送信はできません）</div>
+                                <ol style={{ margin: '0 0 8px', paddingLeft: 18, fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.8 }}>
+                                  <li>下記リンクからGoogleの報告画面を開く</li>
+                                  <li>該当クチコミの「︙」→「クチコミを報告」を選択</li>
+                                  <li>上で生成した「該当ポリシー」に合う違反理由を選ぶ</li>
+                                  <li>必要に応じて通報文を貼り付け・送信する</li>
+                                  <li>下の「通報記録に保存」で院内記録を残す</li>
+                                </ol>
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                                  {GOOGLE_REPORT_LINKS.map((lk) => (
+                                    <a key={lk.url} href={lk.url} target="_blank" rel="noopener noreferrer" style={{ fontSize: 12, color: '#6c63ff', textDecoration: 'none', fontWeight: 600 }}>
+                                      ↗ {lk.label}
+                                      <span style={{ color: 'var(--text-muted)', fontWeight: 400 }}> — {lk.note}</span>
+                                    </a>
+                                  ))}
+                                </div>
+                              </div>
+
+                              {/* 院内の通報記録 */}
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', borderTop: '1px solid var(--border)', paddingTop: 10 }}>
+                                <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-muted)' }}>通報記録に保存:</span>
+                                {REPORT_STATUS_OPTIONS.map((st) => (
+                                  <button
+                                    key={st}
+                                    onClick={() => saveReport(r.id, st)}
+                                    disabled={reportPanels[r.id]?.saving}
+                                    style={{ padding: '4px 10px', borderRadius: 6, fontSize: 11, fontWeight: 600, border: '1px solid var(--border)', background: 'var(--bg-secondary)', color: 'var(--text-secondary)', cursor: 'pointer' }}
+                                  >
+                                    {st}で記録
+                                  </button>
+                                ))}
+                                {reportPanels[r.id]?.saved && <span style={{ fontSize: 11, color: '#10b981', fontWeight: 700 }}>✅ 記録しました</span>}
+                              </div>
+
+                              {/* この口コミの既存通報記録 */}
+                              {reports.filter((rep) => rep.review_id === r.id).length > 0 && (
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: 6, borderTop: '1px solid var(--border)', paddingTop: 10 }}>
+                                  <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-muted)' }}>📂 この口コミの通報記録</div>
+                                  {reports.filter((rep) => rep.review_id === r.id).map((rep) => (
+                                    <div key={rep.id} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 11, flexWrap: 'wrap' }}>
+                                      <span style={{ color: 'var(--text-muted)' }}>{new Date(rep.created_at).toLocaleDateString('ja-JP')}</span>
+                                      <span style={{ color: 'var(--text-secondary)' }}>{rep.policy || '—'}</span>
+                                      <select
+                                        value={rep.status}
+                                        onChange={(e) => updateReportStatus(rep.id, e.target.value)}
+                                        style={{ fontSize: 11, padding: '2px 6px', borderRadius: 6, border: '1px solid var(--border)', background: 'var(--bg-secondary)', color: 'var(--text-primary)' }}
+                                      >
+                                        {REPORT_STATUS_OPTIONS.map((st) => <option key={st} value={st}>{st}</option>)}
+                                      </select>
+                                      {rep.reported_at && <span style={{ color: '#10b981' }}>通報日 {new Date(rep.reported_at).toLocaleDateString('ja-JP')}</span>}
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+                          )}
                         </div>
                       )}
 
@@ -639,7 +1044,7 @@ export default function ReviewsPage() {
                                     justifyContent: 'space-between', gap: 8,
                                   }}>
                                     <span>💬 パターン{di + 1}: {d.style}</span>
-                                    <div style={{ display: 'flex', gap: 6 }}>
+                                    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                                       <button
                                         onClick={() => copyReply(copyKey, d.text)}
                                         style={{
@@ -650,6 +1055,17 @@ export default function ReviewsPage() {
                                         }}
                                       >
                                         {copiedId === copyKey ? '✓ コピー完了' : '📋 コピー'}
+                                      </button>
+                                      <button
+                                        onClick={() => saveReplyDraft(r.id, d, replyDrafts[r.id]?.tone, `draft-${copyKey}`)}
+                                        style={{
+                                          padding: '4px 10px', borderRadius: 6, fontSize: 11,
+                                          border: '1px solid rgba(108,99,255,0.3)',
+                                          background: 'rgba(108,99,255,0.08)', color: '#6c63ff',
+                                          cursor: 'pointer', fontWeight: 600,
+                                        }}
+                                      >
+                                        {savedDraftKey === `draft-${copyKey}` ? '✓ 保存しました' : '💾 下書き保存'}
                                       </button>
                                       <button
                                         onClick={() => markReplied(r.id, d.text)}
@@ -671,6 +1087,21 @@ export default function ReviewsPage() {
                                     }}
                                     dangerouslySetInnerHTML={{ __html: renderMarkdown(d.text) }}
                                   />
+                                  {/* 医療広告規制チェック結果 */}
+                                  {d.ad_check && (
+                                    d.ad_check.status === 'warn' && (d.ad_check.findings?.length ?? 0) > 0 ? (
+                                      <div style={{ marginTop: 8, padding: '6px 10px', borderRadius: 6, background: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.25)' }}>
+                                        <div style={{ fontSize: 11, fontWeight: 700, color: '#f59e0b' }}>⚠️ 医療広告チェック：要確認</div>
+                                        <ul style={{ margin: '4px 0 0', paddingLeft: 16, fontSize: 11, color: 'var(--text-secondary)', lineHeight: 1.6 }}>
+                                          {d.ad_check.findings!.map((f, fi) => <li key={fi}>{f}</li>)}
+                                        </ul>
+                                      </div>
+                                    ) : (
+                                      <div style={{ marginTop: 8, fontSize: 11, fontWeight: 700, color: '#10b981' }}>
+                                        ✅ 医療広告チェック：問題なし（効果保証・誇大・体験談・割引誘導などのNG表現は検出されませんでした）
+                                      </div>
+                                    )
+                                  )}
                                 </div>
                               );
                             })}
@@ -681,12 +1112,15 @@ export default function ReviewsPage() {
                   ))
                 ) : (
                   <div style={{ padding: 40, textAlign: 'center', color: 'var(--text-muted)', fontSize: 13 }}>
-                    手動登録された口コミはまだありません<br />
-                    「📋 口コミを手動登録」ボタンから追加できます
+                    {filterFlagged
+                      ? 'フラグ付きの口コミはありません（過剰フラグ防止：実体験の低評価は対象外です）'
+                      : <>登録済みの口コミはまだありません<br />「📋 口コミを手動登録」または Google Places取得分の「⬇️ 取り込んで管理」で追加できます</>}
                   </div>
                 )}
               </div>
-            )}
+              </>
+              );
+            })()}
           </div>
 
           {/* ═══ AI分析結果 ═══ */}
