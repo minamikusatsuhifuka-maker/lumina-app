@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation';
 const ALL_SHORTCUTS = [
   { id: 'deepresearch', label: 'ディープリサーチ', icon: '🔍', href: '/dashboard/deepresearch' },
   { id: 'text-analysis', label: 'テキスト分析', icon: '📝', href: '/dashboard/text-analysis' },
+  { id: 'saved-text-analysis', label: '保存一覧（テキスト分析）', icon: '🗂', href: '/dashboard/saved?tab=text' },
   { id: 'write', label: '文章作成', icon: '✍️', href: '/dashboard/write' },
   { id: 'sns-post', label: 'SNS投稿', icon: '📱', href: '/dashboard/sns-post' },
   { id: 'context-library', label: 'コンテキスト', icon: '🧠', href: '/dashboard/context-library' },
