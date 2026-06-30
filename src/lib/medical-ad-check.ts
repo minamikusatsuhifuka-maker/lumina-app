@@ -30,3 +30,38 @@ ${MEDICAL_AD_NG_RULES}
 // 出力フォーマット末尾に置く ad_check の説明（reply-draft と完全同一の文言）
 export const AD_CHECK_OUTPUT_NOTE = `- ad_check.status: NG表現が無ければ "ok"、懸念があれば "warn"
 - ad_check.findings: warn の場合に該当箇所と理由を簡潔に列挙（ok なら空配列）`;
+
+// 生成済みテキストを後段でチェックする実行関数（記事生成・競合提案などから流用）。
+// Gemini で判定し AdCheck を返す。失敗時は安全側の ok（findings空）でフォールスルー。
+export async function checkMedicalAd(text: string): Promise<AdCheck> {
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey || !text?.trim()) return { status: 'ok', findings: [] };
+  try {
+    const { GoogleGenerativeAI } = await import('@google/generative-ai');
+    const { robustJsonParse } = await import('@/lib/ai-json-parser');
+    const prompt = `あなたは医療広告規制（医療法・医療広告ガイドライン／薬機法）に精通した校正者です。
+次の文章に医療広告規制上のNG表現が含まれないか確認してください。
+
+## 対象文章
+${text.slice(0, 8000)}
+
+## NG表現（該当があれば findings に簡潔に指摘）
+${MEDICAL_AD_NG_RULES}
+
+## 出力フォーマット（必ずこのJSONのみ。前置き・コードフェンス禁止）
+{ "status": "ok", "findings": [] }
+${AD_CHECK_OUTPUT_NOTE}`;
+    const genAI = new GoogleGenerativeAI(apiKey);
+    const model = genAI.getGenerativeModel({ model: 'gemini-3.5-flash' });
+    const result = await model.generateContent({
+      contents: [{ role: 'user', parts: [{ text: prompt }] }],
+      generationConfig: { responseMimeType: 'application/json', maxOutputTokens: 2048 },
+    });
+    const parsed = robustJsonParse(result.response.text()) as { status?: string; findings?: unknown };
+    const status = parsed.status === 'warn' ? 'warn' : 'ok';
+    const findings = Array.isArray(parsed.findings) ? parsed.findings.map((f) => String(f)) : [];
+    return { status, findings };
+  } catch {
+    return { status: 'ok', findings: [] };
+  }
+}
