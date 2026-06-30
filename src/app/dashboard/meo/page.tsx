@@ -60,6 +60,12 @@ interface SavedDraft {
   ad_check: AdCheck | null;
   created_at: string;
 }
+interface PostTheme {
+  id: number;
+  label: string;
+  description: string | null;
+  sort_order: number;
+}
 
 // ─── 表示ヘルパー ───
 const STATUS_VIEW: Record<AuditItem['status'], { label: string; color: string; bg: string }> = {
@@ -84,14 +90,6 @@ const MANUAL_STATUS_OPTS: { value: AuditItem['status']; label: string }[] = [
   { value: 'todo', label: '未対応' },
   { value: 'done', label: '対応済み' },
   { value: 'na', label: '対象外' },
-];
-
-const THEMES: { key: string; label: string }[] = [
-  { key: 'season', label: '季節の注意喚起（花粉・紫外線・乾燥 等）' },
-  { key: 'closure', label: '休診・診療時間変更のお知らせ' },
-  { key: 'menu', label: '新メニュー・診療内容のご案内' },
-  { key: 'greeting', label: '季節のごあいさつ' },
-  { key: 'prevention', label: 'スキンケア・予防の豆知識' },
 ];
 
 export default function MeoPage() {
@@ -359,12 +357,30 @@ function ManualRow({
 
 // ─────────────────────── ② 投稿下書き ───────────────────────
 function PostTab() {
-  const [themeKey, setThemeKey] = useState('season');
+  const [themes, setThemes] = useState<PostTheme[]>([]);
+  const [selectedId, setSelectedId] = useState<number | null>(null);
   const [details, setDetails] = useState('');
   const [drafts, setDrafts] = useState<PostDraft[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [history, setHistory] = useState<SavedDraft[]>([]);
+  const [manageOpen, setManageOpen] = useState(false);
+
+  const selectedTheme = themes.find((t) => t.id === selectedId) || null;
+
+  const loadThemes = useCallback(async () => {
+    try {
+      const res = await fetch('/api/meo/gbp-themes');
+      const json = await res.json();
+      if (res.ok) {
+        const list: PostTheme[] = json.themes || [];
+        setThemes(list);
+        setSelectedId((prev) => (prev && list.some((t) => t.id === prev) ? prev : list[0]?.id ?? null));
+      }
+    } catch {
+      /* noop */
+    }
+  }, []);
 
   const loadHistory = useCallback(async () => {
     try {
@@ -377,8 +393,9 @@ function PostTab() {
   }, []);
 
   useEffect(() => {
+    loadThemes();
     loadHistory();
-  }, [loadHistory]);
+  }, [loadThemes, loadHistory]);
 
   const generate = async () => {
     setLoading(true);
@@ -388,7 +405,11 @@ function PostTab() {
       const res = await fetch('/api/meo/gbp-post-draft', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ themeKey, details }),
+        body: JSON.stringify({
+          themeLabel: selectedTheme?.label ?? '',
+          themeDescription: selectedTheme?.description ?? '',
+          details,
+        }),
       });
       const json = await res.json();
       if (!res.ok) setError(json.error || '生成に失敗しました');
@@ -405,7 +426,7 @@ function PostTab() {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        theme: THEMES.find((t) => t.key === themeKey)?.label || themeKey,
+        theme: selectedTheme?.label ?? null,
         body: d.text,
         adCheck: d.ad_check ?? null,
       }),
@@ -425,14 +446,30 @@ function PostTab() {
   return (
     <div>
       <div style={{ ...card, marginBottom: 16 }}>
-        <label style={{ fontSize: 13, color: '#475569', fontWeight: 600 }}>投稿テーマ</label>
-        <select value={themeKey} onChange={(e) => setThemeKey(e.target.value)} style={inputStyle}>
-          {THEMES.map((t) => (
-            <option key={t.key} value={t.key}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <label style={{ fontSize: 13, color: '#475569', fontWeight: 600 }}>投稿テーマ</label>
+          <button onClick={() => setManageOpen((v) => !v)} style={{ ...smallBtn, padding: '4px 10px' }}>
+            {manageOpen ? '閉じる' : 'テーマを編集'}
+          </button>
+        </div>
+        <select
+          value={selectedId ?? ''}
+          onChange={(e) => setSelectedId(Number(e.target.value))}
+          style={inputStyle}
+        >
+          {themes.length === 0 && <option value="">読み込み中…</option>}
+          {themes.map((t) => (
+            <option key={t.id} value={t.id}>
               {t.label}
             </option>
           ))}
         </select>
+        {selectedTheme?.description && (
+          <p style={{ fontSize: 12, color: '#94a3b8', marginTop: 4 }}>{selectedTheme.description}</p>
+        )}
+
+        {manageOpen && <ThemeManager themes={themes} onChange={loadThemes} />}
+
         <label style={{ fontSize: 13, color: '#475569', fontWeight: 600, marginTop: 12, display: 'block' }}>
           補足情報（任意）
         </label>
@@ -443,7 +480,7 @@ function PostTab() {
           rows={3}
           style={{ ...inputStyle, resize: 'vertical' }}
         />
-        <button onClick={generate} disabled={loading} style={primaryBtn}>
+        <button onClick={generate} disabled={loading || !selectedTheme} style={primaryBtn}>
           {loading ? '生成中…' : '投稿下書きを3案生成'}
         </button>
         <p style={{ fontSize: 12, color: '#94a3b8', marginTop: 8 }}>
@@ -502,6 +539,100 @@ function PostTab() {
           ))}
         </div>
       )}
+    </div>
+  );
+}
+
+// テーマの追加・編集・削除（院長が編集可。ハードコードにしない）
+function ThemeManager({ themes, onChange }: { themes: PostTheme[]; onChange: () => void }) {
+  const [newLabel, setNewLabel] = useState('');
+  const [newDesc, setNewDesc] = useState('');
+
+  const upsert = async (payload: { id?: number; label: string; description: string }) => {
+    if (!payload.label.trim()) return;
+    await fetch('/api/meo/gbp-themes', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    await onChange();
+  };
+
+  const remove = async (id: number) => {
+    await fetch('/api/meo/gbp-themes', {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id }),
+    });
+    await onChange();
+  };
+
+  return (
+    <div style={{ marginTop: 10, padding: 12, background: '#f8fafc', borderRadius: 8, border: '1px solid #e2e8f0' }}>
+      <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 8 }}>テーマの管理</div>
+      {themes.map((t) => (
+        <ThemeRow key={t.id} theme={t} onSave={upsert} onDelete={remove} />
+      ))}
+      <div style={{ marginTop: 10, paddingTop: 10, borderTop: '1px dashed #cbd5e1' }}>
+        <div style={{ fontSize: 12, color: '#64748b', marginBottom: 4 }}>新しいテーマを追加</div>
+        <input
+          placeholder="テーマ名（例: 帯状疱疹の注意喚起）"
+          value={newLabel}
+          onChange={(e) => setNewLabel(e.target.value)}
+          style={{ ...inputStyle, marginTop: 0 }}
+        />
+        <input
+          placeholder="説明（このテーマで何を伝えるか・任意）"
+          value={newDesc}
+          onChange={(e) => setNewDesc(e.target.value)}
+          style={inputStyle}
+        />
+        <button
+          onClick={async () => {
+            await upsert({ label: newLabel, description: newDesc });
+            setNewLabel('');
+            setNewDesc('');
+          }}
+          style={{ ...smallBtn, marginTop: 8 }}
+        >
+          追加
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function ThemeRow({
+  theme,
+  onSave,
+  onDelete,
+}: {
+  theme: PostTheme;
+  onSave: (p: { id: number; label: string; description: string }) => void;
+  onDelete: (id: number) => void;
+}) {
+  const [label, setLabel] = useState(theme.label);
+  const [desc, setDesc] = useState(theme.description ?? '');
+  const dirty = label !== theme.label || desc !== (theme.description ?? '');
+  return (
+    <div style={{ display: 'flex', gap: 6, marginBottom: 6, alignItems: 'flex-start', flexWrap: 'wrap' }}>
+      <input value={label} onChange={(e) => setLabel(e.target.value)} style={{ ...inputStyle, marginTop: 0, flex: '1 1 160px' }} />
+      <input
+        value={desc}
+        onChange={(e) => setDesc(e.target.value)}
+        placeholder="説明（任意）"
+        style={{ ...inputStyle, marginTop: 0, flex: '2 1 220px' }}
+      />
+      <button
+        onClick={() => onSave({ id: theme.id, label, description: desc })}
+        disabled={!dirty || !label.trim()}
+        style={{ ...smallBtn, opacity: dirty && label.trim() ? 1 : 0.5 }}
+      >
+        保存
+      </button>
+      <button onClick={() => onDelete(theme.id)} style={{ ...smallBtn, color: '#b91c1c' }}>
+        削除
+      </button>
     </div>
   );
 }

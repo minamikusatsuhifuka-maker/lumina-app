@@ -288,6 +288,63 @@ export async function ensureGbpSchema(sql: Sql): Promise<void> {
     )
   `;
   await sql`CREATE INDEX IF NOT EXISTS idx_gbp_post_drafts_owner ON gbp_post_drafts(owner)`;
+
+  // 投稿テーマ（147B。初期セットを投入しつつ、院長が追加・編集・削除できる＝ハードコードにしない）
+  await sql`
+    CREATE TABLE IF NOT EXISTS gbp_post_themes (
+      id SERIAL PRIMARY KEY,
+      owner TEXT NOT NULL,
+      label TEXT NOT NULL,
+      description TEXT,
+      sort_order INTEGER DEFAULT 0,
+      created_at TIMESTAMPTZ DEFAULT NOW()
+    )
+  `;
+  await sql`CREATE INDEX IF NOT EXISTS idx_gbp_post_themes_owner ON gbp_post_themes(owner)`;
+}
+
+// 投稿テーマの初期セット（皮膚科・季節性。owner が一件も持たない場合のみ投入）
+export const DEFAULT_POST_THEMES: { label: string; description: string }[] = [
+  { label: '花粉皮膚炎の注意喚起', description: '春先の花粉による肌のかゆみ・赤み（花粉皮膚炎）の予防と、症状が出たときの受診の呼びかけ' },
+  { label: '紫外線・日焼け対策', description: '紫外線が強まる時期の日焼け止め・UVケアの大切さと、シミ・肌トラブルの予防の呼びかけ' },
+  { label: '乾燥・冬の保湿ケア', description: '空気が乾燥する季節の保湿ケアの大切さと、乾燥による肌荒れ・かゆみの予防' },
+  { label: '汗・あせもの予防', description: '夏場の発汗による あせも・汗トラブルの予防と、悪化したときの受診の呼びかけ' },
+  { label: 'ニキビ治療のご案内', description: 'ニキビ・ニキビ跡で悩む方への、皮膚科での相談・治療のご案内（効果の保証はしない）' },
+  { label: 'シミ・肝斑のご相談', description: 'シミ・肝斑が気になる方への、皮膚科での相談のご案内（効果の保証・誇大表現はしない）' },
+  { label: 'ほくろ・できものの診察', description: 'ほくろ・できもの・気になる できものの診察についてのご案内' },
+  { label: '小児皮膚科のご案内', description: 'お子さまの皮膚トラブル（湿疹・とびひ・あせも等）に対応する小児皮膚科のご案内' },
+  { label: '休診・診療時間のお知らせ', description: '休診日・診療時間の変更・臨時休診などのお知らせ（具体的な日程は補足情報から反映）' },
+  { label: '予約・Web問診のご案内', description: '予約方法・Web問診・待ち時間軽減の取り組みなど、来院をスムーズにする案内' },
+];
+
+export interface PostTheme {
+  id: number;
+  label: string;
+  description: string | null;
+  sort_order: number;
+}
+
+// owner がテーマ未登録なら初期セットを投入し、テーマ一覧を返す
+export async function loadOrSeedThemes(sql: Sql, owner: string): Promise<PostTheme[]> {
+  const existing = await sql`
+    SELECT id, label, description, sort_order FROM gbp_post_themes
+    WHERE owner = ${owner} ORDER BY sort_order ASC, id ASC
+  `;
+  if (existing.length > 0) return existing as PostTheme[];
+
+  // 初期セット投入（番号順）
+  for (let i = 0; i < DEFAULT_POST_THEMES.length; i++) {
+    const t = DEFAULT_POST_THEMES[i];
+    await sql`
+      INSERT INTO gbp_post_themes (owner, label, description, sort_order)
+      VALUES (${owner}, ${t.label}, ${t.description}, ${i})
+    `;
+  }
+  const seeded = await sql`
+    SELECT id, label, description, sort_order FROM gbp_post_themes
+    WHERE owner = ${owner} ORDER BY sort_order ASC, id ASC
+  `;
+  return seeded as PostTheme[];
 }
 
 // owner のしきい値を取得（未設定は既定）

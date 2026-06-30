@@ -3,25 +3,23 @@ import { auth } from '@/lib/auth';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import { robustJsonParse } from '@/lib/ai-json-parser';
 import { medicalAdCheckSection, AD_CHECK_OUTPUT_NOTE } from '@/lib/medical-ad-check';
+import { getClinicSystemPrompt } from '@/lib/clinicProfile';
 
 export const runtime = 'nodejs';
 export const maxDuration = 60;
 
 // GBP（Googleビジネスプロフィール）投稿の下書きをテーマ別に生成。
 // 自動投稿はしない＝下書き→医療広告チェック併記→院長が確認して手動投稿。
+// テーマは gbp_post_themes（院長編集可）から渡される。クリニック情報は背景資料から供給。
 
-// 投稿テーマのプリセット（フロントの選択肢と一致）
-export const POST_THEMES: Record<string, string> = {
-  season: '季節の注意喚起（花粉・紫外線・乾燥・あせも等、時期に応じた皮膚トラブルの予防・受診の呼びかけ）',
-  closure: '休診・診療時間変更のお知らせ',
-  menu: '新メニュー・診療内容のご案内（効果の保証や誇大表現はしない）',
-  greeting: '季節のごあいさつ（来院への感謝や健康への気づかい）',
-  prevention: '日常のスキンケア・予防の豆知識',
-};
+function getOwner(session: { user?: { id?: string } } | null): string | null {
+  return session?.user?.id ?? null;
+}
 
 export async function POST(req: Request) {
   const session = await auth();
-  if (!session) return new Response('Unauthorized', { status: 401 });
+  const owner = getOwner(session);
+  if (!owner) return new Response('Unauthorized', { status: 401 });
 
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) {
@@ -29,14 +27,19 @@ export async function POST(req: Request) {
   }
 
   try {
-    const { themeKey, details } = await req.json();
-    const themeDesc = (themeKey && POST_THEMES[themeKey]) || POST_THEMES.season;
+    const { themeLabel, themeDescription, details } = await req.json();
+    const theme =
+      [themeLabel, themeDescription].filter((s) => s && String(s).trim()).join('：') ||
+      '季節に応じた皮膚トラブルの予防・受診の呼びかけ';
+
+    // クリニック背景情報（背景資料）を owner スコープで供給。未設定なら空でフォールスルー。
+    const clinicContext = await getClinicSystemPrompt('meo-post', owner);
 
     const prompt = `あなたは皮膚科クリニックの広報担当で、医療広告規制（医療法・医療広告ガイドライン／薬機法）にも精通しています。
 南草津皮フ科クリニック（滋賀県）の Googleビジネスプロフィール（GBP）への投稿文案を3パターン作成し、各案に医療広告規制チェックを併記してください。
-
+${clinicContext ? `\n${clinicContext}\n` : ''}
 ## 投稿テーマ
-${themeDesc}
+${theme}
 
 ## 補足情報（院長メモ。無ければ一般的な内容で）
 ${details && String(details).trim() ? String(details).trim() : '（特になし）'}
