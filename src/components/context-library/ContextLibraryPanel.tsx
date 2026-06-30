@@ -5,6 +5,7 @@ import FeatureDefaultContextSelector, { FEATURE_OPTIONS } from '@/components/Fea
 import { copyToClipboard } from '@/lib/copyToClipboard';
 import { renderMarkdown } from '@/lib/markdown-renderer';
 import FullscreenReader from '@/components/text-analysis/FullscreenReader';
+import { cardActionBtnStyle } from '@/components/text-analysis/cardActionButtonStyle';
 
 type ContextSave = {
   id: number;
@@ -33,6 +34,8 @@ export default function ContextLibraryPanel() {
   // お気に入り絞り込み（コンテキストライブラリ内で完結＝テキスト分析とは別管理）
   const [favoriteOnly, setFavoriteOnly] = useState(false);
   const [expandedId, setExpandedId] = useState<number | null>(null);
+  // 下部アクション（文章作成へ〜要約・詳細）のアコーディオン開閉。カードごと・既定は閉（誤発火防止）。
+  const [actionsOpen, setActionsOpen] = useState<Record<number, boolean>>({});
   const [copiedId, setCopiedId] = useState<number | null>(null);
   // 全画面リーダーで表示中のアイテム（null=非表示）
   const [readerItem, setReaderItem] = useState<ContextSave | null>(null);
@@ -482,104 +485,52 @@ export default function ContextLibraryPanel() {
                 </div>
               )}
 
-              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' as const }}>
-                <button
-                  onClick={() => handleCopy(item)}
-                  style={{ padding: '6px 12px', background: 'var(--bg-secondary)', border: '1px solid var(--border)', color: 'var(--text-secondary)', borderRadius: 6, cursor: 'pointer', fontSize: 11, fontWeight: 600 }}
-                >
-                  {copiedId === item.id ? '✅ コピー済' : '📋 コピー'}
-                </button>
+              {/* ── 共通操作バー（テキスト分析と並び・見た目・ラベルを統一）──
+                  全画面 / コピー / お気に入り … 活用する(アコーディオン) / デフォルト登録 / 削除(右端) */}
+              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' as const, alignItems: 'center' }}>
                 <button
                   onClick={() => setReaderItem(item)}
                   title="全画面のリーダー表示で読む"
-                  style={{ padding: '6px 12px', background: 'var(--bg-secondary)', border: '1px solid var(--border)', color: 'var(--text-secondary)', borderRadius: 6, cursor: 'pointer', fontSize: 11, fontWeight: 600 }}
+                  style={cardActionBtnStyle()}
                 >
                   ⛶ 全画面
                 </button>
                 <button
+                  onClick={() => handleCopy(item)}
+                  style={{
+                    ...cardActionBtnStyle(),
+                    ...(copiedId === item.id
+                      ? { background: 'rgba(34,197,94,0.12)', borderColor: 'rgba(34,197,94,0.4)', color: '#16a34a' }
+                      : {}),
+                  }}
+                >
+                  {copiedId === item.id ? '✅ コピー済み' : '📋 コピー'}
+                </button>
+                <button
                   onClick={() => handleToggleFavorite(item)}
                   title={item.is_favorite ? 'お気に入りを解除' : 'お気に入りに登録'}
-                  style={{
-                    padding: '6px 12px',
-                    borderRadius: 6,
-                    cursor: 'pointer',
-                    fontSize: 11,
-                    fontWeight: item.is_favorite ? 700 : 600,
-                    border: `1px solid ${item.is_favorite ? '#f59e0b' : 'var(--border)'}`,
-                    background: item.is_favorite ? '#fef3c7' : 'var(--bg-secondary)',
-                    color: item.is_favorite ? '#b45309' : 'var(--text-secondary)',
-                  }}
+                  style={
+                    item.is_favorite
+                      ? { ...cardActionBtnStyle(), background: '#fef3c7', border: '1px solid #f59e0b', color: '#b45309', fontWeight: 700 }
+                      : cardActionBtnStyle()
+                  }
                 >
                   {item.is_favorite ? '⭐ 解除' : '☆ お気に入り'}
                 </button>
+                {/* 活用する：下部アクションのアコーディオン開閉（既定閉・誤発火防止） */}
                 <button
-                  onClick={() => goToTool(item, 'write')}
-                  style={{ padding: '6px 12px', background: 'var(--accent-soft)', border: '1px solid var(--border-accent)', color: 'var(--text-primary)', borderRadius: 6, cursor: 'pointer', fontSize: 11, fontWeight: 600 }}
-                >
-                  ✍️ 文章作成へ
-                </button>
-                <button
-                  onClick={() => goToTool(item, 'sns-post')}
-                  style={{ padding: '6px 12px', background: 'var(--accent-soft)', border: '1px solid var(--border-accent)', color: 'var(--text-primary)', borderRadius: 6, cursor: 'pointer', fontSize: 11, fontWeight: 600 }}
-                >
-                  📱 SNS投稿へ
-                </button>
-                <button
-                  onClick={() => goToTool(item, 'lp')}
-                  style={{ padding: '6px 12px', background: 'var(--accent-soft)', border: '1px solid var(--border-accent)', color: 'var(--text-primary)', borderRadius: 6, cursor: 'pointer', fontSize: 11, fontWeight: 600 }}
-                >
-                  📄 LP作成へ
-                </button>
-                <button
-                  onClick={() => goToTool(item, 'materials')}
-                  style={{ padding: '6px 12px', background: 'var(--accent-soft)', border: '1px solid var(--border-accent)', color: 'var(--text-primary)', borderRadius: 6, cursor: 'pointer', fontSize: 11, fontWeight: 600 }}
-                >
-                  📊 資料作成へ
-                </button>
-                {/* 要約・詳細生成ボタン（AI生成 → text_analysis_saves へ保存） */}
-                <button
-                  onClick={() => handleSummarize(item, 'summary')}
-                  disabled={processingId !== null}
+                  onClick={() => setActionsOpen(prev => ({ ...prev, [item.id]: !prev[item.id] }))}
+                  title="文章作成・SNS投稿・LP作成・資料作成・要約・詳細を表示"
+                  aria-expanded={!!actionsOpen[item.id]}
                   style={{
-                    padding: '6px 12px',
-                    borderRadius: 6,
-                    border: '1px solid #a78bfa',
-                    background: processingId?.id === item.id && processingId.mode === 'summary'
-                      ? '#6b7280'
-                      : (processedId?.id === item.id && processedId.mode === 'summary' ? '#10b981' : '#8b5cf6'),
-                    color: '#fff',
-                    cursor: processingId ? 'not-allowed' : 'pointer',
-                    fontSize: 11,
-                    fontWeight: 600,
+                    ...cardActionBtnStyle(),
+                    background: 'var(--accent-soft)',
+                    border: '1px solid var(--border-accent)',
+                    color: 'var(--text-primary)',
+                    fontWeight: 700,
                   }}
                 >
-                  {processingId?.id === item.id && processingId.mode === 'summary'
-                    ? '⏳ 生成中...'
-                    : processedId?.id === item.id && processedId.mode === 'summary'
-                    ? '✅ 保存済'
-                    : '📝 要約'}
-                </button>
-                <button
-                  onClick={() => handleSummarize(item, 'detail')}
-                  disabled={processingId !== null}
-                  style={{
-                    padding: '6px 12px',
-                    borderRadius: 6,
-                    border: '1px solid #60a5fa',
-                    background: processingId?.id === item.id && processingId.mode === 'detail'
-                      ? '#6b7280'
-                      : (processedId?.id === item.id && processedId.mode === 'detail' ? '#10b981' : '#3b82f6'),
-                    color: '#fff',
-                    cursor: processingId ? 'not-allowed' : 'pointer',
-                    fontSize: 11,
-                    fontWeight: 600,
-                  }}
-                >
-                  {processingId?.id === item.id && processingId.mode === 'detail'
-                    ? '⏳ 生成中...'
-                    : processedId?.id === item.id && processedId.mode === 'detail'
-                    ? '✅ 保存済'
-                    : '📖 詳細'}
+                  {actionsOpen[item.id] ? '▲ 活用する' : '▼ 活用する'}
                 </button>
                 <FeatureDefaultContextSelector
                   contextSaveId={item.id}
@@ -588,11 +539,96 @@ export default function ContextLibraryPanel() {
                 />
                 <button
                   onClick={() => handleDelete(item.id)}
-                  style={{ padding: '6px 12px', background: 'transparent', border: '1px solid #ef4444', color: '#ef4444', borderRadius: 6, cursor: 'pointer', fontSize: 11, fontWeight: 600, marginLeft: 'auto' }}
+                  style={{ ...cardActionBtnStyle(), color: '#ef4444', marginLeft: 'auto' }}
                 >
-                  🗑️ 削除
+                  🗑 削除
                 </button>
               </div>
+
+              {/* ── 下部アクション（アコーディオン格納・既定折りたたみ）──
+                  「活用する」展開時のみ表示。各ボタンの機能・遷移・生成は無変更。 */}
+              {actionsOpen[item.id] && (
+                <div
+                  style={{
+                    display: 'flex',
+                    gap: 8,
+                    flexWrap: 'wrap' as const,
+                    marginTop: 10,
+                    paddingTop: 10,
+                    borderTop: '1px dashed var(--border)',
+                  }}
+                >
+                  <button
+                    onClick={() => goToTool(item, 'write')}
+                    style={{ padding: '8px 14px', background: 'var(--accent-soft)', border: '1px solid var(--border-accent)', color: 'var(--text-primary)', borderRadius: 8, cursor: 'pointer', fontSize: 12, fontWeight: 600 }}
+                  >
+                    ✍️ 文章作成へ
+                  </button>
+                  <button
+                    onClick={() => goToTool(item, 'sns-post')}
+                    style={{ padding: '8px 14px', background: 'var(--accent-soft)', border: '1px solid var(--border-accent)', color: 'var(--text-primary)', borderRadius: 8, cursor: 'pointer', fontSize: 12, fontWeight: 600 }}
+                  >
+                    📱 SNS投稿へ
+                  </button>
+                  <button
+                    onClick={() => goToTool(item, 'lp')}
+                    style={{ padding: '8px 14px', background: 'var(--accent-soft)', border: '1px solid var(--border-accent)', color: 'var(--text-primary)', borderRadius: 8, cursor: 'pointer', fontSize: 12, fontWeight: 600 }}
+                  >
+                    📄 LP作成へ
+                  </button>
+                  <button
+                    onClick={() => goToTool(item, 'materials')}
+                    style={{ padding: '8px 14px', background: 'var(--accent-soft)', border: '1px solid var(--border-accent)', color: 'var(--text-primary)', borderRadius: 8, cursor: 'pointer', fontSize: 12, fontWeight: 600 }}
+                  >
+                    📊 資料作成へ
+                  </button>
+                  {/* 要約・詳細生成ボタン（AI生成 → text_analysis_saves へ保存） */}
+                  <button
+                    onClick={() => handleSummarize(item, 'summary')}
+                    disabled={processingId !== null}
+                    style={{
+                      padding: '8px 14px',
+                      borderRadius: 8,
+                      border: '1px solid #a78bfa',
+                      background: processingId?.id === item.id && processingId.mode === 'summary'
+                        ? '#6b7280'
+                        : (processedId?.id === item.id && processedId.mode === 'summary' ? '#10b981' : '#8b5cf6'),
+                      color: '#fff',
+                      cursor: processingId ? 'not-allowed' : 'pointer',
+                      fontSize: 12,
+                      fontWeight: 600,
+                    }}
+                  >
+                    {processingId?.id === item.id && processingId.mode === 'summary'
+                      ? '⏳ 生成中...'
+                      : processedId?.id === item.id && processedId.mode === 'summary'
+                      ? '✅ 保存済'
+                      : '📝 要約'}
+                  </button>
+                  <button
+                    onClick={() => handleSummarize(item, 'detail')}
+                    disabled={processingId !== null}
+                    style={{
+                      padding: '8px 14px',
+                      borderRadius: 8,
+                      border: '1px solid #60a5fa',
+                      background: processingId?.id === item.id && processingId.mode === 'detail'
+                        ? '#6b7280'
+                        : (processedId?.id === item.id && processedId.mode === 'detail' ? '#10b981' : '#3b82f6'),
+                      color: '#fff',
+                      cursor: processingId ? 'not-allowed' : 'pointer',
+                      fontSize: 12,
+                      fontWeight: 600,
+                    }}
+                  >
+                    {processingId?.id === item.id && processingId.mode === 'detail'
+                      ? '⏳ 生成中...'
+                      : processedId?.id === item.id && processedId.mode === 'detail'
+                      ? '✅ 保存済'
+                      : '📖 詳細'}
+                  </button>
+                </div>
+              )}
             </div>
           );
         })}

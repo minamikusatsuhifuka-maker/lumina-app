@@ -26,7 +26,8 @@ export default function FullscreenReader({
   onClose: () => void;
 }) {
   const [mounted, setMounted] = useState(false);
-  const [font, setFont] = useState<ReaderFont>('md');
+  // 既定の文字サイズは「小」。localStorage に保存値があればそれを尊重（マウント後 effect で上書き）。
+  const [font, setFont] = useState<ReaderFont>('sm');
 
   // SSR では document が無いため、マウント後のみ portal を描画
   useEffect(() => {
@@ -129,25 +130,6 @@ export default function FullscreenReader({
             </button>
           ))}
         </div>
-        <button
-          type="button"
-          onClick={onClose}
-          title="閉じる（Esc）"
-          style={{
-            flexShrink: 0,
-            width: 34,
-            height: 34,
-            borderRadius: 8,
-            border: '1px solid var(--border)',
-            background: 'var(--bg-secondary)',
-            color: 'var(--text-secondary)',
-            fontSize: 18,
-            lineHeight: 1,
-            cursor: 'pointer',
-          }}
-        >
-          ×
-        </button>
       </div>
 
       {/* 本文（内スクロール・読み物フォント） */}
@@ -175,6 +157,37 @@ export default function FullscreenReader({
           dangerouslySetInnerHTML={{ __html: renderMarkdown(content) }}
         />
       </div>
+
+      {/* 閉じるボタン（右下固定）。親指で押しやすい位置・大きめ・目立つ配色。
+          Esc・背景クリックでも閉じられるが、こちらを主導線にする。 */}
+      <button
+        type="button"
+        onClick={(e) => {
+          e.stopPropagation();
+          onClose();
+        }}
+        title="閉じる（Esc）"
+        style={{
+          position: 'absolute',
+          right: 'max(20px, env(safe-area-inset-right))',
+          bottom: 'max(20px, env(safe-area-inset-bottom))',
+          zIndex: 2,
+          display: 'inline-flex',
+          alignItems: 'center',
+          gap: 6,
+          padding: '13px 22px',
+          borderRadius: 999,
+          border: 'none',
+          background: 'var(--accent, #6c63ff)',
+          color: '#fff',
+          fontSize: 15,
+          fontWeight: 700,
+          cursor: 'pointer',
+          boxShadow: '0 6px 20px rgba(0,0,0,0.4)',
+        }}
+      >
+        ✕ 閉じる
+      </button>
     </div>,
     document.body,
   );

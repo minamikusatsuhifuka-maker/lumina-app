@@ -12,6 +12,7 @@ import {
 import { triggerDownload } from '@/lib/download';
 import { markdownToReadableText } from '@/lib/markdownToText';
 import FullscreenReader from '@/components/text-analysis/FullscreenReader';
+import { cardActionBtnStyle } from '@/components/text-analysis/cardActionButtonStyle';
 import JSZip from 'jszip';
 import {
   getModelLabel,
@@ -1941,15 +1942,8 @@ function categoryCardStyle(active: boolean): React.CSSProperties {
   };
 }
 
+// 共通スタイルを参照（コンテキストライブラリと同一の見た目）。実体は cardActionButtonStyle.ts。
 function listBtnStyle(): React.CSSProperties {
-  return {
-    fontSize: 11,
-    padding: '4px 10px',
-    borderRadius: 6,
-    background: 'rgba(255,255,255,0.05)',
-    border: '1px solid var(--border)',
-    color: 'var(--text-secondary)',
-    cursor: 'pointer',
-  };
+  return cardActionBtnStyle();
 }
 
