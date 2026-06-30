@@ -19,6 +19,8 @@ import {
 } from '@/lib/title-generator';
 import { copyToClipboard } from '@/lib/copyToClipboard';
 import { triggerDownload } from '@/lib/download';
+import { renderMarkdown } from '@/lib/markdown-renderer';
+import FullscreenReader from '@/components/text-analysis/FullscreenReader';
 
 const TEMPLATES = [
   { label: 'AI最新動向', topic: '2026年の生成AI・大規模言語モデルの最新動向と活用事例' },
@@ -780,6 +782,8 @@ export default function DeepResearchPage() {
   const [optimizing, setOptimizing] = useState(false);
   const [savedContextId, setSavedContextId] = useState<number | null>(null);
   const [saveStatus, setSaveStatus] = useState('');
+  // 生成後コンテキストの全画面リーダー（FullscreenReader 共通コンポーネント流用）
+  const [contextReaderOpen, setContextReaderOpen] = useState(false);
 
   // 専門用語サーチ
   type ExtractedTerm = { term: string; reading: string; category: string; difficulty: 'やや難' | '難' | '超難'; context: string; alreadySaved?: boolean };
@@ -2670,18 +2674,29 @@ ${contextText}
                     <span style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-primary)' }}>🧠 コンテキスト</span>
                     {saveStatus && <span style={{ fontSize: 12, color: '#00d4b8', fontWeight: 600 }}>{saveStatus}</span>}
                   </div>
-                  <button
-                    onClick={optimizeContext}
-                    style={{ padding: '4px 12px', background: 'var(--bg-secondary)', border: '1px solid var(--border)', color: 'var(--text-muted)', borderRadius: 6, cursor: 'pointer', fontSize: 11 }}
-                  >
-                    🔄 再生成
-                  </button>
+                  <div style={{ display: 'flex', gap: 6 }}>
+                    <button
+                      onClick={() => setContextReaderOpen(true)}
+                      title="全画面でじっくり読む"
+                      style={{ padding: '4px 12px', background: 'var(--bg-secondary)', border: '1px solid var(--border)', color: 'var(--text-muted)', borderRadius: 6, cursor: 'pointer', fontSize: 11 }}
+                    >
+                      ⛶ 全画面
+                    </button>
+                    <button
+                      onClick={optimizeContext}
+                      style={{ padding: '4px 12px', background: 'var(--bg-secondary)', border: '1px solid var(--border)', color: 'var(--text-muted)', borderRadius: 6, cursor: 'pointer', fontSize: 11 }}
+                    >
+                      🔄 再生成
+                    </button>
+                  </div>
                 </div>
 
                 <div style={{ background: 'var(--bg-primary)', border: '1px solid var(--border-accent)', borderRadius: 10, padding: 16, marginBottom: 12, maxHeight: 400, overflowY: 'auto' as const }}>
-                  <pre style={{ margin: 0, whiteSpace: 'pre-wrap' as const, wordBreak: 'break-word' as const, fontSize: 12, fontFamily: 'inherit', color: 'var(--text-secondary)', lineHeight: 1.7 }}>
-                    {contextText}
-                  </pre>
+                  <div
+                    className="markdown-body"
+                    style={{ fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.8, overflowWrap: 'anywhere' as const, wordBreak: 'break-word' as const }}
+                    dangerouslySetInnerHTML={{ __html: renderMarkdown(contextText) }}
+                  />
                 </div>
 
                 {/* 連携ボタン群 */}
@@ -2731,6 +2746,13 @@ ${contextText}
                     📊 資料作成へ
                   </button>
                 </div>
+
+                <FullscreenReader
+                  open={contextReaderOpen}
+                  title="🧠 コンテキスト"
+                  content={contextText}
+                  onClose={() => setContextReaderOpen(false)}
+                />
               </div>
             )}
           </div>
