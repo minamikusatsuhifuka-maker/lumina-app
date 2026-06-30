@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import { robustJsonParse } from '@/lib/ai-json-parser';
+import { medicalAdCheckSection, AD_CHECK_OUTPUT_NOTE } from '@/lib/medical-ad-check';
 
 export const runtime = 'nodejs';
 export const maxDuration = 60;
@@ -54,13 +55,7 @@ ${toneInstructions[tone]}
 - 冒頭で「この度はご来院ありがとうございました」系の挨拶を入れる
 - 3パターンは文体・切り口を変えて差別化する
 
-## 医療広告規制チェック（必須）— 以下に該当する表現は使わない
-- 効果・効能の保証（「必ず治る」「絶対」「効果を保証」等）
-- 誇大・最上級（「日本一」「最高」「No.1」根拠なし）
-- ビフォーアフターや他患者の体験談的表現の誘導
-- 割引・キャンペーンなどの利益誘導
-- 未承認・自由診療の不適切な効果訴求
-各返信案について、上記NG表現が含まれないか自己チェックし、結果（status と findings）を返す。
+${medicalAdCheckSection('返信案')}
 
 ## 出力フォーマット（必ずこのJSONのみ。前置き・コードフェンス禁止）
 {
@@ -73,8 +68,7 @@ ${toneInstructions[tone]}
     }
   ]
 }
-- ad_check.status: NG表現が無ければ "ok"、懸念があれば "warn"
-- ad_check.findings: warn の場合に該当箇所と理由を簡潔に列挙（ok なら空配列）
+${AD_CHECK_OUTPUT_NOTE}
 - drafts は3件`;
 
     const genAI = new GoogleGenerativeAI(apiKey);
