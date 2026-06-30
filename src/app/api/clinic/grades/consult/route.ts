@@ -3,7 +3,7 @@ import { auth } from '@/lib/auth';
 import { neon } from '@neondatabase/serverless';
 import { buildSystemContext } from '@/lib/clinic-context';
 
-export const maxDuration = 60;
+export const maxDuration = 120;
 
 export async function POST(req: NextRequest) {
   const session = await auth();
@@ -35,7 +35,7 @@ ${gradeContent ? `現在設計中の等級：${typeof gradeContent === 'string' 
           headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' },
           body: JSON.stringify({
             model: 'claude-sonnet-4-6',
-            max_tokens: 3000,
+            max_tokens: 8000,
             stream: true,
             system: systemPrompt,
             messages: [{ role: 'user', content: message }],

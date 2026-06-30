@@ -130,14 +130,22 @@ AFTER:
     'handbook'
   );
 
+  // 入力肥大対策(A-3): 会話履歴は直近20件のみ送信し、出力トークンの余地を確保する。
+  // （長期会話で履歴が膨らみ過ぎると出力が削られる/上限到達が早まるのを防ぐ）
+  const fullMessages = messages || [{ role: 'user', content: `この${contextLabel}を分析してください。` }];
+  const trimmedMessages = Array.isArray(fullMessages) && fullMessages.length > 20
+    ? fullMessages.slice(-20)
+    : fullMessages;
+
   const response = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' },
     body: JSON.stringify({
+      // 途中切れ対策(A-1): 就業規則引用＋BEFORE/AFTER 2案の長文が収まるよう max_tokens を 2000→8000 に引き上げ
       model: 'claude-sonnet-4-6',
-      max_tokens: 2000,
+      max_tokens: 8000,
       system: systemPrompt,
-      messages: messages || [{ role: 'user', content: `この${contextLabel}を分析してください。` }],
+      messages: trimmedMessages,
     }),
   });
 
