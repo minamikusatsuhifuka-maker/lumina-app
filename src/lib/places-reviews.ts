@@ -131,6 +131,71 @@ export async function fetchPlacesData(): Promise<PlacesData> {
   };
 }
 
+// 競合クリニックの基礎情報（148-4。取得可の範囲のみ）
+export interface CompetitorPlace {
+  placeId: string;
+  name: string;
+  rating: number;
+  totalReviews: number;
+  address: string;
+  phone: string;
+  website: string;
+  mapsUrl: string;
+  categories: string[]; // Places の types（汎用カテゴリ。参考値）
+  openingHours: string[];
+}
+
+// クリニック名/エリアのテキストから Place を検索 → 詳細を取得（旧 Places API）。
+// 競合の星平均・口コミ数・カテゴリ・営業時間・URL を取得可の範囲で返す。
+export async function fetchPlaceByText(query: string): Promise<CompetitorPlace | null> {
+  const apiKey = process.env.GOOGLE_PLACES_API_KEY;
+  if (!apiKey) {
+    throw new Error('GOOGLE_PLACES_API_KEY が設定されていません');
+  }
+
+  // ① Text Search で place_id を特定
+  const searchUrl = new URL('https://maps.googleapis.com/maps/api/place/textsearch/json');
+  searchUrl.searchParams.set('query', query);
+  searchUrl.searchParams.set('language', 'ja');
+  searchUrl.searchParams.set('region', 'jp');
+  searchUrl.searchParams.set('key', apiKey);
+
+  const searchRes = await fetch(searchUrl.toString());
+  const searchData = await searchRes.json();
+  if (searchData.status !== 'OK' || !searchData.results?.[0]?.place_id) {
+    return null;
+  }
+  const placeId: string = searchData.results[0].place_id;
+
+  // ② Place Details で詳細
+  const detailsUrl = new URL('https://maps.googleapis.com/maps/api/place/details/json');
+  detailsUrl.searchParams.set('place_id', placeId);
+  detailsUrl.searchParams.set(
+    'fields',
+    'name,rating,user_ratings_total,types,opening_hours,formatted_address,formatted_phone_number,website,url',
+  );
+  detailsUrl.searchParams.set('language', 'ja');
+  detailsUrl.searchParams.set('key', apiKey);
+
+  const res = await fetch(detailsUrl.toString());
+  const data = await res.json();
+  if (data.status !== 'OK') return null;
+  const r = data.result ?? {};
+
+  return {
+    placeId,
+    name: r.name ?? query,
+    rating: r.rating ?? 0,
+    totalReviews: r.user_ratings_total ?? 0,
+    address: r.formatted_address ?? '',
+    phone: r.formatted_phone_number ?? '',
+    website: r.website ?? '',
+    mapsUrl: r.url ?? '',
+    categories: Array.isArray(r.types) ? r.types : [],
+    openingHours: r.opening_hours?.weekday_text ?? [],
+  };
+}
+
 // clinic_reviews に external_id 列 + UNIQUE(source, external_id) を冪等に用意。
 // 既存行は external_id=NULL（NULL は UNIQUE 重複扱いされないため非破壊）。
 // マイグレーションフレームワーク無し方針に合わせ ADD COLUMN IF NOT EXISTS で運用。

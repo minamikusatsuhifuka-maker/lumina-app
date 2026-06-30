@@ -2,6 +2,10 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { copyToClipboard } from '@/lib/copyToClipboard';
+import SeoArticleTab from '@/components/meo/SeoArticleTab';
+import RankTrackerTab from '@/components/meo/RankTrackerTab';
+import MeoDashboardTab from '@/components/meo/MeoDashboardTab';
+import CompetitorTab from '@/components/meo/CompetitorTab';
 
 // ─── 型定義 ───
 interface AuditItem {
@@ -92,26 +96,40 @@ const MANUAL_STATUS_OPTS: { value: AuditItem['status']; label: string }[] = [
   { value: 'na', label: '対象外' },
 ];
 
+type TabKey = 'checker' | 'post' | 'article' | 'rank' | 'dashboard' | 'competitor';
+
 export default function MeoPage() {
-  const [tab, setTab] = useState<'checker' | 'post'>('checker');
+  const [tab, setTab] = useState<TabKey>('checker');
+  const [articleSeed, setArticleSeed] = useState('');
+
+  // 順位トラッカーの「記事を作成」→ 記事生成タブへキーワードを引き継いで遷移
+  const goArticle = (kw: string) => {
+    setArticleSeed(kw);
+    setTab('article');
+  };
 
   return (
     <div style={{ maxWidth: 980, margin: '0 auto', padding: '24px 16px' }}>
-      <h1 style={{ fontSize: 24, fontWeight: 700, marginBottom: 4 }}>📍 MEO対策（Googleビジネスプロフィール）</h1>
+      <h1 style={{ fontSize: 24, fontWeight: 700, marginBottom: 4 }}>📍 SEO/MEO対策</h1>
       <p style={{ color: '#64748b', fontSize: 14, marginBottom: 20 }}>
-        Googleマップ・ローカル集患の最適化。診断→やること→投稿まで。自動投稿はせず、院長確認のうえ手動で反映します。
+        Googleマップ・検索の集患最適化。診断・投稿・記事・順位・競合を一画面で。自動公開はせず、院長確認のうえ反映します。
       </p>
 
-      <div style={{ display: 'flex', gap: 8, marginBottom: 20, borderBottom: '1px solid #e2e8f0' }}>
-        <TabButton active={tab === 'checker'} onClick={() => setTab('checker')}>
-          ① GBP最適化チェッカー
-        </TabButton>
-        <TabButton active={tab === 'post'} onClick={() => setTab('post')}>
-          ② GBP投稿下書き
-        </TabButton>
+      <div style={{ display: 'flex', gap: 4, marginBottom: 20, borderBottom: '1px solid #e2e8f0', flexWrap: 'wrap' }}>
+        <TabButton active={tab === 'checker'} onClick={() => setTab('checker')}>① GBP最適化</TabButton>
+        <TabButton active={tab === 'post'} onClick={() => setTab('post')}>② GBP投稿</TabButton>
+        <TabButton active={tab === 'article'} onClick={() => setTab('article')}>③ SEO記事</TabButton>
+        <TabButton active={tab === 'rank'} onClick={() => setTab('rank')}>④ 順位</TabButton>
+        <TabButton active={tab === 'dashboard'} onClick={() => setTab('dashboard')}>⑤ ダッシュボード</TabButton>
+        <TabButton active={tab === 'competitor'} onClick={() => setTab('competitor')}>⑥ 競合分析</TabButton>
       </div>
 
-      {tab === 'checker' ? <CheckerTab /> : <PostTab />}
+      {tab === 'checker' && <CheckerTab />}
+      {tab === 'post' && <PostTab />}
+      {tab === 'article' && <SeoArticleTab initialKeyword={articleSeed} />}
+      {tab === 'rank' && <RankTrackerTab onCreateArticle={goArticle} />}
+      {tab === 'dashboard' && <MeoDashboardTab />}
+      {tab === 'competitor' && <CompetitorTab />}
     </div>
   );
 }

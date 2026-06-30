@@ -102,7 +102,7 @@ const navCategories: NavCategory[] = [
       { href: '/dashboard/conversion', label: 'CV分析', icon: '💰' },
       { href: '/dashboard/contacts', label: '問い合わせ管理', icon: '📞' },
       { href: '/dashboard/reviews', label: '口コミ管理', icon: '⭐' },
-      { href: '/dashboard/meo', label: 'MEO対策', icon: '📍' },
+      { href: '/dashboard/meo', label: 'SEO/MEO対策', icon: '📍' },
       { href: '/dashboard/stats', label: '使用状況', icon: '📊' },
       { href: '/dashboard/api-usage', label: 'API使用量', icon: '💴' },
       { href: '/dashboard/integrations', label: '外部連携（SaaS）', icon: '🔗' },
