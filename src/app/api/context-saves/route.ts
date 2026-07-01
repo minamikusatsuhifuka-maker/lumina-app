@@ -23,6 +23,22 @@ function ensureFavoriteColumn() {
   return favoriteColumnReady;
 }
 
+// カテゴリカラムを冪等に用意（既にAI背景情報保存 /api/context 側で使用中のカラムを流用。
+// 未マイグレーション環境向けの保険として ADD COLUMN IF NOT EXISTS を用意）。
+let categoryColumnReady: Promise<unknown> | null = null;
+function ensureCategoryColumn() {
+  if (!categoryColumnReady) {
+    const sql = neon(process.env.DATABASE_URL!);
+    categoryColumnReady = (async () => {
+      await sql`ALTER TABLE context_saves ADD COLUMN IF NOT EXISTS category TEXT DEFAULT 'general'`;
+    })().catch((e) => {
+      categoryColumnReady = null;
+      throw e;
+    });
+  }
+  return categoryColumnReady;
+}
+
 export async function POST(req: NextRequest) {
   const session = await auth();
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
@@ -60,12 +76,14 @@ export async function GET(req: NextRequest) {
 
     const sql = neon(process.env.DATABASE_URL!);
     await ensureFavoriteColumn();
+    await ensureCategoryColumn();
     const userId = (session.user as any).id;
 
     // 単一取得
     if (id) {
       const rows = await sql`
-        SELECT id, topic, context_text, research_text, tags, created_at, is_favorite, favorited_at
+        SELECT id, topic, context_text, research_text, tags, created_at, is_favorite, favorited_at,
+               COALESCE(category, 'general') AS category
         FROM context_saves
         WHERE id = ${parseInt(id, 10)} AND user_id = ${userId}
       `;
@@ -77,7 +95,8 @@ export async function GET(req: NextRequest) {
     const tagFilter = searchParams.get('tag');
     if (tagFilter) {
       const rows = await sql`
-        SELECT id, topic, context_text, research_text, tags, created_at, is_favorite, favorited_at
+        SELECT id, topic, context_text, research_text, tags, created_at, is_favorite, favorited_at,
+               COALESCE(category, 'general') AS category
         FROM context_saves
         WHERE user_id = ${userId} AND ${tagFilter} = ANY(tags)
         ORDER BY created_at ASC
@@ -86,8 +105,11 @@ export async function GET(req: NextRequest) {
     }
 
     // 一覧取得（お気に入りを上に、その後 created_at DESC）
+    // total_count: 実際の総件数（COUNT(*) OVER）。limit で切れていてもUI側で正しい件数を表示するため。
     const rows = await sql`
-      SELECT id, topic, context_text, research_text, tags, created_at, is_favorite, favorited_at
+      SELECT id, topic, context_text, research_text, tags, created_at, is_favorite, favorited_at,
+             COALESCE(category, 'general') AS category,
+             COUNT(*) OVER() AS total_count
       FROM context_saves
       WHERE user_id = ${userId}
       ORDER BY is_favorite DESC, created_at DESC

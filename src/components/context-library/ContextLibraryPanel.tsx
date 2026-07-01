@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useMemo } from 'react';
+import { useEffect, useState, useMemo, type CSSProperties } from 'react';
 import FeatureDefaultContextSelector, { FEATURE_OPTIONS } from '@/components/FeatureDefaultContextSelector';
 import { copyToClipboard } from '@/lib/copyToClipboard';
 import { renderMarkdown, sanitizeLatex } from '@/lib/markdown-renderer';
@@ -22,7 +22,54 @@ type ContextSave = {
   tags: string[] | null;
   created_at: string;
   is_favorite?: boolean;
+  category?: string;
 };
+
+interface AutoCategorizeResult {
+  categories?: Array<{
+    name: string;
+    description?: string;
+    color?: string;
+    icon?: string;
+    item_ids?: number[];
+  }>;
+  summary?: string;
+  updatedCount?: number;
+  totalItems?: number;
+}
+
+const CATEGORY_PALETTE = [
+  '#3b82f6',
+  '#1D9E75',
+  '#f59e0b',
+  '#ef4444',
+  '#8b5cf6',
+  '#06b6d4',
+  '#f97316',
+  '#10b981',
+];
+
+function getCategoryColor(category: string, allCategories: string[]): string {
+  const idx = allCategories.indexOf(category);
+  return idx >= 0 ? CATEGORY_PALETTE[idx % CATEGORY_PALETTE.length] : '#6b7280';
+}
+
+function categoryCardStyle(active: boolean): CSSProperties {
+  return {
+    display: 'flex',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    padding: '7px 10px',
+    borderRadius: 8,
+    border: `1px solid ${active ? 'var(--accent)' : 'var(--border)'}`,
+    background: active ? 'rgba(108,99,255,0.08)' : 'var(--bg-card)',
+    textAlign: 'left',
+    cursor: 'pointer',
+    transition: 'all 0.15s',
+    minWidth: 0,
+  };
+}
 
 // 生成元（どのメニューで作られたか）をタグからベストエフォート推定して人間可読ラベルに。
 // context_saves は概ね「ディープリサーチ → コンテキスト最適化 → 保存」由来。batch タグがあればバッチ実行。
@@ -59,6 +106,33 @@ export default function ContextLibraryPanel() {
   const [processingId, setProcessingId] = useState<{ id: number; mode: 'summary' | 'detail' } | null>(null);
   const [processedId, setProcessedId] = useState<{ id: number; mode: 'summary' | 'detail' } | null>(null);
   const [toast, setToast] = useState<string>('');
+  // 実際の総件数（取得件数の上限=limitで切れていても正しい件数を表示するため。APIのCOUNT(*) OVERから取得）
+  const [totalCount, setTotalCount] = useState<number | null>(null);
+  // カテゴリ概要（📁カテゴリ概要＋🤖AIが自動カテゴライズ。テキスト分析と同じ挙動）
+  const [activeCategory, setActiveCategory] = useState<string | null>(null);
+  const [showCategoryGrid, setShowCategoryGrid] = useState(false);
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem('cl_category_open');
+      if (saved !== null) setShowCategoryGrid(saved === '1');
+    } catch {
+      /* localStorage 不可環境では既定値（閉）のまま */
+    }
+  }, []);
+  const toggleCategoryGrid = () => {
+    setShowCategoryGrid((prev) => {
+      const next = !prev;
+      try {
+        localStorage.setItem('cl_category_open', next ? '1' : '0');
+      } catch {
+        /* 保存失敗は無視（開閉自体は機能する） */
+      }
+      return next;
+    });
+  };
+  const [isAutoCategorizing, setIsAutoCategorizing] = useState(false);
+  const [categorizationResult, setCategorizationResult] =
+    useState<AutoCategorizeResult | null>(null);
 
   // URLパラメータから batchId を取得
   useEffect(() => {
@@ -78,7 +152,10 @@ export default function ContextLibraryPanel() {
       const res = await fetch('/api/context-saves?limit=100');
       if (res.ok) {
         const data = await res.json();
-        setItems(Array.isArray(data) ? data : []);
+        const list = Array.isArray(data) ? data : [];
+        setItems(list);
+        // total_count はAPIのCOUNT(*) OVERから返る（bigint→文字列の場合があるためNumber変換）
+        setTotalCount(list.length > 0 && list[0].total_count != null ? Number(list[0].total_count) : list.length);
       }
     } catch {
       // 取得失敗時は空配列のまま
@@ -118,6 +195,54 @@ export default function ContextLibraryPanel() {
     return Array.from(set);
   }, [items]);
 
+  // カテゴリ一覧を集計（テキスト分析の uniqueFolders 相当）
+  const uniqueCategories = useMemo(() => {
+    const set = new Set<string>();
+    items.forEach((it) => {
+      const c = it.category;
+      if (c && c.trim() && c !== 'general') set.add(c);
+    });
+    return Array.from(set);
+  }, [items]);
+
+  // AIで保存済み全件を自動カテゴライズする
+  const handleAutoCategorize = async () => {
+    if (items.length === 0) {
+      flashToast('❌ 保存済みコンテキストがありません');
+      return;
+    }
+    const ok = window.confirm(
+      `${items.length}件のコンテキストをAIが自動カテゴライズします。\n既存のカテゴリは上書きされます。よろしいですか？`,
+    );
+    if (!ok) return;
+
+    setIsAutoCategorizing(true);
+    setCategorizationResult(null);
+    try {
+      const res = await fetch('/api/context-library/auto-categorize', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ mode: 'categorize' }),
+      });
+      const data = (await res.json()) as AutoCategorizeResult & { error?: string };
+      if (!res.ok) {
+        flashToast(`❌ ${data.error ?? '自動カテゴライズに失敗しました'}`);
+        return;
+      }
+      setCategorizationResult(data);
+      flashToast(
+        `✅ ${data.updatedCount ?? 0}件を${data.categories?.length ?? 0}カテゴリに分類しました`,
+      );
+      // 一覧をリロード
+      fetchItems();
+    } catch (err) {
+      const message = err instanceof Error ? err.message : '通信エラー';
+      flashToast(`❌ ${message}`);
+    } finally {
+      setIsAutoCategorizing(false);
+    }
+  };
+
   // フィルター適用
   const filtered = useMemo(() => {
     return items.filter(it => {
@@ -129,9 +254,10 @@ export default function ContextLibraryPanel() {
       }
       if (tagFilter && !(it.tags || []).includes(tagFilter)) return false;
       if (favoriteOnly && !it.is_favorite) return false;
+      if (activeCategory !== null && (it.category ?? 'general') !== activeCategory) return false;
       return true;
     });
-  }, [items, search, tagFilter, favoriteOnly]);
+  }, [items, search, tagFilter, favoriteOnly, activeCategory]);
 
   const handleCopy = async (item: ContextSave) => {
     try {
@@ -383,6 +509,214 @@ export default function ContextLibraryPanel() {
         </div>
       )}
 
+      <style>{`
+        .cl-category-card:hover { border-color: var(--accent); }
+        /* カテゴリ概要グリッド: 画面幅に応じて列数を自動調整（テキスト分析と同じ挙動） */
+        .cl-category-grid {
+          display: grid;
+          grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+          gap: 8px;
+        }
+        @media (max-width: 640px) {
+          .cl-category-grid { grid-template-columns: 1fr 1fr; }
+        }
+      `}</style>
+
+      {/* カテゴリ概要ヘッダー */}
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          marginBottom: 8,
+          flexWrap: 'wrap',
+          gap: 8,
+        }}
+      >
+        <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-muted)' }}>
+          📁 カテゴリ概要
+        </span>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+          <button
+            type="button"
+            onClick={handleAutoCategorize}
+            disabled={isAutoCategorizing || items.length === 0}
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 6,
+              padding: '6px 12px',
+              background: isAutoCategorizing ? '#9ca3af' : 'linear-gradient(135deg, #4f46e5, #7c3aed)',
+              color: '#fff',
+              border: 'none',
+              borderRadius: 8,
+              fontSize: 12,
+              fontWeight: 600,
+              cursor: isAutoCategorizing || items.length === 0 ? 'not-allowed' : 'pointer',
+              opacity: items.length === 0 ? 0.4 : 1,
+            }}
+            title="AIが全保存コンテキストを分析して最適なカテゴリへ自動分類します"
+          >
+            {isAutoCategorizing ? '🤖 カテゴライズ中...' : '🤖 AIが自動カテゴライズ'}
+          </button>
+          <button
+            type="button"
+            onClick={toggleCategoryGrid}
+            style={{
+              fontSize: 11,
+              color: 'var(--accent)',
+              background: 'transparent',
+              border: 'none',
+              cursor: 'pointer',
+              textDecoration: 'underline',
+            }}
+          >
+            {showCategoryGrid ? '▲ 折りたたむ' : '▼ 展開'}
+          </button>
+        </div>
+      </div>
+
+      {/* カテゴライズ結果バナー */}
+      {categorizationResult && (
+        <div
+          style={{
+            padding: '12px 16px',
+            background: 'rgba(79,70,229,0.08)',
+            border: '1px solid rgba(79,70,229,0.2)',
+            borderRadius: 10,
+            display: 'flex',
+            alignItems: 'flex-start',
+            justifyContent: 'space-between',
+            gap: 12,
+            flexWrap: 'wrap',
+            marginBottom: 16,
+          }}
+        >
+          <div style={{ flex: 1, minWidth: 200 }}>
+            <div style={{ fontSize: 13, fontWeight: 600, color: '#4f46e5', marginBottom: 2 }}>
+              ✅ {categorizationResult.updatedCount ?? 0}件を{' '}
+              {categorizationResult.categories?.length ?? 0}カテゴリに自動分類しました
+            </div>
+            {categorizationResult.summary && (
+              <p style={{ fontSize: 12, color: 'var(--text-secondary)', margin: 0, lineHeight: 1.6 }}>
+                {categorizationResult.summary}
+              </p>
+            )}
+            {categorizationResult.categories && categorizationResult.categories.length > 0 && (
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 8 }}>
+                {categorizationResult.categories.map((cat) => (
+                  <span
+                    key={cat.name}
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: 4,
+                      padding: '3px 9px',
+                      borderRadius: 12,
+                      fontSize: 11,
+                      background: `${cat.color ?? '#4f46e5'}20`,
+                      color: cat.color ?? '#4f46e5',
+                      border: `1px solid ${cat.color ?? '#4f46e5'}40`,
+                    }}
+                  >
+                    <span>{cat.icon ?? '📁'}</span>
+                    <span>{cat.name}</span>
+                    <span style={{ opacity: 0.8, fontSize: 10 }}>({cat.item_ids?.length ?? 0})</span>
+                  </span>
+                ))}
+              </div>
+            )}
+          </div>
+          <button
+            type="button"
+            onClick={() => setCategorizationResult(null)}
+            style={{
+              fontSize: 11,
+              padding: '3px 8px',
+              border: '1px solid var(--border)',
+              borderRadius: 4,
+              background: 'var(--bg-primary)',
+              cursor: 'pointer',
+              color: 'var(--text-secondary)',
+              flexShrink: 0,
+            }}
+          >
+            ✕
+          </button>
+        </div>
+      )}
+
+      {showCategoryGrid && (
+        <div className="cl-category-grid" style={{ marginBottom: 20 }}>
+          <button
+            type="button"
+            onClick={() => setActiveCategory(null)}
+            style={categoryCardStyle(activeCategory === null)}
+          >
+            <span style={{ fontSize: 15 }}>📂</span>
+            <span
+              style={{
+                fontSize: 12,
+                fontWeight: 600,
+                color: 'var(--text-secondary)',
+                flex: 1,
+                textAlign: 'left',
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                whiteSpace: 'nowrap',
+              }}
+            >
+              すべて
+            </span>
+            <span style={{ fontSize: 14, fontWeight: 700, color: 'var(--accent)' }}>
+              {items.length}
+            </span>
+          </button>
+
+          {uniqueCategories.map((category) => {
+            const count = items.filter((it) => it.category === category).length;
+            const color = getCategoryColor(category, uniqueCategories);
+            const active = activeCategory === category;
+            return (
+              <button
+                type="button"
+                key={category}
+                onClick={() => setActiveCategory(category)}
+                className="cl-category-card"
+                style={{ ...categoryCardStyle(active), position: 'relative', overflow: 'hidden' }}
+              >
+                <div
+                  style={{
+                    position: 'absolute',
+                    left: 0,
+                    top: 0,
+                    bottom: 0,
+                    width: 3,
+                    background: color,
+                  }}
+                />
+                <span style={{ fontSize: 15, paddingLeft: 6, flexShrink: 0 }}>📁</span>
+                <span
+                  style={{
+                    fontSize: 12,
+                    fontWeight: 600,
+                    color: 'var(--text-secondary)',
+                    flex: 1,
+                    textAlign: 'left',
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    whiteSpace: 'nowrap',
+                  }}
+                >
+                  {category}
+                </span>
+                <span style={{ fontSize: 14, fontWeight: 700, color, flexShrink: 0 }}>{count}</span>
+              </button>
+            );
+          })}
+        </div>
+      )}
+
       {/* 検索・フィルターバー */}
       <div style={{
         background: 'var(--bg-secondary)',
@@ -448,7 +782,7 @@ export default function ContextLibraryPanel() {
           ⭐ お気に入り
         </button>
         <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>
-          {filtered.length} / {items.length} 件
+          {filtered.length} / {totalCount ?? items.length} 件
         </span>
       </div>
 
