@@ -130,6 +130,29 @@ export default function FullscreenReader({
             </button>
           ))}
         </div>
+        {/* ヘッダー閉じるボタン（補助導線。主導線は右下の大きい閉じるボタン） */}
+        <button
+          type="button"
+          onClick={onClose}
+          title="閉じる（Esc）"
+          style={{
+            flexShrink: 0,
+            width: 26,
+            height: 26,
+            display: 'inline-flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: 0,
+            borderRadius: 6,
+            border: '1px solid var(--border)',
+            background: 'transparent',
+            color: 'var(--text-muted)',
+            fontSize: 13,
+            cursor: 'pointer',
+          }}
+        >
+          ✕
+        </button>
       </div>
 
       {/* 本文（内スクロール・読み物フォント） */}
