@@ -865,7 +865,7 @@ export default function ContextLibraryPanel() {
                     })()}
                   </div>
                   <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>
-                    📅 {fmtDate(item.created_at)}
+                    📅 {fmtDate(item.created_at)} ・{item.context_text.length.toLocaleString()}文字
                     {item.tags && item.tags.length > 0 && (
                       <span style={{ marginLeft: 12 }}>
                         {item.tags.map(t => (
