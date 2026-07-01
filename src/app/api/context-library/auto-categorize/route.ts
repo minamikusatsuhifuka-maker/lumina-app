@@ -77,9 +77,13 @@ ${saves
     }
   ],
   "uncategorized_ids": [],
-  "summary": "全体の分類結果の説明（100字以内）"
+  "summary": "分類結果の傾向・特徴についてのコメントのみ（件数・カテゴリ数などの数字は一切含めない。100字以内）"
 }
-\`\`\``;
+\`\`\`
+
+## 重要: summaryフィールドについて
+- 件数（「◯件」「◯カテゴリ」等）は書かないでください。件数はプログラム側で表示するため、AIが書く必要はありません。
+- 傾向・特徴のコメントのみを書いてください（例:「健康・医療系が最多で、業務効率化系がそれに続く」）。`;
 
   // 保険として prompt 全体にも一度サニタイズを通す
   const safePrompt = sanitizeForJson(prompt);
@@ -153,9 +157,17 @@ ${saves
     outputTokens: response.usage.output_tokens,
   });
 
+  // 件数はAIの自由記述にせず、プログラム側の実カウント値をテンプレートに埋め込む
+  // （見出しと本文サマリーで数字が食い違う問題の再発防止。AIには傾向コメントのみ書かせる）。
+  const categoryCount = result.categories?.length ?? 0;
+  const trendComment = (result.summary ?? '').trim();
+  const summary = trendComment
+    ? `${updatedCount}件を${categoryCount}カテゴリに分類。${trendComment}`
+    : `${updatedCount}件を${categoryCount}カテゴリに分類しました。`;
+
   return NextResponse.json({
     categories: result.categories,
-    summary: result.summary,
+    summary,
     updatedCount,
     totalItems: saves.length,
     usage: {
