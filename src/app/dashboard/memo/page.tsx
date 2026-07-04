@@ -61,7 +61,7 @@ const MEMO_MANUAL_MD = `# 📘 AIメモ 使い方
 
 ## 基本の流れ（4ステップ）
 1. 目標を登録（最初の1回）…「🎯目標・目的」タブで登録。これがAIの判断基準。※目標が無いと第2象限（Q2）が出ません
-2. メモを入れる…「📝メモ入力」or「＋クイックメモ」。箇条書きは「まとめて追加」。期限は文中に書けばAIが読み取ります（例「6/28までに」「明日15時」）
+2. メモを入れる…「📝メモ入力」or「＋クイックメモ」。メモ入力は1行=1メモで登録（複数行を貼り付ければまとめて追加）。期限は文中に書けばAIが読み取ります（例「6/28までに」「明日15時」）
 3. 整理する…AIが4象限・カテゴリ・目標紐付け・TODO分解を自動実行
 4. 進める・終わらせる…第2象限から予定に落とす／チェックで完了→「完了」タブ／期限が近づくと通知
 
@@ -273,15 +273,22 @@ export default function MemoPage() {
     } catch { await load(); showToast('追加しました（整理は失敗）', 'warning'); }
   }, [load, showToast]);
 
+  // 155: 「追加」(と⌘/Ctrl+Enter)の既定を行分割登録に統一（1行=1メモ・空行スキップ）。
+  //      1行なら従来の単一追加と同一挙動、複数行なら一括経路(bulkAddTexts=153のidsバッチ自動整理込み)を通す。
   const addMemo = async () => {
-    const text = input.trim();
-    if (!text || busy) return;
+    if (busy) return;
+    const lines = input.split('\n').map((l) => l.trim()).filter(Boolean);
+    if (lines.length === 0) return;
     setBusy(true);
     try {
-      const id = await createMemo(text);
-      if (!id) { showToast('保存に失敗しました', 'error'); return; }
-      setInput('');
-      if (autoTriage) { setTriagingId(id); await runAutoTriage(id); setTriagingId(null); }
+      if (lines.length === 1) {
+        const id = await createMemo(lines[0]);
+        if (!id) { showToast('保存に失敗しました', 'error'); return; }
+        setInput('');
+        if (autoTriage) { setTriagingId(id); await runAutoTriage(id); setTriagingId(null); }
+      } else {
+        await bulkAddTexts(lines, () => setInput(''));
+      }
     } finally { setBusy(false); }
   };
 
@@ -300,11 +307,9 @@ export default function MemoPage() {
     } finally { setFabBusy(false); }
   };
 
-  // 一括入力テキストを「1行＝1メモ」で追加（空行スキップ・トリムはAPI側でも実施）
-  const bulkAddMemos = async () => {
-    const texts = memoBulkText.split('\n').map((l) => l.trim()).filter(Boolean);
-    if (texts.length === 0) { showToast('追加できる行がありません', 'warning'); return; }
-    setMemoBulkBusy(true);
+  // 一括追加コア（155で抽出: 「追加」の複数行と「まとめて追加」で共用。二重ロジックを作らない）。
+  // texts を「1行＝1メモ」でAPIへ渡し、成功時に onInserted で呼び出し側の入力欄をクリアする。
+  const bulkAddTexts = async (texts: string[], onInserted: () => void) => {
     try {
       const res = await fetch('/api/memos/bulk', {
         method: 'POST',
@@ -317,8 +322,7 @@ export default function MemoPage() {
         // 入力順で返るため、新しい順の一覧へは逆順で先頭に積む
         setMemos((p) => [...[...d.memos].reverse(), ...p]);
       }
-      setMemoBulkText('');
-      setMemoBulkMode(false);
+      onInserted();
       const parts = [`${d.inserted ?? 0}件を追加`];
       if (d.skipped) parts.push(`重複${d.skipped}件スキップ`);
       if (d.truncated) parts.push(`上限超過${d.truncated}件`);
@@ -355,9 +359,17 @@ export default function MemoPage() {
       }
     } catch {
       showToast('通信エラー', 'error');
-    } finally {
-      setMemoBulkBusy(false);
     }
+  };
+
+  // 「📋まとめて追加」モード（大きい入力欄＋説明つき）。コアは bulkAddTexts と共用。
+  const bulkAddMemos = async () => {
+    const texts = memoBulkText.split('\n').map((l) => l.trim()).filter(Boolean);
+    if (texts.length === 0) { showToast('追加できる行がありません', 'warning'); return; }
+    setMemoBulkBusy(true);
+    try {
+      await bulkAddTexts(texts, () => { setMemoBulkText(''); setMemoBulkMode(false); });
+    } finally { setMemoBulkBusy(false); }
   };
 
   const triage = async (id: string) => {
@@ -609,7 +621,7 @@ export default function MemoPage() {
     <div style={{ ...card }}>
       {!memoBulkMode ? (
         <>
-          <textarea value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => { if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') addMemo(); }} placeholder="メモを入力（⌘/Ctrl+Enterで保存）…" rows={5} style={{ ...inputStyle, width: '100%', minHeight: 120, maxHeight: '70vh', resize: 'vertical', boxSizing: 'border-box', fontFamily: 'inherit', lineHeight: 1.6 }} />
+          <textarea value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => { if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') addMemo(); }} placeholder="メモを入力（1行=1メモとして登録・⌘/Ctrl+Enterで保存）…" rows={5} style={{ ...inputStyle, width: '100%', minHeight: 120, maxHeight: '70vh', resize: 'vertical', boxSizing: 'border-box', fontFamily: 'inherit', lineHeight: 1.6 }} />
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 8, flexWrap: 'wrap', gap: 8 }}>
             <span style={{ fontSize: 12, color: 'var(--text-secondary,#9ca3af)' }}>インボックス {inbox.length}件</span>
             <div style={{ display: 'flex', gap: 8 }}>
@@ -624,7 +636,7 @@ export default function MemoPage() {
           <textarea
             value={memoBulkText}
             onChange={(e) => setMemoBulkText(e.target.value)}
-            placeholder={'1行＝1メモ。空行はスキップ。最大100件。複数行の長いメモは単一入力欄を使ってください。\n例:\n院内勉強会の年間カリキュラムを設計する\n選択理論の本を1日10ページ読み進める\nアチーブメント受講費を6/25までに支払う'}
+            placeholder={'1行＝1メモ。空行はスキップ。最大100件。複数行を1つの長いメモとして残すときは「＋クイックメモ」を使ってください。\n例:\n院内勉強会の年間カリキュラムを設計する\n選択理論の本を1日10ページ読み進める\nアチーブメント受講費を6/25までに支払う'}
             rows={10}
             style={{ ...inputStyle, width: '100%', minHeight: 220, maxHeight: '70vh', boxSizing: 'border-box', resize: 'vertical', fontFamily: 'inherit', lineHeight: 1.6 }}
           />
