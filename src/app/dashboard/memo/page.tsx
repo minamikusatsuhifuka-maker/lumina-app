@@ -13,7 +13,7 @@ import { useToast } from '@/components/ui/Toast';
 import QuadrantCriteriaPanel from '@/components/QuadrantCriteriaPanel';
 import { renderMarkdown } from '@/lib/markdown-renderer';
 
-type View = 'inbox' | 'plan' | 'calendar' | 'focus' | 'category' | 'matrix' | 'done' | 'input' | 'goals';
+type View = 'inbox' | 'plan' | 'calendar' | 'focus' | 'category' | 'matrix' | 'done' | 'input' | 'goals' | 'newest';
 type QuadrantNum = 1 | 2 | 3 | 4;
 type MemoKind = 'task' | 'idea' | 'note' | 'reference';
 
@@ -72,7 +72,7 @@ const MEMO_MANUAL_MD = `# 📘 AIメモ 使い方
 - Q4 非重要×非緊急：減らす
 
 ## タブ
-📝メモ入力／🎯目標・目的／4象限／第2象限／計画／カレンダー／カテゴリ別／インボックス／完了
+📝メモ入力／🎯目標・目的／4象限／第2象限／計画／カレンダー／カテゴリ別／🆕新着順／インボックス／完了
 
 ## 便利機能
 - ＋クイックメモ：どこからでも素早く入力
@@ -131,7 +131,7 @@ function dueInfo(iso: string | null): { days: number; label: string; color: stri
   if (days <= 3) return { days, label: `あと${days}日`, color: '#EF9F27' };
   return { days, label: `あと${days}日`, color: '#eab308' };
 }
-// 完了日時の表示(M/D HH:mm)。
+// 日時の表示(M/D HH:mm)。完了日時のほか登録日時(154: 新着順タブ)でも共用。
 function fmtCompleted(iso: string | null): string {
   if (!iso) return '';
   const d = new Date(iso);
@@ -518,6 +518,13 @@ export default function MemoPage() {
   );
   const todosByMemo = useCallback((id: string) => todos.filter((t) => t.memo_id === id), [todos]);
 
+  // 154: 新着順タブ用。全メモ(完了済みを除く)を登録の新しい順。APIはcreated_at DESCだが、
+  //      クライアント側での追加(先頭unshift)後も順序が保たれるよう明示ソート。
+  const newestMemos = useMemo(
+    () => memos.filter((m) => m.status !== 'done').sort((a, b) => (b.created_at ?? '').localeCompare(a.created_at ?? '')),
+    [memos],
+  );
+
   // 129: 完了TODO(サブタスク)。completed_atの新しい順。完了タブの「完了TODO」一覧で使う。
   const doneTodos = useMemo(
     () => todos.filter((t) => t.done).sort((a, b) => (b.completed_at ?? '').localeCompare(a.completed_at ?? '')),
@@ -650,9 +657,10 @@ export default function MemoPage() {
   );
 
   // 124: タブ順（よく使う「メモ入力」「目標・目的」を先頭2つに固める。既定は4象限のまま）
+  // 154: 「🆕 新着順」をカテゴリ別とインボックスの間に追加（既存タブの並びは不変）
   const TABS: [View, string][] = [
     ['input', '📝 メモ入力'], ['goals', '🎯 目標・目的'], ['matrix', '4象限'], ['focus', '第2象限'], ['plan', '計画'],
-    ['calendar', 'カレンダー'], ['category', 'カテゴリ別'], ['inbox', 'インボックス'], ['done', '完了'],
+    ['calendar', 'カレンダー'], ['category', 'カテゴリ別'], ['newest', '🆕 新着順'], ['inbox', 'インボックス'], ['done', '完了'],
   ];
 
   return (
@@ -673,7 +681,7 @@ export default function MemoPage() {
         </p>
       </div>
 
-      {/* 123/124: ビュー切替タブ（ページ最上部）。9タブで狭幅は横スクロール＋続きがある側にフェードの手がかり。 */}
+      {/* 123/124: ビュー切替タブ（ページ最上部）。10タブで狭幅は横スクロール＋続きがある側にフェードの手がかり。 */}
       <div style={{ position: 'relative', marginBottom: 14 }}>
         <div ref={tabBarRef} onScroll={updateTabFade} style={{ display: 'flex', gap: 4, background: 'var(--bg-tertiary,#f3f4f6)', padding: 4, borderRadius: 10, overflowX: 'auto', WebkitOverflowScrolling: 'touch' }}>
           {TABS.map(([v, label]) => (
@@ -728,6 +736,27 @@ export default function MemoPage() {
           </>
         ) : view === 'category' ? (
           <CategoryView memos={active} categories={categories} categoryName={categoryName} />
+        ) : view === 'newest' ? (
+          /* 154: 新着順ビュー。全メモ(完了済みを除く)をcreated_at降順で表示。整理済みはTriagedCardを流用、未整理はインボックスと同形式。 */
+          <section>
+            <h2 style={sectionTitle}>新着順（登録が新しい順）<span style={{ fontWeight: 400, color: '#9ca3af', marginLeft: 6 }}>{newestMemos.length}件 ※完了済みを除く</span></h2>
+            {newestMemos.length === 0 ? <p style={{ textAlign: 'center', color: '#9ca3af', padding: 24, fontSize: 13 }}>まだありません</p>
+              : newestMemos.map((m) => m.status === 'inbox' ? (
+                <div key={m.id} style={{ ...card, marginBottom: 10 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <span style={{ flexShrink: 0, fontSize: 10, fontWeight: 700, color: '#6b7280', background: 'var(--bg-tertiary,#f3f4f6)', padding: '2px 9px', borderRadius: 20 }}>未整理</span>
+                    <span style={{ marginLeft: 'auto', flexShrink: 0, fontSize: 10, color: '#9ca3af' }}>🆕 {fmtCompleted(m.created_at)}</span>
+                  </div>
+                  <p style={{ whiteSpace: 'pre-wrap', fontSize: 14, margin: '8px 0 0' }}>{m.raw_text}</p>
+                  <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, marginTop: 8 }}>
+                    <button onClick={() => deleteMemo(m.id)} style={linkBtn}>削除</button>
+                    <button onClick={() => triage(m.id)} disabled={triagingId === m.id} style={btnPrimary}>{triagingId === m.id ? 'AI判定中…' : '整理する'}</button>
+                  </div>
+                </div>
+              ) : (
+                <TriagedCard key={m.id} memo={m} categories={categories} goals={goals} categoryName={categoryName} goalTitleById={goalTitleById} todos={todosByMemo(m.id)} onPatch={patchMemo} onComplete={completeMemo} onDelete={deleteMemo} onToggleTodo={toggleTodo} collapsible showCreated />
+              ))}
+          </section>
         ) : view === 'done' ? (
           <DoneView memos={doneMemos} doneTodos={doneTodos} memoById={memoById} categoryName={categoryName} onPatch={patchMemo} onDelete={deleteMemo} onRestoreTodo={(id) => setTodoDone(id, false)} />
         ) : (
@@ -1124,8 +1153,9 @@ function TriagedCard(props: {
   todos: Todo[]; onPatch: (id: string, p: Partial<Memo>) => void; onDelete: (id: string) => void; onToggleTodo: (t: Todo) => void;
   onComplete?: (id: string) => void; // 129: 完了化（アンドゥトースト付き）。無ければonPatchにフォールバック
   collapsible?: boolean; // true: 折りたたみ式（1行・クリックで展開）。インボックスで使用
+  showCreated?: boolean; // 154: ヘッダに登録日時(🆕 M/D HH:mm)を表示。新着順タブで使用
 }) {
-  const { memo, categories, goals, categoryName, goalTitleById, todos, onPatch, onComplete, onDelete, onToggleTodo, collapsible } = props;
+  const { memo, categories, goals, categoryName, goalTitleById, todos, onPatch, onComplete, onDelete, onToggleTodo, collapsible, showCreated } = props;
   const [open, setOpen] = useState(!collapsible); // 折りたたみ対象は既定で閉じる
   const q = (memo.quadrant ?? 4) as QuadrantNum;
   const s = QUADRANT[q];
@@ -1142,6 +1172,7 @@ function TriagedCard(props: {
         {catName && <span style={{ flexShrink: 0, fontSize: 10, color: '#6b7280', background: '#ffffffaa', padding: '1px 7px', borderRadius: 10 }}>#{catName}</span>}
         {memo.due_at && <span style={{ flexShrink: 0, fontSize: 10, color: '#1D9E75' }}>📅 {fmtDueAt(memo.due_at, memo.has_time)}</span>}
         {(() => { const di = dueInfo(memo.due_at); return di ? <span style={{ flexShrink: 0, fontSize: 10, fontWeight: 700, color: '#fff', background: di.color, padding: '1px 7px', borderRadius: 10 }}>{di.label}</span> : null; })()}
+        {showCreated && <span style={{ flexShrink: 0, fontSize: 10, color: '#9ca3af' }}>🆕 {fmtCompleted(memo.created_at)}</span>}
         <span style={{ flexShrink: 0, fontSize: 11, color: '#9ca3af' }} aria-hidden>{open ? '▲' : '▼'}</span>
       </button>
 
