@@ -197,6 +197,8 @@ export default function MemoPage() {
   const [memoBulkMode, setMemoBulkMode] = useState(false);
   const [memoBulkText, setMemoBulkText] = useState('');
   const [memoBulkBusy, setMemoBulkBusy] = useState(false);
+  // 153: 一括追加後の自動整理の進捗（null=非実行中）。件数が多いと時間がかかるため可視化する。
+  const [autoTriageProg, setAutoTriageProg] = useState<{ done: number; total: number } | null>(null);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [triagingId, setTriagingId] = useState<string | null>(null);
@@ -321,13 +323,35 @@ export default function MemoPage() {
       if (d.skipped) parts.push(`重複${d.skipped}件スキップ`);
       if (d.truncated) parts.push(`上限超過${d.truncated}件`);
       showToast(parts.join(' / '), 'success');
-      // 125: 自動整理ONなら既存のバッチtriage(triage-all)で一気に整理(レート配慮は既存に倣う)。
-      if (autoTriage && (d.inserted ?? 0) > 0) {
+      // 153: 自動整理ONなら「追加したメモのID」を15件ずつ既存バッチtriage(triage-all)へ渡して整理。
+      // 旧実装はID無指定でinbox古い順15件しか対象にならず、滞留や15件超で新規分が未整理のままだった。
+      const newIds: string[] = Array.isArray(d.memos) ? (d.memos as { id: string }[]).map((m) => m.id).filter(Boolean) : [];
+      if (autoTriage && newIds.length > 0) {
+        let triaged = 0;
+        let failedCount = 0;
+        setAutoTriageProg({ done: 0, total: newIds.length });
         try {
-          const r = await fetch('/api/memos/triage-all', { method: 'POST' });
-          if (r.ok) { const dd = await r.json(); showToast(`自動整理: ${dd.triaged}件成功${dd.failed ? ` / ${dd.failed}件失敗` : ''}`, dd.failed ? 'error' : 'success'); }
+          for (let i = 0; i < newIds.length; i += 15) {
+            const chunk = newIds.slice(i, i + 15);
+            try {
+              const r = await fetch('/api/memos/triage-all', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ ids: chunk }),
+              });
+              if (r.ok) { const dd = await r.json(); triaged += dd.triaged ?? 0; failedCount += dd.failed ?? 0; }
+              else failedCount += chunk.length;
+            } catch { failedCount += chunk.length; }
+            setAutoTriageProg({ done: Math.min(i + chunk.length, newIds.length), total: newIds.length });
+          }
+        } finally {
+          setAutoTriageProg(null);
           await load();
-        } catch { /* 整理失敗は黙ってinboxに残す(後追い可) */ }
+        }
+        // 整理が失敗してもメモ追加自体は成功のまま残す（追加を巻き添えにしない）
+        if (failedCount === 0) showToast(`自動整理: ${triaged}件成功`, 'success');
+        else if (triaged === 0) showToast('未整理のまま追加されました（手動で整理できます）', 'warning');
+        else showToast(`自動整理: ${triaged}件成功 / ${failedCount}件失敗（失敗分は手動で整理できます）`, 'error');
       }
     } catch {
       showToast('通信エラー', 'error');
@@ -598,7 +622,10 @@ export default function MemoPage() {
             style={{ ...inputStyle, width: '100%', minHeight: 220, maxHeight: '70vh', boxSizing: 'border-box', resize: 'vertical', fontFamily: 'inherit', lineHeight: 1.6 }}
           />
           <p style={{ fontSize: 11, color: 'var(--text-secondary,#6b7280)', margin: '6px 0 0' }}>
-            追加後はインボックスに <code>未整理</code> で入ります。各メモは「整理する」/「まとめて整理」で象限判定されます（自動では実行しません）。
+            {/* 153: 表示と実挙動を一致させるためトグル状態で文言を切替（「自動では実行しません」固定をやめる） */}
+            {autoTriage
+              ? <>⚡自動整理がONのため、追加後に<strong>自動でまとめて整理</strong>されます（AIが象限・カテゴリ・目標を判定）。</>
+              : <>追加後はインボックスに <code>未整理</code> で入ります。各メモは「整理する」/「まとめて整理」で象限判定されます（下の⚡トグルをONにすると追加後に自動整理）。</>}
           </p>
           <div style={{ display: 'flex', gap: 6, marginTop: 8 }}>
             <button onClick={bulkAddMemos} disabled={memoBulkBusy || !memoBulkText.trim()} style={{ ...btnPrimary, opacity: memoBulkBusy || !memoBulkText.trim() ? 0.6 : 1 }}>
@@ -613,6 +640,12 @@ export default function MemoPage() {
         <input type="checkbox" checked={autoTriage} onChange={(e) => toggleAutoTriage(e.target.checked)} />
         <span>⚡ 追加したら自動で整理（AIが象限・カテゴリ・目標まで判定）<span style={{ color: '#9ca3af' }}>※既定OFF・AI実行</span></span>
       </label>
+      {/* 153: 一括追加後の自動整理は件数次第で時間がかかるため進捗を可視化 */}
+      {autoTriageProg && (
+        <p style={{ margin: '8px 0 0', fontSize: 12, color: 'var(--text-secondary,#6b7280)' }}>
+          ⏳ 自動整理中… {autoTriageProg.done}/{autoTriageProg.total}
+        </p>
+      )}
     </div>
   );
 
