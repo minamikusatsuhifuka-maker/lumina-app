@@ -301,6 +301,41 @@ export default function SavedAnalysisList({
     }
   };
 
+  // 個別レコードを Word(.docx) としてダウンロード。
+  // タイトル生成・sanitizeLatex・ファイル名規則は txt/MD と同一。markdown→docx 変換は
+  // 共通関数（markdownToDocx.ts）に集約し、docx はバンドルが大きいため dynamic import。
+  const handleDownloadDocx = async (record: AnalysisRecord) => {
+    if (downloadingId !== null) return; // 同時押し防止（txt/MDと共用）
+    setDownloadingId(record.id);
+    try {
+      const label =
+        record.analysis_label || record.analysis_type || '分析結果';
+      const fallback = record.auto_title || record.file_name || label;
+      const autoTitle = await generateTitleWithTimeout(
+        record.content,
+        label,
+        fallback,
+      );
+      const safeTitle = sanitizeFilename(autoTitle);
+      // モデル情報があればメタ行に追加（旧データは undefined → 出力なし）
+      const metaLines = record.model
+        ? [`生成AI: ${getModelIcon(record.model)} ${getModelLabel(record.model)}`]
+        : [];
+      const { downloadMarkdownAsDocx } = await import('@/lib/markdownToDocx');
+      await downloadMarkdownAsDocx({
+        title: autoTitle,
+        metaLines,
+        markdown: sanitizeLatex(record.content),
+        fileName: `${safeTitle}_${yyyymmdd()}.docx`,
+      });
+      showToast('Wordファイルをダウンロードしました', 'success');
+    } catch {
+      showToast('ダウンロードに失敗しました', 'error');
+    } finally {
+      setDownloadingId(null);
+    }
+  };
+
   // 選択中の各レコードを個別の .md にして JSZip で1つのZIPにまとめてダウンロード。
   // MD整形は単体DL（handleDownloadMd）と同じ「# タイトル + 生成AI行 + 本文」を流用。
   // 件数が多いと重いため、ファイル名は AIタイトル生成は行わず既存の auto_title/file_name を使う。
@@ -1564,6 +1599,21 @@ export default function SavedAnalysisList({
                         {downloadingId === record.id
                           ? '⏳ タイトル生成中...'
                           : '📥 MD'}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleDownloadDocx(record)}
+                        disabled={downloadingId === record.id}
+                        style={{
+                          ...listBtnStyle(),
+                          cursor:
+                            downloadingId === record.id ? 'not-allowed' : 'pointer',
+                          opacity: downloadingId === record.id ? 0.6 : 1,
+                        }}
+                      >
+                        {downloadingId === record.id
+                          ? '⏳ タイトル生成中...'
+                          : '📄 Word'}
                       </button>
                       <button
                         type="button"

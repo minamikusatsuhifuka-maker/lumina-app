@@ -321,6 +321,32 @@ export default function ContextLibraryPanel() {
     }
   };
 
+  // Word(.docx) ダウンロード（テキスト分析 handleDownloadDocx 流用。context_saves 対象）。
+  // タイトル生成・sanitizeLatex・ファイル名規則は txt/MD と同一。markdown→docx 変換は
+  // 共通関数（markdownToDocx.ts）に集約し、docx はバンドルが大きいため dynamic import。
+  const handleDownloadDocx = async (item: ContextSave) => {
+    if (downloadingId !== null) return; // 同時押し防止（txt/MDと共用）
+    setDownloadingId(item.id);
+    try {
+      const label = 'コンテキスト';
+      const fallback = item.topic || label;
+      const autoTitle = await generateTitleWithTimeout(item.context_text, label, fallback);
+      const safeTitle = sanitizeFilename(autoTitle);
+      const { downloadMarkdownAsDocx } = await import('@/lib/markdownToDocx');
+      await downloadMarkdownAsDocx({
+        title: autoTitle,
+        metaLines: [],
+        markdown: sanitizeLatex(item.context_text),
+        fileName: `${safeTitle}_${yyyymmdd()}.docx`,
+      });
+      flashToast('✅ Wordファイルをダウンロードしました');
+    } catch {
+      flashToast('❌ ダウンロードに失敗しました');
+    } finally {
+      setDownloadingId(null);
+    }
+  };
+
   // 「✏️ 編集」: 現在の topic/context_text を編集 state にコピーして編集モードへ（展開も保証）
   const startEdit = (item: ContextSave) => {
     setExpandedId(item.id);
@@ -898,7 +924,7 @@ export default function ContextLibraryPanel() {
               )}
 
               {/* ── 共通操作バー（テキスト分析 SavedAnalysisList と並び・見た目・ラベルを完全統一）──
-                  ▼全文表示 / ⛶全画面 / 📋コピー / ⬇テキスト / 📥MD / ☆お気に入り / ✏編集 / 🗑削除(右端)。
+                  ▼全文表示 / ⛶全画面 / 📋コピー / ⬇テキスト / 📥MD / 📄Word / ☆お気に入り / ✏編集 / 🗑削除(右端)。
                   flex-wrap で自然に2行になる（テキスト分析と同一実装）。 */}
               <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' as const, alignItems: 'center' }}>
                 <button
@@ -946,6 +972,17 @@ export default function ContextLibraryPanel() {
                   }}
                 >
                   {downloadingId === item.id ? '⏳ タイトル生成中...' : '📥 MD'}
+                </button>
+                <button
+                  onClick={() => handleDownloadDocx(item)}
+                  disabled={downloadingId === item.id}
+                  style={{
+                    ...cardActionBtnStyle(),
+                    cursor: downloadingId === item.id ? 'not-allowed' : 'pointer',
+                    opacity: downloadingId === item.id ? 0.6 : 1,
+                  }}
+                >
+                  {downloadingId === item.id ? '⏳ タイトル生成中...' : '📄 Word'}
                 </button>
                 <button
                   onClick={() => handleToggleFavorite(item)}
