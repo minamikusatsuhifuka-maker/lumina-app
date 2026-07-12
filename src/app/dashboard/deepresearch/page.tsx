@@ -2028,6 +2028,23 @@ ${contextText}
               )}
             </div>
           </div>
+          {/* 鮮度表示: 出典URLの有無でWeb検索ベースかモデル知識ベースかを可視化 */}
+          {(() => {
+            const sourceCount = (report.match(/https?:\/\/[^\s)）」】<]+/g) || []).length;
+            return (
+              <div style={{ marginBottom: 12 }}>
+                {sourceCount > 0 ? (
+                  <span style={{ fontSize: 12, fontWeight: 600, color: '#059669', background: 'rgba(5,150,105,0.08)', border: '1px solid rgba(5,150,105,0.3)', borderRadius: 999, padding: '4px 12px', display: 'inline-block' }}>
+                    🔎 Web検索に基づくレポートです（出典 {sourceCount} 件）
+                  </span>
+                ) : (
+                  <span style={{ fontSize: 12, fontWeight: 600, color: '#b45309', background: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.35)', borderRadius: 999, padding: '4px 12px', display: 'inline-block' }}>
+                    ⚠ Web検索結果を取得できませんでした（モデル知識ベースの可能性があります。内容の鮮度にご注意ください）
+                  </span>
+                )}
+              </div>
+            );
+          })()}
           {/* セクション別コピー（折りたたみ式） */}
           {report && splitReportSections(report).length > 0 && (
             <details style={{ marginBottom: 16 }}>

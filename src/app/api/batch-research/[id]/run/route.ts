@@ -161,6 +161,11 @@ export async function POST(
 必ず最後に「まとめ・結論」セクションを書いて締めくくってください。
 途中で終わらず最後まで完結させてください。
 
+# 情報収集ルール（必須）
+- 必ずWeb検索を実行し、検索結果で確認できた情報に基づいて書くこと（学習時の知識だけを「最新情報」として書くことは禁止）
+- 各情報の引用元を「出典: サイト名 https://URL」の形式で記載すること（生のURLのみ・Markdownリンク記法禁止）
+- Web検索で確認できなかった事項は、推測や作文で埋めずに「Web検索では確認できなかった」と明記すること
+
 # トピック
 ${item.topic}
 
@@ -171,13 +176,15 @@ ${item.topic}
 ## 実践・活用方法
 ## まとめ・結論`;
 
-            // ディープリサーチ実行（model に応じて Claude / Gemini を切替）
+            // ディープリサーチ実行（model に応じて Claude / Gemini を切替・Web検索グラウンディング有効）
             const researchMaxTokens = Math.max(targetChars + 2000, 4000);
             const researchResult = await generateWithModel(
               model,
               researchPrompt,
               undefined,
               researchMaxTokens,
+              undefined,
+              true, // webSearch: 実検索に基づかない「最新風の古い内容」を防ぐ
             );
 
             send({ type: 'research_done', index: i, topic: item.topic });

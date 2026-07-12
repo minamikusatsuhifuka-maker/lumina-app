@@ -18,8 +18,10 @@ export async function POST(req: NextRequest) {
   };
 
   // 対象期間セクション（指定がある場合のみ。未指定時は既存と完全互換）
+  // 期間はプロンプト注入だけでは実効性ゼロ（古い知識の現在形作文になる）ため、
+  // 「期間内の情報をWeb検索で収集し、見つからなければ確認できなかったと書く」検索指示にする
   const periodSection = (periodStart || periodEnd)
-    ? `\n\n# 対象期間\n${periodStart || '指定なし'} 〜 ${periodEnd || '現在まで'}\n上記の期間における情報・出来事・データを中心に分析してください。それ以外の期間の情報は、必要な背景説明としてのみ参照してください。`
+    ? `\n\n# 対象期間\n${periodStart || '指定なし'} 〜 ${periodEnd || '現在まで'}\nこの期間に公開・発表された情報をWeb検索で優先的に収集し、検索で確認できた内容を中心に分析してください。それ以外の期間の情報は、必要な背景説明としてのみ参照してください。期間内の情報がWeb検索で見つからない項目は、推測で埋めずに「この期間の情報はWeb検索では確認できなかった」と明記してください。`
     : '';
 
   const apiKey = process.env.ANTHROPIC_API_KEY;
@@ -79,7 +81,9 @@ export async function POST(req: NextRequest) {
 3. Markdownのリンク記法も禁止（[テキスト](URL)形式も使わない）
 4. 出典は「出典: サイト名 https://URL」の形式のみ
 5. URLの後に属性やスタイルは絶対に書かない
-6. 事実と推測を明確に区別してください${clinicStr}`;
+6. 事実と推測を明確に区別してください
+7. 必ずWeb検索を実行し、検索結果で確認できた情報に基づいて書くこと（学習時の知識だけを「最新情報」として書くことは禁止）
+8. Web検索で確認できなかった事項は、推測や作文で埋めずに「Web検索では確認できなかった」と明記すること${clinicStr}`;
 
   const userPrompt = `トピック：${topic}${periodSection}
 調査深度の指示：${depthPrompts[selectedDepth]}
@@ -109,7 +113,7 @@ ${outline}
       try {
         controller.enqueue(encoder.encode('data: {"type":"start"}\n\n'));
 
-        // Gemini: streamWithModel (Web検索ツールなし、形式 'standard' = {type:'text', content:...})
+        // Gemini: streamWithModel（Google検索グラウンディング有効・出典は本文末尾に自動追記）
         if (model === 'gemini') {
           const usage = await streamWithModel(
             'gemini',
@@ -119,6 +123,7 @@ ${outline}
             encoder,
             maxTokens,
             'standard',
+            true, // webSearch: 実検索に基づかない「最新風の古い内容」を防ぐ
           );
           await trackUsage({
             userId,

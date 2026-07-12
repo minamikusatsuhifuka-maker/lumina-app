@@ -91,6 +91,11 @@ ${clinic ? `\n【背景情報】\n${clinic}\n` : ''}
 【対話で収集した情報・リサーチ方針】
 ${conv}
 
+【情報収集ルール（必須）】
+- 必ずWeb検索を実行し、検索結果で確認できた情報に基づいて書くこと（学習時の知識だけを「最新情報」として書くことは禁止）
+- 各情報の引用元を「出典: サイト名 https://URL」の形式で記載すること（生のURLのみ・Markdownリンク記法禁止）
+- Web検索で確認できなかった事項は、推測や作文で埋めずに「Web検索では確認できなかった」と明記すること
+
 【生成要件】
 - 対話で特定された重要な観点を中心に深掘り
 - 具体的なデータ・事例・数字を含める
@@ -137,10 +142,15 @@ export async function POST(req: NextRequest) {
       let usageOutput = 0;
 
       try {
+        // ディープリサーチの生成のみWeb検索ツールを有効化
+        // （実検索に基づかない「最新風の古い内容」を防ぐ。他タイプは対話収集情報からの生成なので不要）
         const response = await client.messages.create({
           model: 'claude-sonnet-4-6',
           max_tokens: 6000,
           stream: true,
+          ...(featureType === 'deepresearch'
+            ? { tools: [{ type: 'web_search_20250305' as const, name: 'web_search' as const }] }
+            : {}),
           messages: [{ role: 'user', content: prompt }],
         });
 
