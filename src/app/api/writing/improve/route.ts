@@ -9,6 +9,8 @@ export const maxDuration = 120;
 export async function POST(req: NextRequest) {
   try {
     const session = await auth();
+    // 認証必須（未ログインは401。AI利用コストの無断消費を防ぐ）
+    if (!session) return new Response('Unauthorized', { status: 401 });
     const userId = session ? (session.user as any).id : '';
     const apiKey = process.env.ANTHROPIC_API_KEY;
     if (!apiKey || apiKey === 'your_api_key_here') {

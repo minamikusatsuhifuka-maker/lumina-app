@@ -114,6 +114,8 @@ ${clinicInfo ? `\n## ユーザーの背景\n${clinicInfo}` : ''}
 
 export async function POST(req: NextRequest) {
   const session = await auth();
+  // 認証必須（未ログインは401。AI利用コストの無断消費を防ぐ）
+  if (!session) return new Response('Unauthorized', { status: 401 });
   const userId = (session?.user as any)?.id;
   const { messages, domain, userInput } = await req.json();
 

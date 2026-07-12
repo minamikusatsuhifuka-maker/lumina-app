@@ -9,6 +9,8 @@ const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY! });
 
 export async function POST(req: NextRequest) {
   const session = await auth();
+  // 認証必須（未ログインは401。AI利用コストの無断消費を防ぐ）
+  if (!session) return new Response('Unauthorized', { status: 401 });
   const userId = (session?.user as any)?.id;
   const { sessionId, messages, domain } = await req.json();
 

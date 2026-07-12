@@ -1,8 +1,12 @@
 import { NextRequest } from 'next/server';
+import { requireAuth } from '@/lib/require-auth';
 
 export const maxDuration = 60;
 
 export async function POST(req: NextRequest) {
+  // 認証必須（未ログインは401。AI利用コストの無断消費を防ぐ）
+  const guard = await requireAuth();
+  if (!guard.ok) return guard.response;
   const { content, title, presentationType } = await req.json();
   const apiKey = process.env.ANTHROPIC_API_KEY!;
   const encoder = new TextEncoder();

@@ -6,7 +6,8 @@ export const maxDuration = 60;
 // Vercel Cronから毎分呼ばれて、予約された'cron'ジョブを起動するAPI
 export async function GET(req: NextRequest) {
   const authHeader = req.headers.get('authorization');
-  if (authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
+  // CRON_SECRET未設定時に "Bearer undefined" で一致しないようガード
+  if (!process.env.CRON_SECRET || authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 

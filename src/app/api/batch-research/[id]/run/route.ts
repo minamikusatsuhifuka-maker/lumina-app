@@ -12,7 +12,8 @@ export async function POST(
 ) {
   // Cronからの内部呼び出しか、ユーザーセッションを許可
   const session = await auth();
-  const cronAuth = req.headers.get('authorization') === `Bearer ${process.env.CRON_SECRET}`;
+  // CRON_SECRET未設定時に "Bearer undefined" で一致しないようガード
+  const cronAuth = !!process.env.CRON_SECRET && req.headers.get('authorization') === `Bearer ${process.env.CRON_SECRET}`;
   if (!session && !cronAuth) {
     return new Response(JSON.stringify({ error: 'Unauthorized' }), {
       status: 401,

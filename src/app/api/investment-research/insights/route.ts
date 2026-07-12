@@ -48,6 +48,8 @@ function parseInsights(raw: string): Insights {
 
 export async function POST(req: NextRequest) {
   const session = await auth();
+  // 認証必須（未ログインは401。AI利用コストの無断消費を防ぐ）
+  if (!session) return new Response('Unauthorized', { status: 401 });
   const userId = session ? (session.user as any).id : '';
   const { report, topic, model = 'claude' } = (await req.json()) as {
     report: string;

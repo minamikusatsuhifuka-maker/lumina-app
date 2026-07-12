@@ -1,10 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { generateWithModel } from '@/lib/ai-client';
 import type { AIModel } from '@/lib/ai-client';
+import { requireAuth } from '@/lib/require-auth';
 
 export const maxDuration = 300;
 
 export async function POST(req: NextRequest) {
+  // 認証必須（未ログインは401。AI利用コストの無断消費を防ぐ）
+  const guard = await requireAuth();
+  if (!guard.ok) return guard.response;
   const { industry, model = 'claude' }: { industry: string; model?: AIModel } = await req.json();
 
   const prompt = `「${industry}」業界について、最新の情報を調査して包括的な業界レポートを作成してください。

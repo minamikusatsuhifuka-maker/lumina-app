@@ -8,6 +8,8 @@ export const maxDuration = 300;
 
 export async function POST(req: NextRequest) {
   const session = await auth();
+  // 認証必須（未ログインは401。AI利用コストの無断消費を防ぐ）
+  if (!session) return new Response('Unauthorized', { status: 401 });
   const userId = session ? (session.user as any).id : '';
   const { topic, depth, periodStart, periodEnd, model = 'claude' } = (await req.json()) as {
     topic: string;

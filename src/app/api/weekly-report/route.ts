@@ -7,7 +7,8 @@ export const maxDuration = 300;
 
 export async function POST(req: NextRequest) {
   const authHeader = req.headers.get('authorization');
-  const isCron = authHeader === `Bearer ${process.env.CRON_SECRET}`;
+  // CRON_SECRET未設定時に "Bearer undefined" で一致しないようガード
+  const isCron = !!process.env.CRON_SECRET && authHeader === `Bearer ${process.env.CRON_SECRET}`;
 
   const session = await auth();
   if (!isCron && !session?.user) {

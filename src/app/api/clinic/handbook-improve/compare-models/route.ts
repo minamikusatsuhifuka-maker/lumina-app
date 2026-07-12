@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import Anthropic from '@anthropic-ai/sdk';
 import { robustJsonParse } from '@/lib/ai-json-parser';
+import { requireAuth } from '@/lib/require-auth';
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
@@ -83,6 +84,9 @@ ${improved}
 }
 
 export async function POST(req: Request) {
+  // 認証必須（未ログインは401。AI利用コストの無断消費を防ぐ）
+  const guard = await requireAuth();
+  if (!guard.ok) return guard.response;
   const { content, templateLabel, templatePrompt } = await req.json();
 
   // 全モデルで同時生成

@@ -46,7 +46,8 @@ interface MemoRow {
 
 async function run(req: NextRequest) {
   const authHeader = req.headers.get('authorization');
-  if (process.env.CRON_SECRET && authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
+  // CRON_SECRET未設定時も素通しさせない（fail-closed。本番はenv設定済み）
+  if (!process.env.CRON_SECRET || authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 

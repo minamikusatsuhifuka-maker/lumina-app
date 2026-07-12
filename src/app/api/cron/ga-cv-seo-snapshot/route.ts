@@ -50,7 +50,8 @@ function fmtDelta(today: number, prev: number | null, opts?: { pct?: boolean; di
 export async function GET(req: NextRequest) {
   // 1. 認証: Bearer CRON_SECRET（既存 cron と同じ作法）
   const authHeader = req.headers.get('authorization');
-  if (authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
+  // CRON_SECRET未設定時に "Bearer undefined" で一致しないようガード
+  if (!process.env.CRON_SECRET || authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 

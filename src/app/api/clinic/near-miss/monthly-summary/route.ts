@@ -1,10 +1,14 @@
 import { NextResponse } from 'next/server';
 import Anthropic from '@anthropic-ai/sdk';
 import { sql } from '@/lib/db';
+import { requireAuth } from '@/lib/require-auth';
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
 export async function POST(req: Request) {
+  // 認証必須（未ログインは401。AI利用コストの無断消費を防ぐ）
+  const guard = await requireAuth();
+  if (!guard.ok) return guard.response;
   const { year, month } = await req.json();
 
   const start = `${year}-${String(month).padStart(2, '0')}-01`;

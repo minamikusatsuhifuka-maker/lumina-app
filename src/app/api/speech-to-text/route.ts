@@ -7,6 +7,7 @@
 
 import { NextResponse } from "next/server";
 import { GoogleGenAI } from "@google/genai";
+import { requireAuth } from '@/lib/require-auth';
 
 export const maxDuration = 60;
 
@@ -21,6 +22,9 @@ function getGenAI(): GoogleGenAI {
 }
 
 export async function POST(request: Request) {
+  // 認証必須（未ログインは401。AI利用コストの無断消費を防ぐ）
+  const guard = await requireAuth();
+  if (!guard.ok) return guard.response;
   try {
     const body = await request.json();
     const { mode, audio, mimeType, text } = body;

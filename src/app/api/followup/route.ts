@@ -12,6 +12,8 @@ export async function POST(req: NextRequest) {
   let memoryContext = '';
   try {
     const session = await auth();
+    // 認証必須（未ログインは401。AI利用コストの無断消費を防ぐ）
+    if (!session) return new Response('Unauthorized', { status: 401 });
     if (session) {
       const userId = (session.user as any).id;
       memoryContext = await fetchUserMemories(userId, 10);
