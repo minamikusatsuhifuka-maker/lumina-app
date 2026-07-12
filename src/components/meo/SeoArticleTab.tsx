@@ -1,8 +1,14 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { copyToClipboard } from '@/lib/copyToClipboard';
 import { renderMarkdown } from '@/lib/markdown-renderer';
+import {
+  loadFeatureDraft,
+  saveFeatureDraft,
+  clearFeatureDraft,
+} from '@/lib/feature-drafts';
+import FeatureDraftBanner from '@/components/FeatureDraftBanner';
 import {
   card,
   inputStyle,
@@ -30,6 +36,16 @@ interface SavedArticle {
   created_at: string;
 }
 
+// 自動下書き（feature_result_drafts feature_key='seo-article'）のpayload
+// 医療広告チェック結果（adCheck）も一緒に復元し、再チェック不要にする
+interface SeoArticleDraftPayload {
+  keyword?: string;
+  type?: string;
+  content?: string;
+  adCheck?: AdCheck | null;
+  related?: string[];
+}
+
 export default function SeoArticleTab({ initialKeyword }: { initialKeyword?: string }) {
   const [keyword, setKeyword] = useState('');
   const [type, setType] = useState('symptom');
@@ -44,6 +60,44 @@ export default function SeoArticleTab({ initialKeyword }: { initialKeyword?: str
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [history, setHistory] = useState<SavedArticle[]>([]);
+  // 自動下書きから復元した日時（バナー表示用。新規実行で消える）
+  const [restoredAt, setRestoredAt] = useState<string | null>(null);
+
+  // 復元取得が返ってきた時点で既に入力/実行が始まっていたら復元しない
+  // （順位トラッカー「記事を作成」からの initialKeyword 引き継ぎ含む）
+  const draftGuardRef = useRef(false);
+  draftGuardRef.current =
+    loading || !!content || !!keyword.trim() || !!initialKeyword;
+
+  // マウント時に前回の実行結果（自動下書き）を復元。正はDB＝端末をまたいで復元できる
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const draft = await loadFeatureDraft<SeoArticleDraftPayload>('seo-article');
+      if (cancelled || !draft?.payload?.content) return;
+      if (draftGuardRef.current) return;
+      const p = draft.payload;
+      setKeyword(p.keyword ?? '');
+      if (p.type) setType(p.type);
+      setContent(p.content ?? '');
+      setAdCheck(p.adCheck ?? undefined);
+      setRelated(Array.isArray(p.related) ? p.related : []);
+      setRestoredAt(draft.updated_at);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // 「クリア」= 下書き削除 + 画面を新規状態に戻す（復元は表示のみで副作用なし）
+  const handleClearDraft = () => {
+    setRestoredAt(null);
+    setKeyword('');
+    setContent('');
+    setAdCheck(undefined);
+    setRelated([]);
+    clearFeatureDraft('seo-article');
+  };
 
   const loadHistory = useCallback(async () => {
     try {
@@ -63,6 +117,7 @@ export default function SeoArticleTab({ initialKeyword }: { initialKeyword?: str
     if (!keyword.trim()) return;
     setLoading(true);
     setError('');
+    setRestoredAt(null); // 新規実行結果は「復元」ではない
     setContent('');
     setAdCheck(undefined);
     setRelated([]);
@@ -78,6 +133,16 @@ export default function SeoArticleTab({ initialKeyword }: { initialKeyword?: str
         setContent(json.content || '');
         setAdCheck(json.ad_check);
         setRelated(json.related || []);
+        // 完了した結果を自動下書き保存（医療広告チェック結果ごと復元できるようにする）
+        if (json.content) {
+          saveFeatureDraft('seo-article', {
+            keyword,
+            type,
+            content: json.content,
+            adCheck: json.ad_check ?? null,
+            related: json.related || [],
+          } satisfies SeoArticleDraftPayload);
+        }
       }
     } catch {
       setError('生成に失敗しました');
@@ -117,6 +182,11 @@ export default function SeoArticleTab({ initialKeyword }: { initialKeyword?: str
 
   return (
     <div>
+      {/* 自動下書きからの復元バナー */}
+      {restoredAt && (
+        <FeatureDraftBanner restoredAt={restoredAt} onClear={handleClearDraft} />
+      )}
+
       <div style={{ ...card, marginBottom: 16 }}>
         <label style={{ fontSize: 13, color: '#475569', fontWeight: 600 }}>狙うキーワード</label>
         <input

@@ -4,6 +4,12 @@ import { useEffect, useRef, useState } from 'react';
 import { copyToClipboard } from '@/lib/copyToClipboard';
 import { triggerDownload } from '@/lib/download';
 import { renderMarkdown } from '@/lib/markdown-renderer';
+import {
+  loadFeatureDraft,
+  saveFeatureDraft,
+  clearFeatureDraft,
+} from '@/lib/feature-drafts';
+import FeatureDraftBanner from '@/components/FeatureDraftBanner';
 
 interface Message { role: 'user' | 'assistant'; content: string; }
 interface Session {
@@ -11,6 +17,18 @@ interface Session {
   has_strategy?: boolean; has_report?: boolean; message_count?: number;
   has_output?: boolean;
   created_at: string; updated_at: string;
+}
+
+// 自動下書き（feature_result_drafts feature_key='automation-strategy'）のpayload
+// 対話はセッションDBに保存済みだが「開いていたセッション＋生成した設計書/レポート表示」は
+// stateのみで消えるため、生成完了時点のスナップショットを丸ごと復元する
+interface AutomationStrategyDraftPayload {
+  sessionId?: number | null;
+  domain?: string;
+  messages?: Message[];
+  strategyOutput?: string;
+  reportOutput?: string;
+  sessionTitle?: string;
 }
 
 const DOMAINS = [
@@ -88,10 +106,61 @@ export default function AutomationStrategyPage() {
   const [sessionTitle, setSessionTitle] = useState('');
   const [isEditingTitle, setIsEditingTitle] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  // 自動下書きから復元した日時（バナー表示用。新規実行で消える）
+  const [restoredAt, setRestoredAt] = useState<string | null>(null);
+
+  // 復元取得が返ってきた時点で既に対話/セッション読込/生成が始まっていたら復元しない
+  const draftGuardRef = useRef(false);
+  draftGuardRef.current =
+    isLoading ||
+    isGeneratingStrategy ||
+    isGeneratingReport ||
+    messages.length > 0 ||
+    currentSessionId !== null ||
+    !!strategyOutput ||
+    !!reportOutput;
 
   useEffect(() => {
     loadSessions();
   }, []);
+
+  // マウント時に前回の実行結果（自動下書き）を復元。正はDB＝端末をまたいで復元できる
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const draft =
+        await loadFeatureDraft<AutomationStrategyDraftPayload>('automation-strategy');
+      if (cancelled || !draft?.payload) return;
+      const p = draft.payload;
+      if (!p.strategyOutput && !p.reportOutput) return;
+      if (draftGuardRef.current) return;
+      if (p.domain) setSelectedDomain(p.domain);
+      setCurrentSessionId(p.sessionId ?? null);
+      setMessages(Array.isArray(p.messages) ? p.messages : []);
+      setStrategyOutput(p.strategyOutput ?? '');
+      setReportOutput(p.reportOutput ?? '');
+      setSessionTitle(p.sessionTitle ?? '');
+      if (p.strategyOutput) setShowStrategyReady(true);
+      setRestoredAt(draft.updated_at);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // 「クリア」= 下書き削除 + 画面を新規状態に戻す（復元は表示のみで副作用なし）
+  const handleClearDraft = () => {
+    setRestoredAt(null);
+    setMessages([]);
+    setStrategyOutput('');
+    setStrategyStreaming('');
+    setShowStrategyReady(false);
+    setReportOutput('');
+    setSessionTitle('');
+    setCurrentSessionId(null);
+    setActiveTab('chat');
+    clearFeatureDraft('automation-strategy');
+  };
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -108,6 +177,7 @@ export default function AutomationStrategyPage() {
     const { session: s } = await res.json();
     if (!s) return;
 
+    setRestoredAt(null); // セッションを明示的に読み込んだら復元バナーは消す
     setCurrentSessionId(s.id);
     setSelectedDomain(s.domain ?? 'agent');
     setMessages(s.messages ?? []);
@@ -150,6 +220,18 @@ export default function AutomationStrategyPage() {
       });
       const { report } = await res.json();
       setReportOutput(report ?? '');
+      // 完了した結果を自動下書き保存（画面遷移/アプリ終了後もマウント時に復元できる）
+      if (report) {
+        setRestoredAt(null);
+        saveFeatureDraft('automation-strategy', {
+          sessionId: sid,
+          domain: selectedDomain,
+          messages,
+          strategyOutput,
+          reportOutput: report,
+          sessionTitle,
+        } satisfies AutomationStrategyDraftPayload);
+      }
       await loadSessions();
     } finally {
       setIsGeneratingReport(false);
@@ -157,6 +239,7 @@ export default function AutomationStrategyPage() {
   };
 
   const startNewSession = async (domain: string) => {
+    setRestoredAt(null);
     setSelectedDomain(domain);
     setMessages([]);
     setStrategyOutput('');
@@ -284,7 +367,23 @@ export default function AutomationStrategyPage() {
           try {
             const event = JSON.parse(line.slice(6));
             if (event.type === 'delta') { fullText += event.text; setStrategyStreaming(fullText); }
-            if (event.type === 'done') { setStrategyOutput(fullText); setStrategyStreaming(''); await loadSessions(); }
+            if (event.type === 'done') {
+              setStrategyOutput(fullText);
+              setStrategyStreaming('');
+              // 完了した結果を自動下書き保存（画面遷移/アプリ終了後もマウント時に復元できる）
+              if (fullText.trim()) {
+                setRestoredAt(null);
+                saveFeatureDraft('automation-strategy', {
+                  sessionId: currentSessionId,
+                  domain: selectedDomain,
+                  messages,
+                  strategyOutput: fullText,
+                  reportOutput,
+                  sessionTitle,
+                } satisfies AutomationStrategyDraftPayload);
+              }
+              await loadSessions();
+            }
           } catch { /* skip */ }
         }
       }
@@ -434,6 +533,13 @@ export default function AutomationStrategyPage() {
             ))}
           </div>
         </div>
+
+        {/* 自動下書きからの復元バナー */}
+        {restoredAt && (
+          <div style={{ padding: '12px 20px 0' }}>
+            <FeatureDraftBanner restoredAt={restoredAt} onClear={handleClearDraft} />
+          </div>
+        )}
 
         {activeTab === 'chat' && (
           <>

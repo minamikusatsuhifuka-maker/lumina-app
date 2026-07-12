@@ -1,5 +1,5 @@
 'use client';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { ProgressBar } from '@/components/ProgressBar';
 import { useProgress } from '@/components/useProgress';
 import { SaveToLibraryButton } from '@/components/SaveToLibraryButton';
@@ -15,6 +15,12 @@ import {
 } from '@/lib/title-generator';
 import { copyToClipboard } from '@/lib/copyToClipboard';
 import { triggerDownload } from '@/lib/download';
+import {
+  loadFeatureDraft,
+  saveFeatureDraft,
+  clearFeatureDraft,
+} from '@/lib/feature-drafts';
+import FeatureDraftBanner from '@/components/FeatureDraftBanner';
 
 type Length = 'short' | 'medium' | 'long';
 
@@ -24,6 +30,19 @@ interface BuzzReference {
   content: string;
   tags?: string;
   created_at?: string;
+}
+
+// 自動下書き（feature_result_drafts feature_key='note-article'）のpayload
+interface NoteArticleDraftPayload {
+  theme?: string;
+  tonePreference?: string;
+  personalNotes?: string;
+  length?: Length;
+  deepResearch?: string;
+  deepResearchTopic?: string;
+  buzzReferences?: BuzzReference[];
+  article?: string;
+  reportModel?: AIModel | null;
 }
 
 const LENGTH_OPTIONS: Array<{ value: Length; label: string; desc: string }> = [
@@ -106,6 +125,54 @@ export default function NoteArticleGenerationPage() {
   const [errorMsg, setErrorMsg] = useState('');
   const [trafficStats, setTrafficStats] = useState<{ requestBytes: number; responseBytes: number; totalBytes: number } | null>(null);
   const { progress, loading: progressLoading, startProgress, completeProgress, resetProgress } = useProgress();
+  // 自動下書きから復元した日時（バナー表示用。新規実行で消える）
+  const [restoredAt, setRestoredAt] = useState<string | null>(null);
+
+  // 復元取得が返ってきた時点で既に入力/引き継ぎ/実行が始まっていたら復元しない
+  const draftGuardRef = useRef(false);
+  draftGuardRef.current =
+    loading || !!article || !!theme.trim() || !!deepResearch || buzzReferences.length > 0;
+
+  // マウント時に前回の実行結果（自動下書き）を復元。正はDB＝端末をまたいで復元できる
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const draft = await loadFeatureDraft<NoteArticleDraftPayload>('note-article');
+      if (cancelled || !draft?.payload?.article) return;
+      if (draftGuardRef.current) return;
+      const p = draft.payload;
+      setTheme(p.theme ?? '');
+      setTonePreference(p.tonePreference ?? '');
+      setPersonalNotes(p.personalNotes ?? '');
+      if (p.length) setLength(p.length);
+      setDeepResearch(p.deepResearch ?? '');
+      setDeepResearchTopic(p.deepResearchTopic ?? '');
+      if (Array.isArray(p.buzzReferences)) setBuzzReferences(p.buzzReferences);
+      setArticle(p.article ?? '');
+      setEditedArticle(p.article ?? '');
+      setReportModel(p.reportModel ?? null);
+      setRestoredAt(draft.updated_at);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // 「クリア」= 下書き削除 + 画面を新規状態に戻す（復元は表示のみで副作用なし）
+  const handleClearDraft = () => {
+    setRestoredAt(null);
+    setTheme('');
+    setTonePreference('');
+    setPersonalNotes('');
+    setDeepResearch('');
+    setDeepResearchTopic('');
+    setBuzzReferences([]);
+    setArticle('');
+    setEditedArticle('');
+    setEditMode(false);
+    setReportModel(null);
+    clearFeatureDraft('note-article');
+  };
 
   // sessionStorage からの読込（マウント時のみ、読込後はクリア）
   useEffect(() => {
@@ -233,6 +300,7 @@ export default function NoteArticleGenerationPage() {
     setErrorMsg('');
     setLoading(true);
     startProgress();
+    setRestoredAt(null); // 新規実行結果は「復元」ではない
     setArticle('');
     setEditedArticle('');
     setEditMode(false);
@@ -316,6 +384,21 @@ export default function NoteArticleGenerationPage() {
         responseBytes,
         totalBytes: requestBytes + responseBytes,
       });
+
+      // 完了した結果を自動下書き保存（画面遷移/アプリ終了後もマウント時に復元できる）
+      if (accumulated.trim()) {
+        saveFeatureDraft('note-article', {
+          theme,
+          tonePreference,
+          personalNotes,
+          length,
+          deepResearch,
+          deepResearchTopic,
+          buzzReferences,
+          article: accumulated,
+          reportModel: modelAtRequest,
+        } satisfies NoteArticleDraftPayload);
+      }
     } catch (e: any) {
       setErrorMsg(`通信エラー: ${e?.message || e}`);
       resetProgress();
@@ -349,6 +432,11 @@ export default function NoteArticleGenerationPage() {
         Claude AI または Gemini 3.5 Flash が、バズり分析・ディープリサーチ記事を参考に note 記事の下書きを生成します。<br />
         <strong style={{ color: '#f59e0b' }}>⚠️ 生成された記事は下書きです。必ずあなたの独自の経験・視点を加えて編集してから投稿してください。</strong>
       </p>
+
+      {/* 自動下書きからの復元バナー */}
+      {restoredAt && (
+        <FeatureDraftBanner restoredAt={restoredAt} onClear={handleClearDraft} />
+      )}
 
       <div style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 14, padding: 20, marginBottom: 20 }}>
 

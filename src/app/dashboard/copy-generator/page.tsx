@@ -1,5 +1,5 @@
 'use client';
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { ProgressBar } from '@/components/ProgressBar';
 import { useProgress } from '@/components/useProgress';
 import { SaveToLibraryButton } from '@/components/SaveToLibraryButton';
@@ -9,6 +9,12 @@ import DefaultContextBar, {
 } from '@/components/DefaultContextBar';
 import DeepDiveChat from '@/components/DeepDiveChat';
 import { copyToClipboard } from '@/lib/copyToClipboard';
+import {
+  loadFeatureDraft,
+  saveFeatureDraft,
+  clearFeatureDraft,
+} from '@/lib/feature-drafts';
+import FeatureDraftBanner from '@/components/FeatureDraftBanner';
 
 const FRAMEWORKS = [
   { id: 'PASONA', label: 'PASONA', desc: '共感→解決→限定→行動', color: '#6c63ff' },
@@ -37,6 +43,18 @@ const SAMPLE = {
   benefit: '30以上のAI機能で情報収集から文章生成まで全自動。LP・HP・SNS投稿もAIが一括生成。月額9,800円で代理店不要。',
 };
 
+// 自動下書き（feature_result_drafts feature_key='copy-generator'）のpayload
+interface CopyGeneratorDraftPayload {
+  framework?: string;
+  product?: string;
+  target?: string;
+  problem?: string;
+  benefit?: string;
+  copyType?: string;
+  result?: CopyResult | null;
+  rawText?: string;
+}
+
 export default function CopyGeneratorPage() {
   const [framework, setFramework] = useState('PASONA');
   const [product, setProduct] = useState('');
@@ -52,6 +70,49 @@ export default function CopyGeneratorPage() {
   const [showDeepDive, setShowDeepDive] = useState(false);
   const [defaultContexts, setDefaultContexts] = useState<DefaultContextItem[]>([]);
   const { progress, loading: progressLoading, startProgress, completeProgress, resetProgress } = useProgress();
+  // 自動下書きから復元した日時（バナー表示用。新規実行で消える）
+  const [restoredAt, setRestoredAt] = useState<string | null>(null);
+
+  // 復元取得が返ってきた時点で既に入力/実行が始まっていたら復元しない
+  const draftGuardRef = useRef(false);
+  draftGuardRef.current =
+    loading || !!result || !!product.trim() || !!target.trim();
+
+  // マウント時に前回の実行結果（自動下書き）を復元。正はDB＝端末をまたいで復元できる
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const draft =
+        await loadFeatureDraft<CopyGeneratorDraftPayload>('copy-generator');
+      if (cancelled || !draft?.payload?.result) return;
+      if (draftGuardRef.current) return;
+      const p = draft.payload;
+      if (p.framework) setFramework(p.framework);
+      setProduct(p.product ?? '');
+      setTarget(p.target ?? '');
+      setProblem(p.problem ?? '');
+      setBenefit(p.benefit ?? '');
+      if (p.copyType) setCopyType(p.copyType);
+      setResult(p.result ?? null);
+      setRawText(p.rawText ?? '');
+      setRestoredAt(draft.updated_at);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // 「クリア」= 下書き削除 + 画面を新規状態に戻す（復元は表示のみで副作用なし）
+  const handleClearDraft = () => {
+    setRestoredAt(null);
+    setProduct('');
+    setTarget('');
+    setProblem('');
+    setBenefit('');
+    setResult(null);
+    setRawText('');
+    clearFeatureDraft('copy-generator');
+  };
 
   const fillSample = () => {
     setProduct(SAMPLE.product);
@@ -71,6 +132,7 @@ export default function CopyGeneratorPage() {
     setLoading(true);
     startProgress();
     setError('');
+    setRestoredAt(null); // 新規実行結果は「復元」ではない
     setResult(null);
     setRawText('');
 
@@ -89,6 +151,17 @@ export default function CopyGeneratorPage() {
       const data = await res.json();
       setResult(data);
       setRawText(JSON.stringify(data, null, 2));
+      // 完了した結果を自動下書き保存（画面遷移/アプリ終了後もマウント時に復元できる）
+      saveFeatureDraft('copy-generator', {
+        framework,
+        product,
+        target,
+        problem,
+        benefit,
+        copyType,
+        result: data,
+        rawText: JSON.stringify(data, null, 2),
+      } satisfies CopyGeneratorDraftPayload);
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : String(e);
       setError(`エラーが発生しました: ${msg}`);
@@ -110,6 +183,11 @@ export default function CopyGeneratorPage() {
       <p style={{ color: 'var(--text-muted)', marginBottom: 12, fontSize: 14 }}>
         セールスフレームワークに基づいて、マーケティングコピーをAIが自動生成します
       </p>
+
+      {/* 自動下書きからの復元バナー */}
+      {restoredAt && (
+        <FeatureDraftBanner restoredAt={restoredAt} onClear={handleClearDraft} />
+      )}
 
       {/* AI対話で深掘りモード切替 */}
       <div style={{ marginBottom: 16 }}>
