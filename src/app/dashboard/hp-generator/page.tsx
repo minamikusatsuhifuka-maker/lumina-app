@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { copyToClipboard } from '@/lib/copyToClipboard';
 import { triggerDownload } from '@/lib/download';
 import ContextSelector, {
@@ -12,9 +12,31 @@ import DefaultContextBar, {
   type DefaultContextItem,
 } from '@/components/DefaultContextBar';
 import DeepDiveChat from '@/components/DeepDiveChat';
+import {
+  loadFeatureDraft,
+  saveFeatureDraft,
+  clearFeatureDraft,
+} from '@/lib/feature-drafts';
+import FeatureDraftBanner from '@/components/FeatureDraftBanner';
 
 const INDUSTRIES = ['IT・SaaS', '医療・ヘルスケア', '飲食・フード', '不動産', '教育', 'コンサルティング', '製造業', '小売・EC', 'その他'];
 const TONES = ['親しみやすくプロフェッショナル', 'フォーマル・高級感', 'カジュアル・フレンドリー', 'シンプル・ミニマル'];
+
+interface HpForm {
+  companyName: string;
+  industry: string;
+  target: string;
+  usp: string;
+  tone: string;
+}
+
+// 自動下書き（feature_result_drafts feature_key='hp-generator'）のpayload
+// AI対話（DeepDive）の下書きは画面に表示されるため一緒に復元する
+interface HpGeneratorDraftPayload {
+  form?: HpForm;
+  result?: unknown;
+  deepDiveContent?: string;
+}
 
 export default function HpGeneratorPage() {
   const [form, setForm] = useState({ companyName: '', industry: 'IT・SaaS', target: '', usp: '', tone: '親しみやすくプロフェッショナル' });
@@ -25,17 +47,67 @@ export default function HpGeneratorPage() {
   const [defaultContexts, setDefaultContexts] = useState<DefaultContextItem[]>([]);
   const [showDeepDive, setShowDeepDive] = useState(false);
   const [deepDiveContent, setDeepDiveContent] = useState('');
+  // 自動下書きから復元した日時（バナー表示用。新規実行で消える）
+  const [restoredAt, setRestoredAt] = useState<string | null>(null);
+
+  // 復元取得が返ってきた時点で既に入力/実行が始まっていたら復元しない
+  const draftGuardRef = useRef(false);
+  draftGuardRef.current =
+    isLoading ||
+    !!result ||
+    !!form.companyName.trim() ||
+    !!form.target.trim() ||
+    !!form.usp.trim() ||
+    !!deepDiveContent;
+
+  // マウント時に前回の実行結果（自動下書き）を復元。正はDB＝端末をまたいで復元できる
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const draft = await loadFeatureDraft<HpGeneratorDraftPayload>('hp-generator');
+      if (cancelled || !draft?.payload) return;
+      const p = draft.payload;
+      if (!p.result && !p.deepDiveContent) return;
+      if (draftGuardRef.current) return;
+      if (p.form) setForm(p.form);
+      setResult(p.result ?? null);
+      setDeepDiveContent(p.deepDiveContent ?? '');
+      setRestoredAt(draft.updated_at);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // 「クリア」= 下書き削除 + 画面を新規状態に戻す（復元は表示のみで副作用なし）
+  const handleClearDraft = () => {
+    setRestoredAt(null);
+    setForm({ companyName: '', industry: 'IT・SaaS', target: '', usp: '', tone: '親しみやすくプロフェッショナル' });
+    setResult(null);
+    setDeepDiveContent('');
+    clearFeatureDraft('hp-generator');
+  };
 
   const handleGenerate = async () => {
     if (!form.companyName || !form.target || !form.usp) { alert('会社名・ターゲット・強みを入力してください'); return; }
     setIsLoading(true);
+    setRestoredAt(null); // 新規実行結果は「復元」ではない
     try {
       const res = await fetch('/api/hp-generator', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ ...form, contextInfo: [buildDefaultContextText(defaultContexts), buildContextText(hpContexts)].filter(Boolean).join('\n\n---\n\n') }),
       });
-      setResult(await res.json());
+      const data = await res.json();
+      setResult(data);
+      // 完了した結果を自動下書き保存（画面遷移/アプリ終了後もマウント時に復元できる）
+      if (data && !data.error) {
+        saveFeatureDraft('hp-generator', {
+          form,
+          result: data,
+          deepDiveContent,
+        } satisfies HpGeneratorDraftPayload);
+      }
     } finally { setIsLoading(false); }
   };
 
@@ -51,6 +123,11 @@ export default function HpGeneratorPage() {
     <div style={{ maxWidth: 860, margin: '0 auto', paddingBottom: 60 }}>
       <h1 style={{ fontSize: 26, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 4 }}>🏠 HP内容自動生成</h1>
       <p style={{ color: 'var(--text-muted)', fontSize: 13, marginBottom: 12 }}>企業情報を入力するだけで、HPの全セクションコンテンツをAIが自動生成します。</p>
+
+      {/* 自動下書きからの復元バナー */}
+      {restoredAt && (
+        <FeatureDraftBanner restoredAt={restoredAt} onClear={handleClearDraft} />
+      )}
 
       {/* AI対話で深掘りモード切替 */}
       <div style={{ marginBottom: 14 }}>
@@ -84,6 +161,13 @@ export default function HpGeneratorPage() {
             onGenerated={(content) => {
               setDeepDiveContent(content);
               setShowDeepDive(false);
+              setRestoredAt(null);
+              // 対話モードの下書きも画面表示されるため自動下書き保存（復元対象にする）
+              saveFeatureDraft('hp-generator', {
+                form,
+                result,
+                deepDiveContent: content,
+              } satisfies HpGeneratorDraftPayload);
             }}
           />
         </div>

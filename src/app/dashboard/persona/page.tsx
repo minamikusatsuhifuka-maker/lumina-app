@@ -1,9 +1,15 @@
 'use client';
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { ProgressBar } from '@/components/ProgressBar';
 import { useProgress } from '@/components/useProgress';
 import { SaveToLibraryButton } from '@/components/SaveToLibraryButton';
 import { triggerDownload } from '@/lib/download';
+import {
+  loadFeatureDraft,
+  saveFeatureDraft,
+  clearFeatureDraft,
+} from '@/lib/feature-drafts';
+import FeatureDraftBanner from '@/components/FeatureDraftBanner';
 
 const INDUSTRIES = ['IT・SaaS', '医療・ヘルスケア', '飲食・フード', '不動産', '教育・研修', 'コンサルティング', '製造業', '小売・EC', '金融・保険', '美容・エステ', 'その他'];
 const AGE_RANGES = ['18〜24歳', '25〜34歳', '35〜44歳', '45〜54歳', '55〜64歳', '65歳以上', '指定なし'];
@@ -34,6 +40,16 @@ interface PersonaResult {
   marketing_strategy: string;
 }
 
+// 自動下書き（feature_result_drafts feature_key='persona'）のpayload
+interface PersonaDraftPayload {
+  product?: string;
+  industry?: string;
+  ageRange?: string;
+  gender?: string;
+  result?: PersonaResult | null;
+  rawText?: string;
+}
+
 const SAMPLE = {
   product: 'xLUMINA Pro',
   industry: 'IT・SaaS',
@@ -53,6 +69,42 @@ export default function PersonaPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const { progress, loading: progressLoading, startProgress, completeProgress, resetProgress } = useProgress();
+  // 自動下書きから復元した日時（バナー表示用。新規実行で消える）
+  const [restoredAt, setRestoredAt] = useState<string | null>(null);
+
+  // 復元取得が返ってきた時点で既に入力/実行が始まっていたら復元しない
+  const draftGuardRef = useRef(false);
+  draftGuardRef.current = loading || !!result || !!product.trim();
+
+  // マウント時に前回の実行結果（自動下書き）を復元。正はDB＝端末をまたいで復元できる
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const draft = await loadFeatureDraft<PersonaDraftPayload>('persona');
+      if (cancelled || !draft?.payload?.result) return;
+      if (draftGuardRef.current) return;
+      const p = draft.payload;
+      setProduct(p.product ?? '');
+      if (p.industry) setIndustry(p.industry);
+      if (p.ageRange) setAgeRange(p.ageRange);
+      if (p.gender) setGender(p.gender);
+      setResult(p.result ?? null);
+      setRawText(p.rawText ?? '');
+      setRestoredAt(draft.updated_at);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // 「クリア」= 下書き削除 + 画面を新規状態に戻す（復元は表示のみで副作用なし）
+  const handleClearDraft = () => {
+    setRestoredAt(null);
+    setProduct('');
+    setResult(null);
+    setRawText('');
+    clearFeatureDraft('persona');
+  };
 
   const fillSample = () => {
     setProduct(SAMPLE.product);
@@ -66,6 +118,7 @@ export default function PersonaPage() {
     setLoading(true);
     startProgress();
     setError('');
+    setRestoredAt(null); // 新規実行結果は「復元」ではない
     setResult(null);
     setRawText('');
 
@@ -84,6 +137,15 @@ export default function PersonaPage() {
       const data = await res.json();
       setResult(data);
       setRawText(JSON.stringify(data, null, 2));
+      // 完了した結果を自動下書き保存（画面遷移/アプリ終了後もマウント時に復元できる）
+      saveFeatureDraft('persona', {
+        product,
+        industry,
+        ageRange,
+        gender,
+        result: data,
+        rawText: JSON.stringify(data, null, 2),
+      } satisfies PersonaDraftPayload);
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : String(e);
       setError(`エラーが発生しました: ${msg}`);
@@ -139,6 +201,11 @@ export default function PersonaPage() {
       <p style={{ color: 'var(--text-muted)', marginBottom: 12, fontSize: 14 }}>
         商品・サービスのターゲットペルソナをAIが詳細に3人分生成します
       </p>
+
+      {/* 自動下書きからの復元バナー */}
+      {restoredAt && (
+        <FeatureDraftBanner restoredAt={restoredAt} onClear={handleClearDraft} />
+      )}
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 20 }}>
         <span style={{ fontSize: 11, color: 'var(--text-muted)', alignSelf: 'center' }}>関連機能：</span>
         {[

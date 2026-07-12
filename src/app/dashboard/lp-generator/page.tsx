@@ -1,5 +1,5 @@
 'use client';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { ProgressBar } from '@/components/ProgressBar';
 import { useProgress } from '@/components/useProgress';
 import { SaveToLibraryButton } from '@/components/SaveToLibraryButton';
@@ -10,6 +10,12 @@ import DefaultContextBar, {
   type DefaultContextItem,
 } from '@/components/DefaultContextBar';
 import DeepDiveChat from '@/components/DeepDiveChat';
+import {
+  loadFeatureDraft,
+  saveFeatureDraft,
+  clearFeatureDraft,
+} from '@/lib/feature-drafts';
+import FeatureDraftBanner from '@/components/FeatureDraftBanner';
 
 const FRAMEWORKS = [
   { id: 'pasona', label: '🎯 PASONA', desc: '問題提起→共感→解決策→提案→行動', color: '#6c63ff' },
@@ -54,6 +60,15 @@ const INITIAL_FORM: LPForm = {
   cta: '',
 };
 
+// 自動下書き（feature_result_drafts feature_key='lp-generator'）のpayload
+interface LpGeneratorDraftPayload {
+  framework?: string;
+  form?: LPForm;
+  contextHint?: string;
+  result?: LPResult | null;
+  rawText?: string;
+}
+
 export default function LPGeneratorPage() {
   const [framework, setFramework] = useState('pasona');
   const [form, setForm] = useState<LPForm>(INITIAL_FORM);
@@ -65,6 +80,52 @@ export default function LPGeneratorPage() {
   const [contextHint, setContextHint] = useState('');
   const [defaultContexts, setDefaultContexts] = useState<DefaultContextItem[]>([]);
   const { progress, loading: progressLoading, startProgress, completeProgress, resetProgress } = useProgress();
+  // 自動下書きから復元した日時（バナー表示用。新規実行で消える）
+  const [restoredAt, setRestoredAt] = useState<string | null>(null);
+
+  // 復元取得が返ってきた時点で既に入力/引き継ぎ/実行が始まっていたら復元しない
+  const draftGuardRef = useRef(false);
+  draftGuardRef.current =
+    loading ||
+    !!result ||
+    !!form.productName.trim() ||
+    !!form.target.trim() ||
+    !!contextHint;
+
+  // マウント時に前回の実行結果（自動下書き）を復元。正はDB＝端末をまたいで復元できる
+  useEffect(() => {
+    // コンテキストライブラリ「LP作成へ」の ?contextId= 引き継ぎは非同期fetchで後着するため、
+    // パラメータの存在自体を同期チェックして復元をスキップする（衝突防止）
+    try {
+      if (new URLSearchParams(window.location.search).get('contextId')) return;
+    } catch {}
+    let cancelled = false;
+    (async () => {
+      const draft = await loadFeatureDraft<LpGeneratorDraftPayload>('lp-generator');
+      if (cancelled || !draft?.payload?.result) return;
+      if (draftGuardRef.current) return;
+      const p = draft.payload;
+      if (p.framework) setFramework(p.framework);
+      if (p.form) setForm({ ...INITIAL_FORM, ...p.form });
+      setContextHint(p.contextHint ?? '');
+      setResult(p.result ?? null);
+      setRawText(p.rawText ?? '');
+      setRestoredAt(draft.updated_at);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // 「クリア」= 下書き削除 + 画面を新規状態に戻す（復元は表示のみで副作用なし）
+  const handleClearDraft = () => {
+    setRestoredAt(null);
+    setForm(INITIAL_FORM);
+    setContextHint('');
+    setResult(null);
+    setRawText('');
+    clearFeatureDraft('lp-generator');
+  };
 
   // コンテキストライブラリ・ディープリサーチからの背景情報受け取り
   useEffect(() => {
@@ -115,6 +176,7 @@ export default function LPGeneratorPage() {
     setLoading(true);
     startProgress();
     setError('');
+    setRestoredAt(null); // 新規実行結果は「復元」ではない
     setResult(null);
     setRawText('');
 
@@ -133,6 +195,14 @@ export default function LPGeneratorPage() {
       const data = await res.json();
       setResult(data);
       setRawText(JSON.stringify(data, null, 2));
+      // 完了した結果を自動下書き保存（画面遷移/アプリ終了後もマウント時に復元できる）
+      saveFeatureDraft('lp-generator', {
+        framework,
+        form,
+        contextHint,
+        result: data,
+        rawText: JSON.stringify(data, null, 2),
+      } satisfies LpGeneratorDraftPayload);
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : String(e);
       setError(`エラーが発生しました: ${msg}`);
@@ -302,6 +372,11 @@ ${result.cta_sections[2] ? ctaBlock(result.cta_sections[2]) : ''}
       <p style={{ color: 'var(--text-muted)', marginBottom: 12 }}>
         セールスフレームワークに基づいて、LP（ランディングページ）の構成をAIが自動生成します
       </p>
+
+      {/* 自動下書きからの復元バナー */}
+      {restoredAt && (
+        <FeatureDraftBanner restoredAt={restoredAt} onClear={handleClearDraft} />
+      )}
 
       {/* AI対話で深掘りモード切替 */}
       <div style={{ marginBottom: 14 }}>
