@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   AnalysisType,
   ANALYSIS_OPTIONS,
@@ -27,6 +27,12 @@ import {
 import { copyToClipboard } from '@/lib/copyToClipboard';
 import { triggerDownload } from '@/lib/download';
 import { markdownToReadableText } from '@/lib/markdownToText';
+import {
+  loadFeatureDraft,
+  saveFeatureDraft,
+  clearFeatureDraft,
+} from '@/lib/feature-drafts';
+import FeatureDraftBanner from '@/components/FeatureDraftBanner';
 
 const HEIGHT_PRESETS = [
   { label: 'S', h: 350 },
@@ -285,6 +291,14 @@ interface TextAnalysisPanelProps {
   onInitialTextConsumed?: () => void;
 }
 
+// 自動下書き（feature_result_drafts feature_key='text-analysis'）のpayload
+interface TextAnalysisDraftPayload {
+  inputText?: string;
+  purpose?: string;
+  results?: Record<string, string>;
+  models?: Record<string, AIModel>;
+}
+
 export default function TextAnalysisPanel({
   onSaved,
   initialText,
@@ -329,11 +343,56 @@ export default function TextAnalysisPanel({
   const [progress, setProgress] = useState('');
   // 分析が全タイプ完了したか（ラベル横の「✅ 分析終了」バッジ用）
   const [analysisDone, setAnalysisDone] = useState(false);
+  // 自動下書きから復元した日時（バナー表示用。新規実行で消える）
+  const [restoredAt, setRestoredAt] = useState<string | null>(null);
+
+  // 復元取得が返ってきた時点でユーザーが既に入力/実行を始めていたら復元しない
+  const draftGuardRef = useRef(false);
+  draftGuardRef.current = loading || results.size > 0 || !!inputText.trim();
+
+  // マウント時に前回の実行結果（自動下書き）を復元。正はDB＝端末をまたいで復元できる
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const draft = await loadFeatureDraft<TextAnalysisDraftPayload>('text-analysis');
+      if (cancelled || !draft?.payload) return;
+      const entries = Object.entries(draft.payload.results ?? {}) as [
+        AnalysisType,
+        string,
+      ][];
+      if (entries.length === 0) return;
+      if (draftGuardRef.current) return;
+      setInputText(draft.payload.inputText ?? '');
+      setPurpose(draft.payload.purpose ?? '');
+      setResults(new Map(entries));
+      setResultModels(
+        new Map(
+          Object.entries(draft.payload.models ?? {}) as [AnalysisType, AIModel][],
+        ),
+      );
+      setAnalysisDone(true);
+      setRestoredAt(draft.updated_at);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // 「クリア」= 下書き削除 + 画面を新規状態に戻す（復元は表示のみで副作用なし）
+  const handleClearDraft = () => {
+    setRestoredAt(null);
+    setInputText('');
+    setPurpose('');
+    setResults(new Map());
+    setResultModels(new Map());
+    setAnalysisDone(false);
+    clearFeatureDraft('text-analysis');
+  };
 
   const analyzeOne = async (
     type: AnalysisType,
     text: string,
-  ): Promise<string> => {
+  ): Promise<{ text: string; model: AIModel }> => {
     // リクエスト送信時のモデルを固定（途中で切替えられても結果に影響しないように）
     const modelAtRequest = getSavedModel();
     setResultModels((prev) => new Map(prev).set(type, modelAtRequest));
@@ -379,7 +438,7 @@ export default function TextAnalysisPanel({
         }
       }
     }
-    return fullText;
+    return { text: fullText, model: modelAtRequest };
   };
 
   const handleAnalyze = async () => {
@@ -396,11 +455,16 @@ export default function TextAnalysisPanel({
     setAnalysisDone(false); // 再分析開始時にリセット
     setResults(new Map());
     setResultModels(new Map());
+    // 完了した結果を自動下書き保存するためのローカル収集（エラー中断時は完了分のみ）
+    const collected: Record<string, string> = {};
+    const collectedModels: Record<string, AIModel> = {};
     try {
       for (let i = 0; i < types.length; i++) {
         const label = ANALYSIS_OPTIONS.find((o) => o.value === types[i])?.label;
         setProgress(`(${i + 1}/${types.length}) ${label} 分析中...`);
-        await analyzeOne(types[i], inputText);
+        const done = await analyzeOne(types[i], inputText);
+        collected[types[i]] = done.text;
+        collectedModels[types[i]] = done.model;
       }
       showToast('分析が完了しました', 'success');
     } catch (err) {
@@ -411,6 +475,16 @@ export default function TextAnalysisPanel({
       setLoading(false);
       setProgress('');
       setAnalysisDone(true);
+      // 生成完了時に自動UPSERT（押し忘れても結果が失われない。手動保存とは別物）
+      if (Object.keys(collected).length > 0) {
+        setRestoredAt(null); // 新規実行結果は「復元」ではない
+        saveFeatureDraft('text-analysis', {
+          inputText,
+          purpose,
+          results: collected,
+          models: collectedModels,
+        });
+      }
     }
   };
 
@@ -502,7 +576,15 @@ export default function TextAnalysisPanel({
         const data = await res.json();
         const simplified = data.converted_text;
         if (simplified) {
-          setResults((prev) => new Map(prev).set(type, simplified));
+          const next = new Map(results).set(type, simplified);
+          setResults(next);
+          // 変換後の内容で自動下書きも更新（復元時に表示中の内容と揃える）
+          saveFeatureDraft('text-analysis', {
+            inputText,
+            purpose,
+            results: Object.fromEntries(next),
+            models: Object.fromEntries(resultModels),
+          });
           showToast('わかりやすく変換しました', 'success');
         } else {
           showToast('変換結果が空でした', 'warning');
@@ -519,6 +601,11 @@ export default function TextAnalysisPanel({
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+      {/* 自動下書きからの復元バナー */}
+      {restoredAt && (
+        <FeatureDraftBanner restoredAt={restoredAt} onClear={handleClearDraft} />
+      )}
+
       {/* 入力テキスト */}
       <div
         style={{

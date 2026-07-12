@@ -21,6 +21,22 @@ import { copyToClipboard } from '@/lib/copyToClipboard';
 import { triggerDownload } from '@/lib/download';
 import { renderMarkdown } from '@/lib/markdown-renderer';
 import FullscreenReader from '@/components/text-analysis/FullscreenReader';
+import {
+  loadFeatureDraft,
+  saveFeatureDraft,
+  clearFeatureDraft,
+} from '@/lib/feature-drafts';
+import FeatureDraftBanner from '@/components/FeatureDraftBanner';
+
+// 自動下書き（feature_result_drafts feature_key='deepresearch'）のpayload
+// 対話的（単発）実行の結果＋生成後コンテキストを守る（バッチはcontext_savesにDB保存済みで対象外）
+interface DeepresearchDraftPayload {
+  topic?: string;
+  depth?: string;
+  report?: string;
+  reportModel?: AIModel | null;
+  contextText?: string;
+}
 
 const TEMPLATES = [
   { label: 'AI最新動向', topic: '2026年の生成AI・大規模言語モデルの最新動向と活用事例' },
@@ -782,6 +798,42 @@ export default function DeepResearchPage() {
   const [optimizing, setOptimizing] = useState(false);
   const [savedContextId, setSavedContextId] = useState<number | null>(null);
   const [saveStatus, setSaveStatus] = useState('');
+  // 自動下書きから復元した日時（バナー表示用。新規実行で消える）
+  const [restoredAt, setRestoredAt] = useState<string | null>(null);
+
+  // 復元取得が返ってきた時点で既に実行中/結果表示中なら復元しない（?q=自動実行など）
+  const draftGuardRef = useRef(false);
+  draftGuardRef.current = loading || !!report;
+
+  // マウント時に前回の実行結果（自動下書き）を復元。正はDB＝iPhone/PCをまたいで復元できる
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const draft = await loadFeatureDraft<DeepresearchDraftPayload>('deepresearch');
+      if (cancelled || !draft?.payload?.report) return;
+      if (draftGuardRef.current) return;
+      const p = draft.payload;
+      setTopic((prev) => prev || p.topic || '');
+      if (p.depth) setDepth(p.depth);
+      setReport(p.report || '');
+      setReportModel(p.reportModel ?? null);
+      setContextText(p.contextText || '');
+      setRestoredAt(draft.updated_at);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // 「クリア」= 下書き削除 + 結果表示を新規状態に戻す（復元は表示のみで副作用なし）
+  const handleClearDraft = () => {
+    setRestoredAt(null);
+    setReport('');
+    setReportModel(null);
+    setContextText('');
+    setSavedContextId(null);
+    clearFeatureDraft('deepresearch');
+  };
   // 生成後コンテキストの全画面リーダー（FullscreenReader 共通コンポーネント流用）
   const [contextReaderOpen, setContextReaderOpen] = useState(false);
 
@@ -1037,6 +1089,16 @@ export default function DeepResearchPage() {
         alert(`最適化エラー: ${data.error || '不明なエラー'}`);
       } else {
         setContextText(data.contextText || '');
+        if (data.contextText) {
+          // 生成後コンテキストも自動下書きへ反映（復元時にレポートと一緒に戻る）
+          saveFeatureDraft('deepresearch', {
+            topic,
+            depth,
+            report,
+            reportModel,
+            contextText: data.contextText,
+          } satisfies DeepresearchDraftPayload);
+        }
         if (data.warning) {
           alert(`⚠️ ${data.warning}`);
         }
@@ -1204,6 +1266,7 @@ ${contextText}
     if (!q.trim()) return;
     setLoading(true);
     startProgress();
+    setRestoredAt(null); // 新規実行結果は「復元」ではない
     setReport('');
     setInsights(null);
     setElapsed(0);
@@ -1282,6 +1345,14 @@ ${contextText}
         fetchInsights(accumulated, q).catch(e => console.error(e));
         // 実際に実行されたお題(検索ワード)を履歴に保存（fire-and-forget・失敗許容）
         saveQueryHistory(q);
+        // 完了した結果を自動下書き保存（画面遷移/アプリ終了後もマウント時に復元できる）
+        saveFeatureDraft('deepresearch', {
+          topic: q,
+          depth,
+          report: accumulated,
+          reportModel: modelAtRequest,
+          contextText: '',
+        } satisfies DeepresearchDraftPayload);
       }
     } catch (error: any) {
       setReport(`通信エラー: ${error.message}`);
@@ -1427,6 +1498,15 @@ ${contextText}
               // DeepDive 経由のレポートは生成元モデルが不明なので消す
               setReportModel(null);
               setShowDeepDive(false);
+              setRestoredAt(null);
+              // 対話モードの生成結果も自動下書き保存（復元対象にする）
+              saveFeatureDraft('deepresearch', {
+                topic,
+                depth,
+                report: content,
+                reportModel: null,
+                contextText: '',
+              } satisfies DeepresearchDraftPayload);
             }}
           />
         </div>
@@ -1610,6 +1690,11 @@ ${contextText}
           <div style={{ color: 'var(--text-secondary)', fontWeight: 600, marginBottom: 6 }}>複数のWebソースを調査・統合中...（混雑時は自動でリトライします）</div>
           <div style={{ color: 'var(--text-muted)', fontSize: 13 }}>{elapsed}秒経過 / ディープリサーチは30〜60秒かかります</div>
         </div>
+      )}
+
+      {/* 自動下書きからの復元バナー */}
+      {restoredAt && report && !loading && (
+        <FeatureDraftBanner restoredAt={restoredAt} onClear={handleClearDraft} />
       )}
 
       {report && !loading && (
