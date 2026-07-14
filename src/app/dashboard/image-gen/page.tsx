@@ -6,6 +6,7 @@ import {
   clearFeatureDraft,
 } from '@/lib/feature-drafts';
 import FeatureDraftBanner from '@/components/FeatureDraftBanner';
+import { useToast } from '@/components/ui/Toast';
 
 const SIZE_OPTIONS = [
   { value: '1024x1024', label: '正方形（1024×1024）' },
@@ -37,6 +38,7 @@ interface ImageGenDraftPayload {
 }
 
 export default function ImageGenPage() {
+  const { showToast } = useToast();
   const [prompt, setPrompt] = useState('');
   const [size, setSize] = useState('1024x1024');
   const [quality, setQuality] = useState('high');
@@ -47,6 +49,9 @@ export default function ImageGenPage() {
   const [history, setHistory] = useState<HistoryItem[]>([]);
   // 自動下書きから復元した日時（バナー表示用。新規実行で消える）
   const [restoredAt, setRestoredAt] = useState<string | null>(null);
+  // ギャラリー保存（165）。生成コアには手を入れず、保存ボタンのみ追加
+  const [savingGallery, setSavingGallery] = useState(false);
+  const [savedGallery, setSavedGallery] = useState(false);
 
   // 復元取得が返ってきた時点で既に入力/実行が始まっていたら復元しない
   const draftGuardRef = useRef(false);
@@ -101,6 +106,7 @@ export default function ImageGenPage() {
     setError('');
     setRestoredAt(null); // 新規実行は「復元」ではない
     setImage(null);
+    setSavedGallery(false); // 新しい画像はまだ未保存
     setElapsed(0);
     const timer = setInterval(() => setElapsed((e) => e + 1), 1000);
 
@@ -142,6 +148,36 @@ export default function ImageGenPage() {
       .replace(/[-:T]/g, '');
     a.download = `image_${stamp}.png`;
     a.click();
+  };
+
+  // ギャラリーに保存（画像本体はサーバ側で Vercel Blob へ。DBにはメタ＋URLのみ）
+  const saveToGallery = async () => {
+    if (!image || savingGallery) return;
+    setSavingGallery(true);
+    try {
+      const res = await fetch('/api/gallery', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          imageBase64: image.base64,
+          prompt,
+          settings: { size, quality },
+        }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error || 'ギャラリー保存に失敗しました');
+      }
+      setSavedGallery(true);
+      showToast('🖼️ ギャラリーに保存しました', 'success');
+    } catch (e) {
+      showToast(
+        e instanceof Error ? e.message : 'ギャラリー保存に失敗しました',
+        'error',
+      );
+    } finally {
+      setSavingGallery(false);
+    }
   };
 
   // 履歴の条件を入力欄へ反映（再生成はユーザーが「生成」を押す）
@@ -341,22 +377,47 @@ export default function ImageGenPage() {
             <span style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-primary)' }}>
               🖼 生成結果
             </span>
-            <button
-              type="button"
-              onClick={downloadPng}
-              style={{
-                padding: '8px 18px',
-                borderRadius: 8,
-                border: 'none',
-                background: 'linear-gradient(135deg, #6c63ff, #8b5cf6)',
-                color: '#fff',
-                fontWeight: 700,
-                fontSize: 13,
-                cursor: 'pointer',
-              }}
-            >
-              ⬇ PNGダウンロード
-            </button>
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+              <button
+                type="button"
+                onClick={downloadPng}
+                style={{
+                  padding: '8px 18px',
+                  borderRadius: 8,
+                  border: 'none',
+                  background: 'linear-gradient(135deg, #6c63ff, #8b5cf6)',
+                  color: '#fff',
+                  fontWeight: 700,
+                  fontSize: 13,
+                  cursor: 'pointer',
+                }}
+              >
+                ⬇ PNGダウンロード
+              </button>
+              <button
+                type="button"
+                onClick={saveToGallery}
+                disabled={savingGallery || savedGallery}
+                title="生成画像をギャラリー（アプリ内ストック）に保存します"
+                style={{
+                  padding: '8px 18px',
+                  borderRadius: 8,
+                  border: '1px solid var(--border)',
+                  background: 'transparent',
+                  color: 'var(--text-primary)',
+                  fontWeight: 700,
+                  fontSize: 13,
+                  cursor: savingGallery || savedGallery ? 'default' : 'pointer',
+                  opacity: savingGallery ? 0.6 : 1,
+                }}
+              >
+                {savingGallery
+                  ? '保存中...'
+                  : savedGallery
+                    ? '保存済み ✓'
+                    : '🖼️ ギャラリーに保存'}
+              </button>
+            </div>
           </div>
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img

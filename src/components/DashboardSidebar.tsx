@@ -82,6 +82,7 @@ const navCategories: NavCategory[] = [
       { href: '/dashboard/email-generator', label: 'ステップメール', icon: '📧' },
       { href: '/dashboard/lp-generator', label: 'LP自動生成', icon: '📊' },
       { href: '/dashboard/image-gen', label: '画像生成', icon: '🎨' },
+      { href: '/dashboard/gallery', label: '画像ギャラリー', icon: '🖼️' },
       { href: '/dashboard/image-prompt', label: '画像プロンプト', icon: '🎨' },
       { href: '/dashboard/doc-prompt', label: '資料プロンプト', icon: '📋' },
       { href: '/dashboard/simplifier', label: '難易度変換', icon: '🎓' },

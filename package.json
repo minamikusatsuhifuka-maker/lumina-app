@@ -19,6 +19,7 @@
     "@stripe/stripe-js": "^8.11.0",
     "@tailwindcss/typography": "^0.5.19",
     "@types/adm-zip": "^0.5.8",
+    "@vercel/blob": "^2.6.1",
     "@vercel/postgres": "^0.10.0",
     "adm-zip": "^0.5.17",
     "bcryptjs": "^3.0.3",
