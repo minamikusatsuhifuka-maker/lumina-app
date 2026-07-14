@@ -5,20 +5,19 @@
 //  - AI検出はクライアント直叩き(gemini-client)をやめ、サーバルート /api/proofread/detect 経由に
 //  - トーストは xLUMINA の useToast() に差し替え
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Loader2, X } from "lucide-react";
 import { useToast } from "@/components/ui/Toast";
+import {
+  ProofreadDiffPane,
+  type AppliedFix,
+  type IssueScope,
+} from "@/components/proofread/ProofreadDiffPane";
 
-export type IssueScope = "line" | "all";
+// 型の定義元は ProofreadDiffPane に集約。既存の import 経路は維持する。
+export type { AppliedFix, IssueScope };
+
 type IssueStatus = "pending" | "applied" | "rejected" | "manual";
-
-// 前後比較ペインのハイライト描画に渡す「適用済み修正」1件分
-export interface AppliedFix {
-  original: string;
-  suggestion: string;
-  line: number;
-  scope: IssueScope;
-}
 
 interface Issue {
   id: number;
@@ -61,7 +60,13 @@ export function ProofreadModal({
   sourceText: string;
   sourceTitle: string;
   // before は校正前（原文）。校正後カードに紐づけて保持するため渡す。
-  onSaveCard: (title: string, content: string, before: string) => void;
+  // fixes は適用済み修正の一覧（親側の自動下書き保存・比較表示に使う）。成否を boolean で返す。
+  onSaveCard: (
+    title: string,
+    content: string,
+    before: string,
+    fixes: AppliedFix[]
+  ) => Promise<boolean>;
   onClose: () => void;
   // 指定時：適用後の「校正前/校正後」をメイン画面に大きく表示する導線を出す
   // fixes は適用済み修正の一覧で、比較ペインの該当箇所ハイライトに使う
@@ -72,6 +77,8 @@ export function ProofreadModal({
   const [issues, setIssues] = useState<Issue[]>([]);
   const [workText, setWorkText] = useState(sourceText);
   const [error, setError] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
 
   const detect = async () => {
     try {
@@ -131,6 +138,7 @@ export function ProofreadModal({
   const pending = issues.filter((i) => i.status === "pending");
 
   const applyOne = (target: Issue) => {
+    setSaved(false);
     const result = applyToText(workText, target);
     setIssues((prev) =>
       prev.map((it) =>
@@ -143,6 +151,7 @@ export function ProofreadModal({
   };
 
   const rejectOne = (target: Issue) => {
+    setSaved(false);
     setIssues((prev) =>
       prev.map((it) =>
         it.id === target.id ? { ...it, status: "rejected" } : it
@@ -151,6 +160,7 @@ export function ProofreadModal({
   };
 
   const applyBulk = (onlyChecked: boolean) => {
+    setSaved(false);
     let text = workText;
     const next = issues.map((issue) => {
       if (issue.status !== "pending") return issue;
@@ -172,11 +182,37 @@ export function ProofreadModal({
     );
   };
 
-  const handleSave = () => {
-    onSaveCard(`【校正済み】${sourceTitle}`, workText, sourceText);
-    showToast("校正済みカードを保存しました", "success");
-    onClose();
+  // 適用済み候補のみをハイライト対象にする（却下・要手動確認は色付けしない）
+  const appliedFixes = useMemo<AppliedFix[]>(
+    () =>
+      issues
+        .filter((i) => i.status === "applied")
+        .map((i) => ({
+          original: i.original,
+          suggestion: i.suggestion,
+          line: i.line,
+          scope: i.scope,
+        })),
+    [issues]
+  );
+
+  // 保存してもモーダルは閉じない（比較表示・適用状態をそのまま残して見比べられるようにする）
+  const handleSave = async () => {
+    if (saving) return;
+    setSaving(true);
+    const ok = await onSaveCard(
+      `【校正済み】${sourceTitle}`,
+      workText,
+      sourceText,
+      appliedFixes
+    );
+    setSaving(false);
+    if (!ok) return; // 失敗時のトーストは保存側で表示
+    setSaved(true);
+    showToast("💾 保存しました", "success");
   };
+
+  const saveLabel = saving ? "保存中..." : saved ? "保存済み ✓" : "校正内容を保存";
 
   const appliedCount = issues.filter((i) => i.status === "applied").length;
   const manualCount = issues.filter((i) => i.status === "manual").length;
@@ -348,28 +384,35 @@ export function ProofreadModal({
                 <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
                   <div>
                     <div className="mb-1 text-[10px] font-semibold text-red-600">
-                      校正前（原文）
+                      校正前（原文・赤字＝修正箇所）
                     </div>
-                    <pre className="max-h-60 overflow-y-auto whitespace-pre-wrap rounded-lg border border-red-100 bg-red-50/30 p-3 text-xs text-gray-700">
-                      {sourceText}
-                    </pre>
+                    <ProofreadDiffPane
+                      text={sourceText}
+                      fixes={appliedFixes}
+                      mode="before"
+                      className="max-h-60 overflow-y-auto whitespace-pre-wrap rounded-lg border border-red-100 bg-red-50/30 p-3 text-xs text-gray-700"
+                    />
                   </div>
                   <div>
                     <div className="mb-1 text-[10px] font-semibold text-green-600">
-                      校正後
+                      校正後（緑字＝修正箇所）
                     </div>
-                    <pre className="max-h-60 overflow-y-auto whitespace-pre-wrap rounded-lg border border-green-100 bg-green-50/30 p-3 text-xs text-gray-700">
-                      {workText}
-                    </pre>
+                    <ProofreadDiffPane
+                      text={workText}
+                      fixes={appliedFixes}
+                      mode="after"
+                      className="max-h-60 overflow-y-auto whitespace-pre-wrap rounded-lg border border-green-100 bg-green-50/30 p-3 text-xs text-gray-700"
+                    />
                   </div>
                 </div>
-                {/* 比較ビュー直下の保存ボタン */}
+                {/* 比較ビュー直下の保存ボタン（保存してもモーダルは閉じない） */}
                 <div className="mt-3">
                   <button
                     onClick={handleSave}
-                    className="rounded-lg bg-[#1D9E75] px-4 py-2 text-sm font-semibold text-white hover:bg-[#0F6E56]"
+                    disabled={saving}
+                    className="rounded-lg bg-[#1D9E75] px-4 py-2 text-sm font-semibold text-white hover:bg-[#0F6E56] disabled:opacity-50"
                   >
-                    校正内容を保存
+                    {saveLabel}
                   </button>
                 </div>
               </div>
@@ -400,15 +443,7 @@ export function ProofreadModal({
           {onComparison && (
             <button
               onClick={() => {
-                const fixes: AppliedFix[] = issues
-                  .filter((i) => i.status === "applied")
-                  .map((i) => ({
-                    original: i.original,
-                    suggestion: i.suggestion,
-                    line: i.line,
-                    scope: i.scope,
-                  }));
-                onComparison(sourceText, workText, fixes);
+                onComparison(sourceText, workText, appliedFixes);
                 onClose();
               }}
               className="rounded-lg bg-[#378ADD] px-4 py-1.5 text-xs font-semibold text-white hover:bg-[#185FA5]"
@@ -418,9 +453,10 @@ export function ProofreadModal({
           )}
           <button
             onClick={handleSave}
-            className="rounded-lg bg-[#1D9E75] px-4 py-1.5 text-xs font-semibold text-white hover:bg-[#0F6E56]"
+            disabled={saving}
+            className="rounded-lg bg-[#1D9E75] px-4 py-1.5 text-xs font-semibold text-white hover:bg-[#0F6E56] disabled:opacity-50"
           >
-            【校正済み】を保存
+            {saving ? "保存中..." : saved ? "保存済み ✓" : "【校正済み】を保存"}
           </button>
           <button
             onClick={onClose}

@@ -6,97 +6,16 @@
 //  - folder はカテゴリに流用しない（auto-categorize 上書き問題の既知ルール）。
 //    校正区分は analysis_type='proofread' で持ち、校正前(原文)は input_text に保持（lazy-load対応済）
 //  - トーストは xLUMINA の useToast() に差し替え
+//  - ハイライト描画は ProofreadDiffPane に集約（モーダル内の比較ペインと共通）
+//  - 保存後も比較表示を閉じない（見比べを続けられるようにする）
 
-import { useState, type ReactNode } from "react";
+import { useState } from "react";
 import { X } from "lucide-react";
-import type { AppliedFix } from "@/components/proofread/ProofreadModal";
+import {
+  ProofreadDiffPane,
+  type AppliedFix,
+} from "@/components/proofread/ProofreadDiffPane";
 import { useToast } from "@/components/ui/Toast";
-
-// 1行内で targets に一致する全箇所を <mark> でハイライトする。
-// 見つからなければ素のテキストをそのまま返す（誤ハイライト・クラッシュ防止）。
-function highlightLine(
-  line: string,
-  targets: string[],
-  cls: string,
-  keyBase: string
-): ReactNode {
-  // 空文字を除き、長い一致を優先（部分一致の取りこぼし防止）
-  const uniq = Array.from(new Set(targets.filter((t) => t.length > 0))).sort(
-    (a, b) => b.length - a.length
-  );
-  if (uniq.length === 0) return line;
-
-  const ranges: { start: number; end: number }[] = [];
-  for (const t of uniq) {
-    let from = 0;
-    while (true) {
-      const i = line.indexOf(t, from);
-      if (i === -1) break;
-      ranges.push({ start: i, end: i + t.length });
-      from = i + t.length;
-    }
-  }
-  if (ranges.length === 0) return line;
-
-  // 重なり区間をマージ
-  ranges.sort((a, b) => a.start - b.start);
-  const merged: { start: number; end: number }[] = [];
-  for (const r of ranges) {
-    const last = merged[merged.length - 1];
-    if (last && r.start <= last.end) {
-      last.end = Math.max(last.end, r.end);
-    } else {
-      merged.push({ ...r });
-    }
-  }
-
-  const nodes: ReactNode[] = [];
-  let cursor = 0;
-  merged.forEach((m, idx) => {
-    if (m.start > cursor) nodes.push(line.slice(cursor, m.start));
-    nodes.push(
-      <mark key={`${keyBase}-${idx}`} className={cls}>
-        {line.slice(m.start, m.end)}
-      </mark>
-    );
-    cursor = m.end;
-  });
-  if (cursor < line.length) nodes.push(line.slice(cursor));
-  return nodes;
-}
-
-// テキスト全体を行ごとにハイライト描画する。
-// mode==="before": 各修正の original を赤文字、"after": suggestion を緑文字で強調。
-// scope==="all" は全行の全出現箇所、"line" は該当行のみ。
-function renderPane(
-  text: string,
-  fixes: AppliedFix[],
-  mode: "before" | "after"
-): ReactNode {
-  const pick = (f: AppliedFix) => (mode === "before" ? f.original : f.suggestion);
-  const allTargets = fixes.filter((f) => f.scope === "all").map(pick);
-  const cls =
-    mode === "before"
-      ? "rounded bg-red-100 px-0.5 font-semibold text-red-600"
-      : "rounded bg-green-100 px-0.5 font-semibold text-green-700";
-
-  const lines = text.split("\n");
-  return lines.map((line, i) => {
-    const lineNo = i + 1;
-    const targets = [
-      ...allTargets,
-      ...fixes
-        .filter((f) => f.scope === "line" && f.line === lineNo)
-        .map(pick),
-    ];
-    return (
-      <span key={i}>
-        {highlightLine(line, targets, cls, `${mode}-${i}`)}
-        {i < lines.length - 1 ? "\n" : ""}
-      </span>
-    );
-  });
-}
 
 // 校正の「校正前｜校正後」を大きく表示し、校正後を text_analysis_saves に新規保存する。
 export function ProofreadComparison({
@@ -115,6 +34,7 @@ export function ProofreadComparison({
 }) {
   const { showToast } = useToast();
   const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
 
   // 素テキストをそのままコピー（色・HTMLは含めず、貼り付け先では全て黒になる）
   const handleCopy = async (text: string) => {
@@ -146,8 +66,9 @@ export function ProofreadComparison({
         const data = await res.json().catch(() => ({}));
         throw new Error(data.error || "保存に失敗しました");
       }
-      showToast("校正内容を保存しました（保存一覧に追加）", "success");
-      onClose();
+      // 保存後も比較表示は閉じない（見比べを続けられるようにする）
+      setSaved(true);
+      showToast("💾 保存しました（保存一覧に追加）", "success");
     } catch (e) {
       showToast(e instanceof Error ? e.message : "保存に失敗しました", "error");
     } finally {
@@ -173,17 +94,23 @@ export function ProofreadComparison({
           <div className="mb-1 text-xs font-semibold text-red-600">
             校正前（原文・赤字＝修正箇所）
           </div>
-          <pre className="min-h-[50vh] max-h-[72vh] overflow-y-auto whitespace-pre-wrap rounded-xl border border-red-200 bg-red-50/30 p-4 text-sm leading-relaxed text-gray-700">
-            {renderPane(before, fixes, "before")}
-          </pre>
+          <ProofreadDiffPane
+            text={before}
+            fixes={fixes}
+            mode="before"
+            className="min-h-[50vh] max-h-[72vh] overflow-y-auto whitespace-pre-wrap rounded-xl border border-red-200 bg-red-50/30 p-4 text-sm leading-relaxed text-gray-700"
+          />
         </div>
         <div>
           <div className="mb-1 text-xs font-semibold text-green-600">
             校正後（緑字＝修正箇所）
           </div>
-          <pre className="min-h-[50vh] max-h-[72vh] overflow-y-auto whitespace-pre-wrap rounded-xl border border-green-200 bg-green-50/30 p-4 text-sm leading-relaxed text-gray-700">
-            {renderPane(after, fixes, "after")}
-          </pre>
+          <ProofreadDiffPane
+            text={after}
+            fixes={fixes}
+            mode="after"
+            className="min-h-[50vh] max-h-[72vh] overflow-y-auto whitespace-pre-wrap rounded-xl border border-green-200 bg-green-50/30 p-4 text-sm leading-relaxed text-gray-700"
+          />
         </div>
       </div>
 
@@ -193,7 +120,7 @@ export function ProofreadComparison({
           disabled={saving}
           className="rounded-lg bg-[#1D9E75] px-5 py-2.5 text-sm font-semibold text-white hover:bg-[#0F6E56] disabled:opacity-50"
         >
-          {saving ? "保存中..." : "校正内容を保存"}
+          {saving ? "保存中..." : saved ? "保存済み ✓" : "校正内容を保存"}
         </button>
         <button
           onClick={() => handleCopy(after)}

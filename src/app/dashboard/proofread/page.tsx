@@ -1,24 +1,85 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useToast } from '@/components/ui/Toast';
-import { ProofreadModal, type AppliedFix } from '@/components/proofread/ProofreadModal';
+import { ProofreadModal } from '@/components/proofread/ProofreadModal';
 import { ProofreadComparison } from '@/components/proofread/ProofreadComparison';
+import type { AppliedFix } from '@/components/proofread/ProofreadDiffPane';
+import {
+  loadFeatureDraft,
+  saveFeatureDraft,
+  clearFeatureDraft,
+} from '@/lib/feature-drafts';
+import FeatureDraftBanner from '@/components/FeatureDraftBanner';
+
+interface Comparison {
+  before: string;
+  after: string;
+  fixes: AppliedFix[];
+}
+
+// 自動下書き（feature_result_drafts・feature='proofread'）に退避する内容
+interface ProofreadDraftPayload {
+  title?: string;
+  text?: string;
+  comparison?: Comparison | null;
+}
 
 // テキスト校正（DermaPDF Pro から移植）。検出 → レビュー（個別/一括）→ 適用 → 左右比較 → 保存。
 // AI検出はサーバルート /api/proofread/detect 経由。保存は text_analysis_saves（保存一覧）に集約。
+// 校正は長文作業なので、適用後の前後比較は自動下書きにも退避する（離脱・再訪で復元）。
 export default function ProofreadPage() {
   const { showToast } = useToast();
   const [text, setText] = useState('');
   const [title, setTitle] = useState('');
   const [showModal, setShowModal] = useState(false);
-  const [comparison, setComparison] = useState<{
-    before: string;
-    after: string;
-    fixes: AppliedFix[];
-  } | null>(null);
+  const [comparison, setComparison] = useState<Comparison | null>(null);
+  // 自動下書きから復元した日時（バナー表示用）
+  const [restoredAt, setRestoredAt] = useState<string | null>(null);
 
   const effectiveTitle = title.trim() || '無題テキスト';
+
+  // 復元取得が返ってきた時点で既に入力/校正が始まっていたら復元しない
+  const draftGuardRef = useRef(false);
+  draftGuardRef.current = !!text.trim() || !!comparison || showModal;
+
+  // マウント時に前回の校正結果（自動下書き）を復元。正はDB＝端末をまたいで復元できる
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const draft = await loadFeatureDraft<ProofreadDraftPayload>('proofread');
+      if (cancelled || !draft?.payload?.comparison) return;
+      if (draftGuardRef.current) return;
+      const p = draft.payload;
+      setTitle(p.title ?? '');
+      setText(p.text ?? '');
+      setComparison(p.comparison ?? null);
+      setRestoredAt(draft.updated_at);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // 「クリア」= 下書き削除 + 画面を新規状態に戻す
+  const handleClearDraft = () => {
+    setRestoredAt(null);
+    setTitle('');
+    setText('');
+    setComparison(null);
+    clearFeatureDraft('proofread');
+  };
+
+  // 前後比較が確定した時点で自動下書きへ退避（原文＋校正後＋適用済み修正）
+  const keepComparison = (next: Comparison) => {
+    setComparison(next);
+    setRestoredAt(null);
+    saveFeatureDraft('proofread', {
+      title,
+      text,
+      comparison: next,
+    } satisfies ProofreadDraftPayload);
+  };
 
   const startProofread = () => {
     if (!text.trim()) {
@@ -30,7 +91,13 @@ export default function ProofreadPage() {
   };
 
   // モーダル内「保存」: 校正後=content、校正前(原文)=inputText。folder はカテゴリに使わない。
-  const saveCard = async (cardTitle: string, content: string, before: string) => {
+  // 保存後もモーダルは閉じない（比較表示・適用状態を維持）。成否を boolean で返す。
+  const saveCard = async (
+    cardTitle: string,
+    content: string,
+    before: string,
+    fixes: AppliedFix[],
+  ): Promise<boolean> => {
     try {
       const res = await fetch('/api/text-analysis/saves', {
         method: 'POST',
@@ -47,8 +114,12 @@ export default function ProofreadPage() {
         const data = await res.json().catch(() => ({}));
         throw new Error(data.error || '保存に失敗しました');
       }
+      // 保存した内容はメイン画面の比較にも残す（モーダルを閉じても見比べられる）
+      keepComparison({ before, after: content, fixes });
+      return true;
     } catch (e) {
       showToast(e instanceof Error ? e.message : '保存に失敗しました', 'error');
+      return false;
     }
   };
 
@@ -82,6 +153,10 @@ export default function ProofreadPage() {
           </a>
         ))}
       </div>
+
+      {restoredAt && (
+        <FeatureDraftBanner restoredAt={restoredAt} onClear={handleClearDraft} />
+      )}
 
       {/* 入力フォーム */}
       <div style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 12, padding: 20, marginBottom: 16 }}>
@@ -154,7 +229,7 @@ export default function ProofreadPage() {
           sourceTitle={effectiveTitle}
           onSaveCard={saveCard}
           onClose={() => setShowModal(false)}
-          onComparison={(before, after, fixes) => setComparison({ before, after, fixes })}
+          onComparison={(before, after, fixes) => keepComparison({ before, after, fixes })}
         />
       )}
     </div>
