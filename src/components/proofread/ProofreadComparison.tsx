@@ -16,8 +16,11 @@ import {
   type AppliedFix,
 } from "@/components/proofread/ProofreadDiffPane";
 import { useToast } from "@/components/ui/Toast";
+import { createProofreadSave } from "@/lib/proofread-saves";
 
 // 校正の「校正前｜校正後」を大きく表示し、校正後を text_analysis_saves に新規保存する。
+// 「📚 比較を保存」は原文＋校正後＋修正リストをペアで proofread_saves に保存し、
+// 保存一覧＞校正 からいつでも比較ビューを再現できるようにする（162）。
 export function ProofreadComparison({
   before,
   after,
@@ -35,6 +38,28 @@ export function ProofreadComparison({
   const { showToast } = useToast();
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [savingPair, setSavingPair] = useState(false);
+  const [savedPair, setSavedPair] = useState(false);
+
+  // 前後比較つき保存（proofread_saves）。表示は維持したまま。
+  const handleSavePair = async () => {
+    if (savingPair) return;
+    setSavingPair(true);
+    try {
+      await createProofreadSave({
+        title,
+        sourceText: before,
+        workText: after,
+        corrections: fixes,
+      });
+      setSavedPair(true);
+      showToast("📚 前後比較を保存しました（保存一覧＞校正）", "success");
+    } catch (e) {
+      showToast(e instanceof Error ? e.message : "保存に失敗しました", "error");
+    } finally {
+      setSavingPair(false);
+    }
+  };
 
   // 素テキストをそのままコピー（色・HTMLは含めず、貼り付け先では全て黒になる）
   const handleCopy = async (text: string) => {
@@ -121,6 +146,18 @@ export function ProofreadComparison({
           className="rounded-lg bg-[#1D9E75] px-5 py-2.5 text-sm font-semibold text-white hover:bg-[#0F6E56] disabled:opacity-50"
         >
           {saving ? "保存中..." : saved ? "保存済み ✓" : "校正内容を保存"}
+        </button>
+        <button
+          onClick={handleSavePair}
+          disabled={savingPair}
+          className="rounded-lg border border-[#378ADD] px-5 py-2.5 text-sm font-semibold text-[#185FA5] hover:bg-[#E6F1FB] disabled:opacity-50"
+          title="原文＋校正後＋適用した修正をペアで保存（保存一覧＞校正からいつでも比較を再現）"
+        >
+          {savingPair
+            ? "保存中..."
+            : savedPair
+              ? "比較を保存済み ✓"
+              : "📚 比較を保存"}
         </button>
         <button
           onClick={() => handleCopy(after)}

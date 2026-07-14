@@ -13,6 +13,7 @@ import {
   type AppliedFix,
   type IssueScope,
 } from "@/components/proofread/ProofreadDiffPane";
+import { createProofreadSave } from "@/lib/proofread-saves";
 
 // 型の定義元は ProofreadDiffPane に集約。既存の import 経路は維持する。
 export type { AppliedFix, IssueScope };
@@ -79,6 +80,8 @@ export function ProofreadModal({
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [savingPair, setSavingPair] = useState(false);
+  const [savedPair, setSavedPair] = useState(false);
 
   const detect = async () => {
     try {
@@ -139,6 +142,7 @@ export function ProofreadModal({
 
   const applyOne = (target: Issue) => {
     setSaved(false);
+    setSavedPair(false);
     const result = applyToText(workText, target);
     setIssues((prev) =>
       prev.map((it) =>
@@ -152,6 +156,7 @@ export function ProofreadModal({
 
   const rejectOne = (target: Issue) => {
     setSaved(false);
+    setSavedPair(false);
     setIssues((prev) =>
       prev.map((it) =>
         it.id === target.id ? { ...it, status: "rejected" } : it
@@ -161,6 +166,7 @@ export function ProofreadModal({
 
   const applyBulk = (onlyChecked: boolean) => {
     setSaved(false);
+    setSavedPair(false);
     let text = workText;
     const next = issues.map((issue) => {
       if (issue.status !== "pending") return issue;
@@ -192,6 +198,7 @@ export function ProofreadModal({
           suggestion: i.suggestion,
           line: i.line,
           scope: i.scope,
+          reason: i.reason,
         })),
     [issues]
   );
@@ -213,6 +220,33 @@ export function ProofreadModal({
   };
 
   const saveLabel = saving ? "保存中..." : saved ? "保存済み ✓" : "校正内容を保存";
+
+  // 前後比較つき保存（proofread_saves）: 原文＋校正後＋適用した修正リストをペアで残す。
+  // 保存一覧の「🔎 校正」タブからいつでも比較ビューを再現できる。表示は維持したまま。
+  const handleSavePair = async () => {
+    if (savingPair) return;
+    setSavingPair(true);
+    try {
+      await createProofreadSave({
+        title: sourceTitle,
+        sourceText,
+        workText,
+        corrections: appliedFixes,
+      });
+      setSavedPair(true);
+      showToast("📚 前後比較を保存しました（保存一覧＞校正）", "success");
+    } catch (e) {
+      showToast(e instanceof Error ? e.message : "保存に失敗しました", "error");
+    } finally {
+      setSavingPair(false);
+    }
+  };
+
+  const savePairLabel = savingPair
+    ? "保存中..."
+    : savedPair
+      ? "比較を保存済み ✓"
+      : "📚 比較を保存";
 
   const appliedCount = issues.filter((i) => i.status === "applied").length;
   const manualCount = issues.filter((i) => i.status === "manual").length;
@@ -406,13 +440,21 @@ export function ProofreadModal({
                   </div>
                 </div>
                 {/* 比較ビュー直下の保存ボタン（保存してもモーダルは閉じない） */}
-                <div className="mt-3">
+                <div className="mt-3 flex flex-wrap gap-2">
                   <button
                     onClick={handleSave}
                     disabled={saving}
                     className="rounded-lg bg-[#1D9E75] px-4 py-2 text-sm font-semibold text-white hover:bg-[#0F6E56] disabled:opacity-50"
                   >
                     {saveLabel}
+                  </button>
+                  <button
+                    onClick={handleSavePair}
+                    disabled={savingPair}
+                    title="原文＋校正後＋適用した修正をペアで保存（保存一覧＞校正からいつでも比較を再現）"
+                    className="rounded-lg border border-[#378ADD] px-4 py-2 text-sm font-semibold text-[#185FA5] hover:bg-[#E6F1FB] disabled:opacity-50"
+                  >
+                    {savePairLabel}
                   </button>
                 </div>
               </div>

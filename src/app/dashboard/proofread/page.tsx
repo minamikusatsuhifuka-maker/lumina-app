@@ -11,6 +11,7 @@ import {
   clearFeatureDraft,
 } from '@/lib/feature-drafts';
 import FeatureDraftBanner from '@/components/FeatureDraftBanner';
+import { takeProofreadHandoff } from '@/lib/proofread-saves';
 
 interface Comparison {
   before: string;
@@ -43,9 +44,24 @@ export default function ProofreadPage() {
   const draftGuardRef = useRef(false);
   draftGuardRef.current = !!text.trim() || !!comparison || showModal;
 
-  // マウント時に前回の校正結果（自動下書き）を復元。正はDB＝端末をまたいで復元できる
+  // マウント時の復元。保存一覧（🔎 校正）から開かれた場合はそれを最優先で再現し、
+  // なければ前回の校正結果（自動下書き）を復元する。正はDB＝端末をまたいで復元できる
   useEffect(() => {
     let cancelled = false;
+
+    // 保存一覧からの受け渡し（sessionStorage・一度読んだら消える）
+    const handoff = takeProofreadHandoff();
+    if (handoff) {
+      setTitle(handoff.title);
+      setText(handoff.before);
+      setComparison({
+        before: handoff.before,
+        after: handoff.after,
+        fixes: handoff.fixes,
+      });
+      return;
+    }
+
     (async () => {
       const draft = await loadFeatureDraft<ProofreadDraftPayload>('proofread');
       if (cancelled || !draft?.payload?.comparison) return;

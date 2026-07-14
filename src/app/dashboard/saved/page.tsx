@@ -4,11 +4,13 @@ import { Suspense, useEffect, useState } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import SavedAnalysisList, { AnalysisRecord } from '@/components/text-analysis/SavedAnalysisList';
 import ContextLibraryPanel from '@/components/context-library/ContextLibraryPanel';
+import ProofreadSavedList from '@/components/proofread/ProofreadSavedList';
 
-type SubTab = 'text' | 'context';
+type SubTab = 'text' | 'context' | 'proofread';
 
 // 独立メニュー「保存一覧」。テキスト分析の保存物（text_analysis_saves）と
-// コンテキストライブラリ（context_saves）を1か所で行き来できるサブタブ構成。
+// コンテキストライブラリ（context_saves）、校正の前後比較（proofread_saves）を
+// 1か所で行き来できるサブタブ構成。
 // ※別テーブルのためサブタブ方式（spec §3-2）。既存コンポーネントを再利用（作り直さない）。
 export default function SavedPage() {
   return (
@@ -23,7 +25,9 @@ export default function SavedPage() {
 function SavedPageInner() {
   const searchParams = useSearchParams();
   const router = useRouter();
-  const initialSub: SubTab = searchParams?.get('tab') === 'context' ? 'context' : 'text';
+  const tabParam = searchParams?.get('tab');
+  const initialSub: SubTab =
+    tabParam === 'context' || tabParam === 'proofread' ? tabParam : 'text';
   const [sub, setSub] = useState<SubTab>(initialSub);
 
   const [records, setRecords] = useState<AnalysisRecord[]>([]);
@@ -61,6 +65,7 @@ function SavedPageInner() {
   const TABS: { key: SubTab; label: string }[] = [
     { key: 'text', label: '🗂 テキスト分析' },
     { key: 'context', label: '🧠 コンテキストライブラリ' },
+    { key: 'proofread', label: '🔎 校正' },
   ];
 
   return (
@@ -118,6 +123,9 @@ function SavedPageInner() {
       <div style={{ display: sub === 'context' ? 'block' : 'none' }}>
         <ContextLibraryPanel />
       </div>
+
+      {/* 校正の前後比較（proofread_saves・開くと赤/緑ハイライトで再現） */}
+      {sub === 'proofread' && <ProofreadSavedList />}
     </div>
   );
 }

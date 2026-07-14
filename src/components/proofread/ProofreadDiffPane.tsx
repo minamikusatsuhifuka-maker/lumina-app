@@ -10,11 +10,13 @@ import type { ReactNode } from "react";
 export type IssueScope = "line" | "all";
 
 // 前後比較ペインのハイライト描画に渡す「適用済み修正」1件分
+// reason は描画には使わないが、保存・修正リスト表示のために持ち回る
 export interface AppliedFix {
   original: string;
   suggestion: string;
   line: number;
   scope: IssueScope;
+  reason?: string;
 }
 
 // 1行内で targets に一致する全箇所を <mark> でハイライトする。
