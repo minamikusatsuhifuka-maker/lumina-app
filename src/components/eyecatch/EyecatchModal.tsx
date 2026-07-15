@@ -47,7 +47,7 @@ export function EyecatchModal({
   const [draftingPrompt, setDraftingPrompt] = useState(false);
   const [prompt, setPrompt] = useState('');
   const [size, setSize] = useState(DEFAULT_SIZE[sourceKind]);
-  const [quality, setQuality] = useState('high');
+  const [quality, setQuality] = useState('medium');
   const [generating, setGenerating] = useState(false);
   const [elapsed, setElapsed] = useState(0);
   const [image, setImage] = useState<{ base64: string; mimeType: string } | null>(null);
