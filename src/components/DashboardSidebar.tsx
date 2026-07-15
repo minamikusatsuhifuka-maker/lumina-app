@@ -77,6 +77,7 @@ const navCategories: NavCategory[] = [
       { href: '/dashboard/workflow', label: 'ワークフロー', icon: '⚡' },
       { href: '/dashboard/hp-generator', label: 'HP内容生成', icon: '🏠' },
       { href: '/dashboard/copy-generator', label: 'コピー生成', icon: '💬' },
+      { href: '/dashboard/sns-post', label: 'SNS投稿生成', icon: '📱' },
       { href: '/dashboard/ab-test', label: 'ABテスト生成', icon: '🔀' },
       { href: '/dashboard/persona', label: 'ペルソナ生成', icon: '👤' },
       { href: '/dashboard/email-generator', label: 'ステップメール', icon: '📧' },
