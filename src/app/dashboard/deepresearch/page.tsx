@@ -1658,7 +1658,17 @@ ${contextText}
           </p>
         </details>
 
-        <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
+          {/* 入力欄クリア（テキスト分析と同じ「✕ クリア」。実行中・空のときは無効） */}
+          <button
+            type="button"
+            onClick={() => setTopic('')}
+            disabled={loading || !topic.trim()}
+            title="リサーチトピックをクリア"
+            style={{ padding: '8px 14px', fontSize: 12, color: topic.trim() && !loading ? 'var(--text-secondary)' : 'var(--text-muted)', background: 'transparent', border: '1px solid var(--border)', borderRadius: 6, opacity: topic.trim() && !loading ? 1 : 0.5, cursor: topic.trim() && !loading ? 'pointer' : 'not-allowed' }}
+          >
+            ✕ クリア
+          </button>
           <button
             onClick={() => research()}
             disabled={loading}
