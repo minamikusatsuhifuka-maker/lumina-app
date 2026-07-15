@@ -33,6 +33,7 @@ import {
   clearFeatureDraft,
 } from '@/lib/feature-drafts';
 import FeatureDraftBanner from '@/components/FeatureDraftBanner';
+import { TextRefinePanel } from '@/components/refine/TextRefinePanel';
 
 const HEIGHT_PRESETS = [
   { label: 'S', h: 350 },
@@ -57,6 +58,7 @@ interface ResultPanelProps {
   onDownloadTxt: () => void;
   onDownloadMd: () => void;
   onSimplify: () => void;
+  onRefine: () => void;
 }
 
 function ResultPanel({
@@ -71,6 +73,7 @@ function ResultPanel({
   onDownloadTxt,
   onDownloadMd,
   onSimplify,
+  onRefine,
 }: ResultPanelProps) {
   const [panelHeight, setPanelHeight] = useState(350);
   // 保存状態（カードごとに独立）: 未保存 / 保存中 / 保存済み
@@ -259,6 +262,15 @@ function ResultPanel({
         >
           {simplifying ? '⏳ 変換中...' : '✨ わかりやすく変換'}
         </button>
+        <button
+          type="button"
+          onClick={onRefine}
+          disabled={!text || isStreaming}
+          style={btnStyle('neutral')}
+          title="クイック置換またはAI修正指示で、この結果テキストをその場で直します"
+        >
+          ✏️ AIで修正
+        </button>
       </div>
     </div>
   );
@@ -345,6 +357,8 @@ export default function TextAnalysisPanel({
   const [analysisDone, setAnalysisDone] = useState(false);
   // 自動下書きから復元した日時（バナー表示用。新規実行で消える）
   const [restoredAt, setRestoredAt] = useState<string | null>(null);
+  // 追加修正（169）: いま「✏️ AIで修正」を開いている対象カード
+  const [refineTarget, setRefineTarget] = useState<{ type: AnalysisType; label: string } | null>(null);
 
   // 復元取得が返ってきた時点でユーザーが既に入力/実行を始めていたら復元しない
   const draftGuardRef = useRef(false);
@@ -597,6 +611,19 @@ export default function TextAnalysisPanel({
     } finally {
       setSimplifying(null);
     }
+  };
+
+  // 追加修正（169）: 対象カードと、そのテキストを差し替える適用処理
+  const applyRefine = (type: AnalysisType, newText: string) => {
+    const next = new Map(results).set(type, newText);
+    setResults(next);
+    // 修正後の内容で自動下書きも更新（simplifyText と同じ扱い＝表示中の内容と揃える）
+    saveFeatureDraft('text-analysis', {
+      inputText,
+      purpose,
+      results: Object.fromEntries(next),
+      models: Object.fromEntries(resultModels),
+    });
   };
 
   return (
@@ -998,10 +1025,27 @@ export default function TextAnalysisPanel({
               onDownloadTxt={() => downloadTxt(type, text)}
               onDownloadMd={() => downloadMd(type, text)}
               onSimplify={() => simplifyText(type, text)}
+              onRefine={() =>
+                setRefineTarget({
+                  type,
+                  label: ANALYSIS_OPTIONS.find((o) => o.value === type)?.label ?? type,
+                })
+              }
             />
           ))}
         </div>
       )}
+
+      {/* 追加修正（169）: 対象カードの結果テキストをその場で直す */}
+      <TextRefinePanel
+        open={!!refineTarget}
+        onClose={() => setRefineTarget(null)}
+        sourceText={refineTarget ? results.get(refineTarget.type) ?? '' : ''}
+        sourceLabel={refineTarget?.label}
+        onApply={(newText) => {
+          if (refineTarget) applyRefine(refineTarget.type, newText);
+        }}
+      />
     </div>
   );
 }

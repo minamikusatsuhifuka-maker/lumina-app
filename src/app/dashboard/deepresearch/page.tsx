@@ -27,6 +27,7 @@ import {
   clearFeatureDraft,
 } from '@/lib/feature-drafts';
 import FeatureDraftBanner from '@/components/FeatureDraftBanner';
+import { TextRefinePanel } from '@/components/refine/TextRefinePanel';
 
 // 自動下書き（feature_result_drafts feature_key='deepresearch'）のpayload
 // 対話的（単発）実行の結果＋生成後コンテキストを守る（バッチはcontext_savesにDB保存済みで対象外）
@@ -800,6 +801,8 @@ export default function DeepResearchPage() {
   const [saveStatus, setSaveStatus] = useState('');
   // 自動下書きから復元した日時（バナー表示用。新規実行で消える）
   const [restoredAt, setRestoredAt] = useState<string | null>(null);
+  // 追加修正（169）: 「✏️ AIで修正」モーダルの開閉
+  const [showRefine, setShowRefine] = useState(false);
 
   // 復元取得が返ってきた時点で既に実行中/結果表示中なら復元しない（?q=自動実行など）
   const draftGuardRef = useRef(false);
@@ -833,6 +836,18 @@ export default function DeepResearchPage() {
     setContextText('');
     setSavedContextId(null);
     clearFeatureDraft('deepresearch');
+  };
+
+  // 追加修正（169）: リサーチ結果テキストをその場で直し、自動下書きにも反映する
+  const applyRefine = (newText: string) => {
+    setReport(newText);
+    saveFeatureDraft('deepresearch', {
+      topic,
+      depth,
+      report: newText,
+      reportModel,
+      contextText,
+    } satisfies DeepresearchDraftPayload);
   };
   // 生成後コンテキストの全画面リーダー（FullscreenReader 共通コンポーネント流用）
   const [contextReaderOpen, setContextReaderOpen] = useState(false);
@@ -1732,6 +1747,9 @@ ${contextText}
               </button>
               <button onClick={download} disabled={downloadingMd || !report.trim()} style={{ padding: '6px 14px', background: 'var(--bg-secondary)', border: '1px solid var(--border)', color: 'var(--text-secondary)', borderRadius: 6, cursor: downloadingMd ? 'not-allowed' : 'pointer', fontSize: 12, opacity: downloadingMd ? 0.6 : 1 }}>
                 {downloadingMd ? '⏳ タイトル生成中...' : '💾 MDダウンロード'}
+              </button>
+              <button onClick={() => setShowRefine(true)} disabled={!report.trim() || loading} title="クイック置換またはAI修正指示で、リサーチ結果をその場で直します" style={{ padding: '6px 14px', background: 'var(--bg-secondary)', border: '1px solid var(--border)', color: 'var(--text-secondary)', borderRadius: 6, cursor: !report.trim() || loading ? 'not-allowed' : 'pointer', fontSize: 12, opacity: !report.trim() || loading ? 0.5 : 1 }}>
+                ✏️ AIで修正
               </button>
               <button onClick={() => copyToClipboard(report)} style={{ padding: '6px 14px', background: 'var(--bg-secondary)', border: '1px solid var(--border)', color: 'var(--text-secondary)', borderRadius: 6, cursor: 'pointer', fontSize: 12 }}>
                 📋 コピー
@@ -3567,6 +3585,15 @@ ${contextText}
           </div>
         </div>
       )}
+
+      {/* 追加修正（169）: リサーチ結果テキストをその場で直す */}
+      <TextRefinePanel
+        open={showRefine}
+        onClose={() => setShowRefine(false)}
+        sourceText={report}
+        sourceLabel={topic ? `ディープリサーチ: ${topic}` : 'リサーチレポート'}
+        onApply={applyRefine}
+      />
 
       <style>{`
         @keyframes spin { to { transform: rotate(360deg); } }
