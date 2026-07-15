@@ -9,7 +9,7 @@ interface GalleryImage {
   id: string;
   blob_url: string;
   prompt: string | null;
-  settings: { size?: string; quality?: string } | null;
+  settings: { size?: string; quality?: string; model?: string } | null;
   title: string | null;
   source: string | null;
   width: number | null;
@@ -209,6 +209,7 @@ export default function GalleryPage() {
                   </div>
                   <div style={{ fontSize: 10, color: 'var(--text-muted)' }}>
                     {formatDate(img.created_at)}
+                    {img.settings?.model && ` ・ ${img.settings.model}`}
                     {img.settings?.size && ` ・ ${img.settings.size}`}
                     {img.settings?.quality && ` ・ ${img.settings.quality}`}
                     {img.bytes ? ` ・ ${formatBytes(img.bytes)}` : ''}
@@ -303,6 +304,7 @@ export default function GalleryPage() {
             </p>
             <p style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 6 }}>
               {formatDate(zoomed.created_at)}
+              {zoomed.settings?.model && ` ・ ${zoomed.settings.model}`}
               {zoomed.settings?.size && ` ・ ${zoomed.settings.size}`}
               {zoomed.settings?.quality && ` ・ ${zoomed.settings.quality}`}
             </p>

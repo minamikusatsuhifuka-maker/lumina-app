@@ -5,7 +5,8 @@
 export interface GallerySaveInput {
   imageBase64: string;
   prompt: string;
-  settings?: { size?: string; quality?: string };
+  // settings.model に生成モデル名を入れて記録する（image_gallery のスキーマ変更は不要・171）
+  settings?: { size?: string; quality?: string; model?: string };
   title?: string;
 }
 
