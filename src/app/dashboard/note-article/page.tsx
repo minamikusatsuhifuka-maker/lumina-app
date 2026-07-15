@@ -21,6 +21,7 @@ import {
   clearFeatureDraft,
 } from '@/lib/feature-drafts';
 import FeatureDraftBanner from '@/components/FeatureDraftBanner';
+import { EyecatchModal } from '@/components/eyecatch/EyecatchModal';
 
 type Length = 'short' | 'medium' | 'long';
 
@@ -127,6 +128,8 @@ export default function NoteArticleGenerationPage() {
   const { progress, loading: progressLoading, startProgress, completeProgress, resetProgress } = useProgress();
   // 自動下書きから復元した日時（バナー表示用。新規実行で消える）
   const [restoredAt, setRestoredAt] = useState<string | null>(null);
+  // アイキャッチ生成モーダル（166）
+  const [showEyecatch, setShowEyecatch] = useState(false);
 
   // 復元取得が返ってきた時点で既に入力/引き継ぎ/実行が始まっていたら復元しない
   const draftGuardRef = useRef(false);
@@ -941,6 +944,23 @@ export default function NoteArticleGenerationPage() {
               >
                 📋 コピー
               </button>
+              <button
+                onClick={() => setShowEyecatch(true)}
+                disabled={!currentContent.trim()}
+                title="記事内容からアイキャッチ画像を生成します"
+                style={{
+                  padding: '6px 14px',
+                  background: 'var(--bg-secondary)',
+                  border: '1px solid var(--border)',
+                  color: 'var(--text-secondary)',
+                  borderRadius: 6,
+                  cursor: !currentContent.trim() ? 'not-allowed' : 'pointer',
+                  fontSize: 12,
+                  opacity: !currentContent.trim() ? 0.5 : 1,
+                }}
+              >
+                🎨 アイキャッチを生成
+              </button>
             </div>
           </div>
 
@@ -1127,6 +1147,14 @@ export default function NoteArticleGenerationPage() {
           </div>
         </div>
       )}
+
+      <EyecatchModal
+        open={showEyecatch}
+        onClose={() => setShowEyecatch(false)}
+        sourceTitle={theme}
+        sourceText={currentContent}
+        sourceKind="note"
+      />
     </div>
   );
 }

@@ -7,6 +7,7 @@ import {
 } from '@/lib/feature-drafts';
 import FeatureDraftBanner from '@/components/FeatureDraftBanner';
 import { useToast } from '@/components/ui/Toast';
+import { saveImageToGallery } from '@/lib/gallery-client';
 
 const SIZE_OPTIONS = [
   { value: '1024x1024', label: '正方形（1024×1024）' },
@@ -155,19 +156,11 @@ export default function ImageGenPage() {
     if (!image || savingGallery) return;
     setSavingGallery(true);
     try {
-      const res = await fetch('/api/gallery', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          imageBase64: image.base64,
-          prompt,
-          settings: { size, quality },
-        }),
+      await saveImageToGallery({
+        imageBase64: image.base64,
+        prompt,
+        settings: { size, quality },
       });
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        throw new Error(data.error || 'ギャラリー保存に失敗しました');
-      }
       setSavedGallery(true);
       showToast('🖼️ ギャラリーに保存しました', 'success');
     } catch (e) {

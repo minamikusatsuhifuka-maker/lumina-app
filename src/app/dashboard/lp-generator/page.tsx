@@ -16,6 +16,7 @@ import {
   clearFeatureDraft,
 } from '@/lib/feature-drafts';
 import FeatureDraftBanner from '@/components/FeatureDraftBanner';
+import { EyecatchModal } from '@/components/eyecatch/EyecatchModal';
 
 const FRAMEWORKS = [
   { id: 'pasona', label: '🎯 PASONA', desc: '問題提起→共感→解決策→提案→行動', color: '#6c63ff' },
@@ -75,6 +76,8 @@ export default function LPGeneratorPage() {
   const [result, setResult] = useState<LPResult | null>(null);
   const [rawText, setRawText] = useState('');
   const [showDeepDive, setShowDeepDive] = useState(false);
+  // アイキャッチ生成モーダル（166）
+  const [showEyecatch, setShowEyecatch] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [contextHint, setContextHint] = useState('');
@@ -577,6 +580,9 @@ ${result.cta_sections[2] ? ctaBlock(result.cta_sections[2]) : ''}
             <button onClick={() => copyToClipboard(rawText)} style={{ padding: '6px 14px', background: 'var(--bg-secondary)', border: '1px solid var(--border)', color: 'var(--text-secondary)', borderRadius: 6, cursor: 'pointer', fontSize: 12 }}>
               📋 JSONコピー
             </button>
+            <button onClick={() => setShowEyecatch(true)} disabled={!result} title="LPの主題からアイキャッチ画像を生成します" style={{ padding: '6px 14px', background: 'var(--bg-secondary)', border: '1px solid var(--border)', color: 'var(--text-secondary)', borderRadius: 6, cursor: !result ? 'not-allowed' : 'pointer', fontSize: 12, opacity: !result ? 0.5 : 1 }}>
+              🎨 アイキャッチを生成
+            </button>
           </div>
 
           {/* ヘッドライン */}
@@ -691,6 +697,20 @@ ${result.cta_sections[2] ? ctaBlock(result.cta_sections[2]) : ''}
           </div>
         </div>
       )}
+
+      <EyecatchModal
+        open={showEyecatch}
+        onClose={() => setShowEyecatch(false)}
+        sourceTitle={result?.headline || form.productName}
+        sourceText={
+          result
+            ? [result.headline, result.subheadline, result.problem_section?.heading]
+                .filter(Boolean)
+                .join('\n')
+            : ''
+        }
+        sourceKind="lp"
+      />
 
       <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
     </div>

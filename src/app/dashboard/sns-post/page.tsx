@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import { parseSSEStream } from '@/lib/streamUtils';
 import { copyToClipboard } from '@/lib/copyToClipboard';
 import { renderMarkdown } from '@/lib/markdown-renderer';
+import { EyecatchModal } from '@/components/eyecatch/EyecatchModal';
 
 // SNS投稿生成（コンテキストライブラリ連携対応・最小実装）
 export default function SnsPostPage() {
@@ -12,6 +13,8 @@ export default function SnsPostPage() {
   const [platform, setPlatform] = useState('twitter');
   const [output, setOutput] = useState('');
   const [loading, setLoading] = useState(false);
+  // アイキャッチ生成モーダル（166）
+  const [showEyecatch, setShowEyecatch] = useState(false);
 
   useEffect(() => {
     try {
@@ -150,12 +153,22 @@ export default function SnsPostPage() {
         <div style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 12, padding: 20 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
             <span style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-primary)' }}>📱 生成結果</span>
-            <button
-              onClick={() => copyToClipboard(output)}
-              style={{ padding: '6px 14px', background: 'var(--bg-primary)', border: '1px solid var(--border)', color: 'var(--text-secondary)', borderRadius: 6, cursor: 'pointer', fontSize: 12 }}
-            >
-              📋 コピー
-            </button>
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+              <button
+                onClick={() => copyToClipboard(output)}
+                style={{ padding: '6px 14px', background: 'var(--bg-primary)', border: '1px solid var(--border)', color: 'var(--text-secondary)', borderRadius: 6, cursor: 'pointer', fontSize: 12 }}
+              >
+                📋 コピー
+              </button>
+              <button
+                onClick={() => setShowEyecatch(true)}
+                disabled={loading || !output.trim()}
+                title="投稿内容からアイキャッチ画像を生成します"
+                style={{ padding: '6px 14px', background: 'var(--bg-primary)', border: '1px solid var(--border)', color: 'var(--text-secondary)', borderRadius: 6, cursor: loading || !output.trim() ? 'not-allowed' : 'pointer', fontSize: 12, opacity: loading || !output.trim() ? 0.5 : 1 }}
+              >
+                🎨 アイキャッチを生成
+              </button>
+            </div>
           </div>
           {loading
             ? <pre style={{ margin: 0, whiteSpace: 'pre-wrap' as const, wordBreak: 'break-word' as const, fontSize: 13, fontFamily: 'inherit', color: 'var(--text-secondary)', lineHeight: 1.8 }}>
@@ -164,6 +177,14 @@ export default function SnsPostPage() {
             : <div className="markdown-body" style={{ margin: 0, wordBreak: 'break-word' as const, fontSize: 13, color: 'var(--text-secondary)' }} dangerouslySetInnerHTML={{ __html: renderMarkdown(output) }} />}
         </div>
       )}
+
+      <EyecatchModal
+        open={showEyecatch}
+        onClose={() => setShowEyecatch(false)}
+        sourceTitle={topic}
+        sourceText={output}
+        sourceKind="sns"
+      />
     </div>
   );
 }
