@@ -57,6 +57,7 @@ interface ResultPanelProps {
   onCopy: () => void;
   onDownloadTxt: () => void;
   onDownloadMd: () => void;
+  onDownloadDocx: () => void;
   onSimplify: () => void;
   onRefine: () => void;
 }
@@ -72,6 +73,7 @@ function ResultPanel({
   onCopy,
   onDownloadTxt,
   onDownloadMd,
+  onDownloadDocx,
   onSimplify,
   onRefine,
 }: ResultPanelProps) {
@@ -228,6 +230,15 @@ function ResultPanel({
           style={btnStyle('neutral')}
         >
           {generatingTitle ? '⏳ タイトル生成中...' : '📥 MD'}
+        </button>
+        <button
+          type="button"
+          onClick={onDownloadDocx}
+          disabled={!text || generatingTitle}
+          style={btnStyle('neutral')}
+          title="院内配布・回覧用に体裁の整った Word(.docx) で書き出します"
+        >
+          {generatingTitle ? '⏳ タイトル生成中...' : '📄 Word'}
         </button>
         <button
           type="button"
@@ -573,6 +584,31 @@ export default function TextAnalysisPanel({
       const model = resultModels.get(type);
       const content = `# ${autoTitle}\n\n${modelLineMd(model)}${sanitizeLatex(text)}`;
       triggerDownload(`${title}_${yyyymmdd()}.md`, content, 'text/markdown;charset=utf-8');
+    } finally {
+      setGeneratingTitle(null);
+    }
+  };
+
+  // Word(.docx) 出力。タイトル生成・sanitizeLatex・ファイル名規則は txt/MD と同一。
+  // markdown→docx 変換は共通関数（markdownToDocx.ts）に集約。docx はバンドルが大きいため
+  // dynamic import。AI は一切通さず、アプリ側の機械変換のみ（152：数値を作り直させない）。
+  const downloadDocx = async (type: AnalysisType, text: string) => {
+    const label = ANALYSIS_OPTIONS.find((o) => o.value === type)?.label ?? type;
+    setGeneratingTitle(type);
+    try {
+      const autoTitle = await generateTitleWithTimeout(text, label, label);
+      const title = sanitizeFilename(autoTitle);
+      const model = resultModels.get(type);
+      const metaLines = model
+        ? [`生成AI: ${getModelIcon(model)} ${getModelLabel(model)}`]
+        : [];
+      const { downloadMarkdownAsDocx } = await import('@/lib/markdownToDocx');
+      await downloadMarkdownAsDocx({
+        title: autoTitle,
+        metaLines,
+        markdown: sanitizeLatex(text),
+        fileName: `${title}_${yyyymmdd()}.docx`,
+      });
     } finally {
       setGeneratingTitle(null);
     }
@@ -1024,6 +1060,7 @@ export default function TextAnalysisPanel({
               }}
               onDownloadTxt={() => downloadTxt(type, text)}
               onDownloadMd={() => downloadMd(type, text)}
+              onDownloadDocx={() => downloadDocx(type, text)}
               onSimplify={() => simplifyText(type, text)}
               onRefine={() =>
                 setRefineTarget({

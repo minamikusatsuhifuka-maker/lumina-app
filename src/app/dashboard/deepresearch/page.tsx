@@ -783,6 +783,7 @@ export default function DeepResearchPage() {
   const [reportModel, setReportModel] = useState<AIModel | null>(null);
   // MD ダウンロード時のタイトル生成中フラグ
   const [downloadingMd, setDownloadingMd] = useState(false);
+  const [downloadingDocx, setDownloadingDocx] = useState(false);
   const [loading, setLoading] = useState(false);
   const [fontSize, setFontSize] = useState(14);
   const [elapsed, setElapsed] = useState(0);
@@ -1473,6 +1474,33 @@ ${contextText}
     }
   };
 
+  // Word(.docx) 出力。命名規則・タイトル生成は MDダウンロード（download）と同一。
+  // markdown→docx 変換は共通関数（markdownToDocx.ts）に集約し、テキスト分析の結果カードと
+  // 同じ関数を共用（コピペしない）。docx はバンドルが大きいため dynamic import。
+  // AI は一切通さず、アプリ側の機械変換のみ（Word化にAIは不要）。
+  const downloadDocx = async () => {
+    if (!report.trim()) return;
+    setDownloadingDocx(true);
+    try {
+      const label = 'ディープリサーチ';
+      const fallback = topic ? `${label}_${topic}` : label;
+      const autoTitle = await generateTitleWithTimeout(report, label, fallback);
+      const fileTitle = sanitizeFilename(autoTitle);
+      const metaLines = reportModel
+        ? [`生成AI: ${getModelIcon(reportModel)} ${getModelLabel(reportModel)}`]
+        : [];
+      const { downloadMarkdownAsDocx } = await import('@/lib/markdownToDocx');
+      await downloadMarkdownAsDocx({
+        title: autoTitle,
+        metaLines,
+        markdown: report,
+        fileName: `${fileTitle}_${yyyymmdd()}.docx`,
+      });
+    } finally {
+      setDownloadingDocx(false);
+    }
+  };
+
   return (
     <div>
       <ProgressBar loading={progressLoading} progress={progress} label="🔭 ディープリサーチ実行中..." />
@@ -1747,6 +1775,9 @@ ${contextText}
               </button>
               <button onClick={download} disabled={downloadingMd || !report.trim()} style={{ padding: '6px 14px', background: 'var(--bg-secondary)', border: '1px solid var(--border)', color: 'var(--text-secondary)', borderRadius: 6, cursor: downloadingMd ? 'not-allowed' : 'pointer', fontSize: 12, opacity: downloadingMd ? 0.6 : 1 }}>
                 {downloadingMd ? '⏳ タイトル生成中...' : '💾 MDダウンロード'}
+              </button>
+              <button onClick={downloadDocx} disabled={downloadingDocx || !report.trim()} title="院内配布・回覧用に体裁の整った Word(.docx) で書き出します" style={{ padding: '6px 14px', background: 'var(--bg-secondary)', border: '1px solid var(--border)', color: 'var(--text-secondary)', borderRadius: 6, cursor: downloadingDocx || !report.trim() ? 'not-allowed' : 'pointer', fontSize: 12, opacity: downloadingDocx || !report.trim() ? 0.6 : 1 }}>
+                {downloadingDocx ? '⏳ タイトル生成中...' : '📄 Word'}
               </button>
               <button onClick={() => setShowRefine(true)} disabled={!report.trim() || loading} title="クイック置換またはAI修正指示で、リサーチ結果をその場で直します" style={{ padding: '6px 14px', background: 'var(--bg-secondary)', border: '1px solid var(--border)', color: 'var(--text-secondary)', borderRadius: 6, cursor: !report.trim() || loading ? 'not-allowed' : 'pointer', fontSize: 12, opacity: !report.trim() || loading ? 0.5 : 1 }}>
                 ✏️ AIで修正
