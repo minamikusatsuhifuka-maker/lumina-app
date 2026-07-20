@@ -461,7 +461,7 @@ export default function WorkflowPage() {
                   fontWeight: 700, fontSize: 13,
                   cursor: isSaving || saveCompleted ? 'not-allowed' : 'pointer',
                 }}>
-                {saveCompleted ? `✅ ${savedCount}件を保存完了` : isSaving ? `保存中... (${savedCount}/${workflow.steps.filter((_, i) => stepResults[i] && !stepResults[i].startsWith('（')).length}件)` : '📚 全結果をライブラリに保存'}
+                {saveCompleted ? `✅ ${savedCount}件を保存完了` : isSaving ? `保存中... (${savedCount}/${workflow.steps.filter((_, i) => stepResults[i] && !stepResults[i].startsWith('（')).length}件)` : '📚 全結果をリサーチ保存に追加'}
               </button>
               <button onClick={reset}
                 style={{ padding: '10px 20px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--bg-primary)', color: 'var(--text-primary)', fontWeight: 600, fontSize: 13, cursor: 'pointer' }}>
@@ -478,14 +478,14 @@ export default function WorkflowPage() {
                     <div style={{ height: '100%', width: `${pct}%`, background: 'linear-gradient(90deg, #6c63ff, #00d4b8)', borderRadius: 99, transition: 'width 0.3s ease' }} />
                   </div>
                   <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4 }}>
-                    ライブラリに保存しています...（{savedCount}/{total}件）
+                    リサーチ保存に追加しています...（{savedCount}/{total}件）
                   </div>
                 </div>
               );
             })()}
             {saveCompleted && (
               <div style={{ fontSize: 12, color: '#22c55e', fontWeight: 600 }}>
-                ✅ {savedCount}件をライブラリに保存しました
+                ✅ {savedCount}件をリサーチ保存に追加しました
               </div>
             )}
           </div>

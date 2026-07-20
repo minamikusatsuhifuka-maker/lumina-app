@@ -213,7 +213,7 @@ export default function MemoryPage() {
         <div style={{ textAlign: 'center', padding: 60, color: 'var(--text-muted)' }}>
           <div style={{ fontSize: 48, marginBottom: 16 }}>🧠</div>
           <div style={{ fontSize: 16 }}>メモリがありません</div>
-          <div style={{ fontSize: 13, marginTop: 8 }}>ライブラリに保存すると自動でメモリが蓄積されます</div>
+          <div style={{ fontSize: 13, marginTop: 8 }}>リサーチ保存に追加すると自動でメモリが蓄積されます</div>
         </div>
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>

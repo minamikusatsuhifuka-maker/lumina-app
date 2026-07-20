@@ -286,7 +286,7 @@ export default function IntelligencePage() {
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ type: 'research', title: query || '調査結果', content: result, tags, group_name: group }),
                   });
-                  alert('✅ ライブラリに保存しました！');
+                  alert('✅ リサーチ保存に追加しました！');
                 }}
                 style={{ padding: '5px 12px', background: 'rgba(74,222,128,0.15)', border: '1px solid rgba(74,222,128,0.3)', color: '#4ade80', borderRadius: 6, cursor: 'pointer', fontSize: 12, fontWeight: 600 }}
               >

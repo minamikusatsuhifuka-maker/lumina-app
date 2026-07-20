@@ -266,11 +266,11 @@ export default function StrategyPage() {
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ type: 'strategy', title: `${selectedType?.label || '経営戦略'}`, content: result, tags, group_name: group }),
                   });
-                  alert('✅ ライブラリに保存しました！');
+                  alert('✅ リサーチ保存に追加しました！');
                 }}
                 style={{ padding: '5px 12px', background: 'rgba(74,222,128,0.15)', border: '1px solid rgba(74,222,128,0.3)', color: '#4ade80', borderRadius: 6, cursor: 'pointer', fontSize: 12, fontWeight: 600 }}
               >
-                📚 ライブラリ保存
+                📚 リサーチ保存に追加
               </button>
               <button onClick={sendToWriter} style={{ padding: '5px 12px', background: 'linear-gradient(135deg, #6c63ff, #8b5cf6)', color: '#fff', border: 'none', borderRadius: 6, cursor: 'pointer', fontSize: 12, fontWeight: 600 }}>✍️ 文章化</button>
               <button onClick={download} style={{ padding: '5px 12px', background: 'var(--bg-secondary)', border: '1px solid var(--border)', color: 'var(--text-secondary)', borderRadius: 6, cursor: 'pointer', fontSize: 12 }}>💾 MD保存</button>

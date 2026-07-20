@@ -53,7 +53,7 @@ export function SaveToLibraryButton({ title, content, type, groupName, tags, met
           setShowFavoriteOption(false);
         } else {
           setShowFavoriteOption(true);
-          showToast('✅ ライブラリに保存しました！');
+          showToast('✅ リサーチ保存に追加しました！');
         }
         // 保存成功後、全経路でバックグラウンド自動カテゴライズ（fire-and-forget、失敗許容）
         // ・保存は既に完了してユーザーに即フィードバック済み → 分類は裏で非同期実行
@@ -113,7 +113,7 @@ export function SaveToLibraryButton({ title, content, type, groupName, tags, met
             display: 'flex', alignItems: 'center', gap: 6,
           }}
         >
-          {saving ? '保存中...' : saved ? '✅ 保存済み' : '📚 ライブラリに保存'}
+          {saving ? '保存中...' : saved ? '✅ 保存済み' : '📚 リサーチ保存に追加'}
         </button>
 
         {/* 🧠 記憶するボタン */}

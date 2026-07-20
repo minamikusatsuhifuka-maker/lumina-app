@@ -141,7 +141,7 @@ function LibraryPageInner() {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ title: `統合レポート ${new Date().toLocaleDateString('ja-JP')}`, content: mergeResult, type: 'merge', tags: '統合レポート', group_name: '統合レポート' }),
       });
-      if (res.ok) { const newItem = await res.json(); setItems(prev => [newItem, ...prev]); alert('ライブラリに保存しました！'); }
+      if (res.ok) { const newItem = await res.json(); setItems(prev => [newItem, ...prev]); alert('リサーチ保存に追加しました！'); }
     } finally { setIsSaving(false); }
   };
 
@@ -467,7 +467,7 @@ function LibraryPageInner() {
         onEdit={(it) => { setEditingId(it.id); setEditTags(it.tags || ''); setEditGroup(it.group_name || '未分類'); }}
         onExportTxt={downloadTxt}
         onExportMd={downloadMd}
-        onExportPdf={async (it) => { const { exportToPdf } = await import('@/lib/exportPdf'); await exportToPdf(it.title?.slice(0, 40) || 'ライブラリ', it.content || ''); }}
+        onExportPdf={async (it) => { const { exportToPdf } = await import('@/lib/exportPdf'); await exportToPdf(it.title?.slice(0, 40) || 'リサーチ保存', it.content || ''); }}
         onUseInWrite={(it) => { localStorage.setItem('lumina_research_context', it.content || ''); window.location.href = '/dashboard/write'; }}
         onStartTagEdit={(it) => { setEditingId(it.id); setEditTags(it.tags || ''); setEditGroup(it.group_name || '未分類'); }}
         onExpandToggle={(id) => setExpandedId(expandedId === id ? null : id)}
@@ -521,7 +521,7 @@ function LibraryPageInner() {
     <div>
       {/* ヘッダー */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
-        <h1 style={{ fontSize: 28, fontWeight: 700, color: 'var(--text-primary)' }}>📚 ライブラリ</h1>
+        <h1 style={{ fontSize: 28, fontWeight: 700, color: 'var(--text-primary)' }}>📚 リサーチ保存</h1>
         <button
           onClick={() => { setMergeMode(!mergeMode); setSelectedIds(new Set()); setMergeResult(''); }}
           style={{
@@ -893,7 +893,7 @@ function LibraryPageInner() {
             <div style={{ padding: '12px 20px', borderTop: '1px solid var(--border)', display: 'flex', gap: 8 }}>
               <button onClick={handleSaveMergeReport} disabled={isSaving}
                 style={{ padding: '8px 16px', borderRadius: 8, border: 'none', background: isSaving ? 'rgba(108,99,255,0.3)' : 'linear-gradient(135deg, #6c63ff, #8b5cf6)', color: '#fff', fontWeight: 700, fontSize: 13, cursor: isSaving ? 'not-allowed' : 'pointer' }}>
-                {isSaving ? '保存中...' : '📚 ライブラリに保存'}
+                {isSaving ? '保存中...' : '📚 リサーチ保存に追加'}
               </button>
               <button onClick={() => copyToClipboard(mergeResult).then(() => alert('コピーしました！'))}
                 style={{ padding: '8px 16px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--bg-secondary)', color: 'var(--text-secondary)', cursor: 'pointer', fontSize: 13 }}>

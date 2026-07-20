@@ -64,7 +64,7 @@ export async function POST(req: NextRequest) {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', cookie: req.headers.get('cookie') ?? '' },
     body: JSON.stringify({
-      title: '📚 ライブラリに保存しました',
+      title: '📚 リサーチ保存に追加しました',
       message: title ?? '',
       type: 'success',
       href: '/dashboard/library',

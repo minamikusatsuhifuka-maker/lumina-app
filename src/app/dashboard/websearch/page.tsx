@@ -230,7 +230,7 @@ export default function WebSearchPage() {
         }),
       });
       if (res.ok) {
-        setToast('✅ ライブラリに保存しました！');
+        setToast('✅ リサーチ保存に追加しました！');
         setTimeout(() => setToast(''), 2000);
       } else {
         setToast('❌ 保存に失敗しました');
@@ -466,7 +466,7 @@ export default function WebSearchPage() {
                   fontSize: 13, fontWeight: 600
                 }}
               >
-                {saving ? '保存中...' : '📚 ライブラリに保存'}
+                {saving ? '保存中...' : '📚 リサーチ保存に追加'}
               </button>
             </div>
           </div>

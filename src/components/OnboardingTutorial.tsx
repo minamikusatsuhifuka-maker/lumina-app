@@ -29,7 +29,7 @@ const STEPS = [
     action: { label: '試してみる', href: '/dashboard/write' },
   },
   {
-    title: 'ライブラリ',
+    title: 'リサーチ保存',
     description: '調査・分析・文章をすべて保存・管理。フォルダ分け・お気に入り・AI統合サマリーで情報を活用できます。',
     emoji: '📚',
     action: { label: '試してみる', href: '/dashboard/library' },

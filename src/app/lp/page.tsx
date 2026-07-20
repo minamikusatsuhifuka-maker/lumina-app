@@ -133,7 +133,7 @@ export default function LandingPage() {
               <h3 style={{ fontWeight: 700, fontSize: 18, marginBottom: 4 }}>Starter</h3>
               <p style={{ fontSize: 13, color: '#888', marginBottom: 16 }}>個人・フリーランス向け</p>
               <div style={{ marginBottom: 24 }}><span style={{ fontSize: 36, fontWeight: 700 }}>¥2,980</span><span style={{ color: '#888' }}>/月</span></div>
-              {['全機能利用可能', '月100回のAI実行', 'ライブラリ保存無制限', 'メールサポート'].map(f => (
+              {['全機能利用可能', '月100回のAI実行', 'リサーチ保存無制限', 'メールサポート'].map(f => (
                 <p key={f} style={{ fontSize: 13, color: '#555', padding: '4px 0' }}>✓ {f}</p>
               ))}
               <Link href="/auth" style={{ display: 'block', textAlign: 'center', padding: '12px 0', borderRadius: 12, border: '1px solid #6c63ff', color: '#6c63ff', fontWeight: 600, textDecoration: 'none', marginTop: 24 }}>無料で始める</Link>

@@ -11,7 +11,7 @@ const DEFAULT_SIZE = { width: 384, height: 500 };
 
 const PAGE_CONTEXT: Record<string, string> = {
   '/dashboard/write':       '文章作成ページにいます。文章の改善・アドバイス・続き生成の提案を優先してください。',
-  '/dashboard/library':     'ライブラリページにいます。保存データの活用方法や検索のアドバイスを優先してください。',
+  '/dashboard/library':     'リサーチ保存ページにいます。保存データの活用方法や検索のアドバイスを優先してください。',
   '/dashboard/websearch':   'Web情報収集ページにいます。検索クエリの改善やリサーチ方法のアドバイスを優先してください。',
   '/dashboard/workflow':    'ワークフローページにいます。目的に合ったワークフロー設計のアドバイスを優先してください。',
   '/dashboard/brainstorm':  'ブレインストーミングページにいます。アイデア発想や思考整理のアドバイスを優先してください。',
