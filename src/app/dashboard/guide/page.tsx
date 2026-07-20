@@ -493,7 +493,7 @@ const FEATURE_GROUPS: CatalogGroup[] = [
       { href: '/dashboard/library?tab=スタッフ育成資料', label: 'スタッフ育成ライブラリ', emoji: '✍️', desc: '育成資料を保管・再利用' },
       { href: '/dashboard/knowledge-tree', label: '知識ツリー', emoji: '🌳', desc: '知識を体系的に整理' },
       { href: '/dashboard/research-glossary', label: '専門用語集', emoji: '📚', desc: 'リサーチ用の専門用語を登録・参照' },
-      { href: '/dashboard/context-library', label: 'コンテキストライブラリ', emoji: '🧠', desc: 'その都度参照するコンテキストを蓄積' },
+      { href: '/dashboard/context-library', label: 'AI参照素材', emoji: '🧠', desc: '生成時にAIに参照させる素材を蓄積' },
       { href: '/dashboard/research', label: '文献検索', emoji: '🔬', desc: '文献・論文を検索' },
       { href: '/dashboard/alerts', label: '定期アラート', emoji: '🔔', desc: '定期収集・通知を自動化' },
       { href: '/dashboard/fact-check', label: 'ファクトチェック', emoji: '✅', desc: '情報の真偽を確認' },

@@ -64,7 +64,7 @@ function SavedPageInner() {
 
   const TABS: { key: SubTab; label: string }[] = [
     { key: 'text', label: '🗂 テキスト分析' },
-    { key: 'context', label: '🧠 コンテキストライブラリ' },
+    { key: 'context', label: '🧠 AI参照素材' },
     { key: 'proofread', label: '🔎 校正' },
   ];
 
@@ -75,7 +75,7 @@ function SavedPageInner() {
           🗃 保存一覧
         </h1>
         <p style={{ color: 'var(--text-muted)', fontSize: 13 }}>
-          保存したテキスト分析とコンテキストライブラリをまとめて管理できます
+          保存したテキスト分析とAI参照素材をまとめて管理できます
         </p>
       </div>
 

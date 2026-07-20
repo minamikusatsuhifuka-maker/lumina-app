@@ -9,7 +9,7 @@ const ALL_SHORTCUTS = [
   { id: 'saved-text-analysis', label: '保存一覧（テキスト分析）', icon: '🗂', href: '/dashboard/saved?tab=text' },
   { id: 'write', label: '文章作成', icon: '✍️', href: '/dashboard/write' },
   { id: 'sns-post', label: 'SNS投稿', icon: '📱', href: '/dashboard/sns-post' },
-  { id: 'context-library', label: 'コンテキスト', icon: '🧠', href: '/dashboard/context-library' },
+  { id: 'context-library', label: 'AI参照素材', icon: '🧠', href: '/dashboard/context-library' },
   { id: 'knowledge-tree', label: '知識ツリー', icon: '🌳', href: '/dashboard/knowledge-tree' },
   { id: 'note', label: 'note検索', icon: '📓', href: '/dashboard/note' },
   { id: 'web', label: 'Web情報収集', icon: '🌐', href: '/dashboard/websearch' },

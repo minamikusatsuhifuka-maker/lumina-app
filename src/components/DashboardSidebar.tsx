@@ -47,7 +47,7 @@ const navCategories: NavCategory[] = [
       { href: '/dashboard/library?tab=スタッフ育成資料', label: 'スタッフ育成ライブラリ', icon: '✍️' },
       { href: '/dashboard/knowledge-tree', label: '知識ツリー', icon: '🌳' },
       { href: '/dashboard/research-glossary', label: '専門用語集', icon: '📚' },
-      { href: '/dashboard/context-library', label: 'コンテキストライブラリ', icon: '🧠' },
+      { href: '/dashboard/context-library', label: 'AI参照素材', icon: '🧠' },
       { href: '/dashboard/research', label: '文献検索', icon: '🔬' },
       { href: '/dashboard/alerts', label: '定期アラート', icon: '🔔' },
       { href: '/dashboard/fact-check', label: 'ファクトチェック', icon: '✅' },

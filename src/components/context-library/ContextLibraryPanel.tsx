@@ -247,11 +247,11 @@ export default function ContextLibraryPanel() {
   // AIで保存済み全件を自動カテゴライズする（件数は全件母数）
   const handleAutoCategorize = async () => {
     if (allTotal === 0) {
-      flashToast('❌ 保存済みコンテキストがありません');
+      flashToast('❌ 保存済みの素材がありません');
       return;
     }
     const ok = window.confirm(
-      `${allTotal}件のコンテキストをAIが自動カテゴライズします。\n既存のカテゴリは上書きされます。よろしいですか？`,
+      `${allTotal}件の素材をAIが自動カテゴライズします。\n既存のカテゴリは上書きされます。よろしいですか？`,
     );
     if (!ok) return;
 
@@ -307,7 +307,7 @@ export default function ContextLibraryPanel() {
     setDownloadingId(item.id);
     try {
       const text = await ensureFullText(item);
-      const label = 'コンテキスト';
+      const label = 'AI参照素材';
       const fallback = item.topic || label;
       const autoTitle = await generateTitleWithTimeout(text, label, fallback);
       const safeTitle = sanitizeFilename(autoTitle);
@@ -331,7 +331,7 @@ export default function ContextLibraryPanel() {
     setDownloadingId(item.id);
     try {
       const text = await ensureFullText(item);
-      const label = 'コンテキスト';
+      const label = 'AI参照素材';
       const fallback = item.topic || label;
       const autoTitle = await generateTitleWithTimeout(text, label, fallback);
       const safeTitle = sanitizeFilename(autoTitle);
@@ -357,7 +357,7 @@ export default function ContextLibraryPanel() {
     setDownloadingId(item.id);
     try {
       const text = await ensureFullText(item);
-      const label = 'コンテキスト';
+      const label = 'AI参照素材';
       const fallback = item.topic || label;
       const autoTitle = await generateTitleWithTimeout(text, label, fallback);
       const safeTitle = sanitizeFilename(autoTitle);
@@ -448,7 +448,7 @@ export default function ContextLibraryPanel() {
   };
 
   const handleDelete = async (id: number) => {
-    if (!confirm('このコンテキストを削除しますか？')) return;
+    if (!confirm('この素材を削除しますか？')) return;
     try {
       const res = await fetch(`/api/context-saves?id=${id}`, { method: 'DELETE' });
       if (res.ok) {
@@ -566,8 +566,12 @@ export default function ContextLibraryPanel() {
   return (
     <div>
       <div style={{ marginBottom: 24 }}>
-        <h1 style={{ fontSize: 28, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 8 }}>🧠 コンテキストライブラリ</h1>
-        <p style={{ color: 'var(--text-muted)', fontSize: 14 }}>AIに読み込ませるコンテキストを管理します。文章作成・SNS投稿・LP作成・資料作成にワンクリックで活用できます。</p>
+        <h1 style={{ fontSize: 28, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 8 }}>🧠 AI参照素材</h1>
+        <p style={{ color: 'var(--text-muted)', fontSize: 14 }}>文章作成・SNS投稿・LP作成のとき、AIに読み込ませて生成の下敷きにする素材集です。リサーチ結果を「🧠 AI参照用に最適化」→「💾 保存」で追加できます。</p>
+        <p style={{ color: 'var(--text-muted)', fontSize: 13, marginTop: 4 }}>
+          生成用の素材集です。読み返す用の保管は{' '}
+          <a href="/dashboard/library" style={{ color: 'var(--accent)', fontWeight: 600 }}>📚 リサーチ保存</a> へ
+        </p>
       </div>
 
       {batchFilter && (
@@ -641,7 +645,7 @@ export default function ContextLibraryPanel() {
               cursor: isAutoCategorizing || items.length === 0 ? 'not-allowed' : 'pointer',
               opacity: items.length === 0 ? 0.4 : 1,
             }}
-            title="AIが全保存コンテキストを分析して最適なカテゴリへ自動分類します"
+            title="AIが全保存素材を分析して最適なカテゴリへ自動分類します"
           >
             {isAutoCategorizing ? '🤖 カテゴライズ中...' : '🤖 AIが自動カテゴライズ'}
           </button>
@@ -854,7 +858,7 @@ export default function ContextLibraryPanel() {
         <button
           type="button"
           onClick={() => setFavoriteOnly(v => !v)}
-          title="お気に入り登録したコンテキストだけを表示"
+          title="お気に入り登録した素材だけを表示"
           style={{
             padding: '8px 14px',
             borderRadius: 8,
@@ -889,10 +893,10 @@ export default function ContextLibraryPanel() {
         }}>
           <div style={{ fontSize: 32, marginBottom: 12 }}>🧠</div>
           <div style={{ color: 'var(--text-secondary)', fontWeight: 600, marginBottom: 6 }}>
-            {allTotal === 0 ? 'まだ保存されたコンテキストはありません' : '条件に一致するコンテキストがありません'}
+            {allTotal === 0 ? 'まだ保存された素材はありません' : '条件に一致する素材がありません'}
           </div>
           <div style={{ color: 'var(--text-muted)', fontSize: 13 }}>
-            ディープリサーチ実行後、「🧠 コンテキストとして最適化」→「💾 保存」でこちらに追加されます。
+            ディープリサーチ実行後、「🧠 AI参照用に最適化」→「💾 保存」でこちらに追加されます。
           </div>
         </div>
       )}

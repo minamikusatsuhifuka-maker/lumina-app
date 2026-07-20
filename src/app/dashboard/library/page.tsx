@@ -535,7 +535,8 @@ function LibraryPageInner() {
           {mergeMode ? '✕ 選択モード終了' : '✓ 選択モード'}
         </button>
       </div>
-      <p style={{ color: 'var(--text-muted)', marginBottom: 20 }}>保存した調査・分析・文章を管理。お気に入り・タグ・フォルダ分けに対応。</p>
+      <p style={{ color: 'var(--text-muted)', marginBottom: 6 }}>保存した調査・分析・文章を管理。お気に入り・タグ・フォルダ分けに対応。</p>
+      <p style={{ color: 'var(--text-muted)', fontSize: 13, marginBottom: 20 }}>読み返す用の保管庫です。生成時にAIへ参照させたいものは <a href="/dashboard/context-library" style={{ color: 'var(--accent)', fontWeight: 600 }}>🧠 AI参照素材</a> へ</p>
 
       {/* 選択モードガイド */}
       {mergeMode && (

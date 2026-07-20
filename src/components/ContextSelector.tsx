@@ -83,7 +83,7 @@ export default function ContextSelector({
           fontWeight: selectedCount > 0 ? 600 : 400,
         }}
       >
-        🧠 コンテキスト
+        🧠 AI参照素材
         {selectedCount > 0 && (
           <span
             style={{
@@ -136,7 +136,7 @@ export default function ContextSelector({
                 padding: 10,
               }}
             >
-              コンテキストがありません。ディープリサーチから保存できます。
+              AI参照素材がありません。ディープリサーチから保存できます。
             </p>
           ) : (
             <>
@@ -147,7 +147,7 @@ export default function ContextSelector({
                   marginBottom: 8,
                 }}
               >
-                AIに読み込ませるコンテキストを選択してください
+                AIに読み込ませる素材を選択してください
               </p>
               {items.map((item) => {
                 const isSelected = selected.includes(item.id);

@@ -79,7 +79,7 @@ export async function POST(req: NextRequest) {
       WHERE id = ${parseInt(contextSaveId, 10)} AND user_id = ${userId}
     `;
     if (saved.length === 0) {
-      return NextResponse.json({ error: '対象のコンテキストが見つかりません' }, { status: 404 });
+      return NextResponse.json({ error: '対象の素材が見つかりません' }, { status: 404 });
     }
 
     // 重複チェック

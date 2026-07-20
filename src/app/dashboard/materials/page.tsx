@@ -72,7 +72,7 @@ export default function MaterialsPage() {
   return (
     <div>
       <h1 style={{ fontSize: 28, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 8 }}>📊 資料作成</h1>
-      <p style={{ color: 'var(--text-muted)', marginBottom: 24 }}>コンテキストをもとに、スライド・レポート・提案書などの資料原稿を生成します。</p>
+      <p style={{ color: 'var(--text-muted)', marginBottom: 24 }}>AI参照素材をもとに、スライド・レポート・提案書などの資料原稿を生成します。</p>
 
       <div style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 12, padding: 20, marginBottom: 16 }}>
         <div style={{ marginBottom: 12 }}>
@@ -87,11 +87,11 @@ export default function MaterialsPage() {
         </div>
 
         <div style={{ marginBottom: 12 }}>
-          <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 6 }}>コンテキスト</div>
+          <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 6 }}>AI参照素材</div>
           <textarea
             value={contextText}
             onChange={e => setContextText(e.target.value)}
-            placeholder="コンテキストを貼り付けてください（コンテキストライブラリから自動セットされます）"
+            placeholder="AIに読み込ませる素材を貼り付けてください（🧠AI参照素材から自動セットされます）"
             style={{ width: '100%', minHeight: 140, padding: 10, background: 'var(--bg-primary)', border: '1px solid var(--border)', borderRadius: 8, color: 'var(--text-primary)', fontSize: 13, outline: 'none', boxSizing: 'border-box', fontFamily: 'inherit', lineHeight: 1.7 }}
           />
         </div>

@@ -37,7 +37,7 @@ export async function POST(req: NextRequest) {
 
   if (saves.length === 0) {
     return NextResponse.json(
-      { error: '保存済みコンテキストがありません' },
+      { error: '保存済みの素材がありません' },
       { status: 400 },
     );
   }

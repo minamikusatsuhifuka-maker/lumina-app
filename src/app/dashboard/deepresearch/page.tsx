@@ -209,7 +209,7 @@ function BatchExpandedContent({ result }: { result: BatchResult }) {
 
   const currentText =
     viewMode === 'research' ? result.research_text : detailContext;
-  const currentLabel = viewMode === 'research' ? 'リサーチ本文' : '詳細コンテキスト';
+  const currentLabel = viewMode === 'research' ? 'リサーチ本文' : 'AI参照素材';
 
   const handleCopy = async (text: string, key: string) => {
     if (!text) return;
@@ -329,7 +329,7 @@ function BatchExpandedContent({ result }: { result: BatchResult }) {
           📄 リサーチ本文
         </button>
         <button onClick={() => setViewMode('context')} style={tabStyle(viewMode === 'context')}>
-          🧠 詳細コンテキスト
+          🧠 AI参照素材
         </button>
         <div style={{ marginLeft: 'auto', display: 'flex', gap: 6 }}>
           <button
@@ -1134,7 +1134,7 @@ export default function DeepResearchPage() {
     const dateStr = now.toISOString().slice(0, 10);
     const timeStr = now.toTimeString().slice(0, 5).replace(':', '');
 
-    const safeTopic = (topic ?? 'コンテキスト')
+    const safeTopic = (topic ?? 'AI参照素材')
       .replace(/[\\/:*?"<>|]/g, '')
       .replace(/\s+/g, '_')
       .slice(0, 40);
@@ -1142,7 +1142,7 @@ export default function DeepResearchPage() {
     const filename = `${dateStr}_${timeStr}_${safeTopic}.md`;
 
     const mdContent = `---
-title: ${topic ?? 'AI背景情報コンテキスト'}
+title: ${topic ?? 'AI参照素材'}
 generated_at: ${now.toISOString()}
 source: xLUMINA Deep Research
 type: ai_context
@@ -1889,9 +1889,9 @@ ${contextText}
                     fontSize: 12,
                     fontWeight: 500,
                   }}
-                  title="リサーチ結果をコンテキストとして保存し、各スタジオでAIに読み込ませられます"
+                  title="リサーチ結果をAI参照素材として保存し、各スタジオでAIに読み込ませられます"
                 >
-                  🧠 コンテキストとして保存
+                  🧠 AI参照素材として保存
                 </button>
 
                 {/* ドロップダウン形式のモーダル */}
@@ -1919,7 +1919,7 @@ ${contextText}
                         color: 'var(--text-primary)',
                       }}
                     >
-                      🧠 コンテキストとして保存
+                      🧠 AI参照素材として保存
                     </h3>
 
                     {/* タイトル */}
@@ -2082,7 +2082,7 @@ ${contextText}
                     gap: 4,
                   }}
                 >
-                  ✅ コンテキストに保存しました
+                  ✅ AI参照素材に保存しました
                 </span>
               )}
             </div>
@@ -2478,7 +2478,7 @@ ${contextText}
                   </div>
                   <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' as const }}>
                     <a href="/dashboard/context-library" target="_blank" rel="noopener noreferrer" style={{ fontSize: 12, color: 'var(--accent)', textDecoration: 'none', fontWeight: 600 }}>
-                      🧠 コンテキストライブラリで確認 →
+                      🧠 AI参照素材で確認 →
                     </a>
                     <a href="/dashboard/knowledge-tree" target="_blank" rel="noopener noreferrer" style={{ fontSize: 12, color: 'var(--accent)', textDecoration: 'none', fontWeight: 600 }}>
                       🌳 知識ツリーで確認 →
@@ -2816,7 +2816,7 @@ ${contextText}
                     boxShadow: '0 4px 12px rgba(108,99,255,0.25)',
                   }}
                 >
-                  🧠 コンテキストとして最適化
+                  🧠 AI参照用に最適化
                 </button>
               </div>
             )}
@@ -2824,7 +2824,7 @@ ${contextText}
             {optimizing && (
               <div style={{ textAlign: 'center', padding: 24 }}>
                 <div style={{ width: 32, height: 32, border: '3px solid var(--border-accent)', borderTopColor: 'var(--accent)', borderRadius: '50%', animation: 'spin 0.8s linear infinite', margin: '0 auto 12px' }} />
-                <div style={{ color: 'var(--text-secondary)', fontWeight: 600 }}>コンテキストを生成中...</div>
+                <div style={{ color: 'var(--text-secondary)', fontWeight: 600 }}>AI参照素材を生成中...</div>
               </div>
             )}
 
@@ -2832,7 +2832,7 @@ ${contextText}
               <div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12, flexWrap: 'wrap' as const, gap: 8 }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                    <span style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-primary)' }}>🧠 コンテキスト</span>
+                    <span style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-primary)' }}>🧠 AI参照素材</span>
                     {saveStatus && <span style={{ fontSize: 12, color: '#00d4b8', fontWeight: 600 }}>{saveStatus}</span>}
                   </div>
                   <div style={{ display: 'flex', gap: 6 }}>
@@ -2910,7 +2910,7 @@ ${contextText}
 
                 <FullscreenReader
                   open={contextReaderOpen}
-                  title="🧠 コンテキスト"
+                  title="🧠 AI参照素材"
                   content={contextText}
                   onClose={() => setContextReaderOpen(false)}
                 />
@@ -3210,8 +3210,8 @@ ${contextText}
                       const labels: Record<TopicStatus, { text: string; color: string }> = {
                         pending: { text: '待機中...', color: 'var(--text-muted)' },
                         researching: { text: '🔭 ディープリサーチ中...', color: '#6c63ff' },
-                        generating: { text: '🧠 AIコンテキスト生成中...', color: '#8b5cf6' },
-                        done: { text: '✓ リサーチ・コンテキスト保存完了', color: '#1D9E75' },
+                        generating: { text: '🧠 AI参照素材を生成中...', color: '#8b5cf6' },
+                        done: { text: '✓ リサーチ・AI参照素材の保存完了', color: '#1D9E75' },
                         error: { text: '✗ エラーが発生しました', color: '#ef4444' },
                       };
                       const isPulsing = status === 'researching' || status === 'generating';
@@ -3353,7 +3353,7 @@ ${contextText}
                     borderTop: '1px solid rgba(29,158,117,0.3)',
                   }}>
                     <div style={{ fontSize: 13, fontWeight: 700, color: '#1D9E75', marginBottom: 8 }}>
-                      🎉 全件完了！コンテキストライブラリに保存されました
+                      🎉 全件完了！AI参照素材に保存されました
                     </div>
                     <a
                       href="/dashboard/context-library"
@@ -3370,7 +3370,7 @@ ${contextText}
                         fontWeight: 700,
                       }}
                     >
-                      📚 コンテキストライブラリで確認する →
+                      🧠 AI参照素材で確認する →
                     </a>
                   </div>
                 )}
@@ -3466,7 +3466,7 @@ ${contextText}
                         rel="noopener noreferrer"
                         style={{ padding: '4px 10px', background: 'var(--accent-soft)', border: '1px solid var(--border-accent)', color: 'var(--text-primary)', borderRadius: 6, fontSize: 11, fontWeight: 600, textDecoration: 'none' }}
                       >
-                        📚 コンテキスト確認
+                        🧠 AI参照素材を確認
                       </a>
                       {(job.status === 'pending' && job.schedule_type !== 'cron') && (
                         <button

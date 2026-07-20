@@ -141,7 +141,7 @@ export default function LPGeneratorPage() {
         setForm(prev => ({
           ...prev,
           productName: prev.productName || (topic || ''),
-          problem: prev.problem || `（コンテキストを参照）${text.slice(0, 200)}`,
+          problem: prev.problem || `（AI参照素材を参照）${text.slice(0, 200)}`,
         }));
       };
       if (contextId) {

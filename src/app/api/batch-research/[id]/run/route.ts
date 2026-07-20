@@ -496,7 +496,7 @@ async function sendCompletionEmail(
 【トピック別結果】
 ${topicList}
 
-コンテキストライブラリで確認:
+AI参照素材で確認:
 https://xlumina.jp/dashboard/context-library?batch=${jobId}`,
     }),
   });
