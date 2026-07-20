@@ -14,16 +14,22 @@ import { markdownToReadableText } from '@/lib/markdownToText';
 import FullscreenReader from '@/components/text-analysis/FullscreenReader';
 import { cardActionBtnStyle } from '@/components/text-analysis/cardActionButtonStyle';
 
+// 175: 一覧APIは本文(context_text)を返さない。char_count のみ受け取り、
+// 本文が必要な操作（全文表示・コピー・DL・編集・活用等）の時に ?id= で単体取得してマージする。
 type ContextSave = {
   id: number;
   topic: string;
-  context_text: string;
-  research_text: string | null;
+  context_text?: string;
+  research_text?: string | null;
   tags: string[] | null;
   created_at: string;
   is_favorite?: boolean;
   category?: string;
+  char_count?: number | string;
 };
+
+// 1ページの取得件数（165ギャラリーの「もっと見る」方式と同系統）
+const PAGE_SIZE = 30;
 
 interface AutoCategorizeResult {
   categories?: Array<{
@@ -106,8 +112,17 @@ export default function ContextLibraryPanel() {
   const [processingId, setProcessingId] = useState<{ id: number; mode: 'summary' | 'detail' } | null>(null);
   const [processedId, setProcessedId] = useState<{ id: number; mode: 'summary' | 'detail' } | null>(null);
   const [toast, setToast] = useState<string>('');
-  // 実際の総件数（取得件数の上限=limitで切れていても正しい件数を表示するため。APIのCOUNT(*) OVERから取得）
+  // フィルタ条件での総件数（サーバ側COUNTから取得。「表示N / 全M件」と「もっと見る」の判定に使用）
   const [totalCount, setTotalCount] = useState<number | null>(null);
+  // フィルタ無しの全件数（カテゴリ概要「すべて」・空状態判定・自動カテゴライズ件数の母数）
+  const [allTotal, setAllTotal] = useState(0);
+  // 全件を母数にしたカテゴリ別件数・タグ一覧（サーバ集計。取得済みページだけを母数にしない）
+  const [serverCategories, setServerCategories] = useState<{ category: string; count: number }[]>([]);
+  const [allTags, setAllTags] = useState<string[]>([]);
+  // 「もっと見る」読み込み中
+  const [loadingMore, setLoadingMore] = useState(false);
+  // 検索のデバウンス（入力のたびにサーバ検索しない）
+  const [debouncedSearch, setDebouncedSearch] = useState('');
   // カテゴリ概要（📁カテゴリ概要＋🤖AIが自動カテゴライズ。テキスト分析と同じ挙動）
   const [activeCategory, setActiveCategory] = useState<string | null>(null);
   const [showCategoryGrid, setShowCategoryGrid] = useState(false);
@@ -146,33 +161,54 @@ export default function ContextLibraryPanel() {
     } catch {}
   }, []);
 
-  const fetchItems = async () => {
-    setLoading(true);
+  // 検索入力を300msデバウンスしてサーバ検索へ
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedSearch(search), 300);
+    return () => clearTimeout(t);
+  }, [search]);
+
+  // 一覧取得（175: サーバ側フィルタ＋offsetページング。append=true で「もっと見る」追記）
+  const fetchPage = async (offset: number, append: boolean) => {
+    if (append) setLoadingMore(true); else setLoading(true);
     try {
-      const res = await fetch('/api/context-saves?limit=100');
+      const p = new URLSearchParams();
+      p.set('limit', String(PAGE_SIZE));
+      p.set('offset', String(offset));
+      if (debouncedSearch.trim()) p.set('q', debouncedSearch.trim());
+      if (tagFilter) p.set('filterTag', tagFilter);
+      if (favoriteOnly) p.set('favorite', '1');
+      if (activeCategory !== null) p.set('category', activeCategory);
+      const res = await fetch(`/api/context-saves?${p.toString()}`);
       if (res.ok) {
         const data = await res.json();
-        const list = Array.isArray(data) ? data : [];
-        setItems(list);
-        // total_count はAPIのCOUNT(*) OVERから返る（bigint→文字列の場合があるためNumber変換）
-        setTotalCount(list.length > 0 && list[0].total_count != null ? Number(list[0].total_count) : list.length);
+        const list: ContextSave[] = Array.isArray(data.items) ? data.items : [];
+        setItems(prev => (append ? [...prev, ...list] : list));
+        setTotalCount(Number(data.total_count) || 0);
+        setAllTotal(Number(data.all_total) || 0);
+        setServerCategories(Array.isArray(data.categories) ? data.categories : []);
+        setAllTags(Array.isArray(data.all_tags) ? data.all_tags : []);
       }
     } catch {
-      // 取得失敗時は空配列のまま
+      // 取得失敗時は現状維持（追記失敗しても既存表示は壊さない）
     } finally {
-      setLoading(false);
+      if (append) setLoadingMore(false); else setLoading(false);
     }
   };
 
-  useEffect(() => { fetchItems(); }, []);
-
-  // items 取得後、各カードに対する「デフォルト登録機能マップ」を一括取得
+  // フィルタ変更時は先頭ページから取り直し（初回ロード含む）
   useEffect(() => {
-    if (items.length === 0) return;
+    fetchPage(0, false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [debouncedSearch, tagFilter, favoriteOnly, activeCategory]);
+
+  // items 取得後、各カードに対する「デフォルト登録機能マップ」を取得（未取得のIDのみ追加取得）
+  useEffect(() => {
+    const missing = items.filter((it) => defaultMap[it.id] === undefined);
+    if (missing.length === 0) return;
     let cancelled = false;
     (async () => {
       const map: Record<number, string[]> = {};
-      await Promise.all(items.map(async (it) => {
+      await Promise.all(missing.map(async (it) => {
         try {
           const res = await fetch(`/api/feature-default-contexts/by-context-save?contextSaveId=${it.id}`);
           if (res.ok) {
@@ -183,36 +219,39 @@ export default function ContextLibraryPanel() {
           map[it.id] = [];
         }
       }));
-      if (!cancelled) setDefaultMap(map);
+      if (!cancelled) setDefaultMap(prev => ({ ...prev, ...map }));
     })();
     return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [items]);
 
-  // タグ一覧を集計
-  const allTags = useMemo(() => {
-    const set = new Set<string>();
-    items.forEach(it => (it.tags || []).forEach(t => set.add(t)));
-    return Array.from(set);
-  }, [items]);
+  // カテゴリ一覧（全件を母数にしたサーバ集計から。'general' は名前付きカードに出さない）
+  const uniqueCategories = useMemo(
+    () => serverCategories.map((c) => c.category).filter((c) => c && c.trim() && c !== 'general'),
+    [serverCategories],
+  );
 
-  // カテゴリ一覧を集計（テキスト分析の uniqueFolders 相当）
-  const uniqueCategories = useMemo(() => {
-    const set = new Set<string>();
-    items.forEach((it) => {
-      const c = it.category;
-      if (c && c.trim() && c !== 'general') set.add(c);
-    });
-    return Array.from(set);
-  }, [items]);
+  // 本文の遅延取得（一覧APIは本文を返さないため、必要時に ?id= で単体取得して items にマージ）
+  const ensureFullText = async (item: ContextSave): Promise<string> => {
+    if (typeof item.context_text === 'string') return item.context_text;
+    const res = await fetch(`/api/context-saves?id=${item.id}`);
+    if (!res.ok) throw new Error('本文の取得に失敗しました');
+    const data = await res.json();
+    const text: string = data.context_text ?? '';
+    setItems(prev => prev.map(it => (
+      it.id === item.id ? { ...it, context_text: text, research_text: data.research_text ?? null } : it
+    )));
+    return text;
+  };
 
-  // AIで保存済み全件を自動カテゴライズする
+  // AIで保存済み全件を自動カテゴライズする（件数は全件母数）
   const handleAutoCategorize = async () => {
-    if (items.length === 0) {
+    if (allTotal === 0) {
       flashToast('❌ 保存済みコンテキストがありません');
       return;
     }
     const ok = window.confirm(
-      `${items.length}件のコンテキストをAIが自動カテゴライズします。\n既存のカテゴリは上書きされます。よろしいですか？`,
+      `${allTotal}件のコンテキストをAIが自動カテゴライズします。\n既存のカテゴリは上書きされます。よろしいですか？`,
     );
     if (!ok) return;
 
@@ -233,8 +272,8 @@ export default function ContextLibraryPanel() {
       flashToast(
         `✅ ${data.updatedCount ?? 0}件を${data.categories?.length ?? 0}カテゴリに分類しました`,
       );
-      // 一覧をリロード
-      fetchItems();
+      // 一覧をリロード（先頭ページから取り直し）
+      fetchPage(0, false);
     } catch (err) {
       const message = err instanceof Error ? err.message : '通信エラー';
       flashToast(`❌ ${message}`);
@@ -243,26 +282,13 @@ export default function ContextLibraryPanel() {
     }
   };
 
-  // フィルター適用
-  const filtered = useMemo(() => {
-    return items.filter(it => {
-      if (search.trim()) {
-        const q = search.toLowerCase();
-        if (!it.topic.toLowerCase().includes(q) && !it.context_text.toLowerCase().includes(q)) {
-          return false;
-        }
-      }
-      if (tagFilter && !(it.tags || []).includes(tagFilter)) return false;
-      if (favoriteOnly && !it.is_favorite) return false;
-      if (activeCategory !== null && (it.category ?? 'general') !== activeCategory) return false;
-      return true;
-    });
-  }, [items, search, tagFilter, favoriteOnly, activeCategory]);
+  // 絞り込みはサーバ側で全件を母数に実施済み（items がそのまま表示対象）
 
   const handleCopy = async (item: ContextSave) => {
     try {
+      const text = await ensureFullText(item);
       // コピー内容にも LaTeX 正規化を適用（テキスト分析側と挙動を揃える）
-      await copyToClipboard(sanitizeLatex(item.context_text));
+      await copyToClipboard(sanitizeLatex(text));
       setCopiedId(item.id);
       setTimeout(() => setCopiedId(null), 2000);
     } catch {}
@@ -280,11 +306,12 @@ export default function ContextLibraryPanel() {
     if (downloadingId !== null) return; // 同時押し防止（MDと共用）
     setDownloadingId(item.id);
     try {
+      const text = await ensureFullText(item);
       const label = 'コンテキスト';
       const fallback = item.topic || label;
-      const autoTitle = await generateTitleWithTimeout(item.context_text, label, fallback);
+      const autoTitle = await generateTitleWithTimeout(text, label, fallback);
       const safeTitle = sanitizeFilename(autoTitle);
-      const txtContent = `${autoTitle}\n\n${sanitizeLatex(item.context_text)}`;
+      const txtContent = `${autoTitle}\n\n${sanitizeLatex(text)}`;
       triggerDownload(
         `${safeTitle}_${yyyymmdd()}.txt`,
         markdownToReadableText(txtContent),
@@ -303,11 +330,12 @@ export default function ContextLibraryPanel() {
     if (downloadingId !== null) return; // 同時押し防止（txtと共用）
     setDownloadingId(item.id);
     try {
+      const text = await ensureFullText(item);
       const label = 'コンテキスト';
       const fallback = item.topic || label;
-      const autoTitle = await generateTitleWithTimeout(item.context_text, label, fallback);
+      const autoTitle = await generateTitleWithTimeout(text, label, fallback);
       const safeTitle = sanitizeFilename(autoTitle);
-      const mdContent = `# ${autoTitle}\n\n${sanitizeLatex(item.context_text)}`;
+      const mdContent = `# ${autoTitle}\n\n${sanitizeLatex(text)}`;
       triggerDownload(
         `${safeTitle}_${yyyymmdd()}.md`,
         mdContent,
@@ -328,15 +356,16 @@ export default function ContextLibraryPanel() {
     if (downloadingId !== null) return; // 同時押し防止（txt/MDと共用）
     setDownloadingId(item.id);
     try {
+      const text = await ensureFullText(item);
       const label = 'コンテキスト';
       const fallback = item.topic || label;
-      const autoTitle = await generateTitleWithTimeout(item.context_text, label, fallback);
+      const autoTitle = await generateTitleWithTimeout(text, label, fallback);
       const safeTitle = sanitizeFilename(autoTitle);
       const { downloadMarkdownAsDocx } = await import('@/lib/markdownToDocx');
       await downloadMarkdownAsDocx({
         title: autoTitle,
         metaLines: [],
-        markdown: sanitizeLatex(item.context_text),
+        markdown: sanitizeLatex(text),
         fileName: `${safeTitle}_${yyyymmdd()}.docx`,
       });
       flashToast('✅ Wordファイルをダウンロードしました');
@@ -348,11 +377,17 @@ export default function ContextLibraryPanel() {
   };
 
   // 「✏️ 編集」: 現在の topic/context_text を編集 state にコピーして編集モードへ（展開も保証）
-  const startEdit = (item: ContextSave) => {
+  // 本文は一覧に載っていないため、先に単体取得してから編集フォームへ入れる。
+  const startEdit = async (item: ContextSave) => {
     setExpandedId(item.id);
-    setEditingId(item.id);
-    setEditTitle(item.topic || '');
-    setEditContent(item.context_text);
+    try {
+      const text = await ensureFullText(item);
+      setEditingId(item.id);
+      setEditTitle(item.topic || '');
+      setEditContent(text);
+    } catch {
+      flashToast('❌ 本文の取得に失敗しました', 4000);
+    }
   };
 
   // 編集内容を保存（PATCH action=update。topic + context_text のみ更新）
@@ -377,7 +412,7 @@ export default function ContextLibraryPanel() {
       const newTopic = editTitle.trim();
       const newContent = editContent.trim();
       setItems(prev =>
-        prev.map(it => (it.id === id ? { ...it, topic: newTopic, context_text: newContent } : it)),
+        prev.map(it => (it.id === id ? { ...it, topic: newTopic, context_text: newContent, char_count: newContent.length } : it)),
       );
       setEditingId(null);
       flashToast('✅ 更新しました');
@@ -400,6 +435,11 @@ export default function ContextLibraryPanel() {
         body: JSON.stringify({ action: 'toggle_favorite', id: item.id }),
       });
       if (!res.ok) throw new Error();
+      // お気に入り絞り込み中に解除した場合は一覧から除外（サーバ絞り込みと表示を一致させる）
+      if (favoriteOnly && !next) {
+        setItems(prev => prev.filter(it => it.id !== item.id));
+        setTotalCount(t => (t === null ? null : Math.max(0, t - 1)));
+      }
     } catch {
       setItems(prev => prev.map(it => it.id === item.id ? { ...it, is_favorite: !next } : it));
       setToast('❌ お気に入りの更新に失敗しました');
@@ -411,7 +451,21 @@ export default function ContextLibraryPanel() {
     if (!confirm('このコンテキストを削除しますか？')) return;
     try {
       const res = await fetch(`/api/context-saves?id=${id}`, { method: 'DELETE' });
-      if (res.ok) setItems(prev => prev.filter(it => it.id !== id));
+      if (res.ok) {
+        // 一覧・総件数・カテゴリ集計をローカルでも同期（次回フェッチで正値に戻る）
+        const target = items.find(it => it.id === id);
+        setItems(prev => prev.filter(it => it.id !== id));
+        setTotalCount(t => (t === null ? null : Math.max(0, t - 1)));
+        setAllTotal(t => Math.max(0, t - 1));
+        if (target) {
+          const cat = target.category ?? 'general';
+          setServerCategories(prev =>
+            prev
+              .map(c => (c.category === cat ? { ...c, count: Number(c.count) - 1 } : c))
+              .filter(c => Number(c.count) > 0),
+          );
+        }
+      }
     } catch {}
   };
 
@@ -421,6 +475,7 @@ export default function ContextLibraryPanel() {
     setProcessingId({ id: item.id, mode });
 
     try {
+      const text = await ensureFullText(item);
       // 1) AI生成
       const genRes = await fetch('/api/context-library/summarize', {
         method: 'POST',
@@ -428,7 +483,7 @@ export default function ContextLibraryPanel() {
         body: JSON.stringify({
           mode,
           title: item.topic ?? '無題',
-          content: item.context_text ?? '',
+          content: text,
           tags: item.tags ?? [],
         }),
       });
@@ -480,9 +535,14 @@ export default function ContextLibraryPanel() {
     }
   };
 
-  const goToTool = (item: ContextSave, tool: 'write' | 'sns-post' | 'lp' | 'materials') => {
+  const goToTool = async (item: ContextSave, tool: 'write' | 'sns-post' | 'lp' | 'materials') => {
+    // 本文は遅延取得。取得に失敗しても遷移先は ?contextId= から単体取得できるため遷移自体は続行。
+    let text = '';
     try {
-      sessionStorage.setItem('lumina_context_text', item.context_text);
+      text = await ensureFullText(item);
+    } catch {}
+    try {
+      sessionStorage.setItem('lumina_context_text', text);
       sessionStorage.setItem('lumina_context_topic', item.topic);
     } catch {}
     const toolPath: Record<typeof tool, string> = {
@@ -695,12 +755,13 @@ export default function ContextLibraryPanel() {
               すべて
             </span>
             <span style={{ fontSize: 14, fontWeight: 700, color: 'var(--accent)' }}>
-              {items.length}
+              {allTotal}
             </span>
           </button>
 
           {uniqueCategories.map((category) => {
-            const count = items.filter((it) => it.category === category).length;
+            // 件数は全件を母数にしたサーバ集計（取得済みページだけを数えない）
+            const count = Number(serverCategories.find((c) => c.category === category)?.count ?? 0);
             const color = getCategoryColor(category, uniqueCategories);
             const active = activeCategory === category;
             return (
@@ -808,7 +869,7 @@ export default function ContextLibraryPanel() {
           ⭐ お気に入り
         </button>
         <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>
-          {filtered.length} / {totalCount ?? items.length} 件
+          表示{items.length} / 全{totalCount ?? items.length}件
         </span>
       </div>
 
@@ -818,7 +879,7 @@ export default function ContextLibraryPanel() {
         </div>
       )}
 
-      {!loading && filtered.length === 0 && (
+      {!loading && items.length === 0 && (
         <div style={{
           background: 'var(--bg-secondary)',
           border: '1px dashed var(--border)',
@@ -828,7 +889,7 @@ export default function ContextLibraryPanel() {
         }}>
           <div style={{ fontSize: 32, marginBottom: 12 }}>🧠</div>
           <div style={{ color: 'var(--text-secondary)', fontWeight: 600, marginBottom: 6 }}>
-            {items.length === 0 ? 'まだ保存されたコンテキストはありません' : '条件に一致するコンテキストがありません'}
+            {allTotal === 0 ? 'まだ保存されたコンテキストはありません' : '条件に一致するコンテキストがありません'}
           </div>
           <div style={{ color: 'var(--text-muted)', fontSize: 13 }}>
             ディープリサーチ実行後、「🧠 コンテキストとして最適化」→「💾 保存」でこちらに追加されます。
@@ -856,7 +917,7 @@ export default function ContextLibraryPanel() {
       )}
 
       <div style={{ display: 'grid', gap: 14 }}>
-        {filtered.map(item => {
+        {items.map(item => {
           const expanded = expandedId === item.id;
           return (
             <div
@@ -891,7 +952,7 @@ export default function ContextLibraryPanel() {
                     })()}
                   </div>
                   <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>
-                    📅 {fmtDate(item.created_at)} ・{item.context_text.length.toLocaleString()}文字
+                    📅 {fmtDate(item.created_at)} ・{Number(item.char_count ?? item.context_text?.length ?? 0).toLocaleString()}文字
                     {item.tags && item.tags.length > 0 && (
                       <span style={{ marginLeft: 12 }}>
                         {item.tags.map(t => (
@@ -928,13 +989,25 @@ export default function ContextLibraryPanel() {
                   flex-wrap で自然に2行になる（テキスト分析と同一実装）。 */}
               <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' as const, alignItems: 'center' }}>
                 <button
-                  onClick={() => setExpandedId(expanded ? null : item.id)}
+                  onClick={async () => {
+                    if (expanded) { setExpandedId(null); return; }
+                    setExpandedId(item.id);
+                    // 本文は一覧に載っていないため展開時に単体取得（取得済みなら即表示）
+                    try { await ensureFullText(item); } catch { flashToast('❌ 本文の取得に失敗しました', 4000); }
+                  }}
                   style={cardActionBtnStyle()}
                 >
                   {expanded ? '▲ 閉じる' : '▼ 全文表示'}
                 </button>
                 <button
-                  onClick={() => setReaderItem(item)}
+                  onClick={async () => {
+                    try {
+                      const text = await ensureFullText(item);
+                      setReaderItem({ ...item, context_text: text });
+                    } catch {
+                      flashToast('❌ 本文の取得に失敗しました', 4000);
+                    }
+                  }}
                   title="全画面のリーダー表示で読む"
                   style={cardActionBtnStyle()}
                 >
@@ -1101,6 +1174,11 @@ export default function ContextLibraryPanel() {
                         </button>
                       </div>
                     </div>
+                  ) : item.context_text === undefined ? (
+                    // 単体取得中（一覧APIは本文を返さないため展開時にフェッチ）
+                    <div style={{ textAlign: 'center', padding: 24, color: 'var(--text-muted)', fontSize: 13 }}>
+                      ⏳ 本文を読み込み中...
+                    </div>
                   ) : (
                     // 本文(AI生成Markdown)は共通レンダラで見出し・太字・箇条書きを描画（生記号を出さない）
                     <div
@@ -1231,6 +1309,30 @@ export default function ContextLibraryPanel() {
           );
         })}
       </div>
+
+      {/* もっと見る（165ギャラリーと同方式のoffsetページング。全件に到達できる） */}
+      {!loading && totalCount !== null && items.length < totalCount && (
+        <div style={{ textAlign: 'center', marginTop: 20 }}>
+          <button
+            type="button"
+            onClick={() => fetchPage(items.length, true)}
+            disabled={loadingMore}
+            style={{
+              padding: '10px 28px',
+              borderRadius: 10,
+              border: '1px solid var(--border-accent)',
+              background: 'var(--accent-soft)',
+              color: 'var(--text-primary)',
+              fontSize: 13,
+              fontWeight: 600,
+              cursor: loadingMore ? 'not-allowed' : 'pointer',
+              opacity: loadingMore ? 0.6 : 1,
+            }}
+          >
+            {loadingMore ? '⏳ 読み込み中...' : `▼ もっと見る（${items.length} / ${totalCount}）`}
+          </button>
+        </div>
+      )}
 
       {/* 全画面リーダー（コンテキスト本文を読み物表示） */}
       <FullscreenReader

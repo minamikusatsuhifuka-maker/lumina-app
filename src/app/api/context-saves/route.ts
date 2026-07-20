@@ -71,7 +71,7 @@ export async function GET(req: NextRequest) {
   try {
     const { searchParams } = new URL(req.url);
     const id = searchParams.get('id');
-    const limit = Math.min(parseInt(searchParams.get('limit') || '20', 10), 100);
+    const limit = Math.min(parseInt(searchParams.get('limit') || '30', 10), 100);
     const offset = parseInt(searchParams.get('offset') || '0', 10);
 
     const sql = neon(process.env.DATABASE_URL!);
@@ -104,18 +104,62 @@ export async function GET(req: NextRequest) {
       return NextResponse.json(rows);
     }
 
-    // 一覧取得（お気に入りを上に、その後 created_at DESC）
-    // total_count: 実際の総件数（COUNT(*) OVER）。limit で切れていてもUI側で正しい件数を表示するため。
-    const rows = await sql`
-      SELECT id, topic, context_text, research_text, tags, created_at, is_favorite, favorited_at,
-             COALESCE(category, 'general') AS category,
-             COUNT(*) OVER() AS total_count
-      FROM context_saves
-      WHERE user_id = ${userId}
-      ORDER BY is_favorite DESC, created_at DESC
-      LIMIT ${limit} OFFSET ${offset}
-    `;
-    return NextResponse.json(rows);
+    // 一覧取得（175: 全件到達可能なページング方式）
+    // - 並び順は created_at DESC に統一（新規保存が必ず先頭に来る）
+    // - 検索(q)・タグ(filterTag)・お気に入り(favorite=1)・カテゴリ(category)は全件を母数にサーバ側で絞る
+    // - 一覧は本文(context_text/research_text)を返さず char_count のみ（開いた時に ?id= で単体取得）
+    // - total_count: フィルタ条件での総件数 / all_total・categories・all_tags: 全件母数（カテゴリ概要・タグ一覧用）
+    const qRaw = searchParams.get('q');
+    const qLike = qRaw && qRaw.trim() ? `%${qRaw.trim()}%` : null;
+    const tagV = searchParams.get('filterTag')?.trim() || null;
+    const favV = searchParams.get('favorite') === '1' ? true : null;
+    const catV = searchParams.get('category')?.trim() || null;
+
+    const [rows, countRows, catRows, tagRows] = await Promise.all([
+      sql`
+        SELECT id, topic, tags, created_at, is_favorite, favorited_at,
+               COALESCE(category, 'general') AS category,
+               LENGTH(context_text) AS char_count
+        FROM context_saves
+        WHERE user_id = ${userId}
+          AND (${qLike}::text IS NULL OR topic ILIKE ${qLike} OR context_text ILIKE ${qLike})
+          AND (${tagV}::text IS NULL OR ${tagV} = ANY(tags))
+          AND (${favV}::boolean IS NULL OR is_favorite = ${favV})
+          AND (${catV}::text IS NULL OR COALESCE(category, 'general') = ${catV})
+        ORDER BY created_at DESC
+        LIMIT ${limit} OFFSET ${offset}
+      `,
+      sql`
+        SELECT COUNT(*)::int AS n
+        FROM context_saves
+        WHERE user_id = ${userId}
+          AND (${qLike}::text IS NULL OR topic ILIKE ${qLike} OR context_text ILIKE ${qLike})
+          AND (${tagV}::text IS NULL OR ${tagV} = ANY(tags))
+          AND (${favV}::boolean IS NULL OR is_favorite = ${favV})
+          AND (${catV}::text IS NULL OR COALESCE(category, 'general') = ${catV})
+      `,
+      sql`
+        SELECT COALESCE(category, 'general') AS category, COUNT(*)::int AS count
+        FROM context_saves
+        WHERE user_id = ${userId}
+        GROUP BY 1
+        ORDER BY 2 DESC
+      `,
+      sql`
+        SELECT DISTINCT t.tag
+        FROM context_saves, LATERAL unnest(tags) AS t(tag)
+        WHERE user_id = ${userId}
+        ORDER BY 1
+      `,
+    ]);
+
+    return NextResponse.json({
+      items: rows,
+      total_count: countRows[0]?.n ?? 0,
+      all_total: catRows.reduce((s: number, r: any) => s + Number(r.count), 0),
+      categories: catRows,
+      all_tags: tagRows.map((r: any) => r.tag),
+    });
   } catch (e: any) {
     return NextResponse.json({ error: e.message || '取得に失敗しました' }, { status: 500 });
   }
