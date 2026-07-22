@@ -294,9 +294,10 @@ export async function triageMemo(
   let fallback = false;
   try {
     // responseMimeType:'application/json' で本文をJSONに固定。
-    // gemini-3.5-flash は思考が既定ONでトークンを消費し、枠が小さいとJSONが途中で切れて
+    // Gemini 3.x は思考が既定ONでトークンを消費し、枠が小さいとJSONが途中で切れて
     // importance/goal_ref が欠落→FIELD_DEFAULT(3)・目標未設定に落ちる症状が出るため、
     // JSON固定 + 枠を 4096 に拡張して欠落を防ぐ(判定方針自体は不変)。
+    // 178以降は generateWithModel 既定の thinkingLevel:low も効くためさらに安全側。
     const raw = await generateWithModel('gemini', prompt, undefined, 4096, { responseMimeType: 'application/json' });
     parsed = robustJsonParse<TriageRaw>(raw);
   } catch {

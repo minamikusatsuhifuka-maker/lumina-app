@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
 import { GoogleGenerativeAI } from '@google/generative-ai';
+import { GEMINI_TEXT_MODEL } from '@/lib/ai-models';
 import { neon } from '@neondatabase/serverless';
 import { robustJsonParse } from '@/lib/ai-json-parser';
 import { ensureReviewManagementSchema } from '@/lib/review-management';
@@ -82,7 +83,7 @@ ${reviewList}
 全${reviews.length}件すべてについて results に含めてください。`;
 
     const genAI = new GoogleGenerativeAI(apiKey);
-    const model = genAI.getGenerativeModel({ model: 'gemini-3.5-flash' });
+    const model = genAI.getGenerativeModel({ model: GEMINI_TEXT_MODEL });
     const result = await model.generateContent({
       contents: [{ role: 'user', parts: [{ text: prompt }] }],
       // truncation対策：JSON固定出力＋十分な出力枠を確保

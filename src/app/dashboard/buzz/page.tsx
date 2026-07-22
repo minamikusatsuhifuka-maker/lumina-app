@@ -1,4 +1,5 @@
 'use client';
+import { GEMINI_TEXT_MODEL_LABEL } from '@/lib/ai-models';
 import { useState } from 'react';
 import { ProgressBar } from '@/components/ProgressBar';
 import { useProgress } from '@/components/useProgress';
@@ -445,7 +446,7 @@ ${scenarios.map((sc: string) => `- ${sc}`).join('\n')}
       <ProgressBar loading={progressLoading} progress={progress} label="📊 バズり要素を分析中..." />
       <h1 style={{ fontSize: 28, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 8 }}>📊 バズり分析</h1>
       <p style={{ color: 'var(--text-muted)', marginBottom: 16 }}>
-        Claude AI または Gemini 3.5 Flash が note・Web 記事のバズり要素を3つのモードで言語化します。
+        Claude AI または {GEMINI_TEXT_MODEL_LABEL} が note・Web 記事のバズり要素を3つのモードで言語化します。
       </p>
 
       {/* タブ */}

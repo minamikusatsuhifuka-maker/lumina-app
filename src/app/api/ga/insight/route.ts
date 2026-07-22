@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
 import { GoogleGenerativeAI } from '@google/generative-ai';
+import { GEMINI_TEXT_MODEL } from '@/lib/ai-models';
 
 export const runtime = 'nodejs';
 export const maxDuration = 60;
@@ -87,7 +88,7 @@ ${(topPages || []).map((p: { path: string; sessions: number }, i: number) => `${
 4. **xluminaFeature / xluminaUsage**: xLUMINAが持つ機能（文章作成、HP内容生成、コピー生成、ABテスト生成、ペルソナ生成、LP自動生成、画像プロンプト、ストーリーテリング、ディープリサーチ、Web情報収集、経営インテリジェンス、業界レポート）を活用する提案を必ず含める。`;
 
     const genAI = new GoogleGenerativeAI(apiKey);
-    const model = genAI.getGenerativeModel({ model: 'gemini-3.5-flash' });
+    const model = genAI.getGenerativeModel({ model: GEMINI_TEXT_MODEL });
     const result = await model.generateContent({
       contents: [{ role: 'user', parts: [{ text: prompt }] }],
     });

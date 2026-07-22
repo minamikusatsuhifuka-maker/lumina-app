@@ -49,9 +49,9 @@ export async function POST(req: NextRequest) {
 ${sourceTitle ? `タイトル: ${sourceTitle}\n` : ''}本文:
 ${excerpt}`;
 
-    // Gemini 3.x は思考が既定ONで、旧SDK(generateWithModel=@google/generative-ai)では
-    // thinking を制御できない。枠が小さいと思考でトークンを食い切り本文が空になるため、
+    // Gemini 3.x は思考が既定ONで、枠が小さいと思考でトークンを食い切り本文が空になるため、
     // 出力枠を大きめに取り、思考後も本文が残るようにする（env_gemini3_thinking の枠確保方針）。
+    // 178以降: generateWithModel 既定の thinkingLevel:low（generationConfig素通し）も併せて効く。
     const raw = await generateWithModel('gemini', prompt, systemPrompt, 4096);
 
     const suggestion = raw.trim();

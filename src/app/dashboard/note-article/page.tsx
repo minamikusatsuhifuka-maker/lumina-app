@@ -1,4 +1,5 @@
 'use client';
+import { GEMINI_TEXT_MODEL_LABEL } from '@/lib/ai-models';
 import { useEffect, useRef, useState } from 'react';
 import { ProgressBar } from '@/components/ProgressBar';
 import { useProgress } from '@/components/useProgress';
@@ -432,7 +433,7 @@ export default function NoteArticleGenerationPage() {
       <ProgressBar loading={progressLoading} progress={progress} label="✍️ note 記事を生成中..." />
       <h1 style={{ fontSize: 28, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 8 }}>✍️ note 記事生成</h1>
       <p style={{ color: 'var(--text-muted)', marginBottom: 16, lineHeight: 1.7 }}>
-        Claude AI または Gemini 3.5 Flash が、バズり分析・ディープリサーチ記事を参考に note 記事の下書きを生成します。<br />
+        Claude AI または {GEMINI_TEXT_MODEL_LABEL} が、バズり分析・ディープリサーチ記事を参考に note 記事の下書きを生成します。<br />
         <strong style={{ color: '#f59e0b' }}>⚠️ 生成された記事は下書きです。必ずあなたの独自の経験・視点を加えて編集してから投稿してください。</strong>
       </p>
 

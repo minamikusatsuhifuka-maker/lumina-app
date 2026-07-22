@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
 import { GoogleGenerativeAI } from '@google/generative-ai';
+import { GEMINI_TEXT_MODEL } from '@/lib/ai-models';
 import { fetchSearchConsoleData } from '@/lib/gsc-client';
 
 export const runtime = 'nodejs';
@@ -55,7 +56,7 @@ async function guessUrlFromName(clinicName: string): Promise<string | null> {
   if (!apiKey) return null;
   try {
     const genAI = new GoogleGenerativeAI(apiKey);
-    const model = genAI.getGenerativeModel({ model: 'gemini-3.5-flash' });
+    const model = genAI.getGenerativeModel({ model: GEMINI_TEXT_MODEL });
     const prompt = `次のクリニック名の公式サイトURLを推測してください。実在の正確なURLが分かる場合のみ回答してください。
 クリニック名: ${clinicName}
 
@@ -269,7 +270,7 @@ H2タグ: ${competitor.h2.slice(0, 15).join(' / ')}
 
       try {
         const genAI = new GoogleGenerativeAI(apiKey);
-        const model = genAI.getGenerativeModel({ model: 'gemini-3.5-flash' });
+        const model = genAI.getGenerativeModel({ model: GEMINI_TEXT_MODEL });
         const result = await model.generateContent({
           contents: [{ role: 'user', parts: [{ text: prompt }] }],
         });

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
 import { sql } from '@/lib/db';
 import { generateWithModel, type AIModel } from '@/lib/ai-client';
+import { GEMINI_TEXT_THINKING_MINIMAL } from '@/lib/ai-models';
 
 export const runtime = 'nodejs';
 export const maxDuration = 300;
@@ -281,7 +282,8 @@ ${existingSubList.length > 0 ? existingSubList.map((s) => `- ${s}`).join('\n') :
 { "subCategory": "...", "tags": ["...", "..."] }`;
 
       try {
-        const raw = await generateWithModel(model, userPrompt, systemPrompt, 800);
+        // 枠800は思考トークンで溢れうるため minimal（機械的な分類・thoughts=0。claude時は無視される）
+        const raw = await generateWithModel(model, userPrompt, systemPrompt, 800, GEMINI_TEXT_THINKING_MINIMAL);
         if (!raw || !raw.trim()) {
           throw new Error('AI応答が空です');
         }

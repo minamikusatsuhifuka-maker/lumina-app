@@ -1,4 +1,5 @@
 import { GoogleGenerativeAI, type Tool } from '@google/generative-ai';
+import { GEMINI_TEXT_MODEL, GEMINI_TEXT_MODEL_LABEL, GEMINI_TEXT_THINKING_LOW } from '@/lib/ai-models';
 
 export type AIModel = 'claude' | 'gemini';
 // SSEの出力フォーマット: 'standard' = {type:'text', content}、'delta' = {type:'delta', text}
@@ -14,14 +15,14 @@ export const MODEL_OPTIONS = [
   },
   {
     id: 'gemini' as AIModel,
-    name: 'Gemini 3.5 Flash',
+    name: GEMINI_TEXT_MODEL_LABEL,
     provider: 'Google',
     description: '安定・高精度。複雑な分析・長文処理に強い',
     icon: '✨',
   },
 ];
 
-const GEMINI_MODEL_ID = 'gemini-3.5-flash';
+const GEMINI_MODEL_ID = GEMINI_TEXT_MODEL;
 const CLAUDE_MODEL_ID = 'claude-sonnet-4-6';
 
 function getGemini() {
@@ -88,7 +89,9 @@ export async function generateWithModel(
     });
     const result = await geminiModel.generateContent({
       contents: [{ role: 'user', parts: [{ text: prompt }] }],
-      generationConfig: { maxOutputTokens: maxTokens, ...geminiGenerationConfig },
+      // 3.6 Flashは思考既定mediumが枠を消費するため、非ストリーミングの既定はlow。
+      // 呼び出し側は geminiGenerationConfig の thinkingConfig で minimal/medium に上書き可能。
+      generationConfig: { maxOutputTokens: maxTokens, ...GEMINI_TEXT_THINKING_LOW, ...geminiGenerationConfig },
       ...(webSearch ? { tools: GOOGLE_SEARCH_TOOLS } : {}),
     });
     const text = result.response.text();
@@ -151,6 +154,7 @@ export async function streamWithModel(
     });
     const result = await geminiModel.generateContentStream({
       contents: [{ role: 'user', parts: [{ text: prompt }] }],
+      // ストリーミングは長文リサーチ・記事系（枠8000以上）のため思考は3.6既定(medium)のまま＝品質優先
       generationConfig: { maxOutputTokens: maxTokens },
       ...(webSearch ? { tools: GOOGLE_SEARCH_TOOLS } : {}),
     });

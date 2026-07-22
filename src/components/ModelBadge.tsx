@@ -1,4 +1,5 @@
 'use client';
+import { GEMINI_TEXT_MODEL_LABEL } from '@/lib/ai-models';
 
 type Props = {
   model: 'claude' | 'gemini';
@@ -7,7 +8,7 @@ type Props = {
 
 const CONFIG = {
   claude: { icon: '🤖', label: 'Claude Sonnet 4.6', bg: 'rgba(245,166,35,0.15)', color: '#f5a623', border: 'rgba(245,166,35,0.3)' },
-  gemini: { icon: '✨', label: 'Gemini 3.5 Flash', bg: 'rgba(96,165,250,0.15)', color: '#60a5fa', border: 'rgba(96,165,250,0.3)' },
+  gemini: { icon: '✨', label: GEMINI_TEXT_MODEL_LABEL, bg: 'rgba(96,165,250,0.15)', color: '#60a5fa', border: 'rgba(96,165,250,0.3)' },
 };
 
 export function ModelBadge({ model, size = 'sm' }: Props) {

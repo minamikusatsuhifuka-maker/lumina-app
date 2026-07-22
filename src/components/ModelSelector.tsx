@@ -2,10 +2,11 @@
 import { useState, useEffect } from 'react';
 import { getSavedModel, saveModel } from '@/lib/model-preference';
 import type { AIModel } from '@/lib/model-preference';
+import { GEMINI_TEXT_MODEL_LABEL } from '@/lib/ai-models';
 
 const MODELS = [
   { id: 'claude' as AIModel, name: 'Claude', fullName: 'Claude Sonnet 4.6', icon: '🤖', color: '#6c63ff' },
-  { id: 'gemini' as AIModel, name: 'Gemini', fullName: 'Gemini 3.5 Flash', icon: '✨', color: '#4285f4' },
+  { id: 'gemini' as AIModel, name: 'Gemini', fullName: GEMINI_TEXT_MODEL_LABEL, icon: '✨', color: '#4285f4' },
 ];
 
 export function ModelSelector() {

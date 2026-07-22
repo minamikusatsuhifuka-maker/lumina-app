@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
 import { GoogleGenerativeAI } from '@google/generative-ai';
+import { GEMINI_TEXT_MODEL } from '@/lib/ai-models';
 import { robustJsonParse } from '@/lib/ai-json-parser';
 import { medicalAdCheckSection, AD_CHECK_OUTPUT_NOTE } from '@/lib/medical-ad-check';
 import { getClinicSystemPrompt } from '@/lib/clinicProfile';
@@ -66,7 +67,7 @@ ${AD_CHECK_OUTPUT_NOTE}
 - drafts は3件`;
 
     const genAI = new GoogleGenerativeAI(apiKey);
-    const model = genAI.getGenerativeModel({ model: 'gemini-3.5-flash' });
+    const model = genAI.getGenerativeModel({ model: GEMINI_TEXT_MODEL });
     const result = await model.generateContent({
       contents: [{ role: 'user', parts: [{ text: prompt }] }],
       generationConfig: { responseMimeType: 'application/json', maxOutputTokens: 4096 },

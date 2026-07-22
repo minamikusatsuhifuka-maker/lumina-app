@@ -3,11 +3,12 @@ import { auth } from '@/lib/auth';
 import { trackUsage } from '@/lib/trackUsage';
 import type { AIModel } from '@/lib/ai-client';
 import { GoogleGenerativeAI } from '@google/generative-ai';
+import { GEMINI_TEXT_MODEL } from '@/lib/ai-models';
 
 export const maxDuration = 300;
 
 const CLAUDE_MODEL_ID = 'claude-sonnet-4-6';
-const GEMINI_MODEL_ID = 'gemini-3.5-flash';
+const GEMINI_MODEL_ID = GEMINI_TEXT_MODEL;
 const MAX_TOKENS = 8000;
 
 type Insights = {

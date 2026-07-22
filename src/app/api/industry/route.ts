@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { generateWithModel } from '@/lib/ai-client';
+import { GEMINI_TEXT_THINKING_MEDIUM } from '@/lib/ai-models';
 import type { AIModel } from '@/lib/ai-client';
 import { requireAuth } from '@/lib/require-auth';
 
@@ -69,6 +70,7 @@ export async function POST(req: NextRequest) {
   }
 
   // Gemini
-  const result = await generateWithModel(model, prompt, 'あなたは優秀なリサーチアナリストです。日本語で詳しくまとめてください。', 16000);
+  // 長文リサーチ＝品質優先で medium を明示（枠16000で空出力リスクなし。claude時は無視される）
+  const result = await generateWithModel(model, prompt, 'あなたは優秀なリサーチアナリストです。日本語で詳しくまとめてください。', 16000, GEMINI_TEXT_THINKING_MEDIUM);
   return NextResponse.json({ result });
 }

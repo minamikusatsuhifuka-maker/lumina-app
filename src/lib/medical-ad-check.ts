@@ -5,6 +5,8 @@
 // MEO の投稿下書き（147B）など、生成系から流用する。
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
+import { GEMINI_TEXT_MODEL } from '@/lib/ai-models';
+
 // 生成物1件ごとに併記する医療広告チェック結果
 export interface AdCheck {
   status: 'ok' | 'warn';
@@ -52,10 +54,11 @@ ${MEDICAL_AD_NG_RULES}
 { "status": "ok", "findings": [] }
 ${AD_CHECK_OUTPUT_NOTE}`;
     const genAI = new GoogleGenerativeAI(apiKey);
-    const model = genAI.getGenerativeModel({ model: 'gemini-3.5-flash' });
+    const model = genAI.getGenerativeModel({ model: GEMINI_TEXT_MODEL });
     const result = await model.generateContent({
       contents: [{ role: 'user', parts: [{ text: prompt }] }],
-      generationConfig: { responseMimeType: 'application/json', maxOutputTokens: 2048 },
+      // 3.6 Flashは思考既定medium（1000前後）が枠を消費するため2048→4096に拡大
+      generationConfig: { responseMimeType: 'application/json', maxOutputTokens: 4096 },
     });
     const parsed = robustJsonParse(result.response.text()) as { status?: string; findings?: unknown };
     const status = parsed.status === 'warn' ? 'warn' : 'ok';

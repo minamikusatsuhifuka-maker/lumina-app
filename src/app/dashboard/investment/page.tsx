@@ -1,4 +1,5 @@
 'use client';
+import { GEMINI_TEXT_MODEL_LABEL } from '@/lib/ai-models';
 import { useRef, useState } from 'react';
 import { ProgressBar } from '@/components/ProgressBar';
 import { VoiceInputButton } from '@/components/VoiceInputButton';
@@ -290,7 +291,7 @@ export default function InvestmentResearchPage() {
       <ProgressBar loading={progressLoading} progress={progress} label="📈 投資予測リサーチ実行中..." />
       <h1 style={{ fontSize: 28, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 8 }}>📈 投資予測</h1>
       <p style={{ color: 'var(--text-muted)', marginBottom: 16 }}>
-        Claude AI または Gemini 3.5 Flash が、世界情勢・市場動向を統合し、投資先の候補や可能性を多角的に検証します
+        Claude AI または {GEMINI_TEXT_MODEL_LABEL} が、世界情勢・市場動向を統合し、投資先の候補や可能性を多角的に検証します
       </p>
 
       <div style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 14, padding: 20, marginBottom: 20 }}>

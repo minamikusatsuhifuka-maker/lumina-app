@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
 import { GoogleGenerativeAI } from '@google/generative-ai';
+import { GEMINI_TEXT_MODEL } from '@/lib/ai-models';
 import { fetchConversionData } from '@/lib/conversion-fetch';
 
 export const runtime = 'nodejs';
@@ -76,7 +77,7 @@ ${byCategory
 
       try {
         const genAI = new GoogleGenerativeAI(apiKey);
-        const model = genAI.getGenerativeModel({ model: 'gemini-3.5-flash' });
+        const model = genAI.getGenerativeModel({ model: GEMINI_TEXT_MODEL });
         const result = await model.generateContent({
           contents: [{ role: 'user', parts: [{ text: prompt }] }],
         });

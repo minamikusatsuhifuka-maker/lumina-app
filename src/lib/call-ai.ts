@@ -1,3 +1,5 @@
+import { GEMINI_TEXT_MODEL, GEMINI_TEXT_THINKING_MINIMAL } from '@/lib/ai-models';
+
 export interface AIMessage {
   role: 'user' | 'assistant';
   content: string;
@@ -28,15 +30,18 @@ export async function callAI(options: CallAIOptions): Promise<string> {
     }
 
     const response = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent?key=${apiKey}`,
+      `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_TEXT_MODEL}:generateContent?key=${apiKey}`,
       {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           contents: geminiMessages,
+          // 3.6 Flashでtemperatureは廃止（将来400エラー）のため送らない。
+          // 呼び出し元は対話・短文JSON抽出（枠500〜1000）で、思考既定mediumだと
+          // 思考が枠を食い潰して本文が空になるため minimal を明示。
           generationConfig: {
             maxOutputTokens: maxTokens,
-            temperature: 0.7,
+            ...GEMINI_TEXT_THINKING_MINIMAL,
           },
         }),
       }

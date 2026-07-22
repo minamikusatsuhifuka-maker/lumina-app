@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
 import { GoogleGenerativeAI } from '@google/generative-ai';
+import { GEMINI_TEXT_MODEL } from '@/lib/ai-models';
 import { robustJsonParse } from '@/lib/ai-json-parser';
 
 export const runtime = 'nodejs';
@@ -43,10 +44,11 @@ export async function POST(req: Request) {
 }`;
 
     const genAI = new GoogleGenerativeAI(apiKey);
-    const model = genAI.getGenerativeModel({ model: 'gemini-3.5-flash' });
+    const model = genAI.getGenerativeModel({ model: GEMINI_TEXT_MODEL });
     const result = await model.generateContent({
       contents: [{ role: 'user', parts: [{ text: prompt }] }],
-      generationConfig: { responseMimeType: 'application/json', maxOutputTokens: 2048 },
+      // 3.6 Flashは思考既定medium（1000前後）が枠を消費するため2048→4096に拡大
+      generationConfig: { responseMimeType: 'application/json', maxOutputTokens: 4096 },
     });
 
     const raw = result.response.text();
