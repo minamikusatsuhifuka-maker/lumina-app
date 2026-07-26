@@ -359,8 +359,10 @@ a[href*="dashboard"]:hover {
   outline-offset: 2px;
 }
 
-/* ページ遷移 */
-.page-enter { animation: fadeIn 200ms ease forwards; }
+/* ページ遷移（fill-mode forwards だと transform: translateY(0) が残留し、
+   main が全 position:fixed 子孫の基準ボックスになってモーダル等がビューポートに
+   固定されなくなるため fill しない。to と自然状態は同値＝見た目は不変・189） */
+.page-enter { animation: fadeIn 200ms ease; }
 
 /* セレクション色 */
 ::selection {

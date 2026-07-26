@@ -13,6 +13,7 @@
 // 右下は既存フローティング3つ（📖ガイド・📝メモ・💬チャット, right:16 の縦列）が使用済み。
 
 import { useEffect, useState, type CSSProperties } from 'react';
+import { createPortal } from 'react-dom';
 import { MAX_BUNDLE_SOURCES, BUNDLE_SOURCE_META } from '@/lib/note-bundle';
 import { useNoteBundleSelection } from './useNoteBundleSelection';
 import NoteBundleModal from './NoteBundleModal';
@@ -68,6 +69,16 @@ export default function NoteBundleDock() {
     };
   }, [selectMode, count, lastToggledKey]);
 
+  // 189: 確認モーダル表示中は背景スクロールをロック（閉じたら復元。FullscreenReaderと同方式）
+  useEffect(() => {
+    if (!confirmOpen) return;
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      document.body.style.overflow = prevOverflow;
+    };
+  }, [confirmOpen]);
+
   // 選択0件では追従ボタンを出さない（常時表示は邪魔）。全解除で0件になったら確認モーダルも閉じる
   if (count === 0 && confirmOpen) setConfirmOpen(false);
   if (count === 0 && !bundleOpen) return null;
@@ -105,7 +116,11 @@ export default function NoteBundleDock() {
     ...extra,
   });
 
-  return (
+  // 189: document.body 直下に portal で描画する。祖先（dashboard の main 等）に
+  // transform / filter があっても position:fixed が常にビューポート基準になり、
+  // ボタン・モーダルがスクロール位置に関係なく「いま見えている画面」に出る。
+  // ここに到達するのは選択操作後（クライアント側）のみ＝SSRでは早期 return 済みで document は常に存在する。
+  return createPortal(
     <>
       {/* ① 追従する「選択完了」ボタン（187: 最後に操作したカードの直下。
              カード不在・別タブ・画面外は181の下部中央固定へフォールバック。二重には出さない） */}
@@ -259,6 +274,7 @@ export default function NoteBundleDock() {
         onClose={() => setBundleOpen(false)}
         selected={selectedList}
       />
-    </>
+    </>,
+    document.body,
   );
 }

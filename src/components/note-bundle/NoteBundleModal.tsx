@@ -11,6 +11,7 @@
 //   「🔁別文体で再生成」の重複ガード（同一タイトル×同一文体を弾く）＋キュー上限20件
 
 import { useEffect, useRef, useState, type CSSProperties } from 'react';
+import { createPortal } from 'react-dom';
 import FullscreenReader from '@/components/text-analysis/FullscreenReader';
 import { copyToClipboard } from '@/lib/copyToClipboard';
 import { renderMarkdown, sanitizeLatex } from '@/lib/markdown-renderer';
@@ -158,6 +159,17 @@ export default function NoteBundleModal({
     setModel(getSavedModel());
     fetchPlan();
     // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
+
+  // 189: モーダル表示中は背景スクロールをロック（閉じたら復元。FullscreenReaderと同方式・
+  // リーダーを開いても prev='hidden' を復元するだけなので入れ子でも整合する）
+  useEffect(() => {
+    if (!open) return;
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      document.body.style.overflow = prevOverflow;
+    };
   }, [open]);
 
   // ── パス1: プラン提案の取得 ──
@@ -505,6 +517,11 @@ export default function NoteBundleModal({
 
   return (
     <>
+    {/* 189: オーバーレイは document.body 直下に portal で描画（祖先の transform の影響を
+        受けず常にビューポート中央）。FullscreenReader は 182 の構造どおり portal の外に置く
+        ＝リーダー内クリックが overlay の handleClose にバブルしない関係を維持。
+        open=true はクライアント操作後のみ＝ここで document は常に存在する。 */}
+    {createPortal(
     <div
       style={{
         position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
@@ -954,7 +971,9 @@ export default function NoteBundleModal({
           </div>
         )}
       </div>
-    </div>
+    </div>,
+    document.body,
+    )}
 
     {/* 全画面リーダー（151のFullscreenReader流用。zIndex 10000＝本モーダルより上）。
         オーバーレイの外に置く＝リーダー内クリックが overlay の handleClose にバブルしない */}
