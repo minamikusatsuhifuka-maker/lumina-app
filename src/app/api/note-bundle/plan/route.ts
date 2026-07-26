@@ -14,7 +14,8 @@ import {
   BUNDLE_SOURCE_META,
   normalizeBundleRefs,
 } from '@/lib/note-bundle';
-import { fetchBundleMaterials } from '@/lib/note-bundle-server';
+import { fetchBundleMaterials, fetchBuzzPatterns } from '@/lib/note-bundle-server';
+import { MAX_PATTERNS_PER_ARTICLE } from '@/lib/note-writing';
 
 export const runtime = 'nodejs';
 export const maxDuration = 300;
@@ -35,6 +36,8 @@ interface PlanArticle {
   sources: string[]; // 資料キー（ctx-<id> / ana-<id>）
   points: string[];
   style: NoteStyleKey;
+  // 183: バズりパターン辞書（library type='buzz-pattern'）のID。AIが記事内容に合うものを初期提案
+  patterns: string[];
 }
 
 export async function POST(req: Request) {
@@ -55,7 +58,11 @@ export async function POST(req: Request) {
       );
     }
 
-    const rows = await fetchBundleMaterials(userId, refs);
+    // 資料本文とバズりパターン辞書（183）を並行取得。辞書0件でも従来どおり動く
+    const [rows, buzzPatterns] = await Promise.all([
+      fetchBundleMaterials(userId, refs),
+      fetchBuzzPatterns(userId).catch(() => []),
+    ]);
     if (rows.length === 0) {
       return NextResponse.json({ error: '選択された資料が見つかりません' }, { status: 404 });
     }
@@ -71,13 +78,27 @@ export async function POST(req: Request) {
       (k) => `- "${k}": ${NOTE_STYLES[k].emoji} ${NOTE_STYLES[k].label} — ${NOTE_STYLES[k].description}`,
     ).join('\n');
 
+    // 183: バズりパターン辞書の選択肢（プランで記事ごとに初期提案させる。辞書に無いIDは後段で除外）
+    const patternGuide = buzzPatterns.length
+      ? `\n# 使えるバズりパターン辞書（記事の構成の型。全${buzzPatterns.length}件）
+${buzzPatterns
+  .map(
+    (p) =>
+      `- [ID:${p.id}] ${p.title}（カテゴリ: ${p.category || '-'} / フレームワーク: ${p.framework || '-'}）: ${(p.description || p.content).slice(0, 100)}`,
+  )
+  .join('\n')}\n`
+      : '';
+    const patternRule = buzzPatterns.length
+      ? `- patterns は、その記事の内容・目的に合うバズりパターンを上記辞書から0〜3個選ぶ（IDは [ID:xxx] の文字列をそのまま使う。辞書に無いIDを作らない。合わなければ空配列でよい）`
+      : '';
+
     const system = `あなたは note プラットフォームの編集者です。手元の資料群から「どんな記事を何本作れるか」を設計するのが仕事です。読者にとって価値が明確で、1本1テーマに絞られた記事プランを提案してください。`;
 
     const prompt = `以下の${rows.length}件の資料から作れる note 記事のプランを提案してください。
 
 # 資料一覧
 ${materialsSection}
-
+${patternGuide}
 # プランの作り方
 - 資料の内容から、読者にとって価値のある記事テーマを見つけて記事に分ける（1本1テーマ。無理に本数を増やさない）
 - 各記事には、その記事で実際に使う資料のIDだけを割り当てる（全資料を全記事に割り当てない）
@@ -85,11 +106,12 @@ ${materialsSection}
 - points は、その記事に盛り込む要点（資料の内容に基づく具体的な要点を3〜6個）
 - style は記事の内容に最も合う文体を下記から選ぶ（迷ったら "${DEFAULT_NOTE_STYLE}"）:
 ${styleGuide}
+${patternRule}
 - title は読者の興味を引く30〜40字。誇大表現・効果保証は使わない
 - 要点に数値を書く場合は資料に書かれている数値の転記のみ可。資料に無い数値を作らない
 
 # 出力フォーマット（必ずこのJSONのみ。前置き・コードフェンス禁止）
-{ "articles": [ { "title": "記事タイトル", "sources": ["ctx-12", "ana-34"], "points": ["要点1", "要点2"], "style": "friendly|expert|balanced|story" } ] }`;
+{ "articles": [ { "title": "記事タイトル", "sources": ["ctx-12", "ana-34"], "points": ["要点1", "要点2"], "style": "friendly|expert|balanced|story", "patterns": [${buzzPatterns.length ? '"パターンID"' : ''}] } ] }`;
 
     // プラン提案は出力が短い＝thinking low + JSON mime（178の設計・確立方式）
     const raw = await generateWithModel('gemini', prompt, system, 8192, {
@@ -99,6 +121,7 @@ ${styleGuide}
 
     const parsed = robustJsonParse<{ articles?: unknown }>(raw);
     const validKeys = new Set(rows.map((r) => r.key));
+    const validPatternIds = new Set(buzzPatterns.map((p) => p.id));
     const articles: PlanArticle[] = (Array.isArray(parsed.articles) ? parsed.articles : [])
       .map((a: any): PlanArticle | null => {
         const title = typeof a?.title === 'string' ? a.title.trim() : '';
@@ -113,8 +136,13 @@ ${styleGuide}
           typeof a?.style === 'string' && (NOTE_STYLE_KEYS as string[]).includes(a.style)
             ? (a.style as NoteStyleKey)
             : DEFAULT_NOTE_STYLE;
+        // 183: パターンは実在の辞書IDのみ採用（AIの創作IDは捨てる）・上限あり
+        const patterns = (Array.isArray(a?.patterns) ? a.patterns : [])
+          .map((p: unknown) => String(p).trim())
+          .filter((pid: string) => validPatternIds.has(pid))
+          .slice(0, MAX_PATTERNS_PER_ARTICLE);
         // 資料の割り当てが空になったプランは全選択資料でフォールバック（生成不能を防ぐ）
-        return { title, sources: sources.length > 0 ? sources : rows.map((r) => r.key), points, style };
+        return { title, sources: sources.length > 0 ? sources : rows.map((r) => r.key), points, style, patterns };
       })
       .filter((a): a is PlanArticle => a !== null);
 
@@ -124,7 +152,14 @@ ${styleGuide}
 
     // 編集UI用に資料のキー・種別・タイトル一覧も返す（本文は返さない）
     const materials = rows.map((r) => ({ key: r.key, source: r.source, id: r.id, topic: r.topic }));
-    return NextResponse.json({ articles, materials });
+    // 183: プランモーダルのパターン選択肢（本文は返さない・パス2はIDからサーバ側で本体を取得）
+    const patternOptions = buzzPatterns.map((p) => ({
+      id: p.id,
+      title: p.title,
+      category: p.category,
+      framework: p.framework,
+    }));
+    return NextResponse.json({ articles, materials, patternOptions });
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : '不明なエラー';
     console.error('[note-bundle/plan] error:', message);

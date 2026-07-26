@@ -5,6 +5,7 @@
 
 import { neon } from '@neondatabase/serverless';
 import { makeBundleKey, type BundleRef, type BundleSource } from '@/lib/note-bundle';
+import { parsePatternMeta } from '@/lib/note-writing';
 
 export interface BundleMaterialRow {
   key: string;
@@ -60,4 +61,45 @@ export async function fetchBundleMaterials(
   return refs
     .map((r) => byKey.get(makeBundleKey(r.source, r.id)))
     .filter((m): m is BundleMaterialRow => m !== undefined);
+}
+
+// ── 183: バズりパターン辞書（library type='buzz-pattern'）の取得 ──
+// ids 未指定 = 辞書全件（プラン提案の選択肢用）。ids 指定 = その分だけ（パス2のプロンプト注入用）。
+// owner検証＋type固定＝辞書以外の library 行は渡せない（AIに辞書外パターンを創作させない）。
+export interface BuzzPatternRow {
+  id: string;
+  title: string;
+  category: string;
+  framework: string;
+  description: string;
+  content: string;
+}
+
+export async function fetchBuzzPatterns(userId: string, ids?: string[]): Promise<BuzzPatternRow[]> {
+  const sql = neon(process.env.DATABASE_URL!);
+  if (ids && ids.length === 0) return [];
+  const rows = (ids
+    ? await sql`
+        SELECT id, title, content, metadata
+        FROM library
+        WHERE user_id = ${userId} AND type = 'buzz-pattern' AND id = ANY(${ids})
+      `
+    : await sql`
+        SELECT id, title, content, metadata
+        FROM library
+        WHERE user_id = ${userId} AND type = 'buzz-pattern'
+        ORDER BY is_favorite DESC, created_at DESC
+        LIMIT 50
+      `) as { id: string; title: string; content: string; metadata: unknown }[];
+  return rows.map((r) => {
+    const meta = parsePatternMeta(r.metadata);
+    return {
+      id: String(r.id),
+      title: r.title || '(無題)',
+      category: meta.category,
+      framework: meta.framework,
+      description: meta.description,
+      content: r.content || '',
+    };
+  });
 }

@@ -9,7 +9,12 @@ import {
   BUNDLE_SOURCE_META,
   normalizeBundleRefs,
 } from '@/lib/note-bundle';
-import { fetchBundleMaterials } from '@/lib/note-bundle-server';
+import { fetchBundleMaterials, fetchBuzzPatterns } from '@/lib/note-bundle-server';
+import {
+  NOTE_WRITING_DESIGN,
+  buildPatternsSection,
+  MAX_PATTERNS_PER_ARTICLE,
+} from '@/lib/note-writing';
 
 export const runtime = 'nodejs';
 export const maxDuration = 300;
@@ -22,6 +27,9 @@ export const maxDuration = 300;
 // - 記事本文の生成＝品質優先で thinking medium・枠は思考込みで余裕を（178の設計）
 // - 品質規約: 既存 note記事生成の規約（note-styles.ts NOTE_COMMON_RULES）＋医療広告ガード＋数値の新規生成禁止
 // - 生成後に checkMedicalAd で自己チェックし ad_check を併記（seo/article と同方式）
+// - 183: 執筆設計ブロック（note-writing.ts NOTE_WRITING_DESIGN＝心理学/マーケ/構成・煽りと受診誘導は禁止）を常時注入。
+//   patternIds があればバズりパターン辞書（library type='buzz-pattern'）の本体をサーバ側で取得して
+//   既存 /api/note-article と同じ形式で注入（owner検証＋type固定＝辞書外は渡せない）
 
 type Length = 'short' | 'medium' | 'long';
 const LENGTH_CONFIG: Record<Length, { label: string; chars: string }> = {
@@ -44,6 +52,7 @@ export async function POST(req: Request) {
       style?: unknown;
       length?: unknown;
       model?: unknown;
+      patternIds?: unknown;
     };
 
     const title = typeof body.title === 'string' ? body.title.trim() : '';
@@ -70,8 +79,17 @@ export async function POST(req: Request) {
       body.length === 'short' || body.length === 'long' ? body.length : 'medium';
     const aiModel = body.model === 'gemini' ? 'gemini' : 'claude';
 
-    // 割り当てられた資料の本文だけをサーバ側で取得（owner検証は両テーブルとも必須）
-    const rows = await fetchBundleMaterials(userId, refs);
+    // 183: 指定されたバズりパターンID（辞書から選択。上限あり・実在IDのみサーバ側で解決）
+    const patternIds = (Array.isArray(body.patternIds) ? body.patternIds : [])
+      .map((p) => String(p).trim())
+      .filter(Boolean)
+      .slice(0, MAX_PATTERNS_PER_ARTICLE);
+
+    // 割り当てられた資料の本文とパターン本体をサーバ側で取得（owner検証は両テーブル＋辞書とも必須）
+    const [rows, patterns] = await Promise.all([
+      fetchBundleMaterials(userId, refs),
+      patternIds.length > 0 ? fetchBuzzPatterns(userId, patternIds).catch(() => []) : Promise.resolve([]),
+    ]);
     if (rows.length === 0) {
       return NextResponse.json({ error: '割り当てられた資料が見つかりません' }, { status: 404 });
     }
@@ -92,6 +110,9 @@ ${NOTE_COMMON_RULES}`;
       ? `\n# この記事に盛り込む要点\n${points.map((p) => `- ${p}`).join('\n')}\n`
       : '';
 
+    // 183: バズりパターン注入（既存 /api/note-article と同一形式。0件なら空）
+    const patternsSection = buildPatternsSection(patterns);
+
     const prompt = `以下のタイトル・要点で note 記事を執筆してください。内容は「参照資料」の記述だけを根拠にします。
 
 # 記事タイトル
@@ -101,6 +122,9 @@ ${pointsSection}
 ${config.label}（${config.chars}）
 
 ${style.promptBlock}
+
+${NOTE_WRITING_DESIGN}
+${patternsSection}
 
 # 参照資料（${rows.length}件。記事の根拠はこの資料の記述のみ）
 ${materialsSection}

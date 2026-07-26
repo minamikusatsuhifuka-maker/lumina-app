@@ -41,6 +41,14 @@ interface Material {
   topic: string;
 }
 
+// 183: バズりパターン辞書の選択肢（プランAPIが返す。本体はパス2でサーバ側取得）
+interface PatternOption {
+  id: string;
+  title: string;
+  category: string;
+  framework: string;
+}
+
 // パス1で編集する記事プラン（points はtextarea編集しやすいよう改行区切りの文字列で保持）
 interface PlanDraft {
   localId: number;
@@ -48,6 +56,8 @@ interface PlanDraft {
   sources: string[]; // Material.key の配列
   pointsText: string;
   style: NoteStyleKey;
+  // 183: バズりパターン辞書のID（文体=語り口とは別軸の「構成の型」。AI初期提案＋院長が変更可）
+  patterns: string[];
 }
 
 interface ArticleResult {
@@ -56,6 +66,7 @@ interface ArticleResult {
   style: NoteStyleKey;
   sourceKeys: string[];
   points: string[];
+  patternIds: string[];
   // cancelled = 中止（⏹全体 or ✕個別）。生成済みは消さず、🔄再試行で再開できる（182）
   status: 'pending' | 'running' | 'done' | 'error' | 'cancelled';
   content: string;
@@ -100,6 +111,9 @@ export default function NoteBundleModal({
   const [planError, setPlanError] = useState('');
   const [drafts, setDrafts] = useState<PlanDraft[]>([]);
   const [materials, setMaterials] = useState<Material[]>([]);
+  // 183: バズりパターン辞書の選択肢と、✨AI推奨の実行中カード
+  const [patternOptions, setPatternOptions] = useState<PatternOption[]>([]);
+  const [suggestingId, setSuggestingId] = useState<number | null>(null);
   const [length, setLength] = useState<Length>('medium');
   const [results, setResults] = useState<ArticleResult[]>([]);
   const [generating, setGenerating] = useState(false);
@@ -133,6 +147,8 @@ export default function NoteBundleModal({
     setPhase('plan');
     setDrafts([]);
     setMaterials([]);
+    setPatternOptions([]);
+    setSuggestingId(null);
     setResults([]);
     setGenerating(false);
     setPlanError('');
@@ -160,14 +176,16 @@ export default function NoteBundleModal({
         ? data.materials
         : selected.map((s) => ({ key: makeBundleKey(s.source, s.id), source: s.source, id: s.id, topic: s.topic }));
       setMaterials(mats);
+      setPatternOptions(Array.isArray(data.patternOptions) ? data.patternOptions : []);
       setDrafts(
-        (data.articles as Array<{ title: string; sources: string[]; points: string[]; style: NoteStyleKey }>).map(
+        (data.articles as Array<{ title: string; sources: string[]; points: string[]; style: NoteStyleKey; patterns?: string[] }>).map(
           (a) => ({
             localId: localIdSeq++,
             title: a.title,
             sources: a.sources,
             pointsText: (a.points || []).join('\n'),
             style: getNoteStyle(a.style).key,
+            patterns: Array.isArray(a.patterns) ? a.patterns : [],
           }),
         ),
       );
@@ -201,12 +219,62 @@ export default function NoteBundleModal({
         sources: materials.map((m) => m.key),
         pointsText: '',
         style: DEFAULT_NOTE_STYLE,
+        patterns: [],
       },
     ]);
   };
 
   const removeDraft = (localId: number) => {
     setDrafts((prev) => prev.filter((d) => d.localId !== localId));
+  };
+
+  // 183: バズりパターンのトグル（複数選択可・上限5）
+  const togglePattern = (localId: number, pid: string) => {
+    setDrafts((prev) =>
+      prev.map((d) => {
+        if (d.localId !== localId) return d;
+        if (d.patterns.includes(pid)) return { ...d, patterns: d.patterns.filter((p) => p !== pid) };
+        if (d.patterns.length >= 5) {
+          flashModalToast('⚠️ パターンは1記事につき最大5件です');
+          return d;
+        }
+        return { ...d, patterns: [...d.patterns, pid] };
+      }),
+    );
+  };
+
+  // 183: ✨AIに推奨（既存 /api/note-pattern-suggest を流用。記事タイトル＋要点から適合パターンを選ぶ）
+  const suggestPatterns = async (d: PlanDraft) => {
+    if (!d.title.trim()) {
+      flashModalToast('⚠️ まず記事タイトルを入力してください');
+      return;
+    }
+    setSuggestingId(d.localId);
+    try {
+      const res = await fetch('/api/note-pattern-suggest', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ topic: d.title, context: d.pointsText }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !Array.isArray(data.patterns)) {
+        throw new Error(data.message || data.error || '推奨の取得に失敗しました');
+      }
+      const validIds = new Set(patternOptions.map((p) => p.id));
+      const suggested = (data.patterns as Array<{ id: string }>)
+        .map((p) => String(p.id))
+        .filter((pid) => validIds.has(pid));
+      if (suggested.length === 0) {
+        flashModalToast('⚠️ この記事に合うパターンが見つかりませんでした');
+        return;
+      }
+      updateDraft(d.localId, { patterns: suggested.slice(0, 5) });
+      flashModalToast(`✨ ${suggested.length}件のパターンを提案しました`);
+    } catch (e) {
+      flashModalToast(`❌ ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      setSuggestingId(null);
+    }
   };
 
   const patchResult = (localId: number, patch: Partial<ArticleResult>) => {
@@ -234,6 +302,7 @@ export default function NoteBundleModal({
           points: r.points,
           sources: r.sourceKeys.map(parseBundleKey).filter(Boolean),
           style: r.style,
+          patternIds: r.patternIds,
           length: lengthRef.current,
           model: modelRef.current,
         }),
@@ -290,6 +359,7 @@ export default function NoteBundleModal({
       style: d.style,
       sourceKeys: d.sources,
       points: d.points,
+      patternIds: d.patterns,
       status: 'pending',
       content: '',
       adCheck: null,
@@ -545,7 +615,7 @@ export default function NoteBundleModal({
                     </div>
 
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                      <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>文体:</span>
+                      <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>文体（語り口）:</span>
                       <select
                         value={d.style}
                         onChange={(e) => updateDraft(d.localId, { style: e.target.value as NoteStyleKey })}
@@ -558,6 +628,58 @@ export default function NoteBundleModal({
                         ))}
                       </select>
                     </div>
+
+                    {/* 183: バズりパターン選択（構成の型・文体とは別軸で掛け合わせ可・複数選択可） */}
+                    {patternOptions.length > 0 && (
+                      <div style={{ marginTop: 10 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 4 }}>
+                          <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>
+                            📖 バズりパターン（構成の型・複数選択可）
+                            {d.patterns.length > 0 && <span style={{ color: 'var(--accent)' }}>（{d.patterns.length}件選択中）</span>}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => suggestPatterns(d)}
+                            disabled={suggestingId !== null}
+                            title="記事タイトル・要点に合うパターンをAIが辞書から選びます"
+                            style={{
+                              padding: '4px 12px',
+                              borderRadius: 12,
+                              border: 'none',
+                              background: suggestingId !== null ? 'var(--bg-primary)' : 'linear-gradient(135deg, #f59e0b, #ef4444)',
+                              color: suggestingId !== null ? 'var(--text-muted)' : '#fff',
+                              cursor: suggestingId !== null ? 'not-allowed' : 'pointer',
+                              fontSize: 11,
+                              fontWeight: 700,
+                            }}
+                          >
+                            {suggestingId === d.localId ? '🔄 推奨中...' : '✨ AIに推奨してもらう'}
+                          </button>
+                        </div>
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                          {patternOptions.map((p) => {
+                            const on = d.patterns.includes(p.id);
+                            return (
+                              <button
+                                key={p.id}
+                                type="button"
+                                onClick={() => togglePattern(d.localId, p.id)}
+                                title={`${p.title}${p.category ? `（${p.category}）` : ''}${p.framework ? ` / ${p.framework}` : ''}`}
+                                style={{
+                                  padding: '4px 10px', borderRadius: 12, fontSize: 11, cursor: 'pointer',
+                                  border: on ? '1px solid #8b5cf6' : '1px solid var(--border)',
+                                  background: on ? 'rgba(139,92,246,0.14)' : 'var(--bg-primary)',
+                                  color: on ? 'var(--text-primary)' : 'var(--text-muted)',
+                                  fontWeight: on ? 600 : 400,
+                                }}
+                              >
+                                {on ? '☑' : '☐'} 📖 {p.title.slice(0, 22)}{p.title.length > 22 ? '…' : ''}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
                   </div>
                 ))}
 
@@ -647,6 +769,7 @@ export default function NoteBundleModal({
                   <span style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-primary)' }}>{r.title}</span>
                   <span style={{ fontSize: 11, color: 'var(--text-muted)', marginLeft: 'auto' }}>
                     資料{r.sourceKeys.length}件
+                    {r.patternIds.length > 0 && ` ・ 📖パターン${r.patternIds.length}件`}
                     {r.status === 'done' && ` ・ ${r.content.length.toLocaleString()}字`}
                   </span>
                 </div>
