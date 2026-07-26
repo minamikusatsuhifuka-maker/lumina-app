@@ -75,7 +75,9 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'モデルを1つ以上選択してください' }, { status: 400 });
     }
 
-    const aspect: ImageAspect = body.aspect === 'landscape' ? 'landscape' : 'square';
+    // 185: portrait が square に落ちるバグを修正（3比率とも全モデル対応済み）
+    const aspect: ImageAspect =
+      body.aspect === 'landscape' || body.aspect === 'portrait' ? body.aspect : 'square';
     const quality: ImageQuality =
       body.quality === 'low' || body.quality === 'high' ? body.quality : 'medium';
 

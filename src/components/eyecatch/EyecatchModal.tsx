@@ -11,20 +11,23 @@ import { ImageModelSelector } from '@/components/image/ImageModelSelector';
 import { ImageCompareGrid } from '@/components/image/ImageCompareGrid';
 import { useMultiImageGen } from '@/lib/useMultiImageGen';
 import {
-  ASPECT_OPTIONS,
+  ASPECT_OPTIONS_LABELED,
   DEFAULT_MODELS,
+  MAX_COUNT_PER_MODEL,
+  MAX_TOTAL_IMAGES,
   type ImageAspect,
   type ImageModelKey,
   type ImageQuality,
 } from '@/lib/image-providers';
 
-export type EyecatchKind = 'note' | 'sns' | 'lp';
+export type EyecatchKind = 'note' | 'sns' | 'lp' | 'hp-blog';
 
-// 用途ごとの既定比率（note/LP=横長・SNS=正方形）
+// 用途ごとの既定比率（note/LP/HPブログ=横長・SNS=正方形）
 const DEFAULT_ASPECT: Record<EyecatchKind, ImageAspect> = {
   note: 'landscape',
   sns: 'square',
   lp: 'landscape',
+  'hp-blog': 'landscape',
 };
 
 const QUALITY_OPTIONS = [
@@ -52,6 +55,8 @@ export function EyecatchModal({
   const [aspect, setAspect] = useState<ImageAspect>(DEFAULT_ASPECT[sourceKind]);
   const [quality, setQuality] = useState<ImageQuality>('medium');
   const [models, setModels] = useState<ImageModelKey[]>(DEFAULT_MODELS);
+  // 185: 1モデルあたりの枚数（初期値1）。合計はモデル数×枚数で上限制御
+  const [count, setCount] = useState(1);
 
   // 複数モデルの並列生成（個別ローディング・部分成功・各カードから保存）
   const { slots, generating, run, reset } = useMultiImageGen();
@@ -94,10 +99,14 @@ export function EyecatchModal({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 
-  // 生成（選択モデルを並列生成）
+  // 合計生成数（モデル数×枚数）と上限チェック（185）
+  const totalImages = models.length * count;
+  const overLimit = totalImages > MAX_TOTAL_IMAGES;
+
+  // 生成（選択モデル×枚数を並列生成・個別ローディング・部分成功）
   const generate = () => {
-    if (!prompt.trim() || generating || models.length === 0) return;
-    run(prompt, models, aspect, quality);
+    if (!prompt.trim() || generating || models.length === 0 || overLimit) return;
+    run(prompt, models, aspect, quality, count);
   };
 
   if (!open) return null;
@@ -164,16 +173,16 @@ export function EyecatchModal({
             <ImageModelSelector selected={models} onChange={setModels} disabled={generating} />
           </div>
 
-          {/* 比率・品質 */}
+          {/* 比率（用途ラベル付き・全モデル対応の3比率のみ）・品質・枚数 */}
           <div className="flex flex-wrap gap-3">
             <label className="flex flex-col gap-1 text-xs text-gray-600">
-              比率
+              比率（用途で選べます）
               <select
                 value={aspect}
                 onChange={(e) => setAspect(e.target.value as ImageAspect)}
                 className="rounded-lg border border-gray-200 px-2 py-1.5 text-sm text-gray-700"
               >
-                {ASPECT_OPTIONS.map((o) => (
+                {ASPECT_OPTIONS_LABELED.map((o) => (
                   <option key={o.value} value={o.value}>
                     {o.label}
                   </option>
@@ -194,14 +203,35 @@ export function EyecatchModal({
                 ))}
               </select>
             </label>
+            <label className="flex flex-col gap-1 text-xs text-gray-600">
+              枚数（モデルごと）
+              <select
+                value={count}
+                onChange={(e) => setCount(parseInt(e.target.value, 10))}
+                className="rounded-lg border border-gray-200 px-2 py-1.5 text-sm text-gray-700"
+              >
+                {Array.from({ length: MAX_COUNT_PER_MODEL }, (_, i) => i + 1).map((n) => (
+                  <option key={n} value={n}>
+                    {n}枚
+                  </option>
+                ))}
+              </select>
+            </label>
           </div>
+
+          {/* コスト表示（静的定数ベース・171の作法）と合計上限 */}
+          <p className={`text-xs ${overLimit ? 'font-semibold text-red-500' : 'text-gray-500'}`}>
+            {overLimit
+              ? `⚠️ 合計${totalImages}枚は上限（${MAX_TOTAL_IMAGES}枚）を超えています。モデル数か枚数を減らしてください`
+              : `${models.length}モデル × ${count}枚 = 合計${totalImages}枚生成します（生成した枚数だけ課金されます・上限${MAX_TOTAL_IMAGES}枚）`}
+          </p>
 
           <button
             onClick={generate}
-            disabled={!prompt.trim() || generating || models.length === 0}
+            disabled={!prompt.trim() || generating || models.length === 0 || overLimit}
             className="rounded-lg bg-gradient-to-r from-[#6c63ff] to-[#8b5cf6] px-5 py-2.5 text-sm font-bold text-white disabled:opacity-50"
           >
-            {generating ? '生成中...' : `🎨 生成（${models.length}枚）`}
+            {generating ? '生成中...' : `🎨 生成（合計${totalImages}枚）`}
           </button>
 
           {/* 生成結果（モデルごとに比較・各カードから保存） */}

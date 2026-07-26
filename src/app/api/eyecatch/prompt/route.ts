@@ -12,6 +12,8 @@ const KIND_HINT: Record<string, string> = {
   note: 'note記事のヘッダー画像（横長・読み物の雰囲気）',
   sns: 'SNS投稿のサムネイル（正方形・目を引くが上品）',
   lp: 'ランディングページのメインビジュアル（横長・信頼感）',
+  // 185: HP掲載ブログ＝患者が読む公開情報。清潔感・安心感を最優先し、症例的表現は厳禁
+  'hp-blog': 'クリニックHP掲載のブログ記事用画像（横長・清潔感と安心感・医療広告に配慮した抽象的なイメージ）',
 };
 
 export async function POST(req: NextRequest) {

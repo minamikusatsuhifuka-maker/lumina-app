@@ -12,6 +12,8 @@ import { useMultiImageGen } from '@/lib/useMultiImageGen';
 import {
   ASPECT_OPTIONS,
   DEFAULT_MODELS,
+  MAX_COUNT_PER_MODEL,
+  MAX_TOTAL_IMAGES,
   type ImageAspect,
   type ImageModelKey,
   type ImageQuality,
@@ -45,6 +47,8 @@ export default function ImageGenPage() {
   const [aspect, setAspect] = useState<ImageAspect>('square');
   const [quality, setQuality] = useState<ImageQuality>('medium');
   const [models, setModels] = useState<ImageModelKey[]>(DEFAULT_MODELS);
+  // 185: 1モデルあたりの枚数（初期値1）。合計＝モデル数×枚数で上限制御
+  const [count, setCount] = useState(1);
   const [error, setError] = useState('');
   const [history, setHistory] = useState<HistoryItem[]>([]);
   // 自動下書きから復元した日時（バナー表示用。新規実行で消える）
@@ -102,13 +106,17 @@ export default function ImageGenPage() {
     loadHistory();
   }, []);
 
+  // 合計生成数（モデル数×枚数）と上限チェック（185）
+  const totalImages = models.length * count;
+  const overLimit = totalImages > MAX_TOTAL_IMAGES;
+
   const generate = async () => {
-    if (!prompt.trim() || generating || models.length === 0) return;
+    if (!prompt.trim() || generating || models.length === 0 || overLimit) return;
     setError('');
     setRestoredAt(null); // 新規実行は「復元」ではない
     // 生成条件を自動下書き保存（画像base64は重いため保存しない。復元時は再生成）
     saveFeatureDraft('image-gen', { prompt, aspect, quality, models } satisfies ImageGenDraftPayload);
-    await run(prompt, models, aspect, quality);
+    await run(prompt, models, aspect, quality, count);
     // 履歴を更新（fire-and-forget）
     loadHistory();
   };
@@ -189,7 +197,7 @@ export default function ImageGenPage() {
           <ImageModelSelector selected={models} onChange={setModels} disabled={generating} />
         </div>
 
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 8 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12, marginBottom: 8 }}>
           <div>
             <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-muted)', marginBottom: 6 }}>
               比率
@@ -214,23 +222,41 @@ export default function ImageGenPage() {
               ))}
             </select>
           </div>
+          <div>
+            <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-muted)', marginBottom: 6 }}>
+              枚数（モデルごと）
+            </div>
+            <select value={count} onChange={(e) => setCount(parseInt(e.target.value, 10))} style={inputStyle}>
+              {Array.from({ length: MAX_COUNT_PER_MODEL }, (_, i) => i + 1).map((n) => (
+                <option key={n} value={n}>
+                  {n}枚
+                </option>
+              ))}
+            </select>
+          </div>
         </div>
-        <p style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 16 }}>
+        <p style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 6 }}>
           ※ 品質は GPT Image 2 のコストに直結します。Nano Banana 系は解像度・比率で決まり、品質指定はありません。透過背景は指定できません
+        </p>
+        {/* コスト表示（静的定数ベース）と合計上限（モデル数×枚数） */}
+        <p style={{ fontSize: 11, fontWeight: overLimit ? 700 : 400, color: overLimit ? '#ff6b6b' : 'var(--text-muted)', marginBottom: 16 }}>
+          {overLimit
+            ? `⚠️ 合計${totalImages}枚は上限（${MAX_TOTAL_IMAGES}枚）を超えています。モデル数か枚数を減らしてください`
+            : `${models.length}モデル × ${count}枚 = 合計${totalImages}枚生成します（生成した枚数だけ課金されます・上限${MAX_TOTAL_IMAGES}枚）`}
         </p>
 
         <button
           type="button"
           onClick={generate}
-          disabled={generating || !prompt.trim() || models.length === 0}
+          disabled={generating || !prompt.trim() || models.length === 0 || overLimit}
           style={{
             width: '100%',
             padding: 14,
             borderRadius: 10,
             border: 'none',
-            cursor: generating || !prompt.trim() ? 'not-allowed' : 'pointer',
+            cursor: generating || !prompt.trim() || overLimit ? 'not-allowed' : 'pointer',
             background:
-              generating || !prompt.trim()
+              generating || !prompt.trim() || overLimit
                 ? 'rgba(108,99,255,0.4)'
                 : 'linear-gradient(135deg, #6c63ff, #8b5cf6)',
             color: '#fff',
@@ -238,7 +264,7 @@ export default function ImageGenPage() {
             fontSize: 15,
           }}
         >
-          {generating ? '🎨 生成中...' : `🎨 画像を生成（${models.length}枚）`}
+          {generating ? '🎨 生成中...' : `🎨 画像を生成（合計${totalImages}枚）`}
         </button>
       </div>
 

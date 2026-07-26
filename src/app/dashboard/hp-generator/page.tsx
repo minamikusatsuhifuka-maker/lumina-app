@@ -19,6 +19,7 @@ import {
 } from '@/lib/feature-drafts';
 import FeatureDraftBanner from '@/components/FeatureDraftBanner';
 import AdGuardFindings, { type AdGuardEdit } from '@/components/hp/AdGuardFindings';
+import HpBlogSection from '@/components/hp/HpBlogSection';
 import { TextRefinePanel } from '@/components/refine/TextRefinePanel';
 
 const INDUSTRIES = ['IT・SaaS', '医療・ヘルスケア', '飲食・フード', '不動産', '教育', 'コンサルティング', '製造業', '小売・EC', 'その他'];
@@ -568,6 +569,9 @@ export default function HpGeneratorPage() {
           )}
         </div>
       )}
+
+      {/* ── 185: HPブログ記事生成＋記事連動の画像生成（既存のHP内容生成は無変更） ── */}
+      <HpBlogSection />
 
       {/* ── 184④: 既存HP文章の加筆修正モード（貼り付けのみ・URL自動取得は行わない） ── */}
       <div style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 14, padding: 24, marginTop: 28 }}>

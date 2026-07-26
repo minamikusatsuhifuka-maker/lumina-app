@@ -9,10 +9,15 @@ import { useToast } from '@/components/ui/Toast';
 import { saveImageToGallery } from '@/lib/gallery-client';
 import { IMAGE_MODELS, type ImageModelKey } from '@/lib/image-providers';
 
-// 画面が持つ1モデル分の状態（生成中/成功/失敗）
+// 画面が持つ1スロット分の状態（生成中/成功/失敗）。
+// 185: 複数枚対応＝同一モデルのスロットが複数並ぶため、一意キーは id（未指定なら model）。
 export interface ModelSlot {
   model: ImageModelKey;
   status: 'loading' | 'ok' | 'error';
+  // 一意キー（モデル×枚数のとき "gpt-image-2-2" 等。旧呼び出しは未指定で従来どおり）
+  id?: string;
+  // 複数枚のときの "2/3" 表示（1枚なら未指定）
+  indexLabel?: string;
   base64?: string;
   mimeType?: string;
   sizeLabel?: string;
@@ -85,7 +90,14 @@ function ResultCard({
           fontSize: 12,
         }}
       >
-        <span style={{ fontWeight: 700, color: 'var(--text-primary)' }}>{modelLabel(slot.model)}</span>
+        <span style={{ fontWeight: 700, color: 'var(--text-primary)' }}>
+          {modelLabel(slot.model)}
+          {slot.indexLabel && (
+            <span style={{ fontWeight: 400, fontSize: 10, color: 'var(--text-muted)', marginLeft: 6 }}>
+              {slot.indexLabel}
+            </span>
+          )}
+        </span>
         {slot.status === 'ok' && (
           <span style={{ fontSize: 10, color: 'var(--text-muted)' }}>
             {slot.sizeLabel} ・ {((slot.elapsedMs ?? 0) / 1000).toFixed(1)}s
@@ -181,7 +193,7 @@ export function ImageCompareGrid({
       }}
     >
       {slots.map((s) => (
-        <ResultCard key={s.model} slot={s} prompt={prompt} saveTitle={saveTitle} />
+        <ResultCard key={s.id ?? s.model} slot={s} prompt={prompt} saveTitle={saveTitle} />
       ))}
     </div>
   );

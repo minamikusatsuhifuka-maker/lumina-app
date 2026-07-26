@@ -20,6 +20,19 @@ export const ASPECT_OPTIONS: { value: ImageAspect; label: string }[] = [
   { value: 'portrait', label: '縦長' },
 ];
 
+// 用途ラベル付きのアスペクト選択肢（185・EyecatchModal用）。
+// 全モデルが3比率とも対応（GPT=1024x1024/1536x1024/1024x1536・Gemini=1:1/16:9/9:16）のため
+// モデル別の出し分けは不要。対応していない比率は作らない（171のauto廃止と同じ判断）。
+export const ASPECT_OPTIONS_LABELED: { value: ImageAspect; label: string }[] = [
+  { value: 'landscape', label: '🖼️ ヘッダー・アイキャッチ（横長 16:9）' },
+  { value: 'square', label: '⬛ 記事本文・挿絵（正方形 1:1）' },
+  { value: 'portrait', label: '📱 縦長（スマホ・ストーリー 9:16）' },
+];
+
+// 1回の生成で許す枚数（モデルごと）と合計上限（モデル数×枚数。タイムアウト・コスト・グリッド崩れ防止）
+export const MAX_COUNT_PER_MODEL = 4;
+export const MAX_TOTAL_IMAGES = 8;
+
 export interface ImageGenParams {
   prompt: string;
   aspect: ImageAspect;
