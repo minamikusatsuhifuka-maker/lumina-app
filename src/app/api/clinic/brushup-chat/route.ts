@@ -1,3 +1,4 @@
+import { CLAUDE_TEXT_MODEL } from '@/lib/ai-models';
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
 import { neon } from '@neondatabase/serverless';
@@ -142,8 +143,8 @@ AFTER:
     headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' },
     body: JSON.stringify({
       // 途中切れ対策(A-1): 就業規則引用＋BEFORE/AFTER 2案の長文が収まるよう max_tokens を 2000→8000 に引き上げ
-      model: 'claude-sonnet-4-6',
-      max_tokens: 8000,
+      model: CLAUDE_TEXT_MODEL,
+      max_tokens: 12000,
       system: systemPrompt,
       messages: trimmedMessages,
     }),

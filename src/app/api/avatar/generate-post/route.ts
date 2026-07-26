@@ -1,3 +1,4 @@
+import { CLAUDE_TEXT_MODEL } from '@/lib/ai-models';
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
 
@@ -56,8 +57,8 @@ export async function POST(req: NextRequest) {
         'anthropic-version': '2023-06-01',
       },
       body: JSON.stringify({
-        model: 'claude-sonnet-4-6',
-        max_tokens: 6000,
+        model: CLAUDE_TEXT_MODEL,
+        max_tokens: 10000,
         system: `あなたはSNSマーケティングの専門家で、アバターキャラクターの投稿を代筆します。
 
 アバター設定:

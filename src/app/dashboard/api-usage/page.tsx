@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
+import { CLAUDE_TEXT_MODEL_LABEL } from '@/lib/ai-models';
 
 interface MonthlyStats {
   total_input: number | string;
@@ -785,7 +786,7 @@ export default function ApiUsagePage() {
             }}
           >
             <strong>料金計算について：</strong>
-            Claude Sonnet 4.6
+            {CLAUDE_TEXT_MODEL_LABEL}
             の料金（入力 $3/1Mトークン・出力 $15/1Mトークン）で計算しています。
             1USD = 150JPY で換算。実際の請求額はAnthropicの公式料金に基づきます。
           </div>

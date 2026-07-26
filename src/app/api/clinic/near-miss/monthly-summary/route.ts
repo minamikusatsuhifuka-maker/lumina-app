@@ -1,3 +1,4 @@
+import { CLAUDE_TEXT_MODEL } from '@/lib/ai-models';
 import { NextResponse } from 'next/server';
 import Anthropic from '@anthropic-ai/sdk';
 import { sql } from '@/lib/db';
@@ -35,8 +36,8 @@ export async function POST(req: Request) {
   ).join('\n');
 
   const message = await anthropic.messages.create({
-    model: 'claude-sonnet-4-6',
-    max_tokens: 1500,
+    model: CLAUDE_TEXT_MODEL,
+    max_tokens: 4000,
     messages: [{
       role: 'user',
       content: `以下は${year}年${month}月のヒヤリハット・気づきシェアの一覧です。

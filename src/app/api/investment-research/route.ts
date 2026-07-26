@@ -1,3 +1,4 @@
+import { CLAUDE_TEXT_MODEL } from '@/lib/ai-models';
 import { NextRequest } from 'next/server';
 import { auth } from '@/lib/auth';
 import { trackUsage } from '@/lib/trackUsage';
@@ -163,7 +164,7 @@ ${topic}
             stepLabel: (topic ?? '').slice(0, 50),
             inputTokens: usage.inputTokens,
             outputTokens: usage.outputTokens,
-            model: 'claude-sonnet-4-6',
+            model: CLAUDE_TEXT_MODEL,
           });
           controller.enqueue(
             encoder.encode(
@@ -182,7 +183,7 @@ ${topic}
             'anthropic-version': '2023-06-01',
           },
           body: JSON.stringify({
-            model: 'claude-sonnet-4-6',
+            model: CLAUDE_TEXT_MODEL,
             max_tokens: maxTokens,
             tools: [{ type: 'web_search_20250305', name: 'web_search' }],
             system: systemPrompt,
@@ -216,7 +217,7 @@ ${topic}
           stepLabel: (topic ?? '').slice(0, 50),
           inputTokens: usageInput,
           outputTokens: usageOutput,
-          model: 'claude-sonnet-4-6',
+          model: CLAUDE_TEXT_MODEL,
         });
         controller.enqueue(
           encoder.encode(

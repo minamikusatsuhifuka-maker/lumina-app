@@ -1,3 +1,4 @@
+import { CLAUDE_TEXT_MODEL } from '@/lib/ai-models';
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
 
@@ -15,8 +16,8 @@ export async function POST(req: NextRequest) {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' },
     body: JSON.stringify({
-      model: 'claude-sonnet-4-6',
-      max_tokens: 6000,
+      model: CLAUDE_TEXT_MODEL,
+      max_tokens: 10000,
       system: `あなたは日本トップクラスのマーケティング戦略コンサルタントです。
 ABテスト用のコピーバリエーションを3パターン生成してください。
 各パターンは異なる心理アプローチで訴求し、テスト可能な仮説を持たせてください。

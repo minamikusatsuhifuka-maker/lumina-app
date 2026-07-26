@@ -1,3 +1,4 @@
+import { CLAUDE_TEXT_MODEL } from '@/lib/ai-models';
 export const maxDuration = 30;
 
 import { NextRequest, NextResponse } from 'next/server';
@@ -63,8 +64,8 @@ export async function POST(req: NextRequest) {
         'anthropic-version': '2023-06-01',
       },
       body: JSON.stringify({
-        model: 'claude-sonnet-4-6',
-        max_tokens: 1000,
+        model: CLAUDE_TEXT_MODEL,
+        max_tokens: 2048,
         system: systemPrompt,
         messages: [{ role: 'user', content: prompt }],
       }),

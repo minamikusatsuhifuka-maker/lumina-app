@@ -1,3 +1,4 @@
+import { CLAUDE_TEXT_MODEL } from '@/lib/ai-models';
 import { NextResponse } from 'next/server';
 import Anthropic from '@anthropic-ai/sdk';
 import { requireAuth } from '@/lib/require-auth';
@@ -19,8 +20,8 @@ export async function POST(req: Request) {
   const improvePointsText = (improvePoints as string[]).join('\n- ');
 
   const message = await anthropic.messages.create({
-    model: 'claude-sonnet-4-6',
-    max_tokens: 3000,
+    model: CLAUDE_TEXT_MODEL,
+    max_tokens: 6000,
     messages: [
       {
         role: 'user',

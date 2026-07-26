@@ -1,3 +1,4 @@
+import { CLAUDE_TEXT_MODEL } from '@/lib/ai-models';
 import { NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
 import { neon } from '@neondatabase/serverless';
@@ -33,8 +34,8 @@ export async function GET() {
       'anthropic-version': '2023-06-01',
     },
     body: JSON.stringify({
-      model: 'claude-sonnet-4-6',
-      max_tokens: 2000,
+      model: CLAUDE_TEXT_MODEL,
+      max_tokens: 4000,
       system: `メモリのリストを分析してクラスター（テーマグループ）に分類してください。
 必ずJSON形式のみで返答。マークダウン不要。
 

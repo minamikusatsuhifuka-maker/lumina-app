@@ -1,3 +1,4 @@
+import { CLAUDE_TEXT_MODEL } from '@/lib/ai-models';
 import { NextRequest } from 'next/server';
 import { auth } from '@/lib/auth';
 
@@ -46,8 +47,8 @@ export async function POST(req: NextRequest) {
 
   try {
     const data = await callAnthropic(apiKey, {
-      model: 'claude-sonnet-4-6',
-      max_tokens: 1500,
+      model: CLAUDE_TEXT_MODEL,
+      max_tokens: 4000,
       system: `あなたはxLUMINAのワークフロー設計AIです。
 ユーザーの目的に対して最適な機能の使用順序を提案してください。
 必ずJSON形式のみで返してください。マークダウンや前置きは不要です。

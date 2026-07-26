@@ -2,12 +2,14 @@ import { NextResponse } from 'next/server';
 import Anthropic from '@anthropic-ai/sdk';
 import { robustJsonParse } from '@/lib/ai-json-parser';
 import { requireAuth } from '@/lib/require-auth';
+import { CLAUDE_TEXT_MODEL } from '@/lib/ai-models';
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
 // 比較対象モデル（key はレスポンス／UIで共通利用）
+// 195: Sonnet枠は中央定数（Sonnet 5）へ。Opus比較枠は院長判断で現状維持
 const COMPARISON_MODELS = [
-  { key: 'sonnet', id: 'claude-sonnet-4-6' },
+  { key: 'sonnet', id: CLAUDE_TEXT_MODEL },
   { key: 'opus',   id: 'claude-opus-4-7'  },
   { key: 'opus48', id: 'claude-opus-4-8'  }, // 🆕 Opus 4.8（2026/5/28リリース）
 ] as const;
@@ -20,7 +22,7 @@ async function generateWithModel(
 ) {
   const message = await anthropic.messages.create({
     model,
-    max_tokens: 3000,
+    max_tokens: 6000,
     messages: [{
       role: 'user',
       content: `以下のハンドブック章を「${templateLabel}」のスタイルで改善してください。
@@ -45,7 +47,7 @@ async function scoreWithModel(
 ) {
   const message = await anthropic.messages.create({
     model,
-    max_tokens: 1500,
+    max_tokens: 4000,
     messages: [{
       role: 'user',
       content: `以下の【元の文章】と【改善後の文章】を評価してください。

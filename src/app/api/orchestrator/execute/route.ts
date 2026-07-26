@@ -1,6 +1,7 @@
 import { NextRequest } from 'next/server';
 import { auth } from '@/lib/auth';
 import { sql } from '@/lib/db';
+import { CLAUDE_TEXT_MODEL } from '@/lib/ai-models';
 import { PIPELINES, type PipelineStep, type StepResult } from '@/lib/pipelines';
 import { triggerIntegrations } from '@/lib/integrationEngine';
 
@@ -688,7 +689,7 @@ export async function POST(req: NextRequest) {
           (r) => r.status === 'skipped',
         ).length;
 
-        // コスト計算（claude-sonnet-4-6: input $3/1M, output $15/1M、1USD=150JPY）
+        // コスト計算（Claudeテキストモデル: input $3/1M, output $15/1M、1USD=150JPY）
         const costUsd =
           (totalTokens.inputTokens * 3 + totalTokens.outputTokens * 15) /
           1_000_000;
@@ -720,7 +721,7 @@ export async function POST(req: NextRequest) {
               ${userId}, 'orchestrator', ${pipeline.label},
               ${totalTokens.inputTokens}, ${totalTokens.outputTokens},
               ${costUsd}, ${costJpy},
-              'claude-sonnet-4-6'
+              ${CLAUDE_TEXT_MODEL}
             )
           `.catch((err) => {
             console.error('[orchestrator] 使用量記録失敗:', err);

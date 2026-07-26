@@ -1,3 +1,4 @@
+import { CLAUDE_TEXT_MODEL } from '@/lib/ai-models';
 import { NextRequest, NextResponse } from 'next/server';
 import Anthropic from '@anthropic-ai/sdk';
 import { sql } from '@/lib/db';
@@ -97,8 +98,8 @@ ${conversationText}
 
   try {
     const response = await client.messages.create({
-      model: 'claude-sonnet-4-6',
-      max_tokens: 4000,
+      model: CLAUDE_TEXT_MODEL,
+      max_tokens: 8000,
       messages: [{ role: 'user', content: prompt }],
     });
 

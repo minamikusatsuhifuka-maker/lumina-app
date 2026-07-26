@@ -1,3 +1,4 @@
+import { CLAUDE_TEXT_MODEL } from '@/lib/ai-models';
 import { NextRequest, NextResponse } from 'next/server';
 import Anthropic from '@anthropic-ai/sdk';
 import { auth } from '@/lib/auth';
@@ -107,8 +108,8 @@ ${includeRegional && region ? `地域: ${region}周辺の皮膚科・美容皮�
 
   try {
     const response = await client.messages.create({
-      model: 'claude-sonnet-4-6',
-      max_tokens: 4000,
+      model: CLAUDE_TEXT_MODEL,
+      max_tokens: 8000,
       // Web検索ツールを使って実際の価格情報を集める
       tools: [
         {

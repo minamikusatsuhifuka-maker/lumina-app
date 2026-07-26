@@ -1,3 +1,4 @@
+import { CLAUDE_TEXT_MODEL } from '@/lib/ai-models';
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
 
@@ -34,8 +35,8 @@ export async function POST(req: NextRequest) {
         'anthropic-version': '2023-06-01',
       },
       body: JSON.stringify({
-        model: 'claude-sonnet-4-6',
-        max_tokens: 6000,
+        model: CLAUDE_TEXT_MODEL,
+        max_tokens: 10000,
         system: `あなたはストーリーテリングの専門家です。
 与えられた情報を指定された物語構造で魅力的なストーリーに変換してください。
 読者の心を動かす、感情に訴えかける文章を作成してください。

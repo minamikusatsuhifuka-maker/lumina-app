@@ -1,3 +1,4 @@
+import { CLAUDE_TEXT_MODEL } from '@/lib/ai-models';
 import { NextResponse } from 'next/server';
 import { requireAuth } from '@/lib/require-auth';
 
@@ -18,8 +19,8 @@ export async function POST() {
       'anthropic-version': '2023-06-01',
     },
     body: JSON.stringify({
-      model: 'claude-sonnet-4-6',
-      max_tokens: 1000,
+      model: CLAUDE_TEXT_MODEL,
+      max_tokens: 2048,
       messages: [{
         role: 'user',
         content: `AIを活用する上で本質的で実用的なTipsを3件、JSON配列で返してください。

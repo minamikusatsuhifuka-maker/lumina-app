@@ -1,12 +1,16 @@
 // API使用量を api_usage_logs に記録する共通ヘルパー
 // 各機能のAPIルートから呼び出すことでコスト集計を一元化する
 import { sql } from '@/lib/db';
+import { CLAUDE_TEXT_MODEL } from '@/lib/ai-models';
 
 // 価格表（USD per 1M tokens、1USD=150JPY換算）
+// 195: Sonnet 5=$3/$15（通常価格・院長判断で導入価格は載せない）、Opus実勢=$5/$25（誤値$15/$75を修正）。
+// 旧sonnet-4-6のログはフォールバック（CLAUDE_TEXT_MODEL）でも同単価$3/$15のため専用エントリ不要
 const PRICES: Record<string, { input: number; output: number }> = {
-  'claude-sonnet-4-6': { input: 3, output: 15 },
-  'claude-opus-4-6': { input: 15, output: 75 },
-  'claude-opus-4-7': { input: 15, output: 75 },
+  [CLAUDE_TEXT_MODEL]: { input: 3, output: 15 },
+  'claude-opus-4-6': { input: 5, output: 25 },
+  'claude-opus-4-7': { input: 5, output: 25 },
+  'claude-opus-4-8': { input: 5, output: 25 },
   'claude-haiku-4-5': { input: 0.25, output: 1.25 },
 };
 const USD_TO_JPY = 150;
@@ -26,14 +30,14 @@ export async function trackUsage({
   stepLabel,
   inputTokens,
   outputTokens,
-  model = 'claude-sonnet-4-6',
+  model = CLAUDE_TEXT_MODEL,
 }: TrackUsageArgs): Promise<void> {
   if (!userId) return;
   const inT = Math.max(0, Math.floor(inputTokens || 0));
   const outT = Math.max(0, Math.floor(outputTokens || 0));
   if (inT === 0 && outT === 0) return;
 
-  const price = PRICES[model] ?? PRICES['claude-sonnet-4-6'];
+  const price = PRICES[model] ?? PRICES[CLAUDE_TEXT_MODEL];
   const costUsd = (inT * price.input + outT * price.output) / 1_000_000;
   const costJpy = Math.ceil(costUsd * USD_TO_JPY);
 

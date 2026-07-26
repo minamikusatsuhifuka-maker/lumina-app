@@ -1,3 +1,4 @@
+import { CLAUDE_TEXT_MODEL } from '@/lib/ai-models';
 import { NextRequest } from 'next/server';
 import Anthropic from '@anthropic-ai/sdk';
 import { auth } from '@/lib/auth';
@@ -5,7 +6,7 @@ import { getClinicSystemPrompt } from '@/lib/clinicProfile';
 
 export const maxDuration = 120;
 
-// AI文章改善API：読みやすさスコア等をもとに改善提案+改善後文章をストリームで返す（Claude Sonnet 4.6）
+// AI文章改善API：読みやすさスコア等をもとに改善提案+改善後文章をストリームで返す（Claude）
 export async function POST(req: NextRequest) {
   try {
     const session = await auth();
@@ -94,8 +95,8 @@ ${originalText}
       async start(controller) {
         try {
           const response = await client.messages.create({
-            model: 'claude-sonnet-4-6',
-            max_tokens: 8000,
+            model: CLAUDE_TEXT_MODEL,
+            max_tokens: 12000,
             stream: true,
             system: systemPrompt + clinicStr,
             messages: [{ role: 'user', content: userPrompt }],

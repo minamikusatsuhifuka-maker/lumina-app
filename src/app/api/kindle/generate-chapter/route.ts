@@ -1,3 +1,4 @@
+import { CLAUDE_TEXT_MODEL } from '@/lib/ai-models';
 import { NextRequest } from 'next/server';
 import { auth } from '@/lib/auth';
 import Anthropic from '@anthropic-ai/sdk';
@@ -51,8 +52,8 @@ export async function POST(req: NextRequest) {
       try {
         // Step1: ディープリサーチ
         const researchResponse = await client.messages.create({
-          model: 'claude-sonnet-4-6',
-          max_tokens: 2000,
+          model: CLAUDE_TEXT_MODEL,
+          max_tokens: 4000,
           messages: [{
             role: 'user',
             content: `「${chapter?.title ?? ''}」について、以下を調査してください：
@@ -75,8 +76,8 @@ JSON形式で出力：
 
         // Step2: 本文生成（ストリーミング）
         const writeResponse = await client.messages.create({
-          model: 'claude-sonnet-4-6',
-          max_tokens: 8000,
+          model: CLAUDE_TEXT_MODEL,
+          max_tokens: 12000,
           stream: true,
           messages: [{
             role: 'user',

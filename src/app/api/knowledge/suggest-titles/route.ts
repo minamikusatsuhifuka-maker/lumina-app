@@ -1,9 +1,10 @@
+import { CLAUDE_TEXT_MODEL } from '@/lib/ai-models';
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
 
 export const maxDuration = 60;
 
-// 関連検索タイトル案をClaude Sonnet 4.6で生成するAPI
+// 関連検索タイトル案をClaudeで生成するAPI
 export async function POST(req: NextRequest) {
   const session = await auth();
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
@@ -62,9 +63,8 @@ ${String(researchText).slice(0, 2000)}
         'anthropic-version': '2023-06-01',
       },
       body: JSON.stringify({
-        model: 'claude-sonnet-4-6',
-        max_tokens: 2000,
-        temperature: 0.6,
+        model: CLAUDE_TEXT_MODEL,
+        max_tokens: 4000,
         messages: [{ role: 'user', content: prompt }],
       }),
     });

@@ -1,3 +1,4 @@
+import { CLAUDE_TEXT_MODEL } from '@/lib/ai-models';
 import { NextRequest, NextResponse } from 'next/server';
 import { requireAuth } from '@/lib/require-auth';
 
@@ -37,8 +38,8 @@ export async function POST(req: NextRequest) {
 
   try {
     const data = await callAnthropic(apiKey, {
-      model: 'claude-sonnet-4-6',
-      max_tokens: 4000,
+      model: CLAUDE_TEXT_MODEL,
+      max_tokens: 8000,
       system: `あなたは優秀なリサーチアナリストです。
 複数の調査・分析結果を横断的に分析し、以下の構造でレポートを生成してください。
 必ず各セクションを明確に分けて出力してください。

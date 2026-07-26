@@ -1,3 +1,4 @@
+import { CLAUDE_TEXT_MODEL } from '@/lib/ai-models';
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
 
@@ -28,8 +29,8 @@ export async function POST(req: NextRequest) {
         'anthropic-version': '2023-06-01',
       },
       body: JSON.stringify({
-        model: 'claude-sonnet-4-6',
-        max_tokens: 3000,
+        model: CLAUDE_TEXT_MODEL,
+        max_tokens: 6000,
         system: `あなたはファクトチェックの専門家です。
 複数の情報源を比較分析し、事実関係を検証してください。
 必ず以下のJSON形式のみを返してください。前置きや説明は不要です。

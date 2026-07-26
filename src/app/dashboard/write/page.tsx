@@ -1,5 +1,6 @@
 'use client';
 import { useState, useEffect } from 'react';
+import { CLAUDE_TEXT_MODEL_LABEL } from '@/lib/ai-models';
 import { ProgressBar } from '@/components/ProgressBar';
 import { VoiceInputButton } from '@/components/VoiceInputButton';
 import { useProgress } from '@/components/useProgress';
@@ -557,7 +558,7 @@ export default function WritePage() {
           📚 下書き一覧
         </a>
       </div>
-      <p style={{ color: 'var(--text-muted)', marginBottom: 16 }}>Claude Sonnet 4.6 — 高精度ストリーミング生成</p>
+      <p style={{ color: 'var(--text-muted)', marginBottom: 16 }}>{CLAUDE_TEXT_MODEL_LABEL} — 高精度ストリーミング生成</p>
 
       {/* AI対話で深掘りモード切替 */}
       <div style={{ marginBottom: 20 }}>

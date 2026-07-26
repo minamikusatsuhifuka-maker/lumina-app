@@ -1,15 +1,19 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
 import { sql } from '@/lib/db';
+import { CLAUDE_TEXT_MODEL } from '@/lib/ai-models';
 
 export const runtime = 'nodejs';
 export const maxDuration = 30;
 
 // Claudeモデル別の料金（USD per 1M tokens）
+// 195: Sonnet 5=$3/$15（通常価格）、Opus実勢=$5/$25（誤値$15/$75を修正）。
+// 旧sonnet-4-6のログはフォールバック（CLAUDE_TEXT_MODEL）でも同単価$3/$15のため専用エントリ不要
 const PRICES: Record<string, { input: number; output: number }> = {
-  'claude-sonnet-4-6': { input: 3, output: 15 },
-  'claude-opus-4-6': { input: 15, output: 75 },
-  'claude-opus-4-7': { input: 15, output: 75 },
+  [CLAUDE_TEXT_MODEL]: { input: 3, output: 15 },
+  'claude-opus-4-6': { input: 5, output: 25 },
+  'claude-opus-4-7': { input: 5, output: 25 },
+  'claude-opus-4-8': { input: 5, output: 25 },
   'claude-haiku-4-5': { input: 0.25, output: 1.25 },
 };
 const USD_JPY = 150;
@@ -41,8 +45,8 @@ export async function POST(req: NextRequest) {
   const stepLabel = body.stepLabel ?? null;
   const inputTokens = Math.max(0, Math.floor(body.inputTokens ?? 0));
   const outputTokens = Math.max(0, Math.floor(body.outputTokens ?? 0));
-  const model = body.model ?? 'claude-sonnet-4-6';
-  const price = PRICES[model] ?? PRICES['claude-sonnet-4-6'];
+  const model = body.model ?? CLAUDE_TEXT_MODEL;
+  const price = PRICES[model] ?? PRICES[CLAUDE_TEXT_MODEL];
   const costUsd =
     (inputTokens * price.input + outputTokens * price.output) / 1_000_000;
   const costJpy = Math.ceil(costUsd * USD_JPY);

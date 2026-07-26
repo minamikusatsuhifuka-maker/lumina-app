@@ -1,3 +1,4 @@
+import { CLAUDE_TEXT_MODEL } from '@/lib/ai-models';
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
 
@@ -24,8 +25,8 @@ export async function POST(req: NextRequest) {
         'anthropic-version': '2023-06-01',
       },
       body: JSON.stringify({
-        model: 'claude-sonnet-4-6',
-        max_tokens: 2000,
+        model: CLAUDE_TEXT_MODEL,
+        max_tokens: 4000,
         system: `あなたはAmazon KDPのSEO・キーワード戦略の専門家です。
 書籍の情報をもとに、検索で見つかりやすくなるキーワード戦略を提案してください。
 

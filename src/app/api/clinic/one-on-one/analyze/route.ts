@@ -1,3 +1,4 @@
+import { CLAUDE_TEXT_MODEL } from '@/lib/ai-models';
 import { NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
 import { neon } from '@neondatabase/serverless';
@@ -76,8 +77,8 @@ ${history ? `過去: ${history}` : ''}
         'anthropic-version': '2023-06-01',
       },
       body: JSON.stringify({
-        model: 'claude-sonnet-4-6',
-        max_tokens: 600,
+        model: CLAUDE_TEXT_MODEL,
+        max_tokens: 2048,
         system: 'あなたはクリニックの1on1サポートAIです。リードマネジメント・5大欲求・ティール組織の視点で分析してください。JSONのみ返してください。前置き不要。',
         messages: [{ role: 'user', content: prompt }],
       }),

@@ -1,3 +1,4 @@
+import { CLAUDE_TEXT_MODEL } from '@/lib/ai-models';
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
 import { neon } from '@neondatabase/serverless';
@@ -30,8 +31,8 @@ async function analyzeDiff(previous: string, current: string, keyword: string) {
       'anthropic-version': '2023-06-01',
     },
     body: JSON.stringify({
-      model: 'claude-sonnet-4-6',
-      max_tokens: 1000,
+      model: CLAUDE_TEXT_MODEL,
+      max_tokens: 2048,
       system: `あなたは情報分析の専門家です。
 前回と今回の収集結果を比較して、変化点を分析してください。
 JSON形式のみで返答。マークダウン不要。
@@ -75,8 +76,8 @@ export async function POST(req: NextRequest) {
       'anthropic-version': '2023-06-01',
     },
     body: JSON.stringify({
-      model: 'claude-sonnet-4-6',
-      max_tokens: 4000,
+      model: CLAUDE_TEXT_MODEL,
+      max_tokens: 8000,
       tools: [{ type: 'web_search_20250305', name: 'web_search' }],
       system: `あなたは優秀なリサーチアナリストです。指定されたトピックの最新情報を収集し、
 要点を箇条書きでまとめてください。引用元URLも明記してください。`,

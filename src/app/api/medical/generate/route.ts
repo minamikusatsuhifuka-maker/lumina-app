@@ -1,3 +1,4 @@
+import { CLAUDE_TEXT_MODEL } from '@/lib/ai-models';
 import { NextRequest } from 'next/server';
 import Anthropic from '@anthropic-ai/sdk';
 import { auth } from '@/lib/auth';
@@ -181,8 +182,8 @@ ${researchText ? `【参考リサーチ情報】\n${researchText.slice(0, 3000)}
     async start(controller) {
       try {
         const response = await client.messages.create({
-          model: 'claude-sonnet-4-6',
-          max_tokens: 4000,
+          model: CLAUDE_TEXT_MODEL,
+          max_tokens: 8000,
           stream: true,
           system: systemPrompt,
           messages: [{ role: 'user', content: userPrompt }],

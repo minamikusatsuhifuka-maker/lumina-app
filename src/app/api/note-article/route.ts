@@ -1,3 +1,4 @@
+import { CLAUDE_TEXT_MODEL } from '@/lib/ai-models';
 import { NextRequest } from 'next/server';
 import { auth } from '@/lib/auth';
 import { trackUsage } from '@/lib/trackUsage';
@@ -170,7 +171,7 @@ ${buzzSection}${researchSection}${toneSection}${personalSection}${patternsSectio
           stepLabel: `[length:${length}] ${theme.slice(0, 40)}`,
           inputTokens: usage.inputTokens,
           outputTokens: usage.outputTokens,
-          model: 'claude-sonnet-4-6',
+          model: CLAUDE_TEXT_MODEL,
         });
 
         controller.enqueue(

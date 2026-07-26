@@ -1,3 +1,4 @@
+import { CLAUDE_TEXT_MODEL } from '@/lib/ai-models';
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
 import { neon } from '@neondatabase/serverless';
@@ -34,8 +35,8 @@ export async function POST(req: NextRequest) {
   let marketingStrategy = '';
   try {
     const marketingRes = await client.messages.create({
-      model: 'claude-sonnet-4-6',
-      max_tokens: 2500,
+      model: CLAUDE_TEXT_MODEL,
+      max_tokens: 4000,
       messages: [{
         role: 'user',
         content: `以下の書籍のKindleマーケティング戦略を作成してください。

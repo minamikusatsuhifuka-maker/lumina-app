@@ -1,3 +1,4 @@
+import { CLAUDE_TEXT_MODEL } from '@/lib/ai-models';
 import { NextRequest, NextResponse } from 'next/server';
 import { requireAuth } from '@/lib/require-auth';
 
@@ -34,8 +35,8 @@ export async function POST(req: NextRequest) {
 
   try {
     const data = await callAnthropic(apiKey, {
-      model: 'claude-sonnet-4-6',
-      max_tokens: 1000,
+      model: CLAUDE_TEXT_MODEL,
+      max_tokens: 2048,
       messages: [{
         role: 'user',
         content: `「${word}」という用語について、以下のJSON形式で解説してください。

@@ -1,3 +1,4 @@
+import { CLAUDE_TEXT_MODEL } from '@/lib/ai-models';
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
 
@@ -27,8 +28,8 @@ export async function POST(req: NextRequest) {
         'anthropic-version': '2023-06-01',
       },
       body: JSON.stringify({
-        model: 'claude-sonnet-4-6',
-        max_tokens: 8000,
+        model: CLAUDE_TEXT_MODEL,
+        max_tokens: 12000,
         system: `あなたはKindle書籍のプロ執筆者です。
 与えられた章の情報をもとに、読者を惹きつける高品質な章を執筆してください。
 

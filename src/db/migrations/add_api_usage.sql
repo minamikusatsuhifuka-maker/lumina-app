@@ -9,7 +9,8 @@ CREATE TABLE IF NOT EXISTS api_usage_logs (
   output_tokens INTEGER DEFAULT 0,
   cost_usd NUMERIC(10, 6) DEFAULT 0,
   cost_jpy INTEGER DEFAULT 0,
-  model TEXT DEFAULT 'claude-sonnet-4-6',
+  -- 195: 既存DBのDEFAULTは適用済みのため変わらない（挿入時は常にmodelを明示指定している）
+  model TEXT DEFAULT 'claude-sonnet-5',
   recorded_at TIMESTAMPTZ DEFAULT NOW()
 );
 

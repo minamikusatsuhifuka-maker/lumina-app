@@ -1,3 +1,4 @@
+import { CLAUDE_TEXT_MODEL } from '@/lib/ai-models';
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
 
@@ -23,8 +24,8 @@ export async function POST(req: NextRequest) {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' },
     body: JSON.stringify({
-      model: 'claude-sonnet-4-6',
-      max_tokens: 2000,
+      model: CLAUDE_TEXT_MODEL,
+      max_tokens: 4000,
       system: `あなたはAI画像生成の専門家です。日本語のイメージ説明を指定ツール向けの最適化された英語プロンプトに変換してください。
 ${TOOL_GUIDES[tool] ?? TOOL_GUIDES.midjourney}
 

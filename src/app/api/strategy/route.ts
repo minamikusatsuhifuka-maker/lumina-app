@@ -1,3 +1,4 @@
+import { CLAUDE_TEXT_MODEL } from '@/lib/ai-models';
 import { NextRequest } from 'next/server';
 import { requireAuth } from '@/lib/require-auth';
 
@@ -87,8 +88,8 @@ export async function POST(req: NextRequest) {
             'anthropic-beta': 'interleaved-thinking-2025-05-14',
           },
           body: JSON.stringify({
-            model: 'claude-sonnet-4-6',
-            max_tokens: 3000,
+            model: CLAUDE_TEXT_MODEL,
+            max_tokens: 6000,
             stream: true,
             system: STRATEGY_PROMPTS[strategyType] || STRATEGY_PROMPTS.mvv,
             messages: [{

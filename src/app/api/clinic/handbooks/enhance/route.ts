@@ -1,3 +1,4 @@
+import { CLAUDE_TEXT_MODEL } from '@/lib/ai-models';
 export const maxDuration = 120;
 
 import { NextRequest, NextResponse } from 'next/server';
@@ -157,8 +158,8 @@ ${chapterContent}
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' },
       body: JSON.stringify({
-        model: 'claude-sonnet-4-6',
-        max_tokens: 2000,
+        model: CLAUDE_TEXT_MODEL,
+        max_tokens: 4000,
         system: chatSystemPrompt,
         messages: chatMessages.length > 0 ? chatMessages : [{ role: 'user', content: chapterContent ? 'この章を分析してください。' : 'こんにちは' }],
       }),
@@ -174,7 +175,7 @@ ${chapterContent}
   const response = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' },
-    body: JSON.stringify({ model: 'claude-sonnet-4-6', max_tokens: 3000, system: baseSystem, messages: [{ role: 'user', content: userPrompt }] }),
+    body: JSON.stringify({ model: CLAUDE_TEXT_MODEL, max_tokens: 6000, system: baseSystem, messages: [{ role: 'user', content: userPrompt }] }),
   });
 
   const data = await response.json();

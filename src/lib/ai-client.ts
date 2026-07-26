@@ -1,5 +1,5 @@
 import { GoogleGenerativeAI, type Tool } from '@google/generative-ai';
-import { GEMINI_TEXT_MODEL, GEMINI_TEXT_MODEL_LABEL, GEMINI_TEXT_THINKING_LOW } from '@/lib/ai-models';
+import { CLAUDE_TEXT_MODEL, CLAUDE_TEXT_MODEL_LABEL, GEMINI_TEXT_MODEL, GEMINI_TEXT_MODEL_LABEL, GEMINI_TEXT_THINKING_LOW } from '@/lib/ai-models';
 
 export type AIModel = 'claude' | 'gemini';
 // SSEの出力フォーマット: 'standard' = {type:'text', content}、'delta' = {type:'delta', text}
@@ -8,7 +8,7 @@ export type StreamFormat = 'standard' | 'delta';
 export const MODEL_OPTIONS = [
   {
     id: 'claude' as AIModel,
-    name: 'Claude Sonnet 4.6',
+    name: CLAUDE_TEXT_MODEL_LABEL,
     provider: 'Anthropic',
     description: '高品質・バランス型。創造的な文章生成に強い',
     icon: '🤖',
@@ -23,7 +23,8 @@ export const MODEL_OPTIONS = [
 ];
 
 const GEMINI_MODEL_ID = GEMINI_TEXT_MODEL;
-const CLAUDE_MODEL_ID = 'claude-sonnet-4-6';
+// 195: モデルIDは ai-models.ts に一元管理（直書き禁止）
+const CLAUDE_MODEL_ID = CLAUDE_TEXT_MODEL;
 
 function getGemini() {
   return new GoogleGenerativeAI(process.env.GEMINI_API_KEY!);
@@ -77,7 +78,8 @@ export async function generateWithModel(
   model: AIModel,
   prompt: string,
   systemPrompt?: string,
-  maxTokens = 4000,
+  // 195: Sonnet 5はthinking既定ON＝max_tokensが思考+本文の合算上限になるため既定枠を増額
+  maxTokens = 8000,
   geminiGenerationConfig?: Record<string, unknown>,
   webSearch = false,
 ): Promise<string> {
@@ -131,7 +133,8 @@ export async function streamWithModel(
   systemPrompt: string,
   controller: ReadableStreamDefaultController,
   encoder: TextEncoder,
-  maxTokens = 8000,
+  // 195: Sonnet 5はthinking既定ON＝max_tokensが思考+本文の合算上限になるため既定枠を増額
+  maxTokens = 12000,
   format: StreamFormat = 'standard',
   webSearch = false,
 ): Promise<{ inputTokens: number; outputTokens: number }> {

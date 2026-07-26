@@ -1,3 +1,4 @@
+import { CLAUDE_TEXT_MODEL } from '@/lib/ai-models';
 import { NextRequest } from 'next/server';
 import { requireAuth } from '@/lib/require-auth';
 
@@ -66,8 +67,8 @@ export async function POST(req: NextRequest) {
             'anthropic-version': '2023-06-01',
           },
           body: JSON.stringify({
-            model: 'claude-sonnet-4-6',
-            max_tokens: 3000,
+            model: CLAUDE_TEXT_MODEL,
+            max_tokens: 6000,
             system: `あなたは世界トップクラスの戦略コンサルタント・アナリストです。
 与えられた情報を深く分析し、実用的で具体的な洞察を提供してください。
 ハルシネーションを避け、不確かな情報は「可能性がある」「推測される」と明記してください。`,

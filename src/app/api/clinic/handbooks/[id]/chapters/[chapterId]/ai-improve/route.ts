@@ -1,3 +1,4 @@
+import { CLAUDE_TEXT_MODEL } from '@/lib/ai-models';
 import { NextRequest } from 'next/server';
 import { auth } from '@/lib/auth';
 import { buildSystemContext } from '@/lib/clinic-context';
@@ -34,8 +35,8 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
             'anthropic-beta': 'interleaved-thinking-2025-05-14',
           },
           body: JSON.stringify({
-            model: 'claude-sonnet-4-6',
-            max_tokens: 4000,
+            model: CLAUDE_TEXT_MODEL,
+            max_tokens: 8000,
             stream: true,
             system: systemPrompt,
             messages: [{

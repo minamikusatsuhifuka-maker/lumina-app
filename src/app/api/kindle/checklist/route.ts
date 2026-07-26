@@ -1,3 +1,4 @@
+import { CLAUDE_TEXT_MODEL } from '@/lib/ai-models';
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
 
@@ -28,8 +29,8 @@ export async function POST(req: NextRequest) {
         'anthropic-version': '2023-06-01',
       },
       body: JSON.stringify({
-        model: 'claude-sonnet-4-6',
-        max_tokens: 2000,
+        model: CLAUDE_TEXT_MODEL,
+        max_tokens: 4000,
         system: `あなたはKindle出版の品質管理マネージャーです。
 書籍の情報をもとに、出版前に確認すべきチェックリストを作成してください。
 

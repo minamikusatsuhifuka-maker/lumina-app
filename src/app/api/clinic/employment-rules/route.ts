@@ -1,3 +1,4 @@
+import { CLAUDE_TEXT_MODEL } from '@/lib/ai-models';
 export const maxDuration = 300;
 
 import { NextRequest, NextResponse } from 'next/server';
@@ -56,7 +57,7 @@ export async function POST(req: NextRequest) {
       if (!extractedText) {
         const base64 = buffer.toString('base64');
         const response = await anthropic.messages.create({
-          model: 'claude-sonnet-4-6',
+          model: CLAUDE_TEXT_MODEL,
           max_tokens: 16000,
           messages: [{
             role: 'user',

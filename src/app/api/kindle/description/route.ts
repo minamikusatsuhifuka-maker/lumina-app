@@ -1,3 +1,4 @@
+import { CLAUDE_TEXT_MODEL } from '@/lib/ai-models';
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
 
@@ -28,8 +29,8 @@ export async function POST(req: NextRequest) {
         'anthropic-version': '2023-06-01',
       },
       body: JSON.stringify({
-        model: 'claude-sonnet-4-6',
-        max_tokens: 3000,
+        model: CLAUDE_TEXT_MODEL,
+        max_tokens: 6000,
         system: `あなたはAmazon KDP出版のコピーライターです。
 書籍情報をもとに、Amazonの商品ページに掲載する各種テキストを作成してください。
 

@@ -1,3 +1,4 @@
+import { CLAUDE_TEXT_MODEL } from '@/lib/ai-models';
 import { NextResponse } from 'next/server';
 import Anthropic from '@anthropic-ai/sdk';
 import { robustJsonParse } from '@/lib/ai-json-parser';
@@ -12,8 +13,8 @@ export async function POST(req: Request) {
   const { original, improved, templateLabel } = await req.json();
 
   const message = await anthropic.messages.create({
-    model: 'claude-sonnet-4-6',
-    max_tokens: 2000,
+    model: CLAUDE_TEXT_MODEL,
+    max_tokens: 4000,
     messages: [
       {
         role: 'user',

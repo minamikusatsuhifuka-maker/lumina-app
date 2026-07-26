@@ -1,3 +1,4 @@
+import { CLAUDE_TEXT_MODEL } from '@/lib/ai-models';
 import { NextRequest } from 'next/server';
 import { auth } from '@/lib/auth';
 
@@ -19,8 +20,8 @@ export async function POST(req: NextRequest) {
       'anthropic-version': '2023-06-01',
     },
     body: JSON.stringify({
-      model: 'claude-sonnet-4-6',
-      max_tokens: 2000,
+      model: CLAUDE_TEXT_MODEL,
+      max_tokens: 4000,
       stream: true,
       system: `あなたは優秀なライターです。
 与えられた文章の続きを自然に書いてください。

@@ -1,3 +1,4 @@
+import { CLAUDE_TEXT_MODEL } from '@/lib/ai-models';
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
 
@@ -26,8 +27,8 @@ export async function POST(req: NextRequest) {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' },
     body: JSON.stringify({
-      model: 'claude-sonnet-4-6',
-      max_tokens: 8000,
+      model: CLAUDE_TEXT_MODEL,
+      max_tokens: 12000,
       system: `あなたは日本トップクラスのメールマーケティング戦略家です。
 ステップメール（${emailTypeDescriptions[emailType] ?? emailTypeDescriptions['セールス']}）を${stepCount}通分設計してください。
 各メールは心理学的トリガーを活用し、開封率・クリック率を最大化する設計にしてください。

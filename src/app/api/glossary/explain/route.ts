@@ -1,3 +1,4 @@
+import { CLAUDE_TEXT_MODEL } from '@/lib/ai-models';
 
 import { NextRequest } from 'next/server';
 import { auth } from '@/lib/auth';
@@ -37,8 +38,8 @@ export async function POST(req: NextRequest) {
 
   try {
     const data = await callAnthropic(apiKey, {
-      model: 'claude-sonnet-4-6',
-      max_tokens: 4000,
+      model: CLAUDE_TEXT_MODEL,
+      max_tokens: 8000,
       system: `あなたは丁寧でわかりやすい解説が得意な専門家です。
 指定された専門用語について、必ずJSON形式のみで解説を生成してください。
 マークダウンのコードブロック（\`\`\`json等）は絶対に使わず、JSONをそのまま返してください。

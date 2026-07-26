@@ -1,3 +1,4 @@
+import { CLAUDE_TEXT_MODEL } from '@/lib/ai-models';
 import { NextResponse } from 'next/server';
 import Anthropic from '@anthropic-ai/sdk';
 import { requireAuth } from '@/lib/require-auth';
@@ -57,8 +58,8 @@ export async function POST(req: Request) {
   const selectedTone = toneGuide[tone ?? 'lead'];
 
   const message = await anthropic.messages.create({
-    model: 'claude-sonnet-4-6',
-    max_tokens: 800,
+    model: CLAUDE_TEXT_MODEL,
+    max_tokens: 2048,
     messages: [
       {
         role: 'user',

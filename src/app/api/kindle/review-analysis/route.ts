@@ -1,3 +1,4 @@
+import { CLAUDE_TEXT_MODEL } from '@/lib/ai-models';
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
 
@@ -28,8 +29,8 @@ export async function POST(req: NextRequest) {
         'anthropic-version': '2023-06-01',
       },
       body: JSON.stringify({
-        model: 'claude-sonnet-4-6',
-        max_tokens: 3000,
+        model: CLAUDE_TEXT_MODEL,
+        max_tokens: 6000,
         system: `あなたは書籍マーケティングのデータアナリストです。
 読者レビューを分析し、改善点と次回作への示唆を導き出してください。
 

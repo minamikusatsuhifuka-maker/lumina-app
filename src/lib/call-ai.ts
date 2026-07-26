@@ -1,4 +1,4 @@
-import { GEMINI_TEXT_MODEL, GEMINI_TEXT_THINKING_MINIMAL } from '@/lib/ai-models';
+import { GEMINI_TEXT_MODEL, GEMINI_TEXT_THINKING_MINIMAL, CLAUDE_TEXT_MODEL } from '@/lib/ai-models';
 
 export interface AIMessage {
   role: 'user' | 'assistant';
@@ -13,7 +13,8 @@ export interface CallAIOptions {
 }
 
 export async function callAI(options: CallAIOptions): Promise<string> {
-  const { model, system, messages, maxTokens = 1000 } = options;
+  // 195: Sonnet 5はthinking既定ON＝max_tokensが思考+本文の合算上限になるため既定枠を増額
+  const { model, system, messages, maxTokens = 2048 } = options;
 
   if (model === 'gemini') {
     const apiKey = process.env.GEMINI_API_KEY;
@@ -62,7 +63,7 @@ export async function callAI(options: CallAIOptions): Promise<string> {
         'anthropic-version': '2023-06-01',
       },
       body: JSON.stringify({
-        model: 'claude-sonnet-4-6',
+        model: CLAUDE_TEXT_MODEL,
         max_tokens: maxTokens,
         system: system || '',
         messages,

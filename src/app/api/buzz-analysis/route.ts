@@ -1,3 +1,4 @@
+import { CLAUDE_TEXT_MODEL } from '@/lib/ai-models';
 import { NextRequest } from 'next/server';
 import Anthropic from '@anthropic-ai/sdk';
 import { auth } from '@/lib/auth';
@@ -139,8 +140,8 @@ async function extractArticle(
     const html = await fetchRes.text();
 
     const response = await client.messages.create({
-      model: 'claude-sonnet-4-6',
-      max_tokens: 4000,
+      model: CLAUDE_TEXT_MODEL,
+      max_tokens: 8000,
       messages: [
         {
           role: 'user',
@@ -180,7 +181,7 @@ ${html.slice(0, 20000)}`,
       stepLabel: `[extract] ${url.slice(0, 40)}`,
       inputTokens: response.usage?.input_tokens ?? 0,
       outputTokens: response.usage?.output_tokens ?? 0,
-      model: 'claude-sonnet-4-6',
+      model: CLAUDE_TEXT_MODEL,
     });
 
     if (!text.trim()) {
@@ -620,7 +621,7 @@ ${ADVANCED_ANALYSIS_SECTION}
           stepLabel,
           inputTokens: usage.inputTokens,
           outputTokens: usage.outputTokens,
-          model: 'claude-sonnet-4-6',
+          model: CLAUDE_TEXT_MODEL,
         });
 
         controller.enqueue(

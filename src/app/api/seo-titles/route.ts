@@ -1,3 +1,4 @@
+import { CLAUDE_TEXT_MODEL } from '@/lib/ai-models';
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
 
@@ -19,8 +20,8 @@ export async function POST(req: NextRequest) {
       'anthropic-version': '2023-06-01',
     },
     body: JSON.stringify({
-      model: 'claude-sonnet-4-6',
-      max_tokens: 500,
+      model: CLAUDE_TEXT_MODEL,
+      max_tokens: 2048,
       system: `あなたはSEOとコンテンツマーケティングの専門家です。
 与えられた文章に最適なタイトル候補を5つ提案してください。
 必ずJSON形式のみで返してください。マークダウン不要。

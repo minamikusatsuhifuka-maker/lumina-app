@@ -1,3 +1,4 @@
+import { CLAUDE_TEXT_MODEL } from '@/lib/ai-models';
 import { NextRequest } from 'next/server';
 import { auth } from '@/lib/auth';
 import Anthropic from '@anthropic-ai/sdk';
@@ -49,7 +50,7 @@ Phase 6: アーキテクチャの確定・出力
   "techStack": [
     {"category": "フロントエンド", "tech": "Next.js 16", "reason": "理由"},
     {"category": "バックエンド", "tech": "FastAPI", "reason": "理由"},
-    {"category": "AI/LLM", "tech": "Claude Sonnet 4.6", "reason": "理由"},
+    {"category": "AI/LLM", "tech": "Claude Sonnet 5", "reason": "理由"},
     {"category": "DB", "tech": "PostgreSQL", "reason": "理由"}
   ],
   "aiFlow": [
@@ -86,8 +87,8 @@ export async function POST(req: NextRequest) {
     async start(controller) {
       try {
         const response = await client.messages.create({
-          model: 'claude-sonnet-4-6',
-          max_tokens: 3000,
+          model: CLAUDE_TEXT_MODEL,
+          max_tokens: 6000,
           stream: true,
           system: SYSTEM_PROMPT + clinicStr + contextMessage,
           messages: (messages ?? []).map((m: { role: string; content: string }) => ({

@@ -1,3 +1,4 @@
+import { CLAUDE_TEXT_MODEL } from '@/lib/ai-models';
 import { NextRequest } from 'next/server';
 import Anthropic from '@anthropic-ai/sdk';
 import { auth } from '@/lib/auth';
@@ -145,8 +146,8 @@ export async function POST(req: NextRequest) {
         // ディープリサーチの生成のみWeb検索ツールを有効化
         // （実検索に基づかない「最新風の古い内容」を防ぐ。他タイプは対話収集情報からの生成なので不要）
         const response = await client.messages.create({
-          model: 'claude-sonnet-4-6',
-          max_tokens: 6000,
+          model: CLAUDE_TEXT_MODEL,
+          max_tokens: 10000,
           stream: true,
           ...(featureType === 'deepresearch'
             ? { tools: [{ type: 'web_search_20250305' as const, name: 'web_search' as const }] }

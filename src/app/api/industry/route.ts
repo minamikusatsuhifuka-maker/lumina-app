@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { generateWithModel } from '@/lib/ai-client';
-import { GEMINI_TEXT_THINKING_MEDIUM } from '@/lib/ai-models';
+import { GEMINI_TEXT_THINKING_MEDIUM, CLAUDE_TEXT_MODEL } from '@/lib/ai-models';
 import type { AIModel } from '@/lib/ai-client';
 import { requireAuth } from '@/lib/require-auth';
 
@@ -58,7 +58,7 @@ export async function POST(req: NextRequest) {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' },
       body: JSON.stringify({
-        model: 'claude-sonnet-4-6',
+        model: CLAUDE_TEXT_MODEL,
         max_tokens: 16000,
         tools: [{ type: 'web_search_20250305', name: 'web_search' }],
         messages: [{ role: 'user', content: prompt }],

@@ -1,3 +1,4 @@
+import { CLAUDE_TEXT_MODEL } from '@/lib/ai-models';
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
 
@@ -24,8 +25,8 @@ export async function POST(req: NextRequest) {
         'anthropic-version': '2023-06-01',
       },
       body: JSON.stringify({
-        model: 'claude-sonnet-4-6',
-        max_tokens: 3000,
+        model: CLAUDE_TEXT_MODEL,
+        max_tokens: 6000,
         system: `あなたはKindle書籍の表紙デザイン専門家です。
 書籍の情報をもとに、3つの異なるスタイルの表紙デザインプロンプトを作成してください。
 

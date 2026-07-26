@@ -1,3 +1,4 @@
+import { CLAUDE_TEXT_MODEL } from '@/lib/ai-models';
 import { NextRequest } from 'next/server';
 import Anthropic from '@anthropic-ai/sdk';
 import { auth } from '@/lib/auth';
@@ -105,8 +106,8 @@ export async function POST(req: NextRequest) {
     async start(controller) {
       try {
         const response = await client.messages.create({
-          model: 'claude-sonnet-4-6',
-          max_tokens: 3000,
+          model: CLAUDE_TEXT_MODEL,
+          max_tokens: 6000,
           stream: true,
           system: fullSystem,
           messages: messages.map((m) => ({

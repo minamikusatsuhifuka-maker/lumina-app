@@ -1,3 +1,4 @@
+import { CLAUDE_TEXT_MODEL } from '@/lib/ai-models';
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
 
@@ -20,8 +21,8 @@ export async function POST(req: NextRequest) {
         'anthropic-version': '2023-06-01',
       },
       body: JSON.stringify({
-        model: 'claude-sonnet-4-6',
-        max_tokens: 1000,
+        model: CLAUDE_TEXT_MODEL,
+        max_tokens: 2048,
         system: `あなたは情報の信頼性を評価する専門アナリストです。
 与えられた情報源を分析し、以下のJSON形式で信頼性スコアを返してください。
 必ず有効なJSONのみを返してください。前置きや説明は不要です。

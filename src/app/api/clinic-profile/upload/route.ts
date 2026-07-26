@@ -1,3 +1,4 @@
+import { CLAUDE_TEXT_MODEL } from '@/lib/ai-models';
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
 import Anthropic from '@anthropic-ai/sdk';
@@ -73,8 +74,8 @@ export async function POST(req: NextRequest) {
           : 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
 
       const response = await client.messages.create({
-        model: 'claude-sonnet-4-6',
-        max_tokens: 8000,
+        model: CLAUDE_TEXT_MODEL,
+        max_tokens: 12000,
         messages: [{
           role: 'user',
           content: [
@@ -117,8 +118,8 @@ export async function POST(req: NextRequest) {
   if (mode === 'full' && combinedText.trim()) {
     try {
       const sectionResponse = await client.messages.create({
-        model: 'claude-sonnet-4-6',
-        max_tokens: 3000,
+        model: CLAUDE_TEXT_MODEL,
+        max_tokens: 6000,
         messages: [{
           role: 'user',
           content: `以下の複数ファイルから抽出したテキストを、意味のあるセクションに整理してください。

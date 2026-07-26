@@ -1,3 +1,4 @@
+import { CLAUDE_TEXT_MODEL } from '@/lib/ai-models';
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
 import Anthropic from '@anthropic-ai/sdk';
@@ -79,8 +80,8 @@ export async function POST(req: NextRequest) {
 
     const client = new Anthropic({ apiKey });
     const response = await client.messages.create({
-      // Sonnet 4 は 2026-06-15 retire 予定のため Sonnet 4.6 に乗り換え
-      model: 'claude-sonnet-4-6',
+      // モデルIDは ai-models.ts に一元管理（195）
+      model: CLAUDE_TEXT_MODEL,
       // detail プロンプトは「1500〜2500字」要求のため 8000 トークンで物理的に十分。
       // 64000 等の過大値だと AI が暴走して途中切れする現象があったため縮小（プロンプトの上限明記と併用）
       max_tokens: mode === 'detail' ? 8000 : 4096,

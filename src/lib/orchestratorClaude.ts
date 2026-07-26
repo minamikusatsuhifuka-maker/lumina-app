@@ -1,3 +1,4 @@
+import { CLAUDE_TEXT_MODEL } from '@/lib/ai-models';
 // オーケストレーター用の精細化ステップAPIで共通利用するハンドラ生成ヘルパー
 import { NextRequest, NextResponse } from 'next/server';
 import Anthropic from '@anthropic-ai/sdk';
@@ -18,7 +19,7 @@ export const makeClaudeJsonHandler =
       const body = (await req.json()) as Record<string, unknown>;
       const prompt = buildPrompt(body);
       const response = await client.messages.create({
-        model: 'claude-sonnet-4-6',
+        model: CLAUDE_TEXT_MODEL,
         max_tokens: maxTokens,
         messages: [{ role: 'user', content: prompt }],
       });

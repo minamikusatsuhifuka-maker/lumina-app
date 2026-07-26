@@ -1,3 +1,4 @@
+import { CLAUDE_TEXT_MODEL } from '@/lib/ai-models';
 import { NextRequest } from 'next/server';
 import { auth } from '@/lib/auth';
 
@@ -59,8 +60,8 @@ problemsは具体的に3点、suggestionsは実行可能な改善案を3点、re
       'anthropic-version': '2023-06-01',
     },
     body: JSON.stringify({
-      model: 'claude-sonnet-4-6',
-      max_tokens: 4000,
+      model: CLAUDE_TEXT_MODEL,
+      max_tokens: 8000,
       system: systemPrompt,
       messages: [{ role: 'user', content: `以下の文章を分析してください：\n\n${content}` }],
     }),

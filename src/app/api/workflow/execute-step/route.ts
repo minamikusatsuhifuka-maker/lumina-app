@@ -1,3 +1,4 @@
+import { CLAUDE_TEXT_MODEL } from '@/lib/ai-models';
 import { NextRequest } from 'next/server';
 import { auth } from '@/lib/auth';
 
@@ -52,8 +53,8 @@ export async function POST(req: NextRequest) {
 
   try {
     const data = await callAnthropic(apiKey, {
-      model: 'claude-sonnet-4-6',
-      max_tokens: 3000,
+      model: CLAUDE_TEXT_MODEL,
+      max_tokens: 6000,
       system: `${systemPrompt}\n\n回答は日本語で、具体的かつ詳細にまとめてください。`,
       messages: [{ role: 'user', content: contextualPrompt }],
     });

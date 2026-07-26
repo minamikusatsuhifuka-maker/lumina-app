@@ -1,3 +1,4 @@
+import { CLAUDE_TEXT_MODEL } from '@/lib/ai-models';
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
 import { HP_WRITING_DESIGN, HP_AD_PROHIBITED } from '@/lib/hp-writing';
@@ -21,8 +22,8 @@ export async function POST(req: NextRequest) {
       'anthropic-version': '2023-06-01',
     },
     body: JSON.stringify({
-      model: 'claude-sonnet-4-6',
-      max_tokens: 4000,
+      model: CLAUDE_TEXT_MODEL,
+      max_tokens: 8000,
       system: `あなたはプロのウェブコピーライターです。
 企業情報をもとに、HPの各セクションのコンテンツを生成してください。
 

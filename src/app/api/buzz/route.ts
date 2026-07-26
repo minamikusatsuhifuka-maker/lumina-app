@@ -1,3 +1,4 @@
+import { CLAUDE_TEXT_MODEL } from '@/lib/ai-models';
 import { NextRequest, NextResponse } from 'next/server';
 import { requireAuth } from '@/lib/require-auth';
 
@@ -64,7 +65,7 @@ ${mode || 'X（Twitter）'}
       'anthropic-version': '2023-06-01',
     },
     body: JSON.stringify({
-      model: 'claude-sonnet-4-6',
+      model: CLAUDE_TEXT_MODEL,
       max_tokens: isAutoFix ? 1000 : 1200,
       system: isAutoFix ? 'あなたはSNSマーケティングの専門家です。' : 'あなたはSNSマーケティングの専門家です。JSONのみ返してください。',
       messages: [{ role: 'user', content: prompt }],

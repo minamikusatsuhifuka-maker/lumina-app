@@ -1,3 +1,4 @@
+import { CLAUDE_TEXT_MODEL } from '@/lib/ai-models';
 import { NextRequest, NextResponse } from 'next/server';
 import Anthropic from '@anthropic-ai/sdk';
 import { auth } from '@/lib/auth';
@@ -150,8 +151,8 @@ ${clinicInfo ?? '一般的な皮膚科・美容皮膚科クリニック'}
   let response;
   try {
     response = await client.messages.create({
-      model: 'claude-sonnet-4-6',
-      max_tokens: 3500,
+      model: CLAUDE_TEXT_MODEL,
+      max_tokens: 8000,
       messages: [{ role: 'user', content: prompt }],
     });
   } catch (err) {

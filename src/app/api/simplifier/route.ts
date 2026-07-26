@@ -1,3 +1,4 @@
+import { CLAUDE_TEXT_MODEL } from '@/lib/ai-models';
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
 
@@ -35,8 +36,8 @@ export async function POST(req: NextRequest) {
         'anthropic-version': '2023-06-01',
       },
       body: JSON.stringify({
-        model: 'claude-sonnet-4-6',
-        max_tokens: 4000,
+        model: CLAUDE_TEXT_MODEL,
+        max_tokens: 8000,
         system: `あなたは文章の難易度を変換する専門家です。
 指定されたレベルに合わせて文章を書き換えてください。
 必ず以下のJSON形式のみを返してください。前置きや説明は不要です。

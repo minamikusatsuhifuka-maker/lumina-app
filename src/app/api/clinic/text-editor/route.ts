@@ -1,3 +1,4 @@
+import { CLAUDE_TEXT_MODEL } from '@/lib/ai-models';
 export const maxDuration = 30;
 
 import { NextResponse } from 'next/server';
@@ -40,8 +41,8 @@ export async function POST(req: Request) {
         'anthropic-version': '2023-06-01',
       },
       body: JSON.stringify({
-        model: 'claude-sonnet-4-6',
-        max_tokens: 1000,
+        model: CLAUDE_TEXT_MODEL,
+        max_tokens: 2048,
         system: `あなたはxLUMINAクリニックの文書改善AIです。院長の哲学：ティール組織・先払い・実評価・リードマネジメント。修正した文章のみを返してください。説明不要。`,
         messages: [{
           role: 'user',

@@ -1,3 +1,4 @@
+import { CLAUDE_TEXT_MODEL } from '@/lib/ai-models';
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
 
@@ -26,8 +27,8 @@ export async function POST(req: NextRequest) {
         'anthropic-version': '2023-06-01',
       },
       body: JSON.stringify({
-        model: 'claude-sonnet-4-6',
-        max_tokens: 4000,
+        model: CLAUDE_TEXT_MODEL,
+        max_tokens: 8000,
         system: `あなたはSNSマルチプラットフォーム運用の専門家です。1つの投稿を複数のプラットフォーム向けに最適化変換してください。
 
 必ず以下のJSON形式のみを返してください。前置きや説明は不要です。

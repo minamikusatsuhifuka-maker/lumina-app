@@ -1,4 +1,4 @@
-import { GEMINI_TEXT_MODEL_LABEL } from '@/lib/ai-models';
+import { CLAUDE_TEXT_MODEL_LABEL, GEMINI_TEXT_MODEL_LABEL } from '@/lib/ai-models';
 
 export type AIModel = 'claude' | 'gemini';
 export const MODEL_STORAGE_KEY = 'lumina_ai_model';
@@ -14,7 +14,7 @@ export function saveModel(model: AIModel) {
 
 // ModelBadge コンポーネントの CONFIG と一致させる
 export function getModelLabel(model: AIModel): string {
-  return model === 'gemini' ? GEMINI_TEXT_MODEL_LABEL : 'Claude Sonnet 4.6';
+  return model === 'gemini' ? GEMINI_TEXT_MODEL_LABEL : CLAUDE_TEXT_MODEL_LABEL;
 }
 
 export function getModelIcon(model: AIModel): string {

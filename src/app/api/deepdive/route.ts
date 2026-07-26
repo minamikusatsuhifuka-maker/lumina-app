@@ -1,3 +1,4 @@
+import { CLAUDE_TEXT_MODEL } from '@/lib/ai-models';
 import { NextRequest } from 'next/server';
 import Anthropic from '@anthropic-ai/sdk';
 import { auth } from '@/lib/auth';
@@ -152,8 +153,8 @@ ${clinicPrompt ?? 'なし'}
         }
 
         const response = await client.messages.create({
-          model: 'claude-sonnet-4-6',
-          max_tokens: 1200,
+          model: CLAUDE_TEXT_MODEL,
+          max_tokens: 2048,
           stream: true,
           system: systemPrompt,
           messages: finalMessages.map((m) => ({

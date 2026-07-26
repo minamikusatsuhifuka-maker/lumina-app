@@ -1,3 +1,4 @@
+import { CLAUDE_TEXT_MODEL } from '@/lib/ai-models';
 import { NextRequest } from 'next/server';
 import { auth } from '@/lib/auth';
 import { neon } from '@neondatabase/serverless';
@@ -36,8 +37,8 @@ export async function POST(req: NextRequest) {
 
   try {
     const data = await callAnthropic(apiKey, {
-      model: 'claude-sonnet-4-6',
-      max_tokens: 300,
+      model: CLAUDE_TEXT_MODEL,
+      max_tokens: 1024,
       system: `与えられたコンテンツを以下のJSON形式で返してください。マークダウンや前置きは不要です。
 {
   "summary": "内容の要約（100字以内・体言止め）",

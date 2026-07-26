@@ -1,3 +1,4 @@
+import { CLAUDE_TEXT_MODEL } from '@/lib/ai-models';
 export const maxDuration = 300;
 
 import Anthropic from '@anthropic-ai/sdk';
@@ -74,8 +75,8 @@ JSON形式のみで返してください（説明不要）：
 }`;
 
       const response = await anthropic.messages.create({
-        model: 'claude-sonnet-4-6',
-        max_tokens: 1000,
+        model: CLAUDE_TEXT_MODEL,
+        max_tokens: 2048,
         system: systemPrompt,
         messages: [{ role: 'user', content: userPrompt }],
       });

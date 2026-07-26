@@ -1,6 +1,15 @@
-// Geminiテキスト生成モデルの一元管理（178）
+// テキスト生成モデルの一元管理（178: Gemini / 195: Claude）
 // 次回のモデル移行はこのファイルの変更だけで完結させる（API呼び出し・UI表示とも定数参照）。
-// 対象外: 画像生成（lib/image-providers）・speech-to-text・Claude系（別管理）。
+// 対象外: 画像生成（lib/image-providers）・speech-to-text。
+
+// ── Claude テキスト生成モデル（195: 全Claude機能で共用・直書き禁止） ──
+// claude-sonnet-5 は日付サフィックスなしの正式ID（192で /v1/models 実確認済み）。
+// Sonnet 5 の注意: 非デフォルトの temperature/top_p/top_k は400で拒否（送らない）。
+// thinking は未指定で adaptive が既定ON＝max_tokens は思考+本文の合算上限（枠は増額済み）。
+export const CLAUDE_TEXT_MODEL = 'claude-sonnet-5';
+
+// UI表示用ラベル（セレクタ・バッジ・画面説明文で共通使用）
+export const CLAUDE_TEXT_MODEL_LABEL = 'Claude Sonnet 5';
 
 export const GEMINI_TEXT_MODEL = 'gemini-3.6-flash';
 

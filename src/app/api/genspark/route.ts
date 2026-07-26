@@ -1,3 +1,4 @@
+import { CLAUDE_TEXT_MODEL } from '@/lib/ai-models';
 import { NextRequest } from 'next/server';
 import { requireAuth } from '@/lib/require-auth';
 
@@ -205,8 +206,8 @@ export async function POST(req: NextRequest) {
             'anthropic-version': '2023-06-01',
           },
           body: JSON.stringify({
-            model: 'claude-sonnet-4-6',
-            max_tokens: 4000,
+            model: CLAUDE_TEXT_MODEL,
+            max_tokens: 8000,
             system: prompts[presentationType] || prompts.business,
             messages: [{
               role: 'user',

@@ -1,5 +1,6 @@
 'use client';
 import { useState } from 'react';
+import { CLAUDE_TEXT_MODEL_LABEL } from '@/lib/ai-models';
 import { ProgressBar } from '@/components/ProgressBar';
 import { VoiceInputButton } from '@/components/VoiceInputButton';
 import { useProgress } from '@/components/useProgress';
@@ -362,7 +363,7 @@ export default function WebSearchPage() {
       <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 24, alignItems: 'center' }}>
         <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>サンプル：</span>
         <DateRangePicker value={dateRange} onChange={setDateRange} placeholder="期間を指定" />
-        {['Claude Sonnet 4.6 最新アップデート 機能比較', 'AI活用 中小企業 業務効率化 事例 2026', 'LP制作 コスト削減 AIツール活用'].map(q => (
+        {[`${CLAUDE_TEXT_MODEL_LABEL} 最新アップデート 機能比較`, 'AI活用 中小企業 業務効率化 事例 2026', 'LP制作 コスト削減 AIツール活用'].map(q => (
           <button key={q} onClick={() => setQuery(q)} style={{ fontSize: 11, padding: '4px 12px', borderRadius: 20, border: '1px dashed var(--border)', background: 'transparent', color: 'var(--text-muted)', cursor: 'pointer', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 200 }}>
             {q}
           </button>

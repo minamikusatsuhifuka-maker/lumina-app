@@ -1,9 +1,10 @@
+import { CLAUDE_TEXT_MODEL } from '@/lib/ai-models';
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
 
 export const maxDuration = 120;
 
-// リサーチ結果をAI背景情報コンテキストとして再構造化するAPI（Claude Sonnet 4.6）
+// リサーチ結果をAI背景情報コンテキストとして再構造化するAPI（Claude）
 export async function POST(req: NextRequest) {
   const session = await auth();
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
@@ -79,9 +80,8 @@ ${researchText}
         'anthropic-version': '2023-06-01',
       },
       body: JSON.stringify({
-        model: 'claude-sonnet-4-6',
-        max_tokens: 8000,
-        temperature: 0.5,
+        model: CLAUDE_TEXT_MODEL,
+        max_tokens: 12000,
         system,
         messages: [{ role: 'user', content: userPrompt }],
       }),

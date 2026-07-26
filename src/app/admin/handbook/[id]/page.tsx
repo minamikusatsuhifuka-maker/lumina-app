@@ -1,6 +1,7 @@
 'use client';
 import { useState, useEffect, use } from 'react';
 import { getSavedModel } from '@/lib/model-preference';
+import { CLAUDE_TEXT_MODEL, CLAUDE_TEXT_MODEL_LABEL } from '@/lib/ai-models';
 import { ModelBadge } from '@/components/ModelBadge';
 import { AITextReviser } from '@/components/clinic/AITextReviser';
 import { copyToClipboard } from '@/lib/copyToClipboard';
@@ -9,8 +10,9 @@ import { triggerDownload } from '@/lib/download';
 const QUICK_INSTRUCTIONS = ['わかりやすく', '理念に沿って', '箇条書き化', '具体例を追加', 'トーンを丁寧に'];
 
 // モデル比較で使うモデル定義（key はAPIレスポンス／stateと共通）
+// 195: Sonnet枠は中央定数（Sonnet 5）へ。Opus比較枠は院長判断で現状維持
 const COMPARISON_MODELS = [
-  { key: 'sonnet', id: 'claude-sonnet-4-6', label: 'Sonnet 4.6', icon: '⚡', color: '#1d9e75' },
+  { key: 'sonnet', id: CLAUDE_TEXT_MODEL, label: CLAUDE_TEXT_MODEL_LABEL, icon: '⚡', color: '#1d9e75' },
   { key: 'opus',   id: 'claude-opus-4-7',  label: 'Opus 4.7',  icon: '🏆', color: '#7c3aed' },
   { key: 'opus48', id: 'claude-opus-4-8',  label: 'Opus 4.8',  icon: '✨', color: '#db2777' }, // 🆕
 ] as const;

@@ -1,3 +1,4 @@
+import { CLAUDE_TEXT_MODEL } from '@/lib/ai-models';
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
 import { buildSystemContext } from '@/lib/clinic-context';
@@ -37,8 +38,8 @@ ${instruction || '院長の哲学（同心円成長・ティール組織・先�
       'anthropic-version': '2023-06-01',
     },
     body: JSON.stringify({
-      model: 'claude-sonnet-4-6',
-      max_tokens: 2000,
+      model: CLAUDE_TEXT_MODEL,
+      max_tokens: 4000,
       system: systemContext,
       messages: [{ role: 'user', content: prompt }],
     }),

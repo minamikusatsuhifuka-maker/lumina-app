@@ -1,3 +1,4 @@
+import { CLAUDE_TEXT_MODEL } from '@/lib/ai-models';
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
 
@@ -24,8 +25,8 @@ export async function POST(req: NextRequest) {
         'anthropic-version': '2023-06-01',
       },
       body: JSON.stringify({
-        model: 'claude-sonnet-4-6',
-        max_tokens: 4000,
+        model: CLAUDE_TEXT_MODEL,
+        max_tokens: 8000,
         system: `あなたはSNSグロース戦略の専門家です。アバターアカウントの成長戦略を策定してください。
 
 必ず以下のJSON形式のみを返してください。前置きや説明は不要です。

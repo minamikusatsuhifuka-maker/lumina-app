@@ -1,3 +1,4 @@
+import { CLAUDE_TEXT_MODEL } from '@/lib/ai-models';
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
 
@@ -24,8 +25,8 @@ export async function POST(req: NextRequest) {
         'anthropic-version': '2023-06-01',
       },
       body: JSON.stringify({
-        model: 'claude-sonnet-4-6',
-        max_tokens: 1000,
+        model: CLAUDE_TEXT_MODEL,
+        max_tokens: 2048,
         system: `あなたは学術引用・参考文献の専門家です。
 指定された引用スタイルに基づいて、正確な引用情報を生成してください。
 不足している情報がある場合はmissing_infoで明示してください。
