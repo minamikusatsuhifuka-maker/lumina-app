@@ -5,6 +5,8 @@
 // - ②記事が完成した後にのみ「🎨 画像を生成」→ 166 EyecatchModal(sourceKind:'hp-blog') を開く
 //   （画像生成コア・プロンプト起案は書き直さない＝繋ぐだけ。順序: 先に記事、後に画像）
 // - 保存は既存の library（SaveToLibraryButton type='hp-blog'）＝新テーブルなし
+// - 190: ①読者ターゲットのAI提案（/api/hp-blog/suggest-target・候補チップをクリックで差し込み）
+//        ②⛶全画面（FullscreenReader流用） ③画像プロンプト起案の主題反映は /api/eyecatch/prompt 側で是正
 
 import { useState } from 'react';
 import { copyToClipboard } from '@/lib/copyToClipboard';
@@ -14,6 +16,7 @@ import { sanitizeFilename, yyyymmdd } from '@/lib/title-generator';
 import { SaveToLibraryButton } from '@/components/SaveToLibraryButton';
 import AdGuardFindings, { type AdGuardEdit } from '@/components/hp/AdGuardFindings';
 import { EyecatchModal } from '@/components/eyecatch/EyecatchModal';
+import FullscreenReader from '@/components/text-analysis/FullscreenReader';
 import ContextSelector, { buildContextText, type ContextItem } from '@/components/ContextSelector';
 import { getSavedModel, getModelIcon, getModelLabel } from '@/lib/model-preference';
 
@@ -37,8 +40,35 @@ export default function HpBlogSection() {
   const [usedModel, setUsedModel] = useState<'claude' | 'gemini'>('claude');
   const [copiedMd, setCopiedMd] = useState(false);
   const [expanded, setExpanded] = useState(false);
+  // 190②: ⛶全画面（FullscreenReader流用・🧠カードと同作法）
+  const [readerOpen, setReaderOpen] = useState(false);
   // 🎨 記事連動の画像生成（記事完成後にのみ有効）
   const [showEyecatch, setShowEyecatch] = useState(false);
+  // 190①: 読者（ターゲット）のAI提案。候補チップをクリックで入力欄に差し込むだけ（編集可・手入力も従来どおり）
+  const [suggestingTarget, setSuggestingTarget] = useState(false);
+  const [targetSuggestions, setTargetSuggestions] = useState<string[]>([]);
+  const [targetSuggestError, setTargetSuggestError] = useState('');
+
+  const suggestTarget = async () => {
+    if (!theme.trim() || suggestingTarget) return;
+    setSuggestingTarget(true);
+    setTargetSuggestError('');
+    try {
+      const res = await fetch('/api/hp-blog/suggest-target', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ theme: theme.trim() }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.success) throw new Error(data.error || `提案に失敗しました（HTTP ${res.status}）`);
+      setTargetSuggestions(Array.isArray(data.suggestions) ? data.suggestions : []);
+    } catch (e) {
+      setTargetSuggestError(e instanceof Error ? e.message : String(e));
+      setTargetSuggestions([]);
+    } finally {
+      setSuggestingTarget(false);
+    }
+  };
 
   // 医療広告ガード（184と同じ人間承認型: 検出→修正案→院長が適用→再チェック）
   const [adEdits, setAdEdits] = useState<AdGuardEdit[]>([]);
@@ -184,13 +214,63 @@ export default function HpBlogSection() {
       </div>
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12, marginBottom: 12 }}>
         <div>
-          <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-muted)', marginBottom: 4 }}>読者（ターゲット）</div>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 4 }}>
+            <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-muted)' }}>読者（ターゲット）</span>
+            {/* 190①: テーマから読者層をAIが提案（人間確認型: チップをクリックして初めて入力欄に入る） */}
+            <button
+              type="button"
+              onClick={suggestTarget}
+              disabled={!theme.trim() || suggestingTarget}
+              title={theme.trim() ? 'テーマから読者として最も多いと考えられる層をAIが提案します' : '先にテーマを入力してください'}
+              style={{
+                padding: '2px 10px', borderRadius: 999, border: '1px solid var(--border-accent, var(--border))',
+                background: 'transparent',
+                color: !theme.trim() || suggestingTarget ? 'var(--text-muted)' : 'var(--accent, #8b5cf6)',
+                fontSize: 11, fontWeight: 600,
+                cursor: !theme.trim() || suggestingTarget ? 'not-allowed' : 'pointer',
+                whiteSpace: 'nowrap',
+              }}
+            >
+              {suggestingTarget ? '🤖 提案中...' : '✨ AIに提案してもらう'}
+            </button>
+          </div>
           <input
             value={target}
             onChange={(e) => setTarget(e.target.value)}
             placeholder="例：乾燥肌に悩む30〜40代"
             style={{ width: '100%', padding: '10px 12px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--bg-primary)', color: 'var(--text-primary)', fontSize: 13, outline: 'none', boxSizing: 'border-box' }}
           />
+          {targetSuggestError && (
+            <div style={{ marginTop: 4, fontSize: 11, color: '#ef4444' }}>⚠️ {targetSuggestError}</div>
+          )}
+          {targetSuggestions.length > 0 && (
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 6, alignItems: 'center' }}>
+              {targetSuggestions.map((s) => (
+                <button
+                  key={s}
+                  type="button"
+                  onClick={() => setTarget(s)}
+                  title="クリックで入力欄に反映します（反映後も編集できます）"
+                  style={{
+                    padding: '4px 10px', borderRadius: 999,
+                    border: `1px solid ${target === s ? 'var(--accent, #8b5cf6)' : 'var(--border)'}`,
+                    background: target === s ? 'var(--accent-soft, rgba(139,92,246,0.12))' : 'var(--bg-primary)',
+                    color: 'var(--text-secondary)', fontSize: 11, cursor: 'pointer', textAlign: 'left',
+                  }}
+                >
+                  {s}
+                </button>
+              ))}
+              <button
+                type="button"
+                onClick={() => setTargetSuggestions([])}
+                title="提案を閉じる（入力欄の内容は消えません）"
+                style={{ padding: '4px 8px', borderRadius: 999, border: 'none', background: 'transparent', color: 'var(--text-muted)', fontSize: 11, cursor: 'pointer' }}
+              >
+                ✕ 閉じる
+              </button>
+            </div>
+          )}
         </div>
         <div>
           <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-muted)', marginBottom: 4 }}>トーン</div>
@@ -269,6 +349,10 @@ export default function HpBlogSection() {
             <button type="button" onClick={() => setExpanded((v) => !v)} style={btn('var(--bg-secondary)', false)}>
               {expanded ? '▲ 閉じる' : '▼ 全文表示'}
             </button>
+            {/* 190②: 🧠AI参照素材カードと同じ作法・同じ文言の全画面リーダー（151流用） */}
+            <button type="button" onClick={() => setReaderOpen(true)} title="全画面で読む" style={btn('var(--bg-secondary)', false)}>
+              ⛶ 全画面
+            </button>
             <button
               type="button"
               onClick={() => { copyToClipboard(sanitizeLatex(article)); setCopiedMd(true); setTimeout(() => setCopiedMd(false), 2000); }}
@@ -311,6 +395,15 @@ export default function HpBlogSection() {
           </div>
         </div>
       )}
+
+      {/* 190②: 全画面リーダー（151のFullscreenReader流用・zIndex 10000・自前portal＋スクロールロック）。
+          182の教訓: クリック可能なオーバーレイの内側に置かない＝ここはセクション直下の兄弟なのでバブリングの罠なし */}
+      <FullscreenReader
+        open={readerOpen}
+        title={theme.trim() ? `HPブログ記事: ${theme.slice(0, 60)}` : 'HPブログ記事'}
+        content={article}
+        onClose={() => setReaderOpen(false)}
+      />
 
       {/* 記事連動の画像生成（166 EyecatchModal 流用・171マルチモデル・185複数枚/比率選択） */}
       <EyecatchModal
