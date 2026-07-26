@@ -452,20 +452,26 @@ test('B12: api-usageページに単価（$3/$15）の表記が表示される', 
   await expect(page.getByText(/Claude Sonnet 5/).filter({ visible: true }).first()).toBeVisible();
 });
 
-test('B8: ハンドブック比較の3列ラベル（管理者権限がある場合のみ）', async ({ page, request }) => {
-  // /admin は users.is_admin=TRUE が必須。E2E専用アカウントは非管理者のためその場合はskip
+test('B8: ハンドブック比較の3列ラベル', async ({ page, request }) => {
+  // 197: E2Eアカウントに users.is_admin=TRUE を付与済み（院長承認・2026/7/26）。
+  // /admin へ到達できない場合はskipせず失敗させる（権限退行の検知）
   const handbooks = await request.get('/api/clinic/handbooks');
   expect(handbooks.status()).toBe(200);
   const rows = await handbooks.json();
   test.skip(!Array.isArray(rows) || rows.length === 0, 'ハンドブックが存在しないためスキップ');
 
-  await page.goto(`/admin/handbook/${rows[0].id}`);
-  test.skip(
-    !page.url().includes('/admin/handbook/'),
-    'E2Eアカウントに管理者権限（users.is_admin）が無いためスキップ',
-  );
-  const content = await page.content();
-  for (const label of ['Claude Sonnet 5', 'Opus 4.7', 'Opus 4.8']) {
-    expect(content, `比較3列のラベル「${label}」が存在すること`).toContain(label);
-  }
+  // 章のあるハンドブックを優先（比較セクションは本文表示部に付随するため）
+  const target = rows.find((r: { chapter_count?: number }) => Number(r.chapter_count) > 0) ?? rows[0];
+  await page.goto(`/admin/handbook/${target.id}`);
+  expect(
+    page.url(),
+    'E2Eアカウントの管理者権限（users.is_admin）で/adminに到達できること',
+  ).toContain('/admin/handbook/');
+  // モデル比較ヘッダーのバッジに3モデルのラベルが並ぶ（クライアントfetch完了を待つ）
+  await expect(
+    page.getByText('Claude Sonnet 5 vs Opus 4.7 vs Opus 4.8').first(),
+  ).toBeVisible({ timeout: 30_000 });
+  // セクションを開くと3モデル同時比較の実行ボタンが出る（実行はしない＝課金なし）
+  await page.getByRole('button', { name: /🔬 モデル比較/ }).click();
+  await expect(page.getByText('3モデルで同時生成・比較')).toBeVisible();
 });

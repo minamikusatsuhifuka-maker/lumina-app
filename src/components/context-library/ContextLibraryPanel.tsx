@@ -98,6 +98,8 @@ export default function ContextLibraryPanel() {
   const [expandedId, setExpandedId] = useState<number | null>(null);
   // 下部アクション（文章作成へ〜要約・詳細）のアコーディオン開閉。カードごと・既定は閉（誤発火防止）。
   const [actionsOpen, setActionsOpen] = useState<Record<number, boolean>>({});
+  // 197: 「⋯ その他」メニュー（全画面/テキスト/MD/Word/編集/削除を格納）を開いているカードのid
+  const [moreMenuId, setMoreMenuId] = useState<number | null>(null);
   const [copiedId, setCopiedId] = useState<number | null>(null);
   // テキスト/MD ダウンロード中のID（タイトル生成中の同時押し防止。txt/MD共用）
   const [downloadingId, setDownloadingId] = useState<number | null>(null);
@@ -110,6 +112,33 @@ export default function ContextLibraryPanel() {
   const [readerItem, setReaderItem] = useState<ContextSave | null>(null);
   // contextSaveId -> 登録済み機能キー配列 のマップ
   const [defaultMap, setDefaultMap] = useState<Record<number, string[]>>({});
+
+  // 197: ⋯メニューの外側クリックで閉じる（fixedオーバーレイは .page-enter のtransform罠が
+  // あるため使わず、documentリスナーで判定する）
+  useEffect(() => {
+    if (moreMenuId === null) return;
+    const onDown = (e: MouseEvent) => {
+      const el = e.target as HTMLElement | null;
+      if (el?.closest('[data-ctx-more-menu]')) return;
+      setMoreMenuId(null);
+    };
+    document.addEventListener('mousedown', onDown);
+    return () => document.removeEventListener('mousedown', onDown);
+  }, [moreMenuId]);
+
+  // 197: ⋯メニュー内の項目ボタン共通スタイル
+  const moreMenuItemStyle: CSSProperties = {
+    display: 'block',
+    width: '100%',
+    textAlign: 'left',
+    padding: '8px 10px',
+    background: 'transparent',
+    border: 'none',
+    borderRadius: 6,
+    cursor: 'pointer',
+    fontSize: 12,
+    color: 'var(--text-secondary)',
+  };
   // 要約・詳細ボタンの処理中／完了状態
   const [processingId, setProcessingId] = useState<{ id: number; mode: 'summary' | 'detail' } | null>(null);
   const [processedId, setProcessedId] = useState<{ id: number; mode: 'summary' | 'detail' } | null>(null);
@@ -1009,9 +1038,11 @@ export default function ContextLibraryPanel() {
                 </div>
               )}
 
-              {/* ── 共通操作バー（テキスト分析 SavedAnalysisList と並び・見た目・ラベルを完全統一）──
-                  ▼全文表示 / ⛶全画面 / 📋コピー / ⬇テキスト / 📥MD / 📄Word / ☆お気に入り / ✏編集 / 🗑削除(右端)。
-                  flex-wrap で自然に2行になる（テキスト分析と同一実装）。 */}
+              {/* ── 共通操作バー（197: アクション列整理）──
+                  常時表示は ▼全文表示 / 📋コピー / ☆お気に入り のみ。
+                  使用頻度の低い ⛶全画面 / ⬇テキスト / 📥MD / 📄Word / ✏編集 / 🗑削除 は
+                  「⋯ その他」メニューに格納（各操作のハンドラ・挙動は無変更）。
+                  モバイル幅でも1行に収まる本数に抑える。 */}
               <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' as const, alignItems: 'center' }}>
                 <button
                   onClick={async () => {
@@ -1025,20 +1056,6 @@ export default function ContextLibraryPanel() {
                   {expanded ? '▲ 閉じる' : '▼ 全文表示'}
                 </button>
                 <button
-                  onClick={async () => {
-                    try {
-                      const text = await ensureFullText(item);
-                      setReaderItem({ ...item, context_text: text });
-                    } catch {
-                      flashToast('❌ 本文の取得に失敗しました', 4000);
-                    }
-                  }}
-                  title="全画面のリーダー表示で読む"
-                  style={cardActionBtnStyle()}
-                >
-                  ⛶ 全画面
-                </button>
-                <button
                   onClick={() => handleCopy(item)}
                   style={{
                     ...cardActionBtnStyle(),
@@ -1048,39 +1065,6 @@ export default function ContextLibraryPanel() {
                   }}
                 >
                   {copiedId === item.id ? '✅ コピー済み' : '📋 コピー'}
-                </button>
-                <button
-                  onClick={() => handleDownloadTxt(item)}
-                  disabled={downloadingId === item.id}
-                  style={{
-                    ...cardActionBtnStyle(),
-                    cursor: downloadingId === item.id ? 'not-allowed' : 'pointer',
-                    opacity: downloadingId === item.id ? 0.6 : 1,
-                  }}
-                >
-                  {downloadingId === item.id ? '⏳ タイトル生成中...' : '⬇ テキスト'}
-                </button>
-                <button
-                  onClick={() => handleDownloadMd(item)}
-                  disabled={downloadingId === item.id}
-                  style={{
-                    ...cardActionBtnStyle(),
-                    cursor: downloadingId === item.id ? 'not-allowed' : 'pointer',
-                    opacity: downloadingId === item.id ? 0.6 : 1,
-                  }}
-                >
-                  {downloadingId === item.id ? '⏳ タイトル生成中...' : '📥 MD'}
-                </button>
-                <button
-                  onClick={() => handleDownloadDocx(item)}
-                  disabled={downloadingId === item.id}
-                  style={{
-                    ...cardActionBtnStyle(),
-                    cursor: downloadingId === item.id ? 'not-allowed' : 'pointer',
-                    opacity: downloadingId === item.id ? 0.6 : 1,
-                  }}
-                >
-                  {downloadingId === item.id ? '⏳ タイトル生成中...' : '📄 Word'}
                 </button>
                 <button
                   onClick={() => handleToggleFavorite(item)}
@@ -1093,25 +1077,112 @@ export default function ContextLibraryPanel() {
                 >
                   {item.is_favorite ? '⭐ 解除' : '☆ お気に入り'}
                 </button>
-                <button
-                  onClick={() =>
-                    editingId === item.id ? setEditingId(null) : startEdit(item)
-                  }
-                  style={{
-                    ...cardActionBtnStyle(),
-                    ...(editingId === item.id
-                      ? { background: 'rgba(108,99,255,0.12)', borderColor: 'var(--accent)', color: 'var(--accent)' }
-                      : {}),
-                  }}
-                >
-                  {editingId === item.id ? '✏️ 編集中' : '✏️ 編集'}
-                </button>
-                <button
-                  onClick={() => handleDelete(item.id)}
-                  style={{ ...cardActionBtnStyle(), color: '#ef4444', marginLeft: 'auto' }}
-                >
-                  🗑 削除
-                </button>
+                <div data-ctx-more-menu style={{ position: 'relative', marginLeft: 'auto' }}>
+                  <button
+                    onClick={() => setMoreMenuId(moreMenuId === item.id ? null : item.id)}
+                    title="その他の操作（全画面・テキスト・MD・Word・編集・削除）"
+                    aria-haspopup="menu"
+                    aria-expanded={moreMenuId === item.id}
+                    style={{
+                      ...cardActionBtnStyle(),
+                      ...(moreMenuId === item.id
+                        ? { background: 'rgba(108,99,255,0.12)', borderColor: 'var(--accent)', color: 'var(--accent)' }
+                        : {}),
+                    }}
+                  >
+                    ⋯ その他
+                  </button>
+                  {moreMenuId === item.id && (
+                    <div
+                      role="menu"
+                      style={{
+                        position: 'absolute',
+                        right: 0,
+                        top: 'calc(100% + 4px)',
+                        zIndex: 30,
+                        minWidth: 190,
+                        background: 'var(--bg-card)',
+                        border: '1px solid var(--border)',
+                        borderRadius: 10,
+                        boxShadow: '0 8px 24px rgba(0,0,0,0.25)',
+                        padding: 6,
+                      }}
+                    >
+                      <button
+                        role="menuitem"
+                        onClick={async () => {
+                          setMoreMenuId(null);
+                          try {
+                            const text = await ensureFullText(item);
+                            setReaderItem({ ...item, context_text: text });
+                          } catch {
+                            flashToast('❌ 本文の取得に失敗しました', 4000);
+                          }
+                        }}
+                        title="全画面のリーダー表示で読む"
+                        style={moreMenuItemStyle}
+                      >
+                        ⛶ 全画面
+                      </button>
+                      <button
+                        role="menuitem"
+                        onClick={() => { setMoreMenuId(null); handleDownloadTxt(item); }}
+                        disabled={downloadingId === item.id}
+                        style={{
+                          ...moreMenuItemStyle,
+                          ...(downloadingId === item.id ? { cursor: 'not-allowed', opacity: 0.6 } : {}),
+                        }}
+                      >
+                        {downloadingId === item.id ? '⏳ タイトル生成中...' : '⬇ テキスト'}
+                      </button>
+                      <button
+                        role="menuitem"
+                        onClick={() => { setMoreMenuId(null); handleDownloadMd(item); }}
+                        disabled={downloadingId === item.id}
+                        style={{
+                          ...moreMenuItemStyle,
+                          ...(downloadingId === item.id ? { cursor: 'not-allowed', opacity: 0.6 } : {}),
+                        }}
+                      >
+                        {downloadingId === item.id ? '⏳ タイトル生成中...' : '📥 MD'}
+                      </button>
+                      <button
+                        role="menuitem"
+                        onClick={() => { setMoreMenuId(null); handleDownloadDocx(item); }}
+                        disabled={downloadingId === item.id}
+                        style={{
+                          ...moreMenuItemStyle,
+                          ...(downloadingId === item.id ? { cursor: 'not-allowed', opacity: 0.6 } : {}),
+                        }}
+                      >
+                        {downloadingId === item.id ? '⏳ タイトル生成中...' : '📄 Word'}
+                      </button>
+                      <button
+                        role="menuitem"
+                        onClick={() => {
+                          setMoreMenuId(null);
+                          if (editingId === item.id) setEditingId(null);
+                          else startEdit(item);
+                        }}
+                        style={{
+                          ...moreMenuItemStyle,
+                          ...(editingId === item.id ? { color: 'var(--accent)' } : {}),
+                        }}
+                      >
+                        {editingId === item.id ? '✏️ 編集中' : '✏️ 編集'}
+                      </button>
+                      {/* 削除は誤操作防止のため最下部・赤表示（確認ダイアログは handleDelete 内で維持） */}
+                      <div style={{ borderTop: '1px solid var(--border)', margin: '4px 0' }} />
+                      <button
+                        role="menuitem"
+                        onClick={() => { setMoreMenuId(null); handleDelete(item.id); }}
+                        style={{ ...moreMenuItemStyle, color: '#ef4444' }}
+                      >
+                        🗑 削除
+                      </button>
+                    </div>
+                  )}
+                </div>
               </div>
 
               {/* 全文表示（カード内インライン展開）。編集モード時は topic/本文の編集フォーム。 */}
