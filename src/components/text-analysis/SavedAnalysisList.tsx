@@ -699,6 +699,10 @@ export default function SavedAnalysisList({
           .category-grid { grid-template-columns: 1fr 1fr; }
         }
       `}</style>
+      {/* 188: note記事群生成の入口を一覧最上部の目に入る位置へ（🧠側と見た目を統一） */}
+      <div>
+        <BundleSelectToggleButton />
+      </div>
       {/* カテゴリ概覧ヘッダー */}
       <div
         style={{
@@ -1057,7 +1061,6 @@ export default function SavedAnalysisList({
         >
           ⭐ お気に入り
         </button>
-        <BundleSelectToggleButton />
         <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>
           {visibleRecords.length}件 / 全{records.length}件
         </span>

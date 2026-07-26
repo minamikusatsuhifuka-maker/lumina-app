@@ -739,7 +739,23 @@ export default function NoteBundleModal({
               {DRAFT_NOTICE}
             </div>
 
-            <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 14, flexWrap: 'wrap' }}>
+            {/* 188: 進捗＋中止をスティッキー化（長い記事群でもスクロールせず常に見える固定領域）。
+                中止は警告色の塗り・大きめ＝「✕この記事をやめる」（個別）より上位に見せる。処理は無変更 */}
+            <div
+              style={{
+                position: 'sticky',
+                top: -24,
+                zIndex: 5,
+                background: 'var(--bg-primary)',
+                margin: '0 -24px 14px',
+                padding: '12px 24px',
+                borderBottom: '1px solid var(--border)',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 12,
+                flexWrap: 'wrap',
+              }}
+            >
               <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-secondary)' }}>
                 {generating
                   ? `✍️ 生成中... ${Math.min(finishedCount + 1, results.length)}/${results.length}`
@@ -750,9 +766,21 @@ export default function NoteBundleModal({
                   type="button"
                   onClick={stopAll}
                   title="待機中はすべてキャンセルし、進行中の1件も中断します（生成済みの記事は残ります）"
-                  style={smallBtn({ border: '1px solid rgba(239,68,68,0.5)', color: '#ef4444', fontWeight: 700 })}
+                  style={{
+                    marginLeft: 'auto',
+                    padding: '10px 20px',
+                    borderRadius: 8,
+                    border: 'none',
+                    background: '#ef4444',
+                    color: '#fff',
+                    fontSize: 13,
+                    fontWeight: 700,
+                    cursor: 'pointer',
+                    boxShadow: '0 4px 14px rgba(239,68,68,0.35)',
+                    whiteSpace: 'nowrap',
+                  }}
                 >
-                  ⏹ 生成を中止
+                  ⏹ すべての生成を中止
                 </button>
               )}
               {!generating && (

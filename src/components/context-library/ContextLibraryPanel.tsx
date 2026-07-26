@@ -577,6 +577,10 @@ export default function ContextLibraryPanel() {
           生成用の素材集です。読み返す用の保管は{' '}
           <a href="/dashboard/library" style={{ color: 'var(--accent)', fontWeight: 600 }}>📚 リサーチ保存</a> へ
         </p>
+        {/* 188: note記事群生成の入口を見出し直下の目に入る位置へ（検索バー端では発見できなかった） */}
+        <div style={{ marginTop: 12 }}>
+          <BundleSelectToggleButton />
+        </div>
       </div>
 
       {batchFilter && (
@@ -877,7 +881,6 @@ export default function ContextLibraryPanel() {
         >
           ⭐ お気に入り
         </button>
-        <BundleSelectToggleButton />
         <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>
           表示{items.length} / 全{totalCount ?? items.length}件
         </span>

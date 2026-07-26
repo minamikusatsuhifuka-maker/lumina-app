@@ -8,6 +8,8 @@
 import { MAX_BUNDLE_SOURCES, BUNDLE_SOURCE_META, type BundleSource } from '@/lib/note-bundle';
 import { useNoteBundleSelection } from './useNoteBundleSelection';
 
+// 188: note記事群生成（179）の唯一の入口。フィルタ系ボタンと見分けがつくよう
+// 主ボタン系グラデーションの塗り＋機能が伝わる文言にする（機能・状態切替は無変更）。
 export function BundleSelectToggleButton() {
   const { selectMode, setSelectMode } = useNoteBundleSelection();
   return (
@@ -15,19 +17,34 @@ export function BundleSelectToggleButton() {
       type="button"
       onClick={() => setSelectMode(!selectMode)}
       title="複数の資料を選択して、まとめて note 記事にします（🧠/🗂をまたいで選択できます）"
-      style={{
-        padding: '8px 14px',
-        borderRadius: 8,
-        border: `1px solid ${selectMode ? 'var(--accent)' : 'var(--border)'}`,
-        background: selectMode ? 'var(--accent)' : 'transparent',
-        color: selectMode ? '#fff' : 'var(--text-secondary)',
-        fontSize: 12,
-        fontWeight: 600,
-        cursor: 'pointer',
-        whiteSpace: 'nowrap',
-      }}
+      style={
+        selectMode
+          ? {
+              padding: '10px 18px',
+              borderRadius: 10,
+              border: '1px solid var(--accent)',
+              background: 'var(--accent-soft)',
+              color: 'var(--text-primary)',
+              fontSize: 13,
+              fontWeight: 700,
+              cursor: 'pointer',
+              whiteSpace: 'nowrap',
+            }
+          : {
+              padding: '10px 18px',
+              borderRadius: 10,
+              border: 'none',
+              background: 'linear-gradient(135deg, #ec4899, #8b5cf6)',
+              color: '#fff',
+              fontSize: 13,
+              fontWeight: 700,
+              cursor: 'pointer',
+              whiteSpace: 'nowrap',
+              boxShadow: '0 4px 14px rgba(139,92,246,0.35)',
+            }
+      }
     >
-      {selectMode ? '✕ 選択をやめる' : '☑ 選択'}
+      {selectMode ? '✕ 選択をやめる' : '📝 記事にまとめる資料を選ぶ'}
     </button>
   );
 }
