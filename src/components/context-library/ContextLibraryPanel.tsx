@@ -1081,16 +1081,20 @@ export default function ContextLibraryPanel() {
                   <button
                     onClick={() => setMoreMenuId(moreMenuId === item.id ? null : item.id)}
                     title="その他の操作（全画面・テキスト・MD・Word・編集・削除）"
+                    aria-label="その他の操作"
                     aria-haspopup="menu"
                     aria-expanded={moreMenuId === item.id}
+                    // ラベルは「⋯」のみ（モバイル375px幅で操作バーが1行に収まる本数・幅に抑える）
                     style={{
                       ...cardActionBtnStyle(),
+                      padding: '4px 12px',
+                      fontWeight: 700,
                       ...(moreMenuId === item.id
                         ? { background: 'rgba(108,99,255,0.12)', borderColor: 'var(--accent)', color: 'var(--accent)' }
                         : {}),
                     }}
                   >
-                    ⋯ その他
+                    ⋯
                   </button>
                   {moreMenuId === item.id && (
                     <div
