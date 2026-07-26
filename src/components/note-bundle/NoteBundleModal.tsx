@@ -353,6 +353,10 @@ export default function NoteBundleModal({
   };
 
   // 「この構成で生成」→ パス2へ
+  // 193: 182の重複ガードは🔁別文体にしか無く、「プラン編集に戻る→この構成で生成」経路が
+  // 素通りだった（旧実装は setResults(queue) の丸ごと差し替えで既存カードと照合しない）。
+  // → 画面上の全カード（pending/running/done。🗑削除済みは results に無い＝対象外）＋
+  //   今回バッチ内の相互を「タイトル(trim)×文体」で照合し、重複分だけ弾いて非重複分を追加投入する。
   const startGenerate = () => {
     const valid = drafts
       .map((d) => ({
@@ -365,8 +369,45 @@ export default function NoteBundleModal({
       setPlanError('タイトルと資料割り当てのある記事が1本もありません');
       return;
     }
-    const queue: ArticleResult[] = valid.map((d) => ({
-      localId: d.localId,
+
+    // 照合キー = タイトル(trim)×文体（182と同じ判定条件。cancelled/error は再投入可）
+    const dupKey = (title: string, style: NoteStyleKey) => `${title.trim()}\u0000${style}`;
+    const seen = new Set(
+      results
+        .filter((x) => x.status === 'pending' || x.status === 'running' || x.status === 'done')
+        .map((x) => dupKey(x.title, x.style)),
+    );
+    const fresh: typeof valid = [];
+    let skipped = 0;
+    for (const d of valid) {
+      const key = dupKey(d.title, d.style);
+      if (seen.has(key)) {
+        skipped++;
+        continue;
+      }
+      seen.add(key); // バッチ内の相互重複も弾く
+      fresh.push(d);
+    }
+
+    // カード上限（既存挙動と同じ20件。超過分は投入せず明示）
+    const room = Math.max(0, MAX_RESULT_CARDS - results.length);
+    const capped = fresh.length > room;
+    const toEnqueue = capped ? fresh.slice(0, room) : fresh;
+
+    if (skipped > 0) {
+      flashModalToast(
+        toEnqueue.length === 0 && !capped
+          ? '⚠️ 同じタイトル×文体の記事は既にあります'
+          : `⚠️ ${skipped}記事は同じタイトル×文体の記事が既にあります（残りのみ生成します）`,
+      );
+    } else if (capped) {
+      flashModalToast(`⚠️ 生成できる記事は最大${MAX_RESULT_CARDS}件です（🗑削除で減らせます）`);
+    }
+
+    // localId は新規採番（既存カードを保持して追加するため、draft の localId を流用すると
+    // 再生成時に既存カードとキー衝突し patchResult が両方に当たる）
+    const queue: ArticleResult[] = toEnqueue.map((d) => ({
+      localId: localIdSeq++,
       title: d.title,
       style: d.style,
       sourceKeys: d.sources,
@@ -377,9 +418,9 @@ export default function NoteBundleModal({
       adCheck: null,
       error: '',
     }));
-    setResults(queue);
+    setResults((prev) => [...prev, ...queue]);
     setPhase('generate');
-    enqueue(queue);
+    if (queue.length > 0) enqueue(queue);
   };
 
   // 「🔁 別文体で再生成」= 同じ資料・要点のまま文体だけ変えて新カードを追加（元の記事は残す）。
