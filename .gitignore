@@ -43,3 +43,9 @@ next-env.d.ts
 
 # backup files
 *.bak
+
+# Playwright（E2E）— storageState/認証情報・実行成果物はコミットしない
+/test-results/
+/playwright-report/
+/blob-report/
+/playwright/.auth/
