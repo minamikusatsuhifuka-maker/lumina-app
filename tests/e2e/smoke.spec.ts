@@ -403,7 +403,10 @@ test('C20: note素材選択（180）でプラン画面に到達し、選択し�
     .getByRole('button', { name: '📝 記事にまとめる資料を選ぶ' })
     .filter({ visible: true })
     .click();
-  for (const id of crossIds) {
+  // 187の「→次へ」追従ボタンはチェックしたカードの直下に出るため、上のカードを先に
+  // チェックすると下のカードのチェックボックスを覆うことがある（flaky要因）。
+  // 一覧の下側（後ろ）から逆順にチェックして重なりを決定的に回避する
+  for (const id of [...crossIds].reverse()) {
     await page
       .locator(`[data-bundle-key="ana-${id}"]`)
       .getByRole('checkbox')
