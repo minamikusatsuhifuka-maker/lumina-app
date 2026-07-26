@@ -6,8 +6,12 @@
 // - 人間確認型: プランを院長が編集（本数・タイトル・要点・資料割り当て・文体）してから生成へ
 // - パス2: 1記事=1リクエストを逐次実行（キュー方式）。進捗N/M・部分失敗は該当記事のみエラー（成功分は使える）
 // - 文体プリセットは lib/note-styles.ts に一元管理。各記事に文体バッジ＋「🔁別文体で再生成」
+// - 182: 全文表示（▼/⛶=FullscreenReader流用・🧠カードと同作法）／生成の中止（⏹全体=AbortControllerで
+//   進行中も中断・✕個別=キューから除外。中止済みは🔄再試行可・生成済みは残す）／🗑削除（confirm簡易確認）／
+//   「🔁別文体で再生成」の重複ガード（同一タイトル×同一文体を弾く）＋キュー上限20件
 
 import { useEffect, useRef, useState, type CSSProperties } from 'react';
+import FullscreenReader from '@/components/text-analysis/FullscreenReader';
 import { copyToClipboard } from '@/lib/copyToClipboard';
 import { renderMarkdown, sanitizeLatex } from '@/lib/markdown-renderer';
 import { sanitizeFilename, yyyymmdd } from '@/lib/title-generator';
@@ -52,11 +56,15 @@ interface ArticleResult {
   style: NoteStyleKey;
   sourceKeys: string[];
   points: string[];
-  status: 'pending' | 'running' | 'done' | 'error';
+  // cancelled = 中止（⏹全体 or ✕個別）。生成済みは消さず、🔄再試行で再開できる（182）
+  status: 'pending' | 'running' | 'done' | 'error' | 'cancelled';
   content: string;
   adCheck: { status: 'ok' | 'warn'; findings: string[] } | null;
   error: string;
 }
+
+// 生成キューの上限（重複投入・連打の暴発防止。超過はトーストで明示）
+const MAX_RESULT_CARDS = 20;
 
 type Length = 'short' | 'medium' | 'long';
 const LENGTH_OPTIONS: Array<{ value: Length; label: string }> = [
@@ -98,9 +106,15 @@ export default function NoteBundleModal({
   const [copiedId, setCopiedId] = useState<number | null>(null);
   // 展開表示中の結果カード（既定は抜粋表示）
   const [expandedResult, setExpandedResult] = useState<Record<number, boolean>>({});
+  // 全画面リーダーで表示中の記事（182・FullscreenReader流用）
+  const [readerResult, setReaderResult] = useState<{ title: string; content: string } | null>(null);
+  // モーダル内トースト（重複ガード・上限超過などの通知）
+  const [modalToast, setModalToast] = useState('');
   // 逐次生成のキュー（生成中に「🔁別文体」で追加されても取りこぼさない）
   const queueRef = useRef<ArticleResult[]>([]);
   const runningRef = useRef(false);
+  // 進行中リクエストの中断用（⏹全体中止・モーダルを閉じた時）
+  const abortRef = useRef<AbortController | null>(null);
   // モーダルを閉じたら以降の逐次生成を止める
   const cancelledRef = useRef(false);
   const [model, setModel] = useState<'claude' | 'gemini'>('claude');
@@ -123,6 +137,8 @@ export default function NoteBundleModal({
     setGenerating(false);
     setPlanError('');
     setExpandedResult({});
+    setReaderResult(null);
+    setModalToast('');
     setModel(getSavedModel());
     fetchPlan();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -197,12 +213,22 @@ export default function NoteBundleModal({
     setResults((prev) => prev.map((it) => (it.localId === localId ? { ...it, ...patch } : it)));
   };
 
+  // 一時トースト（モーダル内通知）
+  const flashModalToast = (msg: string, ms = 3000) => {
+    setModalToast(msg);
+    setTimeout(() => setModalToast(''), ms);
+  };
+
   // ── パス2: 1記事分の生成リクエスト ──
+  // AbortController を張り、⏹全体中止で進行中の1件も中断できるようにする（182）。
   const generateOne = async (r: ArticleResult): Promise<Partial<ArticleResult>> => {
+    const controller = new AbortController();
+    abortRef.current = controller;
     try {
       const res = await fetch('/api/note-bundle/article', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        signal: controller.signal,
         body: JSON.stringify({
           title: r.title,
           points: r.points,
@@ -216,7 +242,13 @@ export default function NoteBundleModal({
       if (!res.ok) throw new Error(data.error || `生成に失敗しました（HTTP ${res.status}）`);
       return { status: 'done', content: data.content ?? '', adCheck: data.ad_check ?? null, error: '' };
     } catch (e) {
+      // 中断（⏹中止・モーダルclose）はエラーでなく「中止」としてカードに反映（固まらせない）
+      if (e instanceof DOMException && e.name === 'AbortError') {
+        return { status: 'cancelled', error: '' };
+      }
       return { status: 'error', error: e instanceof Error ? e.message : String(e) };
+    } finally {
+      abortRef.current = null;
     }
   };
 
@@ -268,8 +300,23 @@ export default function NoteBundleModal({
     enqueue(queue);
   };
 
-  // 「🔁 別文体で再生成」= 同じ資料・要点のまま文体だけ変えて新カードを追加（元の記事は残す）
+  // 「🔁 別文体で再生成」= 同じ資料・要点のまま文体だけ変えて新カードを追加（元の記事は残す）。
+  // 182: 連打ガード＝同一タイトル×同一文体が既にキュー/生成済みにあれば弾く（中止・失敗カードは再投入可）。
   const regenerateWithStyle = (src: ArticleResult, style: NoteStyleKey) => {
+    const dup = results.some(
+      (x) =>
+        x.title === src.title &&
+        x.style === style &&
+        (x.status === 'pending' || x.status === 'running' || x.status === 'done'),
+    );
+    if (dup) {
+      flashModalToast(`⚠️ 「${NOTE_STYLES[style].emoji} ${NOTE_STYLES[style].label}」の同じ記事は既にあります`);
+      return;
+    }
+    if (results.length >= MAX_RESULT_CARDS) {
+      flashModalToast(`⚠️ 生成できる記事は最大${MAX_RESULT_CARDS}件です（🗑削除で減らせます）`);
+      return;
+    }
     const card: ArticleResult = {
       ...src,
       localId: localIdSeq++,
@@ -283,15 +330,43 @@ export default function NoteBundleModal({
     enqueue([card]);
   };
 
-  // 失敗カードの再試行
+  // 失敗・中止カードの再試行（やり直しの道を残す）
   const retryOne = (r: ArticleResult) => {
     patchResult(r.localId, { status: 'pending', error: '' });
     enqueue([{ ...r, status: 'pending', error: '' }]);
   };
 
+  // ⏹ 全体中止: 待機中はすべてキャンセル、進行中の1件は AbortController で中断。
+  // 生成済みの記事は消さない（中止＝これから作る分を止める）。
+  const stopAll = () => {
+    const pendingIds = new Set(queueRef.current.map((q) => q.localId));
+    queueRef.current = [];
+    setResults((prev) =>
+      prev.map((it) =>
+        pendingIds.has(it.localId) && it.status === 'pending' ? { ...it, status: 'cancelled' } : it,
+      ),
+    );
+    // 進行中の1件を中断（generateOne が AbortError を 'cancelled' としてカードに反映する）
+    abortRef.current?.abort();
+  };
+
+  // ✕ 個別の中止: 待機中カードをキューから除外（🔄再試行で再開できる）
+  const cancelPending = (localId: number) => {
+    queueRef.current = queueRef.current.filter((q) => q.localId !== localId);
+    patchResult(localId, { status: 'cancelled' });
+  };
+
+  // 🗑 記事の削除: そのカードだけ消す（生成済み・失敗・中止すべて対象。confirmで簡易確認）
+  const deleteResult = (r: ArticleResult) => {
+    if (!confirm(`「${r.title}」を削除しますか？`)) return;
+    queueRef.current = queueRef.current.filter((q) => q.localId !== r.localId);
+    setResults((prev) => prev.filter((it) => it.localId !== r.localId));
+  };
+
   const handleClose = () => {
     cancelledRef.current = true;
     queueRef.current = [];
+    abortRef.current?.abort();
     onClose();
   };
 
@@ -322,7 +397,8 @@ export default function NoteBundleModal({
 
   const doneCount = results.filter((r) => r.status === 'done').length;
   const errorCount = results.filter((r) => r.status === 'error').length;
-  const finishedCount = doneCount + errorCount;
+  const cancelledCount = results.filter((r) => r.status === 'cancelled').length;
+  const finishedCount = doneCount + errorCount + cancelledCount;
   const ctxCount = selected.filter((s) => s.source === 'context').length;
   const anaCount = selected.filter((s) => s.source === 'analysis').length;
 
@@ -358,6 +434,7 @@ export default function NoteBundleModal({
   });
 
   return (
+    <>
     <div
       style={{
         position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
@@ -544,8 +621,18 @@ export default function NoteBundleModal({
               <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-secondary)' }}>
                 {generating
                   ? `✍️ 生成中... ${Math.min(finishedCount + 1, results.length)}/${results.length}`
-                  : `✅ 完了 ${doneCount}/${results.length}${errorCount > 0 ? `（失敗 ${errorCount}件）` : ''}`}
+                  : `✅ 完了 ${doneCount}/${results.length}${errorCount > 0 ? `（失敗 ${errorCount}件）` : ''}${cancelledCount > 0 ? `（中止 ${cancelledCount}件）` : ''}`}
               </span>
+              {generating && (
+                <button
+                  type="button"
+                  onClick={stopAll}
+                  title="待機中はすべてキャンセルし、進行中の1件も中断します（生成済みの記事は残ります）"
+                  style={smallBtn({ border: '1px solid rgba(239,68,68,0.5)', color: '#ef4444', fontWeight: 700 })}
+                >
+                  ⏹ 生成を中止
+                </button>
+              )}
               {!generating && (
                 <button type="button" onClick={() => setPhase('plan')} style={smallBtn()}>
                   ← プラン編集に戻る
@@ -565,15 +652,33 @@ export default function NoteBundleModal({
                 </div>
 
                 {r.status === 'pending' && (
-                  <div style={{ fontSize: 12, color: 'var(--text-muted)', padding: '8px 0' }}>⏳ 待機中...</div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', padding: '8px 0' }}>
+                    <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>⏳ 待機中...</span>
+                    <button
+                      type="button"
+                      onClick={() => cancelPending(r.localId)}
+                      title="この記事をキューから外します（🔄再試行で再開できます）"
+                      style={smallBtn()}
+                    >
+                      ✕ この記事をやめる
+                    </button>
+                  </div>
                 )}
                 {r.status === 'running' && (
                   <div style={{ fontSize: 12, color: 'var(--accent)', padding: '8px 0' }}>✍️ 執筆中...（30〜120秒）</div>
+                )}
+                {r.status === 'cancelled' && (
+                  <div style={{ padding: '10px 12px', background: 'var(--bg-primary)', border: '1px dashed var(--border)', borderRadius: 8, fontSize: 12, color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+                    ⏹ 中止しました
+                    <button type="button" onClick={() => retryOne(r)} style={smallBtn()}>🔄 再試行</button>
+                    <button type="button" onClick={() => deleteResult(r)} style={smallBtn({ color: '#ef4444' })}>🗑 削除</button>
+                  </div>
                 )}
                 {r.status === 'error' && (
                   <div style={{ padding: '10px 12px', background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.3)', borderRadius: 8, fontSize: 12, color: '#ef4444', display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
                     ⚠️ この記事の生成に失敗しました: {r.error}
                     <button type="button" onClick={() => retryOne(r)} style={smallBtn()}>🔄 再試行</button>
+                    <button type="button" onClick={() => deleteResult(r)} style={smallBtn({ color: '#ef4444' })}>🗑 削除</button>
                   </div>
                 )}
 
@@ -611,8 +716,17 @@ export default function NoteBundleModal({
                     />
 
                     <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+                      {/* 🧠AI参照素材カードと同じ作法・同じ文言（▼全文表示 / ▲閉じる / ⛶全画面） */}
                       <button type="button" onClick={() => setExpandedResult((p) => ({ ...p, [r.localId]: !p[r.localId] }))} style={smallBtn()}>
-                        {expandedResult[r.localId] ? '▲ 折りたたむ' : '▼ 全文表示'}
+                        {expandedResult[r.localId] ? '▲ 閉じる' : '▼ 全文表示'}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setReaderResult({ title: r.title, content: r.content })}
+                        title="全画面のリーダー表示で読む"
+                        style={smallBtn()}
+                      >
+                        ⛶ 全画面
                       </button>
                       <button
                         type="button"
@@ -637,6 +751,14 @@ export default function NoteBundleModal({
                           from: 'note-bundle',
                         }}
                       />
+                      <button
+                        type="button"
+                        onClick={() => deleteResult(r)}
+                        title="この記事カードを削除します"
+                        style={smallBtn({ color: '#ef4444', marginLeft: 'auto' })}
+                      >
+                        🗑 削除
+                      </button>
                     </div>
 
                     {/* 🔁 別文体で再生成（同じ資料・要点のまま文体だけ変えて追加。元の記事は残す） */}
@@ -660,7 +782,37 @@ export default function NoteBundleModal({
             ))}
           </div>
         )}
+
+        {/* モーダル内トースト（重複ガード・上限超過の通知） */}
+        {modalToast && (
+          <div style={{
+            position: 'fixed',
+            bottom: 24,
+            left: '50%',
+            transform: 'translateX(-50%)',
+            background: '#1f2937',
+            color: '#fff',
+            padding: '10px 20px',
+            borderRadius: 8,
+            fontSize: 13,
+            zIndex: 1002,
+            boxShadow: '0 4px 12px rgba(0,0,0,0.3)',
+            maxWidth: 'calc(100vw - 40px)',
+          }}>
+            {modalToast}
+          </div>
+        )}
       </div>
     </div>
+
+    {/* 全画面リーダー（151のFullscreenReader流用。zIndex 10000＝本モーダルより上）。
+        オーバーレイの外に置く＝リーダー内クリックが overlay の handleClose にバブルしない */}
+    <FullscreenReader
+      open={readerResult !== null}
+      title={readerResult?.title ?? '無題'}
+      content={readerResult?.content ?? ''}
+      onClose={() => setReaderResult(null)}
+    />
+    </>
   );
 }
