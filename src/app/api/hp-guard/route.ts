@@ -3,7 +3,7 @@ import { requireAuth } from '@/lib/require-auth';
 import { generateWithModel } from '@/lib/ai-client';
 import { GEMINI_TEXT_THINKING_LOW } from '@/lib/ai-models';
 import { safeJsonParse } from '@/lib/ai-json-parser';
-import { HP_AD_CHECK_RULES } from '@/lib/hp-writing';
+import { MEDICAL_AD_NG_RULES } from '@/lib/medical-ad-check';
 
 export const runtime = 'nodejs';
 export const maxDuration = 120;
@@ -13,6 +13,7 @@ export const maxDuration = 120;
 // 差分ペアで返す（169の /api/refine/suggest と同じ確立方式）。これにより
 // 「該当箇所の特定（before完全一致）→ 修正案の提示 → 院長が個別に適用/却下」の人間承認型が成立する。
 // このAPIは候補の起案のみ。自動で書き換えは行わない（適用はクライアント側の院長操作で確定）。
+// 186: 検出観点は共通定数 MEDICAL_AD_NG_RULES（8観点に統一）を参照。二重管理しない。
 
 interface RawFinding {
   before?: unknown;
@@ -35,7 +36,7 @@ export async function POST(req: NextRequest) {
 次の文章（ホームページ掲載予定の公開文章）から、規制上問題となりうる表現をすべて検出し、該当箇所ごとに修正案を提示してください。
 
 ## 検出する観点
-${HP_AD_CHECK_RULES}
+${MEDICAL_AD_NG_RULES}
 
 ## 厳守事項
 - 出力はJSONのみ（前置き・コードフェンス・説明は一切不要）
