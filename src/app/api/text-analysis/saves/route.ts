@@ -20,7 +20,9 @@ function ensureInputTextColumn() {
   return inputTextColumnReady;
 }
 
-// 一覧取得 / 展開時の元入力単体取得
+// 一覧取得（v2: 本文非返却＋サーバ側フィルタ＋ページング）/ 単体取得 / 複数ID一括取得
+// 194: context_saves の175改修と同方式。一覧は content を返さず、本文が必要な操作は
+// ?id=（単体・本文込み）または ?ids=（ZIP・横断分析用の一括）で都度取得する。
 export async function GET(req: NextRequest) {
   const session = await auth();
   if (!session) return new Response('Unauthorized', { status: 401 });
@@ -31,8 +33,9 @@ export async function GET(req: NextRequest) {
     const { searchParams } = new URL(req.url);
     const id = searchParams.get('id');
     const withInput = searchParams.get('withInput');
+    const idsParam = searchParams.get('ids');
 
-    // 展開時の単体取得（案a）: input_text だけを返す軽量レスポンス
+    // 展開時の単体取得（案a・v33互換）: input_text だけを返す軽量レスポンス
     if (id && withInput) {
       const rows = await sql`
         SELECT id, input_text
@@ -42,17 +45,97 @@ export async function GET(req: NextRequest) {
       return NextResponse.json(rows[0] ?? { id: Number(id), input_text: null });
     }
 
-    // 一覧: input_text 本体は返さない（ペイロード対策）。有無と文字数のみ。
-    const rows = await sql`
-      SELECT id, user_id, file_name, auto_title, analysis_type, analysis_label,
-             content, tags, folder, favorite, locked, char_count, created_at, updated_at,
-             (input_text IS NOT NULL) AS has_input,
-             COALESCE(LENGTH(input_text), 0) AS input_char_count
-      FROM text_analysis_saves
-      WHERE user_id = ${userId}
-      ORDER BY created_at DESC
-    `;
-    return NextResponse.json(rows);
+    // 194: 単体取得（本文込み・owner検証。input_text は withInput=1 の既存導線に分離）
+    if (id) {
+      const rows = await sql`
+        SELECT id, user_id, file_name, auto_title, analysis_type, analysis_label,
+               content, tags, folder, favorite, locked, char_count, created_at, updated_at,
+               (input_text IS NOT NULL) AS has_input,
+               COALESCE(LENGTH(input_text), 0) AS input_char_count
+        FROM text_analysis_saves
+        WHERE id = ${id} AND user_id = ${userId}
+      `;
+      if (rows.length === 0) {
+        return NextResponse.json({ error: 'Not found' }, { status: 404 });
+      }
+      return NextResponse.json(rows[0]);
+    }
+
+    // 194: 複数ID一括取得（ZIP一括DL・横断分析handoff用。owner検証・上限100件）
+    if (idsParam) {
+      const ids = idsParam
+        .split(',')
+        .map((s) => parseInt(s.trim(), 10))
+        .filter((n) => Number.isFinite(n))
+        .slice(0, 100);
+      if (ids.length === 0) return NextResponse.json({ items: [] });
+      const rows = await sql`
+        SELECT id, file_name, auto_title, analysis_type, analysis_label,
+               content, folder, favorite, char_count, created_at
+        FROM text_analysis_saves
+        WHERE id = ANY(${ids}) AND user_id = ${userId}
+      `;
+      return NextResponse.json({ items: rows });
+    }
+
+    // 194: 一覧v2 — 本文（content/input_text）非返却。検索 q はタイトル＋本文を対象に
+    // サーバ側で適用（従来のクライアント本文検索と等価性を維持）。全件を母数に絞り込み、
+    // created_at DESC + LIMIT/OFFSET で全件到達可能なページング（175と同型）。
+    const limit = Math.min(parseInt(searchParams.get('limit') || '30', 10), 100);
+    const offset = parseInt(searchParams.get('offset') || '0', 10);
+    const qRaw = searchParams.get('q');
+    const qLike = qRaw && qRaw.trim() ? `%${qRaw.trim()}%` : null;
+    const folderV = searchParams.get('folder'); // null=全カテゴリ
+    const favV = searchParams.get('favorite') === '1' ? true : null;
+    const inputV = searchParams.get('hasInput') === '1' ? true : null; // 「📥入力付き」仮想フィルタ
+
+    const [rows, countRows, allRows, folderRows, tagRows] = await Promise.all([
+      sql`
+        SELECT id, user_id, file_name, auto_title, analysis_type, analysis_label,
+               tags, folder, favorite, locked, char_count, created_at, updated_at,
+               (input_text IS NOT NULL) AS has_input,
+               COALESCE(LENGTH(input_text), 0) AS input_char_count
+        FROM text_analysis_saves
+        WHERE user_id = ${userId}
+          AND (${qLike}::text IS NULL OR auto_title ILIKE ${qLike} OR file_name ILIKE ${qLike} OR content ILIKE ${qLike})
+          AND (${folderV}::text IS NULL OR COALESCE(folder, '') = ${folderV})
+          AND (${favV}::boolean IS NULL OR favorite = ${favV})
+          AND (${inputV}::boolean IS NULL OR input_text IS NOT NULL)
+        ORDER BY created_at DESC
+        LIMIT ${limit} OFFSET ${offset}
+      `,
+      sql`
+        SELECT COUNT(*)::int AS n
+        FROM text_analysis_saves
+        WHERE user_id = ${userId}
+          AND (${qLike}::text IS NULL OR auto_title ILIKE ${qLike} OR file_name ILIKE ${qLike} OR content ILIKE ${qLike})
+          AND (${folderV}::text IS NULL OR COALESCE(folder, '') = ${folderV})
+          AND (${favV}::boolean IS NULL OR favorite = ${favV})
+          AND (${inputV}::boolean IS NULL OR input_text IS NOT NULL)
+      `,
+      sql`SELECT COUNT(*)::int AS n FROM text_analysis_saves WHERE user_id = ${userId}`,
+      sql`
+        SELECT folder, COUNT(*)::int AS count
+        FROM text_analysis_saves
+        WHERE user_id = ${userId} AND COALESCE(folder, '') <> ''
+        GROUP BY 1
+        ORDER BY 2 DESC
+      `,
+      sql`
+        SELECT DISTINCT t.tag
+        FROM text_analysis_saves, LATERAL unnest(tags) AS t(tag)
+        WHERE user_id = ${userId}
+        ORDER BY 1
+      `,
+    ]);
+
+    return NextResponse.json({
+      items: rows,
+      total_count: countRows[0]?.n ?? 0,
+      all_total: allRows[0]?.n ?? 0,
+      folders: folderRows,
+      all_tags: tagRows.map((r) => (r as { tag: string }).tag),
+    });
   } catch (error) {
     const message = error instanceof Error ? error.message : '不明なエラー';
     console.error('[text-analysis/saves GET]', message);

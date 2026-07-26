@@ -1,8 +1,8 @@
 'use client';
 
-import { Suspense, useEffect, useState } from 'react';
+import { Suspense, useState } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
-import SavedAnalysisList, { AnalysisRecord } from '@/components/text-analysis/SavedAnalysisList';
+import SavedAnalysisList from '@/components/text-analysis/SavedAnalysisList';
 import ContextLibraryPanel from '@/components/context-library/ContextLibraryPanel';
 import ProofreadSavedList from '@/components/proofread/ProofreadSavedList';
 import NoteBundleDock from '@/components/note-bundle/NoteBundleDock';
@@ -30,27 +30,7 @@ function SavedPageInner() {
   const initialSub: SubTab =
     tabParam === 'context' || tabParam === 'proofread' ? tabParam : 'text';
   const [sub, setSub] = useState<SubTab>(initialSub);
-
-  const [records, setRecords] = useState<AnalysisRecord[]>([]);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        const res = await fetch('/api/text-analysis/saves');
-        if (res.ok) {
-          const data = await res.json();
-          if (!cancelled) setRecords(Array.isArray(data) ? data : []);
-        }
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, []);
+  // 194: 一覧のフェッチは SavedAnalysisList が自律で行う（本文非返却＋30件ページング）
 
   // 横断分析へ：選択を sessionStorage で受け渡し、テキスト分析の横断タブへ遷移
   // （横断分析は text-analysis ページに集約されているため。deepresearch handoff と同方式）
@@ -109,15 +89,7 @@ function SavedPageInner() {
 
       {/* テキスト分析の保存物（display:noneで状態維持） */}
       <div style={{ display: sub === 'text' ? 'block' : 'none' }}>
-        {loading ? (
-          <div style={{ textAlign: 'center', padding: 40, color: 'var(--text-muted)' }}>読み込み中...</div>
-        ) : (
-          <SavedAnalysisList
-            records={records}
-            onRecordsChange={setRecords}
-            onSelectForCross={handleSelectForCross}
-          />
-        )}
+        <SavedAnalysisList onSelectForCross={handleSelectForCross} />
       </div>
 
       {/* コンテキストライブラリ（既存パネルを再利用） */}

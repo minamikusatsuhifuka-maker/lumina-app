@@ -74,14 +74,20 @@ function getFolderColor(folder: string, allFolders: string[]): string {
 }
 
 interface Props {
-  records: AnalysisRecord[];
-  onRecordsChange: (records: AnalysisRecord[]) => void;
   onSelectForCross?: (
     articles: { id: number; title: string; content: string; category?: string }[],
   ) => void;
   highlightId?: number | null;
   onHighlightClear?: () => void;
+  // 194: 一覧は本コンポーネントが自律フェッチする（親の初回フェッチは廃止）。
+  // 全件数の変化を親へ通知（タブの件数バッジ用）
+  onAllTotalChange?: (n: number) => void;
+  // 親からの再読込トリガ（保存直後など。値が変わるたびに1ページ目から取り直す）
+  reloadKey?: number;
 }
+
+// 194: 1ページの取得件数（175 context_saves 側の「もっと見る」方式と同値）
+const PAGE_SIZE = 30;
 
 interface AutoCategorizeResult {
   categories?: Array<{
@@ -97,11 +103,11 @@ interface AutoCategorizeResult {
 }
 
 export default function SavedAnalysisList({
-  records,
-  onRecordsChange,
   onSelectForCross,
   highlightId,
   onHighlightClear,
+  onAllTotalChange,
+  reloadKey,
 }: Props) {
   const { showToast } = useToast();
   // 179/180: note記事まとめの横断選択（🧠AI参照素材側と共有ストア）。選択モード中は
@@ -155,8 +161,8 @@ export default function SavedAnalysisList({
   const [inputOnly, setInputOnly] = useState(false);
   // 「お気に入り」絞り込み（inputOnly と AND）
   const [favoriteOnly, setFavoriteOnly] = useState(false);
-  // 全画面リーダーで表示中のレコード（null=非表示）
-  const [readerRecord, setReaderRecord] = useState<AnalysisRecord | null>(null);
+  // 全画面リーダーで表示中のタイトル・本文（null=非表示。194: 本文は開く時にサーバ取得）
+  const [readerRecord, setReaderRecord] = useState<{ title: string; content: string } | null>(null);
   // 展開時に単体取得した元入力のキャッシュ（再展開では再取得しない）
   const [loadedInputTexts, setLoadedInputTexts] = useState<Record<number, string>>({});
   const [inputTextLoading, setInputTextLoading] = useState<Record<number, boolean>>({});
@@ -180,14 +186,119 @@ export default function SavedAnalysisList({
   const [categorizationResult, setCategorizationResult] =
     useState<AutoCategorizeResult | null>(null);
 
+  // ── 194: 一覧の自律フェッチ（175方式: 本文非返却・サーバ側フィルタ・offsetページング） ──
+  const [records, setRecords] = useState<AnalysisRecord[]>([]);
+  const [listLoading, setListLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+  // totalCount=フィルタ条件での総件数 / allTotal=全件母数 / serverFolders=全件のカテゴリ集計
+  const [totalCount, setTotalCount] = useState(0);
+  const [allTotal, setAllTotal] = useState(0);
+  const [serverFolders, setServerFolders] = useState<{ folder: string; count: number }[]>([]);
+  // 検索はデバウンス（1文字ごとに全件クエリを投げない）
+  const [debouncedSearch, setDebouncedSearch] = useState('');
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedSearch(searchTerm.trim()), 350);
+    return () => clearTimeout(t);
+  }, [searchTerm]);
+
+  const fetchPage = async (offset: number, append: boolean) => {
+    if (append) setLoadingMore(true);
+    else setListLoading(true);
+    try {
+      const p = new URLSearchParams();
+      p.set('limit', String(PAGE_SIZE));
+      p.set('offset', String(offset));
+      if (debouncedSearch) p.set('q', debouncedSearch);
+      if (activeFolder !== null) p.set('folder', activeFolder);
+      if (favoriteOnly) p.set('favorite', '1');
+      if (inputOnly) p.set('hasInput', '1');
+      const res = await fetch(`/api/text-analysis/saves?${p.toString()}`);
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data?.error || '一覧の取得に失敗しました');
+      // 一覧APIは本文を返さない。AnalysisRecord.content は空で埋め、本文は fetchContent で遅延取得
+      const items: AnalysisRecord[] = (Array.isArray(data.items) ? data.items : []).map(
+        (it: AnalysisRecord) => ({ ...it, content: '' }),
+      );
+      setRecords((prev) => (append ? [...prev, ...items] : items));
+      setTotalCount(Number(data.total_count) || 0);
+      const at = Number(data.all_total) || 0;
+      setAllTotal(at);
+      onAllTotalChange?.(at);
+      setServerFolders(Array.isArray(data.folders) ? data.folders : []);
+    } catch {
+      if (!append) {
+        setRecords([]);
+        setTotalCount(0);
+      }
+      showToast('一覧の取得に失敗しました', 'error');
+    } finally {
+      setListLoading(false);
+      setLoadingMore(false);
+    }
+  };
+
+  // フィルタ変更・親からの再読込トリガで1ページ目から取り直す
+  useEffect(() => {
+    fetchPage(0, false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [debouncedSearch, activeFolder, favoriteOnly, inputOnly, reloadKey]);
+
+  // ── 194: 本文（content）の遅延取得＋キャッシュ（fetchInputText と同型）。
+  // 失敗時は null を返しキャッシュしない（再試行可能。✏編集の空content上書きガードにも使う） ──
+  const [loadedContents, setLoadedContents] = useState<Record<number, string>>({});
+  const [contentLoading, setContentLoading] = useState<Record<number, boolean>>({});
+  const fetchContent = async (id: number): Promise<string | null> => {
+    if (loadedContents[id] !== undefined) return loadedContents[id];
+    setContentLoading((prev) => ({ ...prev, [id]: true }));
+    try {
+      const res = await fetch(`/api/text-analysis/saves?id=${id}`);
+      if (!res.ok) return null;
+      const data = await res.json();
+      if (typeof data?.content !== 'string') return null;
+      setLoadedContents((prev) => ({ ...prev, [id]: data.content }));
+      return data.content;
+    } catch {
+      return null;
+    } finally {
+      setContentLoading((prev) => ({ ...prev, [id]: false }));
+    }
+  };
+
+  // 複数IDをメタ＋本文込みで1リクエスト一括取得（ZIP・横断分析handoff用。?ids=）。
+  // 絞り込み変更後などロード済み一覧に無い選択IDでも取りこぼさないよう、返却行だけで完結させる
+  interface BulkItem {
+    id: number;
+    auto_title: string | null;
+    file_name: string | null;
+    analysis_type: string;
+    analysis_label: string;
+    folder: string | null;
+    content: string;
+  }
+  const fetchItemsByIds = async (ids: number[]): Promise<BulkItem[] | null> => {
+    try {
+      const res = await fetch(`/api/text-analysis/saves?ids=${ids.join(',')}`);
+      if (!res.ok) return null;
+      const data = await res.json();
+      const items: BulkItem[] = Array.isArray(data?.items) ? data.items : [];
+      // 本文キャッシュにも反映（以後の単体操作で再取得しない）
+      const patch: Record<number, string> = {};
+      for (const it of items) patch[it.id] = typeof it.content === 'string' ? it.content : '';
+      setLoadedContents((prev) => ({ ...prev, ...patch }));
+      return items;
+    } catch {
+      return null;
+    }
+  };
+
   // AIで保存済み全件を自動カテゴライズする
   const handleAutoCategorize = async () => {
-    if (records.length === 0) {
+    if (allTotal === 0) {
       showToast('保存済みテキストがありません', 'error');
       return;
     }
     const ok = window.confirm(
-      `${records.length}件のテキストをAIが自動カテゴライズします。\n既存のカテゴリは上書きされます。よろしいですか？`,
+      `${allTotal}件のテキストをAIが自動カテゴライズします。\n既存のカテゴリは上書きされます。よろしいですか？`,
     );
     if (!ok) return;
 
@@ -209,16 +320,8 @@ export default function SavedAnalysisList({
         `${data.updatedCount ?? 0}件を${data.categories?.length ?? 0}カテゴリに分類しました`,
         'success',
       );
-      // 保存一覧をリロード
-      try {
-        const refreshed = await fetch('/api/text-analysis/saves');
-        if (refreshed.ok) {
-          const list = await refreshed.json();
-          if (Array.isArray(list)) onRecordsChange(list);
-        }
-      } catch {
-        /* skip */
-      }
+      // 保存一覧をリロード（v2: 1ページ目から取り直し。カテゴリ集計も同時に更新される）
+      await fetchPage(0, false);
     } catch (err) {
       const message = err instanceof Error ? err.message : '通信エラー';
       showToast(message, 'error');
@@ -227,13 +330,19 @@ export default function SavedAnalysisList({
     }
   };
 
-  const handleCopy = async (id: number, text: string) => {
+  const handleCopy = async (record: AnalysisRecord) => {
+    // 194: 本文は遅延取得（一覧APIは本文を返さない）
+    const text = await fetchContent(record.id);
+    if (text === null) {
+      showToast('本文の取得に失敗しました', 'error');
+      return;
+    }
     // コピー内容にも LaTeX 正規化を適用（$\rightarrow$ 等を残さない）
     const success = await copyToClipboard(sanitizeLatex(text));
     if (success) {
-      setCopiedId(id);
+      setCopiedId(record.id);
       showToast('コピーしました', 'success');
-      setTimeout(() => setCopiedId((curr) => (curr === id ? null : curr)), 2000);
+      setTimeout(() => setCopiedId((curr) => (curr === record.id ? null : curr)), 2000);
     } else {
       showToast('コピーできませんでした。手動で選択してコピーしてください。', 'error');
     }
@@ -244,11 +353,17 @@ export default function SavedAnalysisList({
     if (downloadingId !== null) return; // 同時押し防止
     setDownloadingId(record.id);
     try {
+      // 194: 本文は遅延取得（一覧APIは本文を返さない）
+      const content = await fetchContent(record.id);
+      if (content === null) {
+        showToast('本文の取得に失敗しました', 'error');
+        return;
+      }
       const label =
         record.analysis_label || record.analysis_type || '分析結果';
       const fallback = record.auto_title || record.file_name || label;
       const autoTitle = await generateTitleWithTimeout(
-        record.content,
+        content,
         label,
         fallback,
       );
@@ -257,7 +372,7 @@ export default function SavedAnalysisList({
       const modelLine = record.model
         ? `> 生成AI: ${getModelIcon(record.model)} ${getModelLabel(record.model)}\n\n---\n\n`
         : '';
-      const mdContent = `# ${autoTitle}\n\n${modelLine}${sanitizeLatex(record.content)}`;
+      const mdContent = `# ${autoTitle}\n\n${modelLine}${sanitizeLatex(content)}`;
 
       triggerDownload(`${safeTitle}_${yyyymmdd()}.md`, mdContent, 'text/markdown;charset=utf-8');
       showToast('MDファイルをダウンロードしました', 'success');
@@ -276,11 +391,17 @@ export default function SavedAnalysisList({
     if (downloadingId !== null) return; // 同時押し防止（MDと共用）
     setDownloadingId(record.id);
     try {
+      // 194: 本文は遅延取得（一覧APIは本文を返さない）
+      const content = await fetchContent(record.id);
+      if (content === null) {
+        showToast('本文の取得に失敗しました', 'error');
+        return;
+      }
       const label =
         record.analysis_label || record.analysis_type || '分析結果';
       const fallback = record.auto_title || record.file_name || label;
       const autoTitle = await generateTitleWithTimeout(
-        record.content,
+        content,
         label,
         fallback,
       );
@@ -290,7 +411,7 @@ export default function SavedAnalysisList({
         ? `[生成AI: ${getModelIcon(record.model)} ${getModelLabel(record.model)}]\n\n---\n\n`
         : '';
       // 書き出し本文にも LaTeX 正規化を適用（$\rightarrow$ 等を残さない）
-      const txtContent = `${autoTitle}\n\n${modelLine}${sanitizeLatex(record.content)}`;
+      const txtContent = `${autoTitle}\n\n${modelLine}${sanitizeLatex(content)}`;
 
       // .txt は Markdown 記号を除去した読みやすいプレーンテキストへ変換して書き出す
       triggerDownload(
@@ -313,11 +434,17 @@ export default function SavedAnalysisList({
     if (downloadingId !== null) return; // 同時押し防止（txt/MDと共用）
     setDownloadingId(record.id);
     try {
+      // 194: 本文は遅延取得（一覧APIは本文を返さない）
+      const content = await fetchContent(record.id);
+      if (content === null) {
+        showToast('本文の取得に失敗しました', 'error');
+        return;
+      }
       const label =
         record.analysis_label || record.analysis_type || '分析結果';
       const fallback = record.auto_title || record.file_name || label;
       const autoTitle = await generateTitleWithTimeout(
-        record.content,
+        content,
         label,
         fallback,
       );
@@ -330,7 +457,7 @@ export default function SavedAnalysisList({
       await downloadMarkdownAsDocx({
         title: autoTitle,
         metaLines,
-        markdown: sanitizeLatex(record.content),
+        markdown: sanitizeLatex(content),
         fileName: `${safeTitle}_${yyyymmdd()}.docx`,
       });
       showToast('Wordファイルをダウンロードしました', 'success');
@@ -344,30 +471,28 @@ export default function SavedAnalysisList({
   // 選択中の各レコードを個別の .md にして JSZip で1つのZIPにまとめてダウンロード。
   // MD整形は単体DL（handleDownloadMd）と同じ「# タイトル + 生成AI行 + 本文」を流用。
   // 件数が多いと重いため、ファイル名は AIタイトル生成は行わず既存の auto_title/file_name を使う。
-  // 本文(content)は一覧APIが返すため records から取得（単体取得は不要）。
+  // 194: 本文(content)は一覧APIが返さないため、?ids= で選択分を一括取得してから固める。
   const handleBulkDownload = async () => {
     if (bulkDownloading || selectedIds.size === 0) return;
     setBulkDownloading(true);
     try {
+      const ids = Array.from(selectedIds);
+      const items = await fetchItemsByIds(ids);
+      if (items === null) {
+        showToast('本文の取得に失敗しました', 'error');
+        return;
+      }
       const zip = new JSZip();
       const usedNames = new Set<string>();
-      const ids = Array.from(selectedIds);
       let added = 0;
 
-      for (const id of ids) {
-        const rec = records.find((r) => r.id === id);
-        if (!rec) continue;
-
-        const label = rec.analysis_label || rec.analysis_type || '分析結果';
-        const title = rec.auto_title || rec.file_name || label;
-        // モデル情報があれば生成AI行を追加（旧データは undefined → 出力なし）
-        const modelLine = rec.model
-          ? `> 生成AI: ${getModelIcon(rec.model)} ${getModelLabel(rec.model)}\n\n---\n\n`
-          : '';
-        const md = `# ${title}\n\n${modelLine}${sanitizeLatex(rec.content ?? '')}`;
+      for (const it of items) {
+        const label = it.analysis_label || it.analysis_type || '分析結果';
+        const title = it.auto_title || it.file_name || label;
+        const md = `# ${title}\n\n${sanitizeLatex(it.content ?? '')}`;
 
         // ファイル名（サニタイズ + 同名タイトルの重複は連番で回避）
-        const base = sanitizeFilename(title) || `analysis_${id}`;
+        const base = sanitizeFilename(title) || `analysis_${it.id}`;
         let name = `${base}.md`;
         let i = 2;
         while (usedNames.has(name)) {
@@ -423,9 +548,18 @@ export default function SavedAnalysisList({
         alert(data?.error ?? '変更できませんでした');
         return;
       }
-      onRecordsChange(
-        records.map((r) => (r.folder === oldName ? { ...r, folder: newName } : r)),
+      setRecords((prev) =>
+        prev.map((r) => (r.folder === oldName ? { ...r, folder: newName } : r)),
       );
+      // カテゴリ集計もローカル更新（同名フォルダが既にある場合は件数を合算）
+      setServerFolders((prev) => {
+        const merged = new Map<string, number>();
+        prev.forEach((f) => {
+          const name = f.folder === oldName ? newName : f.folder;
+          merged.set(name, (merged.get(name) ?? 0) + f.count);
+        });
+        return Array.from(merged.entries()).map(([folder, count]) => ({ folder, count }));
+      });
       if (activeFolder === oldName) setActiveFolder(newName);
       showToast(`カテゴリ名を「${newName}」に変更しました`, 'success');
     } catch {
@@ -485,40 +619,57 @@ export default function SavedAnalysisList({
     }
   };
 
-  // カード本体の全文表示トグル（入力テキストの取得はここではしない＝v35で遅延化）
+  // カード本体の全文表示トグル（194: 開く時に本文が未取得なら遅延取得。入力テキストと同方式）
   const handleToggleExpand = (record: AnalysisRecord) => {
-    setExpandedId(expandedId === record.id ? null : record.id);
+    const opening = expandedId !== record.id;
+    if (opening && loadedContents[record.id] === undefined) {
+      void fetchContent(record.id);
+    }
+    setExpandedId(opening ? record.id : null);
   };
 
-  const uniqueFolders = useMemo(() => {
-    const set = new Set<string>();
-    records.forEach((r) => {
-      if (r.folder && r.folder.trim()) set.add(r.folder);
-    });
-    return Array.from(set);
-  }, [records]);
+  // 194: カテゴリ一覧は全件母数のサーバ集計（ロード済みページからの算出をやめる）
+  const uniqueFolders = useMemo(() => serverFolders.map((f) => f.folder), [serverFolders]);
 
-  const visibleRecords = useMemo(() => {
-    let list = records;
-    if (activeFolder !== null) {
-      list = list.filter((r) => (r.folder ?? '') === activeFolder);
+  // ⛶全画面リーダー（194: 本文を取得してから開く）
+  const openReader = async (record: AnalysisRecord) => {
+    const text = await fetchContent(record.id);
+    if (text === null) {
+      showToast('本文の取得に失敗しました', 'error');
+      return;
     }
-    if (inputOnly) {
-      list = list.filter((r) => r.has_input === true);
-    }
-    if (favoriteOnly) {
-      list = list.filter((r) => r.favorite === true);
-    }
-    if (searchTerm.trim()) {
-      const q = searchTerm.toLowerCase();
-      list = list.filter(
-        (r) =>
-          (r.auto_title ?? r.file_name ?? '').toLowerCase().includes(q) ||
-          r.content.toLowerCase().includes(q),
+    setReaderRecord({
+      title: record.auto_title || record.file_name || '無題',
+      content: text,
+    });
+  };
+
+  // 🔀横断分析へ（194: 選択分の本文を一括取得してから渡す。saved経由/タブ内の両経路とも本ハンドラ）
+  const [crossPreparing, setCrossPreparing] = useState(false);
+  const handleCrossSelect = async () => {
+    if (!onSelectForCross || crossPreparing || selectedIds.size === 0) return;
+    setCrossPreparing(true);
+    try {
+      const items = await fetchItemsByIds(Array.from(selectedIds));
+      if (items === null || items.length === 0) {
+        showToast('本文の取得に失敗しました', 'error');
+        return;
+      }
+      onSelectForCross(
+        items.map((it) => ({
+          id: it.id,
+          title: it.auto_title ?? it.file_name ?? '無題',
+          content: it.content,
+          category: it.folder ?? undefined,
+        })),
       );
+    } finally {
+      setCrossPreparing(false);
     }
-    return list;
-  }, [records, activeFolder, inputOnly, favoriteOnly, searchTerm]);
+  };
+
+  // 194: 絞り込み（検索/カテゴリ/入力付き/お気に入り）はサーバ側で適用済み＝ロード済みをそのまま表示
+  const visibleRecords = records;
 
   // 表示中レコードから分析タイプ別の件数とラベルを動的に抽出
   const typeStats = useMemo(() => {
@@ -586,14 +737,13 @@ export default function SavedAnalysisList({
         body: JSON.stringify({ action: 'bulk_folder', ids, folder }),
       });
       if (!res.ok) throw new Error('一括移動に失敗しました');
-      onRecordsChange(
-        records.map((r) => (selectedIds.has(r.id) ? { ...r, folder } : r)),
-      );
       setSelectedIds(new Set());
       showToast(
         `${ids.length}件を「${folder || '未分類'}」に移動しました`,
         'success',
       );
+      // カテゴリ集計・絞り込み表示と整合させるため1ページ目から取り直す
+      void fetchPage(0, false);
     } catch {
       showToast('一括移動に失敗しました', 'error');
     }
@@ -607,11 +757,15 @@ export default function SavedAnalysisList({
         body: JSON.stringify({ action: 'toggle_favorite', id }),
       });
       if (!res.ok) throw new Error();
-      onRecordsChange(
-        records.map((r) =>
-          r.id === id ? { ...r, favorite: !r.favorite } : r,
-        ),
-      );
+      // お気に入り絞り込み中の解除は一覧から外す（サーバ絞り込みと整合）
+      if (favoriteOnly) {
+        setRecords((prev) => prev.filter((r) => r.id !== id));
+        setTotalCount((n) => Math.max(0, n - 1));
+      } else {
+        setRecords((prev) =>
+          prev.map((r) => (r.id === id ? { ...r, favorite: !r.favorite } : r)),
+        );
+      }
     } catch {
       showToast('更新に失敗しました', 'error');
     }
@@ -624,19 +778,46 @@ export default function SavedAnalysisList({
         method: 'DELETE',
       });
       if (!res.ok) throw new Error();
-      onRecordsChange(records.filter((r) => r.id !== id));
+      const deleted = records.find((r) => r.id === id);
+      setRecords((prev) => prev.filter((r) => r.id !== id));
+      setTotalCount((n) => Math.max(0, n - 1));
+      setAllTotal((n) => {
+        const v = Math.max(0, n - 1);
+        onAllTotalChange?.(v);
+        return v;
+      });
+      if (deleted?.folder) {
+        setServerFolders((prev) =>
+          prev
+            .map((f) => (f.folder === deleted.folder ? { ...f, count: f.count - 1 } : f))
+            .filter((f) => f.count > 0),
+        );
+      }
       showToast('削除しました', 'success');
     } catch {
       showToast('削除に失敗しました', 'error');
     }
   };
 
-  // 「✏️ 編集」押下 → 現在のタイトル/本文を編集 state にコピーして編集モードへ
-  const startEdit = (record: AnalysisRecord) => {
-    setExpandedId(record.id); // 編集UIは展開ビュー内に出るので展開も保証
-    setEditingId(record.id);
-    setEditTitle(record.auto_title || record.file_name || '');
-    setEditContent(record.content);
+  // 「✏️ 編集」押下 → 本文をサーバ取得してから編集モードへ（194: 取得失敗時は開かない＝
+  // 未ロードのまま保存して空contentでUPDATEする経路を作らない）
+  const [editLoadingId, setEditLoadingId] = useState<number | null>(null);
+  const startEdit = async (record: AnalysisRecord) => {
+    if (editLoadingId !== null) return;
+    setEditLoadingId(record.id);
+    try {
+      const text = await fetchContent(record.id);
+      if (text === null) {
+        showToast('本文の取得に失敗しました（編集を開始できません）', 'error');
+        return;
+      }
+      setExpandedId(record.id); // 編集UIは展開ビュー内に出るので展開も保証
+      setEditingId(record.id);
+      setEditTitle(record.auto_title || record.file_name || '');
+      setEditContent(text);
+    } finally {
+      setEditLoadingId(null);
+    }
   };
 
   // 編集内容を保存（PATCH action=update。タイトル+本文のみ、input_text は不変）
@@ -658,22 +839,22 @@ export default function SavedAnalysisList({
         }),
       });
       if (!res.ok) throw new Error();
-      // ローカル state を楽観的更新（タイトル両カラム・本文・文字数も更新）
+      // ローカル state を楽観的更新（タイトル両カラム・文字数。本文はキャッシュ側を更新）
       const newTitle = editTitle.trim();
       const newContent = editContent.trim();
-      onRecordsChange(
-        records.map((r) =>
+      setRecords((prev) =>
+        prev.map((r) =>
           r.id === id
             ? {
                 ...r,
                 auto_title: newTitle,
                 file_name: newTitle,
-                content: newContent,
                 char_count: newContent.length,
               }
             : r,
         ),
       );
+      setLoadedContents((prev) => ({ ...prev, [id]: newContent }));
       setEditingId(null);
       showToast('✅ 更新しました', 'success');
     } catch {
@@ -728,7 +909,7 @@ export default function SavedAnalysisList({
           <button
             type="button"
             onClick={handleAutoCategorize}
-            disabled={isAutoCategorizing || records.length === 0}
+            disabled={isAutoCategorizing || allTotal === 0}
             style={{
               display: 'inline-flex',
               alignItems: 'center',
@@ -743,10 +924,10 @@ export default function SavedAnalysisList({
               fontSize: 12,
               fontWeight: 600,
               cursor:
-                isAutoCategorizing || records.length === 0
+                isAutoCategorizing || allTotal === 0
                   ? 'not-allowed'
                   : 'pointer',
-              opacity: records.length === 0 ? 0.4 : 1,
+              opacity: allTotal === 0 ? 0.4 : 1,
             }}
             title="AIが全保存テキストを分析して最適なカテゴリへ自動分類します"
           >
@@ -892,12 +1073,11 @@ export default function SavedAnalysisList({
                 color: 'var(--accent)',
               }}
             >
-              {records.length}
+              {allTotal}
             </span>
           </button>
 
-          {uniqueFolders.map((folder) => {
-            const count = records.filter((r) => r.folder === folder).length;
+          {serverFolders.map(({ folder, count }) => {
             const color = getFolderColor(folder, uniqueFolders);
             const active = activeFolder === folder;
             const isEditing = editingCategory === folder;
@@ -1062,7 +1242,7 @@ export default function SavedAnalysisList({
           ⭐ お気に入り
         </button>
         <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>
-          {visibleRecords.length}件 / 全{records.length}件
+          表示{records.length} / 該当{totalCount}件（全{allTotal}件）
         </span>
       </div>
 
@@ -1328,30 +1508,23 @@ export default function SavedAnalysisList({
             {selectedIds.size >= 2 && onSelectForCross && (
               <button
                 type="button"
-                onClick={() => {
-                  const articles = records
-                    .filter((r) => selectedIds.has(r.id))
-                    .map((r) => ({
-                      id: r.id,
-                      title: r.auto_title ?? r.file_name ?? '無題',
-                      content: r.content,
-                      category: r.folder ?? undefined,
-                    }));
-                  onSelectForCross(articles);
-                }}
+                onClick={handleCrossSelect}
+                disabled={crossPreparing}
                 style={{
                   padding: '10px 22px',
                   borderRadius: 12,
                   fontSize: 13,
                   fontWeight: 700,
                   border: 'none',
-                  background: '#9333ea',
+                  background: crossPreparing ? '#9ca3af' : '#9333ea',
                   color: '#fff',
-                  cursor: 'pointer',
-                  boxShadow: '0 4px 12px rgba(147,51,234,0.3)',
+                  cursor: crossPreparing ? 'not-allowed' : 'pointer',
+                  boxShadow: crossPreparing ? 'none' : '0 4px 12px rgba(147,51,234,0.3)',
                 }}
               >
-                🔀 選択した{selectedIds.size}件を横断分析する
+                {crossPreparing
+                  ? '⏳ 本文を取得中...'
+                  : `🔀 選択した${selectedIds.size}件を横断分析する`}
               </button>
             )}
           </div>
@@ -1359,7 +1532,18 @@ export default function SavedAnalysisList({
       )}
 
       {/* 一覧 */}
-      {visibleRecords.length === 0 ? (
+      {listLoading ? (
+        <div
+          style={{
+            textAlign: 'center',
+            padding: 40,
+            color: 'var(--text-muted)',
+            fontSize: 13,
+          }}
+        >
+          読み込み中...
+        </div>
+      ) : visibleRecords.length === 0 ? (
         <div
           style={{
             textAlign: 'center',
@@ -1370,7 +1554,9 @@ export default function SavedAnalysisList({
             borderRadius: 12,
           }}
         >
-          保存された分析結果はまだありません
+          {debouncedSearch || activeFolder !== null || inputOnly || favoriteOnly
+            ? '条件に一致する保存はありません'
+            : '保存された分析結果はまだありません'}
         </div>
       ) : (
         <div
@@ -1567,7 +1753,7 @@ export default function SavedAnalysisList({
                       </button>
                       <button
                         type="button"
-                        onClick={() => setReaderRecord(record)}
+                        onClick={() => openReader(record)}
                         style={listBtnStyle()}
                         title="全画面のリーダー表示で読む"
                       >
@@ -1575,7 +1761,7 @@ export default function SavedAnalysisList({
                       </button>
                       <button
                         type="button"
-                        onClick={() => handleCopy(record.id, record.content)}
+                        onClick={() => handleCopy(record)}
                         style={{
                           ...listBtnStyle(),
                           background:
@@ -1658,8 +1844,9 @@ export default function SavedAnalysisList({
                         onClick={() =>
                           editingId === record.id
                             ? setEditingId(null)
-                            : startEdit(record)
+                            : void startEdit(record)
                         }
+                        disabled={editLoadingId !== null && editLoadingId !== record.id}
                         style={{
                           ...listBtnStyle(),
                           background:
@@ -1676,7 +1863,11 @@ export default function SavedAnalysisList({
                               : 'var(--text-secondary)',
                         }}
                       >
-                        {editingId === record.id ? '✏️ 編集中' : '✏️ 編集'}
+                        {editingId === record.id
+                          ? '✏️ 編集中'
+                          : editLoadingId === record.id
+                            ? '⏳ 本文取得中...'
+                            : '✏️ 編集'}
                       </button>
                       <button
                         type="button"
@@ -1867,6 +2058,14 @@ export default function SavedAnalysisList({
                               </button>
                             </div>
                           </div>
+                        ) : contentLoading[record.id] ? (
+                          <div style={{ fontSize: 12, color: 'var(--text-muted)', padding: '8px 0' }}>
+                            本文を読み込み中...
+                          </div>
+                        ) : loadedContents[record.id] === undefined ? (
+                          <div style={{ fontSize: 12, color: 'var(--text-muted)', padding: '8px 0' }}>
+                            本文を取得できませんでした。もう一度「▼ 全文表示」を開き直してください。
+                          </div>
                         ) : (
                           <div
                             className="markdown-body"
@@ -1875,7 +2074,9 @@ export default function SavedAnalysisList({
                               overflowWrap: 'anywhere',
                               wordBreak: 'break-word',
                             }}
-                            dangerouslySetInnerHTML={{ __html: renderMarkdown(record.content) }}
+                            dangerouslySetInnerHTML={{
+                              __html: renderMarkdown(loadedContents[record.id]),
+                            }}
                           />
                         )}
                         {/* 📥 元の入力テキスト（紐付け表示）。入力はユーザーの生テキストなので
@@ -1967,14 +2168,33 @@ export default function SavedAnalysisList({
         </div>
       )}
 
+      {/* 194: もっと見る（175 context_saves 側と同方式のoffsetページング。全件に到達できる） */}
+      {!listLoading && records.length < totalCount && (
+        <div style={{ textAlign: 'center' }}>
+          <button
+            type="button"
+            onClick={() => fetchPage(records.length, true)}
+            disabled={loadingMore}
+            style={{
+              padding: '10px 26px',
+              borderRadius: 999,
+              border: '1px solid var(--border)',
+              background: 'var(--bg-card)',
+              color: 'var(--text-secondary)',
+              fontSize: 13,
+              fontWeight: 600,
+              cursor: loadingMore ? 'not-allowed' : 'pointer',
+            }}
+          >
+            {loadingMore ? '⏳ 読み込み中...' : `▼ もっと見る（${records.length} / ${totalCount}）`}
+          </button>
+        </div>
+      )}
+
       {/* 全画面リーダー（保存テキストを読み物表示） */}
       <FullscreenReader
         open={readerRecord !== null}
-        title={
-          readerRecord?.auto_title ||
-          readerRecord?.file_name ||
-          '無題'
-        }
+        title={readerRecord?.title ?? '無題'}
         content={readerRecord?.content ?? ''}
         onClose={() => setReaderRecord(null)}
       />

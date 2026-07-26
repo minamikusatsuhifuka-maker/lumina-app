@@ -3,9 +3,7 @@
 import { Suspense, useEffect, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import TextAnalysisPanel from '@/components/text-analysis/TextAnalysisPanel';
-import SavedAnalysisList, {
-  AnalysisRecord,
-} from '@/components/text-analysis/SavedAnalysisList';
+import SavedAnalysisList from '@/components/text-analysis/SavedAnalysisList';
 import CrossAnalysisPanel, {
   CrossArticle,
 } from '@/components/text-analysis/CrossAnalysisPanel';
@@ -38,8 +36,10 @@ function TextAnalysisPageInner() {
     }
     return 'analyze';
   })();
-  const [records, setRecords] = useState<AnalysisRecord[]>([]);
-  const [loading, setLoading] = useState(true);
+  // 194: 一覧のフェッチは SavedAnalysisList が自律で行う（本文非返却＋30件ページング）。
+  // ページ側は「全件数（タブバッジ用）」と「再読込トリガ」だけを持つ
+  const [savedTotal, setSavedTotal] = useState(0);
+  const [savedReloadKey, setSavedReloadKey] = useState(0);
   const [tab, setTab] = useState<TabType>(initialTab);
   const [crossSelected, setCrossSelected] = useState<CrossArticle[]>([]);
   const [highlightArticleId, setHighlightArticleId] = useState<number | null>(null);
@@ -56,33 +56,8 @@ function TextAnalysisPageInner() {
     }, 300);
   };
 
-  const reloadRecords = async () => {
-    try {
-      const res = await fetch('/api/text-analysis/saves');
-      if (res.ok) {
-        const data = await res.json();
-        setRecords(Array.isArray(data) ? data : []);
-      }
-    } catch {}
-  };
-
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        const res = await fetch('/api/text-analysis/saves');
-        if (res.ok) {
-          const data = await res.json();
-          if (!cancelled) setRecords(Array.isArray(data) ? data : []);
-        }
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, []);
+  // 194: 保存後の一覧更新は reloadKey で SavedAnalysisList に1ページ目から取り直させる
+  const reloadRecords = () => setSavedReloadKey((k) => k + 1);
 
   // ディープリサーチからの引き継ぎを確認しsessionStorageから自動読み込み
   useEffect(() => {
@@ -125,19 +100,8 @@ function TextAnalysisPageInner() {
     } catch {}
   }, []);
 
-  const handleSaved = (saved: AnalysisRecord) => {
-    // POST応答は RETURNING * で input_text 本体を含む。一覧stateには本体を持たず
-    // has_input/文字数だけ持たせて、展開時に単体取得する方式（一覧APIと整合）。
-    const { input_text, ...rest } = saved as AnalysisRecord & {
-      input_text?: string | null;
-    };
-    const normalized: AnalysisRecord = {
-      ...rest,
-      has_input: !!input_text,
-      input_char_count: input_text ? input_text.length : 0,
-    };
-    setRecords((prev) => [normalized, ...prev]);
-  };
+  // 194: 保存直後は一覧を1ページ目から取り直す（created_at DESC のため新規保存が先頭に来る）
+  const handleSaved = () => reloadRecords();
 
   return (
     <div>
@@ -168,7 +132,7 @@ function TextAnalysisPageInner() {
       >
         {[
           { key: 'analyze' as const, label: '🚀 分析実行', count: undefined, color: 'var(--accent)' },
-          { key: 'saved' as const, label: '🗂 保存一覧', count: records.length, color: 'var(--accent)' },
+          { key: 'saved' as const, label: '🗂 保存一覧', count: savedTotal, color: 'var(--accent)' },
           { key: 'cross' as const, label: '🔀 横断分析', count: undefined, color: '#9333ea' },
           { key: 'url' as const, label: '🌐 URL一括分析', count: undefined, color: '#16a34a' },
         ].map((t) => {
@@ -220,28 +184,16 @@ function TextAnalysisPageInner() {
         />
       </div>
       <div style={{ display: tab === 'saved' ? 'block' : 'none' }}>
-        {loading ? (
-          <div
-            style={{
-              textAlign: 'center',
-              padding: 40,
-              color: 'var(--text-muted)',
-            }}
-          >
-            読み込み中...
-          </div>
-        ) : (
-          <SavedAnalysisList
-            records={records}
-            onRecordsChange={setRecords}
-            onSelectForCross={(articles) => {
-              setCrossSelected(articles);
-              setTab('cross');
-            }}
-            highlightId={highlightArticleId}
-            onHighlightClear={() => setHighlightArticleId(null)}
-          />
-        )}
+        <SavedAnalysisList
+          onSelectForCross={(articles) => {
+            setCrossSelected(articles);
+            setTab('cross');
+          }}
+          highlightId={highlightArticleId}
+          onHighlightClear={() => setHighlightArticleId(null)}
+          onAllTotalChange={setSavedTotal}
+          reloadKey={savedReloadKey}
+        />
       </div>
       <div style={{ display: tab === 'cross' ? 'block' : 'none' }}>
         <CrossAnalysisPanel
