@@ -22,9 +22,11 @@ interface BundleSelectionState {
   selectMode: boolean;
   // key = makeBundleKey(source,id)。挿入順を保つ（選択順で表示）
   items: ReadonlyMap<string, BundleSelectedItem>;
+  // 187: 最後にチェック操作したカードのキー（「→次へ」ボタンをそのカード直下に追従させる）
+  lastToggledKey: string | null;
 }
 
-let state: BundleSelectionState = { selectMode: false, items: new Map() };
+let state: BundleSelectionState = { selectMode: false, items: new Map(), lastToggledKey: null };
 const listeners = new Set<() => void>();
 
 function emit(next: BundleSelectionState) {
@@ -49,22 +51,23 @@ export function toggleBundleItem(item: BundleSelectedItem): 'added' | 'removed' 
   const next = new Map(state.items);
   if (next.has(key)) {
     next.delete(key);
-    emit({ ...state, items: next });
+    // 解除も「最後に操作したカード」（ボタンは常に最後に触ったカードの下へ・187）
+    emit({ ...state, items: next, lastToggledKey: key });
     return 'removed';
   }
   if (next.size >= MAX_BUNDLE_SOURCES) return 'limit';
   next.set(key, item);
-  emit({ ...state, items: next });
+  emit({ ...state, items: next, lastToggledKey: key });
   return 'added';
 }
 
 export function setBundleSelectMode(on: boolean) {
   // モード終了時は選択もクリア（179の「✕選択をやめる」と同挙動）
-  emit({ selectMode: on, items: on ? state.items : new Map() });
+  emit({ selectMode: on, items: on ? state.items : new Map(), lastToggledKey: on ? state.lastToggledKey : null });
 }
 
 export function clearBundleSelection() {
-  emit({ ...state, items: new Map() });
+  emit({ ...state, items: new Map(), lastToggledKey: null });
 }
 
 export function useNoteBundleSelection() {
@@ -79,6 +82,7 @@ export function useNoteBundleSelection() {
   return {
     selectMode: s.selectMode,
     items: s.items,
+    lastToggledKey: s.lastToggledKey,
     selectedList: Array.from(s.items.values()),
     isSelected: (source: BundleSource, id: number) => s.items.has(makeBundleKey(source, id)),
     countBySource,

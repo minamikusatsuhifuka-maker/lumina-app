@@ -1386,6 +1386,8 @@ export default function SavedAnalysisList({
               <div
                 key={record.id}
                 id={`article-${record.id}`}
+                // 187: 「→次へ」追従ボタンの位置計測用（NoteBundleDock が参照）
+                data-bundle-key={`ana-${record.id}`}
                 onClick={() => {
                   if (highlighted) onHighlightClear?.();
                 }}

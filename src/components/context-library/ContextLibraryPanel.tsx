@@ -933,6 +933,8 @@ export default function ContextLibraryPanel() {
           return (
             <div
               key={item.id}
+              // 187: 「→次へ」追従ボタンの位置計測用（NoteBundleDock が参照）
+              data-bundle-key={`ctx-${item.id}`}
               style={{
                 background: item.is_favorite
                   ? 'rgba(245,158,11,0.08)'

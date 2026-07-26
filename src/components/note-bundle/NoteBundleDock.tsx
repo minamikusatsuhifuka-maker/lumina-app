@@ -1,33 +1,97 @@
 'use client';
 
-// 180/181: note記事まとめ生成の「追従する選択完了ボタン＋中央確認モーダル＋生成モーダル」。
+// 180/181/187: note記事まとめ生成の「追従する選択完了ボタン＋中央確認モーダル＋生成モーダル」。
 // タブコンテナの外（ページ直下）に1回だけマウントする。
 // （/dashboard/saved は各パネルを display:none で切り替えるため、
 //   パネル内に置くと非表示タブ側の固定UIごと消える。ここはタブの外が正しい位置）
 //
-// 181: 旧・下部固定バーは廃止（案a）。選択1件以上で画面下部中央に「☑ N件選択中 → 次へ」の
-// 追従ボタンを表示 → 押すと中央モーダルで確認（選択一覧・個別解除・全解除）→
-// 「📝 note記事にまとめる」で179のプラン生成フローへそのまま接続（生成ロジック無変更）。
-// 右下は既存フローティング3つ（📖ガイド・📝メモ・💬チャット, right:16 の縦列）が使用済みのため中央配置。
+// 187: 「☑ N件選択中 → 次へ」は**最後にチェック操作したカードの直下**に追従表示する
+// （目線の先にボタンを置く）。カードは data-bundle-key 属性で特定し、rect計測＋fixed配置＝
+// カードのレイアウトを一切変えない（インライン差し込みのガタつきを回避）。
+// フォールバック: カードが見つからない/別タブ(display:none)/画面外スクロール時は
+// 181の画面下部中央固定に切り替える（押せるボタンが消える状態を作らない・二重表示はしない）。
+// 右下は既存フローティング3つ（📖ガイド・📝メモ・💬チャット, right:16 の縦列）が使用済み。
 
-import { useState, type CSSProperties } from 'react';
+import { useEffect, useState, type CSSProperties } from 'react';
 import { MAX_BUNDLE_SOURCES, BUNDLE_SOURCE_META } from '@/lib/note-bundle';
 import { useNoteBundleSelection } from './useNoteBundleSelection';
 import NoteBundleModal from './NoteBundleModal';
 
 export default function NoteBundleDock() {
-  const { selectedList, countBySource, clear, toggle } = useNoteBundleSelection();
+  const { selectMode, selectedList, lastToggledKey, countBySource, clear, toggle } = useNoteBundleSelection();
   // confirmOpen = 中央の確認モーダル / bundleOpen = 179のプラン→生成モーダル
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [bundleOpen, setBundleOpen] = useState(false);
+  // 187: 追従ボタンの表示位置（viewport座標）。null = 下部中央固定へフォールバック
+  const [anchor, setAnchor] = useState<{ top: number; left: number } | null>(null);
 
   const count = selectedList.length;
+
+  // 最後に操作したカードの位置を計測し、直下座標を追従更新（scroll/resize/レイアウト変化）
+  useEffect(() => {
+    if (!selectMode || count === 0 || !lastToggledKey) {
+      setAnchor(null);
+      return;
+    }
+    let raf = 0;
+    const update = () => {
+      raf = 0;
+      const el = document.querySelector(`[data-bundle-key="${lastToggledKey}"]`);
+      if (!(el instanceof HTMLElement)) {
+        // 別ページ・検索絞り込み等でカードが現在の画面に無い → 下部固定へ
+        setAnchor(null);
+        return;
+      }
+      const r = el.getBoundingClientRect();
+      // display:none（タブ切替）は width=0、スクロールで直下位置が視界外に出た場合も下部固定へ
+      if (r.width === 0 || r.bottom < 80 || r.bottom > window.innerHeight - 70) {
+        setAnchor(null);
+        return;
+      }
+      setAnchor({ top: r.bottom + 8, left: r.left + r.width / 2 });
+    };
+    const schedule = () => {
+      if (!raf) raf = requestAnimationFrame(update);
+    };
+    update();
+    // capture: 内側スクロールコンテナのスクロールも拾う
+    window.addEventListener('scroll', schedule, true);
+    window.addEventListener('resize', schedule);
+    // カード展開などスクロールを伴わないレイアウト変化にも追従
+    const ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(schedule) : null;
+    ro?.observe(document.body);
+    return () => {
+      window.removeEventListener('scroll', schedule, true);
+      window.removeEventListener('resize', schedule);
+      ro?.disconnect();
+      if (raf) cancelAnimationFrame(raf);
+    };
+  }, [selectMode, count, lastToggledKey]);
+
   // 選択0件では追従ボタンを出さない（常時表示は邪魔）。全解除で0件になったら確認モーダルも閉じる
   if (count === 0 && confirmOpen) setConfirmOpen(false);
   if (count === 0 && !bundleOpen) return null;
 
   const ctxCount = countBySource('context');
   const anaCount = countBySource('analysis');
+
+  // ピル型ボタンの共通スタイル（直下追従・下部固定の両方で使用＝見た目を揃える）
+  const pillStyle: CSSProperties = {
+    zIndex: 900,
+    padding: '10px 22px',
+    background: 'linear-gradient(135deg, #ec4899, #8b5cf6)',
+    color: '#fff',
+    border: 'none',
+    borderRadius: 999,
+    fontWeight: 700,
+    fontSize: 13,
+    cursor: 'pointer',
+    boxShadow: '0 8px 24px rgba(139,92,246,0.45)',
+    whiteSpace: 'nowrap',
+    maxWidth: 'calc(100vw - 140px)',
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+  };
 
   const smallBtn = (extra?: CSSProperties): CSSProperties => ({
     padding: '8px 16px',
@@ -43,36 +107,43 @@ export default function NoteBundleDock() {
 
   return (
     <>
-      {/* ① 追従する「選択完了」ボタン（選択1件以上・スクロール位置に関わらず常に見える） */}
+      {/* ① 追従する「選択完了」ボタン（187: 最後に操作したカードの直下。
+             カード不在・別タブ・画面外は181の下部中央固定へフォールバック。二重には出さない） */}
       {count > 0 && (
-        <button
-          type="button"
-          onClick={() => setConfirmOpen(true)}
-          title="選択した資料を確認して note 記事にまとめます"
-          style={{
-            position: 'fixed',
-            bottom: 20,
-            left: '50%',
-            transform: 'translateX(-50%)',
-            zIndex: 900,
-            padding: '12px 24px',
-            background: 'linear-gradient(135deg, #ec4899, #8b5cf6)',
-            color: '#fff',
-            border: 'none',
-            borderRadius: 999,
-            fontWeight: 700,
-            fontSize: 14,
-            cursor: 'pointer',
-            boxShadow: '0 8px 24px rgba(139,92,246,0.45)',
-            whiteSpace: 'nowrap',
-            // モバイル幅でも右下のフローティング群（right:16）と重ならないよう中央・コンパクト表示
-            maxWidth: 'calc(100vw - 140px)',
-            overflow: 'hidden',
-            textOverflow: 'ellipsis',
-          }}
-        >
-          ☑ {count}件選択中 → 次へ
-        </button>
+        anchor ? (
+          <button
+            type="button"
+            onClick={() => setConfirmOpen(true)}
+            title="選択した資料を確認して note 記事にまとめます"
+            style={{
+              ...pillStyle,
+              position: 'fixed',
+              top: anchor.top,
+              // カードの中央に合わせつつ、画面端では見切れないようにクランプ
+              left: Math.min(Math.max(anchor.left, 140), window.innerWidth - 140),
+              transform: 'translateX(-50%)',
+            }}
+          >
+            ☑ {count}件選択中 → 次へ
+          </button>
+        ) : (
+          <button
+            type="button"
+            onClick={() => setConfirmOpen(true)}
+            title="選択した資料を確認して note 記事にまとめます"
+            style={{
+              ...pillStyle,
+              position: 'fixed',
+              bottom: 20,
+              left: '50%',
+              transform: 'translateX(-50%)',
+              padding: '12px 24px',
+              fontSize: 14,
+            }}
+          >
+            ☑ {count}件選択中 → 次へ
+          </button>
+        )
       )}
 
       {/* ② 中央の確認モーダル（閉じる=選択維持 / 全解除=選択クリア） */}
