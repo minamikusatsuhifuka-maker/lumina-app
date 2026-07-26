@@ -18,9 +18,53 @@ import {
   clearFeatureDraft,
 } from '@/lib/feature-drafts';
 import FeatureDraftBanner from '@/components/FeatureDraftBanner';
+import AdGuardFindings, { type AdGuardEdit } from '@/components/hp/AdGuardFindings';
+import { TextRefinePanel } from '@/components/refine/TextRefinePanel';
 
 const INDUSTRIES = ['IT・SaaS', '医療・ヘルスケア', '飲食・フード', '不動産', '教育', 'コンサルティング', '製造業', '小売・EC', 'その他'];
 const TONES = ['親しみやすくプロフェッショナル', 'フォーマル・高級感', 'カジュアル・フレンドリー', 'シンプル・ミニマル'];
+
+// ── 184: 医療広告ガード用ヘルパー ──
+// 生成結果（構造化JSON）の全文字列を連結して1テキスト化（チェックAPIへ渡す）
+function collectStrings(v: unknown): string[] {
+  if (typeof v === 'string') return v.trim() ? [v] : [];
+  if (Array.isArray(v)) return v.flatMap(collectStrings);
+  if (v && typeof v === 'object') return Object.values(v).flatMap(collectStrings);
+  return [];
+}
+function flattenHpResult(r: unknown): string {
+  return collectStrings(r).join('\n');
+}
+// 修正案の適用：結果オブジェクト内のすべての文字列フィールドに対して確定的に置換
+function deepReplaceStrings<T>(v: T, before: string, after: string): T {
+  if (typeof v === 'string') return v.split(before).join(after) as unknown as T;
+  if (Array.isArray(v)) return v.map((x) => deepReplaceStrings(x, before, after)) as unknown as T;
+  if (v && typeof v === 'object') {
+    const out: Record<string, unknown> = {};
+    for (const k of Object.keys(v as Record<string, unknown>)) {
+      out[k] = deepReplaceStrings((v as Record<string, unknown>)[k], before, after);
+    }
+    return out as unknown as T;
+  }
+  return v;
+}
+// 指摘がどのセクションに属するかをベストエフォート判定（before文字列の包含で特定）
+const HP_SECTION_DEFS: { label: string; pick: (r: any) => unknown }[] = [
+  { label: '🎯 ヒーロー', pick: (r) => r?.hero },
+  { label: '🛠️ サービス', pick: (r) => r?.services },
+  { label: '✨ 特徴', pick: (r) => r?.features },
+  { label: '🏢 会社概要', pick: (r) => r?.about },
+  { label: '❓ FAQ', pick: (r) => r?.faq },
+  { label: '📣 CTA', pick: (r) => r?.cta_section },
+  { label: '🔍 メタ', pick: (r) => r?.meta_description },
+];
+function sectionLabelFor(result: any, before: string): string | undefined {
+  for (const s of HP_SECTION_DEFS) {
+    const t = flattenHpResult(s.pick(result));
+    if (t && t.includes(before)) return s.label;
+  }
+  return undefined;
+}
 
 interface HpForm {
   companyName: string;
@@ -50,6 +94,137 @@ export default function HpGeneratorPage() {
   // 自動下書きから復元した日時（バナー表示用。新規実行で消える）
   const [restoredAt, setRestoredAt] = useState<string | null>(null);
 
+  // ── 184①②: 生成結果の医療広告ガード（必須チェック・人間承認型） ──
+  const [adEdits, setAdEdits] = useState<AdGuardEdit[]>([]);
+  const [adStatus, setAdStatus] = useState<'ok' | 'warn' | null>(null);
+  const [adChecking, setAdChecking] = useState(false);
+
+  // ── 184④: 既存HP文章の加筆修正モード（貼り付けのみ・URL自動取得は作らない） ──
+  const [pasteText, setPasteText] = useState('');
+  // ↩︎元に戻す用スナップショット（最初の変更前のテキストを固定）
+  const [pasteOriginal, setPasteOriginal] = useState('');
+  const [pasteEdits, setPasteEdits] = useState<AdGuardEdit[]>([]);
+  const [pasteStatus, setPasteStatus] = useState<'ok' | 'warn' | null>(null);
+  const [pasteChecking, setPasteChecking] = useState(false);
+  const [refineOpen, setRefineOpen] = useState(false);
+  const [pasteCopied, setPasteCopied] = useState(false);
+
+  // 医療広告チェックの共通実行（/api/hp-guard・差分ペアで返る）
+  const runAdCheck = async (
+    text: string,
+    setChecking: (v: boolean) => void,
+    setStatus: (v: 'ok' | 'warn' | null) => void,
+    setEdits: (v: AdGuardEdit[]) => void,
+    labelFor?: (before: string) => string | undefined,
+  ) => {
+    if (!text.trim()) return;
+    setChecking(true);
+    try {
+      const res = await fetch('/api/hp-guard', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.success) throw new Error(data.error || 'チェックに失敗しました');
+      setStatus(data.status === 'warn' ? 'warn' : 'ok');
+      setEdits(
+        (data.findings as { before: string; after: string; reason: string }[]).map((f) => ({
+          ...f,
+          status: 'pending' as const,
+          sectionLabel: labelFor?.(f.before),
+        })),
+      );
+    } catch (e) {
+      // 失敗時は「未実行」に戻す（✅と誤認させない）。再チェックでリトライできる
+      setStatus(null);
+      setEdits([]);
+      alert(`医療広告チェックに失敗しました: ${e instanceof Error ? e.message : e}`);
+    } finally {
+      setChecking(false);
+    }
+  };
+
+  // 生成結果のチェック（生成完了・復元・修正適用のたびに実行＝スキップ不可）
+  const runResultCheck = (res: any) => {
+    if (!res || res.error) return;
+    runAdCheck(
+      flattenHpResult(res),
+      setAdChecking,
+      setAdStatus,
+      setAdEdits,
+      (before) => sectionLabelFor(res, before),
+    );
+  };
+
+  // 修正案の個別 適用/却下（適用＝院長の操作で確定 → 直後に再チェック＝「直したつもり」防止）
+  const setAdEditStatus = (i: number, status: AdGuardEdit['status']) => {
+    if (adChecking) return;
+    const e = adEdits[i];
+    if (!e) return;
+    if (status === 'applied' && e.status === 'pending') {
+      const newResult = deepReplaceStrings(result, e.before, e.after);
+      setResult(newResult);
+      saveFeatureDraft('hp-generator', { form, result: newResult, deepDiveContent } satisfies HpGeneratorDraftPayload);
+      setAdEdits((prev) => prev.map((x, idx) => (idx === i ? { ...x, status: 'applied' } : x)));
+      runResultCheck(newResult);
+    } else {
+      setAdEdits((prev) => prev.map((x, idx) => (idx === i ? { ...x, status } : x)));
+    }
+  };
+
+  // 「すべて適用」も確定は院長の操作（自動実行はしない）→ 適用後に再チェック
+  const applyAllAdEdits = () => {
+    if (adChecking || !result) return;
+    let newResult = result;
+    for (const e of adEdits) {
+      if (e.status === 'pending') newResult = deepReplaceStrings(newResult, e.before, e.after);
+    }
+    setResult(newResult);
+    saveFeatureDraft('hp-generator', { form, result: newResult, deepDiveContent } satisfies HpGeneratorDraftPayload);
+    setAdEdits((prev) => prev.map((x) => (x.status === 'pending' ? { ...x, status: 'applied' } : x)));
+    runResultCheck(newResult);
+  };
+
+  // ④ 貼り付けテキストのチェック・適用（仕組みは①②と同じ・対象がプレーンテキスト）
+  const runPasteCheck = (text: string) => {
+    runAdCheck(text, setPasteChecking, setPasteStatus, setPasteEdits);
+  };
+  const ensurePasteSnapshot = () => {
+    setPasteOriginal((prev) => (prev ? prev : pasteText));
+  };
+  const setPasteEditStatus = (i: number, status: AdGuardEdit['status']) => {
+    if (pasteChecking) return;
+    const e = pasteEdits[i];
+    if (!e) return;
+    if (status === 'applied' && e.status === 'pending') {
+      ensurePasteSnapshot();
+      const newText = pasteText.split(e.before).join(e.after);
+      setPasteText(newText);
+      setPasteEdits((prev) => prev.map((x, idx) => (idx === i ? { ...x, status: 'applied' } : x)));
+      runPasteCheck(newText);
+    } else {
+      setPasteEdits((prev) => prev.map((x, idx) => (idx === i ? { ...x, status } : x)));
+    }
+  };
+  const applyAllPasteEdits = () => {
+    if (pasteChecking) return;
+    ensurePasteSnapshot();
+    let newText = pasteText;
+    for (const e of pasteEdits) {
+      if (e.status === 'pending') newText = newText.split(e.before).join(e.after);
+    }
+    setPasteText(newText);
+    setPasteEdits((prev) => prev.map((x) => (x.status === 'pending' ? { ...x, status: 'applied' } : x)));
+    runPasteCheck(newText);
+  };
+  const revertPaste = () => {
+    if (!pasteOriginal) return;
+    setPasteText(pasteOriginal);
+    setPasteEdits([]);
+    setPasteStatus(null);
+  };
+
   // 復元取得が返ってきた時点で既に入力/実行が始まっていたら復元しない
   const draftGuardRef = useRef(false);
   draftGuardRef.current =
@@ -73,6 +248,8 @@ export default function HpGeneratorPage() {
       setResult(p.result ?? null);
       setDeepDiveContent(p.deepDiveContent ?? '');
       setRestoredAt(draft.updated_at);
+      // 復元した結果にも医療広告チェックを必ず走らせる（スキップ不可）
+      if (p.result && !(p.result as { error?: unknown }).error) runResultCheck(p.result);
     })();
     return () => {
       cancelled = true;
@@ -85,6 +262,8 @@ export default function HpGeneratorPage() {
     setForm({ companyName: '', industry: 'IT・SaaS', target: '', usp: '', tone: '親しみやすくプロフェッショナル' });
     setResult(null);
     setDeepDiveContent('');
+    setAdEdits([]);
+    setAdStatus(null);
     clearFeatureDraft('hp-generator');
   };
 
@@ -100,6 +279,8 @@ export default function HpGeneratorPage() {
       });
       const data = await res.json();
       setResult(data);
+      setAdEdits([]);
+      setAdStatus(null);
       // 完了した結果を自動下書き保存（画面遷移/アプリ終了後もマウント時に復元できる）
       if (data && !data.error) {
         saveFeatureDraft('hp-generator', {
@@ -107,11 +288,23 @@ export default function HpGeneratorPage() {
           result: data,
           deepDiveContent,
         } satisfies HpGeneratorDraftPayload);
+        // 生成完了後に医療広告チェックを必ず実行（スキップ不可・184①）
+        runResultCheck(data);
       }
     } finally { setIsLoading(false); }
   };
 
   const copyText = (text: string, key: string) => { copyToClipboard(text); setCopied(key); setTimeout(() => setCopied(null), 2000); };
+
+  // セクション別の ⚠️要修正/✅ バッジ（未チェックなら非表示）
+  const sectionWarn = (label: string) =>
+    adEdits.some((e) => e.status === 'pending' && e.sectionLabel === label);
+  const secBadge = (label: string) =>
+    adChecking || adStatus === null ? null : sectionWarn(label) ? (
+      <span style={{ fontSize: 10, fontWeight: 700, color: '#ef4444', background: 'rgba(239,68,68,0.1)', padding: '2px 8px', borderRadius: 8, marginLeft: 6 }}>⚠️ 要修正</span>
+    ) : (
+      <span style={{ fontSize: 11, fontWeight: 700, color: '#10b981', marginLeft: 6 }}>✅</span>
+    );
 
   const exportAll = () => {
     if (!result) return;
@@ -296,11 +489,21 @@ export default function HpGeneratorPage() {
             <button onClick={exportAll} style={{ padding: '6px 16px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--bg-secondary)', color: 'var(--text-secondary)', fontSize: 12, cursor: 'pointer' }}>💾 全文TXTで保存</button>
           </div>
 
+          {/* 医療広告ガード（184①②）: 生成後に自動実行・⚠️は隠さない・修正は院長が個別に確定 */}
+          <AdGuardFindings
+            status={adStatus}
+            edits={adEdits}
+            checking={adChecking}
+            onSetStatus={setAdEditStatus}
+            onApplyAll={applyAllAdEdits}
+            onRecheck={() => runResultCheck(result)}
+          />
+
           {/* ヒーロー */}
           {result.hero && (
             <div style={{ border: '1px solid var(--border)', borderRadius: 12, padding: 16 }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 12 }}>
-                <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)' }}>🎯 ヒーローセクション</span>
+                <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)' }}>🎯 ヒーローセクション{secBadge('🎯 ヒーロー')}</span>
                 <button onClick={() => copyText(`${result.hero.headline}\n${result.hero.subheadline}\n${result.hero.description}`, 'hero')} style={{ fontSize: 11, padding: '3px 10px', borderRadius: 6, border: '1px solid var(--border)', background: 'none', color: 'var(--text-muted)', cursor: 'pointer' }}>
                   {copied === 'hero' ? '✅' : '📋 コピー'}
                 </button>
@@ -317,7 +520,7 @@ export default function HpGeneratorPage() {
           {/* サービス */}
           {result.services && (
             <div style={{ border: '1px solid var(--border)', borderRadius: 12, padding: 16 }}>
-              <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)', display: 'block', marginBottom: 12 }}>🛠️ サービス・機能</span>
+              <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)', display: 'block', marginBottom: 12 }}>🛠️ サービス・機能{secBadge('🛠️ サービス')}</span>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
                 {result.services.map((s: any, i: number) => (
                   <div key={i} style={{ padding: 12, borderRadius: 8, border: '1px solid var(--border)', background: 'var(--bg-card)' }}>
@@ -333,7 +536,7 @@ export default function HpGeneratorPage() {
           {result.about && (
             <div style={{ border: '1px solid var(--border)', borderRadius: 12, padding: 16 }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
-                <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)' }}>🏢 会社概要</span>
+                <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)' }}>🏢 会社概要{secBadge('🏢 会社概要')}</span>
                 <button onClick={() => copyText(result.about, 'about')} style={{ fontSize: 11, padding: '3px 10px', borderRadius: 6, border: '1px solid var(--border)', background: 'none', color: 'var(--text-muted)', cursor: 'pointer' }}>{copied === 'about' ? '✅' : '📋 コピー'}</button>
               </div>
               <p style={{ fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.8 }}>{result.about}</p>
@@ -343,7 +546,7 @@ export default function HpGeneratorPage() {
           {/* FAQ */}
           {result.faq && (
             <div style={{ border: '1px solid var(--border)', borderRadius: 12, padding: 16 }}>
-              <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)', display: 'block', marginBottom: 12 }}>❓ FAQ</span>
+              <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)', display: 'block', marginBottom: 12 }}>❓ FAQ{secBadge('❓ FAQ')}</span>
               {result.faq.map((f: any, i: number) => (
                 <div key={i} style={{ padding: 10, borderRadius: 8, border: '1px solid var(--border)', marginBottom: 8 }}>
                   <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)' }}>Q: {f.question}</div>
@@ -357,7 +560,7 @@ export default function HpGeneratorPage() {
           {result.meta_description && (
             <div style={{ border: '1px solid var(--border)', borderRadius: 12, padding: 16 }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
-                <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)' }}>🔍 メタディスクリプション</span>
+                <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)' }}>🔍 メタディスクリプション{secBadge('🔍 メタ')}</span>
                 <button onClick={() => copyText(result.meta_description, 'meta')} style={{ fontSize: 11, padding: '3px 10px', borderRadius: 6, border: '1px solid var(--border)', background: 'none', color: 'var(--text-muted)', cursor: 'pointer' }}>{copied === 'meta' ? '✅' : '📋 コピー'}</button>
               </div>
               <p style={{ fontSize: 13, color: 'var(--text-muted)' }}>{result.meta_description}</p>
@@ -365,6 +568,100 @@ export default function HpGeneratorPage() {
           )}
         </div>
       )}
+
+      {/* ── 184④: 既存HP文章の加筆修正モード（貼り付けのみ・URL自動取得は行わない） ── */}
+      <div style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 14, padding: 24, marginTop: 28 }}>
+        <h2 style={{ fontSize: 17, fontWeight: 700, color: 'var(--text-primary)', margin: '0 0 4px' }}>
+          🩺 既存HP文章のチェック＆加筆修正
+        </h2>
+        <p style={{ color: 'var(--text-muted)', fontSize: 12, marginBottom: 12, lineHeight: 1.7 }}>
+          今のHPに載っている文章を貼り付けると、医療広告チェック（修正案の提示つき）と、AIによる加筆修正・全面リライトができます。
+          セクション単位でも全文でも貼り付け可能です（URLからの自動取得は行いません）。
+        </p>
+
+        <textarea
+          value={pasteText}
+          onChange={(e) => setPasteText(e.target.value)}
+          placeholder={'既存のHP文章をここに貼り付けてください\n（例：診療案内・院長挨拶・施術説明などのページ本文）'}
+          style={{ width: '100%', minHeight: 180, padding: 12, borderRadius: 8, border: '1px solid var(--border)', background: 'var(--bg-primary)', color: 'var(--text-primary)', fontSize: 13, lineHeight: 1.7, outline: 'none', resize: 'vertical', boxSizing: 'border-box', fontFamily: 'inherit' }}
+        />
+
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', margin: '10px 0 14px' }}>
+          <button
+            type="button"
+            onClick={() => { ensurePasteSnapshot(); runPasteCheck(pasteText); }}
+            disabled={!pasteText.trim() || pasteChecking}
+            style={{
+              padding: '9px 18px', borderRadius: 8, border: 'none',
+              background: !pasteText.trim() || pasteChecking ? 'var(--bg-primary)' : 'linear-gradient(135deg, #ef4444, #f59e0b)',
+              color: !pasteText.trim() || pasteChecking ? 'var(--text-muted)' : '#fff',
+              fontWeight: 700, fontSize: 13, cursor: !pasteText.trim() || pasteChecking ? 'not-allowed' : 'pointer',
+            }}
+          >
+            {pasteChecking ? '🛡 チェック中...' : '🛡 医療広告チェック'}
+          </button>
+          <button
+            type="button"
+            onClick={() => { ensurePasteSnapshot(); setRefineOpen(true); }}
+            disabled={!pasteText.trim()}
+            title="加筆修正（差分ペアの適用/却下）・全面リライト（2パス）・前後2列比較"
+            style={{
+              padding: '9px 18px', borderRadius: 8, border: 'none',
+              background: !pasteText.trim() ? 'var(--bg-primary)' : 'linear-gradient(135deg, #6c63ff, #8b5cf6)',
+              color: !pasteText.trim() ? 'var(--text-muted)' : '#fff',
+              fontWeight: 700, fontSize: 13, cursor: !pasteText.trim() ? 'not-allowed' : 'pointer',
+            }}
+          >
+            ✏️ AIで修正（加筆・リライト）
+          </button>
+          <button
+            type="button"
+            onClick={() => { copyToClipboard(pasteText); setPasteCopied(true); setTimeout(() => setPasteCopied(false), 2000); }}
+            disabled={!pasteText.trim()}
+            style={{ padding: '9px 16px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--bg-primary)', color: pasteCopied ? '#16a34a' : 'var(--text-secondary)', fontSize: 12, fontWeight: 600, cursor: !pasteText.trim() ? 'not-allowed' : 'pointer' }}
+          >
+            {pasteCopied ? '✅ コピー済み' : '📋 コピー'}
+          </button>
+          <button
+            type="button"
+            onClick={revertPaste}
+            disabled={!pasteOriginal || pasteOriginal === pasteText}
+            title="修正を始める前の文章に戻します"
+            style={{ padding: '9px 16px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--bg-primary)', color: 'var(--text-secondary)', fontSize: 12, fontWeight: 600, cursor: !pasteOriginal || pasteOriginal === pasteText ? 'not-allowed' : 'pointer', opacity: !pasteOriginal || pasteOriginal === pasteText ? 0.5 : 1 }}
+          >
+            ↩︎ 元に戻す
+          </button>
+          <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>
+            {pasteText.length.toLocaleString()}字
+          </span>
+        </div>
+
+        {(pasteStatus !== null || pasteChecking || pasteEdits.length > 0) && (
+          <AdGuardFindings
+            status={pasteStatus}
+            edits={pasteEdits}
+            checking={pasteChecking}
+            onSetStatus={setPasteEditStatus}
+            onApplyAll={applyAllPasteEdits}
+            onRecheck={() => runPasteCheck(pasteText)}
+          />
+        )}
+      </div>
+
+      {/* 169の TextRefinePanel 流用: 加筆修正（差分ペア）・全面リライト（172の2パス）・2列比較・↩︎元に戻す内蔵 */}
+      <TextRefinePanel
+        open={refineOpen}
+        onClose={() => setRefineOpen(false)}
+        sourceText={pasteText}
+        sourceLabel="既存HP文章"
+        onApply={(newText) => {
+          ensurePasteSnapshot();
+          setPasteText(newText);
+          // 文章が変わったのでチェック結果は古い＝未実行に戻す（✅の残留で誤認させない）
+          setPasteStatus(null);
+          setPasteEdits([]);
+        }}
+      />
     </div>
   );
 }

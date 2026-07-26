@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
+import { HP_WRITING_DESIGN, HP_AD_PROHIBITED } from '@/lib/hp-writing';
 
 export const runtime = 'nodejs';
 export const maxDuration = 300;
@@ -24,6 +25,11 @@ export async function POST(req: NextRequest) {
       max_tokens: 4000,
       system: `あなたはプロのウェブコピーライターです。
 企業情報をもとに、HPの各セクションのコンテンツを生成してください。
+
+${HP_WRITING_DESIGN}
+
+${HP_AD_PROHIBITED}
+
 必ずJSON形式のみで返答。マークダウン不要。
 
 {
