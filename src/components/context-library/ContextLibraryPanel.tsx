@@ -13,8 +13,8 @@ import { triggerDownload } from '@/lib/download';
 import { markdownToReadableText } from '@/lib/markdownToText';
 import FullscreenReader from '@/components/text-analysis/FullscreenReader';
 import { cardActionBtnStyle } from '@/components/text-analysis/cardActionButtonStyle';
-import NoteBundleModal from '@/components/context-library/NoteBundleModal';
-import { MAX_BUNDLE_SOURCES } from '@/lib/note-bundle';
+import { BundleSelectToggleButton, BundleSelectCheckbox } from '@/components/note-bundle/BundleSelectControls';
+import { useNoteBundleSelection } from '@/components/note-bundle/useNoteBundleSelection';
 
 // 175: 一覧APIは本文(context_text)を返さない。char_count のみ受け取り、
 // 本文が必要な操作（全文表示・コピー・DL・編集・活用等）の時に ?id= で単体取得してマージする。
@@ -150,32 +150,9 @@ export default function ContextLibraryPanel() {
   const [isAutoCategorizing, setIsAutoCategorizing] = useState(false);
   const [categorizationResult, setCategorizationResult] =
     useState<AutoCategorizeResult | null>(null);
-  // 179: 複数選択モード（☑選択→📝note記事にまとめる）。
-  // 選択は id→topic のMapで保持するため、検索・カテゴリ絞り込み・「もっと見る」をまたいでも維持される。
-  const [selectMode, setSelectMode] = useState(false);
-  const [bundleSelection, setBundleSelection] = useState<Map<number, string>>(new Map());
-  const [bundleOpen, setBundleOpen] = useState(false);
-
-  const toggleBundleSelect = (item: ContextSave) => {
-    setBundleSelection(prev => {
-      const next = new Map(prev);
-      if (next.has(item.id)) {
-        next.delete(item.id);
-      } else {
-        if (next.size >= MAX_BUNDLE_SOURCES) {
-          flashToast(`❌ 選択できるのは最大${MAX_BUNDLE_SOURCES}件です`);
-          return prev;
-        }
-        next.set(item.id, item.topic);
-      }
-      return next;
-    });
-  };
-
-  const exitSelectMode = () => {
-    setSelectMode(false);
-    setBundleSelection(new Map());
-  };
+  // 179/180: note記事まとめの複数選択モード。選択状態は共有ストア（useNoteBundleSelection）に集約し、
+  // 🗂テキスト分析の一覧ともタブ・ページをまたいで選択を共有する。バー＋モーダルは NoteBundleDock（ページ直下）。
+  const { selectMode: bundleSelectMode, isSelected: isBundleSelected } = useNoteBundleSelection();
 
   // URLパラメータから batchId を取得
   useEffect(() => {
@@ -900,23 +877,7 @@ export default function ContextLibraryPanel() {
         >
           ⭐ お気に入り
         </button>
-        <button
-          type="button"
-          onClick={() => (selectMode ? exitSelectMode() : setSelectMode(true))}
-          title="複数の資料を選択して、まとめて note 記事にします"
-          style={{
-            padding: '8px 14px',
-            borderRadius: 8,
-            border: `1px solid ${selectMode ? 'var(--accent)' : 'var(--border)'}`,
-            background: selectMode ? 'var(--accent)' : 'transparent',
-            color: selectMode ? '#fff' : 'var(--text-secondary)',
-            fontSize: 12,
-            fontWeight: 600,
-            cursor: 'pointer',
-          }}
-        >
-          {selectMode ? '✕ 選択をやめる' : '☑ 選択'}
-        </button>
+        <BundleSelectToggleButton />
         <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>
           表示{items.length} / 全{totalCount ?? items.length}件
         </span>
@@ -968,7 +929,7 @@ export default function ContextLibraryPanel() {
       <div style={{ display: 'grid', gap: 14 }}>
         {items.map(item => {
           const expanded = expandedId === item.id;
-          const bundleChecked = bundleSelection.has(item.id);
+          const bundleChecked = isBundleSelected('context', item.id);
           return (
             <div
               key={item.id}
@@ -976,7 +937,7 @@ export default function ContextLibraryPanel() {
                 background: item.is_favorite
                   ? 'rgba(245,158,11,0.08)'
                   : 'linear-gradient(135deg, var(--bg-secondary), var(--bg-primary))',
-                border: selectMode && bundleChecked ? '1px solid var(--accent)' : '1px solid var(--border)',
+                border: bundleSelectMode && bundleChecked ? '1px solid var(--accent)' : '1px solid var(--border)',
                 // お気に入りは金色の左ボーダーで一目で区別
                 ...(item.is_favorite ? { borderLeft: '4px solid #f59e0b' } : {}),
                 borderRadius: 14,
@@ -986,19 +947,14 @@ export default function ContextLibraryPanel() {
               }}
             >
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'start', gap: 12, marginBottom: 8, flexWrap: 'wrap' as const }}>
-                {/* 179: 選択モード時のみチェックボックス表示（既存操作には触れない） */}
-                {selectMode && (
-                  <label
-                    style={{ display: 'flex', alignItems: 'center', cursor: 'pointer', paddingTop: 2 }}
-                    title="note記事にまとめる資料として選択"
-                  >
-                    <input
-                      type="checkbox"
-                      checked={bundleChecked}
-                      onChange={() => toggleBundleSelect(item)}
-                      style={{ width: 18, height: 18, cursor: 'pointer', accentColor: 'var(--accent)' }}
-                    />
-                  </label>
+                {/* 179/180: 選択モード時のみチェックボックス表示（既存操作には触れない・共通部品） */}
+                {bundleSelectMode && (
+                  <BundleSelectCheckbox
+                    source="context"
+                    id={item.id}
+                    topic={item.topic}
+                    onLimit={(m) => flashToast(`❌ ${m}`)}
+                  />
                 )}
                 <div style={{ flex: 1, minWidth: 200 }}>
                   <div style={{ fontSize: 16, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 4 }}>
@@ -1398,67 +1354,7 @@ export default function ContextLibraryPanel() {
         </div>
       )}
 
-      {/* 179: 選択中バー（選択モード時に画面下部へ固定表示） */}
-      {selectMode && (
-        <div
-          style={{
-            position: 'fixed',
-            bottom: 20,
-            left: '50%',
-            transform: 'translateX(-50%)',
-            zIndex: 900,
-            background: 'var(--bg-primary)',
-            border: '1px solid var(--border-accent)',
-            borderRadius: 14,
-            padding: '12px 18px',
-            display: 'flex',
-            alignItems: 'center',
-            gap: 12,
-            flexWrap: 'wrap' as const,
-            boxShadow: '0 8px 24px rgba(0,0,0,0.35)',
-            maxWidth: 'calc(100vw - 40px)',
-          }}
-        >
-          <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-primary)' }}>
-            ☑ {bundleSelection.size}件選択中（上限{MAX_BUNDLE_SOURCES}件）
-          </span>
-          <button
-            type="button"
-            onClick={() => setBundleOpen(true)}
-            disabled={bundleSelection.size === 0}
-            style={{
-              padding: '9px 20px',
-              background: bundleSelection.size === 0
-                ? 'var(--bg-secondary)'
-                : 'linear-gradient(135deg, #ec4899, #8b5cf6)',
-              color: bundleSelection.size === 0 ? 'var(--text-muted)' : '#fff',
-              border: 'none',
-              borderRadius: 8,
-              fontWeight: 700,
-              fontSize: 13,
-              cursor: bundleSelection.size === 0 ? 'not-allowed' : 'pointer',
-            }}
-          >
-            📝 note記事にまとめる
-          </button>
-          {bundleSelection.size > 0 && (
-            <button
-              type="button"
-              onClick={() => setBundleSelection(new Map())}
-              style={{ padding: '6px 12px', background: 'transparent', border: '1px solid var(--border)', color: 'var(--text-secondary)', borderRadius: 6, cursor: 'pointer', fontSize: 12 }}
-            >
-              全解除
-            </button>
-          )}
-        </div>
-      )}
-
-      {/* 179: 記事プラン提案→note記事群の生成モーダル */}
-      <NoteBundleModal
-        open={bundleOpen}
-        onClose={() => setBundleOpen(false)}
-        selected={Array.from(bundleSelection, ([id, topic]) => ({ id, topic }))}
-      />
+      {/* 選択中バー＋生成モーダルは NoteBundleDock（各ページ直下に1回マウント）に集約（180） */}
 
       {/* 全画面リーダー（コンテキスト本文を読み物表示） */}
       <FullscreenReader

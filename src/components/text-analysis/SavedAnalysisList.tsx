@@ -13,6 +13,8 @@ import { triggerDownload } from '@/lib/download';
 import { markdownToReadableText } from '@/lib/markdownToText';
 import FullscreenReader from '@/components/text-analysis/FullscreenReader';
 import { cardActionBtnStyle } from '@/components/text-analysis/cardActionButtonStyle';
+import { BundleSelectToggleButton, BundleSelectCheckbox } from '@/components/note-bundle/BundleSelectControls';
+import { useNoteBundleSelection } from '@/components/note-bundle/useNoteBundleSelection';
 import JSZip from 'jszip';
 import {
   getModelLabel,
@@ -102,6 +104,9 @@ export default function SavedAnalysisList({
   onHighlightClear,
 }: Props) {
   const { showToast } = useToast();
+  // 179/180: note記事まとめの横断選択（🧠AI参照素材側と共有ストア）。選択モード中は
+  // カードのチェックボックスをnote素材選択用に切り替える（一括操作用との二重表示を避ける）。
+  const { selectMode: bundleSelectMode, isSelected: isBundleSelected } = useNoteBundleSelection();
   const [activeFolder, setActiveFolder] = useState<string | null>(null);
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
   // カテゴリ概覧の開閉（デフォルト閉。開閉状態は localStorage で記憶）
@@ -1052,6 +1057,7 @@ export default function SavedAnalysisList({
         >
           ⭐ お気に入り
         </button>
+        <BundleSelectToggleButton />
         <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>
           {visibleRecords.length}件 / 全{records.length}件
         </span>
@@ -1388,7 +1394,7 @@ export default function SavedAnalysisList({
                   border: `1px solid ${
                     highlighted
                       ? '#9333ea'
-                      : checked
+                      : (bundleSelectMode ? isBundleSelected('analysis', record.id) : checked)
                         ? 'var(--accent)'
                         : 'var(--border)'
                   }`,
@@ -1447,19 +1453,29 @@ export default function SavedAnalysisList({
                     gap: 10,
                   }}
                 >
-                  <input
-                    type="checkbox"
-                    checked={checked}
-                    onChange={() => {
-                      setSelectedIds((prev) => {
-                        const next = new Set(prev);
-                        if (next.has(record.id)) next.delete(record.id);
-                        else next.add(record.id);
-                        return next;
-                      });
-                    }}
-                    style={{ accentColor: 'var(--accent)', marginTop: 4 }}
-                  />
+                  {bundleSelectMode ? (
+                    // note記事まとめの選択モード中は、この位置のチェックをnote素材選択に切り替える（180）
+                    <BundleSelectCheckbox
+                      source="analysis"
+                      id={record.id}
+                      topic={title}
+                      onLimit={(m) => showToast(m, 'error')}
+                    />
+                  ) : (
+                    <input
+                      type="checkbox"
+                      checked={checked}
+                      onChange={() => {
+                        setSelectedIds((prev) => {
+                          const next = new Set(prev);
+                          if (next.has(record.id)) next.delete(record.id);
+                          else next.add(record.id);
+                          return next;
+                        });
+                      }}
+                      style={{ accentColor: 'var(--accent)', marginTop: 4 }}
+                    />
+                  )}
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div
                       style={{

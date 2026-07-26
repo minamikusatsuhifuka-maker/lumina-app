@@ -5,6 +5,7 @@ import { useSearchParams, useRouter } from 'next/navigation';
 import SavedAnalysisList, { AnalysisRecord } from '@/components/text-analysis/SavedAnalysisList';
 import ContextLibraryPanel from '@/components/context-library/ContextLibraryPanel';
 import ProofreadSavedList from '@/components/proofread/ProofreadSavedList';
+import NoteBundleDock from '@/components/note-bundle/NoteBundleDock';
 
 type SubTab = 'text' | 'context' | 'proofread';
 
@@ -126,6 +127,11 @@ function SavedPageInner() {
 
       {/* 校正の前後比較（proofread_saves・開くと赤/緑ハイライトで再現） */}
       {sub === 'proofread' && <ProofreadSavedList />}
+
+      {/* note記事まとめの選択中バー＋生成モーダル（180）。
+          タブは display:none 切替のためタブコンテナの外に1回だけマウントする
+          （🧠/🗂どちらのタブからでも押せて、タブをまたいでも選択が消えない） */}
+      <NoteBundleDock />
     </div>
   );
 }

@@ -10,6 +10,7 @@ import CrossAnalysisPanel, {
   CrossArticle,
 } from '@/components/text-analysis/CrossAnalysisPanel';
 import UrlBatchAnalysisPanel from '@/components/text-analysis/UrlBatchAnalysisPanel';
+import NoteBundleDock from '@/components/note-bundle/NoteBundleDock';
 
 type TabType = 'analyze' | 'saved' | 'cross' | 'url';
 
@@ -254,6 +255,9 @@ function TextAnalysisPageInner() {
       <div style={{ display: tab === 'url' ? 'block' : 'none' }}>
         <UrlBatchAnalysisPanel />
       </div>
+
+      {/* note記事まとめの選択中バー＋生成モーダル（180）。タブコンテナの外に1回だけマウント */}
+      <NoteBundleDock />
     </div>
   );
 }

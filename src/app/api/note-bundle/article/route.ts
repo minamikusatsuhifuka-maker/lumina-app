@@ -1,18 +1,24 @@
 import { NextResponse } from 'next/server';
-import { neon } from '@neondatabase/serverless';
 import { requireAuth } from '@/lib/require-auth';
 import { generateWithModel } from '@/lib/ai-client';
 import { GEMINI_TEXT_THINKING_MEDIUM } from '@/lib/ai-models';
 import { checkMedicalAd, MEDICAL_AD_NG_RULES } from '@/lib/medical-ad-check';
 import { getNoteStyle, NOTE_COMMON_RULES } from '@/lib/note-styles';
-import { MAX_BUNDLE_SOURCES } from '@/lib/note-bundle';
+import {
+  MAX_BUNDLE_SOURCES,
+  BUNDLE_SOURCE_META,
+  normalizeBundleRefs,
+} from '@/lib/note-bundle';
+import { fetchBundleMaterials } from '@/lib/note-bundle-server';
 
 export const runtime = 'nodejs';
 export const maxDuration = 300;
 
-// 179 パス2: プランで確定した1記事分（タイトル＋要点＋割り当て資料＋文体）から note記事を生成する。
+// 179/180 パス2: プランで確定した1記事分（タイトル＋要点＋割り当て資料＋文体）から note記事を生成する。
 // - 1リクエスト=1記事（クライアントが逐次呼び出し・部分成功方針）。全資料でなく割り当て資料のみ渡す
-// - 本文はサーバ側でIDから直接取得（owner検証込み）。一覧APIの本文非返却(175)を壊さない
+// - 180: 資料は {source,id}[] で受け取り、🧠context_saves / 🗂text_analysis_saves を横断
+//   （後方互換: sourceIds number[] は context 扱い）
+// - 本文はサーバ側でIDから直接取得（owner検証は両テーブルとも必須）。一覧APIの本文非返却を壊さない
 // - 記事本文の生成＝品質優先で thinking medium・枠は思考込みで余裕を（178の設計）
 // - 品質規約: 既存 note記事生成の規約（note-styles.ts NOTE_COMMON_RULES）＋医療広告ガード＋数値の新規生成禁止
 // - 生成後に checkMedicalAd で自己チェックし ad_check を併記（seo/article と同方式）
@@ -33,6 +39,7 @@ export async function POST(req: Request) {
     const body = (await req.json()) as {
       title?: unknown;
       points?: unknown;
+      sources?: unknown;
       sourceIds?: unknown;
       style?: unknown;
       length?: unknown;
@@ -47,13 +54,12 @@ export async function POST(req: Request) {
       .map((p) => String(p).trim())
       .filter(Boolean)
       .slice(0, 12);
-    const sourceIds = (Array.isArray(body.sourceIds) ? body.sourceIds : [])
-      .map((v) => parseInt(String(v), 10))
-      .filter((n) => Number.isFinite(n) && n > 0);
-    if (sourceIds.length === 0) {
+    // {source,id}[]（sources）または旧形式 number[]（sourceIds → context扱い）を正規化
+    const refs = normalizeBundleRefs({ sources: body.sources, ids: body.sourceIds });
+    if (refs.length === 0) {
       return NextResponse.json({ error: '資料が割り当てられていません' }, { status: 400 });
     }
-    if (sourceIds.length > MAX_BUNDLE_SOURCES) {
+    if (refs.length > MAX_BUNDLE_SOURCES) {
       return NextResponse.json(
         { error: `1記事に割り当てられる資料は最大${MAX_BUNDLE_SOURCES}件です` },
         { status: 400 },
@@ -64,20 +70,14 @@ export async function POST(req: Request) {
       body.length === 'short' || body.length === 'long' ? body.length : 'medium';
     const aiModel = body.model === 'gemini' ? 'gemini' : 'claude';
 
-    // 割り当てられた資料の本文だけをサーバ側で取得（owner検証）
-    const sql = neon(process.env.DATABASE_URL!);
-    const rows = (await sql`
-      SELECT id, topic, context_text
-      FROM context_saves
-      WHERE id = ANY(${sourceIds}) AND user_id = ${userId}
-    `) as { id: number; topic: string; context_text: string }[];
-
+    // 割り当てられた資料の本文だけをサーバ側で取得（owner検証は両テーブルとも必須）
+    const rows = await fetchBundleMaterials(userId, refs);
     if (rows.length === 0) {
       return NextResponse.json({ error: '割り当てられた資料が見つかりません' }, { status: 404 });
     }
 
     const materialsSection = rows
-      .map((r) => `## 資料: ${r.topic}\n${r.context_text || ''}`)
+      .map((r) => `## 資料（${BUNDLE_SOURCE_META[r.source].label}）: ${r.topic}\n${r.text}`)
       .join('\n\n---\n\n');
 
     const config = LENGTH_CONFIG[length];
@@ -138,7 +138,7 @@ ${materialsSection}
       content,
       ad_check: adCheck,
       style: style.key,
-      usedSourceIds: rows.map((r) => r.id),
+      usedSourceKeys: rows.map((r) => r.key),
     });
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : '不明なエラー';

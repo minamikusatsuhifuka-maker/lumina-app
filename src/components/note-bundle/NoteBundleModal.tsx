@@ -1,7 +1,8 @@
 'use client';
 
-// 179: 🧠AI参照素材の複数選択 → 記事プラン提案（パス1・編集可）→ note記事群の生成（パス2・逐次/部分成功）
-// - パス1: /api/note-bundle/plan にIDのみ送信（本文はサーバ側で取得＝175の本文非返却を温存）
+// 179/180: 保存資料の複数選択 → 記事プラン提案（パス1・編集可）→ note記事群の生成（パス2・逐次/部分成功）
+// - 素材は 🧠AI参照素材(context_saves) と 🗂テキスト分析(text_analysis_saves) を横断選択できる（180）
+// - パス1: /api/note-bundle/plan に {source,id} のみ送信（本文はサーバ側で取得＝一覧の本文非返却を温存）
 // - 人間確認型: プランを院長が編集（本数・タイトル・要点・資料割り当て・文体）してから生成へ
 // - パス2: 1記事=1リクエストを逐次実行（キュー方式）。進捗N/M・部分失敗は該当記事のみエラー（成功分は使える）
 // - 文体プリセットは lib/note-styles.ts に一元管理。各記事に文体バッジ＋「🔁別文体で再生成」
@@ -14,6 +15,13 @@ import { triggerDownload } from '@/lib/download';
 import { SaveToLibraryButton } from '@/components/SaveToLibraryButton';
 import { getSavedModel, getModelIcon, getModelLabel } from '@/lib/model-preference';
 import {
+  BUNDLE_SOURCE_META,
+  makeBundleKey,
+  parseBundleKey,
+  type BundleSource,
+} from '@/lib/note-bundle';
+import type { BundleSelectedItem } from './useNoteBundleSelection';
+import {
   DEFAULT_NOTE_STYLE,
   NOTE_STYLES,
   NOTE_STYLE_KEYS,
@@ -21,7 +29,10 @@ import {
   type NoteStyleKey,
 } from '@/lib/note-styles';
 
+// プラン編集で扱う資料（key = ctx-<id> / ana-<id>。2テーブルのID衝突を回避）
 interface Material {
+  key: string;
+  source: BundleSource;
   id: number;
   topic: string;
 }
@@ -30,7 +41,7 @@ interface Material {
 interface PlanDraft {
   localId: number;
   title: string;
-  sources: number[];
+  sources: string[]; // Material.key の配列
   pointsText: string;
   style: NoteStyleKey;
 }
@@ -39,7 +50,7 @@ interface ArticleResult {
   localId: number;
   title: string;
   style: NoteStyleKey;
-  sourceIds: number[];
+  sourceKeys: string[];
   points: string[];
   status: 'pending' | 'running' | 'done' | 'error';
   content: string;
@@ -59,6 +70,13 @@ const DRAFT_NOTICE = '⚠️ これは下書きです。あなたの独自の経
 
 let localIdSeq = 1;
 
+// 資料チップの共通表示（ソースアイコン付き。180: どちら由来か一目で分かるように）
+function materialChipLabel(m: Material): string {
+  const meta = BUNDLE_SOURCE_META[m.source];
+  const t = m.topic.slice(0, 24) + (m.topic.length > 24 ? '…' : '');
+  return `${meta.icon} ${t}`;
+}
+
 export default function NoteBundleModal({
   open,
   onClose,
@@ -66,7 +84,7 @@ export default function NoteBundleModal({
 }: {
   open: boolean;
   onClose: () => void;
-  selected: Material[];
+  selected: BundleSelectedItem[];
 }) {
   // フェーズ: plan（提案取得〜編集）→ generate（逐次生成・結果一覧）
   const [phase, setPhase] = useState<'plan' | 'generate'>('plan');
@@ -118,14 +136,16 @@ export default function NoteBundleModal({
       const res = await fetch('/api/note-bundle/plan', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ids: selected.map((s) => s.id) }),
+        body: JSON.stringify({ sources: selected.map((s) => ({ source: s.source, id: s.id })) }),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.error || `プラン提案に失敗しました（HTTP ${res.status}）`);
-      const mats: Material[] = Array.isArray(data.materials) ? data.materials : selected;
+      const mats: Material[] = Array.isArray(data.materials)
+        ? data.materials
+        : selected.map((s) => ({ key: makeBundleKey(s.source, s.id), source: s.source, id: s.id, topic: s.topic }));
       setMaterials(mats);
       setDrafts(
-        (data.articles as Array<{ title: string; sources: number[]; points: string[]; style: NoteStyleKey }>).map(
+        (data.articles as Array<{ title: string; sources: string[]; points: string[]; style: NoteStyleKey }>).map(
           (a) => ({
             localId: localIdSeq++,
             title: a.title,
@@ -146,12 +166,12 @@ export default function NoteBundleModal({
     setDrafts((prev) => prev.map((d) => (d.localId === localId ? { ...d, ...patch } : d)));
   };
 
-  const toggleSource = (localId: number, id: number) => {
+  const toggleSource = (localId: number, key: string) => {
     setDrafts((prev) =>
       prev.map((d) => {
         if (d.localId !== localId) return d;
-        const has = d.sources.includes(id);
-        return { ...d, sources: has ? d.sources.filter((s) => s !== id) : [...d.sources, id] };
+        const has = d.sources.includes(key);
+        return { ...d, sources: has ? d.sources.filter((s) => s !== key) : [...d.sources, key] };
       }),
     );
   };
@@ -162,7 +182,7 @@ export default function NoteBundleModal({
       {
         localId: localIdSeq++,
         title: '',
-        sources: materials.map((m) => m.id),
+        sources: materials.map((m) => m.key),
         pointsText: '',
         style: DEFAULT_NOTE_STYLE,
       },
@@ -186,7 +206,7 @@ export default function NoteBundleModal({
         body: JSON.stringify({
           title: r.title,
           points: r.points,
-          sourceIds: r.sourceIds,
+          sources: r.sourceKeys.map(parseBundleKey).filter(Boolean),
           style: r.style,
           length: lengthRef.current,
           model: modelRef.current,
@@ -236,7 +256,7 @@ export default function NoteBundleModal({
       localId: d.localId,
       title: d.title,
       style: d.style,
-      sourceIds: d.sources,
+      sourceKeys: d.sources,
       points: d.points,
       status: 'pending',
       content: '',
@@ -303,6 +323,8 @@ export default function NoteBundleModal({
   const doneCount = results.filter((r) => r.status === 'done').length;
   const errorCount = results.filter((r) => r.status === 'error').length;
   const finishedCount = doneCount + errorCount;
+  const ctxCount = selected.filter((s) => s.source === 'context').length;
+  const anaCount = selected.filter((s) => s.source === 'analysis').length;
 
   const styleBadge = (key: NoteStyleKey) => {
     const st = NOTE_STYLES[key];
@@ -366,7 +388,7 @@ export default function NoteBundleModal({
           <button type="button" onClick={handleClose} style={smallBtn()}>✕ 閉じる</button>
         </div>
         <p style={{ fontSize: 12, color: 'var(--text-muted)', margin: '4px 0 16px' }}>
-          資料 {selected.length} 件 → AIが記事プランを提案 → 確認・編集してから各記事を生成します（使用モデル: {getModelIcon(model)} {getModelLabel(model)}）
+          資料 {selected.length} 件（🧠{ctxCount}・🗂{anaCount}）→ AIが記事プランを提案 → 確認・編集してから各記事を生成します（使用モデル: {getModelIcon(model)} {getModelLabel(model)}）
         </p>
 
         {/* ── パス1: プラン提案〜編集 ── */}
@@ -424,12 +446,12 @@ export default function NoteBundleModal({
                     <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 4 }}>使う資料（この記事に渡すものだけON。全資料を毎記事に渡さない）</div>
                     <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 10 }}>
                       {materials.map((m) => {
-                        const on = d.sources.includes(m.id);
+                        const on = d.sources.includes(m.key);
                         return (
                           <button
-                            key={m.id}
+                            key={m.key}
                             type="button"
-                            onClick={() => toggleSource(d.localId, m.id)}
+                            onClick={() => toggleSource(d.localId, m.key)}
                             style={{
                               padding: '4px 10px', borderRadius: 12, fontSize: 11, cursor: 'pointer',
                               border: on ? '1px solid var(--accent)' : '1px solid var(--border)',
@@ -437,9 +459,9 @@ export default function NoteBundleModal({
                               color: on ? 'var(--text-primary)' : 'var(--text-muted)',
                               fontWeight: on ? 600 : 400,
                             }}
-                            title={m.topic}
+                            title={`${BUNDLE_SOURCE_META[m.source].label}: ${m.topic}`}
                           >
-                            {on ? '☑' : '☐'} {m.topic.slice(0, 24)}{m.topic.length > 24 ? '…' : ''}
+                            {on ? '☑' : '☐'} {materialChipLabel(m)}
                           </button>
                         );
                       })}
@@ -537,7 +559,7 @@ export default function NoteBundleModal({
                   {styleBadge(r.style)}
                   <span style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-primary)' }}>{r.title}</span>
                   <span style={{ fontSize: 11, color: 'var(--text-muted)', marginLeft: 'auto' }}>
-                    資料{r.sourceIds.length}件
+                    資料{r.sourceKeys.length}件
                     {r.status === 'done' && ` ・ ${r.content.length.toLocaleString()}字`}
                   </span>
                 </div>
@@ -610,7 +632,7 @@ export default function NoteBundleModal({
                         metadata={{
                           theme: r.title,
                           style: r.style,
-                          sourceIds: r.sourceIds,
+                          sourceKeys: r.sourceKeys,
                           length,
                           from: 'note-bundle',
                         }}
