@@ -89,6 +89,17 @@ export async function GET(req: NextRequest) {
     const favV = searchParams.get('favorite') === '1' ? true : null;
     const inputV = searchParams.get('hasInput') === '1' ? true : null; // 「📥入力付き」仮想フィルタ
 
+    // 192: タグの複数指定＋AND/OR（context-saves と同型のサーバ側対応）。
+    // filterTags=a&filterTags=b（1タグ1パラメータ）& tagMode=and|or（既定 or）。
+    // カテゴリ(folder)は1件1つのためAND対象にしない。
+    const multiTags = searchParams
+      .getAll('filterTags')
+      .map((s) => s.trim())
+      .filter(Boolean);
+    const tagMode = searchParams.get('tagMode') === 'and' ? 'and' : 'or';
+    const tagsAnd = multiTags.length > 0 && tagMode === 'and' ? multiTags : null;
+    const tagsOr = multiTags.length > 0 && tagMode === 'or' ? multiTags : null;
+
     const [rows, countRows, allRows, folderRows, tagRows] = await Promise.all([
       sql`
         SELECT id, user_id, file_name, auto_title, analysis_type, analysis_label,
@@ -99,6 +110,8 @@ export async function GET(req: NextRequest) {
         WHERE user_id = ${userId}
           AND (${qLike}::text IS NULL OR auto_title ILIKE ${qLike} OR file_name ILIKE ${qLike} OR content ILIKE ${qLike})
           AND (${folderV}::text IS NULL OR COALESCE(folder, '') = ${folderV})
+          AND (${tagsAnd}::text[] IS NULL OR tags @> ${tagsAnd})
+          AND (${tagsOr}::text[] IS NULL OR tags && ${tagsOr})
           AND (${favV}::boolean IS NULL OR favorite = ${favV})
           AND (${inputV}::boolean IS NULL OR input_text IS NOT NULL)
         ORDER BY created_at DESC
@@ -110,6 +123,8 @@ export async function GET(req: NextRequest) {
         WHERE user_id = ${userId}
           AND (${qLike}::text IS NULL OR auto_title ILIKE ${qLike} OR file_name ILIKE ${qLike} OR content ILIKE ${qLike})
           AND (${folderV}::text IS NULL OR COALESCE(folder, '') = ${folderV})
+          AND (${tagsAnd}::text[] IS NULL OR tags @> ${tagsAnd})
+          AND (${tagsOr}::text[] IS NULL OR tags && ${tagsOr})
           AND (${favV}::boolean IS NULL OR favorite = ${favV})
           AND (${inputV}::boolean IS NULL OR input_text IS NOT NULL)
       `,

@@ -115,6 +115,19 @@ export async function GET(req: NextRequest) {
     const favV = searchParams.get('favorite') === '1' ? true : null;
     const catV = searchParams.get('category')?.trim() || null;
 
+    // 192: タグの複数指定＋AND/OR。filterTags=a&filterTags=b（1タグ1パラメータ）& tagMode=and|or（既定 or）。
+    // 旧 filterTag（単一）はそのまま互換維持。カテゴリは1件1つのためAND対象にしない
+    // （カテゴリ×タグ×q は各条件のANDで組み合わせる）。
+    const multiTags = searchParams
+      .getAll('filterTags')
+      .map((s) => s.trim())
+      .filter(Boolean);
+    const tagMode = searchParams.get('tagMode') === 'and' ? 'and' : 'or';
+    // AND は tags @> 配列（すべて含む）、OR は tags && 配列（いずれか含む）。
+    // 片方だけ非NULLにしてパラメータ化SQLの形を保つ。
+    const tagsAnd = multiTags.length > 0 && tagMode === 'and' ? multiTags : null;
+    const tagsOr = multiTags.length > 0 && tagMode === 'or' ? multiTags : null;
+
     const [rows, countRows, catRows, tagRows] = await Promise.all([
       sql`
         SELECT id, topic, tags, created_at, is_favorite, favorited_at,
@@ -124,6 +137,8 @@ export async function GET(req: NextRequest) {
         WHERE user_id = ${userId}
           AND (${qLike}::text IS NULL OR topic ILIKE ${qLike} OR context_text ILIKE ${qLike})
           AND (${tagV}::text IS NULL OR ${tagV} = ANY(tags))
+          AND (${tagsAnd}::text[] IS NULL OR tags @> ${tagsAnd})
+          AND (${tagsOr}::text[] IS NULL OR tags && ${tagsOr})
           AND (${favV}::boolean IS NULL OR is_favorite = ${favV})
           AND (${catV}::text IS NULL OR COALESCE(category, 'general') = ${catV})
         ORDER BY created_at DESC
@@ -135,6 +150,8 @@ export async function GET(req: NextRequest) {
         WHERE user_id = ${userId}
           AND (${qLike}::text IS NULL OR topic ILIKE ${qLike} OR context_text ILIKE ${qLike})
           AND (${tagV}::text IS NULL OR ${tagV} = ANY(tags))
+          AND (${tagsAnd}::text[] IS NULL OR tags @> ${tagsAnd})
+          AND (${tagsOr}::text[] IS NULL OR tags && ${tagsOr})
           AND (${favV}::boolean IS NULL OR is_favorite = ${favV})
           AND (${catV}::text IS NULL OR COALESCE(category, 'general') = ${catV})
       `,

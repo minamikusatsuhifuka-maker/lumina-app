@@ -91,7 +91,9 @@ export default function ContextLibraryPanel() {
   const [items, setItems] = useState<ContextSave[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
-  const [tagFilter, setTagFilter] = useState('');
+  // 192: タグは複数選択＋AND/OR（1件に複数タグが付くのはタグ側のみ。カテゴリは1件1つ＝単一選択のまま）
+  const [tagFilters, setTagFilters] = useState<string[]>([]);
+  const [tagMode, setTagMode] = useState<'and' | 'or'>('or');
   const [batchFilter, setBatchFilter] = useState<string | null>(null);
   // お気に入り絞り込み（コンテキストライブラリ内で完結＝テキスト分析とは別管理）
   const [favoriteOnly, setFavoriteOnly] = useState(false);
@@ -189,7 +191,7 @@ export default function ContextLibraryPanel() {
       const params = new URLSearchParams(window.location.search);
       const batch = params.get('batch');
       if (batch) {
-        setTagFilter(`batch:${batch}`);
+        setTagFilters([`batch:${batch}`]);
         setBatchFilter(batch);
       }
     } catch {}
@@ -209,7 +211,9 @@ export default function ContextLibraryPanel() {
       p.set('limit', String(PAGE_SIZE));
       p.set('offset', String(offset));
       if (debouncedSearch.trim()) p.set('q', debouncedSearch.trim());
-      if (tagFilter) p.set('filterTag', tagFilter);
+      // 192: タグ複数指定はカンマ結合でなく1タグ1パラメータで送る（タグ名にカンマが入っても壊れない）
+      for (const t of tagFilters) p.append('filterTags', t);
+      if (tagFilters.length > 0) p.set('tagMode', tagMode);
       if (favoriteOnly) p.set('favorite', '1');
       if (activeCategory !== null) p.set('category', activeCategory);
       const res = await fetch(`/api/context-saves?${p.toString()}`);
@@ -233,7 +237,7 @@ export default function ContextLibraryPanel() {
   useEffect(() => {
     fetchPage(0, false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [debouncedSearch, tagFilter, favoriteOnly, activeCategory]);
+  }, [debouncedSearch, tagFilters, tagMode, favoriteOnly, activeCategory]);
 
   // items 取得後、各カードに対する「デフォルト登録機能マップ」を取得（未取得のIDのみ追加取得）
   useEffect(() => {
@@ -264,6 +268,13 @@ export default function ContextLibraryPanel() {
     () => serverCategories.map((c) => c.category).filter((c) => c && c.trim() && c !== 'general'),
     [serverCategories],
   );
+
+  // 192: タグ選択肢の並び順。自動生成タグ（batch:/group:）は現状ほぼ全てだが、
+  // 意味の読める group: を先・機械的な batch: を後ろに回す（既定で隠すと選択肢が無くなるため隠さない）。
+  const sortedAllTags = useMemo(() => {
+    const rank = (t: string) => (t.startsWith('batch:') ? 2 : t.startsWith('group:') ? 1 : 0);
+    return [...allTags].sort((a, b) => rank(a) - rank(b) || a.localeCompare(b, 'ja'));
+  }, [allTags]);
 
   // 本文の遅延取得（一覧APIは本文を返さないため、必要時に ?id= で単体取得して items にマージ）
   const ensureFullText = async (item: ContextSave): Promise<string> => {
@@ -629,7 +640,7 @@ export default function ContextLibraryPanel() {
             🏷️ バッチジョブ #{batchFilter} の結果のみ表示中
           </div>
           <button
-            onClick={() => { setBatchFilter(null); setTagFilter(''); }}
+            onClick={() => { setBatchFilter(null); setTagFilters([]); }}
             style={{ padding: '4px 12px', background: 'var(--bg-secondary)', border: '1px solid var(--border)', color: 'var(--text-secondary)', borderRadius: 6, cursor: 'pointer', fontSize: 11, fontWeight: 600 }}
           >
             ✕ フィルター解除
@@ -877,8 +888,12 @@ export default function ContextLibraryPanel() {
         />
         {allTags.length > 0 && (
           <select
-            value={tagFilter}
-            onChange={e => setTagFilter(e.target.value)}
+            value=""
+            onChange={e => {
+              const t = e.target.value;
+              if (t && !tagFilters.includes(t)) setTagFilters(prev => [...prev, t]);
+            }}
+            title="タグを選ぶと下に条件チップとして追加されます（複数選択可）"
             style={{
               padding: '8px 12px',
               background: 'var(--bg-primary)',
@@ -887,10 +902,13 @@ export default function ContextLibraryPanel() {
               color: 'var(--text-primary)',
               fontSize: 13,
               outline: 'none',
+              maxWidth: 240,
             }}
           >
-            <option value="">🏷️ すべてのタグ</option>
-            {allTags.map(t => <option key={t} value={t}>{t}</option>)}
+            <option value="">🏷️ タグで絞り込み（複数可）...</option>
+            {sortedAllTags
+              .filter(t => !tagFilters.includes(t))
+              .map(t => <option key={t} value={t}>{t}</option>)}
           </select>
         )}
         <button
@@ -914,6 +932,95 @@ export default function ContextLibraryPanel() {
           表示{items.length} / 全{totalCount ?? items.length}件
         </span>
       </div>
+
+      {/* 192: 選択中タグのチップ＋AND/ORトグル。タグ2つ以上で AND（すべて含む）/ OR（いずれか含む）
+          を切替できる。カテゴリ×タグ×検索(q)は常にANDで組み合わせ（サーバ側絞り込み・全件母数）。 */}
+      {tagFilters.length > 0 && (
+        <div
+          style={{
+            marginTop: -8,
+            marginBottom: 20,
+            display: 'flex',
+            gap: 8,
+            flexWrap: 'wrap' as const,
+            alignItems: 'center',
+          }}
+        >
+          <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>🏷️ タグ条件:</span>
+          {tagFilters.map((t) => (
+            <span
+              key={t}
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 6,
+                padding: '4px 10px',
+                borderRadius: 999,
+                border: '1px solid var(--border-accent, var(--border))',
+                background: 'var(--accent-soft, rgba(108,99,255,0.08))',
+                color: 'var(--text-primary)',
+                fontSize: 12,
+                maxWidth: 320,
+              }}
+            >
+              <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{t}</span>
+              <button
+                type="button"
+                onClick={() => setTagFilters(prev => prev.filter(x => x !== t))}
+                title="このタグ条件を外す"
+                style={{
+                  border: 'none',
+                  background: 'transparent',
+                  color: 'var(--text-muted)',
+                  cursor: 'pointer',
+                  padding: 0,
+                  fontSize: 12,
+                  lineHeight: 1,
+                }}
+              >
+                ✕
+              </button>
+            </span>
+          ))}
+          {tagFilters.length >= 2 && (
+            <span style={{ display: 'inline-flex', borderRadius: 8, overflow: 'hidden', border: '1px solid var(--border)' }}>
+              {(['and', 'or'] as const).map((m) => (
+                <button
+                  key={m}
+                  type="button"
+                  onClick={() => setTagMode(m)}
+                  title={m === 'and' ? '選んだタグをすべて含む素材だけ表示' : '選んだタグのいずれかを含む素材を表示'}
+                  style={{
+                    padding: '4px 12px',
+                    border: 'none',
+                    background: tagMode === m ? 'var(--accent, #6c63ff)' : 'transparent',
+                    color: tagMode === m ? '#fff' : 'var(--text-secondary)',
+                    fontSize: 12,
+                    fontWeight: 700,
+                    cursor: 'pointer',
+                  }}
+                >
+                  {m === 'and' ? 'AND' : 'OR'}
+                </button>
+              ))}
+            </span>
+          )}
+          <button
+            type="button"
+            onClick={() => setTagFilters([])}
+            style={{
+              border: 'none',
+              background: 'transparent',
+              color: 'var(--accent)',
+              fontSize: 12,
+              cursor: 'pointer',
+              textDecoration: 'underline',
+            }}
+          >
+            クリア
+          </button>
+        </div>
+      )}
 
       {loading && (
         <div style={{ textAlign: 'center', padding: 48, color: 'var(--text-muted)' }}>

@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useToast } from '@/components/ui/Toast';
 import { copyToClipboard } from '@/lib/copyToClipboard';
 import { renderMarkdown, sanitizeLatex } from '@/lib/markdown-renderer';
@@ -21,6 +21,11 @@ import {
   getModelIcon,
   type AIModel,
 } from '@/lib/model-preference';
+import {
+  SCAN_TARGET_CATEGORIES,
+  SCAN_BATCH_SIZE,
+  SCAN_COST_YEN_PER_100,
+} from '@/lib/category-vocabulary';
 
 // 展開ビューの本文表示枠の高さ切替（S/M/L/全）。
 // 値は生成結果カード(TextAnalysisPanel の ResultPanel)の HEIGHT_PRESETS と統一。
@@ -328,6 +333,88 @@ export default function SavedAnalysisList({
       showToast(message, 'error');
     } finally {
       setIsAutoCategorizing(false);
+    }
+  };
+
+  // 192③: 新カテゴリ抽出スキャン（ニナファーム/ミトコンドリア・抗酸化）。
+  // 未分類・「その他」だけを対象に SCAN_BATCH_SIZE 件ずつ段階実行（182の作法）。
+  // 進捗表示＋中止可能。判定済みはサーバ側で checked_at マーク＝再開時に続きから。
+  const [scanState, setScanState] = useState<{
+    running: boolean;
+    processed: number;
+    total: number;
+    remaining: number;
+    hits: Array<{ id: number; title: string; category: string }>;
+    message: string | null;
+  } | null>(null);
+  const scanAbortRef = useRef(false);
+
+  const handleCategoryScan = async () => {
+    if (scanState?.running) return;
+    try {
+      const res0 = await fetch('/api/text-analysis/category-scan');
+      const d0 = await res0.json();
+      if (!res0.ok) {
+        showToast(d0.error ?? 'スキャン対象の取得に失敗しました', 'error');
+        return;
+      }
+      const total = Number(d0.remaining) || 0;
+      if (total === 0) {
+        showToast('スキャン対象（未分類・その他）はありません', 'success');
+        return;
+      }
+      // 概算コストは静的定数から算出（152: AIに数値を書かせない）
+      const estYen = Math.max(1, Math.ceil((total * SCAN_COST_YEN_PER_100) / 100));
+      const ok = window.confirm(
+        `未分類・「その他」の${total}件をAIがスキャンし、「${SCAN_TARGET_CATEGORIES.join('」「')}」に該当する保存を拾い上げます。\n` +
+          `${SCAN_BATCH_SIZE}件ずつの段階実行で、途中で中止できます（判定済みは再実行時にスキップ）。\n` +
+          `概算コスト: 約¥${estYen}\n実行しますか？`,
+      );
+      if (!ok) return;
+
+      scanAbortRef.current = false;
+      let processed = 0;
+      const hits: Array<{ id: number; title: string; category: string }> = [];
+      setScanState({ running: true, processed, total, remaining: total, hits: [], message: null });
+
+      while (!scanAbortRef.current) {
+        const res = await fetch('/api/text-analysis/category-scan', { method: 'POST' });
+        const data = await res.json();
+        if (!res.ok) {
+          setScanState((s) =>
+            s
+              ? {
+                  ...s,
+                  running: false,
+                  message: `❌ ${data.error ?? 'スキャンに失敗しました'}（ここまでの判定は保存済み・再実行で続きから）`,
+                }
+              : s,
+          );
+          return;
+        }
+        processed += Number(data.processed) || 0;
+        hits.push(...(Array.isArray(data.hits) ? data.hits : []));
+        const remaining = Number(data.remaining) || 0;
+        setScanState({ running: true, processed, total, remaining, hits: [...hits], message: null });
+        if (remaining === 0 || (Number(data.processed) || 0) === 0) break;
+      }
+
+      const aborted = scanAbortRef.current;
+      setScanState((s) =>
+        s
+          ? {
+              ...s,
+              running: false,
+              message: aborted
+                ? `⏹ 中止しました（${processed}件判定済み。再実行すると続きから始まります）`
+                : `✅ 完了: ${processed}件を判定し、${hits.length}件を新カテゴリに分類しました`,
+            }
+          : s,
+      );
+      if (hits.length > 0) await fetchPage(0, false);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : '通信エラー';
+      setScanState((s) => (s ? { ...s, running: false, message: `❌ ${message}` } : s));
     }
   };
 
@@ -950,6 +1037,85 @@ export default function SavedAnalysisList({
             {showCategoryGrid ? '▲ 折りたたむ' : '▼ 展開'}
           </button>
         </div>
+      </div>
+
+      {/* 192③: 新カテゴリ抽出スキャン（未分類・「その他」からニナファーム/ミトコンドリアを拾う）。
+          段階実行＋進捗＋中止（182の作法）。概算コストは静的定数（152）。 */}
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 10,
+          flexWrap: 'wrap',
+        }}
+      >
+        <button
+          type="button"
+          onClick={handleCategoryScan}
+          disabled={scanState?.running === true}
+          title={`未分類・「その他」の保存から「${SCAN_TARGET_CATEGORIES.join('」「')}」に該当するものをAIが拾い上げます（${SCAN_BATCH_SIZE}件ずつ段階実行・中止可能）`}
+          style={{
+            padding: '6px 12px',
+            background: scanState?.running ? '#9ca3af' : 'var(--bg-card)',
+            color: scanState?.running ? '#fff' : 'var(--text-secondary)',
+            border: '1px solid var(--border)',
+            borderRadius: 8,
+            fontSize: 12,
+            fontWeight: 600,
+            cursor: scanState?.running ? 'not-allowed' : 'pointer',
+          }}
+        >
+          {scanState?.running ? '🔎 スキャン中...' : '🔎 新カテゴリ抽出（ニナファーム/ミトコンドリア）'}
+        </button>
+        {scanState?.running && (
+          <>
+            <button
+              type="button"
+              onClick={() => {
+                scanAbortRef.current = true;
+              }}
+              style={{
+                padding: '6px 12px',
+                background: 'rgba(239,68,68,0.08)',
+                color: '#ef4444',
+                border: '1px solid rgba(239,68,68,0.35)',
+                borderRadius: 8,
+                fontSize: 12,
+                fontWeight: 700,
+                cursor: 'pointer',
+              }}
+            >
+              ⏹ 中止
+            </button>
+            <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>
+              {scanState.processed} / {scanState.total}件 判定済み・該当{scanState.hits.length}件
+            </span>
+            <span
+              aria-hidden
+              style={{
+                flexBasis: 160,
+                height: 6,
+                borderRadius: 999,
+                background: 'var(--bg-primary)',
+                border: '1px solid var(--border)',
+                overflow: 'hidden',
+              }}
+            >
+              <span
+                style={{
+                  display: 'block',
+                  height: '100%',
+                  width: `${Math.min(100, Math.round((scanState.processed / Math.max(1, scanState.total)) * 100))}%`,
+                  background: 'linear-gradient(135deg, #4f46e5, #7c3aed)',
+                  transition: 'width 0.3s',
+                }}
+              />
+            </span>
+          </>
+        )}
+        {!scanState?.running && scanState?.message && (
+          <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>{scanState.message}</span>
+        )}
       </div>
 
       {/* カテゴライズ結果バナー */}

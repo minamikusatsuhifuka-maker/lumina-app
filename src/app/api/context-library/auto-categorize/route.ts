@@ -5,6 +5,7 @@ import { auth } from '@/lib/auth';
 import { sql } from '@/lib/db';
 import { trackUsage } from '@/lib/trackUsage';
 import { sanitizeForJson } from '@/lib/sanitize';
+import { normalizeCategory, vocabularyPromptText, OTHER_CATEGORY } from '@/lib/category-vocabulary';
 
 export const runtime = 'nodejs';
 export const maxDuration = 120;
@@ -46,12 +47,13 @@ export async function POST(req: NextRequest) {
   const prompt = `あなたは情報整理・カテゴリ分析の専門家です。
 以下の${saves.length}件のコンテキスト保存データを分析し、最適なカテゴリに分類してください。
 
+## 使えるカテゴリ（192: この一覧から選ぶだけ。新しいカテゴリ名を作らない）
+${vocabularyPromptText()}
+
 ## 分類の考え方
-- 内容・トピック・用途の類似性でグループ化
-- カテゴリ数は5〜15個が最適
-- カテゴリ名は日本語で簡潔に（10字以内）
+- カテゴリ名は必ず上の一覧から一字一句そのまま使う（一覧に無い名前は無効として破棄される）
 - 1つのコンテキストが複数カテゴリに属する場合は最も適切な1つを選ぶ
-- 既存のカテゴリがあれば優先的に使用し、新しいカテゴリは必要最小限に
+- どれにも当てはまらない場合のみ「${OTHER_CATEGORY}」を使う
 
 ## 保存済みコンテキスト一覧
 ${saves
@@ -132,9 +134,16 @@ ${saves
     );
   }
 
-  // DBの category カラムを一括更新（既存UIがcategory参照のため）
+  // DBの category カラムを一括更新（既存UIがcategory参照のため）。
+  // 192: AIが一覧外のカテゴリ名を返したらサーバ側で破棄（そのグループは更新しない）。
   let updatedCount = 0;
+  const rejectedNames: string[] = [];
   for (const cat of result.categories ?? []) {
+    const canonical = normalizeCategory(cat.name);
+    if (!canonical) {
+      rejectedNames.push(cat.name);
+      continue;
+    }
     const targetIds: number[] = [];
     for (const itemIndex of cat.item_ids ?? []) {
       const save = saves[itemIndex - 1]; // 1-indexed → 0-indexed
@@ -143,7 +152,7 @@ ${saves
     if (targetIds.length === 0) continue;
     await sql`
       UPDATE context_saves
-      SET category = ${cat.name}
+      SET category = ${canonical}
       WHERE id = ANY(${targetIds}::integer[]) AND user_id = ${userId}
     `;
     updatedCount += targetIds.length;
@@ -160,16 +169,21 @@ ${saves
 
   // 件数はAIの自由記述にせず、プログラム側の実カウント値をテンプレートに埋め込む
   // （見出しと本文サマリーで数字が食い違う問題の再発防止。AIには傾向コメントのみ書かせる）。
-  const categoryCount = result.categories?.length ?? 0;
+  // 192: 応答のカテゴリ名も正規化後の名前で返す（一覧外＝破棄分は除外）。
+  const validCategories = (result.categories ?? [])
+    .map((c) => ({ ...c, name: normalizeCategory(c.name) as string }))
+    .filter((c) => c.name);
+  const categoryCount = validCategories.length;
   const trendComment = (result.summary ?? '').trim();
   const summary = trendComment
     ? `${updatedCount}件を${categoryCount}カテゴリに分類。${trendComment}`
     : `${updatedCount}件を${categoryCount}カテゴリに分類しました。`;
 
   return NextResponse.json({
-    categories: result.categories,
+    categories: validCategories,
     summary,
     updatedCount,
+    rejected: rejectedNames,
     totalItems: saves.length,
     usage: {
       input_tokens: response.usage.input_tokens,
