@@ -1,6 +1,7 @@
 import { CLAUDE_TEXT_MODEL } from '@/lib/ai-models';
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
+import { NO_LATEX_PROMPT_RULE } from '@/lib/markdown-renderer';
 
 export const maxDuration = 120;
 
@@ -31,6 +32,7 @@ export async function POST(req: NextRequest) {
 - 各セクションを必ず埋める
 - 簡潔・正確・具体的に
 - URLは生のURLのみ
+- ${NO_LATEX_PROMPT_RULE}
 - 前置きや後書きは書かず、いきなりMarkdownを出力する`;
 
     const userPrompt = `# 元のリサーチトピック

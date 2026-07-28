@@ -4,6 +4,7 @@ import { auth } from '@/lib/auth';
 import { getClinicSystemPrompt } from '@/lib/clinicProfile';
 import { trackUsage } from '@/lib/trackUsage';
 import { streamWithModel, type AIModel } from '@/lib/ai-client';
+import { NO_LATEX_PROMPT_RULE } from '@/lib/markdown-renderer';
 
 export const maxDuration = 300;
 
@@ -86,7 +87,8 @@ export async function POST(req: NextRequest) {
 5. URLの後に属性やスタイルは絶対に書かない
 6. 事実と推測を明確に区別してください
 7. 必ずWeb検索を実行し、検索結果で確認できた情報に基づいて書くこと（学習時の知識だけを「最新情報」として書くことは禁止）
-8. Web検索で確認できなかった事項は、推測や作文で埋めずに「Web検索では確認できなかった」と明記すること${clinicStr}`;
+8. Web検索で確認できなかった事項は、推測や作文で埋めずに「Web検索では確認できなかった」と明記すること
+9. ${NO_LATEX_PROMPT_RULE}${clinicStr}`;
 
   const userPrompt = `トピック：${topic}${periodSection}
 調査深度の指示：${depthPrompts[selectedDepth]}

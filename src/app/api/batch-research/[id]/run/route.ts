@@ -3,6 +3,7 @@ import { auth } from '@/lib/auth';
 import { neon } from '@neondatabase/serverless';
 import { generateWithModel, type AIModel } from '@/lib/ai-client';
 import { GEMINI_TEXT_THINKING_MINIMAL, GEMINI_TEXT_THINKING_MEDIUM } from '@/lib/ai-models';
+import { NO_LATEX_PROMPT_RULE } from '@/lib/markdown-renderer';
 
 export const maxDuration = 300;
 
@@ -167,6 +168,7 @@ export async function POST(
 - 必ずWeb検索を実行し、検索結果で確認できた情報に基づいて書くこと（学習時の知識だけを「最新情報」として書くことは禁止）
 - 各情報の引用元を「出典: サイト名 https://URL」の形式で記載すること（生のURLのみ・Markdownリンク記法禁止）
 - Web検索で確認できなかった事項は、推測や作文で埋めずに「Web検索では確認できなかった」と明記すること
+- ${NO_LATEX_PROMPT_RULE}
 
 # トピック
 ${item.topic}
@@ -200,6 +202,7 @@ Markdown形式のみで出力（前置き・後書き不要）。
 - 見出しは ## までにとどめる（###/#### は使わない／階層を深くしない）
 - 各セクションは箇条書き中心で簡潔に。重要語は **太字** で強調する
 - 絵文字見出しは下記の所定のものだけ。区切りを増やしすぎない
+- ${NO_LATEX_PROMPT_RULE}
 
 # 元のリサーチトピック
 ${item.topic}
