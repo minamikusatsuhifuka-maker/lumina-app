@@ -162,7 +162,8 @@ export default function SavedAnalysisList({
   // 「お気に入り」絞り込み（inputOnly と AND）
   const [favoriteOnly, setFavoriteOnly] = useState(false);
   // 全画面リーダーで表示中のタイトル・本文（null=非表示。194: 本文は開く時にサーバ取得）
-  const [readerRecord, setReaderRecord] = useState<{ title: string; content: string } | null>(null);
+  // 191: アクションボタン（コピー/DL系）に元レコードが要るため record も保持する
+  const [readerRecord, setReaderRecord] = useState<{ record: AnalysisRecord; title: string; content: string } | null>(null);
   // 展開時に単体取得した元入力のキャッシュ（再展開では再取得しない）
   const [loadedInputTexts, setLoadedInputTexts] = useState<Record<number, string>>({});
   const [inputTextLoading, setInputTextLoading] = useState<Record<number, boolean>>({});
@@ -639,6 +640,7 @@ export default function SavedAnalysisList({
       return;
     }
     setReaderRecord({
+      record,
       title: record.auto_title || record.file_name || '無題',
       content: text,
     });
@@ -2191,12 +2193,86 @@ export default function SavedAnalysisList({
         </div>
       )}
 
-      {/* 全画面リーダー（保存テキストを読み物表示） */}
+      {/* 全画面リーダー（保存テキストを読み物表示）。
+          191: カードと同じアクション（同じハンドラを共有・二重実装しない）をヘッダーに追従表示。
+          お気に入り/編集/削除のような一覧の状態を変える操作は誤操作防止のため入れない。 */}
       <FullscreenReader
         open={readerRecord !== null}
         title={readerRecord?.title ?? '無題'}
         content={readerRecord?.content ?? ''}
         onClose={() => setReaderRecord(null)}
+        actions={
+          readerRecord && (
+            <>
+              <button
+                type="button"
+                onClick={() => handleCopy(readerRecord.record)}
+                style={{
+                  ...listBtnStyle(),
+                  background:
+                    copiedId === readerRecord.record.id
+                      ? 'rgba(34,197,94,0.12)'
+                      : listBtnStyle().background,
+                  borderColor:
+                    copiedId === readerRecord.record.id
+                      ? 'rgba(34,197,94,0.4)'
+                      : 'var(--border)',
+                  color:
+                    copiedId === readerRecord.record.id
+                      ? '#16a34a'
+                      : 'var(--text-secondary)',
+                }}
+              >
+                {copiedId === readerRecord.record.id ? '✅ コピー済み' : '📋 コピー'}
+              </button>
+              <button
+                type="button"
+                onClick={() => handleDownloadTxt(readerRecord.record)}
+                disabled={downloadingId === readerRecord.record.id}
+                style={{
+                  ...listBtnStyle(),
+                  cursor:
+                    downloadingId === readerRecord.record.id ? 'not-allowed' : 'pointer',
+                  opacity: downloadingId === readerRecord.record.id ? 0.6 : 1,
+                }}
+              >
+                {downloadingId === readerRecord.record.id
+                  ? '⏳ タイトル生成中...'
+                  : '⬇ テキスト'}
+              </button>
+              <button
+                type="button"
+                onClick={() => handleDownloadMd(readerRecord.record)}
+                disabled={downloadingId === readerRecord.record.id}
+                style={{
+                  ...listBtnStyle(),
+                  cursor:
+                    downloadingId === readerRecord.record.id ? 'not-allowed' : 'pointer',
+                  opacity: downloadingId === readerRecord.record.id ? 0.6 : 1,
+                }}
+              >
+                {downloadingId === readerRecord.record.id
+                  ? '⏳ タイトル生成中...'
+                  : '📥 MD'}
+              </button>
+              <button
+                type="button"
+                onClick={() => handleDownloadDocx(readerRecord.record)}
+                disabled={downloadingId === readerRecord.record.id}
+                style={{
+                  ...listBtnStyle(),
+                  cursor:
+                    downloadingId === readerRecord.record.id ? 'not-allowed' : 'pointer',
+                  opacity: downloadingId === readerRecord.record.id ? 0.6 : 1,
+                }}
+              >
+                {downloadingId === readerRecord.record.id
+                  ? '⏳ タイトル生成中...'
+                  : '📄 Word'}
+              </button>
+            </>
+          )
+        }
       />
     </div>
   );

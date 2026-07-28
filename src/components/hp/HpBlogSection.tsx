@@ -403,6 +403,20 @@ export default function HpBlogSection() {
         title={theme.trim() ? `HPブログ記事: ${theme.slice(0, 60)}` : 'HPブログ記事'}
         content={article}
         onClose={() => setReaderOpen(false)}
+        // 191: カードと同じアクション（同じハンドラを共有・二重実装しない）をヘッダーに追従表示
+        actions={
+          <>
+            <button
+              type="button"
+              onClick={() => { copyToClipboard(sanitizeLatex(article)); setCopiedMd(true); setTimeout(() => setCopiedMd(false), 2000); }}
+              style={btn('var(--bg-secondary)', false)}
+            >
+              {copiedMd ? '✅ コピー済み' : '📋 コピー'}
+            </button>
+            <button type="button" onClick={downloadMd} style={btn('var(--bg-secondary)', false)}>📥 MD</button>
+            <button type="button" onClick={downloadDocx} style={btn('var(--bg-secondary)', false)}>📄 Word</button>
+          </>
+        }
       />
 
       {/* 記事連動の画像生成（166 EyecatchModal 流用・171マルチモデル・185複数枚/比率選択） */}

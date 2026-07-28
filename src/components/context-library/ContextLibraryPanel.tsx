@@ -1436,12 +1436,65 @@ export default function ContextLibraryPanel() {
 
       {/* 選択中バー＋生成モーダルは NoteBundleDock（各ページ直下に1回マウント）に集約（180） */}
 
-      {/* 全画面リーダー（コンテキスト本文を読み物表示） */}
+      {/* 全画面リーダー（コンテキスト本文を読み物表示）。
+          191: カードと同じアクション（同じハンドラを共有・二重実装しない）をヘッダーに追従表示。
+          お気に入り/編集/削除のような一覧の状態を変える操作は誤操作防止のため入れない。 */}
       <FullscreenReader
         open={readerItem !== null}
         title={readerItem?.topic ?? '無題'}
         content={readerItem?.context_text ?? ''}
         onClose={() => setReaderItem(null)}
+        actions={
+          readerItem && (
+            <>
+              <button
+                type="button"
+                onClick={() => handleCopy(readerItem)}
+                style={{
+                  ...cardActionBtnStyle(),
+                  ...(copiedId === readerItem.id
+                    ? { background: 'rgba(34,197,94,0.12)', borderColor: 'rgba(34,197,94,0.4)', color: '#16a34a' }
+                    : {}),
+                }}
+              >
+                {copiedId === readerItem.id ? '✅ コピー済み' : '📋 コピー'}
+              </button>
+              <button
+                type="button"
+                onClick={() => handleDownloadTxt(readerItem)}
+                disabled={downloadingId === readerItem.id}
+                style={{
+                  ...cardActionBtnStyle(),
+                  ...(downloadingId === readerItem.id ? { cursor: 'not-allowed', opacity: 0.6 } : {}),
+                }}
+              >
+                {downloadingId === readerItem.id ? '⏳ タイトル生成中...' : '⬇ テキスト'}
+              </button>
+              <button
+                type="button"
+                onClick={() => handleDownloadMd(readerItem)}
+                disabled={downloadingId === readerItem.id}
+                style={{
+                  ...cardActionBtnStyle(),
+                  ...(downloadingId === readerItem.id ? { cursor: 'not-allowed', opacity: 0.6 } : {}),
+                }}
+              >
+                {downloadingId === readerItem.id ? '⏳ タイトル生成中...' : '📥 MD'}
+              </button>
+              <button
+                type="button"
+                onClick={() => handleDownloadDocx(readerItem)}
+                disabled={downloadingId === readerItem.id}
+                style={{
+                  ...cardActionBtnStyle(),
+                  ...(downloadingId === readerItem.id ? { cursor: 'not-allowed', opacity: 0.6 } : {}),
+                }}
+              >
+                {downloadingId === readerItem.id ? '⏳ タイトル生成中...' : '📄 Word'}
+              </button>
+            </>
+          )
+        }
       />
     </div>
   );

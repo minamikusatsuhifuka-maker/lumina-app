@@ -122,7 +122,8 @@ export default function NoteBundleModal({
   // 展開表示中の結果カード（既定は抜粋表示）
   const [expandedResult, setExpandedResult] = useState<Record<number, boolean>>({});
   // 全画面リーダーで表示中の記事（182・FullscreenReader流用）
-  const [readerResult, setReaderResult] = useState<{ title: string; content: string } | null>(null);
+  // 191: アクションボタン（コピー/DL/保存）に元の ArticleResult が要るため本体を保持する
+  const [readerResult, setReaderResult] = useState<ArticleResult | null>(null);
   // モーダル内トースト（重複ガード・上限超過などの通知）
   const [modalToast, setModalToast] = useState('');
   // 逐次生成のキュー（生成中に「🔁別文体」で追加されても取りこぼさない）
@@ -931,7 +932,7 @@ export default function NoteBundleModal({
                       </button>
                       <button
                         type="button"
-                        onClick={() => setReaderResult({ title: r.title, content: r.content })}
+                        onClick={() => setReaderResult(r)}
                         title="全画面のリーダー表示で読む"
                         style={smallBtn()}
                       >
@@ -1017,12 +1018,43 @@ export default function NoteBundleModal({
     )}
 
     {/* 全画面リーダー（151のFullscreenReader流用。zIndex 10000＝本モーダルより上）。
-        オーバーレイの外に置く＝リーダー内クリックが overlay の handleClose にバブルしない */}
+        オーバーレイの外に置く＝リーダー内クリックが overlay の handleClose にバブルしない。
+        191: カードと同じアクション（同じハンドラを共有・二重実装しない）をヘッダーに追従表示。
+        🗑削除は一覧の状態を変える操作のため誤操作防止で入れない。 */}
     <FullscreenReader
       open={readerResult !== null}
       title={readerResult?.title ?? '無題'}
       content={readerResult?.content ?? ''}
       onClose={() => setReaderResult(null)}
+      actions={
+        readerResult && (
+          <>
+            <button
+              type="button"
+              onClick={() => handleCopy(readerResult)}
+              style={smallBtn(copiedId === readerResult.localId ? { background: 'rgba(34,197,94,0.12)', borderColor: 'rgba(34,197,94,0.4)', color: '#16a34a' } : undefined)}
+            >
+              {copiedId === readerResult.localId ? '✅ コピー済み' : '📋 コピー'}
+            </button>
+            <button type="button" onClick={() => downloadMd(readerResult)} style={smallBtn()}>📥 MD</button>
+            <button type="button" onClick={() => downloadDocx(readerResult)} style={smallBtn()}>📄 Word</button>
+            <SaveToLibraryButton
+              title={`note記事下書き: ${readerResult.title.slice(0, 60)}`}
+              content={readerResult.content}
+              type="note-article"
+              groupName="note記事"
+              tags="note記事,下書き,資料まとめ"
+              metadata={{
+                theme: readerResult.title,
+                style: readerResult.style,
+                sourceKeys: readerResult.sourceKeys,
+                length,
+                from: 'note-bundle',
+              }}
+            />
+          </>
+        )
+      }
     />
     </>
   );

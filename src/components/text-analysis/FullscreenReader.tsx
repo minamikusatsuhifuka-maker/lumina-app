@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { renderMarkdown } from '@/lib/markdown-renderer';
 
@@ -19,11 +19,16 @@ export default function FullscreenReader({
   title,
   content,
   onClose,
+  actions,
 }: {
   open: boolean;
   title: string;
   content: string;
   onClose: () => void;
+  // 191: 呼び出し元のアクションボタン（📋コピー/📄Word等）。省略可＝従来表示のまま。
+  // 機能ごとにアクションが違うためハードコードせず ReactNode で受ける
+  // （✅コピー済み等のstate連動表示・SaveToLibraryButton のようなコンポーネントも渡せる）。
+  actions?: ReactNode;
 }) {
   const [mounted, setMounted] = useState(false);
   // 既定の文字サイズは「小」。localStorage に保存値があればそれを尊重（マウント後 effect で上書き）。
@@ -78,18 +83,24 @@ export default function FullscreenReader({
         flexDirection: 'column',
       }}
     >
-      {/* ヘッダー（タイトル + 文字サイズ + 閉じる） */}
+      {/* ヘッダー（タイトル + 文字サイズ + 閉じる、＋191: アクション行）。
+          本文側が内部スクロール（overflowY:auto）のため、flexShrink:0 のこの領域は
+          スクロールしても常に画面上部に固定表示される（sticky 相当の追従）。 */}
       <div
         onClick={(e) => e.stopPropagation()}
         style={{
           flexShrink: 0,
+          background: 'var(--bg-card, #fff)',
+          borderBottom: '1px solid var(--border)',
+          boxShadow: '0 2px 8px rgba(0,0,0,0.08)',
+        }}
+      >
+      <div
+        style={{
           display: 'flex',
           alignItems: 'center',
           gap: 12,
           padding: '12px 16px',
-          background: 'var(--bg-card, #fff)',
-          borderBottom: '1px solid var(--border)',
-          boxShadow: '0 2px 8px rgba(0,0,0,0.08)',
         }}
       >
         <div
@@ -153,6 +164,23 @@ export default function FullscreenReader({
         >
           ✕
         </button>
+      </div>
+
+      {/* 191: アクション行（呼び出し元から渡されたボタン群）。省略時は非描画＝従来表示。
+          狭い画面では flexWrap で折り返し、はみ出さない。 */}
+      {actions != null && (
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 6,
+            flexWrap: 'wrap',
+            padding: '0 16px 10px',
+          }}
+        >
+          {actions}
+        </div>
+      )}
       </div>
 
       {/* 本文（内スクロール・読み物フォント） */}

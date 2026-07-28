@@ -2908,11 +2908,38 @@ ${contextText}
                   </button>
                 </div>
 
+                {/* 191: カードと同じアクション（同じハンドラを共有）をヘッダーに追従表示。
+                    このカードにWord出力は無いため、存在する コピー/MD出力/保存 のみ渡す。
+                    ✍️文章作成へ等の遷移系はリーダー表示と競合するため入れない。 */}
                 <FullscreenReader
                   open={contextReaderOpen}
                   title="🧠 AI参照素材"
                   content={contextText}
                   onClose={() => setContextReaderOpen(false)}
+                  actions={
+                    <>
+                      <button
+                        onClick={() => copyToClipboard(contextText)}
+                        style={{ padding: '6px 14px', background: 'var(--bg-secondary)', border: '1px solid var(--border)', color: 'var(--text-secondary)', borderRadius: 8, cursor: 'pointer', fontSize: 12, fontWeight: 600 }}
+                      >
+                        📋 コピー
+                      </button>
+                      <button
+                        onClick={handleDownloadMD}
+                        disabled={!contextText}
+                        title="AIが読み込みやすいMarkdown形式でダウンロード"
+                        style={{ padding: '6px 14px', background: '#374151', color: '#fff', border: 'none', borderRadius: 8, cursor: contextText ? 'pointer' : 'not-allowed', fontSize: 12, fontWeight: 600, opacity: contextText ? 1 : 0.4 }}
+                      >
+                        📄 MDで出力
+                      </button>
+                      <button
+                        onClick={saveContext}
+                        style={{ padding: '6px 14px', background: 'linear-gradient(135deg, #6c63ff, #00d4b8)', color: '#fff', border: 'none', borderRadius: 8, cursor: 'pointer', fontSize: 12, fontWeight: 700 }}
+                      >
+                        💾 保存
+                      </button>
+                    </>
+                  }
                 />
               </div>
             )}
