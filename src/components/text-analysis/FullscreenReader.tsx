@@ -90,7 +90,11 @@ export default function FullscreenReader({
     }
     setFirstHint(true);
     const timer = setTimeout(() => setFirstHint(false), 5000);
-    return () => clearTimeout(timer);
+    return () => {
+      // 5秒以内に閉じた場合もヒントを畳む（次回オープンに持ち越さない）
+      clearTimeout(timer);
+      setFirstHint(false);
+    };
   }, [open, showHints]);
 
   // 204: 履歴方式の ⌘+←（戻る）クローズ。設定OFF時は従来どおり（履歴に積まない）
