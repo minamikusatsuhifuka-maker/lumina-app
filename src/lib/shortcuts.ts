@@ -72,13 +72,18 @@ export function useShortcutHints(): boolean {
   return show;
 }
 
-// ヘルプモーダル表示用の一覧（実装と同期して手で更新する）
+// ショートカット一覧（小窓・使い方ガイド・ツールチップがすべてここを参照＝二重管理しない）。
+// scope は「現在の画面で有効か」を小窓が淡色表示で区別するための対象画面。
+// 判定は data-kb-scope="reader"（リーダー表示中）と可視の data-kb-search（一覧画面）で行う
+export type ShortcutScope = 'reader' | 'list' | 'global';
 export const SHORTCUT_SECTIONS: Array<{
   title: string;
+  scope: ShortcutScope;
   items: Array<{ keys: string[]; desc: string; note?: string }>;
 }> = [
   {
     title: '全画面リーダー（⛶）',
+    scope: 'reader',
     items: [
       { keys: ['Esc'], desc: '閉じる', note: '設定OFFでも常に有効' },
       { keys: ['⌘', '←'], desc: '閉じる（ブラウザの「戻る」で閉じる）' },
@@ -89,6 +94,7 @@ export const SHORTCUT_SECTIONS: Array<{
   },
   {
     title: '一覧画面（🗂テキスト分析・🧠AI参照素材）',
+    scope: 'list',
     items: [
       { keys: ['/'], desc: '検索ボックスにフォーカス' },
       { keys: ['Esc'], desc: '入力から抜ける／note素材の選択モードを解除' },
@@ -97,6 +103,7 @@ export const SHORTCUT_SECTIONS: Array<{
   },
   {
     title: '全体',
+    scope: 'global',
     items: [
       { keys: ['?'], desc: 'このショートカット一覧を表示' },
       { keys: ['⌘', 'K'], desc: 'コマンドパレット（既存機能）' },

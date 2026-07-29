@@ -1,7 +1,7 @@
 'use client';
 import { useState } from 'react';
 import Link from 'next/link';
-import { SHORTCUT_SECTIONS } from '@/lib/keyboard-shortcuts';
+import { SHORTCUT_SECTIONS } from '@/lib/shortcuts';
 
 type Step = { text: string };
 type FAQ = { q: string; a: string };

@@ -15,7 +15,7 @@
 import { useEffect, useState, type CSSProperties } from 'react';
 import { createPortal } from 'react-dom';
 import { MAX_BUNDLE_SOURCES, BUNDLE_SOURCE_META } from '@/lib/note-bundle';
-import { isShortcutsEnabled, isTypingTarget } from '@/lib/keyboard-shortcuts';
+import { isShortcutsEnabled, isTypingTarget } from '@/lib/shortcuts';
 import { useNoteBundleSelection } from './useNoteBundleSelection';
 import NoteBundleModal from './NoteBundleModal';
 

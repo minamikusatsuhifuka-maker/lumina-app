@@ -12,7 +12,7 @@ import {
 import { triggerDownload } from '@/lib/download';
 import { markdownToReadableText } from '@/lib/markdownToText';
 import FullscreenReader from '@/components/text-analysis/FullscreenReader';
-import { KEY_HINT, useShortcutHints } from '@/lib/keyboard-shortcuts';
+import { KEY_HINT, useShortcutHints } from '@/lib/shortcuts';
 import { cardActionBtnStyle } from '@/components/text-analysis/cardActionButtonStyle';
 import { BundleSelectToggleButton, BundleSelectCheckbox } from '@/components/note-bundle/BundleSelectControls';
 import { useNoteBundleSelection } from '@/components/note-bundle/useNoteBundleSelection';

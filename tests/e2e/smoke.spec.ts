@@ -478,3 +478,39 @@ test('B8: ハンドブック比較の3列ラベル', async ({ page, request }) =
   await page.getByRole('button', { name: /🔬 モデル比較/ }).click();
   await expect(page.getByText('3モデルで同時生成・比較')).toBeVisible();
 });
+
+test('C21: ショートカット小窓（204改訂v2）の開閉・スクロール追従・非モーダル', async ({ page }) => {
+  await page.goto('/dashboard/text-analysis?tab=saved');
+  const palette = page.locator('[data-kb-palette]');
+  await expect(palette).toHaveCount(0);
+
+  // ⌨ボタンで開く（トグル）
+  await page.locator('button[title*="キーボードショートカット一覧"]').click();
+  await expect(palette).toBeVisible();
+  await expect(palette.getByText('⌨ キーボードショートカット')).toBeVisible();
+
+  // position:fixed＝ページをスクロールしても画面上の同位置に追従（viewport座標が不変）
+  const before = await palette.boundingBox();
+  await page.mouse.wheel(0, 600);
+  await page.waitForTimeout(200);
+  const after = await palette.boundingBox();
+  expect(after?.y).toBeCloseTo(before?.y ?? -1, 0);
+
+  // 非モーダル: 小窓表示中も背面の検索ボックスを操作できる
+  const box = page.locator('input[data-kb-search]').first();
+  await box.click();
+  await page.keyboard.type('abc');
+  await expect(box).toHaveValue('abc');
+  await expect(palette).toBeVisible();
+
+  // Escで閉じる（入力中はまずblur→もう一度Escでクローズ）
+  await page.keyboard.press('Escape'); // blur
+  await page.keyboard.press('Escape'); // close
+  await expect(palette).toHaveCount(0);
+
+  // ⌨ボタン再押下でも開閉（トグル）
+  await page.locator('button[title*="キーボードショートカット一覧"]').click();
+  await expect(palette).toBeVisible();
+  await page.locator('button[title*="キーボードショートカット一覧"]').click();
+  await expect(palette).toHaveCount(0);
+});

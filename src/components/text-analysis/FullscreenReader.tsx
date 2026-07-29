@@ -8,7 +8,7 @@ import {
   isShortcutsEnabled,
   isTypingTarget,
   useShortcutHints,
-} from '@/lib/keyboard-shortcuts';
+} from '@/lib/shortcuts';
 
 // 保存テキストの全画面リーダー（テキスト分析／コンテキストライブラリ共通）。
 // position:fixed inset:0 のフルスクリーン表示で、本文は renderMarkdown 整形
@@ -172,6 +172,7 @@ export default function FullscreenReader({
     <div
       role="dialog"
       aria-modal="true"
+      data-kb-scope="reader"
       onClick={onClose}
       style={{
         position: 'fixed',

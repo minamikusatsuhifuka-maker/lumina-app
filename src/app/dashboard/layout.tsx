@@ -10,7 +10,7 @@ import { NotificationCenter } from '@/components/NotificationCenter';
 import { ThemeToggle } from '@/components/ThemeToggle';
 import { PageHelp } from '@/components/PageHelp';
 import { OnboardingTutorial } from '@/components/OnboardingTutorial';
-import KeyboardShortcuts, { ShortcutHelpButton } from '@/components/KeyboardShortcuts';
+import ShortcutPalette, { ShortcutHelpButton } from '@/components/ShortcutPalette';
 import { ToastProvider } from '@/components/ui/Toast';
 
 export default async function DashboardLayout({ children }: { children: React.ReactNode }) {
@@ -29,7 +29,7 @@ export default async function DashboardLayout({ children }: { children: React.Re
       <AIAssistant />
       <CommandPalette />
       <OnboardingTutorial />
-      <KeyboardShortcuts />
+      <ShortcutPalette />
       <style>{`
         @media (max-width: 768px) {
           .dashboard-main {

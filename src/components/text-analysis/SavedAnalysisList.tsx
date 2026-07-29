@@ -22,7 +22,7 @@ import {
   type AIModel,
 } from '@/lib/model-preference';
 import { CATEGORY_KEYWORDS, stripSpaces } from '@/lib/category-keywords';
-import { KEY_HINT, useShortcutHints } from '@/lib/keyboard-shortcuts';
+import { KEY_HINT, useShortcutHints } from '@/lib/shortcuts';
 import { CATEGORY_GROUPS, OTHER_CATEGORY } from '@/lib/category-vocabulary';
 
 // 展開ビューの本文表示枠の高さ切替（S/M/L/全）。
