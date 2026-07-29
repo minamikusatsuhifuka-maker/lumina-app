@@ -4,9 +4,11 @@ import { sql } from '@/lib/db';
 import {
   CATEGORY_KEYWORDS,
   isWordBoundaryKeyword,
+  stripSpaces,
   toIlikePattern,
   toWordBoundaryPattern,
 } from '@/lib/category-keywords';
+import { CANONICAL_CATEGORIES } from '@/lib/category-vocabulary';
 
 export const runtime = 'nodejs';
 export const maxDuration = 60;
@@ -28,6 +30,11 @@ export const maxDuration = 60;
 //   （タイトルのみモードでも「タイトル=ミュー・本文にニナファーム」を拾えるように）。
 // - ILIKE照合は両側から空白（半角/全角）を除去して比較（NINA PHARM / ゼロ グラビティ等の揺れ対策）。
 //   SOD/ROS等の単語境界判定（~*+\y）は原文照合を維持
+//
+// 203: 任意ワード検索を追加（APIの引数化）。preview に words[]＋category を渡すと、
+// 辞書の代わりに院長が入力したワード（複数=OR）で検索し、選んだ正規カテゴリへの
+// 移動候補としてプレビューする。判定規則（英数字の単語境界・スペース除去照合・
+// 対象カテゴリ既設行の除外）は辞書検索と共通。ガード（1文字拒否等）はサーバ側でも検証。
 //
 // ロールバック（手動SQL）:
 //   UPDATE text_analysis_saves SET folder   = folder_before_201   WHERE folder_before_201   IS NOT NULL;
@@ -175,6 +182,51 @@ export async function POST(req: NextRequest) {
         }
       };
 
+      // 203: 任意ワード検索（words＋category 指定時は辞書を使わない）
+      if (Array.isArray(body?.words)) {
+        const category = typeof body?.category === 'string' ? body.category.trim() : '';
+        if (!CANONICAL_CATEGORIES.includes(category)) {
+          return NextResponse.json(
+            { error: '反映先カテゴリは正規カテゴリから選択してください' },
+            { status: 400 },
+          );
+        }
+        const words = [
+          ...new Set(body.words.map((w: unknown) => String(w ?? '').trim()).filter(Boolean)),
+        ].slice(0, 8) as string[];
+        if (words.length === 0) {
+          return NextResponse.json({ error: '検索ワードを入力してください' }, { status: 400 });
+        }
+        if (words.some((w) => stripSpaces(w).length < 2)) {
+          return NextResponse.json(
+            { error: '1文字のワードは誤検出が多すぎるため検索できません（2文字以上）' },
+            { status: 400 },
+          );
+        }
+        if (words.some((w) => w.length > 40)) {
+          return NextResponse.json({ error: 'ワードが長すぎます（40文字以内）' }, { status: 400 });
+        }
+
+        const wordJobs: Array<Promise<void>> = [];
+        for (const kw of words) {
+          for (const table of ['ta', 'ctx'] as const) {
+            wordJobs.push(
+              searchKeyword(table, userId, category, kw, includeBody).then((rows) => {
+                for (const r of rows) addHit(table, r, category, kw);
+              }),
+            );
+          }
+        }
+        await Promise.all(wordJobs);
+
+        const hits = [...merged.values()].sort((a, b) => a.table.localeCompare(b.table) || b.id - a.id);
+        return NextResponse.json({
+          hits,
+          counts: { [category]: hits.length },
+          elapsedMs: Date.now() - started,
+        });
+      }
+
       // 1) Tier A（primary）: 単独ヒット（選択スコープで検索・キーワード×テーブル並列）
       const primaryJobs: Array<Promise<void>> = [];
       for (const category of CATEGORIES) {
@@ -267,8 +319,13 @@ export async function POST(req: NextRequest) {
       await ensureBackupColumns();
 
       let updated = 0;
-      // テーブル×カテゴリでまとめて一括UPDATE（owner検証つき）
-      for (const category of CATEGORIES) {
+      // テーブル×カテゴリでまとめて一括UPDATE（owner検証つき）。
+      // 203: 任意ワード検索の適用に対応するため、対象カテゴリは辞書キー限定から
+      // 正規カテゴリ（CANONICAL_CATEGORIES）検証に一般化（語彙統制は維持）
+      const itemCategories = [
+        ...new Set(items.map((i: KeywordHit) => String(i?.category ?? ''))),
+      ].filter((c): c is string => CANONICAL_CATEGORIES.includes(c as string));
+      for (const category of itemCategories) {
         const taIds = items
           .filter((i: KeywordHit) => i?.table === 'ta' && i?.category === category)
           .map((i: KeywordHit) => Number(i.id))

@@ -5,6 +5,8 @@
 // 使い方（migrate-192-categories.mjs と同じ --env-file 方式）:
 //   node --env-file=.env.local scripts/dryrun-201-keywords.mjs            # タイトルのみ（既定）
 //   node --env-file=.env.local scripts/dryrun-201-keywords.mjs --body     # 本文も検索
+//   203: 任意ワードのドライラン（辞書を使わず指定ワードで検索・除外判定用に反映先カテゴリ指定）:
+//   node --env-file=.env.local scripts/dryrun-201-keywords.mjs --words=選択理論 --target=選択理論
 
 import { neon } from '@neondatabase/serverless';
 import {
@@ -82,6 +84,51 @@ console.log(
   `対象全件: text_analysis_saves=${totals.ta}件 / context_saves=${totals.ctx}件（合計${totals.ta + totals.ctx}件）`,
 );
 console.log(`検索範囲: ${includeBody ? 'タイトル＋本文' : 'タイトルのみ（既定）'}\n`);
+
+// 203: 任意ワードモード（--words=）。辞書は使わず、APIの任意ワード検索と同じ規則で照合
+const wordsArg = process.argv.find((a) => a.startsWith('--words='));
+if (wordsArg) {
+  const targetArg = process.argv.find((a) => a.startsWith('--target='));
+  const target = targetArg ? targetArg.slice('--target='.length) : 'その他';
+  const words = wordsArg
+    .slice('--words='.length)
+    .split(/[,、\s　]+/)
+    .map((w) => w.trim())
+    .filter(Boolean);
+  console.log(`任意ワード: ${words.join(' / ')} → 反映先: ${target}\n`);
+  const t0 = Date.now();
+  const wordMerged = new Map();
+  for (const kw of words) {
+    for (const tableKey of Object.keys(TABLES)) {
+      const rows = await searchKeyword(tableKey, target, kw, includeBody);
+      for (const r of rows) {
+        const mkey = `${tableKey}:${r.id}`;
+        const prev = wordMerged.get(mkey);
+        if (prev) {
+          if (!prev.keywords.includes(kw)) prev.keywords.push(kw);
+        } else {
+          wordMerged.set(mkey, {
+            table: tableKey,
+            title: r.title,
+            current: r.current === 'general' ? '(未分類)' : r.current || '(未分類)',
+            keywords: [kw],
+          });
+        }
+      }
+    }
+  }
+  const list = [...wordMerged.values()];
+  console.log(`=== 「${words.join('」「')}」: ${list.length}件 ===`);
+  for (const h of list.slice(0, 12)) {
+    console.log(
+      `  [${h.table}] ${String(h.title).slice(0, 60)} ｜ ${h.current} → ${target} ｜ 一致: ${h.keywords.join(',')}`,
+    );
+  }
+  if (list.length > 12) console.log(`  ...ほか${list.length - 12}件`);
+  console.log(`\n所要時間: ${Date.now() - t0}ms`);
+  console.log('（ドライラン: 書き込みは一切行っていません）');
+  process.exit(0);
+}
 
 const started = Date.now();
 // key = `${table}:${id}`（APIのプレビューと同じマージ規則: 先勝ち=辞書の先頭カテゴリ優先）

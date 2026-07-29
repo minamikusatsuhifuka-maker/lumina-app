@@ -21,7 +21,8 @@ import {
   getModelIcon,
   type AIModel,
 } from '@/lib/model-preference';
-import { CATEGORY_KEYWORDS } from '@/lib/category-keywords';
+import { CATEGORY_KEYWORDS, stripSpaces } from '@/lib/category-keywords';
+import { CATEGORY_GROUPS, OTHER_CATEGORY } from '@/lib/category-vocabulary';
 
 // 展開ビューの本文表示枠の高さ切替（S/M/L/全）。
 // 値は生成結果カード(TextAnalysisPanel の ResultPanel)の HEIGHT_PRESETS と統一。
@@ -55,6 +56,11 @@ export interface AnalysisRecord {
   has_input?: boolean;
   input_char_count?: number;
 }
+
+// 203: 任意ワード抽出のガード定数
+const KW_HITS_WARN_THRESHOLD = 100; // プレビュー件数がこれを超えたら「ワードが一般的すぎる」警告
+const KW_RECENT_STORAGE_KEY = 'ta_kw_recent_words'; // よく使うワード（localStorage・最大8件）
+const KW_RECENT_MAX = 8;
 
 // 201: キーワード抽出のヒット1件（/api/category-keyword-scan の応答と同形）
 interface KeywordHit {
@@ -430,6 +436,103 @@ export default function SavedAnalysisList({
       await fetchPage(0, false);
     } catch (err) {
       setKwScan((s) => (s ? { ...s, applying: false } : s));
+      showToast(err instanceof Error ? err.message : '通信エラー', 'error');
+    }
+  };
+
+  // 203: 任意ワード抽出（辞書と同じ判定規則＝英数字は単語境界・スペース除去照合。
+  // プレビュー→個別除外→適用のフロー・旧値退避は201のものをそのまま流用）。
+  // 複数ワードはスペース・カンマ・読点区切りのOR検索
+  const [kwWords, setKwWords] = useState('');
+  const [kwTargetCategory, setKwTargetCategory] = useState('');
+  const [kwRecent, setKwRecent] = useState<string[]>([]);
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(KW_RECENT_STORAGE_KEY);
+      if (raw) {
+        const arr = JSON.parse(raw);
+        if (Array.isArray(arr)) setKwRecent(arr.filter((w) => typeof w === 'string'));
+      }
+    } catch {
+      // 破損時は無視（よく使うワードは補助機能）
+    }
+  }, []);
+
+  const handleWordPreview = async () => {
+    if (kwScan?.loading || kwScan?.applying) return;
+    const words = [
+      ...new Set(kwWords.split(/[,、\s　]+/).map((w) => w.trim()).filter(Boolean)),
+    ].slice(0, 8);
+    if (words.length === 0) {
+      showToast('検索ワードを入力してください', 'error');
+      return;
+    }
+    // ガード①: 1文字は拒否（誤検出が多すぎる）
+    if (words.some((w) => stripSpaces(w).length < 2)) {
+      showToast('1文字のワードは誤検出が多すぎるため検索できません（2文字以上にしてください）', 'error');
+      return;
+    }
+    if (!kwTargetCategory) {
+      showToast('反映先カテゴリを選択してください', 'error');
+      return;
+    }
+    // ガード②: 2文字は警告して続行可能
+    const shortWords = words.filter((w) => stripSpaces(w).length === 2);
+    if (shortWords.length > 0) {
+      const ok = window.confirm(
+        `「${shortWords.join('」「')}」は2文字のため誤検出が増える可能性があります。\nプレビューで内容を確認してから適用してください。続行しますか？`,
+      );
+      if (!ok) return;
+    }
+    setKwScan({
+      loading: true,
+      applying: false,
+      hits: [],
+      excluded: new Set(),
+      counts: {},
+      message: null,
+    });
+    try {
+      const res = await fetch('/api/category-keyword-scan', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          mode: 'preview',
+          includeBody: kwIncludeBody,
+          words,
+          category: kwTargetCategory,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setKwScan(null);
+        showToast(data.error ?? 'ワード抽出に失敗しました', 'error');
+        return;
+      }
+      const hits: KeywordHit[] = Array.isArray(data.hits) ? data.hits : [];
+      // ④よく使うワード: 検索成功時にlocalStorageへ保存（先頭追加・重複除去・最大8件）
+      setKwRecent((prev) => {
+        const next = [...new Set([...words, ...prev])].slice(0, KW_RECENT_MAX);
+        try {
+          localStorage.setItem(KW_RECENT_STORAGE_KEY, JSON.stringify(next));
+        } catch {
+          // 保存失敗は無視（補助機能）
+        }
+        return next;
+      });
+      setKwScan({
+        loading: false,
+        applying: false,
+        hits,
+        excluded: new Set(),
+        counts: data.counts ?? {},
+        message:
+          hits.length === 0
+            ? '該当する保存はありませんでした（この時点では何も変更していません）'
+            : null,
+      });
+    } catch (err) {
+      setKwScan(null);
       showToast(err instanceof Error ? err.message : '通信エラー', 'error');
     }
   };
@@ -1108,6 +1211,105 @@ export default function SavedAnalysisList({
         )}
       </div>
 
+      {/* 203: 任意ワード抽出（検索ワード＋反映先カテゴリ26種＋同じ本文トグルを共用）。
+          辞書ボタン（201/202・Tier A/B共起判定つき）とは併存＝こちらは汎用の単層検索 */}
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 8,
+          flexWrap: 'wrap',
+        }}
+      >
+        <input
+          type="text"
+          value={kwWords}
+          onChange={(e) => setKwWords(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') handleWordPreview();
+          }}
+          placeholder="検索ワード（複数はスペース/カンマ区切り・OR）"
+          style={{
+            flex: '1 1 220px',
+            minWidth: 180,
+            maxWidth: 340,
+            padding: '6px 10px',
+            background: 'var(--bg-card)',
+            color: 'var(--text-primary)',
+            border: '1px solid var(--border)',
+            borderRadius: 8,
+            fontSize: 12,
+          }}
+        />
+        <select
+          value={kwTargetCategory}
+          onChange={(e) => setKwTargetCategory(e.target.value)}
+          style={{
+            padding: '6px 8px',
+            background: 'var(--bg-card)',
+            color: kwTargetCategory ? 'var(--text-primary)' : 'var(--text-muted)',
+            border: '1px solid var(--border)',
+            borderRadius: 8,
+            fontSize: 12,
+            maxWidth: 200,
+          }}
+        >
+          <option value="">反映先カテゴリを選択...</option>
+          {CATEGORY_GROUPS.map((g) => (
+            <optgroup key={g.group} label={g.group}>
+              {g.categories.map((c) => (
+                <option key={c} value={c}>
+                  {c}
+                </option>
+              ))}
+            </optgroup>
+          ))}
+          <option value={OTHER_CATEGORY}>{OTHER_CATEGORY}</option>
+        </select>
+        <button
+          type="button"
+          onClick={handleWordPreview}
+          disabled={kwScan?.loading === true || kwScan?.applying === true}
+          title="入力したワードで全保存（テキスト分析＋AI参照素材）を検索してプレビューします（AI不使用・無料・この時点では何も変更しません）"
+          style={{
+            padding: '6px 12px',
+            background: kwScan?.loading ? '#9ca3af' : 'var(--bg-card)',
+            color: kwScan?.loading ? '#fff' : 'var(--text-secondary)',
+            border: '1px solid var(--border)',
+            borderRadius: 8,
+            fontSize: 12,
+            fontWeight: 600,
+            cursor: kwScan?.loading ? 'not-allowed' : 'pointer',
+          }}
+        >
+          🔎 このワードで抽出
+        </button>
+        {kwRecent.length > 0 && (
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, flexWrap: 'wrap' }}>
+            <span style={{ fontSize: 10, color: 'var(--text-muted)' }}>最近:</span>
+            {kwRecent.map((w) => (
+              <button
+                key={w}
+                type="button"
+                onClick={() => setKwWords(w)}
+                title="クリックで入力欄にセット"
+                style={{
+                  padding: '2px 8px',
+                  background: 'rgba(79,70,229,0.08)',
+                  color: '#4f46e5',
+                  border: '1px solid rgba(79,70,229,0.2)',
+                  borderRadius: 10,
+                  fontSize: 11,
+                  cursor: 'pointer',
+                }}
+              >
+                {w}
+              </button>
+            ))}
+          </span>
+        )}
+      </div>
+
       {/* 201: プレビューパネル（件数＋タイトル一覧＋現カテゴリ→新カテゴリ・個別除外つき） */}
       {kwScan && !kwScan.loading && kwScan.hits.length > 0 && (
         <div
@@ -1141,6 +1343,23 @@ export default function SavedAnalysisList({
               </span>
             ))}
           </div>
+          {/* 203ガード③: 件数過多警告（ワードが一般的すぎる可能性） */}
+          {kwScan.hits.length > KW_HITS_WARN_THRESHOLD && (
+            <div
+              style={{
+                padding: '8px 12px',
+                background: 'rgba(245,158,11,0.1)',
+                border: '1px solid rgba(245,158,11,0.35)',
+                borderRadius: 8,
+                fontSize: 12,
+                color: '#b45309',
+              }}
+            >
+              ⚠️ ヒットが{KW_HITS_WARN_THRESHOLD}件を超えています（{kwScan.hits.length}件）。
+              ワードが一般的すぎる可能性があります。タイトルをよく確認し、必要なら除外するか、
+              より固有性の高いワードで検索し直してください。
+            </div>
+          )}
           <div
             style={{
               maxHeight: 320,
