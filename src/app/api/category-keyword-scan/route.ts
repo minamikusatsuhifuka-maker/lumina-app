@@ -20,6 +20,15 @@ export const maxDuration = 60;
 // - apply:   院長がプレビューで確認した項目のみカテゴリを上書き。
 //            旧値は *_before_201 に退避（192の *_before_192 と同じ方式・冪等）
 //
+// 202: 辞書を Tier A(primary)/Tier B(secondary) の2層化。
+// - primary は単独ヒット（201と同じ）
+// - secondary は「同一文書内（タイトル＋本文）に primary が共起する場合のみ」ヒット。
+//   検索範囲（タイトルのみ/本文込み）は secondary の発見側にだけ適用し、
+//   共起チェックは常に全文書（タイトル＋本文）で行う
+//   （タイトルのみモードでも「タイトル=ミュー・本文にニナファーム」を拾えるように）。
+// - ILIKE照合は両側から空白（半角/全角）を除去して比較（NINA PHARM / ゼロ グラビティ等の揺れ対策）。
+//   SOD/ROS等の単語境界判定（~*+\y）は原文照合を維持
+//
 // ロールバック（手動SQL）:
 //   UPDATE text_analysis_saves SET folder   = folder_before_201   WHERE folder_before_201   IS NOT NULL;
 //   UPDATE context_saves       SET category = category_before_201 WHERE category_before_201 IS NOT NULL;
@@ -32,7 +41,7 @@ export interface KeywordHit {
   title: string;
   current: string; // 現在のカテゴリ（未分類は ''）
   category: string; // 判定された新カテゴリ
-  keywords: string[]; // ヒットしたキーワード
+  keywords: string[]; // ヒットしたキーワード（Tier Bは「ミュー（＋ニナファーム）」形式）
 }
 
 // 退避カラムを冪等に用意（ADD COLUMN IF NOT EXISTS・既存データ非破壊）
@@ -50,8 +59,43 @@ function ensureBackupColumns() {
   return backupColumnsReady;
 }
 
-// 1キーワード×1テーブルの検索。キーワードごとに分けることで
-// 「どのキーワードでヒットしたか」をプレビューに出せる（誤検出の判断材料）。
+// 空白（半角/全角）を除去した列式（202: スペース無視照合）。列式は定数のみ＝SQL注入なし
+function noSpace(expr: string): string {
+  return `REPLACE(REPLACE(${expr}, ' ', ''), '　', '')`;
+}
+
+const TABLE_DEFS = {
+  ta: {
+    name: 'text_analysis_saves',
+    titleExpr: `COALESCE(NULLIF(auto_title, ''), NULLIF(file_name, ''), '無題')`,
+    titleSearchExpr: `COALESCE(NULLIF(auto_title, ''), file_name, '')`,
+    bodyExprs: ['content'],
+    currentExpr: `COALESCE(folder, '')`,
+  },
+  ctx: {
+    name: 'context_saves',
+    titleExpr: `COALESCE(NULLIF(topic, ''), '無題')`,
+    titleSearchExpr: `COALESCE(topic, '')`,
+    bodyExprs: ['context_text', `COALESCE(research_text, '')`],
+    currentExpr: `COALESCE(category, 'general')`,
+  },
+} as const;
+
+// 1キーワードの一致条件SQL（$1 = パターン）。
+// 単語境界キーワードは原文に ~*、それ以外は空白除去したうえで ILIKE
+function keywordCondition(kw: string, exprs: string[]): string {
+  const boundary = isWordBoundaryKeyword(kw);
+  return exprs
+    .map((e) => (boundary ? `${e} ~* $1` : `${noSpace(e)} ILIKE $1`))
+    .join(' OR ');
+}
+
+function keywordPattern(kw: string): string {
+  return isWordBoundaryKeyword(kw) ? toWordBoundaryPattern(kw) : toIlikePattern(kw);
+}
+
+// 1キーワード×1テーブルの検索（scope = 検索範囲）。キーワードごとに分けることで
+// 「どのキーワードでヒットしたか」をプレビューに出せる（誤検出の判断材料）
 async function searchKeyword(
   table: 'ta' | 'ctx',
   userId: string,
@@ -59,56 +103,36 @@ async function searchKeyword(
   kw: string,
   includeBody: boolean,
 ): Promise<Array<{ id: number; title: string; current: string }>> {
-  const useBoundary = isWordBoundaryKeyword(kw);
-  const p = useBoundary ? toWordBoundaryPattern(kw) : toIlikePattern(kw);
-
-  if (table === 'ta') {
-    const rows = useBoundary
-      ? await sql`
-          SELECT id,
-                 COALESCE(NULLIF(auto_title, ''), NULLIF(file_name, ''), '無題') AS title,
-                 COALESCE(folder, '') AS current
-          FROM text_analysis_saves
-          WHERE user_id = ${userId}
-            AND COALESCE(folder, '') <> ${category}
-            AND (COALESCE(NULLIF(auto_title, ''), file_name, '') ~* ${p}
-                 OR (${includeBody}::boolean AND content ~* ${p}))
-        `
-      : await sql`
-          SELECT id,
-                 COALESCE(NULLIF(auto_title, ''), NULLIF(file_name, ''), '無題') AS title,
-                 COALESCE(folder, '') AS current
-          FROM text_analysis_saves
-          WHERE user_id = ${userId}
-            AND COALESCE(folder, '') <> ${category}
-            AND (COALESCE(NULLIF(auto_title, ''), file_name, '') ILIKE ${p}
-                 OR (${includeBody}::boolean AND content ILIKE ${p}))
-        `;
-    return rows as Array<{ id: number; title: string; current: string }>;
-  }
-
-  const rows = useBoundary
-    ? await sql`
-        SELECT id,
-               COALESCE(NULLIF(topic, ''), '無題') AS title,
-               COALESCE(category, 'general') AS current
-        FROM context_saves
-        WHERE user_id = ${userId}
-          AND COALESCE(category, 'general') <> ${category}
-          AND (COALESCE(topic, '') ~* ${p}
-               OR (${includeBody}::boolean AND (context_text ~* ${p} OR COALESCE(research_text, '') ~* ${p})))
-      `
-    : await sql`
-        SELECT id,
-               COALESCE(NULLIF(topic, ''), '無題') AS title,
-               COALESCE(category, 'general') AS current
-        FROM context_saves
-        WHERE user_id = ${userId}
-          AND COALESCE(category, 'general') <> ${category}
-          AND (COALESCE(topic, '') ILIKE ${p}
-               OR (${includeBody}::boolean AND (context_text ILIKE ${p} OR COALESCE(research_text, '') ILIKE ${p})))
-      `;
+  const t = TABLE_DEFS[table];
+  const exprs = includeBody ? [t.titleSearchExpr, ...t.bodyExprs] : [t.titleSearchExpr];
+  const rows = await sql.query(
+    `SELECT id, ${t.titleExpr} AS title, ${t.currentExpr} AS current
+     FROM ${t.name}
+     WHERE user_id = $2 AND ${t.currentExpr} <> $3
+       AND (${keywordCondition(kw, exprs)})`,
+    [keywordPattern(kw), userId, category],
+  );
   return rows as Array<{ id: number; title: string; current: string }>;
+}
+
+// 202: Tier B候補IDに対する Tier A の共起チェック（常に全文書=タイトル＋本文）。
+// 戻り値 = 共起した行ID集合
+async function cooccurIds(
+  table: 'ta' | 'ctx',
+  userId: string,
+  primaryKw: string,
+  ids: number[],
+): Promise<Set<number>> {
+  if (ids.length === 0) return new Set();
+  const t = TABLE_DEFS[table];
+  const exprs = [t.titleSearchExpr, ...t.bodyExprs];
+  const rows = await sql.query(
+    `SELECT id FROM ${t.name}
+     WHERE user_id = $2 AND id = ANY($3::integer[])
+       AND (${keywordCondition(primaryKw, exprs)})`,
+    [keywordPattern(primaryKw), userId, ids],
+  );
+  return new Set((rows as Array<{ id: number }>).map((r) => Number(r.id)));
 }
 
 export async function POST(req: NextRequest) {
@@ -125,39 +149,98 @@ export async function POST(req: NextRequest) {
       const includeBody = body?.includeBody === true;
       const started = Date.now();
 
-      // キーワード×テーブルを並列検索（1,827件程度ならILIKEで一瞬）
-      const jobs: Array<Promise<void>> = [];
       // key = `${table}:${id}` で重複マージ（複数キーワードにヒットした行は1件にまとめる）
       const merged = new Map<string, KeywordHit>();
+      const addHit = (
+        table: 'ta' | 'ctx',
+        r: { id: number; title: string; current: string },
+        category: string,
+        kwLabel: string,
+      ) => {
+        const key = `${table}:${r.id}`;
+        const prev = merged.get(key);
+        if (prev) {
+          // 両カテゴリにヒットした行は辞書の先頭カテゴリ（ニナファーム）優先。
+          // キーワードは合算表示して院長が判断できるようにする
+          if (!prev.keywords.includes(kwLabel)) prev.keywords.push(kwLabel);
+        } else {
+          merged.set(key, {
+            table,
+            id: Number(r.id),
+            title: r.title,
+            current: r.current === 'general' ? '' : r.current,
+            category,
+            keywords: [kwLabel],
+          });
+        }
+      };
+
+      // 1) Tier A（primary）: 単独ヒット（選択スコープで検索・キーワード×テーブル並列）
+      const primaryJobs: Array<Promise<void>> = [];
       for (const category of CATEGORIES) {
-        for (const kw of CATEGORY_KEYWORDS[category]) {
+        for (const kw of CATEGORY_KEYWORDS[category].primary) {
           for (const table of ['ta', 'ctx'] as const) {
-            jobs.push(
+            primaryJobs.push(
               searchKeyword(table, userId, category, kw, includeBody).then((rows) => {
-                for (const r of rows) {
-                  const key = `${table}:${r.id}`;
-                  const prev = merged.get(key);
-                  if (prev) {
-                    // 両カテゴリにヒットした行は辞書の先頭カテゴリ（ニナファーム）優先。
-                    // キーワードは合算表示して院長が判断できるようにする
-                    if (!prev.keywords.includes(kw)) prev.keywords.push(kw);
-                  } else {
-                    merged.set(key, {
-                      table,
-                      id: Number(r.id),
-                      title: r.title,
-                      current: r.current === 'general' ? '' : r.current,
-                      category,
-                      keywords: [kw],
-                    });
-                  }
-                }
+                for (const r of rows) addHit(table, r, category, kw);
               }),
             );
           }
         }
       }
-      await Promise.all(jobs);
+
+      // 2) Tier B（secondary）: 選択スコープで候補を検索（この時点ではヒット扱いにしない）
+      type Candidate = { id: number; title: string; current: string; kw: string };
+      const secondaryCandidates: Record<'ta' | 'ctx', Map<string, Candidate[]>> = {
+        ta: new Map(),
+        ctx: new Map(),
+      };
+      const secondaryJobs: Array<Promise<void>> = [];
+      for (const category of CATEGORIES) {
+        for (const kw of CATEGORY_KEYWORDS[category].secondary) {
+          for (const table of ['ta', 'ctx'] as const) {
+            secondaryJobs.push(
+              searchKeyword(table, userId, category, kw, includeBody).then((rows) => {
+                if (rows.length === 0) return;
+                const list = secondaryCandidates[table].get(category) ?? [];
+                for (const r of rows) list.push({ ...r, id: Number(r.id), kw });
+                secondaryCandidates[table].set(category, list);
+              }),
+            );
+          }
+        }
+      }
+      await Promise.all([...primaryJobs, ...secondaryJobs]);
+
+      // 3) Tier B候補に Tier A の共起チェック（常にタイトル＋本文の全文書）。
+      //    共起した Tier A 名も控えて「ミュー（＋ニナファーム）」形式で表示する
+      const cooccurJobs: Array<Promise<void>> = [];
+      for (const table of ['ta', 'ctx'] as const) {
+        for (const [category, candidates] of secondaryCandidates[table]) {
+          const ids = [...new Set(candidates.map((c) => c.id))];
+          if (ids.length === 0) continue;
+          const coById = new Map<number, string[]>();
+          const jobs = CATEGORY_KEYWORDS[category].primary.map((pkw) =>
+            cooccurIds(table, userId, pkw, ids).then((hitIds) => {
+              for (const id of hitIds) {
+                const list = coById.get(id) ?? [];
+                if (!list.includes(pkw)) list.push(pkw);
+                coById.set(id, list);
+              }
+            }),
+          );
+          cooccurJobs.push(
+            Promise.all(jobs).then(() => {
+              for (const c of candidates) {
+                const co = coById.get(c.id);
+                if (!co || co.length === 0) continue; // 共起なし＝Tier B単独では採用しない
+                addHit(table, c, category, `${c.kw}（＋${co.join('・')}）`);
+              }
+            }),
+          );
+        }
+      }
+      await Promise.all(cooccurJobs);
 
       const hits = [...merged.values()].sort(
         (a, b) =>

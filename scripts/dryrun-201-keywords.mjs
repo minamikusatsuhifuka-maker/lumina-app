@@ -1,5 +1,6 @@
 // 201: キーワード方式カテゴリ抽出のドライラン（読み取り専用・書き込みなし）。
-// ヒット件数・タイトルサンプル・ILIKE所要時間を実測して報告するためのスクリプト。
+// ヒット件数・タイトルサンプル・所要時間を実測して報告するためのスクリプト。
+// 202: Tier A/B 2層判定に対応（Tier Bは Tier A との全文書共起が条件・単独では採用しない）。
 //
 // 使い方（migrate-192-categories.mjs と同じ --env-file 方式）:
 //   node --env-file=.env.local scripts/dryrun-201-keywords.mjs            # タイトルのみ（既定）
@@ -21,20 +22,56 @@ if (!url) {
 }
 const sql = neon(url);
 
+// APIルート（category-keyword-scan/route.ts）と同じ列定義・照合規則
+const noSpace = (expr) => `REPLACE(REPLACE(${expr}, ' ', ''), '　', '')`;
 const TABLES = {
   ta: {
     name: 'text_analysis_saves',
-    title: `COALESCE(NULLIF(auto_title, ''), NULLIF(file_name, ''), '無題')`,
-    current: `COALESCE(folder, '')`,
-    body: ['content'],
+    titleExpr: `COALESCE(NULLIF(auto_title, ''), NULLIF(file_name, ''), '無題')`,
+    titleSearchExpr: `COALESCE(NULLIF(auto_title, ''), file_name, '')`,
+    bodyExprs: ['content'],
+    currentExpr: `COALESCE(folder, '')`,
   },
   ctx: {
     name: 'context_saves',
-    title: `COALESCE(NULLIF(topic, ''), '無題')`,
-    current: `COALESCE(category, 'general')`,
-    body: ['context_text', `COALESCE(research_text, '')`],
+    titleExpr: `COALESCE(NULLIF(topic, ''), '無題')`,
+    titleSearchExpr: `COALESCE(topic, '')`,
+    bodyExprs: ['context_text', `COALESCE(research_text, '')`],
+    currentExpr: `COALESCE(category, 'general')`,
   },
 };
+
+function keywordCondition(kw, exprs) {
+  const boundary = isWordBoundaryKeyword(kw);
+  return exprs
+    .map((e) => (boundary ? `${e} ~* $1` : `${noSpace(e)} ILIKE $1`))
+    .join(' OR ');
+}
+const keywordPattern = (kw) =>
+  isWordBoundaryKeyword(kw) ? toWordBoundaryPattern(kw) : toIlikePattern(kw);
+
+async function searchKeyword(tableKey, category, kw, scopeBody) {
+  const t = TABLES[tableKey];
+  const exprs = scopeBody ? [t.titleSearchExpr, ...t.bodyExprs] : [t.titleSearchExpr];
+  return sql.query(
+    `SELECT id, ${t.titleExpr} AS title, ${t.currentExpr} AS current
+     FROM ${t.name}
+     WHERE ${t.currentExpr} <> $2 AND (${keywordCondition(kw, exprs)})`,
+    [keywordPattern(kw), category],
+  );
+}
+
+async function cooccurIds(tableKey, primaryKw, ids) {
+  if (ids.length === 0) return new Set();
+  const t = TABLES[tableKey];
+  const exprs = [t.titleSearchExpr, ...t.bodyExprs]; // 共起チェックは常に全文書
+  const rows = await sql.query(
+    `SELECT id FROM ${t.name}
+     WHERE id = ANY($2::integer[]) AND (${keywordCondition(primaryKw, exprs)})`,
+    [keywordPattern(primaryKw), ids],
+  );
+  return new Set(rows.map((r) => Number(r.id)));
+}
 
 const totals = {};
 for (const [key, t] of Object.entries(TABLES)) {
@@ -49,51 +86,104 @@ console.log(`検索範囲: ${includeBody ? 'タイトル＋本文' : 'タイト�
 const started = Date.now();
 // key = `${table}:${id}`（APIのプレビューと同じマージ規則: 先勝ち=辞書の先頭カテゴリ優先）
 const merged = new Map();
-for (const [category, keywords] of Object.entries(CATEGORY_KEYWORDS)) {
-  for (const kw of keywords) {
-    const boundary = isWordBoundaryKeyword(kw);
-    const op = boundary ? '~*' : 'ILIKE';
-    const p = boundary ? toWordBoundaryPattern(kw) : toIlikePattern(kw);
-    for (const [key, t] of Object.entries(TABLES)) {
-      const bodyCond = includeBody
-        ? t.body.map((c) => ` OR ${c} ${op} $1`).join('')
-        : '';
-      const rows = await sql.query(
-        `SELECT id, ${t.title} AS title, ${t.current} AS current
-         FROM ${t.name}
-         WHERE ${t.current} <> $2 AND (${t.title} ${op} $1${bodyCond})`,
-        [p, category],
-      );
-      for (const r of rows) {
-        const mkey = `${key}:${r.id}`;
-        const prev = merged.get(mkey);
-        if (prev) {
-          if (!prev.keywords.includes(kw)) prev.keywords.push(kw);
-        } else {
-          merged.set(mkey, {
-            table: key,
-            title: r.title,
-            current: r.current === 'general' ? '(未分類)' : r.current || '(未分類)',
-            category,
-            keywords: [kw],
-          });
+const addHit = (tableKey, r, category, kwLabel, tier) => {
+  const mkey = `${tableKey}:${r.id}`;
+  const prev = merged.get(mkey);
+  if (prev) {
+    if (!prev.keywords.includes(kwLabel)) prev.keywords.push(kwLabel);
+    if (tier === 'B') prev.viaB = prev.viaB || !prev.viaA;
+    else prev.viaA = true;
+  } else {
+    merged.set(mkey, {
+      table: tableKey,
+      title: r.title,
+      current: r.current === 'general' ? '(未分類)' : r.current || '(未分類)',
+      category,
+      keywords: [kwLabel],
+      viaA: tier === 'A',
+      viaB: tier === 'B',
+    });
+  }
+};
+
+// 1) Tier A（単独ヒット）
+for (const [category, set] of Object.entries(CATEGORY_KEYWORDS)) {
+  for (const kw of set.primary) {
+    for (const tableKey of Object.keys(TABLES)) {
+      const rows = await sqlRetry(() => searchKeyword(tableKey, category, kw, includeBody));
+      for (const r of rows) addHit(tableKey, { ...r, id: Number(r.id) }, category, kw, 'A');
+    }
+  }
+}
+const tierACounts = Object.fromEntries(
+  Object.keys(CATEGORY_KEYWORDS).map((c) => [
+    c,
+    [...merged.values()].filter((h) => h.category === c).length,
+  ]),
+);
+
+// 2) Tier B（候補→全文書共起チェック）
+const tierBStats = {}; // kw → { candidates, adopted }
+for (const [category, set] of Object.entries(CATEGORY_KEYWORDS)) {
+  for (const kw of set.secondary) {
+    tierBStats[kw] = { candidates: 0, adopted: 0 };
+    for (const tableKey of Object.keys(TABLES)) {
+      const rows = await sqlRetry(() => searchKeyword(tableKey, category, kw, includeBody));
+      tierBStats[kw].candidates += rows.length;
+      if (rows.length === 0) continue;
+      const ids = [...new Set(rows.map((r) => Number(r.id)))];
+      const coById = new Map();
+      for (const pkw of set.primary) {
+        const hitIds = await sqlRetry(() => cooccurIds(tableKey, pkw, ids));
+        for (const id of hitIds) {
+          const list = coById.get(id) ?? [];
+          if (!list.includes(pkw)) list.push(pkw);
+          coById.set(id, list);
         }
+      }
+      for (const r of rows) {
+        const co = coById.get(Number(r.id));
+        if (!co || co.length === 0) continue; // Tier B 単独では採用しない
+        tierBStats[kw].adopted += 1;
+        addHit(tableKey, { ...r, id: Number(r.id) }, category, `${kw}（＋${co.join('・')}）`, 'B');
       }
     }
   }
 }
 const elapsed = Date.now() - started;
 
+async function sqlRetry(fn) {
+  // Neon HTTP の一時エラー対策（読み取りのみなので単純リトライで安全）
+  for (let i = 0; ; i++) {
+    try {
+      return await fn();
+    } catch (e) {
+      if (i >= 2) throw e;
+      await new Promise((r) => setTimeout(r, 500));
+    }
+  }
+}
+
 const hits = [...merged.values()];
-for (const category of Object.keys(CATEGORY_KEYWORDS)) {
+for (const [category, set] of Object.entries(CATEGORY_KEYWORDS)) {
   const list = hits.filter((h) => h.category === category);
-  console.log(`\n=== ${category}: ${list.length}件 ===`);
+  const viaBOnly = list.filter((h) => h.viaB && !h.viaA);
+  console.log(
+    `\n=== ${category}: Tier Aのみ=${tierACounts[category]}件 → Tier B共起込み=${list.length}件（B経由の追加=${viaBOnly.length}件） ===`,
+  );
   for (const h of list.slice(0, 12)) {
     console.log(
       `  [${h.table}] ${String(h.title).slice(0, 60)} ｜ ${h.current} → ${category} ｜ 一致: ${h.keywords.join(',')}`,
     );
   }
   if (list.length > 12) console.log(`  ...ほか${list.length - 12}件`);
+  if (set.secondary.length > 0) {
+    console.log(`  --- Tier B 内訳（候補=スコープ内一致 / 採用=Tier A共起あり） ---`);
+    for (const kw of set.secondary) {
+      const s = tierBStats[kw];
+      console.log(`  ${kw}: 候補${s.candidates}件 → 採用${s.adopted}件（単独採用=0）`);
+    }
+  }
 }
-console.log(`\n所要時間（全キーワード×両テーブル検索の合計）: ${elapsed}ms`);
+console.log(`\n所要時間（全キーワード×両テーブル検索の合計・直列実行）: ${elapsed}ms`);
 console.log('（ドライラン: 書き込みは一切行っていません）');
