@@ -1699,6 +1699,7 @@ export default function SavedAnalysisList({
       <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
         <input
           type="text"
+          data-kb-search
           value={searchTerm}
           onChange={(e) => setSearchTerm(e.target.value)}
           placeholder="🔍 タイトル・本文で検索"
@@ -2700,12 +2701,25 @@ export default function SavedAnalysisList({
 
       {/* 全画面リーダー（保存テキストを読み物表示）。
           191: カードと同じアクション（同じハンドラを共有・二重実装しない）をヘッダーに追従表示。
-          お気に入り/編集/削除のような一覧の状態を変える操作は誤操作防止のため入れない。 */}
+          お気に入り/編集/削除のような一覧の状態を変える操作は誤操作防止のため入れない。
+          204: j/k で表示中の一覧（絞り込み後）の次/前の資料へ移動（openReaderを共有＝本文は遅延取得） */}
       <FullscreenReader
         open={readerRecord !== null}
         title={readerRecord?.title ?? '無題'}
         content={readerRecord?.content ?? ''}
         onClose={() => setReaderRecord(null)}
+        onPrev={(() => {
+          if (!readerRecord) return undefined;
+          const idx = visibleRecords.findIndex((r) => r.id === readerRecord.record.id);
+          return idx > 0 ? () => void openReader(visibleRecords[idx - 1]) : undefined;
+        })()}
+        onNext={(() => {
+          if (!readerRecord) return undefined;
+          const idx = visibleRecords.findIndex((r) => r.id === readerRecord.record.id);
+          return idx >= 0 && idx < visibleRecords.length - 1
+            ? () => void openReader(visibleRecords[idx + 1])
+            : undefined;
+        })()}
         actions={
           readerRecord && (
             <>

@@ -15,11 +15,12 @@
 import { useEffect, useState, type CSSProperties } from 'react';
 import { createPortal } from 'react-dom';
 import { MAX_BUNDLE_SOURCES, BUNDLE_SOURCE_META } from '@/lib/note-bundle';
+import { isShortcutsEnabled, isTypingTarget } from '@/lib/keyboard-shortcuts';
 import { useNoteBundleSelection } from './useNoteBundleSelection';
 import NoteBundleModal from './NoteBundleModal';
 
 export default function NoteBundleDock() {
-  const { selectMode, selectedList, lastToggledKey, countBySource, clear, toggle } = useNoteBundleSelection();
+  const { selectMode, selectedList, lastToggledKey, countBySource, clear, toggle, setSelectMode } = useNoteBundleSelection();
   // confirmOpen = 中央の確認モーダル / bundleOpen = 179のプラン→生成モーダル
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [bundleOpen, setBundleOpen] = useState(false);
@@ -78,6 +79,36 @@ export default function NoteBundleDock() {
       document.body.style.overflow = prevOverflow;
     };
   }, [confirmOpen]);
+
+  // 204: 選択モードのショートカット（設定ON時のみ・入力中/IME変換中は無効）。
+  // ⌘/Ctrl+Enter=選択完了（確認モーダルを開く。破壊的でないので割り当て可）
+  // Esc=確認モーダルを閉じる → 選択モードを抜ける（生成モーダル表示中は触らない）
+  const bundleOpenNow = bundleOpen;
+  useEffect(() => {
+    if (!selectMode || bundleOpenNow) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (!isShortcutsEnabled()) return;
+      if (e.isComposing) return;
+      if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+        if (count > 0 && !confirmOpen) {
+          e.preventDefault();
+          setConfirmOpen(true);
+        }
+        return;
+      }
+      if (e.key === 'Escape' && !isTypingTarget(e)) {
+        if (confirmOpen) {
+          setConfirmOpen(false);
+        } else if (document.body.style.overflow !== 'hidden') {
+          // 全画面リーダー等のモーダル表示中（bodyスクロールロック中）は
+          // そちらのEscクローズに譲る（選択が意図せず解除・クリアされる事故を防ぐ）
+          setSelectMode(false);
+        }
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [selectMode, bundleOpenNow, confirmOpen, count, setSelectMode]);
 
   // 選択0件では追従ボタンを出さない（常時表示は邪魔）。全解除で0件になったら確認モーダルも閉じる
   if (count === 0 && confirmOpen) setConfirmOpen(false);

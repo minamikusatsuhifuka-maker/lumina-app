@@ -871,6 +871,7 @@ export default function ContextLibraryPanel() {
       }}>
         <input
           type="text"
+          data-kb-search
           placeholder="🔍 トピック名・内容で検索..."
           value={search}
           onChange={e => setSearch(e.target.value)}
@@ -1545,12 +1546,35 @@ export default function ContextLibraryPanel() {
 
       {/* 全画面リーダー（コンテキスト本文を読み物表示）。
           191: カードと同じアクション（同じハンドラを共有・二重実装しない）をヘッダーに追従表示。
-          お気に入り/編集/削除のような一覧の状態を変える操作は誤操作防止のため入れない。 */}
+          お気に入り/編集/削除のような一覧の状態を変える操作は誤操作防止のため入れない。
+          204: j/k で表示中の一覧の次/前の資料へ移動（ensureFullText＝本文は遅延取得を共有） */}
       <FullscreenReader
         open={readerItem !== null}
         title={readerItem?.topic ?? '無題'}
         content={readerItem?.context_text ?? ''}
         onClose={() => setReaderItem(null)}
+        onPrev={(() => {
+          if (!readerItem) return undefined;
+          const idx = items.findIndex((it) => it.id === readerItem.id);
+          if (idx <= 0) return undefined;
+          return () => {
+            const target = items[idx - 1];
+            void ensureFullText(target)
+              .then((text) => setReaderItem({ ...target, context_text: text }))
+              .catch(() => flashToast('❌ 本文の取得に失敗しました', 4000));
+          };
+        })()}
+        onNext={(() => {
+          if (!readerItem) return undefined;
+          const idx = items.findIndex((it) => it.id === readerItem.id);
+          if (idx < 0 || idx >= items.length - 1) return undefined;
+          return () => {
+            const target = items[idx + 1];
+            void ensureFullText(target)
+              .then((text) => setReaderItem({ ...target, context_text: text }))
+              .catch(() => flashToast('❌ 本文の取得に失敗しました', 4000));
+          };
+        })()}
         actions={
           readerItem && (
             <>

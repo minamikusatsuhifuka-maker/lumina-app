@@ -1,13 +1,22 @@
 'use client';
 
-import { useEffect, useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { renderMarkdown } from '@/lib/markdown-renderer';
+import { isShortcutsEnabled, isTypingTarget } from '@/lib/keyboard-shortcuts';
 
 // 保存テキストの全画面リーダー（テキスト分析／コンテキストライブラリ共通）。
 // position:fixed inset:0 のフルスクリーン表示で、本文は renderMarkdown 整形
 // （renderMarkdown 内部で sanitizeLatex 済み＝ $\rightarrow$ 等を出さない）。
 // z-index は AIアシスタント(9999)より上の 10000。Esc/×/背景クリックで閉じる。
+//
+// 204: ⌘+←（戻る）で閉じられるよう履歴方式を採用。
+// - 開くとき history.pushState で履歴を1枚積む → 戻る操作は popstate 発火＝モーダルだけ閉じる
+//   （キーイベントの乗っ取り不要・モバイルの戻るジェスチャーにも対応・ページ遷移は起きない）
+// - ✕/Esc/背景クリックで閉じたときは cleanup で history.back() を呼び、積んだ1枚を戻す
+//   （開く/閉じるで push/back を1対1に保つ＝整合が崩れてページ離脱する事故を防ぐ）
+// - j/k=次・前の資料（onPrev/onNext が渡された場合のみ）・+/-=文字サイズ。
+//   ↑↓は本文スクロールに使うため割り当てない。新設キーは設定OFFで無効、Esc(151)は常に有効
 
 type ReaderFont = 'sm' | 'md' | 'lg';
 const FONT_KEY = 'ta_reader_font';
@@ -20,6 +29,8 @@ export default function FullscreenReader({
   content,
   onClose,
   actions,
+  onPrev,
+  onNext,
 }: {
   open: boolean;
   title: string;
@@ -29,6 +40,10 @@ export default function FullscreenReader({
   // 機能ごとにアクションが違うためハードコードせず ReactNode で受ける
   // （✅コピー済み等のstate連動表示・SaveToLibraryButton のようなコンポーネントも渡せる）。
   actions?: ReactNode;
+  // 204: 一覧の前後の資料へ移動（k / j キー・呼び出し元が一覧の文脈を持つ場合のみ渡す）。
+  // 省略時はキーを無視（単発表示の呼び出し元では従来どおり）
+  onPrev?: () => void;
+  onNext?: () => void;
 }) {
   const [mounted, setMounted] = useState(false);
   // 既定の文字サイズは「小」。localStorage に保存値があればそれを尊重（マウント後 effect で上書き）。
@@ -43,11 +58,69 @@ export default function FullscreenReader({
     } catch {}
   }, []);
 
+  // 204: onClose/onPrev/onNext は ref 経由で参照し、履歴・キーの effect を [open] 依存に保つ
+  // （j/k で資料が切り替わっても pushState が重複しない＝push/back の1対1を維持）
+  const onCloseRef = useRef(onClose);
+  const onPrevRef = useRef(onPrev);
+  const onNextRef = useRef(onNext);
+  useEffect(() => {
+    onCloseRef.current = onClose;
+    onPrevRef.current = onPrev;
+    onNextRef.current = onNext;
+  });
+
+  // 204: 履歴方式の ⌘+←（戻る）クローズ。設定OFF時は従来どおり（履歴に積まない）
+  useEffect(() => {
+    if (!open) return;
+    if (!isShortcutsEnabled()) return;
+    let pushed = true;
+    window.history.pushState({ kbModal: 'fullscreen-reader' }, '');
+    const onPop = () => {
+      // 戻る操作（⌘+←・スワイプ・戻るボタン）: 積んだ1枚が消費された＝closeだけ行う
+      pushed = false;
+      onCloseRef.current();
+    };
+    window.addEventListener('popstate', onPop);
+    return () => {
+      window.removeEventListener('popstate', onPop);
+      // ✕/Esc/背景クリックで閉じた場合はこちらで1枚戻して整合を取る（listener解除済み＝二重closeなし）
+      if (pushed) window.history.back();
+    };
+  }, [open]);
+
   // Esc で閉じる + 背面スクロールロック（開いている間のみ）
+  // 204: j/k（前後の資料）・+/-（文字サイズ）を追加。Esc は151の既存機能＝設定OFFでも有効、
+  // 新設キーは設定ON時のみ・入力中/IME変換中/修飾キー付きは無効（誤爆防止）
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose();
+      if (e.key === 'Escape') {
+        onCloseRef.current();
+        return;
+      }
+      if (!isShortcutsEnabled()) return;
+      if (isTypingTarget(e) || e.metaKey || e.ctrlKey || e.altKey) return;
+      if (e.key === 'j') {
+        onNextRef.current?.();
+      } else if (e.key === 'k') {
+        onPrevRef.current?.();
+      } else if (e.key === '+' || e.key === '=') {
+        setFont((f) => {
+          const next: ReaderFont = f === 'sm' ? 'md' : 'lg';
+          try {
+            localStorage.setItem(FONT_KEY, next);
+          } catch {}
+          return next;
+        });
+      } else if (e.key === '-') {
+        setFont((f) => {
+          const next: ReaderFont = f === 'lg' ? 'md' : 'sm';
+          try {
+            localStorage.setItem(FONT_KEY, next);
+          } catch {}
+          return next;
+        });
+      }
     };
     window.addEventListener('keydown', onKey);
     const prevOverflow = document.body.style.overflow;
@@ -56,7 +129,7 @@ export default function FullscreenReader({
       window.removeEventListener('keydown', onKey);
       document.body.style.overflow = prevOverflow;
     };
-  }, [open, onClose]);
+  }, [open]);
 
   const changeFont = (f: ReaderFont) => {
     setFont(f);

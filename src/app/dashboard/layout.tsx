@@ -10,6 +10,7 @@ import { NotificationCenter } from '@/components/NotificationCenter';
 import { ThemeToggle } from '@/components/ThemeToggle';
 import { PageHelp } from '@/components/PageHelp';
 import { OnboardingTutorial } from '@/components/OnboardingTutorial';
+import KeyboardShortcuts, { ShortcutHelpButton } from '@/components/KeyboardShortcuts';
 import { ToastProvider } from '@/components/ui/Toast';
 
 export default async function DashboardLayout({ children }: { children: React.ReactNode }) {
@@ -20,7 +21,7 @@ export default async function DashboardLayout({ children }: { children: React.Re
     <div className="dashboard-layout" style={{ display: 'flex', minHeight: '100vh', background: 'var(--bg-primary)' }}>
       <DashboardSidebar userName={session.user?.name || ''} />
       <main className="dashboard-main page-enter" style={{ flex: 1, padding: 28, overflowY: 'auto', maxWidth: 'calc(100vw - 220px)', color: 'var(--text-primary)' }}>
-        <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: 8, marginBottom: 12 }}><PageHelp /><ThemeToggle /><NotificationCenter /><ModelSelector /></div>
+        <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: 8, marginBottom: 12 }}><PageHelp /><ShortcutHelpButton /><ThemeToggle /><NotificationCenter /><ModelSelector /></div>
         {children}
       </main>
       <FloatingToolbar />
@@ -28,6 +29,7 @@ export default async function DashboardLayout({ children }: { children: React.Re
       <AIAssistant />
       <CommandPalette />
       <OnboardingTutorial />
+      <KeyboardShortcuts />
       <style>{`
         @media (max-width: 768px) {
           .dashboard-main {
