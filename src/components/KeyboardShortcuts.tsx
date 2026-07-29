@@ -206,6 +206,14 @@ export default function KeyboardShortcuts() {
           </span>
         </label>
 
+        <p style={{ fontSize: 11, color: 'var(--text-muted)', margin: '4px 0 0' }}>
+          この一覧は{' '}
+          <a href="/dashboard/guide" style={{ color: 'var(--accent, #6c63ff)' }}>
+            📖 使い方ガイド
+          </a>{' '}
+          にも常設されています。
+        </p>
+
         {SHORTCUT_SECTIONS.map((sec) => (
           <div key={sec.title} style={{ marginTop: 14 }}>
             <div

@@ -9,6 +9,8 @@
 // - キーハンドラは各画面に散らさず、この基盤＋設置点3箇所
 //   （KeyboardShortcuts=全体 / FullscreenReader=リーダー内 / NoteBundleDock=選択モード）に集約
 
+import { useEffect, useState } from 'react';
+
 export const KB_ENABLED_KEY = 'kb_shortcuts_enabled';
 // 設定変更を同一タブ内の購読者へ即時通知するためのイベント
 export const KB_ENABLED_EVENT = 'kb-enabled-change';
@@ -41,6 +43,33 @@ export function isTypingTarget(e: KeyboardEvent): boolean {
   const tag = t.tagName;
   if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return true;
   return t.isContentEditable;
+}
+
+// 204 3層の見せ方・第1層: 既存ボタンのツールチップ/placeholderへのキー併記。
+// 表記はここに一元管理し、ツールチップ・?モーダル・使い方ガイドが同じソースを見る（二重管理しない）
+export const KEY_HINT = {
+  readerClose: 'Esc / ⌘←', // リーダー✕ボタン: 「閉じる（Esc / ⌘←）」
+  readerOpenSuffix: '（Esc または ⌘← で閉じる）', // ⛶全画面ボタンの末尾
+  fontSuffix: '（+ / -）', // 文字サイズボタンの末尾
+  searchSuffix: '（/ でフォーカス）', // 検索placeholderの末尾
+} as const;
+
+// キー併記を表示してよいか。
+// - 設定OFFのときは消す（効かないキーを案内しない＝嘘の案内をしない）
+// - キーボードが無い環境（モバイル等・hover/fine pointer非対応）では出さない
+// SSR/初期描画は常に false（サーバとクライアントの描画差異を作らない）
+export function useShortcutHints(): boolean {
+  const [show, setShow] = useState(false);
+  useEffect(() => {
+    const update = () => {
+      const desktop = window.matchMedia('(hover: hover) and (pointer: fine)').matches;
+      setShow(desktop && isShortcutsEnabled());
+    };
+    update();
+    window.addEventListener(KB_ENABLED_EVENT, update);
+    return () => window.removeEventListener(KB_ENABLED_EVENT, update);
+  }, []);
+  return show;
 }
 
 // ヘルプモーダル表示用の一覧（実装と同期して手で更新する）

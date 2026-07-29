@@ -1,6 +1,7 @@
 'use client';
 import { useState } from 'react';
 import Link from 'next/link';
+import { SHORTCUT_SECTIONS } from '@/lib/keyboard-shortcuts';
 
 type Step = { text: string };
 type FAQ = { q: string; a: string };
@@ -625,6 +626,50 @@ export default function GuidePage() {
                       <span style={{ fontSize: 12, color: T.secondary, lineHeight: 1.5 }}>{item.desc}</span>
                     </span>
                   </Link>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* 204 第3層: キーボードショートカット一覧の常設ページ。
+          ?モーダルと同じソース（keyboard-shortcuts.ts の SHORTCUT_SECTIONS）から生成＝二重管理しない */}
+      <div style={{ marginBottom: 28 }}>
+        <h2 style={{ fontSize: 18, fontWeight: 700, color: T.heading, marginBottom: 4 }}>
+          ⌨ キーボードショートカット
+        </h2>
+        <p style={{ color: T.secondary, fontSize: 13, marginBottom: 14 }}>
+          どの画面でも <kbd style={{ padding: '1px 6px', borderRadius: 4, border: '1px solid var(--border)', background: 'rgba(255,255,255,0.05)', fontSize: 12 }}>?</kbd> キー、
+          または右上の⌨ボタンで同じ一覧を開けます。効かせたくない場合はその一覧内のトグルでオフにできます
+          （オフでも Esc で閉じる操作は使えます）。
+        </p>
+        <div style={{
+          display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: 12,
+        }}>
+          {SHORTCUT_SECTIONS.map(sec => (
+            <div key={sec.title} style={{
+              padding: '12px 16px', borderRadius: 10,
+              background: 'rgba(255,255,255,0.03)', border: '1px solid var(--border)',
+            }}>
+              <div style={{ fontSize: 13, fontWeight: 700, color: T.primary, marginBottom: 8 }}>
+                {sec.title}
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                {sec.items.map(it => (
+                  <div key={it.desc} style={{ display: 'flex', alignItems: 'baseline', gap: 8, fontSize: 12 }}>
+                    <span style={{ display: 'inline-flex', gap: 3, minWidth: 78, flexShrink: 0 }}>
+                      {it.keys.map(k => (
+                        <kbd key={k} style={{
+                          padding: '1px 6px', borderRadius: 4, border: '1px solid var(--border)',
+                          background: 'rgba(255,255,255,0.05)', color: T.primary, fontSize: 11, fontWeight: 700,
+                        }}>{k}</kbd>
+                      ))}
+                    </span>
+                    <span style={{ color: T.secondary, lineHeight: 1.5 }}>
+                      {it.desc}{it.note ? `（${it.note}）` : ''}
+                    </span>
+                  </div>
                 ))}
               </div>
             </div>

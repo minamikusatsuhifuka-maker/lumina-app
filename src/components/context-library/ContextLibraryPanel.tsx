@@ -12,6 +12,7 @@ import {
 import { triggerDownload } from '@/lib/download';
 import { markdownToReadableText } from '@/lib/markdownToText';
 import FullscreenReader from '@/components/text-analysis/FullscreenReader';
+import { KEY_HINT, useShortcutHints } from '@/lib/keyboard-shortcuts';
 import { cardActionBtnStyle } from '@/components/text-analysis/cardActionButtonStyle';
 import { BundleSelectToggleButton, BundleSelectCheckbox } from '@/components/note-bundle/BundleSelectControls';
 import { useNoteBundleSelection } from '@/components/note-bundle/useNoteBundleSelection';
@@ -112,6 +113,8 @@ export default function ContextLibraryPanel() {
   const [editSaving, setEditSaving] = useState(false);
   // 全画面リーダーで表示中のアイテム（null=非表示）
   const [readerItem, setReaderItem] = useState<ContextSave | null>(null);
+  // 204 第1層: ツールチップ/placeholderへのキー併記（設定OFF・モバイルでは非表示）
+  const showKbHints = useShortcutHints();
   // contextSaveId -> 登録済み機能キー配列 のマップ
   const [defaultMap, setDefaultMap] = useState<Record<number, string[]>>({});
 
@@ -872,7 +875,7 @@ export default function ContextLibraryPanel() {
         <input
           type="text"
           data-kb-search
-          placeholder="🔍 トピック名・内容で検索..."
+          placeholder={`🔍 トピック名・内容で検索...${showKbHints ? KEY_HINT.searchSuffix : ''}`}
           value={search}
           onChange={e => setSearch(e.target.value)}
           style={{
@@ -1231,7 +1234,7 @@ export default function ContextLibraryPanel() {
                             flashToast('❌ 本文の取得に失敗しました', 4000);
                           }
                         }}
-                        title="全画面のリーダー表示で読む"
+                        title={`全画面のリーダー表示で読む${showKbHints ? KEY_HINT.readerOpenSuffix : ''}`}
                         style={moreMenuItemStyle}
                       >
                         ⛶ 全画面

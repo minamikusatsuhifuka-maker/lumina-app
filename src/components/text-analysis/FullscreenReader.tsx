@@ -3,7 +3,12 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { renderMarkdown } from '@/lib/markdown-renderer';
-import { isShortcutsEnabled, isTypingTarget } from '@/lib/keyboard-shortcuts';
+import {
+  KEY_HINT,
+  isShortcutsEnabled,
+  isTypingTarget,
+  useShortcutHints,
+} from '@/lib/keyboard-shortcuts';
 
 // 保存テキストの全画面リーダー（テキスト分析／コンテキストライブラリ共通）。
 // position:fixed inset:0 のフルスクリーン表示で、本文は renderMarkdown 整形
@@ -48,6 +53,10 @@ export default function FullscreenReader({
   const [mounted, setMounted] = useState(false);
   // 既定の文字サイズは「小」。localStorage に保存値があればそれを尊重（マウント後 effect で上書き）。
   const [font, setFont] = useState<ReaderFont>('sm');
+  // 204 第1層: キー併記の表示可否（設定OFF・モバイルでは出さない＝嘘の案内をしない）
+  const showHints = useShortcutHints();
+  // 204 第4層: 初回だけ「Esc / ⌘← で閉じられます」を数秒表示（localStorageで以降は出さない）
+  const [firstHint, setFirstHint] = useState(false);
 
   // SSR では document が無いため、マウント後のみ portal を描画
   useEffect(() => {
@@ -68,6 +77,21 @@ export default function FullscreenReader({
     onPrevRef.current = onPrev;
     onNextRef.current = onNext;
   });
+
+  // 204 第4層: 初回オープン時のみヒントを5秒表示（キー併記と同じ条件＝設定OFF/モバイルでは出さない）
+  const HINT_SEEN_KEY = 'kb_reader_hint_seen';
+  useEffect(() => {
+    if (!open || !showHints) return;
+    try {
+      if (localStorage.getItem(HINT_SEEN_KEY)) return;
+      localStorage.setItem(HINT_SEEN_KEY, '1');
+    } catch {
+      return;
+    }
+    setFirstHint(true);
+    const timer = setTimeout(() => setFirstHint(false), 5000);
+    return () => clearTimeout(timer);
+  }, [open, showHints]);
 
   // 204: 履歴方式の ⌘+←（戻る）クローズ。設定OFF時は従来どおり（履歴に積まない）
   useEffect(() => {
@@ -198,7 +222,7 @@ export default function FullscreenReader({
               key={f}
               type="button"
               onClick={() => changeFont(f)}
-              title={`文字サイズ: ${FONT_LABEL[f]}`}
+              title={`文字サイズ: ${FONT_LABEL[f]}${showHints ? KEY_HINT.fontSuffix : ''}`}
               style={{
                 padding: '4px 9px',
                 fontSize: 12,
@@ -218,7 +242,7 @@ export default function FullscreenReader({
         <button
           type="button"
           onClick={onClose}
-          title="閉じる（Esc）"
+          title={showHints ? `閉じる（${KEY_HINT.readerClose}）` : '閉じる（Esc）'}
           style={{
             flexShrink: 0,
             width: 26,
@@ -282,6 +306,31 @@ export default function FullscreenReader({
         />
       </div>
 
+      {/* 204 第4層: 初回だけのヒント（5秒で消える・localStorageで以降は出さない・操作は遮らない） */}
+      {firstHint && (
+        <div
+          aria-hidden
+          style={{
+            position: 'absolute',
+            top: 'max(64px, calc(env(safe-area-inset-top) + 64px))',
+            left: '50%',
+            transform: 'translateX(-50%)',
+            zIndex: 3,
+            padding: '8px 16px',
+            borderRadius: 999,
+            background: 'rgba(17,24,39,0.85)',
+            color: '#fff',
+            fontSize: 12,
+            fontWeight: 600,
+            pointerEvents: 'none',
+            whiteSpace: 'nowrap',
+            boxShadow: '0 4px 14px rgba(0,0,0,0.35)',
+          }}
+        >
+          💡 {KEY_HINT.readerClose} で閉じられます・j / k で前後の資料
+        </div>
+      )}
+
       {/* 閉じるボタン（右下固定）。親指で押しやすい位置・大きめ・目立つ配色。
           Esc・背景クリックでも閉じられるが、こちらを主導線にする。 */}
       <button
@@ -290,7 +339,7 @@ export default function FullscreenReader({
           e.stopPropagation();
           onClose();
         }}
-        title="閉じる（Esc）"
+        title={showHints ? `閉じる（${KEY_HINT.readerClose}）` : '閉じる（Esc）'}
         style={{
           position: 'absolute',
           right: 'max(20px, env(safe-area-inset-right))',

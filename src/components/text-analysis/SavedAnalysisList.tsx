@@ -22,6 +22,7 @@ import {
   type AIModel,
 } from '@/lib/model-preference';
 import { CATEGORY_KEYWORDS, stripSpaces } from '@/lib/category-keywords';
+import { KEY_HINT, useShortcutHints } from '@/lib/keyboard-shortcuts';
 import { CATEGORY_GROUPS, OTHER_CATEGORY } from '@/lib/category-vocabulary';
 
 // 展開ビューの本文表示枠の高さ切替（S/M/L/全）。
@@ -127,6 +128,8 @@ export default function SavedAnalysisList({
   reloadKey,
 }: Props) {
   const { showToast } = useToast();
+  // 204 第1層: ツールチップ/placeholderへのキー併記（設定OFF・モバイルでは非表示）
+  const showKbHints = useShortcutHints();
   // 179/180: note記事まとめの横断選択（🧠AI参照素材側と共有ストア）。選択モード中は
   // カードのチェックボックスをnote素材選択用に切り替える（一括操作用との二重表示を避ける）。
   const { selectMode: bundleSelectMode, isSelected: isBundleSelected } = useNoteBundleSelection();
@@ -1702,7 +1705,7 @@ export default function SavedAnalysisList({
           data-kb-search
           value={searchTerm}
           onChange={(e) => setSearchTerm(e.target.value)}
-          placeholder="🔍 タイトル・本文で検索"
+          placeholder={`🔍 タイトル・本文で検索${showKbHints ? KEY_HINT.searchSuffix : ''}`}
           style={{
             flex: 1,
             padding: '8px 12px',
@@ -2263,7 +2266,7 @@ export default function SavedAnalysisList({
                         type="button"
                         onClick={() => openReader(record)}
                         style={listBtnStyle()}
-                        title="全画面のリーダー表示で読む"
+                        title={`全画面のリーダー表示で読む${showKbHints ? KEY_HINT.readerOpenSuffix : ''}`}
                       >
                         ⛶ 全画面
                       </button>
