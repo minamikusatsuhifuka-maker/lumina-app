@@ -161,6 +161,14 @@ export default function ShortcutPalette() {
     return () => window.removeEventListener('keydown', onKey, true);
   }, [open]);
 
+  // 保存値なしの初回オープン時に既定位置を state に確定させる
+  // （描画時のフォールバック計算だけだと boxRef が null のままでドラッグ・リサイズが始まらない）
+  useEffect(() => {
+    if (open && !boxRef.current && window.innerWidth >= MOBILE_BREAKPOINT) {
+      setBox(defaultBox());
+    }
+  }, [open]);
+
   // window.resize: 再クランプ＋モバイル判定の更新
   useEffect(() => {
     const onResize = () => {
