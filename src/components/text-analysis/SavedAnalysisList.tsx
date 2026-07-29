@@ -21,11 +21,7 @@ import {
   getModelIcon,
   type AIModel,
 } from '@/lib/model-preference';
-import {
-  SCAN_TARGET_CATEGORIES,
-  SCAN_BATCH_SIZE,
-  SCAN_COST_YEN_PER_100,
-} from '@/lib/category-vocabulary';
+import { CATEGORY_KEYWORDS } from '@/lib/category-keywords';
 
 // 展開ビューの本文表示枠の高さ切替（S/M/L/全）。
 // 値は生成結果カード(TextAnalysisPanel の ResultPanel)の HEIGHT_PRESETS と統一。
@@ -58,6 +54,16 @@ export interface AnalysisRecord {
   // 元の入力テキストの有無・文字数（一覧APIが返す。input_text本体は展開時に単体取得）
   has_input?: boolean;
   input_char_count?: number;
+}
+
+// 201: キーワード抽出のヒット1件（/api/category-keyword-scan の応答と同形）
+interface KeywordHit {
+  table: 'ta' | 'ctx';
+  id: number;
+  title: string;
+  current: string; // 現在のカテゴリ（未分類は ''）
+  category: string; // 判定された新カテゴリ
+  keywords: string[]; // ヒットしたキーワード（誤検出の判断材料）
 }
 
 const FOLDER_PALETTE = [
@@ -336,85 +342,95 @@ export default function SavedAnalysisList({
     }
   };
 
-  // 192③: 新カテゴリ抽出スキャン（ニナファーム/ミトコンドリア・抗酸化）。
-  // 未分類・「その他」だけを対象に SCAN_BATCH_SIZE 件ずつ段階実行（182の作法）。
-  // 進捗表示＋中止可能。判定済みはサーバ側で checked_at マーク＝再開時に続きから。
-  const [scanState, setScanState] = useState<{
-    running: boolean;
-    processed: number;
-    total: number;
-    remaining: number;
-    hits: Array<{ id: number; title: string; category: string }>;
+  // 201: 新カテゴリ抽出（キーワード方式・AI不使用）。
+  // ILIKEで全件（text_analysis_saves＋context_saves）を即時検索してプレビュー表示し、
+  // 院長が確認（個別除外可）してから適用する人間承認型（169・184と同じ作法）。
+  // 旧AI方式（20件ずつ段階実行・進捗バー・中止）は廃止＝一瞬で終わるため不要。
+  const [kwScan, setKwScan] = useState<{
+    loading: boolean;
+    applying: boolean;
+    hits: KeywordHit[];
+    excluded: Set<string>; // `${table}:${id}` のうち院長がチェックを外したもの
+    counts: Record<string, number>;
     message: string | null;
   } | null>(null);
-  const scanAbortRef = useRef(false);
+  const [kwIncludeBody, setKwIncludeBody] = useState(false);
 
-  const handleCategoryScan = async () => {
-    if (scanState?.running) return;
+  const handleKeywordPreview = async () => {
+    if (kwScan?.loading || kwScan?.applying) return;
+    setKwScan({
+      loading: true,
+      applying: false,
+      hits: [],
+      excluded: new Set(),
+      counts: {},
+      message: null,
+    });
     try {
-      const res0 = await fetch('/api/text-analysis/category-scan');
-      const d0 = await res0.json();
-      if (!res0.ok) {
-        showToast(d0.error ?? 'スキャン対象の取得に失敗しました', 'error');
+      const res = await fetch('/api/category-keyword-scan', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ mode: 'preview', includeBody: kwIncludeBody }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setKwScan(null);
+        showToast(data.error ?? 'キーワード抽出に失敗しました', 'error');
         return;
       }
-      const total = Number(d0.remaining) || 0;
-      if (total === 0) {
-        showToast('スキャン対象（未分類・その他）はありません', 'success');
-        return;
-      }
-      // 概算コストは静的定数から算出（152: AIに数値を書かせない）
-      const estYen = Math.max(1, Math.ceil((total * SCAN_COST_YEN_PER_100) / 100));
-      const ok = window.confirm(
-        `未分類・「その他」の${total}件をAIがスキャンし、「${SCAN_TARGET_CATEGORIES.join('」「')}」に該当する保存を拾い上げます。\n` +
-          `${SCAN_BATCH_SIZE}件ずつの段階実行で、途中で中止できます（判定済みは再実行時にスキップ）。\n` +
-          `概算コスト: 約¥${estYen}\n実行しますか？`,
-      );
-      if (!ok) return;
-
-      scanAbortRef.current = false;
-      let processed = 0;
-      const hits: Array<{ id: number; title: string; category: string }> = [];
-      setScanState({ running: true, processed, total, remaining: total, hits: [], message: null });
-
-      while (!scanAbortRef.current) {
-        const res = await fetch('/api/text-analysis/category-scan', { method: 'POST' });
-        const data = await res.json();
-        if (!res.ok) {
-          setScanState((s) =>
-            s
-              ? {
-                  ...s,
-                  running: false,
-                  message: `❌ ${data.error ?? 'スキャンに失敗しました'}（ここまでの判定は保存済み・再実行で続きから）`,
-                }
-              : s,
-          );
-          return;
-        }
-        processed += Number(data.processed) || 0;
-        hits.push(...(Array.isArray(data.hits) ? data.hits : []));
-        const remaining = Number(data.remaining) || 0;
-        setScanState({ running: true, processed, total, remaining, hits: [...hits], message: null });
-        if (remaining === 0 || (Number(data.processed) || 0) === 0) break;
-      }
-
-      const aborted = scanAbortRef.current;
-      setScanState((s) =>
-        s
-          ? {
-              ...s,
-              running: false,
-              message: aborted
-                ? `⏹ 中止しました（${processed}件判定済み。再実行すると続きから始まります）`
-                : `✅ 完了: ${processed}件を判定し、${hits.length}件を新カテゴリに分類しました`,
-            }
-          : s,
-      );
-      if (hits.length > 0) await fetchPage(0, false);
+      const hits: KeywordHit[] = Array.isArray(data.hits) ? data.hits : [];
+      setKwScan({
+        loading: false,
+        applying: false,
+        hits,
+        excluded: new Set(),
+        counts: data.counts ?? {},
+        message:
+          hits.length === 0
+            ? '該当する保存はありませんでした（この時点では何も変更していません）'
+            : null,
+      });
     } catch (err) {
-      const message = err instanceof Error ? err.message : '通信エラー';
-      setScanState((s) => (s ? { ...s, running: false, message: `❌ ${message}` } : s));
+      setKwScan(null);
+      showToast(err instanceof Error ? err.message : '通信エラー', 'error');
+    }
+  };
+
+  const handleKeywordApply = async () => {
+    if (!kwScan || kwScan.applying) return;
+    const targets = kwScan.hits.filter((h) => !kwScan.excluded.has(`${h.table}:${h.id}`));
+    if (targets.length === 0) {
+      showToast('適用対象がありません（すべて除外されています）', 'error');
+      return;
+    }
+    setKwScan((s) => (s ? { ...s, applying: true } : s));
+    try {
+      const res = await fetch('/api/category-keyword-scan', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          mode: 'apply',
+          items: targets.map((t) => ({ table: t.table, id: t.id, category: t.category })),
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setKwScan((s) => (s ? { ...s, applying: false } : s));
+        showToast(data.error ?? '適用に失敗しました', 'error');
+        return;
+      }
+      setKwScan({
+        loading: false,
+        applying: false,
+        hits: [],
+        excluded: new Set(),
+        counts: {},
+        message: `✅ ${Number(data.updated) || 0}件のカテゴリを更新しました（旧カテゴリは退避済み・戻せます）`,
+      });
+      await fetchPage(0, false);
+    } catch (err) {
+      setKwScan((s) => (s ? { ...s, applying: false } : s));
+      showToast(err instanceof Error ? err.message : '通信エラー', 'error');
     }
   };
 
@@ -1039,8 +1055,9 @@ export default function SavedAnalysisList({
         </div>
       </div>
 
-      {/* 192③: 新カテゴリ抽出スキャン（未分類・「その他」からニナファーム/ミトコンドリアを拾う）。
-          段階実行＋進捗＋中止（182の作法）。概算コストは静的定数（152）。 */}
+      {/* 201: 新カテゴリ抽出（キーワード方式・AI不使用・無料）。
+          全件（テキスト分析＋AI参照素材）をILIKEで即時検索 → プレビュー（件数＋タイトル＋現カテゴリ）
+          → 院長が個別除外して適用（人間承認型）。適用時は旧カテゴリを *_before_201 に退避。 */}
       <div
         style={{
           display: 'flex',
@@ -1051,72 +1068,175 @@ export default function SavedAnalysisList({
       >
         <button
           type="button"
-          onClick={handleCategoryScan}
-          disabled={scanState?.running === true}
-          title={`未分類・「その他」の保存から「${SCAN_TARGET_CATEGORIES.join('」「')}」に該当するものをAIが拾い上げます（${SCAN_BATCH_SIZE}件ずつ段階実行・中止可能）`}
+          onClick={handleKeywordPreview}
+          disabled={kwScan?.loading === true || kwScan?.applying === true}
+          title={`全保存（テキスト分析＋AI参照素材）から「${Object.keys(CATEGORY_KEYWORDS).join('」「')}」のキーワードに一致するものを検索してプレビューします（AI不使用・無料・この時点では何も変更しません）`}
           style={{
             padding: '6px 12px',
-            background: scanState?.running ? '#9ca3af' : 'var(--bg-card)',
-            color: scanState?.running ? '#fff' : 'var(--text-secondary)',
+            background: kwScan?.loading ? '#9ca3af' : 'var(--bg-card)',
+            color: kwScan?.loading ? '#fff' : 'var(--text-secondary)',
             border: '1px solid var(--border)',
             borderRadius: 8,
             fontSize: 12,
             fontWeight: 600,
-            cursor: scanState?.running ? 'not-allowed' : 'pointer',
+            cursor: kwScan?.loading ? 'not-allowed' : 'pointer',
           }}
         >
-          {scanState?.running ? '🔎 スキャン中...' : '🔎 新カテゴリ抽出（ニナファーム/ミトコンドリア）'}
+          {kwScan?.loading ? '🔎 検索中...' : '🔎 キーワードで抽出（ニナファーム/ミトコンドリア）'}
         </button>
-        {scanState?.running && (
-          <>
+        <label
+          style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: 5,
+            fontSize: 12,
+            color: 'var(--text-muted)',
+            cursor: 'pointer',
+          }}
+          title="OFF=タイトルのみ検索（誤検出が少ない・既定）。ON=本文にしか出てこないケースも拾えます"
+        >
+          <input
+            type="checkbox"
+            checked={kwIncludeBody}
+            onChange={(e) => setKwIncludeBody(e.target.checked)}
+            style={{ accentColor: '#4f46e5' }}
+          />
+          本文も検索する
+        </label>
+        {!kwScan?.loading && kwScan?.message && (
+          <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>{kwScan.message}</span>
+        )}
+      </div>
+
+      {/* 201: プレビューパネル（件数＋タイトル一覧＋現カテゴリ→新カテゴリ・個別除外つき） */}
+      {kwScan && !kwScan.loading && kwScan.hits.length > 0 && (
+        <div
+          style={{
+            padding: '12px 16px',
+            background: 'rgba(79,70,229,0.06)',
+            border: '1px solid rgba(79,70,229,0.25)',
+            borderRadius: 10,
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 10,
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+            <span style={{ fontSize: 13, fontWeight: 700, color: '#4f46e5' }}>
+              🔎 キーワード抽出プレビュー（まだ何も変更していません）
+            </span>
+            {Object.entries(kwScan.counts).map(([cat, n]) => (
+              <span
+                key={cat}
+                style={{
+                  fontSize: 11,
+                  padding: '2px 8px',
+                  borderRadius: 12,
+                  background: 'rgba(79,70,229,0.12)',
+                  color: '#4f46e5',
+                  fontWeight: 600,
+                }}
+              >
+                {cat}: {n}件
+              </span>
+            ))}
+          </div>
+          <div
+            style={{
+              maxHeight: 320,
+              overflowY: 'auto',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 4,
+            }}
+          >
+            {kwScan.hits.map((h) => {
+              const key = `${h.table}:${h.id}`;
+              const checked = !kwScan.excluded.has(key);
+              return (
+                <label
+                  key={key}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'flex-start',
+                    gap: 8,
+                    fontSize: 12,
+                    padding: '4px 6px',
+                    borderRadius: 6,
+                    background: checked ? 'transparent' : 'rgba(107,114,128,0.08)',
+                    opacity: checked ? 1 : 0.55,
+                    cursor: 'pointer',
+                  }}
+                >
+                  <input
+                    type="checkbox"
+                    checked={checked}
+                    onChange={() => {
+                      setKwScan((s) => {
+                        if (!s) return s;
+                        const excluded = new Set(s.excluded);
+                        if (excluded.has(key)) excluded.delete(key);
+                        else excluded.add(key);
+                        return { ...s, excluded };
+                      });
+                    }}
+                    style={{ marginTop: 2, accentColor: '#4f46e5' }}
+                  />
+                  <span style={{ flex: 1, minWidth: 0 }}>
+                    <span style={{ color: 'var(--text-primary)', fontWeight: 600 }}>
+                      {h.table === 'ta' ? '📝' : '🧠'} {h.title}
+                    </span>
+                    <span style={{ color: 'var(--text-muted)', marginLeft: 8 }}>
+                      {h.current || '未分類'} → <strong style={{ color: '#4f46e5' }}>{h.category}</strong>
+                      ・一致: {h.keywords.join(', ')}
+                    </span>
+                  </span>
+                </label>
+              );
+            })}
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
             <button
               type="button"
-              onClick={() => {
-                scanAbortRef.current = true;
-              }}
+              onClick={handleKeywordApply}
+              disabled={kwScan.applying}
               style={{
-                padding: '6px 12px',
-                background: 'rgba(239,68,68,0.08)',
-                color: '#ef4444',
-                border: '1px solid rgba(239,68,68,0.35)',
+                padding: '6px 14px',
+                background: kwScan.applying ? '#9ca3af' : 'linear-gradient(135deg, #4f46e5, #7c3aed)',
+                color: '#fff',
+                border: 'none',
                 borderRadius: 8,
                 fontSize: 12,
                 fontWeight: 700,
-                cursor: 'pointer',
+                cursor: kwScan.applying ? 'not-allowed' : 'pointer',
               }}
             >
-              ⏹ 中止
+              {kwScan.applying
+                ? '適用中...'
+                : `✅ 適用（${kwScan.hits.filter((h) => !kwScan.excluded.has(`${h.table}:${h.id}`)).length}件）`}
             </button>
-            <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>
-              {scanState.processed} / {scanState.total}件 判定済み・該当{scanState.hits.length}件
-            </span>
-            <span
-              aria-hidden
+            <button
+              type="button"
+              onClick={() => setKwScan(null)}
+              disabled={kwScan.applying}
               style={{
-                flexBasis: 160,
-                height: 6,
-                borderRadius: 999,
-                background: 'var(--bg-primary)',
+                padding: '6px 12px',
+                background: 'transparent',
+                color: 'var(--text-muted)',
                 border: '1px solid var(--border)',
-                overflow: 'hidden',
+                borderRadius: 8,
+                fontSize: 12,
+                cursor: kwScan.applying ? 'not-allowed' : 'pointer',
               }}
             >
-              <span
-                style={{
-                  display: 'block',
-                  height: '100%',
-                  width: `${Math.min(100, Math.round((scanState.processed / Math.max(1, scanState.total)) * 100))}%`,
-                  background: 'linear-gradient(135deg, #4f46e5, #7c3aed)',
-                  transition: 'width 0.3s',
-                }}
-              />
+              キャンセル
+            </button>
+            <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>
+              チェックを外した項目は適用されません。適用後も旧カテゴリは退避され、元に戻せます。
             </span>
-          </>
-        )}
-        {!scanState?.running && scanState?.message && (
-          <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>{scanState.message}</span>
-        )}
-      </div>
+          </div>
+        </div>
+      )}
 
       {/* カテゴライズ結果バナー */}
       {categorizationResult && (

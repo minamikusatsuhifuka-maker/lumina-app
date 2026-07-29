@@ -127,10 +127,5 @@ export function vocabularyPromptText(): string {
   );
 }
 
-// 192③: 新カテゴリ抽出（ニナファーム/ミトコンドリア・抗酸化）の段階実行スキャン用定数。
-// コスト概算は静的定数（152: AIに数値を書かせない）。
-// 根拠: Claude Sonnet 5 = $3/MTok(in)・$15/MTok(out)、1件あたり入力 約250tok＋出力 約25tok
-//       → 100件 ≒ $0.11 ≒ ¥17 → 余裕をみて「約¥20/100件」と表示する。
-export const SCAN_TARGET_CATEGORIES = ['ニナファーム', 'ミトコンドリア・抗酸化'];
-export const SCAN_BATCH_SIZE = 20;
-export const SCAN_COST_YEN_PER_100 = 20;
+// 192③の新カテゴリ抽出スキャン用定数（SCAN_*）は 201 で廃止。
+// AI判定 → キーワード一致方式へ置き換えた（辞書は category-keywords.ts に一元管理）。
