@@ -542,6 +542,7 @@ test('C22: note選択モード中の干渉（214）— 案内表示＋カート�
   await page.getByRole('button', { name: /2件選択中 → 次へ/ }).click();
   await page.getByRole('button', { name: /🔀 この選択で横断分析する（🗂2件）/ }).click();
   await page.waitForURL('**/dashboard/text-analysis?tab=cross');
-  await expect(page.getByText('2件選択中')).toBeVisible();
+  // noteカートは選択維持のためDockの「☑ 2件選択中 → 次へ」も残る＝exact指定でパネル側だけを見る
+  await expect(page.getByText('2件選択中', { exact: true })).toBeVisible();
   await expect(page.getByText(`[E2E] ${CROSS_TOKEN} 横断A`).filter({ visible: true }).first()).toBeVisible();
 });
