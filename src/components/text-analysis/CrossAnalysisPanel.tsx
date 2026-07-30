@@ -24,6 +24,7 @@ const PRESET_TYPES = [
   { id: 'common_diff', label: '🔄 共通点・相違点', desc: '記事間の一致点と対立点を分析' },
   { id: 'future_prediction', label: '🔮 今後の予測・示唆', desc: 'トレンドから未来を予測' },
   { id: 'learning', label: '📚 学びの要点', desc: '実践に活かせる知識を整理' },
+  { id: 'grade_evaluation', label: '🎓 等級評価・人材像', desc: '等級アップに求められる人材像を整理' },
   { id: 'summary', label: '📋 総合まとめ', desc: '全体を統合してインサイトを導く' },
   { id: 'insights', label: '🔍 洞察・パターン', desc: '隠れたパターン・関連性を発見' },
   { id: 'structure', label: '📁 情報の構造化', desc: '体系的に整理・マップ化' },
