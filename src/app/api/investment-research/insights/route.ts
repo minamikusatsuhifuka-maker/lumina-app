@@ -4,6 +4,7 @@ import { trackUsage } from '@/lib/trackUsage';
 import type { AIModel } from '@/lib/ai-client';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import { CLAUDE_TEXT_MODEL, GEMINI_TEXT_MODEL } from '@/lib/ai-models';
+import { robustJsonParse } from '@/lib/ai-json-parser';
 
 export const maxDuration = 300;
 
@@ -17,34 +18,20 @@ type Insights = {
   keywords: string[];
 };
 
-const EMPTY_INSIGHTS: Insights = { summary: '', advice: '', keywords: [] };
-
-// AI 応答から JSON 部分のみを抽出（前置き/コードフェンスを除去）
-function extractJson(raw: string): string {
-  let s = raw.trim();
-  // ```json ... ``` または ``` ... ``` のコードフェンスを剥がす
-  s = s.replace(/^```(?:json)?\s*/i, '').replace(/```\s*$/i, '');
-  // 最初の { から最後の } までを抽出
-  const first = s.indexOf('{');
-  const last = s.lastIndexOf('}');
-  if (first >= 0 && last > first) {
-    return s.slice(first, last + 1);
-  }
-  return s;
-}
-
+// 206: パースは標準パーサ（ai-json-parser.ts）に統一（ローカル extractJson 再実装は削除）。
+// 救済しても失敗した場合は「全欄空のインサイト」を200で返さず、例外→502で失敗を可視化する
+// （205調査: 旧実装はサイレントに空欄を返しユーザーが失敗に気づけなかった）
 function parseInsights(raw: string): Insights {
-  try {
-    const json = JSON.parse(extractJson(raw));
-    const summary = typeof json.summary === 'string' ? json.summary : '';
-    const advice = typeof json.advice === 'string' ? json.advice : '';
-    const keywords = Array.isArray(json.keywords)
-      ? json.keywords.filter((k: unknown) => typeof k === 'string' && k.trim()).map((k: string) => k.trim())
-      : [];
-    return { summary, advice, keywords };
-  } catch {
-    return EMPTY_INSIGHTS;
+  const json = robustJsonParse<Record<string, unknown>>(raw);
+  const summary = typeof json.summary === 'string' ? json.summary : '';
+  const advice = typeof json.advice === 'string' ? json.advice : '';
+  const keywords = Array.isArray(json.keywords)
+    ? json.keywords.filter((k: unknown) => typeof k === 'string' && (k as string).trim()).map((k: string) => k.trim())
+    : [];
+  if (!summary && !advice) {
+    throw new Error('インサイトが空です');
   }
+  return { summary, advice, keywords };
 }
 
 export async function POST(req: NextRequest) {
@@ -131,8 +118,9 @@ ${report}
         }),
       });
       if (!response.ok) {
-        return new Response(JSON.stringify({ ...EMPTY_INSIGHTS, error: `APIエラー: ${response.status}` }), {
-          status: 200,
+        // 206: APIエラーも空インサイトの200偽装をやめて明示的に失敗させる
+        return new Response(JSON.stringify({ error: `APIエラー: ${response.status}` }), {
+          status: 502,
           headers: { 'Content-Type': 'application/json' },
         });
       }
@@ -163,9 +151,11 @@ ${report}
       headers: { 'Content-Type': 'application/json' },
     });
   } catch (e: any) {
-    // パース失敗・通信エラー時は空オブジェクトを返してメインレポートを守る
-    return new Response(JSON.stringify({ ...EMPTY_INSIGHTS, error: e?.message ?? 'unknown error' }), {
-      status: 200,
+    // 206: パース失敗を含む全失敗を502で返す（UI側が可視化＋再試行導線を出す。
+    // メインレポートは別経路なので影響しない）
+    console.error('investment-research/insights failed:', e?.message ?? e);
+    return new Response(JSON.stringify({ error: e?.message ?? 'インサイト生成に失敗しました' }), {
+      status: 502,
       headers: { 'Content-Type': 'application/json' },
     });
   }

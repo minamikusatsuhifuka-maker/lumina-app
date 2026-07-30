@@ -2,6 +2,7 @@ import { CLAUDE_TEXT_MODEL } from '@/lib/ai-models';
 import { NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
 import { neon } from '@neondatabase/serverless';
+import { robustJsonParse } from '@/lib/ai-json-parser';
 
 export const maxDuration = 30;
 
@@ -92,19 +93,18 @@ ${history ? `過去: ${history}` : ''}
     const data = await response.json();
     const rawText = data.content?.[0]?.text || '';
 
-    let result: any = {};
+    // 206: 標準パーサで救済し、それでも失敗したら偽スコアを作らず明示エラー（DBにも書かない）。
+    // 旧実装はパース失敗時に mindset_score:70 等のダミーを生成してUPDATEしており、
+    // 偽の分析結果が永続化されていた（205調査）
+    let result: any;
     try {
-      const jsonMatch = rawText.match(/\{[\s\S]*\}/);
-      result = jsonMatch ? JSON.parse(jsonMatch[0]) : {};
+      result = robustJsonParse(rawText);
     } catch {
-      result = {
-        dominant_needs: ['love_belonging'],
-        growth_stage: 'Lv3行う',
-        mindset_score: 70,
-        motivation_level: 70,
-        ai_analysis: '分析データを取得できませんでした。',
-        next_agenda: ['前回のアクションの振り返り', '課題の深掘り', '次のステップの確認'],
-      };
+      console.error('one-on-one analyze parse failed. raw先頭200字:', rawText.slice(0, 200));
+      return NextResponse.json(
+        { error: 'AI応答の解析に失敗しました。もう一度お試しください。' },
+        { status: 502 },
+      );
     }
 
     try {

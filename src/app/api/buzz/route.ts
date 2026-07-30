@@ -1,6 +1,7 @@
 import { CLAUDE_TEXT_MODEL } from '@/lib/ai-models';
 import { NextRequest, NextResponse } from 'next/server';
 import { requireAuth } from '@/lib/require-auth';
+import { robustJsonParse } from '@/lib/ai-json-parser';
 
 export const maxDuration = 120;
 
@@ -79,9 +80,15 @@ ${mode || 'X（Twitter）'}
     return NextResponse.json({ fixed: text });
   }
 
+  // 206: 標準パーサで救済し、それでも失敗したら偽の「スコア50点・普通」を返さず明示エラー
+  // （205調査: 旧実装は失敗を50点の分析結果に見せかけていた）
   try {
-    return NextResponse.json(JSON.parse(text));
+    return NextResponse.json(robustJsonParse(text));
   } catch {
-    return NextResponse.json({ score: 50, level: '普通', strengths: [], improvements: [] });
+    console.error('buzz parse failed. raw先頭200字:', text.slice(0, 200));
+    return NextResponse.json(
+      { error: 'AI応答の解析に失敗しました。もう一度お試しください。' },
+      { status: 502 },
+    );
   }
 }

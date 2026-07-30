@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
 import { neon } from '@neondatabase/serverless';
 import { callAI } from '@/lib/call-ai';
+import { robustJsonParse } from '@/lib/ai-json-parser';
 
 export const maxDuration = 30;
 
@@ -76,27 +77,18 @@ ${text}
 
     console.log('analyze: AI response received, parsing...');
 
-    const clean = rawText.replace(/```json|```/g, '').trim();
-    let result: any = {};
+    // 206: 標準パーサで救済し、それでも失敗したらスコア全0のダミーをINSERTせず明示エラー。
+    // 旧実装はパース失敗時に「解析エラー・全項目0点・要検討」の偽レコードを
+    // applicants にINSERTしていた（205調査: DB汚染）
+    let result: any;
     try {
-      const match = clean.match(/\{[\s\S]*\}/);
-      result = JSON.parse(match ? match[0] : clean);
+      result = robustJsonParse(rawText);
     } catch (parseErr) {
-      console.error('JSON parse error:', parseErr, 'raw:', clean.slice(0, 200));
-      result = {
-        extracted_data: { name: '解析エラー' },
-        scores: {
-          jitsukou: { score: 0, reason: '解析失敗' },
-          jisseki: { score: 0, reason: '解析失敗' },
-          jitsuryoku: { score: 0, reason: '解析失敗' },
-          seijitsu: { score: 0, reason: '解析失敗' },
-        },
-        dominant_needs: [],
-        personality_summary: '',
-        recommendation: '要検討',
-        ai_comment: '解析に失敗しました。再度お試しください。',
-        interview_points: [],
-      };
+      console.error('JSON parse error:', parseErr, 'raw:', rawText.slice(0, 200));
+      return NextResponse.json(
+        { error: 'AI応答の解析に失敗しました。もう一度お試しください。' },
+        { status: 502 },
+      );
     }
 
     const totalScore = result.scores

@@ -775,6 +775,9 @@ export default function DeepResearchPage() {
     advice: string;
   } | null>(null);
   const [insightsLoading, setInsightsLoading] = useState(false);
+  // 206: インサイト生成失敗の可視化＋再試行用（直近の引数を保持）
+  const [insightsError, setInsightsError] = useState('');
+  const lastInsightsArgsRef = useRef<{ reportText: string; reportTopic: string } | null>(null);
   const [downloadingSummary, setDownloadingSummary] = useState(false);
   const [downloadingDetail, setDownloadingDetail] = useState(false);
   const [downloadingAdvice, setDownloadingAdvice] = useState(false);
@@ -1212,19 +1215,25 @@ ${contextText}
     window.open(url, '_blank', 'noopener,noreferrer');
   };
 
-  // 要約・詳細・キーワード・活用アドバイスを自動生成（メインレポート完了後）
+  // 要約・詳細・キーワード・活用アドバイスを自動生成（メインレポート完了後）。
+  // 206: 失敗を無言で握りつぶさず、エラー表示＋再試行ボタンを出す（メインレポートには影響させない）
   const fetchInsights = async (reportText: string, reportTopic: string) => {
     if (!reportText.trim() || !reportTopic.trim()) return;
+    lastInsightsArgsRef.current = { reportText, reportTopic };
     setInsightsLoading(true);
     setInsights(null);
+    setInsightsError('');
     try {
       const res = await fetch('/api/deepresearch/insights', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ report: reportText, topic: reportTopic, model: getSavedModel() }),
       });
-      if (!res.ok) return;
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setInsightsError(data.error ?? `HTTP ${res.status}`);
+        return;
+      }
       setInsights({
         summary: data.summary ?? '',
         detail: data.detail ?? '',
@@ -1232,7 +1241,7 @@ ${contextText}
         advice: data.advice ?? '',
       });
     } catch {
-      // メインレポートには影響させない
+      setInsightsError('通信エラー');
     } finally {
       setInsightsLoading(false);
     }
@@ -2222,6 +2231,24 @@ ${contextText}
             <div style={{ marginTop: 24, padding: 16, background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 8, textAlign: 'center' }}>
               <div style={{ display: 'inline-block', width: 18, height: 18, border: '2px solid var(--border-accent)', borderTopColor: 'var(--accent)', borderRadius: '50%', animation: 'spin 0.8s linear infinite', verticalAlign: 'middle', marginRight: 8 }} />
               <span style={{ color: 'var(--text-secondary)', fontSize: 13 }}>要約・詳細・キーワード・活用アドバイスを生成中...</span>
+            </div>
+          )}
+
+          {/* 206: インサイト生成失敗の可視化＋再試行（メインレポートは無事なことを明記） */}
+          {!insightsLoading && insightsError && (
+            <div style={{ marginTop: 24, padding: '12px 16px', background: 'rgba(239,68,68,0.06)', border: '1px solid rgba(239,68,68,0.3)', borderRadius: 8, display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' as const }}>
+              <span style={{ color: '#ef4444', fontSize: 13 }}>
+                ❌ 要約・アドバイスの生成に失敗しました（{insightsError}）。レポート本文には影響ありません。
+              </span>
+              <button
+                onClick={() => {
+                  const a = lastInsightsArgsRef.current;
+                  if (a) void fetchInsights(a.reportText, a.reportTopic);
+                }}
+                style={{ padding: '5px 14px', background: 'var(--bg-primary)', border: '1px solid rgba(239,68,68,0.4)', color: '#ef4444', borderRadius: 6, cursor: 'pointer', fontSize: 12, fontWeight: 600 }}
+              >
+                🔄 再試行
+              </button>
             </div>
           )}
 

@@ -454,7 +454,16 @@ export default function WritePage() {
         body: JSON.stringify({ content: output, mode }),
       });
       const data = await res.json();
+      // 206: サーバは失敗時に偽スコアでなくエラーを返すようになった。
+      // 失敗を「undefined点」で描画せず、既存の improveError 帯で可視化（ボタン再押下で再試行）
+      if (!res.ok || data.error) {
+        setImproveError(`バズ分析に失敗しました: ${data.error ?? `HTTP ${res.status}`}。再度お試しください。`);
+        return;
+      }
+      setImproveError('');
       setBuzzScore(data);
+    } catch {
+      setImproveError('バズ分析に失敗しました（通信エラー）。再度お試しください。');
     } finally {
       setBuzzLoading(false);
     }

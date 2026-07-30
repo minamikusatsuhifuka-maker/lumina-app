@@ -71,6 +71,11 @@ export default function MemoryPage() {
         setMemories(prev => [newMem, ...prev]);
         setManualText('');
         setManualTitle('');
+      } else {
+        // 206: サーバは失敗時に保存せずエラーを返すようになった。無言で終わらせず可視化
+        // （入力は消さないのでそのまま再試行できる）
+        const data = await res.json().catch(() => ({}));
+        window.alert(data.error ?? 'メモリの保存に失敗しました。もう一度お試しください。');
       }
     } finally { setSaving(false); }
   };

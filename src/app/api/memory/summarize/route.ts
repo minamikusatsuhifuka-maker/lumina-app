@@ -2,6 +2,7 @@ import { CLAUDE_TEXT_MODEL } from '@/lib/ai-models';
 import { NextRequest } from 'next/server';
 import { auth } from '@/lib/auth';
 import { neon } from '@neondatabase/serverless';
+import { robustJsonParse } from '@/lib/ai-json-parser';
 
 export const runtime = 'nodejs';
 export const maxDuration = 300;
@@ -32,7 +33,10 @@ export async function POST(req: NextRequest) {
   const apiKey = process.env.ANTHROPIC_API_KEY!;
   const sql = neon(process.env.DATABASE_URL!);
 
-  let summary = title ?? 'メモリ';
+  // 206: 要約・キーワードが取れなかったら保存せず失敗を返す（リトライ可能に）。
+  // 旧実装は失敗を握りつぶしてタイトルだけのレコードをINSERTしており、
+  // 要約・キーワード欠落のまま永続化されていた（205調査）
+  let summary = '';
   let keywords = '';
 
   try {
@@ -47,14 +51,18 @@ export async function POST(req: NextRequest) {
       messages: [{ role: 'user', content: `タイトル：${title}\n\n内容：${content?.slice(0, 1000) ?? ''}` }],
     });
 
-    let resultText = data.content?.[0]?.text ?? '{}';
-    resultText = resultText.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
-    const parsed = JSON.parse(resultText);
-    summary = parsed.summary ?? summary;
+    const resultText = data.content?.[0]?.text ?? '';
+    const parsed = robustJsonParse<{ summary?: string; keywords?: string[] }>(resultText);
+    summary = parsed.summary ?? '';
     keywords = (parsed.keywords ?? []).join(',');
-  } catch {
-    // AI要約が失敗しても、タイトルベースで保存
+  } catch (e) {
+    console.error('memory/summarize failed:', e instanceof Error ? e.message : e);
+    return Response.json(
+      { error: 'AI要約の生成に失敗しました。もう一度お試しください。' },
+      { status: 502 },
+    );
   }
+  if (!summary) summary = title ?? 'メモリ';
 
   const rows = await sql`INSERT INTO memory_items (user_id, summary, category, source_type, source_title, keywords)
     VALUES (${userId}, ${summary}, ${category ?? 'general'}, ${sourceType ?? 'library'}, ${title ?? null}, ${keywords})

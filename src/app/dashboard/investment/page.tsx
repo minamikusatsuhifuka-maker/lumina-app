@@ -118,31 +118,40 @@ export default function InvestmentResearchPage() {
   // 追加機能: 要約・アドバイス・関連キーワード
   const [insights, setInsights] = useState<Insights | null>(null);
   const [insightsLoading, setInsightsLoading] = useState(false);
+  // 206: インサイト生成失敗の可視化＋再試行用（直近の引数を保持）
+  const [insightsError, setInsightsError] = useState('');
+  const lastInsightsArgsRef = useRef<{ reportText: string; reportTopic: string } | null>(null);
   const [downloadingSummary, setDownloadingSummary] = useState(false);
   const [downloadingAdvice, setDownloadingAdvice] = useState(false);
   const topicInputRef = useRef<HTMLTextAreaElement | null>(null);
   const { progress, loading: progressLoading, startProgress, completeProgress, resetProgress } = useProgress();
 
-  // 要約・アドバイス・関連キーワードを取得
+  // 要約・アドバイス・関連キーワードを取得。
+  // 206: 失敗を無言で握りつぶさず、エラー表示＋再試行ボタンを出す（メインレポートには影響させない）
   const fetchInsights = async (reportText: string, reportTopic: string) => {
     if (!reportText.trim() || !reportTopic.trim()) return;
+    lastInsightsArgsRef.current = { reportText, reportTopic };
     setInsightsLoading(true);
     setInsights(null);
+    setInsightsError('');
     try {
       const res = await fetch('/api/investment-research/insights', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ report: reportText, topic: reportTopic, model: getSavedModel() }),
       });
-      if (!res.ok) return;
-      const data = (await res.json()) as Insights & { error?: string };
+      const data = (await res.json().catch(() => ({}))) as Insights & { error?: string };
+      if (!res.ok) {
+        setInsightsError(data.error ?? `HTTP ${res.status}`);
+        return;
+      }
       setInsights({
         summary: data.summary ?? '',
         advice: data.advice ?? '',
         keywords: Array.isArray(data.keywords) ? data.keywords : [],
       });
     } catch {
-      // メインレポートには影響させない
+      setInsightsError('通信エラー');
     } finally {
       setInsightsLoading(false);
     }
@@ -560,6 +569,24 @@ export default function InvestmentResearchPage() {
         <div style={{ marginTop: 16, background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 12, padding: 20, textAlign: 'center' }}>
           <div style={{ width: 28, height: 28, border: '2px solid var(--border-accent)', borderTopColor: 'var(--accent)', borderRadius: '50%', animation: 'spin 0.8s linear infinite', margin: '0 auto 10px' }} />
           <div style={{ color: 'var(--text-secondary)', fontSize: 13 }}>要約・アドバイス・関連キーワードを生成中...</div>
+        </div>
+      )}
+
+      {/* 206: インサイト生成失敗の可視化＋再試行（メインレポートは無事なことを明記） */}
+      {report && !loading && !insightsLoading && insightsError && (
+        <div style={{ marginTop: 16, padding: '12px 16px', background: 'rgba(239,68,68,0.06)', border: '1px solid rgba(239,68,68,0.3)', borderRadius: 12, display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+          <span style={{ color: '#ef4444', fontSize: 13 }}>
+            ❌ 要約・アドバイスの生成に失敗しました（{insightsError}）。レポート本文には影響ありません。
+          </span>
+          <button
+            onClick={() => {
+              const a = lastInsightsArgsRef.current;
+              if (a) void fetchInsights(a.reportText, a.reportTopic);
+            }}
+            style={{ padding: '5px 14px', background: 'var(--bg-primary)', border: '1px solid rgba(239,68,68,0.4)', color: '#ef4444', borderRadius: 6, cursor: 'pointer', fontSize: 12, fontWeight: 600 }}
+          >
+            🔄 再試行
+          </button>
         </div>
       )}
 

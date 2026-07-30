@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
 import { callAI } from '@/lib/call-ai';
 import { neon } from '@neondatabase/serverless';
+import { robustJsonParse } from '@/lib/ai-json-parser';
 
 export const maxDuration = 30;
 
@@ -45,30 +46,18 @@ ${latestMeeting ? `成長段階: ${latestMeeting.stage} / マインド: ${latest
       maxTokens: 600,
     });
 
-    const clean = response.replace(/```json|```/g, '').trim();
-    const jsonMatch = clean.match(/\{[\s\S]*\}/);
-    let result: any = {};
-
-    if (jsonMatch) {
-      try {
-        result = JSON.parse(jsonMatch[0]);
-      } catch {
-        result = {
-          ai_evaluation: clean.slice(0, 200),
-          strengths: ['データ取得中'],
-          improvements: ['データ取得中'],
-          promotion_eligible: false,
-          promotion_reason: '評価データが不足しています',
-        };
-      }
-    } else {
-      result = {
-        ai_evaluation: response.slice(0, 300),
-        strengths: [],
-        improvements: [],
-        promotion_eligible: false,
-        promotion_reason: '評価データが不足しています',
-      };
+    // 206: 標準パーサで救済し、それでも失敗したら偽の昇格判定を作らず明示エラー（DBにも書かない）。
+    // 旧実装はパース失敗時に promotion_eligible:false の定型ダミーを生成して
+    // staff_evaluations.ai_evaluation をUPDATEしており、誤った判定が永続化されていた（205調査）
+    let result: any;
+    try {
+      result = robustJsonParse(response);
+    } catch {
+      console.error('ai-comment parse failed. raw先頭200字:', response.slice(0, 200));
+      return NextResponse.json(
+        { error: 'AI応答の解析に失敗しました。もう一度お試しください。' },
+        { status: 502 },
+      );
     }
 
     try {
