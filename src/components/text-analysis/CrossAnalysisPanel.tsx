@@ -35,6 +35,56 @@ const PRESET_TYPES = [
 const PURPLE = '#9333ea';
 const PURPLE_DARK = '#7e22ce';
 
+// 212: 等級評価・人材像の方針適合判定（第2パス /api/text-analysis/grade-fit の応答と同形）
+interface FitSegment {
+  text: string;
+  fitLevel: 'match' | 'caution' | 'neutral';
+  axes: string[];
+  rationale: string;
+  reframe?: string;
+}
+interface FitSummary {
+  matchCount: number;
+  cautionCount: number;
+  neutralCount: number;
+  matchHighlights: string[];
+  cautionNotes: string[];
+}
+interface FitData {
+  fitSegments: FitSegment[];
+  fitSummary: FitSummary;
+}
+
+// 判定レベルごとの表示定義（Tailwind完全リテラル指定・212 §3-2。動的組み立て禁止）
+const FIT_STYLE: Record<FitSegment['fitLevel'], { icon: string; className: string; label: string }> = {
+  match: { icon: '🟢', className: 'bg-green-50 border-l-4 border-green-400', label: '合致' },
+  caution: { icon: '🟡', className: 'bg-yellow-50 border-l-4 border-yellow-400', label: '要注意' },
+  neutral: { icon: '⚪', className: 'bg-white border-l-4 border-gray-200', label: '中立' },
+};
+
+// 保存用: fitマップをMarkdown化（🟢🟡⚪マーカー先頭付与＝色がなくても判定が読める。213指示1）
+function fitToMarkdown(fit: FitData): string {
+  const seg = fit.fitSegments
+    .map((s) => {
+      const st = FIT_STYLE[s.fitLevel];
+      const axes = s.fitLevel === 'match' && s.axes.length > 0 ? `［${s.axes.join('・')}］` : '';
+      const reframe = s.reframe ? `\n  - 読み替え: ${s.reframe}` : '';
+      const rationale = s.rationale ? `\n  - 判定理由: ${s.rationale}` : '';
+      return `- ${st.icon} **${st.label}**${axes} ${s.text}${rationale}${reframe}`;
+    })
+    .join('\n');
+  const sum = fit.fitSummary;
+  return `\n\n---\n\n## 📋 方針適合マップ\n${seg}\n\n## 🧭 適合サマリー\n- 🟢 合致 ${sum.matchCount}件 ／ 🟡 要注意 ${sum.cautionCount}件 ／ ⚪ 中立 ${sum.neutralCount}件\n${
+    sum.matchHighlights.length > 0
+      ? `\n**特に方針に合致する点**\n${sum.matchHighlights.map((h) => `- 🟢 ${h}`).join('\n')}\n`
+      : ''
+  }${
+    sum.cautionNotes.length > 0
+      ? `\n**要注意の点と読み替え**\n${sum.cautionNotes.map((c) => `- 🟡 ${c}`).join('\n')}\n`
+      : ''
+  }`;
+}
+
 export default function CrossAnalysisPanel({
   selectedArticles,
   onArticlesChange,
@@ -50,6 +100,37 @@ export default function CrossAnalysisPanel({
   const [isSaving, setIsSaving] = useState(false);
   const [savedId, setSavedId] = useState<number | null>(null);
   const [copyStatus, setCopyStatus] = useState<'idle' | 'copied' | 'error'>('idle');
+  // 212: 方針適合判定（等級評価・人材像のみ・第2パス）。失敗時は本文無傷のまま⚠️＋再試行を出す
+  const [fitData, setFitData] = useState<FitData | null>(null);
+  const [fitLoading, setFitLoading] = useState(false);
+  const [fitError, setFitError] = useState('');
+
+  // 212: 第2パス＝方針適合判定。入力は元資料が主・分析本文は補助（判定対象は元資料。213指示2）
+  const fetchGradeFit = async (articles: CrossArticle[], analysisText: string) => {
+    setFitLoading(true);
+    setFitError('');
+    setFitData(null);
+    try {
+      const res = await fetch('/api/text-analysis/grade-fit', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          articles: articles.map((a) => ({ title: a.title, content: a.content })),
+          analysisText,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setFitError(data.error ?? `HTTP ${res.status}`);
+        return;
+      }
+      setFitData(data as FitData);
+    } catch {
+      setFitError('通信エラー');
+    } finally {
+      setFitLoading(false);
+    }
+  };
 
   const handleCopy = async () => {
     const success = await copyToClipboard(result);
@@ -75,6 +156,8 @@ export default function CrossAnalysisPanel({
     setResult('');
     setStreamingText('');
     setSavedId(null);
+    setFitData(null);
+    setFitError('');
 
     try {
       const res = await fetch('/api/text-analysis/cross-analyze', {
@@ -124,6 +207,12 @@ export default function CrossAnalysisPanel({
         }
       }
       if (fullText && !result) setResult(fullText);
+
+      // 212: 等級評価・人材像のみ、本文完了後に方針適合判定（第2パス）を実行。
+      // 本文とは独立＝判定が失敗しても本文表示・保存は無傷（graceful degradation）
+      if (presetType === 'grade_evaluation' && fullText) {
+        void fetchGradeFit(selectedArticles, fullText);
+      }
     } catch (err) {
       alert(`通信エラー: ${err instanceof Error ? err.message : String(err)}`);
     } finally {
@@ -148,7 +237,9 @@ export default function CrossAnalysisPanel({
         )
         .join('\n')
     }`;
-    const fullContent = result + sourceSection;
+    // 212: 方針適合マップがあれば🟢🟡⚪マーカー付きMarkdownで本文末尾に追記（保存後も判定が残る）
+    const fitSection = presetType === 'grade_evaluation' && fitData ? fitToMarkdown(fitData) : '';
+    const fullContent = result + fitSection + sourceSection;
 
     try {
       const res = await fetch('/api/text-analysis/saves', {
@@ -423,6 +514,118 @@ export default function CrossAnalysisPanel({
               </div>
             )}
           </div>
+
+          {/* 212: 方針適合マップ＋適合サマリー（等級評価・人材像のみ・本文とは独立描画）。
+              ###見出し不使用（太字＋箇条書き）・Tailwind完全リテラル・fail-closed表示 */}
+          {presetType === 'grade_evaluation' && result && !isAnalyzing && (
+            <div style={{ marginTop: 14, paddingTop: 14, borderTop: '1px solid var(--border)' }}>
+              <p style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 8 }}>
+                📋 方針適合マップ
+                <span style={{ marginLeft: 8, fontSize: 11, fontWeight: 400, color: 'var(--text-muted)' }}>
+                  当院の人材育成方針（CDB 2026年7月版）に照らした判定
+                </span>
+              </p>
+
+              {fitLoading && (
+                <p style={{ fontSize: 12, color: 'var(--text-muted)' }}>⏳ 元資料を方針に照らして判定中...</p>
+              )}
+
+              {!fitLoading && fitError && (
+                <div style={{
+                  padding: '10px 14px', borderRadius: 8,
+                  background: 'rgba(239,68,68,0.06)', border: '1px solid rgba(239,68,68,0.3)',
+                  display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap',
+                }}>
+                  <span style={{ fontSize: 12, color: '#ef4444' }}>
+                    ⚠️ 判定できませんでした（{fitError}）。分析本文には影響ありません。
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => void fetchGradeFit(selectedArticles, result)}
+                    style={{
+                      padding: '4px 12px', borderRadius: 6, fontSize: 12, fontWeight: 600,
+                      background: 'var(--bg-primary)', border: '1px solid rgba(239,68,68,0.4)',
+                      color: '#ef4444', cursor: 'pointer',
+                    }}
+                  >
+                    🔄 再試行
+                  </button>
+                </div>
+              )}
+
+              {!fitLoading && !fitError && fitData && fitData.fitSegments.length > 0 && (
+                <>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                    {fitData.fitSegments.map((s, i) => {
+                      const st = FIT_STYLE[s.fitLevel];
+                      return (
+                        <div key={i} className={st.className} style={{ padding: '8px 12px', borderRadius: 6 }}>
+                          <div style={{ fontSize: 12, color: '#111827', lineHeight: 1.6 }}>
+                            {st.icon} {s.text}
+                            {s.fitLevel === 'match' && s.axes.length > 0 && (
+                              <span style={{ marginLeft: 6, display: 'inline-flex', gap: 4, verticalAlign: 'middle' }}>
+                                {s.axes.map((a) => (
+                                  <span
+                                    key={a}
+                                    style={{
+                                      fontSize: 10, fontWeight: 700, padding: '1px 7px',
+                                      borderRadius: 999, background: 'rgba(22,163,74,0.12)',
+                                      color: '#15803d', border: '1px solid rgba(22,163,74,0.3)',
+                                    }}
+                                  >
+                                    {a}
+                                  </span>
+                                ))}
+                              </span>
+                            )}
+                          </div>
+                          {s.fitLevel === 'caution' && (s.rationale || s.reframe) && (
+                            <div style={{ fontSize: 11, color: '#92400e', marginTop: 4, lineHeight: 1.5 }}>
+                              {s.rationale && <div>判定理由: {s.rationale}</div>}
+                              {s.reframe && <div>読み替え: {s.reframe}</div>}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  {/* 🧭 適合サマリー（件数はサーバ集計値） */}
+                  <div style={{
+                    marginTop: 12, padding: '10px 14px', borderRadius: 8,
+                    background: 'var(--bg-secondary)', border: '1px solid var(--border)',
+                  }}>
+                    <p style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 6 }}>
+                      🧭 適合サマリー
+                      <span style={{ marginLeft: 8, fontWeight: 400, color: 'var(--text-muted)' }}>
+                        🟢 合致 {fitData.fitSummary.matchCount}件 ／ 🟡 要注意 {fitData.fitSummary.cautionCount}件 ／ ⚪ 中立 {fitData.fitSummary.neutralCount}件
+                      </span>
+                    </p>
+                    {fitData.fitSummary.matchHighlights.length > 0 && (
+                      <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginBottom: 4 }}>
+                        <strong>特に方針に合致する点</strong>
+                        <ul style={{ margin: '2px 0 0', paddingLeft: 18 }}>
+                          {fitData.fitSummary.matchHighlights.map((h, i) => (
+                            <li key={i}>🟢 {h}</li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+                    {fitData.fitSummary.cautionNotes.length > 0 && (
+                      <div style={{ fontSize: 11, color: 'var(--text-secondary)' }}>
+                        <strong>要注意の点と読み替え</strong>
+                        <ul style={{ margin: '2px 0 0', paddingLeft: 18 }}>
+                          {fitData.fitSummary.cautionNotes.map((c, i) => (
+                            <li key={i}>🟡 {c}</li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+                  </div>
+                </>
+              )}
+            </div>
+          )}
 
           {/* 使用記事リスト（クリックで該当記事へジャンプ） */}
           {result && !isAnalyzing && selectedArticles.length > 0 && (
