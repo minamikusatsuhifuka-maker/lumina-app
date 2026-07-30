@@ -1095,6 +1095,23 @@ export default function SavedAnalysisList({
       <div>
         <BundleSelectToggleButton />
       </div>
+      {/* 214案③: note選択モード中はチェックがnote専用カートに切り替わる（180）＝
+          横断分析用の選択が封鎖されることを明示（表示のみ・ロジック無変更） */}
+      {bundleSelectMode && (
+        <div
+          style={{
+            padding: '8px 14px',
+            borderRadius: 8,
+            background: 'rgba(236,72,153,0.08)',
+            border: '1px solid rgba(236,72,153,0.3)',
+            fontSize: 12,
+            color: 'var(--text-secondary)',
+          }}
+        >
+          📝 note素材の選択モード中です。横断分析の選択は「✕ 選択をやめる」後に行ってください
+          （選択済みの資料は「次へ」のモーダルからも横断分析へ送れます）
+        </div>
+      )}
       {/* カテゴリ概覧ヘッダー */}
       <div
         style={{

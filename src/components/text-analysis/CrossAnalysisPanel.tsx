@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { copyToClipboard } from '@/lib/copyToClipboard';
 import { renderMarkdown } from '@/lib/markdown-renderer';
+import { useNoteBundleSelection } from '@/components/note-bundle/useNoteBundleSelection';
 
 export interface CrossArticle {
   id: number;
@@ -92,6 +93,8 @@ export default function CrossAnalysisPanel({
   onJumpToSaves,
   onViewArticle,
 }: Props) {
+  // 214案③: note選択モード中の案内出し分け用（共有ストア・読み取りのみ）
+  const { selectMode: bundleSelectMode } = useNoteBundleSelection();
   const [presetType, setPresetType] = useState('key_points');
   const [customPrompt, setCustomPrompt] = useState('');
   const [isAnalyzing, setIsAnalyzing] = useState(false);
@@ -288,9 +291,16 @@ export default function CrossAnalysisPanel({
         {selectedArticles.length === 0 ? (
           <div style={{ textAlign: 'center', padding: '24px 12px', color: 'var(--text-muted)' }}>
             <p style={{ fontSize: 13 }}>保存一覧タブで記事を選択してください</p>
-            <p style={{ fontSize: 11, marginTop: 4 }}>
-              チェックボックスで複数選択 → 「横断分析する」ボタン
-            </p>
+            {/* 214案③: note選択モード中はチェックがnote専用カートに切り替わるため案内を出し分ける */}
+            {bundleSelectMode ? (
+              <p style={{ fontSize: 11, marginTop: 4, color: '#ec4899' }}>
+                📝 note素材の選択モード中です。横断分析の選択は「✕ 選択をやめる」後に行ってください
+              </p>
+            ) : (
+              <p style={{ fontSize: 11, marginTop: 4 }}>
+                チェックボックスで2件以上選択 → 「🔀 選択したN件を横断分析する」ボタン
+              </p>
+            )}
           </div>
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 6, maxHeight: 220, overflowY: 'auto' }}>

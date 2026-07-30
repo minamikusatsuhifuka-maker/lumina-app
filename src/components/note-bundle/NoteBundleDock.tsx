@@ -14,6 +14,7 @@
 
 import { useEffect, useState, type CSSProperties } from 'react';
 import { createPortal } from 'react-dom';
+import { useRouter } from 'next/navigation';
 import { MAX_BUNDLE_SOURCES, BUNDLE_SOURCE_META } from '@/lib/note-bundle';
 import { isShortcutsEnabled, isTypingTarget } from '@/lib/shortcuts';
 import { useNoteBundleSelection } from './useNoteBundleSelection';
@@ -21,9 +22,42 @@ import NoteBundleModal from './NoteBundleModal';
 
 export default function NoteBundleDock() {
   const { selectMode, selectedList, lastToggledKey, countBySource, clear, toggle, setSelectMode } = useNoteBundleSelection();
+  const router = useRouter();
   // confirmOpen = 中央の確認モーダル / bundleOpen = 179のプラン→生成モーダル
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [bundleOpen, setBundleOpen] = useState(false);
+  // 214案④: note選択カートから横断分析への受け渡し中フラグ
+  const [crossPreparing, setCrossPreparing] = useState(false);
+
+  // 214案④: 選択済みのうち🗂テキスト分析由来のみを本文込みで一括取得し、
+  // 保存一覧→横断分析と同じ sessionStorage handoff（saved/page.tsx と同キー）へ接続する。
+  // 🧠AI参照素材はテーブルが別（context_saves）のため横断分析の対象外＝モーダルに明示する
+  const handleCrossFromCart = async () => {
+    const anaItems = selectedList.filter((i) => i.source === 'analysis');
+    if (crossPreparing || anaItems.length < 2) return;
+    setCrossPreparing(true);
+    try {
+      const res = await fetch(`/api/text-analysis/saves?ids=${anaItems.map((i) => i.id).join(',')}`);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      const items: Array<{ id: number; auto_title: string | null; file_name: string | null; folder: string | null; content: string }> =
+        Array.isArray(data?.items) ? data.items : [];
+      if (items.length < 2) throw new Error('本文の取得に失敗しました');
+      const articles = items.map((it) => ({
+        id: it.id,
+        title: it.auto_title ?? it.file_name ?? '無題',
+        content: it.content,
+        category: it.folder ?? undefined,
+      }));
+      sessionStorage.setItem('lumina_cross_selected', JSON.stringify(articles));
+      setConfirmOpen(false);
+      router.push('/dashboard/text-analysis?tab=cross');
+    } catch (e) {
+      window.alert(`横断分析への受け渡しに失敗しました: ${e instanceof Error ? e.message : '不明なエラー'}`);
+    } finally {
+      setCrossPreparing(false);
+    }
+  };
   // 187: 追従ボタンの表示位置（viewport座標）。null = 下部中央固定へフォールバック
   const [anchor, setAnchor] = useState<{ top: number; left: number } | null>(null);
 
@@ -261,6 +295,14 @@ export default function NoteBundleDock() {
               })}
             </div>
 
+            {/* 214案④: この選択をそのまま横断分析へ流す導線（🗂由来のみ対象・2件以上で表示）。
+                note選択モード中は一覧のチェックがnote専用カートになるため、
+                横断分析へ行きたかったユーザーがここから目的に到達できるようにする */}
+            {anaCount >= 2 && ctxCount > 0 && (
+              <p style={{ fontSize: 11, color: 'var(--text-muted)', margin: '0 0 8px' }}>
+                ※ 横断分析は🗂テキスト分析の資料のみ対象です（🧠AI参照素材 {ctxCount}件は対象外）
+              </p>
+            )}
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
               <button
                 type="button"
@@ -281,6 +323,22 @@ export default function NoteBundleDock() {
               >
                 📝 note記事にまとめる
               </button>
+              {anaCount >= 2 && (
+                <button
+                  type="button"
+                  onClick={() => void handleCrossFromCart()}
+                  disabled={crossPreparing}
+                  title={`選択中の🗂テキスト分析 ${anaCount}件を横断分析タブへ渡します`}
+                  style={smallBtn({
+                    color: '#9333ea',
+                    border: '1px solid rgba(147,51,234,0.45)',
+                    fontWeight: 700,
+                    ...(crossPreparing ? { cursor: 'not-allowed', opacity: 0.6 } : {}),
+                  })}
+                >
+                  {crossPreparing ? '⏳ 受け渡し中...' : `🔀 この選択で横断分析する（🗂${anaCount}件）`}
+                </button>
+              )}
               <button
                 type="button"
                 onClick={() => {

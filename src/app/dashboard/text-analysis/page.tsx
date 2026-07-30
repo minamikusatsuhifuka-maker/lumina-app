@@ -85,7 +85,10 @@ function TextAnalysisPageInner() {
     }
   }, []);
 
-  // 保存一覧メニュー（/dashboard/saved）からの横断分析選択を受け取る（sessionStorage handoff）
+  // 保存一覧メニュー（/dashboard/saved）からの横断分析選択を受け取る（sessionStorage handoff）。
+  // 214案④: 本ページ滞在中にnote選択カートのモーダルから渡されるケース（同一ルートへの
+  // router.push＝再マウントされない）にも対応するため、マウント時だけでなく
+  // クエリ変化（?tab=cross）でも再読込する（キーは読み取り後に削除＝再実行しても冪等）
   useEffect(() => {
     try {
       const raw = sessionStorage.getItem('lumina_cross_selected');
@@ -98,7 +101,7 @@ function TextAnalysisPageInner() {
         }
       }
     } catch {}
-  }, []);
+  }, [searchParams]);
 
   // 194: 保存直後は一覧を1ページ目から取り直す（created_at DESC のため新規保存が先頭に来る）
   const handleSaved = () => reloadRecords();

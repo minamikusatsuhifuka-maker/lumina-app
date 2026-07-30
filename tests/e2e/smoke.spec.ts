@@ -514,3 +514,34 @@ test('C21: ショートカット小窓（204改訂v2）の開閉・スクロー�
   await page.locator('button[title*="キーボードショートカット一覧"]').click();
   await expect(palette).toHaveCount(0);
 });
+
+test('C22: note選択モード中の干渉（214）— 案内表示＋カートから横断分析へ渡せる', async ({ page }) => {
+  // 208導線バグの再発防止: bundleSelectMode ON中はカードのチェックがnote専用カートに
+  // 切り替わり横断分析のselectedIdsに入らない（180の仕様）。
+  // 案③=モード中の案内表示、案④=カートの確認モーダルから横断分析へ流せることを検証する
+  await page.goto('/dashboard/saved');
+  const search = page.getByPlaceholder(/🔍 タイトル・本文で検索/).filter({ visible: true });
+  await search.fill(CROSS_TOKEN);
+  await expect(page.locator(`[data-bundle-key="ana-${crossIds[0]}"]`)).toBeVisible();
+
+  // note選択モードON → 案③の案内が出る
+  await page
+    .getByRole('button', { name: '📝 記事にまとめる資料を選ぶ' })
+    .filter({ visible: true })
+    .click();
+  await expect(
+    page.getByText(/note素材の選択モード中です。横断分析の選択は/).filter({ visible: true }).first(),
+  ).toBeVisible();
+
+  // 2件をカートに入れる（C20と同じく下から逆順＝追従ボタンの重なり回避）
+  for (const id of [...crossIds].reverse()) {
+    await page.locator(`[data-bundle-key="ana-${id}"]`).getByRole('checkbox').first().check();
+  }
+
+  // 確認モーダルに案④の「🔀 この選択で横断分析する」が出る → 押すと横断分析タブへ本文が渡る
+  await page.getByRole('button', { name: /2件選択中 → 次へ/ }).click();
+  await page.getByRole('button', { name: /🔀 この選択で横断分析する（🗂2件）/ }).click();
+  await page.waitForURL('**/dashboard/text-analysis?tab=cross');
+  await expect(page.getByText('2件選択中')).toBeVisible();
+  await expect(page.getByText(`[E2E] ${CROSS_TOKEN} 横断A`).filter({ visible: true }).first()).toBeVisible();
+});
