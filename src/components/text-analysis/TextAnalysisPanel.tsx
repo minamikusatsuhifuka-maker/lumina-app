@@ -34,12 +34,14 @@ import {
 } from '@/lib/feature-drafts';
 import FeatureDraftBanner from '@/components/FeatureDraftBanner';
 import { TextRefinePanel } from '@/components/refine/TextRefinePanel';
+import FullscreenReader from '@/components/text-analysis/FullscreenReader';
 
+// 215: 「全」は高さプリセットではなく FullscreenReader（保存一覧と同じ全画面ビューア）を
+// 開くボタンに変更。panelHeight は触らないため、閉じた後は押下前の S/M/L に自動復帰する
 const HEIGHT_PRESETS = [
   { label: 'S', h: 350 },
   { label: 'M', h: 550 },
   { label: 'L', h: 800 },
-  { label: '全', h: 9999 },
 ];
 
 interface ResultPanelProps {
@@ -78,6 +80,8 @@ function ResultPanel({
   onRefine,
 }: ResultPanelProps) {
   const [panelHeight, setPanelHeight] = useState(350);
+  // 215: 全画面ビューア（保存一覧の FullscreenReader 流用）の開閉
+  const [readerOpen, setReaderOpen] = useState(false);
   // 保存状態（カードごとに独立）: 未保存 / 保存中 / 保存済み
   // トーストは消えてしまうため、ボタン自体を「✅ 保存済み」に変化させて残す
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved'>('idle');
@@ -155,6 +159,25 @@ function ResultPanel({
             {l}
           </button>
         ))}
+        {/* 215: 「全」＝全画面ビューア（S/M/L と違い高さは変えない＝閉じたら元の高さのまま） */}
+        <button
+          type="button"
+          onClick={() => setReaderOpen(true)}
+          disabled={!text}
+          style={{
+            padding: '2px 8px',
+            fontSize: 10,
+            borderRadius: 4,
+            border: '1px solid var(--border)',
+            background: 'transparent',
+            color: 'var(--text-muted)',
+            cursor: text ? 'pointer' : 'default',
+            opacity: text ? 1 : 0.5,
+            transition: 'all 0.15s',
+          }}
+        >
+          全
+        </button>
       </div>
 
       {/* 本文 */}
@@ -166,7 +189,7 @@ function ResultPanel({
           border: '1px solid var(--border)',
           padding: 10,
           background: 'rgba(255,255,255,0.02)',
-          height: panelHeight === 9999 ? 'auto' : panelHeight,
+          height: panelHeight,
           minHeight: 120,
         }}
       >
@@ -283,6 +306,48 @@ function ResultPanel({
           ✏️ AIで修正
         </button>
       </div>
+
+      {/* 215: 全画面ビューア（保存一覧と同じ FullscreenReader 流用・portal描画のためカード内配置でOK）。
+          actions は保存一覧の全画面と同じ4操作（コピー/テキスト/MD/Word）を既存ハンドラ共有で渡す。
+          保存・変換・修正のような状態を変える操作は保存一覧と同様、誤操作防止のため入れない */}
+      <FullscreenReader
+        open={readerOpen}
+        title={label}
+        content={text}
+        onClose={() => setReaderOpen(false)}
+        actions={
+          <>
+            <button type="button" onClick={onCopy} style={btnStyle('neutral')}>
+              📋 コピー
+            </button>
+            <button
+              type="button"
+              onClick={onDownloadTxt}
+              disabled={generatingTitle}
+              style={btnStyle('neutral')}
+            >
+              {generatingTitle ? '⏳ タイトル生成中...' : '⬇ テキスト'}
+            </button>
+            <button
+              type="button"
+              onClick={onDownloadMd}
+              disabled={generatingTitle}
+              style={btnStyle('neutral')}
+            >
+              {generatingTitle ? '⏳ タイトル生成中...' : '📥 MD'}
+            </button>
+            <button
+              type="button"
+              onClick={onDownloadDocx}
+              disabled={generatingTitle}
+              style={btnStyle('neutral')}
+              title="院内配布・回覧用に体裁の整った Word(.docx) で書き出します"
+            >
+              {generatingTitle ? '⏳ タイトル生成中...' : '📄 Word'}
+            </button>
+          </>
+        }
+      />
     </div>
   );
 }
