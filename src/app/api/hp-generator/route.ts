@@ -2,6 +2,8 @@ import { CLAUDE_TEXT_MODEL } from '@/lib/ai-models';
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
 import { HP_WRITING_DESIGN, HP_AD_PROHIBITED } from '@/lib/hp-writing';
+import { extractAnthropicText } from '@/lib/anthropic-text';
+import { robustJsonParse } from '@/lib/ai-json-parser';
 
 export const runtime = 'nodejs';
 export const maxDuration = 300;
@@ -67,14 +69,10 @@ ${HP_AD_PROHIBITED}
   });
 
   const data = await response.json();
-  let text = data.content?.[0]?.text ?? '{}';
-  text = text.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
-  const jsonStart = text.indexOf('{');
-  const jsonEnd = text.lastIndexOf('}');
-  if (jsonStart !== -1 && jsonEnd !== -1) text = text.slice(jsonStart, jsonEnd + 1);
+  const text = extractAnthropicText(data.content);
 
   try {
-    return NextResponse.json(JSON.parse(text));
+    return NextResponse.json(robustJsonParse(text));
   } catch {
     return NextResponse.json({ error: 'パース失敗' }, { status: 500 });
   }

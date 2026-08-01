@@ -1,4 +1,5 @@
 import { GEMINI_TEXT_MODEL, GEMINI_TEXT_THINKING_MINIMAL, CLAUDE_TEXT_MODEL } from '@/lib/ai-models';
+import { extractAnthropicText } from '@/lib/anthropic-text';
 
 export interface AIMessage {
   role: 'user' | 'assistant';
@@ -64,13 +65,15 @@ export async function callAI(options: CallAIOptions): Promise<string> {
       },
       body: JSON.stringify({
         model: CLAUDE_TEXT_MODEL,
-        max_tokens: maxTokens,
+        // 209: thinking既定ONのモデルは思考がmax_tokensを消費する（217実測で約500tk）ため、
+        // 呼び出し元の指定が小さくても本文が切れないよう下限2048を保証する
+        max_tokens: Math.max(maxTokens, 2048),
         system: system || '',
         messages,
       }),
     });
 
     const data = await response.json();
-    return data.content?.[0]?.text || '';
+    return extractAnthropicText(data.content) || '';
   }
 }

@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
 import { neon } from '@neondatabase/serverless';
 import Anthropic from '@anthropic-ai/sdk';
+import { extractAnthropicText } from '@/lib/anthropic-text';
 
 export const maxDuration = 120;
 
@@ -54,8 +55,7 @@ export async function POST(req: NextRequest) {
 Markdown形式で出力してください。`,
       }],
     });
-    const block = marketingRes.content[0] as any;
-    marketingStrategy = block?.type === 'text' ? block.text : '';
+    marketingStrategy = extractAnthropicText(marketingRes.content);
   } catch (err) {
     console.error('[kindle/export] マーケティング生成エラー:', err);
     marketingStrategy = '（マーケティング戦略の生成に失敗しました）';

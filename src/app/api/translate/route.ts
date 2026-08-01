@@ -1,6 +1,7 @@
 import { CLAUDE_TEXT_MODEL } from '@/lib/ai-models';
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
+import { extractAnthropicText } from '@/lib/anthropic-text';
 
 export async function POST(req: NextRequest) {
   const session = await auth();
@@ -37,6 +38,6 @@ export async function POST(req: NextRequest) {
   });
 
   const data = await response.json();
-  const translated = data.content?.[0]?.text || '';
+  const translated = extractAnthropicText(data.content) || '';
   return NextResponse.json({ translated });
 }

@@ -2,6 +2,7 @@ import { CLAUDE_TEXT_MODEL } from '@/lib/ai-models';
 import { NextResponse } from 'next/server';
 import Anthropic from '@anthropic-ai/sdk';
 import { requireAuth } from '@/lib/require-auth';
+import { extractAnthropicText } from '@/lib/anthropic-text';
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
@@ -53,6 +54,6 @@ ${improved}
     ],
   });
 
-  const rewritten = message.content[0].type === 'text' ? message.content[0].text : '';
+  const rewritten = extractAnthropicText(message.content);
   return NextResponse.json({ rewritten });
 }

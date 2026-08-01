@@ -3,6 +3,7 @@ import { NextResponse } from 'next/server';
 import Anthropic from '@anthropic-ai/sdk';
 import { robustJsonParse } from '@/lib/ai-json-parser';
 import { requireAuth } from '@/lib/require-auth';
+import { extractAnthropicText } from '@/lib/anthropic-text';
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
@@ -59,7 +60,7 @@ ${improved}
     ],
   });
 
-  const raw = message.content[0].type === 'text' ? message.content[0].text : '';
+  const raw = extractAnthropicText(message.content);
 
   try {
     const data = robustJsonParse(raw);

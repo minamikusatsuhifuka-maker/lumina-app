@@ -2,6 +2,7 @@ import { CLAUDE_TEXT_MODEL } from '@/lib/ai-models';
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
 import { neon } from '@neondatabase/serverless';
+import { extractAnthropicText } from '@/lib/anthropic-text';
 
 export const runtime = 'nodejs';
 export const maxDuration = 300;
@@ -70,7 +71,7 @@ Markdown形式で出力してください。`,
     });
 
     const data = await response.json();
-    const reportContent = data.content?.[0]?.text ?? '';
+    const reportContent = extractAnthropicText(data.content) || '';
 
     const weekStr = new Date().toLocaleDateString('ja-JP', { month: 'numeric', day: 'numeric' });
     await sql`

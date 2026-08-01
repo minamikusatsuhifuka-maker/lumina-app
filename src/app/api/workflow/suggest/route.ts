@@ -1,6 +1,7 @@
 import { CLAUDE_TEXT_MODEL } from '@/lib/ai-models';
 import { NextRequest } from 'next/server';
 import { auth } from '@/lib/auth';
+import { extractAnthropicText } from '@/lib/anthropic-text';
 
 export const runtime = 'nodejs';
 export const maxDuration = 300;
@@ -81,7 +82,7 @@ ${AVAILABLE_FUNCTIONS}
       messages: [{ role: 'user', content: `以下の目的に最適なワークフローを提案してください：\n\n${goal}` }],
     });
 
-    let text = data.content?.[0]?.text ?? '{}';
+    let text = extractAnthropicText(data.content) || '{}';
     text = text.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
     const parsed = JSON.parse(text);
     return Response.json(parsed);

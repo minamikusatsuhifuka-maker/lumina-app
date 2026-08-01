@@ -4,6 +4,7 @@ export const maxDuration = 30;
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
 import { neon } from '@neondatabase/serverless';
+import { extractAnthropicText } from '@/lib/anthropic-text';
 
 const ZONE_DEFINITIONS: Record<string, string> = {
   red:    'レッドゾーン（即退職レベルの重大違反）：患者・スタッフへのハラスメント、個人情報漏洩、虚偽報告、記録改ざん、無断欠勤3日以上、窃盗・横領など',
@@ -72,7 +73,7 @@ export async function POST(req: NextRequest) {
     });
 
     const data = await response.json();
-    const text = data.content?.[0]?.text || '';
+    const text = extractAnthropicText(data.content) || '';
 
     // 堅牢なJSON抽出
     let rules: any[] = [];

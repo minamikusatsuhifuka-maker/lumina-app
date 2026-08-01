@@ -3,6 +3,7 @@ import { CLAUDE_TEXT_MODEL } from '@/lib/ai-models';
 import { NextRequest, NextResponse } from 'next/server';
 import Anthropic from '@anthropic-ai/sdk';
 import { auth } from '@/lib/auth';
+import { extractAnthropicText } from '@/lib/anthropic-text';
 
 const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY! });
 
@@ -23,9 +24,7 @@ export const makeClaudeJsonHandler =
         max_tokens: maxTokens,
         messages: [{ role: 'user', content: prompt }],
       });
-      const firstBlock = response.content[0];
-      const content =
-        firstBlock && firstBlock.type === 'text' ? firstBlock.text : '';
+      const content = extractAnthropicText(response.content);
       return NextResponse.json({
         content,
         // オーケストレーターがコスト計算するためトークン消費量を返す

@@ -6,6 +6,7 @@ import { sql } from '@/lib/db';
 import { trackUsage } from '@/lib/trackUsage';
 import { sanitizeForJson } from '@/lib/sanitize';
 import { normalizeCategory, vocabularyPromptText, OTHER_CATEGORY } from '@/lib/category-vocabulary';
+import { extractAnthropicText } from '@/lib/anthropic-text';
 
 export const runtime = 'nodejs';
 export const maxDuration = 120;
@@ -103,8 +104,7 @@ ${saves
     return NextResponse.json({ error: message }, { status: 500 });
   }
 
-  const firstBlock = response.content[0];
-  const text = firstBlock && firstBlock.type === 'text' ? firstBlock.text : '';
+  const text = extractAnthropicText(response.content);
   const jsonMatch = text.match(/```json\n?([\s\S]*?)\n?```/);
 
   if (!jsonMatch) {

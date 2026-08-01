@@ -2,6 +2,7 @@ import { CLAUDE_TEXT_MODEL } from '@/lib/ai-models';
 import { NextRequest, NextResponse } from 'next/server';
 import Anthropic from '@anthropic-ai/sdk';
 import { auth } from '@/lib/auth';
+import { extractAnthropicText } from '@/lib/anthropic-text';
 
 export const runtime = 'nodejs';
 export const maxDuration = 300;
@@ -98,9 +99,7 @@ ${html.slice(0, 20000)}`,
         ],
       });
 
-      const firstBlock = response.content[0];
-      const extractedText =
-        firstBlock && firstBlock.type === 'text' ? firstBlock.text : '';
+      const extractedText = extractAnthropicText(response.content);
 
       results.push({
         url,

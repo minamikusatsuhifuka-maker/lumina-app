@@ -1,6 +1,7 @@
 import { CLAUDE_TEXT_MODEL } from '@/lib/ai-models';
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
+import { extractAnthropicText } from '@/lib/anthropic-text';
 
 export const runtime = 'nodejs';
 export const maxDuration = 60;
@@ -28,6 +29,6 @@ export async function POST(req: NextRequest) {
   });
 
   const data = await response.json();
-  const help = data.content?.[0]?.text ?? 'ヘルプを取得できませんでした。';
+  const help = extractAnthropicText(data.content) || 'ヘルプを取得できませんでした。';
   return NextResponse.json({ help });
 }

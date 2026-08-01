@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import Anthropic from '@anthropic-ai/sdk';
 import { requireAuth } from '@/lib/require-auth';
+import { extractAnthropicText } from '@/lib/anthropic-text';
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
@@ -45,7 +46,7 @@ ${improvementList.length ? improvementList.map((s, i) => `${i + 1}. ${s}`).join(
       max_tokens: 4000,
       messages: [{ role: 'user', content: prompt }],
     });
-    const revised = message.content[0].type === 'text' ? message.content[0].text.trim() : '';
+    const revised = extractAnthropicText(message.content).trim();
     if (!revised) return NextResponse.json({ error: '修正文を生成できませんでした' });
     return NextResponse.json({ revised });
   } catch (e: any) {

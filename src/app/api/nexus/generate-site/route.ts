@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import Anthropic from '@anthropic-ai/sdk';
 import { auth } from '@/lib/auth';
 import { trackUsage } from '@/lib/trackUsage';
+import { extractAnthropicText } from '@/lib/anthropic-text';
 
 export const runtime = 'nodejs';
 export const maxDuration = 300;
@@ -129,8 +130,7 @@ ${contextInfo ? `【参考背景情報】\n${contextInfo}\n` : ''}
       messages: [{ role: 'user', content: SITE_PROMPT }],
     });
 
-    const firstBlock = response.content[0];
-    let html = firstBlock && firstBlock.type === 'text' ? firstBlock.text : '';
+    let html = extractAnthropicText(response.content);
 
     // モデルがコードブロックで囲んだ場合の保険
     html = html

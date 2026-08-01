@@ -2,6 +2,7 @@ import { CLAUDE_TEXT_MODEL } from '@/lib/ai-models';
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
 import Anthropic from '@anthropic-ai/sdk';
+import { extractAnthropicText } from '@/lib/anthropic-text';
 
 export const maxDuration = 180;
 
@@ -93,8 +94,7 @@ export async function POST(req: NextRequest) {
         }],
       });
 
-      const block = response.content[0] as any;
-      const extractedText = block?.type === 'text' ? block.text : '';
+      const extractedText = extractAnthropicText(response.content);
       results.push({ fileName: file.name, extractedText, success: true });
     } catch (err: any) {
       console.error('[clinic-profile/upload] 抽出失敗:', file.name, err);
@@ -143,8 +143,7 @@ JSON形式のみで回答（前後の説明・コードブロック不要）:
 }`,
         }],
       });
-      const block = sectionResponse.content[0] as any;
-      const text = block?.type === 'text' ? block.text : '{}';
+      const text = extractAnthropicText(sectionResponse.content) || '{}';
       const clean = text.replace(/```json|```/g, '').trim();
       const jsonMatch = clean.match(/\{[\s\S]*\}/);
       if (jsonMatch) {

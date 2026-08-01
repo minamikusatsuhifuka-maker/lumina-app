@@ -2,6 +2,7 @@ import { CLAUDE_TEXT_MODEL } from '@/lib/ai-models';
 import { NextRequest } from 'next/server';
 import { auth } from '@/lib/auth';
 import Anthropic from '@anthropic-ai/sdk';
+import { extractAnthropicText } from '@/lib/anthropic-text';
 
 export const maxDuration = 300;
 
@@ -67,8 +68,7 @@ JSON形式で出力：
           }],
         });
 
-        const researchBlock = (researchResponse.content[0] as any);
-        const researchText = researchBlock?.type === 'text' ? researchBlock.text : '';
+        const researchText = extractAnthropicText(researchResponse.content);
 
         controller.enqueue(encoder.encode(
           `data: ${JSON.stringify({ type: 'research_done', research: researchText })}\n\n`

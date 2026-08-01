@@ -1,6 +1,8 @@
 import { CLAUDE_TEXT_MODEL } from '@/lib/ai-models';
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
+import { extractAnthropicText } from '@/lib/anthropic-text';
+import { robustJsonParse } from '@/lib/ai-json-parser';
 
 export const runtime = 'nodejs';
 export const maxDuration = 300;
@@ -46,10 +48,6 @@ JSON形式のみで返答。マークダウン不要：
   });
 
   const data = await response.json();
-  let text = data.content?.[0]?.text ?? '{}';
-  text = text.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
-  const jsonStart = text.indexOf('{');
-  const jsonEnd = text.lastIndexOf('}');
-  if (jsonStart !== -1 && jsonEnd !== -1) text = text.slice(jsonStart, jsonEnd + 1);
-  try { return NextResponse.json(JSON.parse(text)); } catch { return NextResponse.json({ error: 'JSONパース失敗', raw: text.slice(0, 100) }, { status: 500 }); }
+  const text = extractAnthropicText(data.content);
+  try { return NextResponse.json(robustJsonParse(text)); } catch { return NextResponse.json({ error: 'JSONパース失敗', raw: text.slice(0, 100) }, { status: 500 }); }
 }

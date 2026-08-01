@@ -3,6 +3,7 @@ import { NextRequest } from 'next/server';
 import { auth } from '@/lib/auth';
 import { neon } from '@neondatabase/serverless';
 import { robustJsonParse } from '@/lib/ai-json-parser';
+import { extractAnthropicText } from '@/lib/anthropic-text';
 
 export const runtime = 'nodejs';
 export const maxDuration = 300;
@@ -51,7 +52,7 @@ export async function POST(req: NextRequest) {
       messages: [{ role: 'user', content: `タイトル：${title}\n\n内容：${content?.slice(0, 1000) ?? ''}` }],
     });
 
-    const resultText = data.content?.[0]?.text ?? '';
+    const resultText = extractAnthropicText(data.content) || '';
     const parsed = robustJsonParse<{ summary?: string; keywords?: string[] }>(resultText);
     summary = parsed.summary ?? '';
     keywords = (parsed.keywords ?? []).join(',');

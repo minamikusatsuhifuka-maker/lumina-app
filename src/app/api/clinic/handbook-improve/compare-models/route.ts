@@ -3,6 +3,7 @@ import Anthropic from '@anthropic-ai/sdk';
 import { robustJsonParse } from '@/lib/ai-json-parser';
 import { requireAuth } from '@/lib/require-auth';
 import { CLAUDE_TEXT_MODEL } from '@/lib/ai-models';
+import { extractAnthropicText } from '@/lib/anthropic-text';
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
@@ -36,7 +37,7 @@ ${content}
 改善後の文章のみを出力してください。前置き・説明不要。`,
     }],
   });
-  return message.content[0].type === 'text' ? message.content[0].text : '';
+  return extractAnthropicText(message.content);
 }
 
 async function scoreWithModel(
@@ -77,7 +78,7 @@ ${improved}
     }],
   });
 
-  const raw = message.content[0].type === 'text' ? message.content[0].text : '{}';
+  const raw = extractAnthropicText(message.content) || '{}';
   try {
     return robustJsonParse(raw);
   } catch {

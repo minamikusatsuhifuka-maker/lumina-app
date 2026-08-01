@@ -2,6 +2,7 @@ import { CLAUDE_TEXT_MODEL } from '@/lib/ai-models';
 import { NextRequest, NextResponse } from 'next/server';
 import Anthropic from '@anthropic-ai/sdk';
 import { auth } from '@/lib/auth';
+import { extractAnthropicText } from '@/lib/anthropic-text';
 
 export const runtime = 'nodejs';
 export const maxDuration = 60;
@@ -33,8 +34,7 @@ export async function POST(req: NextRequest) {
       ],
     });
     // content[0]がtextブロックかチェック
-    const block = response.content[0];
-    const raw = block && block.type === 'text' ? block.text : '';
+    const raw = extractAnthropicText(response.content);
     const title = raw
       .replace(/^["「『【]|["」』】]$/g, '')
       .replace(/\n/g, '')

@@ -2,6 +2,7 @@ import { CLAUDE_TEXT_MODEL } from '@/lib/ai-models';
 import { NextRequest, NextResponse } from 'next/server';
 import Anthropic from '@anthropic-ai/sdk';
 import { auth } from '@/lib/auth';
+import { extractAnthropicText } from '@/lib/anthropic-text';
 
 export const runtime = 'nodejs';
 export const maxDuration = 120;
@@ -71,8 +72,7 @@ export async function POST(req: NextRequest) {
       messages: [{ role: 'user', content: prompt }],
     });
 
-    const first = response.content[0];
-    const content = first && first.type === 'text' ? first.text : '';
+    const content = extractAnthropicText(response.content);
     return NextResponse.json({
       content,
       usage: {

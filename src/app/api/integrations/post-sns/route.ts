@@ -2,6 +2,7 @@ import { CLAUDE_TEXT_MODEL } from '@/lib/ai-models';
 import { NextRequest, NextResponse } from 'next/server';
 import Anthropic from '@anthropic-ai/sdk';
 import { auth } from '@/lib/auth';
+import { extractAnthropicText } from '@/lib/anthropic-text';
 
 export const runtime = 'nodejs';
 export const maxDuration = 60;
@@ -72,7 +73,7 @@ JSON形式で出力:
   });
 
   const text =
-    response.content[0]?.type === 'text' ? response.content[0].text : '';
+    extractAnthropicText(response.content);
   const jsonMatch = text.match(/```json\n?([\s\S]*?)\n?```/);
   let posts: Record<string, unknown> = {};
   try {

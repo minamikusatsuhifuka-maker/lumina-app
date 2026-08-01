@@ -2,6 +2,7 @@ import { CLAUDE_TEXT_MODEL } from '@/lib/ai-models';
 
 import { NextRequest } from 'next/server';
 import { auth } from '@/lib/auth';
+import { extractAnthropicText } from '@/lib/anthropic-text';
 
 export const runtime = 'nodejs';
 export const maxDuration = 300;
@@ -66,7 +67,7 @@ export async function POST(req: NextRequest) {
       }],
     });
 
-    let resultText = data.content?.[0]?.text ?? '{"explanations":[]}';
+    let resultText = extractAnthropicText(data.content) || '{"explanations":[]}';
     resultText = resultText.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
 
     const parsed = JSON.parse(resultText);

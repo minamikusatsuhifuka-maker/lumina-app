@@ -2,6 +2,7 @@ import { CLAUDE_TEXT_MODEL } from '@/lib/ai-models';
 import { NextRequest, NextResponse } from 'next/server';
 import Anthropic from '@anthropic-ai/sdk';
 import { auth } from '@/lib/auth';
+import { extractAnthropicText } from '@/lib/anthropic-text';
 
 export const runtime = 'nodejs';
 export const maxDuration = 300;
@@ -62,9 +63,7 @@ Week4: オファー・CTA
       ],
     });
 
-    const firstBlock = response.content[0];
-    const content =
-      firstBlock && firstBlock.type === 'text' ? firstBlock.text : '';
+    const content = extractAnthropicText(response.content);
     return NextResponse.json({ content });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);

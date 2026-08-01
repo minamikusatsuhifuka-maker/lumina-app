@@ -4,6 +4,7 @@ import Anthropic from '@anthropic-ai/sdk';
 import { auth } from '@/lib/auth';
 import { trackUsage } from '@/lib/trackUsage';
 import { streamWithModel, type AIModel } from '@/lib/ai-client';
+import { extractAnthropicText } from '@/lib/anthropic-text';
 
 export const runtime = 'nodejs';
 export const maxDuration = 300;
@@ -171,8 +172,7 @@ ${html.slice(0, 20000)}`,
       ],
     });
 
-    const firstBlock = response.content[0];
-    const text = firstBlock && firstBlock.type === 'text' ? firstBlock.text : '';
+    const text = extractAnthropicText(response.content);
 
     // 抽出に使ったトークンも記録
     await trackUsage({

@@ -3,6 +3,7 @@ import { NextResponse } from 'next/server';
 import Anthropic from '@anthropic-ai/sdk';
 import { sql } from '@/lib/db';
 import { requireAuth } from '@/lib/require-auth';
+import { extractAnthropicText } from '@/lib/anthropic-text';
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
@@ -61,6 +62,6 @@ ${reportText}
     }],
   });
 
-  const summary = message.content[0].type === 'text' ? message.content[0].text : '';
+  const summary = extractAnthropicText(message.content);
   return NextResponse.json({ summary, count: (reports as any[]).length });
 }

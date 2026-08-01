@@ -1,6 +1,7 @@
 import { CLAUDE_TEXT_MODEL } from '@/lib/ai-models';
 import { NextResponse } from 'next/server';
 import { requireAuth } from '@/lib/require-auth';
+import { extractAnthropicText } from '@/lib/anthropic-text';
 
 export const maxDuration = 60;
 
@@ -44,7 +45,7 @@ export async function POST() {
   });
 
   const data = await response.json();
-  const text = data.content?.[0]?.text || '[]';
+  const text = extractAnthropicText(data.content) || '[]';
 
   try {
     const tips = JSON.parse(text);

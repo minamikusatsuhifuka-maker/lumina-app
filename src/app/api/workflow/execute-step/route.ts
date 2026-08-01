@@ -1,6 +1,7 @@
 import { CLAUDE_TEXT_MODEL } from '@/lib/ai-models';
 import { NextRequest } from 'next/server';
 import { auth } from '@/lib/auth';
+import { extractAnthropicText } from '@/lib/anthropic-text';
 
 export const runtime = 'nodejs';
 export const maxDuration = 300;
@@ -59,7 +60,7 @@ export async function POST(req: NextRequest) {
       messages: [{ role: 'user', content: contextualPrompt }],
     });
 
-    const result = data.content?.[0]?.text ?? '結果を取得できませんでした';
+    const result = extractAnthropicText(data.content) || '結果を取得できませんでした';
     return Response.json({ result });
   } catch (e: any) {
     console.error('[workflow/execute-step]', e.message);

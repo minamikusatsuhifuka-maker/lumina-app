@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import Anthropic from '@anthropic-ai/sdk';
 import { auth } from '@/lib/auth';
 import { trackUsage } from '@/lib/trackUsage';
+import { extractAnthropicText } from '@/lib/anthropic-text';
 
 export const runtime = 'nodejs';
 export const maxDuration = 120;
@@ -160,8 +161,7 @@ ${clinicInfo ?? '一般的な皮膚科・美容皮膚科クリニック'}
     return NextResponse.json({ error: message }, { status: 500 });
   }
 
-  const firstBlock = response.content[0];
-  const content = firstBlock && firstBlock.type === 'text' ? firstBlock.text : '';
+  const content = extractAnthropicText(response.content);
 
   // 最終推奨価格を抽出
   const priceMatch = content.match(/推奨価格[：:]\s*[¥￥]?([\d,]+)/);

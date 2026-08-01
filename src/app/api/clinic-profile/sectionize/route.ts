@@ -2,6 +2,7 @@ import { CLAUDE_TEXT_MODEL } from '@/lib/ai-models';
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
 import Anthropic from '@anthropic-ai/sdk';
+import { extractAnthropicText } from '@/lib/anthropic-text';
 
 export const runtime = 'nodejs';
 export const maxDuration = 60;
@@ -49,8 +50,7 @@ JSON形式のみで回答（前後の説明・コードブロック不要）:
       ],
     });
 
-    const block = response.content[0] as { type: string; text?: string };
-    const raw = block?.type === 'text' ? block.text ?? '{}' : '{}';
+    const raw = extractAnthropicText(response.content) || '{}';
     const clean = raw.replace(/```json|```/g, '').trim();
     const jsonMatch = clean.match(/\{[\s\S]*\}/);
     if (!jsonMatch) {

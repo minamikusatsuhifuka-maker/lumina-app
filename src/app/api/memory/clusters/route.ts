@@ -2,6 +2,7 @@ import { CLAUDE_TEXT_MODEL } from '@/lib/ai-models';
 import { NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
 import { neon } from '@neondatabase/serverless';
+import { extractAnthropicText } from '@/lib/anthropic-text';
 
 export const runtime = 'nodejs';
 export const maxDuration = 300;
@@ -65,7 +66,7 @@ export async function GET() {
   });
 
   const data = await response.json();
-  let text = data.content?.[0]?.text ?? '{"clusters":[]}';
+  let text = extractAnthropicText(data.content) || '{"clusters":[]}';
   text = text.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
 
   try {

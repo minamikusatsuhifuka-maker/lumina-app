@@ -3,6 +3,7 @@ export const maxDuration = 30;
 
 import { NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
+import { extractAnthropicText } from '@/lib/anthropic-text';
 
 const PURPOSE_PROMPTS: Record<string, string> = {
   patient:    '患者さんが読む文章として、専門用語を避け、温かく分かりやすい言葉で書き直してください。',
@@ -52,7 +53,7 @@ export async function POST(req: Request) {
     });
 
     const data = await response.json();
-    const revised = data.content?.[0]?.text || '';
+    const revised = extractAnthropicText(data.content) || '';
     return NextResponse.json({ revised });
 
   } catch (e: any) {
