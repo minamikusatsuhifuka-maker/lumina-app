@@ -4,11 +4,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useToast } from '@/components/ui/Toast';
 import { copyToClipboard } from '@/lib/copyToClipboard';
 import { renderMarkdown, sanitizeLatex } from '@/lib/markdown-renderer';
-import {
-  generateTitleWithTimeout,
-  sanitizeFilename,
-  yyyymmdd,
-} from '@/lib/title-generator';
+import { sanitizeFilename, yyyymmdd } from '@/lib/title-generator';
 import { triggerDownload } from '@/lib/download';
 import { markdownToReadableText } from '@/lib/markdownToText';
 import FullscreenReader from '@/components/text-analysis/FullscreenReader';
@@ -199,7 +195,7 @@ export default function SavedAnalysisList({
   const [editTitle, setEditTitle] = useState('');
   const [editContent, setEditContent] = useState('');
   const [editSaving, setEditSaving] = useState(false);
-  // MDダウンロード中のID（タイトル生成中の同時押し防止）
+  // MDダウンロード中のID（本文取得中の同時押し防止）
   const [downloadingId, setDownloadingId] = useState<number | null>(null);
   // 選択項目の一括MDダウンロード（ZIP）中フラグ（二度押し防止）
   const [bulkDownloading, setBulkDownloading] = useState(false);
@@ -558,7 +554,8 @@ export default function SavedAnalysisList({
     }
   };
 
-  // 個別レコードを .md ファイルとしてダウンロード（AIタイトル生成 + モデル表記付き）
+  // 個別レコードを .md ファイルとしてダウンロード（216: 一覧カードの表示タイトルを
+  // そのまま使用。AI再生成はしない＝表示と同じファイル名になる。モデル表記付き）
   const handleDownloadMd = async (record: AnalysisRecord) => {
     if (downloadingId !== null) return; // 同時押し防止
     setDownloadingId(record.id);
@@ -571,18 +568,13 @@ export default function SavedAnalysisList({
       }
       const label =
         record.analysis_label || record.analysis_type || '分析結果';
-      const fallback = record.auto_title || record.file_name || label;
-      const autoTitle = await generateTitleWithTimeout(
-        content,
-        label,
-        fallback,
-      );
-      const safeTitle = sanitizeFilename(autoTitle);
+      const title = record.auto_title || record.file_name || label;
+      const safeTitle = sanitizeFilename(title);
       // モデル情報があれば生成AI行を追加（旧データは undefined → 出力なし）
       const modelLine = record.model
         ? `> 生成AI: ${getModelIcon(record.model)} ${getModelLabel(record.model)}\n\n---\n\n`
         : '';
-      const mdContent = `# ${autoTitle}\n\n${modelLine}${sanitizeLatex(content)}`;
+      const mdContent = `# ${title}\n\n${modelLine}${sanitizeLatex(content)}`;
 
       triggerDownload(`${safeTitle}_${yyyymmdd()}.md`, mdContent, 'text/markdown;charset=utf-8');
       showToast('MDファイルをダウンロードしました', 'success');
@@ -594,8 +586,8 @@ export default function SavedAnalysisList({
   };
 
   // 個別レコードを .txt ファイルとしてダウンロード。
-  // 分析実行カード（TextAnalysisPanel.downloadTxt）の挙動を流用:
-  //   「タイトル + [生成AI: ...] 行 + 本文」、拡張子 .txt、text/plain、ファイル名 タイトル_日付.txt。
+  // 「タイトル + [生成AI: ...] 行 + 本文」、拡張子 .txt、text/plain、ファイル名 タイトル_日付.txt。
+  // 216: タイトルは一覧カードの表示タイトルをそのまま使用（AI再生成しない）。
   // MD と同じく downloadingId で同時押しを抑止する。
   const handleDownloadTxt = async (record: AnalysisRecord) => {
     if (downloadingId !== null) return; // 同時押し防止（MDと共用）
@@ -609,19 +601,14 @@ export default function SavedAnalysisList({
       }
       const label =
         record.analysis_label || record.analysis_type || '分析結果';
-      const fallback = record.auto_title || record.file_name || label;
-      const autoTitle = await generateTitleWithTimeout(
-        content,
-        label,
-        fallback,
-      );
-      const safeTitle = sanitizeFilename(autoTitle);
+      const title = record.auto_title || record.file_name || label;
+      const safeTitle = sanitizeFilename(title);
       // モデル情報があれば生成AI行を追加（txt は角括弧表記。旧データは undefined → 出力なし）
       const modelLine = record.model
         ? `[生成AI: ${getModelIcon(record.model)} ${getModelLabel(record.model)}]\n\n---\n\n`
         : '';
       // 書き出し本文にも LaTeX 正規化を適用（$\rightarrow$ 等を残さない）
-      const txtContent = `${autoTitle}\n\n${modelLine}${sanitizeLatex(content)}`;
+      const txtContent = `${title}\n\n${modelLine}${sanitizeLatex(content)}`;
 
       // .txt は Markdown 記号を除去した読みやすいプレーンテキストへ変換して書き出す
       triggerDownload(
@@ -638,8 +625,9 @@ export default function SavedAnalysisList({
   };
 
   // 個別レコードを Word(.docx) としてダウンロード。
-  // タイトル生成・sanitizeLatex・ファイル名規則は txt/MD と同一。markdown→docx 変換は
-  // 共通関数（markdownToDocx.ts）に集約し、docx はバンドルが大きいため dynamic import。
+  // タイトル（216: 表示タイトル使用）・sanitizeLatex・ファイル名規則は txt/MD と同一。
+  // markdown→docx 変換は共通関数（markdownToDocx.ts）に集約し、docx はバンドルが
+  // 大きいため dynamic import。
   const handleDownloadDocx = async (record: AnalysisRecord) => {
     if (downloadingId !== null) return; // 同時押し防止（txt/MDと共用）
     setDownloadingId(record.id);
@@ -652,20 +640,15 @@ export default function SavedAnalysisList({
       }
       const label =
         record.analysis_label || record.analysis_type || '分析結果';
-      const fallback = record.auto_title || record.file_name || label;
-      const autoTitle = await generateTitleWithTimeout(
-        content,
-        label,
-        fallback,
-      );
-      const safeTitle = sanitizeFilename(autoTitle);
+      const title = record.auto_title || record.file_name || label;
+      const safeTitle = sanitizeFilename(title);
       // モデル情報があればメタ行に追加（旧データは undefined → 出力なし）
       const metaLines = record.model
         ? [`生成AI: ${getModelIcon(record.model)} ${getModelLabel(record.model)}`]
         : [];
       const { downloadMarkdownAsDocx } = await import('@/lib/markdownToDocx');
       await downloadMarkdownAsDocx({
-        title: autoTitle,
+        title,
         metaLines,
         markdown: sanitizeLatex(content),
         fileName: `${safeTitle}_${yyyymmdd()}.docx`,
@@ -2317,7 +2300,7 @@ export default function SavedAnalysisList({
                         }}
                       >
                         {downloadingId === record.id
-                          ? '⏳ タイトル生成中...'
+                          ? '⏳ 準備中...'
                           : '⬇ テキスト'}
                       </button>
                       <button
@@ -2332,7 +2315,7 @@ export default function SavedAnalysisList({
                         }}
                       >
                         {downloadingId === record.id
-                          ? '⏳ タイトル生成中...'
+                          ? '⏳ 準備中...'
                           : '📥 MD'}
                       </button>
                       <button
@@ -2347,7 +2330,7 @@ export default function SavedAnalysisList({
                         }}
                       >
                         {downloadingId === record.id
-                          ? '⏳ タイトル生成中...'
+                          ? '⏳ 準備中...'
                           : '📄 Word'}
                       </button>
                       <button
@@ -2776,7 +2759,7 @@ export default function SavedAnalysisList({
                 }}
               >
                 {downloadingId === readerRecord.record.id
-                  ? '⏳ タイトル生成中...'
+                  ? '⏳ 準備中...'
                   : '⬇ テキスト'}
               </button>
               <button
@@ -2791,7 +2774,7 @@ export default function SavedAnalysisList({
                 }}
               >
                 {downloadingId === readerRecord.record.id
-                  ? '⏳ タイトル生成中...'
+                  ? '⏳ 準備中...'
                   : '📥 MD'}
               </button>
               <button
@@ -2806,7 +2789,7 @@ export default function SavedAnalysisList({
                 }}
               >
                 {downloadingId === readerRecord.record.id
-                  ? '⏳ タイトル生成中...'
+                  ? '⏳ 準備中...'
                   : '📄 Word'}
               </button>
             </>

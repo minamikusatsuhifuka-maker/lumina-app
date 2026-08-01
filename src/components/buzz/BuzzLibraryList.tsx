@@ -1,11 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import {
-  generateTitleWithTimeout,
-  sanitizeFilename,
-  yyyymmdd,
-} from '@/lib/title-generator';
+import { sanitizeFilename, yyyymmdd } from '@/lib/title-generator';
 import { copyToClipboard } from '@/lib/copyToClipboard';
 import { triggerDownload } from '@/lib/download';
 
@@ -323,9 +319,9 @@ ${body}`;
         : modeKey === 'pattern'
         ? 'バズり分析_分野別パターン'
         : 'バズり分析';
-      const fallback = item.title || label;
-      const autoTitle = await generateTitleWithTimeout(item.content, label, fallback);
-      const fileTitle = sanitizeFilename(autoTitle);
+      // 216: 一覧カードの表示タイトルをそのまま使用（AI再生成しない）
+      const title = item.title || label;
+      const fileTitle = sanitizeFilename(title);
       const meta = item.metadata || {};
       const metaHeader =
         modeKey === 'single' && meta.url ? `> 対象URL: ${meta.url}\n` :
@@ -333,7 +329,7 @@ ${body}`;
         modeKey === 'pattern' && meta.field ? `> 対象分野: ${meta.field}\n` :
         '';
       const dateLine = `> 保存日時: ${formatDate(item.created_at)}\n`;
-      const md = `# ${autoTitle}\n\n${dateLine}${metaHeader}\n---\n\n${item.content}`;
+      const md = `# ${title}\n\n${dateLine}${metaHeader}\n---\n\n${item.content}`;
       triggerDownload(`${fileTitle}_${yyyymmdd()}.md`, md, 'text/markdown;charset=utf-8');
     } finally {
       setDownloadingId(null);
@@ -728,7 +724,7 @@ ${body}`;
                     opacity: downloadingId === item.id ? 0.6 : 1,
                   }}
                 >
-                  {downloadingId === item.id ? '⏳ 生成中...' : '📥 MD'}
+                  {downloadingId === item.id ? '⏳ 準備中...' : '📥 MD'}
                 </button>
                 <button
                   onClick={() => toggleFavorite(item)}

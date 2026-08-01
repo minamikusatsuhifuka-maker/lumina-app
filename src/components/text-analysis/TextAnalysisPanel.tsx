@@ -420,6 +420,23 @@ export default function TextAnalysisPanel({
   const [generatingTitle, setGeneratingTitle] = useState<AnalysisType | null>(null);
   const [simplifying, setSimplifying] = useState<AnalysisType | null>(null);
 
+  // 216: type毎のAIタイトルキャッシュ。初回生成したタイトルを保存（saveResult）と
+  // ダウンロードで共有し、「保存タイトルとDLファイル名が別物になる」のを防ぐ。
+  // 再分析や結果テキストの変更（変換・AI修正）時は破棄して旧タイトルが新しい結果に付かないようにする
+  const titleCacheRef = useRef<Map<AnalysisType, string>>(new Map());
+  const getOrGenerateTitle = async (
+    type: AnalysisType,
+    text: string,
+    label: string,
+    fallback: string,
+  ): Promise<string> => {
+    const cached = titleCacheRef.current.get(type);
+    if (cached) return cached;
+    const title = await generateTitleWithTimeout(text, label, fallback);
+    titleCacheRef.current.set(type, title);
+    return title;
+  };
+
   const [gsTarget, setGsTarget] = useState('all_staff');
   const [gsLevel, setGsLevel] = useState('standard');
   const [gsPurpose, setGsPurpose] = useState('inform');
@@ -476,6 +493,7 @@ export default function TextAnalysisPanel({
     setResults(new Map());
     setResultModels(new Map());
     setAnalysisDone(false);
+    titleCacheRef.current.clear(); // 216: 結果が消えるためタイトルキャッシュも破棄
     clearFeatureDraft('text-analysis');
   };
 
@@ -545,6 +563,8 @@ export default function TextAnalysisPanel({
     setAnalysisDone(false); // 再分析開始時にリセット
     setResults(new Map());
     setResultModels(new Map());
+    // 216追加指示: 再分析時はタイトルキャッシュを破棄（旧タイトルが新しい結果に付かないように）
+    titleCacheRef.current.clear();
     // 完了した結果を自動下書き保存するためのローカル収集（エラー中断時は完了分のみ）
     const collected: Record<string, string> = {};
     const collectedModels: Record<string, AIModel> = {};
@@ -583,7 +603,7 @@ export default function TextAnalysisPanel({
     setGeneratingTitle(type);
     try {
       const fallback = `${label}_${new Date().toLocaleDateString('ja-JP')}`;
-      const autoTitle = await generateTitleWithTimeout(text, label, fallback);
+      const autoTitle = await getOrGenerateTitle(type, text, label, fallback);
 
       const res = await fetch('/api/text-analysis/saves', {
         method: 'POST',
@@ -625,7 +645,7 @@ export default function TextAnalysisPanel({
     const label = ANALYSIS_OPTIONS.find((o) => o.value === type)?.label ?? type;
     setGeneratingTitle(type);
     try {
-      const autoTitle = await generateTitleWithTimeout(text, label, label);
+      const autoTitle = await getOrGenerateTitle(type, text, label, label);
       const title = sanitizeFilename(autoTitle);
       const model = resultModels.get(type);
       const content = `${autoTitle}\n\n${modelLineTxt(model)}${sanitizeLatex(text)}`;
@@ -644,7 +664,7 @@ export default function TextAnalysisPanel({
     const label = ANALYSIS_OPTIONS.find((o) => o.value === type)?.label ?? type;
     setGeneratingTitle(type);
     try {
-      const autoTitle = await generateTitleWithTimeout(text, label, label);
+      const autoTitle = await getOrGenerateTitle(type, text, label, label);
       const title = sanitizeFilename(autoTitle);
       const model = resultModels.get(type);
       const content = `# ${autoTitle}\n\n${modelLineMd(model)}${sanitizeLatex(text)}`;
@@ -661,7 +681,7 @@ export default function TextAnalysisPanel({
     const label = ANALYSIS_OPTIONS.find((o) => o.value === type)?.label ?? type;
     setGeneratingTitle(type);
     try {
-      const autoTitle = await generateTitleWithTimeout(text, label, label);
+      const autoTitle = await getOrGenerateTitle(type, text, label, label);
       const title = sanitizeFilename(autoTitle);
       const model = resultModels.get(type);
       const metaLines = model
@@ -693,6 +713,8 @@ export default function TextAnalysisPanel({
         if (simplified) {
           const next = new Map(results).set(type, simplified);
           setResults(next);
+          // 216: 本文が変わったためこのtypeのタイトルキャッシュを破棄
+          titleCacheRef.current.delete(type);
           // 変換後の内容で自動下書きも更新（復元時に表示中の内容と揃える）
           saveFeatureDraft('text-analysis', {
             inputText,
@@ -718,6 +740,8 @@ export default function TextAnalysisPanel({
   const applyRefine = (type: AnalysisType, newText: string) => {
     const next = new Map(results).set(type, newText);
     setResults(next);
+    // 216: 本文が変わったためこのtypeのタイトルキャッシュを破棄
+    titleCacheRef.current.delete(type);
     // 修正後の内容で自動下書きも更新（simplifyText と同じ扱い＝表示中の内容と揃える）
     saveFeatureDraft('text-analysis', {
       inputText,

@@ -4,11 +4,7 @@ import { useEffect, useState, useMemo, type CSSProperties } from 'react';
 import FeatureDefaultContextSelector, { FEATURE_OPTIONS } from '@/components/FeatureDefaultContextSelector';
 import { copyToClipboard } from '@/lib/copyToClipboard';
 import { renderMarkdown, sanitizeLatex } from '@/lib/markdown-renderer';
-import {
-  generateTitleWithTimeout,
-  sanitizeFilename,
-  yyyymmdd,
-} from '@/lib/title-generator';
+import { sanitizeFilename, yyyymmdd } from '@/lib/title-generator';
 import { triggerDownload } from '@/lib/download';
 import { markdownToReadableText } from '@/lib/markdownToText';
 import FullscreenReader from '@/components/text-analysis/FullscreenReader';
@@ -104,7 +100,7 @@ export default function ContextLibraryPanel() {
   // 197: 「⋯ その他」メニュー（全画面/テキスト/MD/Word/編集/削除を格納）を開いているカードのid
   const [moreMenuId, setMoreMenuId] = useState<number | null>(null);
   const [copiedId, setCopiedId] = useState<number | null>(null);
-  // テキスト/MD ダウンロード中のID（タイトル生成中の同時押し防止。txt/MD共用）
+  // テキスト/MD ダウンロード中のID（本文取得中の同時押し防止。txt/MD共用）
   const [downloadingId, setDownloadingId] = useState<number | null>(null);
   // カード編集（タイトル=topic + 本文=context_text。同時編集は1件のみ）
   const [editingId, setEditingId] = useState<number | null>(null);
@@ -349,17 +345,16 @@ export default function ContextLibraryPanel() {
   };
 
   // .txt ダウンロード（テキスト分析 handleDownloadTxt 流用。context_saves 対象）。
-  // AIタイトル生成 + Markdown記号を除去した読みやすいプレーンテキストで書き出す。
+  // 216: カードの表示タイトル（topic）をそのまま使用（AI再生成しない）。
+  // Markdown記号を除去した読みやすいプレーンテキストで書き出す。
   const handleDownloadTxt = async (item: ContextSave) => {
     if (downloadingId !== null) return; // 同時押し防止（MDと共用）
     setDownloadingId(item.id);
     try {
       const text = await ensureFullText(item);
-      const label = 'AI参照素材';
-      const fallback = item.topic || label;
-      const autoTitle = await generateTitleWithTimeout(text, label, fallback);
-      const safeTitle = sanitizeFilename(autoTitle);
-      const txtContent = `${autoTitle}\n\n${sanitizeLatex(text)}`;
+      const title = item.topic || 'AI参照素材';
+      const safeTitle = sanitizeFilename(title);
+      const txtContent = `${title}\n\n${sanitizeLatex(text)}`;
       triggerDownload(
         `${safeTitle}_${yyyymmdd()}.txt`,
         markdownToReadableText(txtContent),
@@ -374,16 +369,15 @@ export default function ContextLibraryPanel() {
   };
 
   // .md ダウンロード（テキスト分析 handleDownloadMd 流用。context_saves 対象）。
+  // 216: カードの表示タイトル（topic）をそのまま使用（AI再生成しない）。
   const handleDownloadMd = async (item: ContextSave) => {
     if (downloadingId !== null) return; // 同時押し防止（txtと共用）
     setDownloadingId(item.id);
     try {
       const text = await ensureFullText(item);
-      const label = 'AI参照素材';
-      const fallback = item.topic || label;
-      const autoTitle = await generateTitleWithTimeout(text, label, fallback);
-      const safeTitle = sanitizeFilename(autoTitle);
-      const mdContent = `# ${autoTitle}\n\n${sanitizeLatex(text)}`;
+      const title = item.topic || 'AI参照素材';
+      const safeTitle = sanitizeFilename(title);
+      const mdContent = `# ${title}\n\n${sanitizeLatex(text)}`;
       triggerDownload(
         `${safeTitle}_${yyyymmdd()}.md`,
         mdContent,
@@ -398,20 +392,19 @@ export default function ContextLibraryPanel() {
   };
 
   // Word(.docx) ダウンロード（テキスト分析 handleDownloadDocx 流用。context_saves 対象）。
-  // タイトル生成・sanitizeLatex・ファイル名規則は txt/MD と同一。markdown→docx 変換は
-  // 共通関数（markdownToDocx.ts）に集約し、docx はバンドルが大きいため dynamic import。
+  // タイトル（216: 表示タイトル=topic使用）・sanitizeLatex・ファイル名規則は txt/MD と同一。
+  // markdown→docx 変換は共通関数（markdownToDocx.ts）に集約し、docx はバンドルが
+  // 大きいため dynamic import。
   const handleDownloadDocx = async (item: ContextSave) => {
     if (downloadingId !== null) return; // 同時押し防止（txt/MDと共用）
     setDownloadingId(item.id);
     try {
       const text = await ensureFullText(item);
-      const label = 'AI参照素材';
-      const fallback = item.topic || label;
-      const autoTitle = await generateTitleWithTimeout(text, label, fallback);
-      const safeTitle = sanitizeFilename(autoTitle);
+      const title = item.topic || 'AI参照素材';
+      const safeTitle = sanitizeFilename(title);
       const { downloadMarkdownAsDocx } = await import('@/lib/markdownToDocx');
       await downloadMarkdownAsDocx({
-        title: autoTitle,
+        title,
         metaLines: [],
         markdown: sanitizeLatex(text),
         fileName: `${safeTitle}_${yyyymmdd()}.docx`,
@@ -1248,7 +1241,7 @@ export default function ContextLibraryPanel() {
                           ...(downloadingId === item.id ? { cursor: 'not-allowed', opacity: 0.6 } : {}),
                         }}
                       >
-                        {downloadingId === item.id ? '⏳ タイトル生成中...' : '⬇ テキスト'}
+                        {downloadingId === item.id ? '⏳ 準備中...' : '⬇ テキスト'}
                       </button>
                       <button
                         role="menuitem"
@@ -1259,7 +1252,7 @@ export default function ContextLibraryPanel() {
                           ...(downloadingId === item.id ? { cursor: 'not-allowed', opacity: 0.6 } : {}),
                         }}
                       >
-                        {downloadingId === item.id ? '⏳ タイトル生成中...' : '📥 MD'}
+                        {downloadingId === item.id ? '⏳ 準備中...' : '📥 MD'}
                       </button>
                       <button
                         role="menuitem"
@@ -1270,7 +1263,7 @@ export default function ContextLibraryPanel() {
                           ...(downloadingId === item.id ? { cursor: 'not-allowed', opacity: 0.6 } : {}),
                         }}
                       >
-                        {downloadingId === item.id ? '⏳ タイトル生成中...' : '📄 Word'}
+                        {downloadingId === item.id ? '⏳ 準備中...' : '📄 Word'}
                       </button>
                       <button
                         role="menuitem"
@@ -1602,7 +1595,7 @@ export default function ContextLibraryPanel() {
                   ...(downloadingId === readerItem.id ? { cursor: 'not-allowed', opacity: 0.6 } : {}),
                 }}
               >
-                {downloadingId === readerItem.id ? '⏳ タイトル生成中...' : '⬇ テキスト'}
+                {downloadingId === readerItem.id ? '⏳ 準備中...' : '⬇ テキスト'}
               </button>
               <button
                 type="button"
@@ -1613,7 +1606,7 @@ export default function ContextLibraryPanel() {
                   ...(downloadingId === readerItem.id ? { cursor: 'not-allowed', opacity: 0.6 } : {}),
                 }}
               >
-                {downloadingId === readerItem.id ? '⏳ タイトル生成中...' : '📥 MD'}
+                {downloadingId === readerItem.id ? '⏳ 準備中...' : '📥 MD'}
               </button>
               <button
                 type="button"
@@ -1624,7 +1617,7 @@ export default function ContextLibraryPanel() {
                   ...(downloadingId === readerItem.id ? { cursor: 'not-allowed', opacity: 0.6 } : {}),
                 }}
               >
-                {downloadingId === readerItem.id ? '⏳ タイトル生成中...' : '📄 Word'}
+                {downloadingId === readerItem.id ? '⏳ 準備中...' : '📄 Word'}
               </button>
             </>
           )
