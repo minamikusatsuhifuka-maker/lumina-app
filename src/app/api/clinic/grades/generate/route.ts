@@ -5,8 +5,43 @@ import Anthropic from '@anthropic-ai/sdk';
 import { neon } from '@neondatabase/serverless';
 import { auth } from '@/lib/auth';
 import { buildSystemContext } from '@/lib/clinic-context';
+import { extractAnthropicText } from '@/lib/anthropic-text';
+import { robustJsonParse } from '@/lib/ai-json-parser';
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+
+// 210-B: AI応答の等級JSON。全フィールドを必須検証してからDBへ書く
+type GradeJson = {
+  name: string;
+  description: string;
+  skills: string[];
+  knowledge: string[];
+  mindset: string[];
+  continuousLearning: string[];
+  requiredCertifications: string[];
+  promotionExam?: Record<string, unknown>;
+  requirementsPromotion: string;
+  requirementsDemotion: string;
+  salaryMin: number;
+  salaryMax: number;
+};
+
+// 空文字・空配列も失敗扱い（「空だが形式上有効」をDBに入れない）。欠落フィールド名を返す
+function validateGrade(grade: Partial<GradeJson> | null | undefined): string[] {
+  const missing: string[] = [];
+  for (const f of ['name', 'description', 'requirementsPromotion', 'requirementsDemotion'] as const) {
+    const v = grade?.[f];
+    if (typeof v !== 'string' || !v.trim()) missing.push(f);
+  }
+  for (const f of ['skills', 'knowledge', 'mindset', 'continuousLearning', 'requiredCertifications'] as const) {
+    const v = grade?.[f];
+    if (!Array.isArray(v) || v.length === 0) missing.push(f);
+  }
+  for (const f of ['salaryMin', 'salaryMax'] as const) {
+    if (typeof grade?.[f] !== 'number') missing.push(f);
+  }
+  return missing;
+}
 
 export async function POST(req: Request) {
   const session = await auth();
@@ -33,7 +68,8 @@ export async function POST(req: Request) {
       'grade'
     );
 
-    const savedGrades = [];
+    // 210-B フェーズ1で全等級を貯め、全件成功時のみフェーズ3で一括書き込みする
+    const generated: { level: number; grade: GradeJson }[] = [];
 
     const circleRanges: Record<number, string> = {
       1: '自分自身 → まず自分を整える',
@@ -44,7 +80,8 @@ export async function POST(req: Request) {
       6: '上記＋業界全体 → 業界をリードする',
     };
 
-    // 1等級ずつ生成（JSON切れ防止）
+    // フェーズ1: 1等級ずつ生成（JSON切れ防止）→ パース＋必須フィールド検証。
+    // この間はDBに一切書かない。途中失敗時は何も書かずに失敗等級・理由を返す（中途半端残留の根絶）
     for (let level = 1; level <= gradeCount; level++) {
       const gradeName = gradeNames[level] ?? `G${level}`;
       const salaryRange = salaryRanges[level] ?? '';
@@ -81,28 +118,45 @@ JSON形式のみで返してください（説明不要）：
         messages: [{ role: 'user', content: userPrompt }],
       });
 
-      const resultText = response.content
-        .filter(b => b.type === 'text')
-        .map(b => (b as any).text)
-        .join('');
+      const resultText = extractAnthropicText(response.content);
 
-      const clean = resultText
-        .replace(/```json\n?/g, '')
-        .replace(/```\n?/g, '')
-        .trim();
+      let grade: GradeJson;
+      try {
+        grade = robustJsonParse<GradeJson>(resultText);
+      } catch (e) {
+        const reason = e instanceof Error ? e.message : String(e);
+        return Response.json(
+          { error: `${gradeName}（Lv${level}）の生成に失敗: ${reason}（DBには何も書き込んでいません）`, failedLevel: level, reason },
+          { status: 500 },
+        );
+      }
 
-      const grade = JSON.parse(clean);
+      const missing = validateGrade(grade);
+      if (missing.length > 0) {
+        const reason = `必須フィールドが空/欠落: ${missing.join(', ')}`;
+        return Response.json(
+          { error: `${gradeName}（Lv${level}）の検証に失敗: ${reason}（DBには何も書き込んでいません）`, failedLevel: level, reason },
+          { status: 500 },
+        );
+      }
 
-      // DBに保存（UPSERT）
-      const existing = await sql`
-        SELECT id FROM grade_levels
-        WHERE level_number = ${level} AND position = ${position}
-        LIMIT 1
-      `;
+      generated.push({ level, grade });
+    }
 
-      let saved;
-      if (existing.length > 0) {
-        [saved] = await sql`
+    // フェーズ2: 既存レコードのidを一括SELECT（UPDATE/INSERTの振り分けを事前決定）
+    const existingRows = await sql`
+      SELECT id, level_number FROM grade_levels
+      WHERE position = ${position} AND level_number = ANY(${generated.map((g) => g.level)})
+    `;
+    const existingByLevel = new Map<number, string>(
+      existingRows.map((r) => [Number(r.level_number), String(r.id)]),
+    );
+
+    // フェーズ3: 全等級を1トランザクションで一括アトミック書き込み（全件成功時のみDB反映）
+    const queries = generated.map(({ level, grade }) => {
+      const existingId = existingByLevel.get(level);
+      if (existingId) {
+        return sql`
           UPDATE grade_levels SET
             name = ${grade.name},
             role = ${role},
@@ -118,36 +172,36 @@ JSON形式のみで返してください（説明不要）：
             salary_min = ${grade.salaryMin ?? 0},
             salary_max = ${grade.salaryMax ?? 0},
             updated_at = NOW()
-          WHERE id = ${existing[0].id}
+          WHERE id = ${existingId}
           RETURNING *
         `;
-      } else {
-        const newId = `grade_${Date.now()}_${level}`;
-        [saved] = await sql`
-          INSERT INTO grade_levels (
-            id, level_number, name, position, role, description,
-            skills, knowledge, mindset, continuous_learning,
-            required_certifications, promotion_exam,
-            requirements_promotion, requirements_demotion,
-            salary_min, salary_max
-          ) VALUES (
-            ${newId}, ${level}, ${grade.name}, ${position}, ${role},
-            ${grade.description ?? ''},
-            ${JSON.stringify(grade.skills ?? [])},
-            ${JSON.stringify(grade.knowledge ?? [])},
-            ${JSON.stringify(grade.mindset ?? [])},
-            ${JSON.stringify(grade.continuousLearning ?? [])},
-            ${JSON.stringify(grade.requiredCertifications ?? [])},
-            ${JSON.stringify(grade.promotionExam ?? {})},
-            ${grade.requirementsPromotion ?? ''},
-            ${grade.requirementsDemotion ?? ''},
-            ${grade.salaryMin ?? 0},
-            ${grade.salaryMax ?? 0}
-          ) RETURNING *
-        `;
       }
-      savedGrades.push(saved);
-    }
+      const newId = `grade_${Date.now()}_${level}`;
+      return sql`
+        INSERT INTO grade_levels (
+          id, level_number, name, position, role, description,
+          skills, knowledge, mindset, continuous_learning,
+          required_certifications, promotion_exam,
+          requirements_promotion, requirements_demotion,
+          salary_min, salary_max
+        ) VALUES (
+          ${newId}, ${level}, ${grade.name}, ${position}, ${role},
+          ${grade.description ?? ''},
+          ${JSON.stringify(grade.skills ?? [])},
+          ${JSON.stringify(grade.knowledge ?? [])},
+          ${JSON.stringify(grade.mindset ?? [])},
+          ${JSON.stringify(grade.continuousLearning ?? [])},
+          ${JSON.stringify(grade.requiredCertifications ?? [])},
+          ${JSON.stringify(grade.promotionExam ?? {})},
+          ${grade.requirementsPromotion ?? ''},
+          ${grade.requirementsDemotion ?? ''},
+          ${grade.salaryMin ?? 0},
+          ${grade.salaryMax ?? 0}
+        ) RETURNING *
+      `;
+    });
+    const results = await sql.transaction(queries);
+    const savedGrades = results.map((rows) => rows[0]);
 
     return Response.json({ success: true, grades: savedGrades });
 
