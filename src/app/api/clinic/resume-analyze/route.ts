@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
 import { PDFParse } from 'pdf-parse';
 import { buildSystemContext } from '@/lib/clinic-context';
+import { robustJsonParse } from '@/lib/ai-json-parser';
 
 export const maxDuration = 60;
 
@@ -66,8 +67,7 @@ ${extractedText}`,
   const text = (data.content || []).filter((b: any) => b.type === 'text').map((b: any) => b.text).join('');
 
   try {
-    const jsonMatch = text.match(/```json\s*([\s\S]*?)\s*```/) || text.match(/(\{[\s\S]*\})/);
-    const analysis = JSON.parse(jsonMatch ? jsonMatch[1] : text);
+    const analysis = robustJsonParse(text);
     return NextResponse.json({ analysis, rawText: extractedText });
   } catch {
     return NextResponse.json({ error: 'AI応答のパースに失敗しました', raw: text }, { status: 500 });

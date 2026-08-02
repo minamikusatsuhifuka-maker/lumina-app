@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
 import { neon } from '@neondatabase/serverless';
 import { buildSystemContext } from '@/lib/clinic-context';
+import { robustJsonParse } from '@/lib/ai-json-parser';
 
 export const maxDuration = 60;
 
@@ -70,8 +71,7 @@ ${JSON.stringify(staffResponse.answers, null, 2)}
   const text = (data.content || []).filter((b: any) => b.type === 'text').map((b: any) => b.text).join('');
 
   try {
-    const jsonMatch = text.match(/```json\s*([\s\S]*?)\s*```/) || text.match(/(\{[\s\S]*\})/);
-    const parsed = JSON.parse(jsonMatch ? jsonMatch[1] : text);
+    const parsed = robustJsonParse(text);
 
     // AI要約をDBに保存
     await sql`UPDATE staff_survey_responses SET ai_summary = ${JSON.stringify(parsed)}, updated_at = NOW() WHERE survey_id = ${surveyId} AND staff_id = ${staffId}`;

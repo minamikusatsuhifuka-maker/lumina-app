@@ -2,6 +2,7 @@ import { CLAUDE_TEXT_MODEL } from '@/lib/ai-models';
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
 import { buildSystemContext } from '@/lib/clinic-context';
+import { robustJsonParse } from '@/lib/ai-json-parser';
 
 export const maxDuration = 60;
 
@@ -71,8 +72,7 @@ ${instruction}
   const text = (data.content || []).filter((b: any) => b.type === 'text').map((b: any) => b.text).join('');
 
   try {
-    const jsonMatch = text.match(/```json\s*([\s\S]*?)\s*```/) || text.match(/(\{[\s\S]*\})/);
-    const parsed = JSON.parse(jsonMatch ? jsonMatch[1] : text);
+    const parsed = robustJsonParse(text);
     return NextResponse.json(parsed);
   } catch {
     return NextResponse.json({ error: 'AI応答のパースに失敗しました', raw: text }, { status: 500 });

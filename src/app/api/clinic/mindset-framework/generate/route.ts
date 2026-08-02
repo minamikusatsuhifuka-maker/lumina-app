@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
 import { neon } from '@neondatabase/serverless';
 import { buildSystemContext } from '@/lib/clinic-context';
+import { robustJsonParse } from '@/lib/ai-json-parser';
 
 export const maxDuration = 300;
 
@@ -78,18 +79,7 @@ G${gradeLevel}（等級${gradeLevel}）の4つのコア価値について、マ�
     .map((b: any) => b.text)
     .join('');
 
-  // JSONを抽出
-  let jsonStr = text;
-  const fenceMatch = text.match(/```(?:json)?\s*([\s\S]*?)\s*```/);
-  if (fenceMatch) {
-    jsonStr = fenceMatch[1];
-  } else {
-    const objMatch = text.match(/(\{[\s\S]*\})/);
-    if (objMatch) jsonStr = objMatch[1];
-  }
-  jsonStr = jsonStr.trim().replace(/,\s*([}\]])/g, '$1');
-
-  const parsed = JSON.parse(jsonStr);
+  const parsed = robustJsonParse(text);
   return parsed.items || [];
 }
 

@@ -2,6 +2,7 @@ import { CLAUDE_TEXT_MODEL } from '@/lib/ai-models';
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
 import { buildSystemContext } from '@/lib/clinic-context';
+import { robustJsonParse } from '@/lib/ai-json-parser';
 
 const SCORE_PROMPTS: Record<string, string> = {
   handbook: `採点基準：内発的動機・インサイドアウトの視点があるか、先払い哲学があるか、スタッフが主役として描かれているか、リードマネジメントの要素があるか、ティール組織の精神があるか`,
@@ -69,7 +70,7 @@ ${scorePrompt}
   const data = await response.json();
   const resultText = (data.content || []).filter((b: any) => b.type === 'text').map((b: any) => b.text).join('');
   try {
-    const json = JSON.parse(resultText.replace(/```json|```/g, '').trim());
+    const json = robustJsonParse(resultText);
     return NextResponse.json(json);
   } catch {
     return NextResponse.json({ score: 0, reason: '採点に失敗しました。', points: [] });

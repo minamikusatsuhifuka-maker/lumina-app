@@ -6,6 +6,7 @@ import { neon } from '@neondatabase/serverless';
 import { v4 as uuidv4 } from 'uuid';
 import { buildSystemContext } from '@/lib/clinic-context';
 import { callAI } from '@/lib/call-ai';
+import { robustJsonParse } from '@/lib/ai-json-parser';
 
 const CONTEXT_PROMPTS: Record<string, string> = {
   philosophy: 'あなたはクリニックの理念・ビジョン策定の専門コンサルタントです。院長の想いを丁寧に引き出しながら、心に響く理念を一緒に作り上げてください。質問は一度に1〜2つまで。',
@@ -107,8 +108,7 @@ export async function POST(req: NextRequest) {
         messages: [{ role: 'user', content: `以下の対話から重要な判断基準・価値観を抽出してください：\n{"insights":["洞察"],"criteria":[{"criterion":"判断基準","priority":8}],"summary":"要約"}\n\n${messages.map((m: any) => `${m.role === 'user' ? '院長' : 'AI'}: ${m.content}`).join('\n\n')}` }],
         maxTokens: 1000,
       });
-      const clean = insightText.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
-      insights = JSON.parse(clean.match(/(\{[\s\S]*\})/)?.[1] || clean);
+      insights = robustJsonParse(insightText);
 
       for (const c of insights.criteria || []) {
         await sql`INSERT INTO clinic_decision_criteria (id, category, criterion, source_session_id, priority) VALUES (${uuidv4()}, ${dialogueSession.context_type}, ${c.criterion}, ${sessionId}, ${c.priority || 5})`;

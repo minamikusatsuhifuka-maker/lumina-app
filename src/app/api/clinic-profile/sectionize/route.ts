@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
 import Anthropic from '@anthropic-ai/sdk';
 import { extractAnthropicText } from '@/lib/anthropic-text';
+import { robustJsonParse } from '@/lib/ai-json-parser';
 
 export const runtime = 'nodejs';
 export const maxDuration = 60;
@@ -50,13 +51,9 @@ JSON形式のみで回答（前後の説明・コードブロック不要）:
       ],
     });
 
-    const raw = extractAnthropicText(response.content) || '{}';
-    const clean = raw.replace(/```json|```/g, '').trim();
-    const jsonMatch = clean.match(/\{[\s\S]*\}/);
-    if (!jsonMatch) {
-      return NextResponse.json({ sections: [] });
-    }
-    const parsed = JSON.parse(jsonMatch[0]);
+    // 210: パース不能時は偽の空成功（sections:[]の200）を返さず、外側catchの500へ（fail-closed）
+    const raw = extractAnthropicText(response.content);
+    const parsed = robustJsonParse(raw);
     const sections = Array.isArray(parsed.sections) ? parsed.sections : [];
     return NextResponse.json({ sections });
   } catch (err) {

@@ -1,6 +1,7 @@
 import { CLAUDE_TEXT_MODEL } from '@/lib/ai-models';
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
+import { robustJsonParse } from '@/lib/ai-json-parser';
 
 export async function POST(req: NextRequest) {
   const session = await auth();
@@ -73,7 +74,7 @@ ${text ? `テキスト：\n${text}` : ''}
     .map((b: { text: string }) => b.text)
     .join('');
   try {
-    const parsed = JSON.parse(raw.replace(/```json|```/g, '').trim());
+    const parsed = robustJsonParse(raw);
     return NextResponse.json(parsed);
   } catch {
     return NextResponse.json({ error: '解析に失敗しました', raw });

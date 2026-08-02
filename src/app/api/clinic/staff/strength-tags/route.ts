@@ -2,6 +2,7 @@ import { CLAUDE_TEXT_MODEL } from '@/lib/ai-models';
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
 import { buildSystemContext } from '@/lib/clinic-context';
+import { robustJsonParse } from '@/lib/ai-json-parser';
 
 export async function POST(req: NextRequest) {
   const session = await auth();
@@ -50,8 +51,7 @@ export async function POST(req: NextRequest) {
     .join('');
 
   try {
-    const clean = text.replace(/```json|```/g, '').trim();
-    const tags = JSON.parse(clean);
+    const tags = robustJsonParse(text);
     if (Array.isArray(tags)) return NextResponse.json({ tags });
     return NextResponse.json({ tags: [] });
   } catch {

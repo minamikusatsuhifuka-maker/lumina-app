@@ -5,6 +5,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
 import { neon } from '@neondatabase/serverless';
 import { extractAnthropicText } from '@/lib/anthropic-text';
+import { robustJsonParse } from '@/lib/ai-json-parser';
 
 const ZONE_DEFINITIONS: Record<string, string> = {
   red:    'レッドゾーン（即退職レベルの重大違反）：患者・スタッフへのハラスメント、個人情報漏洩、虚偽報告、記録改ざん、無断欠勤3日以上、窃盗・横領など',
@@ -78,12 +79,7 @@ export async function POST(req: NextRequest) {
     // 堅牢なJSON抽出
     let rules: any[] = [];
     try {
-      const jsonBlockMatch = text.match(/```json\s*([\s\S]*?)\s*```/);
-      const jsonStr = jsonBlockMatch
-        ? jsonBlockMatch[1]
-        : (text.match(/\{[\s\S]*\}/) || ['{}'])[0];
-
-      const parsed = JSON.parse(jsonStr);
+      const parsed = robustJsonParse(text);
       rules = parsed.rules || [];
     } catch {
       // フォールバック：正規表現でtitle・descriptionを抽出

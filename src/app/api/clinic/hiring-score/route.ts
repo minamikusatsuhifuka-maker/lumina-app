@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
 import { neon } from '@neondatabase/serverless';
 import { buildSystemContext } from '@/lib/clinic-context';
+import { robustJsonParse } from '@/lib/ai-json-parser';
 
 export const maxDuration = 60;
 
@@ -100,8 +101,7 @@ rankの基準：
   const text = (data.content || []).filter((b: any) => b.type === 'text').map((b: any) => b.text).join('');
 
   try {
-    const jsonMatch = text.match(/```json\s*([\s\S]*?)\s*```/) || text.match(/(\{[\s\S]*\})/);
-    const result = JSON.parse(jsonMatch ? jsonMatch[1] : text);
+    const result = robustJsonParse(text);
     return NextResponse.json(result);
   } catch {
     return NextResponse.json({ error: 'AI応答のパースに失敗しました', raw: text }, { status: 500 });

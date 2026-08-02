@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
 import Anthropic from '@anthropic-ai/sdk';
 import { extractAnthropicText } from '@/lib/anthropic-text';
+import { robustJsonParse } from '@/lib/ai-json-parser';
 
 export const maxDuration = 180;
 
@@ -143,13 +144,9 @@ JSON形式のみで回答（前後の説明・コードブロック不要）:
 }`,
         }],
       });
-      const text = extractAnthropicText(sectionResponse.content) || '{}';
-      const clean = text.replace(/```json|```/g, '').trim();
-      const jsonMatch = clean.match(/\{[\s\S]*\}/);
-      if (jsonMatch) {
-        const parsed = JSON.parse(jsonMatch[0]);
-        sections = Array.isArray(parsed.sections) ? parsed.sections : [];
-      }
+      const text = extractAnthropicText(sectionResponse.content);
+      const parsed = robustJsonParse(text);
+      sections = Array.isArray(parsed.sections) ? parsed.sections : [];
     } catch (e) {
       console.error('[clinic-profile/upload] セクション分け失敗:', e);
     }
