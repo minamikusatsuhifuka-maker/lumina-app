@@ -3,9 +3,25 @@ import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
 import { extractAnthropicText } from '@/lib/anthropic-text';
 import { robustJsonParse } from '@/lib/ai-json-parser';
+import {
+  fetchKindleMaterials,
+  validateKindleMaterialLimits,
+  excerptForOutline,
+} from '@/lib/kindle-materials';
+import { getKindlePurpose, KINDLE_COMMON_RULES } from '@/lib/kindle-purposes';
+import { getKindleStyle } from '@/lib/kindle-styles';
 
 export const runtime = 'nodejs';
 export const maxDuration = 180;
+
+// 222: 分量プリセット（現在はリードマグネットのみ。追加はここに定義する）
+const WIZARD_PRESETS: Record<string, { label: string; chapterRange: string; charsPerChapter: string }> = {
+  leadmagnet: {
+    label: 'リードマグネット（登録プレゼント・2〜3万字）',
+    chapterRange: '6〜8章',
+    charsPerChapter: '3500〜4000',
+  },
+};
 
 const BOOK_TYPE_GUIDES: Record<string, string> = {
   guide: `解説書・ガイドブック構成:
@@ -34,8 +50,23 @@ export async function POST(req: NextRequest) {
   const session = await auth();
   if (!session?.user) return new Response('Unauthorized', { status: 401 });
 
-  const { title, bookType, theme, targetReader, chapterCount, pageCount } = await req.json();
+  const { title, bookType, theme, targetReader, chapterCount, pageCount, sourceIds, purposeKey, styleKey, preset } =
+    await req.json();
   const apiKey = process.env.ANTHROPIC_API_KEY!;
+
+  // 222: sourceIds 指定時はウィザード経路（素材束ね＋目的×文体＋分量プリセット）。
+  // 未指定なら従来経路そのまま（完全後方互換＝スタジオからの呼び出しに影響なし）。
+  if (Array.isArray(sourceIds) && sourceIds.length > 0) {
+    return wizardOutline({
+      userId: (session.user as any).id,
+      apiKey,
+      sourceIds,
+      purposeKey,
+      styleKey,
+      preset,
+      theme,
+    });
+  }
 
   if (!title) {
     return NextResponse.json({ error: 'タイトルは必須です' }, { status: 400 });
@@ -111,6 +142,144 @@ ${typeGuide}
     } catch {
       return NextResponse.json({ error: 'JSONパース失敗', raw: text.slice(0, 100) }, { status: 500 });
     }
+  } catch (e: unknown) {
+    const msg = e instanceof Error ? e.message : String(e);
+    return NextResponse.json({ error: `構成案の生成に失敗しました: ${msg}` }, { status: 500 });
+  }
+}
+
+// ── 222: ウィザード経路（DR素材束ね → 目次生成） ──
+// 章タイトルはAI命名（既存機能維持）。章ごとに使用素材ID（source_ids）を割り当てさせ、
+// 実在IDのみ通す検証を行う（ハルシネーションIDを捨てる）。
+async function wizardOutline(params: {
+  userId: string;
+  apiKey: string;
+  sourceIds: string[];
+  purposeKey: unknown;
+  styleKey: unknown;
+  preset: unknown;
+  theme?: string;
+}) {
+  const { userId, apiKey, sourceIds, theme } = params;
+
+  const presetKey = typeof params.preset === 'string' ? params.preset : 'leadmagnet';
+  const presetDef = WIZARD_PRESETS[presetKey];
+  if (!presetDef) {
+    return NextResponse.json(
+      { error: `preset が不正です（対応: ${Object.keys(WIZARD_PRESETS).join('/')}）` },
+      { status: 400 },
+    );
+  }
+  const purpose = getKindlePurpose(params.purposeKey);
+  const style = getKindleStyle(params.styleKey);
+
+  try {
+    const materials = await fetchKindleMaterials(userId, sourceIds);
+    if (materials.length !== sourceIds.length) {
+      return NextResponse.json(
+        { error: `選択素材のうち${sourceIds.length - materials.length}件が見つかりません` },
+        { status: 400 },
+      );
+    }
+    const check = validateKindleMaterialLimits(materials);
+    if (!check.ok) {
+      return NextResponse.json({ error: check.error }, { status: 400 });
+    }
+
+    const materialsBlock = materials
+      .map((m, i) => `【素材${i + 1}｜ID: ${m.id}】${m.title}\n${excerptForOutline(m.text)}`)
+      .join('\n\n---\n\n');
+
+    const system = `あなたはKindle出版の専門プロデューサーです。
+渡されたディープリサーチ素材を束ねて、1冊の本の構成案（目次）を作成してください。
+本のタイトル・各章のタイトルは、素材の内容からあなたが命名してください。
+
+${purpose.promptBlock}
+
+${style.promptBlock}
+
+${KINDLE_COMMON_RULES}
+
+# 分量指定（厳守）
+- プリセット: ${presetDef.label}
+- 章数: ${presetDef.chapterRange}
+- 各章の目標文字数: ${presetDef.charsPerChapter}字（target_chars に数値で設定）
+
+# 素材の割り当て（厳守）
+- 各章の source_ids に、その章の執筆で使う素材のIDを入れる（渡された素材のIDのみ。新しいIDを作らない）
+- すべての素材がいずれかの章で使われるように配分する（1素材を複数章で使ってもよい）
+
+必ず以下のJSON形式のみを返してください。前置きや説明は不要です。
+
+{
+  "book_title": "正式な書籍タイトル",
+  "subtitle": "サブタイトル",
+  "tagline": "キャッチコピー（1行）",
+  "target_reader": "ターゲット読者の具体的な描写",
+  "unique_value": "この本ならではの価値・差別化ポイント",
+  "chapters": [
+    {
+      "chapter_num": 1,
+      "title": "章タイトル",
+      "summary": "章の概要（100〜200文字）",
+      "key_points": ["ポイント1", "ポイント2", "ポイント3"],
+      "target_chars": 3500,
+      "source_ids": ["使う素材のID"]
+    }
+  ],
+  "foreword_outline": "まえがきの概要",
+  "afterword_outline": "あとがきの概要"
+}`;
+
+    const response = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': apiKey,
+        'anthropic-version': '2023-06-01',
+      },
+      body: JSON.stringify({
+        model: CLAUDE_TEXT_MODEL,
+        max_tokens: 8000,
+        system,
+        messages: [
+          {
+            role: 'user',
+            content: `以下の素材を束ねて本の構成案を作成してください。
+${theme ? `\n【著者からの補足】\n${theme}\n` : ''}
+【素材（全${materials.length}件）】
+
+${materialsBlock}`,
+          },
+        ],
+      }),
+    });
+
+    const data = await response.json();
+    const text = extractAnthropicText(data.content);
+
+    let outline: any;
+    try {
+      outline = robustJsonParse(text);
+    } catch {
+      return NextResponse.json({ error: 'JSONパース失敗', raw: text.slice(0, 100) }, { status: 500 });
+    }
+
+    // fail-closed: 必須構造の検証と source_ids の実在チェック
+    if (!outline || typeof outline.book_title !== 'string' || !Array.isArray(outline.chapters) || outline.chapters.length === 0) {
+      return NextResponse.json({ error: '構成案の形式が不正です（book_title / chapters）' }, { status: 500 });
+    }
+    const validIdSet = new Set(sourceIds);
+    outline.chapters = outline.chapters.map((c: any, idx: number) => ({
+      ...c,
+      chapter_num: typeof c.chapter_num === 'number' ? c.chapter_num : idx + 1,
+      target_chars: typeof c.target_chars === 'number' && c.target_chars > 0 ? c.target_chars : 3500,
+      source_ids: Array.isArray(c.source_ids)
+        ? c.source_ids.filter((id: unknown) => typeof id === 'string' && validIdSet.has(id))
+        : [],
+    }));
+
+    return NextResponse.json(outline);
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : String(e);
     return NextResponse.json({ error: `構成案の生成に失敗しました: ${msg}` }, { status: 500 });
