@@ -452,9 +452,16 @@ function LibraryPageInner() {
     return items.filter(i => normalizeGroup(i.group_name || '') === key).length;
   };
 
+  // ディープリサーチタブ選択時のみコンパクトカード＋3〜4列グリッド
+  // （全体横断検索中は他カテゴリが混ざるため通常表示に戻す）
+  const isDrCompact =
+    activeTab === 'ディープリサーチ' && !(search.trim() && searchScope === 'all');
+  // 画面幅に応じて自動で1〜4列（院長指定のリテラル）
+  const drGridClass = 'grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4';
+
   /* ── 各アイテムのレンダリング ── */
   const renderItem = (item: any) => (
-    <div key={item.id}>
+    <div key={item.id} style={isDrCompact ? { minWidth: 0, height: '100%' } : undefined}>
       <LibraryItemRow
         item={item}
         openMenuId={openMenuId}
@@ -474,6 +481,7 @@ function LibraryPageInner() {
         isExpanded={expandedId === item.id}
         onMoveToFolder={openFolderModal}
         onTagClick={(t) => setSearch(t)}
+        variant={isDrCompact ? 'compact' : 'default'}
       />
 
       {editingId === item.id && (
@@ -509,9 +517,15 @@ function LibraryPageInner() {
           <span style={{ color: 'var(--text-muted)', fontWeight: 400 }}>({folderItems.length})</span>
         </button>
         {!isCollapsed && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 12, paddingLeft: 12 }}>
-            {folderItems.map(renderItem)}
-          </div>
+          isDrCompact ? (
+            <div className={drGridClass} style={{ gap: 12, paddingLeft: 12 }}>
+              {folderItems.map(renderItem)}
+            </div>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 12, paddingLeft: 12 }}>
+              {folderItems.map(renderItem)}
+            </div>
+          )
         )}
       </div>
     );
@@ -802,7 +816,13 @@ function LibraryPageInner() {
               {groupedByFolder.sortedFolders.length > 0 && (
                 <div style={{ fontSize: 11, color: 'var(--text-muted)', padding: '4px 10px', fontWeight: 600 }}>未整理</div>
               )}
-              {groupedByFolder.noFolder.map(renderItem)}
+              {isDrCompact ? (
+                <div className={drGridClass} style={{ gap: 12 }}>
+                  {groupedByFolder.noFolder.map(renderItem)}
+                </div>
+              ) : (
+                groupedByFolder.noFolder.map(renderItem)
+              )}
             </div>
           )}
         </div>

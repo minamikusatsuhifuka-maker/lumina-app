@@ -62,6 +62,8 @@ interface Props {
   onMoveToFolder?: (item: any) => void;
   // AIタグクリック→検索欄に流す（オプション）
   onTagClick?: (tag: string) => void;
+  // compact = ディープリサーチタブの3〜4列グリッド用（タイトル/日付/文字数のみ・操作はホバー表示）
+  variant?: 'default' | 'compact';
 }
 
 export function LibraryItemRow({
@@ -75,6 +77,7 @@ export function LibraryItemRow({
   onExpandToggle,
   isExpanded,
   onTagClick,
+  variant = 'default',
 }: Props) {
   const meta = parseMetadata(item.metadata);
   const subCategory: string | undefined = typeof meta?.subCategory === 'string' ? meta.subCategory : undefined;
@@ -139,6 +142,174 @@ export function LibraryItemRow({
     whiteSpace: 'nowrap',
     lineHeight: 1.4,
   };
+
+  /* ── compact: ディープリサーチタブの3〜4列グリッド用カード ── */
+  if (variant === 'compact') {
+    const compactBtnStyle: React.CSSProperties = {
+      ...btnStyle,
+      padding: '3px 8px',
+      fontSize: 10,
+    };
+    return (
+      <div
+        className="group"
+        style={{
+          padding: 12,
+          background: 'var(--bg-secondary)',
+          borderRadius: 10,
+          border: selected
+            ? '2px solid var(--accent)'
+            : item.is_favorite
+              ? '1px solid rgba(245,166,35,0.4)'
+              : '1px solid var(--border)',
+          transition: 'border-color 0.15s',
+          height: '100%',
+          minWidth: 0,
+          boxSizing: 'border-box',
+          display: 'flex',
+          flexDirection: 'column',
+          gap: 8,
+        }}
+      >
+        {/* タイトル行（★は常時表示） */}
+        <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8, minWidth: 0 }}>
+          {mergeMode && (
+            <input
+              type="checkbox"
+              checked={selected}
+              onChange={(e) => onSelectToggle(item.id, e.target.checked)}
+              style={{ marginTop: 2, width: 16, height: 16, cursor: 'pointer', flexShrink: 0 }}
+            />
+          )}
+          {item.is_favorite ? (
+            <span style={{ color: '#f5a623', fontSize: 13, flexShrink: 0 }}>★</span>
+          ) : null}
+          <strong
+            className="line-clamp-2"
+            title={item.title || '(無題)'}
+            style={{
+              fontSize: 13,
+              fontWeight: 700,
+              color: 'var(--text-primary)',
+              wordBreak: 'break-word',
+              lineHeight: 1.5,
+              minWidth: 0,
+            }}
+          >
+            {item.title || '(無題)'}
+          </strong>
+        </div>
+
+        {/* 日付・文字数のみ */}
+        <div style={{ fontSize: 11, color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+          {createdDate && <span>{createdDate}</span>}
+          <span>・</span>
+          <span>{charCount.toLocaleString()}文字</span>
+        </div>
+
+        {/* 操作ボタン: ホバー時オーバーレイ表示（タッチ端末は常時表示） */}
+        <div
+          className="opacity-0 group-hover:opacity-100 focus-within:opacity-100 [@media(hover:none)]:opacity-100 transition-opacity"
+          style={{ display: 'flex', gap: 4, flexWrap: 'wrap', alignItems: 'center', marginTop: 'auto' }}
+        >
+          <button type="button" onClick={() => onExpandToggle(item.id)} style={compactBtnStyle}>
+            {isExpanded ? '▲ 閉じる' : '▼ 全文表示'}
+          </button>
+          <button type="button" onClick={handleCopy} style={compactBtnStyle}>
+            📋 {copied ? 'コピー済' : 'コピー'}
+          </button>
+          <button type="button" onClick={() => onExportMd(item)} style={compactBtnStyle} title="Markdownをダウンロード">
+            📥 MD
+          </button>
+          <button
+            type="button"
+            onClick={() => onFavoriteToggle(item)}
+            title={item.is_favorite ? 'お気に入り解除' : 'お気に入りに追加'}
+            style={{
+              ...compactBtnStyle,
+              color: item.is_favorite ? '#f59e0b' : 'var(--text-secondary)',
+              borderColor: item.is_favorite ? 'rgba(245,158,11,0.4)' : 'var(--border)',
+              background: item.is_favorite ? 'rgba(245,158,11,0.08)' : 'var(--bg-primary)',
+            }}
+          >
+            {item.is_favorite ? '⭐' : '☆'}
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              if (confirm('このアイテムを削除しますか？')) {
+                onDelete(item.id);
+              }
+            }}
+            title="削除"
+            style={{
+              ...compactBtnStyle,
+              color: '#ef4444',
+              borderColor: 'rgba(239,68,68,0.3)',
+              background: 'rgba(239,68,68,0.04)',
+              marginLeft: 'auto',
+            }}
+          >
+            🗑
+          </button>
+        </div>
+
+        {/* 全文表示（▼全文表示の展開時のみ本文を表示） */}
+        {isExpanded && (
+          <div
+            style={{
+              padding: 12,
+              background: 'var(--bg-primary)',
+              borderRadius: 6,
+              border: '1px solid var(--border)',
+              fontSize: 13,
+              lineHeight: 1.7,
+              color: 'var(--text-secondary)',
+              whiteSpace: 'pre-wrap',
+              wordBreak: 'break-word',
+              maxHeight: 600,
+              overflowY: 'auto',
+              position: 'relative',
+            }}
+          >
+            <div
+              style={{
+                position: 'sticky',
+                top: 4,
+                float: 'right',
+                zIndex: 5,
+                marginLeft: 'auto',
+                marginBottom: -28,
+              }}
+            >
+              <button
+                type="button"
+                onClick={() => onExpandToggle(item.id)}
+                style={{
+                  padding: '4px 10px',
+                  fontSize: 11,
+                  fontWeight: 500,
+                  background: 'rgba(255, 255, 255, 0.92)',
+                  color: '#374151',
+                  border: '1px solid var(--border)',
+                  borderRadius: 6,
+                  cursor: 'pointer',
+                  boxShadow: '0 2px 6px rgba(0,0,0,0.12)',
+                  backdropFilter: 'blur(4px)',
+                  WebkitBackdropFilter: 'blur(4px)',
+                  whiteSpace: 'nowrap',
+                }}
+                title="このアイテムを閉じる"
+              >
+                ▲ 閉じる
+              </button>
+            </div>
+            {content}
+          </div>
+        )}
+      </div>
+    );
+  }
 
   return (
     <div
