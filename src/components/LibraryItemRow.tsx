@@ -212,14 +212,22 @@ export function LibraryItemRow({
           className="opacity-0 group-hover:opacity-100 focus-within:opacity-100 [@media(hover:none)]:opacity-100 transition-opacity"
           style={{ display: 'flex', gap: 4, flexWrap: 'wrap', alignItems: 'center', marginTop: 'auto' }}
         >
-          <button type="button" onClick={() => onExpandToggle(item.id)} style={compactBtnStyle}>
-            {isExpanded ? '▲ 閉じる' : '▼ 全文表示'}
+          {/* 4列時(xl〜)はアイコンのみ・ツールチップで機能名を補う */}
+          <button
+            type="button"
+            onClick={() => onExpandToggle(item.id)}
+            style={compactBtnStyle}
+            title={isExpanded ? '閉じる' : '全文表示'}
+          >
+            {isExpanded ? '▲' : '▼'}
+            <span className="xl:hidden">{isExpanded ? ' 閉じる' : ' 全文表示'}</span>
           </button>
-          <button type="button" onClick={handleCopy} style={compactBtnStyle}>
-            📋 {copied ? 'コピー済' : 'コピー'}
+          <button type="button" onClick={handleCopy} style={compactBtnStyle} title="本文をコピー">
+            {copied ? '✓' : '📋'}
+            <span className="xl:hidden">{copied ? ' コピー済' : ' コピー'}</span>
           </button>
           <button type="button" onClick={() => onExportMd(item)} style={compactBtnStyle} title="Markdownをダウンロード">
-            📥 MD
+            📥<span className="xl:hidden"> MD</span>
           </button>
           <button
             type="button"
