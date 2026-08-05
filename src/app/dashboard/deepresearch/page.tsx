@@ -1765,7 +1765,7 @@ ${contextText}
             <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
               <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-secondary)' }}>🔭 リサーチレポート</span>
               <SaveToLibraryButton
-                title={`ディープリサーチ: ${topic}`}
+                title={topic || 'ディープリサーチ'}
                 content={report}
                 type="deepresearch"
                 groupName="ディープリサーチ"
@@ -2260,7 +2260,7 @@ ${contextText}
                 <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
                   <button onClick={() => copyToClipboard(insights.summary)} style={{ padding: '5px 12px', background: 'var(--bg-primary)', border: '1px solid var(--border)', color: 'var(--text-secondary)', borderRadius: 6, cursor: 'pointer', fontSize: 12 }}>📋 コピー</button>
                   <button onClick={() => downloadInsightMd('summary', insights.summary, setDownloadingSummary)} disabled={downloadingSummary} style={{ padding: '5px 12px', background: 'var(--bg-primary)', border: '1px solid var(--border)', color: 'var(--text-secondary)', borderRadius: 6, cursor: downloadingSummary ? 'not-allowed' : 'pointer', fontSize: 12, opacity: downloadingSummary ? 0.6 : 1 }}>{downloadingSummary ? '⏳ 生成中...' : '📥 MD'}</button>
-                  <SaveToLibraryButton title={`ディープリサーチ 要約: ${topic}`} content={insights.summary} type="deepresearch" groupName="ディープリサーチ" tags="ディープリサーチ,要約" />
+                  <SaveToLibraryButton title={topic || 'ディープリサーチ'} content={insights.summary} type="deepresearch" groupName="ディープリサーチ" tags="ディープリサーチ,要約" />
                 </div>
               </div>
               <div
@@ -2279,7 +2279,7 @@ ${contextText}
                 <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
                   <button onClick={() => copyToClipboard(insights.detail)} style={{ padding: '5px 12px', background: 'var(--bg-primary)', border: '1px solid var(--border)', color: 'var(--text-secondary)', borderRadius: 6, cursor: 'pointer', fontSize: 12 }}>📋 コピー</button>
                   <button onClick={() => downloadInsightMd('detail', insights.detail, setDownloadingDetail)} disabled={downloadingDetail} style={{ padding: '5px 12px', background: 'var(--bg-primary)', border: '1px solid var(--border)', color: 'var(--text-secondary)', borderRadius: 6, cursor: downloadingDetail ? 'not-allowed' : 'pointer', fontSize: 12, opacity: downloadingDetail ? 0.6 : 1 }}>{downloadingDetail ? '⏳ 生成中...' : '📥 MD'}</button>
-                  <SaveToLibraryButton title={`ディープリサーチ 詳細: ${topic}`} content={insights.detail} type="deepresearch" groupName="ディープリサーチ" tags="ディープリサーチ,詳細" />
+                  <SaveToLibraryButton title={topic || 'ディープリサーチ'} content={insights.detail} type="deepresearch" groupName="ディープリサーチ" tags="ディープリサーチ,詳細" />
                 </div>
               </div>
               <div
@@ -2315,7 +2315,7 @@ ${contextText}
                 <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
                   <button onClick={() => copyToClipboard(insights.advice)} style={{ padding: '5px 12px', background: 'var(--bg-primary)', border: '1px solid var(--border)', color: 'var(--text-secondary)', borderRadius: 6, cursor: 'pointer', fontSize: 12 }}>📋 コピー</button>
                   <button onClick={() => downloadInsightMd('advice', insights.advice, setDownloadingAdvice)} disabled={downloadingAdvice} style={{ padding: '5px 12px', background: 'var(--bg-primary)', border: '1px solid var(--border)', color: 'var(--text-secondary)', borderRadius: 6, cursor: downloadingAdvice ? 'not-allowed' : 'pointer', fontSize: 12, opacity: downloadingAdvice ? 0.6 : 1 }}>{downloadingAdvice ? '⏳ 生成中...' : '📥 MD'}</button>
-                  <SaveToLibraryButton title={`ディープリサーチ 活用アドバイス: ${topic}`} content={insights.advice} type="deepresearch" groupName="ディープリサーチ" tags="ディープリサーチ,活用アドバイス" />
+                  <SaveToLibraryButton title={topic || 'ディープリサーチ'} content={insights.advice} type="deepresearch" groupName="ディープリサーチ" tags="ディープリサーチ,活用アドバイス" />
                 </div>
               </div>
               <div

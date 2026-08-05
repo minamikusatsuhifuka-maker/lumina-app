@@ -206,7 +206,7 @@ export default function InlineAnalysisPanel({
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          title: `【ディープリサーチ分析】${topic || '無題'}`,
+          title: topic || 'ディープリサーチ分析',
           content: allText,
           category: 'ディープリサーチ',
           analysisType: apiTypes,
