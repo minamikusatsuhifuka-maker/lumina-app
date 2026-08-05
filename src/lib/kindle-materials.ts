@@ -7,13 +7,14 @@
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 import { neon } from '@neondatabase/serverless';
+import {
+  MAX_KINDLE_SOURCES,
+  MAX_KINDLE_TOTAL_CHARS,
+  OUTLINE_EXCERPT_CHARS,
+} from '@/lib/kindle-limits';
 
-// 選択上限（note-bundle の MAX_BUNDLE_SOURCES=10 と同根拠）
-export const MAX_KINDLE_SOURCES = 10;
-// 合計文字数上限（DR実測: 平均4,674字・p90約1万字 → 全件p90級でも安全圏に収める）
-export const MAX_KINDLE_TOTAL_CHARS = 150_000;
-// 目次生成時の1素材あたり切り詰め（p90の大半をカバーしつつプロンプトを制限）
-export const OUTLINE_EXCERPT_CHARS = 8_000;
+// 定数の実体は kindle-limits.ts（クライアント共用）。サーバ側の既存importを壊さないため再export
+export { MAX_KINDLE_SOURCES, MAX_KINDLE_TOTAL_CHARS, OUTLINE_EXCERPT_CHARS };
 
 export interface KindleMaterialRow {
   id: string;

@@ -546,3 +546,17 @@ test('C22: note選択モード中の干渉（214）— 案内表示＋カート�
   await expect(page.getByText('2件選択中', { exact: true })).toBeVisible();
   await expect(page.getByText(`[E2E] ${CROSS_TOKEN} 横断A`).filter({ visible: true }).first()).toBeVisible();
 });
+
+test('C23: Kindle本づくりウィザード（223）の開通 — ①素材選択と上限表示が出る', async ({ page }) => {
+  // AI生成（目次・本文）はコスト・所要時間のためE2E対象外。画面開通と初期表示のみ検証する
+  await page.goto('/dashboard/kindle-wizard');
+  await expect(page.getByRole('heading', { name: '📖 Kindle本づくり' })).toBeVisible();
+  // ステップ①の上限表示（10件・150,000字）
+  await expect(page.locator('[data-kw-limits]')).toBeVisible();
+  await expect(page.locator('[data-kw-limits]')).toContainText('0/10件');
+  await expect(page.locator('[data-kw-limits]')).toContainText('上限150,000字');
+  // ステップインジケーターに6ステップが並ぶ
+  for (const label of ['1. 素材', '2. 目的', '3. 分量・文体', '4. 目次', '5. 本文生成', '6. 出力']) {
+    await expect(page.getByText(label, { exact: true })).toBeVisible();
+  }
+});

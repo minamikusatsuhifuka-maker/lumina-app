@@ -80,7 +80,7 @@ export async function GET(req: NextRequest) {
 
   const books = await sql`
     SELECT id, title, subtitle, language, genre, status, phase,
-           target_word_count, current_word_count, created_at, updated_at
+           target_word_count, current_word_count, book_meta, created_at, updated_at
     FROM kindle_books
     WHERE user_id = ${userId}
     ORDER BY updated_at DESC
