@@ -13,7 +13,13 @@ import {
   DEFAULT_KINDLE_STYLE,
   type KindleStyleKey,
 } from '@/lib/kindle-styles';
-import { MAX_KINDLE_SOURCES, MAX_KINDLE_TOTAL_CHARS } from '@/lib/kindle-limits';
+import {
+  MAX_KINDLE_SOURCES,
+  MAX_KINDLE_TOTAL_CHARS,
+  KINDLE_MATERIAL_SOURCES,
+  KINDLE_MATERIAL_SOURCE_META,
+  type KindleMaterialSource,
+} from '@/lib/kindle-limits';
 import { stripLeadingChapterHeading } from '@/lib/kindle-text';
 import { triggerDownload } from '@/lib/download';
 import {
@@ -214,6 +220,8 @@ function KindleWizardInner() {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [validating, setValidating] = useState(false);
+  // 229A: 素材ソースのタブ（選択はタブ横断で保持＝DR+note混在可・上限は合算）
+  const [sourceTab, setSourceTab] = useState<KindleMaterialSource>('deepresearch');
 
   /* ②③ 設定 */
   const [purposeKey, setPurposeKey] = useState<KindlePurposeKey | null>(null);
@@ -261,12 +269,18 @@ function KindleWizardInner() {
   /* 作成中の本一覧 */
   const [wizardBooks, setWizardBooks] = useState<any[]>([]);
 
-  /* ── 初期ロード ── */
+  /* ── 初期ロード（229A: DR+note記事の2ソースを取得。typeは各行のtype列で判別） ── */
   useEffect(() => {
-    fetch('/api/library?type=deepresearch')
-      .then((r) => r.json())
-      .then((data) => {
-        if (Array.isArray(data)) setItems(data);
+    Promise.all(
+      KINDLE_MATERIAL_SOURCES.map((t) =>
+        fetch(`/api/library?type=${t}`)
+          .then((r) => r.json())
+          .then((data) => (Array.isArray(data) ? data : []))
+          .catch(() => []),
+      ),
+    )
+      .then((lists) => {
+        setItems(lists.flat());
         setItemsLoading(false);
       })
       .catch(() => setItemsLoading(false));
@@ -329,9 +343,10 @@ function KindleWizardInner() {
   /* ── ① 素材選択 ── */
   const filteredItems = useMemo(() => {
     const q = search.trim().toLowerCase();
-    if (!q) return items;
-    return items.filter((i) => (i.title || '').toLowerCase().includes(q));
-  }, [items, search]);
+    const inTab = items.filter((i) => (i.type || 'deepresearch') === sourceTab);
+    if (!q) return inTab;
+    return inTab.filter((i) => (i.title || '').toLowerCase().includes(q));
+  }, [items, search, sourceTab]);
 
   const selectedItems = useMemo(() => items.filter((i) => selectedIds.has(i.id)), [items, selectedIds]);
   const totalChars = useMemo(
@@ -339,6 +354,17 @@ function KindleWizardInner() {
     [selectedItems],
   );
   const titleById = useMemo(() => new Map(items.map((i) => [String(i.id), i.title || '(無題)'])), [items]);
+  // 229A: ④の素材バッジで種別絵文字（🗂/📝）を出すためのマップ
+  const sourceEmojiById = useMemo(
+    () =>
+      new Map(
+        items.map((i) => [
+          String(i.id),
+          KINDLE_MATERIAL_SOURCE_META[(i.type || 'deepresearch') as KindleMaterialSource]?.emoji ?? '📄',
+        ]),
+      ),
+    [items],
+  );
 
   const toggleSelect = (id: string, checked: boolean) => {
     setSelectedIds((prev) => {
@@ -935,7 +961,7 @@ function KindleWizardInner() {
     <div style={{ paddingBottom: 96 }}>
       <h1 style={{ fontSize: 28, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 4 }}>📖 Kindle本づくり</h1>
       <p style={{ color: 'var(--text-muted)', marginBottom: 16 }}>
-        ディープリサーチ結果を束ねて、目的別のKindle本（まずはリードマグネット）を作成します。
+        ディープリサーチ結果やnote記事を束ねて、目的別のKindle本（まずはリードマグネット）を作成します。
       </p>
 
       {/* 作成中の本（復帰導線） */}
@@ -989,6 +1015,35 @@ function KindleWizardInner() {
       {/* ── ① 素材を選ぶ ── */}
       {step === 1 && (
         <div>
+          {/* 229A: 素材ソースのタブ（🗂DR／📝note記事・混在選択可） */}
+          <div style={{ display: 'flex', gap: 6, marginBottom: 10, flexWrap: 'wrap' }}>
+            {KINDLE_MATERIAL_SOURCES.map((k) => {
+              const meta = KINDLE_MATERIAL_SOURCE_META[k];
+              const count = items.filter((i) => (i.type || 'deepresearch') === k).length;
+              const selCount = items.filter((i) => (i.type || 'deepresearch') === k && selectedIds.has(i.id)).length;
+              const active = sourceTab === k;
+              return (
+                <button
+                  key={k}
+                  onClick={() => setSourceTab(k)}
+                  style={{
+                    padding: '7px 16px',
+                    borderRadius: 99,
+                    fontSize: 12,
+                    fontWeight: active ? 700 : 400,
+                    background: active ? 'var(--accent-soft)' : 'var(--bg-secondary)',
+                    border: `1px solid ${active ? 'var(--accent)' : 'var(--border)'}`,
+                    color: active ? 'var(--text-primary)' : 'var(--text-muted)',
+                    cursor: 'pointer',
+                  }}
+                >
+                  {meta.emoji} {meta.label}（{count}）{selCount > 0 ? ` ☑${selCount}` : ''}
+                </button>
+              );
+            })}
+            <span style={{ fontSize: 11, color: 'var(--text-muted)', alignSelf: 'center' }}>タブをまたいで混在選択できます（上限は合算）</span>
+          </div>
+
           <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', marginBottom: 12 }}>
             <input
               value={search}
@@ -1002,7 +1057,9 @@ function KindleWizardInner() {
             <div style={{ color: 'var(--text-muted)', textAlign: 'center', padding: 40 }}>読み込み中...</div>
           ) : filteredItems.length === 0 ? (
             <div style={{ textAlign: 'center', padding: 40, color: 'var(--text-muted)' }}>
-              ディープリサーチ結果がありません。先に🔭ディープリサーチで調査・保存してください。
+              {sourceTab === 'deepresearch'
+                ? 'ディープリサーチ結果がありません。先に🔭ディープリサーチで調査・保存してください。'
+                : 'note記事がありません。✍️note記事群生成などで作成し、ライブラリに保存すると表示されます。'}
             </div>
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4" style={{ gap: 12 }}>
@@ -1148,7 +1205,7 @@ function KindleWizardInner() {
                       <span style={{ fontSize: 10, color: 'var(--text-muted)' }}>目標{(c.target_chars ?? 3500).toLocaleString()}字</span>
                       {(c.source_ids ?? []).map((sid) => (
                         <span key={sid} style={{ fontSize: 10, padding: '1px 8px', borderRadius: 8, background: 'rgba(139,92,246,0.1)', color: '#8b5cf6' }}>
-                          📄 {String(titleById.get(sid) ?? sid).slice(0, 18)}
+                          {sourceEmojiById.get(sid) ?? '📄'} {String(titleById.get(sid) ?? sid).slice(0, 18)}
                         </span>
                       ))}
                     </div>

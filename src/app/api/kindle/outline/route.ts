@@ -7,6 +7,9 @@ import {
   fetchKindleMaterials,
   validateKindleMaterialLimits,
   excerptForOutline,
+  kindleMaterialLabel,
+  hasNoteMaterials,
+  KINDLE_NOTE_SOURCE_RULES,
 } from '@/lib/kindle-materials';
 import { getKindlePurpose, KINDLE_COMMON_RULES } from '@/lib/kindle-purposes';
 import { getKindleStyle } from '@/lib/kindle-styles';
@@ -187,11 +190,11 @@ async function wizardOutline(params: {
     }
 
     const materialsBlock = materials
-      .map((m, i) => `【素材${i + 1}｜ID: ${m.id}】${m.title}\n${excerptForOutline(m.text)}`)
+      .map((m, i) => `${kindleMaterialLabel(m, i)}\n${excerptForOutline(m.text)}`)
       .join('\n\n---\n\n');
 
     const system = `あなたはKindle出版の専門プロデューサーです。
-渡されたディープリサーチ素材を束ねて、1冊の本の構成案（目次）を作成してください。
+渡された素材（ディープリサーチ結果・note記事）を束ねて、1冊の本の構成案（目次）を作成してください。
 本のタイトル・各章のタイトルは、素材の内容からあなたが命名してください。
 
 ${purpose.promptBlock}
@@ -199,6 +202,7 @@ ${purpose.promptBlock}
 ${style.promptBlock}
 
 ${KINDLE_COMMON_RULES}
+${hasNoteMaterials(materials) ? `\n${KINDLE_NOTE_SOURCE_RULES}\n` : ''}
 
 # 分量指定（厳守）
 - プリセット: ${presetDef.label}

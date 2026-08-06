@@ -4,7 +4,12 @@ import { auth } from '@/lib/auth';
 import Anthropic from '@anthropic-ai/sdk';
 import { extractAnthropicText } from '@/lib/anthropic-text';
 import { neon } from '@neondatabase/serverless';
-import { fetchKindleMaterials } from '@/lib/kindle-materials';
+import {
+  fetchKindleMaterials,
+  hasNoteMaterials,
+  KINDLE_MATERIAL_SOURCE_META,
+  KINDLE_NOTE_SOURCE_RULES,
+} from '@/lib/kindle-materials';
 import { getKindlePurpose, KINDLE_COMMON_RULES, KINDLE_LAYOUT_RULES } from '@/lib/kindle-purposes';
 import { getKindleStyle } from '@/lib/kindle-styles';
 import { stripLeadingChapterHeading } from '@/lib/kindle-text';
@@ -157,7 +162,9 @@ async function wizardGenerateChapter(client: Anthropic, userId: string, bookId: 
   const materials = await fetchKindleMaterials(userId, assignedIds);
   const materialsBlock =
     materials.length > 0
-      ? materials.map((m, i) => `【素材${i + 1}】${m.title}\n${m.text}`).join('\n\n---\n\n')
+      ? materials
+          .map((m, i) => `【素材${i + 1}｜${KINDLE_MATERIAL_SOURCE_META[m.source].label}】${m.title}\n${m.text}`)
+          .join('\n\n---\n\n')
       : '（この章への割当素材なし。書籍情報と章概要に基づいて執筆する）';
 
   // 前章文脈: 完了章のタイトル＋概要一覧、直前の完了章の末尾800字（追加AI呼び出しなし）
@@ -183,7 +190,7 @@ ${style.promptBlock}
 
 ${KINDLE_LAYOUT_RULES}
 
-${KINDLE_COMMON_RULES}`;
+${KINDLE_COMMON_RULES}${hasNoteMaterials(materials) ? `\n\n${KINDLE_NOTE_SOURCE_RULES}` : ''}`;
 
   const prompt = `以下の章の本文を執筆してください。本文のみを出力してください（説明文・前置き不要）。
 章タイトルの見出し（「# 第N章 …」等）は本文に含めず、書き出しの段落（または「この章でわかること」）から始めてください。

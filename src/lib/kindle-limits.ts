@@ -8,3 +8,12 @@ export const MAX_KINDLE_SOURCES = 10;
 export const MAX_KINDLE_TOTAL_CHARS = 150_000;
 // 目次生成時の1素材あたり切り詰め（p90の大半をカバーしつつプロンプトを制限）
 export const OUTLINE_EXCERPT_CHARS = 8_000;
+
+// 229A: 素材ソース種別（library.type の値と一致させる。上限はDR+note合算で共通）
+// サーバ（kindle-materials.ts）とクライアント（①素材タブ）で共用するためここに置く
+export type KindleMaterialSource = 'deepresearch' | 'note-article';
+export const KINDLE_MATERIAL_SOURCES: KindleMaterialSource[] = ['deepresearch', 'note-article'];
+export const KINDLE_MATERIAL_SOURCE_META: Record<KindleMaterialSource, { emoji: string; label: string }> = {
+  deepresearch: { emoji: '🗂', label: 'ディープリサーチ' },
+  'note-article': { emoji: '📝', label: 'note記事' },
+};
