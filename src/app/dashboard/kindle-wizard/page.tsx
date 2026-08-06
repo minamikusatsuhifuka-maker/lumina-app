@@ -16,6 +16,14 @@ import {
 import { MAX_KINDLE_SOURCES, MAX_KINDLE_TOTAL_CHARS } from '@/lib/kindle-limits';
 import { stripLeadingChapterHeading } from '@/lib/kindle-text';
 import { triggerDownload } from '@/lib/download';
+import {
+  applyProofreadFix,
+  countPendingIssues,
+  KINDLE_ISSUE_BADGE,
+  type KindleBookProofread,
+  type KindleProofreadIssue,
+} from '@/lib/kindle-proofread';
+import { ProofreadDiffPane, type AppliedFix } from '@/components/proofread/ProofreadDiffPane';
 
 /* ── ステップ定義 ── */
 const STEPS = [
@@ -107,6 +115,43 @@ function WizardFooterBar({ children }: { children: React.ReactNode }) {
   );
 }
 
+// 汎用モーダル（224: ✏️手動編集・👁前後比較で使用）。
+// WizardFooterBarと同じ理由で createPortal(document.body) 必須（189の教訓）。
+// z-indexはフッター(900)より上・ショートカット小窓(950)より下の940。
+function WizardModal({
+  title,
+  onClose,
+  children,
+  width = 860,
+}: {
+  title: string;
+  onClose: () => void;
+  children: React.ReactNode;
+  width?: number;
+}) {
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
+  if (!mounted) return null;
+  return createPortal(
+    <div
+      onClick={onClose}
+      style={{ position: 'fixed', inset: 0, zIndex: 940, background: 'rgba(0,0,0,0.55)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        style={{ width: '100%', maxWidth: width, maxHeight: '88vh', display: 'flex', flexDirection: 'column', background: 'var(--bg-primary)', border: '1px solid var(--border)', borderRadius: 14, padding: 20, boxSizing: 'border-box' }}
+      >
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, marginBottom: 12, flexShrink: 0 }}>
+          <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{title}</div>
+          <button onClick={onClose} style={{ border: 'none', background: 'transparent', color: 'var(--text-muted)', fontSize: 18, cursor: 'pointer', flexShrink: 0 }} title="閉じる">✕</button>
+        </div>
+        <div style={{ overflowY: 'auto', minHeight: 0 }}>{children}</div>
+      </div>
+    </div>,
+    document.body,
+  );
+}
+
 const cardBtn = (active: boolean, disabled = false): React.CSSProperties => ({
   padding: '14px 16px',
   borderRadius: 12,
@@ -184,6 +229,17 @@ function KindleWizardInner() {
   const [genError, setGenError] = useState('');
   const stopRef = useRef(false);
   const abortRef = useRef<AbortController | null>(null);
+
+  /* ⑤ 自動校正（224） */
+  const [proofreading, setProofreading] = useState(false);
+  const [proofChapterId, setProofChapterId] = useState<number | null>(null);
+  const [proofErrors, setProofErrors] = useState<Record<string, string>>({});
+  const [expandedIssuesId, setExpandedIssuesId] = useState<number | null>(null);
+  const [editTarget, setEditTarget] = useState<WizardChapter | null>(null);
+  const [editText, setEditText] = useState('');
+  const [editSaving, setEditSaving] = useState(false);
+  const [diffTarget, setDiffTarget] = useState<WizardChapter | null>(null);
+  const proofStartedRef = useRef(false);
 
   /* 作成中の本一覧 */
   const [wizardBooks, setWizardBooks] = useState<any[]>([]);
@@ -482,6 +538,197 @@ function KindleWizardInner() {
   const completedCount = chapters.filter((c) => c.status === 'completed').length;
   const allDone = chapters.length > 0 && completedCount === chapters.length;
 
+  /* ── ⑤.5 自動校正（224: 全章完了後に一括自動実行・提案のみ表示→個別適用） ── */
+  const proofread: KindleBookProofread = book?.bookMeta?.proofread ?? {};
+  const hasProofData = !!book?.bookMeta?.proofread;
+
+  // 戻り値: エラーメッセージ（成功時は空文字）。fail-closed=失敗しても本文・既存データは無傷
+  const proofreadOne = useCallback(
+    async (chapterId: number): Promise<string> => {
+      try {
+        const res = await fetch('/api/kindle/wizard/proofread', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ bookId, chapterId }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) return data.error || `校正リクエスト失敗 (${res.status})`;
+        return '';
+      } catch (e: any) {
+        return String(e?.message || e);
+      }
+    },
+    [bookId],
+  );
+
+  const proofreadGlobal = useCallback(async (): Promise<string> => {
+    try {
+      const res = await fetch('/api/kindle/wizard/proofread', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ bookId, global: true }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) return data.error || `全体整合の確認に失敗 (${res.status})`;
+      return '';
+    } catch (e: any) {
+      return String(e?.message || e);
+    }
+  }, [bookId]);
+
+  // 章単位1リクエストの直列＋全体整合1回。失敗章はスキップして続行（章間依存なし）し、
+  // 章ごとに⚠️＋🔄再試行を出す（212方式）。実行済みの章はスキップ（やり直しは章ごとの🔄）。
+  const runProofread = useCallback(async () => {
+    if (!bookId || proofreading) return;
+    setProofreading(true);
+    const errs: Record<string, string> = {};
+    try {
+      const res = await fetch(`/api/kindle?id=${bookId}`);
+      if (!res.ok) throw new Error(`書籍の読み込みに失敗しました (${res.status})`);
+      const data = await res.json();
+      const existing = data?.book?.bookMeta?.proofread ?? {};
+      const targets = (data.chapters || [])
+        .filter((c: any) => c.status === 'completed')
+        .sort((a: any, b: any) => a.chapterNumber - b.chapterNumber);
+      for (const c of targets) {
+        if (existing.chapters?.[String(c.id)]) continue;
+        setProofChapterId(c.id);
+        const err = await proofreadOne(c.id);
+        if (err) errs[String(c.id)] = err;
+      }
+      setProofChapterId(null);
+      if (!existing.global) {
+        const gerr = await proofreadGlobal();
+        if (gerr) errs.global = gerr;
+      }
+      await loadBook(bookId);
+    } catch (e: any) {
+      errs.run = String(e?.message || e);
+    } finally {
+      setProofErrors(errs);
+      setProofreading(false);
+      setProofChapterId(null);
+    }
+  }, [bookId, proofreading, proofreadOne, proofreadGlobal, loadBook]);
+
+  const retryChapterProofread = useCallback(
+    async (chapterId: number) => {
+      if (!bookId || proofreading) return;
+      setProofreading(true);
+      setProofChapterId(chapterId);
+      const err = await proofreadOne(chapterId);
+      setProofErrors((prev) => {
+        const next = { ...prev };
+        if (err) next[String(chapterId)] = err;
+        else delete next[String(chapterId)];
+        return next;
+      });
+      await loadBook(bookId);
+      setProofreading(false);
+      setProofChapterId(null);
+    },
+    [bookId, proofreading, proofreadOne, loadBook],
+  );
+
+  const retryGlobalProofread = useCallback(async () => {
+    if (!bookId || proofreading) return;
+    setProofreading(true);
+    const err = await proofreadGlobal();
+    setProofErrors((prev) => {
+      const next = { ...prev };
+      if (err) next.global = err;
+      else delete next.global;
+      return next;
+    });
+    await loadBook(bookId);
+    setProofreading(false);
+  }, [bookId, proofreading, proofreadGlobal, loadBook]);
+
+  // 全章完了の検知→自動で校正を一括実行（初回のみ。復帰時に結果があれば再実行しない）
+  useEffect(() => {
+    if (step !== 5 || generating || proofreading) return;
+    if (!bookId || !book || chapters.length === 0) return;
+    if (!chapters.every((c) => c.status === 'completed')) return;
+    if (book.bookMeta?.proofread) return;
+    if (proofStartedRef.current) return;
+    proofStartedRef.current = true;
+    runProofread();
+  }, [step, generating, proofreading, bookId, book, chapters, runProofread]);
+
+  // ✅適用: ローカル置換→章PATCH（総文字数はサーバ側で再計算）→判断を記録。✕却下: 記録のみ
+  const decideIssue = async (ch: WizardChapter, idx: number, issue: KindleProofreadIssue, decision: 'applied' | 'rejected') => {
+    if (!bookId) return;
+    try {
+      if (decision === 'applied') {
+        const content = ch.content || '';
+        const next = applyProofreadFix(content, issue);
+        if (next === content) {
+          alert('該当箇所が本文に見つかりませんでした（編集済みの可能性）。✏️ 編集で直接修正してください');
+          return;
+        }
+        const r = await fetch('/api/kindle/chapters', {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ id: ch.id, content: next }),
+        });
+        if (!r.ok) throw new Error(`本文の更新に失敗しました (${r.status})`);
+      }
+      const r2 = await fetch('/api/kindle/wizard/proofread', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ bookId, chapterId: ch.id, issueIndex: idx, decision }),
+      });
+      if (!r2.ok) throw new Error(`判断の記録に失敗しました (${r2.status})`);
+      await loadBook(bookId);
+    } catch (e: any) {
+      alert(String(e?.message || e));
+    }
+  };
+
+  // ✏️ 手動編集の保存（空本文の上書き防止）
+  const saveManualEdit = async () => {
+    if (!editTarget || !bookId) return;
+    if (!editText.trim()) {
+      alert('本文が空です。空の内容では保存できません');
+      return;
+    }
+    setEditSaving(true);
+    try {
+      const r = await fetch('/api/kindle/chapters', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: editTarget.id, content: editText }),
+      });
+      if (!r.ok) throw new Error(`保存に失敗しました (${r.status})`);
+      await loadBook(bookId);
+      setEditTarget(null);
+    } catch (e: any) {
+      alert(String(e?.message || e));
+    } finally {
+      setEditSaving(false);
+    }
+  };
+
+  /* 👁 前後比較（未処理の提案を反映した場合のプレビュー） */
+  const diffFixes: AppliedFix[] = useMemo(() => {
+    if (!diffTarget) return [];
+    const entry = proofread.chapters?.[String(diffTarget.id)];
+    return (entry?.issues ?? [])
+      .filter((i) => !i.status)
+      .map((i) => ({ original: i.original, suggestion: i.suggestion, line: i.line, scope: i.scope, reason: i.reason }));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [diffTarget, book]);
+  const diffAfterText = useMemo(() => {
+    if (!diffTarget) return '';
+    let t = diffTarget.content || '';
+    const entry = proofread.chapters?.[String(diffTarget.id)];
+    for (const i of entry?.issues ?? []) {
+      if (!i.status) t = applyProofreadFix(t, i);
+    }
+    return t;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [diffTarget, book]);
+
   /* ── ⑥ 出力 ── */
   const bookTitle = book?.title || '無題';
   const fullMarkdownBody = useMemo(() => {
@@ -768,24 +1015,154 @@ function KindleWizardInner() {
           )}
 
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 16 }}>
-            {chapters.map((c) => (
-              <div key={c.id} style={{ display: 'flex', gap: 10, alignItems: 'center', padding: '10px 14px', background: 'var(--bg-secondary)', border: `1px solid ${c.status === 'failed' ? 'rgba(239,68,68,0.4)' : 'var(--border)'}`, borderRadius: 10 }}>
-                <span style={{ fontSize: 14, flexShrink: 0 }}>{statusIcon(currentChapterId === c.id ? 'writing' : c.status)}</span>
-                <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--accent)', flexShrink: 0 }}>第{c.chapterNumber}章</span>
-                <span style={{ flex: 1, minWidth: 0, fontSize: 13, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.title}</span>
-                <span style={{ fontSize: 11, color: 'var(--text-muted)', flexShrink: 0 }}>
-                  {currentChapterId === c.id
-                    ? `${liveChars.toLocaleString()}字 生成中...`
-                    : c.status === 'completed'
-                      ? `${(c.content || '').length.toLocaleString()}字`
-                      : `目標${(c.targetWordCount ?? 3500).toLocaleString()}字`}
-                </span>
-                {c.status === 'failed' && !generating && (
-                  <button onClick={runQueue} style={{ ...smallBtn, color: '#f59e0b', borderColor: 'rgba(245,158,11,0.4)' }}>🔄 再試行</button>
-                )}
-              </div>
-            ))}
+            {chapters.map((c) => {
+              const entry = proofread.chapters?.[String(c.id)];
+              const pending = countPendingIssues(entry);
+              const chErr = proofErrors[String(c.id)];
+              return (
+                <div key={c.id} style={{ background: 'var(--bg-secondary)', border: `1px solid ${c.status === 'failed' ? 'rgba(239,68,68,0.4)' : 'var(--border)'}`, borderRadius: 10 }}>
+                  <div style={{ display: 'flex', gap: 10, alignItems: 'center', padding: '10px 14px', flexWrap: 'wrap' }}>
+                    <span style={{ fontSize: 14, flexShrink: 0 }}>{statusIcon(currentChapterId === c.id ? 'writing' : c.status)}</span>
+                    <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--accent)', flexShrink: 0 }}>第{c.chapterNumber}章</span>
+                    <span style={{ flex: 1, minWidth: 0, fontSize: 13, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.title}</span>
+                    <span style={{ fontSize: 11, color: 'var(--text-muted)', flexShrink: 0 }}>
+                      {currentChapterId === c.id
+                        ? `${liveChars.toLocaleString()}字 生成中...`
+                        : c.status === 'completed'
+                          ? `${(c.content || '').length.toLocaleString()}字`
+                          : `目標${(c.targetWordCount ?? 3500).toLocaleString()}字`}
+                    </span>
+                    {c.status === 'failed' && !generating && (
+                      <button onClick={runQueue} style={{ ...smallBtn, color: '#f59e0b', borderColor: 'rgba(245,158,11,0.4)' }}>🔄 再試行</button>
+                    )}
+                    {c.status === 'completed' && (
+                      <button onClick={() => { setEditTarget(c); setEditText(c.content || ''); }} style={smallBtn} title="本文を直接編集">✏️ 編集</button>
+                    )}
+                    {proofreading && proofChapterId === c.id && (
+                      <span style={{ fontSize: 11, color: '#8b5cf6', flexShrink: 0 }}>🔍 校正中...</span>
+                    )}
+                    {entry && (
+                      <button
+                        onClick={() => setExpandedIssuesId(expandedIssuesId === c.id ? null : c.id)}
+                        style={{ ...smallBtn, color: pending > 0 ? '#8b5cf6' : 'var(--text-muted)', borderColor: pending > 0 ? 'rgba(139,92,246,0.4)' : 'var(--border)' }}
+                      >
+                        🔍 提案{entry.issues.length}件{pending > 0 ? `（未処理${pending}）` : ''} {expandedIssuesId === c.id ? '▲' : '▼'}
+                      </button>
+                    )}
+                    {chErr && !proofreading && (
+                      <button onClick={() => retryChapterProofread(c.id)} style={{ ...smallBtn, color: '#f59e0b', borderColor: 'rgba(245,158,11,0.4)' }} title={chErr}>
+                        ⚠️ 校正失敗・🔄 再試行
+                      </button>
+                    )}
+                  </div>
+
+                  {/* 校正提案リスト（提案のみ表示→院長が1件ずつ✅適用/✕却下） */}
+                  {expandedIssuesId === c.id && entry && (
+                    <div style={{ padding: '0 14px 12px', borderTop: '1px solid var(--border)' }}>
+                      <div style={{ display: 'flex', gap: 8, alignItems: 'center', margin: '10px 0', flexWrap: 'wrap' }}>
+                        {pending > 0 && <button onClick={() => setDiffTarget(c)} style={smallBtn}>👁 前後比較</button>}
+                        <button onClick={() => retryChapterProofread(c.id)} disabled={proofreading} style={{ ...smallBtn, opacity: proofreading ? 0.5 : 1 }}>
+                          🔄 この章を再校正
+                        </button>
+                        <span style={{ fontSize: 10, color: 'var(--text-muted)' }}>再校正すると提案と適用/却下の記録は作り直されます</span>
+                      </div>
+                      {entry.issues.length === 0 ? (
+                        <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>提案はありませんでした（問題なし）</div>
+                      ) : (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                          {entry.issues.map((issue, idx) => {
+                            const badge = KINDLE_ISSUE_BADGE[issue.type] ?? KINDLE_ISSUE_BADGE['表現改善'];
+                            const decided = issue.status;
+                            return (
+                              <div key={idx} style={{ padding: '10px 12px', background: 'var(--bg-primary)', border: '1px solid var(--border)', borderRadius: 8, opacity: decided ? 0.55 : 1 }}>
+                                <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', marginBottom: 6 }}>
+                                  <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 8, color: badge.color, border: `1px solid ${badge.color}44`, flexShrink: 0 }}>
+                                    {badge.emoji} {issue.type}
+                                  </span>
+                                  {issue.principle && <span style={{ fontSize: 10, color: '#8b5cf6' }}>原則: {issue.principle}</span>}
+                                  {issue.scope === 'all' && <span style={{ fontSize: 10, color: 'var(--text-muted)' }}>全箇所を統一</span>}
+                                  <span style={{ marginLeft: 'auto', display: 'flex', gap: 6, flexShrink: 0 }}>
+                                    {decided ? (
+                                      <span style={{ fontSize: 11, color: decided === 'applied' ? '#22c55e' : 'var(--text-muted)' }}>
+                                        {decided === 'applied' ? '✅ 適用済み' : '✕ 却下'}
+                                      </span>
+                                    ) : (
+                                      <>
+                                        <button onClick={() => decideIssue(c, idx, issue, 'applied')} style={{ ...smallBtn, color: '#22c55e', borderColor: 'rgba(34,197,94,0.4)' }}>✅ 適用</button>
+                                        <button onClick={() => decideIssue(c, idx, issue, 'rejected')} style={smallBtn}>✕ 却下</button>
+                                      </>
+                                    )}
+                                  </span>
+                                </div>
+                                <div style={{ fontSize: 12, lineHeight: 1.7, color: 'var(--text-secondary)', wordBreak: 'break-word' }}>
+                                  <div>− <span style={{ color: '#ef4444' }}>{issue.original}</span></div>
+                                  <div>＋ <span style={{ color: '#22c55e' }}>{issue.suggestion}</span></div>
+                                  <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4 }}>{issue.reason}</div>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
           </div>
+
+          {/* 🔍 自動校正の状態＋本全体の指摘（224） */}
+          {allDone && (
+            <div style={{ marginBottom: 16, padding: 14, background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 12, maxWidth: 720 }}>
+              <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 8 }}>
+                🔍 自動校正（提案のみ・適用は1件ずつ選べます）
+              </div>
+              {proofreading ? (
+                <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>
+                  校正を実行中...
+                  {proofChapterId
+                    ? `（第${chapters.find((c) => c.id === proofChapterId)?.chapterNumber ?? '-'}章）`
+                    : '（本全体の整合を確認中）'}
+                </div>
+              ) : !hasProofData ? (
+                <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+                  <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>全章の生成完了後に自動で実行されます</span>
+                  <button onClick={runProofread} style={smallBtn}>🔍 いま実行する</button>
+                </div>
+              ) : (
+                <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>章ごとの提案は上の「🔍 提案」から確認・適用できます</div>
+              )}
+              {proofErrors.run && !proofreading && (
+                <div style={{ marginTop: 8, display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                  <span style={{ fontSize: 12, color: '#dc2626' }}>⚠️ 校正できませんでした: {proofErrors.run}</span>
+                  <button onClick={runProofread} style={{ ...smallBtn, color: '#f59e0b', borderColor: 'rgba(245,158,11,0.4)' }}>🔄 再試行</button>
+                </div>
+              )}
+
+              {proofread.global && (
+                <div style={{ marginTop: 10 }}>
+                  <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 6 }}>📋 本全体の指摘（用語ゆれ・章間重複・流れ）</div>
+                  {proofread.global.notes.length === 0 ? (
+                    <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>指摘はありませんでした</div>
+                  ) : (
+                    <ul style={{ margin: 0, paddingLeft: 18, display: 'flex', flexDirection: 'column', gap: 4 }}>
+                      {proofread.global.notes.map((n, i) => (
+                        <li key={i} style={{ fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.7 }}>
+                          <span style={{ fontWeight: 700 }}>[{n.type}]</span> {n.note}
+                          {(n.chapters ?? []).length > 0 && <span style={{ color: 'var(--text-muted)' }}>（第{(n.chapters ?? []).join('・')}章）</span>}
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              )}
+              {proofErrors.global && !proofreading && (
+                <button onClick={retryGlobalProofread} style={{ ...smallBtn, marginTop: 8, color: '#f59e0b', borderColor: 'rgba(245,158,11,0.4)' }} title={proofErrors.global}>
+                  ⚠️ 全体整合の確認に失敗・🔄 再試行
+                </button>
+              )}
+            </div>
+          )}
 
           <div style={{ fontSize: 11, color: 'var(--text-muted)', maxWidth: 560, lineHeight: 1.6 }}>
             章は1章ずつ順番に生成します（前の章の流れを引き継ぐため）。途中で閉じても、このページに戻れば未生成の章から再開できます。
@@ -806,6 +1183,60 @@ function KindleWizardInner() {
             {`${bookTitle}\n\n${fullMarkdownBody.replace(/^## /gm, '■ ')}`}
           </div>
         </div>
+      )}
+
+      {/* ── ✏️ 手動編集モーダル（224: 校正提案とは独立に本文を直接編集） ── */}
+      {editTarget && (
+        <WizardModal
+          title={`✏️ 第${editTarget.chapterNumber}章 ${editTarget.title}`}
+          onClose={() => { if (!editSaving) setEditTarget(null); }}
+        >
+          <textarea
+            value={editText}
+            onChange={(e) => setEditText(e.target.value)}
+            rows={22}
+            style={{ width: '100%', padding: '12px 14px', background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 10, color: 'var(--text-primary)', fontSize: 13, lineHeight: 1.8, outline: 'none', resize: 'vertical', boxSizing: 'border-box' }}
+          />
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 10, gap: 12, flexWrap: 'wrap' }}>
+            <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>{editText.length.toLocaleString()}字（保存すると総文字数を再計算します）</span>
+            <span style={{ display: 'flex', gap: 8 }}>
+              <button onClick={() => setEditTarget(null)} disabled={editSaving} style={ghostBtn}>キャンセル</button>
+              <button onClick={saveManualEdit} disabled={editSaving} style={{ ...primaryBtn, opacity: editSaving ? 0.5 : 1 }}>
+                {editSaving ? '保存中...' : '💾 保存'}
+              </button>
+            </span>
+          </div>
+        </WizardModal>
+      )}
+
+      {/* ── 👁 前後比較モーダル（未処理の提案をすべて適用した場合のプレビュー） ── */}
+      {diffTarget && (
+        <WizardModal title={`👁 第${diffTarget.chapterNumber}章 前後比較（未処理の提案${diffFixes.length}件を反映した場合）`} onClose={() => setDiffTarget(null)} width={1100}>
+          <div className="grid grid-cols-1 lg:grid-cols-2" style={{ gap: 12 }}>
+            <div style={{ minWidth: 0 }}>
+              <div style={{ fontSize: 12, fontWeight: 700, color: '#ef4444', marginBottom: 6 }}>校正前</div>
+              <div style={{ padding: 12, background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 10, maxHeight: '60vh', overflowY: 'auto' }}>
+                <ProofreadDiffPane
+                  text={diffTarget.content || ''}
+                  fixes={diffFixes}
+                  mode="before"
+                  className="whitespace-pre-wrap break-words font-sans text-[13px] leading-relaxed text-[var(--text-secondary)] m-0"
+                />
+              </div>
+            </div>
+            <div style={{ minWidth: 0 }}>
+              <div style={{ fontSize: 12, fontWeight: 700, color: '#22c55e', marginBottom: 6 }}>校正後（プレビュー・適用するまで本文は変わりません）</div>
+              <div style={{ padding: 12, background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 10, maxHeight: '60vh', overflowY: 'auto' }}>
+                <ProofreadDiffPane
+                  text={diffAfterText}
+                  fixes={diffFixes}
+                  mode="after"
+                  className="whitespace-pre-wrap break-words font-sans text-[13px] leading-relaxed text-[var(--text-secondary)] m-0"
+                />
+              </div>
+            </div>
+          </div>
+        </WizardModal>
       )}
 
       {/* ── 右下固定フッター（全ステップ共通・スクロール位置に依存しない主操作） ── */}
