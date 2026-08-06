@@ -14,6 +14,7 @@ import {
   Paragraph,
   TextRun,
   ExternalHyperlink,
+  ImageRun,
   HeadingLevel,
   Table,
   TableRow,
@@ -25,6 +26,48 @@ import {
   type IParagraphOptions,
   type ILevelsOptions,
 } from 'docx';
+
+// 226: 単独行の画像記法 ![alt](https://...) を docx の ImageRun として埋め込むための
+// 事前取得データ。取得はブラウザ側（fetch + createImageBitmap）で行い、パーサは同期のまま。
+export interface PrefetchedImage {
+  data: ArrayBuffer;
+  width: number;
+  height: number;
+  type: 'png' | 'jpg';
+}
+
+// 単独行の画像記法（行全体が画像のときのみ埋め込み対象。インライン画像は扱わない）
+const IMAGE_LINE_RE = /^!\[([^\]]*)\]\((https?:\/\/\S+)\)$/;
+
+// 画像URLを収集してブラウザで事前取得する（失敗したURLはスキップ＝リンク表示にフォールバック）
+export async function prefetchMarkdownImages(markdown: string): Promise<Map<string, PrefetchedImage>> {
+  const urls = new Set<string>();
+  for (const line of markdown.split('\n')) {
+    const m = IMAGE_LINE_RE.exec(line.trim());
+    if (m) urls.add(m[2]);
+  }
+  const map = new Map<string, PrefetchedImage>();
+  for (const url of urls) {
+    try {
+      const res = await fetch(url);
+      if (!res.ok) continue;
+      const blob = await res.blob();
+      const bmp = await createImageBitmap(blob);
+      // 本文幅（約560px）・高さ720pxに収まるよう縮小（拡大はしない）
+      const scale = Math.min(1, 560 / bmp.width, 720 / bmp.height);
+      map.set(url, {
+        data: await blob.arrayBuffer(),
+        width: Math.max(1, Math.round(bmp.width * scale)),
+        height: Math.max(1, Math.round(bmp.height * scale)),
+        type: blob.type === 'image/jpeg' ? 'jpg' : 'png',
+      });
+      bmp.close();
+    } catch {
+      /* CORS・ネットワーク失敗はリンク表示にフォールバック */
+    }
+  }
+  return map;
+}
 
 // 日本語（東アジア文字）にも確実に適用されるようフォント属性を明示する。
 const JP_FONT = { ascii: '游明朝', eastAsia: '游明朝', hAnsi: '游明朝' } as const;
@@ -183,7 +226,8 @@ function orderedLevels(): ILevelsOptions[] {
 
 // Markdown文字列を docx の子要素（段落・表）へ変換。順序付きリストは
 // ブロックごとに個別の numbering インスタンスを割り当てて番号を1から振り直す。
-export function markdownToDocx(markdown: string): ConvertResult {
+// images: prefetchMarkdownImages の結果（単独行画像を ImageRun 埋め込みにする。未指定/未取得はリンク表示）
+export function markdownToDocx(markdown: string, images?: Map<string, PrefetchedImage>): ConvertResult {
   const lines = markdown.replace(/\r\n/g, '\n').split('\n');
   const children: (Paragraph | Table)[] = [];
   const numberingConfigs: ConvertResult['numberingConfigs'] = [];
@@ -198,6 +242,43 @@ export function markdownToDocx(markdown: string): ConvertResult {
 
     // 空行 → リスト継続を切る（段落スペーシングで見た目は保つ）
     if (trimmed === '') {
+      currentOrderedRef = null;
+      continue;
+    }
+
+    // 画像（単独行の ![alt](https://...) のみ。226: 事前取得済みなら ImageRun 埋め込み・
+    // 取得できていなければハイパーリンクにフォールバック＝従来の「!altリンク」化けを解消）
+    const imageMatch = IMAGE_LINE_RE.exec(trimmed);
+    if (imageMatch) {
+      const [, alt, url] = imageMatch;
+      const img = images?.get(url);
+      if (img) {
+        children.push(
+          new Paragraph({
+            alignment: AlignmentType.CENTER,
+            spacing: { before: 120, after: 120 },
+            children: [
+              new ImageRun({
+                type: img.type,
+                data: img.data,
+                transformation: { width: img.width, height: img.height },
+              }),
+            ],
+          }),
+        );
+      } else {
+        children.push(
+          new Paragraph({
+            spacing: { after: 80 },
+            children: [
+              new ExternalHyperlink({
+                link: url,
+                children: [new TextRun({ text: `🖼 ${alt || '画像'}`, font: JP_FONT, style: 'Hyperlink' })],
+              }),
+            ],
+          }),
+        );
+      }
       currentOrderedRef = null;
       continue;
     }
@@ -326,7 +407,9 @@ export async function downloadMarkdownAsDocx(opts: {
   fileName: string;
 }): Promise<void> {
   const { title, metaLines, markdown, fileName } = opts;
-  const { children, numberingConfigs } = markdownToDocx(markdown);
+  // 226: 単独行画像を事前取得してImageRun埋め込み（画像なしのMarkdownでは空Mapで従来どおり）
+  const images = await prefetchMarkdownImages(markdown);
+  const { children, numberingConfigs } = markdownToDocx(markdown, images);
 
   const header: (Paragraph | Table)[] = [
     new Paragraph({

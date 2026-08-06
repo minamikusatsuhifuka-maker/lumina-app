@@ -36,6 +36,16 @@ import {
   buildBookSummarySection,
   type KindleBookSummaries,
 } from '@/lib/kindle-summaries';
+import { IMAGE_MODELS, type ImageModelKey } from '@/lib/image-providers';
+import {
+  KINDLE_IMAGE_STYLES,
+  KINDLE_IMAGE_STYLE_KEYS,
+  DEFAULT_KINDLE_IMAGE_STYLE,
+  buildImageLine,
+  stripImageLines,
+  type KindleImageStyleKey,
+  type KindleBookImages,
+} from '@/lib/kindle-image-styles';
 
 /* ── ステップ定義 ── */
 const STEPS = [
@@ -265,6 +275,16 @@ function KindleWizardInner() {
 
   /* ⑥ 巻末「全章まとめ」トグル（既定ON） */
   const [includeBookSummary, setIncludeBookSummary] = useState(true);
+
+  /* ⑥ 画像（226 Phase1: 表紙＋章扉） */
+  const [imageModal, setImageModal] = useState<{ slot: 'cover' | 'chapter'; chapter?: WizardChapter } | null>(null);
+  const [imgEngine, setImgEngine] = useState<ImageModelKey>('gpt-image-2');
+  const [imgStyle, setImgStyle] = useState<KindleImageStyleKey>(DEFAULT_KINDLE_IMAGE_STYLE);
+  const [imgPrompt, setImgPrompt] = useState('');
+  const [imgDrafting, setImgDrafting] = useState(false);
+  const [imgGenerating, setImgGenerating] = useState(false);
+  const [imgError, setImgError] = useState('');
+  const [imgDeleting, setImgDeleting] = useState<string | null>(null);
 
   /* 作成中の本一覧 */
   const [wizardBooks, setWizardBooks] = useState<any[]>([]);
@@ -918,13 +938,20 @@ function KindleWizardInner() {
 
   /* ── ⑥ 出力 ── */
   const bookTitle = book?.title || '無題';
+  const bookImages: KindleBookImages = book?.bookMeta?.images ?? {};
   const fullMarkdownBody = useMemo(() => {
+    const imgs: KindleBookImages = book?.bookMeta?.images ?? {};
     const parts: string[] = [];
     if (book?.subtitle) parts.push(`${book.subtitle}\n`);
+    // 226: 表紙画像（あれば冒頭に）
+    if (imgs.cover?.url) parts.push(`${buildImageLine('表紙', imgs.cover.url)}\n`);
     for (const c of [...chapters].sort((a, b) => a.chapterNumber - b.chapterNumber)) {
       // 既存生成分の救済: 本文冒頭の章見出しH1を出力時に除去（DBは書き換えない）
       const body = stripLeadingChapterHeading((c.content || '').trim(), c.chapterNumber, c.title);
-      parts.push(`## 第${c.chapterNumber}章 ${c.title}\n\n${body}\n`);
+      // 226: 章扉画像（あれば見出し直下に）
+      const door = imgs.chapters?.[String(c.id)];
+      const doorLine = door?.url ? `${buildImageLine(`第${c.chapterNumber}章 扉`, door.url)}\n\n` : '';
+      parts.push(`## 第${c.chapterNumber}章 ${c.title}\n\n${doorLine}${body}\n`);
     }
     // 227【B】: 巻末「全章まとめ」（ONのとき・まとめがある章のみ。MD/txt/Word共通）
     if (includeBookSummary) {
@@ -938,9 +965,98 @@ function KindleWizardInner() {
   const downloadTxt = () =>
     triggerDownload(
       `${bookTitle.slice(0, 30)}.txt`,
-      `${bookTitle}\n${'='.repeat(40)}\n\n${fullMarkdownBody.replace(/^## /gm, '■ ')}`,
+      `${bookTitle}\n${'='.repeat(40)}\n\n${stripImageLines(fullMarkdownBody).replace(/^## /gm, '■ ')}`,
       'text/plain',
     );
+
+  /* ── 226 Phase1: 画像（表紙・章扉）の操作 ── */
+  const draftImagePrompt = async (slot: 'cover' | 'chapter', chapter?: WizardChapter) => {
+    if (!bookId) return;
+    setImgDrafting(true);
+    setImgError('');
+    try {
+      const res = await fetch('/api/kindle/wizard/images', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'draft', bookId, slot, chapterId: chapter?.id }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || `プロンプトの起案に失敗 (${res.status})`);
+      setImgPrompt(String(data.prompt || ''));
+    } catch (e: any) {
+      setImgError(String(e?.message || e));
+    } finally {
+      setImgDrafting(false);
+    }
+  };
+
+  const openImageModal = (slot: 'cover' | 'chapter', chapter?: WizardChapter) => {
+    setImageModal({ slot, chapter });
+    setImgError('');
+    const entry = slot === 'cover' ? bookImages.cover : bookImages.chapters?.[String(chapter?.id)];
+    setImgEngine(((entry?.engine as ImageModelKey) && IMAGE_MODELS.some((m) => m.key === entry?.engine) ? entry!.engine : 'gpt-image-2') as ImageModelKey);
+    setImgStyle((entry?.styleKey && entry.styleKey in KINDLE_IMAGE_STYLES ? entry.styleKey : DEFAULT_KINDLE_IMAGE_STYLE) as KindleImageStyleKey);
+    if (entry?.prompt) {
+      setImgPrompt(entry.prompt);
+    } else {
+      setImgPrompt('');
+      draftImagePrompt(slot, chapter);
+    }
+  };
+
+  const generateSlotImage = async () => {
+    if (!bookId || !imageModal || imgGenerating) return;
+    if (!imgPrompt.trim()) {
+      setImgError('プロンプトが空です（🪄起案するか、直接入力してください）');
+      return;
+    }
+    setImgGenerating(true);
+    setImgError('');
+    try {
+      const res = await fetch('/api/kindle/wizard/images', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'generate',
+          bookId,
+          slot: imageModal.slot,
+          chapterId: imageModal.chapter?.id,
+          engine: imgEngine,
+          styleKey: imgStyle,
+          prompt: imgPrompt.trim(),
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || `画像の生成に失敗 (${res.status})`);
+      await loadBook(bookId);
+      setImageModal(null);
+    } catch (e: any) {
+      setImgError(String(e?.message || e));
+    } finally {
+      setImgGenerating(false);
+    }
+  };
+
+  const deleteSlotImage = async (slot: 'cover' | 'chapter', chapter?: WizardChapter) => {
+    if (!bookId || imgDeleting) return;
+    if (!confirm('この画像を削除して不使用にしますか？')) return;
+    const key = slot === 'cover' ? 'cover' : `ch-${chapter?.id}`;
+    setImgDeleting(key);
+    try {
+      const res = await fetch('/api/kindle/wizard/images', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ bookId, slot, chapterId: chapter?.id }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || `削除に失敗 (${res.status})`);
+      await loadBook(bookId);
+    } catch (e: any) {
+      alert(String(e?.message || e));
+    } finally {
+      setImgDeleting(null);
+    }
+  };
   const downloadDocx = async () => {
     const { downloadMarkdownAsDocx } = await import('@/lib/markdownToDocx');
     const meta = book?.bookMeta ?? {};
@@ -1507,8 +1623,55 @@ function KindleWizardInner() {
               </span>
             )}
           </div>
+          {/* 226 Phase1: 🖼 画像（表紙・章扉） */}
+          <div style={{ marginBottom: 12, padding: 14, background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 12 }}>
+            <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 4 }}>🖼 画像（表紙・章扉）</div>
+            <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 10 }}>
+              生成した画像は出力に自動で含まれます（Word=埋め込み・Markdown=リンク・テキスト=含めない）。画像内に文字は入れません（文字化け防止）
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              {[
+                { slot: 'cover' as const, chapter: undefined as WizardChapter | undefined, label: '📕 表紙（縦長）' },
+                ...[...chapters]
+                  .sort((a, b) => a.chapterNumber - b.chapterNumber)
+                  .map((c) => ({ slot: 'chapter' as const, chapter: c as WizardChapter | undefined, label: `第${c.chapterNumber}章 ${c.title}` })),
+              ].map(({ slot, chapter, label }) => {
+                const entry = slot === 'cover' ? bookImages.cover : bookImages.chapters?.[String(chapter?.id)];
+                const delKey = slot === 'cover' ? 'cover' : `ch-${chapter?.id}`;
+                return (
+                  <div key={delKey} style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+                    {entry?.url ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img src={entry.url} alt={label} style={{ width: 56, height: 42, objectFit: 'cover', borderRadius: 6, border: '1px solid var(--border)', flexShrink: 0 }} />
+                    ) : (
+                      <span style={{ width: 56, height: 42, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--bg-primary)', border: '1px dashed var(--border)', borderRadius: 6, fontSize: 12, color: 'var(--text-muted)', flexShrink: 0 }}>
+                        —
+                      </span>
+                    )}
+                    <span style={{ flex: 1, minWidth: 120, fontSize: 12, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{label}</span>
+                    {entry && (
+                      <span style={{ fontSize: 10, color: 'var(--text-muted)', flexShrink: 0 }}>
+                        {IMAGE_MODELS.find((m) => m.key === entry.engine)?.label ?? entry.engine}・{KINDLE_IMAGE_STYLES[entry.styleKey]?.label ?? ''}
+                      </span>
+                    )}
+                    <button onClick={() => openImageModal(slot, chapter)} style={smallBtn}>{entry ? '🔄 再生成' : '🎨 生成'}</button>
+                    {entry && (
+                      <button
+                        onClick={() => deleteSlotImage(slot, chapter)}
+                        disabled={imgDeleting !== null}
+                        style={{ ...smallBtn, color: '#ef4444', borderColor: 'rgba(239,68,68,0.3)', opacity: imgDeleting === delKey ? 0.5 : 1 }}
+                      >
+                        {imgDeleting === delKey ? '削除中...' : '✕ 不使用'}
+                      </button>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
           <div style={{ padding: 20, background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 12, maxHeight: '65vh', overflowY: 'auto', fontSize: 13, lineHeight: 1.8, color: 'var(--text-secondary)', whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
-            {`${bookTitle}\n\n${fullMarkdownBody.replace(/^## /gm, '■ ')}`}
+            {`${bookTitle}\n\n${stripImageLines(fullMarkdownBody).replace(/^## /gm, '■ ')}`}
           </div>
         </div>
       )}
@@ -1563,6 +1726,70 @@ function KindleWizardInner() {
                 />
               </div>
             </div>
+          </div>
+        </WizardModal>
+      )}
+
+      {/* ── 🎨 画像生成モーダル（226 Phase1: エンジン/画風選択＋プロンプト人間確認型） ── */}
+      {imageModal && (
+        <WizardModal
+          title={`🎨 ${imageModal.slot === 'cover' ? '表紙（縦長）' : `第${imageModal.chapter?.chapterNumber}章 扉（横長）`}の画像を生成`}
+          onClose={() => { if (!imgGenerating) setImageModal(null); }}
+        >
+          <p style={{ fontSize: 12, color: 'var(--text-secondary)', margin: '0 0 8px' }}>生成エンジン（毎回選べます）</p>
+          <div className="grid grid-cols-1 md:grid-cols-3" style={{ gap: 8, marginBottom: 14 }}>
+            {IMAGE_MODELS.map((m) => (
+              <button key={m.key} onClick={() => setImgEngine(m.key)} style={cardBtn(imgEngine === m.key)}>
+                <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 2 }}>{m.label}</div>
+                <div style={{ fontSize: 10, color: 'var(--text-muted)' }}>{m.note}・{m.approxCost}</div>
+              </button>
+            ))}
+          </div>
+
+          <p style={{ fontSize: 12, color: 'var(--text-secondary)', margin: '0 0 8px' }}>画風（既定: やわらかいイラスト調）</p>
+          <div className="grid grid-cols-2 md:grid-cols-4" style={{ gap: 8, marginBottom: 14 }}>
+            {KINDLE_IMAGE_STYLE_KEYS.map((k) => {
+              const s = KINDLE_IMAGE_STYLES[k];
+              return (
+                <button key={k} onClick={() => setImgStyle(k)} style={cardBtn(imgStyle === k)}>
+                  <div style={{ fontSize: 12, fontWeight: 700 }}>{s.emoji} {s.label}</div>
+                </button>
+              );
+            })}
+          </div>
+
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', marginBottom: 6 }}>
+            <p style={{ fontSize: 12, color: 'var(--text-secondary)', margin: 0 }}>画像プロンプト（AIの起案・編集できます）</p>
+            <button
+              onClick={() => imageModal && draftImagePrompt(imageModal.slot, imageModal.chapter)}
+              disabled={imgDrafting || imgGenerating}
+              style={{ ...smallBtn, opacity: imgDrafting || imgGenerating ? 0.5 : 1 }}
+            >
+              {imgDrafting ? '起案中...' : '🪄 内容から起案し直す'}
+            </button>
+          </div>
+          <textarea
+            value={imgPrompt}
+            onChange={(e) => setImgPrompt(e.target.value)}
+            rows={5}
+            placeholder={imgDrafting ? '本の内容からプロンプトを起案しています...' : '生成したい画像を説明してください'}
+            style={{ width: '100%', padding: '10px 14px', background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 10, color: 'var(--text-primary)', fontSize: 12, lineHeight: 1.7, outline: 'none', resize: 'vertical', boxSizing: 'border-box' }}
+          />
+          <div style={{ fontSize: 10, color: 'var(--text-muted)', marginTop: 4 }}>
+            ※ 文字を入れない・実在人物/患部の写実描写をしない等のガードは、編集内容にかかわらずサーバ側で必ず適用されます
+          </div>
+
+          {imgError && (
+            <div style={{ marginTop: 10, padding: '8px 12px', background: 'rgba(239,68,68,0.06)', border: '1px solid rgba(239,68,68,0.3)', borderRadius: 8, fontSize: 12, color: '#dc2626' }}>
+              ⚠️ {imgError}
+            </div>
+          )}
+
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 12 }}>
+            <button onClick={() => setImageModal(null)} disabled={imgGenerating} style={ghostBtn}>キャンセル</button>
+            <button onClick={generateSlotImage} disabled={imgGenerating || imgDrafting} style={{ ...primaryBtn, opacity: imgGenerating || imgDrafting ? 0.6 : 1 }}>
+              {imgGenerating ? '🎨 生成中...（最大2分）' : '🎨 この内容で生成する'}
+            </button>
           </div>
         </WizardModal>
       )}
