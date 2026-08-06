@@ -23,8 +23,15 @@ import {
 } from '@/lib/feature-drafts';
 import FeatureDraftBanner from '@/components/FeatureDraftBanner';
 import { EyecatchModal } from '@/components/eyecatch/EyecatchModal';
+import NoteEnhancePanel from '@/components/note-enhance/NoteEnhancePanel';
+import { emptyNoteEnhance, normalizeNoteEnhance, type NoteEnhanceState } from '@/lib/note-enhance';
 
 type Length = 'short' | 'medium' | 'long';
+
+interface AdCheckResult {
+  status: 'ok' | 'warn';
+  findings: string[];
+}
 
 interface BuzzReference {
   id: string;
@@ -45,6 +52,8 @@ interface NoteArticleDraftPayload {
   buzzReferences?: BuzzReference[];
   article?: string;
   reportModel?: AIModel | null;
+  // 228: 仕上げ（まとめ・画像配置）の状態。本文とは別レイヤ＝失敗しても本文は無傷
+  enhance?: NoteEnhanceState;
 }
 
 const LENGTH_OPTIONS: Array<{ value: Length; label: string; desc: string }> = [
@@ -131,6 +140,11 @@ export default function NoteArticleGenerationPage() {
   const [restoredAt, setRestoredAt] = useState<string | null>(null);
   // アイキャッチ生成モーダル（166）
   const [showEyecatch, setShowEyecatch] = useState(false);
+  // 228: 仕上げパネルの状態と医療広告チェック（経路Aと同方式の表示）
+  const [enhance, setEnhance] = useState<NoteEnhanceState>(emptyNoteEnhance());
+  const [adCheck, setAdCheck] = useState<AdCheckResult | null>(null);
+  // enhance変更の自動下書き保存はデバウンス（入力のたびのPUT連打を避ける）
+  const enhanceSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // 復元取得が返ってきた時点で既に入力/引き継ぎ/実行が始まっていたら復元しない
   const draftGuardRef = useRef(false);
@@ -155,6 +169,7 @@ export default function NoteArticleGenerationPage() {
       setArticle(p.article ?? '');
       setEditedArticle(p.article ?? '');
       setReportModel(p.reportModel ?? null);
+      setEnhance(normalizeNoteEnhance(p.enhance));
       setRestoredAt(draft.updated_at);
     })();
     return () => {
@@ -175,6 +190,8 @@ export default function NoteArticleGenerationPage() {
     setEditedArticle('');
     setEditMode(false);
     setReportModel(null);
+    setEnhance(emptyNoteEnhance());
+    setAdCheck(null);
     clearFeatureDraft('note-article');
   };
 
@@ -310,6 +327,8 @@ export default function NoteArticleGenerationPage() {
     setEditMode(false);
     setElapsed(0);
     setTrafficStats(null);
+    setEnhance(emptyNoteEnhance());
+    setAdCheck(null);
 
     const timer = setInterval(() => setElapsed(e => e + 1), 1000);
 
@@ -401,7 +420,20 @@ export default function NoteArticleGenerationPage() {
           buzzReferences,
           article: accumulated,
           reportModel: modelAtRequest,
+          enhance: emptyNoteEnhance(),
         } satisfies NoteArticleDraftPayload);
+
+        // 228: 医療広告チェック（経路Aと同方式の併記。失敗しても結果表示は妨げない）
+        fetch('/api/note-enhance/ad-check', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ content: accumulated }),
+        })
+          .then((r) => r.json())
+          .then((d) => {
+            if (d?.ad_check) setAdCheck(d.ad_check);
+          })
+          .catch(() => {});
       }
     } catch (e: any) {
       setErrorMsg(`通信エラー: ${e?.message || e}`);
@@ -415,6 +447,27 @@ export default function NoteArticleGenerationPage() {
 
   // 現在の本文（編集モードなら編集版）
   const currentContent = editMode ? editedArticle : article;
+
+  // 228: 仕上げ状態の変更を自動下書きへ反映（デバウンス・fire-and-forget）
+  const handleEnhanceChange = (next: NoteEnhanceState) => {
+    setEnhance(next);
+    if (!article.trim()) return;
+    if (enhanceSaveTimer.current) clearTimeout(enhanceSaveTimer.current);
+    enhanceSaveTimer.current = setTimeout(() => {
+      saveFeatureDraft('note-article', {
+        theme,
+        tonePreference,
+        personalNotes,
+        length,
+        deepResearch,
+        deepResearchTopic,
+        buzzReferences,
+        article,
+        reportModel,
+        enhance: next,
+      } satisfies NoteArticleDraftPayload);
+    }, 800);
+  };
 
   const download = () => {
     if (!currentContent.trim()) return;
@@ -875,6 +928,19 @@ export default function NoteArticleGenerationPage() {
             ⚠️ これは下書きです。あなたの独自の経験・視点を加えて編集してから投稿してください
           </div>
 
+          {/* 228: 医療広告チェック結果（note-bundle と同方式で併記） */}
+          {adCheck && adCheck.status === 'warn' && adCheck.findings.length > 0 && (
+            <div style={{ marginBottom: 12, padding: '8px 12px', background: 'rgba(239,68,68,0.06)', border: '1px solid rgba(239,68,68,0.25)', borderRadius: 8, fontSize: 11, color: '#ef4444', lineHeight: 1.6 }}>
+              🚨 医療広告チェック: 要確認
+              <ul style={{ margin: '4px 0 0', paddingLeft: 18 }}>
+                {adCheck.findings.map((f, fi) => <li key={fi}>{f}</li>)}
+              </ul>
+            </div>
+          )}
+          {adCheck && adCheck.status === 'ok' && (
+            <div style={{ marginBottom: 12, fontSize: 11, color: '#10b981' }}>✅ 医療広告チェック: 問題なし</div>
+          )}
+
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16, flexWrap: 'wrap', gap: 8 }}>
             <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
               <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-secondary)' }}>✍️ note 記事下書き</span>
@@ -889,6 +955,7 @@ export default function NoteArticleGenerationPage() {
                   length,
                   buzzRefCount: buzzReferences.length,
                   hasDeepResearch: !!deepResearch,
+                  enhance,
                 }}
               />
             </div>
@@ -1008,6 +1075,19 @@ export default function NoteArticleGenerationPage() {
             {trafficStats && (
               <span>通信量: {formatBytes(trafficStats.totalBytes)}（送信 {formatBytes(trafficStats.requestBytes)} / 受信 {formatBytes(trafficStats.responseBytes)}）</span>
             )}
+          </div>
+
+          {/* 228: 仕上げパネル（まとめ・画像配置・note貼り付けキット） */}
+          <div style={{ marginTop: 16, paddingTop: 12, borderTop: '1px solid var(--border)' }}>
+            <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-secondary)', marginBottom: 4 }}>
+              🧩 記事を仕上げる（まとめ・画像・note貼り付け）
+            </div>
+            <NoteEnhancePanel
+              title={theme}
+              content={currentContent}
+              state={enhance}
+              onChange={handleEnhanceChange}
+            />
           </div>
         </div>
       )}

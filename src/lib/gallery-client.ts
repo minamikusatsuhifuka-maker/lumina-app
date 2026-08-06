@@ -10,15 +10,25 @@ export interface GallerySaveInput {
   title?: string;
 }
 
-// 成功時 true、失敗時は例外（呼び出し側でトースト表示）
-export async function saveImageToGallery(input: GallerySaveInput): Promise<void> {
+// 保存後にサーバが返す画像メタ（/api/gallery POST の RETURNING と同形）
+export interface GallerySavedImage {
+  id: string;
+  blob_url: string;
+  pathname: string;
+  title?: string;
+}
+
+// 成功時は保存済みメタ（blob_url を後続処理に使える・228）、失敗時は例外（呼び出し側でトースト表示）。
+// 従来の呼び出し（戻り値を見ない）は挙動不変。
+export async function saveImageToGallery(input: GallerySaveInput): Promise<GallerySavedImage> {
   const res = await fetch('/api/gallery', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(input),
   });
+  const data = await res.json().catch(() => ({}));
   if (!res.ok) {
-    const data = await res.json().catch(() => ({}));
     throw new Error(data.error || 'ギャラリー保存に失敗しました');
   }
+  return data.image as GallerySavedImage;
 }

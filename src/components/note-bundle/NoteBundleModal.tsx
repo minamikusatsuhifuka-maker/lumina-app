@@ -33,6 +33,8 @@ import {
   getNoteStyle,
   type NoteStyleKey,
 } from '@/lib/note-styles';
+import NoteEnhancePanel from '@/components/note-enhance/NoteEnhancePanel';
+import { emptyNoteEnhance, type NoteEnhanceState } from '@/lib/note-enhance';
 
 // プラン編集で扱う資料（key = ctx-<id> / ana-<id>。2テーブルのID衝突を回避）
 interface Material {
@@ -73,6 +75,9 @@ interface ArticleResult {
   content: string;
   adCheck: { status: 'ok' | 'warn'; findings: string[] } | null;
   error: string;
+  // 228: 仕上げ（まとめ・画像配置）の状態。生成画像はギャラリーへ即保存されるため
+  // モーダルを閉じても画像自体は消えない（本文と同じく手動library保存でmetadataに残る）
+  enhance?: NoteEnhanceState;
 }
 
 // 生成キューの上限（重複投入・連打の暴発防止。超過はトーストで明示）
@@ -121,6 +126,8 @@ export default function NoteBundleModal({
   const [copiedId, setCopiedId] = useState<number | null>(null);
   // 展開表示中の結果カード（既定は抜粋表示）
   const [expandedResult, setExpandedResult] = useState<Record<number, boolean>>({});
+  // 228: 仕上げパネルを開いている結果カード
+  const [enhanceOpen, setEnhanceOpen] = useState<Record<number, boolean>>({});
   // 全画面リーダーで表示中の記事（182・FullscreenReader流用）
   // 191: アクションボタン（コピー/DL/保存）に元の ArticleResult が要るため本体を保持する
   const [readerResult, setReaderResult] = useState<ArticleResult | null>(null);
@@ -155,6 +162,7 @@ export default function NoteBundleModal({
     setGenerating(false);
     setPlanError('');
     setExpandedResult({});
+    setEnhanceOpen({});
     setReaderResult(null);
     setModalToast('');
     setModel(getSavedModel());
@@ -959,8 +967,17 @@ export default function NoteBundleModal({
                           sourceKeys: r.sourceKeys,
                           length,
                           from: 'note-bundle',
+                          enhance: r.enhance,
                         }}
                       />
+                      <button
+                        type="button"
+                        onClick={() => setEnhanceOpen((p) => ({ ...p, [r.localId]: !p[r.localId] }))}
+                        title="まとめ・画像配置・note貼り付けキット（228）"
+                        style={smallBtn(enhanceOpen[r.localId] ? { border: '1px solid var(--accent)', background: 'var(--accent-soft)', color: 'var(--text-primary)', fontWeight: 700 } : undefined)}
+                      >
+                        🧩 仕上げ
+                      </button>
                       <button
                         type="button"
                         onClick={() => deleteResult(r)}
@@ -970,6 +987,16 @@ export default function NoteBundleModal({
                         🗑 削除
                       </button>
                     </div>
+
+                    {/* 228: 仕上げパネル（まとめ・画像配置・note貼り付けキット） */}
+                    {enhanceOpen[r.localId] && (
+                      <NoteEnhancePanel
+                        title={r.title}
+                        content={r.content}
+                        state={r.enhance ?? emptyNoteEnhance()}
+                        onChange={(next) => patchResult(r.localId, { enhance: next })}
+                      />
+                    )}
 
                     {/* 🔁 別文体で再生成（同じ資料・要点のまま文体だけ変えて追加。元の記事は残す） */}
                     <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center', marginTop: 8 }}>
@@ -1050,6 +1077,7 @@ export default function NoteBundleModal({
                 sourceKeys: readerResult.sourceKeys,
                 length,
                 from: 'note-bundle',
+                enhance: readerResult.enhance,
               }}
             />
           </>
