@@ -1,6 +1,6 @@
 'use client';
 import { useState, useEffect, useMemo, Suspense } from 'react';
-import { useSearchParams } from 'next/navigation';
+import { useSearchParams, useRouter } from 'next/navigation';
 import { copyToClipboard } from '@/lib/copyToClipboard';
 import { triggerDownload } from '@/lib/download';
 import { LibraryItemRow } from '@/components/LibraryItemRow';
@@ -54,6 +54,7 @@ function parseMetadata(raw: any): any {
 
 function LibraryPageInner() {
   const searchParams = useSearchParams();
+  const router = useRouter();
   // URLクエリ ?tab=... を初期タブとして反映（TABS の key と完全一致が条件）
   const initialTab = useMemo<TabKey>(() => {
     const q = searchParams.get('tab');
@@ -452,10 +453,10 @@ function LibraryPageInner() {
     return items.filter(i => normalizeGroup(i.group_name || '') === key).length;
   };
 
-  // ディープリサーチタブ選択時のみコンパクトカード＋3〜4列グリッド
-  // （全体横断検索中は他カテゴリが混ざるため通常表示に戻す）
-  const isDrCompact =
-    activeTab === 'ディープリサーチ' && !(search.trim() && searchScope === 'all');
+  // 230【A】: コンパクトカード＋1〜4列グリッドを全タブ・検索中・お気に入りにも適用
+  // （219のDRタブ限定と「全体横断検索中は通常表示に戻す」安全弁は院長指示で撤去。
+  //   全タブcompactになったため混在表示でも列が揃う）
+  const isDrCompact = true;
   // 画面幅に応じて自動で1〜4列（院長指定のリテラル）
   const drGridClass = 'grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4';
 
@@ -883,6 +884,30 @@ function LibraryPageInner() {
           <button onClick={generateMergeReport} disabled={merging || selectedIds.size < 2}
             style={{ padding: '6px 16px', borderRadius: 99, background: '#fff', color: '#6c63ff', border: 'none', cursor: merging || selectedIds.size < 2 ? 'not-allowed' : 'pointer', fontSize: 13, fontWeight: 700, opacity: merging || selectedIds.size < 2 ? 0.6 : 1 }}>
             {merging ? '分析中...' : '🔗 AIでまとめる'}
+          </button>
+          {/* 230【B-1】: 選択→Kindleウィザード①へhandoff（対象=DR/note記事のみ・読取後削除の冪等キー） */}
+          <button
+            onClick={() => {
+              const selected = items.filter((i) => selectedIds.has(i.id));
+              const eligible = selected.filter((i) => i.type === 'deepresearch' || i.type === 'note-article');
+              const excluded = selected.length - eligible.length;
+              if (eligible.length === 0) {
+                alert('選択中にKindle素材にできる資料がありません（対象: ディープリサーチ・note記事）');
+                return;
+              }
+              if (excluded > 0 && !confirm(`${excluded}件は対象外（ディープリサーチ・note記事以外）のため除外します。${eligible.length}件で続けますか？`)) return;
+              let take = eligible;
+              if (eligible.length > 10) {
+                if (!confirm(`Kindle素材は最大10件です。選択順の先頭10件（${eligible.length}件中）を渡します。続けますか？`)) return;
+                take = eligible.slice(0, 10);
+              }
+              try {
+                sessionStorage.setItem('lumina_kindle_selected', JSON.stringify(take.map((i) => i.id)));
+              } catch { /* プライベートモード等で失敗しても遷移は続行（ウィザードで選び直せる） */ }
+              router.push('/dashboard/kindle-wizard');
+            }}
+            style={{ padding: '6px 16px', borderRadius: 99, background: 'rgba(255,255,255,0.15)', color: '#fff', border: '1px solid rgba(255,255,255,0.5)', cursor: 'pointer', fontSize: 13, fontWeight: 700 }}>
+            📖 Kindle本にする
           </button>
           <button onClick={() => { setSelectedIds(new Set()); setMergeMode(false); }}
             style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,0.7)', cursor: 'pointer', fontSize: 16 }}>

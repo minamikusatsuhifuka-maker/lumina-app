@@ -312,8 +312,30 @@ function KindleWizardInner() {
       ),
     )
       .then((lists) => {
-        setItems(lists.flat());
+        const arr = lists.flat();
+        setItems(arr);
         setItemsLoading(false);
+        // 230【B-1】: リサーチ保存からのhandoff（読取後削除=冪等。C23は素の遷移でキー無し→影響なし）
+        try {
+          const raw = sessionStorage.getItem('lumina_kindle_selected');
+          if (raw) {
+            sessionStorage.removeItem('lumina_kindle_selected');
+            // ?bookId= 復帰（④確定後）のときは素材選択を上書きしない
+            if (!new URLSearchParams(window.location.search).get('bookId')) {
+              const ids: unknown = JSON.parse(raw);
+              if (Array.isArray(ids)) {
+                const idSet = new Set(ids.map(String));
+                const take = arr.filter((i: any) => idSet.has(String(i.id))).slice(0, MAX_KINDLE_SOURCES);
+                if (take.length > 0) {
+                  setSelectedIds(new Set(take.map((i: any) => String(i.id))));
+                  setSourceTab(take[0].type === 'note-article' ? 'note-article' : 'deepresearch');
+                }
+              }
+            }
+          }
+        } catch {
+          /* handoff失敗時は通常の未選択状態で開く（選び直せる） */
+        }
       })
       .catch(() => setItemsLoading(false));
   }, []);
@@ -1235,9 +1257,17 @@ function KindleWizardInner() {
             <div style={{ color: 'var(--text-muted)', textAlign: 'center', padding: 40 }}>読み込み中...</div>
           ) : filteredItems.length === 0 ? (
             <div style={{ textAlign: 'center', padding: 40, color: 'var(--text-muted)' }}>
-              {sourceTab === 'deepresearch'
-                ? 'ディープリサーチ結果がありません。先に🔭ディープリサーチで調査・保存してください。'
-                : 'note記事がありません。✍️note記事群生成などで作成し、ライブラリに保存すると表示されます。'}
+              <div>
+                {sourceTab === 'deepresearch'
+                  ? 'ディープリサーチ結果がありません。先に🔭ディープリサーチで調査・保存してください。'
+                  : 'note記事がありません。✍️note記事群生成などで作成し、ライブラリに保存すると表示されます。'}
+              </div>
+              {/* 230【B-3】: 逆方向の案内（リサーチ保存の選択モード→📖Kindle本にする） */}
+              <div style={{ marginTop: 12, fontSize: 12 }}>
+                <button onClick={() => router.push('/dashboard/library')} style={smallBtn}>
+                  📚 リサーチ保存から選んで持ってくることもできます
+                </button>
+              </div>
             </div>
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4" style={{ gap: 12 }}>
