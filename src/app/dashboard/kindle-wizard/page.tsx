@@ -38,6 +38,13 @@ import {
 } from '@/lib/kindle-summaries';
 import { IMAGE_MODELS, type ImageModelKey } from '@/lib/image-providers';
 import {
+  SUMMARY_IMAGE_TEMPLATES,
+  SUMMARY_IMAGE_TEMPLATE_KEYS,
+  DEFAULT_SUMMARY_IMAGE_TEMPLATE,
+  type SummaryImageTemplateKey,
+  type KindleSummaryImages,
+} from '@/lib/kindle-summary-image-templates';
+import {
   KINDLE_IMAGE_STYLES,
   KINDLE_IMAGE_STYLE_KEYS,
   DEFAULT_KINDLE_IMAGE_STYLE,
@@ -285,6 +292,11 @@ function KindleWizardInner() {
   const [imgGenerating, setImgGenerating] = useState(false);
   const [imgError, setImgError] = useState('');
   const [imgDeleting, setImgDeleting] = useState<string | null>(null);
+
+  /* ⑥ まとめ画像（227【C】: 方式b=プログラム描画・文字100%正確） */
+  const [sumImgTemplate, setSumImgTemplate] = useState<SummaryImageTemplateKey>(DEFAULT_SUMMARY_IMAGE_TEMPLATE);
+  const [sumImgBusy, setSumImgBusy] = useState<string | null>(null);
+  const [sumImgError, setSumImgError] = useState('');
 
   /* 作成中の本一覧 */
   const [wizardBooks, setWizardBooks] = useState<any[]>([]);
@@ -939,8 +951,10 @@ function KindleWizardInner() {
   /* ── ⑥ 出力 ── */
   const bookTitle = book?.title || '無題';
   const bookImages: KindleBookImages = book?.bookMeta?.images ?? {};
+  const summaryImages: KindleSummaryImages = book?.bookMeta?.summaryImages ?? {};
   const fullMarkdownBody = useMemo(() => {
     const imgs: KindleBookImages = book?.bookMeta?.images ?? {};
+    const sumImgs: KindleSummaryImages = book?.bookMeta?.summaryImages ?? {};
     const parts: string[] = [];
     if (book?.subtitle) parts.push(`${book.subtitle}\n`);
     // 226: 表紙画像（あれば冒頭に）
@@ -951,13 +965,18 @@ function KindleWizardInner() {
       // 226: 章扉画像（あれば見出し直下に）
       const door = imgs.chapters?.[String(c.id)];
       const doorLine = door?.url ? `${buildImageLine(`第${c.chapterNumber}章 扉`, door.url)}\n\n` : '';
-      parts.push(`## 第${c.chapterNumber}章 ${c.title}\n\n${doorLine}${body}\n`);
+      // 227【C】: 章まとめ画像（あれば章末に）
+      const sumImg = sumImgs.chapters?.[String(c.id)];
+      const sumImgLine = sumImg?.url ? `\n${buildImageLine(`第${c.chapterNumber}章 まとめ`, sumImg.url)}\n` : '';
+      parts.push(`## 第${c.chapterNumber}章 ${c.title}\n\n${doorLine}${body}\n${sumImgLine}`);
     }
     // 227【B】: 巻末「全章まとめ」（ONのとき・まとめがある章のみ。MD/txt/Word共通）
     if (includeBookSummary) {
       const section = buildBookSummarySection(chapters, book?.bookMeta?.summaries ?? {});
       if (section) parts.push(`${section}\n`);
     }
+    // 227【C】: 巻末まとめ一覧画像（あれば末尾に）
+    if (sumImgs.book?.url) parts.push(`${buildImageLine('全章まとめ（一覧画像）', sumImgs.book.url)}\n`);
     return parts.join('\n');
   }, [book, chapters, includeBookSummary]);
 
@@ -1034,6 +1053,49 @@ function KindleWizardInner() {
       setImgError(String(e?.message || e));
     } finally {
       setImgGenerating(false);
+    }
+  };
+
+  /* ── 227【C】: まとめ画像（プログラム描画・編集後のまとめが常にソース） ── */
+  const generateSummaryImage = async (target: 'chapter' | 'book', chapter?: WizardChapter) => {
+    if (!bookId || sumImgBusy) return;
+    const key = target === 'book' ? 'book' : `ch-${chapter?.id}`;
+    setSumImgBusy(key);
+    setSumImgError('');
+    try {
+      const res = await fetch('/api/kindle/wizard/summary-image', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ bookId, target, chapterId: chapter?.id, template: sumImgTemplate }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || `まとめ画像の生成に失敗 (${res.status})`);
+      await loadBook(bookId);
+    } catch (e: any) {
+      setSumImgError(String(e?.message || e));
+    } finally {
+      setSumImgBusy(null);
+    }
+  };
+
+  const deleteSummaryImage = async (target: 'chapter' | 'book', chapter?: WizardChapter) => {
+    if (!bookId || sumImgBusy) return;
+    if (!confirm('このまとめ画像を削除して不使用にしますか？')) return;
+    const key = target === 'book' ? 'book' : `ch-${chapter?.id}`;
+    setSumImgBusy(key);
+    try {
+      const res = await fetch('/api/kindle/wizard/summary-image', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ bookId, target, chapterId: chapter?.id }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || `削除に失敗 (${res.status})`);
+      await loadBook(bookId);
+    } catch (e: any) {
+      alert(String(e?.message || e));
+    } finally {
+      setSumImgBusy(null);
     }
   };
 
@@ -1667,6 +1729,79 @@ function KindleWizardInner() {
                   </div>
                 );
               })}
+            </div>
+          </div>
+
+          {/* 227【C】: 🧾 まとめ画像（方式b=プログラム描画・文字100%正確） */}
+          <div style={{ marginBottom: 12, padding: 14, background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 12 }}>
+            <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 4 }}>🧾 まとめ画像（章ごと・巻末一覧）</div>
+            <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 10 }}>
+              📝まとめの文言をそのまま図に描画します（AI画像生成ではないため文字崩れゼロ・数秒/枚・無料）。まとめを編集したら🔄再生成してください
+            </div>
+            <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap', marginBottom: 10 }}>
+              <span style={{ fontSize: 11, color: 'var(--text-secondary)' }}>テンプレート:</span>
+              {SUMMARY_IMAGE_TEMPLATE_KEYS.map((k) => {
+                const t = SUMMARY_IMAGE_TEMPLATES[k];
+                const active = sumImgTemplate === k;
+                return (
+                  <button
+                    key={k}
+                    onClick={() => setSumImgTemplate(k)}
+                    style={{ padding: '5px 12px', borderRadius: 99, fontSize: 11, fontWeight: active ? 700 : 400, background: active ? 'var(--accent-soft)' : 'var(--bg-primary)', border: `1px solid ${active ? 'var(--accent)' : 'var(--border)'}`, color: active ? 'var(--text-primary)' : 'var(--text-muted)', cursor: 'pointer' }}
+                  >
+                    {t.emoji} {t.label}
+                  </button>
+                );
+              })}
+            </div>
+            {sumImgError && (
+              <div style={{ marginBottom: 8, fontSize: 12, color: '#dc2626' }}>⚠️ {sumImgError}</div>
+            )}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              {[
+                ...[...chapters]
+                  .sort((a, b) => a.chapterNumber - b.chapterNumber)
+                  .filter((c) => (summaries[String(c.id)]?.points ?? []).length > 0)
+                  .map((c) => ({ target: 'chapter' as const, chapter: c as WizardChapter | undefined, label: `第${c.chapterNumber}章 ${c.title}` })),
+                { target: 'book' as const, chapter: undefined as WizardChapter | undefined, label: '📚 巻末「全章まとめ」一覧' },
+              ].map(({ target, chapter, label }) => {
+                const entry = target === 'book' ? summaryImages.book : summaryImages.chapters?.[String(chapter?.id)];
+                const key = target === 'book' ? 'book' : `ch-${chapter?.id}`;
+                // 編集後のまとめが常にソース: 生成時点と現在のまとめupdatedAtの不一致=古い画像
+                const latestSource =
+                  target === 'book'
+                    ? chapters.map((c) => summaries[String(c.id)]?.updatedAt || '').filter(Boolean).sort().pop() || ''
+                    : summaries[String(chapter?.id)]?.updatedAt || '';
+                const stale = !!entry && !!latestSource && entry.sourceUpdatedAt !== latestSource;
+                return (
+                  <div key={key} style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+                    {entry?.url ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img src={entry.url} alt={label} style={{ width: 56, height: 42, objectFit: 'cover', borderRadius: 6, border: '1px solid var(--border)', flexShrink: 0 }} />
+                    ) : (
+                      <span style={{ width: 56, height: 42, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--bg-primary)', border: '1px dashed var(--border)', borderRadius: 6, fontSize: 12, color: 'var(--text-muted)', flexShrink: 0 }}>
+                        —
+                      </span>
+                    )}
+                    <span style={{ flex: 1, minWidth: 120, fontSize: 12, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{label}</span>
+                    {entry && <span style={{ fontSize: 10, color: 'var(--text-muted)', flexShrink: 0 }}>{SUMMARY_IMAGE_TEMPLATES[entry.template]?.label ?? ''}</span>}
+                    {stale && (
+                      <span style={{ fontSize: 10, color: '#f59e0b', flexShrink: 0 }}>⚠️ まとめが更新されています</span>
+                    )}
+                    <button onClick={() => generateSummaryImage(target, chapter)} disabled={sumImgBusy !== null} style={{ ...smallBtn, opacity: sumImgBusy !== null && sumImgBusy !== key ? 0.5 : 1, color: stale ? '#f59e0b' : undefined, borderColor: stale ? 'rgba(245,158,11,0.4)' : undefined }}>
+                      {sumImgBusy === key ? '生成中...' : entry ? '🔄 再生成' : '🎨 生成'}
+                    </button>
+                    {entry && (
+                      <button onClick={() => deleteSummaryImage(target, chapter)} disabled={sumImgBusy !== null} style={{ ...smallBtn, color: '#ef4444', borderColor: 'rgba(239,68,68,0.3)' }}>
+                        ✕ 不使用
+                      </button>
+                    )}
+                  </div>
+                );
+              })}
+              {chapters.every((c) => (summaries[String(c.id)]?.points ?? []).length === 0) && (
+                <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>まとめのある章がありません（⑤の「📝 まとめ」で生成すると、ここで画像化できます）</div>
+              )}
             </div>
           </div>
 
