@@ -14,6 +14,7 @@ import {
   type KindleStyleKey,
 } from '@/lib/kindle-styles';
 import { MAX_KINDLE_SOURCES, MAX_KINDLE_TOTAL_CHARS } from '@/lib/kindle-limits';
+import { stripLeadingChapterHeading } from '@/lib/kindle-text';
 import { triggerDownload } from '@/lib/download';
 
 /* ── ステップ定義 ── */
@@ -487,7 +488,9 @@ function KindleWizardInner() {
     const parts: string[] = [];
     if (book?.subtitle) parts.push(`${book.subtitle}\n`);
     for (const c of [...chapters].sort((a, b) => a.chapterNumber - b.chapterNumber)) {
-      parts.push(`## 第${c.chapterNumber}章 ${c.title}\n\n${(c.content || '').trim()}\n`);
+      // 既存生成分の救済: 本文冒頭の章見出しH1を出力時に除去（DBは書き換えない）
+      const body = stripLeadingChapterHeading((c.content || '').trim(), c.chapterNumber, c.title);
+      parts.push(`## 第${c.chapterNumber}章 ${c.title}\n\n${body}\n`);
     }
     return parts.join('\n');
   }, [book, chapters]);

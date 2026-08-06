@@ -5,8 +5,9 @@ import Anthropic from '@anthropic-ai/sdk';
 import { extractAnthropicText } from '@/lib/anthropic-text';
 import { neon } from '@neondatabase/serverless';
 import { fetchKindleMaterials } from '@/lib/kindle-materials';
-import { getKindlePurpose, KINDLE_COMMON_RULES } from '@/lib/kindle-purposes';
+import { getKindlePurpose, KINDLE_COMMON_RULES, KINDLE_LAYOUT_RULES } from '@/lib/kindle-purposes';
 import { getKindleStyle } from '@/lib/kindle-styles';
+import { stripLeadingChapterHeading } from '@/lib/kindle-text';
 
 export const maxDuration = 300;
 
@@ -180,9 +181,12 @@ ${purpose.promptBlock}
 ${isLastChapter ? `\n${purpose.ctaBlock}\n` : ''}
 ${style.promptBlock}
 
+${KINDLE_LAYOUT_RULES}
+
 ${KINDLE_COMMON_RULES}`;
 
   const prompt = `以下の章の本文を執筆してください。本文のみを出力してください（説明文・前置き不要）。
+章タイトルの見出し（「# 第N章 …」等）は本文に含めず、書き出しの段落（または「この章でわかること」）から始めてください。
 
 【書籍情報】
 タイトル: ${(book as any).title ?? ''}
@@ -219,6 +223,9 @@ ${materialsBlock}`;
             controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'delta', text })}\n\n`));
           }
         }
+
+        // 防御的二重ガード: プロンプト指示をすり抜けた冒頭の章見出しH1を除去してから保存
+        fullText = stripLeadingChapterHeading(fullText, target.chapter_number, target.title);
 
         // fail-closed: 空本文は保存しない（偽の完了を作らない）
         if (!fullText.trim()) {
