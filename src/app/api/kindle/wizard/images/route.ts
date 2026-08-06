@@ -6,6 +6,7 @@ import { randomUUID } from 'crypto';
 import { blobAuthOptions, hasBlobCredentials } from '@/lib/blob-auth';
 import { generateWithModel } from '@/lib/ai-client';
 import { generateWithProvider, IMAGE_MODELS, type ImageModelKey } from '@/lib/image-providers';
+import { imagePromptRules, IMAGE_GUARD_SUFFIX } from '@/lib/image-guards';
 import { getKindlePurpose } from '@/lib/kindle-purposes';
 import {
   getKindleImageStyle,
@@ -26,21 +27,9 @@ export const maxDuration = 300;
 // 生成画像に文字を入れない（文字化け防止=227C院長懸念と同方針）・実在人物/患部写実/誇張の禁止を
 // プロンプトガードとしてサーバ側で必ず付与する。
 
-// 起案ルール（eyecatch/prompt の190是正と同方針: 主題が伝わる具体的情景＋医療ガード）
-const KINDLE_IMAGE_PROMPT_RULES = `【必ず反映すること】
-- 本（または章）の主題が視覚的に伝わる具体的な情景・モチーフを入れる
-- 読者が自分ごと化できる日常の文脈（生活シーン・季節感など）を添える
-- 主題と雰囲気（色調・光・構図・モチーフ）を簡潔に描写する
-
-【禁止】
-- 画像内に文字・ロゴ・数字を一切入れない（タイトル等の文字は入れない前提）
-- 実在の人物・顔が特定できる描写
-- 患部・症状の写実的描写（健常な肌・手元の描写はよい）・ビフォーアフター的対比
-- 効果効能を示唆する演出・具体的な数値`;
-
-// 生成時にユーザー編集後プロンプトへ必ず付ける厳守ガード（編集で消されても効かせる）
-const KINDLE_IMAGE_GUARD_SUFFIX =
-  '【厳守】画像内に文字・ロゴ・数字を入れない。実在の人物や特定できる顔を描かない。患部・症状の写実的描写や効果効能を示唆する演出をしない。';
+// 起案ルール・生成時ガードは lib/image-guards.ts に一元管理（228でnote共用化。文言不変）
+const KINDLE_IMAGE_PROMPT_RULES = imagePromptRules('本（または章）');
+const KINDLE_IMAGE_GUARD_SUFFIX = IMAGE_GUARD_SUFFIX;
 
 const VALID_ENGINES = new Set<string>(IMAGE_MODELS.map((m) => m.key));
 

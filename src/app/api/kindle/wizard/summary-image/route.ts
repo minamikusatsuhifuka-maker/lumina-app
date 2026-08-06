@@ -5,6 +5,7 @@ import { neon } from '@neondatabase/serverless';
 import { put, del } from '@vercel/blob';
 import { randomUUID } from 'crypto';
 import { blobAuthOptions, hasBlobCredentials } from '@/lib/blob-auth';
+import { fetchJpFonts } from '@/lib/og-fonts';
 import type { KindleBookSummaries } from '@/lib/kindle-summaries';
 import {
   buildSummaryImageElement,
@@ -27,30 +28,7 @@ export const maxDuration = 60;
 // - DELETE { bookId, target, chapterId? }: メタ削除＋Blob削除（✕不使用）
 // fail-closed: フォント取得・描画・保存の失敗はエラー返却のみ（既存データ無傷）。
 
-// Google Fontsからテキスト単位のサブセットTTFを取得（satoriはwoff2不可）。
-// サブセットは文字集合に依存するためテキストをキーにキャッシュ（上限20件）。
-const fontCache = new Map<string, { name: string; data: ArrayBuffer; weight: 400 | 700; style: 'normal' }[]>();
-
-async function fetchJpFonts(text: string) {
-  const key = Array.from(new Set(text)).sort().join('');
-  const hit = fontCache.get(key);
-  if (hit) return hit;
-  const cssUrl = `https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;700&text=${encodeURIComponent(text)}`;
-  const cssRes = await fetch(cssUrl, { headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; rv:60.0)' } });
-  if (!cssRes.ok) throw new Error(`フォント情報の取得に失敗しました (${cssRes.status})`);
-  const css = await cssRes.text();
-  const urls = [...css.matchAll(/src: url\((.+?)\) format\('(?:truetype|opentype)'\)/g)].map((m) => m[1]);
-  if (urls.length === 0) throw new Error('フォントURLを抽出できませんでした');
-  const fonts = [] as { name: string; data: ArrayBuffer; weight: 400 | 700; style: 'normal' }[];
-  for (const [i, u] of urls.slice(0, 2).entries()) {
-    const r = await fetch(u);
-    if (!r.ok) throw new Error(`フォントの取得に失敗しました (${r.status})`);
-    fonts.push({ name: 'NotoSansJP', data: await r.arrayBuffer(), weight: i === 0 ? 400 : 700, style: 'normal' });
-  }
-  if (fontCache.size >= 20) fontCache.delete(fontCache.keys().next().value as string);
-  fontCache.set(key, fonts);
-  return fonts;
-}
+// フォント取得は lib/og-fonts.ts（228でnote共用化のため抽出。キャッシュ含め挙動不変）
 
 interface Target {
   target: 'chapter' | 'book';

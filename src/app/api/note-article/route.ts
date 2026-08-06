@@ -3,6 +3,9 @@ import { NextRequest } from 'next/server';
 import { auth } from '@/lib/auth';
 import { trackUsage } from '@/lib/trackUsage';
 import { streamWithModel, type AIModel } from '@/lib/ai-client';
+import { MEDICAL_AD_NG_RULES } from '@/lib/medical-ad-check';
+import { NOTE_COMMON_RULES } from '@/lib/note-styles';
+import { NOTE_WRITING_DESIGN } from '@/lib/note-writing';
 
 export const runtime = 'nodejs';
 export const maxDuration = 300;
@@ -107,15 +110,13 @@ ${(p.content || '').slice(0, 2000)}
 上記パターンを参考に、表面的な模倣ではなく、構造・心理効果を理解して記事に活かしてください。`
     : '';
 
+  // 228: note品質規約を経路A（note-bundle/article）と統一。
+  // 旧・直書きの制約は NOTE_COMMON_RULES がすべて包含している（二重管理を解消）。
   const systemPrompt = `あなたは note プラットフォームで読者を惹きつける記事を執筆する優秀なライターです。SEO・心理学・マーケティングの知識を駆使しつつ、読者の心に響く文章を生成してください。
+医療に関わる内容では医療広告規制（医療法・医療広告ガイドライン／薬機法）に配慮し、以下のNG表現は使いません:
+${MEDICAL_AD_NG_RULES}
 
-重要な制約:
-- AIが書いたとわかる無機質な文章は避ける
-- 読者と対話するような自然な口調
-- 必ず最後まで完結させる
-- 「ここに体験談を入れてください」のようなプレースホルダは使わず、自然な文章として完結させる
-- HTMLタグは使わない、Markdownのリンク記法（[テキスト](URL)）も使わない
-- URLは生のURLのみ記載`;
+${NOTE_COMMON_RULES}`;
 
   const userPrompt = `以下のテーマで note 記事を執筆してください。
 
@@ -124,6 +125,8 @@ ${theme}
 
 # 記事の長さ
 ${config.label}（${config.chars}）
+
+${NOTE_WRITING_DESIGN}
 ${buzzSection}${researchSection}${toneSection}${personalSection}${patternsSection}
 
 # 記事の構成
