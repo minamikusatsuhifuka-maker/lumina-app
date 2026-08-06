@@ -3,6 +3,7 @@
 // 6ステップ: ①素材 → ②目的 → ③分量・文体 → ④目次生成・編集 → ⑤本文生成 → ⑥出力
 // ④確定以降は kindle_books/kindle_chapters が正（?bookId= で復帰・章status駆動レジューム）
 import { useState, useEffect, useMemo, useRef, useCallback, Suspense } from 'react';
+import { createPortal } from 'react-dom';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { LibraryItemRow } from '@/components/LibraryItemRow';
 import { KINDLE_PURPOSES, KINDLE_PURPOSE_KEYS, type KindlePurposeKey } from '@/lib/kindle-purposes';
@@ -70,6 +71,40 @@ interface WizardChapter {
 }
 
 const statusIcon = (s: string) => (s === 'completed' ? '✅' : s === 'failed' ? '❌' : s === 'writing' ? '⏳' : '⬜');
+
+// 全ステップ共通の右下固定フッターバー（223改善-1）。
+// .page-enter(dashboard main)のfadeInにtransformがあり、配下のfixedはビューポートに
+// 効かないため createPortal(document.body) 必須（189の教訓・ShortcutPaletteと同方式）。
+// z-indexはショートカット小窓(950)より下の900で干渉を避ける。
+function WizardFooterBar({ children }: { children: React.ReactNode }) {
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
+  if (!mounted) return null;
+  return createPortal(
+    <div
+      style={{
+        position: 'fixed',
+        right: 16,
+        bottom: 'calc(16px + env(safe-area-inset-bottom))',
+        zIndex: 900,
+        display: 'flex',
+        alignItems: 'center',
+        gap: 12,
+        padding: '10px 16px',
+        background: 'var(--bg-secondary)',
+        border: '1px solid var(--border)',
+        borderRadius: 99,
+        boxShadow: '0 8px 32px rgba(0,0,0,0.35)',
+        maxWidth: 'calc(100vw - 32px)',
+        flexWrap: 'wrap',
+        justifyContent: 'flex-end',
+      }}
+    >
+      {children}
+    </div>,
+    document.body,
+  );
+}
 
 const cardBtn = (active: boolean, disabled = false): React.CSSProperties => ({
   padding: '14px 16px',
@@ -480,7 +515,8 @@ function KindleWizardInner() {
 
   /* ── レンダリング ── */
   return (
-    <div>
+    // paddingBottom: 右下固定フッターにコンテンツ末尾が隠れないよう余白を確保
+    <div style={{ paddingBottom: 96 }}>
       <h1 style={{ fontSize: 28, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 4 }}>📖 Kindle本づくり</h1>
       <p style={{ color: 'var(--text-muted)', marginBottom: 16 }}>
         ディープリサーチ結果を束ねて、目的別のKindle本（まずはリードマグネット）を作成します。
@@ -544,9 +580,6 @@ function KindleWizardInner() {
               placeholder="🔍 タイトルで絞り込み..."
               style={{ flex: 1, minWidth: 200, maxWidth: 420, padding: '9px 14px', background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 8, color: 'var(--text-primary)', fontSize: 13, outline: 'none' }}
             />
-            <span data-kw-limits style={{ fontSize: 13, color: selectedIds.size > 0 ? 'var(--text-primary)' : 'var(--text-muted)', fontWeight: 600 }}>
-              選択 {selectedIds.size}/{MAX_KINDLE_SOURCES}件 ・ 合計 {totalChars.toLocaleString()}字（上限{MAX_KINDLE_TOTAL_CHARS.toLocaleString()}字）
-            </span>
           </div>
 
           {itemsLoading ? (
@@ -588,15 +621,6 @@ function KindleWizardInner() {
             </div>
           )}
 
-          <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 20 }}>
-            <button
-              onClick={confirmMaterials}
-              disabled={selectedIds.size === 0 || validating}
-              style={{ ...primaryBtn, opacity: selectedIds.size === 0 || validating ? 0.5 : 1, cursor: selectedIds.size === 0 || validating ? 'not-allowed' : 'pointer' }}
-            >
-              {validating ? '確認中...' : `次へ（${selectedIds.size}件で進む）→`}
-            </button>
-          </div>
         </div>
       )}
 
@@ -617,12 +641,6 @@ function KindleWizardInner() {
                 </button>
               );
             })}
-          </div>
-          <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-            <button onClick={() => setStep(1)} style={ghostBtn}>← 戻る</button>
-            <button onClick={() => purposeKey && setStep(3)} disabled={!purposeKey} style={{ ...primaryBtn, opacity: purposeKey ? 1 : 0.5, cursor: purposeKey ? 'pointer' : 'not-allowed' }}>
-              次へ →
-            </button>
           </div>
         </div>
       )}
@@ -667,18 +685,6 @@ function KindleWizardInner() {
             style={{ width: '100%', maxWidth: 720, padding: '10px 14px', background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 8, color: 'var(--text-primary)', fontSize: 13, outline: 'none', resize: 'vertical', boxSizing: 'border-box', marginBottom: 20 }}
           />
 
-          <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-            <button onClick={() => setStep(2)} style={ghostBtn}>← 戻る</button>
-            <button
-              onClick={() => {
-                setStep(4);
-                if (!outline) generateOutline();
-              }}
-              style={primaryBtn}
-            >
-              目次を生成する →
-            </button>
-          </div>
         </div>
       )}
 
@@ -734,17 +740,6 @@ function KindleWizardInner() {
                 ))}
               </div>
 
-              <div style={{ display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
-                <div style={{ display: 'flex', gap: 8 }}>
-                  <button onClick={() => setStep(3)} style={ghostBtn}>← 戻る</button>
-                  <button onClick={() => { if (confirm('目次を再生成しますか？（現在の編集内容は破棄されます）')) generateOutline(); }} style={ghostBtn}>
-                    🔄 目次を再生成
-                  </button>
-                </div>
-                <button onClick={confirmOutline} disabled={creating} style={{ ...primaryBtn, opacity: creating ? 0.5 : 1 }}>
-                  {creating ? '作成中...' : `この目次で確定（全${outline.chapters.length}章）→`}
-                </button>
-              </div>
             </div>
           )}
         </div>
@@ -789,19 +784,8 @@ function KindleWizardInner() {
             ))}
           </div>
 
-          <div style={{ display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
-            <div style={{ fontSize: 11, color: 'var(--text-muted)', maxWidth: 460, lineHeight: 1.6 }}>
-              章は1章ずつ順番に生成します（前の章の流れを引き継ぐため）。途中で閉じても、このページに戻れば未生成の章から再開できます。
-            </div>
-            {generating ? (
-              <button onClick={stopQueue} style={{ ...ghostBtn, color: '#ef4444', borderColor: 'rgba(239,68,68,0.3)' }}>⏸ 中断する</button>
-            ) : allDone ? (
-              <button onClick={() => setStep(6)} style={primaryBtn}>出力へ →</button>
-            ) : (
-              <button onClick={runQueue} style={primaryBtn}>
-                ▶ 本文生成を{completedCount > 0 ? '再開' : '開始'}する（残り{chapters.length - completedCount}章）
-              </button>
-            )}
+          <div style={{ fontSize: 11, color: 'var(--text-muted)', maxWidth: 560, lineHeight: 1.6 }}>
+            章は1章ずつ順番に生成します（前の章の流れを引き継ぐため）。途中で閉じても、このページに戻れば未生成の章から再開できます。
           </div>
         </div>
       )}
@@ -818,12 +802,85 @@ function KindleWizardInner() {
           <div style={{ padding: 20, background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 12, maxHeight: '65vh', overflowY: 'auto', fontSize: 13, lineHeight: 1.8, color: 'var(--text-secondary)', whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
             {`${bookTitle}\n\n${fullMarkdownBody.replace(/^## /gm, '■ ')}`}
           </div>
-          <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 16 }}>
-            <button onClick={() => setStep(5)} style={ghostBtn}>← 生成画面に戻る</button>
-            <button onClick={() => router.push('/dashboard/kindle-wizard')} style={ghostBtn}>🆕 新しい本を作る</button>
-          </div>
         </div>
       )}
+
+      {/* ── 右下固定フッター（全ステップ共通・スクロール位置に依存しない主操作） ── */}
+      <WizardFooterBar>
+        {step === 1 && (
+          <>
+            <span data-kw-limits style={{ fontSize: 13, color: selectedIds.size > 0 ? 'var(--text-primary)' : 'var(--text-muted)', fontWeight: 600 }}>
+              選択 {selectedIds.size}/{MAX_KINDLE_SOURCES}件 ・ 合計 {totalChars.toLocaleString()}字（上限{MAX_KINDLE_TOTAL_CHARS.toLocaleString()}字）
+            </span>
+            <button
+              onClick={confirmMaterials}
+              disabled={selectedIds.size === 0 || validating}
+              style={{ ...primaryBtn, opacity: selectedIds.size === 0 || validating ? 0.5 : 1, cursor: selectedIds.size === 0 || validating ? 'not-allowed' : 'pointer' }}
+            >
+              {validating ? '確認中...' : `次へ（${selectedIds.size}件で進む）→`}
+            </button>
+          </>
+        )}
+        {step === 2 && (
+          <>
+            <button onClick={() => setStep(1)} style={ghostBtn}>← 戻る</button>
+            <button onClick={() => purposeKey && setStep(3)} disabled={!purposeKey} style={{ ...primaryBtn, opacity: purposeKey ? 1 : 0.5, cursor: purposeKey ? 'pointer' : 'not-allowed' }}>
+              {purposeKey ? `${KINDLE_PURPOSES[purposeKey].emoji} ${KINDLE_PURPOSES[purposeKey].label}で次へ →` : '目的を選んでください'}
+            </button>
+          </>
+        )}
+        {step === 3 && (
+          <>
+            <button onClick={() => setStep(2)} style={ghostBtn}>← 戻る</button>
+            <button
+              onClick={() => {
+                setStep(4);
+                if (!outline) generateOutline();
+              }}
+              style={primaryBtn}
+            >
+              目次を生成する →
+            </button>
+          </>
+        )}
+        {step === 4 && (
+          <>
+            <button onClick={() => setStep(3)} style={ghostBtn}>← 戻る</button>
+            {outline && !outlineLoading && (
+              <>
+                <button onClick={() => { if (confirm('目次を再生成しますか？（現在の編集内容は破棄されます）')) generateOutline(); }} style={ghostBtn}>
+                  🔄 再生成
+                </button>
+                <button onClick={confirmOutline} disabled={creating} style={{ ...primaryBtn, opacity: creating ? 0.5 : 1 }}>
+                  {creating ? '作成中...' : `この目次で確定（全${outline.chapters.length}章）→`}
+                </button>
+              </>
+            )}
+          </>
+        )}
+        {step === 5 && (
+          <>
+            <span style={{ fontSize: 12, color: 'var(--text-muted)', fontWeight: 600 }}>
+              {completedCount}/{chapters.length}章 ・ {(book?.currentWordCount ?? 0).toLocaleString()}字
+            </span>
+            {generating ? (
+              <button onClick={stopQueue} style={{ ...ghostBtn, color: '#ef4444', borderColor: 'rgba(239,68,68,0.3)' }}>⏸ 中断する</button>
+            ) : allDone ? (
+              <button onClick={() => setStep(6)} style={primaryBtn}>出力へ →</button>
+            ) : (
+              <button onClick={runQueue} style={primaryBtn}>
+                ▶ 本文生成を{completedCount > 0 ? '再開' : '開始'}する（残り{chapters.length - completedCount}章）
+              </button>
+            )}
+          </>
+        )}
+        {step === 6 && (
+          <>
+            <button onClick={() => setStep(5)} style={ghostBtn}>← 生成画面に戻る</button>
+            <button onClick={() => router.push('/dashboard/kindle-wizard')} style={ghostBtn}>🆕 新しい本を作る</button>
+          </>
+        )}
+      </WizardFooterBar>
     </div>
   );
 }
