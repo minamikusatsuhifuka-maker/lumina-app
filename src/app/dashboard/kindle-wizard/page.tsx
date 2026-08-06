@@ -24,6 +24,12 @@ import {
   type KindleProofreadIssue,
 } from '@/lib/kindle-proofread';
 import { ProofreadDiffPane, type AppliedFix } from '@/components/proofread/ProofreadDiffPane';
+import {
+  hasChapterEndSummary,
+  buildChapterSummaryBlock,
+  buildBookSummarySection,
+  type KindleBookSummaries,
+} from '@/lib/kindle-summaries';
 
 /* ── ステップ定義 ── */
 const STEPS = [
@@ -240,6 +246,17 @@ function KindleWizardInner() {
   const [editSaving, setEditSaving] = useState(false);
   const [diffTarget, setDiffTarget] = useState<WizardChapter | null>(null);
   const proofStartedRef = useRef(false);
+
+  /* ⑤ 章まとめ（227【A】【B】） */
+  const [expandedSummaryId, setExpandedSummaryId] = useState<number | null>(null);
+  const [summaryBusyId, setSummaryBusyId] = useState<number | null>(null);
+  const [summaryErrors, setSummaryErrors] = useState<Record<string, string>>({});
+  const [draftPoints, setDraftPoints] = useState<string[] | null>(null);
+  const [summarySaving, setSummarySaving] = useState(false);
+  const [appendBusyId, setAppendBusyId] = useState<number | null>(null);
+
+  /* ⑥ 巻末「全章まとめ」トグル（既定ON） */
+  const [includeBookSummary, setIncludeBookSummary] = useState(true);
 
   /* 作成中の本一覧 */
   const [wizardBooks, setWizardBooks] = useState<any[]>([]);
@@ -542,6 +559,28 @@ function KindleWizardInner() {
   const proofread: KindleBookProofread = book?.bookMeta?.proofread ?? {};
   const hasProofData = !!book?.bookMeta?.proofread;
 
+  /* ── ⑤.6 章まとめ（227【B】: book_meta.summaries 章IDキー・編集後が常にソース） ── */
+  const summaries: KindleBookSummaries = book?.bookMeta?.summaries ?? {};
+
+  // 戻り値: エラーメッセージ（成功時は空文字）。fail-closed=失敗しても既存まとめ・本文は無傷
+  const summarizeOne = useCallback(
+    async (chapterId: number): Promise<string> => {
+      try {
+        const res = await fetch('/api/kindle/wizard/summaries', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ bookId, chapterId }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) return data.error || `まとめ生成に失敗 (${res.status})`;
+        return '';
+      } catch (e: any) {
+        return String(e?.message || e);
+      }
+    },
+    [bookId],
+  );
+
   // 戻り値: エラーメッセージ（成功時は空文字）。fail-closed=失敗しても本文・既存データは無傷
   const proofreadOne = useCallback(
     async (chapterId: number): Promise<string> => {
@@ -576,17 +615,20 @@ function KindleWizardInner() {
     }
   }, [bookId]);
 
-  // 章単位1リクエストの直列＋全体整合1回。失敗章はスキップして続行（章間依存なし）し、
-  // 章ごとに⚠️＋🔄再試行を出す（212方式）。実行済みの章はスキップ（やり直しは章ごとの🔄）。
+  // 章単位1リクエストの直列＋全体整合1回＋章まとめ生成（227【B】: 校正キューの後段に連結）。
+  // 失敗章はスキップして続行（章間依存なし）し、章ごとに⚠️＋🔄再試行を出す（212方式）。
+  // 実行済みの章はスキップ（やり直しは章ごとの🔄）。
   const runProofread = useCallback(async () => {
     if (!bookId || proofreading) return;
     setProofreading(true);
     const errs: Record<string, string> = {};
+    const sErrs: Record<string, string> = {};
     try {
       const res = await fetch(`/api/kindle?id=${bookId}`);
       if (!res.ok) throw new Error(`書籍の読み込みに失敗しました (${res.status})`);
       const data = await res.json();
       const existing = data?.book?.bookMeta?.proofread ?? {};
+      const existingSummaries = data?.book?.bookMeta?.summaries ?? {};
       const targets = (data.chapters || [])
         .filter((c: any) => c.status === 'completed')
         .sort((a: any, b: any) => a.chapterNumber - b.chapterNumber);
@@ -601,15 +643,25 @@ function KindleWizardInner() {
         const gerr = await proofreadGlobal();
         if (gerr) errs.global = gerr;
       }
+      // 227【B】: 章まとめの自動生成（校正の後段・章ごと直列）
+      for (const c of targets) {
+        if (existingSummaries[String(c.id)]) continue;
+        setSummaryBusyId(c.id);
+        const err = await summarizeOne(c.id);
+        if (err) sErrs[String(c.id)] = err;
+      }
+      setSummaryBusyId(null);
       await loadBook(bookId);
     } catch (e: any) {
       errs.run = String(e?.message || e);
     } finally {
       setProofErrors(errs);
+      setSummaryErrors(sErrs);
       setProofreading(false);
       setProofChapterId(null);
+      setSummaryBusyId(null);
     }
-  }, [bookId, proofreading, proofreadOne, proofreadGlobal, loadBook]);
+  }, [bookId, proofreading, proofreadOne, proofreadGlobal, summarizeOne, loadBook]);
 
   const retryChapterProofread = useCallback(
     async (chapterId: number) => {
@@ -654,6 +706,115 @@ function KindleWizardInner() {
     proofStartedRef.current = true;
     runProofread();
   }, [step, generating, proofreading, bookId, book, chapters, runProofread]);
+
+  /* ── 227【A】【B】: まとめパネルの操作 ── */
+  const openSummaryPanel = (c: WizardChapter) => {
+    if (expandedSummaryId === c.id) {
+      setExpandedSummaryId(null);
+      setDraftPoints(null);
+      return;
+    }
+    setExpandedSummaryId(c.id);
+    const entry = summaries[String(c.id)];
+    setDraftPoints(entry ? [...entry.points] : null);
+  };
+
+  // 🪄 生成/再生成（自動生成分は source:'auto'。既存があれば確認して上書き）
+  const generateSummaryFor = async (c: WizardChapter, isRegenerate: boolean) => {
+    if (!bookId || summaryBusyId !== null) return;
+    if (isRegenerate && !confirm('まとめを再生成しますか？（現在の内容と編集は上書きされます）')) return;
+    setSummaryBusyId(c.id);
+    try {
+      const res = await fetch('/api/kindle/wizard/summaries', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ bookId, chapterId: c.id }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setSummaryErrors((prev) => ({ ...prev, [String(c.id)]: data.error || `まとめ生成に失敗 (${res.status})` }));
+        return;
+      }
+      setSummaryErrors((prev) => {
+        const next = { ...prev };
+        delete next[String(c.id)];
+        return next;
+      });
+      if (Array.isArray(data.summary?.points)) setDraftPoints([...data.summary.points]);
+      await loadBook(bookId);
+    } catch (e: any) {
+      setSummaryErrors((prev) => ({ ...prev, [String(c.id)]: String(e?.message || e) }));
+    } finally {
+      setSummaryBusyId(null);
+    }
+  };
+
+  // 💾 編集保存（source:'edited'。編集後のまとめが常にソース）
+  const saveSummaryPoints = async (c: WizardChapter) => {
+    if (!bookId || !draftPoints) return;
+    const points = draftPoints.map((p) => p.trim()).filter((p) => p.length > 0);
+    if (points.length === 0) {
+      alert('要点が空です。1点以上入力してください');
+      return;
+    }
+    setSummarySaving(true);
+    try {
+      const res = await fetch('/api/kindle/wizard/summaries', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ bookId, chapterId: c.id, points }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || `保存に失敗しました (${res.status})`);
+      setDraftPoints(points);
+      await loadBook(bookId);
+    } catch (e: any) {
+      alert(String(e?.message || e));
+    } finally {
+      setSummarySaving(false);
+    }
+  };
+
+  // 📄 227【A】: 保存済みのまとめを本文末尾に「## この章のまとめ」として追記
+  const appendSummaryToChapter = async (c: WizardChapter) => {
+    if (!bookId || appendBusyId !== null) return;
+    const entry = summaries[String(c.id)];
+    if (!entry || entry.points.length === 0) {
+      alert('先にまとめを生成・保存してください');
+      return;
+    }
+    const content = (c.content || '').trimEnd();
+    if (hasChapterEndSummary(content)) {
+      alert('この章には既に章末まとめがあります（二重追記を防ぐため中止しました）');
+      return;
+    }
+    setAppendBusyId(c.id);
+    try {
+      const next = `${content}\n\n${buildChapterSummaryBlock(entry.points)}\n`;
+      const r = await fetch('/api/kindle/chapters', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: c.id, content: next }),
+      });
+      if (!r.ok) throw new Error(`本文の更新に失敗しました (${r.status})`);
+      await loadBook(bookId);
+    } catch (e: any) {
+      alert(String(e?.message || e));
+    } finally {
+      setAppendBusyId(null);
+    }
+  };
+
+  const moveDraftPoint = (idx: number, dir: -1 | 1) => {
+    setDraftPoints((prev) => {
+      if (!prev) return prev;
+      const j = idx + dir;
+      if (j < 0 || j >= prev.length) return prev;
+      const next = [...prev];
+      [next[idx], next[j]] = [next[j], next[idx]];
+      return next;
+    });
+  };
 
   // ✅適用: ローカル置換→章PATCH（総文字数はサーバ側で再計算）→判断を記録。✕却下: 記録のみ
   const decideIssue = async (ch: WizardChapter, idx: number, issue: KindleProofreadIssue, decision: 'applied' | 'rejected') => {
@@ -739,8 +900,13 @@ function KindleWizardInner() {
       const body = stripLeadingChapterHeading((c.content || '').trim(), c.chapterNumber, c.title);
       parts.push(`## 第${c.chapterNumber}章 ${c.title}\n\n${body}\n`);
     }
+    // 227【B】: 巻末「全章まとめ」（ONのとき・まとめがある章のみ。MD/txt/Word共通）
+    if (includeBookSummary) {
+      const section = buildBookSummarySection(chapters, book?.bookMeta?.summaries ?? {});
+      if (section) parts.push(`${section}\n`);
+    }
     return parts.join('\n');
-  }, [book, chapters]);
+  }, [book, chapters, includeBookSummary]);
 
   const downloadMd = () => triggerDownload(`${bookTitle.slice(0, 30)}.md`, `# ${bookTitle}\n\n${fullMarkdownBody}`);
   const downloadTxt = () =>
@@ -1054,6 +1220,21 @@ function KindleWizardInner() {
                         ⚠️ 校正失敗・🔄 再試行
                       </button>
                     )}
+                    {c.status === 'completed' && (
+                      <button
+                        onClick={() => openSummaryPanel(c)}
+                        style={{ ...smallBtn, color: summaries[String(c.id)] ? 'var(--text-secondary)' : '#22c55e', borderColor: summaries[String(c.id)] ? 'var(--border)' : 'rgba(34,197,94,0.4)' }}
+                        title="章の要点まとめ（巻末「全章まとめ」のソース）"
+                      >
+                        📝 まとめ{summaries[String(c.id)] ? '' : 'を追加'} {expandedSummaryId === c.id ? '▲' : '▼'}
+                      </button>
+                    )}
+                    {summaryBusyId === c.id && <span style={{ fontSize: 11, color: '#22c55e', flexShrink: 0 }}>📝 まとめ生成中...</span>}
+                    {summaryErrors[String(c.id)] && summaryBusyId !== c.id && !proofreading && (
+                      <button onClick={() => generateSummaryFor(c, false)} style={{ ...smallBtn, color: '#f59e0b', borderColor: 'rgba(245,158,11,0.4)' }} title={summaryErrors[String(c.id)]}>
+                        ⚠️ まとめ失敗・🔄 再試行
+                      </button>
+                    )}
                   </div>
 
                   {/* 校正提案リスト（提案のみ表示→院長が1件ずつ✅適用/✕却下） */}
@@ -1106,6 +1287,82 @@ function KindleWizardInner() {
                       )}
                     </div>
                   )}
+
+                  {/* 227【A】【B】: 章まとめの編集パネル（追加・削除・↑↓・文言編集・本文末尾への追記） */}
+                  {expandedSummaryId === c.id && (
+                    <div style={{ padding: '0 14px 12px', borderTop: '1px solid var(--border)' }}>
+                      {!summaries[String(c.id)] ? (
+                        <div style={{ display: 'flex', gap: 10, alignItems: 'center', margin: '10px 0', flexWrap: 'wrap' }}>
+                          <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>この章の要点まとめ（3〜5点）はまだありません</span>
+                          <button onClick={() => generateSummaryFor(c, false)} disabled={summaryBusyId !== null} style={{ ...smallBtn, opacity: summaryBusyId !== null ? 0.5 : 1 }}>
+                            {summaryBusyId === c.id ? '生成中...' : '🪄 まとめを生成'}
+                          </button>
+                        </div>
+                      ) : (
+                        (() => {
+                          const entry = summaries[String(c.id)];
+                          const pts = draftPoints ?? entry.points;
+                          const dirty = JSON.stringify(pts) !== JSON.stringify(entry.points);
+                          return (
+                            <div style={{ margin: '10px 0', display: 'flex', flexDirection: 'column', gap: 8 }}>
+                              <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                                <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>
+                                  {entry.source === 'edited' ? '✍️ 編集済み' : '🪄 自動生成'}・巻末「全章まとめ」のソースになります
+                                </span>
+                                <button onClick={() => generateSummaryFor(c, true)} disabled={summaryBusyId !== null} style={{ ...smallBtn, opacity: summaryBusyId !== null ? 0.5 : 1 }}>
+                                  🪄 再生成
+                                </button>
+                              </div>
+                              {pts.map((p, idx) => (
+                                <div key={idx} style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                                  <span style={{ fontSize: 12, color: 'var(--text-muted)', flexShrink: 0 }}>・</span>
+                                  <input
+                                    value={p}
+                                    onChange={(e) =>
+                                      setDraftPoints((prev) => (prev ?? [...entry.points]).map((x, i) => (i === idx ? e.target.value : x)))
+                                    }
+                                    style={{ flex: 1, minWidth: 0, padding: '6px 10px', background: 'var(--bg-primary)', border: '1px solid var(--border)', borderRadius: 6, color: 'var(--text-primary)', fontSize: 12, outline: 'none' }}
+                                  />
+                                  <button onClick={() => moveDraftPoint(idx, -1)} disabled={idx === 0} style={{ ...smallBtn, opacity: idx === 0 ? 0.4 : 1 }} title="上へ">↑</button>
+                                  <button onClick={() => moveDraftPoint(idx, 1)} disabled={idx === pts.length - 1} style={{ ...smallBtn, opacity: idx === pts.length - 1 ? 0.4 : 1 }} title="下へ">↓</button>
+                                  <button
+                                    onClick={() => setDraftPoints((prev) => (prev ?? [...entry.points]).filter((_, i) => i !== idx))}
+                                    disabled={pts.length <= 1}
+                                    style={{ ...smallBtn, color: '#ef4444', borderColor: 'rgba(239,68,68,0.3)', opacity: pts.length <= 1 ? 0.4 : 1 }}
+                                    title="この要点を削除"
+                                  >
+                                    🗑
+                                  </button>
+                                </div>
+                              ))}
+                              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+                                <button onClick={() => setDraftPoints((prev) => [...(prev ?? entry.points), ''])} disabled={pts.length >= 8} style={{ ...smallBtn, opacity: pts.length >= 8 ? 0.4 : 1 }}>
+                                  ＋ 追加
+                                </button>
+                                <button
+                                  onClick={() => saveSummaryPoints(c)}
+                                  disabled={summarySaving || !dirty}
+                                  style={{ ...smallBtn, color: dirty ? '#22c55e' : 'var(--text-muted)', borderColor: dirty ? 'rgba(34,197,94,0.4)' : 'var(--border)', opacity: summarySaving ? 0.5 : 1 }}
+                                >
+                                  {summarySaving ? '保存中...' : dirty ? '💾 保存（未保存の変更あり）' : '💾 保存済み'}
+                                </button>
+                                {!hasChapterEndSummary(c.content || '') && (
+                                  <button
+                                    onClick={() => appendSummaryToChapter(c)}
+                                    disabled={appendBusyId !== null || dirty}
+                                    style={{ ...smallBtn, color: '#8b5cf6', borderColor: 'rgba(139,92,246,0.4)', opacity: appendBusyId !== null || dirty ? 0.5 : 1 }}
+                                    title={dirty ? '先に💾保存してください（追記は保存済みの内容を使います）' : '本文末尾に「## この章のまとめ」を追記します'}
+                                  >
+                                    {appendBusyId === c.id ? '追記中...' : '📄 本文末尾に追記'}
+                                  </button>
+                                )}
+                              </div>
+                            </div>
+                          );
+                        })()
+                      )}
+                    </div>
+                  )}
                 </div>
               );
             })}
@@ -1119,10 +1376,11 @@ function KindleWizardInner() {
               </div>
               {proofreading ? (
                 <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>
-                  校正を実行中...
                   {proofChapterId
-                    ? `（第${chapters.find((c) => c.id === proofChapterId)?.chapterNumber ?? '-'}章）`
-                    : '（本全体の整合を確認中）'}
+                    ? `校正を実行中...（第${chapters.find((c) => c.id === proofChapterId)?.chapterNumber ?? '-'}章）`
+                    : summaryBusyId
+                      ? `章まとめを生成中...（第${chapters.find((c) => c.id === summaryBusyId)?.chapterNumber ?? '-'}章）`
+                      : '校正を実行中...（本全体の整合を確認中）'}
                 </div>
               ) : !hasProofData ? (
                 <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
@@ -1173,11 +1431,24 @@ function KindleWizardInner() {
       {/* ── ⑥ 出力 ── */}
       {step === 6 && (
         <div>
-          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 16, alignItems: 'center' }}>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 10, alignItems: 'center' }}>
             <span style={{ fontSize: 16, fontWeight: 700, color: 'var(--text-primary)', marginRight: 'auto' }}>✅ {bookTitle}（全{chapters.length}章・{(book?.currentWordCount ?? 0).toLocaleString()}字）</span>
             <button onClick={downloadMd} style={ghostBtn}>📥 Markdown</button>
             <button onClick={downloadTxt} style={ghostBtn}>📥 テキスト</button>
             <button onClick={downloadDocx} style={primaryBtn}>📥 Word (.docx)</button>
+          </div>
+
+          {/* 227【B】: 巻末「全章まとめ」トグル（既定ON・未生成章の注記つき） */}
+          <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap', marginBottom: 12 }}>
+            <label style={{ display: 'flex', gap: 6, alignItems: 'center', fontSize: 13, color: 'var(--text-primary)', cursor: 'pointer' }}>
+              <input type="checkbox" checked={includeBookSummary} onChange={(e) => setIncludeBookSummary(e.target.checked)} />
+              巻末に「全章まとめ」を付ける
+            </label>
+            {includeBookSummary && chapters.some((c) => !summaries[String(c.id)]) && (
+              <span style={{ fontSize: 11, color: '#f59e0b' }}>
+                ⚠️ まとめ未生成が{chapters.filter((c) => !summaries[String(c.id)]).length}章あります（未生成の章は巻末に載りません。⑤の「📝 まとめ」から生成できます）
+              </span>
+            )}
           </div>
           <div style={{ padding: 20, background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 12, maxHeight: '65vh', overflowY: 'auto', fontSize: 13, lineHeight: 1.8, color: 'var(--text-secondary)', whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
             {`${bookTitle}\n\n${fullMarkdownBody.replace(/^## /gm, '■ ')}`}
