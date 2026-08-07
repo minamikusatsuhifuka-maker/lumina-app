@@ -21,6 +21,13 @@ setup('ログインして認証状態を保存', async ({ page }) => {
   await page.waitForURL('**/dashboard**', { timeout: 30_000 });
   await expect(page).toHaveURL(/\/dashboard/);
 
+  // flaky真因対策: オンボーディング（113）のウェルカムモーダルは localStorage
+  // 'xlumina_onboarding_done' 不在時にページ読込1秒後、全画面バックドロップ（fixed inset-0 z-100）で
+  // 開く。テストは毎回freshコンテキスト＝フラグ無しのため、遅いテストほど途中で全クリックが
+  // 遮蔽され「<div> intercepts pointer events」の恒常タイムアウトになる（C19/C20/C22の長年の真因）。
+  // storageState に完了フラグを焼き込み、全テストでモーダルを決定的に抑止する。
+  await page.evaluate(() => localStorage.setItem('xlumina_onboarding_done', 'true'));
+
   fs.mkdirSync(path.dirname(STORAGE_STATE), { recursive: true });
   await page.context().storageState({ path: STORAGE_STATE });
 });
