@@ -8,6 +8,7 @@
     "start": "next start",
     "lint": "eslint",
     "rules:lint": "node scripts/rules-lint.mjs",
+    "trace": "node scripts/trace.mjs",
     "test:e2e": "playwright test --grep-invert @gen",
     "test:e2e:gen": "playwright test"
   },
