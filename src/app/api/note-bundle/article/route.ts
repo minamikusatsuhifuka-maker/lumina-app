@@ -10,6 +10,7 @@ import {
   normalizeBundleRefs,
 } from '@/lib/note-bundle';
 import { fetchBundleMaterials, fetchBuzzPatterns } from '@/lib/note-bundle-server';
+import { getMyStylePrompt } from '@/lib/my-style-server';
 import {
   NOTE_WRITING_DESIGN,
   buildPatternsSection,
@@ -85,10 +86,12 @@ export async function POST(req: Request) {
       .filter(Boolean)
       .slice(0, MAX_PATTERNS_PER_ARTICLE);
 
-    // 割り当てられた資料の本文とパターン本体をサーバ側で取得（owner検証は両テーブル＋辞書とも必須）
-    const [rows, patterns] = await Promise.all([
+    // 割り当てられた資料の本文とパターン本体をサーバ側で取得（owner検証は両テーブル＋辞書とも必須）。
+    // 228c: マイ文体（未設定・無効・失敗は空文字＝従来どおり）も同時取得
+    const [rows, patterns, myStyleBlock] = await Promise.all([
       fetchBundleMaterials(userId, refs),
       patternIds.length > 0 ? fetchBuzzPatterns(userId, patternIds).catch(() => []) : Promise.resolve([]),
+      getMyStylePrompt(userId),
     ]);
     if (rows.length === 0) {
       return NextResponse.json({ error: '割り当てられた資料が見つかりません' }, { status: 404 });
@@ -122,7 +125,7 @@ ${pointsSection}
 ${config.label}（${config.chars}）
 
 ${style.promptBlock}
-
+${myStyleBlock ? `\n${myStyleBlock}\n` : ''}
 ${NOTE_WRITING_DESIGN}
 ${patternsSection}
 

@@ -143,6 +143,10 @@ export default function NoteArticleGenerationPage() {
   // 228: 仕上げパネルの状態と医療広告チェック（経路Aと同方式の表示）
   const [enhance, setEnhance] = useState<NoteEnhanceState>(emptyNoteEnhance());
   const [adCheck, setAdCheck] = useState<AdCheckResult | null>(null);
+  // 228c: 🗣もっと自然に（マイ文体への言い換え提案。169の差分ペア方式・✅/✕の個別判断）
+  const [naturalizing, setNaturalizing] = useState(false);
+  const [natEdits, setNatEdits] = useState<Array<{ before: string; after: string; reason: string; status?: 'applied' | 'rejected' | 'stale' }> | null>(null);
+  const [natNotice, setNatNotice] = useState('');
   // enhance変更の自動下書き保存はデバウンス（入力のたびのPUT連打を避ける）
   const enhanceSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -192,6 +196,8 @@ export default function NoteArticleGenerationPage() {
     setReportModel(null);
     setEnhance(emptyNoteEnhance());
     setAdCheck(null);
+    setNatEdits(null);
+    setNatNotice('');
     clearFeatureDraft('note-article');
   };
 
@@ -329,6 +335,8 @@ export default function NoteArticleGenerationPage() {
     setTrafficStats(null);
     setEnhance(emptyNoteEnhance());
     setAdCheck(null);
+    setNatEdits(null);
+    setNatNotice('');
 
     const timer = setInterval(() => setElapsed(e => e + 1), 1000);
 
@@ -447,6 +455,52 @@ export default function NoteArticleGenerationPage() {
 
   // 現在の本文（編集モードなら編集版）
   const currentContent = editMode ? editedArticle : article;
+
+  // ── 228c: 🗣もっと自然に ──────────────────────────────────
+  const runNaturalize = async () => {
+    if (!currentContent.trim()) return;
+    setNaturalizing(true);
+    setNatNotice('');
+    setNatEdits(null);
+    try {
+      const res = await fetch('/api/my-style/naturalize', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ content: currentContent }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !Array.isArray(data.edits)) throw new Error(data.error || '提案の取得に失敗しました');
+      if (data.edits.length === 0) {
+        setNatNotice('✅ 提案はありませんでした（すでにマイ文体に合っています）');
+        return;
+      }
+      setNatEdits(data.edits);
+    } catch (e) {
+      setNatNotice(`⚠️ ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      setNaturalizing(false);
+    }
+  };
+
+  // 提案の適用はアプリ側の確定的置換（最初の1箇所）。以後の編集は編集モードの本文に集約する。
+  // before が見つからない（先行適用で本文が変わった等）場合は適用不能として印を付ける＝fail-closed
+  const applyNatEdit = (idx: number) => {
+    if (!natEdits) return;
+    const e = natEdits[idx];
+    const base = editMode ? editedArticle : article;
+    const at = base.indexOf(e.before);
+    if (at === -1) {
+      setNatEdits((prev) => prev!.map((x, i) => (i === idx ? { ...x, status: 'stale' } : x)));
+      return;
+    }
+    const next = base.slice(0, at) + e.after + base.slice(at + e.before.length);
+    setEditedArticle(next);
+    setEditMode(true);
+    setNatEdits((prev) => prev!.map((x, i) => (i === idx ? { ...x, status: 'applied' } : x)));
+  };
+  const rejectNatEdit = (idx: number) => {
+    setNatEdits((prev) => prev!.map((x, i) => (i === idx ? { ...x, status: 'rejected' } : x)));
+  };
 
   // 228: 仕上げ状態の変更を自動下書きへ反映（デバウンス・fire-and-forget）
   const handleEnhanceChange = (next: NoteEnhanceState) => {
@@ -941,6 +995,50 @@ export default function NoteArticleGenerationPage() {
             <div style={{ marginBottom: 12, fontSize: 11, color: '#10b981' }}>✅ 医療広告チェック: 問題なし</div>
           )}
 
+          {/* 228c: 🗣もっと自然に の提案（before/afterペア・✅/✕の個別判断・適用は確定的置換） */}
+          {natNotice && (
+            <div style={{ marginBottom: 12, padding: '8px 12px', background: 'var(--bg-primary)', border: '1px solid var(--border)', borderRadius: 8, fontSize: 12, color: 'var(--text-secondary)' }}>
+              {natNotice}
+            </div>
+          )}
+          {natEdits && natEdits.length > 0 && (
+            <div style={{ marginBottom: 12, padding: 12, background: 'var(--bg-primary)', border: '1px solid var(--border)', borderRadius: 8 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 8 }}>
+                <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-secondary)' }}>
+                  🗣 マイ文体への言い換え提案（{natEdits.filter((e) => !e.status).length}件 未判断）
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setNatEdits(null)}
+                  style={{ marginLeft: 'auto', padding: '4px 10px', background: 'transparent', border: '1px solid var(--border)', color: 'var(--text-muted)', borderRadius: 6, cursor: 'pointer', fontSize: 11 }}
+                >
+                  ✕ 閉じる
+                </button>
+              </div>
+              {natEdits.map((e, i) => (
+                <div key={i} style={{ padding: '8px 10px', marginBottom: 6, background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 6, opacity: e.status && e.status !== 'applied' ? 0.55 : 1 }}>
+                  <div style={{ fontSize: 12, lineHeight: 1.7 }}>
+                    <span style={{ color: '#ef4444', textDecoration: 'line-through' }}>{e.before}</span>
+                    <span style={{ color: 'var(--text-muted)' }}> → </span>
+                    <span style={{ color: '#10b981' }}>{e.after}</span>
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 4, flexWrap: 'wrap' }}>
+                    <span style={{ fontSize: 11, color: 'var(--text-muted)', flex: 1 }}>{e.reason}</span>
+                    {!e.status && (
+                      <>
+                        <button type="button" onClick={() => applyNatEdit(i)} style={{ padding: '3px 10px', background: 'rgba(16,185,129,0.12)', border: '1px solid rgba(16,185,129,0.4)', color: '#10b981', borderRadius: 6, cursor: 'pointer', fontSize: 11, fontWeight: 700 }}>✅ 適用</button>
+                        <button type="button" onClick={() => rejectNatEdit(i)} style={{ padding: '3px 10px', background: 'transparent', border: '1px solid var(--border)', color: 'var(--text-muted)', borderRadius: 6, cursor: 'pointer', fontSize: 11 }}>✕ 却下</button>
+                      </>
+                    )}
+                    {e.status === 'applied' && <span style={{ fontSize: 11, color: '#10b981' }}>✅ 適用済み</span>}
+                    {e.status === 'rejected' && <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>✕ 却下</span>}
+                    {e.status === 'stale' && <span style={{ fontSize: 11, color: '#f59e0b' }}>⚠️ 本文が変わったため適用できません</span>}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16, flexWrap: 'wrap', gap: 8 }}>
             <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
               <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-secondary)' }}>✍️ note 記事下書き</span>
@@ -1011,6 +1109,23 @@ export default function NoteArticleGenerationPage() {
                 }}
               >
                 📋 コピー
+              </button>
+              <button
+                onClick={runNaturalize}
+                disabled={naturalizing || !currentContent.trim()}
+                title="マイ文体プロファイル（設定 > マイ文体）に合わせた言い換えを提案します（意味・事実は変えません）"
+                style={{
+                  padding: '6px 14px',
+                  background: 'var(--bg-secondary)',
+                  border: '1px solid var(--border)',
+                  color: 'var(--text-secondary)',
+                  borderRadius: 6,
+                  cursor: naturalizing || !currentContent.trim() ? 'not-allowed' : 'pointer',
+                  fontSize: 12,
+                  opacity: !currentContent.trim() ? 0.5 : 1,
+                }}
+              >
+                {naturalizing ? '🔄 提案中...' : '🗣 もっと自然に'}
               </button>
               <button
                 onClick={() => setShowEyecatch(true)}

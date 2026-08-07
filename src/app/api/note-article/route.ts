@@ -6,6 +6,7 @@ import { streamWithModel, type AIModel } from '@/lib/ai-client';
 import { MEDICAL_AD_NG_RULES } from '@/lib/medical-ad-check';
 import { NOTE_COMMON_RULES } from '@/lib/note-styles';
 import { NOTE_WRITING_DESIGN } from '@/lib/note-writing';
+import { getMyStylePrompt } from '@/lib/my-style-server';
 
 export const runtime = 'nodejs';
 export const maxDuration = 300;
@@ -88,6 +89,11 @@ export async function POST(req: NextRequest) {
     ? `\n# 文体・口調の指定\n${tonePreference}`
     : '';
 
+  // 228c: マイ文体（未設定・無効・取得失敗は空文字＝従来どおり）。
+  // 優先順位はブロック文言に内蔵: 画面のtonePreference ＞ マイ文体 ＞ プリセット
+  const myStyleBlock = await getMyStylePrompt(userId);
+  const myStyleSection = myStyleBlock ? `\n${myStyleBlock}\n` : '';
+
   const personalSection = personalNotes && personalNotes.trim()
     ? `\n# 筆者の経験・視点（記事に自然に織り込む）\n${personalNotes}\n\n上記を記事に自然に織り込んでください。プレースホルダではなく、文章として完結させてください。`
     : '';
@@ -127,7 +133,7 @@ ${theme}
 ${config.label}（${config.chars}）
 
 ${NOTE_WRITING_DESIGN}
-${buzzSection}${researchSection}${toneSection}${personalSection}${patternsSection}
+${myStyleSection}${buzzSection}${researchSection}${toneSection}${personalSection}${patternsSection}
 
 # 記事の構成
 
