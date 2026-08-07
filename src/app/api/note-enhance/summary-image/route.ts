@@ -6,17 +6,19 @@ import {
   buildSummaryImageElement,
   collectSummaryImageText,
   estimateSummaryImageHeight,
+  isImageTemplateKey,
   SUMMARY_IMAGE_WIDTH,
-  SUMMARY_IMAGE_TEMPLATES,
+  type AnyImageTemplateKey,
   type SummaryImageData,
-  type SummaryImageTemplateKey,
 } from '@/lib/summary-image-templates';
 
 export const runtime = 'nodejs';
 export const maxDuration = 60;
 
-// 228: noteまとめビジュアル画像（227C方式b=プログラム描画の横展開）。
-// 文字は渡されたまとめデータをそのまま描画＝100%正確（AIの創作・再要約なし）。
+// 228: noteまとめビジュアル画像＋図表（227C方式b=プログラム描画の横展開）。
+// 文字は渡された編集後データをそのまま描画＝100%正確（AIの創作・再要約なし）。
+// - まとめ3種（card/table/poster）: { title, points } を受ける（従来形）
+// - 図表4種（steps/compare/qa/beforeafter・228a）: { title, groups } を受ける
 // Blob保存はここでは行わず base64 を返す→クライアントが既存の /api/gallery 経路で保存する
 // （画像の保存経路を増やさない・165の設計を踏襲）。fail-closed: 失敗はエラー返却のみ。
 
@@ -28,22 +30,36 @@ export async function POST(req: Request) {
     const body = (await req.json().catch(() => ({}))) as {
       title?: unknown;
       points?: unknown;
+      groups?: unknown;
       template?: unknown;
     };
     const title = typeof body.title === 'string' ? body.title.trim() : '';
+    const template: AnyImageTemplateKey = isImageTemplateKey(body.template) ? body.template : 'card';
+
+    // groups（図表）優先・なければ points（まとめ）を1グループとして受ける
+    const groups = (Array.isArray(body.groups) ? body.groups : [])
+      .map((g: unknown) => {
+        const o = (g ?? {}) as { heading?: unknown; points?: unknown };
+        return {
+          heading: typeof o.heading === 'string' && o.heading.trim() ? o.heading.trim().slice(0, 80) : undefined,
+          points: (Array.isArray(o.points) ? o.points : [])
+            .map((p) => String(p).trim())
+            .filter(Boolean)
+            .slice(0, 8),
+        };
+      })
+      .filter((g) => g.points.length > 0 || g.heading)
+      .slice(0, 6);
     const points = (Array.isArray(body.points) ? body.points : [])
       .map((p) => String(p).trim())
       .filter(Boolean)
       .slice(0, 8);
-    if (!title || points.length === 0) {
-      return NextResponse.json({ error: 'タイトルとまとめ（1点以上）が必要です' }, { status: 400 });
-    }
-    const template: SummaryImageTemplateKey =
-      typeof body.template === 'string' && body.template in SUMMARY_IMAGE_TEMPLATES
-        ? (body.template as SummaryImageTemplateKey)
-        : 'card';
 
-    const data: SummaryImageData = { title, groups: [{ points }] };
+    const data: SummaryImageData =
+      groups.length > 0 ? { title, groups } : { title, groups: [{ points }] };
+    if (!title || data.groups.every((g) => g.points.length === 0)) {
+      return NextResponse.json({ error: 'タイトルと描画データ（1点以上）が必要です' }, { status: 400 });
+    }
     const fonts = await fetchJpFonts(collectSummaryImageText(data));
     const height = estimateSummaryImageHeight(template, data);
     const img = new ImageResponse(buildSummaryImageElement(template, data) as any, {

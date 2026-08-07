@@ -20,14 +20,17 @@ import {
 import {
   SUMMARY_IMAGE_TEMPLATES,
   SUMMARY_IMAGE_TEMPLATE_KEYS,
+  FIGURE_TEMPLATES,
+  FIGURE_TEMPLATE_KEYS,
+  type FigureTemplateKey,
   type SummaryImageTemplateKey,
 } from '@/lib/summary-image-templates';
 import {
   NOTE_PLACEMENT_SLOTS,
   noteImageFileName,
-  recommendedImageCount,
   splitMarkdownBlocks,
   type NoteEnhanceState,
+  type NoteFigure,
   type NotePlacementImage,
 } from '@/lib/note-enhance';
 import {
@@ -35,9 +38,11 @@ import {
   buildNotePasteText,
   copyRichText,
   downloadImageFile,
+  orderedByBlock,
   orderedPlacements,
   toNoteCompatible,
   type NoteCompatOptions,
+  type NotePasteImage,
 } from '@/lib/note-compat';
 
 interface Props {
@@ -91,6 +96,8 @@ export default function NoteEnhancePanel({ title, content, state, onChange }: Pr
   const [busySummaryImage, setBusySummaryImage] = useState(false);
   const [busyPlacement, setBusyPlacement] = useState(false);
   const [busyImageId, setBusyImageId] = useState<string | null>(null);
+  const [busyFigures, setBusyFigures] = useState(false);
+  const [busyFigureId, setBusyFigureId] = useState<string | null>(null);
   const [busyKit, setBusyKit] = useState(false);
   const [toast, setToast] = useState('');
   const [engine, setEngine] = useState<ImageModelKey>('gpt-image-2');
@@ -101,7 +108,7 @@ export default function NoteEnhancePanel({ title, content, state, onChange }: Pr
   const [showGuide, setShowGuide] = useState(false);
 
   const blocks = useMemo(() => splitMarkdownBlocks(content), [content]);
-  const recommended = recommendedImageCount(content.length);
+  const figures = useMemo(() => state.figures ?? [], [state.figures]);
 
   const flash = (msg: string, ms = 3500) => {
     setToast(msg);
@@ -242,6 +249,107 @@ export default function NoteEnhancePanel({ title, content, state, onChange }: Pr
     });
   };
 
+  // ── 図表（228a・記事図表の主力。プログラム描画のみ） ──
+  const proposeFigures = async () => {
+    if (!content.trim()) return;
+    const hasRendered = figures.some((f) => f.url);
+    if (hasRendered && !confirm('提案し直すと、生成済みの図表との対応が置き換わります。よろしいですか？（画像自体はギャラリーに残ります）')) {
+      return;
+    }
+    setBusyFigures(true);
+    try {
+      const res = await fetch('/api/note-enhance/figures', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ content, title }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !Array.isArray(data.figures)) throw new Error(data.error || '図表の提案に失敗しました');
+      if (data.figures.length === 0) {
+        flash('💡 図表化に向く構造は見つかりませんでした（＋図表を追加で手動作成できます）');
+        return;
+      }
+      const next: NoteFigure[] = data.figures.map((f: Omit<NoteFigure, 'id'>) => ({
+        ...f,
+        id: newPlacementId(),
+        dataUpdatedAt: nowIso(),
+      }));
+      onChange({ ...state, figures: next, figuresRanAt: data.ranAt || nowIso() });
+      flash(`📊 ${next.length}件の図表を提案しました（文言は本文由来・編集できます）`);
+    } catch (e) {
+      flash(`⚠️ ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      setBusyFigures(false);
+    }
+  };
+
+  // データ編集（title/groups/template）は dataUpdatedAt を進める＝生成済み画像の古さ検知
+  const patchFigureData = (id: string, patch: Partial<NoteFigure>) => {
+    onChange({
+      ...state,
+      figures: figures.map((f) => (f.id === id ? { ...f, ...patch, dataUpdatedAt: nowIso() } : f)),
+    });
+  };
+  // 位置・生成結果の更新はデータ編集扱いにしない
+  const patchFigureMeta = (id: string, patch: Partial<NoteFigure>) => {
+    onChange({ ...state, figures: figures.map((f) => (f.id === id ? { ...f, ...patch } : f)) });
+  };
+  const removeFigure = (id: string) => {
+    onChange({ ...state, figures: figures.filter((f) => f.id !== id) });
+  };
+  const moveFigure = (f: NoteFigure, dir: -1 | 1) => {
+    const next = Math.min(Math.max(f.afterBlock + dir, 0), Math.max(blocks.length - 1, 0));
+    patchFigureMeta(f.id, { afterBlock: next });
+  };
+  const addFigure = () => {
+    onChange({
+      ...state,
+      figures: [
+        ...figures,
+        {
+          id: newPlacementId(),
+          template: 'steps',
+          title: '',
+          groups: [{ points: [''] }],
+          afterBlock: 0,
+          dataUpdatedAt: nowIso(),
+        },
+      ],
+    });
+  };
+
+  const renderFigure = async (f: NoteFigure) => {
+    const groups = f.groups
+      .map((g) => ({ heading: g.heading?.trim() || undefined, points: g.points.map((p) => p.trim()).filter(Boolean) }))
+      .filter((g) => g.points.length > 0);
+    if (!f.title.trim() || groups.length === 0) {
+      flash('⚠️ 図表の見出しとデータ（1行以上）を入力してください');
+      return;
+    }
+    setBusyFigureId(f.id);
+    try {
+      const res = await fetch('/api/note-enhance/summary-image', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ title: f.title, groups, template: f.template }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.imageBase64) throw new Error(data.error || '図表の描画に失敗しました');
+      const saved = await saveImageToGallery({
+        imageBase64: data.imageBase64,
+        prompt: `note図表（プログラム描画・${FIGURE_TEMPLATES[f.template].label}）`,
+        settings: { model: 'og-render', size: `${data.width}x${data.height}` },
+        title: `note図表: ${f.title.slice(0, 40)}`,
+      });
+      patchFigureMeta(f.id, { url: saved.blob_url, renderedAt: f.dataUpdatedAt ?? nowIso() });
+      flash('📊 図表を生成しました（ギャラリーにも保存済み）');
+    } catch (e) {
+      flash(`⚠️ ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      setBusyFigureId(null);
+    }
+  };
+
   // ── 挿絵の生成（226エンジン枠組み→gallery保存） ──
   const generatePlacementImage = async (p: NotePlacementImage) => {
     if (p.slot === 'cta') return;
@@ -274,40 +382,55 @@ export default function NoteEnhancePanel({ title, content, state, onChange }: Pr
   };
 
   // ── note貼り付けキット ──────────────────────────────────
-  // 画像が用意できている配置のみキット対象（挿絵=url あり・cta=まとめ画像あり）
-  const activePlacements = useMemo(
-    () =>
-      orderedPlacements(
-        state.placements.filter((p) => (p.slot === 'cta' ? !!state.summaryImage : !!p.url)),
-      ),
-    [state.placements, state.summaryImage],
-  );
-  const pendingCount = state.placements.length - activePlacements.length;
+  // 画像が用意できているものだけキット対象:
+  // 配置（挿絵=url あり・cta=まとめ画像あり）＋図表（url あり）を統合して挿入順に連番
+  const kitImages = useMemo<NotePasteImage[]>(() => {
+    const fromPlacements = state.placements
+      .map((p): NotePasteImage | null => {
+        const url = p.slot === 'cta' ? state.summaryImage?.url : p.url;
+        if (!url) return null;
+        return {
+          afterBlock: p.afterBlock,
+          kind: p.slot,
+          label: p.slot === 'cta' ? 'まとめ画像' : NOTE_PLACEMENT_SLOTS[p.slot].label,
+          url,
+        };
+      })
+      .filter((x): x is NotePasteImage => x !== null);
+    const fromFigures = figures
+      .filter((f) => f.url)
+      .map((f): NotePasteImage => ({
+        afterBlock: f.afterBlock,
+        kind: f.template,
+        label: FIGURE_TEMPLATES[f.template].label,
+        url: f.url!,
+      }));
+    return orderedByBlock([...fromPlacements, ...fromFigures]);
+  }, [state.placements, state.summaryImage, figures]);
+  const pendingCount = state.placements.length + figures.length - kitImages.length;
   const compatOpts: NoteCompatOptions = { boldMode, tableMode };
 
   const copyPasteText = async () => {
-    const text = buildNotePasteText(content, activePlacements, compatOpts);
+    const text = buildNotePasteText(content, kitImages, compatOpts);
     const ok = await copyToClipboard(text);
     flash(ok ? '📋 note互換テキストをコピーしました（マーカー位置に画像をドラッグしてください）' : '⚠️ コピーに失敗しました');
   };
 
   const downloadAllImages = async () => {
-    if (activePlacements.length === 0) {
+    if (kitImages.length === 0) {
       flash('⚠️ 生成済みの画像がありません');
       return;
     }
     setBusyKit(true);
     try {
       let ok = 0;
-      for (const [idx, p] of activePlacements.entries()) {
-        const url = p.slot === 'cta' ? state.summaryImage?.url : p.url;
-        if (!url) continue;
-        const success = await downloadImageFile(url, noteImageFileName(idx + 1, p.slot));
+      for (const [idx, img] of kitImages.entries()) {
+        const success = await downloadImageFile(img.url, noteImageFileName(idx + 1, img.kind));
         if (success) ok++;
         // ブラウザの連続DL抑止を避けるため間隔を空ける
         await new Promise((r) => setTimeout(r, 400));
       }
-      flash(`🖼 ${ok}/${activePlacements.length}枚をダウンロードしました（挿入順の連番ファイル名）`);
+      flash(`🖼 ${ok}/${kitImages.length}枚をダウンロードしました（挿入順の連番ファイル名）`);
     } finally {
       setBusyKit(false);
     }
@@ -315,11 +438,9 @@ export default function NoteEnhancePanel({ title, content, state, onChange }: Pr
 
   const richCopy = async () => {
     const byBlock = new Map<number, string[]>();
-    for (const p of activePlacements) {
-      const url = p.slot === 'cta' ? state.summaryImage?.url : p.url;
-      if (!url) continue;
-      const at = Math.min(Math.max(p.afterBlock, 0), Math.max(blocks.length - 1, 0));
-      byBlock.set(at, [...(byBlock.get(at) ?? []), url]);
+    for (const img of kitImages) {
+      const at = Math.min(Math.max(img.afterBlock, 0), Math.max(blocks.length - 1, 0));
+      byBlock.set(at, [...(byBlock.get(at) ?? []), img.url]);
     }
     const html = buildNoteHtml(content, byBlock);
     const plain = toNoteCompatible(content, compatOpts);
@@ -418,17 +539,127 @@ export default function NoteEnhancePanel({ title, content, state, onChange }: Pr
         )}
       </div>
 
-      {/* ── 🖼 挿絵と配置 ── */}
+      {/* ── 📊 図表（228a・記事図表の主力＝プログラム描画） ── */}
       <div style={sectionStyle}>
         <div style={sectionTitleStyle}>
-          🖼 挿絵と配置（マーケ・心理学の観点で自動提案）
+          📊 図表（手順・比較・Q&A・前後の変化。文字はプログラム描画＝100%正確）
+          <button type="button" onClick={proposeFigures} disabled={busyFigures} style={smallBtn()}>
+            {busyFigures ? '🔄 抽出中...' : figures.length > 0 ? '✨ 図表を提案し直す' : '✨ 本文から図表を提案'}
+          </button>
+          <button type="button" onClick={addFigure} style={smallBtn()}>＋ 図表を追加</button>
+        </div>
+        {figures.length === 0 && (
+          <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>
+            本文にある手順・比較・Q&A・変化の記述から図表データを抽出します（本文にない内容は作りません）。データを編集してから描画できます。
+          </div>
+        )}
+        {orderedByBlock(figures).map((f) => {
+          const excerpt = (blocks[Math.min(f.afterBlock, Math.max(blocks.length - 1, 0))] ?? '').slice(0, 40);
+          const figStale = !!f.url && !!f.dataUpdatedAt && f.dataUpdatedAt !== f.renderedAt;
+          return (
+            <div key={f.id} style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 8, padding: 10, marginBottom: 8 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 6 }}>
+                {FIGURE_TEMPLATE_KEYS.map((k) => (
+                  <button
+                    key={k}
+                    type="button"
+                    onClick={() => patchFigureData(f.id, { template: k as FigureTemplateKey })}
+                    title={FIGURE_TEMPLATES[k].hint}
+                    style={smallBtn(
+                      f.template === k
+                        ? { border: '1px solid var(--accent)', background: 'var(--accent-soft)', color: 'var(--text-primary)', fontWeight: 700, padding: '4px 8px' }
+                        : { padding: '4px 8px' },
+                    )}
+                  >
+                    {FIGURE_TEMPLATES[k].emoji} {FIGURE_TEMPLATES[k].label}
+                  </button>
+                ))}
+                <button type="button" onClick={() => removeFigure(f.id)} style={smallBtn({ padding: '4px 8px', color: '#ef4444', marginLeft: 'auto' })}>✕ 削除</button>
+              </div>
+              {f.purpose && (
+                <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 6 }}>
+                  💡 {f.purpose}{f.principle ? `（原則: ${f.principle}）` : ''}
+                </div>
+              )}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 6, fontSize: 11, color: 'var(--text-muted)' }}>
+                位置: 段落{f.afterBlock + 1}の後「{excerpt}…」
+                <button type="button" onClick={() => moveFigure(f, -1)} disabled={f.afterBlock <= 0} style={smallBtn({ padding: '4px 8px' })} title="1段落前へ">↑</button>
+                <button type="button" onClick={() => moveFigure(f, 1)} disabled={f.afterBlock >= blocks.length - 1} style={smallBtn({ padding: '4px 8px' })} title="1段落後へ">↓</button>
+              </div>
+              <input
+                value={f.title}
+                onChange={(e) => patchFigureData(f.id, { title: e.target.value })}
+                placeholder="図表の見出し"
+                style={{ width: '100%', fontSize: 13, fontWeight: 600, padding: '6px 10px', marginBottom: 6, boxSizing: 'border-box', background: 'var(--bg-primary)', color: 'var(--text-primary)', border: '1px solid var(--border)', borderRadius: 6 }}
+              />
+              {f.groups.map((g, gi) => (
+                <div key={gi} style={{ display: 'flex', gap: 6, marginBottom: 6, alignItems: 'flex-start' }}>
+                  <div style={{ flex: 1 }}>
+                    {f.template !== 'steps' && (
+                      <input
+                        value={g.heading ?? ''}
+                        onChange={(e) => {
+                          const groups = f.groups.map((x, xi) => (xi === gi ? { ...x, heading: e.target.value } : x));
+                          patchFigureData(f.id, { groups });
+                        }}
+                        placeholder={f.template === 'qa' ? '質問' : f.template === 'beforeafter' ? (gi === 0 ? '変化前ラベル' : '変化後ラベル') : '列名'}
+                        style={{ width: '100%', fontSize: 12, padding: '5px 8px', marginBottom: 4, boxSizing: 'border-box', background: 'var(--bg-primary)', color: 'var(--text-primary)', border: '1px solid var(--border)', borderRadius: 6 }}
+                      />
+                    )}
+                    <textarea
+                      value={g.points.join('\n')}
+                      onChange={(e) => {
+                        const groups = f.groups.map((x, xi) => (xi === gi ? { ...x, points: e.target.value.split('\n') } : x));
+                        patchFigureData(f.id, { groups });
+                      }}
+                      placeholder={'1行=1項目'}
+                      style={{ width: '100%', minHeight: 44, fontSize: 12, lineHeight: 1.6, padding: 8, boxSizing: 'border-box', background: 'var(--bg-primary)', color: 'var(--text-primary)', border: '1px solid var(--border)', borderRadius: 6, fontFamily: 'inherit', resize: 'vertical' }}
+                    />
+                  </div>
+                  {f.template !== 'steps' && f.template !== 'beforeafter' && f.groups.length > 1 && (
+                    <button
+                      type="button"
+                      onClick={() => patchFigureData(f.id, { groups: f.groups.filter((_, xi) => xi !== gi) })}
+                      style={smallBtn({ padding: '4px 8px', color: '#ef4444' })}
+                    >
+                      🗑
+                    </button>
+                  )}
+                </div>
+              ))}
+              <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                {(f.template === 'compare' || f.template === 'qa') && f.groups.length < (f.template === 'compare' ? 3 : 4) && (
+                  <button type="button" onClick={() => patchFigureData(f.id, { groups: [...f.groups, { points: [''] }] })} style={smallBtn()}>
+                    ＋ {f.template === 'qa' ? '質問' : '列'}を追加
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={() => renderFigure(f)}
+                  disabled={busyFigureId !== null}
+                  style={smallBtn(figStale ? { border: '1px solid #f59e0b', color: '#f59e0b', fontWeight: 700 } : undefined)}
+                >
+                  {busyFigureId === f.id ? '🔄 描画中...' : f.url ? '🔄 再描画' : '📊 図表を描画'}
+                </button>
+                {figStale && <span style={{ fontSize: 11, color: '#f59e0b' }}>⚠️ データが更新されています</span>}
+                {f.url && (
+                  /* eslint-disable-next-line @next/next/no-img-element */
+                  <img src={f.url} alt="図表" style={{ maxWidth: 220, borderRadius: 6, border: '1px solid var(--border)' }} />
+                )}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      {/* ── 🖼 AIイメージ画像と配置 ── */}
+      <div style={sectionStyle}>
+        <div style={sectionTitleStyle}>
+          🖼 AIイメージ画像（既定=冒頭1枚。図表が主力）
           <button type="button" onClick={proposePlacements} disabled={busyPlacement} style={smallBtn()}>
             {busyPlacement ? '🔄 提案中...' : state.placements.length > 0 ? '✨ 配置を提案し直す' : '✨ 配置を提案'}
           </button>
           <button type="button" onClick={addPlacement} style={smallBtn()}>＋ 挿絵を追加</button>
-          <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>
-            本文{content.length.toLocaleString()}字 → 挿絵の目安 {recommended}枚（＋まとめ画像）
-          </span>
         </div>
 
         {state.placements.length > 0 && (
@@ -451,7 +682,7 @@ export default function NoteEnhancePanel({ title, content, state, onChange }: Pr
 
         {state.placements.length === 0 && (
           <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>
-            冒頭フック直後（共感）・主張部（裏づけ）・長文の切れ目（休憩）・CTA直前（まとめ画像）の4スロットで提案します。提案後に位置の調整・削除ができます。
+            自動提案は冒頭フック直後のAIイメージ1枚＋CTA直前のまとめ画像のみ（AI画像は冒頭1枚が既定）。中盤の裏づけ・休憩は上の📊図表をご利用ください。＋挿絵を追加で手動追加もできます。
           </div>
         )}
 
@@ -525,18 +756,18 @@ export default function NoteEnhancePanel({ title, content, state, onChange }: Pr
         </div>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
           <button type="button" onClick={copyPasteText} style={smallBtn({ fontWeight: 700 })}>
-            📋 note互換テキストをコピー{activePlacements.length > 0 ? '（画像マーカー入り）' : ''}
+            📋 note互換テキストをコピー{kitImages.length > 0 ? '（画像マーカー入り）' : ''}
           </button>
-          <button type="button" onClick={downloadAllImages} disabled={busyKit || activePlacements.length === 0} style={smallBtn()}>
-            {busyKit ? '🔄 DL中...' : `🖼 画像を一括ダウンロード（${activePlacements.length}枚・連番）`}
+          <button type="button" onClick={downloadAllImages} disabled={busyKit || kitImages.length === 0} style={smallBtn()}>
+            {busyKit ? '🔄 DL中...' : `🖼 画像を一括ダウンロード（${kitImages.length}枚・連番）`}
           </button>
-          <button type="button" onClick={richCopy} disabled={activePlacements.length === 0 && !content.trim()} style={smallBtn()} title="text/htmlで画像込みコピー。noteが受け付けるかの実地検証用">
+          <button type="button" onClick={richCopy} disabled={kitImages.length === 0 && !content.trim()} style={smallBtn()} title="text/htmlで画像込みコピー。noteが受け付けるかの実地検証用">
             🧪 リッチコピー（実験）
           </button>
         </div>
         {pendingCount > 0 && (
           <div style={{ fontSize: 11, color: '#f59e0b', marginTop: 6 }}>
-            ⚠️ 画像未生成の配置 {pendingCount}件はキットに含まれません（🎨生成すると含まれます）
+            ⚠️ 画像未生成の配置・図表 {pendingCount}件はキットに含まれません（🎨生成/📊描画すると含まれます）
           </div>
         )}
         {showGuide && (

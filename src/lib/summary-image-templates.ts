@@ -18,6 +18,27 @@ export const SUMMARY_IMAGE_TEMPLATES: Record<SummaryImageTemplateKey, { emoji: s
 export const SUMMARY_IMAGE_TEMPLATE_KEYS = Object.keys(SUMMARY_IMAGE_TEMPLATES) as SummaryImageTemplateKey[];
 export const DEFAULT_SUMMARY_IMAGE_TEMPLATE: SummaryImageTemplateKey = 'card';
 
+// ── 図表テンプレ4種（228a・記事図表の主力）───────────────────────
+// まとめ3種と同じくプログラム描画＝文言は編集後データのみ（創作・文字崩れゼロ）。
+// beforeafter は生活習慣・考え方・手順の変化用（患者の治療前後・効果対比には使わない＝医療広告配慮）。
+export type FigureTemplateKey = 'steps' | 'compare' | 'qa' | 'beforeafter';
+
+export const FIGURE_TEMPLATES: Record<FigureTemplateKey, { emoji: string; label: string; hint: string }> = {
+  steps: { emoji: '🪜', label: '手順ステップ図', hint: '1グループ・pointsが上から順のステップ' },
+  compare: { emoji: '⚖️', label: '比較表', hint: 'グループ=列（2〜3列）・headingが列名' },
+  qa: { emoji: '💬', label: 'Q&Aカード', hint: 'グループ=1問・headingが質問・pointsが回答' },
+  beforeafter: { emoji: '🔁', label: 'ビフォーアフター枠', hint: 'グループ2つ（前/後）。習慣・手順の変化用' },
+};
+
+export const FIGURE_TEMPLATE_KEYS = Object.keys(FIGURE_TEMPLATES) as FigureTemplateKey[];
+
+// まとめ画像・図表の描画で受け付ける全テンプレ
+export type AnyImageTemplateKey = SummaryImageTemplateKey | FigureTemplateKey;
+
+export function isImageTemplateKey(v: unknown): v is AnyImageTemplateKey {
+  return typeof v === 'string' && (v in SUMMARY_IMAGE_TEMPLATES || v in FIGURE_TEMPLATES);
+}
+
 // 保存する1画像分のメタ（Kindle=book_meta.summaryImages / note=enhance状態、器は媒体側が持つ）
 export interface SummaryImageEntry {
   url: string;
@@ -41,11 +62,29 @@ const MUTED = '#5B6B63';
 export const SUMMARY_IMAGE_WIDTH = 1200;
 
 // 高さの見積もり（satoriは固定キャンバスのため内容量から算出。上限でクランプ）
-export function estimateSummaryImageHeight(template: SummaryImageTemplateKey, data: SummaryImageData): number {
+export function estimateSummaryImageHeight(template: AnyImageTemplateKey, data: SummaryImageData): number {
   const points = data.groups.reduce((n, g) => n + g.points.length, 0);
   const headings = data.groups.filter((g) => g.heading).length;
   // 2行に折り返す長文ポイントを概算で加味（38字/行想定）
   const wraps = data.groups.reduce((n, g) => n + g.points.filter((p) => p.length > 38).length, 0);
+  // 図表系の見積もり
+  if (template === 'steps') {
+    return Math.max(630, Math.min(3600, 260 + points * 108 + wraps * 34));
+  }
+  if (template === 'compare') {
+    // 列は横に並ぶ＝最大の列の行数で決まる
+    const maxRows = Math.max(1, ...data.groups.map((g) => g.points.length));
+    const maxWraps = Math.max(0, ...data.groups.map((g) => g.points.filter((p) => p.length > 18).length));
+    return Math.max(630, Math.min(3600, 300 + maxRows * 74 + maxWraps * 30));
+  }
+  if (template === 'qa') {
+    return Math.max(630, Math.min(3600, 240 + headings * 96 + points * 64 + wraps * 34 + data.groups.length * 40));
+  }
+  if (template === 'beforeafter') {
+    const maxRows = Math.max(1, ...data.groups.map((g) => g.points.length));
+    const maxWraps = Math.max(0, ...data.groups.map((g) => g.points.filter((p) => p.length > 18).length));
+    return Math.max(630, Math.min(3600, 320 + maxRows * 74 + maxWraps * 30));
+  }
   const base = template === 'poster' ? 320 : 240;
   const perPoint = template === 'table' ? 78 : 64;
   const h = base + headings * 86 + points * perPoint + wraps * 34;
@@ -158,14 +197,134 @@ function posterTemplate(data: SummaryImageData): El {
   );
 }
 
-export function buildSummaryImageElement(template: SummaryImageTemplateKey, data: SummaryImageData): El {
+// ── 図表テンプレの描画（228a）──────────────────────────────────
+
+// 手順ステップ図: 番号バッジ＋テキスト、ステップ間に下向き矢印
+function stepsTemplate(data: SummaryImageData): El {
+  const steps = data.groups.flatMap((g) => g.points);
+  const rows: El[] = [];
+  steps.forEach((s, i) => {
+    rows.push(
+      div({ display: 'flex', alignItems: 'center', gap: 18, background: '#ffffff', border: `2px solid ${GREEN_SOFT}`, borderRadius: 14, padding: '16px 22px' }, [
+        div(
+          { display: 'flex', alignItems: 'center', justifyContent: 'center', width: 88, height: 44, borderRadius: 22, background: GREEN, color: '#ffffff', fontSize: 22, fontWeight: 700, flexShrink: 0, letterSpacing: 2 },
+          `STEP${i + 1}`,
+        ),
+        div({ display: 'flex', fontSize: 30, color: INK, lineHeight: 1.5, flex: 1 }, s),
+      ]),
+    );
+    if (i < steps.length - 1) {
+      rows.push(div({ display: 'flex', justifyContent: 'center', color: GREEN, fontSize: 30, fontWeight: 700, padding: '4px 0' }, '↓'));
+    }
+  });
+  return div(
+    { width: '100%', height: '100%', display: 'flex', flexDirection: 'column', background: '#F7FBF9', padding: 56, fontFamily: 'NotoSansJP' },
+    [
+      div({ display: 'flex', color: GREEN, fontSize: 40, fontWeight: 700, marginBottom: 24 }, data.title),
+      div({ display: 'flex', flexDirection: 'column', gap: 8 }, rows),
+    ],
+  );
+}
+
+// 比較表: グループ=列（2〜3列）。列見出し帯＋✓行を横に並べる
+function compareTemplate(data: SummaryImageData): El {
+  const cols = data.groups.slice(0, 3);
+  return div(
+    { width: '100%', height: '100%', display: 'flex', flexDirection: 'column', background: '#ffffff', padding: 56, fontFamily: 'NotoSansJP' },
+    [
+      div({ display: 'flex', color: GREEN, fontSize: 40, fontWeight: 700, marginBottom: 24 }, data.title),
+      div(
+        { display: 'flex', gap: 20, flex: 1 },
+        cols.map((g, ci) =>
+          div({ display: 'flex', flexDirection: 'column', flex: 1, border: `3px solid ${ci === 0 ? GREEN : '#C9DCD2'}`, borderRadius: 14, overflow: 'hidden' }, [
+            div(
+              { display: 'flex', justifyContent: 'center', background: ci === 0 ? GREEN : GREEN_SOFT, color: ci === 0 ? '#ffffff' : GREEN, padding: '14px 16px', fontSize: 28, fontWeight: 700 },
+              g.heading || `案${ci + 1}`,
+            ),
+            div(
+              { display: 'flex', flexDirection: 'column', padding: '6px 18px 18px' },
+              g.points.map((p) => pointRow(p, '・', 26)),
+            ),
+          ]),
+        ),
+      ),
+    ],
+  );
+}
+
+// Q&Aカード: グループ=1問。Q帯（緑）＋A本文のカードを縦に並べる
+function qaTemplate(data: SummaryImageData): El {
+  return div(
+    { width: '100%', height: '100%', display: 'flex', flexDirection: 'column', background: '#F7FBF9', padding: 56, fontFamily: 'NotoSansJP' },
+    [
+      div({ display: 'flex', color: GREEN, fontSize: 40, fontWeight: 700, marginBottom: 24 }, data.title),
+      ...data.groups.map((g) =>
+        div({ display: 'flex', flexDirection: 'column', background: '#ffffff', border: `2px solid ${GREEN_SOFT}`, borderRadius: 14, overflow: 'hidden', marginBottom: 18 }, [
+          div({ display: 'flex', alignItems: 'flex-start', gap: 12, background: GREEN, color: '#ffffff', padding: '14px 22px' }, [
+            div({ display: 'flex', fontSize: 28, fontWeight: 700, flexShrink: 0 }, 'Q.'),
+            div({ display: 'flex', fontSize: 28, fontWeight: 700, lineHeight: 1.4, flex: 1 }, g.heading || ''),
+          ]),
+          div({ display: 'flex', alignItems: 'flex-start', gap: 12, padding: '14px 22px' }, [
+            div({ display: 'flex', color: GREEN, fontSize: 28, fontWeight: 700, flexShrink: 0 }, 'A.'),
+            div(
+              { display: 'flex', flexDirection: 'column', flex: 1 },
+              g.points.map((p) => div({ display: 'flex', fontSize: 27, color: INK, lineHeight: 1.55, marginTop: 4 }, p)),
+            ),
+          ]),
+        ]),
+      ),
+    ],
+  );
+}
+
+// ビフォーアフター枠: 左=変化前（グレー基調）→ 右=変化後（緑基調）。
+// 生活習慣・考え方・手順の変化用（患者の治療前後・効果対比には使わない＝医療広告配慮）
+function beforeAfterTemplate(data: SummaryImageData): El {
+  const before = data.groups[0] ?? { points: [] };
+  const after = data.groups[1] ?? { points: [] };
+  const panel = (g: { heading?: string; points: string[] }, kind: 'before' | 'after'): El =>
+    div(
+      { display: 'flex', flexDirection: 'column', flex: 1, border: `3px solid ${kind === 'after' ? GREEN : '#C4CCC8'}`, borderRadius: 14, overflow: 'hidden', background: '#ffffff' },
+      [
+        div(
+          { display: 'flex', justifyContent: 'center', background: kind === 'after' ? GREEN : '#E8ECEA', color: kind === 'after' ? '#ffffff' : MUTED, padding: '14px 16px', fontSize: 28, fontWeight: 700 },
+          g.heading || (kind === 'after' ? 'After' : 'Before'),
+        ),
+        div(
+          { display: 'flex', flexDirection: 'column', padding: '6px 18px 18px' },
+          g.points.map((p) => pointRow(p, kind === 'after' ? checkCircle() : '・', 26)),
+        ),
+      ],
+    );
+  return div(
+    { width: '100%', height: '100%', display: 'flex', flexDirection: 'column', background: '#F7FBF9', padding: 56, fontFamily: 'NotoSansJP' },
+    [
+      div({ display: 'flex', color: GREEN, fontSize: 40, fontWeight: 700, marginBottom: 24 }, data.title),
+      div({ display: 'flex', alignItems: 'stretch', gap: 0, flex: 1 }, [
+        panel(before, 'before'),
+        div({ display: 'flex', alignItems: 'center', color: GREEN, fontSize: 44, fontWeight: 700, padding: '0 14px' }, '→'),
+        panel(after, 'after'),
+      ]),
+    ],
+  );
+}
+
+export function buildSummaryImageElement(template: AnyImageTemplateKey, data: SummaryImageData): El {
   if (template === 'table') return tableTemplate(data);
   if (template === 'poster') return posterTemplate(data);
+  if (template === 'steps') return stepsTemplate(data);
+  if (template === 'compare') return compareTemplate(data);
+  if (template === 'qa') return qaTemplate(data);
+  if (template === 'beforeafter') return beforeAfterTemplate(data);
   return cardTemplate(data);
 }
 
 // フォントサブセット取得用: 描画対象の全文字を集める（固定ラベル・数字・記号も含める）
 export function collectSummaryImageText(data: SummaryImageData): string {
-  const parts = [data.title, 'POINT✓0123456789', ...data.groups.flatMap((g) => [g.heading ?? '', ...g.points])];
+  const parts = [
+    data.title,
+    'POINT✓0123456789・STEPQABeforeAfter案↓→',
+    ...data.groups.flatMap((g) => [g.heading ?? '', ...g.points]),
+  ];
   return Array.from(new Set(parts.join(''))).join('');
 }

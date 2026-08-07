@@ -7,7 +7,6 @@
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 import {
-  NOTE_PLACEMENT_SLOTS,
   noteImageFileName,
   splitMarkdownBlocks,
   type NotePlacementImage,
@@ -75,39 +74,51 @@ export function toNoteCompatible(markdown: string, opts: NoteCompatOptions = DEF
   return md;
 }
 
-// 貼り付け後に画像をドラッグする位置の目印（この行自体はnoteで削除してもらう）
-export function buildMarkerLine(order: number, placement: NotePlacementImage): string {
-  const meta = NOTE_PLACEMENT_SLOTS[placement.slot];
-  return `――― 画像${String(order).padStart(2, '0')}（${meta.label}）: ${noteImageFileName(order, placement.slot)} をここに挿入 ―――`;
+// note貼り付けキットの画像1件分（配置スロット・図表を統合した汎用形・228a）。
+// kind はファイル名の種別（hook / steps 等）、label はマーカー行の日本語ラベル。
+export interface NotePasteImage {
+  afterBlock: number;
+  kind: string;
+  label: string;
+  url: string;
 }
 
-// 挿入順（afterBlock昇順）に並べた配置。cta（まとめ画像）は url ではなく summaryImage を使うため
-// 「画像があるもの」= 挿絵は url あり・cta は hasSummaryImage のときに数える
+// 貼り付け後に画像をドラッグする位置の目印（この行自体はnoteで削除してもらう）
+export function buildMarkerLine(order: number, img: NotePasteImage): string {
+  return `――― 画像${String(order).padStart(2, '0')}（${img.label}）: ${noteImageFileName(order, img.kind)} をここに挿入 ―――`;
+}
+
+// 挿入順（afterBlock昇順）に並べる（パネル表示・キットの連番の正）
+export function orderedByBlock<T extends { afterBlock: number }>(items: T[]): T[] {
+  return [...items].sort((a, b) => a.afterBlock - b.afterBlock);
+}
+
+// 旧名互換（配置一覧の表示順に使用）
 export function orderedPlacements(placements: NotePlacementImage[]): NotePlacementImage[] {
-  return [...placements].sort((a, b) => a.afterBlock - b.afterBlock);
+  return orderedByBlock(placements);
 }
 
 // 本文（Markdown）へマーカー行を挿入した互換テキストを作る。
 // ブロック分割は note-enhance.ts の splitMarkdownBlocks と同一定義（配置提案とズレない）。
 export function buildNotePasteText(
   markdown: string,
-  placements: NotePlacementImage[],
+  images: NotePasteImage[],
   opts: NoteCompatOptions = DEFAULT_NOTE_COMPAT,
 ): string {
   const blocks = splitMarkdownBlocks(toNoteCompatible(markdown, opts));
-  const sorted = orderedPlacements(placements);
-  const byBlock = new Map<number, { order: number; p: NotePlacementImage }[]>();
-  sorted.forEach((p, idx) => {
-    const at = Math.min(Math.max(p.afterBlock, 0), Math.max(blocks.length - 1, 0));
+  const sorted = orderedByBlock(images);
+  const byBlock = new Map<number, { order: number; img: NotePasteImage }[]>();
+  sorted.forEach((img, idx) => {
+    const at = Math.min(Math.max(img.afterBlock, 0), Math.max(blocks.length - 1, 0));
     const list = byBlock.get(at) ?? [];
-    list.push({ order: idx + 1, p });
+    list.push({ order: idx + 1, img });
     byBlock.set(at, list);
   });
   const out: string[] = [];
   blocks.forEach((b, i) => {
     out.push(b);
-    for (const { order, p } of byBlock.get(i) ?? []) {
-      out.push(buildMarkerLine(order, p));
+    for (const { order, img } of byBlock.get(i) ?? []) {
+      out.push(buildMarkerLine(order, img));
     }
   });
   return out.join('\n\n');

@@ -16,8 +16,9 @@ export const maxDuration = 120;
 
 // 228: 画像配置の自動提案（観点10原則の配置応用）。
 // - 提案のみ返す＝生成も保存もしない（プレビューで位置調整・削除できる。完全自動固定にしない）
-// - 検証: slot 4種のみ・afterBlock はブロック範囲内・同一ブロック重複除去・
-//   挿絵は目安枚数まで／cta は最多1件。fail-closed: パース失敗・0件は502
+// - 228a改訂: AI画像は冒頭イメージ1枚が既定 → 自動提案は hook(最多1)＋cta(最多1) のみ受理
+//   （evidence/rest はAI提案から除外＝図表が主力。手動追加はクライアント側で引き続き可能）
+// - 検証: afterBlock はブロック範囲内・同一ブロック重複除去。fail-closed: パース失敗・0件は502
 
 export async function POST(req: Request) {
   const guard = await requireAuth();
@@ -45,7 +46,7 @@ export async function POST(req: Request) {
 
     const seenBlocks = new Set<number>();
     let ctaCount = 0;
-    let illustCount = 0;
+    let hookCount = 0;
     const placements = (Array.isArray(parsed.placements) ? parsed.placements : [])
       .map((p: any) => {
         const slot = typeof p?.slot === 'string' && p.slot in NOTE_PLACEMENT_SLOTS ? (p.slot as NotePlacementSlot) : null;
@@ -55,9 +56,12 @@ export async function POST(req: Request) {
         if (slot === 'cta') {
           if (ctaCount >= 1) return null;
           ctaCount++;
+        } else if (slot === 'hook') {
+          if (hookCount >= 1) return null;
+          hookCount++;
         } else {
-          if (illustCount >= maxImages) return null;
-          illustCount++;
+          // evidence/rest はAI提案から除外（図表が主力・手動追加のみ）
+          return null;
         }
         seenBlocks.add(afterBlock);
         return {

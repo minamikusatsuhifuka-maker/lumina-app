@@ -7,7 +7,7 @@
 // クライアント/サーバ共用のため server-only 依存を置かない。
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-import type { SummaryImageTemplateKey } from './summary-image-templates';
+import type { FigureTemplateKey, SummaryImageTemplateKey } from './summary-image-templates';
 
 // 配置スロット4種（観点10原則の配置応用。cta はAI画像でなく「まとめ画像」を置くスロット）
 export type NotePlacementSlot = 'hook' | 'evidence' | 'rest' | 'cta';
@@ -90,15 +90,36 @@ export interface NotePlacementImage {
   updatedAt?: string;
 }
 
+// 図表1件分（228a・記事図表の主力）。文言は編集後データのみ＝プログラム描画（227C準拠）
+export interface NoteFigure {
+  id: string;
+  template: FigureTemplateKey;
+  title: string;
+  // 描画データ（SummaryImageData.groups と同形。テンプレごとの意味は FIGURE_TEMPLATES.hint）
+  groups: { heading?: string; points: string[] }[];
+  // このブロックの直後に挿入
+  afterBlock: number;
+  purpose?: string;
+  principle?: string;
+  // 生成済みなら gallery の blob_url
+  url?: string;
+  // データ編集の最終時刻と、url生成時点のデータ時刻（不一致=古い画像→🔄再生成を促す）
+  dataUpdatedAt?: string;
+  renderedAt?: string;
+}
+
 export interface NoteEnhanceState {
   summary?: NoteSummaryState;
   summaryImage?: NoteSummaryImageState;
   placements: NotePlacementImage[];
   placementRanAt?: string;
+  // 228a: 図表（AI画像とは別レーン。プログラム描画のみ）
+  figures?: NoteFigure[];
+  figuresRanAt?: string;
 }
 
 export function emptyNoteEnhance(): NoteEnhanceState {
-  return { placements: [] };
+  return { placements: [], figures: [] };
 }
 
 // 旧データ・metadata経由の揺れを吸収して NoteEnhanceState に正規化
@@ -115,6 +136,13 @@ export function normalizeNoteEnhance(raw: unknown): NoteEnhanceState {
         )
       : [],
     placementRanAt: typeof o.placementRanAt === 'string' ? o.placementRanAt : undefined,
+    figures: Array.isArray(o.figures)
+      ? o.figures.filter(
+          (f): f is NoteFigure =>
+            !!f && typeof f === 'object' && typeof (f as NoteFigure).id === 'string' && Array.isArray((f as NoteFigure).groups),
+        )
+      : [],
+    figuresRanAt: typeof o.figuresRanAt === 'string' ? o.figuresRanAt : undefined,
   };
 }
 
@@ -132,7 +160,8 @@ export function recommendedImageCount(chars: number): number {
   return Math.min(5, Math.max(1, Math.round(chars / 1200)));
 }
 
-// note貼り付けキットの画像ファイル名規約（挿入順の連番＋スロット名。半角のみ）
-export function noteImageFileName(order: number, slot: NotePlacementSlot): string {
-  return `${String(order).padStart(2, '0')}_${slot}.png`;
+// note貼り付けキットの画像ファイル名規約（挿入順の連番＋種別名。半角のみ）。
+// 種別 = 配置スロット（hook等）または図表テンプレ（steps等）
+export function noteImageFileName(order: number, kind: string): string {
+  return `${String(order).padStart(2, '0')}_${kind}.png`;
 }
