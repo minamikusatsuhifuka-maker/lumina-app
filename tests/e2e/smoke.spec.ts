@@ -564,6 +564,8 @@ test('C23: Kindle本づくりウィザード（223）の開通 — ①素材選�
   await expect(page.locator('[data-kw-limits]')).toBeVisible();
   await expect(page.locator('[data-kw-limits]')).toContainText('0/10件');
   await expect(page.locator('[data-kw-limits]')).toContainText('上限150,000字');
+  // 231: ①素材タブ3種（DR/note/テキスト分析）が並ぶ
+  await expect(page.getByRole('button', { name: /📊 テキスト分析（\d+）/ })).toBeVisible();
   // ステップインジケーターに6ステップが並ぶ
   for (const label of ['1. 素材', '2. 目的', '3. 分量・文体', '4. 目次', '5. 本文生成', '6. 出力']) {
     await expect(page.getByText(label, { exact: true })).toBeVisible();

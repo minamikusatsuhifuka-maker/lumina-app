@@ -1,7 +1,9 @@
 'use client';
 
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { useToast } from '@/components/ui/Toast';
+import { MAX_KINDLE_SOURCES, makeAnalysisSourceKey } from '@/lib/kindle-limits';
 import { copyToClipboard } from '@/lib/copyToClipboard';
 import { copyRichMarkdown } from '@/lib/rich-copy';
 import { renderMarkdown, sanitizeLatex } from '@/lib/markdown-renderer';
@@ -837,6 +839,23 @@ export default function SavedAnalysisList({
       title: record.auto_title || record.file_name || '無題',
       content: text,
     });
+  };
+
+  // 231: 📖Kindleウィザードへhandoff（230 B-1のテキスト分析版。ana-N名前空間で渡す・読取後削除の冪等キー）
+  const router = useRouter();
+  const handleKindleSelect = () => {
+    if (selectedIds.size === 0) return;
+    let ids = Array.from(selectedIds);
+    if (ids.length > MAX_KINDLE_SOURCES) {
+      if (!confirm(`Kindle素材は最大${MAX_KINDLE_SOURCES}件です。選択順の先頭${MAX_KINDLE_SOURCES}件（${ids.length}件中）を渡します。続けますか？`)) return;
+      ids = ids.slice(0, MAX_KINDLE_SOURCES);
+    }
+    try {
+      sessionStorage.setItem('lumina_kindle_selected', JSON.stringify(ids.map((id) => makeAnalysisSourceKey(id))));
+    } catch {
+      /* プライベートモード等で失敗しても遷移は続行（ウィザードで選び直せる） */
+    }
+    router.push('/dashboard/kindle-wizard');
   };
 
   // 🔀横断分析へ（194: 選択分の本文を一括取得してから渡す。saved経由/タブ内の両経路とも本ハンドラ）
@@ -2037,6 +2056,27 @@ export default function SavedAnalysisList({
                 {crossPreparing
                   ? '⏳ 本文を取得中...'
                   : `🔀 選択した${selectedIds.size}件を横断分析する`}
+              </button>
+            )}
+
+            {/* 231: テキスト分析→Kindle素材化（ana-N名前空間でウィザード①へ） */}
+            {selectedIds.size >= 1 && (
+              <button
+                type="button"
+                onClick={handleKindleSelect}
+                style={{
+                  padding: '10px 22px',
+                  borderRadius: 12,
+                  fontSize: 13,
+                  fontWeight: 700,
+                  border: 'none',
+                  background: '#ec4899',
+                  color: '#fff',
+                  cursor: 'pointer',
+                  boxShadow: '0 4px 12px rgba(236,72,153,0.3)',
+                }}
+              >
+                📖 選択した{selectedIds.size}件をKindle本にする
               </button>
             )}
           </div>

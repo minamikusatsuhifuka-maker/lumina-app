@@ -10,6 +10,8 @@ import {
   kindleMaterialLabel,
   hasNoteMaterials,
   KINDLE_NOTE_SOURCE_RULES,
+  hasAnalysisMaterials,
+  KINDLE_ANALYSIS_SOURCE_RULES,
 } from '@/lib/kindle-materials';
 import { getKindlePurpose, KINDLE_COMMON_RULES } from '@/lib/kindle-purposes';
 import { getKindleStyle } from '@/lib/kindle-styles';
@@ -194,7 +196,7 @@ async function wizardOutline(params: {
       .join('\n\n---\n\n');
 
     const system = `あなたはKindle出版の専門プロデューサーです。
-渡された素材（ディープリサーチ結果・note記事）を束ねて、1冊の本の構成案（目次）を作成してください。
+渡された素材（ディープリサーチ結果・note記事・テキスト分析結果）を束ねて、1冊の本の構成案（目次）を作成してください。
 本のタイトル・各章のタイトルは、素材の内容からあなたが命名してください。
 
 ${purpose.promptBlock}
@@ -202,7 +204,7 @@ ${purpose.promptBlock}
 ${style.promptBlock}
 
 ${KINDLE_COMMON_RULES}
-${hasNoteMaterials(materials) ? `\n${KINDLE_NOTE_SOURCE_RULES}\n` : ''}
+${hasNoteMaterials(materials) ? `\n${KINDLE_NOTE_SOURCE_RULES}\n` : ''}${hasAnalysisMaterials(materials) ? `\n${KINDLE_ANALYSIS_SOURCE_RULES}\n` : ''}
 
 # 分量指定（厳守）
 - プリセット: ${presetDef.label}
@@ -211,6 +213,7 @@ ${hasNoteMaterials(materials) ? `\n${KINDLE_NOTE_SOURCE_RULES}\n` : ''}
 
 # 素材の割り当て（厳守）
 - 各章の source_ids に、その章の執筆で使う素材のIDを入れる（渡された素材のIDのみ。新しいIDを作らない）
+- IDは素材見出しの「ID: 」の文字列を一字一句そのまま使う（例: "ana-12" のような接頭辞つきIDも省略・改変しない）
 - すべての素材がいずれかの章で使われるように配分する（1素材を複数章で使ってもよい）
 
 必ず以下のJSON形式のみを返してください。前置きや説明は不要です。

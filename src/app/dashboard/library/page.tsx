@@ -3,6 +3,7 @@ import { useState, useEffect, useMemo, Suspense } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { copyRichMarkdown } from '@/lib/rich-copy';
 import { triggerDownload } from '@/lib/download';
+import { KINDLE_LIBRARY_TYPES, MAX_KINDLE_SOURCES } from '@/lib/kindle-limits';
 import { LibraryItemRow } from '@/components/LibraryItemRow';
 // LibraryPreviewPanel は廃止（カード内インライン展開に統一）
 
@@ -889,7 +890,8 @@ function LibraryPageInner() {
           <button
             onClick={() => {
               const selected = items.filter((i) => selectedIds.has(i.id));
-              const eligible = selected.filter((i) => i.type === 'deepresearch' || i.type === 'note-article');
+              // 231: 対象typeと上限を共有定数へ（library画面のtypeハードコード解消）
+              const eligible = selected.filter((i) => (KINDLE_LIBRARY_TYPES as readonly string[]).includes(i.type));
               const excluded = selected.length - eligible.length;
               if (eligible.length === 0) {
                 alert('選択中にKindle素材にできる資料がありません（対象: ディープリサーチ・note記事）');
@@ -897,9 +899,9 @@ function LibraryPageInner() {
               }
               if (excluded > 0 && !confirm(`${excluded}件は対象外（ディープリサーチ・note記事以外）のため除外します。${eligible.length}件で続けますか？`)) return;
               let take = eligible;
-              if (eligible.length > 10) {
-                if (!confirm(`Kindle素材は最大10件です。選択順の先頭10件（${eligible.length}件中）を渡します。続けますか？`)) return;
-                take = eligible.slice(0, 10);
+              if (eligible.length > MAX_KINDLE_SOURCES) {
+                if (!confirm(`Kindle素材は最大${MAX_KINDLE_SOURCES}件です。選択順の先頭${MAX_KINDLE_SOURCES}件（${eligible.length}件中）を渡します。続けますか？`)) return;
+                take = eligible.slice(0, MAX_KINDLE_SOURCES);
               }
               try {
                 sessionStorage.setItem('lumina_kindle_selected', JSON.stringify(take.map((i) => i.id)));

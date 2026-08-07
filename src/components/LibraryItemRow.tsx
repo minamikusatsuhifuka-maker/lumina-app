@@ -49,11 +49,13 @@ interface Props {
   mergeMode: boolean;
   selected: boolean;
   onSelectToggle: (id: string, checked: boolean) => void;
-  onFavoriteToggle: (item: any) => void;
-  onDelete: (id: string) => void;
+  // 231: /api/library の対象外の行（Kindleウィザード①のテキスト分析=ana-行）では
+  // 未指定にでき、未指定のボタンは描画しない
+  onFavoriteToggle?: (item: any) => void;
+  onDelete?: (id: string) => void;
   onEdit?: (item: any) => void;
   onExportTxt?: (item: any) => void;
-  onExportMd: (item: any) => void;
+  onExportMd?: (item: any) => void;
   onExportPdf?: (item: any) => void;
   onUseInWrite?: (item: any) => void;
   onStartTagEdit?: (item: any) => void;
@@ -104,7 +106,8 @@ export function LibraryItemRow({
   };
 
   const content = item.content || '';
-  const charCount = content.length;
+  // 231: 一覧APIが本文非返却の行（テキスト分析）は char_count 列を優先する
+  const charCount = typeof item.char_count === 'number' ? item.char_count : content.length;
   const previewText = content.slice(0, 180);
 
   const tagsArr: string[] = Array.isArray(item.tags)
@@ -222,26 +225,33 @@ export function LibraryItemRow({
             {isExpanded ? '▲' : '▼'}
             <span className="xl:hidden">{isExpanded ? ' 閉じる' : ' 全文表示'}</span>
           </button>
-          <button type="button" onClick={handleCopy} style={compactBtnStyle} title="本文をコピー">
-            {copied ? '✓' : '📋'}
-            <span className="xl:hidden">{copied ? ' コピー済' : ' コピー'}</span>
-          </button>
-          <button type="button" onClick={() => onExportMd(item)} style={compactBtnStyle} title="Markdownをダウンロード">
-            📥<span className="xl:hidden"> MD</span>
-          </button>
-          <button
-            type="button"
-            onClick={() => onFavoriteToggle(item)}
-            title={item.is_favorite ? 'お気に入り解除' : 'お気に入りに追加'}
-            style={{
-              ...compactBtnStyle,
-              color: item.is_favorite ? '#f59e0b' : 'var(--text-secondary)',
-              borderColor: item.is_favorite ? 'rgba(245,158,11,0.4)' : 'var(--border)',
-              background: item.is_favorite ? 'rgba(245,158,11,0.08)' : 'var(--bg-primary)',
-            }}
-          >
-            {item.is_favorite ? '⭐' : '☆'}
-          </button>
+          {content && (
+            <button type="button" onClick={handleCopy} style={compactBtnStyle} title="本文をコピー">
+              {copied ? '✓' : '📋'}
+              <span className="xl:hidden">{copied ? ' コピー済' : ' コピー'}</span>
+            </button>
+          )}
+          {onExportMd && (
+            <button type="button" onClick={() => onExportMd(item)} style={compactBtnStyle} title="Markdownをダウンロード">
+              📥<span className="xl:hidden"> MD</span>
+            </button>
+          )}
+          {onFavoriteToggle && (
+            <button
+              type="button"
+              onClick={() => onFavoriteToggle(item)}
+              title={item.is_favorite ? 'お気に入り解除' : 'お気に入りに追加'}
+              style={{
+                ...compactBtnStyle,
+                color: item.is_favorite ? '#f59e0b' : 'var(--text-secondary)',
+                borderColor: item.is_favorite ? 'rgba(245,158,11,0.4)' : 'var(--border)',
+                background: item.is_favorite ? 'rgba(245,158,11,0.08)' : 'var(--bg-primary)',
+              }}
+            >
+              {item.is_favorite ? '⭐' : '☆'}
+            </button>
+          )}
+          {onDelete && (
           <button
             type="button"
             onClick={() => {
@@ -260,6 +270,7 @@ export function LibraryItemRow({
           >
             🗑
           </button>
+          )}
         </div>
 
         {/* 全文表示（▼全文表示の展開時のみ本文を表示） */}
@@ -519,38 +530,44 @@ export function LibraryItemRow({
             <button type="button" onClick={handleCopy} style={btnStyle}>
               📋 {copied ? 'コピー済' : 'コピー'}
             </button>
-            <button type="button" onClick={() => onExportMd(item)} style={btnStyle}>
-              📥 MD
-            </button>
-            <button
-              type="button"
-              onClick={() => onFavoriteToggle(item)}
-              style={{
-                ...btnStyle,
-                color: item.is_favorite ? '#f59e0b' : 'var(--text-secondary)',
-                borderColor: item.is_favorite ? 'rgba(245,158,11,0.4)' : 'var(--border)',
-                background: item.is_favorite ? 'rgba(245,158,11,0.08)' : 'var(--bg-primary)',
-              }}
-            >
-              {item.is_favorite ? '⭐ お気に入り' : '☆ お気に入り'}
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                if (confirm('このアイテムを削除しますか？')) {
-                  onDelete(item.id);
-                }
-              }}
-              style={{
-                ...btnStyle,
-                color: '#ef4444',
-                borderColor: 'rgba(239,68,68,0.3)',
-                background: 'rgba(239,68,68,0.04)',
-                marginLeft: 'auto',
-              }}
-            >
-              🗑 削除
-            </button>
+            {onExportMd && (
+              <button type="button" onClick={() => onExportMd(item)} style={btnStyle}>
+                📥 MD
+              </button>
+            )}
+            {onFavoriteToggle && (
+              <button
+                type="button"
+                onClick={() => onFavoriteToggle(item)}
+                style={{
+                  ...btnStyle,
+                  color: item.is_favorite ? '#f59e0b' : 'var(--text-secondary)',
+                  borderColor: item.is_favorite ? 'rgba(245,158,11,0.4)' : 'var(--border)',
+                  background: item.is_favorite ? 'rgba(245,158,11,0.08)' : 'var(--bg-primary)',
+                }}
+              >
+                {item.is_favorite ? '⭐ お気に入り' : '☆ お気に入り'}
+              </button>
+            )}
+            {onDelete && (
+              <button
+                type="button"
+                onClick={() => {
+                  if (confirm('このアイテムを削除しますか？')) {
+                    onDelete(item.id);
+                  }
+                }}
+                style={{
+                  ...btnStyle,
+                  color: '#ef4444',
+                  borderColor: 'rgba(239,68,68,0.3)',
+                  background: 'rgba(239,68,68,0.04)',
+                  marginLeft: 'auto',
+                }}
+              >
+                🗑 削除
+              </button>
+            )}
           </div>
         </div>
       </div>

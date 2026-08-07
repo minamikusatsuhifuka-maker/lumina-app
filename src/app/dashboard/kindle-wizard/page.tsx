@@ -17,6 +17,7 @@ import {
   MAX_KINDLE_SOURCES,
   MAX_KINDLE_TOTAL_CHARS,
   KINDLE_MATERIAL_SOURCES,
+  KINDLE_SOURCE_TABS,
   KINDLE_MATERIAL_SOURCE_META,
   type KindleMaterialSource,
 } from '@/lib/kindle-limits';
@@ -304,21 +305,37 @@ function KindleWizardInner() {
   /* 作成中の本一覧 */
   const [wizardBooks, setWizardBooks] = useState<any[]>([]);
 
-  /* ── 初期ロード（229A: DR+note記事の2ソースを取得。typeは各行のtype列で判別） ── */
+  /* ── 初期ロード（229A: DR+note記事／231: テキスト分析=ana-N名前空間で混載） ── */
   useEffect(() => {
-    Promise.all(
-      KINDLE_MATERIAL_SOURCES.map((t) =>
-        fetch(`/api/library?type=${t}`)
-          .then((r) => r.json())
-          .then((data) => (Array.isArray(data) ? data : []))
-          .catch(() => []),
-      ),
-    )
-      .then((lists) => {
-        const arr = lists.flat();
-        setItems(arr);
-        setItemsLoading(false);
-        // 230【B-1】: リサーチ保存からのhandoff（読取後削除=冪等。C23は素の遷移でキー無し→影響なし）
+    // 231: text_analysis_saves の一覧v2は本文非返却＝char_count を使う。①の行として混載できる形に正規化
+    const normalizeAnalysisItem = (row: any, contentIncluded = false) => ({
+      id: `ana-${row.id}`,
+      title: row.auto_title || row.file_name || '無題',
+      content: contentIncluded ? row.content || '' : '',
+      char_count: row.char_count ?? (contentIncluded ? (row.content || '').length : 0),
+      created_at: row.created_at,
+      type: 'analysis',
+      is_favorite: row.favorite ? 1 : 0,
+      tags: Array.isArray(row.tags) ? row.tags.join(',') : row.tags || '',
+    });
+
+    (async () => {
+      try {
+        const lists = await Promise.all([
+          ...KINDLE_MATERIAL_SOURCES.map((t) =>
+            fetch(`/api/library?type=${t}`)
+              .then((r) => r.json())
+              .then((data) => (Array.isArray(data) ? data : []))
+              .catch(() => []),
+          ),
+          fetch(`/api/text-analysis/saves?limit=100`)
+            .then((r) => r.json())
+            .then((data) => (Array.isArray(data?.items) ? data.items.map((row: any) => normalizeAnalysisItem(row)) : []))
+            .catch(() => []),
+        ]);
+        let arr = lists.flat();
+
+        // 230【B-1】: リサーチ保存/テキスト分析からのhandoff（読取後削除=冪等。C23は素の遷移でキー無し→影響なし）
         try {
           const raw = sessionStorage.getItem('lumina_kindle_selected');
           if (raw) {
@@ -327,11 +344,24 @@ function KindleWizardInner() {
             if (!new URLSearchParams(window.location.search).get('bookId')) {
               const ids: unknown = JSON.parse(raw);
               if (Array.isArray(ids)) {
-                const idSet = new Set(ids.map(String));
+                const keys = ids.map(String);
+                // 231: 一覧100件に載っていない ana-N は ?ids= で追い取得（取りこぼし防止）
+                const missingAna = keys
+                  .map((k) => /^ana-(\d+)$/.exec(k))
+                  .filter((m): m is RegExpExecArray => !!m && !arr.some((i: any) => String(i.id) === m[0]))
+                  .map((m) => Number(m[1]));
+                if (missingAna.length > 0) {
+                  const extra = await fetch(`/api/text-analysis/saves?ids=${missingAna.join(',')}`)
+                    .then((r) => r.json())
+                    .then((data) => (Array.isArray(data?.items) ? data.items.map((row: any) => normalizeAnalysisItem(row, true)) : []))
+                    .catch(() => []);
+                  arr = [...arr, ...extra];
+                }
+                const idSet = new Set(keys);
                 const take = arr.filter((i: any) => idSet.has(String(i.id))).slice(0, MAX_KINDLE_SOURCES);
                 if (take.length > 0) {
                   setSelectedIds(new Set(take.map((i: any) => String(i.id))));
-                  setSourceTab(take[0].type === 'note-article' ? 'note-article' : 'deepresearch');
+                  setSourceTab((take[0].type ?? 'deepresearch') as KindleMaterialSource);
                 }
               }
             }
@@ -339,8 +369,12 @@ function KindleWizardInner() {
         } catch {
           /* handoff失敗時は通常の未選択状態で開く（選び直せる） */
         }
-      })
-      .catch(() => setItemsLoading(false));
+
+        setItems(arr);
+      } finally {
+        setItemsLoading(false);
+      }
+    })();
   }, []);
 
   useEffect(() => {
@@ -406,8 +440,9 @@ function KindleWizardInner() {
   }, [items, search, sourceTab]);
 
   const selectedItems = useMemo(() => items.filter((i) => selectedIds.has(i.id)), [items, selectedIds]);
+  // 231: ana-行は一覧が本文非返却のため char_count を優先（最終判定はサーバ側の実測）
   const totalChars = useMemo(
-    () => selectedItems.reduce((sum, i) => sum + (i.content || '').length, 0),
+    () => selectedItems.reduce((sum, i) => sum + (i.char_count ?? (i.content || '').length), 0),
     [selectedItems],
   );
   const titleById = useMemo(() => new Map(items.map((i) => [String(i.id), i.title || '(無題)'])), [items]);
@@ -1220,7 +1255,7 @@ function KindleWizardInner() {
         <div>
           {/* 229A: 素材ソースのタブ（🗂DR／📝note記事・混在選択可） */}
           <div style={{ display: 'flex', gap: 6, marginBottom: 10, flexWrap: 'wrap' }}>
-            {KINDLE_MATERIAL_SOURCES.map((k) => {
+            {KINDLE_SOURCE_TABS.map((k) => {
               const meta = KINDLE_MATERIAL_SOURCE_META[k];
               const count = items.filter((i) => (i.type || 'deepresearch') === k).length;
               const selCount = items.filter((i) => (i.type || 'deepresearch') === k && selectedIds.has(i.id)).length;
@@ -1263,7 +1298,9 @@ function KindleWizardInner() {
               <div>
                 {sourceTab === 'deepresearch'
                   ? 'ディープリサーチ結果がありません。先に🔭ディープリサーチで調査・保存してください。'
-                  : 'note記事がありません。✍️note記事群生成などで作成し、ライブラリに保存すると表示されます。'}
+                  : sourceTab === 'note-article'
+                    ? 'note記事がありません。✍️note記事群生成などで作成し、ライブラリに保存すると表示されます。'
+                    : 'テキスト分析の保存がありません。🗂テキスト分析で分析・保存すると表示されます（最新100件）。'}
               </div>
               {/* 230【B-3】: 逆方向の案内（リサーチ保存の選択モード→📖Kindle本にする） */}
               <div style={{ marginTop: 12, fontSize: 12 }}>
@@ -1281,12 +1318,14 @@ function KindleWizardInner() {
                     mergeMode={true}
                     selected={selectedIds.has(item.id)}
                     onSelectToggle={toggleSelect}
-                    onFavoriteToggle={async (it) => {
+                    // 231: ana-行（テキスト分析）は/api/libraryの対象外のため⭐/🗑/📥は出さない
+                    //（編集・削除は🗂テキスト分析の保存一覧で行う。素材選択には影響しない）
+                    onFavoriteToggle={item.type === 'analysis' ? undefined : async (it) => {
                       const newVal = it.is_favorite ? 0 : 1;
                       await fetch('/api/library', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: it.id, is_favorite: newVal }) });
                       setItems((prev) => prev.map((i) => (i.id === it.id ? { ...i, is_favorite: newVal } : i)));
                     }}
-                    onDelete={async (id) => {
+                    onDelete={item.type === 'analysis' ? undefined : async (id) => {
                       await fetch('/api/library', { method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id }) });
                       setItems((prev) => prev.filter((i) => i.id !== id));
                       setSelectedIds((prev) => {
@@ -1295,7 +1334,7 @@ function KindleWizardInner() {
                         return next;
                       });
                     }}
-                    onExportMd={(it) => triggerDownload(`${(it.title || '無題').slice(0, 30)}.md`, `# ${it.title}\n\n${it.content || ''}`)}
+                    onExportMd={item.type === 'analysis' ? undefined : (it) => triggerDownload(`${(it.title || '無題').slice(0, 30)}.md`, `# ${it.title}\n\n${it.content || ''}`)}
                     onExpandToggle={(id) => setExpandedId(expandedId === id ? null : id)}
                     isExpanded={expandedId === item.id}
                     variant="compact"
