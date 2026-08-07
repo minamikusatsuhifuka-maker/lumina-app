@@ -23,7 +23,6 @@ const ALL_SHORTCUTS = [
   { id: 'medical-studio', label: '医療文書', icon: '🏥', href: '/dashboard/medical-studio' },
   { id: 'pricing-strategy', label: '価格戦略', icon: '💴', href: '/dashboard/pricing-strategy' },
   { id: 'kindle', label: 'Kindle生成', icon: '📖', href: '/dashboard/kindle' },
-  { id: 'kindle-studio', label: 'Kindle出版', icon: '📚', href: '/dashboard/kindle-studio' },
   { id: 'reviews', label: '口コミ管理', icon: '⭐', href: '/dashboard/reviews' },
   { id: 'analytics', label: 'アナリティクス', icon: '📈', href: '/dashboard/analytics' },
   { id: 'batch-research', label: 'バッチリサーチ', icon: '⚡', href: '/dashboard/deepresearch?tab=batch' },

@@ -535,7 +535,7 @@ const FEATURE_GROUPS: CatalogGroup[] = [
       { href: '/dashboard/infographic', label: 'インフォグラフィック', emoji: '📊', desc: 'インフォグラフィック案を生成' },
       { href: '/dashboard/storytelling', label: 'ストーリーテリング', emoji: '📖', desc: '物語形式で構成' },
       { href: '/dashboard/kindle', label: 'Kindle書籍生成', emoji: '📚', desc: 'Kindle書籍の原稿を生成' },
-      { href: '/dashboard/kindle-studio', label: 'Kindle出版スタジオ', emoji: '📚', desc: 'Kindle出版を一括支援' },
+      { href: '/dashboard/kindle-wizard', label: 'Kindle本づくり', emoji: '📕', desc: '素材から目的別のKindle本と販促アセットを作成' },
       { href: '/dashboard/avatar-studio', label: 'SNSアバタースタジオ', emoji: '🎭', desc: 'SNS用アバターを作成' },
     ],
   },
