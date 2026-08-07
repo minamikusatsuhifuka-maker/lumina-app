@@ -1,7 +1,7 @@
 'use client';
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
-import { copyToClipboard } from '@/lib/copyToClipboard';
+import { copyRichMarkdown } from '@/lib/rich-copy';
 
 function renderMarkdown(text: string): string {
   const lines = text.split('\n');
@@ -211,7 +211,7 @@ export default function GrowthReportPage() {
                   style={{ fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.8, padding: '12px 14px', background: 'var(--bg-card)', borderRadius: 10, border: '1px solid var(--border)', marginBottom: 10 }}
                   dangerouslySetInnerHTML={{ __html: renderMarkdown(report) }}
                 />
-                <button onClick={() => copyToClipboard(report)}
+                <button onClick={() => copyRichMarkdown(report)}
                   style={{ padding: '6px 16px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--bg-card)', color: 'var(--text-muted)', fontSize: 12, cursor: 'pointer' }}>
                   📋 コピー
                 </button>

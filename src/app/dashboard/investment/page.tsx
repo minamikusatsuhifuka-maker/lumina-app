@@ -17,7 +17,7 @@ import {
   sanitizeFilename,
   yyyymmdd,
 } from '@/lib/title-generator';
-import { copyToClipboard } from '@/lib/copyToClipboard';
+import { copyRichMarkdown } from '@/lib/rich-copy';
 import { triggerDownload } from '@/lib/download';
 
 type Insights = {
@@ -530,7 +530,7 @@ export default function InvestmentResearchPage() {
                 {downloadingMd ? '⏳ タイトル生成中...' : '💾 MDダウンロード'}
               </button>
               <button
-                onClick={() => copyToClipboard(report)}
+                onClick={() => copyRichMarkdown(report)}
                 style={{
                   padding: '6px 14px',
                   background: 'var(--bg-secondary)',
@@ -597,7 +597,7 @@ export default function InvestmentResearchPage() {
             <span style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-secondary)' }}>📝 要約（1000字以内）</span>
             <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
               <button
-                onClick={() => copyToClipboard(insights.summary)}
+                onClick={() => copyRichMarkdown(insights.summary)}
                 style={{ padding: '5px 12px', background: 'var(--bg-primary)', border: '1px solid var(--border)', color: 'var(--text-secondary)', borderRadius: 6, cursor: 'pointer', fontSize: 12 }}
               >
                 📋 コピー
@@ -634,7 +634,7 @@ export default function InvestmentResearchPage() {
             <span style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-secondary)' }}>💡 AI 投資アドバイス（2000字以内）</span>
             <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
               <button
-                onClick={() => copyToClipboard(insights.advice)}
+                onClick={() => copyRichMarkdown(insights.advice)}
                 style={{ padding: '5px 12px', background: 'var(--bg-primary)', border: '1px solid var(--border)', color: 'var(--text-secondary)', borderRadius: 6, cursor: 'pointer', fontSize: 12 }}
               >
                 📋 コピー

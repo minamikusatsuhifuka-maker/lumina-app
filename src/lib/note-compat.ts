@@ -154,21 +154,9 @@ export function buildNoteHtml(markdown: string, imageUrlByBlock: Map<number, str
   return html.join('\n');
 }
 
-// text/html + text/plain を同時にクリップボードへ書く（ClipboardItem 非対応環境は false）
-export async function copyRichText(html: string, plain: string): Promise<boolean> {
-  try {
-    if (typeof ClipboardItem === 'undefined' || !navigator.clipboard?.write) return false;
-    await navigator.clipboard.write([
-      new ClipboardItem({
-        'text/html': new Blob([html], { type: 'text/html' }),
-        'text/plain': new Blob([plain], { type: 'text/plain' }),
-      }),
-    ]);
-    return true;
-  } catch {
-    return false;
-  }
-}
+// text/html + text/plain の同時書き込みは 232 で rich-copy.ts に一本化（実体の二重定義を解消）。
+// 既存の import { copyRichText } from '@/lib/note-compat' を壊さないため再exportする。
+export { copyRichText } from './rich-copy';
 
 // 画像URLをバイナリのままファイル保存させる（triggerDownload はテキスト専用のため別関数）
 export async function downloadImageFile(url: string, filename: string): Promise<boolean> {

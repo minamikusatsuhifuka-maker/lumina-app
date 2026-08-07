@@ -5,6 +5,7 @@ import { CLAUDE_TEXT_MODEL, CLAUDE_TEXT_MODEL_LABEL } from '@/lib/ai-models';
 import { ModelBadge } from '@/components/ModelBadge';
 import { AITextReviser } from '@/components/clinic/AITextReviser';
 import { copyToClipboard } from '@/lib/copyToClipboard';
+import { copyRichMarkdown } from '@/lib/rich-copy';
 import { triggerDownload } from '@/lib/download';
 
 const QUICK_INSTRUCTIONS = ['わかりやすく', '理念に沿って', '箇条書き化', '具体例を追加', 'トーンを丁寧に'];
@@ -459,7 +460,7 @@ export default function HandbookEditorPage({ params }: { params: Promise<{ id: s
   // 修正案をコピー
   const copyRevised = async () => {
     if (!revisedContent) return;
-    await copyToClipboard(revisedContent);
+    await copyRichMarkdown(revisedContent);
     setReviseCopied(true);
     setTimeout(() => setReviseCopied(false), 1500);
   };
@@ -1598,7 +1599,7 @@ export default function HandbookEditorPage({ params }: { params: Promise<{ id: s
                     ✅ この変換を採用する
                   </button>
                   <button
-                    onClick={() => copyToClipboard(bossAfterContent)
+                    onClick={() => copyRichMarkdown(bossAfterContent)
                       .then(() => setMessage('📋 コピーしました！'))}
                     style={{
                       padding: '8px 16px', borderRadius: 8,

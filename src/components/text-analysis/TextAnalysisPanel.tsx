@@ -24,7 +24,7 @@ import {
   sanitizeFilename,
   yyyymmdd,
 } from '@/lib/title-generator';
-import { copyToClipboard } from '@/lib/copyToClipboard';
+import { copyRichMarkdown } from '@/lib/rich-copy';
 import { triggerDownload } from '@/lib/download';
 import { markdownToReadableText } from '@/lib/markdownToText';
 import {
@@ -1144,7 +1144,7 @@ export default function TextAnalysisPanel({
               onSave={() => saveResult(type, text)}
               onCopy={() => {
                 // コピー内容にも LaTeX 正規化を適用（$\rightarrow$ 等を残さない）
-                copyToClipboard(sanitizeLatex(text));
+                copyRichMarkdown(sanitizeLatex(text));
                 showToast('コピーしました', 'success');
               }}
               onDownloadTxt={() => downloadTxt(type, text)}

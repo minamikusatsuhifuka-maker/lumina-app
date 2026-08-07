@@ -18,6 +18,7 @@ import {
   yyyymmdd,
 } from '@/lib/title-generator';
 import { copyToClipboard } from '@/lib/copyToClipboard';
+import { copyRichMarkdown } from '@/lib/rich-copy';
 import { triggerDownload } from '@/lib/download';
 import { renderMarkdown } from '@/lib/markdown-renderer';
 import FullscreenReader from '@/components/text-analysis/FullscreenReader';
@@ -214,7 +215,7 @@ function BatchExpandedContent({ result }: { result: BatchResult }) {
   const handleCopy = async (text: string, key: string) => {
     if (!text) return;
     try {
-      await copyToClipboard(text);
+      await copyRichMarkdown(text);
       setCopied(key);
       setTimeout(() => setCopied(null), 1500);
     } catch {}
@@ -1791,7 +1792,7 @@ ${contextText}
               <button onClick={() => setShowRefine(true)} disabled={!report.trim() || loading} title="クイック置換またはAI修正指示で、リサーチ結果をその場で直します" style={{ padding: '6px 14px', background: 'var(--bg-secondary)', border: '1px solid var(--border)', color: 'var(--text-secondary)', borderRadius: 6, cursor: !report.trim() || loading ? 'not-allowed' : 'pointer', fontSize: 12, opacity: !report.trim() || loading ? 0.5 : 1 }}>
                 ✏️ AIで修正
               </button>
-              <button onClick={() => copyToClipboard(report)} style={{ padding: '6px 14px', background: 'var(--bg-secondary)', border: '1px solid var(--border)', color: 'var(--text-secondary)', borderRadius: 6, cursor: 'pointer', fontSize: 12 }}>
+              <button onClick={() => copyRichMarkdown(report)} style={{ padding: '6px 14px', background: 'var(--bg-secondary)', border: '1px solid var(--border)', color: 'var(--text-secondary)', borderRadius: 6, cursor: 'pointer', fontSize: 12 }}>
                 📋 コピー
               </button>
               {/* テキスト分析へ送るボタン（要約・詳細まとめ・Genspark資料用まとめ等を実行） */}
@@ -2156,7 +2157,7 @@ ${contextText}
                       {sec.level === 2 ? '##' : '###'} {sec.heading}
                     </span>
                     <button
-                      onClick={() => copyToClipboard(sec.text)}
+                      onClick={() => copyRichMarkdown(sec.text)}
                       style={{
                         padding: '4px 10px',
                         background: 'var(--bg-secondary)',
@@ -2258,7 +2259,7 @@ ${contextText}
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12, flexWrap: 'wrap' as const, gap: 8 }}>
                 <span style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-secondary)' }}>📋 概要・要約（1000字以内）</span>
                 <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                  <button onClick={() => copyToClipboard(insights.summary)} style={{ padding: '5px 12px', background: 'var(--bg-primary)', border: '1px solid var(--border)', color: 'var(--text-secondary)', borderRadius: 6, cursor: 'pointer', fontSize: 12 }}>📋 コピー</button>
+                  <button onClick={() => copyRichMarkdown(insights.summary)} style={{ padding: '5px 12px', background: 'var(--bg-primary)', border: '1px solid var(--border)', color: 'var(--text-secondary)', borderRadius: 6, cursor: 'pointer', fontSize: 12 }}>📋 コピー</button>
                   <button onClick={() => downloadInsightMd('summary', insights.summary, setDownloadingSummary)} disabled={downloadingSummary} style={{ padding: '5px 12px', background: 'var(--bg-primary)', border: '1px solid var(--border)', color: 'var(--text-secondary)', borderRadius: 6, cursor: downloadingSummary ? 'not-allowed' : 'pointer', fontSize: 12, opacity: downloadingSummary ? 0.6 : 1 }}>{downloadingSummary ? '⏳ 生成中...' : '📥 MD'}</button>
                   <SaveToLibraryButton title={topic || 'ディープリサーチ'} content={insights.summary} type="deepresearch" groupName="ディープリサーチ" tags="ディープリサーチ,要約" />
                 </div>
@@ -2277,7 +2278,7 @@ ${contextText}
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12, flexWrap: 'wrap' as const, gap: 8 }}>
                 <span style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-secondary)' }}>📖 詳細にまとめる（2000〜3000字）</span>
                 <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                  <button onClick={() => copyToClipboard(insights.detail)} style={{ padding: '5px 12px', background: 'var(--bg-primary)', border: '1px solid var(--border)', color: 'var(--text-secondary)', borderRadius: 6, cursor: 'pointer', fontSize: 12 }}>📋 コピー</button>
+                  <button onClick={() => copyRichMarkdown(insights.detail)} style={{ padding: '5px 12px', background: 'var(--bg-primary)', border: '1px solid var(--border)', color: 'var(--text-secondary)', borderRadius: 6, cursor: 'pointer', fontSize: 12 }}>📋 コピー</button>
                   <button onClick={() => downloadInsightMd('detail', insights.detail, setDownloadingDetail)} disabled={downloadingDetail} style={{ padding: '5px 12px', background: 'var(--bg-primary)', border: '1px solid var(--border)', color: 'var(--text-secondary)', borderRadius: 6, cursor: downloadingDetail ? 'not-allowed' : 'pointer', fontSize: 12, opacity: downloadingDetail ? 0.6 : 1 }}>{downloadingDetail ? '⏳ 生成中...' : '📥 MD'}</button>
                   <SaveToLibraryButton title={topic || 'ディープリサーチ'} content={insights.detail} type="deepresearch" groupName="ディープリサーチ" tags="ディープリサーチ,詳細" />
                 </div>
@@ -2313,7 +2314,7 @@ ${contextText}
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12, flexWrap: 'wrap' as const, gap: 8 }}>
                 <span style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-secondary)' }}>💡 活用アドバイス（2000字以内）</span>
                 <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                  <button onClick={() => copyToClipboard(insights.advice)} style={{ padding: '5px 12px', background: 'var(--bg-primary)', border: '1px solid var(--border)', color: 'var(--text-secondary)', borderRadius: 6, cursor: 'pointer', fontSize: 12 }}>📋 コピー</button>
+                  <button onClick={() => copyRichMarkdown(insights.advice)} style={{ padding: '5px 12px', background: 'var(--bg-primary)', border: '1px solid var(--border)', color: 'var(--text-secondary)', borderRadius: 6, cursor: 'pointer', fontSize: 12 }}>📋 コピー</button>
                   <button onClick={() => downloadInsightMd('advice', insights.advice, setDownloadingAdvice)} disabled={downloadingAdvice} style={{ padding: '5px 12px', background: 'var(--bg-primary)', border: '1px solid var(--border)', color: 'var(--text-secondary)', borderRadius: 6, cursor: downloadingAdvice ? 'not-allowed' : 'pointer', fontSize: 12, opacity: downloadingAdvice ? 0.6 : 1 }}>{downloadingAdvice ? '⏳ 生成中...' : '📥 MD'}</button>
                   <SaveToLibraryButton title={topic || 'ディープリサーチ'} content={insights.advice} type="deepresearch" groupName="ディープリサーチ" tags="ディープリサーチ,活用アドバイス" />
                 </div>
@@ -2890,7 +2891,7 @@ ${contextText}
                 {/* 連携ボタン群 */}
                 <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' as const }}>
                   <button
-                    onClick={() => copyToClipboard(contextText)}
+                    onClick={() => copyRichMarkdown(contextText)}
                     style={{ padding: '8px 14px', background: 'var(--bg-secondary)', border: '1px solid var(--border)', color: 'var(--text-secondary)', borderRadius: 8, cursor: 'pointer', fontSize: 12, fontWeight: 600 }}
                   >
                     📋 コピー
@@ -2946,7 +2947,7 @@ ${contextText}
                   actions={
                     <>
                       <button
-                        onClick={() => copyToClipboard(contextText)}
+                        onClick={() => copyRichMarkdown(contextText)}
                         style={{ padding: '6px 14px', background: 'var(--bg-secondary)', border: '1px solid var(--border)', color: 'var(--text-secondary)', borderRadius: 8, cursor: 'pointer', fontSize: 12, fontWeight: 600 }}
                       >
                         📋 コピー

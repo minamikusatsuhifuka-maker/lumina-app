@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { copyToClipboard } from '@/lib/copyToClipboard';
+import { copyRichMarkdown } from '@/lib/rich-copy';
 
 interface Message {
   role: 'user' | 'assistant';
@@ -452,7 +452,7 @@ export default function DeepDiveChat({
               <div style={{ display: 'flex', gap: 8 }}>
                 <button
                   onClick={() =>
-                    copyToClipboard(generatedContent)
+                    copyRichMarkdown(generatedContent)
                   }
                   style={{
                     fontSize: 12,

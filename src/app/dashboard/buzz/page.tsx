@@ -4,7 +4,7 @@ import { useState } from 'react';
 import { ProgressBar } from '@/components/ProgressBar';
 import { useProgress } from '@/components/useProgress';
 import { SaveToLibraryButton } from '@/components/SaveToLibraryButton';
-import { copyToClipboard } from '@/lib/copyToClipboard';
+import { copyRichMarkdown } from '@/lib/rich-copy';
 import { triggerDownload } from '@/lib/download';
 import BuzzLibraryList from '@/components/buzz/BuzzLibraryList';
 import {
@@ -811,7 +811,7 @@ ${scenarios.map((sc: string) => `- ${sc}`).join('\n')}
                 {downloadingMd ? '⏳ タイトル生成中...' : '💾 MDダウンロード'}
               </button>
               <button
-                onClick={() => copyToClipboard(report)}
+                onClick={() => copyRichMarkdown(report)}
                 style={{
                   padding: '6px 14px',
                   background: 'var(--bg-secondary)',

@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
-import { copyToClipboard } from '@/lib/copyToClipboard';
+import { copyRichMarkdown } from '@/lib/rich-copy';
 import { renderMarkdown } from '@/lib/markdown-renderer';
 
 // ─── 型定義 ───
@@ -283,7 +283,7 @@ export default function ReviewsPage() {
   // クリップボードにコピー
   const copyReply = async (key: string, text: string) => {
     try {
-      await copyToClipboard(text);
+      await copyRichMarkdown(text);
       setCopiedId(key);
       setTimeout(() => setCopiedId(null), 2000);
     } catch {

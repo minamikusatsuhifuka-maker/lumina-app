@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { PIPELINES } from '@/lib/pipelines';
-import { copyToClipboard } from '@/lib/copyToClipboard';
+import { copyRichMarkdown } from '@/lib/rich-copy';
 
 interface Job {
   id: number;
@@ -1225,7 +1225,7 @@ export default function OrchestratorPage() {
                     <button
                       type="button"
                       onClick={() =>
-                        copyToClipboard(result.result)
+                        copyRichMarkdown(result.result)
                       }
                       style={{
                         fontSize: 11,
@@ -1500,7 +1500,7 @@ function HistoryResultsPanel({
           `## ${step.label}\n\n${job.results[step.id].result}`,
       )
       .join('\n\n---\n\n');
-    void copyToClipboard(allText);
+    void copyRichMarkdown(allText);
   };
 
   return (
@@ -1695,7 +1695,7 @@ function HistoryStepCard({
           <button
             type="button"
             onClick={() => {
-              void copyToClipboard(content);
+              void copyRichMarkdown(content);
             }}
             style={{
               fontSize: 11,

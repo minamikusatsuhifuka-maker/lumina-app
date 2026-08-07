@@ -12,7 +12,7 @@ import {
   sanitizeFilename,
   yyyymmdd,
 } from '@/lib/title-generator';
-import { copyToClipboard } from '@/lib/copyToClipboard';
+import { copyRichMarkdown } from '@/lib/rich-copy';
 import { triggerDownload } from '@/lib/download';
 import { renderMarkdown } from '@/lib/markdown-renderer';
 
@@ -156,7 +156,7 @@ export default function InlineAnalysisPanel({
     const allText = ANALYSIS_TYPES.filter((t) => results[t.id])
       .map((t) => `## ${t.label}\n\n${results[t.id]}`)
       .join('\n\n---\n\n');
-    if (allText) copyToClipboard(allText);
+    if (allText) copyRichMarkdown(allText);
   };
 
   // 個別パネルの .md ダウンロード（AIタイトル生成 + モデル表記付き）

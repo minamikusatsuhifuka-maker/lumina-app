@@ -1,7 +1,7 @@
 'use client';
 import { useState, useEffect, useMemo, Suspense } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
-import { copyToClipboard } from '@/lib/copyToClipboard';
+import { copyRichMarkdown } from '@/lib/rich-copy';
 import { triggerDownload } from '@/lib/download';
 import { LibraryItemRow } from '@/components/LibraryItemRow';
 // LibraryPreviewPanel は廃止（カード内インライン展開に統一）
@@ -941,7 +941,7 @@ function LibraryPageInner() {
                 style={{ padding: '8px 16px', borderRadius: 8, border: 'none', background: isSaving ? 'rgba(108,99,255,0.3)' : 'linear-gradient(135deg, #6c63ff, #8b5cf6)', color: '#fff', fontWeight: 700, fontSize: 13, cursor: isSaving ? 'not-allowed' : 'pointer' }}>
                 {isSaving ? '保存中...' : '📚 リサーチ保存に追加'}
               </button>
-              <button onClick={() => copyToClipboard(mergeResult).then(() => alert('コピーしました！'))}
+              <button onClick={() => copyRichMarkdown(mergeResult).then(() => alert('コピーしました！'))}
                 style={{ padding: '8px 16px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--bg-secondary)', color: 'var(--text-secondary)', cursor: 'pointer', fontSize: 13 }}>
                 📋 コピー
               </button>

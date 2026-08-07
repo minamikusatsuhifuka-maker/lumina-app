@@ -9,7 +9,7 @@ import DefaultContextBar, {
   buildDefaultContextText,
   type DefaultContextItem,
 } from '@/components/DefaultContextBar';
-import { copyToClipboard } from '@/lib/copyToClipboard';
+import { copyRichMarkdown } from '@/lib/rich-copy';
 import { triggerDownload } from '@/lib/download';
 import { renderMarkdown } from '@/lib/markdown-renderer';
 
@@ -1130,7 +1130,7 @@ export default function KindlePage() {
                                     )}
                                   </p>
                                   <button
-                                    onClick={() => copyToClipboard(ch.advice ?? '')}
+                                    onClick={() => copyRichMarkdown(ch.advice ?? '')}
                                     style={{
                                       fontSize: 11, padding: '3px 8px',
                                       border: '1px solid var(--border)', borderRadius: 4,
@@ -1201,7 +1201,7 @@ export default function KindlePage() {
                                   </p>
                                   <div style={{ display: 'flex', gap: 6 }}>
                                     <button
-                                      onClick={() => copyToClipboard((ch.improvedContent ?? ch.improved_content) ?? '')}
+                                      onClick={() => copyRichMarkdown((ch.improvedContent ?? ch.improved_content) ?? '')}
                                       style={{
                                         fontSize: 11, padding: '3px 8px',
                                         border: '1px solid #a78bfa', borderRadius: 4,

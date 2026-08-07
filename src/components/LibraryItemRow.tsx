@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { copyToClipboard } from '@/lib/copyToClipboard';
+import { copyRichMarkdown } from '@/lib/rich-copy';
 
 const CATEGORY_CONFIG: Record<string, { icon: string; badgeBg: string; badgeColor: string }> = {
   'Intelligence Hub':   { icon: '🧠', badgeBg: 'rgba(108,99,255,0.1)',  badgeColor: '#6c63ff' },
@@ -122,7 +122,7 @@ export function LibraryItemRow({
   const handleCopy = async () => {
     if (!content) return;
     try {
-      await copyToClipboard(content);
+      await copyRichMarkdown(content);
       setCopied(true);
       setTimeout(() => setCopied(false), 1500);
     } catch (e) {

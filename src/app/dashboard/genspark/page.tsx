@@ -3,7 +3,7 @@ import { useState, useEffect } from 'react';
 import { ProgressBar } from '@/components/ProgressBar';
 import { useProgress } from '@/components/useProgress';
 import { SaveToLibraryButton } from '@/components/SaveToLibraryButton';
-import { copyToClipboard } from '@/lib/copyToClipboard';
+import { copyRichMarkdown } from '@/lib/rich-copy';
 import { triggerDownload } from '@/lib/download';
 import { renderMarkdown } from '@/lib/markdown-renderer';
 
@@ -62,7 +62,7 @@ export default function GensparkPage() {
   };
 
   const copyAndOpenGenspark = async () => {
-    await copyToClipboard(result);
+    await copyRichMarkdown(result);
     setCopied(true);
     setTimeout(() => {
       window.open('https://www.genspark.ai', '_blank');

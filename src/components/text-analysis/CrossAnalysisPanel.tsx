@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { copyToClipboard } from '@/lib/copyToClipboard';
+import { copyRichMarkdown } from '@/lib/rich-copy';
 import { renderMarkdown } from '@/lib/markdown-renderer';
 import { useNoteBundleSelection } from '@/components/note-bundle/useNoteBundleSelection';
 
@@ -136,7 +136,7 @@ export default function CrossAnalysisPanel({
   };
 
   const handleCopy = async () => {
-    const success = await copyToClipboard(result);
+    const success = await copyRichMarkdown(result);
     setCopyStatus(success ? 'copied' : 'error');
     setTimeout(() => setCopyStatus('idle'), 2000);
   };

@@ -3,7 +3,7 @@ import { useState } from 'react';
 import { ProgressBar } from '@/components/ProgressBar';
 import { useProgress } from '@/components/useProgress';
 import { SaveToLibraryButton } from '@/components/SaveToLibraryButton';
-import { copyToClipboard as copyToClipboardUtil } from '@/lib/copyToClipboard';
+import { copyRichMarkdown as copyToClipboardUtil } from '@/lib/rich-copy';
 import { renderMarkdown } from '@/lib/markdown-renderer';
 
 interface KeyTerm {

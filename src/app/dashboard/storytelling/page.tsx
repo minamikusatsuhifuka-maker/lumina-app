@@ -4,7 +4,7 @@ import { useRouter } from 'next/navigation';
 import { SaveToLibraryButton } from '@/components/SaveToLibraryButton';
 import { ProgressBar } from '@/components/ProgressBar';
 import { useProgress } from '@/components/useProgress';
-import { copyToClipboard } from '@/lib/copyToClipboard';
+import { copyRichMarkdown } from '@/lib/rich-copy';
 import { triggerDownload } from '@/lib/download';
 
 interface StorytellingResult {
@@ -108,7 +108,7 @@ export default function StorytellingPage() {
 
   const copyStory = () => {
     if (!result) return;
-    copyToClipboard(result.story);
+    copyRichMarkdown(result.story);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   };

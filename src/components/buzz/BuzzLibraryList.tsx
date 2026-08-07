@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { sanitizeFilename, yyyymmdd } from '@/lib/title-generator';
-import { copyToClipboard } from '@/lib/copyToClipboard';
+import { copyRichMarkdown } from '@/lib/rich-copy';
 import { triggerDownload } from '@/lib/download';
 
 // /api/library から返ってくる行（library テーブルそのまま）
@@ -167,7 +167,7 @@ export default function BuzzLibraryList({ onSwitchToExecute, refreshKey = 0 }: P
       .map(r => `# ${r.title || '(無題)'}\n\n${r.content || ''}`)
       .join('\n\n---\n\n');
     try {
-      await copyToClipboard(text);
+      await copyRichMarkdown(text);
       showToast(`📋 ${selectedRecords.length}件をコピーしました`);
     } catch {
       showToast('❌ コピーに失敗しました');
@@ -301,7 +301,7 @@ ${body}`;
   // コピー
   const copyContent = async (item: LibraryItem) => {
     try {
-      await copyToClipboard(item.content || '');
+      await copyRichMarkdown(item.content || '');
       showToast('📋 コピーしました');
     } catch {
       showToast('❌ コピーに失敗しました');

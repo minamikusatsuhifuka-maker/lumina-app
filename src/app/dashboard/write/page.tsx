@@ -16,6 +16,7 @@ import DefaultContextBar, {
 } from '@/components/DefaultContextBar';
 import DeepDiveChat from '@/components/DeepDiveChat';
 import { copyToClipboard } from '@/lib/copyToClipboard';
+import { copyRichMarkdown } from '@/lib/rich-copy';
 import { triggerDownload } from '@/lib/download';
 import { renderMarkdown } from '@/lib/markdown-renderer';
 
@@ -553,7 +554,7 @@ export default function WritePage() {
     setSelectedTemplateId(id);
   };
 
-  const copy = () => copyToClipboard(output).then(() => alert('コピーしました！'));
+  const copy = () => copyRichMarkdown(output).then(() => alert('コピーしました！'));
   const download = (ext: string) => {
     triggerDownload(`lumina_${Date.now()}.${ext}`, output, 'text/plain');
   };
@@ -1392,7 +1393,7 @@ export default function WritePage() {
               </div>
               <div style={{ display: 'flex', gap: 8 }}>
                 <button
-                  onClick={() => copyToClipboard(gensparkResult).then(() => alert('コピーしました！'))}
+                  onClick={() => copyRichMarkdown(gensparkResult).then(() => alert('コピーしました！'))}
                   style={{ padding: '6px 14px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--bg-secondary)', color: 'var(--text-secondary)', cursor: 'pointer', fontSize: 12 }}
                 >
                   📋 コピー

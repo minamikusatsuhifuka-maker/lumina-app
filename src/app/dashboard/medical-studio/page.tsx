@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { copyToClipboard } from '@/lib/copyToClipboard';
+import { copyRichMarkdown } from '@/lib/rich-copy';
 import { renderMarkdown } from '@/lib/markdown-renderer';
 import ContextSelector, {
   buildContextText,
@@ -661,7 +661,7 @@ export default function MedicalStudioPage() {
                       <button
                         type="button"
                         onClick={() =>
-                          copyToClipboard(generatedContent)
+                          copyRichMarkdown(generatedContent)
                         }
                         style={{
                           fontSize: 12,
@@ -1072,7 +1072,7 @@ export default function MedicalStudioPage() {
                         <button
                           type="button"
                           onClick={() =>
-                            copyToClipboard(editingContent)
+                            copyRichMarkdown(editingContent)
                           }
                           style={{
                             padding: '8px 12px',

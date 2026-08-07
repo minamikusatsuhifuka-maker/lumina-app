@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useMemo, type CSSProperties } from 'react';
 import FeatureDefaultContextSelector, { FEATURE_OPTIONS } from '@/components/FeatureDefaultContextSelector';
-import { copyToClipboard } from '@/lib/copyToClipboard';
+import { copyRichMarkdown } from '@/lib/rich-copy';
 import { renderMarkdown, sanitizeLatex } from '@/lib/markdown-renderer';
 import { sanitizeFilename, yyyymmdd } from '@/lib/title-generator';
 import { triggerDownload } from '@/lib/download';
@@ -332,7 +332,7 @@ export default function ContextLibraryPanel() {
     try {
       const text = await ensureFullText(item);
       // コピー内容にも LaTeX 正規化を適用（テキスト分析側と挙動を揃える）
-      await copyToClipboard(sanitizeLatex(text));
+      await copyRichMarkdown(sanitizeLatex(text));
       setCopiedId(item.id);
       setTimeout(() => setCopiedId(null), 2000);
     } catch {}

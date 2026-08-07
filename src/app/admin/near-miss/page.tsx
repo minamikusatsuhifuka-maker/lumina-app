@@ -1,6 +1,6 @@
 'use client';
 import { useState, useEffect } from 'react';
-import { copyToClipboard } from '@/lib/copyToClipboard';
+import { copyRichMarkdown } from '@/lib/rich-copy';
 import { renderMarkdown } from '@/lib/markdown-renderer';
 
 const REPORT_TYPES = [
@@ -690,7 +690,7 @@ export default function NearMissPage() {
                   <div className="markdown-body" style={{ fontSize: '13px', color: '#374151' }} dangerouslySetInnerHTML={{ __html: renderMarkdown(monthlySummary) }} />
                 </div>
                 <button
-                  onClick={() => { copyToClipboard(`${monthlyYear}年${monthlyMonth}月 チームまとめ\n\n${monthlySummary}`); }}
+                  onClick={() => { copyRichMarkdown(`${monthlyYear}年${monthlyMonth}月 チームまとめ\n\n${monthlySummary}`); }}
                   style={{ fontSize: '12px', color: '#7c3aed', background: 'none', border: 'none', cursor: 'pointer', fontWeight: 'bold' }}
                 >
                   📋 コピーする

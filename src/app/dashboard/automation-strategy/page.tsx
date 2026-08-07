@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { copyToClipboard } from '@/lib/copyToClipboard';
+import { copyRichMarkdown } from '@/lib/rich-copy';
 import { triggerDownload } from '@/lib/download';
 import { renderMarkdown } from '@/lib/markdown-renderer';
 import {
@@ -724,7 +724,7 @@ export default function AutomationStrategyPage() {
                   </span>
                   {strategyOutput && !isGeneratingStrategy && (
                     <div style={{ display: 'flex', gap: 8 }}>
-                      <button onClick={() => copyToClipboard(strategyOutput)}
+                      <button onClick={() => copyRichMarkdown(strategyOutput)}
                         style={{ fontSize: 12, padding: '5px 10px', border: '1px solid var(--border-color)', borderRadius: 6, background: 'var(--bg-primary)', cursor: 'pointer' }}>
                         📋 コピー
                       </button>
@@ -793,7 +793,7 @@ export default function AutomationStrategyPage() {
                   <span style={{ fontSize: 14, fontWeight: 700, color: '#059669' }}>📄 対話レポート</span>
                   <div style={{ display: 'flex', gap: 8 }}>
                     <button
-                      onClick={() => copyToClipboard(reportOutput)}
+                      onClick={() => copyRichMarkdown(reportOutput)}
                       style={{ fontSize: 12, padding: '5px 10px', border: '1px solid var(--border-color)', borderRadius: 6, background: 'var(--bg-primary)', cursor: 'pointer' }}
                     >
                       📋 コピー

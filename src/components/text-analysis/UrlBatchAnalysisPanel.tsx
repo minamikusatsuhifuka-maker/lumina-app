@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { getSavedModel } from '@/lib/model-preference';
-import { copyToClipboard } from '@/lib/copyToClipboard';
+import { copyRichMarkdown } from '@/lib/rich-copy';
 import { renderMarkdown } from '@/lib/markdown-renderer';
 
 // 既存の analyze API の type と対応
@@ -410,7 +410,7 @@ export default function UrlBatchAnalysisPanel() {
                         <button
                           type="button"
                           onClick={() =>
-                            copyToClipboard(a.content)
+                            copyRichMarkdown(a.content)
                           }
                           className="text-xs px-3 py-1.5 border rounded-lg text-gray-600 hover:bg-gray-50"
                         >

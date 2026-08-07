@@ -22,6 +22,7 @@ import {
 } from '@/lib/kindle-limits';
 import { stripLeadingChapterHeading } from '@/lib/kindle-text';
 import { triggerDownload } from '@/lib/download';
+import { copyRichMarkdown } from '@/lib/rich-copy';
 import {
   applyProofreadFix,
   countPendingIssues,
@@ -282,6 +283,8 @@ function KindleWizardInner() {
 
   /* ⑥ 巻末「全章まとめ」トグル（既定ON） */
   const [includeBookSummary, setIncludeBookSummary] = useState(true);
+  // 232: ⑥本文のリッチコピー（Word等に体裁付きで貼れる）の完了フィードバック
+  const [outputCopied, setOutputCopied] = useState(false);
 
   /* ⑥ 画像（226 Phase1: 表紙＋章扉） */
   const [imageModal, setImageModal] = useState<{ slot: 'cover' | 'chapter'; chapter?: WizardChapter } | null>(null);
@@ -1698,6 +1701,19 @@ function KindleWizardInner() {
         <div>
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 10, alignItems: 'center' }}>
             <span style={{ fontSize: 16, fontWeight: 700, color: 'var(--text-primary)', marginRight: 'auto' }}>✅ {bookTitle}（全{chapters.length}章・{(book?.currentWordCount ?? 0).toLocaleString()}字）</span>
+            {/* 232: 本全体のリッチコピー（MDダウンロードと同一内容。Word等には体裁付きで貼れる） */}
+            <button
+              onClick={async () => {
+                const ok = await copyRichMarkdown(`# ${bookTitle}\n\n${fullMarkdownBody}`);
+                if (ok) {
+                  setOutputCopied(true);
+                  setTimeout(() => setOutputCopied(false), 2000);
+                }
+              }}
+              style={ghostBtn}
+            >
+              {outputCopied ? '✅ コピー済み' : '📋 コピー'}
+            </button>
             <button onClick={downloadMd} style={ghostBtn}>📥 Markdown</button>
             <button onClick={downloadTxt} style={ghostBtn}>📥 テキスト</button>
             <button onClick={downloadDocx} style={primaryBtn}>📥 Word (.docx)</button>

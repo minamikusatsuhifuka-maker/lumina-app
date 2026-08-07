@@ -13,7 +13,7 @@
 import { useEffect, useRef, useState, type CSSProperties } from 'react';
 import { createPortal } from 'react-dom';
 import FullscreenReader from '@/components/text-analysis/FullscreenReader';
-import { copyToClipboard } from '@/lib/copyToClipboard';
+import { copyRichMarkdown } from '@/lib/rich-copy';
 import { renderMarkdown, sanitizeLatex } from '@/lib/markdown-renderer';
 import { sanitizeFilename, yyyymmdd } from '@/lib/title-generator';
 import { triggerDownload } from '@/lib/download';
@@ -503,7 +503,7 @@ export default function NoteBundleModal({
   };
 
   const handleCopy = async (r: ArticleResult) => {
-    await copyToClipboard(sanitizeLatex(r.content));
+    await copyRichMarkdown(sanitizeLatex(r.content));
     setCopiedId(r.localId);
     setTimeout(() => setCopiedId(null), 2000);
   };

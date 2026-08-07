@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { copyToClipboard } from '@/lib/copyToClipboard';
+import { copyRichMarkdown } from '@/lib/rich-copy';
 import { renderMarkdown } from '@/lib/markdown-renderer';
 import ContextSelector, {
   buildContextText,
@@ -1041,7 +1041,7 @@ export default function BusinessStudioPage() {
                         <button
                           type="button"
                           onClick={() =>
-                            copyToClipboard(generatedContent)
+                            copyRichMarkdown(generatedContent)
                           }
                           style={{
                             fontSize: 12,
@@ -1217,7 +1217,7 @@ export default function BusinessStudioPage() {
                           <button
                             type="button"
                             onClick={() =>
-                              copyToClipboard(asset.content)
+                              copyRichMarkdown(asset.content)
                             }
                             style={{
                               fontSize: 12,

@@ -14,7 +14,7 @@ import {
   sanitizeFilename,
   yyyymmdd,
 } from '@/lib/title-generator';
-import { copyToClipboard } from '@/lib/copyToClipboard';
+import { copyRichMarkdown } from '@/lib/rich-copy';
 import { triggerDownload } from '@/lib/download';
 import {
   loadFeatureDraft,
@@ -999,7 +999,7 @@ export default function NoteArticleGenerationPage() {
                 📥 MDダウンロード
               </button>
               <button
-                onClick={() => copyToClipboard(currentContent)}
+                onClick={() => copyRichMarkdown(currentContent)}
                 style={{
                   padding: '6px 14px',
                   background: 'var(--bg-secondary)',

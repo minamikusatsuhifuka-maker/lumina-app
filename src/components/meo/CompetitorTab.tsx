@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
-import { copyToClipboard } from '@/lib/copyToClipboard';
+import { copyRichMarkdown } from '@/lib/rich-copy';
 import { renderMarkdown } from '@/lib/markdown-renderer';
 import {
   card,
@@ -202,7 +202,7 @@ export default function CompetitorTab() {
                 dangerouslySetInnerHTML={{ __html: renderMarkdown(a.result) }}
               />
               <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
-                <button onClick={() => copyToClipboard(a.result)} style={smallBtn}>
+                <button onClick={() => copyRichMarkdown(a.result)} style={smallBtn}>
                   コピー
                 </button>
                 <button onClick={() => removeAnalysis(a.id)} style={{ ...smallBtn, color: '#b91c1c' }}>

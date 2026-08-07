@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-import { copyToClipboard } from '@/lib/copyToClipboard';
+import { copyRichMarkdown } from '@/lib/rich-copy';
 import { renderMarkdown } from '@/lib/markdown-renderer';
 
 const TREATMENT_CATEGORIES = [
@@ -1151,7 +1151,7 @@ export default function PricingStrategyPage() {
                     <div style={{ display: 'flex', gap: 8 }}>
                       <button
                         onClick={() =>
-                          copyToClipboard(analysisResult)
+                          copyRichMarkdown(analysisResult)
                         }
                         style={{
                           fontSize: 12,

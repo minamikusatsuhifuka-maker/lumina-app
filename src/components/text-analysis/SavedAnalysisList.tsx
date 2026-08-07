@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useToast } from '@/components/ui/Toast';
 import { copyToClipboard } from '@/lib/copyToClipboard';
+import { copyRichMarkdown } from '@/lib/rich-copy';
 import { renderMarkdown, sanitizeLatex } from '@/lib/markdown-renderer';
 import { sanitizeFilename, yyyymmdd } from '@/lib/title-generator';
 import { triggerDownload } from '@/lib/download';
@@ -544,7 +545,7 @@ export default function SavedAnalysisList({
       return;
     }
     // コピー内容にも LaTeX 正規化を適用（$\rightarrow$ 等を残さない）
-    const success = await copyToClipboard(sanitizeLatex(text));
+    const success = await copyRichMarkdown(text);
     if (success) {
       setCopiedId(record.id);
       showToast('コピーしました', 'success');

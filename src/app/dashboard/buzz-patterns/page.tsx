@@ -1,6 +1,6 @@
 'use client';
 import { useState, useEffect, useMemo } from 'react';
-import { copyToClipboard } from '@/lib/copyToClipboard';
+import { copyRichMarkdown } from '@/lib/rich-copy';
 import { renderMarkdown } from '@/lib/markdown-renderer';
 
 const CATEGORIES = [
@@ -370,7 +370,7 @@ export default function BuzzPatternsPage() {
             <div style={{ display: 'flex', gap: 8, marginTop: 20, flexWrap: 'wrap' }}>
               <button
                 onClick={() => {
-                  copyToClipboard(selectedPattern.content);
+                  copyRichMarkdown(selectedPattern.content);
                   alert('コピーしました');
                 }}
                 style={{

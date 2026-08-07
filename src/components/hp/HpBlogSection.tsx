@@ -9,7 +9,7 @@
 //        ②⛶全画面（FullscreenReader流用） ③画像プロンプト起案の主題反映は /api/eyecatch/prompt 側で是正
 
 import { useState } from 'react';
-import { copyToClipboard } from '@/lib/copyToClipboard';
+import { copyRichMarkdown } from '@/lib/rich-copy';
 import { triggerDownload } from '@/lib/download';
 import { renderMarkdown, sanitizeLatex } from '@/lib/markdown-renderer';
 import { sanitizeFilename, yyyymmdd } from '@/lib/title-generator';
@@ -355,7 +355,7 @@ export default function HpBlogSection() {
             </button>
             <button
               type="button"
-              onClick={() => { copyToClipboard(sanitizeLatex(article)); setCopiedMd(true); setTimeout(() => setCopiedMd(false), 2000); }}
+              onClick={() => { copyRichMarkdown(sanitizeLatex(article)); setCopiedMd(true); setTimeout(() => setCopiedMd(false), 2000); }}
               style={btn('var(--bg-secondary)', false)}
             >
               {copiedMd ? '✅ コピー済み' : '📋 コピー'}
@@ -408,7 +408,7 @@ export default function HpBlogSection() {
           <>
             <button
               type="button"
-              onClick={() => { copyToClipboard(sanitizeLatex(article)); setCopiedMd(true); setTimeout(() => setCopiedMd(false), 2000); }}
+              onClick={() => { copyRichMarkdown(sanitizeLatex(article)); setCopiedMd(true); setTimeout(() => setCopiedMd(false), 2000); }}
               style={btn('var(--bg-secondary)', false)}
             >
               {copiedMd ? '✅ コピー済み' : '📋 コピー'}

@@ -1,7 +1,7 @@
 'use client';
 import { useState, useEffect } from 'react';
 import { RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, Radar, Tooltip } from 'recharts';
-import { copyToClipboard } from '@/lib/copyToClipboard';
+import { copyRichMarkdown } from '@/lib/rich-copy';
 import { renderMarkdown } from '@/lib/markdown-renderer';
 
 const GRADE_COLORS: Record<string, string> = {
@@ -365,7 +365,7 @@ export default function StaffEvaluationPage() {
                       <>
                         <div className="markdown-body" style={{ fontSize: 13, color: 'var(--text-primary)', padding: '10px 12px', background: 'var(--bg-card)', borderRadius: 8, border: '1px solid var(--border)', marginBottom: 8 }} dangerouslySetInnerHTML={{ __html: renderMarkdown(promotionMessage) }} />
                         <div style={{ display: 'flex', gap: 8 }}>
-                          <button onClick={() => copyToClipboard(promotionMessage).then(() => setMessage('📋 コピーしました！'))}
+                          <button onClick={() => copyRichMarkdown(promotionMessage).then(() => setMessage('📋 コピーしました！'))}
                             style={{ padding: '5px 14px', borderRadius: 8, border: 'none', background: '#4ade80', color: '#000', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>
                             📋 コピー
                           </button>

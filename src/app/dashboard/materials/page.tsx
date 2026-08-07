@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { parseSSEStream } from '@/lib/streamUtils';
-import { copyToClipboard } from '@/lib/copyToClipboard';
+import { copyRichMarkdown } from '@/lib/rich-copy';
 import { renderMarkdown } from '@/lib/markdown-renderer';
 
 // 資料作成（コンテキストライブラリ連携対応・最小実装）
@@ -151,7 +151,7 @@ export default function MaterialsPage() {
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
             <span style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-primary)' }}>📊 生成結果</span>
             <button
-              onClick={() => copyToClipboard(output)}
+              onClick={() => copyRichMarkdown(output)}
               style={{ padding: '6px 14px', background: 'var(--bg-primary)', border: '1px solid var(--border)', color: 'var(--text-secondary)', borderRadius: 6, cursor: 'pointer', fontSize: 12 }}
             >
               📋 コピー

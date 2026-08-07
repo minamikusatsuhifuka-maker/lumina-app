@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { getSavedModel } from '@/lib/model-preference';
 import { sanitizeFilename, yyyymmdd } from '@/lib/title-generator';
-import { copyToClipboard } from '@/lib/copyToClipboard';
+import { copyRichMarkdown } from '@/lib/rich-copy';
 import { triggerDownload } from '@/lib/download';
 import { renderMarkdown } from '@/lib/markdown-renderer';
 
@@ -383,7 +383,7 @@ function TopicResultCard({
   const copyText = async (text: string, level: 'beginner' | 'expert') => {
     if (!text) return;
     try {
-      await copyToClipboard(text);
+      await copyRichMarkdown(text);
       setCopied(level);
       setTimeout(() => setCopied(null), 1500);
     } catch {}

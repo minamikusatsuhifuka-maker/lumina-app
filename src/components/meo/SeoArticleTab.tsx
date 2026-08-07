@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { copyToClipboard } from '@/lib/copyToClipboard';
+import { copyRichMarkdown } from '@/lib/rich-copy';
 import { renderMarkdown } from '@/lib/markdown-renderer';
 import {
   loadFeatureDraft,
@@ -233,7 +233,7 @@ export default function SeoArticleTab({ initialKeyword }: { initialKeyword?: str
             dangerouslySetInnerHTML={{ __html: renderMarkdown(content) }}
           />
           <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
-            <button onClick={() => copyToClipboard(content)} style={smallBtn}>
+            <button onClick={() => copyRichMarkdown(content)} style={smallBtn}>
               コピー
             </button>
             <button onClick={downloadMd} style={smallBtn}>
@@ -269,7 +269,7 @@ export default function SeoArticleTab({ initialKeyword }: { initialKeyword?: str
                 />
               </details>
               <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
-                <button onClick={() => copyToClipboard(h.content)} style={smallBtn}>
+                <button onClick={() => copyRichMarkdown(h.content)} style={smallBtn}>
                   コピー
                 </button>
                 <button onClick={() => remove(h.id)} style={{ ...smallBtn, color: '#b91c1c' }}>
