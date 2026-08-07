@@ -7,6 +7,7 @@ import { checkMedicalAd, MEDICAL_AD_NG_RULES } from '@/lib/medical-ad-check';
 import { getNoteStyle, NOTE_COMMON_RULES } from '@/lib/note-styles';
 import { NOTE_WRITING_DESIGN } from '@/lib/note-writing';
 import { getMyStylePrompt } from '@/lib/my-style-server';
+import { verifyContent } from '@/lib/content-verify';
 
 export const runtime = 'nodejs';
 export const maxDuration = 300;
@@ -122,8 +123,12 @@ ${NOTE_WRITING_DESIGN}
     const titleMatch = /^#\s+(.+)$/m.exec(content);
     const title = (titleMatch?.[1] ?? materialTitle ?? 'note記事').trim().slice(0, 80);
     const adCheck = await checkMedicalAd(content);
+    // 233②: 内容検証（素材照合＋禁止表現・AI不使用の辞書/文字列照合）。
+    // ad_check（Geminiの文脈判断）と併記する＝観点は同じでも判定方式が違うため補い合う。
+    // 素材なし（メモのみ）のときは素材照合をスキップし、禁止表現だけ返る。
+    const verify = verifyContent(content, [materialText, memo.join('\n')]);
 
-    return NextResponse.json({ content, title, ad_check: adCheck, style: style.key });
+    return NextResponse.json({ content, title, ad_check: adCheck, verify, style: style.key });
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : '不明なエラー';
     console.error('[note-quick/article] error:', message);

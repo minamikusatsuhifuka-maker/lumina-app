@@ -40,6 +40,7 @@ import {
   type KindleProofreadIssue,
 } from '@/lib/kindle-proofread';
 import { ProofreadDiffPane, type AppliedFix } from '@/components/proofread/ProofreadDiffPane';
+import { findBannedExpressions, type UngroundedTerm, type BannedExpression } from '@/lib/content-verify';
 import {
   hasChapterEndSummary,
   buildChapterSummaryBlock,
@@ -119,6 +120,23 @@ interface WizardChapter {
   targetWordCount: number;
   content: string | null;
   status: string;
+}
+
+/* 233②: /api/kindle/wizard/verify のレスポンス（素材照合＋禁止表現・表示のみ） */
+interface KindleVerifyChapter {
+  chapterId: number;
+  chapterNumber: number;
+  title: string;
+  ungrounded: UngroundedTerm[];
+  banned: BannedExpression[];
+}
+interface KindleVerifyResponse {
+  chapters: KindleVerifyChapter[];
+  materialCount: number;
+  groundingSkipped: boolean;
+  totalUngrounded: number;
+  totalBanned: number;
+  ranAt: string;
 }
 
 const statusIcon = (s: string) => (s === 'completed' ? '✅' : s === 'failed' ? '❌' : s === 'writing' ? '⏳' : '⬜');
@@ -289,6 +307,13 @@ function KindleWizardInner() {
   const [diffTarget, setDiffTarget] = useState<WizardChapter | null>(null);
   const proofStartedRef = useRef(false);
 
+  /* ⑤ 内容検証（233②: 素材照合＋禁止表現。AI呼び出しなし・表示のみ） */
+  const [verify, setVerify] = useState<KindleVerifyResponse | null>(null);
+  const [verifyBusy, setVerifyBusy] = useState(false);
+  const [verifyError, setVerifyError] = useState('');
+  const [verifyOpenId, setVerifyOpenId] = useState<number | null>(null);
+  const verifyStartedRef = useRef(false);
+
   /* ⑤ 章まとめ（227【A】【B】） */
   const [expandedSummaryId, setExpandedSummaryId] = useState<number | null>(null);
   const [summaryBusyId, setSummaryBusyId] = useState<number | null>(null);
@@ -443,6 +468,15 @@ function KindleWizardInner() {
       })
       .catch((e) => setError(e.message));
   }, [searchParams, loadBook]);
+
+  /* 233②: 本が切り替わったら内容検証の結果と自動実行フラグをリセット
+     （別の本の警告が残って見えるのを防ぐ＝fail-closed） */
+  useEffect(() => {
+    verifyStartedRef.current = false;
+    setVerify(null);
+    setVerifyError('');
+    setVerifyOpenId(null);
+  }, [bookId]);
 
   /* 生成中の離脱警告 */
   useEffect(() => {
@@ -883,6 +917,52 @@ function KindleWizardInner() {
     proofStartedRef.current = true;
     runProofread();
   }, [step, generating, proofreading, bookId, book, chapters, runProofread]);
+
+  /* ── ⑤.7 内容検証（233②: 素材照合＋禁止表現） ──
+     AI呼び出しゼロなので全章完了時に自動実行してよい（校正キューと違い数百msで返る）。
+     結果はDBに保存せず画面表示のみ＝本文は絶対に書き換えない（RULES.md R-26）。 */
+  const runVerify = useCallback(async () => {
+    if (!bookId || verifyBusy) return;
+    setVerifyBusy(true);
+    setVerifyError('');
+    try {
+      const res = await fetch('/api/kindle/wizard/verify', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ bookId }),
+      });
+      const data = await res.json().catch(() => ({}));
+      // fail-closed: 失敗時は前回結果を残さない（「警告0件」に見えるのがいちばん危ない）
+      if (!res.ok) {
+        setVerify(null);
+        setVerifyError(data.error || `内容検証に失敗 (${res.status})`);
+        return;
+      }
+      setVerify(data as KindleVerifyResponse);
+    } catch (e: any) {
+      setVerify(null);
+      setVerifyError(String(e?.message || e));
+    } finally {
+      setVerifyBusy(false);
+    }
+  }, [bookId, verifyBusy]);
+
+  // 全章完了の検知→自動で内容検証（本ロード1回につき1度。🔄で再実行できる）
+  // ⑥からの復帰（?bookId= で allDone なら step=6 に入る）でも走らせる＝出力直前に必ず結果がある
+  useEffect(() => {
+    if ((step !== 5 && step !== 6) || generating || !bookId || chapters.length === 0) return;
+    if (!chapters.every((c) => c.status === 'completed')) return;
+    if (verifyStartedRef.current) return;
+    verifyStartedRef.current = true;
+    runVerify();
+  }, [step, generating, bookId, chapters, runVerify]);
+
+  // 校正提案（suggestion）への禁止表現チェック（233②「校正提案・生成本文の双方に適用」）。
+  // 純関数なのでクライアントで実行できる＝提案リストを開いた時点で即バッジが出る。
+  const suggestionBanned = useCallback(
+    (issue: KindleProofreadIssue) => findBannedExpressions(issue.suggestion, { maxResults: 3 }),
+    [],
+  );
 
   /* ── 227【A】【B】: まとめパネルの操作 ── */
   const openSummaryPanel = (c: WizardChapter) => {
@@ -1782,6 +1862,12 @@ function KindleWizardInner() {
                                   <div>− <span style={{ color: '#ef4444' }}>{issue.original}</span></div>
                                   <div>＋ <span style={{ color: '#22c55e' }}>{issue.suggestion}</span></div>
                                   <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4 }}>{issue.reason}</div>
+                                  {/* 233②: 提案そのものが禁止表現になっていないかの辞書チェック（表示のみ・適用は止めない） */}
+                                  {suggestionBanned(issue).map((b, bi) => (
+                                    <div key={bi} style={{ fontSize: 11, color: '#f59e0b', marginTop: 4, lineHeight: 1.6 }}>
+                                      ⚠️ この提案に禁止表現の疑い「{b.matched}」（{b.category}）— {b.reason}
+                                    </div>
+                                  ))}
                                 </div>
                               </div>
                             );
@@ -1925,6 +2011,103 @@ function KindleWizardInner() {
             </div>
           )}
 
+          {/* 🔎 内容検証（233②: 素材照合＋禁止表現／AI不使用・表示のみ・自動修正しない） */}
+          {allDone && (
+            <div style={{ marginBottom: 16, padding: 14, background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 12, maxWidth: 720 }}>
+              <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', marginBottom: 8 }}>
+                <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-primary)' }}>🔎 内容の検証（確認用・自動修正はしません）</span>
+                <button onClick={runVerify} disabled={verifyBusy} style={{ ...smallBtn, marginLeft: 'auto', opacity: verifyBusy ? 0.5 : 1 }}>
+                  {verifyBusy ? '検証中...' : '🔄 再検証'}
+                </button>
+              </div>
+
+              {verifyError ? (
+                <div style={{ fontSize: 12, color: '#dc2626' }}>⚠️ 検証できませんでした: {verifyError}</div>
+              ) : verifyBusy && !verify ? (
+                <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>本文と素材を照合しています...</div>
+              ) : !verify ? (
+                <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>全章の生成完了後に自動で実行されます</div>
+              ) : (
+                <>
+                  <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap', fontSize: 12, marginBottom: 8 }}>
+                    <span style={{ color: verify.totalUngrounded > 0 ? '#f59e0b' : '#22c55e' }}>
+                      {verify.totalUngrounded > 0 ? `⚠️ 素材にない記述 ${verify.totalUngrounded}件` : '✅ 素材にない記述なし'}
+                    </span>
+                    <span style={{ color: verify.totalBanned > 0 ? '#f59e0b' : '#22c55e' }}>
+                      {verify.totalBanned > 0 ? `⚠️ 禁止表現の疑い ${verify.totalBanned}件` : '✅ 禁止表現の疑いなし'}
+                    </span>
+                    <span style={{ color: 'var(--text-muted)' }}>素材{verify.materialCount}件と照合</span>
+                  </div>
+
+                  {verify.groundingSkipped && (
+                    <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 8 }}>
+                      素材本文を取得できなかったため、素材照合はスキップしました（禁止表現チェックのみ実施）
+                    </div>
+                  )}
+
+                  {verify.totalUngrounded === 0 && verify.totalBanned === 0 ? (
+                    <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>指摘はありませんでした</div>
+                  ) : (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                      {verify.chapters
+                        .filter((v) => v.ungrounded.length > 0 || v.banned.length > 0)
+                        .map((v) => (
+                          <div key={v.chapterId} style={{ background: 'var(--bg-primary)', border: '1px solid var(--border)', borderRadius: 8 }}>
+                            <button
+                              onClick={() => setVerifyOpenId(verifyOpenId === v.chapterId ? null : v.chapterId)}
+                              style={{ width: '100%', display: 'flex', gap: 8, alignItems: 'center', padding: '8px 12px', background: 'none', border: 'none', cursor: 'pointer', textAlign: 'left' }}
+                            >
+                              <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--accent)', flexShrink: 0 }}>第{v.chapterNumber}章</span>
+                              <span style={{ flex: 1, minWidth: 0, fontSize: 12, color: 'var(--text-secondary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{v.title}</span>
+                              {v.ungrounded.length > 0 && <span style={{ fontSize: 11, color: '#f59e0b', flexShrink: 0 }}>素材にない記述{v.ungrounded.length}件</span>}
+                              {v.banned.length > 0 && <span style={{ fontSize: 11, color: '#ef4444', flexShrink: 0 }}>禁止表現{v.banned.length}件</span>}
+                              <span style={{ fontSize: 11, color: 'var(--text-muted)', flexShrink: 0 }}>{verifyOpenId === v.chapterId ? '▲' : '▼'}</span>
+                            </button>
+                            {verifyOpenId === v.chapterId && (
+                              <div style={{ padding: '0 12px 10px', borderTop: '1px solid var(--border)' }}>
+                                {v.banned.length > 0 && (
+                                  <div style={{ marginTop: 8 }}>
+                                    <div style={{ fontSize: 11, fontWeight: 700, color: '#ef4444', marginBottom: 4 }}>禁止表現の疑い</div>
+                                    <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                                      {v.banned.map((b, i) => (
+                                        <div key={i} style={{ fontSize: 11, lineHeight: 1.7, color: 'var(--text-secondary)' }}>
+                                          <span style={{ fontWeight: 700, color: '#ef4444' }}>「{b.matched}」</span>
+                                          <span style={{ color: 'var(--text-muted)' }}>（{b.category}{b.count > 1 ? `・${b.count}箇所` : ''}）</span>
+                                          <div style={{ color: 'var(--text-muted)' }}>{b.reason}</div>
+                                          <div style={{ color: 'var(--text-muted)', opacity: 0.8 }}>{b.context}</div>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  </div>
+                                )}
+                                {v.ungrounded.length > 0 && (
+                                  <div style={{ marginTop: 10 }}>
+                                    <div style={{ fontSize: 11, fontWeight: 700, color: '#f59e0b', marginBottom: 4 }}>素材にない記述（誤検出も含みます。事実か確認してください）</div>
+                                    <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                                      {v.ungrounded.map((u, i) => (
+                                        <div key={i} style={{ fontSize: 11, lineHeight: 1.7, color: 'var(--text-secondary)' }}>
+                                          <span style={{ fontWeight: 700, color: '#f59e0b' }}>「{u.term}」</span>
+                                          <span style={{ color: 'var(--text-muted)' }}>（{u.kind}{u.count > 1 ? `・${u.count}箇所` : ''}）</span>
+                                          <div style={{ color: 'var(--text-muted)', opacity: 0.8 }}>{u.context}</div>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  </div>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                        ))}
+                    </div>
+                  )}
+                  <div style={{ fontSize: 10, color: 'var(--text-muted)', marginTop: 10, lineHeight: 1.6 }}>
+                    辞書と文字列照合による機械チェックです（AIは使いません）。誤検出があるため自動での修正・削除はしません。修正が必要なときは「✏️ 編集」から直してください。
+                  </div>
+                </>
+              )}
+            </div>
+          )}
+
           <div style={{ fontSize: 11, color: 'var(--text-muted)', maxWidth: 560, lineHeight: 1.6 }}>
             章は1章ずつ順番に生成します（前の章の流れを引き継ぐため）。途中で閉じても、このページに戻れば未生成の章から再開できます。
             {book?.bookMeta?.preset === 'standard' && (
@@ -1960,6 +2143,19 @@ function KindleWizardInner() {
             <button onClick={() => setShowToNote(true)} style={ghostBtn}>📝 noteに展開</button>
             <button onClick={downloadDocx} style={primaryBtn}>📥 Word (.docx)</button>
           </div>
+
+          {/* 233②: 出力直前の内容検証サマリー（詳細は⑤の「🔎 内容の検証」／表示のみ） */}
+          {verify && (verify.totalUngrounded > 0 || verify.totalBanned > 0) && (
+            <div style={{ marginBottom: 12, padding: '10px 14px', background: 'rgba(245,158,11,0.06)', border: '1px solid rgba(245,158,11,0.3)', borderRadius: 10, fontSize: 12, lineHeight: 1.8, color: 'var(--text-secondary)' }}>
+              <span style={{ fontWeight: 700, color: '#f59e0b' }}>⚠️ 出力前の確認</span>
+              <div>
+                {verify.totalUngrounded > 0 && <>素材にない記述 <strong>{verify.totalUngrounded}件</strong>　</>}
+                {verify.totalBanned > 0 && <>禁止表現の疑い <strong>{verify.totalBanned}件</strong>　</>}
+                <button onClick={() => setStep(5)} style={{ ...smallBtn, marginLeft: 4 }}>⑤で内容を確認する</button>
+              </div>
+              <div style={{ fontSize: 10, color: 'var(--text-muted)' }}>機械チェックのため誤検出を含みます。修正するかどうかは院長が判断してください（自動修正はしません）。</div>
+            </div>
+          )}
 
           {/* 229B: 🔗関連note記事（この本から展開した記事＋素材にしたnote記事） */}
           {(() => {

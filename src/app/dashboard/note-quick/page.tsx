@@ -14,6 +14,7 @@ import { saveImageToGallery } from '@/lib/gallery-client';
 import NoteEnhancePanel from '@/components/note-enhance/NoteEnhancePanel';
 import { emptyNoteEnhance, type NoteEnhanceState, type NoteFigure } from '@/lib/note-enhance';
 import { NOTE_STYLES, NOTE_STYLE_KEYS, type NoteStyleKey } from '@/lib/note-styles';
+import type { ContentVerifyResult } from '@/lib/content-verify';
 
 type Length = 'short' | 'medium' | 'long';
 
@@ -66,7 +67,13 @@ export default function NoteQuickPage() {
   const [steps, setSteps] = useState<Record<StepKey, { status: StepStatus; note?: string }>>({
     article: { status: 'idle' }, summary: { status: 'idle' }, summaryImage: { status: 'idle' }, figure: { status: 'idle' }, placement: { status: 'idle' },
   });
-  const [result, setResult] = useState<{ title: string; content: string; adCheck: { status: string; findings: string[] } | null } | null>(null);
+  const [result, setResult] = useState<{
+    title: string;
+    content: string;
+    adCheck: { status: string; findings: string[] } | null;
+    // 233②: 素材照合＋禁止表現の機械チェック（AI不使用・表示のみ）
+    verify: ContentVerifyResult | null;
+  } | null>(null);
   const [enhance, setEnhance] = useState<NoteEnhanceState>(emptyNoteEnhance());
   const [error, setError] = useState('');
 
@@ -137,7 +144,7 @@ export default function NoteQuickPage() {
       if (!res.ok || !data.content) throw new Error(data.error || `記事生成に失敗 (${res.status})`);
       content = data.content;
       title = data.title || 'note記事';
-      setResult({ title, content, adCheck: data.ad_check ?? null });
+      setResult({ title, content, adCheck: data.ad_check ?? null, verify: data.verify ?? null });
       setStep('article', 'done', `${String(content.length)}字`);
     } catch (e) {
       setStep('article', 'error', e instanceof Error ? e.message : String(e));
@@ -438,6 +445,46 @@ export default function NoteQuickPage() {
           )}
           {result.adCheck && result.adCheck.status === 'ok' && (
             <div style={{ marginBottom: 12, fontSize: 11, color: '#10b981' }}>✅ 医療広告チェック: 問題なし</div>
+          )}
+          {/* 233②: 内容検証（素材照合＋禁止表現／AI不使用の機械チェック・表示のみ） */}
+          {result.verify && (
+            <div style={{ marginBottom: 12, padding: '8px 12px', background: 'var(--bg-primary)', border: '1px solid var(--border)', borderRadius: 8, fontSize: 11, lineHeight: 1.7, color: 'var(--text-secondary)' }}>
+              <div style={{ fontWeight: 700, color: 'var(--text-secondary)', marginBottom: 2 }}>🔎 内容の検証（機械チェック・自動修正はしません）</div>
+              {result.verify.banned.length === 0 && result.verify.ungrounded.length === 0 ? (
+                <div style={{ color: '#10b981' }}>
+                  ✅ 禁止表現・素材にない記述は見つかりませんでした
+                  {result.verify.groundingSkipped && <span style={{ color: 'var(--text-muted)' }}>（メモのみのため素材照合はスキップ）</span>}
+                </div>
+              ) : (
+                <>
+                  {result.verify.banned.length > 0 && (
+                    <div style={{ marginTop: 4 }}>
+                      <span style={{ color: '#ef4444', fontWeight: 700 }}>⚠️ 禁止表現の疑い {result.verify.banned.length}件</span>
+                      <ul style={{ margin: '2px 0 0', paddingLeft: 18 }}>
+                        {result.verify.banned.map((b, i) => (
+                          <li key={i}>
+                            「{b.matched}」（{b.category}）— {b.reason}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                  {result.verify.ungrounded.length > 0 && (
+                    <div style={{ marginTop: 6 }}>
+                      <span style={{ color: '#f59e0b', fontWeight: 700 }}>⚠️ 素材にない記述 {result.verify.ungrounded.length}件</span>
+                      <span style={{ color: 'var(--text-muted)' }}>（誤検出も含みます。事実か確認してください）</span>
+                      <ul style={{ margin: '2px 0 0', paddingLeft: 18 }}>
+                        {result.verify.ungrounded.map((u, i) => (
+                          <li key={i}>
+                            「{u.term}」（{u.kind}{u.count > 1 ? `・${u.count}箇所` : ''}）<span style={{ color: 'var(--text-muted)' }}>{u.context}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
           )}
           <div style={{ fontSize: 16, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 8 }}>{result.title}</div>
           <div style={{ padding: 14, background: 'var(--bg-primary)', border: '1px solid var(--border)', borderRadius: 8, maxHeight: 320, overflowY: 'auto', fontSize: 13, lineHeight: 1.85, color: 'var(--text-secondary)', whiteSpace: 'pre-wrap', wordBreak: 'break-word', marginBottom: 12 }}>
