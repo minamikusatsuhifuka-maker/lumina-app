@@ -244,13 +244,16 @@ function KindleWizardInner() {
   const [sourceTab, setSourceTab] = useState<KindleMaterialSource>('deepresearch');
 
   /* ②③ 設定 */
-  const [purposeKey, setPurposeKey] = useState<KindlePurposeKey | null>(null);
+  // 225a: 複数目的（221案ii）。選択順を保持する配列＋④で表示中の目的（タブ）。
+  // 単一選択時の挙動（seriesKey=null・従来フロー）は完全互換
+  const [purposeKeys, setPurposeKeys] = useState<KindlePurposeKey[]>([]);
+  const [activePurpose, setActivePurpose] = useState<KindlePurposeKey | null>(null);
   const [styleKey, setStyleKey] = useState<KindleStyleKey>(DEFAULT_KINDLE_STYLE);
   const [theme, setTheme] = useState('');
 
-  /* ④ 目次 */
-  const [outline, setOutline] = useState<Outline | null>(null);
-  const [outlineLoading, setOutlineLoading] = useState(false);
+  /* ④ 目次（225a: 目的ごとに分岐＝purposeKeyキーのRecord） */
+  const [outlines, setOutlines] = useState<Record<string, Outline | null>>({});
+  const [outlineLoading, setOutlineLoading] = useState<Record<string, boolean>>({});
   const [creating, setCreating] = useState(false);
 
   /* ⑤⑥ 本 */
@@ -500,17 +503,17 @@ function KindleWizardInner() {
   };
 
   /* ── ④ 目次生成・編集 ── */
-  const generateOutline = async () => {
-    if (!purposeKey) return;
+  // 225a: 目的1つぶんの目次生成（複数目的は呼び出し側が直列に回す）
+  const generateOutline = async (purpose: KindlePurposeKey) => {
     setError('');
-    setOutlineLoading(true);
+    setOutlineLoading((prev) => ({ ...prev, [purpose]: true }));
     try {
       const res = await fetch('/api/kindle/outline', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           sourceIds: Array.from(selectedIds),
-          purposeKey,
+          purposeKey: purpose,
           styleKey,
           preset: 'leadmagnet',
           theme: theme.trim() || undefined,
@@ -518,22 +521,35 @@ function KindleWizardInner() {
       });
       const data = await res.json();
       if (!res.ok || data.error) throw new Error(data.error || `目次生成に失敗しました (${res.status})`);
-      setOutline(data);
+      setOutlines((prev) => ({ ...prev, [purpose]: data }));
     } catch (e: any) {
-      setError(e.message);
+      setError(`${KINDLE_PURPOSES[purpose].label}の目次: ${e.message}`);
     } finally {
-      setOutlineLoading(false);
+      setOutlineLoading((prev) => ({ ...prev, [purpose]: false }));
     }
   };
 
-  const updateChapter = (idx: number, patch: Partial<OutlineChapter>) => {
-    setOutline((prev) =>
-      prev ? { ...prev, chapters: prev.chapters.map((c, i) => (i === idx ? { ...c, ...patch } : c)) } : prev,
-    );
+  // 未生成の目的ぶんを直列生成（③→④遷移時・部分成功=失敗した目的は④タブから個別再生成）
+  const generateMissingOutlines = async () => {
+    for (const p of purposeKeys) {
+      if (!outlines[p]) {
+        // eslint-disable-next-line no-await-in-loop
+        await generateOutline(p);
+      }
+    }
   };
-  const moveChapter = (idx: number, dir: -1 | 1) => {
-    setOutline((prev) => {
-      if (!prev) return prev;
+
+  const patchOutline = (purpose: KindlePurposeKey, updater: (prev: Outline) => Outline) => {
+    setOutlines((prev) => (prev[purpose] ? { ...prev, [purpose]: updater(prev[purpose]!) } : prev));
+  };
+  const updateChapter = (purpose: KindlePurposeKey, idx: number, patch: Partial<OutlineChapter>) => {
+    patchOutline(purpose, (prev) => ({
+      ...prev,
+      chapters: prev.chapters.map((c, i) => (i === idx ? { ...c, ...patch } : c)),
+    }));
+  };
+  const moveChapter = (purpose: KindlePurposeKey, idx: number, dir: -1 | 1) => {
+    patchOutline(purpose, (prev) => {
       const next = [...prev.chapters];
       const j = idx + dir;
       if (j < 0 || j >= next.length) return prev;
@@ -541,45 +557,67 @@ function KindleWizardInner() {
       return { ...prev, chapters: next };
     });
   };
-  const deleteChapter = (idx: number) => {
-    setOutline((prev) => {
-      if (!prev || prev.chapters.length <= 1) return prev;
+  const deleteChapter = (purpose: KindlePurposeKey, idx: number) => {
+    setOutlines((prev) => {
+      const o = prev[purpose];
+      if (!o || o.chapters.length <= 1) return prev;
       if (!confirm(`第${idx + 1}章を削除しますか？`)) return prev;
-      return { ...prev, chapters: prev.chapters.filter((_, i) => i !== idx) };
+      return { ...prev, [purpose]: { ...o, chapters: o.chapters.filter((_, i) => i !== idx) } };
     });
   };
 
+  // 225a: 目的ごとに1冊ずつ作成（直列）。複数目的時のみ共通seriesKeyで束ねる（単一時はnull=従来互換）。
+  // 先頭の1冊で⑤へ入り、残りは「作成中の本」（シリーズ束ね表示）から1冊ずつ進める
   const confirmOutline = async () => {
-    if (!outline || !purposeKey) return;
-    if (outline.chapters.some((c) => !c.title.trim())) {
-      setError('章タイトルが空の章があります');
-      return;
+    if (purposeKeys.length === 0) return;
+    for (const p of purposeKeys) {
+      const o = outlines[p];
+      if (!o) {
+        setError(`${KINDLE_PURPOSES[p].label}の目次がまだ生成されていません（④のタブで生成してください）`);
+        return;
+      }
+      if (o.chapters.some((c) => !c.title.trim())) {
+        setError(`${KINDLE_PURPOSES[p].label}の目次に章タイトルが空の章があります`);
+        return;
+      }
     }
     setError('');
     setCreating(true);
     try {
-      // 並び替え・削除を反映して章番号を連番に振り直す
-      const normalized = {
-        ...outline,
-        chapters: outline.chapters.map((c, i) => ({ ...c, chapter_num: i + 1 })),
-      };
-      const res = await fetch('/api/kindle/wizard/create', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          outline: normalized,
-          sourceIds: Array.from(selectedIds),
-          purposeKey,
-          styleKey,
-          preset: 'leadmagnet',
-        }),
-      });
-      const data = await res.json();
-      if (!res.ok || data.error) throw new Error(data.error || `作成に失敗しました (${res.status})`);
-      setBookId(data.bookId);
-      await loadBook(data.bookId);
+      const seriesKey = purposeKeys.length > 1 ? `wz-${crypto.randomUUID()}` : null;
+      const createdIds: number[] = [];
+      for (const p of purposeKeys) {
+        const o = outlines[p]!;
+        // 並び替え・削除を反映して章番号を連番に振り直す
+        const normalized = {
+          ...o,
+          chapters: o.chapters.map((c, i) => ({ ...c, chapter_num: i + 1 })),
+        };
+        // eslint-disable-next-line no-await-in-loop
+        const res = await fetch('/api/kindle/wizard/create', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            outline: normalized,
+            sourceIds: Array.from(selectedIds),
+            purposeKey: p,
+            styleKey,
+            preset: 'leadmagnet',
+            seriesKey,
+          }),
+        });
+        // eslint-disable-next-line no-await-in-loop
+        const data = await res.json();
+        if (!res.ok || data.error) {
+          throw new Error(`${KINDLE_PURPOSES[p].label}: ${data.error || `作成に失敗しました (${res.status})`}${createdIds.length > 0 ? `（作成済みの${createdIds.length}冊は「作成中の本」に残っています）` : ''}`);
+        }
+        createdIds.push(data.bookId);
+      }
+      const firstId = createdIds[0];
+      setBookId(firstId);
+      await loadBook(firstId);
       // 以降はDBが正: リロード・離脱しても ?bookId= で復帰できる
-      router.replace(`/dashboard/kindle-wizard?bookId=${data.bookId}`);
+      router.replace(`/dashboard/kindle-wizard?bookId=${firstId}`);
       setStep(5);
     } catch (e: any) {
       setError(e.message);
@@ -1201,29 +1239,59 @@ function KindleWizardInner() {
   return (
     // paddingBottom: 右下固定フッターにコンテンツ末尾が隠れないよう余白を確保
     <div style={{ paddingBottom: 96 }}>
-      <h1 style={{ fontSize: 28, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 4 }}>📖 Kindle本づくり</h1>
+      <h1 style={{ fontSize: 28, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 4 }}>📕 Kindle本づくり</h1>
       <p style={{ color: 'var(--text-muted)', marginBottom: 16 }}>
         ディープリサーチ結果やnote記事を束ねて、目的別のKindle本（まずはリードマグネット）を作成します。
       </p>
 
-      {/* 作成中の本（復帰導線） */}
+      {/* 作成中の本（復帰導線。225a: seriesKeyで束ね表示＋目的バッジ） */}
       {!bookId && wizardBooks.length > 0 && (
         <div style={{ marginBottom: 20, padding: 14, background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 12 }}>
           <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 8 }}>✍️ 作成中の本</div>
-          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-            {wizardBooks.map((b) => (
-              <button
-                key={b.id}
-                onClick={() => router.push(`/dashboard/kindle-wizard?bookId=${b.id}`)}
-                style={{ ...ghostBtn, display: 'flex', gap: 8, alignItems: 'center' }}
-              >
-                <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{(b.title || '無題').slice(0, 24)}</span>
-                <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>
-                  {(b.currentWordCount ?? 0).toLocaleString()}字 → 続きから
-                </span>
-              </button>
-            ))}
-          </div>
+          {(() => {
+            // seriesKeyごとにグルーピング（nullは従来どおり単独扱い）
+            const groups = new Map<string | null, any[]>();
+            for (const b of wizardBooks) {
+              const key = typeof b?.bookMeta?.seriesKey === 'string' && b.bookMeta.seriesKey ? b.bookMeta.seriesKey : null;
+              if (key === null) {
+                groups.set(`single-${b.id}`, [b]);
+              } else {
+                groups.set(key, [...(groups.get(key) ?? []), b]);
+              }
+            }
+            const bookBtn = (b: any) => {
+              const p = KINDLE_PURPOSES[b?.bookMeta?.purposeKey as KindlePurposeKey];
+              return (
+                <button
+                  key={b.id}
+                  onClick={() => router.push(`/dashboard/kindle-wizard?bookId=${b.id}`)}
+                  style={{ ...ghostBtn, display: 'flex', gap: 8, alignItems: 'center' }}
+                >
+                  {p && <span style={{ fontSize: 11 }} title={p.label}>{p.emoji}</span>}
+                  <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{(b.title || '無題').slice(0, 24)}</span>
+                  <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>
+                    {(b.currentWordCount ?? 0).toLocaleString()}字 → 続きから
+                  </span>
+                </button>
+              );
+            };
+            return (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                {[...groups.entries()].map(([key, books]) =>
+                  books.length > 1 ? (
+                    <div key={key} style={{ padding: '8px 10px', border: '1px dashed var(--border)', borderRadius: 10 }}>
+                      <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 6 }}>
+                        📕 同じ素材から作ったシリーズ（{books.length}冊）
+                      </div>
+                      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>{books.map(bookBtn)}</div>
+                    </div>
+                  ) : (
+                    <div key={key} style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>{books.map(bookBtn)}</div>
+                  ),
+                )}
+              </div>
+            );
+          })()}
         </div>
       )}
 
@@ -1354,12 +1422,25 @@ function KindleWizardInner() {
       {/* ── ② 目的を選ぶ ── */}
       {step === 2 && (
         <div>
-          <p style={{ fontSize: 14, color: 'var(--text-secondary)', marginBottom: 14 }}>この本の目的を1つ選んでください（構成・訴求・巻末CTAが変わります）</p>
+          <p style={{ fontSize: 14, color: 'var(--text-secondary)', marginBottom: 14 }}>
+            この本の目的を選んでください（構成・訴求・巻末CTAが変わります）。
+            <strong>複数選ぶと、同じ素材から目的ごとに1冊ずつ＝シリーズとして作成します</strong>（目次は目的別に生成・編集できます）
+          </p>
           <div className="grid grid-cols-1 md:grid-cols-2" style={{ gap: 12, marginBottom: 20 }}>
             {KINDLE_PURPOSE_KEYS.map((key) => {
               const p = KINDLE_PURPOSES[key];
               return (
-                <button key={key} onClick={() => setPurposeKey(key)} style={cardBtn(purposeKey === key)}>
+                <button
+                  key={key}
+                  onClick={() =>
+                    setPurposeKeys((prev) => {
+                      const next = prev.includes(key) ? prev.filter((k) => k !== key) : [...prev, key];
+                      setActivePurpose(next[0] ?? null);
+                      return next;
+                    })
+                  }
+                  style={cardBtn(purposeKeys.includes(key))}
+                >
                   <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 4 }}>
                     {p.emoji} {p.label}
                   </div>
@@ -1415,60 +1496,97 @@ function KindleWizardInner() {
         </div>
       )}
 
-      {/* ── ④ 目次を生成・編集 ── */}
+      {/* ── ④ 目次を生成・編集（225a: 目的ごとにタブで分岐） ── */}
       {step === 4 && (
         <div>
-          {outlineLoading ? (
-            <div style={{ textAlign: 'center', padding: 60, color: 'var(--text-muted)' }}>
-              <div style={{ fontSize: 40, marginBottom: 12 }}>🪄</div>
-              素材{selectedIds.size}件から目次を生成中...（1分前後かかります）
-            </div>
-          ) : !outline ? (
-            <div style={{ textAlign: 'center', padding: 40 }}>
-              <button onClick={generateOutline} style={primaryBtn}>🪄 目次を生成する</button>
-            </div>
-          ) : (
-            <div>
-              <div style={{ marginBottom: 16 }}>
-                <p style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 4 }}>書籍タイトル（編集可）</p>
-                <input
-                  value={outline.book_title}
-                  onChange={(e) => setOutline({ ...outline, book_title: e.target.value })}
-                  style={{ width: '100%', maxWidth: 720, padding: '10px 14px', background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 8, color: 'var(--text-primary)', fontSize: 15, fontWeight: 700, outline: 'none', boxSizing: 'border-box' }}
-                />
-                {outline.subtitle && <p style={{ fontSize: 13, color: 'var(--text-secondary)', marginTop: 6 }}>{outline.subtitle}</p>}
-                {outline.target_reader && <p style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 4 }}>👤 {outline.target_reader}</p>}
-              </div>
-
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 16 }}>
-                {outline.chapters.map((c, idx) => (
-                  <div key={idx} style={{ padding: 12, background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 10 }}>
-                    <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 6 }}>
-                      <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--accent)', flexShrink: 0 }}>第{idx + 1}章</span>
-                      <input
-                        value={c.title}
-                        onChange={(e) => updateChapter(idx, { title: e.target.value })}
-                        style={{ flex: 1, minWidth: 0, padding: '6px 10px', background: 'var(--bg-primary)', border: '1px solid var(--border)', borderRadius: 6, color: 'var(--text-primary)', fontSize: 13, fontWeight: 600, outline: 'none' }}
-                      />
-                      <button onClick={() => moveChapter(idx, -1)} disabled={idx === 0} style={{ ...smallBtn, opacity: idx === 0 ? 0.4 : 1 }} title="上へ">↑</button>
-                      <button onClick={() => moveChapter(idx, 1)} disabled={idx === outline.chapters.length - 1} style={{ ...smallBtn, opacity: idx === outline.chapters.length - 1 ? 0.4 : 1 }} title="下へ">↓</button>
-                      <button onClick={() => deleteChapter(idx)} disabled={outline.chapters.length <= 1} style={{ ...smallBtn, color: '#ef4444', borderColor: 'rgba(239,68,68,0.3)' }} title="この章を削除">🗑</button>
-                    </div>
-                    <div style={{ fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.6, marginBottom: 6 }}>{c.summary}</div>
-                    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
-                      <span style={{ fontSize: 10, color: 'var(--text-muted)' }}>目標{(c.target_chars ?? 3500).toLocaleString()}字</span>
-                      {(c.source_ids ?? []).map((sid) => (
-                        <span key={sid} style={{ fontSize: 10, padding: '1px 8px', borderRadius: 8, background: 'rgba(139,92,246,0.1)', color: '#8b5cf6' }}>
-                          {sourceEmojiById.get(sid) ?? '📄'} {String(titleById.get(sid) ?? sid).slice(0, 18)}
-                        </span>
-                      ))}
-                    </div>
-                  </div>
-                ))}
-              </div>
-
+          {/* 目的タブ（複数目的時のみ表示。単一時は従来と同じ見た目） */}
+          {purposeKeys.length > 1 && (
+            <div style={{ display: 'flex', gap: 6, marginBottom: 14, flexWrap: 'wrap' }}>
+              {purposeKeys.map((p) => {
+                const meta = KINDLE_PURPOSES[p];
+                const ready = !!outlines[p];
+                const active = activePurpose === p;
+                return (
+                  <button
+                    key={p}
+                    onClick={() => setActivePurpose(p)}
+                    style={{
+                      padding: '7px 16px', borderRadius: 99, fontSize: 12, cursor: 'pointer',
+                      fontWeight: active ? 700 : 400,
+                      background: active ? 'var(--accent-soft)' : 'var(--bg-secondary)',
+                      border: `1px solid ${active ? 'var(--accent)' : 'var(--border)'}`,
+                      color: active ? 'var(--text-primary)' : 'var(--text-muted)',
+                    }}
+                  >
+                    {meta.emoji} {meta.label}{outlineLoading[p] ? ' 🪄...' : ready ? ' ✓' : ' （未生成）'}
+                  </button>
+                );
+              })}
             </div>
           )}
+          {(() => {
+            const p = activePurpose ?? purposeKeys[0] ?? null;
+            if (!p) return null;
+            const outline = outlines[p] ?? null;
+            if (outlineLoading[p]) {
+              return (
+                <div style={{ textAlign: 'center', padding: 60, color: 'var(--text-muted)' }}>
+                  <div style={{ fontSize: 40, marginBottom: 12 }}>🪄</div>
+                  素材{selectedIds.size}件から{KINDLE_PURPOSES[p].label}の目次を生成中...（1分前後かかります）
+                </div>
+              );
+            }
+            if (!outline) {
+              return (
+                <div style={{ textAlign: 'center', padding: 40 }}>
+                  <button onClick={() => generateOutline(p)} style={primaryBtn}>🪄 {KINDLE_PURPOSES[p].label}の目次を生成する</button>
+                </div>
+              );
+            }
+            return (
+              <div>
+                <div style={{ marginBottom: 16 }}>
+                  <p style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 4 }}>
+                    書籍タイトル（編集可）{purposeKeys.length > 1 && ` — ${KINDLE_PURPOSES[p].emoji} ${KINDLE_PURPOSES[p].label}の1冊`}
+                  </p>
+                  <input
+                    value={outline.book_title}
+                    onChange={(e) => patchOutline(p, (prev) => ({ ...prev, book_title: e.target.value }))}
+                    style={{ width: '100%', maxWidth: 720, padding: '10px 14px', background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 8, color: 'var(--text-primary)', fontSize: 15, fontWeight: 700, outline: 'none', boxSizing: 'border-box' }}
+                  />
+                  {outline.subtitle && <p style={{ fontSize: 13, color: 'var(--text-secondary)', marginTop: 6 }}>{outline.subtitle}</p>}
+                  {outline.target_reader && <p style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 4 }}>👤 {outline.target_reader}</p>}
+                </div>
+
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 16 }}>
+                  {outline.chapters.map((c, idx) => (
+                    <div key={idx} style={{ padding: 12, background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 10 }}>
+                      <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 6 }}>
+                        <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--accent)', flexShrink: 0 }}>第{idx + 1}章</span>
+                        <input
+                          value={c.title}
+                          onChange={(e) => updateChapter(p, idx, { title: e.target.value })}
+                          style={{ flex: 1, minWidth: 0, padding: '6px 10px', background: 'var(--bg-primary)', border: '1px solid var(--border)', borderRadius: 6, color: 'var(--text-primary)', fontSize: 13, fontWeight: 600, outline: 'none' }}
+                        />
+                        <button onClick={() => moveChapter(p, idx, -1)} disabled={idx === 0} style={{ ...smallBtn, opacity: idx === 0 ? 0.4 : 1 }} title="上へ">↑</button>
+                        <button onClick={() => moveChapter(p, idx, 1)} disabled={idx === outline.chapters.length - 1} style={{ ...smallBtn, opacity: idx === outline.chapters.length - 1 ? 0.4 : 1 }} title="下へ">↓</button>
+                        <button onClick={() => deleteChapter(p, idx)} disabled={outline.chapters.length <= 1} style={{ ...smallBtn, color: '#ef4444', borderColor: 'rgba(239,68,68,0.3)' }} title="この章を削除">🗑</button>
+                      </div>
+                      <div style={{ fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.6, marginBottom: 6 }}>{c.summary}</div>
+                      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+                        <span style={{ fontSize: 10, color: 'var(--text-muted)' }}>目標{(c.target_chars ?? 3500).toLocaleString()}字</span>
+                        {(c.source_ids ?? []).map((sid) => (
+                          <span key={sid} style={{ fontSize: 10, padding: '1px 8px', borderRadius: 8, background: 'rgba(139,92,246,0.1)', color: '#8b5cf6' }}>
+                            {sourceEmojiById.get(sid) ?? '📄'} {String(titleById.get(sid) ?? sid).slice(0, 18)}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            );
+          })()}
         </div>
       )}
 
@@ -2079,8 +2197,12 @@ function KindleWizardInner() {
         {step === 2 && (
           <>
             <button onClick={() => setStep(1)} style={ghostBtn}>← 戻る</button>
-            <button onClick={() => purposeKey && setStep(3)} disabled={!purposeKey} style={{ ...primaryBtn, opacity: purposeKey ? 1 : 0.5, cursor: purposeKey ? 'pointer' : 'not-allowed' }}>
-              {purposeKey ? `${KINDLE_PURPOSES[purposeKey].emoji} ${KINDLE_PURPOSES[purposeKey].label}で次へ →` : '目的を選んでください'}
+            <button onClick={() => purposeKeys.length > 0 && setStep(3)} disabled={purposeKeys.length === 0} style={{ ...primaryBtn, opacity: purposeKeys.length > 0 ? 1 : 0.5, cursor: purposeKeys.length > 0 ? 'pointer' : 'not-allowed' }}>
+              {purposeKeys.length === 0
+                ? '目的を選んでください'
+                : purposeKeys.length === 1
+                  ? `${KINDLE_PURPOSES[purposeKeys[0]].emoji} ${KINDLE_PURPOSES[purposeKeys[0]].label}で次へ →`
+                  : `${purposeKeys.map((p) => KINDLE_PURPOSES[p].emoji).join('')} ${purposeKeys.length}目的（${purposeKeys.length}冊）で次へ →`}
             </button>
           </>
         )}
@@ -2090,7 +2212,8 @@ function KindleWizardInner() {
             <button
               onClick={() => {
                 setStep(4);
-                if (!outline) generateOutline();
+                setActivePurpose((prev) => prev ?? purposeKeys[0] ?? null);
+                generateMissingOutlines();
               }}
               style={primaryBtn}
             >
@@ -2101,16 +2224,30 @@ function KindleWizardInner() {
         {step === 4 && (
           <>
             <button onClick={() => setStep(3)} style={ghostBtn}>← 戻る</button>
-            {outline && !outlineLoading && (
-              <>
-                <button onClick={() => { if (confirm('目次を再生成しますか？（現在の編集内容は破棄されます）')) generateOutline(); }} style={ghostBtn}>
-                  🔄 再生成
-                </button>
-                <button onClick={confirmOutline} disabled={creating} style={{ ...primaryBtn, opacity: creating ? 0.5 : 1 }}>
-                  {creating ? '作成中...' : `この目次で確定（全${outline.chapters.length}章）→`}
-                </button>
-              </>
-            )}
+            {(() => {
+              const p = activePurpose ?? purposeKeys[0] ?? null;
+              const current = p ? outlines[p] : null;
+              const readyAll = purposeKeys.length > 0 && purposeKeys.every((k) => !!outlines[k] && !outlineLoading[k]);
+              const totalChapters = purposeKeys.reduce((sum, k) => sum + (outlines[k]?.chapters.length ?? 0), 0);
+              return (
+                <>
+                  {p && current && !outlineLoading[p] && (
+                    <button onClick={() => { if (confirm(`${KINDLE_PURPOSES[p].label}の目次を再生成しますか？（この目的の編集内容は破棄されます）`)) generateOutline(p); }} style={ghostBtn}>
+                      🔄 再生成{purposeKeys.length > 1 ? `（${KINDLE_PURPOSES[p].label}）` : ''}
+                    </button>
+                  )}
+                  {readyAll && (
+                    <button onClick={confirmOutline} disabled={creating} style={{ ...primaryBtn, opacity: creating ? 0.5 : 1 }}>
+                      {creating
+                        ? '作成中...'
+                        : purposeKeys.length === 1
+                          ? `この目次で確定（全${totalChapters}章）→`
+                          : `この目次で確定（${purposeKeys.length}冊・合計${totalChapters}章）→`}
+                    </button>
+                  )}
+                </>
+              );
+            })()}
           </>
         )}
         {step === 5 && (

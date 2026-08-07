@@ -84,7 +84,7 @@ export async function GET(req: NextRequest) {
     FROM kindle_books
     WHERE user_id = ${userId}
     ORDER BY updated_at DESC
-    LIMIT 20
+    LIMIT 50
   `;
   return NextResponse.json({ books: books.map(toCamelBook) });
 }

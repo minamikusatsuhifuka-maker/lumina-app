@@ -86,7 +86,8 @@ export async function POST(req: NextRequest) {
       preset,
       purposeKey: getKindlePurpose(purposeKey).key,
       styleKey: getKindleStyle(styleKey).key,
-      seriesKey: typeof seriesKey === 'string' && seriesKey ? seriesKey : null,
+      // 225a: fail-closed検証（wz-uuid形式の英数ハイフンのみ・64字まで。不正値はnull=束ねなし）
+      seriesKey: typeof seriesKey === 'string' && /^[\w-]{1,64}$/.test(seriesKey) ? seriesKey : null,
       sourceIds,
       chapterSourceRefs,
     };

@@ -643,7 +643,7 @@ export default function KindleStudioPage() {
       <ProgressBar loading={outlineProgressLoading || writeProgressLoading} progress={activeStudioTab === 'outline' ? outlineProgress : writeProgress} label={activeStudioTab === 'outline' ? '構成案を生成中...' : '章を執筆中...'} />
 
       <h1 style={{ fontSize: 28, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 4 }}>
-        📚 Kindle出版自動化スタジオ
+        📙 Kindle出版自動化スタジオ
       </h1>
       <p style={{ color: 'var(--text-muted)', marginBottom: 16, fontSize: 14 }}>
         AIが本の構成案を作成し、各章を自動執筆。KDP出版に必要な全データを一括生成

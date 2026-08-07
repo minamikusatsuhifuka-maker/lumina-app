@@ -523,7 +523,7 @@ export default function KindlePage() {
       }}>
         <div style={{ padding: 16, borderBottom: '1px solid var(--border)' }}>
           <h2 style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 4 }}>
-            📚 Kindle書籍生成
+            📗 Kindle書籍生成
           </h2>
           <p style={{ fontSize: 10, color: 'var(--text-muted)', marginBottom: 10 }}>AIと対話で書籍自動作成</p>
           <button

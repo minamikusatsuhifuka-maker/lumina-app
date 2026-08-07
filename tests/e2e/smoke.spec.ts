@@ -559,7 +559,7 @@ test('C22: note選択モード中の干渉（214）— 案内表示＋カート�
 test('C23: Kindle本づくりウィザード（223）の開通 — ①素材選択と上限表示が出る', async ({ page }) => {
   // AI生成（目次・本文）はコスト・所要時間のためE2E対象外。画面開通と初期表示のみ検証する
   await page.goto('/dashboard/kindle-wizard');
-  await expect(page.getByRole('heading', { name: '📖 Kindle本づくり' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: '📕 Kindle本づくり' })).toBeVisible();
   // ステップ①の上限表示（10件・150,000字）
   await expect(page.locator('[data-kw-limits]')).toBeVisible();
   await expect(page.locator('[data-kw-limits]')).toContainText('0/10件');
