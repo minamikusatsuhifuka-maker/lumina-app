@@ -193,3 +193,109 @@ test('B10: 用語集（/api/glossary）が完走しterm形で返る @gen', async
   expect(String(json.term.simple).length).toBeGreaterThan(0);
   // DB保存はされない（保存はクライアントのlocalStorage）ため後片付け不要
 });
+
+// ── 228b: note強化パイプラインのサーバ側実地検証 ────────────────────────────
+// 手順を明示的に含む固定記事で summary→描画→figures→図表描画→placement→挿絵→ad-check を完走確認。
+// 挿絵は最安の nano-banana-2（約$0.02/枚）。画像はレスポンス返却のみ＝gallery保存しない（残骸なし）。
+
+const E2E_NOTE_ARTICLE = `# [E2E] 保湿ケアの基本
+
+乾燥する季節は肌のバリア機能が低下しがちです。毎日の保湿ケアで肌を守ることが大切です。
+
+保湿ケアの手順は次のとおりです。まず洗顔でやさしく汚れを落とします。次に化粧水で水分を与えます。最後に保湿剤でうるおいを閉じ込めます。
+
+朝と夜の2回、無理のない範囲で続けることが習慣化のコツです。
+
+まとめると、保湿は特別なことではなく毎日の小さな積み重ねが大切です。`;
+
+test('B13: note強化パイプライン（まとめ→図表→配置→挿絵→広告チェック）が完走する @gen', async ({ request }) => {
+  test.setTimeout(GEN_TIMEOUT);
+
+  // 1) まとめ生成（Claude）
+  const sum = await request.post('/api/note-enhance/summary', {
+    data: { content: E2E_NOTE_ARTICLE, title: '[E2E] 保湿ケアの基本' },
+    timeout: REQ_TIMEOUT,
+  });
+  expect(sum.status()).toBe(200);
+  const sumJson = await sum.json();
+  expect(Array.isArray(sumJson.points)).toBe(true);
+  expect(sumJson.points.length).toBeGreaterThan(0);
+
+  // 2) まとめ画像（og描画・AI不使用）
+  const img = await request.post('/api/note-enhance/summary-image', {
+    data: { title: '[E2E] 保湿ケアの基本｜まとめ', points: sumJson.points, template: 'card' },
+    timeout: REQ_TIMEOUT,
+  });
+  expect(img.status()).toBe(200);
+  expect(String((await img.json()).imageBase64).length).toBeGreaterThan(1000);
+
+  // 3) 図表抽出（Gemini）: 本文に明示的な手順があるため1件以上を期待
+  const figs = await request.post('/api/note-enhance/figures', {
+    data: { content: E2E_NOTE_ARTICLE, title: '[E2E] 保湿ケアの基本' },
+    timeout: REQ_TIMEOUT,
+  });
+  expect(figs.status()).toBe(200);
+  const figsJson = await figs.json();
+  expect(Array.isArray(figsJson.figures)).toBe(true);
+  expect(figsJson.figures.length).toBeGreaterThan(0);
+  const fig = figsJson.figures[0];
+  expect(['steps', 'compare', 'qa', 'beforeafter']).toContain(fig.template);
+  expect(Array.isArray(fig.groups)).toBe(true);
+  expect(fig.groups.length).toBeGreaterThan(0);
+
+  // 4) 図表描画（og・AI不使用・groups経路）
+  const figImg = await request.post('/api/note-enhance/summary-image', {
+    data: { title: fig.title, groups: fig.groups, template: fig.template },
+    timeout: REQ_TIMEOUT,
+  });
+  expect(figImg.status()).toBe(200);
+  expect(String((await figImg.json()).imageBase64).length).toBeGreaterThan(1000);
+
+  // 5) 配置提案（Gemini）: 228a方針 hook最多1＋cta最多1のみが返ること
+  const pl = await request.post('/api/note-enhance/placement', {
+    data: { content: E2E_NOTE_ARTICLE, title: '[E2E] 保湿ケアの基本' },
+    timeout: REQ_TIMEOUT,
+  });
+  expect(pl.status()).toBe(200);
+  const plJson = await pl.json();
+  expect(Array.isArray(plJson.placements)).toBe(true);
+  const slots = plJson.placements.map((p: { slot: string }) => p.slot);
+  expect(slots.filter((s: string) => s === 'hook').length).toBeLessThanOrEqual(1);
+  expect(slots.filter((s: string) => s === 'cta').length).toBeLessThanOrEqual(1);
+  expect(slots.every((s: string) => s === 'hook' || s === 'cta')).toBe(true);
+
+  // 6) 挿絵1枚（nano-banana-2＝最安。サーバ側ガード連結経路の実走）
+  const genImg = await request.post('/api/note-enhance/image', {
+    data: { prompt: '洗面台で保湿ケアをする明るい朝の情景', engine: 'nano-banana-2', styleKey: 'soft-illust' },
+    timeout: REQ_TIMEOUT,
+  });
+  expect(genImg.status()).toBe(200);
+  expect(String((await genImg.json()).imageBase64).length).toBeGreaterThan(1000);
+
+  // 7) 医療広告チェック（fail-open設計のためstatusの形だけassert）
+  const ad = await request.post('/api/note-enhance/ad-check', {
+    data: { content: E2E_NOTE_ARTICLE },
+    timeout: REQ_TIMEOUT,
+  });
+  expect(ad.status()).toBe(200);
+  expect(['ok', 'warn']).toContain((await ad.json()).ad_check.status);
+});
+
+// 未認証は全ルート401（160の「デフォルト保護」規約の担保。AI呼び出し前に弾かれる＝課金なし）
+test.describe('B14: note強化APIの未認証ガード @gen', () => {
+  test.use({ storageState: { cookies: [], origins: [] } });
+  test('B14: 6ルートすべて未認証で401 @gen', async ({ request }) => {
+    const routes = [
+      '/api/note-enhance/summary',
+      '/api/note-enhance/summary-image',
+      '/api/note-enhance/figures',
+      '/api/note-enhance/placement',
+      '/api/note-enhance/image',
+      '/api/note-enhance/ad-check',
+    ];
+    for (const route of routes) {
+      const res = await request.post(route, { data: { content: 'x' } });
+      expect(res.status(), `${route} が未認証で401であること`).toBe(401);
+    }
+  });
+});
