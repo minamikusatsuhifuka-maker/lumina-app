@@ -98,6 +98,9 @@ export function LibraryItemRow({
   const hasClassifyError = !!classifyError && !subCategory;
   const [copied, setCopied] = useState(false);
 
+  // 229B: Kindle→note展開の相互リンク（metadata.sourceBookId → ?bookId= でウィザード復帰）
+  const sourceBookId = typeof meta?.sourceBookId === 'number' ? meta.sourceBookId : undefined;
+
   const groupName = item.group_name || '未分類';
   const config = CATEGORY_CONFIG[groupName] ?? {
     icon: '📄',
@@ -208,6 +211,17 @@ export function LibraryItemRow({
           {createdDate && <span>{createdDate}</span>}
           <span>・</span>
           <span>{charCount.toLocaleString()}文字</span>
+          {/* 229B: Kindle→note展開で保存された記事は元の本へ復帰できる */}
+          {sourceBookId !== undefined && (
+            <a
+              href={`/dashboard/kindle-wizard?bookId=${sourceBookId}`}
+              title="この記事の元になったKindle本をウィザードで開く"
+              style={{ color: 'var(--accent)', textDecoration: 'none' }}
+              onClick={(e) => e.stopPropagation()}
+            >
+              📖 元の本
+            </a>
+          )}
         </div>
 
         {/* 操作ボタン: ホバー時オーバーレイ表示（タッチ端末は常時表示） */}

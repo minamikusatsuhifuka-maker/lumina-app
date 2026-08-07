@@ -24,6 +24,7 @@ import {
 import { stripLeadingChapterHeading } from '@/lib/kindle-text';
 import { triggerDownload } from '@/lib/download';
 import { copyRichMarkdown } from '@/lib/rich-copy';
+import KindleToNoteModal from '@/components/kindle/KindleToNoteModal';
 import {
   applyProofreadFix,
   countPendingIssues,
@@ -286,6 +287,9 @@ function KindleWizardInner() {
   const [includeBookSummary, setIncludeBookSummary] = useState(true);
   // 232: ⑥本文のリッチコピー（Word等に体裁付きで貼れる）の完了フィードバック
   const [outputCopied, setOutputCopied] = useState(false);
+  // 229B: 📝noteに展開モーダルと、このセッションで保存した記事（🔗関連セクションへ即時反映）
+  const [showToNote, setShowToNote] = useState(false);
+  const [sessionNotes, setSessionNotes] = useState<Array<{ id: string; title: string }>>([]);
 
   /* ⑥ 画像（226 Phase1: 表紙＋章扉） */
   const [imageModal, setImageModal] = useState<{ slot: 'cover' | 'chapter'; chapter?: WizardChapter } | null>(null);
@@ -1755,8 +1759,50 @@ function KindleWizardInner() {
             </button>
             <button onClick={downloadMd} style={ghostBtn}>📥 Markdown</button>
             <button onClick={downloadTxt} style={ghostBtn}>📥 テキスト</button>
+            {/* 229B: 章を単体で読み切れるnote記事に展開（保存で相互関連付け） */}
+            <button onClick={() => setShowToNote(true)} style={ghostBtn}>📝 noteに展開</button>
             <button onClick={downloadDocx} style={primaryBtn}>📥 Word (.docx)</button>
           </div>
+
+          {/* 229B: 🔗関連note記事（この本から展開した記事＋素材にしたnote記事） */}
+          {(() => {
+            const savedIds: string[] = Array.isArray(book?.bookMeta?.noteArticleIds) ? book.bookMeta.noteArticleIds : [];
+            const fromBook = [
+              ...savedIds.map((id) => ({ id, title: titleById.get(String(id)) ?? 'note記事（保存済み）' })),
+              ...sessionNotes.filter((n) => !savedIds.includes(n.id)),
+            ];
+            const usedNotes = (Array.isArray(book?.bookMeta?.sourceIds) ? book.bookMeta.sourceIds : [])
+              .map((id: string) => items.find((i) => String(i.id) === String(id)))
+              .filter((i: any) => i && i.type === 'note-article');
+            if (fromBook.length === 0 && usedNotes.length === 0) return null;
+            return (
+              <div style={{ marginBottom: 12, padding: '10px 14px', background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 10, fontSize: 12, lineHeight: 1.9 }}>
+                <span style={{ fontWeight: 700, color: 'var(--text-secondary)' }}>🔗 関連note記事</span>
+                {fromBook.length > 0 && (
+                  <div style={{ color: 'var(--text-muted)' }}>
+                    この本から展開:{' '}
+                    {fromBook.map((n, i) => (
+                      <span key={n.id}>
+                        {i > 0 && '・'}
+                        <a href="/dashboard/library" style={{ color: 'var(--accent)' }}>{n.title}</a>
+                      </span>
+                    ))}
+                  </div>
+                )}
+                {usedNotes.length > 0 && (
+                  <div style={{ color: 'var(--text-muted)' }}>
+                    素材にしたnote記事:{' '}
+                    {usedNotes.map((n: any, i: number) => (
+                      <span key={n.id}>
+                        {i > 0 && '・'}
+                        <a href="/dashboard/library" style={{ color: 'var(--accent)' }}>{n.title || '(無題)'}</a>
+                      </span>
+                    ))}
+                  </div>
+                )}
+              </div>
+            );
+          })()}
 
           {/* 227【B】: 巻末「全章まとめ」トグル（既定ON・未生成章の注記つき） */}
           <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap', marginBottom: 12 }}>
@@ -2090,6 +2136,24 @@ function KindleWizardInner() {
           </>
         )}
       </WizardFooterBar>
+
+      {/* 229B: Kindle→note展開モーダル */}
+      {bookId !== null && (
+        <KindleToNoteModal
+          open={showToNote}
+          onClose={() => setShowToNote(false)}
+          bookId={bookId}
+          bookTitle={bookTitle}
+          kindleStyleKey={book?.bookMeta?.styleKey ?? styleKey}
+          chapters={chapters.map((c) => ({
+            id: c.id,
+            chapterNumber: c.chapterNumber,
+            title: c.title,
+            hasContent: !!(c.content && c.content.trim()),
+          }))}
+          onSaved={(article) => setSessionNotes((prev) => (prev.some((n) => n.id === article.id) ? prev : [...prev, article]))}
+        />
+      )}
     </div>
   );
 }

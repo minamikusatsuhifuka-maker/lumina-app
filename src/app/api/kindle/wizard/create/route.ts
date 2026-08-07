@@ -122,6 +122,33 @@ export async function POST(req: NextRequest) {
       throw chapterErr;
     }
 
+    // 229B: 方向Aの関連付け＝素材にしたnote記事（library）のmetadataへ usedInBookIds を追記。
+    // metadataはTEXT列（JSON文字列）のため読み書きで更新。失敗しても本の作成は成功扱い（ベストエフォート）
+    try {
+      const noteMaterialIds = materials.filter((m) => m.source === 'note-article').map((m) => m.id);
+      for (const libId of noteMaterialIds) {
+        const [row] = await sql`
+          SELECT metadata FROM library WHERE id = ${libId} AND user_id = ${userId}
+        `;
+        if (!row) continue;
+        let meta: Record<string, unknown> = {};
+        try {
+          meta = row.metadata ? JSON.parse(row.metadata) : {};
+        } catch {
+          meta = {};
+        }
+        const used = Array.isArray(meta.usedInBookIds) ? meta.usedInBookIds : [];
+        if (!used.includes(bookId)) {
+          meta.usedInBookIds = [...used, bookId];
+          await sql`
+            UPDATE library SET metadata = ${JSON.stringify(meta)} WHERE id = ${libId} AND user_id = ${userId}
+          `;
+        }
+      }
+    } catch (linkErr) {
+      console.warn('[kindle/wizard/create] usedInBookIds追記に失敗（本の作成は成功）:', linkErr);
+    }
+
     return NextResponse.json({ bookId, chapterCount: chapters.length });
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : String(e);
