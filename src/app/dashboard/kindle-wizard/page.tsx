@@ -26,6 +26,13 @@ import { triggerDownload } from '@/lib/download';
 import { copyRichMarkdown } from '@/lib/rich-copy';
 import KindleToNoteModal from '@/components/kindle/KindleToNoteModal';
 import {
+  KINDLE_ASSET_KINDS,
+  KINDLE_ASSET_META,
+  kindleAssetToText,
+  type KindleAssetKind,
+  type KindleBookAssets,
+} from '@/lib/kindle-assets';
+import {
   applyProofreadFix,
   countPendingIssues,
   KINDLE_ISSUE_BADGE,
@@ -308,6 +315,12 @@ function KindleWizardInner() {
   const [sumImgTemplate, setSumImgTemplate] = useState<SummaryImageTemplateKey>(DEFAULT_SUMMARY_IMAGE_TEMPLATE);
   const [sumImgBusy, setSumImgBusy] = useState<string | null>(null);
   const [sumImgError, setSumImgError] = useState('');
+
+  /* 225b: 出版・販促アセット（⑥・kindle-studio吸収） */
+  const [assetBusy, setAssetBusy] = useState<string | null>(null);
+  const [assetError, setAssetError] = useState('');
+  const [assetOpen, setAssetOpen] = useState<Record<string, boolean>>({});
+  const [assetCopied, setAssetCopied] = useState<string | null>(null);
 
   /* 作成中の本一覧 */
   const [wizardBooks, setWizardBooks] = useState<any[]>([]);
@@ -1054,6 +1067,7 @@ function KindleWizardInner() {
   const bookTitle = book?.title || '無題';
   const bookImages: KindleBookImages = book?.bookMeta?.images ?? {};
   const summaryImages: KindleSummaryImages = book?.bookMeta?.summaryImages ?? {};
+  const bookAssets: KindleBookAssets = book?.bookMeta?.assets ?? {};
   const fullMarkdownBody = useMemo(() => {
     const imgs: KindleBookImages = book?.bookMeta?.images ?? {};
     const sumImgs: KindleSummaryImages = book?.bookMeta?.summaryImages ?? {};
@@ -1198,6 +1212,56 @@ function KindleWizardInner() {
       alert(String(e?.message || e));
     } finally {
       setSumImgBusy(null);
+    }
+  };
+
+  /* 225b: 出版・販促アセットの生成/削除/コピー */
+  const generateAsset = async (kind: KindleAssetKind) => {
+    if (!bookId || assetBusy) return;
+    setAssetBusy(kind);
+    setAssetError('');
+    try {
+      const res = await fetch('/api/kindle/wizard/assets', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ bookId, kind }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || `生成に失敗 (${res.status})`);
+      await loadBook(bookId);
+      setAssetOpen((prev) => ({ ...prev, [kind]: true }));
+    } catch (e: any) {
+      setAssetError(String(e?.message || e));
+    } finally {
+      setAssetBusy(null);
+    }
+  };
+  const deleteAsset = async (kind: KindleAssetKind) => {
+    if (!bookId || assetBusy) return;
+    if (!confirm(`${KINDLE_ASSET_META[kind].label}を削除しますか？（🔄再生成できます）`)) return;
+    setAssetBusy(kind);
+    try {
+      const res = await fetch('/api/kindle/wizard/assets', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ bookId, kind }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || `削除に失敗 (${res.status})`);
+      await loadBook(bookId);
+    } catch (e: any) {
+      setAssetError(String(e?.message || e));
+    } finally {
+      setAssetBusy(null);
+    }
+  };
+  const copyAsset = async (kind: KindleAssetKind) => {
+    const entry = bookAssets[kind];
+    if (!entry) return;
+    const ok = await copyRichMarkdown(`# ${bookTitle}｜${KINDLE_ASSET_META[kind].label}\n\n${kindleAssetToText(kind, entry.data)}`);
+    if (ok) {
+      setAssetCopied(kind);
+      setTimeout(() => setAssetCopied(null), 2000);
     }
   };
 
@@ -2051,6 +2115,59 @@ function KindleWizardInner() {
               {chapters.every((c) => (summaries[String(c.id)]?.points ?? []).length === 0) && (
                 <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>まとめのある章がありません（⑤の「📝 まとめ」で生成すると、ここで画像化できます）</div>
               )}
+            </div>
+          </div>
+
+          {/* 225b: 📣 出版・販促アセット（kindle-studioの販促5機能を吸収。保存先=book_meta.assets） */}
+          <div style={{ marginBottom: 12, padding: 14, background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 12 }}>
+            <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 4 }}>📣 出版・販促アセット</div>
+            <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 10 }}>
+              KDP出版・宣伝に使う素材をこの本の内容（タイトル・章立て・まとめ）から生成します。結果は本に保存され、📋コピーでそのまま使えます。
+            </div>
+            {assetError && <div style={{ marginBottom: 8, fontSize: 12, color: '#dc2626' }}>⚠️ {assetError}</div>}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              {KINDLE_ASSET_KINDS.map((kind) => {
+                const meta = KINDLE_ASSET_META[kind];
+                const entry = bookAssets[kind];
+                const busy = assetBusy === kind;
+                return (
+                  <div key={kind} style={{ padding: '8px 10px', background: 'var(--bg-primary)', border: '1px solid var(--border)', borderRadius: 8 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                      <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-primary)' }} title={meta.hint}>
+                        {meta.emoji} {meta.label}
+                      </span>
+                      {entry && (
+                        <span style={{ fontSize: 10, color: 'var(--text-muted)' }}>
+                          {new Date(entry.generatedAt).toLocaleString('ja-JP', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })} 生成
+                        </span>
+                      )}
+                      <span style={{ marginLeft: 'auto', display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                        <button onClick={() => generateAsset(kind)} disabled={assetBusy !== null} style={smallBtn} title={meta.hint}>
+                          {busy ? '🪄 生成中...' : entry ? '🔄 再生成' : '🪄 生成'}
+                        </button>
+                        {entry && (
+                          <>
+                            <button onClick={() => setAssetOpen((p) => ({ ...p, [kind]: !p[kind] }))} style={smallBtn}>
+                              {assetOpen[kind] ? '▲ 閉じる' : '▼ 開く'}
+                            </button>
+                            <button onClick={() => copyAsset(kind)} style={smallBtn}>
+                              {assetCopied === kind ? '✅ コピー済み' : '📋 コピー'}
+                            </button>
+                            <button onClick={() => deleteAsset(kind)} disabled={assetBusy !== null} style={{ ...smallBtn, color: '#ef4444', borderColor: 'rgba(239,68,68,0.3)' }}>
+                              ✕ 不使用
+                            </button>
+                          </>
+                        )}
+                      </span>
+                    </div>
+                    {entry && assetOpen[kind] && (
+                      <div style={{ marginTop: 8, padding: 10, background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 6, fontSize: 12, lineHeight: 1.8, color: 'var(--text-secondary)', whiteSpace: 'pre-wrap', wordBreak: 'break-word', maxHeight: 360, overflowY: 'auto' }}>
+                        {kindleAssetToText(kind, entry.data)}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
             </div>
           </div>
 
