@@ -332,10 +332,16 @@ test('C17: 一括フォルダ移動（action:bulk_folder）', async ({ request }
 async function selectTwoCrossCards(page: import('@playwright/test').Page) {
   const search = page.getByPlaceholder('🔍 タイトル・本文で検索').filter({ visible: true });
   await search.fill(CROSS_TOKEN);
+  // C19/C20安定化: ポインタクリックは浮遊要素（追従ボタン等）の一時的な重なりで
+  // 「<div> intercepts pointer events」の恒常タイムアウトになることがある（repeat-each 3で再現）。
+  // 実input[type=checkbox]のため focus＋Space のキーボード操作で決定的にトグルする
+  // （onChange発火・実ユーザーのキーボード操作と同経路）。
   for (const id of crossIds) {
-    const card = page.locator(`[data-bundle-key="ana-${id}"]`);
-    await expect(card).toBeVisible();
-    await card.getByRole('checkbox').first().check();
+    const cb = page.locator(`[data-bundle-key="ana-${id}"]`).getByRole('checkbox').first();
+    await expect(cb).toBeVisible();
+    await cb.focus();
+    await page.keyboard.press(' ');
+    await expect(cb).toBeChecked();
   }
   await page.getByRole('button', { name: '🔀 選択した2件を横断分析する' }).click();
 }
@@ -403,15 +409,14 @@ test('C20: note素材選択（180）でプラン画面に到達し、選択し�
     .getByRole('button', { name: '📝 記事にまとめる資料を選ぶ' })
     .filter({ visible: true })
     .click();
-  // 187の「→次へ」追従ボタンはチェックしたカードの直下に出るため、上のカードを先に
-  // チェックすると下のカードのチェックボックスを覆うことがある（flaky要因）。
-  // 一覧の下側（後ろ）から逆順にチェックして重なりを決定的に回避する
-  for (const id of [...crossIds].reverse()) {
-    await page
-      .locator(`[data-bundle-key="ana-${id}"]`)
-      .getByRole('checkbox')
-      .first()
-      .check();
+  // 187の「→次へ」追従ボタン等の浮遊要素がチェックボックスを覆うことがある（flaky要因）。
+  // selectTwoCrossCards と同じく focus＋Space のキーボード操作で決定的にトグルする
+  for (const id of crossIds) {
+    const cb = page.locator(`[data-bundle-key="ana-${id}"]`).getByRole('checkbox').first();
+    await expect(cb).toBeVisible();
+    await cb.focus();
+    await page.keyboard.press(' ');
+    await expect(cb).toBeChecked();
   }
 
   // 追従ボタン → 確認モーダル → 生成モーダル（プラン画面）
@@ -533,9 +538,13 @@ test('C22: note選択モード中の干渉（214）— 案内表示＋カート�
     page.getByText(/note素材の選択モード中です。横断分析の選択は/).filter({ visible: true }).first(),
   ).toBeVisible();
 
-  // 2件をカートに入れる（C20と同じく下から逆順＝追従ボタンの重なり回避）
-  for (const id of [...crossIds].reverse()) {
-    await page.locator(`[data-bundle-key="ana-${id}"]`).getByRole('checkbox').first().check();
+  // 2件をカートに入れる（浮遊要素の遮蔽を避けるためC18〜C20と同じ focus＋Space 方式）
+  for (const id of crossIds) {
+    const cb = page.locator(`[data-bundle-key="ana-${id}"]`).getByRole('checkbox').first();
+    await expect(cb).toBeVisible();
+    await cb.focus();
+    await page.keyboard.press(' ');
+    await expect(cb).toBeChecked();
   }
 
   // 確認モーダルに案④の「🔀 この選択で横断分析する」が出る → 押すと横断分析タブへ本文が渡る
