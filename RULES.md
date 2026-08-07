@@ -97,6 +97,13 @@
 - 検証: `tests/e2e/auth.setup.ts` の storageState に該当フラグが含まれ、同一テストを3回連続で通せること。
 - 初出: 232 / 2026-08-07
 
+## R-32: E2Eで未認証を検証するときは `storageState: { cookies: [], origins: [] }` を明示する
+- 分類: E2E
+- 背景: `request.newContext({ baseURL })` は playwright.config の `use.storageState` を引き継ぐため、
+  認証済みで叩いてしまい「401を検証したつもりが404で落ちる」状態になった。
+- 検証: 未認証テストが401を返すこと。同じリクエストを `curl` で叩いた結果と一致すること。
+- 初出: 233 / 2026-08-08
+
 ## R-13: push 範囲は毎回 `git log --oneline origin/main -3` で確認し、報告に明示する
 - 分類: デプロイ
 - 背景: 想定外のコミットが同梱されたことがあり、報告のコミットハッシュと実際がずれた。

@@ -571,3 +571,22 @@ test('C23: Kindle本づくりウィザード（223）の開通 — ①素材選�
     await expect(page.getByText(label, { exact: true })).toBeVisible();
   }
 });
+
+test('C24: 内容検証API（233②）の契約 — 認証必須・bookId検証・他人の本は404', async () => {
+  // AI呼び出しゼロのルートなので本番に叩いても課金されない。実データを作らずに契約だけを検証する。
+  // 1) 未認証は401（R-31: AI系・データ系ルートは既定で認証必須）
+  // storageState を明示的に空にする（省略すると playwright.config の use.storageState を
+  // 引き継いで認証済みになり、401の検証にならない）
+  const anon = await pwRequest.newContext({ baseURL: BASE_URL, storageState: { cookies: [], origins: [] } });
+  const unauth = await anon.post('/api/kindle/wizard/verify', { data: { bookId: 1 } });
+  expect(unauth.status()).toBe(401);
+  await anon.dispose();
+
+  // 2) bookId欠落は400（fail-closed: 曖昧な入力で成功を返さない）
+  const noId = await api.post('/api/kindle/wizard/verify', { data: {} });
+  expect(noId.status()).toBe(400);
+
+  // 3) 存在しない/他ユーザーの書籍は404（owner検証が効いている）
+  const notFound = await api.post('/api/kindle/wizard/verify', { data: { bookId: 999999999 } });
+  expect(notFound.status()).toBe(404);
+});
