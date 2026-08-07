@@ -83,12 +83,15 @@ const PURPOSE_HINTS: Record<KindlePurposeKey, string> = {
 };
 
 /* 分量プリセット（本便はリードマグネットのみ活性・他は224以降） */
+// 225c: standard解禁。生成は従来どおり1リクエスト=1章（各300s内）×章status駆動レジューム
+// ＝章数が増えるだけでVercel上限内。途中で閉じても?bookId=復帰で残り章から再開できる（222で確立）
 const PRESETS = [
   { key: 'leadmagnet', emoji: '📗', label: 'リードマグネット', detail: '30ページ／2〜3万字（6〜8章）', enabled: true },
-  { key: 'standard', emoji: '📘', label: '標準Kindle本', detail: '80〜120ページ／5〜8万字', enabled: false },
+  { key: 'standard', emoji: '📘', label: '標準Kindle本', detail: '80〜120ページ／5〜8万字（12〜16章・30〜60分）', enabled: true },
   { key: 'flagship', emoji: '📙', label: '本命書籍', detail: '200ページ／10〜15万字', enabled: false },
   { key: 'miniseries', emoji: '📚', label: 'ミニシリーズ', detail: '40ページ×3冊', enabled: false },
 ] as const;
+type WizardPreset = 'leadmagnet' | 'standard';
 
 interface OutlineChapter {
   chapter_num: number;
@@ -256,6 +259,7 @@ function KindleWizardInner() {
   const [purposeKeys, setPurposeKeys] = useState<KindlePurposeKey[]>([]);
   const [activePurpose, setActivePurpose] = useState<KindlePurposeKey | null>(null);
   const [styleKey, setStyleKey] = useState<KindleStyleKey>(DEFAULT_KINDLE_STYLE);
+  const [preset, setPreset] = useState<WizardPreset>('leadmagnet');
   const [theme, setTheme] = useState('');
 
   /* ④ 目次（225a: 目的ごとに分岐＝purposeKeyキーのRecord） */
@@ -528,7 +532,7 @@ function KindleWizardInner() {
           sourceIds: Array.from(selectedIds),
           purposeKey: purpose,
           styleKey,
-          preset: 'leadmagnet',
+          preset,
           theme: theme.trim() || undefined,
         }),
       });
@@ -615,7 +619,7 @@ function KindleWizardInner() {
             sourceIds: Array.from(selectedIds),
             purposeKey: p,
             styleKey,
-            preset: 'leadmagnet',
+            preset,
             seriesKey,
           }),
         });
@@ -1523,7 +1527,13 @@ function KindleWizardInner() {
           <p style={{ fontSize: 14, color: 'var(--text-secondary)', marginBottom: 10 }}>分量プリセット</p>
           <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4" style={{ gap: 12, marginBottom: 20 }}>
             {PRESETS.map((p) => (
-              <button key={p.key} disabled={!p.enabled} style={cardBtn(p.key === 'leadmagnet', !p.enabled)} title={p.enabled ? undefined : '今後のアップデートで対応予定'}>
+              <button
+                key={p.key}
+                disabled={!p.enabled}
+                onClick={() => p.enabled && setPreset(p.key as WizardPreset)}
+                style={cardBtn(p.key === preset, !p.enabled)}
+                title={p.enabled ? undefined : '今後のアップデートで対応予定'}
+              >
                 <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 4 }}>
                   {p.emoji} {p.label}
                   {!p.enabled && <span style={{ marginLeft: 6, fontSize: 10, padding: '2px 8px', borderRadius: 8, background: 'var(--bg-primary)', color: 'var(--text-muted)' }}>準備中</span>}
@@ -1917,6 +1927,11 @@ function KindleWizardInner() {
 
           <div style={{ fontSize: 11, color: 'var(--text-muted)', maxWidth: 560, lineHeight: 1.6 }}>
             章は1章ずつ順番に生成します（前の章の流れを引き継ぐため）。途中で閉じても、このページに戻れば未生成の章から再開できます。
+            {book?.bookMeta?.preset === 'standard' && (
+              <strong style={{ color: '#f59e0b' }}>
+                {' '}標準Kindle本は全章で30〜60分かかります。章ごとに保存されるため、途中で閉じて後から再開しても問題ありません。
+              </strong>
+            )}
           </div>
         </div>
       )}

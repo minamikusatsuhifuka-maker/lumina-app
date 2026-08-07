@@ -19,12 +19,17 @@ import { getKindleStyle } from '@/lib/kindle-styles';
 export const runtime = 'nodejs';
 export const maxDuration = 180;
 
-// 222: 分量プリセット（現在はリードマグネットのみ。追加はここに定義する）
+// 222: 分量プリセット（追加はここに定義する）。225cで standard 解禁
 const WIZARD_PRESETS: Record<string, { label: string; chapterRange: string; charsPerChapter: string }> = {
   leadmagnet: {
     label: 'リードマグネット（登録プレゼント・2〜3万字）',
     chapterRange: '6〜8章',
     charsPerChapter: '3500〜4000',
+  },
+  standard: {
+    label: '標準Kindle本（5〜8万字）',
+    chapterRange: '12〜16章',
+    charsPerChapter: '4200〜5000',
   },
 };
 

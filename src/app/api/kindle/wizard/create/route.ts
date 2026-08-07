@@ -53,8 +53,9 @@ export async function POST(req: NextRequest) {
   if (!KINDLE_STYLE_KEYS.includes(styleKey)) {
     return NextResponse.json({ error: `styleKey が不正です（${KINDLE_STYLE_KEYS.join('/')}）` }, { status: 400 });
   }
-  if (preset !== 'leadmagnet') {
-    return NextResponse.json({ error: '現在対応しているプリセットは leadmagnet のみです' }, { status: 400 });
+  // 225c: standard解禁（生成は従来どおり1リクエスト=1章×status駆動レジューム＝上限内）
+  if (preset !== 'leadmagnet' && preset !== 'standard') {
+    return NextResponse.json({ error: '対応しているプリセットは leadmagnet / standard です' }, { status: 400 });
   }
 
   try {
