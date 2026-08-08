@@ -495,19 +495,36 @@ export default function NoteQuickPage() {
                       </ul>
                     </div>
                   )}
-                  {result.verify.ungrounded.length > 0 && (
-                    <div style={{ marginTop: 6 }}>
-                      <span style={{ color: '#f59e0b', fontWeight: 700 }}>⚠️ 素材にない記述 {result.verify.ungrounded.length}件</span>
-                      <span style={{ color: 'var(--text-muted)' }}>（誤検出も含みます。事実か確認してください）</span>
-                      <ul style={{ margin: '2px 0 0', paddingLeft: 18 }}>
-                        {result.verify.ungrounded.map((u, i) => (
-                          <li key={i}>
-                            「{u.term}」（{u.kind}{u.count > 1 ? `・${u.count}箇所` : ''}）<span style={{ color: 'var(--text-muted)' }}>{u.context}</span>
-                          </li>
-                        ))}
-                      </ul>
-                    </div>
-                  )}
+                  {/* 238【2】【3】: 🔴要確認のみ既定表示・色は視認性の高い #B45309 */}
+                  {(() => {
+                    const high = result.verify.ungrounded.filter((u) => u.priority === 'high');
+                    const low = result.verify.ungrounded.filter((u) => u.priority !== 'high');
+                    if (high.length === 0 && low.length === 0) return null;
+                    return (
+                      <div style={{ marginTop: 6 }}>
+                        {high.length > 0 ? (
+                          <>
+                            <span style={{ color: '#B45309', fontWeight: 700 }}>🔴 要確認の記述 {high.length}件</span>
+                            <span style={{ color: 'var(--text-muted)' }}>（誤検出も含みます。事実か確認してください）</span>
+                            <ul style={{ margin: '2px 0 0', paddingLeft: 18 }}>
+                              {high.map((u, i) => (
+                                <li key={i}>
+                                  「{u.term}」（{u.kind}{u.count > 1 ? `・${u.count}箇所` : ''}）<span style={{ color: 'var(--text-muted)' }}>{u.context}</span>
+                                </li>
+                              ))}
+                            </ul>
+                          </>
+                        ) : (
+                          <span style={{ color: '#15803d' }}>✅ 要確認の記述なし</span>
+                        )}
+                        {low.length > 0 && (
+                          <div style={{ color: 'var(--text-muted)', marginTop: 2 }}>
+                            🟡 参考 {low.length}件（一般的な語のため事実の誤りには直結しにくいもの）: {low.map((u) => u.term).join('・')}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })()}
                 </>
               )}
             </div>

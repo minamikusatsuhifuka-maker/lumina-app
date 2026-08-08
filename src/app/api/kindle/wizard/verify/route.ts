@@ -71,6 +71,11 @@ export async function POST(req: NextRequest) {
 
     const totalUngrounded = results.reduce((s, r) => s + r.ungrounded.length, 0);
     const totalBanned = results.reduce((s, r) => s + r.banned.length, 0);
+    // 238【3】: 優先度別の件数。画面は既定で🔴（要確認）だけを出す
+    const totalUngroundedHigh = results.reduce(
+      (s, r) => s + r.ungrounded.filter((u) => u.priority === 'high').length,
+      0,
+    );
 
     return NextResponse.json({
       success: true,
@@ -78,6 +83,8 @@ export async function POST(req: NextRequest) {
       materialCount: materials.length,
       groundingSkipped: grounds.length === 0,
       totalUngrounded,
+      totalUngroundedHigh,
+      totalUngroundedLow: totalUngrounded - totalUngroundedHigh,
       totalBanned,
       ranAt: new Date().toISOString(),
     });

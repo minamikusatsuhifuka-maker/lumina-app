@@ -18,14 +18,34 @@
 
 export type UngroundedKind = '数値' | 'カタカナ語' | '英字表記' | '機関名' | '人名' | '年号';
 
+/**
+ * 238【3】: 検出の優先度。
+ * - 'high'（🔴 要確認）: 固有名詞・数値・年号・人名 ＝ 事実として誤っていたら害が大きい
+ * - 'low' （🟡 参考）  : その他の語（カタカナ語・英字表記）＝ 表現由来のことが多い
+ * 既定表示は high のみ。low は「参考も表示」で展開する。
+ */
+export type UngroundedPriority = 'high' | 'low';
+
 export interface UngroundedTerm {
   /** 素材に見つからなかった表記（本文に現れる通り） */
   term: string;
   kind: UngroundedKind;
+  priority: UngroundedPriority;
   /** 本文中での出現回数 */
   count: number;
   /** 初出箇所の前後（確認用・30字前後） */
   context: string;
+}
+
+/**
+ * 優先度を決める。機関名・人名・数値・年号は事実の誤りに直結するため常に high。
+ * 英字表記は「ADS」「GLP」のような全大文字の略称だけを high にする
+ * （製品名・技術名の可能性が高い）。小文字混じりの一般語は low。
+ */
+export function priorityOf(kind: UngroundedKind, term = ''): UngroundedPriority {
+  if (kind === '機関名' || kind === '人名' || kind === '数値' || kind === '年号') return 'high';
+  if (kind === '英字表記' && /^[A-Z][A-Z0-9]{1,}$/.test(term.trim())) return 'high';
+  return 'low';
 }
 
 export type BannedCategory =
@@ -116,6 +136,32 @@ const GENERIC_TERMS = new Set(
     'ボリューム', 'クオリティ', 'フォロー', 'ベース', 'メイン', 'サイクル', 'プラン',
     'タイプ', 'グループ', 'システム', 'データ', 'ツール', 'ページ', 'サイト', 'ユーザー',
     'コンテンツ', 'マーケティング', 'ブランド', 'ターゲット', 'リアル', 'オンライン',
+    // 238【3】: 実運用（7章の本で39件検出）で「確認する意味のない語」として挙がったもの、
+    // および同種の日常語・比喩・一般的な科学用語をまとめて追加。
+    // 判断基準は「これが素材に無いと分かっても、院長が何も対処できない語」。
+    // ── 実際に検出されて無意味だった語（院長報告）
+    'ウイルス', 'スイッチ', 'フライパン', 'ショック', 'リセット',
+    // ── 日常の物・場所・行為
+    'タオル', 'シャワー', 'ドライヤー', 'エアコン', 'ヒーター', 'ソファ', 'カーテン',
+    'コップ', 'スプーン', 'カレンダー', 'メモ', 'ノート', 'ポケット', 'カバン', 'ベッド',
+    'テーブル', 'キッチン', 'トイレ', 'リビング', 'ドア', 'スマホ', 'テレビ', 'パソコン',
+    'エレベーター', 'レジ', 'スーパー', 'コンビニ', 'ドラッグストア', 'マスク', 'メガネ',
+    // ── 衣類・素材
+    'シャツ', 'セーター', 'ニット', 'コットン', 'ウール', 'ポリエステル', 'シルク',
+    // ── 比喩・状態・感覚
+    'バリア', 'ダメージ', 'サイン', 'スピード', 'ボタン', 'ブレーキ', 'アクセル',
+    'サイクル', 'ループ', 'ハードル', 'ゴール', 'スタート', 'ラク', 'ストップ',
+    'クッション', 'フィルター', 'ブロック', 'カバー', 'キープ', 'チャンス', 'ミス',
+    'トライ', 'アイデア', 'ヒーロー', 'パワー', 'エネルギー', 'ボリュームゾーン',
+    // ── 一般的な科学・医学の普通名詞（固有の製品名・機関名ではない）
+    'ウィルス', 'バクテリア', 'アレルギー', 'アトピー', 'ステロイド', 'ワクチン',
+    'ホルモン', 'タンパク', 'タンパク質', 'コラーゲン', 'ビタミン', 'ミネラル',
+    'カロリー', 'アルコール', 'ニコチン', 'カフェイン', 'エキス', 'クリーム',
+    'ローション', 'ジェル', 'スプレー', 'シャンプー', 'ボディソープ', 'メイク',
+    'クレンジング', 'ピーリング', 'バリアー', 'ターンオーバー', 'デリバリー',
+    // ── 生活・行動の一般語
+    'ルーティン', 'リズム', 'ペース', 'タイム', 'スケール', 'レシピ', 'メニュー',
+    'トレーニング', 'ストレッチ', 'リラックス', 'リフレッシュ', 'コンディショニング',
     // 汎用英字
     'the', 'and', 'for', 'you', 'not', 'but', 'with', 'this', 'that', 'from', 'are',
     'was', 'can', 'all', 'has', 'have', 'web', 'app', 'ai',
@@ -163,13 +209,25 @@ export function findUngroundedTerms(
 
       const existing = found.get(norm);
       if (existing) existing.count++;
-      else found.set(norm, { term, kind, count: 1, context: contextAround(body, index, term.length) });
+      else found.set(norm, { term, kind, priority: priorityOf(kind, term), count: 1, context: contextAround(body, index, term.length) });
     }
   }
 
+  // 238【3】: 🔴要確認を先頭に。同一優先度内は出現回数の多い順
   return [...found.values()]
-    .sort((a, b) => b.count - a.count || a.term.localeCompare(b.term))
+    .sort((a, b) => {
+      if (a.priority !== b.priority) return a.priority === 'high' ? -1 : 1;
+      return b.count - a.count || a.term.localeCompare(b.term);
+    })
     .slice(0, maxResults);
+}
+
+/** 優先度で仕分ける（画面が既定で🔴のみ出すために使う） */
+export function splitByPriority(terms: UngroundedTerm[]): { high: UngroundedTerm[]; low: UngroundedTerm[] } {
+  return {
+    high: terms.filter((t) => t.priority === 'high'),
+    low: terms.filter((t) => t.priority === 'low'),
+  };
 }
 
 /* ══════════════ 2. 禁止表現チェック ══════════════ */
