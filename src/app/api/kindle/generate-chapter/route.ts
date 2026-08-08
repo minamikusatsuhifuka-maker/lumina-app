@@ -12,7 +12,7 @@ import {
 } from '@/lib/kindle-materials';
 import { getKindlePurpose, KINDLE_COMMON_RULES, KINDLE_LAYOUT_RULES } from '@/lib/kindle-purposes';
 import { getKindleStyle } from '@/lib/kindle-styles';
-import { stripLeadingChapterHeading } from '@/lib/kindle-text';
+import { cleanChapterBody } from '@/lib/kindle-text';
 import { sanitizeForDb } from '@/lib/sanitize';
 
 export const maxDuration = 300;
@@ -220,7 +220,7 @@ ${materialsBlock}`;
 
         // 防御的二重ガード: プロンプト指示をすり抜けた冒頭の章見出しH1を除去してから保存
         // 237: NUL・孤立サロゲートが混ざるとINSERT/UPDATEが例外になり、生成できた本文まで失われる（R-39）
-        fullText = sanitizeForDb(stripLeadingChapterHeading(fullText, target.chapter_number, target.title));
+        fullText = sanitizeForDb(cleanChapterBody(fullText, target.chapter_number, target.title));
 
         // fail-closed: 空本文は保存しない（偽の完了を作らない）
         if (!fullText.trim()) {

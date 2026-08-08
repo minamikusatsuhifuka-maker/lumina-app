@@ -1,8 +1,9 @@
 import { test, expect } from '@playwright/test';
 import { describeAnthropicError, isFallbackWorthy } from '../../src/lib/anthropic-error';
-import { findUngroundedTerms, findBannedExpressions } from '../../src/lib/content-verify';
+import { findUngroundedTerms, findBannedExpressions, splitByPriority } from '../../src/lib/content-verify';
 import { buildDiffRows, describeDiffStats } from '../../src/lib/text-diff';
 import { sanitizeForDb } from '../../src/lib/sanitize';
+import { cleanChapterBody } from '../../src/lib/kindle-text';
 import { KINDLE_TASTES, KINDLE_TASTE_KEYS, KINDLE_TASTE_GUARD, KINDLE_SCORE_AXES } from '../../src/lib/kindle-taste';
 
 // ============================================================================
@@ -147,4 +148,84 @@ test('U10: DB保存前サニタイズ（237）— NUL・孤立サロゲートだ
   expect(sanitizeForDb(null)).toBe('');
   expect(sanitizeForDb(undefined)).toBe('');
   expect(sanitizeForDb(123)).toBe('123');
+});
+
+test('U13: 誤検出削減と優先度分け（238【3】）— 一般語は消え、固有名詞・数値は🔴で残る', () => {
+  const source = '保湿剤は入浴後5分以内の外用が有効。こすらないことが基本。';
+  const generated = [
+    '肌のバリアはドアのようなもの。ウイルスやスイッチ、フライパン、ショック、リセットといった言葉で説明します。',
+    'タオルでゴシゴシ拭かないでください。ステロイドやコラーゲンの話題もあります。',
+    'ハーバード大学の研究では改善率92%。田中太郎教授が2019年にADSを提唱しました。',
+  ].join('\n');
+
+  const terms = findUngroundedTerms(generated, [source], { maxResults: 100 });
+  const { high, low } = splitByPriority(terms);
+  const all = terms.map((t) => t.term);
+
+  // 院長報告の「確認する意味がなかった語」は検出されない
+  for (const w of ['ウイルス', 'スイッチ', 'フライパン', 'ショック', 'リセット', 'タオル', 'ステロイド', 'コラーゲン']) {
+    expect(all, `${w} は除外されている`).not.toContain(w);
+  }
+
+  // 本当に確認すべき語は🔴で残る
+  const highTerms = high.map((t) => t.term);
+  for (const w of ['ハーバード大学', '92%', '田中太郎教授', '2019年', 'ADS']) {
+    expect(highTerms, `${w} は🔴要確認`).toContain(w);
+  }
+
+  // 並び順は🔴が先頭
+  expect(terms[0].priority).toBe('high');
+  // 🟡は残ってよいが、🔴に混ざって埋もれない
+  expect(high.length + low.length).toBe(terms.length);
+});
+
+test('U11: 章本文の掃除（238【1】）— 本文中に残った「章タイトル＋日付」を消し、本文は壊さない', () => {
+  const title = '届かなければ意味がない？注目されるデリバリー技術「ADS」とは';
+  const body = [
+    '**この章でわかること**',
+    '・要点A',
+    '',
+    '## 有効成分はどこまで届くのか',
+    '',
+    '本文の段落です。皮膚のバリア機能について説明します。',
+    '',
+    `第4章 ${title}`,
+    '2026年8月8日',
+    '',
+    '続きの段落です。ここは残らなければいけません。',
+  ].join('\n');
+
+  const cleaned = cleanChapterBody(body, 4, title);
+  // 混入ブロックが消えている
+  expect(cleaned).not.toContain('2026年8月8日');
+  expect(cleaned).not.toContain(`第4章 ${title}`);
+  // 本文・正当な小見出しは残る
+  expect(cleaned).toContain('## 有効成分はどこまで届くのか');
+  expect(cleaned).toContain('本文の段落です。皮膚のバリア機能について説明します。');
+  expect(cleaned).toContain('続きの段落です。ここは残らなければいけません。');
+  expect(cleaned).toContain('**この章でわかること**');
+});
+
+test('U12: 章本文の掃除 — 通常の本文は1文字も変えない（誤削除しない）', () => {
+  const title = '保湿剤の選び方';
+  const body = [
+    '**この章でわかること**',
+    '・保湿剤の3系統',
+    '',
+    '## セラミドとは',
+    '',
+    '第1章で触れたバリア機能の話を、ここではもう少し詳しく見ます。',
+    '2026年の調査では約60%が継続していました。',
+    '',
+    '### 使い分けの目安',
+    '',
+    '季節と部位で使い分けます。',
+  ].join('\n');
+
+  // 「第1章で触れた…」は文の一部・「2026年の調査では…」は日付だけの行ではない → 残る
+  const cleaned = cleanChapterBody(body, 5, title);
+  expect(cleaned).toContain('第1章で触れたバリア機能の話を、ここではもう少し詳しく見ます。');
+  expect(cleaned).toContain('2026年の調査では約60%が継続していました。');
+  expect(cleaned).toContain('### 使い分けの目安');
+  expect(cleaned.trim()).toBe(body.trim());
 });
