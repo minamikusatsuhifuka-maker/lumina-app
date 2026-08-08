@@ -24,6 +24,7 @@ import {
 import { stripLeadingChapterHeading, cleanChapterBody } from '@/lib/kindle-text';
 import { triggerDownload } from '@/lib/download';
 import { copyRichMarkdown } from '@/lib/rich-copy';
+import { renderMarkdown } from '@/lib/markdown-renderer';
 import KindleToNoteModal from '@/components/kindle/KindleToNoteModal';
 import {
   KINDLE_ASSET_KINDS,
@@ -321,6 +322,8 @@ function KindleWizardInner() {
   const [editTarget, setEditTarget] = useState<WizardChapter | null>(null);
   const [editText, setEditText] = useState('');
   const [editSaving, setEditSaving] = useState(false);
+  // 239: 編集モーダルの表示モード。既定はプレビュー（読む）・切替で編集（直す）
+  const [editMode, setEditMode] = useState<'preview' | 'edit'>('preview');
   const [diffTarget, setDiffTarget] = useState<WizardChapter | null>(null);
   const proofStartedRef = useRef(false);
 
@@ -1967,7 +1970,13 @@ function KindleWizardInner() {
                       <button onClick={runQueue} style={{ ...smallBtn, color: '#f59e0b', borderColor: 'rgba(245,158,11,0.4)' }}>🔄 再試行</button>
                     )}
                     {c.status === 'completed' && (
-                      <button onClick={() => { setEditTarget(c); setEditText(c.content || ''); }} style={smallBtn} title="本文を直接編集">✏️ 編集</button>
+                      <button
+                        onClick={() => { setEditTarget(c); setEditText(c.content || ''); setEditMode('preview'); }}
+                        style={smallBtn}
+                        title="本文を読む・直す（開いたときは整形表示）"
+                      >
+                        👁 読む・直す
+                      </button>
                     )}
                     {proofreading && proofChapterId === c.id && (
                       <span style={{ fontSize: 11, color: '#8b5cf6', flexShrink: 0 }}>🔍 校正中...</span>
@@ -2695,10 +2704,13 @@ function KindleWizardInner() {
                         )}
                       </span>
                     </div>
+                    {/* 239: 販促アセットも「読む」画面。📋コピーは原文（Markdown）をそのまま渡すので用途は損なわれない */}
                     {entry && assetOpen[kind] && (
-                      <div style={{ marginTop: 8, padding: 10, background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 6, fontSize: 12, lineHeight: 1.8, color: 'var(--text-secondary)', whiteSpace: 'pre-wrap', wordBreak: 'break-word', maxHeight: 360, overflowY: 'auto' }}>
-                        {kindleAssetToText(kind, entry.data)}
-                      </div>
+                      <div
+                        className="markdown-body"
+                        style={{ marginTop: 8, padding: 10, background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 6, fontSize: 12, lineHeight: 1.8, wordBreak: 'break-word', maxHeight: 360, overflowY: 'auto' }}
+                        dangerouslySetInnerHTML={{ __html: renderMarkdown(kindleAssetToText(kind, entry.data)) }}
+                      />
                     )}
                   </div>
                 );
@@ -2706,9 +2718,13 @@ function KindleWizardInner() {
             </div>
           </div>
 
-          <div style={{ padding: 20, background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 12, maxHeight: '65vh', overflowY: 'auto', fontSize: 13, lineHeight: 1.8, color: 'var(--text-secondary)', whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
-            {`${bookTitle}\n\n${stripImageLines(fullMarkdownBody).replace(/^## /gm, '■ ')}`}
-          </div>
+          {/* 239: ⑥のプレビューは「読む」画面。Markdown記号を出さず本のような体裁で描画する
+              （画像行は別枠で扱うため除去。ダウンロード内容そのものは fullMarkdownBody で不変） */}
+          <div
+            className="markdown-body"
+            style={{ padding: '24px 28px', background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 12, maxHeight: '65vh', overflowY: 'auto', fontSize: 14, lineHeight: 1.95, wordBreak: 'break-word' }}
+            dangerouslySetInnerHTML={{ __html: renderMarkdown(`# ${bookTitle}\n\n${stripImageLines(fullMarkdownBody)}`) }}
+          />
         </div>
       )}
 
@@ -2718,12 +2734,43 @@ function KindleWizardInner() {
           title={`✏️ 第${editTarget.chapterNumber}章 ${editTarget.title}`}
           onClose={() => { if (!editSaving) setEditTarget(null); }}
         >
-          <textarea
-            value={editText}
-            onChange={(e) => setEditText(e.target.value)}
-            rows={22}
-            style={{ width: '100%', padding: '12px 14px', background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 10, color: 'var(--text-primary)', fontSize: 13, lineHeight: 1.8, outline: 'none', resize: 'vertical', boxSizing: 'border-box' }}
-          />
+          {/* 239: 「読む」と「直す」を分ける。既定はプレビュー（本のような整形表示）。
+              保存形式はMarkdownのまま＝相互変換の事故を作らない */}
+          <div style={{ display: 'flex', gap: 6, marginBottom: 10 }}>
+            {([['preview', '👁 プレビュー'], ['edit', '✏️ 編集']] as const).map(([k, label]) => (
+              <button
+                key={k}
+                onClick={() => setEditMode(k)}
+                style={{
+                  padding: '6px 16px', borderRadius: 99, fontSize: 12, cursor: 'pointer',
+                  fontWeight: editMode === k ? 700 : 400,
+                  background: editMode === k ? 'var(--accent-soft)' : 'var(--bg-secondary)',
+                  border: `1px solid ${editMode === k ? 'var(--accent)' : 'var(--border)'}`,
+                  color: editMode === k ? 'var(--text-primary)' : 'var(--text-muted)',
+                }}
+              >
+                {label}
+              </button>
+            ))}
+            <span style={{ fontSize: 10, color: 'var(--text-muted)', alignSelf: 'center' }}>
+              {editMode === 'preview' ? '本になったときの見え方です（ここでは直せません）' : 'Markdownで直接編集します（## は見出し、** は太字）'}
+            </span>
+          </div>
+
+          {editMode === 'preview' ? (
+            <div
+              className="markdown-body"
+              style={{ minHeight: 360, maxHeight: '52vh', overflowY: 'auto', padding: '14px 18px', background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 10, fontSize: 14, lineHeight: 1.95, boxSizing: 'border-box' }}
+              dangerouslySetInnerHTML={{ __html: renderMarkdown(editText) }}
+            />
+          ) : (
+            <textarea
+              value={editText}
+              onChange={(e) => setEditText(e.target.value)}
+              rows={22}
+              style={{ width: '100%', padding: '12px 14px', background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 10, color: 'var(--text-primary)', fontSize: 13, lineHeight: 1.8, outline: 'none', resize: 'vertical', boxSizing: 'border-box' }}
+            />
+          )}
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 10, gap: 12, flexWrap: 'wrap' }}>
             <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>{editText.length.toLocaleString()}字（保存すると総文字数を再計算します）</span>
             <span style={{ display: 'flex', gap: 8 }}>
@@ -2820,9 +2867,12 @@ function KindleWizardInner() {
                       <div key={k} style={{ display: 'flex', flexDirection: 'column', minWidth: 0, background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 10, padding: 12 }}>
                         <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-primary)' }}>{t.emoji} {t.label}</div>
                         <div style={{ fontSize: 10, color: 'var(--text-muted)', marginBottom: 8, lineHeight: 1.6 }}>{t.hint}</div>
-                        <div style={{ flex: 1, padding: 10, background: 'var(--bg-primary)', border: '1px solid var(--border)', borderRadius: 8, fontSize: 12, lineHeight: 1.85, color: 'var(--text-secondary)', whiteSpace: 'pre-wrap', wordBreak: 'break-word', maxHeight: 220, overflowY: 'auto', marginBottom: 8 }}>
-                          {tasteSamples[k]}
-                        </div>
+                        {/* 239: 読み比べが目的なので整形表示（## や ** を出さない） */}
+                        <div
+                          className="markdown-body"
+                          style={{ flex: 1, padding: 10, background: 'var(--bg-primary)', border: '1px solid var(--border)', borderRadius: 8, fontSize: 12, lineHeight: 1.85, wordBreak: 'break-word', maxHeight: 220, overflowY: 'auto', marginBottom: 8 }}
+                          dangerouslySetInnerHTML={{ __html: renderMarkdown(tasteSamples[k]) }}
+                        />
                         <button
                           onClick={() => convertWithTaste(k)}
                           disabled={tasteBusy !== null}

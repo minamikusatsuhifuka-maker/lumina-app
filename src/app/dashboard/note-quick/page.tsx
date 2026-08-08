@@ -15,6 +15,7 @@ import NoteEnhancePanel from '@/components/note-enhance/NoteEnhancePanel';
 import { emptyNoteEnhance, type NoteEnhanceState, type NoteFigure } from '@/lib/note-enhance';
 import { NOTE_STYLES, NOTE_STYLE_KEYS, type NoteStyleKey } from '@/lib/note-styles';
 import type { ContentVerifyResult } from '@/lib/content-verify';
+import { renderMarkdown } from '@/lib/markdown-renderer';
 
 type Length = 'short' | 'medium' | 'long';
 
@@ -530,9 +531,12 @@ export default function NoteQuickPage() {
             </div>
           )}
           <div style={{ fontSize: 16, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 8 }}>{result.title}</div>
-          <div style={{ padding: 14, background: 'var(--bg-primary)', border: '1px solid var(--border)', borderRadius: 8, maxHeight: 320, overflowY: 'auto', fontSize: 13, lineHeight: 1.85, color: 'var(--text-secondary)', whiteSpace: 'pre-wrap', wordBreak: 'break-word', marginBottom: 12 }}>
-            {result.content}
-          </div>
+          {/* 239: ここは「読む」画面。Markdown記号を出さず整形表示する（貼り付け用の原文は📤キット側） */}
+          <div
+            className="markdown-body"
+            style={{ padding: 14, background: 'var(--bg-primary)', border: '1px solid var(--border)', borderRadius: 8, maxHeight: 320, overflowY: 'auto', fontSize: 13, lineHeight: 1.85, wordBreak: 'break-word', marginBottom: 12 }}
+            dangerouslySetInnerHTML={{ __html: renderMarkdown(result.content) }}
+          />
           <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-secondary)', marginBottom: 4 }}>
             🧩 仕上げ（まとめ・図表・配置の調整）と 📤 note貼り付けキット
           </div>
