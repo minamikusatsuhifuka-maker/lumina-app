@@ -1775,7 +1775,11 @@ ${contextText}
             </div>
             <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>文字サイズ</span>
+                {/* 240: アプリ全体の文字サイズはヘッダーの A A A A で切り替える。
+                    ここはレポート本文だけの微調整として残す（役割が違うので名前で区別する） */}
+                <span style={{ fontSize: 11, color: 'var(--text-muted)' }} title="このレポート本文だけの文字サイズです。アプリ全体はヘッダーの文字サイズ切替で変わります">
+                  レポート本文
+                </span>
                 <button onClick={() => setFontSize(f => Math.max(11, f - 1))} style={{ width: 24, height: 24, borderRadius: 4, border: '1px solid var(--border)', background: 'var(--bg-secondary)', color: 'var(--text-secondary)', cursor: 'pointer', fontSize: 14, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>−</button>
                 <span style={{ fontSize: 12, color: 'var(--text-muted)', fontFamily: 'monospace', minWidth: 20, textAlign: 'center' }}>{fontSize}</span>
                 <button onClick={() => setFontSize(f => Math.min(20, f + 1))} style={{ width: 24, height: 24, borderRadius: 4, border: '1px solid var(--border)', background: 'var(--bg-secondary)', color: 'var(--text-secondary)', cursor: 'pointer', fontSize: 14, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>＋</button>

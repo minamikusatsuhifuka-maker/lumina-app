@@ -54,6 +54,12 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <link rel="apple-touch-icon" href="/icon.svg" />
         <meta name="theme-color" content="#6c63ff" />
         <meta name="google-site-verification" content="1Gln9d0aJYKM_nHmlgnWym0wYywCO58b_3VrT8amIwM" />
+        {/* 240: 文字サイズを描画前に当てる（ThemeProviderのuseEffectを待つと一瞬100%で表示されちらつく） */}
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `try{var s=Number(localStorage.getItem('lumina_text_scale'));if([112,125,140].indexOf(s)>=0){document.documentElement.style.zoom=String(s/100)}}catch(e){}`,
+          }}
+        />
       </head>
       <body className={`${outfit.variable} ${notoSansJP.variable} ${inter.variable} ${zenKaku.variable}`} style={{ margin: 0 }}>
         <ThemeProvider>
