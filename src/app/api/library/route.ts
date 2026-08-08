@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
 import { v4 as uuidv4 } from 'uuid';
 import { neon } from '@neondatabase/serverless';
+import { sanitizeForDb } from '@/lib/sanitize';
 
 export async function GET(req: NextRequest) {
   const session = await auth();
@@ -55,8 +56,21 @@ export async function POST(req: NextRequest) {
   const sql = neon(process.env.DATABASE_URL!);
   const id = uuidv4();
   const userId = (session.user as any).id;
-  await sql`INSERT INTO library (id, user_id, type, title, content, metadata, tags, group_name, is_favorite, folder_name)
-    VALUES (${id}, ${userId}, ${type}, ${title}, ${content || ''}, ${JSON.stringify(metadata || {})}, ${tags || ''}, ${group_name || '未分類'}, ${is_favorite ? 1 : 0}, ${folder_name || null})`;
+
+  // 237: NUL文字・孤立サロゲートが混ざると INSERT が例外になり、本文まるごとが保存できなくなる。
+  // 表示上ほぼ意味を持たない不可視文字だけを落として、保存は必ず通す（R-39）。
+  const safeTitle = sanitizeForDb(title);
+  const safeContent = sanitizeForDb(content);
+
+  try {
+    await sql`INSERT INTO library (id, user_id, type, title, content, metadata, tags, group_name, is_favorite, folder_name)
+      VALUES (${id}, ${userId}, ${type}, ${safeTitle}, ${safeContent}, ${JSON.stringify(metadata || {})}, ${sanitizeForDb(tags)}, ${group_name || '未分類'}, ${is_favorite ? 1 : 0}, ${folder_name || null})`;
+  } catch (error: unknown) {
+    // 237: 原因の分からない500を返さない（234 R-33 と同じ方針）
+    const message = error instanceof Error ? error.message : '不明なエラー';
+    console.error('[library POST] insert failed:', message);
+    return NextResponse.json({ error: `保存できませんでした: ${message}` }, { status: 500 });
+  }
 
   // ライブラリ保存後に通知作成（非同期・ノンブロッキング）
   const baseUrl = process.env.NEXTAUTH_URL || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'http://localhost:3000');

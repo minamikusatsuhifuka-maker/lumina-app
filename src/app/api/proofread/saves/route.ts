@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
 import { sql } from '@/lib/db';
+import { sanitizeForDb } from '@/lib/sanitize';
 
 export const runtime = 'nodejs';
 
@@ -127,7 +128,7 @@ export async function POST(req: NextRequest) {
     await ensureTable();
     const rows = await sql`
       INSERT INTO proofread_saves (owner, title, source_text, work_text, corrections)
-      VALUES (${userId}, ${title}, ${sourceText}, ${workText},
+      VALUES (${userId}, ${sanitizeForDb(title)}, ${sanitizeForDb(sourceText)}, ${sanitizeForDb(workText)},
               ${JSON.stringify(corrections)}::jsonb)
       RETURNING id, title, created_at
     `;

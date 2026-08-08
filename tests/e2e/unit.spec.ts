@@ -2,6 +2,7 @@ import { test, expect } from '@playwright/test';
 import { describeAnthropicError, isFallbackWorthy } from '../../src/lib/anthropic-error';
 import { findUngroundedTerms, findBannedExpressions } from '../../src/lib/content-verify';
 import { buildDiffRows, describeDiffStats } from '../../src/lib/text-diff';
+import { sanitizeForDb } from '../../src/lib/sanitize';
 import { KINDLE_TASTES, KINDLE_TASTE_KEYS, KINDLE_TASTE_GUARD, KINDLE_SCORE_AXES } from '../../src/lib/kindle-taste';
 
 // ============================================================================
@@ -130,4 +131,20 @@ test('U9: テイスト定義（236B）— 全テイストが医療広告ガー�
   expect(KINDLE_TASTE_GUARD).toContain('追加しない');
   // 採点は5軸
   expect(KINDLE_SCORE_AXES).toHaveLength(5);
+});
+
+test('U10: DB保存前サニタイズ（237）— NUL・孤立サロゲートだけを落とし、本文は壊さない', () => {
+  // 237の真因: この2種が混ざるとPostgresのINSERTが例外になり、本文まるごとが保存できなかった
+  expect(sanitizeForDb('皮膚フローラ と全身症状')).toBe('皮膚フローラと全身症状');
+  expect(sanitizeForDb('皮膚フローラ\ud800と全身症状')).toBe('皮膚フローラと全身症状');
+  expect(sanitizeForDb('皮膚フローラ\udc00と全身症状')).toBe('皮膚フローラと全身症状');
+
+  // 正常な文字は1文字も落とさない（絵文字＝正しいサロゲートペア・結合文字・改行・タブ）
+  const intact = '皮膚フローラ🦠👨‍⚕️é\n\t— 全身症状との関連（2023年・60%）';
+  expect(sanitizeForDb(intact)).toBe(intact);
+
+  // null/undefined/数値でも落ちない（保存経路で型が揺れても例外にしない）
+  expect(sanitizeForDb(null)).toBe('');
+  expect(sanitizeForDb(undefined)).toBe('');
+  expect(sanitizeForDb(123)).toBe('123');
 });

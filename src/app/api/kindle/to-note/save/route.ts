@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { randomUUID } from 'crypto';
 import { requireAuth } from '@/lib/require-auth';
 import { neon } from '@neondatabase/serverless';
+import { sanitizeForDb } from '@/lib/sanitize';
 
 export const runtime = 'nodejs';
 
@@ -52,7 +53,7 @@ export async function POST(req: Request) {
     });
     await sql`
       INSERT INTO library (id, user_id, type, title, content, metadata, is_favorite, tags, group_name)
-      VALUES (${id}, ${userId}, 'note-article', ${`note記事下書き: ${title}`}, ${content},
+      VALUES (${id}, ${userId}, 'note-article', ${sanitizeForDb(`note記事下書き: ${title}`)}, ${sanitizeForDb(content)},
               ${metadata}, 0, ${'note記事,下書き,Kindle展開'}, ${'note記事'})
     `;
 

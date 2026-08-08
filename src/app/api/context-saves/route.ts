@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
 import { neon } from '@neondatabase/serverless';
+import { sanitizeForDb } from '@/lib/sanitize';
 
 // AI背景情報コンテキストの保存・取得・削除・お気に入りAPI
 
@@ -55,7 +56,7 @@ export async function POST(req: NextRequest) {
 
     const result = await sql`
       INSERT INTO context_saves (user_id, topic, context_text, research_text, tags)
-      VALUES (${userId}, ${topic}, ${contextText}, ${researchText || null}, ${tagArr})
+      VALUES (${userId}, ${sanitizeForDb(topic)}, ${sanitizeForDb(contextText)}, ${researchText ? sanitizeForDb(researchText) : null}, ${tagArr})
       RETURNING id
     `;
     return NextResponse.json({ success: true, id: result[0].id });

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
 import { neon } from '@neondatabase/serverless';
+import { sanitizeForDb } from '@/lib/sanitize';
 
 // 章の作成・更新API（書籍の所有者チェック付き）
 
@@ -59,7 +60,7 @@ export async function PATCH(req: NextRequest) {
       title = COALESCE(${f.title ?? null}, title),
       summary = COALESCE(${f.summary ?? null}, summary),
       target_word_count = COALESCE(${f.targetWordCount ?? null}, target_word_count),
-      content = COALESCE(${f.content ?? null}, content),
+      content = COALESCE(${f.content === undefined || f.content === null ? null : sanitizeForDb(f.content)}, content),
       research_data = COALESCE(${f.researchData ?? null}, research_data),
       refs = COALESCE(${f.references ? JSON.stringify(f.references) : null}::jsonb, refs),
       evaluation = COALESCE(${f.evaluation ? JSON.stringify(f.evaluation) : null}::jsonb, evaluation),

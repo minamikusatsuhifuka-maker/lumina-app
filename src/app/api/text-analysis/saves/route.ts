@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
 import { sql } from '@/lib/db';
+import { sanitizeForDb } from '@/lib/sanitize';
 
 export const runtime = 'nodejs';
 
@@ -194,10 +195,10 @@ export async function POST(req: NextRequest) {
          content, tags, folder, char_count,
          is_cross_analysis, source_ids, cross_prompt, input_text)
       VALUES
-        (${userId}, ${titleInput}, ${titleInput},
+        (${userId}, ${sanitizeForDb(titleInput)}, ${sanitizeForDb(titleInput)},
          ${body.analysisType ?? 'summary'}, ${analysisLabel},
-         ${content}, ${tags}, ${folder}, ${content.length},
-         ${isCross}, ${JSON.stringify(sourceIds)}, ${crossPrompt}, ${inputText})
+         ${sanitizeForDb(content)}, ${tags}, ${folder}, ${content.length},
+         ${isCross}, ${JSON.stringify(sourceIds)}, ${crossPrompt}, ${inputText === null ? null : sanitizeForDb(inputText)})
       RETURNING *
     `;
     return NextResponse.json({ save: rows[0], ...rows[0] });
