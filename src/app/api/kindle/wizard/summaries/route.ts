@@ -4,6 +4,7 @@ import { auth } from '@/lib/auth';
 import { neon } from '@neondatabase/serverless';
 import { extractAnthropicText } from '@/lib/anthropic-text';
 import { robustJsonParse } from '@/lib/ai-json-parser';
+import { describeAnthropicError } from '@/lib/anthropic-error';
 import { KINDLE_COMMON_RULES } from '@/lib/kindle-purposes';
 import { normalizeSummaryPoints, type KindleChapterSummary } from '@/lib/kindle-summaries';
 
@@ -94,8 +95,9 @@ ${KINDLE_COMMON_RULES}
       }),
     });
     const data = await response.json();
+    // 234【1】: 課金上限・レート制限を院長が判別できる文言に揃える（R-33）
     if (!response.ok) {
-      return NextResponse.json({ error: data?.error?.message || `AI呼び出し失敗 (${response.status})` }, { status: 500 });
+      return NextResponse.json({ error: describeAnthropicError(response.status, data) }, { status: 500 });
     }
 
     // fail-closed: パース失敗・要点0件は保存しない

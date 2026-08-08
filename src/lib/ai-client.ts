@@ -1,5 +1,6 @@
 import { GoogleGenerativeAI, type Tool } from '@google/generative-ai';
 import { CLAUDE_TEXT_MODEL, CLAUDE_TEXT_MODEL_LABEL, GEMINI_TEXT_MODEL, GEMINI_TEXT_MODEL_LABEL, GEMINI_TEXT_THINKING_LOW } from '@/lib/ai-models';
+import { assertAnthropicOk, describeAnthropicError } from '@/lib/anthropic-error';
 
 export type AIModel = 'claude' | 'gemini';
 // SSEの出力フォーマット: 'standard' = {type:'text', content}、'delta' = {type:'delta', text}
@@ -118,6 +119,9 @@ export async function generateWithModel(
     }),
   });
   const data = await response.json();
+  // 234【1】: エラー応答を握りつぶすと data.content が undefined → 空文字となり、
+  // 下流で「JSONパース失敗」等の別症状に化ける。原因の分かる文言で throw する（R-33）
+  assertAnthropicOk(response, data);
   return (data.content || []).filter((b: any) => b.type === 'text').map((b: any) => b.text).join('');
 }
 
@@ -193,6 +197,12 @@ export async function streamWithModel(
         messages: [{ role: 'user', content: prompt }],
       }),
     });
+    // 234【1】: ストリーミングでもエラー応答はSSEではなくJSONで来る。
+    // 素通りさせると「0字の応答」に化けるため、原因の分かる文言で throw する（R-33）
+    if (!response.ok) {
+      const errBody = await response.json().catch(() => null);
+      throw new Error(describeAnthropicError(response.status, errBody));
+    }
     const reader = response.body!.getReader();
     const decoder = new TextDecoder();
     while (true) {

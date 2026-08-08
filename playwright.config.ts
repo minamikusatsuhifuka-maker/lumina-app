@@ -37,6 +37,8 @@ export default defineConfig({
     serviceWorkers: 'block',
   },
   projects: [
+    // 234【1】: 純関数の単体テスト。ネットワーク・認証・AI課金を使わないため setup 非依存で先に走る
+    { name: 'unit', testMatch: /unit\.spec\.ts/ },
     { name: 'setup', testMatch: /auth\.setup\.ts/ },
     {
       name: 'smoke',

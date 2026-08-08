@@ -4,6 +4,7 @@ import { auth } from '@/lib/auth';
 import { neon } from '@neondatabase/serverless';
 import { extractAnthropicText } from '@/lib/anthropic-text';
 import { robustJsonParse } from '@/lib/ai-json-parser';
+import { assertAnthropicOk } from '@/lib/anthropic-error';
 import { KINDLE_COMMON_RULES } from '@/lib/kindle-purposes';
 import {
   KINDLE_PROOFREAD_PRINCIPLES,
@@ -53,7 +54,8 @@ async function callClaude(system: string, userContent: string, maxTokens: number
     }),
   });
   const data = await response.json();
-  if (!response.ok) throw new Error(data?.error?.message || `AI呼び出し失敗 (${response.status})`);
+  // 234【1】: 課金上限・レート制限を院長が判別できる文言に揃える（R-33）
+  assertAnthropicOk(response, data);
   return extractAnthropicText(data.content);
 }
 

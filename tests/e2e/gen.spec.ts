@@ -299,3 +299,40 @@ test.describe('B14: note強化APIの未認証ガード @gen', () => {
     }
   });
 });
+
+// B15（234【1】）: Kindle目次生成の成否スモーク。
+// 234では「目次生成が全目的で失敗」しても既定スイート27件が全通過していた
+// ＝AI経路の成否を一度も検証していなかったのが検出漏れの真因。ここで塞ぐ。
+// 素材はテスト内で作成→削除する自己完結型。2目的で回して目的分岐の後方互換も見る。
+test('B15: Kindle目次生成が2目的とも成功する @gen', async ({ request }) => {
+  test.setTimeout(GEN_TIMEOUT);
+  const created = await request.post('/api/library', {
+    data: {
+      type: 'deepresearch',
+      title: `[E2E] ${RUN_ID} 目次生成スモーク素材`,
+      content:
+        '乾燥肌のスキンケアに関する調査メモ。保湿剤は入浴後5分以内の外用が有効とされる。' +
+        'セラミド・ヘパリン類似物質・ワセリンの3系統があり、季節と部位で使い分ける。' +
+        '継続率が低いことが課題で、置き場所を決めると習慣化しやすい。' +
+        '洗浄はぬるま湯・こすらないことが基本。'.repeat(6),
+    },
+  });
+  expect(created.status()).toBe(200);
+  const sourceId = String((await created.json()).id);
+
+  try {
+    for (const purposeKey of ['acquisition', 'branding']) {
+      const res = await request.post('/api/kindle/outline', {
+        data: { sourceIds: [sourceId], purposeKey, styleKey: 'balanced', preset: 'leadmagnet', theme: '' },
+        timeout: REQ_TIMEOUT,
+      });
+      const body = await res.json().catch(() => ({}));
+      // 失敗時はAPIが返した理由をそのままレポートに出す（234の「JSONパース失敗」誤診断の再発防止）
+      expect(res.status(), `purposeKey=${purposeKey}: ${JSON.stringify(body).slice(0, 300)}`).toBe(200);
+      expect(typeof body.book_title, `purposeKey=${purposeKey} の book_title`).toBe('string');
+      expect(Array.isArray(body.chapters) && body.chapters.length > 0, `purposeKey=${purposeKey} の chapters`).toBe(true);
+    }
+  } finally {
+    await request.delete('/api/library', { data: { id: sourceId } });
+  }
+});

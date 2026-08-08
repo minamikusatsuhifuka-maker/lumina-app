@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
 import { extractAnthropicText } from '@/lib/anthropic-text';
 import { robustJsonParse } from '@/lib/ai-json-parser';
+import { assertAnthropicOk } from '@/lib/anthropic-error';
 import {
   fetchKindleMaterials,
   validateKindleMaterialLimits,
@@ -146,6 +147,8 @@ ${typeGuide}
     });
 
     const data = await response.json();
+    // 234【1】: APIエラーを握りつぶすと text='' となり「JSONパース失敗」に化ける（R-33）
+    assertAnthropicOk(response, data);
     const text = extractAnthropicText(data.content);
     try {
       return NextResponse.json(robustJsonParse(text));
@@ -268,6 +271,8 @@ ${materialsBlock}`,
     });
 
     const data = await response.json();
+    // 234【1】: ここが実際の障害点。課金上限の400を素通りさせ「JSONパース失敗」と誤表示していた（R-33）
+    assertAnthropicOk(response, data);
     const text = extractAnthropicText(data.content);
 
     let outline: any;

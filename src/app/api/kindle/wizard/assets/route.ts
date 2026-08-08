@@ -4,6 +4,7 @@ import { auth } from '@/lib/auth';
 import { neon } from '@neondatabase/serverless';
 import { extractAnthropicText } from '@/lib/anthropic-text';
 import { robustJsonParse } from '@/lib/ai-json-parser';
+import { assertAnthropicOk } from '@/lib/anthropic-error';
 import { getKindlePurpose } from '@/lib/kindle-purposes';
 import { KINDLE_ASSET_META, type KindleAssetEntry, type KindleAssetKind } from '@/lib/kindle-assets';
 import { buildKindleAssetPrompt, type KindleAssetContext } from '@/lib/kindle-asset-prompts';
@@ -94,6 +95,8 @@ export async function POST(req: NextRequest) {
       }),
     });
     const raw = await response.json();
+    // 234【1】: APIエラーを素通りさせると「生成結果の解析に失敗」に化ける（R-33）
+    assertAnthropicOk(response, raw);
     const text = extractAnthropicText(raw.content);
     let data: Record<string, unknown>;
     try {
