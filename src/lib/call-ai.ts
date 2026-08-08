@@ -1,5 +1,5 @@
-import { GEMINI_TEXT_MODEL, GEMINI_TEXT_THINKING_MINIMAL, CLAUDE_TEXT_MODEL } from '@/lib/ai-models';
-import { extractAnthropicText } from '@/lib/anthropic-text';
+import { GEMINI_TEXT_MODEL, GEMINI_TEXT_THINKING_MINIMAL } from '@/lib/ai-models';
+import { generateTextWithFallback, type AIProviderInfo } from '@/lib/ai-fallback';
 
 export interface AIMessage {
   role: 'user' | 'assistant';
@@ -14,6 +14,16 @@ export interface CallAIOptions {
 }
 
 export async function callAI(options: CallAIOptions): Promise<string> {
+  return (await callAIWithProvider(options)).text;
+}
+
+/**
+ * callAI と同じ処理で、どのモデルが実際に生成したかも返す（235）。
+ * フォールバックが起きたことを画面に出したい呼び出し側はこちらを使う。
+ */
+export async function callAIWithProvider(
+  options: CallAIOptions,
+): Promise<{ text: string } & AIProviderInfo> {
   // 195: Sonnet 5はthinking既定ON＝max_tokensが思考+本文の合算上限になるため既定枠を増額
   const { model, system, messages, maxTokens = 2048 } = options;
 
@@ -21,7 +31,7 @@ export async function callAI(options: CallAIOptions): Promise<string> {
     const apiKey = process.env.GEMINI_API_KEY;
     if (!apiKey) throw new Error('GEMINI_API_KEY が未設定です');
 
-    const geminiMessages = messages.map(m => ({
+    const geminiMessages = messages.map((m) => ({
       role: m.role === 'assistant' ? 'model' : 'user',
       parts: [{ text: m.content }],
     }));
@@ -46,34 +56,19 @@ export async function callAI(options: CallAIOptions): Promise<string> {
             ...GEMINI_TEXT_THINKING_MINIMAL,
           },
         }),
-      }
+      },
     );
 
     const data = await response.json();
-    return data.candidates?.[0]?.content?.parts?.[0]?.text || '';
-
-  } else {
-    const apiKey = process.env.ANTHROPIC_API_KEY;
-    if (!apiKey) throw new Error('ANTHROPIC_API_KEY が未設定です');
-
-    const response = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': apiKey,
-        'anthropic-version': '2023-06-01',
-      },
-      body: JSON.stringify({
-        model: CLAUDE_TEXT_MODEL,
-        // 209: thinking既定ONのモデルは思考がmax_tokensを消費する（217実測で約500tk）ため、
-        // 呼び出し元の指定が小さくても本文が切れないよう下限2048を保証する
-        max_tokens: Math.max(maxTokens, 2048),
-        system: system || '',
-        messages,
-      }),
-    });
-
-    const data = await response.json();
-    return extractAnthropicText(data.content) || '';
+    // 235: 失敗を空文字で握りつぶさない（R-33）
+    if (!response.ok) {
+      throw new Error(data?.error?.message || `Gemini呼び出しに失敗しました (${response.status})`);
+    }
+    const parts = data?.candidates?.[0]?.content?.parts;
+    const text = Array.isArray(parts) ? parts.map((p: { text?: string }) => p?.text ?? '').join('') : '';
+    return { text, provider: 'gemini', modelLabel: 'Gemini 3.6 Flash' };
   }
+
+  // 235: Claude選択時は、上限・混雑ならGeminiへ自動フォールバック（共通層で一括対応）
+  return await generateTextWithFallback({ system, messages, maxTokens });
 }

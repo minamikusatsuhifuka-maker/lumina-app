@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { requireAuth } from '@/lib/require-auth';
 import { neon } from '@neondatabase/serverless';
-import { generateWithModel } from '@/lib/ai-client';
+import { generateWithModelInfo } from '@/lib/ai-client';
 import { GEMINI_TEXT_THINKING_MEDIUM } from '@/lib/ai-models';
 import { checkMedicalAd, MEDICAL_AD_NG_RULES } from '@/lib/medical-ad-check';
 import { getNoteStyle, NOTE_COMMON_RULES } from '@/lib/note-styles';
@@ -116,7 +116,10 @@ ${NOTE_WRITING_DESIGN}
 - 根拠は${materialText ? '素材とメモの記述のみ' : 'メモの記述のみ'}。無い出典・数値・固有の研究名を新たに書かない
 - AI らしい不自然な文章を避け、人間が書いたような自然な文体に`;
 
-    const content = await generateWithModel(aiModel, prompt, system, 12000, GEMINI_TEXT_THINKING_MEDIUM);
+    // 235: 実際に生成したモデルを画面へ返す（Claude上限時はGeminiへ自動フォールバック）
+    const gen = await generateWithModelInfo(aiModel, prompt, system, 12000, GEMINI_TEXT_THINKING_MEDIUM);
+    const content = gen.text;
+    const aiInfo = { provider: gen.provider, modelLabel: gen.modelLabel };
     if (!content || !content.trim()) {
       return NextResponse.json({ error: '記事の生成結果が空でした。もう一度お試しください' }, { status: 502 });
     }
@@ -128,7 +131,7 @@ ${NOTE_WRITING_DESIGN}
     // 素材なし（メモのみ）のときは素材照合をスキップし、禁止表現だけ返る。
     const verify = verifyContent(content, [materialText, memo.join('\n')]);
 
-    return NextResponse.json({ content, title, ad_check: adCheck, verify, style: style.key });
+    return NextResponse.json({ content, title, ad_check: adCheck, verify, style: style.key, _ai: aiInfo });
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : '不明なエラー';
     console.error('[note-quick/article] error:', message);

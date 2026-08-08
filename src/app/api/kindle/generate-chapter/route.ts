@@ -1,8 +1,6 @@
-import { CLAUDE_TEXT_MODEL } from '@/lib/ai-models';
 import { NextRequest } from 'next/server';
 import { auth } from '@/lib/auth';
-import Anthropic from '@anthropic-ai/sdk';
-import { extractAnthropicText } from '@/lib/anthropic-text';
+import { streamTextWithFallback, generateTextWithFallback } from '@/lib/ai-fallback';
 import { neon } from '@neondatabase/serverless';
 import {
   fetchKindleMaterials,
@@ -22,10 +20,8 @@ export async function POST(req: NextRequest) {
   const session = await auth();
   if (!session) return new Response('Unauthorized', { status: 401 });
 
-  const apiKey = process.env.ANTHROPIC_API_KEY;
-  if (!apiKey) return new Response('ANTHROPIC_API_KEY未設定', { status: 500 });
-
-  const client = new Anthropic({ apiKey });
+  // 235: 生成は ai-fallback（Claude→Gemini）に集約したため、Anthropicキーの有無で門前払いしない
+  // （Geminiだけでも動く状態を保つ。両方失敗したときに初めてエラーになる＝fail-closed）
   const { chapter, bookMeta, language, targetWordCount, bookId, chapterId } = await req.json();
 
   // 222: bookId+chapterId 指定時はウィザード駆動モード（DBから章・素材・目的・文体・
@@ -34,7 +30,7 @@ export async function POST(req: NextRequest) {
   if (bookId && chapterId) {
     const userId = (session as any).user?.id;
     if (!userId) return new Response('Unauthorized', { status: 401 });
-    return wizardGenerateChapter(client, userId, Number(bookId), Number(chapterId));
+    return wizardGenerateChapter(userId, Number(bookId), Number(chapterId));
   }
 
   const langInstruction = language === 'en'
@@ -73,9 +69,9 @@ export async function POST(req: NextRequest) {
     async start(controller) {
       try {
         // Step1: ディープリサーチ
-        const researchResponse = await client.messages.create({
-          model: CLAUDE_TEXT_MODEL,
-          max_tokens: 4000,
+        // 235: 共通層でClaude→Gemini自動フォールバック
+        const research = await generateTextWithFallback({
+          maxTokens: 4000,
           messages: [{
             role: 'user',
             content: `「${chapter?.title ?? ''}」について、以下を調査してください：
@@ -89,32 +85,26 @@ JSON形式で出力：
           }],
         });
 
-        const researchText = extractAnthropicText(researchResponse.content);
+        const researchText = research.text;
 
         controller.enqueue(encoder.encode(
           `data: ${JSON.stringify({ type: 'research_done', research: researchText })}\n\n`
         ));
 
         // Step2: 本文生成（ストリーミング）
-        const writeResponse = await client.messages.create({
-          model: CLAUDE_TEXT_MODEL,
-          max_tokens: 12000,
-          stream: true,
-          messages: [{
-            role: 'user',
-            content: prompt + `\n\n【参考リサーチ】\n${researchText}`,
-          }],
-        });
-
-        for await (const event of writeResponse) {
-          if (event.type === 'content_block_delta' && (event as any).delta?.type === 'text_delta') {
-            const text = (event as any).delta.text;
-            controller.enqueue(
-              encoder.encode(`data: ${JSON.stringify({ type: 'delta', text })}\n\n`)
-            );
-          }
-        }
-        controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'done' })}\n\n`));
+        const write = await streamTextWithFallback(
+          {
+            maxTokens: 12000,
+            messages: [{ role: 'user', content: prompt + `\n\n【参考リサーチ】\n${researchText}` }],
+          },
+          {
+            onDelta: (text) => controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'delta', text })}\n\n`)),
+            onReset: () => controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'reset' })}\n\n`)),
+          },
+        );
+        controller.enqueue(
+          encoder.encode(`data: ${JSON.stringify({ type: 'done', ai: { provider: write.provider, modelLabel: write.modelLabel } })}\n\n`),
+        );
         controller.close();
       } catch (err: any) {
         controller.enqueue(
@@ -133,7 +123,7 @@ JSON形式で出力：
 // ── 222: ウィザード駆動モード ──
 // 生成中は章statusを変えない（300秒killで中断しても 'pending' のまま＝安全に再キュー可能）。
 // 成功時のみ content 保存＋status='completed'、生成エラー時は status='failed'。
-async function wizardGenerateChapter(client: Anthropic, userId: string, bookId: number, chapterId: number) {
+async function wizardGenerateChapter(userId: string, bookId: number, chapterId: number) {
   const sql = neon(process.env.DATABASE_URL!);
 
   // 書籍（owner検証）・対象章・全章を取得
@@ -216,22 +206,16 @@ ${materialsBlock}`;
   const stream = new ReadableStream({
     async start(controller) {
       try {
-        const writeResponse = await client.messages.create({
-          model: CLAUDE_TEXT_MODEL,
-          max_tokens: 12000,
-          stream: true,
-          system,
-          messages: [{ role: 'user', content: prompt }],
-        });
-
-        let fullText = '';
-        for await (const event of writeResponse) {
-          if (event.type === 'content_block_delta' && (event as any).delta?.type === 'text_delta') {
-            const text = (event as any).delta.text;
-            fullText += text;
-            controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'delta', text })}\n\n`));
-          }
-        }
+        // 235: 共通層でClaude→Gemini自動フォールバック（上限・混雑時のみ）。
+        // Claudeが流し始めてから落ちた場合は onReset で受け手の蓄積を捨てて重複を防ぐ
+        const ai = await streamTextWithFallback(
+          { system, maxTokens: 12000, messages: [{ role: 'user', content: prompt }] },
+          {
+            onDelta: (text) => controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'delta', text })}\n\n`)),
+            onReset: () => controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'reset' })}\n\n`)),
+          },
+        );
+        let fullText = ai.text;
 
         // 防御的二重ガード: プロンプト指示をすり抜けた冒頭の章見出しH1を除去してから保存
         fullText = stripLeadingChapterHeading(fullText, target.chapter_number, target.title);
@@ -256,7 +240,11 @@ ${materialsBlock}`;
           WHERE id = ${bookId}
         `;
 
-        controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'done', saved: true, charCount: fullText.length })}\n\n`));
+        controller.enqueue(
+          encoder.encode(
+            `data: ${JSON.stringify({ type: 'done', saved: true, charCount: fullText.length, ai: { provider: ai.provider, modelLabel: ai.modelLabel } })}\n\n`,
+          ),
+        );
         controller.close();
       } catch (err: any) {
         try {

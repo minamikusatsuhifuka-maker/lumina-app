@@ -1,10 +1,8 @@
-import { CLAUDE_TEXT_MODEL } from '@/lib/ai-models';
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
 import { neon } from '@neondatabase/serverless';
-import { extractAnthropicText } from '@/lib/anthropic-text';
 import { robustJsonParse } from '@/lib/ai-json-parser';
-import { assertAnthropicOk } from '@/lib/anthropic-error';
+import { generateTextWithFallback } from '@/lib/ai-fallback';
 import { KINDLE_COMMON_RULES } from '@/lib/kindle-purposes';
 import {
   KINDLE_PROOFREAD_PRINCIPLES,
@@ -36,27 +34,14 @@ interface RawIssue {
 
 const VALID_TYPES = new Set(['誤字脱字', '表現改善', '効果的表現']);
 
+// 235: 共通層でClaude→Gemini自動フォールバック（上限・混雑時のみ切替）
 async function callClaude(system: string, userContent: string, maxTokens: number): Promise<string> {
-  const apiKey = process.env.ANTHROPIC_API_KEY;
-  if (!apiKey) throw new Error('ANTHROPIC_API_KEY未設定');
-  const response = await fetch('https://api.anthropic.com/v1/messages', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'x-api-key': apiKey,
-      'anthropic-version': '2023-06-01',
-    },
-    body: JSON.stringify({
-      model: CLAUDE_TEXT_MODEL,
-      max_tokens: maxTokens,
-      system,
-      messages: [{ role: 'user', content: userContent }],
-    }),
+  const ai = await generateTextWithFallback({
+    system,
+    maxTokens,
+    messages: [{ role: 'user', content: userContent }],
   });
-  const data = await response.json();
-  // 234【1】: 課金上限・レート制限を院長が判別できる文言に揃える（R-33）
-  assertAnthropicOk(response, data);
-  return extractAnthropicText(data.content);
+  return ai.text;
 }
 
 export async function POST(req: NextRequest) {

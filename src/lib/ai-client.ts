@@ -1,6 +1,7 @@
 import { GoogleGenerativeAI, type Tool } from '@google/generative-ai';
 import { CLAUDE_TEXT_MODEL, CLAUDE_TEXT_MODEL_LABEL, GEMINI_TEXT_MODEL, GEMINI_TEXT_MODEL_LABEL, GEMINI_TEXT_THINKING_LOW } from '@/lib/ai-models';
-import { assertAnthropicOk, describeAnthropicError } from '@/lib/anthropic-error';
+import { assertAnthropicOk, describeAnthropicError, isFallbackWorthy } from '@/lib/anthropic-error';
+import { callGeminiText, type AIProviderInfo } from '@/lib/ai-fallback';
 
 export type AIModel = 'claude' | 'gemini';
 // SSEの出力フォーマット: 'standard' = {type:'text', content}、'delta' = {type:'delta', text}
@@ -79,11 +80,26 @@ export async function generateWithModel(
   model: AIModel,
   prompt: string,
   systemPrompt?: string,
-  // 195: Sonnet 5はthinking既定ON＝max_tokensが思考+本文の合算上限になるため既定枠を増額
   maxTokens = 8000,
   geminiGenerationConfig?: Record<string, unknown>,
   webSearch = false,
 ): Promise<string> {
+  return (await generateWithModelInfo(model, prompt, systemPrompt, maxTokens, geminiGenerationConfig, webSearch)).text;
+}
+
+/**
+ * 235: generateWithModel と同じ生成に加えて、**実際に生成したモデル**を返す。
+ * Claude が上限・混雑で落ちて Gemini に切り替わったことを画面へ明示したい呼び出し側はこちらを使う。
+ */
+export async function generateWithModelInfo(
+  model: AIModel,
+  prompt: string,
+  systemPrompt?: string,
+  // 195: Sonnet 5はthinking既定ON＝max_tokensが思考+本文の合算上限になるため既定枠を増額
+  maxTokens = 8000,
+  geminiGenerationConfig?: Record<string, unknown>,
+  webSearch = false,
+): Promise<{ text: string } & AIProviderInfo> {
   if (model === 'gemini') {
     const genAI = getGemini();
     const geminiModel = genAI.getGenerativeModel({
@@ -98,11 +114,12 @@ export async function generateWithModel(
       ...(webSearch ? { tools: GOOGLE_SEARCH_TOOLS } : {}),
     });
     const text = result.response.text();
+    const info = { provider: 'gemini' as const, modelLabel: GEMINI_TEXT_MODEL_LABEL };
     if (webSearch) {
       const sources = extractGroundingSources(result.response.candidates?.[0]);
-      return text + formatGroundingSources(sources);
+      return { text: text + formatGroundingSources(sources), ...info };
     }
-    return text;
+    return { text, ...info };
   }
 
   // Claude (default)
@@ -120,9 +137,21 @@ export async function generateWithModel(
   });
   const data = await response.json();
   // 234【1】: エラー応答を握りつぶすと data.content が undefined → 空文字となり、
-  // 下流で「JSONパース失敗」等の別症状に化ける。原因の分かる文言で throw する（R-33）
-  assertAnthropicOk(response, data);
-  return (data.content || []).filter((b: any) => b.type === 'text').map((b: any) => b.text).join('');
+  // 下流で「JSONパース失敗」等の別症状に化ける（R-33）。
+  // 235: 上限・混雑ならここで throw せず Gemini へ切り替える。
+  if (!response.ok) {
+    if (!isFallbackWorthy(response.status, data)) assertAnthropicOk(response, data);
+    // Web検索ツールはClaude固有のためフォールバック時は素の生成に落ちる（出典は付かない）
+    const text = await callGeminiText({ system: systemPrompt, messages: [{ role: 'user', content: prompt }], maxTokens });
+    return {
+      text,
+      provider: 'gemini',
+      modelLabel: GEMINI_TEXT_MODEL_LABEL,
+      fallbackReason: describeAnthropicError(response.status, data),
+    };
+  }
+  const text = (data.content || []).filter((b: any) => b.type === 'text').map((b: any) => b.text).join('');
+  return { text, provider: 'claude', modelLabel: CLAUDE_TEXT_MODEL_LABEL };
 }
 
 // SSEストリーミング生成
@@ -199,9 +228,16 @@ export async function streamWithModel(
     });
     // 234【1】: ストリーミングでもエラー応答はSSEではなくJSONで来る。
     // 素通りさせると「0字の応答」に化けるため、原因の分かる文言で throw する（R-33）
+    // 235: 上限・混雑ならGeminiへ切り替えて生成を継続する（分割送出でSSE形式は不変）
     if (!response.ok) {
       const errBody = await response.json().catch(() => null);
-      throw new Error(describeAnthropicError(response.status, errBody));
+      if (!isFallbackWorthy(response.status, errBody)) {
+        throw new Error(describeAnthropicError(response.status, errBody));
+      }
+      const text = await callGeminiText({ system: systemPrompt, messages: [{ role: 'user', content: prompt }], maxTokens });
+      for (let i = 0; i < text.length; i += 200) enqueueText(text.slice(i, i + 200));
+      if (format === 'standard') controller.enqueue(encoder.encode('data: {"type":"done"}\n\n'));
+      return { inputTokens, outputTokens };
     }
     const reader = response.body!.getReader();
     const decoder = new TextDecoder();

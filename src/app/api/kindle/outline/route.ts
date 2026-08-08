@@ -4,6 +4,7 @@ import { auth } from '@/lib/auth';
 import { extractAnthropicText } from '@/lib/anthropic-text';
 import { robustJsonParse } from '@/lib/ai-json-parser';
 import { assertAnthropicOk } from '@/lib/anthropic-error';
+import { generateTextWithFallback } from '@/lib/ai-fallback';
 import {
   fetchKindleMaterials,
   validateKindleMaterialLimits,
@@ -246,34 +247,22 @@ ${hasNoteMaterials(materials) ? `\n${KINDLE_NOTE_SOURCE_RULES}\n` : ''}${hasAnal
   "afterword_outline": "あとがきの概要"
 }`;
 
-    const response = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': apiKey,
-        'anthropic-version': '2023-06-01',
-      },
-      body: JSON.stringify({
-        model: CLAUDE_TEXT_MODEL,
-        max_tokens: 8000,
-        system,
-        messages: [
-          {
-            role: 'user',
-            content: `以下の素材を束ねて本の構成案を作成してください。
+    // 235: 共通層でClaude→Gemini自動フォールバック（上限・混雑時のみ）
+    const ai = await generateTextWithFallback({
+      system,
+      maxTokens: 8000,
+      messages: [
+        {
+          role: 'user',
+          content: `以下の素材を束ねて本の構成案を作成してください。
 ${theme ? `\n【著者からの補足】\n${theme}\n` : ''}
 【素材（全${materials.length}件）】
 
 ${materialsBlock}`,
-          },
-        ],
-      }),
+        },
+      ],
     });
-
-    const data = await response.json();
-    // 234【1】: ここが実際の障害点。課金上限の400を素通りさせ「JSONパース失敗」と誤表示していた（R-33）
-    assertAnthropicOk(response, data);
-    const text = extractAnthropicText(data.content);
+    const text = ai.text;
 
     let outline: any;
     try {
@@ -296,7 +285,8 @@ ${materialsBlock}`,
         : [],
     }));
 
-    return NextResponse.json(outline);
+    // 235要件2: どのモデルで生成したかを必ず返す（画面で「✨ Geminiで生成」を出すため）
+    return NextResponse.json({ ...outline, _ai: { provider: ai.provider, modelLabel: ai.modelLabel } });
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : String(e);
     return NextResponse.json({ error: `構成案の生成に失敗しました: ${msg}` }, { status: 500 });

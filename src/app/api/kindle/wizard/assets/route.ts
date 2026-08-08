@@ -1,10 +1,8 @@
-import { CLAUDE_TEXT_MODEL } from '@/lib/ai-models';
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
 import { neon } from '@neondatabase/serverless';
-import { extractAnthropicText } from '@/lib/anthropic-text';
 import { robustJsonParse } from '@/lib/ai-json-parser';
-import { assertAnthropicOk } from '@/lib/anthropic-error';
+import { generateTextWithFallback } from '@/lib/ai-fallback';
 import { getKindlePurpose } from '@/lib/kindle-purposes';
 import { KINDLE_ASSET_META, type KindleAssetEntry, type KindleAssetKind } from '@/lib/kindle-assets';
 import { buildKindleAssetPrompt, type KindleAssetContext } from '@/lib/kindle-asset-prompts';
@@ -80,24 +78,13 @@ export async function POST(req: NextRequest) {
 
     const { system, user, maxTokens } = buildKindleAssetPrompt(kind, ctx);
     // 既存5APIと同一の直呼び作法（thinkingなし・extractAnthropicText→robustJsonParse）
-    const response = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': process.env.ANTHROPIC_API_KEY!,
-        'anthropic-version': '2023-06-01',
-      },
-      body: JSON.stringify({
-        model: CLAUDE_TEXT_MODEL,
-        max_tokens: maxTokens,
-        system,
-        messages: [{ role: 'user', content: user }],
-      }),
+    // 235: 共通層でClaude→Gemini自動フォールバック（上限・混雑時のみ切替）
+    const ai = await generateTextWithFallback({
+      system,
+      maxTokens,
+      messages: [{ role: 'user', content: user }],
     });
-    const raw = await response.json();
-    // 234【1】: APIエラーを素通りさせると「生成結果の解析に失敗」に化ける（R-33）
-    assertAnthropicOk(response, raw);
-    const text = extractAnthropicText(raw.content);
+    const text = ai.text;
     let data: Record<string, unknown>;
     try {
       data = robustJsonParse(text) as Record<string, unknown>;

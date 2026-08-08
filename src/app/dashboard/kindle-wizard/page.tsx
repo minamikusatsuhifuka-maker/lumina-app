@@ -307,6 +307,10 @@ function KindleWizardInner() {
   const [diffTarget, setDiffTarget] = useState<WizardChapter | null>(null);
   const proofStartedRef = useRef(false);
 
+  /* 235: 実際に生成したモデル（Claude上限時はGeminiへ自動フォールバック）。
+     無言で品質が変わる状態を作らないため、切り替わったら画面に明示する。 */
+  const [aiProvider, setAiProvider] = useState<{ provider: string; modelLabel: string } | null>(null);
+
   /* ⑤ 内容検証（233②: 素材照合＋禁止表現。AI呼び出しなし・表示のみ） */
   const [verify, setVerify] = useState<KindleVerifyResponse | null>(null);
   const [verifyBusy, setVerifyBusy] = useState(false);
@@ -572,6 +576,8 @@ function KindleWizardInner() {
       });
       const data = await res.json();
       if (!res.ok || data.error) throw new Error(data.error || `目次生成に失敗しました (${res.status})`);
+      // 235: どのモデルで生成したかを記録（Geminiフォールバック時に画面へ明示）
+      if (data._ai?.provider) setAiProvider(data._ai);
       setOutlines((prev) => ({ ...prev, [purpose]: data }));
     } catch (e: any) {
       setError(`${KINDLE_PURPOSES[purpose].label}の目次: ${e.message}`);
@@ -716,7 +722,12 @@ function KindleWizardInner() {
           try {
             const ev = JSON.parse(line.slice(6));
             if (ev.type === 'delta') setLiveChars((c) => c + String(ev.text || '').length);
-            else if (ev.type === 'done') done = true;
+            // 235: Claudeが流し始めてからGeminiに切り替わった場合、途中まで出た分の重複を捨てる
+            else if (ev.type === 'reset') setLiveChars(0);
+            else if (ev.type === 'done') {
+              done = true;
+              if (ev.ai?.provider) setAiProvider(ev.ai as { provider: string; modelLabel: string });
+            }
             else if (ev.type === 'error') errMsg = ev.message || '生成エラー';
           } catch {}
         }
@@ -1463,6 +1474,16 @@ function KindleWizardInner() {
           </div>
         ))}
       </div>
+
+      {/* 235: Claudeが上限に達しGeminiで生成した場合の明示（無言で品質が変わる状態を作らない） */}
+      {aiProvider?.provider === 'gemini' && (
+        <div style={{ marginBottom: 16, padding: '10px 14px', background: 'rgba(59,130,246,0.06)', border: '1px solid rgba(59,130,246,0.3)', borderRadius: 8, fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.7 }}>
+          <strong style={{ color: '#3b82f6' }}>✨ {aiProvider.modelLabel}で生成</strong>
+          <span style={{ color: 'var(--text-muted)' }}>
+            {' '}— Claudeが利用上限のため自動で切り替えました。文体・構成の傾向がClaudeとは異なる場合があります。
+          </span>
+        </div>
+      )}
 
       {error && (
         <div style={{ marginBottom: 16, padding: '10px 14px', background: 'rgba(239,68,68,0.06)', border: '1px solid rgba(239,68,68,0.3)', borderRadius: 8, fontSize: 13, color: '#dc2626' }}>

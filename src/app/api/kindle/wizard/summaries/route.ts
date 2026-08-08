@@ -1,10 +1,8 @@
-import { CLAUDE_TEXT_MODEL } from '@/lib/ai-models';
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
 import { neon } from '@neondatabase/serverless';
-import { extractAnthropicText } from '@/lib/anthropic-text';
 import { robustJsonParse } from '@/lib/ai-json-parser';
-import { describeAnthropicError } from '@/lib/anthropic-error';
+import { generateTextWithFallback } from '@/lib/ai-fallback';
 import { KINDLE_COMMON_RULES } from '@/lib/kindle-purposes';
 import { normalizeSummaryPoints, type KindleChapterSummary } from '@/lib/kindle-summaries';
 
@@ -63,9 +61,7 @@ export async function POST(req: NextRequest) {
     const content: string = chapter.content || '';
     if (!content.trim()) return NextResponse.json({ error: '章の本文が空です' }, { status: 400 });
 
-    const apiKey = process.env.ANTHROPIC_API_KEY;
-    if (!apiKey) return NextResponse.json({ error: 'ANTHROPIC_API_KEY未設定' }, { status: 500 });
-
+    // 235: 生成は ai-fallback に集約。Anthropicキーの有無で門前払いしない（Geminiだけでも動く）
     const system = `あなたは書籍編集のプロです。章の本文から、読者が持ち帰るべき要点を3〜5個の箇条書きで抽出してください。
 
 # 厳守事項
@@ -77,31 +73,18 @@ ${KINDLE_COMMON_RULES}
 必ず以下のJSON形式のみを返してください（前置き・コードフェンス不要）:
 {"points": ["要点1", "要点2", "要点3"]}`;
 
-    const response = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': apiKey,
-        'anthropic-version': '2023-06-01',
-      },
-      body: JSON.stringify({
-        model: CLAUDE_TEXT_MODEL,
-        max_tokens: 2048,
-        system,
-        messages: [{
-          role: 'user',
-          content: `以下の章の要点を抽出してください。\n\n章タイトル: 第${chapter.chapter_number}章 ${chapter.title}\n\n--- 章の本文 ---\n${content}\n--- ここまで ---`,
-        }],
-      }),
+    // 235: 共通層でClaude→Gemini自動フォールバック（上限・混雑時のみ切替）
+    const ai = await generateTextWithFallback({
+      system,
+      maxTokens: 2048,
+      messages: [{
+        role: 'user',
+        content: `以下の章の要点を抽出してください。\n\n章タイトル: 第${chapter.chapter_number}章 ${chapter.title}\n\n--- 章の本文 ---\n${content}\n--- ここまで ---`,
+      }],
     });
-    const data = await response.json();
-    // 234【1】: 課金上限・レート制限を院長が判別できる文言に揃える（R-33）
-    if (!response.ok) {
-      return NextResponse.json({ error: describeAnthropicError(response.status, data) }, { status: 500 });
-    }
 
     // fail-closed: パース失敗・要点0件は保存しない
-    const text = extractAnthropicText(data.content);
+    const text = ai.text;
     const parsed = robustJsonParse<{ points?: unknown }>(text);
     const points = normalizeSummaryPoints(parsed?.points);
     if (points.length === 0) {

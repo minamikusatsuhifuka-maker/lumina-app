@@ -73,6 +73,8 @@ export default function NoteQuickPage() {
     adCheck: { status: string; findings: string[] } | null;
     // 233②: 素材照合＋禁止表現の機械チェック（AI不使用・表示のみ）
     verify: ContentVerifyResult | null;
+    // 235: 実際に生成したモデル（Claude上限時はGeminiへ自動フォールバック）
+    ai: { provider: string; modelLabel: string } | null;
   } | null>(null);
   const [enhance, setEnhance] = useState<NoteEnhanceState>(emptyNoteEnhance());
   const [error, setError] = useState('');
@@ -144,7 +146,7 @@ export default function NoteQuickPage() {
       if (!res.ok || !data.content) throw new Error(data.error || `記事生成に失敗 (${res.status})`);
       content = data.content;
       title = data.title || 'note記事';
-      setResult({ title, content, adCheck: data.ad_check ?? null, verify: data.verify ?? null });
+      setResult({ title, content, adCheck: data.ad_check ?? null, verify: data.verify ?? null, ai: data._ai ?? null });
       setStep('article', 'done', `${String(content.length)}字`);
     } catch (e) {
       setStep('article', 'error', e instanceof Error ? e.message : String(e));
@@ -454,6 +456,13 @@ export default function NoteQuickPage() {
           <div style={{ marginBottom: 12, padding: '10px 14px', background: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.3)', borderRadius: 8, fontSize: 12, color: '#f59e0b' }}>
             ⚠️ これは下書きです。内容を確認・編集してから投稿してください
           </div>
+          {/* 235: Claudeが上限でGeminiに切り替わった場合の明示（無言で品質が変わる状態を作らない） */}
+          {result.ai?.provider === 'gemini' && (
+            <div style={{ marginBottom: 12, padding: '8px 12px', background: 'rgba(59,130,246,0.06)', border: '1px solid rgba(59,130,246,0.3)', borderRadius: 8, fontSize: 11, lineHeight: 1.7, color: 'var(--text-secondary)' }}>
+              <strong style={{ color: '#3b82f6' }}>✨ {result.ai.modelLabel}で生成</strong>
+              <span style={{ color: 'var(--text-muted)' }}> — Claudeが利用上限のため自動で切り替えました。文体の傾向が普段と異なる場合があります。</span>
+            </div>
+          )}
           {result.adCheck && result.adCheck.status === 'warn' && result.adCheck.findings.length > 0 && (
             <div style={{ marginBottom: 12, padding: '8px 12px', background: 'rgba(239,68,68,0.06)', border: '1px solid rgba(239,68,68,0.25)', borderRadius: 8, fontSize: 11, color: '#ef4444', lineHeight: 1.6 }}>
               🚨 医療広告チェック: 要確認

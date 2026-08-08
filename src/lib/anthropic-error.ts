@@ -39,6 +39,21 @@ export function describeAnthropicError(status: number, body: unknown): string {
 }
 
 /**
+ * 235: Gemini へ自動フォールバックすべきエラーか判定する。
+ * 「上限・混雑」＝待てば直る/別プロバイダなら通る種類のみ true。
+ * 認証エラー・リクエスト不正は設定/実装の問題なのでフォールバックせず、そのまま表面化させる
+ * （フォールバックで隠すと、APIキー未設定に永久に気づけなくなる＝R-33の精神）。
+ */
+export function isFallbackWorthy(status: number, body: unknown): boolean {
+  const err = (body as AnthropicErrorBody | null)?.error;
+  const raw = err?.message ?? '';
+  const type = err?.type ?? '';
+  if (/usage limits?|credit balance|quota/i.test(raw)) return true;
+  if (type === 'billing_error' || type === 'rate_limit_error' || type === 'overloaded_error') return true;
+  return status === 429 || status === 529;
+}
+
+/**
  * Anthropic 応答が失敗なら、原因の分かるメッセージで throw する。
  * **成功応答は素通り**するため、既存の呼び出しに `assertAnthropicOk(response, data)` を
  * 1行足すだけで導入できる。

@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { describeAnthropicError } from '../../src/lib/anthropic-error';
+import { describeAnthropicError, isFallbackWorthy } from '../../src/lib/anthropic-error';
 import { findUngroundedTerms, findBannedExpressions } from '../../src/lib/content-verify';
 
 // ============================================================================
@@ -58,4 +58,24 @@ test('U4: 内容検証器（233②）— 素材にない固有名詞だけを警
   // 素材にある記述は警告しない
   expect(terms).not.toContain('2023年');
   expect(terms).not.toContain('60%');
+});
+
+test('U5: フォールバック判定（235）— 上限・混雑のみ切替、認証エラーは切り替えない', () => {
+  const limit = { error: { type: 'invalid_request_error', message: 'You have reached your specified API usage limits.' } };
+  expect(isFallbackWorthy(400, limit), '課金上限はGeminiへ切替').toBe(true);
+  expect(isFallbackWorthy(429, { error: { type: 'rate_limit_error', message: 'rate limited' } })).toBe(true);
+  expect(isFallbackWorthy(529, { error: { type: 'overloaded_error', message: 'overloaded' } })).toBe(true);
+  expect(isFallbackWorthy(400, { error: { type: 'billing_error', message: 'credit balance too low' } })).toBe(true);
+
+  // 認証エラー・リクエスト不正は切り替えない（フォールバックで隠すと設定ミスに永久に気づけない）
+  expect(isFallbackWorthy(401, { error: { type: 'authentication_error', message: 'invalid x-api-key' } })).toBe(false);
+  expect(isFallbackWorthy(400, { error: { type: 'invalid_request_error', message: 'max_tokens is required' } })).toBe(false);
+  expect(isFallbackWorthy(404, { error: { type: 'not_found_error', message: 'model not found' } })).toBe(false);
+});
+
+test('U6: フォールバックしないエラーは234の文言のまま表面化する（235で退化していない）', () => {
+  // 235でフォールバックを入れても、認証エラーは隠さず原因が分かる文言で出ること
+  const msg = describeAnthropicError(401, { error: { type: 'authentication_error', message: 'invalid x-api-key' } });
+  expect(msg).toContain('認証に失敗');
+  expect(isFallbackWorthy(401, { error: { type: 'authentication_error', message: 'invalid x-api-key' } })).toBe(false);
 });
