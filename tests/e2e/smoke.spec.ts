@@ -590,3 +590,17 @@ test('C24: 内容検証API（233②）の契約 — 認証必須・bookId検証�
   const notFound = await api.post('/api/kindle/wizard/verify', { data: { bookId: 999999999 } });
   expect(notFound.status()).toBe(404);
 });
+
+test('C25: note 2画面の相互導線（234【2】）— 新規画面に到達手段がある', async ({ page }) => {
+  // 234で「⚡おまかせ投稿はページだけあって導線がない」状態が発覚したため、
+  // 双方向のリンクが実在することをスモークで固定する（R-34）。
+  await page.goto('/dashboard/note-article');
+  const toQuick = page.getByRole('link', { name: /おまかせで作る（1クリック版）/ });
+  await expect(toQuick).toBeVisible();
+  await expect(toQuick).toHaveAttribute('href', '/dashboard/note-quick');
+
+  await page.goto('/dashboard/note-quick');
+  const toArticle = page.getByRole('link', { name: /詳細に設定して作る/ });
+  await expect(toArticle).toBeVisible();
+  await expect(toArticle).toHaveAttribute('href', '/dashboard/note-article');
+});

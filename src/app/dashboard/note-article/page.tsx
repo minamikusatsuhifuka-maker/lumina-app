@@ -544,6 +544,24 @@ export default function NoteArticleGenerationPage() {
         <strong style={{ color: '#f59e0b' }}>⚠️ 生成された記事は下書きです。必ずあなたの独自の経験・視点を加えて編集してから投稿してください。</strong>
       </p>
 
+      {/* 234【2】: ⚡おまかせ投稿への導線。ページだけ作って到達手段がない状態を作らない（R-34） */}
+      <a
+        href="/dashboard/note-quick"
+        style={{
+          display: 'inline-flex', alignItems: 'center', gap: 8, marginBottom: 16, padding: '10px 16px',
+          background: 'linear-gradient(135deg, rgba(245,158,11,0.10), rgba(236,72,153,0.10))',
+          border: '1px solid rgba(245,158,11,0.4)', borderRadius: 10, textDecoration: 'none',
+          color: 'var(--text-primary)', fontSize: 13, lineHeight: 1.6,
+        }}
+      >
+        <span style={{ fontSize: 18 }}>⚡</span>
+        <span>
+          <strong>おまかせで作る（1クリック版）</strong>
+          <span style={{ color: 'var(--text-muted)' }}> — 素材1件かメモから、記事・まとめ・図表・配置まで自動で作ります</span>
+        </span>
+        <span style={{ color: '#f59e0b', fontWeight: 700 }}>→</span>
+      </a>
+
       {/* 自動下書きからの復元バナー */}
       {restoredAt && (
         <FeatureDraftBanner restoredAt={restoredAt} onClear={handleClearDraft} />

@@ -305,6 +305,23 @@ export default function NoteQuickPage() {
         <strong style={{ color: '#f59e0b' }}>⚠️ 生成物は下書きです。必ず内容を確認・編集してから投稿してください。</strong>
       </p>
 
+      {/* 234【2】: 逆方向の導線（素材を複数使う・経験メモやバズり辞書を効かせたいときはこちら） */}
+      <a
+        href="/dashboard/note-article"
+        style={{
+          display: 'inline-flex', alignItems: 'center', gap: 8, marginBottom: 16, padding: '10px 16px',
+          background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 10,
+          textDecoration: 'none', color: 'var(--text-primary)', fontSize: 13, lineHeight: 1.6,
+        }}
+      >
+        <span style={{ fontSize: 18 }}>✍️</span>
+        <span>
+          <strong>詳細に設定して作る</strong>
+          <span style={{ color: 'var(--text-muted)' }}> — テーマ・参考分析の複数選択・経験メモ・バズりパターン辞書を使う</span>
+        </span>
+        <span style={{ color: 'var(--text-muted)', fontWeight: 700 }}>→</span>
+      </a>
+
       <div style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 14, padding: 20, marginBottom: 20 }}>
         {/* レーン切替 */}
         <div style={{ display: 'flex', gap: 6, marginBottom: 14 }}>
