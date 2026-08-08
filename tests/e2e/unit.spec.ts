@@ -1,6 +1,8 @@
 import { test, expect } from '@playwright/test';
 import { describeAnthropicError, isFallbackWorthy } from '../../src/lib/anthropic-error';
 import { findUngroundedTerms, findBannedExpressions } from '../../src/lib/content-verify';
+import { buildDiffRows, describeDiffStats } from '../../src/lib/text-diff';
+import { KINDLE_TASTES, KINDLE_TASTE_KEYS, KINDLE_TASTE_GUARD, KINDLE_SCORE_AXES } from '../../src/lib/kindle-taste';
 
 // ============================================================================
 // 純関数の単体テスト（234【1】要件4）— ネットワーク・AI課金・認証を一切使わない
@@ -78,4 +80,54 @@ test('U6: フォールバックしないエラーは234の文言のまま表面�
   const msg = describeAnthropicError(401, { error: { type: 'authentication_error', message: 'invalid x-api-key' } });
   expect(msg).toContain('認証に失敗');
   expect(isFallbackWorthy(401, { error: { type: 'authentication_error', message: 'invalid x-api-key' } })).toBe(false);
+});
+
+test('U7: 左右diff（236C）— 変更行は行内差分に、追加/削除は片側のみになる', () => {
+  // 3行目は互いに全く似ていない文にする（似ていれば「変更」に束ねるのが正しい挙動のため）
+  const original = '保湿剤は入浴後5分以内に塗ります。\nこすらずに洗います。\nAAAAAAAAAA';
+  const revised = '保湿剤は入浴後5分以内に塗るのがコツです。\nこすらずに洗います。\nBBBBBBBBBB';
+  const { rows, stats } = buildDiffRows(original, revised);
+
+  // 1行目: 似ているので「変更」に束ねられ、行内の文字差分がつく
+  expect(rows[0].op).toBe('changed');
+  expect(rows[0].leftParts?.some((p) => p.op === 'removed')).toBe(true);
+  expect(rows[0].rightParts?.some((p) => p.op === 'added')).toBe(true);
+  // 変更なしの行は左右とも同じ文字列
+  expect(rows[1].op).toBe('equal');
+  expect(rows[1].left).toBe(rows[1].right);
+  // 似ていない行は片側だけ（左のみ＝削除／右のみ＝追加）
+  const removed = rows.find((r) => r.op === 'removed');
+  const added = rows.find((r) => r.op === 'added');
+  expect(removed, '削除行が1行ある').toBeTruthy();
+  expect(added, '追加行が1行ある').toBeTruthy();
+  expect(removed!.right, '削除行は右カラムが空').toBe(null);
+  expect(added!.left, '追加行は左カラムが空').toBe(null);
+
+  expect(stats.unchanged).toBe(1);
+  expect(stats.changed).toBeGreaterThanOrEqual(1);
+});
+
+test('U8: 左右diff — 同一テキストは全行equal・差分ゼロ', () => {
+  const text = '一行目\n二行目\n三行目';
+  const { rows, stats } = buildDiffRows(text, text);
+  expect(rows.every((r) => r.op === 'equal')).toBe(true);
+  expect(stats.added + stats.removed + stats.changed).toBe(0);
+  expect(describeDiffStats(stats)).toBe('変更はありません');
+});
+
+test('U9: テイスト定義（236B）— 全テイストが医療広告ガードを共有し、変換ガードが内容の創作を禁じている', () => {
+  for (const key of KINDLE_TASTE_KEYS) {
+    const t = KINDLE_TASTES[key];
+    expect(t.label, `${key} にラベル`).toBeTruthy();
+    expect(t.hint, `${key} に説明`).toBeTruthy();
+    expect(t.promptBlock.length, `${key} のプロンプト`).toBeGreaterThan(50);
+  }
+  // マーケティング強めでもNG表現の禁止が明記されていること（誇張に滑らせない）
+  expect(KINDLE_TASTES.marketing.promptBlock).toContain('禁止');
+  expect(KINDLE_TASTES.marketing.promptBlock).toContain('不安を煽る');
+  // 共通ガードが「表現の変換であって内容の創作ではない」ことを言っている
+  expect(KINDLE_TASTE_GUARD).toContain('内容の創作ではない');
+  expect(KINDLE_TASTE_GUARD).toContain('追加しない');
+  // 採点は5軸
+  expect(KINDLE_SCORE_AXES).toHaveLength(5);
 });

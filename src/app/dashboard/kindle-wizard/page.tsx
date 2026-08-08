@@ -42,6 +42,14 @@ import {
 import { ProofreadDiffPane, type AppliedFix } from '@/components/proofread/ProofreadDiffPane';
 import { findBannedExpressions, type UngroundedTerm, type BannedExpression } from '@/lib/content-verify';
 import {
+  KINDLE_TASTES,
+  KINDLE_TASTE_KEYS,
+  KINDLE_SCORE_AXES,
+  scoreColor,
+  type KindleBookScores,
+} from '@/lib/kindle-taste';
+import DiffColumns from '@/components/kindle/DiffColumns';
+import {
   hasChapterEndSummary,
   buildChapterSummaryBlock,
   buildBookSummarySection,
@@ -310,6 +318,19 @@ function KindleWizardInner() {
   /* 235: 実際に生成したモデル（Claude上限時はGeminiへ自動フォールバック）。
      無言で品質が変わる状態を作らないため、切り替わったら画面に明示する。 */
   const [aiProvider, setAiProvider] = useState<{ provider: string; modelLabel: string } | null>(null);
+
+  /* ⑤ 採点（236A: 診断。224の校正＝個別修正とは役割が別） */
+  const [scoreBusyId, setScoreBusyId] = useState<number | null>(null);
+  const [scoreErrors, setScoreErrors] = useState<Record<string, string>>({});
+  const [expandedScoreId, setExpandedScoreId] = useState<number | null>(null);
+  const [scoringAll, setScoringAll] = useState(false);
+
+  /* ⑤ テイスト変換（236B/C: サンプル比較 → 全文変換 → 左右diff → 適用/破棄） */
+  const [tasteTarget, setTasteTarget] = useState<WizardChapter | null>(null);
+  const [tasteSamples, setTasteSamples] = useState<Record<string, string> | null>(null);
+  const [tasteBusy, setTasteBusy] = useState<'samples' | 'convert' | 'apply' | null>(null);
+  const [tasteError, setTasteError] = useState('');
+  const [tasteConverted, setTasteConverted] = useState<{ tasteKey: string; tasteLabel: string; original: string; revised: string } | null>(null);
 
   /* ⑤ 内容検証（233②: 素材照合＋禁止表現。AI呼び出しなし・表示のみ） */
   const [verify, setVerify] = useState<KindleVerifyResponse | null>(null);
@@ -974,6 +995,134 @@ function KindleWizardInner() {
     (issue: KindleProofreadIssue) => findBannedExpressions(issue.suggestion, { maxResults: 3 }),
     [],
   );
+
+  /* ── 236A: 章の採点（診断） ── */
+  const scores: KindleBookScores = book?.bookMeta?.scores ?? {};
+
+  // 戻り値: エラーメッセージ（成功時は空文字）。fail-closed=失敗しても既存スコア・本文は無傷
+  const scoreOne = useCallback(
+    async (chapterId: number): Promise<string> => {
+      try {
+        const res = await fetch('/api/kindle/wizard/score', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ bookId, chapterId }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) return data.error || `採点に失敗 (${res.status})`;
+        if (data.score?.provider) setAiProvider({ provider: data.score.provider, modelLabel: data.score.modelLabel });
+        return '';
+      } catch (e: any) {
+        return String(e?.message || e);
+      }
+    },
+    [bookId],
+  );
+
+  const scoreChapter = async (c: WizardChapter) => {
+    if (!bookId || scoreBusyId !== null || scoringAll) return;
+    setScoreBusyId(c.id);
+    const err = await scoreOne(c.id);
+    setScoreErrors((prev) => {
+      const next = { ...prev };
+      if (err) next[String(c.id)] = err;
+      else delete next[String(c.id)];
+      return next;
+    });
+    if (!err) setExpandedScoreId(c.id);
+    await loadBook(bookId);
+    setScoreBusyId(null);
+  };
+
+  // 全章採点は直列（並列にするとレート制限に当たりやすく、失敗章の切り分けもしづらい）
+  const scoreAllChapters = async () => {
+    if (!bookId || scoringAll || scoreBusyId !== null) return;
+    setScoringAll(true);
+    const errs: Record<string, string> = {};
+    try {
+      for (const c of chapters.filter((ch) => ch.status === 'completed')) {
+        setScoreBusyId(c.id);
+        const err = await scoreOne(c.id);
+        if (err) errs[String(c.id)] = err;
+      }
+      await loadBook(bookId);
+    } finally {
+      setScoreErrors(errs);
+      setScoreBusyId(null);
+      setScoringAll(false);
+    }
+  };
+
+  /* ── 236B/C: テイスト変換（サンプル比較 → 全文変換 → 左右diff → 適用/破棄） ── */
+  const openTastePanel = async (c: WizardChapter) => {
+    setTasteTarget(c);
+    setTasteSamples(null);
+    setTasteConverted(null);
+    setTasteError('');
+    setTasteBusy('samples');
+    try {
+      const res = await fetch('/api/kindle/wizard/taste', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ bookId, chapterId: c.id, mode: 'samples' }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || `サンプル生成に失敗 (${res.status})`);
+      if (data._ai?.provider) setAiProvider(data._ai);
+      setTasteSamples(data.samples ?? {});
+    } catch (e: any) {
+      setTasteError(String(e?.message || e));
+    } finally {
+      setTasteBusy(null);
+    }
+  };
+
+  const convertWithTaste = async (tasteKey: string) => {
+    if (!tasteTarget || tasteBusy) return;
+    setTasteError('');
+    setTasteConverted(null);
+    setTasteBusy('convert');
+    try {
+      const res = await fetch('/api/kindle/wizard/taste', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ bookId, chapterId: tasteTarget.id, mode: 'convert', tasteKey }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || `変換に失敗 (${res.status})`);
+      if (data._ai?.provider) setAiProvider(data._ai);
+      setTasteConverted({ tasteKey: data.tasteKey, tasteLabel: data.tasteLabel, original: data.original, revised: data.revised });
+    } catch (e: any) {
+      setTasteError(String(e?.message || e));
+    } finally {
+      setTasteBusy(null);
+    }
+  };
+
+  // 適用は院長がdiffを見た後の明示操作でのみ実行（サーバ側は変換結果を保存していない）
+  const applyConverted = async () => {
+    if (!tasteTarget || !tasteConverted || tasteBusy) return;
+    setTasteBusy('apply');
+    try {
+      const res = await fetch('/api/kindle/chapters', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: tasteTarget.id, content: tasteConverted.revised }),
+      });
+      if (!res.ok) throw new Error(`本文の更新に失敗しました (${res.status})`);
+      await loadBook(bookId!);
+      setTasteTarget(null);
+      setTasteConverted(null);
+      setTasteSamples(null);
+      // 本文が変わったので内容検証（233②）をやり直す＝素材外記述が増えていないか確認できる
+      verifyStartedRef.current = true;
+      runVerify();
+    } catch (e: any) {
+      setTasteError(String(e?.message || e));
+    } finally {
+      setTasteBusy(null);
+    }
+  };
 
   /* ── 227【A】【B】: まとめパネルの操作 ── */
   const openSummaryPanel = (c: WizardChapter) => {
@@ -1833,6 +1982,41 @@ function KindleWizardInner() {
                         📝 まとめ{summaries[String(c.id)] ? '' : 'を追加'} {expandedSummaryId === c.id ? '▲' : '▼'}
                       </button>
                     )}
+                    {/* 236A: 採点（診断）。校正＝個別修正とは別枠であることを説明文で明示している */}
+                    {c.status === 'completed' && (() => {
+                      const sc = scores[String(c.id)];
+                      return (
+                        <button
+                          onClick={() => (sc ? setExpandedScoreId(expandedScoreId === c.id ? null : c.id) : scoreChapter(c))}
+                          disabled={scoreBusyId !== null || scoringAll}
+                          style={{
+                            ...smallBtn,
+                            color: sc ? scoreColor(sc.average) : '#3b82f6',
+                            borderColor: sc ? `${scoreColor(sc.average)}66` : 'rgba(59,130,246,0.4)',
+                            opacity: scoreBusyId !== null || scoringAll ? 0.5 : 1,
+                          }}
+                          title="この章を5観点で評価します（診断。修正は行いません）"
+                        >
+                          {scoreBusyId === c.id ? '採点中...' : sc ? `📊 ${sc.average.toFixed(1)} ${expandedScoreId === c.id ? '▲' : '▼'}` : '📊 採点'}
+                        </button>
+                      );
+                    })()}
+                    {/* 236B: テイスト変換（サンプル比較→全文変換→左右diff→適用） */}
+                    {c.status === 'completed' && (
+                      <button
+                        onClick={() => openTastePanel(c)}
+                        disabled={tasteBusy !== null}
+                        style={{ ...smallBtn, color: '#8b5cf6', borderColor: 'rgba(139,92,246,0.4)', opacity: tasteBusy !== null ? 0.5 : 1 }}
+                        title="文章のテイストを選んで書き換えます（適用前に前後を並べて確認できます）"
+                      >
+                        ✨ テイスト変換
+                      </button>
+                    )}
+                    {scoreErrors[String(c.id)] && scoreBusyId !== c.id && (
+                      <button onClick={() => scoreChapter(c)} style={{ ...smallBtn, color: '#f59e0b', borderColor: 'rgba(245,158,11,0.4)' }} title={scoreErrors[String(c.id)]}>
+                        ⚠️ 採点失敗・🔄 再試行
+                      </button>
+                    )}
                     {summaryBusyId === c.id && <span style={{ fontSize: 11, color: '#22c55e', flexShrink: 0 }}>📝 まとめ生成中...</span>}
                     {summaryErrors[String(c.id)] && summaryBusyId !== c.id && !proofreading && (
                       <button onClick={() => generateSummaryFor(c, false)} style={{ ...smallBtn, color: '#f59e0b', borderColor: 'rgba(245,158,11,0.4)' }} title={summaryErrors[String(c.id)]}>
@@ -1840,6 +2024,58 @@ function KindleWizardInner() {
                       </button>
                     )}
                   </div>
+
+                  {/* 236A: 採点結果（診断）。修正は行わず、何をどう直すかの要点を出す */}
+                  {expandedScoreId === c.id && scores[String(c.id)] && (() => {
+                    const sc = scores[String(c.id)];
+                    return (
+                      <div style={{ padding: '0 14px 12px', borderTop: '1px solid var(--border)' }}>
+                        <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', margin: '10px 0' }}>
+                          <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-primary)' }}>
+                            📊 採点（診断）: 平均 <span style={{ color: scoreColor(sc.average) }}>{sc.average.toFixed(1)}</span> / 5.0
+                          </span>
+                          <span style={{ fontSize: 10, color: 'var(--text-muted)' }}>
+                            採点は「どこが弱いか」の診断です。文言の個別修正は「🔍 提案」（自動校正）で行います
+                          </span>
+                          <button onClick={() => scoreChapter(c)} disabled={scoreBusyId !== null || scoringAll} style={{ ...smallBtn, marginLeft: 'auto', opacity: scoreBusyId !== null || scoringAll ? 0.5 : 1 }}>
+                            🔄 再採点
+                          </button>
+                        </div>
+
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginBottom: 10 }}>
+                          {KINDLE_SCORE_AXES.map((axis) => {
+                            const v = sc.scores[axis.key] ?? 0;
+                            return (
+                              <div key={axis.key} style={{ display: 'flex', gap: 8, alignItems: 'center', fontSize: 11 }}>
+                                <span style={{ width: 100, flexShrink: 0, color: 'var(--text-secondary)' }}>{axis.label}</span>
+                                <span style={{ letterSpacing: 1, color: scoreColor(v) }}>{'★'.repeat(v)}{'☆'.repeat(5 - v)}</span>
+                                <span style={{ color: 'var(--text-muted)', fontSize: 10 }}>{axis.criteria}</span>
+                              </div>
+                            );
+                          })}
+                        </div>
+
+                        {sc.comment && (
+                          <div style={{ fontSize: 12, lineHeight: 1.8, color: 'var(--text-secondary)', marginBottom: 8 }}>{sc.comment}</div>
+                        )}
+                        <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 4 }}>改善の要点</div>
+                        <ol style={{ margin: 0, paddingLeft: 18, display: 'flex', flexDirection: 'column', gap: 4 }}>
+                          {sc.improvements.map((s, i) => (
+                            <li key={i} style={{ fontSize: 12, lineHeight: 1.8, color: 'var(--text-secondary)' }}>{s}</li>
+                          ))}
+                        </ol>
+                        <div style={{ display: 'flex', gap: 8, marginTop: 10, flexWrap: 'wrap', alignItems: 'center' }}>
+                          <button onClick={() => openTastePanel(c)} disabled={tasteBusy !== null} style={{ ...smallBtn, color: '#8b5cf6', borderColor: 'rgba(139,92,246,0.4)', opacity: tasteBusy !== null ? 0.5 : 1 }}>
+                            ✨ この講評を踏まえてテイスト変換
+                          </button>
+                          <span style={{ fontSize: 10, color: 'var(--text-muted)' }}>
+                            採点日時: {new Date(sc.scoredAt).toLocaleString('ja-JP')}
+                            {sc.modelLabel ? `・${sc.modelLabel}` : ''}
+                          </span>
+                        </div>
+                      </div>
+                    );
+                  })()}
 
                   {/* 校正提案リスト（提案のみ表示→院長が1件ずつ✅適用/✕却下） */}
                   {expandedIssuesId === c.id && entry && (
@@ -1977,6 +2213,42 @@ function KindleWizardInner() {
               );
             })}
           </div>
+
+          {/* 236A: 全章まとめて採点（直列）。校正との役割分担をここでも明示する */}
+          {allDone && (
+            <div style={{ marginBottom: 16, padding: 14, background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 12, maxWidth: 720 }}>
+              <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', marginBottom: 6 }}>
+                <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-primary)' }}>📊 章の採点（診断）</span>
+                <button
+                  onClick={scoreAllChapters}
+                  disabled={scoringAll || scoreBusyId !== null}
+                  style={{ ...smallBtn, marginLeft: 'auto', color: '#3b82f6', borderColor: 'rgba(59,130,246,0.4)', opacity: scoringAll || scoreBusyId !== null ? 0.5 : 1 }}
+                >
+                  {scoringAll
+                    ? `採点中...（第${chapters.find((c) => c.id === scoreBusyId)?.chapterNumber ?? '-'}章）`
+                    : '📊 全章を採点'}
+                </button>
+              </div>
+              <div style={{ fontSize: 11, color: 'var(--text-muted)', lineHeight: 1.7 }}>
+                5つの観点（分かりやすさ／読者への響き／構成の明快さ／具体性／目的との整合）で章を評価し、改善の要点を3つ示します。
+                <strong>採点は診断のみで本文は変わりません。</strong>
+                文言の個別修正は「🔍 提案」（自動校正）、文章全体の書き換えは「✨ テイスト変換」で行います。
+              </div>
+              {Object.keys(scores).length > 0 && (
+                <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginTop: 8, fontSize: 11 }}>
+                  {chapters.map((c) => {
+                    const sc = scores[String(c.id)];
+                    if (!sc) return null;
+                    return (
+                      <span key={c.id} style={{ color: 'var(--text-muted)' }}>
+                        第{c.chapterNumber}章 <span style={{ color: scoreColor(sc.average), fontWeight: 700 }}>{sc.average.toFixed(1)}</span>
+                      </span>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          )}
 
           {/* 🔍 自動校正の状態＋本全体の指摘（224） */}
           {allDone && (
@@ -2430,6 +2702,120 @@ function KindleWizardInner() {
               </button>
             </span>
           </div>
+        </WizardModal>
+      )}
+
+      {/* ── ✨ テイスト変換モーダル（236B/C: サンプル比較 → 全文変換 → 左右diff → 適用/破棄） ── */}
+      {tasteTarget && (
+        <WizardModal
+          title={`✨ 第${tasteTarget.chapterNumber}章 テイスト変換 — ${tasteTarget.title}`}
+          onClose={() => { if (!tasteBusy) { setTasteTarget(null); setTasteConverted(null); setTasteSamples(null); setTasteError(''); } }}
+          width={1200}
+        >
+          {tasteError && (
+            <div style={{ marginBottom: 12, padding: '10px 14px', background: 'rgba(239,68,68,0.06)', border: '1px solid rgba(239,68,68,0.3)', borderRadius: 8, fontSize: 12, color: '#dc2626', lineHeight: 1.7 }}>
+              ⚠️ {tasteError}
+              <div style={{ color: 'var(--text-muted)', fontSize: 11 }}>章の本文はそのままです（変換は適用していません）。</div>
+            </div>
+          )}
+
+          {/* 段階2の結果があるときは左右diffを出す（適用前に必ず見せる＝無言で書き換えない） */}
+          {tasteConverted ? (
+            <div>
+              <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap', marginBottom: 8 }}>
+                <span style={{ fontSize: 13, fontWeight: 700, color: '#8b5cf6' }}>
+                  {KINDLE_TASTES[tasteConverted.tasteKey]?.emoji} {tasteConverted.tasteLabel} に変換した結果
+                </span>
+                <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>まだ保存していません。内容を確認してから適用してください</span>
+              </div>
+
+              <DiffColumns original={tasteConverted.original} revised={tasteConverted.revised} leftLabel="原文" rightLabel={`変換後（${tasteConverted.tasteLabel}）`} maxHeight={420} />
+
+              {/* 変換後の本文に対する禁止表現チェック（233②の辞書判定・AI不使用） */}
+              {(() => {
+                const banned = findBannedExpressions(tasteConverted.revised, { maxResults: 8 });
+                if (banned.length === 0) {
+                  return <div style={{ marginTop: 10, fontSize: 11, color: '#10b981' }}>✅ 変換後の本文に禁止表現の疑いはありません</div>;
+                }
+                return (
+                  <div style={{ marginTop: 10, padding: '8px 12px', background: 'rgba(239,68,68,0.06)', border: '1px solid rgba(239,68,68,0.25)', borderRadius: 8, fontSize: 11, lineHeight: 1.7, color: 'var(--text-secondary)' }}>
+                    <strong style={{ color: '#ef4444' }}>⚠️ 変換後に禁止表現の疑い {banned.length}件</strong>
+                    <ul style={{ margin: '2px 0 0', paddingLeft: 18 }}>
+                      {banned.map((b, i) => (
+                        <li key={i}>「{b.matched}」（{b.category}）— {b.reason}</li>
+                      ))}
+                    </ul>
+                  </div>
+                );
+              })()}
+
+              <div style={{ display: 'flex', gap: 8, marginTop: 14, flexWrap: 'wrap', alignItems: 'center' }}>
+                <button onClick={applyConverted} disabled={tasteBusy !== null} style={{ ...primaryBtn, opacity: tasteBusy !== null ? 0.5 : 1 }}>
+                  {tasteBusy === 'apply' ? '適用中...' : '✅ この内容を適用'}
+                </button>
+                <button onClick={() => setTasteConverted(null)} disabled={tasteBusy !== null} style={ghostBtn}>✕ 破棄してテイスト選びに戻る</button>
+                <button
+                  onClick={() => convertWithTaste(tasteConverted.tasteKey)}
+                  disabled={tasteBusy !== null}
+                  style={{ ...smallBtn, opacity: tasteBusy !== null ? 0.5 : 1 }}
+                  title="同じテイストでもう一度生成し直します"
+                >
+                  🔄 同じテイストで再変換
+                </button>
+                <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>
+                  適用すると本文を置き換え、総文字数を再計算し、内容の検証（素材照合）をやり直します
+                </span>
+              </div>
+            </div>
+          ) : (
+            /* 段階1: サンプル比較 */
+            <div>
+              <div style={{ fontSize: 12, color: 'var(--text-muted)', lineHeight: 1.8, marginBottom: 12 }}>
+                同じ冒頭を各テイストで書き換えたサンプルです。読み比べて選ぶと、その1つで<strong>章の全文</strong>を変換します。
+                内容・事実・数値は変えず、表現だけを変換します（医療広告のNG表現もどのテイストでも使いません）。
+              </div>
+
+              {tasteBusy === 'samples' && !tasteSamples && (
+                <div style={{ padding: 24, textAlign: 'center', fontSize: 13, color: 'var(--text-muted)' }}>
+                  各テイストのサンプルを生成しています…（30秒前後）
+                </div>
+              )}
+
+              {tasteSamples && (
+                <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3" style={{ gap: 12 }}>
+                  {KINDLE_TASTE_KEYS.filter((k) => tasteSamples[k]).map((k) => {
+                    const t = KINDLE_TASTES[k];
+                    return (
+                      <div key={k} style={{ display: 'flex', flexDirection: 'column', minWidth: 0, background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 10, padding: 12 }}>
+                        <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-primary)' }}>{t.emoji} {t.label}</div>
+                        <div style={{ fontSize: 10, color: 'var(--text-muted)', marginBottom: 8, lineHeight: 1.6 }}>{t.hint}</div>
+                        <div style={{ flex: 1, padding: 10, background: 'var(--bg-primary)', border: '1px solid var(--border)', borderRadius: 8, fontSize: 12, lineHeight: 1.85, color: 'var(--text-secondary)', whiteSpace: 'pre-wrap', wordBreak: 'break-word', maxHeight: 220, overflowY: 'auto', marginBottom: 8 }}>
+                          {tasteSamples[k]}
+                        </div>
+                        <button
+                          onClick={() => convertWithTaste(k)}
+                          disabled={tasteBusy !== null}
+                          style={{ ...primaryBtn, width: '100%', fontSize: 12, padding: '8px 12px', opacity: tasteBusy !== null ? 0.5 : 1 }}
+                        >
+                          {tasteBusy === 'convert' ? '変換中...' : 'このテイストで全文を変換'}
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+
+              {tasteBusy === 'convert' && (
+                <div style={{ marginTop: 12, fontSize: 12, color: 'var(--text-muted)' }}>
+                  章の全文を変換しています…（1〜2分かかることがあります。完了すると原文との比較を表示します）
+                </div>
+              )}
+
+              {tasteSamples && Object.keys(tasteSamples).length === 0 && (
+                <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>サンプルを取得できませんでした。🔄 もう一度お試しください。</div>
+              )}
+            </div>
+          )}
         </WizardModal>
       )}
 
