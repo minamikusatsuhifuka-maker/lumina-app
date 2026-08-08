@@ -604,3 +604,29 @@ test('C25: note 2画面の相互導線（234【2】）— 新規画面に到達�
   await expect(toArticle).toBeVisible();
   await expect(toArticle).toHaveAttribute('href', '/dashboard/note-article');
 });
+
+test('C26: 文字サイズ切替（240）— 4段階が並び、選ぶと全体が拡大し、リロード後も維持される', async ({ page }) => {
+  await page.goto('/dashboard');
+  const group = page.getByRole('group', { name: '文字サイズ' });
+  await expect(group).toBeVisible();
+  await expect(group.getByRole('button')).toHaveCount(4);
+
+  // 既定は100%＝zoomを当てない（既存表示を変えない）
+  await expect(page.evaluate(() => document.documentElement.style.zoom || '')).resolves.toBe('');
+
+  // 最大（140%）を選ぶと documentElement に zoom が当たる
+  await group.getByRole('button').nth(3).click();
+  await expect(page.evaluate(() => document.documentElement.style.zoom)).resolves.toBe('1.4');
+
+  // リロードしても維持される（描画前スクリプトで適用）
+  await page.reload({ waitUntil: 'domcontentloaded' });
+  await expect(page.evaluate(() => document.documentElement.style.zoom)).resolves.toBe('1.4');
+
+  // 横方向にはみ出していない（レイアウトが破綻していない）
+  const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+  expect(overflow, '140%でも横スクロールが出ないこと').toBeLessThanOrEqual(0);
+
+  // 標準に戻すと zoom が外れる（後片付け）
+  await group.getByRole('button').nth(0).click();
+  await expect(page.evaluate(() => document.documentElement.style.zoom || '')).resolves.toBe('');
+});
