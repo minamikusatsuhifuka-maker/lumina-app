@@ -2,6 +2,7 @@ import type { Metadata } from 'next';
 import { Outfit, Noto_Sans_JP, Inter, Zen_Kaku_Gothic_New } from 'next/font/google';
 import './globals.css';
 import { ThemeProvider } from '@/components/ThemeProvider';
+import { AIProviderNotice } from '@/components/AIProviderNotice';
 
 const outfit = Outfit({ subsets: ['latin'], variable: '--font-outfit' });
 const notoSansJP = Noto_Sans_JP({ subsets: ['latin'], variable: '--font-noto' });
@@ -64,6 +65,8 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <body className={`${outfit.variable} ${notoSansJP.variable} ${inter.variable} ${zenKaku.variable}`} style={{ margin: 0 }}>
         <ThemeProvider>
           {children}
+          {/* 242: Claude→Gemini に切り替わったときだけ「✨Geminiで生成」を出す（通常時は非表示） */}
+          <AIProviderNotice />
         </ThemeProvider>
         <script dangerouslySetInnerHTML={{ __html: `if('serviceWorker' in navigator){window.addEventListener('load',()=>{navigator.serviceWorker.register('/sw.js').catch(()=>{});})}` }} />
       </body>

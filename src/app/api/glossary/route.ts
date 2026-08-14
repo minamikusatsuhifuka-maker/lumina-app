@@ -1,16 +1,17 @@
 import { CLAUDE_TEXT_MODEL } from '@/lib/ai-models';
 import { NextRequest, NextResponse } from 'next/server';
 import { requireAuth } from '@/lib/require-auth';
-import { fetchAnthropic } from '@/lib/anthropic-compat';
+import { fetchAnthropic, providerHeaders } from '@/lib/anthropic-compat';
 
 export const maxDuration = 60;
 
 // 242: Anthropicが上限・混雑ならGeminiへ自動フォールバック（fetchAnthropic）。
 // 応答は Anthropic 形式のまま返るため、下記の content 抽出は変更不要。
-async function callAnthropic(_apiKey: string, body: any, retries = 2): Promise<any> {
+async function callAnthropic(_apiKey: string, body: any, retries = 2): Promise<{ data: any; headers: Record<string, string> }> {
   for (let i = 0; i <= retries; i++) {
     const res = await fetchAnthropic(body);
-    if (res.ok) return res.json();
+    // 242: Geminiへ切り替わったことを画面へ伝えるため、providerヘッダも一緒に返す
+    if (res.ok) return { data: await res.json(), headers: providerHeaders(res) };
     if ((res.status === 429 || res.status === 529) && i < retries) {
       await new Promise(r => setTimeout(r, 2000 * (i + 1)));
       continue;
@@ -18,6 +19,8 @@ async function callAnthropic(_apiKey: string, body: any, retries = 2): Promise<a
     const err = await res.text();
     throw new Error(`Anthropic API error ${res.status}: ${err}`);
   }
+  // ループを抜けるのはリトライを使い切った場合のみ。偽の成功を返さない（R-05）
+  throw new Error('AI呼び出しがリトライ上限に達しました');
 }
 
 export async function POST(req: NextRequest) {
@@ -29,7 +32,7 @@ export async function POST(req: NextRequest) {
   if (!apiKey) return NextResponse.json({ error: 'APIキーなし' }, { status: 500 });
 
   try {
-    const data = await callAnthropic(apiKey, {
+    const { data, headers } = await callAnthropic(apiKey, {
       model: CLAUDE_TEXT_MODEL,
       max_tokens: 2048,
       messages: [{
@@ -64,7 +67,8 @@ JSONのみ返してください（コードブロック不要）：
     text = text.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
 
     const term = JSON.parse(text);
-    return NextResponse.json({ term });
+    // 242: レスポンス本体（{ term }）は変えず、providerはヘッダで伝える（挙動等価）
+    return NextResponse.json({ term }, { headers });
   } catch (e: any) {
     console.error('[glossary]', e.message);
     return NextResponse.json({ error: e.message }, { status: 502 });

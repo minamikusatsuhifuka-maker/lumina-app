@@ -1,7 +1,7 @@
 import { CLAUDE_TEXT_MODEL } from '@/lib/ai-models';
 import { NextRequest } from 'next/server';
 import { auth } from '@/lib/auth';
-import { fetchAnthropic } from '@/lib/anthropic-compat';
+import { fetchAnthropic, providerHeaders } from '@/lib/anthropic-compat';
 
 export const runtime = 'nodejs';
 export const maxDuration = 300;
@@ -130,6 +130,8 @@ Instagramで反応が得られる魅力的なキャプションを作成して�
         'Content-Type': 'text/event-stream',
         'Cache-Control': 'no-cache',
         'Connection': 'keep-alive',
+        // 242: Geminiへ切り替わったことを画面へ伝える（AIProviderNoticeが拾う）
+        ...providerHeaders(anthropicResponse),
       },
     });
 

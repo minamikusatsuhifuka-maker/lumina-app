@@ -218,6 +218,19 @@ export async function anthropicFetch(_url: string, init: RequestInit): Promise<R
   return fetchAnthropic(body);
 }
 
+/**
+ * 242: fetchAnthropic の応答に付いた provider 情報を、
+ * ルートが返す Response へそのまま転送するためのヘッダを作る。
+ * クライアントの AIProviderNotice がこれを見て「✨Geminiで生成」を出す。
+ * Claude で生成できたときは空オブジェクト＝画面には何も出ない。
+ */
+export function providerHeaders(res: Response): Record<string, string> {
+  const provider = res.headers.get('x-ai-provider');
+  if (!provider) return {};
+  const reason = res.headers.get('x-ai-fallback-reason');
+  return { 'x-ai-provider': provider, ...(reason ? { 'x-ai-fallback-reason': reason } : {}) };
+}
+
 /* ══════════════ ② SDK 互換（new Anthropic() ルート向け） ══════════════ */
 
 /** SSE の Response を「イベントを1件ずつ yield する AsyncIterable」に変える（逐次・バッファ蓄積なし） */
