@@ -1,6 +1,6 @@
 import { CLAUDE_TEXT_MODEL } from '@/lib/ai-models';
 import { NextRequest, NextResponse } from 'next/server';
-import Anthropic from '@anthropic-ai/sdk';
+import { createAnthropicClient } from '@/lib/anthropic-compat';
 import { auth } from '@/lib/auth';
 import { sql } from '@/lib/db';
 import { trackUsage } from '@/lib/trackUsage';
@@ -11,7 +11,7 @@ import { extractAnthropicText } from '@/lib/anthropic-text';
 export const runtime = 'nodejs';
 export const maxDuration = 120;
 
-const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY! });
+const client = createAnthropicClient();
 
 // 保存済みテキストをAIが自動カテゴライズして、既存folderカラムを更新する
 // （text_analysis_saves.folder = カテゴリ名 として運用されているため folder を更新）

@@ -1,10 +1,10 @@
 import { CLAUDE_TEXT_MODEL } from '@/lib/ai-models';
 export const maxDuration = 300;
 
-import Anthropic from '@anthropic-ai/sdk';
+import { createAnthropicClient } from '@/lib/anthropic-compat';
 import { requireAuth } from '@/lib/require-auth';
 
-const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+const anthropic = createAnthropicClient();
 
 export async function POST(req: Request) {
   // 認証必須（未ログインは401。AI利用コストの無断消費を防ぐ）

@@ -1,3 +1,4 @@
+import { anthropicFetch } from '@/lib/anthropic-compat';
 import { CLAUDE_TEXT_MODEL } from '@/lib/ai-models';
 import { NextRequest } from 'next/server';
 import { auth } from '@/lib/auth';
@@ -32,7 +33,7 @@ export async function POST(req: NextRequest) {
     summary: `以下の文章をGensparkで使いやすいように、300字以内の要約と5つのキーポイントに整理してください。`,
   };
 
-  const response = await fetch('https://api.anthropic.com/v1/messages', {
+  const response = await anthropicFetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',

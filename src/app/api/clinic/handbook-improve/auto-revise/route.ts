@@ -1,9 +1,9 @@
 import { NextResponse } from 'next/server';
-import Anthropic from '@anthropic-ai/sdk';
+import { createAnthropicClient } from '@/lib/anthropic-compat';
 import { requireAuth } from '@/lib/require-auth';
 import { extractAnthropicText } from '@/lib/anthropic-text';
 
-const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+const anthropic = createAnthropicClient();
 
 // 生成に時間がかかるためタイムアウトを延長
 export const maxDuration = 300;

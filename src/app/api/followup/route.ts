@@ -1,3 +1,4 @@
+import { anthropicFetch } from '@/lib/anthropic-compat';
 import { CLAUDE_TEXT_MODEL } from '@/lib/ai-models';
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
@@ -26,7 +27,7 @@ export async function POST(req: NextRequest) {
 回答は日本語で、具体的かつ簡潔にまとめてください。
 過去のメモリ情報がある場合は「以前調べた〇〇によると」のように自然に参照してください。`;
 
-  const response = await fetch('https://api.anthropic.com/v1/messages', {
+  const response = await anthropicFetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',

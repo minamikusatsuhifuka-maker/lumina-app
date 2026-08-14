@@ -1,3 +1,4 @@
+import { anthropicFetch } from '@/lib/anthropic-compat';
 import { CLAUDE_TEXT_MODEL } from '@/lib/ai-models';
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
@@ -28,7 +29,7 @@ export async function POST(req: NextRequest) {
 
   const systemPrompt = await buildSystemContext('あなたはクリニックの経営・人材育成哲学の設計者です。以下の成長哲学を組織全体の制度設計に落とし込んでください。必ずJSON形式のみで返してください。', 'growth');
 
-  const response = await fetch('https://api.anthropic.com/v1/messages', {
+  const response = await anthropicFetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',

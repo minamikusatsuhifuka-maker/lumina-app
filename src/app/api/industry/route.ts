@@ -1,3 +1,4 @@
+import { anthropicFetch } from '@/lib/anthropic-compat';
 import { NextRequest, NextResponse } from 'next/server';
 import { generateWithModel } from '@/lib/ai-client';
 import { GEMINI_TEXT_THINKING_MEDIUM, CLAUDE_TEXT_MODEL } from '@/lib/ai-models';
@@ -54,7 +55,7 @@ export async function POST(req: NextRequest) {
   // Claudeの場合はweb_search対応のため直接API呼び出し
   if (model === 'claude') {
     const apiKey = process.env.ANTHROPIC_API_KEY!;
-    const response = await fetch('https://api.anthropic.com/v1/messages', {
+    const response = await anthropicFetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' },
       body: JSON.stringify({

@@ -1,3 +1,4 @@
+import { anthropicFetch } from '@/lib/anthropic-compat';
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
 import { buildSystemContext } from '@/lib/clinic-context';
@@ -19,7 +20,7 @@ export async function POST(req: NextRequest) {
     'philosophy'
   );
 
-  const response = await fetch('https://api.anthropic.com/v1/messages', {
+  const response = await anthropicFetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' },
     body: JSON.stringify({

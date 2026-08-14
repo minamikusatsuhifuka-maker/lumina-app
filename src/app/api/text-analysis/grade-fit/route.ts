@@ -1,6 +1,6 @@
 import { CLAUDE_TEXT_MODEL } from '@/lib/ai-models';
 import { NextRequest, NextResponse } from 'next/server';
-import Anthropic from '@anthropic-ai/sdk';
+import { createAnthropicClient } from '@/lib/anthropic-compat';
 import { auth } from '@/lib/auth';
 import { robustJsonParse } from '@/lib/ai-json-parser';
 
@@ -15,7 +15,7 @@ export const maxDuration = 120;
 // - 失敗時は偽の判定を返さず502（fail-closed。UI側は本文無傷のまま⚠️＋再試行を表示）
 // - 件数（matchCount等）はAIに書かせずサーバ側で集計（152: AIに数値を書かせない）
 
-const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY! });
+const client = createAnthropicClient();
 
 export interface FitSegment {
   text: string;

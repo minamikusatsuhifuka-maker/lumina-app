@@ -1,7 +1,7 @@
 import { CLAUDE_TEXT_MODEL } from '@/lib/ai-models';
 import { NextRequest } from 'next/server';
 import { auth } from '@/lib/auth';
-import Anthropic from '@anthropic-ai/sdk';
+import { createAnthropicClient } from '@/lib/anthropic-compat';
 import { getClinicSystemPrompt } from '@/lib/clinicProfile';
 import { trackUsage } from '@/lib/trackUsage';
 
@@ -86,7 +86,7 @@ export async function POST(req: NextRequest) {
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) return new Response('ANTHROPIC_API_KEY未設定', { status: 500 });
 
-  const client = new Anthropic({ apiKey });
+  const client = createAnthropicClient();
   const { messages, bookContext, contextInfo } = await req.json();
   const contextStr = bookContext
     ? `\n\n現在の書籍情報:\n${JSON.stringify(bookContext, null, 2)}`

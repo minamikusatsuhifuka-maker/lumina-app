@@ -1,3 +1,4 @@
+import { anthropicFetch } from '@/lib/anthropic-compat';
 import { CLAUDE_TEXT_MODEL } from '@/lib/ai-models';
 import { NextRequest, NextResponse } from 'next/server';
 import { requireAuth } from '@/lib/require-auth';
@@ -58,7 +59,7 @@ ${mode || 'X（Twitter）'}
 - improvements のdescriptionは投稿内容に即した具体的な提案にする（テンプレ文は禁止）
 - strengthsも投稿内容を引用して具体的に書く`;
 
-  const response = await fetch('https://api.anthropic.com/v1/messages', {
+  const response = await anthropicFetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',

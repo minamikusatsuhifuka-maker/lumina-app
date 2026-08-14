@@ -4,7 +4,9 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
+    "prebuild": "node scripts/check-anthropic-direct.mjs",
     "build": "next build",
+    "check:anthropic": "node scripts/check-anthropic-direct.mjs",
     "start": "next start",
     "lint": "eslint",
     "rules:lint": "node scripts/rules-lint.mjs",

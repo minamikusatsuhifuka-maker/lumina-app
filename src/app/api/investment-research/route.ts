@@ -1,3 +1,4 @@
+import { anthropicFetch } from '@/lib/anthropic-compat';
 import { CLAUDE_TEXT_MODEL } from '@/lib/ai-models';
 import { NextRequest } from 'next/server';
 import { auth } from '@/lib/auth';
@@ -175,7 +176,7 @@ ${topic}
         }
 
         // Claude: web_search ツール対応
-        const response = await fetch('https://api.anthropic.com/v1/messages', {
+        const response = await anthropicFetch('https://api.anthropic.com/v1/messages', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',

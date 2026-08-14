@@ -22,6 +22,30 @@ import { describeAnthropicError, isFallbackWorthy } from '@/lib/anthropic-error'
 
 const ANTHROPIC_URL = 'https://api.anthropic.com/v1/messages';
 
+/* ══════════════ Anthropic 互換の型（SDKの型の代わりに使う） ══════════════ */
+
+/** 非ストリーミングの戻り値。SDK の Message と同じ形（下流の content 参照がそのまま通る） */
+export interface AnthropicMessageLike {
+  id: string;
+  type: 'message';
+  role: 'assistant';
+  model: string;
+  content: { type: string; text?: string; [k: string]: unknown }[];
+  stop_reason: string | null;
+  stop_sequence: string | null;
+  usage: { input_tokens: number; output_tokens: number; [k: string]: unknown };
+}
+
+/** ストリーミングのイベント。SDK と同じ判別可能unionにして `event.delta.type` 等をそのまま通す */
+export type AnthropicStreamEvent =
+  | { type: 'message_start'; message: AnthropicMessageLike }
+  | { type: 'content_block_start'; index: number; content_block: { type: string; text?: string } }
+  | { type: 'content_block_delta'; index: number; delta: { type: string; text: string } }
+  | { type: 'content_block_stop'; index: number }
+  | { type: 'message_delta'; delta: { stop_reason: string | null; stop_sequence: string | null }; usage: { output_tokens: number } }
+  | { type: 'message_stop' }
+  | { type: 'ping' };
+
 /** Anthropic の messages API に渡すリクエストボディ（必要な範囲だけ型を付ける） */
 export interface AnthropicBody {
   model: string;
@@ -173,10 +197,31 @@ export async function fetchAnthropic(body: AnthropicBody): Promise<Response> {
   }
 }
 
+/**
+ * `fetch(url, init)` と**同一シグネチャ**の置き換え口（242の一括接続用）。
+ * 既存コードの `fetch(` を `anthropicFetch(` に変えるだけでよく、
+ * init の headers / body（JSON文字列）はそのまま渡せる＝差分が最小になり、
+ * 引数の括弧構造を触らないので機械置換でも壊れない。
+ * url と headers は互換のために受け取るだけで、実際の送信は fetchAnthropic が行う。
+ */
+export async function anthropicFetch(_url: string, init: RequestInit): Promise<Response> {
+  let body: AnthropicBody;
+  try {
+    body = JSON.parse(String(init?.body ?? '{}'));
+  } catch {
+    // JSON以外のbodyは想定外。素通しせず、原因の分かる形で返す（R-33 / R-05）
+    return new Response(
+      JSON.stringify({ type: 'error', error: { type: 'invalid_request_error', message: 'anthropicFetch: body をJSONとして解釈できませんでした' } }),
+      { status: 400, headers: { 'Content-Type': 'application/json' } },
+    );
+  }
+  return fetchAnthropic(body);
+}
+
 /* ══════════════ ② SDK 互換（new Anthropic() ルート向け） ══════════════ */
 
 /** SSE の Response を「イベントを1件ずつ yield する AsyncIterable」に変える（逐次・バッファ蓄積なし） */
-async function* iterateSSE(res: Response): AsyncGenerator<Record<string, unknown>> {
+async function* iterateSSE(res: Response): AsyncGenerator<AnthropicStreamEvent> {
   const reader = res.body!.getReader();
   const decoder = new TextDecoder();
   let buffer = '';
@@ -207,25 +252,29 @@ async function* iterateSSE(res: Response): AsyncGenerator<Record<string, unknown
  *   const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY! });
  *   → const client = createAnthropicClient();
  */
+// SDK と同じ使い勝手にするための型: stream:true なら AsyncIterable、それ以外は Message。
+interface AnthropicCreate {
+  (body: AnthropicBody & { stream: true }): Promise<AsyncGenerator<AnthropicStreamEvent>>;
+  (body: AnthropicBody): Promise<AnthropicMessageLike>;
+}
+
 export function createAnthropicClient() {
-  return {
-    messages: {
-      create: (async (body: AnthropicBody) => {
-        const res = await fetchAnthropic(body);
-        if (!res.ok) {
-          const errBody = await res.json().catch(() => null);
-          throw new Error(
-            (errBody as { error?: { message?: string } })?.error?.message ||
-              describeAnthropicError(res.status, errBody),
-          );
-        }
+  const create = (async (body: AnthropicBody) => {
+    const res = await fetchAnthropic(body);
+    if (!res.ok) {
+      const errBody = await res.json().catch(() => null);
+      throw new Error(
+        (errBody as { error?: { message?: string } })?.error?.message ||
+          describeAnthropicError(res.status, errBody),
+      );
+    }
 
-        if (!body.stream) return await res.json();
+    if (!body.stream) return (await res.json()) as AnthropicMessageLike;
 
-        // ストリーミング: SDK と同じく「イベントを yield する AsyncIterable」を返す。
-        // Anthropicが生きているときは本物の逐次ストリームをそのまま流す（体感を変えない）。
-        return iterateSSE(res);
-      }) as any,
-    },
-  };
+    // ストリーミング: SDK と同じく「イベントを yield する AsyncIterable」を返す。
+    // Anthropicが生きているときは本物の逐次ストリームをそのまま流す（体感を変えない）。
+    return iterateSSE(res);
+  }) as AnthropicCreate;
+
+  return { messages: { create } };
 }

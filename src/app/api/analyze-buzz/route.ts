@@ -1,3 +1,4 @@
+import { anthropicFetch } from '@/lib/anthropic-compat';
 import { CLAUDE_TEXT_MODEL } from '@/lib/ai-models';
 import { NextRequest } from 'next/server';
 import { auth } from '@/lib/auth';
@@ -53,7 +54,7 @@ export async function POST(req: NextRequest) {
 
 problemsは具体的に3点、suggestionsは実行可能な改善案を3点、revisedは目的・ターゲットに最適化した修正全文を返してください。`;
 
-  const response = await fetch('https://api.anthropic.com/v1/messages', {
+  const response = await anthropicFetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',

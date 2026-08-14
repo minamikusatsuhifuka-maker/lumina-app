@@ -2,7 +2,7 @@ import { CLAUDE_TEXT_MODEL } from '@/lib/ai-models';
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
 import { neon } from '@neondatabase/serverless';
-import Anthropic from '@anthropic-ai/sdk';
+import { createAnthropicClient } from '@/lib/anthropic-compat';
 import { extractAnthropicText } from '@/lib/anthropic-text';
 
 export const maxDuration = 120;
@@ -32,7 +32,7 @@ export async function POST(req: NextRequest) {
   const lang = book.language === 'en' ? 'en' : 'ja';
 
   // マーケティング戦略を生成
-  const client = new Anthropic({ apiKey });
+  const client = createAnthropicClient();
   let marketingStrategy = '';
   try {
     const marketingRes = await client.messages.create({

@@ -1,6 +1,6 @@
 import { CLAUDE_TEXT_MODEL } from '@/lib/ai-models';
 import { NextRequest } from 'next/server';
-import Anthropic from '@anthropic-ai/sdk';
+import { createAnthropicClient } from '@/lib/anthropic-compat';
 import { auth } from '@/lib/auth';
 import { trackUsage } from '@/lib/trackUsage';
 import { streamWithModel, type AIModel } from '@/lib/ai-client';
@@ -121,7 +121,8 @@ const ADVANCED_ANALYSIS_SECTION = `
 // 1本のURLから本文を抽出（extract-url と同等のロジック）
 async function extractArticle(
   url: string,
-  client: Anthropic,
+  // 242: SDKの型ではなく、フォールバック付き互換クライアントの型を使う
+  client: ReturnType<typeof createAnthropicClient>,
   userId: string,
 ): Promise<
   | { ok: true; text: string }
@@ -231,7 +232,7 @@ export async function POST(req: NextRequest) {
       headers: { 'Content-Type': 'application/json' },
     });
   }
-  const client = new Anthropic({ apiKey });
+  const client = createAnthropicClient();
 
   const { maxTokens, charTarget } = DEPTH_CONFIG[depth];
 

@@ -3,7 +3,7 @@
 // （過去レコードのバッチ再チェック）の両方から使う＝判定基準を二重管理しない。
 // import は node --env-file 直実行（type stripping）でも解決できるよう
 // 相対パス＋.ts拡張子にする（Node ESMは拡張子必須。tsconfigはallowImportingTsExtensionsで許可）。
-import Anthropic from '@anthropic-ai/sdk';
+import { createAnthropicClient } from '@/lib/anthropic-compat';
 import { CLAUDE_TEXT_MODEL } from './ai-models.ts';
 import { robustJsonParse } from './ai-json-parser.ts';
 
@@ -60,7 +60,7 @@ export async function checkPrivacyText(
   apiKey = process.env.ANTHROPIC_API_KEY,
 ): Promise<PrivacyCheckResult> {
   try {
-    const anthropic = new Anthropic({ apiKey });
+    const anthropic = createAnthropicClient();
     const message = await anthropic.messages.create({
       model: CLAUDE_TEXT_MODEL,
       max_tokens: 2048,

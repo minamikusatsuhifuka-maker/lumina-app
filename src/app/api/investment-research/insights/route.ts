@@ -1,3 +1,4 @@
+import { anthropicFetch } from '@/lib/anthropic-compat';
 import { NextRequest } from 'next/server';
 import { auth } from '@/lib/auth';
 import { trackUsage } from '@/lib/trackUsage';
@@ -103,7 +104,7 @@ ${report}
           headers: { 'Content-Type': 'application/json' },
         });
       }
-      const response = await fetch('https://api.anthropic.com/v1/messages', {
+      const response = await anthropicFetch('https://api.anthropic.com/v1/messages', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

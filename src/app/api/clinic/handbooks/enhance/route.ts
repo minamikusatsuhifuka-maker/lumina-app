@@ -1,3 +1,4 @@
+import { anthropicFetch } from '@/lib/anthropic-compat';
 import { CLAUDE_TEXT_MODEL } from '@/lib/ai-models';
 export const maxDuration = 120;
 
@@ -154,7 +155,7 @@ ${chapterContent}
       'handbook'
     );
 
-    const chatResponse = await fetch('https://api.anthropic.com/v1/messages', {
+    const chatResponse = await anthropicFetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' },
       body: JSON.stringify({
@@ -172,7 +173,7 @@ ${chapterContent}
     return NextResponse.json({ error: '不正なmode' }, { status: 400 });
   }
 
-  const response = await fetch('https://api.anthropic.com/v1/messages', {
+  const response = await anthropicFetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' },
     body: JSON.stringify({ model: CLAUDE_TEXT_MODEL, max_tokens: 6000, system: baseSystem, messages: [{ role: 'user', content: userPrompt }] }),

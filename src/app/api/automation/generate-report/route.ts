@@ -1,13 +1,13 @@
 import { CLAUDE_TEXT_MODEL } from '@/lib/ai-models';
 import { NextRequest, NextResponse } from 'next/server';
-import Anthropic from '@anthropic-ai/sdk';
+import { createAnthropicClient } from '@/lib/anthropic-compat';
 import { sql } from '@/lib/db';
 import { auth } from '@/lib/auth';
 import { trackUsage } from '@/lib/trackUsage';
 import { extractAnthropicText } from '@/lib/anthropic-text';
 
 export const maxDuration = 120;
-const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY! });
+const client = createAnthropicClient();
 
 const DOMAIN_LABELS: Record<string, string> = {
   all: '全体自動化戦略',

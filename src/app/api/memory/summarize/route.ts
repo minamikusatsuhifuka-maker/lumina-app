@@ -1,3 +1,4 @@
+import { anthropicFetch } from '@/lib/anthropic-compat';
 import { CLAUDE_TEXT_MODEL } from '@/lib/ai-models';
 import { NextRequest } from 'next/server';
 import { auth } from '@/lib/auth';
@@ -10,7 +11,7 @@ export const maxDuration = 300;
 
 async function callAnthropic(apiKey: string, body: object, retries = 2): Promise<any> {
   for (let i = 0; i <= retries; i++) {
-    const res = await fetch('https://api.anthropic.com/v1/messages', {
+    const res = await anthropicFetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' },
       body: JSON.stringify(body),

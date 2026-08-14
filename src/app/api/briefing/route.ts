@@ -1,3 +1,4 @@
+import { anthropicFetch } from '@/lib/anthropic-compat';
 import { CLAUDE_TEXT_MODEL } from '@/lib/ai-models';
 import { NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
@@ -31,7 +32,7 @@ export async function GET() {
   const memoryText = memories.map((m: any) => `・${m.summary}`).join('\n');
   const recentText = recentItems.map((i: any) => `・${i.title}（${i.group_name}）`).join('\n');
 
-  const response = await fetch('https://api.anthropic.com/v1/messages', {
+  const response = await anthropicFetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',

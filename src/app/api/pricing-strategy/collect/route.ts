@@ -1,13 +1,13 @@
 import { CLAUDE_TEXT_MODEL } from '@/lib/ai-models';
 import { NextRequest, NextResponse } from 'next/server';
-import Anthropic from '@anthropic-ai/sdk';
+import { createAnthropicClient } from '@/lib/anthropic-compat';
 import { auth } from '@/lib/auth';
 import { trackUsage } from '@/lib/trackUsage';
 
 export const runtime = 'nodejs';
 export const maxDuration = 180;
 
-const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY! });
+const client = createAnthropicClient();
 
 const FAMOUS_CLINICS = [
   '湘南美容クリニック',

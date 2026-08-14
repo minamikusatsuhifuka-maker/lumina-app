@@ -1,13 +1,13 @@
 import { CLAUDE_TEXT_MODEL } from '@/lib/ai-models';
 import { NextRequest } from 'next/server';
-import Anthropic from '@anthropic-ai/sdk';
+import { createAnthropicClient } from '@/lib/anthropic-compat';
 import { auth } from '@/lib/auth';
 import { getClinicSystemPrompt } from '@/lib/clinicProfile';
 
 export const runtime = 'nodejs';
 export const maxDuration = 60;
 
-const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY! });
+const client = createAnthropicClient();
 
 // 機能別の対話深掘り設計
 const FEATURE_CONTEXTS: Record<

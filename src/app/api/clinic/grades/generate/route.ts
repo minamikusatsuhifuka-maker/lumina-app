@@ -1,14 +1,14 @@
 import { CLAUDE_TEXT_MODEL } from '@/lib/ai-models';
 export const maxDuration = 300;
 
-import Anthropic from '@anthropic-ai/sdk';
+import { createAnthropicClient } from '@/lib/anthropic-compat';
 import { neon } from '@neondatabase/serverless';
 import { auth } from '@/lib/auth';
 import { buildSystemContext } from '@/lib/clinic-context';
 import { extractAnthropicText } from '@/lib/anthropic-text';
 import { robustJsonParse } from '@/lib/ai-json-parser';
 
-const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+const anthropic = createAnthropicClient();
 
 // 210-B: AI応答の等級JSON。全フィールドを必須検証してからDBへ書く
 type GradeJson = {

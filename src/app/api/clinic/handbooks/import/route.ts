@@ -1,3 +1,4 @@
+import { anthropicFetch } from '@/lib/anthropic-compat';
 import { CLAUDE_TEXT_MODEL } from '@/lib/ai-models';
 export const maxDuration = 300;
 
@@ -11,7 +12,7 @@ async function extractTextWithClaude(buffer: Buffer, fileName: string): Promise<
 
   // PDF → Claude document API
   if (ext === 'pdf') {
-    const response = await fetch('https://api.anthropic.com/v1/messages', {
+    const response = await anthropicFetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01', 'anthropic-beta': 'pdfs-2024-09-25' },
       body: JSON.stringify({
@@ -29,7 +30,7 @@ async function extractTextWithClaude(buffer: Buffer, fileName: string): Promise<
   // 画像 → Claude Vision
   const imageTypes: Record<string, string> = { jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', webp: 'image/webp' };
   if (ext && imageTypes[ext]) {
-    const response = await fetch('https://api.anthropic.com/v1/messages', {
+    const response = await anthropicFetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' },
       body: JSON.stringify({
@@ -119,7 +120,7 @@ function splitIntoChapters(extractedText: string): { title: string; chapters: { 
 async function getAiTitle(extractedText: string): Promise<string> {
   try {
     const apiKey = process.env.ANTHROPIC_API_KEY!;
-    const res = await fetch('https://api.anthropic.com/v1/messages', {
+    const res = await anthropicFetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' },
       body: JSON.stringify({

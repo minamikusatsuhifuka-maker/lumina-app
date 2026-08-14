@@ -1,7 +1,7 @@
 import { CLAUDE_TEXT_MODEL } from '@/lib/ai-models';
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
-import Anthropic from '@anthropic-ai/sdk';
+import { createAnthropicClient } from '@/lib/anthropic-compat';
 
 export const runtime = 'nodejs';
 export const maxDuration = 300;
@@ -78,7 +78,7 @@ export async function POST(req: NextRequest) {
       .replace('{{tags}}', tagsStr)
       .replace('{{content}}', content);
 
-    const client = new Anthropic({ apiKey });
+    const client = createAnthropicClient();
     const response = await client.messages.create({
       // モデルIDは ai-models.ts に一元管理（195）
       model: CLAUDE_TEXT_MODEL,

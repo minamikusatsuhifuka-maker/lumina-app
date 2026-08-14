@@ -1,6 +1,6 @@
 import { CLAUDE_TEXT_MODEL } from '@/lib/ai-models';
 import { NextRequest } from 'next/server';
-import Anthropic from '@anthropic-ai/sdk';
+import { createAnthropicClient } from '@/lib/anthropic-compat';
 import { auth } from '@/lib/auth';
 import { getClinicSystemPrompt } from '@/lib/clinicProfile';
 
@@ -88,7 +88,7 @@ ${originalText}
 
 上記を踏まえて、3〜5個の改善提案と改善後の全文をJSONで返してください。`;
 
-    const client = new Anthropic({ apiKey });
+    const client = createAnthropicClient();
 
     const encoder = new TextEncoder();
     const stream = new ReadableStream({

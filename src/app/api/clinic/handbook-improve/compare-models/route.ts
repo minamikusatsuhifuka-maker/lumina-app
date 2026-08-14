@@ -1,11 +1,11 @@
 import { NextResponse } from 'next/server';
-import Anthropic from '@anthropic-ai/sdk';
+import { createAnthropicClient } from '@/lib/anthropic-compat';
 import { robustJsonParse } from '@/lib/ai-json-parser';
 import { requireAuth } from '@/lib/require-auth';
 import { CLAUDE_TEXT_MODEL } from '@/lib/ai-models';
 import { extractAnthropicText } from '@/lib/anthropic-text';
 
-const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+const anthropic = createAnthropicClient();
 
 // 比較対象モデル（key はレスポンス／UIで共通利用）
 // 195: Sonnet枠は中央定数（Sonnet 5）へ。Opus比較枠は院長判断で現状維持

@@ -1,11 +1,11 @@
 import { CLAUDE_TEXT_MODEL } from '@/lib/ai-models';
 import { NextRequest } from 'next/server';
-import Anthropic from '@anthropic-ai/sdk';
+import { createAnthropicClient } from '@/lib/anthropic-compat';
 import { getClinicSystemPrompt } from '@/lib/clinicProfile';
 import { auth } from '@/lib/auth';
 
 export const maxDuration = 120;
-const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY! });
+const client = createAnthropicClient();
 
 const DOMAIN_CONTEXTS = {
   saas: {

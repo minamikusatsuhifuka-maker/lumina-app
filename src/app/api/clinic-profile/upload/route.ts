@@ -1,7 +1,7 @@
 import { CLAUDE_TEXT_MODEL } from '@/lib/ai-models';
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
-import Anthropic from '@anthropic-ai/sdk';
+import { createAnthropicClient } from '@/lib/anthropic-compat';
 import { extractAnthropicText } from '@/lib/anthropic-text';
 import { robustJsonParse } from '@/lib/ai-json-parser';
 
@@ -27,7 +27,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'ファイルが必要です' }, { status: 400 });
   }
 
-  const client = new Anthropic({ apiKey });
+  const client = createAnthropicClient();
 
   const SUPPORTED_DOC_MIMES = [
     'application/pdf',
