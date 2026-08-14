@@ -1,20 +1,15 @@
 import { CLAUDE_TEXT_MODEL } from '@/lib/ai-models';
 import { NextRequest, NextResponse } from 'next/server';
 import { requireAuth } from '@/lib/require-auth';
+import { fetchAnthropic } from '@/lib/anthropic-compat';
 
 export const maxDuration = 60;
 
-async function callAnthropic(apiKey: string, body: object, retries = 2): Promise<any> {
+// 242: Anthropicが上限・混雑ならGeminiへ自動フォールバック（fetchAnthropic）。
+// 応答は Anthropic 形式のまま返るため、下記の content 抽出は変更不要。
+async function callAnthropic(_apiKey: string, body: any, retries = 2): Promise<any> {
   for (let i = 0; i <= retries; i++) {
-    const res = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': apiKey,
-        'anthropic-version': '2023-06-01',
-      },
-      body: JSON.stringify(body),
-    });
+    const res = await fetchAnthropic(body);
     if (res.ok) return res.json();
     if ((res.status === 429 || res.status === 529) && i < retries) {
       await new Promise(r => setTimeout(r, 2000 * (i + 1)));

@@ -19,6 +19,7 @@ import {
   CLAUDE_TEXT_MODEL_LABEL,
   GEMINI_TEXT_THINKING_LOW,
   GEMINI_TEXT_THINKING_MEDIUM,
+  geminiMaxTokens,
 } from '@/lib/ai-models';
 import { extractAnthropicText } from '@/lib/anthropic-text';
 import { describeAnthropicError, isFallbackWorthy } from '@/lib/anthropic-error';
@@ -38,6 +39,15 @@ export interface TextAIRequest {
   /** Anthropic 形式のメッセージ（Gemini へは自動変換する） */
   messages: { role: 'user' | 'assistant'; content: string }[];
   maxTokens: number;
+  /** 242: Claudeのweb_searchツール相当。GeminiのgoogleSearchグラウンディングを有効化する */
+  webSearch?: boolean;
+}
+
+/** 242: usage も必要な呼び出し向け（trackUsage・Anthropic互換シム） */
+export interface GeminiRawResult {
+  text: string;
+  inputTokens: number;
+  outputTokens: number;
 }
 
 export interface TextAIResult extends AIProviderInfo {
@@ -60,7 +70,27 @@ function thinkingFor(maxTokens: number) {
   return maxTokens >= 8000 ? GEMINI_TEXT_THINKING_MEDIUM : GEMINI_TEXT_THINKING_LOW;
 }
 
-export async function callGeminiText(req: TextAIRequest): Promise<string> {
+/** groundingMetadata の出典を「## 出典（Web検索）」としてMarkdownで返す（出典ゼロなら空文字） */
+function formatGroundingSources(candidate: unknown): string {
+  const chunks =
+    (candidate as { groundingMetadata?: { groundingChunks?: { web?: { title?: string; uri?: string } }[] } })
+      ?.groundingMetadata?.groundingChunks ?? [];
+  const seen = new Set<string>();
+  const lines: string[] = [];
+  for (const c of chunks) {
+    const uri = c.web?.uri ?? '';
+    if (!uri || seen.has(uri)) continue;
+    seen.add(uri);
+    lines.push(`- 出典: ${c.web?.title || uri} ${uri}`);
+  }
+  return lines.length ? `\n\n## 出典（Web検索）\n${lines.join('\n')}\n` : '';
+}
+
+/**
+ * 242: Gemini 生呼び出し。本文に加えて usage を返す（trackUsage・Anthropic互換シムが使う）。
+ * webSearch 指定時は googleSearch グラウンディングを有効化し、出典を本文末尾へ追記する。
+ */
+export async function callGeminiRaw(req: TextAIRequest): Promise<GeminiRawResult> {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) throw new Error('GEMINI_API_KEY が未設定です');
 
@@ -77,7 +107,12 @@ export async function callGeminiText(req: TextAIRequest): Promise<string> {
       body: JSON.stringify({
         contents,
         ...(req.system ? { systemInstruction: { parts: [{ text: req.system }] } } : {}),
-        generationConfig: { maxOutputTokens: req.maxTokens, ...thinkingFor(req.maxTokens) },
+        // 241: 3.7 は思考を0にできないため、本文枠に思考分を上乗せする
+        generationConfig: {
+          maxOutputTokens: geminiMaxTokens(req.maxTokens),
+          ...thinkingFor(req.maxTokens),
+        },
+        ...(req.webSearch ? { tools: [{ googleSearch: {} }] } : {}),
       }),
     },
   );
@@ -87,9 +122,18 @@ export async function callGeminiText(req: TextAIRequest): Promise<string> {
   }
   // parts が複数に割れることがあるため全連結する（content[0]固定参照と同じ罠・R-02）
   const parts = data?.candidates?.[0]?.content?.parts;
-  const text = Array.isArray(parts) ? parts.map((p: { text?: string }) => p?.text ?? '').join('') : '';
+  const body = Array.isArray(parts) ? parts.map((p: { text?: string }) => p?.text ?? '').join('') : '';
+  const text = req.webSearch ? body + formatGroundingSources(data?.candidates?.[0]) : body;
   if (!text.trim()) throw new Error('Geminiの応答が空でした');
-  return text;
+  return {
+    text,
+    inputTokens: data?.usageMetadata?.promptTokenCount ?? 0,
+    outputTokens: data?.usageMetadata?.candidatesTokenCount ?? 0,
+  };
+}
+
+export async function callGeminiText(req: TextAIRequest): Promise<string> {
+  return (await callGeminiRaw(req)).text;
 }
 
 /* ══════════════ Claude → Gemini（非ストリーミング） ══════════════ */

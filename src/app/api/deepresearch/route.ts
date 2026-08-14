@@ -5,6 +5,7 @@ import { getClinicSystemPrompt } from '@/lib/clinicProfile';
 import { trackUsage } from '@/lib/trackUsage';
 import { streamWithModel, type AIModel } from '@/lib/ai-client';
 import { NO_LATEX_PROMPT_RULE } from '@/lib/markdown-renderer';
+import { fetchAnthropic } from '@/lib/anthropic-compat';
 
 export const maxDuration = 300;
 
@@ -145,21 +146,15 @@ ${outline}
           return;
         }
 
-        // Claude: web_search ツール対応のため既存実装を維持
-        const response = await fetch('https://api.anthropic.com/v1/messages', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'x-api-key': apiKey,
-            'anthropic-version': '2023-06-01',
-          },
-          body: JSON.stringify({
-            model: CLAUDE_TEXT_MODEL,
-            max_tokens: maxTokens,
-            tools: [{ type: 'web_search_20250305', name: 'web_search' }],
-            system: systemPrompt,
-            messages: [{ role: 'user', content: userPrompt }],
-          }),
+        // Claude: web_search ツール対応。242: 上限・混雑ならGeminiへ自動フォールバックし、
+        // その際は web_search の代わりに googleSearch グラウンディングが有効になる
+        // （出典も本文末尾に追記される）。応答は Anthropic 形式のため下流は変更不要。
+        const response = await fetchAnthropic({
+          model: CLAUDE_TEXT_MODEL,
+          max_tokens: maxTokens,
+          tools: [{ type: 'web_search_20250305', name: 'web_search' }],
+          system: systemPrompt,
+          messages: [{ role: 'user', content: userPrompt }],
         });
 
         if (!response.ok) {

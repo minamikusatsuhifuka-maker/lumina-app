@@ -1,6 +1,7 @@
 import { CLAUDE_TEXT_MODEL } from '@/lib/ai-models';
 import { NextRequest } from 'next/server';
 import { auth } from '@/lib/auth';
+import { fetchAnthropic } from '@/lib/anthropic-compat';
 
 export const runtime = 'nodejs';
 export const maxDuration = 300;
@@ -103,20 +104,15 @@ Instagramで反応が得られる魅力的なキャプションを作成して�
 
     console.log('[generate] Calling Anthropic API...');
 
-    const anthropicResponse = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': apiKey,
-        'anthropic-version': '2023-06-01',
-      },
-      body: JSON.stringify({
-        model: CLAUDE_TEXT_MODEL,
-        max_tokens: 12000,
-        stream: true,
-        system: finalSystemPrompt,
-        messages: [{ role: 'user', content: prompt }],
-      }),
+    // 242: 上限・混雑ならGeminiへ自動フォールバック。フォールバック時も
+    // Anthropic互換のSSE（message_start / content_block_delta / message_stop）で返るため、
+    // 下のパススルーとクライアント側のパーサはそのまま動く（挙動等価）。
+    const anthropicResponse = await fetchAnthropic({
+      model: CLAUDE_TEXT_MODEL,
+      max_tokens: 12000,
+      stream: true,
+      system: finalSystemPrompt,
+      messages: [{ role: 'user', content: prompt }],
     });
 
     if (!anthropicResponse.ok) {
