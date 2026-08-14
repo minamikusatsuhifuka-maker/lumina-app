@@ -108,8 +108,9 @@ export async function generateWithModelInfo(
     });
     const result = await geminiModel.generateContent({
       contents: [{ role: 'user', parts: [{ text: prompt }] }],
-      // 3.6 Flashは思考既定mediumが枠を消費するため、非ストリーミングの既定はlow。
-      // 呼び出し側は geminiGenerationConfig の thinkingConfig で minimal/medium に上書き可能。
+      // Gemini 3.x は思考が既定で枠を消費するため、非ストリーミングの既定はlow。
+      // 呼び出し側は geminiGenerationConfig の thinkingConfig で medium/high に上書き可能。
+      // 241: 3.7 で minimal は 400（非対応）。low が実質最小で thoughts も0にはならない。
       generationConfig: { maxOutputTokens: maxTokens, ...GEMINI_TEXT_THINKING_LOW, ...geminiGenerationConfig },
       ...(webSearch ? { tools: GOOGLE_SEARCH_TOOLS } : {}),
     });
@@ -190,7 +191,7 @@ export async function streamWithModel(
     });
     const result = await geminiModel.generateContentStream({
       contents: [{ role: 'user', parts: [{ text: prompt }] }],
-      // ストリーミングは長文リサーチ・記事系（枠8000以上）のため思考は3.6既定(medium)のまま＝品質優先
+      // ストリーミングは長文リサーチ・記事系（枠8000以上）のため思考はモデル既定のまま＝品質優先
       generationConfig: { maxOutputTokens: maxTokens },
       ...(webSearch ? { tools: GOOGLE_SEARCH_TOOLS } : {}),
     });

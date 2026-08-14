@@ -27,7 +27,7 @@ export type AIProvider = 'claude' | 'gemini';
 
 export interface AIProviderInfo {
   provider: AIProvider;
-  /** UI表示用のモデル名（例: 'Gemini 3.6 Flash'） */
+  /** UI表示用のモデル名（例: 'Gemini 3.7 Flash'） */
   modelLabel: string;
   /** claude→gemini に切り替わった場合のみ、その理由 */
   fallbackReason?: string;
@@ -54,7 +54,7 @@ export function providerBadge(info: AIProviderInfo | null | undefined): string |
 
 /* ══════════════ Gemini 呼び出し（REST・SDKの型に縛られない） ══════════════ */
 
-// 3.6 Flash は思考が既定 medium で枠を消費する。長文（章執筆・記事生成＝枠8000以上）は
+// Gemini 3.x は思考が既定で枠を消費する。長文（章執筆・記事生成＝枠8000以上）は
 // 品質優先で medium、短めの機械的タスクは速度優先で low を使う（ai-models.ts の使い分けに準拠）。
 function thinkingFor(maxTokens: number) {
   return maxTokens >= 8000 ? GEMINI_TEXT_THINKING_MEDIUM : GEMINI_TEXT_THINKING_LOW;

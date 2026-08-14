@@ -1,4 +1,9 @@
-import { GEMINI_TEXT_MODEL, GEMINI_TEXT_THINKING_MINIMAL } from '@/lib/ai-models';
+import {
+  GEMINI_TEXT_MODEL,
+  GEMINI_TEXT_MODEL_LABEL,
+  GEMINI_TEXT_THINKING_LOW,
+  geminiMaxTokens,
+} from '@/lib/ai-models';
 import { generateTextWithFallback, type AIProviderInfo } from '@/lib/ai-fallback';
 
 export interface AIMessage {
@@ -48,12 +53,13 @@ export async function callAIWithProvider(
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           contents: geminiMessages,
-          // 3.6 Flashでtemperatureは廃止（将来400エラー）のため送らない。
-          // 呼び出し元は対話・短文JSON抽出（枠500〜1000）で、思考既定mediumだと
-          // 思考が枠を食い潰して本文が空になるため minimal を明示。
+          // Gemini 3.x でtemperatureは廃止（将来400エラー）のため送らない。
+          // 呼び出し元は対話・短文JSON抽出（枠500〜1000）。思考が枠を食い潰して本文が
+          // 空になるのを避けるため、思考は最小(low)＋枠に思考分を上乗せする（241）。
+          // 3.7 は minimal 非対応・思考0が作れないため、上乗せ側で吸収する。
           generationConfig: {
-            maxOutputTokens: maxTokens,
-            ...GEMINI_TEXT_THINKING_MINIMAL,
+            maxOutputTokens: geminiMaxTokens(maxTokens),
+            ...GEMINI_TEXT_THINKING_LOW,
           },
         }),
       },
@@ -66,7 +72,8 @@ export async function callAIWithProvider(
     }
     const parts = data?.candidates?.[0]?.content?.parts;
     const text = Array.isArray(parts) ? parts.map((p: { text?: string }) => p?.text ?? '').join('') : '';
-    return { text, provider: 'gemini', modelLabel: 'Gemini 3.6 Flash' };
+    // 241: ラベルは ai-models.ts の定数を参照（直書きすると次のモデル移行で取り残される）
+    return { text, provider: 'gemini', modelLabel: GEMINI_TEXT_MODEL_LABEL };
   }
 
   // 235: Claude選択時は、上限・混雑ならGeminiへ自動フォールバック（共通層で一括対応）

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
 import { generateWithModel } from '@/lib/ai-client';
-import { GEMINI_TEXT_THINKING_MINIMAL } from '@/lib/ai-models';
+import { GEMINI_TEXT_THINKING_LOW, geminiMaxTokens } from '@/lib/ai-models';
 
 export const runtime = 'nodejs';
 
@@ -36,8 +36,9 @@ ${goal ? `\n# これが寄与する目標\n${goal}` : ''}
 上記について、第2象限への先払い投資を後押しする短いコーチングを1〜2文だけ返してください。前置き・引用符・絵文字・箇条書きは付けず、本文だけを返すこと。`;
 
   try {
-    // 枠256は思考トークンで溢れるため minimal（機械的な短文生成・thoughts=0）
-    const raw = await generateWithModel('gemini', prompt, undefined, 256, GEMINI_TEXT_THINKING_MINIMAL);
+    // 241: 3.7 は minimal 非対応で思考を0にできない。本文枠256は据え置き、
+    // 思考分は geminiMaxTokens で上乗せする（枠256のままだと MAX_TOKENS で切れるのを実測）
+    const raw = await generateWithModel('gemini', prompt, undefined, geminiMaxTokens(256), GEMINI_TEXT_THINKING_LOW);
     const message = (raw || '').trim().replace(/^["「『]|["」』]$/g, '').slice(0, 160);
     return NextResponse.json({ message });
   } catch {

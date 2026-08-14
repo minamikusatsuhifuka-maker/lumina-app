@@ -2,7 +2,7 @@ import { NextRequest } from 'next/server';
 import { auth } from '@/lib/auth';
 import { neon } from '@neondatabase/serverless';
 import { generateWithModel, type AIModel } from '@/lib/ai-client';
-import { GEMINI_TEXT_THINKING_MINIMAL, GEMINI_TEXT_THINKING_MEDIUM } from '@/lib/ai-models';
+import { GEMINI_TEXT_THINKING_LOW, GEMINI_TEXT_THINKING_MEDIUM, geminiMaxTokens } from '@/lib/ai-models';
 import { NO_LATEX_PROMPT_RULE } from '@/lib/markdown-renderer';
 
 export const maxDuration = 300;
@@ -409,8 +409,8 @@ async function generateBatchTitle(
     `- タイトルだけを出力し、説明・前置き・記号は不要\n\n` +
     `【記事（先頭2000文字）】\n${text.slice(0, 2000)}`;
   try {
-    // 枠500は思考トークンで溢れるため minimal（機械的なタイトル生成・thoughts=0）
-    const titlePromise = generateWithModel('gemini', prompt, undefined, 500, GEMINI_TEXT_THINKING_MINIMAL);
+    // 241: 3.7 は minimal 非対応で思考を0にできない。本文枠500は据え置き、思考分を上乗せする
+    const titlePromise = generateWithModel('gemini', prompt, undefined, geminiMaxTokens(500), GEMINI_TEXT_THINKING_LOW);
     const timeoutPromise = new Promise<string>((_, reject) =>
       setTimeout(
         () => reject(new Error('title generation timeout')),

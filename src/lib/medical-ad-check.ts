@@ -63,7 +63,7 @@ ${AD_CHECK_OUTPUT_NOTE}`;
     const model = genAI.getGenerativeModel({ model: GEMINI_TEXT_MODEL });
     const result = await model.generateContent({
       contents: [{ role: 'user', parts: [{ text: prompt }] }],
-      // 3.6 Flashは思考既定medium（1000前後）が枠を消費するため2048→4096に拡大
+      // Gemini 3.x は思考（1000前後）が枠を消費するため2048→4096に拡大
       generationConfig: { responseMimeType: 'application/json', maxOutputTokens: 4096 },
     });
     const parsed = robustJsonParse(result.response.text()) as { status?: string; findings?: unknown };
