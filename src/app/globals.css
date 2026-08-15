@@ -411,3 +411,14 @@ a[href*="dashboard"]:hover {
   background: var(--bg-secondary, #1a1a2a); font-weight: 700;
 }
 .markdown-body > :first-child { margin-top: 0; }
+
+/* 246: 「↑ トップへ戻る」の出現演出。一度きり（forwardsで止める）。
+   常時アニメーション・点滅はしない。動きを減らす設定の人には出さない。 */
+@keyframes luminaFabIn {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.lumina-fab-in { animation: luminaFabIn 220ms ease-out both; }
+@media (prefers-reduced-motion: reduce) {
+  .lumina-fab-in { animation: none; }
+}

@@ -17,6 +17,9 @@ import { useFloatingSlot, floatingBottom } from '@/components/ThemeProvider';
 /** これ以上スクロールしたら表示する（最上部では出さない） */
 const SHOW_AFTER_PX = 300;
 
+/** 246: 他の浮遊ボタン（48px）より一回り大きくして目立たせる。モバイルのタップ域も余裕を持たせる */
+const BUTTON_SIZE = 52;
+
 // dashboard / admin / staff とも <main> が overflowY:auto。ここが実際のスクロール要素になる
 function getScroller(): HTMLElement | null {
   return document.querySelector<HTMLElement>('main');
@@ -59,25 +62,41 @@ export function BackToTopButton({ standalone = false }: { standalone?: boolean }
       onClick={toTop}
       aria-label="ページの先頭へ戻る"
       title="トップへ戻る"
+      className="lumina-fab-in"
       style={{
         position: 'fixed',
         right: 16,
         bottom,
         zIndex: 9998,
-        width: 48,
-        height: 48,
+        // 246: 他の浮遊ボタン（48px）より一回り大きく。段の間隔は56pxなので重ならない
+        width: BUTTON_SIZE,
+        height: BUTTON_SIZE,
         borderRadius: '50%',
-        border: '1px solid var(--border-accent, rgba(108,99,255,0.3))',
-        background: 'var(--bg-secondary, #1a1a2e)',
-        color: 'var(--text-primary, #fff)',
-        fontSize: 20,
+        // 246: 背景をブランド色の**単色**に。💬アシスタントは紫のグラデーションなので、
+        // 隣り合っても「単色 vs グラデ」＋サイズ差で見分けられる。
+        // var(--accent) はテーマごとに定義済み（dark #6c63ff / light #5b52e8 / midnight #8b5cf6）
+        background: 'var(--accent, #6c63ff)',
+        // 白の細いリングで、明るい背景でも暗い背景でも輪郭が立つ
+        border: '2px solid rgba(255,255,255,0.3)',
+        color: '#fff',
+        fontSize: 24,
+        fontWeight: 700,
         lineHeight: 1,
         cursor: 'pointer',
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
-        boxShadow: '0 4px 16px rgba(0,0,0,0.3)',
-        transition: 'all 0.2s',
+        // 影を強めて浮き上がらせる（内側の1pxは輪郭の締め）
+        boxShadow: '0 6px 20px rgba(0,0,0,0.35), 0 0 0 1px rgba(0,0,0,0.06)',
+        transition: 'transform 0.15s ease, box-shadow 0.15s ease',
+      }}
+      onMouseEnter={(e) => {
+        e.currentTarget.style.transform = 'translateY(-2px)';
+        e.currentTarget.style.boxShadow = '0 10px 26px rgba(0,0,0,0.42), 0 0 0 1px rgba(0,0,0,0.06)';
+      }}
+      onMouseLeave={(e) => {
+        e.currentTarget.style.transform = '';
+        e.currentTarget.style.boxShadow = '0 6px 20px rgba(0,0,0,0.35), 0 0 0 1px rgba(0,0,0,0.06)';
       }}
     >
       ↑

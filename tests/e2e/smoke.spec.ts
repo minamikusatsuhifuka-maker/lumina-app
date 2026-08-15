@@ -634,15 +634,21 @@ test('C26: 文字サイズ切替（240）— 4段階が並び、選ぶと全体�
 
 test('C27: 追従ボタンの個別on/off＋トップへ戻る（243）— 既定は全off・onにすると重ならず縦に並ぶ', async ({ page }) => {
   const FAB = { glossary: '📖', memo: '📝', assistant: '💬' };
-  // 右下の追従ボタンだけを拾う（fixed かつ 48px の円）
+  // 右下の追従ボタンだけを拾う（fixed かつ正円）。
+  // 246で「↑ トップへ戻る」だけ 52px に大きくしたため、48px 固定ではなく幅の範囲で拾う
   const fabRects = () =>
     page.evaluate(() =>
       [...document.querySelectorAll('button')]
         .filter((b) => {
           const s = getComputedStyle(b);
-          return s.position === 'fixed' && b.getBoundingClientRect().width === 48 && b.getBoundingClientRect().height === 48;
+          const r = b.getBoundingClientRect();
+          return s.position === 'fixed' && Math.round(r.width) === Math.round(r.height) && r.width >= 44 && r.width <= 60;
         })
-        .map((b) => ({ text: (b.textContent || '').trim(), bottom: Math.round(window.innerHeight - b.getBoundingClientRect().bottom) }))
+        .map((b) => ({
+          text: (b.textContent || '').trim(),
+          bottom: Math.round(window.innerHeight - b.getBoundingClientRect().bottom),
+          size: Math.round(b.getBoundingClientRect().width),
+        }))
         .sort((a, b) => a.bottom - b.bottom),
     );
 
@@ -695,6 +701,18 @@ test('C27: 追従ボタンの個別on/off＋トップへ戻る（243）— 既�
   const withTop = await fabRects();
   const topBtn = withTop.find((r) => r.text === '↑')!;
   expect(topBtn.bottom, '↑ が3つの浮遊ボタンより上にあること').toBeGreaterThan(Math.max(...all.map((r) => r.bottom)));
+  // 246: 視認性のため他の浮遊ボタンより一回り大きい（ただし段の間隔56pxを超えない＝重ならない）
+  expect(topBtn.size, '↑ が他の浮遊ボタン（48px）より大きいこと').toBeGreaterThan(48);
+  expect(topBtn.size, '↑ が段の間隔56pxを超えないこと').toBeLessThan(56);
+  // ブランド色の塗り（無彩色の背景ではない）で、白抜きの矢印になっている
+  const topStyle = await page.evaluate(() => {
+    const b = [...document.querySelectorAll('button')].find((x) => (x.textContent || '').trim() === '↑');
+    const s = getComputedStyle(b!);
+    return { bg: s.backgroundColor, color: s.color };
+  });
+  const rgb = topStyle.bg.match(/\d+/g)!.map(Number);
+  expect(Math.max(...rgb.slice(0, 3)) - Math.min(...rgb.slice(0, 3)), '背景が無彩色ではない（色みがある）').toBeGreaterThan(30);
+  expect(topStyle.color, '矢印が白抜き').toMatch(/rgb\(255,\s*255,\s*255\)/);
 
   // 押すと最上部へ戻る
   await page.getByRole('button', { name: 'ページの先頭へ戻る' }).click();
