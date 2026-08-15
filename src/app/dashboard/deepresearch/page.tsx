@@ -4,7 +4,8 @@ import { ProgressBar } from '@/components/ProgressBar';
 import { VoiceInputButton } from '@/components/VoiceInputButton';
 import { useProgress } from '@/components/useProgress';
 import { SaveToLibraryButton } from '@/components/SaveToLibraryButton';
-import { DateRangePicker, DateRange, getDateCondition } from '@/components/DateRangePicker';
+// 245: 期間UIは periodStart / periodEnd の1系統に統合したため DateRangePicker は使わない
+//（トピック文字列へ検索条件を追記する方式をやめた。理由はこのファイル内の「調査期間」UI付近を参照）
 import DeepDiveChat from '@/components/DeepDiveChat';
 import {
   getSavedModel,
@@ -58,6 +59,19 @@ async function retryFetch(url: string, options: RequestInit, maxRetries = 3): Pr
     await new Promise(r => setTimeout(r, waitMs));
   }
   return fetch(url, options);
+}
+
+// 245: 調査期間のプリセット。days=null は「指定なし」（期間を送らない）
+const PERIOD_PRESETS: { label: string; days: number | null }[] = [
+  { label: '指定なし', days: null },
+  { label: '7日', days: 7 },
+  { label: '30日', days: 30 },
+  { label: '90日', days: 90 },
+];
+
+// toISOString() はUTCに寄せるため日本時間だと日付が前日にずれる。ローカルの暦日で組み立てる
+function toLocalDateStr(d: Date): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
 // バイト数を人間可読フォーマットに（例: 1234 → "1.2 KB"）
@@ -764,10 +778,30 @@ export default function DeepResearchPage() {
     }
   };
 
-  const [dateRange, setDateRange] = useState<DateRange>({ start: null, end: null });
-  // 対象期間（API側の periodStart / periodEnd に渡す。任意項目）
+  // 245: 調査期間は periodStart / periodEnd の1系統に統合（APIへ渡し、サーバーが検索指示文に組み立てる）。
+  // periodPreset は「7/30/90日のどれを押した状態か」を覚えるだけの表示用。
+  // 日付を手で触ったら null に戻す＝プリセットとカスタムが同時に選ばれた状態を作らない。
   const [periodStart, setPeriodStart] = useState('');
   const [periodEnd, setPeriodEnd] = useState('');
+  const [periodPreset, setPeriodPreset] = useState<number | null>(null);
+  // プリセットを押していないのに日付が入っている＝日付で細かく指定した状態
+  const isCustomPeriod = periodPreset === null && Boolean(periodStart || periodEnd);
+
+  /** 期間プリセットの適用。null は「指定なし」＝期間を送らない */
+  const applyPeriodPreset = (days: number | null) => {
+    if (days === null) {
+      setPeriodPreset(null);
+      setPeriodStart('');
+      setPeriodEnd('');
+      return;
+    }
+    const today = new Date();
+    const start = new Date(today);
+    start.setDate(today.getDate() - (days - 1)); // 今日を含めてN日間
+    setPeriodPreset(days);
+    setPeriodStart(toLocalDateStr(start));
+    setPeriodEnd(toLocalDateStr(today));
+  };
   // 自動生成 insights（要約・詳細・キーワード・活用アドバイス）
   const [insights, setInsights] = useState<{
     summary: string;
@@ -1308,7 +1342,9 @@ ${contextText}
       const modelAtRequest = getSavedModel();
       setReportModel(modelAtRequest);
       const reqBody = JSON.stringify({
-        topic: q + getDateCondition(dateRange),
+        // 245: 期間はトピック文字列に混ぜず periodStart/periodEnd で渡す。
+        // トピックは保存タイトル・履歴・タイトル生成に使われるため、検索条件が混ざると成果物が汚れる。
+        topic: q,
         depth,
         periodStart: periodStart || undefined,
         periodEnd: periodEnd || undefined,
@@ -1596,7 +1632,19 @@ ${contextText}
       {tab === 'single' && (<>
       <div style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 14, padding: 20, marginBottom: 20 }}>
         <div style={{ marginBottom: 12 }}>
-          <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.06em' }}>リサーチトピック</div>
+          {/* 245: 「✕ クリア」は左下から入力欄のラベル行の右端へ移設（操作対象のすぐ上に置く） */}
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+            <div style={{ fontSize: 11, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>リサーチトピック</div>
+            <button
+              type="button"
+              onClick={() => setTopic('')}
+              disabled={loading || !topic.trim()}
+              title="リサーチトピックをクリア"
+              style={{ padding: '2px 8px', fontSize: 11, color: topic.trim() && !loading ? 'var(--text-secondary)' : 'var(--text-muted)', background: 'transparent', border: '1px solid var(--border)', borderRadius: 5, opacity: topic.trim() && !loading ? 1 : 0.5, cursor: topic.trim() && !loading ? 'pointer' : 'not-allowed', lineHeight: 1.6 }}
+            >
+              ✕ クリア
+            </button>
+          </div>
           <div style={{ position: 'relative' }}>
             <textarea
               value={topic}
@@ -1653,13 +1701,39 @@ ${contextText}
           ))}
         </div>
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
-          <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>調査期間：</span>
-          <DateRangePicker value={dateRange} onChange={setDateRange} placeholder="期間を指定（任意）" />
+        {/* 245: 調査期間。よく使う3つはボタンで即選択、それ以外は下の折りたたみで日付指定する。
+            どちらも periodStart / periodEnd という1つの状態に書き込むので、二重に選ばれることはない。 */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 10, flexWrap: 'wrap' }}>
+          <span style={{ fontSize: 11, color: 'var(--text-muted)', marginRight: 2 }}>調査期間：</span>
+          {PERIOD_PRESETS.map((p) => {
+            const selected = p.days === null ? !periodStart && !periodEnd : periodPreset === p.days;
+            return (
+              <button
+                key={p.label}
+                type="button"
+                onClick={() => applyPeriodPreset(p.days)}
+                aria-pressed={selected}
+                style={{
+                  padding: '5px 12px', borderRadius: 999, fontSize: 12, fontWeight: selected ? 700 : 500,
+                  border: selected ? '2px solid var(--accent)' : '1px solid var(--border)',
+                  background: selected ? 'var(--accent-soft)' : 'var(--bg-primary)',
+                  color: selected ? 'var(--text-secondary)' : 'var(--text-muted)',
+                  cursor: 'pointer',
+                }}
+              >
+                {p.label}
+              </button>
+            );
+          })}
+          {isCustomPeriod && (
+            <span style={{ fontSize: 11, color: 'var(--accent)' }}>
+              ✓ カスタム: {periodStart || '指定なし'} 〜 {periodEnd || '現在まで'}
+            </span>
+          )}
         </div>
 
-        {/* 対象期間（プロンプトに埋め込み AI に指示）— 任意項目 */}
-        <details style={{ marginBottom: 12 }}>
+        {/* プリセット以外の期間はここで日付指定する（プリセットとは排他） */}
+        <details style={{ marginBottom: 12 }} open={isCustomPeriod}>
           <summary style={{
             cursor: 'pointer',
             padding: '8px 12px',
@@ -1669,7 +1743,7 @@ ${contextText}
             fontSize: 13,
             color: 'var(--text-secondary)',
           }}>
-            📅 対象期間を指定する（任意）
+            📅 日付で細かく指定する（任意）
             {(periodStart || periodEnd) && (
               <span style={{ marginLeft: 8, fontSize: 11, color: 'var(--accent)' }}>
                 ✓ {periodStart || '指定なし'} 〜 {periodEnd || '現在まで'}
@@ -1682,7 +1756,7 @@ ${contextText}
               <input
                 type="date"
                 value={periodStart}
-                onChange={(e) => setPeriodStart(e.target.value)}
+                onChange={(e) => { setPeriodStart(e.target.value); setPeriodPreset(null); }}
                 style={{ padding: '6px 10px', border: '1px solid var(--border)', borderRadius: 4, background: 'var(--bg-primary)', color: 'var(--text-primary)', fontSize: 13 }}
               />
             </div>
@@ -1692,14 +1766,14 @@ ${contextText}
               <input
                 type="date"
                 value={periodEnd}
-                onChange={(e) => setPeriodEnd(e.target.value)}
+                onChange={(e) => { setPeriodEnd(e.target.value); setPeriodPreset(null); }}
                 style={{ padding: '6px 10px', border: '1px solid var(--border)', borderRadius: 4, background: 'var(--bg-primary)', color: 'var(--text-primary)', fontSize: 13 }}
               />
             </div>
             {(periodStart || periodEnd) && (
               <button
                 type="button"
-                onClick={() => { setPeriodStart(''); setPeriodEnd(''); }}
+                onClick={() => applyPeriodPreset(null)}
                 style={{ padding: '6px 12px', fontSize: 12, background: 'transparent', border: '1px solid var(--border)', borderRadius: 4, cursor: 'pointer', color: 'var(--text-secondary)', marginTop: 16 }}
               >
                 クリア
@@ -1711,17 +1785,8 @@ ${contextText}
           </p>
         </details>
 
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
-          {/* 入力欄クリア（テキスト分析と同じ「✕ クリア」。実行中・空のときは無効） */}
-          <button
-            type="button"
-            onClick={() => setTopic('')}
-            disabled={loading || !topic.trim()}
-            title="リサーチトピックをクリア"
-            style={{ padding: '8px 14px', fontSize: 12, color: topic.trim() && !loading ? 'var(--text-secondary)' : 'var(--text-muted)', background: 'transparent', border: '1px solid var(--border)', borderRadius: 6, opacity: topic.trim() && !loading ? 1 : 0.5, cursor: topic.trim() && !loading ? 'pointer' : 'not-allowed' }}
-          >
-            ✕ クリア
-          </button>
+        {/* 245: クリアは入力欄のラベル行へ移したので、この行は実行ボタンだけを右寄せする */}
+        <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: 8 }}>
           <button
             onClick={() => research()}
             disabled={loading}
