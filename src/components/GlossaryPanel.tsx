@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { triggerDownload } from '@/lib/download';
+import { useTheme, useFloatingSlot, floatingBottom, FLOATING_ORDER } from '@/components/ThemeProvider';
 
 type Step = 'input' | 'select' | 'explain' | 'done';
 
@@ -33,9 +34,10 @@ const LEVEL_LABELS: Record<string, string> = {
 };
 
 export function GlossaryPanel() {
-  // フローティングボタン縦一列の最上段（右下から3番目）
-  const fabBottom = 136;
-  const panelBottom = fabBottom + 56;
+  // 243: 表示可否は設定（既定off）、縦位置は表示中のボタンだけを下から詰めて決める
+  const { floating } = useTheme();
+  const fabBottom = useFloatingSlot('glossary');
+  const panelBottom = floatingBottom(FLOATING_ORDER.filter((k) => floating[k]).indexOf('glossary') + 1);
   const [isOpen, setIsOpen] = useState(false);
   const [step, setStep] = useState<Step>('input');
   const [inputText, setInputText] = useState('');
@@ -154,6 +156,9 @@ export function GlossaryPanel() {
     setStep('input'); setInputText(''); setTerms([]);
     setExplanations([]); setSavedCount(0); setError('');
   };
+
+  // 243: 設定でoffなら何も描かない（既定off）
+  if (!floating.glossary) return null;
 
   return (
     <>

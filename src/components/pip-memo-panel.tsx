@@ -2,6 +2,7 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
 import { loadMemoSheets, saveMemoSheets, type MemoSheet } from '@/lib/memo-storage';
 import { copyToClipboard } from '@/lib/copyToClipboard';
+import { useTheme, useFloatingSlot } from '@/components/ThemeProvider';
 
 declare global {
   interface Window {
@@ -13,6 +14,9 @@ declare global {
 }
 
 export function PipMemoPanel() {
+  // 243: 表示可否は設定（既定off）、縦位置は表示中のボタンだけを下から詰めて決める
+  const { floating } = useTheme();
+  const fabBottom = useFloatingSlot('memo');
   const [isMounted, setIsMounted] = useState(false);
   const [pipActive, setPipActive] = useState(false);
   const [sheets, setSheets] = useState<MemoSheet[]>([]);
@@ -270,6 +274,8 @@ export function PipMemoPanel() {
   }, []);
 
   if (!isMounted) return null;
+  // 243: 設定でoffなら何も描かない（既定off）
+  if (!floating.memo) return null;
 
   return (
     <button
@@ -277,7 +283,7 @@ export function PipMemoPanel() {
       style={{
         position: 'fixed',
         right: 16,
-        bottom: 80,
+        bottom: fabBottom,
         zIndex: 9998,
         width: 48,
         height: 48,

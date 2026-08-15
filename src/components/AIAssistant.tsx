@@ -2,6 +2,7 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { usePathname } from 'next/navigation';
 import { VoiceInputButton } from '@/components/VoiceInputButton';
+import { useTheme, useFloatingSlot, floatingBottom, FLOATING_ORDER } from '@/components/ThemeProvider';
 
 type Message = { role: 'user' | 'assistant'; content: string; };
 type ChatSize = 'normal' | 'max';
@@ -31,8 +32,11 @@ export function AIAssistant() {
   const [loading, setLoading] = useState(false);
   const [currentHistoryId, setCurrentHistoryId] = useState<string | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
-  // フローティングボタン縦一列の最下段（右下）
-  const buttonBottom = 24;
+  // 243: 表示可否は設定（既定off）、縦位置は表示中のボタンだけを下から詰めて決める
+  const { floating } = useTheme();
+  const buttonBottom = useFloatingSlot('assistant');
+  // チャットウィンドウはボタンの1段上から生やす
+  const windowBottom = floatingBottom(FLOATING_ORDER.filter((k) => floating[k]).indexOf('assistant') + 1);
 
   // 会話履歴保存
   const saveHistory = async () => {
@@ -147,14 +151,17 @@ export function AIAssistant() {
 
   const windowStyle: React.CSSProperties = chatSize === 'max'
     ? { position: 'fixed', inset: 0, zIndex: 9998, width: '100vw', height: '100vh', background: 'var(--bg-secondary)', borderRadius: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' }
-    : { position: 'fixed', bottom: buttonBottom + 64, right: 16, zIndex: 9998, width: size.width, height: size.height, background: 'var(--bg-secondary)', border: '1px solid var(--border-accent)', borderRadius: 20, display: 'flex', flexDirection: 'column', boxShadow: '0 8px 40px rgba(0,0,0,0.2)', overflow: 'hidden' };
+    : { position: 'fixed', bottom: windowBottom, right: 16, zIndex: 9998, width: size.width, height: size.height, background: 'var(--bg-secondary)', border: '1px solid var(--border-accent)', borderRadius: 20, display: 'flex', flexDirection: 'column', boxShadow: '0 8px 40px rgba(0,0,0,0.2)', overflow: 'hidden' };
 
   // リサイズハンドルの共通スタイル
   const handleBase: React.CSSProperties = { position: 'absolute', zIndex: 10 };
 
+  // 243: 設定でoffなら何も描かない（既定off）
+  if (!floating.assistant) return null;
+
   return (
     <>
-      {/* フローティングボタン（縦一列・最下段／最大化時は非表示） */}
+      {/* フローティングボタン（縦一列／最大化時は非表示） */}
       {chatSize !== 'max' && (
         <button
           onClick={() => { if (open) saveHistory(); setOpen(!open); }}

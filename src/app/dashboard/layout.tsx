@@ -13,6 +13,7 @@ import { PageHelp } from '@/components/PageHelp';
 import { OnboardingTutorial } from '@/components/OnboardingTutorial';
 import ShortcutPalette, { ShortcutHelpButton } from '@/components/ShortcutPalette';
 import { ToastProvider } from '@/components/ui/Toast';
+import { BackToTopButton } from '@/components/BackToTopButton';
 
 export default async function DashboardLayout({ children }: { children: React.ReactNode }) {
   const session = await auth();
@@ -28,6 +29,9 @@ export default async function DashboardLayout({ children }: { children: React.Re
       <FloatingToolbar />
       <GlossaryPanel />
       <AIAssistant />
+      {/* 243: 追従ボタン列の最上段。onにした浮遊ボタンの上に出るので、
+          スクロールで出入りしても下のボタンの位置がずれない */}
+      <BackToTopButton />
       <CommandPalette />
       <OnboardingTutorial />
       <ShortcutPalette />

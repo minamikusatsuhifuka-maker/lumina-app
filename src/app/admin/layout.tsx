@@ -3,6 +3,7 @@ import { AdminSidebar } from '@/components/AdminSidebar';
 import { ModelSelector } from '@/components/ModelSelector';
 import { AdminBreadcrumb } from '@/components/AdminBreadcrumb';
 import { CommandPalette } from '@/components/CommandPalette';
+import { BackToTopButton } from '@/components/BackToTopButton';
 
 export default async function AdminLayout({ children }: { children: React.ReactNode }) {
   const user = await requireAdmin();
@@ -15,6 +16,8 @@ export default async function AdminLayout({ children }: { children: React.ReactN
         {children}
       </main>
       <CommandPalette />
+      {/* 243: adminには浮遊ボタンが無いので常に最下段 */}
+      <BackToTopButton standalone />
     </div>
   );
 }

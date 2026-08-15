@@ -1,6 +1,7 @@
 import { auth } from '@/lib/auth';
 import { redirect } from 'next/navigation';
 import { StaffNav } from '@/components/StaffNav';
+import { BackToTopButton } from '@/components/BackToTopButton';
 
 export default async function StaffLayout({ children }: { children: React.ReactNode }) {
   const session = await auth();
@@ -21,6 +22,8 @@ export default async function StaffLayout({ children }: { children: React.ReactN
         <StaffNav />
         <main style={{ flex: 1, padding: 24, overflowY: 'auto', paddingBottom: 80 }}>{children}</main>
       </div>
+      {/* 243: staffには浮遊ボタンが無いので常に最下段 */}
+      <BackToTopButton standalone />
     </div>
   );
 }

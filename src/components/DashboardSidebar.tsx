@@ -123,6 +123,7 @@ const navCategories: NavCategory[] = [
       { href: '/dashboard/stats', label: '使用状況', icon: '📊' },
       { href: '/dashboard/api-usage', label: 'API使用量', icon: '💴' },
       { href: '/dashboard/integrations', label: '外部連携（SaaS）', icon: '🔗' },
+      { href: '/dashboard/display-settings', label: '表示設定', icon: '🎛' },
     ],
   },
 ];
