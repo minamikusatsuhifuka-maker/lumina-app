@@ -786,6 +786,7 @@ export default function DeepResearchPage() {
   const [periodPreset, setPeriodPreset] = useState<number | null>(null);
   // プリセットを押していないのに日付が入っている＝日付で細かく指定した状態
   const isCustomPeriod = periodPreset === null && Boolean(periodStart || periodEnd);
+  const [periodDetailsOpen, setPeriodDetailsOpen] = useState(false);
 
   /** 期間プリセットの適用。null は「指定なし」＝期間を送らない */
   const applyPeriodPreset = (days: number | null) => {
@@ -1732,8 +1733,13 @@ ${contextText}
           )}
         </div>
 
-        {/* プリセット以外の期間はここで日付指定する（プリセットとは排他） */}
-        <details style={{ marginBottom: 12 }} open={isCustomPeriod}>
+        {/* プリセット以外の期間はここで日付指定する（プリセットとは排他）。
+            open を state で持ち onToggle で同期する＝再レンダリングで勝手に閉じない */}
+        <details
+          style={{ marginBottom: 12 }}
+          open={periodDetailsOpen}
+          onToggle={(e) => setPeriodDetailsOpen((e.currentTarget as HTMLDetailsElement).open)}
+        >
           <summary style={{
             cursor: 'pointer',
             padding: '8px 12px',
