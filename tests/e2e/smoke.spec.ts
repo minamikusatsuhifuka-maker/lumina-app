@@ -477,7 +477,8 @@ test('B8: ハンドブック比較の3列ラベル', async ({ page, request }) =
   ).toContain('/admin/handbook/');
   // モデル比較ヘッダーのバッジに3モデルのラベルが並ぶ（クライアントfetch完了を待つ）
   await expect(
-    page.getByText('Claude Sonnet 5 vs Opus 4.7 vs Opus 4.8').first(),
+    // 244: Opus枠を現行世代に更新（Opus 4.7 → Opus 5）。4.8は世代差比較のため据え置き
+    page.getByText('Claude Sonnet 5 vs Opus 5 vs Opus 4.8').first(),
   ).toBeVisible({ timeout: 30_000 });
   // セクションを開くと3モデル同時比較の実行ボタンが出る（実行はしない＝課金なし）
   await page.getByRole('button', { name: /🔬 モデル比較/ }).click();
