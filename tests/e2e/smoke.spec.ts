@@ -723,3 +723,64 @@ test('C27: 追従ボタンの個別on/off＋トップへ戻る（243）— 既�
   });
   expect(blockedByFab, '既定（全off・最上部）では右下に追従ボタンが無いこと').toBe(null);
 });
+
+test('C28: ディープリサーチの調査期間（245）— プリセット4パターンが排他で切り替わり、クリアが入力欄の上にある', async ({ page }) => {
+  await page.goto('/dashboard/deepresearch');
+  const preset = (label: string) => page.getByRole('button', { name: label, exact: true });
+  const selected = async (label: string) => (await preset(label).getAttribute('aria-pressed')) === 'true';
+  const dates = () =>
+    page.evaluate(() => [...document.querySelectorAll<HTMLInputElement>('input[type="date"]')].map((i) => i.value));
+
+  // 4つのプリセットが最初から並んでいる（開かないと出ない、ではない）
+  for (const label of ['指定なし', '7日', '30日', '90日']) {
+    await expect(preset(label), `${label} が最初から見えていること`).toBeVisible();
+  }
+
+  // ── 既定は「指定なし」だけが選択状態 ──
+  expect(await selected('指定なし')).toBe(true);
+  for (const label of ['7日', '30日', '90日']) expect(await selected(label), `${label} は未選択`).toBe(false);
+  expect(await dates()).toEqual(['', '']);
+
+  // ── 7日 / 30日 / 90日: 押した1つだけが選択され、日数がその通りになる ──
+  for (const [label, days] of [['7日', 7], ['30日', 30], ['90日', 90]] as const) {
+    await preset(label).click();
+    expect(await selected(label), `${label} が選択される`).toBe(true);
+    for (const other of ['指定なし', '7日', '30日', '90日'].filter((l) => l !== label)) {
+      expect(await selected(other), `${label} 選択中に ${other} が同時選択されない（排他）`).toBe(false);
+    }
+    const [start, end] = await dates();
+    expect(start, `${label} の開始日が入る`).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+    expect(end, `${label} の終了日が入る`).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+    const span = Math.round((Date.parse(end) - Date.parse(start)) / 86400000) + 1; // 今日を含むN日間
+    expect(span, `${label} は${days}日間になる`).toBe(days);
+  }
+
+  // ── カスタム: 折りたたみを開いて日付を手で変えるとプリセットの選択が外れる（排他）──
+  await page.getByText('📅 日付で細かく指定する（任意）').click();
+  await expect(page.locator('input[type="date"]').first()).toBeVisible();
+  await page.locator('input[type="date"]').first().fill('2020-01-01');
+  for (const label of ['指定なし', '7日', '30日', '90日']) {
+    expect(await selected(label), `カスタム指定中は ${label} が選択されない`).toBe(false);
+  }
+  await expect(page.getByText(/✓ カスタム:/)).toBeVisible();
+
+  // ── 「指定なし」に戻すと期間が消える ──
+  await preset('指定なし').click();
+  expect(await selected('指定なし')).toBe(true);
+  expect(await dates()).toEqual(['', '']);
+
+  // ── クリアはリサーチトピック入力欄の「上」にある（左下ではない）──
+  const clear = page.getByRole('button', { name: '✕ クリア' });
+  await expect(clear).toBeVisible();
+  const textarea = page.locator('textarea').first();
+  const [clearBox, taBox] = [await clear.boundingBox(), await textarea.boundingBox()];
+  expect(clearBox!.y, 'クリアが入力欄より上にあること').toBeLessThan(taBox!.y);
+  expect(clearBox!.x, 'クリアが入力欄の右側に寄っていること').toBeGreaterThan(taBox!.x + taBox!.width / 2);
+
+  // 空のときは無効、入力すると押せてトピックが消える（動作は現状維持）
+  await expect(clear).toBeDisabled();
+  await textarea.fill('[E2E] 期間プリセットの確認');
+  await expect(clear).toBeEnabled();
+  await clear.click();
+  await expect(textarea).toHaveValue('');
+});
