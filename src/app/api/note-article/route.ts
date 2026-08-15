@@ -1,4 +1,4 @@
-import { CLAUDE_TEXT_MODEL } from '@/lib/ai-models';
+import { CLAUDE_TEXT_MODEL, DEFAULT_AI_MODEL } from '@/lib/ai-models';
 import { NextRequest } from 'next/server';
 import { auth } from '@/lib/auth';
 import { trackUsage } from '@/lib/trackUsage';
@@ -36,7 +36,7 @@ export async function POST(req: NextRequest) {
     tonePreference = '',
     personalNotes = '',
     length = 'medium',
-    model = 'claude',
+    model = DEFAULT_AI_MODEL,
     selectedPatterns = [],
   } = (await req.json()) as {
     theme: string;

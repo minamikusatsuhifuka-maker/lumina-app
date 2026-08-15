@@ -2,6 +2,13 @@
 // 次回のモデル移行はこのファイルの変更だけで完結させる（API呼び出し・UI表示とも定数参照）。
 // 対象外: 画像生成（lib/image-providers）・speech-to-text。
 
+// ── 既定のAIモデル（244: 院長の運用方針） ──
+// 「基本は Gemini で運用する。Claude はユーザーがボタンで明示的に選択したときのみ使う」。
+// モデル選択のない内部処理も含め、既定は必ずこの定数を参照する（'claude' の直書き禁止）。
+// 235のフォールバック（Claude選択時に上限・障害ならGeminiへ切替＋表示）は維持する。
+// 逆方向（Gemini→Claude）のフォールバックは作らない。
+export const DEFAULT_AI_MODEL = 'gemini' as const;
+
 // ── Claude テキスト生成モデル（195: 全Claude機能で共用・直書き禁止） ──
 // claude-sonnet-5 は日付サフィックスなしの正式ID（192で /v1/models 実確認済み）。
 // Sonnet 5 の注意: 非デフォルトの temperature/top_p/top_k は400で拒否（送らない）。
@@ -10,6 +17,17 @@ export const CLAUDE_TEXT_MODEL = 'claude-sonnet-5';
 
 // UI表示用ラベル（セレクタ・バッジ・画面説明文で共通使用）
 export const CLAUDE_TEXT_MODEL_LABEL = 'Claude Sonnet 5';
+
+// ── Claude Opus（244: ハンドブックのモデル比較・スコアリング専用の上位モデル） ──
+// 主力は上の Sonnet 5。ここは「同じ原稿を上位モデルでも書かせて見比べる」用途に限る。
+// 244で /v1/models を実測して現行世代を確認した（claude-opus-5 は 200・入力1,000,000/出力128,000）。
+// 存在しないIDは同じエンドポイントで 404 になるため、上限中でも実在確認だけは確実にできる。
+// 直書きせずここを参照すること（比較枠を入れ替えるときも編集はこの1箇所）。
+export const CLAUDE_OPUS_MODEL = 'claude-opus-5';
+export const CLAUDE_OPUS_MODEL_LABEL = 'Opus 5';
+/** 1世代前のOpus。比較枠に残して「上位モデルの世代差」も見えるようにする */
+export const CLAUDE_OPUS_PREV_MODEL = 'claude-opus-4-8';
+export const CLAUDE_OPUS_PREV_MODEL_LABEL = 'Opus 4.8';
 
 // 241: 3.6 Flash → 3.7 Flash。ListModels（v1beta）と generateContent の疎通で実在確認済み。
 export const GEMINI_TEXT_MODEL = 'gemini-3.7-flash';

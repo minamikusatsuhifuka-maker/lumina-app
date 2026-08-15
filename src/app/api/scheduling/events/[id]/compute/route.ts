@@ -1,3 +1,4 @@
+import { DEFAULT_AI_MODEL } from '@/lib/ai-models';
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
 import { neon } from '@neondatabase/serverless';
@@ -110,7 +111,7 @@ ${lines}
 JSONのみを返す（前置き・コードフェンス不要）。形式:
 {"summary":"全体の所見(1-2文)","ranked":[{"date":"YYYY-MM-DD","rank":1,"reason":"理由"}],"near_miss":[{"date":"YYYY-MM-DD","reason":"惜しい理由"}]}`;
 
-    const raw = await generateWithModel('claude', prompt, undefined, 2000);
+    const raw = await generateWithModel(DEFAULT_AI_MODEL, prompt, undefined, 2000);
     const parsed = safeJsonParse<{
       summary?: string;
       ranked?: { date?: string; rank?: number; reason?: string }[];

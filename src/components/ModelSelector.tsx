@@ -2,7 +2,7 @@
 import { useState, useEffect } from 'react';
 import { getSavedModel, saveModel } from '@/lib/model-preference';
 import type { AIModel } from '@/lib/model-preference';
-import { CLAUDE_TEXT_MODEL_LABEL, GEMINI_TEXT_MODEL_LABEL } from '@/lib/ai-models';
+import { CLAUDE_TEXT_MODEL_LABEL, GEMINI_TEXT_MODEL_LABEL, DEFAULT_AI_MODEL } from '@/lib/ai-models';
 
 const MODELS = [
   { id: 'claude' as AIModel, name: 'Claude', fullName: CLAUDE_TEXT_MODEL_LABEL, icon: '🤖', color: '#6c63ff' },
@@ -10,7 +10,8 @@ const MODELS = [
 ];
 
 export function ModelSelector() {
-  const [selected, setSelected] = useState<AIModel>('claude');
+  // 244: 初期表示も既定（Gemini）。保存値はマウント後に読む
+  const [selected, setSelected] = useState<AIModel>(DEFAULT_AI_MODEL);
   const [switching, setSwitching] = useState(false);
 
   useEffect(() => { setSelected(getSavedModel()); }, []);

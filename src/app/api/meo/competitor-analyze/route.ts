@@ -1,3 +1,4 @@
+import { DEFAULT_AI_MODEL } from '@/lib/ai-models';
 import { NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
 import { neon } from '@neondatabase/serverless';
@@ -67,7 +68,7 @@ export async function POST(req: Request) {
 - 口コミ本文は競合のものを引用・転載しない（件数・星平均などの公開指標のみ扱う）
 - 出力は Markdown のみ（前置き不要）`;
 
-    const result = await generateWithModel('claude', prompt, system, 4000);
+    const result = await generateWithModel(DEFAULT_AI_MODEL, prompt, system, 4000);
     const adCheck = await checkMedicalAd(result);
 
     const saved = await sql`

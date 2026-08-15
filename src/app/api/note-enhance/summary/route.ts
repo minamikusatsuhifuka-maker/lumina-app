@@ -1,3 +1,4 @@
+import { DEFAULT_AI_MODEL } from '@/lib/ai-models';
 import { NextResponse } from 'next/server';
 import { requireAuth } from '@/lib/require-auth';
 import { generateWithModel } from '@/lib/ai-client';
@@ -42,7 +43,7 @@ ${content.slice(0, 40000)}
 { "points": ["要点1", "要点2", "要点3"] }`;
 
     // Sonnet 5はthinking既定ON＝枠は思考込み。小さすぎる枠は全滅リスクがあるため余裕を持つ（209系の教訓）
-    const raw = await generateWithModel('claude', prompt, system, 4000);
+    const raw = await generateWithModel(DEFAULT_AI_MODEL, prompt, system, 4000);
     const parsed = robustJsonParse<{ points?: unknown }>(raw);
     const points = (Array.isArray(parsed.points) ? parsed.points : [])
       .map((p) => String(p).trim())

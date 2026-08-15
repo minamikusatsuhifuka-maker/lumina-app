@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { requireAuth } from '@/lib/require-auth';
 import { generateWithModel } from '@/lib/ai-client';
-import { GEMINI_TEXT_THINKING_MEDIUM } from '@/lib/ai-models';
+import { GEMINI_TEXT_THINKING_MEDIUM, DEFAULT_AI_MODEL } from '@/lib/ai-models';
 import { checkMedicalAd, MEDICAL_AD_NG_RULES } from '@/lib/medical-ad-check';
 import { getNoteStyle, NOTE_COMMON_RULES } from '@/lib/note-styles';
 import {
@@ -78,7 +78,7 @@ export async function POST(req: Request) {
     const style = getNoteStyle(body.style);
     const length: Length =
       body.length === 'short' || body.length === 'long' ? body.length : 'medium';
-    const aiModel = body.model === 'gemini' ? 'gemini' : 'claude';
+    const aiModel = body.model === 'claude' ? 'claude' : DEFAULT_AI_MODEL;
 
     // 183: 指定されたバズりパターンID（辞書から選択。上限あり・実在IDのみサーバ側で解決）
     const patternIds = (Array.isArray(body.patternIds) ? body.patternIds : [])

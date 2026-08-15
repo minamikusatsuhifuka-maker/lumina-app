@@ -1,3 +1,4 @@
+import { DEFAULT_AI_MODEL } from '@/lib/ai-models';
 import { NextRequest, NextResponse } from 'next/server';
 import { requireAuth } from '@/lib/require-auth';
 import { sql } from '@/lib/db';
@@ -57,7 +58,7 @@ ${buildMyStyleBlock(profile)}
 ${sourceText}`;
 
     // 文体の質感を扱うため主力Claude。差分のみの出力だが思考込みで枠に余裕を持たせる
-    const raw = await generateWithModel('claude', prompt, system, 6000);
+    const raw = await generateWithModel(DEFAULT_AI_MODEL, prompt, system, 6000);
     const start = raw.indexOf('[');
     const end = raw.lastIndexOf(']');
     const slice = start !== -1 && end !== -1 && end > start ? raw.slice(start, end + 1) : '[]';

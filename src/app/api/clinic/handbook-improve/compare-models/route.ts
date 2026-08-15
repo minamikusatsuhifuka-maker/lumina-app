@@ -2,17 +2,19 @@ import { NextResponse } from 'next/server';
 import { createAnthropicClient } from '@/lib/anthropic-compat';
 import { robustJsonParse } from '@/lib/ai-json-parser';
 import { requireAuth } from '@/lib/require-auth';
-import { CLAUDE_TEXT_MODEL } from '@/lib/ai-models';
+import { CLAUDE_TEXT_MODEL, CLAUDE_OPUS_MODEL, CLAUDE_OPUS_PREV_MODEL } from '@/lib/ai-models';
 import { extractAnthropicText } from '@/lib/anthropic-text';
 
 const anthropic = createAnthropicClient();
 
 // 比較対象モデル（key はレスポンス／UIで共通利用）
-// 195: Sonnet枠は中央定数（Sonnet 5）へ。Opus比較枠は院長判断で現状維持
+// 195: Sonnet枠は中央定数（Sonnet 5）へ。
+// 244: Opus枠を現行世代に更新（Opus 4.7 → Opus 5）。4.8は世代差を見るため据え置き。
+// モデルIDは ai-models.ts の一元管理を参照する（直書きしない）。
 const COMPARISON_MODELS = [
   { key: 'sonnet', id: CLAUDE_TEXT_MODEL },
-  { key: 'opus',   id: 'claude-opus-4-7'  },
-  { key: 'opus48', id: 'claude-opus-4-8'  }, // 🆕 Opus 4.8（2026/5/28リリース）
+  { key: 'opus',   id: CLAUDE_OPUS_MODEL },
+  { key: 'opus48', id: CLAUDE_OPUS_PREV_MODEL },
 ] as const;
 
 async function generateWithModel(

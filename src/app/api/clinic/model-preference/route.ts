@@ -1,10 +1,11 @@
+import { DEFAULT_AI_MODEL } from '@/lib/ai-models';
 import { NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
 import { neon } from '@neondatabase/serverless';
 
 export async function GET() {
   const session = await auth();
-  if (!session) return NextResponse.json({ model: 'claude' });
+  if (!session) return NextResponse.json({ model: DEFAULT_AI_MODEL });
 
   try {
     const sql = neon(process.env.DATABASE_URL!);
@@ -13,9 +14,9 @@ export async function GET() {
       WHERE title = 'ai_model_preference'
       LIMIT 1
     `;
-    return NextResponse.json({ model: rows[0]?.content || 'claude' });
+    return NextResponse.json({ model: rows[0]?.content || DEFAULT_AI_MODEL });
   } catch {
-    return NextResponse.json({ model: 'claude' });
+    return NextResponse.json({ model: DEFAULT_AI_MODEL });
   }
 }
 

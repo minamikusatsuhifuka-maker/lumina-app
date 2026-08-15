@@ -8,6 +8,7 @@
 // - 190: ①読者ターゲットのAI提案（/api/hp-blog/suggest-target・候補チップをクリックで差し込み）
 //        ②⛶全画面（FullscreenReader流用） ③画像プロンプト起案の主題反映は /api/eyecatch/prompt 側で是正
 
+import { DEFAULT_AI_MODEL } from '@/lib/ai-models';
 import { useState } from 'react';
 import { copyRichMarkdown } from '@/lib/rich-copy';
 import { triggerDownload } from '@/lib/download';
@@ -37,7 +38,7 @@ export default function HpBlogSection() {
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
   const [article, setArticle] = useState('');
-  const [usedModel, setUsedModel] = useState<'claude' | 'gemini'>('claude');
+  const [usedModel, setUsedModel] = useState<'claude' | 'gemini'>(DEFAULT_AI_MODEL);
   const [copiedMd, setCopiedMd] = useState(false);
   const [expanded, setExpanded] = useState(false);
   // 190②: ⛶全画面（FullscreenReader流用・🧠カードと同作法）

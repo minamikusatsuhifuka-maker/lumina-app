@@ -4,7 +4,7 @@ import { auth } from '@/lib/auth';
 import { trackUsage } from '@/lib/trackUsage';
 import type { AIModel } from '@/lib/ai-client';
 import { GoogleGenerativeAI } from '@google/generative-ai';
-import { CLAUDE_TEXT_MODEL, GEMINI_TEXT_MODEL } from '@/lib/ai-models';
+import { CLAUDE_TEXT_MODEL, GEMINI_TEXT_MODEL, DEFAULT_AI_MODEL } from '@/lib/ai-models';
 import { robustJsonParse } from '@/lib/ai-json-parser';
 
 export const maxDuration = 300;
@@ -40,7 +40,7 @@ export async function POST(req: NextRequest) {
   // 認証必須（未ログインは401。AI利用コストの無断消費を防ぐ）
   if (!session) return new Response('Unauthorized', { status: 401 });
   const userId = session ? (session.user as any).id : '';
-  const { report, topic, model = 'claude' } = (await req.json()) as {
+  const { report, topic, model = DEFAULT_AI_MODEL } = (await req.json()) as {
     report: string;
     topic: string;
     model?: AIModel;

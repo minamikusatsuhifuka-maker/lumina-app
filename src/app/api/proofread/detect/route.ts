@@ -1,3 +1,4 @@
+import { DEFAULT_AI_MODEL } from '@/lib/ai-models';
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
 import { generateWithModel, type AIModel } from '@/lib/ai-client';
@@ -38,7 +39,7 @@ export async function POST(req: NextRequest) {
     if (!text.trim()) {
       return NextResponse.json({ error: '本文が空です' }, { status: 400 });
     }
-    const model: AIModel = body.model === 'gemini' ? 'gemini' : 'claude';
+    const model: AIModel = body.model === 'claude' ? 'claude' : DEFAULT_AI_MODEL;
 
     // 行番号付与（後段のローカル行指定置換に対応させるため）
     const numbered = text

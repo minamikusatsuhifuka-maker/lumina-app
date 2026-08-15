@@ -1,3 +1,4 @@
+import { DEFAULT_AI_MODEL } from '@/lib/ai-models';
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
 import { neon } from '@neondatabase/serverless';
@@ -13,7 +14,7 @@ export async function POST(req: NextRequest) {
   try {
     let text = '';
     let position = '';
-    let aiModel: 'claude' | 'gemini' = 'claude';
+    let aiModel: 'claude' | 'gemini' = DEFAULT_AI_MODEL;
     const contentType = req.headers.get('content-type') || '';
 
     if (contentType.includes('application/json')) {

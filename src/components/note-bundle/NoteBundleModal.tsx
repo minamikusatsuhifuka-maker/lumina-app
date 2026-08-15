@@ -10,6 +10,7 @@
 //   進行中も中断・✕個別=キューから除外。中止済みは🔄再試行可・生成済みは残す）／🗑削除（confirm簡易確認）／
 //   「🔁別文体で再生成」の重複ガード（同一タイトル×同一文体を弾く）＋キュー上限20件
 
+import { DEFAULT_AI_MODEL } from '@/lib/ai-models';
 import { useEffect, useRef, useState, type CSSProperties } from 'react';
 import { createPortal } from 'react-dom';
 import FullscreenReader from '@/components/text-analysis/FullscreenReader';
@@ -140,11 +141,11 @@ export default function NoteBundleModal({
   const abortRef = useRef<AbortController | null>(null);
   // モーダルを閉じたら以降の逐次生成を止める
   const cancelledRef = useRef(false);
-  const [model, setModel] = useState<'claude' | 'gemini'>('claude');
+  const [model, setModel] = useState<'claude' | 'gemini'>(DEFAULT_AI_MODEL);
   // 生成リクエストで使う長さ設定（stateはUI用、refはキュー実行中の参照用）
   const lengthRef = useRef<Length>('medium');
   lengthRef.current = length;
-  const modelRef = useRef<'claude' | 'gemini'>('claude');
+  const modelRef = useRef<'claude' | 'gemini'>(DEFAULT_AI_MODEL);
   modelRef.current = model;
 
   // 開くたびに状態をリセットしてプラン提案を取得

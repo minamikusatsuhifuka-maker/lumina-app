@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
 import { generateWithModel } from '@/lib/ai-client';
-import { GEMINI_TEXT_THINKING_MEDIUM } from '@/lib/ai-models';
+import { GEMINI_TEXT_THINKING_MEDIUM, DEFAULT_AI_MODEL } from '@/lib/ai-models';
 import { checkMedicalAd } from '@/lib/medical-ad-check';
 import { getClinicSystemPrompt } from '@/lib/clinicProfile';
 import { fetchSearchConsoleData, GSC_SITE_URL } from '@/lib/gsc-client';
@@ -49,7 +49,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'keyword が必要です' }, { status: 400 });
     }
     const typeGuide = TYPE_GUIDE[type] || TYPE_GUIDE.symptom;
-    const aiModel = model === 'gemini' ? 'gemini' : 'claude';
+    const aiModel = model === 'claude' ? 'claude' : DEFAULT_AI_MODEL;
 
     const [clinicContext, related] = await Promise.all([
       getClinicSystemPrompt('seo-article', owner),

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
 import { sql } from '@/lib/db';
-import { CLAUDE_TEXT_MODEL } from '@/lib/ai-models';
+import { CLAUDE_TEXT_MODEL, CLAUDE_OPUS_MODEL } from '@/lib/ai-models';
 
 export const runtime = 'nodejs';
 export const maxDuration = 30;
@@ -11,6 +11,8 @@ export const maxDuration = 30;
 // 旧sonnet-4-6のログはフォールバック（CLAUDE_TEXT_MODEL）でも同単価$3/$15のため専用エントリ不要
 const PRICES: Record<string, { input: number; output: number }> = {
   [CLAUDE_TEXT_MODEL]: { input: 3, output: 15 },
+  // 244: 現行Opus（Opus 5）を追加。単価はOpus 4.8と同じ$5/$25。旧IDは過去ログ用に残す
+  [CLAUDE_OPUS_MODEL]: { input: 5, output: 25 },
   'claude-opus-4-6': { input: 5, output: 25 },
   'claude-opus-4-7': { input: 5, output: 25 },
   'claude-opus-4-8': { input: 5, output: 25 },

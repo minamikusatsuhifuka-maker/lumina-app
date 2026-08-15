@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import { requireAuth } from '@/lib/require-auth';
 import { neon } from '@neondatabase/serverless';
 import { generateWithModelInfo } from '@/lib/ai-client';
-import { GEMINI_TEXT_THINKING_MEDIUM } from '@/lib/ai-models';
+import { GEMINI_TEXT_THINKING_MEDIUM, DEFAULT_AI_MODEL } from '@/lib/ai-models';
 import { checkMedicalAd, MEDICAL_AD_NG_RULES } from '@/lib/medical-ad-check';
 import { getNoteStyle, NOTE_COMMON_RULES } from '@/lib/note-styles';
 import { NOTE_WRITING_DESIGN } from '@/lib/note-writing';
@@ -81,7 +81,7 @@ export async function POST(req: Request) {
 
     const style = getNoteStyle(body.style);
     const length: Length = body.length === 'short' || body.length === 'long' ? body.length : 'medium';
-    const aiModel = body.model === 'gemini' ? 'gemini' : 'claude';
+    const aiModel = body.model === 'claude' ? 'claude' : DEFAULT_AI_MODEL;
     const config = LENGTH_CONFIG[length];
     const myStyleBlock = await getMyStylePrompt(userId);
 

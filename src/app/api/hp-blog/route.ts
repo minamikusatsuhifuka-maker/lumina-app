@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireAuth } from '@/lib/require-auth';
 import { generateWithModel } from '@/lib/ai-client';
-import { GEMINI_TEXT_THINKING_MEDIUM } from '@/lib/ai-models';
+import { GEMINI_TEXT_THINKING_MEDIUM, DEFAULT_AI_MODEL } from '@/lib/ai-models';
 import { HP_WRITING_DESIGN, HP_AD_PROHIBITED } from '@/lib/hp-writing';
 
 export const runtime = 'nodejs';
@@ -34,7 +34,7 @@ export async function POST(req: NextRequest) {
     const contextInfo = typeof body.contextInfo === 'string' ? body.contextInfo : '';
     const length: Length =
       body.length === 'short' || body.length === 'long' ? body.length : 'medium';
-    const aiModel = body.model === 'gemini' ? 'gemini' : 'claude';
+    const aiModel = body.model === 'claude' ? 'claude' : DEFAULT_AI_MODEL;
     const config = LENGTH_CONFIG[length];
 
     const system = `あなたは医療クリニックのホームページに掲載するブログ記事を執筆するプロのライターです。患者さんが読む公開情報として、正確・誠実で読みやすい記事を書きます。

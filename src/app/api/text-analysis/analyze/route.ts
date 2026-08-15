@@ -1,3 +1,4 @@
+import { DEFAULT_AI_MODEL } from '@/lib/ai-models';
 import { NextRequest } from 'next/server';
 import { auth } from '@/lib/auth';
 import {
@@ -42,7 +43,7 @@ export async function POST(req: NextRequest) {
     type,
     purpose,
     targetLength,
-    model = 'claude',
+    model = DEFAULT_AI_MODEL,
     gsTarget,
     gsLevel,
     gsPurpose,

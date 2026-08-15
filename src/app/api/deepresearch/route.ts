@@ -1,4 +1,4 @@
-import { CLAUDE_TEXT_MODEL } from '@/lib/ai-models';
+import { CLAUDE_TEXT_MODEL, DEFAULT_AI_MODEL } from '@/lib/ai-models';
 import { NextRequest } from 'next/server';
 import { auth } from '@/lib/auth';
 import { getClinicSystemPrompt } from '@/lib/clinicProfile';
@@ -14,7 +14,7 @@ export async function POST(req: NextRequest) {
   // 認証必須（未ログインは401。AI利用コストの無断消費を防ぐ）
   if (!session) return new Response('Unauthorized', { status: 401 });
   const userId = session ? (session.user as any).id : '';
-  const { topic, depth, periodStart, periodEnd, model = 'claude' } = (await req.json()) as {
+  const { topic, depth, periodStart, periodEnd, model = DEFAULT_AI_MODEL } = (await req.json()) as {
     topic: string;
     depth?: string;
     periodStart?: string;

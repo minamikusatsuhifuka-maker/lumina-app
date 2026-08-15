@@ -1,3 +1,4 @@
+import { DEFAULT_AI_MODEL } from '@/lib/ai-models';
 import { NextResponse } from 'next/server';
 import { requireAuth } from '@/lib/require-auth';
 import { sql } from '@/lib/db';
@@ -55,7 +56,7 @@ ${sourcesSection}
 { "summary": "文体の総評1〜2文", "sentence": "文の長さ・リズム", "paragraph": "段落の特徴", "address": "読者への語りかけ方", "tone": "口調", "phrases": ["言い回し1"], "avoid": ["避ける表現1"], "rhythm": "改行・箇条書き・強調の使い方" }`;
 
     // 文章の質感を読むタスクのため主力Claude。枠は思考込みで余裕を（195/209系の教訓）
-    const raw = await generateWithModel('claude', prompt, system, 6000);
+    const raw = await generateWithModel(DEFAULT_AI_MODEL, prompt, system, 6000);
     const profile = normalizeMyStyleProfile(robustJsonParse(raw));
     if (!profile) {
       return NextResponse.json({ error: '文体の抽出に失敗しました（もう一度お試しください）' }, { status: 502 });

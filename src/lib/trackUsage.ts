@@ -1,13 +1,16 @@
 // API使用量を api_usage_logs に記録する共通ヘルパー
 // 各機能のAPIルートから呼び出すことでコスト集計を一元化する
 import { sql } from '@/lib/db';
-import { CLAUDE_TEXT_MODEL } from '@/lib/ai-models';
+import { CLAUDE_TEXT_MODEL, CLAUDE_OPUS_MODEL } from '@/lib/ai-models';
 
 // 価格表（USD per 1M tokens、1USD=150JPY換算）
 // 195: Sonnet 5=$3/$15（通常価格・院長判断で導入価格は載せない）、Opus実勢=$5/$25（誤値$15/$75を修正）。
 // 旧sonnet-4-6のログはフォールバック（CLAUDE_TEXT_MODEL）でも同単価$3/$15のため専用エントリ不要
 const PRICES: Record<string, { input: number; output: number }> = {
   [CLAUDE_TEXT_MODEL]: { input: 3, output: 15 },
+  // 244: 現行Opus（Opus 5）を追加。単価はOpus 4.8と同じ$5/$25。
+  // 旧IDは過去ログの単価解決に必要なので残す（消すと過去分が0円で集計される）
+  [CLAUDE_OPUS_MODEL]: { input: 5, output: 25 },
   'claude-opus-4-6': { input: 5, output: 25 },
   'claude-opus-4-7': { input: 5, output: 25 },
   'claude-opus-4-8': { input: 5, output: 25 },

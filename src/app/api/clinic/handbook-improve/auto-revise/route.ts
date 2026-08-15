@@ -1,3 +1,4 @@
+import { CLAUDE_OPUS_MODEL } from '@/lib/ai-models';
 import { NextResponse } from 'next/server';
 import { createAnthropicClient } from '@/lib/anthropic-compat';
 import { requireAuth } from '@/lib/require-auth';
@@ -19,7 +20,7 @@ export async function POST(req: Request) {
   }
 
   // デフォルトは最高品質の Opus 4.8
-  const useModel = typeof model === 'string' && model ? model : 'claude-opus-4-8';
+  const useModel = typeof model === 'string' && model ? model : CLAUDE_OPUS_MODEL;
   const improvementList: string[] = Array.isArray(improvements) ? improvements : [];
 
   const prompt = `あなたはクリニックのハンドブック編集者です。

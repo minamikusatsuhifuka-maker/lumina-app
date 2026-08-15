@@ -1,7 +1,7 @@
 'use client';
 import { useState, useEffect, use } from 'react';
 import { getSavedModel } from '@/lib/model-preference';
-import { CLAUDE_TEXT_MODEL, CLAUDE_TEXT_MODEL_LABEL } from '@/lib/ai-models';
+import { CLAUDE_TEXT_MODEL, CLAUDE_TEXT_MODEL_LABEL, CLAUDE_OPUS_MODEL, CLAUDE_OPUS_MODEL_LABEL, CLAUDE_OPUS_PREV_MODEL, CLAUDE_OPUS_PREV_MODEL_LABEL } from '@/lib/ai-models';
 import { ModelBadge } from '@/components/ModelBadge';
 import { AITextReviser } from '@/components/clinic/AITextReviser';
 import { copyToClipboard } from '@/lib/copyToClipboard';
@@ -14,8 +14,8 @@ const QUICK_INSTRUCTIONS = ['わかりやすく', '理念に沿って', '箇条�
 // 195: Sonnet枠は中央定数（Sonnet 5）へ。Opus比較枠は院長判断で現状維持
 const COMPARISON_MODELS = [
   { key: 'sonnet', id: CLAUDE_TEXT_MODEL, label: CLAUDE_TEXT_MODEL_LABEL, icon: '⚡', color: '#1d9e75' },
-  { key: 'opus',   id: 'claude-opus-4-7',  label: 'Opus 4.7',  icon: '🏆', color: '#7c3aed' },
-  { key: 'opus48', id: 'claude-opus-4-8',  label: 'Opus 4.8',  icon: '✨', color: '#db2777' }, // 🆕
+  { key: 'opus',   id: CLAUDE_OPUS_MODEL, label: CLAUDE_OPUS_MODEL_LABEL, icon: '🏆', color: '#7c3aed' },
+  { key: 'opus48', id: CLAUDE_OPUS_PREV_MODEL, label: CLAUDE_OPUS_PREV_MODEL_LABEL, icon: '✨', color: '#db2777' },
 ] as const;
 
 function renderMarkdown(text: string): string {
@@ -126,8 +126,8 @@ export default function HandbookEditorPage({ params }: { params: Promise<{ id: s
   const [reviseCopied, setReviseCopied] = useState(false);
   const [autoReviseOnScore, setAutoReviseOnScore] = useState(false);
   // Part D: 採点モデル・修正モデルを個別に選択可能に（デフォルト Opus 4.8）
-  const [scoreModel, setScoreModel] = useState('claude-opus-4-8');
-  const [reviseModel, setReviseModel] = useState('claude-opus-4-8');
+  const [scoreModel, setScoreModel] = useState(CLAUDE_OPUS_MODEL);
+  const [reviseModel, setReviseModel] = useState(CLAUDE_OPUS_MODEL);
   const reviseModelLabel = COMPARISON_MODELS.find(m => m.id === reviseModel)?.label ?? 'Opus 4.8';
   const [evaluationSaved, setEvaluationSaved] = useState(false);
   const [isEvaluating, setIsEvaluating] = useState(false);

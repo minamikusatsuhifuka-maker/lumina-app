@@ -1,4 +1,4 @@
-import { CLAUDE_TEXT_MODEL } from '@/lib/ai-models';
+import { CLAUDE_TEXT_MODEL, DEFAULT_AI_MODEL } from '@/lib/ai-models';
 import { NextRequest } from 'next/server';
 import { createAnthropicClient } from '@/lib/anthropic-compat';
 import { auth } from '@/lib/auth';
@@ -211,7 +211,7 @@ export async function POST(req: NextRequest) {
     field,
     depth = 'standard',
     mediaType = 'note',
-    model = 'claude',
+    model = DEFAULT_AI_MODEL,
   } = (await req.json()) as {
     mode?: Mode;
     url?: string;

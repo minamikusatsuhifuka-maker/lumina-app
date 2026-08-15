@@ -1,3 +1,4 @@
+import { DEFAULT_AI_MODEL } from '@/lib/ai-models';
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
 import { generateWithModel, type AIModel } from '@/lib/ai-client';
@@ -33,7 +34,7 @@ export async function POST(req: NextRequest) {
       analysisContent,
       mediaType = 'note',
       sourceAnalysisId,
-      model = 'claude',
+      model = DEFAULT_AI_MODEL,
     } = body;
 
     if (
