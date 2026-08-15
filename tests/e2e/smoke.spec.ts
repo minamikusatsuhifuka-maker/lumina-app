@@ -630,3 +630,96 @@ test('C26: 文字サイズ切替（240）— 4段階が並び、選ぶと全体�
   await group.getByRole('button').nth(0).click();
   await expect(page.evaluate(() => document.documentElement.style.zoom || '')).resolves.toBe('');
 });
+
+test('C27: 追従ボタンの個別on/off＋トップへ戻る（243）— 既定は全off・onにすると重ならず縦に並ぶ', async ({ page }) => {
+  const FAB = { glossary: '📖', memo: '📝', assistant: '💬' };
+  // 右下の追従ボタンだけを拾う（fixed かつ 48px の円）
+  const fabRects = () =>
+    page.evaluate(() =>
+      [...document.querySelectorAll('button')]
+        .filter((b) => {
+          const s = getComputedStyle(b);
+          return s.position === 'fixed' && b.getBoundingClientRect().width === 48 && b.getBoundingClientRect().height === 48;
+        })
+        .map((b) => ({ text: (b.textContent || '').trim(), bottom: Math.round(window.innerHeight - b.getBoundingClientRect().bottom) }))
+        .sort((a, b) => a.bottom - b.bottom),
+    );
+
+  // ── ①全off（既定）: 3つとも出ない ──
+  await page.goto('/dashboard');
+  for (const icon of Object.values(FAB)) {
+    expect((await fabRects()).some((r) => r.text === icon), `既定では ${icon} が出ないこと`).toBe(false);
+  }
+
+  // 設定はThemeProviderがマウント後にlocalStorageから読むため、描画が追いつくまで待つ
+  const fabsOf = async () => (await fabRects()).filter((r) => Object.values(FAB).includes(r.text));
+  const waitFabs = async (count: number) => {
+    await expect.poll(async () => (await fabsOf()).length, { timeout: 10000 }).toBe(count);
+    return await fabsOf();
+  };
+
+  // ── ②個別on: 📖だけ表示し、最下段に来る（offの分が空席にならない）──
+  await page.evaluate(() => localStorage.setItem('lumina_floating_buttons', JSON.stringify({ assistant: false, memo: false, glossary: true })));
+  await page.reload({ waitUntil: 'domcontentloaded' });
+  const only = await waitFabs(1);
+  expect(only.map((r) => r.text)).toEqual([FAB.glossary]);
+  expect(only[0].bottom, '単独onなら最下段（24px）に来ること').toBeLessThan(40);
+
+  // ── ③全on: 3つが縦に並び、互いに重ならない ──
+  await page.evaluate(() => localStorage.setItem('lumina_floating_buttons', JSON.stringify({ assistant: true, memo: true, glossary: true })));
+  await page.reload({ waitUntil: 'domcontentloaded' });
+  const all = await waitFabs(3);
+  expect(all.map((r) => r.text), '下から 💬→📝→📖 の順に並ぶこと').toEqual([FAB.assistant, FAB.memo, FAB.glossary]);
+  for (let i = 1; i < all.length; i++) {
+    expect(all[i].bottom - all[i - 1].bottom, '隣り合うボタンが重ならない（48pxより広い間隔）').toBeGreaterThanOrEqual(48);
+  }
+
+  // ── ④スクロール量: 最上部では ↑ が出ず、300px超で出る ──
+  expect((await fabRects()).some((r) => r.text === '↑'), '最上部では出ないこと').toBe(false);
+  // 画面の中身が短いとスクロール自体が起きないため、検証用の余白を足してから動かす
+  const scrolled = await page.evaluate(() => {
+    const m = document.querySelector('main');
+    const spacer = document.createElement('div');
+    spacer.id = 'e2e-spacer';
+    spacer.style.height = '3000px';
+    (m ?? document.body).appendChild(spacer);
+    if (m) m.scrollTop = 800;
+    window.scrollTo(0, 800);
+    return Math.max(window.scrollY, m?.scrollTop ?? 0);
+  });
+  expect(scrolled, '検証の前提としてスクロールが発生していること').toBeGreaterThan(300);
+  await expect.poll(async () => (await fabRects()).some((r) => r.text === '↑'), { timeout: 5000 }).toBe(true);
+
+  // ↑ は表示中の浮遊ボタンより上（一番上の段）に置かれる
+  const withTop = await fabRects();
+  const topBtn = withTop.find((r) => r.text === '↑')!;
+  expect(topBtn.bottom, '↑ が3つの浮遊ボタンより上にあること').toBeGreaterThan(Math.max(...all.map((r) => r.bottom)));
+
+  // 押すと最上部へ戻る
+  await page.getByRole('button', { name: 'ページの先頭へ戻る' }).click();
+  await expect
+    .poll(async () => page.evaluate(() => Math.max(window.scrollY, document.querySelector('main')?.scrollTop ?? 0)), { timeout: 5000 })
+    .toBeLessThan(300);
+
+  // 後片付け（既定=全offに戻す／検証用の余白も消す）
+  await page.evaluate(() => {
+    localStorage.removeItem('lumina_floating_buttons');
+    document.getElementById('e2e-spacer')?.remove();
+  });
+
+  // ── ⑤遮蔽の解消: ボタンが密集するKindleウィザードで、右下に追従ボタンが被らない ──
+  // 243の発端は「浮遊要素が本文や操作ボタンに重なる」ことなので、既定offで
+  // 右下の座標を実際に叩いて、そこにあるのが追従ボタンでないことを機械判定する。
+  await page.goto('/dashboard/kindle-wizard');
+  await expect(page.getByRole('heading', { name: '📕 Kindle本づくり' })).toBeVisible();
+  const blockedByFab = await page.evaluate(() => {
+    const el = document.elementFromPoint(window.innerWidth - 40, window.innerHeight - 48);
+    for (let n = el as HTMLElement | null; n; n = n.parentElement) {
+      const s = getComputedStyle(n);
+      const r = n.getBoundingClientRect();
+      if (s.position === 'fixed' && Math.round(r.width) === 48 && Math.round(r.height) === 48) return (n.textContent || '').trim();
+    }
+    return null;
+  });
+  expect(blockedByFab, '既定（全off・最上部）では右下に追従ボタンが無いこと').toBe(null);
+});
