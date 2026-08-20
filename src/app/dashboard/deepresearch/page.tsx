@@ -30,6 +30,8 @@ import {
 } from '@/lib/feature-drafts';
 import FeatureDraftBanner from '@/components/FeatureDraftBanner';
 import { TextRefinePanel } from '@/components/refine/TextRefinePanel';
+import { useRunKeyHints, useRunShortcut } from '@/lib/shortcuts';
+import { isAutoStockSaveEnabled } from '@/lib/auto-stock-save';
 
 // 自動下書き（feature_result_drafts feature_key='deepresearch'）のpayload
 // 対話的（単発）実行の結果＋生成後コンテキストを守る（バッチはcontext_savesにDB保存済みで対象外）
@@ -843,6 +845,10 @@ export default function DeepResearchPage() {
   const [restoredAt, setRestoredAt] = useState<string | null>(null);
   // 追加修正（169）: 「✏️ AIで修正」モーダルの開閉
   const [showRefine, setShowRefine] = useState(false);
+  // 247: 自動ストック保存の合図。リサーチ完走時にだけ +1 して SaveToLibraryButton に保存させる。
+  // 「report が変わったら保存」ではなくこの合図方式にするのは、report がストリーミングで
+  // 何度も変わることと、自動下書きからの復元でも変わる（＝復元のたびに重複保存になる）ため
+  const [autoStockSignal, setAutoStockSignal] = useState(0);
 
   // 復元取得が返ってきた時点で既に実行中/結果表示中なら復元しない（?q=自動実行など）
   const draftGuardRef = useRef(false);
@@ -1416,6 +1422,9 @@ ${contextText}
           reportModel: modelAtRequest,
           contextText: '',
         } satisfies DeepresearchDraftPayload);
+        // 247: 生成完了時に自動ストック保存（既定ON／🎛表示設定でOFFにできる）。
+        // 失敗しても結果は画面に残り、ボタンが ⚠️ になって手動で再試行できる（R-39）
+        if (isAutoStockSaveEnabled()) setAutoStockSignal((n) => n + 1);
       }
     } catch (error: any) {
       setReport(`通信エラー: ${error.message}`);
@@ -1548,6 +1557,43 @@ ${contextText}
     }
   };
 
+  // ── 247: 「✕ クリア」の Undo（テキスト分析と同じ方式）─────────────
+  // クリアは破壊的だが確認を挟むと「キーで速く消す」目的が消えるので、10秒だけ戻せるようにする
+  const [clearedTopic, setClearedTopic] = useState<string | null>(null);
+  const undoTimerRef = useRef<number | null>(null);
+  const stopUndoTimer = () => {
+    if (undoTimerRef.current !== null) {
+      window.clearTimeout(undoTimerRef.current);
+      undoTimerRef.current = null;
+    }
+  };
+  const handleClearTopic = () => {
+    if (!topic.trim()) return;
+    setClearedTopic(topic);
+    setTopic('');
+    stopUndoTimer();
+    undoTimerRef.current = window.setTimeout(() => setClearedTopic(null), 10000);
+  };
+  const handleUndoClearTopic = () => {
+    if (clearedTopic === null) return;
+    setTopic(clearedTopic);
+    setClearedTopic(null);
+    stopUndoTimer();
+  };
+  useEffect(() => stopUndoTimer, []);
+
+  // 247: ⌘/Ctrl+Enter=リサーチ開始 / ⌘/Ctrl+Shift+Backspace=トピックのクリア。
+  // 通常リサーチタブ以外・各モーダル表示中は発火させない
+  useRunShortcut({
+    active:
+      tab === 'single' && !showRefine && !showContextModal && !showDeepDive && !showSourcePicker,
+    canRun: !loading && !!topic.trim(),
+    onRun: () => void research(),
+    canClear: !loading && !!topic.trim(),
+    onClear: handleClearTopic,
+  });
+  const keyHints = useRunKeyHints();
+
   return (
     <div>
       <ProgressBar loading={progressLoading} progress={progress} label="🔭 ディープリサーチ実行中..." />
@@ -1636,15 +1682,28 @@ ${contextText}
           {/* 245: 「✕ クリア」は左下から入力欄のラベル行の右端へ移設（操作対象のすぐ上に置く） */}
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
             <div style={{ fontSize: 11, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>リサーチトピック</div>
-            <button
-              type="button"
-              onClick={() => setTopic('')}
-              disabled={loading || !topic.trim()}
-              title="リサーチトピックをクリア"
-              style={{ padding: '2px 8px', fontSize: 11, color: topic.trim() && !loading ? 'var(--text-secondary)' : 'var(--text-muted)', background: 'transparent', border: '1px solid var(--border)', borderRadius: 5, opacity: topic.trim() && !loading ? 1 : 0.5, cursor: topic.trim() && !loading ? 'pointer' : 'not-allowed', lineHeight: 1.6 }}
-            >
-              ✕ クリア
-            </button>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              {/* 247: クリア直後だけ出る Undo（10秒）。確認ダイアログの代わり */}
+              {clearedTopic !== null && (
+                <button
+                  type="button"
+                  onClick={handleUndoClearTopic}
+                  title="クリアしたトピックを元に戻します（10秒間）"
+                  style={{ padding: '2px 8px', fontSize: 11, fontWeight: 700, color: '#fff', background: '#B45309', border: '1px solid transparent', borderRadius: 5, cursor: 'pointer', lineHeight: 1.6 }}
+                >
+                  ↩ 元に戻す
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={handleClearTopic}
+                disabled={loading || !topic.trim()}
+                title={keyHints ? `リサーチトピックをクリア（${keyHints.clear}）／直後に「↩ 元に戻す」で戻せます` : 'リサーチトピックをクリア（直後に「↩ 元に戻す」で戻せます）'}
+                style={{ padding: '2px 8px', fontSize: 11, color: topic.trim() && !loading ? 'var(--text-secondary)' : 'var(--text-muted)', background: 'transparent', border: '1px solid var(--border)', borderRadius: 5, opacity: topic.trim() && !loading ? 1 : 0.5, cursor: topic.trim() && !loading ? 'pointer' : 'not-allowed', lineHeight: 1.6 }}
+              >
+                ✕ クリア{keyHints ? ` ${keyHints.clear}` : ''}
+              </button>
+            </div>
           </div>
           <div style={{ position: 'relative' }}>
             <textarea
@@ -1794,11 +1853,13 @@ ${contextText}
         {/* 245: クリアは入力欄のラベル行へ移したので、この行は実行ボタンだけを右寄せする */}
         <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: 8 }}>
           <button
+            data-kb-run
             onClick={() => research()}
             disabled={loading}
+            title={keyHints ? `ディープリサーチを開始（${keyHints.run}）` : 'ディープリサーチを開始'}
             style={{ padding: '10px 28px', background: 'linear-gradient(135deg, #6c63ff, #8b5cf6)', color: '#fff', border: 'none', borderRadius: 8, fontWeight: 700, fontSize: 14, cursor: loading ? 'not-allowed' : 'pointer', opacity: loading ? 0.7 : 1 }}
           >
-            {loading ? `🔍 調査中... ${elapsed}秒` : '🔭 ディープリサーチ開始'}
+            {loading ? `🔍 調査中... ${elapsed}秒` : `🔭 ディープリサーチ開始${keyHints ? ` ${keyHints.run}` : ''}`}
           </button>
         </div>
       </div>
@@ -1842,6 +1903,7 @@ ${contextText}
                 type="deepresearch"
                 groupName="ディープリサーチ"
                 tags="ディープリサーチ"
+                autoSaveSignal={autoStockSignal}
               />
             </div>
             <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>

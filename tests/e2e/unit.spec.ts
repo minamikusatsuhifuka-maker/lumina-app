@@ -5,6 +5,12 @@ import { buildDiffRows, describeDiffStats } from '../../src/lib/text-diff';
 import { sanitizeForDb } from '../../src/lib/sanitize';
 import { cleanChapterBody } from '../../src/lib/kindle-text';
 import { KINDLE_TASTES, KINDLE_TASTE_KEYS, KINDLE_TASTE_GUARD, KINDLE_SCORE_AXES } from '../../src/lib/kindle-taste';
+import {
+  AUTO_STOCK_KEY,
+  isAutoStockSaveEnabled,
+  setAutoStockSaveEnabled,
+} from '../../src/lib/auto-stock-save';
+import { SHORTCUT_SECTIONS, RUN_KEY_LABELS } from '../../src/lib/shortcuts';
 
 // ============================================================================
 // 純関数の単体テスト（234【1】要件4）— ネットワーク・AI課金・認証を一切使わない
@@ -228,4 +234,51 @@ test('U12: 章本文の掃除 — 通常の本文は1文字も変えない（誤
   expect(cleaned).toContain('2026年の調査では約60%が継続していました。');
   expect(cleaned).toContain('### 使い分けの目安');
   expect(cleaned.trim()).toBe(body.trim());
+});
+
+// ============================================================================
+// 247: ショートカット／自動ストック保存 の純粋部分
+// ============================================================================
+
+test('U14: 自動ストック保存の設定（247）— 既定ON・"0"のときだけOFF・往復できる', () => {
+  const store = new Map<string, string>();
+  const original = (globalThis as any).localStorage;
+  (globalThis as any).localStorage = {
+    getItem: (k: string) => (store.has(k) ? store.get(k)! : null),
+    setItem: (k: string, v: string) => void store.set(k, v),
+    removeItem: (k: string) => void store.delete(k),
+  };
+  // window.dispatchEvent が無い環境でも設定変更が落ちないこと（設定関数がイベントを飛ばすため）
+  const originalWindow = (globalThis as any).window;
+  (globalThis as any).window = { dispatchEvent: () => true };
+  try {
+    // 未設定＝既定ON（「保存されていない＝OFF」にしない）
+    expect(isAutoStockSaveEnabled()).toBe(true);
+    // OFFにすると '0' が入り、判定もOFFになる
+    setAutoStockSaveEnabled(false);
+    expect(store.get(AUTO_STOCK_KEY)).toBe('0');
+    expect(isAutoStockSaveEnabled()).toBe(false);
+    // ONに戻せる
+    setAutoStockSaveEnabled(true);
+    expect(isAutoStockSaveEnabled()).toBe(true);
+    // 壊れた値は既定（ON）に倒す＝'0' 以外はすべてON
+    store.set(AUTO_STOCK_KEY, 'yes');
+    expect(isAutoStockSaveEnabled()).toBe(true);
+  } finally {
+    (globalThis as any).localStorage = original;
+    (globalThis as any).window = originalWindow;
+  }
+});
+
+test('U15: 実行・クリアのキーが一覧（小窓＝使い方ガイドの共通ソース）に登録されている（247）', () => {
+  const runSection = SHORTCUT_SECTIONS.find((s) => s.scope === 'run');
+  expect(runSection, '生成・実行画面のセクションが登録されていること').toBeTruthy();
+  const descs = runSection!.items.map((i) => i.desc).join(' / ');
+  expect(descs).toContain('実行する');
+  expect(descs).toContain('クリア');
+  // 実行は ⌘+Enter、クリアは ⌘+⇧+⌫（キーの並びまで一覧に出す＝押し方が分かる）
+  expect(runSection!.items.map((i) => i.keys.join('+'))).toEqual(['⌘+Enter', '⌘+⇧+⌫']);
+  // ボタン併記の表記が Mac / Windows の両方用意されている（片方だけ嘘の案内にしない）
+  expect(RUN_KEY_LABELS.mac).toEqual({ run: '⌘↵', clear: '⌘⇧⌫' });
+  expect(RUN_KEY_LABELS.win).toEqual({ run: 'Ctrl+↵', clear: 'Ctrl+Shift+⌫' });
 });

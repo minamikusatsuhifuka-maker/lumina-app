@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   AnalysisType,
   ANALYSIS_OPTIONS,
@@ -35,6 +35,8 @@ import {
 import FeatureDraftBanner from '@/components/FeatureDraftBanner';
 import { TextRefinePanel } from '@/components/refine/TextRefinePanel';
 import FullscreenReader from '@/components/text-analysis/FullscreenReader';
+import { useRunKeyHints, useRunShortcut } from '@/lib/shortcuts';
+import { isAutoStockSaveEnabled } from '@/lib/auto-stock-save';
 
 // 215: 「全」は高さプリセットではなく FullscreenReader（保存一覧と同じ全画面ビューア）を
 // 開くボタンに変更。panelHeight は触らないため、閉じた後は押下前の S/M/L に自動復帰する
@@ -43,6 +45,9 @@ const HEIGHT_PRESETS = [
   { label: 'M', h: 550 },
   { label: 'L', h: 800 },
 ];
+
+// 247: 結果カードの保存状態。親（TextAnalysisPanel）が type ごとに持つ
+type SaveStatus = 'idle' | 'saving' | 'saved' | 'error';
 
 interface ResultPanelProps {
   type: AnalysisType;
@@ -54,8 +59,10 @@ interface ResultPanelProps {
   isStreaming?: boolean;
   simplifying: boolean;
   generatingTitle: boolean;
-  // 保存成功時は true、失敗時は false を返す（state 制御のため）
-  onSave: () => Promise<boolean> | boolean | void;
+  // 247: 保存状態は親が持つ（自動保存＝生成完了時に親が走らせるため、カード内に閉じられない）。
+  // 本文が変わったら親が 'idle' に戻す＝修正後はまた保存できる
+  saveStatus: SaveStatus;
+  onSave: () => void;
   onCopy: () => void;
   onDownloadTxt: () => void;
   onDownloadMd: () => void;
@@ -71,6 +78,7 @@ function ResultPanel({
   isStreaming,
   simplifying,
   generatingTitle,
+  saveStatus,
   onSave,
   onCopy,
   onDownloadTxt,
@@ -82,30 +90,7 @@ function ResultPanel({
   const [panelHeight, setPanelHeight] = useState(350);
   // 215: 全画面ビューア（保存一覧の FullscreenReader 流用）の開閉
   const [readerOpen, setReaderOpen] = useState(false);
-  // 保存状態（カードごとに独立）: 未保存 / 保存中 / 保存済み
-  // トーストは消えてしまうため、ボタン自体を「✅ 保存済み」に変化させて残す
-  const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved'>('idle');
-  // 結果テキストが変わったら未保存に戻す（再分析・わかりやすく変換などで内容が更新されたとき）
-  useEffect(() => {
-    setSaveStatus('idle');
-  }, [text]);
   const currentLength = text.length;
-
-  const handleSave = async () => {
-    setSaveStatus('saving');
-    try {
-      const result = await onSave();
-      // 戻り値が undefined（void） or true なら成功扱い、false なら失敗扱い
-      if (result !== false) {
-        setSaveStatus('saved'); // ✅ 保存済み（トーストと違い残り続ける）
-      } else {
-        setSaveStatus('idle'); // 失敗なら未保存に戻す（嘘の保存済みを表示しない）
-      }
-    } catch {
-      // 親側で error トーストを出しているのでここでは何もしない（重複防止）
-      setSaveStatus('idle');
-    }
-  };
 
   return (
     <div
@@ -265,9 +250,17 @@ function ResultPanel({
         </button>
         <button
           type="button"
-          onClick={handleSave}
-          // 保存中のみ無効化。保存済みでも押せるまま（修正後にまた保存できる）
-          disabled={!text || generatingTitle || saveStatus === 'saving'}
+          onClick={onSave}
+          // 247: 保存済みの間は押せない＝同じ本文を二重にストックへ入れない。
+          // 本文を直すと親が 'idle' に戻すので、修正後はまた保存できる（従来の意図は維持）
+          disabled={!text || generatingTitle || saveStatus === 'saving' || saveStatus === 'saved'}
+          title={
+            saveStatus === 'saved'
+              ? 'この内容はストックに保存済みです（本文を修正するとまた保存できます）'
+              : saveStatus === 'error'
+                ? '保存に失敗しました。押すと再試行します（結果は画面に残っています）'
+                : 'ストック（🗂保存一覧）に保存します'
+          }
           style={
             saveStatus === 'saved'
               ? // 緑系（v36「分析終了」バッジと配色を統一）
@@ -276,8 +269,11 @@ function ResultPanel({
                   background: '#f0fdf4',
                   color: '#16a34a',
                   border: '1px solid #bbf7d0',
+                  cursor: 'default',
                 }
-              : btnStyle('primary')
+              : saveStatus === 'error'
+                ? btnStyle('warning')
+                : btnStyle('primary')
           }
         >
           {generatingTitle
@@ -286,7 +282,9 @@ function ResultPanel({
               ? '⏳ 保存中...'
               : saveStatus === 'saved'
                 ? '✅ 保存済み'
-                : '💾 ストック保存'}
+                : saveStatus === 'error'
+                  ? '⚠️ 保存に失敗・再試行'
+                  : '💾 ストック保存'}
         </button>
         <button
           type="button"
@@ -352,10 +350,12 @@ function ResultPanel({
   );
 }
 
-function btnStyle(kind: 'primary' | 'success' | 'neutral'): React.CSSProperties {
+function btnStyle(kind: 'primary' | 'success' | 'neutral' | 'warning'): React.CSSProperties {
   const palette: Record<typeof kind, { bg: string; color: string; border: string }> = {
     primary: { bg: 'var(--accent)', color: '#fff', border: 'transparent' },
     success: { bg: '#1D9E75', color: '#fff', border: 'transparent' },
+    // 247: 保存失敗の再試行。#B45309 に白文字＝コントラスト 5.02:1（R-43 の 4.5:1 以上）
+    warning: { bg: '#B45309', color: '#fff', border: 'transparent' },
     neutral: { bg: 'rgba(255,255,255,0.06)', color: 'var(--text-secondary)', border: 'var(--border)' },
   };
   const c = palette[kind];
@@ -419,6 +419,11 @@ export default function TextAnalysisPanel({
 
   const [generatingTitle, setGeneratingTitle] = useState<AnalysisType | null>(null);
   const [simplifying, setSimplifying] = useState<AnalysisType | null>(null);
+  // 247: type ごとの保存状態（自動保存と手動保存が同じ表示を共有する）
+  const [saveStates, setSaveStates] = useState<Map<AnalysisType, SaveStatus>>(new Map());
+  const setSaveState = useCallback((type: AnalysisType, status: SaveStatus) => {
+    setSaveStates((prev) => new Map(prev).set(type, status));
+  }, []);
 
   // 216: type毎のAIタイトルキャッシュ。初回生成したタイトルを保存（saveResult）と
   // ダウンロードで共有し、「保存タイトルとDLファイル名が別物になる」のを防ぐ。
@@ -492,6 +497,7 @@ export default function TextAnalysisPanel({
     setPurpose('');
     setResults(new Map());
     setResultModels(new Map());
+    setSaveStates(new Map());
     setAnalysisDone(false);
     titleCacheRef.current.clear(); // 216: 結果が消えるためタイトルキャッシュも破棄
     clearFeatureDraft('text-analysis');
@@ -563,6 +569,7 @@ export default function TextAnalysisPanel({
     setAnalysisDone(false); // 再分析開始時にリセット
     setResults(new Map());
     setResultModels(new Map());
+    setSaveStates(new Map()); // 本文が総入れ替えになるので保存状態も未保存へ
     // 216追加指示: 再分析時はタイトルキャッシュを破棄（旧タイトルが新しい結果に付かないように）
     titleCacheRef.current.clear();
     // 完了した結果を自動下書き保存するためのローカル収集（エラー中断時は完了分のみ）
@@ -594,14 +601,47 @@ export default function TextAnalysisPanel({
           results: collected,
           models: collectedModels,
         });
+        // 247: 生成完了時に自動ストック保存（既定ON／🎛表示設定でOFFにできる）。
+        // 自動下書き（feature_result_drafts）とは別物＝こちらは手動と同じ🗂保存一覧に入る。
+        // 失敗しても結果は画面に残り、カードの ⚠️ ボタンから再試行できる（R-39）
+        if (isAutoStockSaveEnabled()) void autoStockSave(collected);
       }
     }
   };
 
-  const saveResult = async (type: AnalysisType, text: string): Promise<boolean> => {
+  // 生成完了分をまとめてストックへ自動保存する（保存APIの直列呼び出し＝順序と件数を数えられる形）
+  const autoStockSave = async (collected: Record<string, string>) => {
+    const entries = Object.entries(collected) as [AnalysisType, string][];
+    let ok = 0;
+    for (const [type, text] of entries) {
+      if (!text.trim()) continue;
+      if (await saveResult(type, text, { silent: true })) ok++;
+    }
+    if (ok === entries.length) {
+      showToast(`ストックに自動保存しました（${ok}件）`, 'success');
+    } else if (ok > 0) {
+      showToast(
+        `自動保存: ${ok}/${entries.length}件。失敗分は「⚠️ 保存に失敗・再試行」から保存できます`,
+        'warning',
+      );
+    } else {
+      showToast(
+        '自動保存に失敗しました。結果は画面に残っています（⚠️ ボタンから再試行できます）',
+        'error',
+      );
+    }
+  };
+
+  const saveResult = async (
+    type: AnalysisType,
+    text: string,
+    opts?: { silent?: boolean },
+  ): Promise<boolean> => {
     const label = ANALYSIS_OPTIONS.find((o) => o.value === type)?.label ?? type;
     setGeneratingTitle(type);
+    setSaveState(type, 'saving');
     try {
+      // R-39: タイトル生成はAI。失敗・タイムアウトでも fallback が返るので保存自体は止まらない
       const fallback = `${label}_${new Date().toLocaleDateString('ja-JP')}`;
       const autoTitle = await getOrGenerateTitle(type, text, label, fallback);
 
@@ -624,11 +664,15 @@ export default function TextAnalysisPanel({
       if (!res.ok) throw new Error('保存に失敗しました');
       const saved = await res.json();
       onSaved?.(saved);
-      showToast(`「${autoTitle}」として保存しました`, 'success');
+      setSaveState(type, 'saved');
+      // 自動保存はカード単位のトーストを出さない（件数分は騒がしいので実行側でまとめて1回出す）
+      if (!opts?.silent) showToast(`「${autoTitle}」として保存しました`, 'success');
       return true;
     } catch (err) {
+      // 247/R-39: 保存に失敗しても結果は画面に残す。⚠️ボタンから手動で再試行できる
+      setSaveState(type, 'error');
       const msg = err instanceof Error ? err.message : '保存に失敗しました';
-      showToast(msg, 'error');
+      if (!opts?.silent) showToast(msg, 'error');
       return false;
     } finally {
       setGeneratingTitle(null);
@@ -715,6 +759,7 @@ export default function TextAnalysisPanel({
           setResults(next);
           // 216: 本文が変わったためこのtypeのタイトルキャッシュを破棄
           titleCacheRef.current.delete(type);
+          setSaveState(type, 'idle'); // 247: 本文が変わったので「保存済み」を解除＝また保存できる
           // 変換後の内容で自動下書きも更新（復元時に表示中の内容と揃える）
           saveFeatureDraft('text-analysis', {
             inputText,
@@ -736,12 +781,56 @@ export default function TextAnalysisPanel({
     }
   };
 
+  // ── 247: 「✕ クリア」の Undo ─────────────────────────────
+  // クリアは破壊的だが、確認ダイアログを挟むと「キーで速く消す」目的が消える。
+  // そこで消した内容を10秒だけ持っておき、「↩ 元に戻す」で戻せるようにする。
+  // ボタン押下でもキー（⌘⇧⌫）でも同じ経路を通す＝挙動が分かれない
+  const [clearedText, setClearedText] = useState<string | null>(null);
+  const undoTimerRef = useRef<number | null>(null);
+  const stopUndoTimer = () => {
+    if (undoTimerRef.current !== null) {
+      window.clearTimeout(undoTimerRef.current);
+      undoTimerRef.current = null;
+    }
+  };
+  const handleClearInput = () => {
+    if (!inputText) return;
+    setClearedText(inputText);
+    setInputText('');
+    setAnalysisDone(false);
+    stopUndoTimer();
+    undoTimerRef.current = window.setTimeout(() => setClearedText(null), 10000);
+  };
+  const handleUndoClear = () => {
+    if (clearedText === null) return;
+    setInputText(clearedText);
+    setClearedText(null);
+    stopUndoTimer();
+  };
+  useEffect(() => stopUndoTimer, []);
+
+  // 247: ⌘/Ctrl+Enter=分析実行 / ⌘/Ctrl+Shift+Backspace=入力クリア。
+  // panelRef の可視判定で、タブ切替（display:none）中は発火しない。
+  // 「✏️ AIで修正」モーダル表示中も発火しない（refineTarget）
+  const panelRef = useRef<HTMLDivElement>(null);
+  const canAnalyze = !loading && !!inputText.trim() && selectedTypes.size > 0;
+  useRunShortcut({
+    containerRef: panelRef,
+    active: !refineTarget,
+    canRun: canAnalyze,
+    onRun: () => void handleAnalyze(),
+    canClear: !!inputText,
+    onClear: handleClearInput,
+  });
+  const keyHints = useRunKeyHints();
+
   // 追加修正（169）: 対象カードと、そのテキストを差し替える適用処理
   const applyRefine = (type: AnalysisType, newText: string) => {
     const next = new Map(results).set(type, newText);
     setResults(next);
     // 216: 本文が変わったためこのtypeのタイトルキャッシュを破棄
     titleCacheRef.current.delete(type);
+    setSaveState(type, 'idle'); // 247: 本文が変わったので「保存済み」を解除＝また保存できる
     // 修正後の内容で自動下書きも更新（simplifyText と同じ扱い＝表示中の内容と揃える）
     saveFeatureDraft('text-analysis', {
       inputText,
@@ -752,7 +841,7 @@ export default function TextAnalysisPanel({
   };
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+    <div ref={panelRef} style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
       {/* 自動下書きからの復元バナー */}
       {restoredAt && (
         <FeatureDraftBanner restoredAt={restoredAt} onClear={handleClearDraft} />
@@ -835,27 +924,50 @@ export default function TextAnalysisPanel({
           }}
         >
           <span>{inputText.length.toLocaleString()} 文字</span>
-          <button
-            type="button"
-            onClick={() => {
-              setInputText('');
-              setAnalysisDone(false);
-            }}
-            disabled={!inputText}
-            title="入力をクリア"
-            style={{
-              padding: '4px 10px',
-              fontSize: 12,
-              color: inputText ? 'var(--text-secondary)' : 'var(--text-muted)',
-              background: 'transparent',
-              border: '1px solid var(--border)',
-              borderRadius: 6,
-              opacity: inputText ? 1 : 0.5,
-              cursor: inputText ? 'pointer' : 'not-allowed',
-            }}
-          >
-            ✕ クリア
-          </button>
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+            {/* 247: クリア直後だけ出る Undo（10秒）。確認ダイアログの代わり */}
+            {clearedText !== null && (
+              <button
+                type="button"
+                onClick={handleUndoClear}
+                title="クリアした入力を元に戻します（10秒間）"
+                style={{
+                  padding: '4px 10px',
+                  fontSize: 12,
+                  fontWeight: 700,
+                  color: '#fff',
+                  background: '#B45309',
+                  border: '1px solid transparent',
+                  borderRadius: 6,
+                  cursor: 'pointer',
+                }}
+              >
+                ↩ 元に戻す
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={handleClearInput}
+              disabled={!inputText}
+              title={
+                keyHints
+                  ? `入力をクリア（${keyHints.clear}）／直後に「↩ 元に戻す」で戻せます`
+                  : '入力をクリア（直後に「↩ 元に戻す」で戻せます）'
+              }
+              style={{
+                padding: '4px 10px',
+                fontSize: 12,
+                color: inputText ? 'var(--text-secondary)' : 'var(--text-muted)',
+                background: 'transparent',
+                border: '1px solid var(--border)',
+                borderRadius: 6,
+                opacity: inputText ? 1 : 0.5,
+                cursor: inputText ? 'pointer' : 'not-allowed',
+              }}
+            >
+              ✕ クリア{keyHints ? ` ${keyHints.clear}` : ''}
+            </button>
+          </span>
         </div>
       </div>
 
@@ -1088,8 +1200,10 @@ export default function TextAnalysisPanel({
       <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
         <button
           type="button"
+          data-kb-run
           onClick={handleAnalyze}
-          disabled={loading || !inputText.trim() || selectedTypes.size === 0}
+          disabled={!canAnalyze}
+          title={keyHints ? `分析を実行（${keyHints.run}）` : '分析を実行'}
           style={{
             padding: '10px 24px',
             borderRadius: 10,
@@ -1098,17 +1212,13 @@ export default function TextAnalysisPanel({
             border: 'none',
             fontSize: 13,
             fontWeight: 600,
-            cursor:
-              loading || !inputText.trim() || selectedTypes.size === 0
-                ? 'not-allowed'
-                : 'pointer',
-            opacity:
-              loading || !inputText.trim() || selectedTypes.size === 0
-                ? 0.5
-                : 1,
+            cursor: canAnalyze ? 'pointer' : 'not-allowed',
+            opacity: canAnalyze ? 1 : 0.5,
           }}
         >
-          {loading ? '⏳ 分析中...' : `🚀 ${selectedTypes.size}件を分析`}
+          {loading
+            ? '⏳ 分析中...'
+            : `🚀 ${selectedTypes.size}件を分析${keyHints ? ` ${keyHints.run}` : ''}`}
         </button>
         {progress && (
           <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>
@@ -1141,7 +1251,8 @@ export default function TextAnalysisPanel({
               isStreaming={loading}
               simplifying={simplifying === type}
               generatingTitle={generatingTitle === type}
-              onSave={() => saveResult(type, text)}
+              saveStatus={saveStates.get(type) ?? 'idle'}
+              onSave={() => void saveResult(type, text)}
               onCopy={() => {
                 // コピー内容にも LaTeX 正規化を適用（$\rightarrow$ 等を残さない）
                 copyRichMarkdown(sanitizeLatex(text));

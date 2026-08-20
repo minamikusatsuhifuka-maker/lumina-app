@@ -22,6 +22,7 @@ import {
   clearFeatureDraft,
 } from '@/lib/feature-drafts';
 import FeatureDraftBanner from '@/components/FeatureDraftBanner';
+import { useRunKeyHints, useRunShortcut } from '@/lib/shortcuts';
 import { EyecatchModal } from '@/components/eyecatch/EyecatchModal';
 import NoteEnhancePanel from '@/components/note-enhance/NoteEnhancePanel';
 import { emptyNoteEnhance, normalizeNoteEnhance, type NoteEnhanceState } from '@/lib/note-enhance';
@@ -535,6 +536,15 @@ export default function NoteArticleGenerationPage() {
     triggerDownload(`${fileTitle}_${yyyymmdd()}.md`, md, 'text/markdown;charset=utf-8');
   };
 
+  // 247: ⌘/Ctrl+Enter=生成。この画面には「✕ クリア」が無いので実行キーだけを付ける
+  //（クリアキーは「消す対象の入力欄」がある画面にだけ置く＝効かないキーを案内しない）
+  useRunShortcut({
+    active: !showPatternModal && !showEyecatch,
+    canRun: !loading && !!theme.trim(),
+    onRun: () => void generate(),
+  });
+  const keyHints = useRunKeyHints();
+
   return (
     <div>
       <ProgressBar loading={progressLoading} progress={progress} label="✍️ note 記事を生成中..." />
@@ -957,8 +967,10 @@ export default function NoteArticleGenerationPage() {
 
         <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
           <button
+            data-kb-run
             onClick={generate}
             disabled={loading}
+            title={keyHints ? `note 記事の下書きを生成（${keyHints.run}）` : 'note 記事の下書きを生成'}
             style={{
               padding: '10px 28px',
               background: 'linear-gradient(135deg, #ec4899, #8b5cf6)',
@@ -971,7 +983,7 @@ export default function NoteArticleGenerationPage() {
               opacity: loading ? 0.7 : 1,
             }}
           >
-            {loading ? `✍️ 生成中... ${elapsed}秒` : '🚀 note 記事の下書きを生成'}
+            {loading ? `✍️ 生成中... ${elapsed}秒` : `🚀 note 記事の下書きを生成${keyHints ? ` ${keyHints.run}` : ''}`}
           </button>
         </div>
       </div>

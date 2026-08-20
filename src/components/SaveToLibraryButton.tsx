@@ -1,5 +1,5 @@
 'use client';
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 // 保存時の自動カテゴライズ（デフォルト有効）。将来オフにしたい時のためのフラグ（UIには出さない）。
 const AUTO_CATEGORIZE_ENABLED = true;
@@ -11,25 +11,38 @@ type Props = {
   groupName: string;
   tags?: string;
   metadata?: Record<string, any>;
+  /**
+   * 247: 自動ストック保存の合図（オプトイン）。
+   * 呼び出し側が「生成が完走した」タイミングでだけ数値を +1 する。
+   * content の変化で発火させないのは、ストリーミング中と自動下書きの復元でも
+   * content が変わり、重複保存になるため。既定（未指定）は自動保存しない。
+   */
+  autoSaveSignal?: number;
 };
 
-export function SaveToLibraryButton({ title, content, type, groupName, tags, metadata }: Props) {
+export function SaveToLibraryButton({ title, content, type, groupName, tags, metadata, autoSaveSignal }: Props) {
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  // 247: 保存失敗はトーストだけだと消えて分からなくなるので、ボタン自体を ⚠️ にして再試行できる形で残す
+  const [saveError, setSaveError] = useState(false);
   const [showFavoriteOption, setShowFavoriteOption] = useState(false);
   const [savedId, setSavedId] = useState<string | null>(null);
   const [toast, setToast] = useState('');
   const [memorizing, setMemorizing] = useState(false);
   const [memorized, setMemorized] = useState(false);
+  // 保存済みの本文。これと同じ内容の間は「✅ 保存済み」で押せない＝二重保存を防ぐ。
+  // 本文が変われば（AIで修正・再生成）未保存に戻るので、直した版はまた保存できる
+  const savedContentRef = useRef<string | null>(null);
 
   const showToast = (msg: string) => {
     setToast(msg);
     setTimeout(() => setToast(''), 2500);
   };
 
-  const saveToLibrary = async (asFavorite = false) => {
+  const saveToLibrary = async (asFavorite = false, silent = false) => {
     if (!content) return;
     setSaving(true);
+    setSaveError(false);
     try {
       const res = await fetch('/api/library', {
         method: 'POST',
@@ -48,12 +61,13 @@ export function SaveToLibraryButton({ title, content, type, groupName, tags, met
       if (res.ok) {
         setSaved(true);
         setSavedId(data.id);
+        savedContentRef.current = content;
         if (asFavorite) {
           showToast('⭐ お気に入りに保存しました！');
           setShowFavoriteOption(false);
         } else {
           setShowFavoriteOption(true);
-          showToast('✅ リサーチ保存に追加しました！');
+          showToast(silent ? '✅ ストックに自動保存しました' : '✅ リサーチ保存に追加しました！');
         }
         // 保存成功後、全経路でバックグラウンド自動カテゴライズ（fire-and-forget、失敗許容）
         // ・保存は既に完了してユーザーに即フィードバック済み → 分類は裏で非同期実行
@@ -70,14 +84,42 @@ export function SaveToLibraryButton({ title, content, type, groupName, tags, met
           }).catch((err) => console.warn('[auto-categorize] バックグラウンド分類失敗:', err));
         }
       } else {
+        setSaveError(true);
         showToast('❌ 保存に失敗しました');
       }
     } catch {
+      setSaveError(true);
       showToast('❌ 保存に失敗しました');
     } finally {
       setSaving(false);
     }
   };
+
+  // 247: 本文が保存済みの内容から変わったら未保存に戻す（修正版をまた保存できるようにする）
+  useEffect(() => {
+    if (savedContentRef.current !== null && content !== savedContentRef.current) {
+      savedContentRef.current = null;
+      setSaved(false);
+      setSavedId(null);
+      setShowFavoriteOption(false);
+    }
+  }, [content]);
+
+  // 247: 自動ストック保存。合図（数値）が増えたときだけ1回走らせる。
+  // 保存に失敗しても呼び出し側の生成結果には触れない＝画面に残る（R-39）
+  // 0 で初期化する（合図が立ってから初めてマウントされる画面があるため。
+  // ディープリサーチの保存ボタンは loading 中は描画されず、完走後の再描画で現れる）
+  const lastAutoSignalRef = useRef(0);
+  useEffect(() => {
+    if (autoSaveSignal === undefined) return;
+    if (autoSaveSignal <= lastAutoSignalRef.current) return;
+    lastAutoSignalRef.current = autoSaveSignal;
+    if (!content) return;
+    if (savedContentRef.current === content) return; // すでに同じ内容を保存済み
+    void saveToLibrary(false, true);
+    // saveToLibrary は毎描画で作り直される。合図の数値だけを発火条件にする
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoSaveSignal]);
 
   const addToFavorite = async () => {
     if (!savedId) { saveToLibrary(true); return; }
@@ -100,20 +142,31 @@ export function SaveToLibraryButton({ title, content, type, groupName, tags, met
         {/* ライブラリ保存ボタン */}
         <button
           onClick={() => saveToLibrary(false)}
-          disabled={saving || !content}
+          // 247: 保存済みの間は押せない＝同じ本文を二重にストックへ入れない
+          disabled={saving || !content || saved}
+          title={
+            saved
+              ? 'この内容はストックに保存済みです（本文を修正するとまた保存できます）'
+              : saveError
+                ? '保存に失敗しました。押すと再試行します（結果は画面に残っています）'
+                : 'ストック（📚ライブラリ）に保存します'
+          }
           style={{
             padding: '8px 16px',
             background: saved
               ? 'rgba(0,212,184,0.15)'
-              : 'linear-gradient(135deg, #1a5c4a, #0d9973)',
+              : saveError
+                // 247: 白文字とのコントラスト 5.02:1（R-43 の 4.5:1 以上）
+                ? '#B45309'
+                : 'linear-gradient(135deg, #1a5c4a, #0d9973)',
             border: saved ? '1px solid rgba(0,212,184,0.4)' : 'none',
             borderRadius: 8, color: '#fff', fontSize: 13, fontWeight: 600,
-            cursor: saving || !content ? 'not-allowed' : 'pointer',
+            cursor: saving || !content ? 'not-allowed' : saved ? 'default' : 'pointer',
             opacity: !content ? 0.5 : 1,
             display: 'flex', alignItems: 'center', gap: 6,
           }}
         >
-          {saving ? '保存中...' : saved ? '✅ 保存済み' : '📚 リサーチ保存に追加'}
+          {saving ? '保存中...' : saved ? '✅ 保存済み' : saveError ? '⚠️ 保存に失敗・再試行' : '📚 リサーチ保存に追加'}
         </button>
 
         {/* 🧠 記憶するボタン */}

@@ -187,6 +187,10 @@ export default function NoteBundleDock() {
   // ここに到達するのは選択操作後（クライアント側）のみ＝SSRでは早期 return 済みで document は常に存在する。
   return createPortal(
     <>
+      {/* 247: 選択モード中であることのDOM上の印。生成・実行画面の ⌘Enter（useRunShortcut）が
+             ここの ⌘Enter＝選択完了と二重発火しないよう、あちらがこの印を見て譲る */}
+      {selectMode && <span data-kb-select-mode hidden aria-hidden />}
+
       {/* ① 追従する「選択完了」ボタン（187: 最後に操作したカードの直下。
              カード不在・別タブ・画面外は181の下部中央固定へフォールバック。二重には出さない） */}
       {count > 0 && (

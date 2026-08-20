@@ -60,9 +60,10 @@ export default function ShortcutPalette() {
   const [isMobile, setIsMobile] = useState(false);
   const [box, setBox] = useState<Box | null>(null);
   // 現在の画面で有効なスコープ（無効セクションは淡色表示）
-  const [scopes, setScopes] = useState<{ reader: boolean; list: boolean }>({
+  const [scopes, setScopes] = useState<{ reader: boolean; list: boolean; run: boolean }>({
     reader: false,
     list: true,
+    run: false,
   });
   const dragRef = useRef<{ mode: 'move' | 'resize'; startX: number; startY: number; orig: Box } | null>(null);
   const boxRef = useRef<Box | null>(null);
@@ -182,13 +183,14 @@ export default function ShortcutPalette() {
   // 開いている間、現在の画面で有効なスコープを更新（1秒ポーリング＝画面遷移・リーダー開閉に追従）
   useEffect(() => {
     if (!open) return;
+    const visible = (sel: string) =>
+      [...document.querySelectorAll<HTMLElement>(sel)].some((el) => el.offsetParent !== null);
     const update = () => {
       const reader = !!document.querySelector('[data-kb-scope="reader"]');
-      const list = !reader &&
-        [...document.querySelectorAll<HTMLElement>('[data-kb-search]')].some(
-          (el) => el.offsetParent !== null,
-        );
-      setScopes({ reader, list });
+      const list = !reader && visible('[data-kb-search]');
+      // 247: 実行ボタン（data-kb-run）が見えている画面＝⌘Enter/⌘⇧Backspaceが効く画面
+      const run = !reader && visible('[data-kb-run]');
+      setScopes({ reader, list, run });
     };
     update();
     const timer = setInterval(update, 1000);
@@ -246,7 +248,7 @@ export default function ShortcutPalette() {
   );
 
   const isScopeActive = (scope: ShortcutScope) =>
-    scope === 'global' || (scope === 'reader' ? scopes.reader : scopes.list);
+    scope === 'global' ? true : scopes[scope];
 
   return createPortal(
     <div

@@ -803,3 +803,216 @@ test('C28: ディープリサーチの調査期間（245）— プリセット4�
   await clear.click();
   await expect(textarea).toHaveValue('');
 });
+
+
+// ============================================================================
+// 247: ショートカット（⌘Enter=実行 / ⌘⇧Backspace=クリア）と 生成結果の自動ストック保存
+// AI課金を避けるため、生成API・タイトル生成APIはすべてモックする
+// ============================================================================
+
+const KB_TOKEN = `E2EKB${RUN_ID}`;
+const AUTO_TOKEN = `E2EAUTO${RUN_ID}`;
+
+/** 分析API（SSE）のモック。delayMs を入れると「実行中」の状態を作れる */
+async function mockAnalyze(page: import('@playwright/test').Page, text: string, delayMs = 0) {
+  let calls = 0;
+  await page.route('**/api/text-analysis/analyze', async (route) => {
+    calls++;
+    if (delayMs) await new Promise((r) => setTimeout(r, delayMs));
+    await route.fulfill({
+      status: 200,
+      contentType: 'text/event-stream',
+      body: `data: ${JSON.stringify({ type: 'delta', text })}\n\n`,
+    });
+  });
+  return () => calls;
+}
+
+test('C29: 実行・クリアのショートカット（247）— 未入力/入力中/実行中/クリアの4パターン', async ({ page }) => {
+  const analyzeCalls = await mockAnalyze(page, `[E2E] ${KB_TOKEN} モック分析結果`, 1200);
+
+  await page.goto('/dashboard/text-analysis');
+  // このテストは保存を対象にしないので自動ストック保存はOFFにする（DBに書かない）
+  await page.evaluate(() => localStorage.setItem('lumina_auto_stock_save', '0'));
+  await page.reload({ waitUntil: 'domcontentloaded' });
+
+  const runBtn = page.locator('button[data-kb-run]');
+  const textarea = page.getByPlaceholder('ここに分析したいテキストを貼り付けてください...');
+  await expect(runBtn).toBeVisible();
+
+  // ── ①押し方が分かる: ボタンにキーが併記されている ──
+  await expect(runBtn, '実行ボタンに実行キーが併記されていること').toHaveText(/(⌘↵|Ctrl\+↵)/);
+  const clearBtn = page.getByRole('button', { name: /✕ クリア/ }).filter({ visible: true }).first();
+  await expect(clearBtn, 'クリアボタンにクリアキーが併記されていること').toHaveText(/(⌘⇧⌫|Ctrl\+Shift\+⌫)/);
+
+  // ── ②未入力（空）: 押しても実行されない（無効ボタンと同じ挙動） ──
+  await textarea.click();
+  await page.keyboard.press('ControlOrMeta+Enter');
+  await page.waitForTimeout(500);
+  expect(analyzeCalls(), '未入力では実行されないこと').toBe(0);
+
+  // ── ③入力中: テキスト入力欄にカーソルがあるまま実行できる ──
+  const INPUT = `[E2E] ${KB_TOKEN} 分析対象テキスト`;
+  await textarea.fill(INPUT);
+  await expect(textarea).toBeFocused();
+  await page.keyboard.press('ControlOrMeta+Enter');
+  await expect(runBtn, '入力欄にカーソルがあっても実行されること').toHaveText(/分析中/);
+
+  // ── ④実行中: もう一度押しても二重実行しない ──
+  await page.keyboard.press('ControlOrMeta+Enter');
+  await page.keyboard.press('ControlOrMeta+Enter');
+  await expect(runBtn).not.toHaveText(/分析中/, { timeout: 30000 });
+  // 既定の分析タイプは2種＝1回の実行で2リクエスト。二重実行なら3以上になる
+  expect(analyzeCalls(), '実行中に押しても二重実行しないこと').toBe(2);
+
+  // ── ⑤クリア: キーで消せて、「↩ 元に戻す」で戻せる（破壊的操作のUndo） ──
+  await textarea.click();
+  await page.keyboard.press('ControlOrMeta+Shift+Backspace');
+  await expect(textarea, 'クリアキーで入力が消えること').toHaveValue('');
+  const undo = page.getByRole('button', { name: '↩ 元に戻す' });
+  await expect(undo, 'クリア直後はUndoが出ること').toBeVisible();
+  await undo.click();
+  await expect(textarea, 'Undoで元の入力に戻ること').toHaveValue(INPUT);
+  await expect(undo, 'Undoは一度使うと消えること').toHaveCount(0);
+
+  // ── ⑥ショートカット一覧（?小窓）に登録され、この画面では有効表示になっている ──
+  await page.locator('button[title*="キーボードショートカット一覧"]').click();
+  const palette = page.locator('[data-kb-palette]');
+  await expect(palette).toBeVisible();
+  const runSection = palette.getByText(/生成・実行画面/).first();
+  await expect(runSection, '一覧に「生成・実行画面」のセクションがあること').toBeVisible();
+  await expect(runSection, 'この画面では有効（淡色の「無効」表示にならない）').not.toContainText('この画面では無効');
+  await expect(palette.getByText('実行する（Windowsは Ctrl+Enter）')).toBeVisible();
+  await page.locator('button[title*="キーボードショートカット一覧"]').click();
+  await expect(palette).toHaveCount(0);
+
+  // ── ⑦別タブ（display:none）では効かない ──
+  await page.getByRole('button', { name: /🗂 保存一覧/ }).click();
+  await page.keyboard.press('ControlOrMeta+Enter');
+  await page.waitForTimeout(500);
+  expect(analyzeCalls(), 'タブを切り替えたら実行キーは効かないこと').toBe(2);
+});
+
+test('C30: 生成結果の自動ストック保存（247・テキスト分析）— OFFで保存されず、ONで保存されて一覧に出る', async ({ page, request }) => {
+  const AUTO_TITLE = `[E2E] ${AUTO_TOKEN} 自動保存`;
+  await mockAnalyze(page, `[E2E] ${AUTO_TOKEN} モック分析結果`);
+  // タイトル生成はAI課金なのでモック（R-39: 落ちても保存自体は fallback で成立する）
+  await page.route('**/api/text-analysis/generate-title', (route) =>
+    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ title: AUTO_TITLE }) }),
+  );
+
+  const runAnalysis = async () => {
+    await page.getByPlaceholder('ここに分析したいテキストを貼り付けてください...').fill(`[E2E] ${AUTO_TOKEN} 入力`);
+    await page.locator('button[data-kb-run]').click();
+    await expect(page.locator('button[data-kb-run]')).not.toHaveText(/分析中/, { timeout: 30000 });
+  };
+
+  // ── ①OFF: 生成しても保存されない（従来どおり手動ボタンのまま） ──
+  await page.goto('/dashboard/text-analysis');
+  await page.evaluate(() => localStorage.setItem('lumina_auto_stock_save', '0'));
+  await page.reload({ waitUntil: 'domcontentloaded' });
+  await runAnalysis();
+  await expect(page.getByRole('button', { name: '💾 ストック保存' }).first()).toBeVisible();
+  await page.waitForTimeout(1500); // 保存が走るならこの間に走る
+  expect(
+    (await listSaves(request, { q: AUTO_TOKEN, limit: 100 })).total_count,
+    'OFFのときは1件も保存されないこと',
+  ).toBe(0);
+
+  // ── ②🎛表示設定でONに戻せる（設定はこの画面にある） ──
+  await page.goto('/dashboard/display-settings');
+  const toggle = page.getByRole('checkbox', { name: '生成結果を自動でストックに保存する' });
+  await expect(toggle).toBeVisible();
+  await expect(toggle, '直前にOFFにしたので未チェック').not.toBeChecked();
+  await toggle.check();
+  expect(await page.evaluate(() => localStorage.getItem('lumina_auto_stock_save'))).toBe('1');
+
+  // ── ③ON: 生成完了で自動保存され、ボタンが「✅ 保存済み」になる ──
+  await page.goto('/dashboard/text-analysis');
+  await runAnalysis();
+  const savedBtns = page.getByRole('button', { name: '✅ 保存済み' });
+  await expect(savedBtns.first(), '自動保存後は「✅ 保存済み」表示になること').toBeVisible({ timeout: 30000 });
+  // 既定の分析タイプは2種＝2枚のカードとも保存済みになる
+  await expect(savedBtns).toHaveCount(2);
+  // 二重保存の防止: 保存済みのボタンは押せない
+  await expect(savedBtns.first(), '保存済みのボタンは押せない（二重保存の防止）').toBeDisabled();
+
+  // ── ④ストック一覧（保存API）に実際に出る ──
+  await expect
+    .poll(async () => (await listSaves(request, { q: AUTO_TOKEN, limit: 100 })).total_count, { timeout: 20000 })
+    .toBe(2);
+  const list = await listSaves(request, { q: AUTO_TOKEN, limit: 100 });
+  expect(
+    list.items.every((i) => String(i.auto_title ?? i.file_name ?? '').includes(AUTO_TOKEN)),
+    '自動保存分のタイトルが入っていること',
+  ).toBe(true);
+  // 後片付けは afterAll の cleanupE2ESaves（[E2E]付き）が行う
+
+  // 設定を既定（ON）に戻す
+  await page.evaluate(() => localStorage.removeItem('lumina_auto_stock_save'));
+});
+
+test('C31: 生成結果の自動ストック保存（247・ディープリサーチ）— ⌘Enterで実行し、完走時に保存済みになる', async ({ page }) => {
+  const REPORT = `# [E2E] ${AUTO_TOKEN} モックレポート\n\n本文です。`;
+  // 生成SSEをモック（AI課金なし）
+  await page.route('**/api/deepresearch', (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: 'text/event-stream',
+      body: `data: ${JSON.stringify({ type: 'text', content: REPORT })}\n\n`,
+    }),
+  );
+  // 完了後に走る付随AI（タイトル案・用語抽出・インサイト）もモックして課金させない
+  for (const pattern of ['**/api/knowledge/**', '**/api/glossary/research-extract', '**/api/deepresearch/insights']) {
+    await page.route(pattern, (route) => route.fulfill({ status: 200, contentType: 'application/json', body: '{}' }));
+  }
+  // 保存先はモックして本番ライブラリに書かない（保存要求が飛んだこと自体を検証する）
+  const libraryPosts: { title?: string; content?: string }[] = [];
+  await page.route('**/api/library', async (route) => {
+    if (route.request().method() === 'POST') {
+      libraryPosts.push(route.request().postDataJSON());
+      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ id: 'e2e-mock' }) });
+      return;
+    }
+    await route.fallback();
+  });
+  await page.route('**/api/library/auto-categorize', (route) =>
+    route.fulfill({ status: 200, contentType: 'application/json', body: '{}' }),
+  );
+
+  await page.goto('/dashboard/deepresearch');
+  const topic = page.getByPlaceholder(/調査したいテーマを詳しく入力してください/);
+  await topic.fill(`[E2E] ${AUTO_TOKEN} モックのお題`);
+
+  // ── ①⌘Enterで実行できる（入力欄にカーソルがあるまま） ──
+  await expect(page.locator('button[data-kb-run]')).toHaveText(/(⌘↵|Ctrl\+↵)/);
+  await page.keyboard.press('ControlOrMeta+Enter');
+
+  // ── ②完走時に自動保存され、「✅ 保存済み」＝押せない状態になる ──
+  const savedBtn = page.getByRole('button', { name: '✅ 保存済み' });
+  await expect(savedBtn, '自動保存後は「✅ 保存済み」表示になること').toBeVisible({ timeout: 30000 });
+  await expect(savedBtn, '保存済みのボタンは押せない（二重保存の防止）').toBeDisabled();
+  expect(libraryPosts.length, '保存要求はちょうど1回であること').toBe(1);
+  expect(libraryPosts[0].content, '生成本文がそのまま保存されること').toContain(AUTO_TOKEN);
+
+  // ── ③クリアのUndo（トピック入力欄） ──
+  await topic.click();
+  await page.keyboard.press('ControlOrMeta+Shift+Backspace');
+  await expect(topic).toHaveValue('');
+  const undo = page.getByRole('button', { name: '↩ 元に戻す' });
+  await expect(undo).toBeVisible();
+  await undo.click();
+  await expect(topic).toHaveValue(`[E2E] ${AUTO_TOKEN} モックのお題`);
+
+  // ── ④OFFにすると自動保存されない ──
+  await page.evaluate(() => localStorage.setItem('lumina_auto_stock_save', '0'));
+  await page.reload({ waitUntil: 'domcontentloaded' });
+  libraryPosts.length = 0;
+  await page.getByPlaceholder(/調査したいテーマを詳しく入力してください/).fill(`[E2E] ${AUTO_TOKEN} 2回目`);
+  await page.locator('button[data-kb-run]').click();
+  await expect(page.getByRole('button', { name: '📚 リサーチ保存に追加' })).toBeVisible({ timeout: 30000 });
+  await page.waitForTimeout(1500);
+  expect(libraryPosts.length, 'OFFのときは保存要求が飛ばないこと').toBe(0);
+
+  await page.evaluate(() => localStorage.removeItem('lumina_auto_stock_save'));
+});
