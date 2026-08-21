@@ -1295,6 +1295,12 @@ test('C36: 保存一覧の画面でフォルダを作り、☆から分類して
   request,
 }) => {
   const name = `${E2E_FOLDER_PREFIX} UI ${RUN_ID}`;
+  // 一覧は created_at DESC の30件ページング。シード記事は他のテストの作成分に押し出されて
+  // 1ページ目から外れるため、この検証専用の記事を直前に作って必ず先頭に来るようにする
+  const itemId = await createSave(request, {
+    title: `[E2E] UI検証 ${RUN_ID}`,
+    content: `[E2E] マイフォルダのUI検証用の本文です（${RUN_ID}）。検証後に削除されます。`,
+  });
   await page.goto('/dashboard/saved');
   // /dashboard/saved は 🗂テキスト分析 と 🧠AI参照素材 の両パネルを display:none で
   // 同時にマウントする。基点をパネルに固定しないと、非表示側の同名要素まで拾ってしまう
@@ -1319,7 +1325,7 @@ test('C36: 保存一覧の画面でフォルダを作り、☆から分類して
     expect(folderId).toBeGreaterThan(0);
 
     // ☆ボタン → 分類パネル → チェックで即保存
-    const favBtn = panel.locator(`[data-favorite-button="${seedIds[0]}"]`);
+    const favBtn = panel.locator(`[data-favorite-button="${itemId}"]`);
     await favBtn.scrollIntoViewIfNeeded();
     await favBtn.click();
     const picker = page.locator('[data-folder-picker]');
@@ -1345,7 +1351,7 @@ test('C36: 保存一覧の画面でフォルダを作り、☆から分類して
       .toBe(1);
   } finally {
     if (folderId) await deleteFolder(request, 'text_analysis', folderId);
-    // お気に入り状態を元に戻す（☆で登録された分）
-    await patchSaves(request, { action: 'toggle_favorite', id: seedIds[0] });
+    // 検証用の記事ごと消す（お気に入り状態の後始末も兼ねる）
+    await deleteSave(request, itemId);
   }
 });
