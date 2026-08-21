@@ -784,7 +784,7 @@ export default function TextAnalysisPanel({
   // ── 247: 「✕ クリア」の Undo ─────────────────────────────
   // クリアは破壊的だが、確認ダイアログを挟むと「キーで速く消す」目的が消える。
   // そこで消した内容を10秒だけ持っておき、「↩ 元に戻す」で戻せるようにする。
-  // ボタン押下でもキー（⌘⇧⌫）でも同じ経路を通す＝挙動が分かれない
+  // ボタン押下でもキー（⌘⌫）でも同じ経路を通す＝挙動が分かれない
   const [clearedText, setClearedText] = useState<string | null>(null);
   const undoTimerRef = useRef<number | null>(null);
   const stopUndoTimer = () => {
@@ -809,7 +809,7 @@ export default function TextAnalysisPanel({
   };
   useEffect(() => stopUndoTimer, []);
 
-  // 247: ⌘/Ctrl+Enter=分析実行 / ⌘/Ctrl+Shift+Backspace=入力クリア。
+  // 247: ⌘/Ctrl+Enter=分析実行 / ⌘/Ctrl+Backspace=入力クリア（248で2キー化）。
   // panelRef の可視判定で、タブ切替（display:none）中は発火しない。
   // 「✏️ AIで修正」モーダル表示中も発火しない（refineTarget）
   const panelRef = useRef<HTMLDivElement>(null);

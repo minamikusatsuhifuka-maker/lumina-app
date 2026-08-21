@@ -1582,7 +1582,7 @@ ${contextText}
   };
   useEffect(() => stopUndoTimer, []);
 
-  // 247: ⌘/Ctrl+Enter=リサーチ開始 / ⌘/Ctrl+Shift+Backspace=トピックのクリア。
+  // 247: ⌘/Ctrl+Enter=リサーチ開始 / ⌘/Ctrl+Backspace=トピックのクリア（248で2キー化）。
   // 通常リサーチタブ以外・各モーダル表示中は発火させない
   useRunShortcut({
     active:

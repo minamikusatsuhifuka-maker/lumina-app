@@ -104,7 +104,8 @@ export const SHORTCUT_SECTIONS: Array<{
     ],
   },
   {
-    // 247: ⌘Enter/⌘⇧Backspace を持つ画面。実行ボタンの data-kb-run が見えているかで判定する
+    // 247: ⌘Enter/⌘Backspace（248で ⌘⇧Backspace から変更）を持つ画面。
+    // 実行ボタンの data-kb-run が見えているかで判定する
     title: '生成・実行画面（🚀テキスト分析・🔭ディープリサーチ・✍️note記事生成）',
     scope: 'run',
     items: [
@@ -114,8 +115,9 @@ export const SHORTCUT_SECTIONS: Array<{
         note: '入力欄にカーソルがあるままでも効きます',
       },
       {
-        keys: ['⌘', '⇧', '⌫'],
-        desc: '入力をクリア（Windowsは Ctrl+Shift+Backspace）',
+        // 248: ⌘⇧⌫（3キー）が押しにくいという指摘を受けて ⌘⌫（2キー）へ変更
+        keys: ['⌘', '⌫'],
+        desc: '入力をクリア（Windowsは Ctrl+Backspace）',
         note: '直後に出る「↩ 元に戻す」で戻せます（note記事生成は実行キーのみ）',
       },
     ],
@@ -136,17 +138,40 @@ export const SHORTCUT_SECTIONS: Array<{
 // 割り当ての根拠:
 // - 実行 = ⌘/Ctrl + Enter。「送信」の慣習キーで、入力欄にカーソルがあるまま押せる。
 //   単独キーではないので isTypingTarget では止めない（入力中こそ押したいキー）。
-// - クリア = ⌘/Ctrl + Shift + Backspace。⌘+Backspace 単独は macOS の
-//   「行頭まで削除」＝テキスト入力の標準操作なので奪わない。Delete は見ない
-//   （Windows Chrome の Ctrl+Shift+Delete＝閲覧履歴の削除と衝突するため）。
+// - クリア = ⌘/Ctrl + Backspace（248で ⌘⇧⌫ の3キーから Shift を落として2キーにした）。
+//
+// 248のキー選定（実測にもとづく。候補を「押しやすさ」ではなく「何を奪うか」で比較した）:
+//   Chromium/Mac に実際にキーを送り、入力欄の本文がどう変わるかを機械判定した結果——
+//   ・⌘⌫        = 行頭まで削除（textarea 2行目の途中で押すと2行目の先頭までが消える）
+//   ・⌘⇧⌫（247）= **⌘⌫ と完全に同じ**（Shift は編集コマンドの選択に影響しない）
+//   ・Ctrl+⌫ / Ctrl+⇧+⌫（Windows）= どちらも「直前の単語を削除」で**同じ**
+//   → つまり Shift を落としても **新たに奪う既定動作は無い**。247が「⌘+Backspace単独は
+//     行頭まで削除だから奪わない」としてShiftを足したのは、実際には効果がなかった
+//     （Shift付きでも同じ編集コマンドを奪っていた）。よって2キー化はコストゼロの変更。
+//   ・ブラウザ既定との衝突: Chrome公式のショートカット一覧に Backspace の項目は
+//     Mac・Windows とも**無い**（＝「戻る」は誘発しない。戻るは ⌘← / Alt+←）。
+//     Windows の Ctrl+⌫ は公式に「テキスト欄で直前の単語を削除」と載っているだけで、
+//     ブラウザ側の機能ではない。Delete(⌦)側は見ない（Ctrl+Shift+Delete＝閲覧履歴の削除）。
+//   不採用: Esc = 日本語入力と衝突する（変換の取り消しキー。変換確定直後のもう一押しが
+//     全消しになる）／アプリ全体で Esc は「閉じる・やめる」に割り当て済み（リーダー・
+//     コマンドパレット・note選択モード）で、「消す」に使うと意味が割れる。
+//   不採用: ⌘K = CommandPalette.tsx が全画面で ⌘/Ctrl+K を preventDefault して
+//     コマンドパレットを開く＝アプリ内で正面衝突。Windows Chrome では Ctrl+K が
+//     公式に「アドレスバーから検索」でもある。
+//   不採用: ⌥C = 既定動作は奪わないが、Mac では ⌥+文字は特殊文字入力の層（⌥C＝ç）で、
+//     「クリア」を連想させないうえ日本語入力中の挙動が環境依存。
+//   不採用: ⌘⌦（forward delete）= 既定動作は何も奪わない唯一の候補だが、MacBook では
+//     fn+delete が必要で実質3キー＝目的（押しやすさ）に反する。
+// - 旧キー ⌘⇧⌫ も当面そのまま効く（Shiftの有無を見ない）。247で覚えた押し方を無効に
+//   しないため。奪う既定動作は上のとおり同一なので、受け付けても新たな害はない。
 // - クリアは破壊的なので確認ダイアログではなく **Undo（↩ 元に戻す）** を画面側に置く。
 //   確認を挟むと「キーで速く消す」という目的自体が消えるため（R-52）。
 // ─────────────────────────────────────────────────────────────
 
 // キー併記の表記（Mac / Windows）。ボタンラベル・一覧・ガイドが同じ値を見る
 export const RUN_KEY_LABELS = {
-  mac: { run: '⌘↵', clear: '⌘⇧⌫' },
-  win: { run: 'Ctrl+↵', clear: 'Ctrl+Shift+⌫' },
+  mac: { run: '⌘↵', clear: '⌘⌫' },
+  win: { run: 'Ctrl+↵', clear: 'Ctrl+⌫' },
 } as const;
 
 // Mac判定は一度だけ。navigator を触るのは「ヒントを出す」と決まった後だけ＝
@@ -186,7 +211,7 @@ export type RunShortcutOptions = {
 };
 
 /**
- * 生成・実行画面の共通ショートカット（⌘/Ctrl+Enter=実行 / ⌘/Ctrl+Shift+Backspace=クリア）。
+ * 生成・実行画面の共通ショートカット（⌘/Ctrl+Enter=実行 / ⌘/Ctrl+Backspace=クリア）。
  * 各画面にキーハンドラを散らさず、この1本だけを設置する。
  */
 export function useRunShortcut(options: RunShortcutOptions) {
@@ -216,7 +241,8 @@ export function useRunShortcut(options: RunShortcutOptions) {
         o.onRun();
         return;
       }
-      if (e.key === 'Backspace' && e.shiftKey) {
+      // 248: ⌘/Ctrl+⌫（2キー）。Shift は見ない＝旧キー ⌘⇧⌫ も同じ経路で効く
+      if (e.key === 'Backspace') {
         if (!o.onClear || o.canClear === false) return;
         e.preventDefault();
         o.onClear();

@@ -843,7 +843,7 @@ test('C29: 実行・クリアのショートカット（247）— 未入力/入�
   // ── ①押し方が分かる: ボタンにキーが併記されている ──
   await expect(runBtn, '実行ボタンに実行キーが併記されていること').toHaveText(/(⌘↵|Ctrl\+↵)/);
   const clearBtn = page.getByRole('button', { name: /✕ クリア/ }).filter({ visible: true }).first();
-  await expect(clearBtn, 'クリアボタンにクリアキーが併記されていること').toHaveText(/(⌘⇧⌫|Ctrl\+Shift\+⌫)/);
+  await expect(clearBtn, 'クリアボタンにクリアキーが併記されていること').toHaveText(/(⌘⌫|Ctrl\+⌫)/);
 
   // ── ②未入力（空）: 押しても実行されない（無効ボタンと同じ挙動） ──
   await textarea.click();
@@ -866,14 +866,26 @@ test('C29: 実行・クリアのショートカット（247）— 未入力/入�
   expect(analyzeCalls(), '実行中に押しても二重実行しないこと').toBe(2);
 
   // ── ⑤クリア: キーで消せて、「↩ 元に戻す」で戻せる（破壊的操作のUndo） ──
+  // 248: キーは ⌘⌫（2キー）。入力欄にカーソルがある状態で効くこと＋
+  //      ブラウザの「戻る」を誘発しない（URLが変わらない）ことまで機械判定する
+  const urlBeforeClear = page.url();
   await textarea.click();
-  await page.keyboard.press('ControlOrMeta+Shift+Backspace');
-  await expect(textarea, 'クリアキーで入力が消えること').toHaveValue('');
+  await expect(textarea, 'クリアキーは入力欄にカーソルがある状態で押す').toBeFocused();
+  await page.keyboard.press('ControlOrMeta+Backspace');
+  await expect(textarea, 'クリアキー（⌘⌫）で入力が消えること').toHaveValue('');
+  expect(page.url(), 'クリアキーでブラウザの「戻る」が起きないこと').toBe(urlBeforeClear);
   const undo = page.getByRole('button', { name: '↩ 元に戻す' });
   await expect(undo, 'クリア直後はUndoが出ること').toBeVisible();
   await undo.click();
   await expect(textarea, 'Undoで元の入力に戻ること').toHaveValue(INPUT);
   await expect(undo, 'Undoは一度使うと消えること').toHaveCount(0);
+
+  // ── ⑤-b 248: 247で覚えた旧キー ⌘⇧⌫ も引き続き効く（移行で押し方を無効にしない） ──
+  await textarea.click();
+  await page.keyboard.press('ControlOrMeta+Shift+Backspace');
+  await expect(textarea, '旧キー ⌘⇧⌫ でも消せること').toHaveValue('');
+  await page.getByRole('button', { name: '↩ 元に戻す' }).click();
+  await expect(textarea).toHaveValue(INPUT);
 
   // ── ⑥ショートカット一覧（?小窓）に登録され、この画面では有効表示になっている ──
   await page.locator('button[title*="キーボードショートカット一覧"]').click();
@@ -995,9 +1007,10 @@ test('C31: 生成結果の自動ストック保存（247・ディープリサー
   expect(libraryPosts.length, '保存要求はちょうど1回であること').toBe(1);
   expect(libraryPosts[0].content, '生成本文がそのまま保存されること').toContain(AUTO_TOKEN);
 
-  // ── ③クリアのUndo（トピック入力欄） ──
+  // ── ③クリアのUndo（トピック入力欄）。248: キーは ⌘⌫（2キー）で3画面とも統一 ──
   await topic.click();
-  await page.keyboard.press('ControlOrMeta+Shift+Backspace');
+  await expect(topic, '入力欄にカーソルがある状態で効くこと').toBeFocused();
+  await page.keyboard.press('ControlOrMeta+Backspace');
   await expect(topic).toHaveValue('');
   const undo = page.getByRole('button', { name: '↩ 元に戻す' });
   await expect(undo).toBeVisible();

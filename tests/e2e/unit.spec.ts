@@ -276,9 +276,15 @@ test('U15: 実行・クリアのキーが一覧（小窓＝使い方ガイドの
   const descs = runSection!.items.map((i) => i.desc).join(' / ');
   expect(descs).toContain('実行する');
   expect(descs).toContain('クリア');
-  // 実行は ⌘+Enter、クリアは ⌘+⇧+⌫（キーの並びまで一覧に出す＝押し方が分かる）
-  expect(runSection!.items.map((i) => i.keys.join('+'))).toEqual(['⌘+Enter', '⌘+⇧+⌫']);
+  // 実行は ⌘+Enter、クリアは ⌘+⌫（キーの並びまで一覧に出す＝押し方が分かる）
+  // 248: クリアを ⌘⇧⌫（3キー）から ⌘⌫（2キー）へ変更。一覧・ボタン併記が同じ値を見る
+  expect(runSection!.items.map((i) => i.keys.join('+'))).toEqual(['⌘+Enter', '⌘+⌫']);
   // ボタン併記の表記が Mac / Windows の両方用意されている（片方だけ嘘の案内にしない）
-  expect(RUN_KEY_LABELS.mac).toEqual({ run: '⌘↵', clear: '⌘⇧⌫' });
-  expect(RUN_KEY_LABELS.win).toEqual({ run: 'Ctrl+↵', clear: 'Ctrl+Shift+⌫' });
+  expect(RUN_KEY_LABELS.mac).toEqual({ run: '⌘↵', clear: '⌘⌫' });
+  expect(RUN_KEY_LABELS.win).toEqual({ run: 'Ctrl+↵', clear: 'Ctrl+⌫' });
+  // 248: どのキーも修飾キー1つ＋1キー（＝2キー）に収まっていること。
+  // 「押しやすさ」を意見ではなく形で固定する（3キー以上をこの一覧に足せない）
+  for (const item of runSection!.items) {
+    expect(item.keys.length, `${item.desc} は2キーで押せること`).toBeLessThanOrEqual(2);
+  }
 });
