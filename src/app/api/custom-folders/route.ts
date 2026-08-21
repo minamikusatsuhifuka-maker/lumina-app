@@ -1,7 +1,10 @@
-// 249: お気に入りのカスタムフォルダ分類 API（保存一覧 / AI参照素材で共用）。
+// 249/252: お気に入りのカスタムフォルダ分類 API（3画面で共用）。
 //
-// scope でフォルダ体系を分ける（'text_analysis' = 📁保存一覧 / 'context' = 🧠AI参照素材）。
-// 既存の自動カテゴリ（folder / category カラム）には一切触らない＝別軸で併存する。
+// scope はアイテムの種類を表す（'text_analysis' = 🗂保存一覧 / 'library' = 📚リサーチ保存 /
+// 'context' = 🧠AI参照素材）。どの scope が同じフォルダ一覧を見るかは lib 側の
+// FOLDER_SYSTEM_OF が決める（252: text_analysis と library は 'stock' 体系を共有、
+// context は独立）。既存の自動カテゴリ（folder / category / folder_name カラム）には
+// 一切触らない＝別軸で併存する。
 //
 // GET    ?scope=...            フォルダ一覧（件数つき）＋お気に入りの総数/未分類件数
 // POST   {scope, name}         フォルダ新規作成
@@ -13,8 +16,9 @@ import { auth } from '@/lib/auth';
 import { sql } from '@/lib/db';
 import {
   ensureCustomFolderTables,
+  folderSystemOf,
   getFavoriteSummary,
-  isFolderScope,
+  isItemScope,
   isUniqueViolation,
   listFoldersWithCounts,
   MAX_FOLDERS_PER_SCOPE,
@@ -37,7 +41,7 @@ export async function GET(req: NextRequest) {
   if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
   const scope = new URL(req.url).searchParams.get('scope');
-  if (!isFolderScope(scope)) {
+  if (!isItemScope(scope)) {
     return NextResponse.json({ error: 'scope が不正です' }, { status: 400 });
   }
 
@@ -62,7 +66,7 @@ export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
     const scope = body?.scope;
-    if (!isFolderScope(scope)) {
+    if (!isItemScope(scope)) {
       return NextResponse.json({ error: 'scope が不正です' }, { status: 400 });
     }
     const name = normalizeFolderName(body?.name);
@@ -72,9 +76,12 @@ export async function POST(req: NextRequest) {
 
     await ensureCustomFolderTables();
 
+    // 252: フォルダは体系（stock / context）に属する。どの画面から作っても
+    // 同じ体系の画面すべてに現れる
+    const system = folderSystemOf(scope);
     const countRows = (await sql`
       SELECT COUNT(*)::int AS n FROM custom_folders
-      WHERE user_id = ${userId} AND scope = ${scope}
+      WHERE user_id = ${userId} AND scope = ${system}
     `) as { n: number }[];
     if ((countRows[0]?.n ?? 0) >= MAX_FOLDERS_PER_SCOPE) {
       return NextResponse.json(
@@ -87,9 +94,9 @@ export async function POST(req: NextRequest) {
     const rows = (await sql`
       INSERT INTO custom_folders (user_id, scope, name, sort_order)
       VALUES (
-        ${userId}, ${scope}, ${name},
+        ${userId}, ${system}, ${name},
         COALESCE((SELECT MAX(sort_order) + 1 FROM custom_folders
-                   WHERE user_id = ${userId} AND scope = ${scope}), 0)
+                   WHERE user_id = ${userId} AND scope = ${system}), 0)
       )
       RETURNING id, name, sort_order
     `) as { id: number; name: string; sort_order: number }[];
@@ -112,10 +119,11 @@ export async function PATCH(req: NextRequest) {
   try {
     const body = await req.json();
     const scope = body?.scope;
-    if (!isFolderScope(scope)) {
+    if (!isItemScope(scope)) {
       return NextResponse.json({ error: 'scope が不正です' }, { status: 400 });
     }
     const action = body?.action;
+    const system = folderSystemOf(scope);
     await ensureCustomFolderTables();
 
     // フォルダ名の変更（記事の所属はそのまま）
@@ -133,7 +141,7 @@ export async function PATCH(req: NextRequest) {
       }
       const rows = (await sql`
         UPDATE custom_folders SET name = ${name}
-        WHERE id = ${id} AND user_id = ${userId} AND scope = ${scope}
+        WHERE id = ${id} AND user_id = ${userId} AND scope = ${system}
         RETURNING id, name, sort_order
       `) as { id: number; name: string }[];
       if (rows.length === 0) {
@@ -154,7 +162,7 @@ export async function PATCH(req: NextRequest) {
         ids.map(
           (id, i) => sql`
             UPDATE custom_folders SET sort_order = ${i}
-            WHERE id = ${id} AND user_id = ${userId} AND scope = ${scope}
+            WHERE id = ${id} AND user_id = ${userId} AND scope = ${system}
           `,
         ),
       );
@@ -163,8 +171,11 @@ export async function PATCH(req: NextRequest) {
 
     // 記事の分類を folderIds の内容に揃える（追加・変更・全解除を1本で表現）
     if (action === 'assign') {
-      const itemId = Number(body?.itemId);
-      if (!Number.isFinite(itemId)) {
+      // 252: itemId は文字列で扱う（library の id は uuid・他は integer）
+      const itemKey = body?.itemId === undefined || body?.itemId === null
+        ? ''
+        : String(body.itemId).trim();
+      if (!itemKey) {
         return NextResponse.json({ error: 'itemId が不正です' }, { status: 400 });
       }
       const folderIds: number[] = Array.isArray(body?.folderIds) ? body.folderIds : [];
@@ -173,14 +184,17 @@ export async function PATCH(req: NextRequest) {
       const owned =
         scope === 'text_analysis'
           ? ((await sql`SELECT 1 FROM text_analysis_saves
-                        WHERE id = ${itemId} AND user_id = ${userId}`) as unknown[])
-          : ((await sql`SELECT 1 FROM context_saves
-                        WHERE id = ${itemId} AND user_id = ${userId}`) as unknown[]);
+                        WHERE id::text = ${itemKey} AND user_id = ${userId}`) as unknown[])
+          : scope === 'library'
+            ? ((await sql`SELECT 1 FROM library
+                        WHERE id::text = ${itemKey} AND user_id = ${userId}`) as unknown[])
+            : ((await sql`SELECT 1 FROM context_saves
+                        WHERE id::text = ${itemKey} AND user_id = ${userId}`) as unknown[]);
       if (owned.length === 0) {
         return NextResponse.json({ error: 'Not found' }, { status: 404 });
       }
 
-      await setItemFolders(userId, scope, itemId, folderIds);
+      await setItemFolders(userId, scope, itemKey, folderIds);
       const [folders, summary] = await Promise.all([
         listFoldersWithCounts(userId, scope),
         getFavoriteSummary(userId, scope),
@@ -209,7 +223,7 @@ export async function DELETE(req: NextRequest) {
     const { searchParams } = new URL(req.url);
     const scope = searchParams.get('scope');
     const id = Number(searchParams.get('id'));
-    if (!isFolderScope(scope)) {
+    if (!isItemScope(scope)) {
       return NextResponse.json({ error: 'scope が不正です' }, { status: 400 });
     }
     if (!Number.isFinite(id)) {
@@ -218,7 +232,7 @@ export async function DELETE(req: NextRequest) {
     await ensureCustomFolderTables();
     const rows = (await sql`
       DELETE FROM custom_folders
-      WHERE id = ${id} AND user_id = ${userId} AND scope = ${scope}
+      WHERE id = ${id} AND user_id = ${userId} AND scope = ${folderSystemOf(scope)}
       RETURNING id
     `) as { id: number }[];
     if (rows.length === 0) {

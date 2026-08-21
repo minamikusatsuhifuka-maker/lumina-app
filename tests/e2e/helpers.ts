@@ -98,7 +98,9 @@ export async function cleanupE2ESaves(request: APIRequestContext) {
 
 export const FOLDERS_API = '/api/custom-folders';
 export const CONTEXT_API = '/api/context-saves';
-export type FolderScopeName = 'text_analysis' | 'context';
+// 252: scope はアイテム種別。どの scope が同じフォルダ一覧を見るかはサーバーが決める
+// （text_analysis と library は共有 / context は独立）
+export type FolderScopeName = 'text_analysis' | 'library' | 'context';
 
 export type FolderListResponse = {
   folders: { id: number; name: string; sort_order: number; count: number }[];
@@ -131,7 +133,7 @@ export async function createFolder(
 export async function assignFolders(
   request: APIRequestContext,
   scope: FolderScopeName,
-  itemId: number,
+  itemId: number | string,
   folderIds: number[],
 ) {
   return request.patch(FOLDERS_API, {
@@ -215,6 +217,7 @@ export async function cleanupE2ELibrary(request: APIRequestContext) {
 
 /** 過去実行分を含め、[E2E] 印のフォルダを両スコープから全削除する */
 export async function cleanupE2EFolders(request: APIRequestContext) {
+  // 252: text_analysis と library は同じ体系なので、片方を掃除すれば両方から消える
   for (const scope of ['text_analysis', 'context'] as FolderScopeName[]) {
     const { folders } = await listFolders(request, scope);
     for (const f of folders) {

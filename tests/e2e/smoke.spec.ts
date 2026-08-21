@@ -1595,3 +1595,158 @@ test('C41: メニュー名の変更 — リネーム→サイドバー反映→�
   await page.goto(HREF);
   await expect(page.getByRole('heading', { level: 1 })).toContainText('AI参照素材');
 });
+
+// ============================================================================
+// 252: リサーチ保存にマイフォルダを追加（🗂保存一覧と同じフォルダ一覧を共有）
+// - 共有されるのはフォルダ一覧。AI参照素材は独立体系のまま
+// ============================================================================
+
+test('C42: 保存一覧とリサーチ保存でフォルダを共有する（作成が双方向に見え、1つに混在して入る）', async ({
+  request,
+}) => {
+  // 保存一覧の側から作ったフォルダ
+  const fromSaves = await createFolder(request, 'text_analysis', `${E2E_PREFIX} 共有A ${RUN_ID}`);
+  // リサーチ保存の側から作ったフォルダ
+  const fromLibrary = await createFolder(request, 'library', `${E2E_PREFIX} 共有B ${RUN_ID}`);
+  // AI参照素材は独立体系（同名でも別物として作れる）
+  const ctxFolder = await createFolder(request, 'context', `${E2E_PREFIX} 共有A ${RUN_ID}`);
+
+  const savedId = await createSave(request, {
+    title: `共有フォルダ検証 ${RUN_ID}`,
+    content: `保存一覧側の記事（${RUN_ID}）`,
+  });
+  const libId = await createLibraryItem(request, {
+    title: `共有フォルダ検証 ${RUN_ID}`,
+    content: `リサーチ保存側の資料（${RUN_ID}）`,
+  });
+
+  try {
+    // 1) どちらの画面から見ても、同じ2つのフォルダが並ぶ
+    const savesView = await listFolders(request, 'text_analysis');
+    const libraryView = await listFolders(request, 'library');
+    for (const view of [savesView, libraryView]) {
+      const ids = view.folders.map((f) => f.id);
+      expect(ids, '保存一覧側で作ったフォルダが見えること').toContain(fromSaves);
+      expect(ids, 'リサーチ保存側で作ったフォルダが見えること').toContain(fromLibrary);
+      expect(ids, 'AI参照素材のフォルダは混ざらないこと').not.toContain(ctxFolder);
+    }
+
+    // 2) 1つのフォルダに、分析結果とDR結果が混在して入る
+    expect((await assignFolders(request, 'text_analysis', savedId, [fromSaves])).status()).toBe(200);
+    expect((await assignFolders(request, 'library', libId, [fromSaves])).status()).toBe(200);
+    const merged = await listFolders(request, 'library');
+    expect(
+      merged.folders.find((f) => f.id === fromSaves)!.count,
+      '両画面の記事が合算されて数えられること',
+    ).toBe(2);
+
+    // 3) 絞り込みは各画面のアイテムだけを返す（混在していても画面はまたがない）
+    const savedFiltered = await listSaves(request, { cfolder: fromSaves, limit: 100 });
+    expect(savedFiltered.items.map((i) => i.id)).toEqual([savedId]);
+    const libFiltered = await request.get(`${LIBRARY_API}?q=${encodeURIComponent(RUN_ID)}`);
+    expect(libFiltered.status()).toBe(200);
+    const libRows = (await libFiltered.json()) as { id: string; custom_folder_ids?: number[] }[];
+    const libRow = libRows.find((r) => r.id === libId)!;
+    expect(libRow.custom_folder_ids, 'リサーチ保存の一覧に所属フォルダIDが載ること').toContain(fromSaves);
+
+    // 4) AI参照素材の一覧には共有体系のフォルダが出ない
+    const ctxView = await listFolders(request, 'context');
+    const ctxIds = ctxView.folders.map((f) => f.id);
+    expect(ctxIds).not.toContain(fromSaves);
+    expect(ctxIds).not.toContain(fromLibrary);
+    expect(ctxIds).toContain(ctxFolder);
+
+    // 5) リネームは両画面に反映される（同じ1つのフォルダなので当然そうなる）
+    const renamed = `${E2E_PREFIX} 共有A改 ${RUN_ID}`;
+    const res = await request.patch(FOLDERS_API, {
+      data: { scope: 'library', action: 'rename', id: fromSaves, name: renamed },
+    });
+    expect(res.status(), 'リサーチ保存側からリネームできること').toBe(200);
+    expect(
+      (await listFolders(request, 'text_analysis')).folders.find((f) => f.id === fromSaves)!.name,
+      '保存一覧側にも反映されること',
+    ).toBe(renamed);
+
+    // 6) 250の一括削除と併用: リサーチ保存の記事を消すと、その分類だけが外れる
+    const del = await request.delete(LIBRARY_API, { data: { ids: [libId] } });
+    expect(del.status()).toBe(200);
+    const afterDelete = await listFolders(request, 'text_analysis');
+    expect(
+      afterDelete.folders.find((f) => f.id === fromSaves)!.count,
+      '削除した資料の分類が外れ、残った記事だけが数えられること',
+    ).toBe(1);
+    // 保存一覧側の記事は無傷
+    expect((await request.get(`${SAVES_API}?id=${savedId}`)).status()).toBe(200);
+
+    // 7) フォルダを消しても記事は消えない（249の方針維持）
+    expect((await deleteFolder(request, 'library', fromSaves)).status()).toBe(200);
+    expect(
+      (await request.get(`${SAVES_API}?id=${savedId}`)).status(),
+      'フォルダを消しても記事は残ること',
+    ).toBe(200);
+  } finally {
+    await deleteFolder(request, 'text_analysis', fromSaves);
+    await deleteFolder(request, 'text_analysis', fromLibrary);
+    await deleteFolder(request, 'context', ctxFolder);
+    await deleteSave(request, savedId);
+    await request.delete(LIBRARY_API, { data: { ids: [libId] } });
+  }
+});
+
+test('C43: リサーチ保存の画面で☆から分類し、バッジ表示とフォルダ絞り込みが効く（252のUI）', async ({
+  page,
+  request,
+}) => {
+  const name = `${E2E_PREFIX} UI252 ${RUN_ID}`;
+  const itemId = await createLibraryItem(request, {
+    title: `画面分類 ${RUN_ID}`,
+    content: `リサーチ保存のマイフォルダUI検証（${RUN_ID}）`,
+  });
+
+  let folderId = 0;
+  try {
+    await page.goto('/dashboard/library');
+    const bar = page.locator('[data-custom-folder-bar="library"]');
+    await expect(bar, 'リサーチ保存にマイフォルダのバーが出ること').toBeVisible();
+
+    // 管理モードからフォルダを作る
+    await bar.locator('[data-folder-manage-toggle]').click();
+    await bar.locator('[data-folder-bar-new-name]').fill(name);
+    await bar.locator('[data-folder-bar-create]').click();
+    const card = bar.locator('[data-folder-card]').filter({ hasText: name });
+    await expect(card).toBeVisible();
+    folderId = Number(await card.getAttribute('data-folder-card'));
+    expect(folderId).toBeGreaterThan(0);
+
+    // 検索で対象カードを1件に絞ってから☆を押す（876件の中から探さない）
+    await page.locator('[data-library-search]').fill(RUN_ID);
+    const favBtn = page.locator(`[data-favorite-button="${itemId}"]`);
+    await favBtn.scrollIntoViewIfNeeded();
+    await favBtn.click();
+    const picker = page.locator('[data-folder-picker]');
+    await expect(picker, '☆から分類パネルが開くこと').toBeVisible();
+    await picker.locator(`[data-folder-option="${folderId}"] input`).check();
+
+    // サーバに保存されたことをAPIで確認（見た目だけで判定しない）
+    await expect
+      .poll(async () => (await listFolders(request, 'library')).folders.find((f) => f.id === folderId)?.count)
+      .toBe(1);
+
+    // カードにバッジが出る
+    await picker.getByRole('button', { name: '閉じる' }).click();
+    await expect(
+      page.locator(`[data-folder-badge="${folderId}"]`).first(),
+      'コンパクトカードに所属フォルダのバッジが出ること',
+    ).toBeVisible();
+
+    // フォルダで絞り込むと、その資料だけが残る
+    await page.locator('[data-library-search]').fill('');
+    await card.click();
+    await expect
+      .poll(async () => page.locator('[data-favorite-button]').count())
+      .toBe(1);
+  } finally {
+    if (folderId) await deleteFolder(request, 'library', folderId);
+    await request.delete(LIBRARY_API, { data: { ids: [itemId] } });
+  }
+});

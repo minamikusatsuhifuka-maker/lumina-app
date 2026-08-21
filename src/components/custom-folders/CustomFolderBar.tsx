@@ -7,12 +7,12 @@
 // 記事は複数のフォルダに同時に属せる。
 
 import { useEffect, useState } from 'react';
-import type { CustomFolder, FolderFilter, FolderScope } from './useCustomFolders';
+import type { CustomFolder, FolderFilter, ItemScope } from './useCustomFolders';
 import { FOLDER_ACCENT, folderCardStyle } from './folderStyles';
 
 interface Props {
   /** どちらの画面のフォルダ体系か（/dashboard/saved は両パネルを display:none で同時に持つため識別が要る） */
-  scope: FolderScope;
+  scope: ItemScope;
   folders: CustomFolder[];
   favoriteTotal: number;
   unfiledFavoriteCount: number;

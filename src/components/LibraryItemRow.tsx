@@ -66,6 +66,11 @@ interface Props {
   onTagClick?: (tag: string) => void;
   // compact = ディープリサーチタブの3〜4列グリッド用（タイトル/日付/文字数のみ・操作はホバー表示）
   variant?: 'default' | 'compact';
+  // 252: 所属マイフォルダのバッジ（呼び出し側が組み立てて渡す＝この部品はフォルダ機構に依存しない）
+  folderBadges?: React.ReactNode;
+  // 252: ☆から分類パネルを開く。渡されたときは onFavoriteToggle の代わりにこちらを呼ぶ
+  // （このファイルの item は既存コード互換で any だが、新しい口は必要な形だけを受ける）
+  onFavoriteClick?: (item: { id: string; is_favorite?: number }, rect: DOMRect) => void;
 }
 
 export function LibraryItemRow({
@@ -80,6 +85,8 @@ export function LibraryItemRow({
   isExpanded,
   onTagClick,
   variant = 'default',
+  folderBadges,
+  onFavoriteClick,
 }: Props) {
   const meta = parseMetadata(item.metadata);
   const subCategory: string | undefined = typeof meta?.subCategory === 'string' ? meta.subCategory : undefined;
@@ -206,6 +213,22 @@ export function LibraryItemRow({
           </strong>
         </div>
 
+        {/* 252: 所属マイフォルダ。コンパクトカードなので1行に収め、溢れは隠す */}
+        {folderBadges && (
+          <div
+            style={{
+              display: 'flex',
+              gap: 4,
+              flexWrap: 'nowrap',
+              overflow: 'hidden',
+              maxHeight: 20,
+              minWidth: 0,
+            }}
+          >
+            {folderBadges}
+          </div>
+        )}
+
         {/* 日付・文字数のみ */}
         <div style={{ fontSize: 11, color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
           {createdDate && <span>{createdDate}</span>}
@@ -250,11 +273,24 @@ export function LibraryItemRow({
               📥<span className="xl:hidden"> MD</span>
             </button>
           )}
-          {onFavoriteToggle && (
+          {(onFavoriteClick || onFavoriteToggle) && (
             <button
               type="button"
-              onClick={() => onFavoriteToggle(item)}
-              title={item.is_favorite ? 'お気に入り解除' : 'お気に入りに追加'}
+              data-favorite-button={item.id}
+              onClick={(e) =>
+                onFavoriteClick
+                  ? onFavoriteClick(item, e.currentTarget.getBoundingClientRect())
+                  : onFavoriteToggle?.(item)
+              }
+              title={
+                onFavoriteClick
+                  ? item.is_favorite
+                    ? 'フォルダ分類の変更・お気に入り解除'
+                    : 'お気に入りに登録してフォルダに分類する'
+                  : item.is_favorite
+                    ? 'お気に入り解除'
+                    : 'お気に入りに追加'
+              }
               style={{
                 ...compactBtnStyle,
                 color: item.is_favorite ? '#f59e0b' : 'var(--text-secondary)',
@@ -549,10 +585,15 @@ export function LibraryItemRow({
                 📥 MD
               </button>
             )}
-            {onFavoriteToggle && (
+            {(onFavoriteClick || onFavoriteToggle) && (
               <button
                 type="button"
-                onClick={() => onFavoriteToggle(item)}
+                data-favorite-button={item.id}
+                onClick={(e) =>
+                  onFavoriteClick
+                    ? onFavoriteClick(item, e.currentTarget.getBoundingClientRect())
+                    : onFavoriteToggle?.(item)
+                }
                 style={{
                   ...btnStyle,
                   color: item.is_favorite ? '#f59e0b' : 'var(--text-secondary)',
@@ -560,7 +601,7 @@ export function LibraryItemRow({
                   background: item.is_favorite ? 'rgba(245,158,11,0.08)' : 'var(--bg-primary)',
                 }}
               >
-                {item.is_favorite ? '⭐ お気に入り' : '☆ お気に入り'}
+                {item.is_favorite ? (onFavoriteClick ? '⭐ 分類' : '⭐ お気に入り') : '☆ お気に入り'}
               </button>
             )}
             {onDelete && (

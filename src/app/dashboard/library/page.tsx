@@ -1,8 +1,24 @@
 'use client';
-import { useState, useEffect, useMemo, Suspense } from 'react';
+import { useState, useEffect, useMemo, useRef, Suspense } from 'react';
+// 252: このファイルの既存コードは item を any で扱っているが、252で足した経路だけは
+// 必要な形だけを持つ軽い型を通す（新しく any を増やさない）
+type LibraryRow = {
+  id: string;
+  is_favorite?: number;
+  custom_folder_ids?: number[];
+  [key: string]: unknown;
+};
 import { useSearchParams, useRouter } from 'next/navigation';
 import { copyRichMarkdown } from '@/lib/rich-copy';
 import { confirmBulkDelete } from '@/lib/bulk-delete-confirm';
+// 252: マイフォルダ（🗂保存一覧と同じフォルダ一覧を共有）
+import CustomFolderBar from '@/components/custom-folders/CustomFolderBar';
+import FolderPickerPopover from '@/components/custom-folders/FolderPickerPopover';
+import FolderBadges from '@/components/custom-folders/FolderBadges';
+import {
+  useCustomFolders,
+  type FolderFilter,
+} from '@/components/custom-folders/useCustomFolders';
 import { triggerDownload } from '@/lib/download';
 import { KINDLE_LIBRARY_TYPES, MAX_KINDLE_SOURCES } from '@/lib/kindle-limits';
 import { LibraryItemRow } from '@/components/LibraryItemRow';
@@ -81,6 +97,10 @@ function LibraryPageInner() {
   const [retryElapsed, setRetryElapsed] = useState(0);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [mergeMode, setMergeMode] = useState(false);
+  // 252: マイフォルダ（保存一覧と共有の 'stock' 体系）。絞り込みはタブ・検索とAND
+  const customFolders = useCustomFolders('library', (msg) => alert(msg));
+  const [activeCustomFolder, setActiveCustomFolder] = useState<FolderFilter>(null);
+  const [folderPicker, setFolderPicker] = useState<{ id: string; rect: DOMRect } | null>(null);
   const [mergeResult, setMergeResult] = useState('');
   const [merging, setMerging] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
@@ -152,6 +172,40 @@ function LibraryPageInner() {
     const newVal = item.is_favorite ? 0 : 1;
     await fetch('/api/library', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: item.id, is_favorite: newVal }) });
     setItems(prev => prev.map(i => i.id === item.id ? { ...i, is_favorite: newVal } : i));
+    void customFolders.reload();
+  };
+
+  // ── 252: マイフォルダ（249と同じ操作感） ──
+  // 分類を変えたまま閉じたときだけ、絞り込み中の表示を整えるためのフラグ
+  const folderPickerDirty = useRef(false);
+
+  /** ☆ボタン: 未登録ならお気に入りにしてから、いずれの場合も分類パネルを開く */
+  const handleFavoriteClick = (item: LibraryRow, rect: DOMRect) => {
+    if (!item.is_favorite) void toggleFavorite(item);
+    setFolderPicker({ id: item.id, rect });
+  };
+
+  const closeFolderPicker = () => {
+    folderPickerDirty.current = false;
+    setFolderPicker(null);
+  };
+
+  /** 所属フォルダを選択内容に置き換える（チェックした時点で保存） */
+  const handleAssignFolders = async (id: string, folderIds: number[]) => {
+    const before = items.find((i) => i.id === id)?.custom_folder_ids ?? [];
+    folderPickerDirty.current = true;
+    setItems(prev => prev.map(i => (i.id === id ? { ...i, custom_folder_ids: folderIds } : i)));
+    const ok = await customFolders.assignItem(id, folderIds);
+    if (!ok) {
+      setItems(prev => prev.map(i => (i.id === id ? { ...i, custom_folder_ids: before } : i)));
+    }
+  };
+
+  /** パネルからのお気に入り解除。分類だけ残らないよう先に全解除する */
+  const handleUnfavorite = async (item: LibraryRow) => {
+    await customFolders.assignItem(item.id, []);
+    setItems(prev => prev.map(i => (i.id === item.id ? { ...i, custom_folder_ids: [] } : i)));
+    await toggleFavorite(item);
   };
 
   const saveEdit = async (id: string) => {
@@ -354,10 +408,22 @@ function LibraryPageInner() {
     );
   };
 
+  // 252: マイフォルダの絞り込み（全件が手元にあるのでクライアント側で足りる）。
+  // タブ・検索・お気に入りとはANDで重なる。
+  // 入ってきた配列の型をそのまま返す（このファイルの既存コードは item を any で扱うため、
+  // ここで型を狭めると呼び出し側に波及する。any を増やさずに素通しできるようジェネリクスにする）
+  const filterByCustomFolder = <T extends LibraryRow>(list: T[]): T[] => {
+    if (activeCustomFolder === null) return list;
+    if (activeCustomFolder === 'unfiled') {
+      return list.filter((i) => i.is_favorite && (i.custom_folder_ids?.length ?? 0) === 0);
+    }
+    return list.filter((i) => (i.custom_folder_ids ?? []).includes(activeCustomFolder));
+  };
+
   const tabFilteredItems = useMemo(() => {
     // searchScope='all' で検索クエリ有のときはタブ無視で全体検索
     if (search.trim() && searchScope === 'all') {
-      return filterBySearch(items);
+      return filterByCustomFolder(filterBySearch(items));
     }
     // それ以外は従来通り（タブ → 検索 → お気に入り絞り込み → サブカテゴリ絞り込み）
     let list = items;
@@ -379,9 +445,9 @@ function LibraryPageInner() {
         return !!m?.classifyError && !m?.subCategory;
       });
     }
-    return list;
+    return filterByCustomFolder(list);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [items, search, searchScope, activeTab, favFilterInTab, selectedSubCategory, showFailedOnly]);
+  }, [items, search, searchScope, activeTab, favFilterInTab, selectedSubCategory, showFailedOnly, activeCustomFolder]);
 
   // タブ内で利用可能なサブカテゴリ一覧（all/favorite では空）
   const availableSubCategories = useMemo<string[]>(() => {
@@ -496,6 +562,12 @@ function LibraryPageInner() {
         selected={selectedIds.has(item.id)}
         onSelectToggle={(id, checked) => { const next = new Set(selectedIds); if (checked) next.add(id); else next.delete(id); setSelectedIds(next); }}
         onFavoriteToggle={toggleFavorite}
+        onFavoriteClick={handleFavoriteClick}
+        folderBadges={
+          (item.custom_folder_ids?.length ?? 0) > 0 ? (
+            <FolderBadges folderIds={item.custom_folder_ids} folders={customFolders.folders} />
+          ) : undefined
+        }
         onDelete={deleteItem}
         onEdit={(it) => { setEditingId(it.id); setEditTags(it.tags || ''); setEditGroup(it.group_name || '未分類'); }}
         onExportTxt={downloadTxt}
@@ -578,6 +650,23 @@ function LibraryPageInner() {
       <p style={{ color: 'var(--text-muted)', marginBottom: 6 }}>保存した調査・分析・文章を管理。お気に入り・タグ・フォルダ分けに対応。</p>
       <p style={{ color: 'var(--text-muted)', fontSize: 13, marginBottom: 20 }}>読み返す用の保管庫です。生成時にAIへ参照させたいものは <a href="/dashboard/context-library" style={{ color: 'var(--accent)', fontWeight: 600 }}>🧠 AI参照素材</a> へ</p>
 
+      {/* 252: マイフォルダ（🗂保存一覧と同じフォルダ一覧を共有。自動カテゴリのタブとは別軸） */}
+      <div style={{ marginBottom: 16 }}>
+        <CustomFolderBar
+          scope="library"
+          folders={customFolders.folders}
+          favoriteTotal={customFolders.favoriteTotal}
+          unfiledFavoriteCount={customFolders.unfiledFavoriteCount}
+          value={activeCustomFolder}
+          onChange={setActiveCustomFolder}
+          onCreate={customFolders.createFolder}
+          onRename={customFolders.renameFolder}
+          onDelete={customFolders.deleteFolder}
+          onReorder={customFolders.reorderFolders}
+          storageKey="lib_custom_folder_open"
+        />
+      </div>
+
       {/* 選択モードガイド */}
       {mergeMode && (
         <div style={{ padding: '10px 16px', background: 'var(--accent-soft)', border: '1px solid var(--border-accent)', borderRadius: 10, marginBottom: 16, fontSize: 13, color: 'var(--accent)', fontWeight: 600 }}>
@@ -588,6 +677,7 @@ function LibraryPageInner() {
       {/* 検索 + スコープ切替 + お気に入り絞り込み + 一括AI分類 */}
       <div style={{ display: 'flex', gap: 8, marginBottom: 8, alignItems: 'center', flexWrap: 'wrap' }}>
         <input
+          data-library-search
           value={search}
           onChange={e => setSearch(e.target.value)}
           placeholder="🔍 タイトル・本文・タグを検索..."
@@ -983,6 +1073,25 @@ function LibraryPageInner() {
           </div>
         </div>
       )}
+
+      {/* 252: 分類パネル（☆ボタンから開く。createPortalでbody直下に出す＝R-19） */}
+      {folderPicker &&
+        (() => {
+          const target = items.find((i) => i.id === folderPicker.id);
+          if (!target) return null;
+          return (
+            <FolderPickerPopover
+              anchorRect={folderPicker.rect}
+              folders={customFolders.folders}
+              selectedIds={target.custom_folder_ids ?? []}
+              isFavorite={!!target.is_favorite}
+              onChange={(ids) => void handleAssignFolders(target.id, ids)}
+              onCreate={customFolders.createFolder}
+              onUnfavorite={() => void handleUnfavorite(target)}
+              onClose={closeFolderPicker}
+            />
+          );
+        })()}
     </div>
   );
 }

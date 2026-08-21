@@ -3,6 +3,13 @@ import { auth } from '@/lib/auth';
 import { v4 as uuidv4 } from 'uuid';
 import { neon } from '@neondatabase/serverless';
 import { sanitizeForDb } from '@/lib/sanitize';
+// 252: マイフォルダ（🗂保存一覧と共有する 'stock' 体系）
+import {
+  detachItemFromFolders,
+  detachItemsFromFolders,
+  ensureCustomFolderTables,
+  getFolderIdsForItems,
+} from '@/lib/custom-folders';
 
 // 250: 一括削除の1リクエストあたりの上限（text-analysis / context-saves と同値）。
 const BULK_DELETE_LIMIT = 500;
@@ -43,13 +50,32 @@ export async function GET(req: NextRequest) {
         ORDER BY relevance ASC, created_at DESC
         LIMIT 50
       `;
-    return NextResponse.json(rows);
+    return NextResponse.json(await withCustomFolders(userId, rows));
   }
 
   const rows = typeFilter
     ? await sql`SELECT * FROM library WHERE user_id = ${userId} AND type = ${typeFilter} ORDER BY is_favorite DESC, created_at DESC`
     : await sql`SELECT * FROM library WHERE user_id = ${userId} ORDER BY is_favorite DESC, created_at DESC`;
-  return NextResponse.json(rows);
+  return NextResponse.json(await withCustomFolders(userId, rows));
+}
+
+// 252: 所属マイフォルダを付与する（本体クエリは変えず別クエリで足す）。
+// ここが失敗しても一覧そのものは返す＝付加情報の欠落で本体を壊さない（R-39）。
+// library は全件返す設計だが、対象は分類済みの行だけなので1クエリで足りる。
+type LibraryRow = Record<string, unknown> & { id?: unknown };
+async function withCustomFolders(
+  userId: string,
+  rows: Record<string, unknown>[],
+): Promise<LibraryRow[]> {
+  if (!Array.isArray(rows) || rows.length === 0) return rows;
+  try {
+    await ensureCustomFolderTables();
+    const map = await getFolderIdsForItems(userId, 'library', rows.map((r) => String(r.id)));
+    return rows.map((r) => ({ ...r, custom_folder_ids: map[String(r.id)] ?? [] }));
+  } catch (e) {
+    console.error('[library GET custom folders]', e);
+    return rows.map((r) => ({ ...r, custom_folder_ids: [] }));
+  }
 }
 
 export async function POST(req: NextRequest) {
@@ -152,10 +178,18 @@ export async function DELETE(req: NextRequest) {
       WHERE id::text = ANY(${idsArray}) AND user_id = ${userId}
       RETURNING id
     `;
+    // 252: 分類（マイフォルダ）も外す。掃除の失敗で削除自体を失敗させない
+    await detachItemsFromFolders(userId, 'library', idsArray).catch((e) =>
+      console.error('[library bulk_delete detach]', e),
+    );
     return NextResponse.json({ success: true, deleted: deleted.length });
   }
 
   if (!id) return NextResponse.json({ error: 'id が必須です' }, { status: 400 });
   await sql`DELETE FROM library WHERE id = ${id} AND user_id = ${userId}`;
+  // 252: 分類（マイフォルダ）も外す。掃除の失敗で削除自体を失敗させない
+  await detachItemFromFolders(userId, 'library', String(id)).catch((e) =>
+    console.error('[library DELETE detach]', e),
+  );
   return NextResponse.json({ success: true, deleted: 1 });
 }

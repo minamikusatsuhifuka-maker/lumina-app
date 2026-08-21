@@ -4,6 +4,7 @@ import { sql } from '@/lib/db';
 import { sanitizeForDb } from '@/lib/sanitize';
 import {
   detachItemFromFolders,
+  detachItemsFromFolders,
   ensureCustomFolderTables,
   getFolderIdsForItems,
 } from '@/lib/custom-folders';
@@ -138,13 +139,13 @@ export async function GET(req: NextRequest) {
           AND (${inputV}::boolean IS NULL OR input_text IS NOT NULL)
           AND (${cfolderId}::int IS NULL OR EXISTS (
                 SELECT 1 FROM custom_folder_items i
-                 WHERE i.item_id = text_analysis_saves.id
+                 WHERE i.item_key = text_analysis_saves.id::text
                    AND i.user_id = text_analysis_saves.user_id
                    AND i.scope = 'text_analysis'
                    AND i.folder_id = ${cfolderId}))
           AND (${cfolderUnfiled}::boolean IS NULL OR (favorite = true AND NOT EXISTS (
                 SELECT 1 FROM custom_folder_items i
-                 WHERE i.item_id = text_analysis_saves.id
+                 WHERE i.item_key = text_analysis_saves.id::text
                    AND i.user_id = text_analysis_saves.user_id
                    AND i.scope = 'text_analysis')))
         ORDER BY created_at DESC
@@ -162,13 +163,13 @@ export async function GET(req: NextRequest) {
           AND (${inputV}::boolean IS NULL OR input_text IS NOT NULL)
           AND (${cfolderId}::int IS NULL OR EXISTS (
                 SELECT 1 FROM custom_folder_items i
-                 WHERE i.item_id = text_analysis_saves.id
+                 WHERE i.item_key = text_analysis_saves.id::text
                    AND i.user_id = text_analysis_saves.user_id
                    AND i.scope = 'text_analysis'
                    AND i.folder_id = ${cfolderId}))
           AND (${cfolderUnfiled}::boolean IS NULL OR (favorite = true AND NOT EXISTS (
                 SELECT 1 FROM custom_folder_items i
-                 WHERE i.item_id = text_analysis_saves.id
+                 WHERE i.item_key = text_analysis_saves.id::text
                    AND i.user_id = text_analysis_saves.user_id
                    AND i.scope = 'text_analysis')))
       `,
@@ -190,7 +191,7 @@ export async function GET(req: NextRequest) {
 
     // 249: 表示中の記事に所属フォルダIDを付与する（本体クエリは変えず別クエリで足す）。
     // ここが失敗しても一覧そのものは出す＝付加情報の欠落で本体を壊さない（R-39）。
-    let customFolderMap: Record<number, number[]> = {};
+    let customFolderMap: Record<string, number[]> = {};
     try {
       customFolderMap = await getFolderIdsForItems(
         userId,
@@ -204,7 +205,7 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({
       items: (rows as Record<string, unknown>[]).map((r) => ({
         ...r,
-        custom_folder_ids: customFolderMap[Number(r.id)] ?? [],
+        custom_folder_ids: customFolderMap[String(r.id)] ?? [],
       })),
       total_count: countRows[0]?.n ?? 0,
       all_total: allRows[0]?.n ?? 0,
@@ -300,7 +301,7 @@ export async function PATCH(req: NextRequest) {
         WHERE id = ${id} AND user_id = ${userId}
       `;
       // 249: 分類（カスタムフォルダ）も外す。掃除の失敗で削除自体を失敗させない
-      await detachItemFromFolders(userId, 'text_analysis', Number(id)).catch((e) =>
+      await detachItemFromFolders(userId, 'text_analysis', String(id)).catch((e) =>
         console.error('[text-analysis/saves PATCH detach]', e),
       );
     } else if (action === 'bulk_delete') {
@@ -318,10 +319,9 @@ export async function PATCH(req: NextRequest) {
         RETURNING id
       `) as { id: number }[];
       // 249: 分類（カスタムフォルダ）も外す。掃除の失敗で削除自体を失敗させない
-      await sql`
-        DELETE FROM custom_folder_items
-        WHERE user_id = ${userId} AND scope = 'text_analysis' AND item_id = ANY(${idsArray})
-      `.catch((e) => console.error('[text-analysis/saves bulk_delete detach]', e));
+      await detachItemsFromFolders(userId, 'text_analysis', idsArray).catch((e) =>
+        console.error('[text-analysis/saves bulk_delete detach]', e),
+      );
       return NextResponse.json({ ok: true, deleted: deleted.length });
     } else if (action === 'rename') {
       await sql`
@@ -392,7 +392,7 @@ export async function DELETE(req: NextRequest) {
       WHERE id = ${id} AND user_id = ${userId}
     `;
     // 249: 分類（カスタムフォルダ）も外す。掃除の失敗で削除自体を失敗させない
-    await detachItemFromFolders(userId, 'text_analysis', Number(id)).catch((e) =>
+    await detachItemFromFolders(userId, 'text_analysis', String(id)).catch((e) =>
       console.error('[text-analysis/saves DELETE detach]', e),
     );
     return NextResponse.json({ ok: true });

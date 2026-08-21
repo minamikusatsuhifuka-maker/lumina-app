@@ -4,6 +4,7 @@ import { neon } from '@neondatabase/serverless';
 import { sanitizeForDb } from '@/lib/sanitize';
 import {
   detachItemFromFolders,
+  detachItemsFromFolders,
   ensureCustomFolderTables,
   getFolderIdsForItems,
 } from '@/lib/custom-folders';
@@ -164,13 +165,13 @@ export async function GET(req: NextRequest) {
           AND (${catV}::text IS NULL OR COALESCE(category, 'general') = ${catV})
           AND (${cfolderId}::int IS NULL OR EXISTS (
                 SELECT 1 FROM custom_folder_items i
-                 WHERE i.item_id = context_saves.id
+                 WHERE i.item_key = context_saves.id::text
                    AND i.user_id = context_saves.user_id
                    AND i.scope = 'context'
                    AND i.folder_id = ${cfolderId}))
           AND (${cfolderUnfiled}::boolean IS NULL OR (is_favorite = true AND NOT EXISTS (
                 SELECT 1 FROM custom_folder_items i
-                 WHERE i.item_id = context_saves.id
+                 WHERE i.item_key = context_saves.id::text
                    AND i.user_id = context_saves.user_id
                    AND i.scope = 'context')))
         ORDER BY created_at DESC
@@ -188,13 +189,13 @@ export async function GET(req: NextRequest) {
           AND (${catV}::text IS NULL OR COALESCE(category, 'general') = ${catV})
           AND (${cfolderId}::int IS NULL OR EXISTS (
                 SELECT 1 FROM custom_folder_items i
-                 WHERE i.item_id = context_saves.id
+                 WHERE i.item_key = context_saves.id::text
                    AND i.user_id = context_saves.user_id
                    AND i.scope = 'context'
                    AND i.folder_id = ${cfolderId}))
           AND (${cfolderUnfiled}::boolean IS NULL OR (is_favorite = true AND NOT EXISTS (
                 SELECT 1 FROM custom_folder_items i
-                 WHERE i.item_id = context_saves.id
+                 WHERE i.item_key = context_saves.id::text
                    AND i.user_id = context_saves.user_id
                    AND i.scope = 'context')))
       `,
@@ -215,7 +216,7 @@ export async function GET(req: NextRequest) {
 
     // 249: 表示中の素材に所属フォルダIDを付与する（本体クエリは変えず別クエリで足す）。
     // ここが失敗しても一覧そのものは出す＝付加情報の欠落で本体を壊さない（R-39）。
-    let customFolderMap: Record<number, number[]> = {};
+    let customFolderMap: Record<string, number[]> = {};
     try {
       customFolderMap = await getFolderIdsForItems(
         userId,
@@ -229,7 +230,7 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({
       items: (rows as Record<string, unknown>[]).map((r) => ({
         ...r,
-        custom_folder_ids: customFolderMap[Number(r.id)] ?? [],
+        custom_folder_ids: customFolderMap[String(r.id)] ?? [],
       })),
       total_count: countRows[0]?.n ?? 0,
       all_total: catRows.reduce((s: number, r: any) => s + Number(r.count), 0),
@@ -289,10 +290,9 @@ export async function PATCH(req: NextRequest) {
         RETURNING id
       `;
       // 249: 分類（カスタムフォルダ）も外す。掃除の失敗で削除自体を失敗させない
-      await sql`
-        DELETE FROM custom_folder_items
-        WHERE user_id = ${userId} AND scope = 'context' AND item_id = ANY(${idsArray})
-      `.catch((e: unknown) => console.error('[context-saves bulk_delete detach]', e));
+      await detachItemsFromFolders(userId, 'context', idsArray).catch((e: unknown) =>
+        console.error('[context-saves bulk_delete detach]', e),
+      );
       return NextResponse.json({ success: true, deleted: deleted.length });
     }
 
@@ -330,7 +330,7 @@ export async function DELETE(req: NextRequest) {
     const userId = (session.user as any).id;
     await sql`DELETE FROM context_saves WHERE id = ${parseInt(id, 10)} AND user_id = ${userId}`;
     // 249: 分類（カスタムフォルダ）も外す。掃除の失敗で削除自体を失敗させない
-    await detachItemFromFolders(userId, 'context', parseInt(id, 10)).catch((e) =>
+    await detachItemFromFolders(userId, 'context', id).catch((e: unknown) =>
       console.error('[context-saves DELETE detach]', e),
     );
     return NextResponse.json({ success: true });

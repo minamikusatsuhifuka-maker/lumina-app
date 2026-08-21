@@ -1,13 +1,15 @@
 'use client';
 
-// 249: カスタムフォルダ（院長が名前を付けるお気に入りの分類）のクライアント状態。
-// 📁保存一覧（scope='text_analysis'）と 🧠AI参照素材（scope='context'）で共用する。
-// scope が違えばフォルダ体系は完全に別（APIがscopeで分けている）。
+// 249/252: カスタムフォルダ（院長が名前を付けるお気に入りの分類）のクライアント状態。
+// 3画面で共用する（scope='text_analysis' 🗂保存一覧 / 'library' 📚リサーチ保存 /
+// 'context' 🧠AI参照素材）。**どの画面どうしが同じフォルダ一覧を見るかはサーバー側の
+// FOLDER_SYSTEM_OF が決める**（252: 保存一覧とリサーチ保存は共有、AI参照素材は独立）。
+// クライアントは自分の scope を渡すだけでよい。
 
 import { useCallback, useEffect, useState } from 'react';
-import type { CustomFolder, FolderScope } from '@/lib/custom-folders';
+import type { CustomFolder, ItemScope } from '@/lib/custom-folders';
 
-export type { CustomFolder, FolderScope };
+export type { CustomFolder, ItemScope };
 
 /** フォルダ絞り込みの選択値。null=絞り込みなし / 'unfiled'=お気に入りの未分類 / number=フォルダID */
 export type FolderFilter = number | 'unfiled' | null;
@@ -26,15 +28,15 @@ export interface UseCustomFoldersResult {
   /** 並び替え（表示順のID配列をそのまま渡す） */
   reorderFolders: (ids: number[]) => Promise<boolean>;
   /** 記事の所属を folderIds の内容に置き換える（追加・変更・全解除の共通口） */
-  assignItem: (itemId: number, folderIds: number[]) => Promise<boolean>;
+  assignItem: (itemId: number | string, folderIds: number[]) => Promise<boolean>;
 }
 
 /**
- * @param scope フォルダ体系の分離キー
+ * @param scope アイテム種別（どの体系のフォルダ一覧を見るかはサーバーが決める）
  * @param onError 失敗時のメッセージ通知（各画面のトーストに流す）
  */
 export function useCustomFolders(
-  scope: FolderScope,
+  scope: ItemScope,
   onError?: (message: string) => void,
 ): UseCustomFoldersResult {
   const [folders, setFolders] = useState<CustomFolder[]>([]);
@@ -181,7 +183,7 @@ export function useCustomFolders(
   );
 
   const assignItem = useCallback(
-    async (itemId: number, folderIds: number[]): Promise<boolean> => {
+    async (itemId: number | string, folderIds: number[]): Promise<boolean> => {
       try {
         const res = await fetch('/api/custom-folders', {
           method: 'PATCH',
