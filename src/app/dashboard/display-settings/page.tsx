@@ -6,10 +6,14 @@
 //
 // 247: 「生成結果の自動ストック保存」もこの画面に追加（既定on）。
 // 追従ボタンと違って表示ではなく挙動の設定だが、院長指定でこの🎛表示設定に置く。
+//
+// 251: 「サイドバーのメニュー名」もここに追加。表示に関する設定の置き場を増やさない。
 
 import { useEffect, useState } from 'react';
 import { useTheme, FLOATING_BUTTONS } from '@/components/ThemeProvider';
 import { useAutoStockSave } from '@/lib/auto-stock-save';
+// 251: サイドバーのメニュー名の変更（設定はこの画面に集約する）
+import NavLabelSettings from '@/components/NavLabelSettings';
 
 export default function DisplaySettingsPage() {
   const { floating, setFloating } = useTheme();
@@ -25,8 +29,8 @@ export default function DisplaySettingsPage() {
     <div style={{ maxWidth: 720 }}>
       <h1 style={{ fontSize: 24, fontWeight: 700, marginBottom: 6 }}>🎛 表示設定</h1>
       <p style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 24, lineHeight: 1.7 }}>
-        画面の右下に出る追従ボタンの表示と、生成結果の自動ストック保存を切り替えます。
-        設定はこのブラウザに保存されます。
+        画面の右下に出る追従ボタンの表示、生成結果の自動ストック保存、
+        サイドバーのメニュー名を切り替えます。設定はこのブラウザに保存されます。
       </p>
 
       <section
@@ -159,6 +163,10 @@ export default function DisplaySettingsPage() {
           押し直せば保存できます。
         </p>
       </section>
+
+      {/* 251: サイドバーのメニュー名（マウント後に localStorage が確定するため中で mounted 判定はしない
+          ＝ ThemeProvider の既定値で描いてから上書きが反映される。表示名なのでちらつきは無害） */}
+      <NavLabelSettings />
 
       <section
         style={{

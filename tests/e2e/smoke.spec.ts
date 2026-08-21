@@ -1524,3 +1524,74 @@ test('C40: 保存一覧の画面から一括削除できる（確認ダイアロ
   expect((await request.get(`${SAVES_API}?id=${idB}`)).status()).toBe(404);
   await expect(cardA, '削除したカードが一覧から消えること').toHaveCount(0);
 });
+
+// ============================================================================
+// 251: サイドバーのメニュー名の変更（🎛表示設定 → サイドバーへ反映 → 元に戻す）
+// - 変えるのはサイドバーの表示だけ。URLとページ内の見出しは変わらないことも判定する
+// - 保存は localStorage。テストのブラウザコンテキストは使い捨てなので既存設定に影響しない
+// ============================================================================
+
+test('C41: メニュー名の変更 — リネーム→サイドバー反映→リロードで維持→元に戻す', async ({ page }) => {
+  const HREF = '/dashboard/context-library'; // 既定「🧠 AI参照素材」
+  const CATEGORY = '情報収集・調査';
+
+  await page.goto('/dashboard/display-settings');
+  const settings = page.locator('[data-nav-label-settings]');
+  await expect(settings, '🎛表示設定にメニュー名のセクションがあること').toBeVisible();
+
+  const sidebarLink = page.locator(`[data-nav-href="${HREF}"]`);
+  await expect(sidebarLink, '変更前は既定名で出ていること').toContainText('AI参照素材');
+
+  // カテゴリを開いて、名前とアイコンを変える
+  await settings.locator(`[data-nav-category-toggle="${CATEGORY}"]`).click();
+  await settings.locator(`[data-nav-label-input="${HREF}"]`).fill('ネタ帳');
+  await settings.locator(`[data-nav-icon-input="${HREF}"]`).fill('📦');
+
+  // サイドバーに即反映される（保存ボタンを押さなくても効く）
+  await expect(sidebarLink).toContainText('ネタ帳');
+  await expect(sidebarLink).toContainText('📦');
+  await expect(sidebarLink, '既定名がツールチップで分かること').toHaveAttribute(
+    'title',
+    '既定名: AI参照素材',
+  );
+  // URLは変えない（リンク先は既定のまま）
+  await expect(sidebarLink).toHaveAttribute('href', HREF);
+
+  // カテゴリ見出しも変えられる
+  await settings.locator(`[data-nav-category-input="${CATEGORY}"]`).fill('調べもの');
+  await expect(page.locator(`[data-nav-category="${CATEGORY}"]`)).toHaveText('調べもの');
+
+  // 上限を超える名前は切り詰められる（サイドバーが折り返さない）
+  await settings.locator(`[data-nav-label-input="${HREF}"]`).fill('あ'.repeat(30));
+  const shown = (await sidebarLink.innerText()).replace(/\s/g, '');
+  expect(shown.replace('📦', '').length, '12文字までに切り詰められること').toBeLessThanOrEqual(12);
+
+  // リロードしても維持される（localStorageに保存されている）
+  await settings.locator(`[data-nav-label-input="${HREF}"]`).fill('ネタ帳');
+  await expect(sidebarLink).toContainText('ネタ帳');
+  await page.reload();
+  await expect(page.locator(`[data-nav-href="${HREF}"]`), 'リロード後も維持されること').toContainText('ネタ帳');
+
+  // 名前を空にすると既定に戻る（空ラベルにならない）
+  await page.locator('[data-nav-label-settings]').locator(`[data-nav-category-toggle="${CATEGORY}"]`).click();
+  await page.locator(`[data-nav-label-input="${HREF}"]`).fill('');
+  await expect(page.locator(`[data-nav-href="${HREF}"]`), '空文字なら既定名に戻ること').toContainText(
+    'AI参照素材',
+  );
+  // アイコンだけの変更は残っている（片方を消してももう片方は保持）
+  await expect(page.locator(`[data-nav-href="${HREF}"]`)).toContainText('📦');
+
+  // 個別の「↩ 戻す」で完全に既定へ
+  await page.locator(`[data-nav-reset="${HREF}"]`).click();
+  await expect(page.locator(`[data-nav-href="${HREF}"]`)).toContainText('🧠');
+  await expect(page.locator(`[data-nav-href="${HREF}"]`)).not.toHaveAttribute('title', /既定名/);
+
+  // 「すべて既定に戻す」でカテゴリ名も戻る（確認ダイアログつき）
+  page.once('dialog', (d) => d.accept());
+  await page.locator('[data-nav-reset-all]').click();
+  await expect(page.locator(`[data-nav-category="${CATEGORY}"]`)).toHaveText(CATEGORY);
+
+  // ページ内の見出し(h1)は最初から最後まで既定のまま（サイドバーだけを変える設計）
+  await page.goto(HREF);
+  await expect(page.getByRole('heading', { level: 1 })).toContainText('AI参照素材');
+});

@@ -11,6 +11,18 @@ import {
   setAutoStockSaveEnabled,
 } from '../../src/lib/auto-stock-save';
 import { SHORTCUT_SECTIONS, RUN_KEY_LABELS } from '../../src/lib/shortcuts';
+import {
+  MAX_NAV_ICON_LENGTH,
+  MAX_NAV_LABEL_LENGTH,
+  NAV_LABELS_DEFAULT,
+  navCategoryLabelOf,
+  navIconOf,
+  navLabelOf,
+  normalizeNavIcon,
+  normalizeNavLabel,
+  parseNavLabels,
+} from '../../src/lib/nav-labels';
+import { ALL_NAV_ITEMS, navCategories } from '../../src/lib/nav-items';
 
 // ============================================================================
 // 純関数の単体テスト（234【1】要件4）— ネットワーク・AI課金・認証を一切使わない
@@ -287,4 +299,99 @@ test('U15: 実行・クリアのキーが一覧（小窓＝使い方ガイドの
   for (const item of runSection!.items) {
     expect(item.keys.length, `${item.desc} は2キーで押せること`).toBeLessThanOrEqual(2);
   }
+});
+
+// ============================================================================
+// 251: サイドバーのメニュー名の変更（表示名の正規化と、壊れた保存値の扱い）
+// ============================================================================
+
+test('U16: 表示名の正規化 — 空文字は既定に倒れ、長すぎる名前は切り詰め、改行は潰す（251）', () => {
+  // 空・空白のみは null＝上書きしない（サイドバーが空ラベルになる経路を作らない）
+  expect(normalizeNavLabel('')).toBeNull();
+  expect(normalizeNavLabel('   ')).toBeNull();
+  expect(normalizeNavLabel('\n\t ')).toBeNull();
+  expect(normalizeNavLabel(undefined)).toBeNull();
+  expect(normalizeNavLabel(123)).toBeNull();
+
+  // 前後空白の除去と、連続空白・改行の圧縮（1行に収める）
+  expect(normalizeNavLabel('  参照  素材  ')).toBe('参照 素材');
+  expect(normalizeNavLabel('参照\n素材')).toBe('参照 素材');
+
+  // 上限で切り詰める（サイドバー220pxで折り返さないため）
+  const long = 'あ'.repeat(40);
+  expect([...normalizeNavLabel(long)!].length).toBe(MAX_NAV_LABEL_LENGTH);
+
+  // 絵文字のみの名前も通る（サロゲートペアで割れない）
+  expect(normalizeNavLabel('🧠🧠')).toBe('🧠🧠');
+  const manyEmoji = '🧠'.repeat(30);
+  expect([...normalizeNavLabel(manyEmoji)!].length).toBe(MAX_NAV_LABEL_LENGTH);
+});
+
+test('U17: アイコンの正規化 — 空は既定、長すぎるものは切り詰める（251）', () => {
+  expect(normalizeNavIcon('')).toBeNull();
+  expect(normalizeNavIcon('  ')).toBeNull();
+  expect(normalizeNavIcon(null)).toBeNull();
+  expect(normalizeNavIcon(' 🧠 ')).toBe('🧠');
+  // 絵文字を並べても上限で切れる。コードポイント単位なので「?」に化けない
+  const cut = normalizeNavIcon('🧠🎛📚📝📖✍️')!;
+  expect([...cut].length).toBeLessThanOrEqual(MAX_NAV_ICON_LENGTH);
+  expect(cut).not.toContain('\uFFFD');
+});
+
+test('U18: 壊れた保存値はすべて既定に倒れる（251・243の方式踏襲）', () => {
+  // 型が違う・null・配列 → 既定（空の上書き）
+  expect(parseNavLabels(null)).toEqual(NAV_LABELS_DEFAULT);
+  expect(parseNavLabels('こわれた')).toEqual(NAV_LABELS_DEFAULT);
+  expect(parseNavLabels(42)).toEqual(NAV_LABELS_DEFAULT);
+  expect(parseNavLabels({})).toEqual(NAV_LABELS_DEFAULT);
+  expect(parseNavLabels({ items: 'x', categories: 3 })).toEqual(NAV_LABELS_DEFAULT);
+
+  // 中身が空の上書きは捨てる（空ラベルがDOMに出ない）
+  const parsed = parseNavLabels({
+    items: {
+      '/dashboard/context-library': { label: '  ', icon: '' },
+      '/dashboard/library': { label: '資料庫' },
+      '/dashboard/memo': { icon: '📌' },
+      '': { label: 'キーが空' },
+    },
+    categories: { 'ホーム': '  ', '管理・設定': '設定' },
+  });
+  expect(parsed.items['/dashboard/context-library'], '空だけの上書きは持たない').toBeUndefined();
+  expect(parsed.items['/dashboard/library']).toEqual({ label: '資料庫' });
+  expect(parsed.items['/dashboard/memo']).toEqual({ icon: '📌' });
+  expect(parsed.items['']).toBeUndefined();
+  expect(parsed.categories['ホーム'], '空のカテゴリ名は持たない').toBeUndefined();
+  expect(parsed.categories['管理・設定']).toBe('設定');
+});
+
+test('U19: 上書きが無ければ必ず既定名・既定アイコンを返す（251）', () => {
+  const state = parseNavLabels({
+    items: { '/dashboard/context-library': { label: 'ネタ帳', icon: '📦' } },
+    categories: { '情報収集・調査': '調べもの' },
+  });
+  expect(navLabelOf(state, '/dashboard/context-library', 'AI参照素材')).toBe('ネタ帳');
+  expect(navIconOf(state, '/dashboard/context-library', '🧠')).toBe('📦');
+  expect(navCategoryLabelOf(state, '情報収集・調査')).toBe('調べもの');
+  // 未設定の項目は既定のまま（1つ変えても他に波及しない）
+  expect(navLabelOf(state, '/dashboard/library', 'リサーチ保存')).toBe('リサーチ保存');
+  expect(navIconOf(state, '/dashboard/library', '📚')).toBe('📚');
+  expect(navCategoryLabelOf(state, '管理・設定')).toBe('管理・設定');
+  // 既定状態では全項目が既定名で返る
+  for (const item of ALL_NAV_ITEMS.slice(0, 10)) {
+    expect(navLabelOf(NAV_LABELS_DEFAULT, item.href, item.label)).toBe(item.label);
+  }
+});
+
+test('U20: メニュー定義の正本が壊れていない（href重複なし・全項目に名前とアイコン）（251）', () => {
+  const hrefs = navCategories.flatMap((c) => c.items.map((i) => i.href));
+  // 同じhrefが2つのカテゴリに出ると、リネームが片方にしか効いたように見える
+  expect(new Set(hrefs).size, 'hrefが重複していないこと').toBe(hrefs.length);
+  for (const item of ALL_NAV_ITEMS) {
+    expect(item.label.trim().length, `${item.href} に表示名があること`).toBeGreaterThan(0);
+    expect(item.icon.trim().length, `${item.href} にアイコンがあること`).toBeGreaterThan(0);
+    expect(item.href.startsWith('/'), `${item.href} が絶対パスであること`).toBe(true);
+  }
+  // カテゴリ名の重複も無いこと（カテゴリ名をキーに上書きを持つため）
+  const cats = navCategories.map((c) => c.category);
+  expect(new Set(cats).size).toBe(cats.length);
 });

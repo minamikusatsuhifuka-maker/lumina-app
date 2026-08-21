@@ -1,5 +1,13 @@
 'use client';
 import { createContext, useContext, useEffect, useState } from 'react';
+import {
+  NAV_LABELS_DEFAULT,
+  NAV_LABELS_STORAGE_KEY,
+  normalizeNavIcon,
+  normalizeNavLabel,
+  parseNavLabels,
+  type NavLabelState,
+} from '@/lib/nav-labels';
 
 type Theme = 'dark' | 'midnight' | 'light' | 'nature';
 type Font = 'outfit' | 'noto' | 'inter' | 'zen';
@@ -51,6 +59,11 @@ export function floatingBottom(slot: number): string {
   return `calc(${FLOATING_BASE + slot * FLOATING_STEP}px + env(safe-area-inset-bottom, 0px))`;
 }
 
+// ─────────────────────────────────────────────────────────────
+// 251: サイドバーのメニュー名・アイコンの変更（テーマ・文字サイズ・追従ボタンと同じくここで一元管理）。
+// 別Providerを作らず、既存の localStorage 機構に相乗りする。
+// ─────────────────────────────────────────────────────────────
+
 type ThemeContextType = {
   theme: Theme;
   setTheme: (theme: Theme) => void;
@@ -60,6 +73,15 @@ type ThemeContextType = {
   setTextScale: (scale: TextScale) => void;
   floating: FloatingState;
   setFloating: (key: FloatingKey, on: boolean) => void;
+  navLabels: NavLabelState;
+  /** メニュー項目の表示名・アイコンを変える。空文字を渡すとその項目は既定に戻る */
+  setNavItemLabel: (href: string, next: { label?: string; icon?: string }) => void;
+  /** カテゴリ見出しを変える。空文字を渡すと既定に戻る */
+  setNavCategoryLabel: (category: string, label: string) => void;
+  /** 1項目だけ既定に戻す */
+  resetNavItem: (href: string) => void;
+  /** 全部まとめて既定に戻す */
+  resetAllNavLabels: () => void;
 };
 
 const ThemeContext = createContext<ThemeContextType>({
@@ -71,6 +93,11 @@ const ThemeContext = createContext<ThemeContextType>({
   setTextScale: () => {},
   floating: FLOATING_DEFAULT,
   setFloating: () => {},
+  navLabels: NAV_LABELS_DEFAULT,
+  setNavItemLabel: () => {},
+  setNavCategoryLabel: () => {},
+  resetNavItem: () => {},
+  resetAllNavLabels: () => {},
 });
 
 export function ThemeProvider({ children }: { children: React.ReactNode }) {
@@ -78,6 +105,7 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
   const [font, setFontState] = useState<Font>('outfit');
   const [textScale, setTextScaleState] = useState<TextScale>(100);
   const [floating, setFloatingState] = useState<FloatingState>(FLOATING_DEFAULT);
+  const [navLabels, setNavLabelsState] = useState<NavLabelState>(NAV_LABELS_DEFAULT);
 
   useEffect(() => {
     const savedTheme = localStorage.getItem('lumina_theme') as Theme;
@@ -110,7 +138,66 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
     } catch {
       /* 壊れた保存値は既定のまま使う */
     }
+    // 251: 壊れた値・未設定はすべて既定名に倒す（parseNavLabels が型ごと均す）
+    try {
+      const raw = localStorage.getItem(NAV_LABELS_STORAGE_KEY);
+      if (raw) setNavLabelsState(parseNavLabels(JSON.parse(raw)));
+    } catch {
+      /* 壊れた保存値は既定名のまま使う */
+    }
   }, []);
+
+  // 251: 保存は1経路にまとめる（書き込み忘れ・キーの取り違えを作らない）
+  const persistNavLabels = (next: NavLabelState) => {
+    setNavLabelsState(next);
+    try {
+      localStorage.setItem(NAV_LABELS_STORAGE_KEY, JSON.stringify(next));
+    } catch {
+      /* 保存できなくても、この画面を開いている間の表示は変わる */
+    }
+  };
+
+  const setNavItemLabel = (href: string, next: { label?: string; icon?: string }) => {
+    setNavLabelsState((prev) => {
+      const current = prev.items[href] ?? {};
+      const label = next.label !== undefined ? normalizeNavLabel(next.label) : (current.label ?? null);
+      const icon = next.icon !== undefined ? normalizeNavIcon(next.icon) : (current.icon ?? null);
+      const items = { ...prev.items };
+      if (label === null && icon === null) {
+        // 中身が空になったら上書き自体を消す＝既定に戻る（空文字のラベルを残さない）
+        delete items[href];
+      } else {
+        items[href] = { ...(label !== null ? { label } : {}), ...(icon !== null ? { icon } : {}) };
+      }
+      const state = { ...prev, items };
+      try {
+        localStorage.setItem(NAV_LABELS_STORAGE_KEY, JSON.stringify(state));
+      } catch {
+        /* 保存できなくても表示は変わる */
+      }
+      return state;
+    });
+  };
+
+  const setNavCategoryLabel = (category: string, label: string) => {
+    setNavLabelsState((prev) => {
+      const normalized = normalizeNavLabel(label);
+      const categories = { ...prev.categories };
+      if (normalized === null) delete categories[category];
+      else categories[category] = normalized;
+      const state = { ...prev, categories };
+      try {
+        localStorage.setItem(NAV_LABELS_STORAGE_KEY, JSON.stringify(state));
+      } catch {
+        /* 保存できなくても表示は変わる */
+      }
+      return state;
+    });
+  };
+
+  const resetNavItem = (href: string) => setNavItemLabel(href, { label: '', icon: '' });
+
+  const resetAllNavLabels = () => persistNavLabels(NAV_LABELS_DEFAULT);
 
   const setFloating = (key: FloatingKey, on: boolean) => {
     setFloatingState((prev) => {
@@ -139,7 +226,12 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
   };
 
   return (
-    <ThemeContext.Provider value={{ theme, setTheme, font, setFont, textScale, setTextScale, floating, setFloating }}>
+    <ThemeContext.Provider
+      value={{
+        theme, setTheme, font, setFont, textScale, setTextScale, floating, setFloating,
+        navLabels, setNavItemLabel, setNavCategoryLabel, resetNavItem, resetAllNavLabels,
+      }}
+    >
       {children}
     </ThemeContext.Provider>
   );
