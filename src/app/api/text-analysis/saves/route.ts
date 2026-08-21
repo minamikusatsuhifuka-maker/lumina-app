@@ -10,6 +10,10 @@ import {
 
 export const runtime = 'nodejs';
 
+// 250: 一括削除の1リクエストあたりの上限。一覧は30件ページングで「表示中を全選択」でも
+// 高々100件程度だが、巨大な配列でDBを長時間ロックしないための安全弁。
+const BULK_DELETE_LIMIT = 500;
+
 // input_text カラムを冪等に用意（ADD COLUMN IF NOT EXISTS、既存データは非破壊・NULL）
 // プロセス内で1回だけ実行（リクエスト毎の ALTER を避ける）
 let inputTextColumnReady: Promise<unknown> | null = null;
@@ -299,6 +303,26 @@ export async function PATCH(req: NextRequest) {
       await detachItemFromFolders(userId, 'text_analysis', Number(id)).catch((e) =>
         console.error('[text-analysis/saves PATCH detach]', e),
       );
+    } else if (action === 'bulk_delete') {
+      // 250: 選択中をまとめて削除。owner検証つきで、自分の行だけが消える（他人のIDが
+      // 混ざっていても無視されるだけ）。削除は不可逆なので確認はUI側で必須にしている。
+      const idsArray: number[] = Array.isArray(ids)
+        ? ids.map(Number).filter((n: number) => Number.isFinite(n)).slice(0, BULK_DELETE_LIMIT)
+        : [];
+      if (idsArray.length === 0) {
+        return NextResponse.json({ error: 'idsが空です' }, { status: 400 });
+      }
+      const deleted = (await sql`
+        DELETE FROM text_analysis_saves
+        WHERE id = ANY(${idsArray}) AND user_id = ${userId}
+        RETURNING id
+      `) as { id: number }[];
+      // 249: 分類（カスタムフォルダ）も外す。掃除の失敗で削除自体を失敗させない
+      await sql`
+        DELETE FROM custom_folder_items
+        WHERE user_id = ${userId} AND scope = 'text_analysis' AND item_id = ANY(${idsArray})
+      `.catch((e) => console.error('[text-analysis/saves bulk_delete detach]', e));
+      return NextResponse.json({ ok: true, deleted: deleted.length });
     } else if (action === 'rename') {
       await sql`
         UPDATE text_analysis_saves

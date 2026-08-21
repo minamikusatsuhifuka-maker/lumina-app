@@ -6,7 +6,15 @@ export const SAVES_API = '/api/text-analysis/saves';
 export const RUN_ID = Date.now().toString(36);
 export const SEED_TOKEN = `E2ESEED${RUN_ID}`;
 export const BODY_TOKEN = `E2EBODYONLY${RUN_ID}`;
-export const SEED_FOLDER = 'E2E検証';
+
+// 250: テストデータの識別接頭辞。後片付け（cleanup*）はこの文字列だけを基準に判定するため、
+// **E2Eが作るデータは必ずこれを含める**。呼び出し側の書き忘れで掃除対象から外れた残骸が
+// 実際に発生した（2026-07-29の1件）ので、付与はヘルパー側で強制する（R-55）。
+export const E2E_PREFIX = '[E2E]';
+export function withE2EPrefix(text: string): string {
+  return text.includes(E2E_PREFIX) ? text : `${E2E_PREFIX} ${text}`;
+}
+export const SEED_FOLDER = `${E2E_PREFIX}検証`;
 
 export type SaveListResponse = {
   items: Record<string, unknown>[];
@@ -41,8 +49,9 @@ export async function createSave(
 ): Promise<number> {
   const res = await request.post(SAVES_API, {
     data: {
-      title: body.title,
-      content: body.content,
+      // 接頭辞は呼び出し側に任せず、ここで必ず付ける（掃除の取りこぼしを構造的に防ぐ）
+      title: withE2EPrefix(body.title),
+      content: withE2EPrefix(body.content),
       category: body.folder ?? SEED_FOLDER,
       tags: body.tags ?? [],
       analysisType: body.analysisType ?? 'summary',
@@ -72,9 +81,9 @@ export async function deleteSave(request: APIRequestContext, id: number) {
 export async function cleanupE2ESaves(request: APIRequestContext) {
   // limit上限100のため、無くなるまで繰り返す（安全弁として最大10周）
   for (let pass = 0; pass < 10; pass++) {
-    const list = await listSaves(request, { q: '[E2E]', limit: 100 });
+    const list = await listSaves(request, { q: E2E_PREFIX, limit: 100 });
     const targets = list.items.filter((item) =>
-      String(item.auto_title ?? item.file_name ?? '').includes('[E2E]'),
+      String(item.auto_title ?? item.file_name ?? '').includes(E2E_PREFIX),
     );
     if (targets.length === 0) break;
     for (const item of targets) {
@@ -89,9 +98,6 @@ export async function cleanupE2ESaves(request: APIRequestContext) {
 
 export const FOLDERS_API = '/api/custom-folders';
 export const CONTEXT_API = '/api/context-saves';
-/** テスト用フォルダの目印。後片付けはこの接頭辞で判定する（既存フォルダは触らない） */
-export const E2E_FOLDER_PREFIX = '[E2E]';
-
 export type FolderScopeName = 'text_analysis' | 'context';
 
 export type FolderListResponse = {
@@ -114,7 +120,8 @@ export async function createFolder(
   scope: FolderScopeName,
   name: string,
 ): Promise<number> {
-  const res = await request.post(FOLDERS_API, { data: { scope, name } });
+  // フォルダ名も掃除の判定対象。接頭辞はここで必ず付ける（R-55）
+  const res = await request.post(FOLDERS_API, { data: { scope, name: withE2EPrefix(name) } });
   expect(res.status(), `フォルダ作成(${name})が200であること`).toBe(200);
   const json = await res.json();
   expect(typeof json.folder?.id, '作成レスポンスにフォルダidが含まれること').toBe('number');
@@ -140,12 +147,78 @@ export async function deleteFolder(
   return request.delete(`${FOLDERS_API}?scope=${scope}&id=${id}`);
 }
 
+/** AI参照素材（context_saves）のテスト用素材を作る。接頭辞はここで必ず付ける */
+export async function createContextSave(
+  request: APIRequestContext,
+  body: { topic: string; contextText: string; tags?: string[] },
+): Promise<number> {
+  const res = await request.post(CONTEXT_API, {
+    data: {
+      topic: withE2EPrefix(body.topic),
+      contextText: withE2EPrefix(body.contextText),
+      tags: body.tags ?? [],
+    },
+  });
+  expect(res.status(), 'テスト用の参照素材が作成できること').toBe(200);
+  const id = (await res.json()).id;
+  expect(typeof id, '作成レスポンスにidが含まれること').toBe('number');
+  return id as number;
+}
+
+/** 過去実行分を含め、[E2E] 印のAI参照素材を全削除する */
+export async function cleanupE2EContextSaves(request: APIRequestContext) {
+  for (let pass = 0; pass < 10; pass++) {
+    const res = await request.get(`${CONTEXT_API}?q=${encodeURIComponent(E2E_PREFIX)}&limit=100`);
+    expect(res.status(), 'AI参照素材の一覧APIが200であること').toBe(200);
+    const items = ((await res.json()).items ?? []) as { id: number; topic: string }[];
+    const targets = items.filter((it) => String(it.topic ?? '').includes(E2E_PREFIX));
+    if (targets.length === 0) break;
+    for (const it of targets) {
+      await request.delete(`${CONTEXT_API}?id=${it.id}`);
+    }
+  }
+}
+
+export const LIBRARY_API = '/api/library';
+
+/** 📚リサーチ保存（library）のテスト用資料を作る。接頭辞はここで必ず付ける */
+export async function createLibraryItem(
+  request: APIRequestContext,
+  body: { title: string; content: string; type?: string },
+): Promise<string> {
+  const res = await request.post(LIBRARY_API, {
+    data: {
+      title: withE2EPrefix(body.title),
+      content: withE2EPrefix(body.content),
+      type: body.type ?? 'research',
+      tags: '',
+      group_name: '',
+    },
+  });
+  expect(res.status(), 'テスト用の資料が作成できること').toBe(200);
+  const id = (await res.json()).id;
+  expect(typeof id, '作成レスポンスにidが含まれること').toBe('string');
+  return id as string;
+}
+
+/** 過去実行分を含め、[E2E] 印のリサーチ保存を全削除する */
+export async function cleanupE2ELibrary(request: APIRequestContext) {
+  const res = await request.get(`${LIBRARY_API}?q=${encodeURIComponent(E2E_PREFIX)}`);
+  expect(res.status(), 'リサーチ保存の一覧APIが200であること').toBe(200);
+  const rows = (await res.json()) as { id: string; title: string }[];
+  const targets = Array.isArray(rows)
+    ? rows.filter((r) => String(r.title ?? '').includes(E2E_PREFIX))
+    : [];
+  if (targets.length === 0) return;
+  await request.delete(LIBRARY_API, { data: { ids: targets.map((r) => r.id) } });
+}
+
 /** 過去実行分を含め、[E2E] 印のフォルダを両スコープから全削除する */
 export async function cleanupE2EFolders(request: APIRequestContext) {
   for (const scope of ['text_analysis', 'context'] as FolderScopeName[]) {
     const { folders } = await listFolders(request, scope);
     for (const f of folders) {
-      if (f.name.includes(E2E_FOLDER_PREFIX)) {
+      if (f.name.includes(E2E_PREFIX)) {
         await deleteFolder(request, scope, f.id);
       }
     }

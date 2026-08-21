@@ -10,6 +10,9 @@ import {
 
 // AI背景情報コンテキストの保存・取得・削除・お気に入りAPI
 
+// 250: 一括削除の1リクエストあたりの上限（text-analysis 側と同値）。
+const BULK_DELETE_LIMIT = 500;
+
 // お気に入りカラムを冪等に用意（ADD COLUMN IF NOT EXISTS、既存データは非破壊）。
 // ※テキスト分析(text_analysis_saves)のお気に入りとは別テーブル＝完全に独立管理。
 // プロセス内で1回だけ実行（リクエスト毎の ALTER を避ける）。
@@ -246,7 +249,10 @@ export async function PATCH(req: NextRequest) {
   try {
     const body = await req.json();
     const { action, id } = body;
-    if (!id) return NextResponse.json({ error: 'id が必須です' }, { status: 400 });
+    // 250: bulk_delete は ids（配列）で対象を渡すため、単体idの必須チェックから外す
+    if (!id && action !== 'bulk_delete') {
+      return NextResponse.json({ error: 'id が必須です' }, { status: 400 });
+    }
 
     const sql = neon(process.env.DATABASE_URL!);
     const userId = (session.user as any).id;
@@ -267,6 +273,27 @@ export async function PATCH(req: NextRequest) {
       `;
       if (rows.length === 0) return NextResponse.json({ error: 'Not found' }, { status: 404 });
       return NextResponse.json({ success: true, id: rows[0].id });
+    }
+
+    // 250: 選択中をまとめて削除（owner検証つき）。削除は不可逆なので確認はUI側で必須。
+    if (action === 'bulk_delete') {
+      const idsArray: number[] = Array.isArray(body.ids)
+        ? body.ids.map(Number).filter((n: number) => Number.isFinite(n)).slice(0, BULK_DELETE_LIMIT)
+        : [];
+      if (idsArray.length === 0) {
+        return NextResponse.json({ error: 'ids が空です' }, { status: 400 });
+      }
+      const deleted = await sql`
+        DELETE FROM context_saves
+        WHERE id = ANY(${idsArray}) AND user_id = ${userId}
+        RETURNING id
+      `;
+      // 249: 分類（カスタムフォルダ）も外す。掃除の失敗で削除自体を失敗させない
+      await sql`
+        DELETE FROM custom_folder_items
+        WHERE user_id = ${userId} AND scope = 'context' AND item_id = ANY(${idsArray})
+      `.catch((e: unknown) => console.error('[context-saves bulk_delete detach]', e));
+      return NextResponse.json({ success: true, deleted: deleted.length });
     }
 
     // お気に入りトグル（コンテキストライブラリ専用＝テキスト分析とは別管理）。

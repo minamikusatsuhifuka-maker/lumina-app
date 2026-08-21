@@ -2,6 +2,7 @@
 import { useState, useEffect, useMemo, Suspense } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { copyRichMarkdown } from '@/lib/rich-copy';
+import { confirmBulkDelete } from '@/lib/bulk-delete-confirm';
 import { triggerDownload } from '@/lib/download';
 import { KINDLE_LIBRARY_TYPES, MAX_KINDLE_SOURCES } from '@/lib/kindle-limits';
 import { LibraryItemRow } from '@/components/LibraryItemRow';
@@ -163,6 +164,29 @@ function LibraryPageInner() {
     if (!confirm('削除しますか？')) return;
     await fetch('/api/library', { method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id }) });
     setItems(prev => prev.filter(i => i.id !== id));
+  };
+
+  // 250: 選択中を一括削除。件数を明示した確認を必ず経由し、Undoは持たない（不可逆）。
+  const [bulkDeleting, setBulkDeleting] = useState(false);
+  const bulkDeleteSelected = async () => {
+    const ids = Array.from(selectedIds);
+    if (ids.length === 0 || bulkDeleting) return;
+    if (!confirmBulkDelete(ids.length, '資料')) return;
+    setBulkDeleting(true);
+    try {
+      const res = await fetch('/api/library', {
+        method: 'DELETE', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ids }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) { alert(`削除に失敗しました: ${data.error || '不明なエラー'}`); return; }
+      const gone = new Set(ids);
+      setItems(prev => prev.filter(i => !gone.has(i.id)));
+      setSelectedIds(new Set());
+      alert(`${data.deleted ?? ids.length}件を削除しました`);
+    } catch (e) {
+      alert(`通信エラー: ${e instanceof Error ? e.message : '不明なエラー'}`);
+    } finally { setBulkDeleting(false); }
   };
 
   const downloadTxt = (item: any) => {
@@ -557,7 +581,7 @@ function LibraryPageInner() {
       {/* 選択モードガイド */}
       {mergeMode && (
         <div style={{ padding: '10px 16px', background: 'var(--accent-soft)', border: '1px solid var(--border-accent)', borderRadius: 10, marginBottom: 16, fontSize: 13, color: 'var(--accent)', fontWeight: 600 }}>
-          ✓ 統合したい資料をチェックしてください（2件以上）
+          ✓ 資料をチェックすると、下のバーから「AIでまとめる（2件以上）」「Kindle本にする」「一括削除」が使えます
         </div>
       )}
 
@@ -910,6 +934,14 @@ function LibraryPageInner() {
             }}
             style={{ padding: '6px 16px', borderRadius: 99, background: 'rgba(255,255,255,0.15)', color: '#fff', border: '1px solid rgba(255,255,255,0.5)', cursor: 'pointer', fontSize: 13, fontWeight: 700 }}>
             📖 Kindle本にする
+          </button>
+          {/* 250: 一括削除。不可逆なので赤で区別し、他の操作より右（押し間違えない位置）に置く */}
+          <button
+            data-bulk-delete
+            onClick={bulkDeleteSelected}
+            disabled={bulkDeleting}
+            style={{ padding: '6px 16px', borderRadius: 99, background: bulkDeleting ? 'rgba(255,255,255,0.2)' : '#dc2626', color: '#fff', border: '1px solid rgba(255,255,255,0.5)', cursor: bulkDeleting ? 'not-allowed' : 'pointer', fontSize: 13, fontWeight: 700 }}>
+            {bulkDeleting ? '⏳ 削除中...' : `🗑 ${selectedIds.size}件を削除`}
           </button>
           <button onClick={() => { setSelectedIds(new Set()); setMergeMode(false); }}
             style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,0.7)', cursor: 'pointer', fontSize: 16 }}>

@@ -10,6 +10,7 @@ import { markdownToReadableText } from '@/lib/markdownToText';
 import FullscreenReader from '@/components/text-analysis/FullscreenReader';
 import { KEY_HINT, useShortcutHints } from '@/lib/shortcuts';
 import { cardActionBtnStyle } from '@/components/text-analysis/cardActionButtonStyle';
+import { confirmBulkDelete } from '@/lib/bulk-delete-confirm';
 import { BundleSelectToggleButton, BundleSelectCheckbox } from '@/components/note-bundle/BundleSelectControls';
 import { useNoteBundleSelection } from '@/components/note-bundle/useNoteBundleSelection';
 // 249: マイフォルダ（院長が名前を付けるお気に入りの分類・自動カテゴリとは別軸）
@@ -187,6 +188,12 @@ export default function ContextLibraryPanel() {
       return next;
     });
   };
+  // 250: 一括削除のための選択モード（📚リサーチ保存の「選択モード」と同じ流儀）。
+  // note素材の選択モード（179/180・共有ストア）とは別物なので、同時には出さない。
+  const [deleteMode, setDeleteMode] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
+  const [bulkDeleting, setBulkDeleting] = useState(false);
+
   // 249: マイフォルダ（自動カテゴリとは別軸の手動分類）。絞り込みは activeCategory と AND
   const customFolders = useCustomFolders('context', (msg) => {
     setToast(`❌ ${msg}`);
@@ -568,6 +575,39 @@ export default function ContextLibraryPanel() {
         void customFolders.reload();
       }
     } catch {}
+  };
+
+  // 250: 選択中を一括削除。件数を明示した確認を必ず経由し、Undoは持たない（不可逆）。
+  const bulkDeleteSelected = async () => {
+    const ids = Array.from(selectedIds);
+    if (ids.length === 0 || bulkDeleting) return;
+    if (!confirmBulkDelete(ids.length, 'AI参照素材')) return;
+    setBulkDeleting(true);
+    try {
+      const res = await fetch('/api/context-saves', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'bulk_delete', ids }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) { flashToast(`❌ ${data.error || '一括削除に失敗しました'}`, 4000); return; }
+      setSelectedIds(new Set());
+      flashToast(`✅ ${data.deleted ?? ids.length}件を削除しました`);
+      // 件数・カテゴリ集計・フォルダ件数を正値に戻すため1ページ目から取り直す
+      void fetchPage(0, false);
+      void customFolders.reload();
+    } catch {
+      flashToast('❌ 一括削除に失敗しました', 4000);
+    } finally {
+      setBulkDeleting(false);
+    }
+  };
+
+  // 表示中（ロード済み）の全件を選択／解除
+  const toggleSelectAllVisible = () => {
+    const allIds = items.map((it) => it.id);
+    const allSelected = allIds.length > 0 && allIds.every((id) => selectedIds.has(id));
+    setSelectedIds(allSelected ? new Set() : new Set(allIds));
   };
 
   // 要約／詳細生成 → text_analysis_saves に保存
@@ -1002,10 +1042,84 @@ export default function ContextLibraryPanel() {
         >
           ⭐ お気に入り
         </button>
+        {/* 250: 一括削除のための選択モード。note素材の選択モード中は出さない（チェックが二重になるため） */}
+        {!bundleSelectMode && (
+          <button
+            type="button"
+            data-ctx-select-mode
+            onClick={() => { setDeleteMode(v => !v); setSelectedIds(new Set()); }}
+            title="複数の素材を選んでまとめて削除します"
+            style={{
+              padding: '8px 14px',
+              borderRadius: 8,
+              border: `1px solid ${deleteMode ? '#dc2626' : 'var(--border)'}`,
+              background: deleteMode ? '#dc2626' : 'transparent',
+              color: deleteMode ? '#fff' : 'var(--text-secondary)',
+              fontSize: 12,
+              fontWeight: 600,
+              cursor: 'pointer',
+            }}
+          >
+            {deleteMode ? '✕ 選択をやめる' : '☑ 選んで削除'}
+          </button>
+        )}
         <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>
           表示{items.length} / 全{totalCount ?? items.length}件
         </span>
       </div>
+
+      {/* 250: 選択削除モードの操作バー（📚リサーチ保存と同じく、選択中だけ操作を出す） */}
+      {deleteMode && (
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 10,
+            flexWrap: 'wrap' as const,
+            padding: '10px 16px',
+            marginBottom: 20,
+            borderRadius: 10,
+            border: '1px solid rgba(220,38,38,0.4)',
+            background: 'rgba(220,38,38,0.08)',
+          }}
+        >
+          <span style={{ fontSize: 13, fontWeight: 700, color: '#dc2626' }}>
+            🗑 {selectedIds.size}件を選択中
+          </span>
+          <button
+            type="button"
+            data-ctx-select-all
+            onClick={toggleSelectAllVisible}
+            style={{ ...cardActionBtnStyle(), fontSize: 12, padding: '6px 12px' }}
+          >
+            {items.length > 0 && items.every((it) => selectedIds.has(it.id))
+              ? '☑ 表示中の選択を解除'
+              : `☑ 表示中${items.length}件を全選択`}
+          </button>
+          <button
+            type="button"
+            data-bulk-delete
+            onClick={bulkDeleteSelected}
+            disabled={bulkDeleting || selectedIds.size === 0}
+            style={{
+              padding: '6px 16px',
+              borderRadius: 8,
+              border: 'none',
+              background: bulkDeleting || selectedIds.size === 0 ? 'var(--border)' : '#dc2626',
+              color: '#fff',
+              fontSize: 12,
+              fontWeight: 700,
+              cursor: bulkDeleting || selectedIds.size === 0 ? 'not-allowed' : 'pointer',
+              marginLeft: 'auto',
+            }}
+          >
+            {bulkDeleting ? '⏳ 削除中...' : `🗑 選択した${selectedIds.size}件を削除`}
+          </button>
+          <span style={{ fontSize: 11, color: 'var(--text-muted)', width: '100%' }}>
+            削除すると元に戻せません。フォルダやカテゴリで絞り込んでから選ぶこともできます。
+          </span>
+        </div>
+      )}
 
       {/* 192: 選択中タグのチップ＋AND/ORトグル。タグ2つ以上で AND（すべて含む）/ OR（いずれか含む）
           を切替できる。カテゴリ×タグ×検索(q)は常にANDで組み合わせ（サーバ側絞り込み・全件母数）。 */}
@@ -1169,6 +1283,21 @@ export default function ContextLibraryPanel() {
                     id={item.id}
                     topic={item.topic}
                     onLimit={(m) => flashToast(`❌ ${m}`)}
+                  />
+                )}
+                {/* 250: 選択削除モード中のチェックボックス（note選択とは排他なので二重にならない） */}
+                {deleteMode && !bundleSelectMode && (
+                  <input
+                    type="checkbox"
+                    data-ctx-delete-check={item.id}
+                    checked={selectedIds.has(item.id)}
+                    onChange={(e) => {
+                      const next = new Set(selectedIds);
+                      if (e.target.checked) next.add(item.id); else next.delete(item.id);
+                      setSelectedIds(next);
+                    }}
+                    title="一括削除の対象にする"
+                    style={{ width: 18, height: 18, cursor: 'pointer', accentColor: '#dc2626', marginTop: 4 }}
                   />
                 )}
                 <div style={{ flex: 1, minWidth: 200 }}>

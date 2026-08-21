@@ -14,9 +14,15 @@ import {
   // 249: マイフォルダ
   FOLDERS_API,
   CONTEXT_API,
-  E2E_FOLDER_PREFIX,
+  E2E_PREFIX,
   listFolders,
   createFolder,
+  createContextSave,
+  cleanupE2EContextSaves,
+  // 250: 一括削除
+  LIBRARY_API,
+  createLibraryItem,
+  cleanupE2ELibrary,
   assignFolders,
   deleteFolder,
   cleanupE2EFolders,
@@ -77,6 +83,9 @@ test.beforeAll(async () => {
 
 test.afterAll(async () => {
   await cleanupE2ESaves(api);
+  // 250: AI参照素材・リサーチ保存側の残骸も掃除する（テスト中に落ちても次回実行で必ず消える）
+  await cleanupE2EContextSaves(api);
+  await cleanupE2ELibrary(api);
   // 249: テスト用フォルダも消す（フォルダを消しても記事は残るので、記事の掃除とは独立）
   await cleanupE2EFolders(api);
   await api.dispose();
@@ -1087,7 +1096,7 @@ test('C31: 生成結果の自動ストック保存（247・ディープリサー
 test('C32: マイフォルダの一連（作成→分類→絞り込み→リネーム→削除）と、削除しても記事が残ること', async ({
   request,
 }) => {
-  const name = `${E2E_FOLDER_PREFIX} 分類A ${RUN_ID}`;
+  const name = `${E2E_PREFIX} 分類A ${RUN_ID}`;
   const folderId = await createFolder(request, 'text_analysis', name);
 
   // 作成直後は0件で一覧に載る
@@ -1120,7 +1129,7 @@ test('C32: マイフォルダの一連（作成→分類→絞り込み→リネ
   expect(filtered.items[0].folder, '自動カテゴリが書き換わっていないこと').toBe(SEED_FOLDER);
 
   // リネーム（所属は保持される）
-  const renamed = `${E2E_FOLDER_PREFIX} 分類A改 ${RUN_ID}`;
+  const renamed = `${E2E_PREFIX} 分類A改 ${RUN_ID}`;
   const renameRes = await request.patch(FOLDERS_API, {
     data: { scope: 'text_analysis', action: 'rename', id: folderId, name: renamed },
   });
@@ -1145,8 +1154,8 @@ test('C32: マイフォルダの一連（作成→分類→絞り込み→リネ
 });
 
 test('C33: 1記事の複数フォルダ所属と「お気に入り（未分類）」の絞り込み', async ({ request }) => {
-  const f1 = await createFolder(request, 'text_analysis', `${E2E_FOLDER_PREFIX} 複数1 ${RUN_ID}`);
-  const f2 = await createFolder(request, 'text_analysis', `${E2E_FOLDER_PREFIX} 複数2 ${RUN_ID}`);
+  const f1 = await createFolder(request, 'text_analysis', `${E2E_PREFIX} 複数1 ${RUN_ID}`);
+  const f2 = await createFolder(request, 'text_analysis', `${E2E_PREFIX} 複数2 ${RUN_ID}`);
   const both = seedIds[1]; // 2つのフォルダに入れる記事
   const onlyFav = seedIds[2]; // お気に入りだけ付けて未分類のままにする記事
 
@@ -1194,21 +1203,16 @@ test('C33: 1記事の複数フォルダ所属と「お気に入り（未分類�
 test('C34: 保存一覧とAI参照素材でフォルダ体系が混ざらない（同名OK・相手のフォルダには入らない）', async ({
   request,
 }) => {
-  const sameName = `${E2E_FOLDER_PREFIX} 同名 ${RUN_ID}`;
+  const sameName = `${E2E_PREFIX} 同名 ${RUN_ID}`;
   const taFolder = await createFolder(request, 'text_analysis', sameName);
   const ctxFolder = await createFolder(request, 'context', sameName);
   expect(taFolder, '同じ名前でも別スコープなら別フォルダとして作れること').not.toBe(ctxFolder);
 
-  // AI参照素材側にテスト素材を1件だけ作る（検証後に必ず削除）
-  const created = await request.post(CONTEXT_API, {
-    data: {
-      topic: `[E2E] 参照素材 ${RUN_ID}`,
-      contextText: `[E2E] マイフォルダ検証用の素材本文です（${RUN_ID}）。検証後に削除されます。`,
-      tags: [],
-    },
+  // AI参照素材側にテスト素材を1件だけ作る（接頭辞はヘルパーが必ず付ける・検証後に削除）
+  const ctxItemId = await createContextSave(request, {
+    topic: `参照素材 ${RUN_ID}`,
+    contextText: `マイフォルダ検証用の素材本文です（${RUN_ID}）。検証後に削除されます。`,
   });
-  expect(created.status(), 'テスト用の参照素材が作成できること').toBe(200);
-  const ctxItemId = (await created.json()).id as number;
 
   try {
     // 一覧が互いのフォルダを含まない
@@ -1280,7 +1284,7 @@ test('C35: マイフォルダAPIの防御（未認証401・不正scope400・他�
   expect((await deleteFolder(request, 'text_analysis', 999999999)).status()).toBe(404);
 
   // 同名は作れない（409）
-  const name = `${E2E_FOLDER_PREFIX} 重複 ${RUN_ID}`;
+  const name = `${E2E_PREFIX} 重複 ${RUN_ID}`;
   const id = await createFolder(request, 'text_analysis', name);
   try {
     const dup = await request.post(FOLDERS_API, { data: { scope: 'text_analysis', name } });
@@ -1294,7 +1298,7 @@ test('C36: 保存一覧の画面でフォルダを作り、☆から分類して
   page,
   request,
 }) => {
-  const name = `${E2E_FOLDER_PREFIX} UI ${RUN_ID}`;
+  const name = `${E2E_PREFIX} UI ${RUN_ID}`;
   // 一覧は created_at DESC の30件ページング。シード記事は他のテストの作成分に押し出されて
   // 1ページ目から外れるため、この検証専用の記事を直前に作って必ず先頭に来るようにする
   const itemId = await createSave(request, {
@@ -1354,4 +1358,169 @@ test('C36: 保存一覧の画面でフォルダを作り、☆から分類して
     // 検証用の記事ごと消す（お気に入り状態の後始末も兼ねる）
     await deleteSave(request, itemId);
   }
+});
+
+// ============================================================================
+// 250: 一括削除（🗂テキスト分析 / 🧠AI参照素材 / 📚リサーチ保存）
+// - すべて当該テスト内で作った [E2E] 印のデータだけを消す（既存データには触れない）
+// ============================================================================
+
+test('C37: テキスト分析の一括削除（選択分だけ消える・249の分類も外れる・空idsは400）', async ({
+  request,
+}) => {
+  const ids: number[] = [];
+  for (let i = 0; i < 3; i++) {
+    ids.push(
+      await createSave(request, {
+        title: `一括削除 ${RUN_ID}-${i}`,
+        content: `一括削除の検証用（${RUN_ID}-${i}）`,
+      }),
+    );
+  }
+  const keepId = ids[2]; // 選択しない1件＝消えてはいけない
+  const targets = [ids[0], ids[1]];
+
+  // 249のフォルダに入れておき、削除で分類も外れることを見る
+  const folderId = await createFolder(request, 'text_analysis', `${E2E_PREFIX} 削除 ${RUN_ID}`);
+  try {
+    expect((await assignFolders(request, 'text_analysis', targets[0], [folderId])).status()).toBe(200);
+    expect(
+      (await listFolders(request, 'text_analysis')).folders.find((f) => f.id === folderId)!.count,
+    ).toBe(1);
+
+    // 空の ids は拒否される（誤って全件消す経路を作らない）
+    const empty = await patchSaves(request, { action: 'bulk_delete', ids: [] });
+    expect(empty.status(), '空のidsは400で拒否されること').toBe(400);
+
+    // 一括削除
+    const res = await patchSaves(request, { action: 'bulk_delete', ids: targets });
+    expect(res.status()).toBe(200);
+    expect((await res.json()).deleted, '選択した件数だけ削除されること').toBe(2);
+
+    // 選択したものは消え、選択しなかったものは残る
+    for (const id of targets) {
+      expect((await request.get(`${SAVES_API}?id=${id}`)).status()).toBe(404);
+    }
+    expect(
+      (await request.get(`${SAVES_API}?id=${keepId}`)).status(),
+      '選択しなかった記事は残ること',
+    ).toBe(200);
+
+    // 249の分類も外れている（孤児が残らない）
+    expect(
+      (await listFolders(request, 'text_analysis')).folders.find((f) => f.id === folderId)!.count,
+      '削除した記事の分類が外れること',
+    ).toBe(0);
+  } finally {
+    await deleteFolder(request, 'text_analysis', folderId);
+    await request.delete(`${SAVES_API}?id=${keepId}`);
+  }
+});
+
+test('C38: AI参照素材の一括削除（選択分だけ消える・空idsは400・未認証401）', async ({ request }) => {
+  const a = await createContextSave(request, { topic: `一括削除A ${RUN_ID}`, contextText: `本文A ${RUN_ID}` });
+  const b = await createContextSave(request, { topic: `一括削除B ${RUN_ID}`, contextText: `本文B ${RUN_ID}` });
+  const keep = await createContextSave(request, { topic: `残す ${RUN_ID}`, contextText: `本文C ${RUN_ID}` });
+
+  try {
+    const empty = await request.patch(CONTEXT_API, { data: { action: 'bulk_delete', ids: [] } });
+    expect(empty.status(), '空のidsは400で拒否されること').toBe(400);
+
+    const res = await request.patch(CONTEXT_API, { data: { action: 'bulk_delete', ids: [a, b] } });
+    expect(res.status()).toBe(200);
+    expect((await res.json()).deleted).toBe(2);
+
+    expect((await request.get(`${CONTEXT_API}?id=${a}`)).status()).toBe(404);
+    expect((await request.get(`${CONTEXT_API}?id=${b}`)).status()).toBe(404);
+    expect(
+      (await request.get(`${CONTEXT_API}?id=${keep}`)).status(),
+      '選択しなかった素材は残ること',
+    ).toBe(200);
+
+    const anon = await pwRequest.newContext({
+      baseURL: BASE_URL,
+      storageState: { cookies: [], origins: [] },
+    });
+    try {
+      const res401 = await anon.patch(CONTEXT_API, { data: { action: 'bulk_delete', ids: [keep] } });
+      expect(res401.status(), '未認証の一括削除は401であること').toBe(401);
+    } finally {
+      await anon.dispose();
+    }
+    expect(
+      (await request.get(`${CONTEXT_API}?id=${keep}`)).status(),
+      '未認証リクエストでデータが消えていないこと',
+    ).toBe(200);
+  } finally {
+    await request.delete(`${CONTEXT_API}?id=${keep}`);
+  }
+});
+
+test('C39: リサーチ保存の一括削除（選択分だけ消える・単体削除の従来経路も維持）', async ({
+  request,
+}) => {
+  const a = await createLibraryItem(request, { title: `一括削除A ${RUN_ID}`, content: `本文A ${RUN_ID}` });
+  const b = await createLibraryItem(request, { title: `一括削除B ${RUN_ID}`, content: `本文B ${RUN_ID}` });
+  const single = await createLibraryItem(request, { title: `単体削除 ${RUN_ID}`, content: `本文C ${RUN_ID}` });
+
+  const listMine = async () => {
+    const res = await request.get(`${LIBRARY_API}?q=${encodeURIComponent(RUN_ID)}`);
+    expect(res.status()).toBe(200);
+    return ((await res.json()) as { id: string }[]).map((r) => r.id);
+  };
+  expect((await listMine()).sort()).toEqual([a, b, single].sort());
+
+  // 一括削除（2件）
+  const res = await request.delete(LIBRARY_API, { data: { ids: [a, b] } });
+  expect(res.status()).toBe(200);
+  expect((await res.json()).deleted).toBe(2);
+  expect(await listMine(), '選択した2件だけが消えること').toEqual([single]);
+
+  // 単体削除の従来経路（{ id }）が壊れていないこと
+  const one = await request.delete(LIBRARY_API, { data: { id: single } });
+  expect(one.status()).toBe(200);
+  expect(await listMine()).toEqual([]);
+});
+
+test('C40: 保存一覧の画面から一括削除できる（確認ダイアログ必須・キャンセルでは消えない）', async ({
+  page,
+  request,
+}) => {
+  // 1ページ目の先頭に来るよう、この検証専用の記事を直前に作る
+  const idA = await createSave(request, { title: `画面一括削除A ${RUN_ID}`, content: `本文A ${RUN_ID}` });
+  const idB = await createSave(request, { title: `画面一括削除B ${RUN_ID}`, content: `本文B ${RUN_ID}` });
+
+  await page.goto('/dashboard/saved');
+  const panel = page.locator('[data-saved-panel="text-analysis"]');
+  const cardA = panel.locator(`[data-favorite-button="${idA}"]`).locator('xpath=ancestor::*[@data-analysis-card][1]');
+
+  // 対象2件を選択（カードのチェックボックス）
+  for (const id of [idA, idB]) {
+    const check = panel.locator(`[data-select-check="${id}"]`);
+    await check.scrollIntoViewIfNeeded();
+    await check.check();
+  }
+  const bulkBtn = panel.locator('[data-bulk-delete]');
+  await expect(bulkBtn, '選択すると一括削除ボタンが出ること').toBeVisible();
+  await expect(bulkBtn).toContainText('2件');
+
+  // ① キャンセルすると1件も消えない（確認が実際に効いていることの検証）
+  let dialogMessage = '';
+  page.once('dialog', async (d) => {
+    dialogMessage = d.message();
+    await d.dismiss();
+  });
+  await bulkBtn.click();
+  expect(dialogMessage, '件数を明示した確認ダイアログが出ること').toContain('2件');
+  expect(dialogMessage, '元に戻せないことを伝えていること').toContain('元に戻せません');
+  expect((await request.get(`${SAVES_API}?id=${idA}`)).status(), 'キャンセルなら消えないこと').toBe(200);
+
+  // ② 承諾すると選択分が消える
+  page.once('dialog', (d) => d.accept());
+  await bulkBtn.click();
+  await expect
+    .poll(async () => (await request.get(`${SAVES_API}?id=${idA}`)).status())
+    .toBe(404);
+  expect((await request.get(`${SAVES_API}?id=${idB}`)).status()).toBe(404);
+  await expect(cardA, '削除したカードが一覧から消えること').toHaveCount(0);
 });

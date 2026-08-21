@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { useToast } from '@/components/ui/Toast';
 import { MAX_KINDLE_SOURCES, makeAnalysisSourceKey } from '@/lib/kindle-limits';
 import { copyToClipboard } from '@/lib/copyToClipboard';
+import { confirmBulkDelete } from '@/lib/bulk-delete-confirm';
 import { copyRichMarkdown } from '@/lib/rich-copy';
 import { renderMarkdown, sanitizeLatex } from '@/lib/markdown-renderer';
 import { sanitizeFilename, yyyymmdd } from '@/lib/title-generator';
@@ -977,6 +978,33 @@ export default function SavedAnalysisList({
       void fetchPage(0, false);
     } catch {
       showToast('一括移動に失敗しました', 'error');
+    }
+  };
+
+  // 250: 選択中を一括削除。件数を明示した確認を必ず経由し、Undoは持たない（不可逆）。
+  const [bulkDeleting, setBulkDeleting] = useState(false);
+  const handleBulkDelete = async () => {
+    const ids = Array.from(selectedIds);
+    if (ids.length === 0 || bulkDeleting) return;
+    if (!confirmBulkDelete(ids.length, '保存テキスト')) return;
+    setBulkDeleting(true);
+    try {
+      const res = await fetch('/api/text-analysis/saves', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'bulk_delete', ids }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data?.error || '削除に失敗しました');
+      setSelectedIds(new Set());
+      showToast(`${data.deleted ?? ids.length}件を削除しました`, 'success');
+      // 件数・カテゴリ集計・フォルダ件数を正値に戻すため1ページ目から取り直す
+      void fetchPage(0, false);
+      void customFolders.reload();
+    } catch {
+      showToast('一括削除に失敗しました', 'error');
+    } finally {
+      setBulkDeleting(false);
     }
   };
 
@@ -2157,6 +2185,33 @@ export default function SavedAnalysisList({
                 📖 選択した{selectedIds.size}件をKindle本にする
               </button>
             )}
+
+            {/* 250: 一括削除。不可逆なので色で区別し、列の末尾（他の操作と押し間違えない位置）に置く */}
+            <button
+              type="button"
+              data-bulk-delete
+              onClick={handleBulkDelete}
+              disabled={bulkDeleting || selectedIds.size === 0}
+              style={{
+                padding: '10px 22px',
+                borderRadius: 12,
+                fontSize: 13,
+                fontWeight: 700,
+                border: 'none',
+                background: bulkDeleting || selectedIds.size === 0 ? 'var(--border)' : '#dc2626',
+                color: '#fff',
+                cursor: bulkDeleting || selectedIds.size === 0 ? 'not-allowed' : 'pointer',
+                boxShadow:
+                  bulkDeleting || selectedIds.size === 0
+                    ? 'none'
+                    : '0 4px 12px rgba(220,38,38,0.3)',
+                marginLeft: 'auto',
+              }}
+            >
+              {bulkDeleting
+                ? '⏳ 削除中...'
+                : `🗑 選択した${selectedIds.size}件を削除`}
+            </button>
           </div>
         </div>
       )}
@@ -2211,6 +2266,8 @@ export default function SavedAnalysisList({
                 id={`article-${record.id}`}
                 // 187: 「→次へ」追従ボタンの位置計測用（NoteBundleDock が参照）
                 data-bundle-key={`ana-${record.id}`}
+                // 250: 一括削除のE2Eがカード単位で存在を判定するための目印
+                data-analysis-card={record.id}
                 onClick={() => {
                   if (highlighted) onHighlightClear?.();
                 }}
@@ -2289,6 +2346,7 @@ export default function SavedAnalysisList({
                   ) : (
                     <input
                       type="checkbox"
+                      data-select-check={record.id}
                       checked={checked}
                       onChange={() => {
                         setSelectedIds((prev) => {

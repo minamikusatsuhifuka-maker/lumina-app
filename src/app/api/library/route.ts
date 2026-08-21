@@ -4,6 +4,9 @@ import { v4 as uuidv4 } from 'uuid';
 import { neon } from '@neondatabase/serverless';
 import { sanitizeForDb } from '@/lib/sanitize';
 
+// 250: 一括削除の1リクエストあたりの上限（text-analysis / context-saves と同値）。
+const BULK_DELETE_LIMIT = 500;
+
 export async function GET(req: NextRequest) {
   const session = await auth();
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
@@ -133,9 +136,26 @@ export async function PUT(req: NextRequest) {
 export async function DELETE(req: NextRequest) {
   const session = await auth();
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  const { id } = await req.json();
+  const { id, ids } = await req.json();
   const sql = neon(process.env.DATABASE_URL!);
   const userId = (session.user as any).id;
+
+  // 250: 選択中をまとめて削除（owner検証つき）。単体削除の { id } は従来どおり動く。
+  // id の型に依存しないよう ::text で比較する。削除は不可逆なので確認はUI側で必須にしている。
+  if (Array.isArray(ids)) {
+    const idsArray = ids.map((v: unknown) => String(v)).filter(Boolean).slice(0, BULK_DELETE_LIMIT);
+    if (idsArray.length === 0) {
+      return NextResponse.json({ error: 'ids が空です' }, { status: 400 });
+    }
+    const deleted = await sql`
+      DELETE FROM library
+      WHERE id::text = ANY(${idsArray}) AND user_id = ${userId}
+      RETURNING id
+    `;
+    return NextResponse.json({ success: true, deleted: deleted.length });
+  }
+
+  if (!id) return NextResponse.json({ error: 'id が必須です' }, { status: 400 });
   await sql`DELETE FROM library WHERE id = ${id} AND user_id = ${userId}`;
-  return NextResponse.json({ success: true });
+  return NextResponse.json({ success: true, deleted: 1 });
 }
