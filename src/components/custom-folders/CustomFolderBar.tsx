@@ -7,10 +7,12 @@
 // 記事は複数のフォルダに同時に属せる。
 
 import { useEffect, useState } from 'react';
-import type { CustomFolder, FolderFilter } from './useCustomFolders';
+import type { CustomFolder, FolderFilter, FolderScope } from './useCustomFolders';
 import { FOLDER_ACCENT, folderCardStyle } from './folderStyles';
 
 interface Props {
+  /** どちらの画面のフォルダ体系か（/dashboard/saved は両パネルを display:none で同時に持つため識別が要る） */
+  scope: FolderScope;
   folders: CustomFolder[];
   favoriteTotal: number;
   unfiledFavoriteCount: number;
@@ -25,6 +27,7 @@ interface Props {
 }
 
 export default function CustomFolderBar({
+  scope,
   folders,
   favoriteTotal,
   unfiledFavoriteCount,
@@ -106,7 +109,10 @@ export default function CustomFolderBar({
   };
 
   return (
-    <div data-custom-folder-bar style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+    <div
+      data-custom-folder-bar={scope}
+      style={{ display: 'flex', flexDirection: 'column', gap: 8 }}
+    >
       <style>{`
         .cf-grid {
           display: grid;

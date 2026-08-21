@@ -1296,7 +1296,10 @@ test('C36: 保存一覧の画面でフォルダを作り、☆から分類して
 }) => {
   const name = `${E2E_FOLDER_PREFIX} UI ${RUN_ID}`;
   await page.goto('/dashboard/saved');
-  const bar = page.locator('[data-custom-folder-bar]');
+  // /dashboard/saved は 🗂テキスト分析 と 🧠AI参照素材 の両パネルを display:none で
+  // 同時にマウントする。基点をパネルに固定しないと、非表示側の同名要素まで拾ってしまう
+  const panel = page.locator('[data-saved-panel="text-analysis"]');
+  const bar = panel.locator('[data-custom-folder-bar="text_analysis"]');
   await expect(bar, 'マイフォルダのバーが出ること').toBeVisible();
 
   // 「絞り込みなし」「お気に入り（未分類）」の2枚は常に出る
@@ -1316,7 +1319,7 @@ test('C36: 保存一覧の画面でフォルダを作り、☆から分類して
     expect(folderId).toBeGreaterThan(0);
 
     // ☆ボタン → 分類パネル → チェックで即保存
-    const favBtn = page.locator(`[data-favorite-button="${seedIds[0]}"]`);
+    const favBtn = panel.locator(`[data-favorite-button="${seedIds[0]}"]`);
     await favBtn.scrollIntoViewIfNeeded();
     await favBtn.click();
     const picker = page.locator('[data-folder-picker]');
@@ -1331,14 +1334,14 @@ test('C36: 保存一覧の画面でフォルダを作り、☆から分類して
     // パネルを閉じるとカードに所属フォルダのバッジが出る
     await picker.getByRole('button', { name: '閉じる' }).click();
     await expect(
-      page.locator(`[data-folder-badge="${folderId}"]`).first(),
+      panel.locator(`[data-folder-badge="${folderId}"]`).first(),
       'カードに所属フォルダのバッジが出ること',
     ).toBeVisible();
 
     // フォルダで絞り込むと、その記事だけが残る
     await card.click();
     await expect
-      .poll(async () => page.locator('[data-favorite-button]').count())
+      .poll(async () => panel.locator('[data-favorite-button]').count())
       .toBe(1);
   } finally {
     if (folderId) await deleteFolder(request, 'text_analysis', folderId);

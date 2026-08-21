@@ -916,6 +916,7 @@ export default function ContextLibraryPanel() {
       {/* 249: マイフォルダ（院長が名前を付けた分類。🤖自動カテゴリとは別軸で併存） */}
       <div style={{ marginBottom: 20 }}>
         <CustomFolderBar
+          scope="context"
           folders={customFolders.folders}
           favoriteTotal={customFolders.favoriteTotal}
           unfiledFavoriteCount={customFolders.unfiledFavoriteCount}

@@ -1141,7 +1141,9 @@ export default function SavedAnalysisList({
   };
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+    // /dashboard/saved は 🗂テキスト分析 と 🧠AI参照素材 の両パネルを display:none で
+    // 同時にマウントするため、パネルを一意に指せる目印を置く（E2Eの基点にもなる）
+    <div data-saved-panel="text-analysis" style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
       <style>{`
         .category-card:hover .category-edit-btn { opacity: 1 !important; }
         /* カテゴリ概覧グリッド: 画面幅に応じて列数を自動調整（PCは多列、コンパクト1行表示） */
@@ -1781,6 +1783,7 @@ export default function SavedAnalysisList({
 
       {/* 249: マイフォルダ（院長が名前を付けた分類。🤖自動カテゴリとは別軸で併存） */}
       <CustomFolderBar
+        scope="text_analysis"
         folders={customFolders.folders}
         favoriteTotal={customFolders.favoriteTotal}
         unfiledFavoriteCount={customFolders.unfiledFavoriteCount}
