@@ -11,6 +11,15 @@ import {
   patchSaves,
   deleteSave,
   cleanupE2ESaves,
+  // 249: マイフォルダ
+  FOLDERS_API,
+  CONTEXT_API,
+  E2E_FOLDER_PREFIX,
+  listFolders,
+  createFolder,
+  assignFolders,
+  deleteFolder,
+  cleanupE2EFolders,
 } from './helpers';
 
 // ============================================================================
@@ -68,6 +77,8 @@ test.beforeAll(async () => {
 
 test.afterAll(async () => {
   await cleanupE2ESaves(api);
+  // 249: テスト用フォルダも消す（フォルダを消しても記事は残るので、記事の掃除とは独立）
+  await cleanupE2EFolders(api);
   await api.dispose();
 });
 
@@ -1065,4 +1076,273 @@ test('C31: 生成結果の自動ストック保存（247・ディープリサー
   expect(libraryPosts.length, 'OFFのときは保存要求が飛ばないこと').toBe(0);
 
   await page.evaluate(() => localStorage.removeItem('lumina_auto_stock_save'));
+});
+
+// ============================================================================
+// 249: マイフォルダ（お気に入りのカスタムフォルダ分類）
+// - 検証はすべて [E2E] 印のフォルダ／記事だけを対象にする（院長の既存データは触らない）
+// - 自動カテゴリ（folder / category）とは別軸であることも機械判定する
+// ============================================================================
+
+test('C32: マイフォルダの一連（作成→分類→絞り込み→リネーム→削除）と、削除しても記事が残ること', async ({
+  request,
+}) => {
+  const name = `${E2E_FOLDER_PREFIX} 分類A ${RUN_ID}`;
+  const folderId = await createFolder(request, 'text_analysis', name);
+
+  // 作成直後は0件で一覧に載る
+  const afterCreate = await listFolders(request, 'text_analysis');
+  const created = afterCreate.folders.find((f) => f.id === folderId);
+  expect(created, '作ったフォルダが一覧に出ること').toBeTruthy();
+  expect(created!.name).toBe(name);
+  expect(created!.count, '作成直後は0件であること').toBe(0);
+
+  // 分類（1件入れる）→ 件数が1になる
+  const targetId = seedIds[0];
+  const assigned = await assignFolders(request, 'text_analysis', targetId, [folderId]);
+  expect(assigned.status(), '分類の保存が200であること').toBe(200);
+  const afterAssign = await listFolders(request, 'text_analysis');
+  expect(
+    afterAssign.folders.find((f) => f.id === folderId)!.count,
+    '分類したら件数が1になること',
+  ).toBe(1);
+
+  // 絞り込み: そのフォルダの記事だけが返る
+  const filtered = await listSaves(request, { cfolder: folderId, limit: 100 });
+  expect(filtered.total_count, 'フォルダ絞り込みの件数が1であること').toBe(1);
+  expect(filtered.items.map((i) => i.id)).toEqual([targetId]);
+  expect(
+    (filtered.items[0] as { custom_folder_ids?: number[] }).custom_folder_ids,
+    '一覧itemsに所属フォルダIDが載ること',
+  ).toContain(folderId);
+
+  // 自動カテゴリ（folder）は変わっていない＝別軸で併存している
+  expect(filtered.items[0].folder, '自動カテゴリが書き換わっていないこと').toBe(SEED_FOLDER);
+
+  // リネーム（所属は保持される）
+  const renamed = `${E2E_FOLDER_PREFIX} 分類A改 ${RUN_ID}`;
+  const renameRes = await request.patch(FOLDERS_API, {
+    data: { scope: 'text_analysis', action: 'rename', id: folderId, name: renamed },
+  });
+  expect(renameRes.status(), 'リネームが200であること').toBe(200);
+  const afterRename = await listFolders(request, 'text_analysis');
+  const renamedFolder = afterRename.folders.find((f) => f.id === folderId)!;
+  expect(renamedFolder.name).toBe(renamed);
+  expect(renamedFolder.count, 'リネームしても所属は保持されること').toBe(1);
+
+  // 削除 → フォルダは消えるが、記事そのものは残る（分類が外れるだけ）
+  const delRes = await deleteFolder(request, 'text_analysis', folderId);
+  expect(delRes.status(), 'フォルダ削除が200であること').toBe(200);
+  const afterDelete = await listFolders(request, 'text_analysis');
+  expect(
+    afterDelete.folders.find((f) => f.id === folderId),
+    '削除したフォルダが一覧から消えること',
+  ).toBeUndefined();
+  const survived = await request.get(`${SAVES_API}?id=${targetId}`);
+  expect(survived.status(), 'フォルダを消しても記事は残ること').toBe(200);
+  const survivedJson = await survived.json();
+  expect(String(survivedJson.content ?? '').length, '記事の本文も残っていること').toBeGreaterThan(0);
+});
+
+test('C33: 1記事の複数フォルダ所属と「お気に入り（未分類）」の絞り込み', async ({ request }) => {
+  const f1 = await createFolder(request, 'text_analysis', `${E2E_FOLDER_PREFIX} 複数1 ${RUN_ID}`);
+  const f2 = await createFolder(request, 'text_analysis', `${E2E_FOLDER_PREFIX} 複数2 ${RUN_ID}`);
+  const both = seedIds[1]; // 2つのフォルダに入れる記事
+  const onlyFav = seedIds[2]; // お気に入りだけ付けて未分類のままにする記事
+
+  try {
+    // 両方お気に入りにする（未分類の母数に入る）
+    for (const id of [both, onlyFav]) {
+      const res = await patchSaves(request, { action: 'toggle_favorite', id });
+      expect(res.status()).toBe(200);
+    }
+
+    // 1記事を2フォルダへ
+    expect((await assignFolders(request, 'text_analysis', both, [f1, f2])).status()).toBe(200);
+    const list = await listFolders(request, 'text_analysis');
+    expect(list.folders.find((f) => f.id === f1)!.count, 'フォルダ1に入ること').toBe(1);
+    expect(list.folders.find((f) => f.id === f2)!.count, 'フォルダ2にも同時に入ること').toBe(1);
+
+    // どちらのフォルダで絞り込んでも同じ記事が出る
+    for (const fid of [f1, f2]) {
+      const filtered = await listSaves(request, { cfolder: fid, limit: 100 });
+      expect(filtered.items.map((i) => i.id)).toEqual([both]);
+    }
+
+    // 未分類の絞り込み: 分類済みは出ず、お気に入りだけの記事は出る
+    const unfiled = await listSaves(request, { cfolder: 'unfiled', limit: 100 });
+    const unfiledIds = unfiled.items.map((i) => i.id);
+    expect(unfiledIds, '分類済みの記事は未分類に出ないこと').not.toContain(both);
+    expect(unfiledIds, 'お気に入りだけの記事は未分類に出ること').toContain(onlyFav);
+
+    // 全解除すると未分類に戻る
+    expect((await assignFolders(request, 'text_analysis', both, [])).status()).toBe(200);
+    const unfiled2 = await listSaves(request, { cfolder: 'unfiled', limit: 100 });
+    expect(
+      unfiled2.items.map((i) => i.id),
+      '分類を全部外したら未分類に戻ること',
+    ).toContain(both);
+  } finally {
+    await deleteFolder(request, 'text_analysis', f1);
+    await deleteFolder(request, 'text_analysis', f2);
+    for (const id of [both, onlyFav]) {
+      await patchSaves(request, { action: 'toggle_favorite', id });
+    }
+  }
+});
+
+test('C34: 保存一覧とAI参照素材でフォルダ体系が混ざらない（同名OK・相手のフォルダには入らない）', async ({
+  request,
+}) => {
+  const sameName = `${E2E_FOLDER_PREFIX} 同名 ${RUN_ID}`;
+  const taFolder = await createFolder(request, 'text_analysis', sameName);
+  const ctxFolder = await createFolder(request, 'context', sameName);
+  expect(taFolder, '同じ名前でも別スコープなら別フォルダとして作れること').not.toBe(ctxFolder);
+
+  // AI参照素材側にテスト素材を1件だけ作る（検証後に必ず削除）
+  const created = await request.post(CONTEXT_API, {
+    data: {
+      topic: `[E2E] 参照素材 ${RUN_ID}`,
+      contextText: `[E2E] マイフォルダ検証用の素材本文です（${RUN_ID}）。検証後に削除されます。`,
+      tags: [],
+    },
+  });
+  expect(created.status(), 'テスト用の参照素材が作成できること').toBe(200);
+  const ctxItemId = (await created.json()).id as number;
+
+  try {
+    // 一覧が互いのフォルダを含まない
+    const taList = await listFolders(request, 'text_analysis');
+    const ctxList = await listFolders(request, 'context');
+    expect(taList.folders.map((f) => f.id), '保存一覧にAI参照素材のフォルダが出ないこと').not.toContain(ctxFolder);
+    expect(ctxList.folders.map((f) => f.id), 'AI参照素材に保存一覧のフォルダが出ないこと').not.toContain(taFolder);
+
+    // 相手スコープのフォルダIDを渡しても分類されない（所有・スコープ検証）
+    const cross = await assignFolders(request, 'context', ctxItemId, [taFolder]);
+    expect(cross.status(), 'リクエスト自体は成功扱いになること').toBe(200);
+    const afterCross = await listFolders(request, 'text_analysis');
+    expect(
+      afterCross.folders.find((f) => f.id === taFolder)!.count,
+      '別スコープの記事は相手のフォルダに入らないこと',
+    ).toBe(0);
+
+    // 自スコープのフォルダには入る
+    expect((await assignFolders(request, 'context', ctxItemId, [ctxFolder])).status()).toBe(200);
+    const ctxAfter = await listFolders(request, 'context');
+    expect(ctxAfter.folders.find((f) => f.id === ctxFolder)!.count).toBe(1);
+
+    // AI参照素材の一覧を cfolder で絞ると、その素材だけが出る
+    const ctxFiltered = await request.get(`${CONTEXT_API}?cfolder=${ctxFolder}&limit=100`);
+    expect(ctxFiltered.status()).toBe(200);
+    const ctxJson = await ctxFiltered.json();
+    expect(ctxJson.items.map((i: { id: number }) => i.id)).toEqual([ctxItemId]);
+    expect(ctxJson.items[0].custom_folder_ids).toContain(ctxFolder);
+  } finally {
+    await request.delete(`${CONTEXT_API}?id=${ctxItemId}`);
+    await deleteFolder(request, 'text_analysis', taFolder);
+    await deleteFolder(request, 'context', ctxFolder);
+  }
+});
+
+test('C35: マイフォルダAPIの防御（未認証401・不正scope400・他人/不在フォルダ404・同名409）', async ({
+  request,
+}) => {
+  const anon = await pwRequest.newContext({
+    baseURL: BASE_URL,
+    storageState: { cookies: [], origins: [] },
+  });
+  try {
+    expect((await anon.get(`${FOLDERS_API}?scope=text_analysis`)).status()).toBe(401);
+    expect(
+      (await anon.post(FOLDERS_API, { data: { scope: 'text_analysis', name: 'x' } })).status(),
+    ).toBe(401);
+  } finally {
+    await anon.dispose();
+  }
+
+  // scope は許可された2種のみ
+  expect((await request.get(`${FOLDERS_API}?scope=other`)).status()).toBe(400);
+  expect(
+    (await request.post(FOLDERS_API, { data: { scope: 'other', name: 'x' } })).status(),
+  ).toBe(400);
+  // 空名は作れない
+  expect(
+    (await request.post(FOLDERS_API, { data: { scope: 'text_analysis', name: '   ' } })).status(),
+  ).toBe(400);
+  // 存在しないフォルダの操作は404（他人のフォルダも同じ扱い）
+  expect(
+    (
+      await request.patch(FOLDERS_API, {
+        data: { scope: 'text_analysis', action: 'rename', id: 999999999, name: 'x' },
+      })
+    ).status(),
+  ).toBe(404);
+  expect((await deleteFolder(request, 'text_analysis', 999999999)).status()).toBe(404);
+
+  // 同名は作れない（409）
+  const name = `${E2E_FOLDER_PREFIX} 重複 ${RUN_ID}`;
+  const id = await createFolder(request, 'text_analysis', name);
+  try {
+    const dup = await request.post(FOLDERS_API, { data: { scope: 'text_analysis', name } });
+    expect(dup.status(), '同名フォルダは409で拒否されること').toBe(409);
+  } finally {
+    await deleteFolder(request, 'text_analysis', id);
+  }
+});
+
+test('C36: 保存一覧の画面でフォルダを作り、☆から分類してバッジが出る（249のUI一連）', async ({
+  page,
+  request,
+}) => {
+  const name = `${E2E_FOLDER_PREFIX} UI ${RUN_ID}`;
+  await page.goto('/dashboard/saved');
+  const bar = page.locator('[data-custom-folder-bar]');
+  await expect(bar, 'マイフォルダのバーが出ること').toBeVisible();
+
+  // 「絞り込みなし」「お気に入り（未分類）」の2枚は常に出る
+  await expect(bar.locator('[data-folder-filter="all-favorites"]')).toBeVisible();
+  await expect(bar.locator('[data-folder-filter="unfiled"]')).toBeVisible();
+
+  // 管理モードからフォルダを作る
+  await bar.locator('[data-folder-manage-toggle]').click();
+  await bar.locator('[data-folder-bar-new-name]').fill(name);
+  await bar.locator('[data-folder-bar-create]').click();
+  const card = bar.locator('[data-folder-card]').filter({ hasText: name });
+  await expect(card, '作ったフォルダがカードとして出ること').toBeVisible();
+
+  let folderId = 0;
+  try {
+    folderId = Number(await card.getAttribute('data-folder-card'));
+    expect(folderId).toBeGreaterThan(0);
+
+    // ☆ボタン → 分類パネル → チェックで即保存
+    const favBtn = page.locator(`[data-favorite-button="${seedIds[0]}"]`);
+    await favBtn.scrollIntoViewIfNeeded();
+    await favBtn.click();
+    const picker = page.locator('[data-folder-picker]');
+    await expect(picker, '☆から分類パネルが開くこと').toBeVisible();
+    await picker.locator(`[data-folder-option="${folderId}"] input`).check();
+
+    // サーバに保存されたことをAPIで確認（画面の見た目だけで判定しない）
+    await expect
+      .poll(async () => (await listFolders(request, 'text_analysis')).folders.find((f) => f.id === folderId)?.count)
+      .toBe(1);
+
+    // パネルを閉じるとカードに所属フォルダのバッジが出る
+    await picker.getByRole('button', { name: '閉じる' }).click();
+    await expect(
+      page.locator(`[data-folder-badge="${folderId}"]`).first(),
+      'カードに所属フォルダのバッジが出ること',
+    ).toBeVisible();
+
+    // フォルダで絞り込むと、その記事だけが残る
+    await card.click();
+    await expect
+      .poll(async () => page.locator('[data-favorite-button]').count())
+      .toBe(1);
+  } finally {
+    if (folderId) await deleteFolder(request, 'text_analysis', folderId);
+    // お気に入り状態を元に戻す（☆で登録された分）
+    await patchSaves(request, { action: 'toggle_favorite', id: seedIds[0] });
+  }
 });

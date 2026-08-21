@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useMemo, type CSSProperties } from 'react';
+import { useEffect, useState, useMemo, useRef, type CSSProperties } from 'react';
 import FeatureDefaultContextSelector, { FEATURE_OPTIONS } from '@/components/FeatureDefaultContextSelector';
 import { copyRichMarkdown } from '@/lib/rich-copy';
 import { renderMarkdown, sanitizeLatex } from '@/lib/markdown-renderer';
@@ -12,6 +12,14 @@ import { KEY_HINT, useShortcutHints } from '@/lib/shortcuts';
 import { cardActionBtnStyle } from '@/components/text-analysis/cardActionButtonStyle';
 import { BundleSelectToggleButton, BundleSelectCheckbox } from '@/components/note-bundle/BundleSelectControls';
 import { useNoteBundleSelection } from '@/components/note-bundle/useNoteBundleSelection';
+// 249: マイフォルダ（院長が名前を付けるお気に入りの分類・自動カテゴリとは別軸）
+import CustomFolderBar from '@/components/custom-folders/CustomFolderBar';
+import FolderBadges from '@/components/custom-folders/FolderBadges';
+import FolderPickerPopover from '@/components/custom-folders/FolderPickerPopover';
+import {
+  useCustomFolders,
+  type FolderFilter,
+} from '@/components/custom-folders/useCustomFolders';
 
 // 175: 一覧APIは本文(context_text)を返さない。char_count のみ受け取り、
 // 本文が必要な操作（全文表示・コピー・DL・編集・活用等）の時に ?id= で単体取得してマージする。
@@ -25,6 +33,8 @@ type ContextSave = {
   is_favorite?: boolean;
   category?: string;
   char_count?: number | string;
+  // 249: 所属するマイフォルダのID（複数可・自動カテゴリの category とは別軸）
+  custom_folder_ids?: number[];
 };
 
 // 1ページの取得件数（165ギャラリーの「もっと見る」方式と同系統）
@@ -177,6 +187,16 @@ export default function ContextLibraryPanel() {
       return next;
     });
   };
+  // 249: マイフォルダ（自動カテゴリとは別軸の手動分類）。絞り込みは activeCategory と AND
+  const customFolders = useCustomFolders('context', (msg) => {
+    setToast(`❌ ${msg}`);
+    setTimeout(() => setToast(''), 3000);
+  });
+  const [activeCustomFolder, setActiveCustomFolder] = useState<FolderFilter>(null);
+  // 分類パネルを開いている素材（☆ボタンの矩形に合わせてポップオーバーを出す）
+  const [folderPicker, setFolderPicker] = useState<{ id: number; rect: DOMRect } | null>(null);
+  // 分類を変えたまま閉じたときだけ、絞り込み中の一覧を取り直すためのフラグ
+  const folderPickerDirty = useRef(false);
   const [isAutoCategorizing, setIsAutoCategorizing] = useState(false);
   const [categorizationResult, setCategorizationResult] =
     useState<AutoCategorizeResult | null>(null);
@@ -215,6 +235,8 @@ export default function ContextLibraryPanel() {
       if (tagFilters.length > 0) p.set('tagMode', tagMode);
       if (favoriteOnly) p.set('favorite', '1');
       if (activeCategory !== null) p.set('category', activeCategory);
+      // 249: マイフォルダでの絞り込み（id指定 / お気に入りの未分類）
+      if (activeCustomFolder !== null) p.set('cfolder', String(activeCustomFolder));
       const res = await fetch(`/api/context-saves?${p.toString()}`);
       if (res.ok) {
         const data = await res.json();
@@ -236,7 +258,7 @@ export default function ContextLibraryPanel() {
   useEffect(() => {
     fetchPage(0, false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [debouncedSearch, tagFilters, tagMode, favoriteOnly, activeCategory]);
+  }, [debouncedSearch, tagFilters, tagMode, favoriteOnly, activeCategory, activeCustomFolder]);
 
   // items 取得後、各カードに対する「デフォルト登録機能マップ」を取得（未取得のIDのみ追加取得）
   useEffect(() => {
@@ -476,16 +498,52 @@ export default function ContextLibraryPanel() {
         body: JSON.stringify({ action: 'toggle_favorite', id: item.id }),
       });
       if (!res.ok) throw new Error();
-      // お気に入り絞り込み中に解除した場合は一覧から除外（サーバ絞り込みと表示を一致させる）
-      if (favoriteOnly && !next) {
+      // お気に入り絞り込み中に解除した場合は一覧から除外（サーバ絞り込みと表示を一致させる）。
+      // 249: マイフォルダで絞り込み中も同様（解除で分類が外れ、条件から外れるため）
+      if (!next && (favoriteOnly || activeCustomFolder !== null)) {
         setItems(prev => prev.filter(it => it.id !== item.id));
         setTotalCount(t => (t === null ? null : Math.max(0, t - 1)));
       }
+      void customFolders.reload();
     } catch {
       setItems(prev => prev.map(it => it.id === item.id ? { ...it, is_favorite: !next } : it));
       setToast('❌ お気に入りの更新に失敗しました');
       setTimeout(() => setToast(''), 3000);
     }
+  };
+
+  // ── 249: マイフォルダ（お気に入りの手動分類） ──
+
+  /** ☆ボタン: 未登録ならお気に入りにしてから、いずれの場合も分類パネルを開く */
+  const handleFavoriteButton = (item: ContextSave, rect: DOMRect) => {
+    if (!item.is_favorite) void handleToggleFavorite(item);
+    setFolderPicker({ id: item.id, rect });
+  };
+
+  const closeFolderPicker = () => {
+    const changed = folderPickerDirty.current;
+    folderPickerDirty.current = false;
+    setFolderPicker(null);
+    // フォルダで絞り込み中に分類を変えたら、条件から外れた素材を残さないよう取り直す
+    if (changed && activeCustomFolder !== null) void fetchPage(0, false);
+  };
+
+  /** 所属フォルダを選択内容に置き換える（チェックした時点で保存） */
+  const handleAssignFolders = async (id: number, folderIds: number[]) => {
+    const before = items.find(it => it.id === id)?.custom_folder_ids ?? [];
+    folderPickerDirty.current = true;
+    setItems(prev => prev.map(it => (it.id === id ? { ...it, custom_folder_ids: folderIds } : it)));
+    const ok = await customFolders.assignItem(id, folderIds);
+    if (!ok) {
+      setItems(prev => prev.map(it => (it.id === id ? { ...it, custom_folder_ids: before } : it)));
+    }
+  };
+
+  /** パネルからのお気に入り解除。分類だけ残らないよう先に全解除する */
+  const handleUnfavorite = async (item: ContextSave) => {
+    await customFolders.assignItem(item.id, []);
+    setItems(prev => prev.map(it => (it.id === item.id ? { ...it, custom_folder_ids: [] } : it)));
+    await handleToggleFavorite(item);
   };
 
   const handleDelete = async (id: number) => {
@@ -506,6 +564,8 @@ export default function ContextLibraryPanel() {
               .filter(c => Number(c.count) > 0),
           );
         }
+        // 249: マイフォルダの件数も取り直す（削除された素材は数えない）
+        void customFolders.reload();
       }
     } catch {}
   };
@@ -853,6 +913,22 @@ export default function ContextLibraryPanel() {
         </div>
       )}
 
+      {/* 249: マイフォルダ（院長が名前を付けた分類。🤖自動カテゴリとは別軸で併存） */}
+      <div style={{ marginBottom: 20 }}>
+        <CustomFolderBar
+          folders={customFolders.folders}
+          favoriteTotal={customFolders.favoriteTotal}
+          unfiledFavoriteCount={customFolders.unfiledFavoriteCount}
+          value={activeCustomFolder}
+          onChange={setActiveCustomFolder}
+          onCreate={customFolders.createFolder}
+          onRename={customFolders.renameFolder}
+          onDelete={customFolders.deleteFolder}
+          onReorder={customFolders.reorderFolders}
+          storageKey="cl_custom_folder_open"
+        />
+      </div>
+
       {/* 検索・フィルターバー */}
       <div style={{
         background: 'var(--bg-secondary)',
@@ -1121,6 +1197,12 @@ export default function ContextLibraryPanel() {
                       </span>
                     )}
                   </div>
+                  {/* 249: 所属マイフォルダ（複数可）。どのフォルダに入れたか一目で分かるように */}
+                  {(item.custom_folder_ids?.length ?? 0) > 0 && (
+                    <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' as const, marginTop: 6 }}>
+                      <FolderBadges folderIds={item.custom_folder_ids} folders={customFolders.folders} />
+                    </div>
+                  )}
                 </div>
               </div>
 
@@ -1170,16 +1252,19 @@ export default function ContextLibraryPanel() {
                 >
                   {copiedId === item.id ? '✅ コピー済み' : '📋 コピー'}
                 </button>
+                {/* 249: お気に入りと同時にフォルダ分類も決める。既にお気に入りなら
+                    分類の変更・追加・解除をこのパネルから行う */}
                 <button
-                  onClick={() => handleToggleFavorite(item)}
-                  title={item.is_favorite ? 'お気に入りを解除' : 'お気に入りに登録'}
+                  data-favorite-button={item.id}
+                  onClick={(e) => handleFavoriteButton(item, e.currentTarget.getBoundingClientRect())}
+                  title={item.is_favorite ? 'フォルダ分類の変更・お気に入り解除' : 'お気に入りに登録してフォルダに分類する'}
                   style={
                     item.is_favorite
-                      ? { ...cardActionBtnStyle(), background: '#fef3c7', border: '1px solid #f59e0b', color: '#b45309', fontWeight: 700 }
+                      ? { ...cardActionBtnStyle(), background: '#fef3c7', border: '1px solid #f59e0b', color: '#92400e', fontWeight: 700 }
                       : cardActionBtnStyle()
                   }
                 >
-                  {item.is_favorite ? '⭐ 解除' : '☆ お気に入り'}
+                  {item.is_favorite ? '⭐ 分類' : '☆ お気に入り'}
                 </button>
                 <div data-ctx-more-menu style={{ position: 'relative', marginLeft: 'auto' }}>
                   <button
@@ -1623,6 +1708,25 @@ export default function ContextLibraryPanel() {
           )
         }
       />
+
+      {/* 249: 分類パネル（☆ボタンから開く。createPortalでbody直下に出す＝R-19） */}
+      {folderPicker &&
+        (() => {
+          const target = items.find(it => it.id === folderPicker.id);
+          if (!target) return null;
+          return (
+            <FolderPickerPopover
+              anchorRect={folderPicker.rect}
+              folders={customFolders.folders}
+              selectedIds={target.custom_folder_ids ?? []}
+              isFavorite={!!target.is_favorite}
+              onChange={(ids) => void handleAssignFolders(target.id, ids)}
+              onCreate={customFolders.createFolder}
+              onUnfavorite={() => void handleUnfavorite(target)}
+              onClose={closeFolderPicker}
+            />
+          );
+        })()}
     </div>
   );
 }

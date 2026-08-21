@@ -23,6 +23,14 @@ import {
 import { CATEGORY_KEYWORDS, stripSpaces } from '@/lib/category-keywords';
 import { KEY_HINT, useShortcutHints } from '@/lib/shortcuts';
 import { CATEGORY_GROUPS, OTHER_CATEGORY } from '@/lib/category-vocabulary';
+// 249: マイフォルダ（院長が名前を付けるお気に入りの分類・自動カテゴリとは別軸）
+import CustomFolderBar from '@/components/custom-folders/CustomFolderBar';
+import FolderBadges from '@/components/custom-folders/FolderBadges';
+import FolderPickerPopover from '@/components/custom-folders/FolderPickerPopover';
+import {
+  useCustomFolders,
+  type FolderFilter,
+} from '@/components/custom-folders/useCustomFolders';
 
 // 展開ビューの本文表示枠の高さ切替（S/M/L/全）。
 // 値は生成結果カード(TextAnalysisPanel の ResultPanel)の HEIGHT_PRESETS と統一。
@@ -55,6 +63,8 @@ export interface AnalysisRecord {
   // 元の入力テキストの有無・文字数（一覧APIが返す。input_text本体は展開時に単体取得）
   has_input?: boolean;
   input_char_count?: number;
+  // 249: 所属するマイフォルダのID（複数可・自動カテゴリの folder とは別軸）
+  custom_folder_ids?: number[];
 }
 
 // 203: 任意ワード抽出のガード定数
@@ -133,6 +143,11 @@ export default function SavedAnalysisList({
   // カードのチェックボックスをnote素材選択用に切り替える（一括操作用との二重表示を避ける）。
   const { selectMode: bundleSelectMode, isSelected: isBundleSelected } = useNoteBundleSelection();
   const [activeFolder, setActiveFolder] = useState<string | null>(null);
+  // 249: マイフォルダ（自動カテゴリとは別軸の手動分類）。絞り込みは activeFolder と AND
+  const customFolders = useCustomFolders('text_analysis', (msg) => showToast(msg, 'error'));
+  const [activeCustomFolder, setActiveCustomFolder] = useState<FolderFilter>(null);
+  // 分類パネルを開いている記事（☆ボタンの矩形に合わせてポップオーバーを出す）
+  const [folderPicker, setFolderPicker] = useState<{ id: number; rect: DOMRect } | null>(null);
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
   // カテゴリ概覧の開閉（デフォルト閉。開閉状態は localStorage で記憶）
   const [showCategoryGrid, setShowCategoryGrid] = useState(false);
@@ -232,6 +247,8 @@ export default function SavedAnalysisList({
       if (activeFolder !== null) p.set('folder', activeFolder);
       if (favoriteOnly) p.set('favorite', '1');
       if (inputOnly) p.set('hasInput', '1');
+      // 249: マイフォルダでの絞り込み（id指定 / お気に入りの未分類）
+      if (activeCustomFolder !== null) p.set('cfolder', String(activeCustomFolder));
       const res = await fetch(`/api/text-analysis/saves?${p.toString()}`);
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data?.error || '一覧の取得に失敗しました');
@@ -261,7 +278,7 @@ export default function SavedAnalysisList({
   useEffect(() => {
     fetchPage(0, false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [debouncedSearch, activeFolder, favoriteOnly, inputOnly, reloadKey]);
+  }, [debouncedSearch, activeFolder, favoriteOnly, inputOnly, activeCustomFolder, reloadKey]);
 
   // ── 194: 本文（content）の遅延取得＋キャッシュ（fetchInputText と同型）。
   // 失敗時は null を返しキャッシュしない（再試行可能。✏編集の空content上書きガードにも使う） ──
@@ -971,8 +988,9 @@ export default function SavedAnalysisList({
         body: JSON.stringify({ action: 'toggle_favorite', id }),
       });
       if (!res.ok) throw new Error();
-      // お気に入り絞り込み中の解除は一覧から外す（サーバ絞り込みと整合）
-      if (favoriteOnly) {
+      // お気に入り絞り込み中の解除は一覧から外す（サーバ絞り込みと整合）。
+      // 249: マイフォルダで絞り込み中も同様（解除で分類が外れ、条件から外れるため）
+      if (favoriteOnly || activeCustomFolder !== null) {
         setRecords((prev) => prev.filter((r) => r.id !== id));
         setTotalCount((n) => Math.max(0, n - 1));
       } else {
@@ -980,9 +998,50 @@ export default function SavedAnalysisList({
           prev.map((r) => (r.id === id ? { ...r, favorite: !r.favorite } : r)),
         );
       }
+      void customFolders.reload();
     } catch {
       showToast('更新に失敗しました', 'error');
     }
+  };
+
+  // ── 249: マイフォルダ（お気に入りの手動分類） ──
+  // 分類を変えたまま閉じたときだけ、絞り込み中の一覧を取り直すためのフラグ
+  const folderPickerDirtyRef = useRef(false);
+
+  /** ☆ボタン: 未登録ならお気に入りにしてから、いずれの場合も分類パネルを開く */
+  const handleFavoriteButton = (record: AnalysisRecord, rect: DOMRect) => {
+    if (!record.favorite) void handleToggleFavorite(record.id);
+    setFolderPicker({ id: record.id, rect });
+  };
+
+  const closeFolderPicker = () => {
+    const changed = folderPickerDirtyRef.current;
+    folderPickerDirtyRef.current = false;
+    setFolderPicker(null);
+    // フォルダで絞り込み中に分類を変えたら、条件から外れた記事を残さないよう取り直す
+    if (changed && activeCustomFolder !== null) void fetchPage(0, false);
+  };
+
+  /** 所属フォルダを選択内容に置き換える（チェックした時点で保存） */
+  const handleAssignFolders = async (id: number, folderIds: number[]) => {
+    const before = records.find((r) => r.id === id)?.custom_folder_ids ?? [];
+    folderPickerDirtyRef.current = true;
+    setRecords((prev) =>
+      prev.map((r) => (r.id === id ? { ...r, custom_folder_ids: folderIds } : r)),
+    );
+    const ok = await customFolders.assignItem(id, folderIds);
+    if (!ok) {
+      setRecords((prev) =>
+        prev.map((r) => (r.id === id ? { ...r, custom_folder_ids: before } : r)),
+      );
+    }
+  };
+
+  /** パネルからのお気に入り解除。分類だけ残らないよう先に全解除する */
+  const handleUnfavorite = async (id: number) => {
+    await customFolders.assignItem(id, []);
+    setRecords((prev) => prev.map((r) => (r.id === id ? { ...r, custom_folder_ids: [] } : r)));
+    await handleToggleFavorite(id);
   };
 
   const handleDelete = async (id: number) => {
@@ -1007,6 +1066,8 @@ export default function SavedAnalysisList({
             .filter((f) => f.count > 0),
         );
       }
+      // 249: マイフォルダの件数も取り直す（削除された記事は数えない）
+      void customFolders.reload();
       showToast('削除しました', 'success');
     } catch {
       showToast('削除に失敗しました', 'error');
@@ -1718,6 +1779,20 @@ export default function SavedAnalysisList({
         </div>
       )}
 
+      {/* 249: マイフォルダ（院長が名前を付けた分類。🤖自動カテゴリとは別軸で併存） */}
+      <CustomFolderBar
+        folders={customFolders.folders}
+        favoriteTotal={customFolders.favoriteTotal}
+        unfiledFavoriteCount={customFolders.unfiledFavoriteCount}
+        value={activeCustomFolder}
+        onChange={setActiveCustomFolder}
+        onCreate={customFolders.createFolder}
+        onRename={customFolders.renameFolder}
+        onDelete={customFolders.deleteFolder}
+        onReorder={customFolders.reorderFolders}
+        storageKey="ta_custom_folder_open"
+      />
+
       {/* 検索 */}
       <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
         <input
@@ -2106,7 +2181,11 @@ export default function SavedAnalysisList({
             borderRadius: 12,
           }}
         >
-          {debouncedSearch || activeFolder !== null || inputOnly || favoriteOnly
+          {debouncedSearch ||
+          activeFolder !== null ||
+          inputOnly ||
+          favoriteOnly ||
+          activeCustomFolder !== null
             ? '条件に一致する保存はありません'
             : '保存された分析結果はまだありません'}
         </div>
@@ -2263,6 +2342,11 @@ export default function SavedAnalysisList({
                           📁 {record.folder}
                         </span>
                       )}
+                      {/* 249: 所属マイフォルダ（複数可）。自動カテゴリ📁の隣に📂で並ぶ */}
+                      <FolderBadges
+                        folderIds={record.custom_folder_ids}
+                        folders={customFolders.folders}
+                      />
                       {record.favorite && (
                         <span
                           style={{
@@ -2374,22 +2458,35 @@ export default function SavedAnalysisList({
                           ? '⏳ 準備中...'
                           : '📄 Word'}
                       </button>
+                      {/* 249: お気に入りと同時にフォルダ分類も決める。既にお気に入りなら
+                          分類の変更・追加・解除をこのパネルから行う */}
                       <button
                         type="button"
-                        onClick={() => handleToggleFavorite(record.id)}
+                        data-favorite-button={record.id}
+                        onClick={(e) =>
+                          handleFavoriteButton(
+                            record,
+                            e.currentTarget.getBoundingClientRect(),
+                          )
+                        }
+                        title={
+                          record.favorite
+                            ? 'フォルダ分類の変更・お気に入り解除'
+                            : 'お気に入りに登録してフォルダに分類する'
+                        }
                         style={
                           record.favorite
                             ? {
                                 ...listBtnStyle(),
                                 background: '#fef3c7',
                                 border: '1px solid #f59e0b',
-                                color: '#b45309',
+                                color: '#92400e',
                                 fontWeight: 700,
                               }
                             : listBtnStyle()
                         }
                       >
-                        {record.favorite ? '⭐ 解除' : '☆ お気に入り'}
+                        {record.favorite ? '⭐ 分類' : '☆ お気に入り'}
                       </button>
                       <button
                         type="button"
@@ -2837,6 +2934,24 @@ export default function SavedAnalysisList({
           )
         }
       />
+      {/* 249: 分類パネル（☆ボタンから開く。createPortalでbody直下に出す＝R-19） */}
+      {folderPicker &&
+        (() => {
+          const target = records.find((r) => r.id === folderPicker.id);
+          if (!target) return null;
+          return (
+            <FolderPickerPopover
+              anchorRect={folderPicker.rect}
+              folders={customFolders.folders}
+              selectedIds={target.custom_folder_ids ?? []}
+              isFavorite={target.favorite}
+              onChange={(ids) => void handleAssignFolders(target.id, ids)}
+              onCreate={customFolders.createFolder}
+              onUnfavorite={() => void handleUnfavorite(target.id)}
+              onClose={closeFolderPicker}
+            />
+          );
+        })()}
     </div>
   );
 }

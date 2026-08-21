@@ -2,6 +2,11 @@ import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
 import { neon } from '@neondatabase/serverless';
 import { sanitizeForDb } from '@/lib/sanitize';
+import {
+  detachItemFromFolders,
+  ensureCustomFolderTables,
+  getFolderIdsForItems,
+} from '@/lib/custom-folders';
 
 // AI背景情報コンテキストの保存・取得・削除・お気に入りAPI
 
@@ -78,6 +83,8 @@ export async function GET(req: NextRequest) {
     const sql = neon(process.env.DATABASE_URL!);
     await ensureFavoriteColumn();
     await ensureCategoryColumn();
+    // 249: カスタムフォルダ（お気に入りの手動分類）。一覧の絞り込みで参照するため先に用意する
+    await ensureCustomFolderTables();
     const userId = (session.user as any).id;
 
     // 単一取得
@@ -129,6 +136,16 @@ export async function GET(req: NextRequest) {
     const tagsAnd = multiTags.length > 0 && tagMode === 'and' ? multiTags : null;
     const tagsOr = multiTags.length > 0 && tagMode === 'or' ? multiTags : null;
 
+    // 249: カスタムフォルダでの絞り込み。cfolder=<id> でそのフォルダ、
+    // cfolder=unfiled で「お気に入りだがどのフォルダにも入っていない」を表す。
+    // 自動カテゴリ(category)とは独立した条件で、他のフィルタとはANDで組み合わさる。
+    const cfolderRaw = searchParams.get('cfolder')?.trim() || '';
+    const cfolderUnfiled = cfolderRaw === 'unfiled' ? true : null;
+    const cfolderId =
+      cfolderRaw && cfolderRaw !== 'unfiled' && Number.isFinite(Number(cfolderRaw))
+        ? Number(cfolderRaw)
+        : null;
+
     const [rows, countRows, catRows, tagRows] = await Promise.all([
       sql`
         SELECT id, topic, tags, created_at, is_favorite, favorited_at,
@@ -142,6 +159,17 @@ export async function GET(req: NextRequest) {
           AND (${tagsOr}::text[] IS NULL OR tags && ${tagsOr})
           AND (${favV}::boolean IS NULL OR is_favorite = ${favV})
           AND (${catV}::text IS NULL OR COALESCE(category, 'general') = ${catV})
+          AND (${cfolderId}::int IS NULL OR EXISTS (
+                SELECT 1 FROM custom_folder_items i
+                 WHERE i.item_id = context_saves.id
+                   AND i.user_id = context_saves.user_id
+                   AND i.scope = 'context'
+                   AND i.folder_id = ${cfolderId}))
+          AND (${cfolderUnfiled}::boolean IS NULL OR (is_favorite = true AND NOT EXISTS (
+                SELECT 1 FROM custom_folder_items i
+                 WHERE i.item_id = context_saves.id
+                   AND i.user_id = context_saves.user_id
+                   AND i.scope = 'context')))
         ORDER BY created_at DESC
         LIMIT ${limit} OFFSET ${offset}
       `,
@@ -155,6 +183,17 @@ export async function GET(req: NextRequest) {
           AND (${tagsOr}::text[] IS NULL OR tags && ${tagsOr})
           AND (${favV}::boolean IS NULL OR is_favorite = ${favV})
           AND (${catV}::text IS NULL OR COALESCE(category, 'general') = ${catV})
+          AND (${cfolderId}::int IS NULL OR EXISTS (
+                SELECT 1 FROM custom_folder_items i
+                 WHERE i.item_id = context_saves.id
+                   AND i.user_id = context_saves.user_id
+                   AND i.scope = 'context'
+                   AND i.folder_id = ${cfolderId}))
+          AND (${cfolderUnfiled}::boolean IS NULL OR (is_favorite = true AND NOT EXISTS (
+                SELECT 1 FROM custom_folder_items i
+                 WHERE i.item_id = context_saves.id
+                   AND i.user_id = context_saves.user_id
+                   AND i.scope = 'context')))
       `,
       sql`
         SELECT COALESCE(category, 'general') AS category, COUNT(*)::int AS count
@@ -171,8 +210,24 @@ export async function GET(req: NextRequest) {
       `,
     ]);
 
+    // 249: 表示中の素材に所属フォルダIDを付与する（本体クエリは変えず別クエリで足す）。
+    // ここが失敗しても一覧そのものは出す＝付加情報の欠落で本体を壊さない（R-39）。
+    let customFolderMap: Record<number, number[]> = {};
+    try {
+      customFolderMap = await getFolderIdsForItems(
+        userId,
+        'context',
+        (rows as { id: number }[]).map((r) => Number(r.id)),
+      );
+    } catch (e) {
+      console.error('[context-saves GET custom folders]', e);
+    }
+
     return NextResponse.json({
-      items: rows,
+      items: (rows as Record<string, unknown>[]).map((r) => ({
+        ...r,
+        custom_folder_ids: customFolderMap[Number(r.id)] ?? [],
+      })),
       total_count: countRows[0]?.n ?? 0,
       all_total: catRows.reduce((s: number, r: any) => s + Number(r.count), 0),
       categories: catRows,
@@ -247,6 +302,10 @@ export async function DELETE(req: NextRequest) {
     const sql = neon(process.env.DATABASE_URL!);
     const userId = (session.user as any).id;
     await sql`DELETE FROM context_saves WHERE id = ${parseInt(id, 10)} AND user_id = ${userId}`;
+    // 249: 分類（カスタムフォルダ）も外す。掃除の失敗で削除自体を失敗させない
+    await detachItemFromFolders(userId, 'context', parseInt(id, 10)).catch((e) =>
+      console.error('[context-saves DELETE detach]', e),
+    );
     return NextResponse.json({ success: true });
   } catch (e: any) {
     return NextResponse.json({ error: e.message || '削除に失敗しました' }, { status: 500 });

@@ -82,3 +82,72 @@ export async function cleanupE2ESaves(request: APIRequestContext) {
     }
   }
 }
+
+// ============================================================================
+// 249: マイフォルダ（お気に入りのカスタムフォルダ分類）
+// ============================================================================
+
+export const FOLDERS_API = '/api/custom-folders';
+export const CONTEXT_API = '/api/context-saves';
+/** テスト用フォルダの目印。後片付けはこの接頭辞で判定する（既存フォルダは触らない） */
+export const E2E_FOLDER_PREFIX = '[E2E]';
+
+export type FolderScopeName = 'text_analysis' | 'context';
+
+export type FolderListResponse = {
+  folders: { id: number; name: string; sort_order: number; count: number }[];
+  favorite_total: number;
+  unfiled_favorite_count: number;
+};
+
+export async function listFolders(
+  request: APIRequestContext,
+  scope: FolderScopeName,
+): Promise<FolderListResponse> {
+  const res = await request.get(`${FOLDERS_API}?scope=${scope}`);
+  expect(res.status(), `フォルダ一覧API(scope=${scope})が200であること`).toBe(200);
+  return (await res.json()) as FolderListResponse;
+}
+
+export async function createFolder(
+  request: APIRequestContext,
+  scope: FolderScopeName,
+  name: string,
+): Promise<number> {
+  const res = await request.post(FOLDERS_API, { data: { scope, name } });
+  expect(res.status(), `フォルダ作成(${name})が200であること`).toBe(200);
+  const json = await res.json();
+  expect(typeof json.folder?.id, '作成レスポンスにフォルダidが含まれること').toBe('number');
+  return json.folder.id as number;
+}
+
+export async function assignFolders(
+  request: APIRequestContext,
+  scope: FolderScopeName,
+  itemId: number,
+  folderIds: number[],
+) {
+  return request.patch(FOLDERS_API, {
+    data: { scope, action: 'assign', itemId, folderIds },
+  });
+}
+
+export async function deleteFolder(
+  request: APIRequestContext,
+  scope: FolderScopeName,
+  id: number,
+) {
+  return request.delete(`${FOLDERS_API}?scope=${scope}&id=${id}`);
+}
+
+/** 過去実行分を含め、[E2E] 印のフォルダを両スコープから全削除する */
+export async function cleanupE2EFolders(request: APIRequestContext) {
+  for (const scope of ['text_analysis', 'context'] as FolderScopeName[]) {
+    const { folders } = await listFolders(request, scope);
+    for (const f of folders) {
+      if (f.name.includes(E2E_FOLDER_PREFIX)) {
+        await deleteFolder(request, scope, f.id);
+      }
+    }
+  }
+}

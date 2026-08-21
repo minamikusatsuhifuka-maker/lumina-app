@@ -2,6 +2,11 @@ import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
 import { sql } from '@/lib/db';
 import { sanitizeForDb } from '@/lib/sanitize';
+import {
+  detachItemFromFolders,
+  ensureCustomFolderTables,
+  getFolderIdsForItems,
+} from '@/lib/custom-folders';
 
 export const runtime = 'nodejs';
 
@@ -31,6 +36,8 @@ export async function GET(req: NextRequest) {
 
   try {
     await ensureInputTextColumn();
+    // 249: カスタムフォルダ（お気に入りの手動分類）。一覧の絞り込みで参照するため先に用意する
+    await ensureCustomFolderTables();
     const { searchParams } = new URL(req.url);
     const id = searchParams.get('id');
     const withInput = searchParams.get('withInput');
@@ -101,6 +108,16 @@ export async function GET(req: NextRequest) {
     const tagsAnd = multiTags.length > 0 && tagMode === 'and' ? multiTags : null;
     const tagsOr = multiTags.length > 0 && tagMode === 'or' ? multiTags : null;
 
+    // 249: カスタムフォルダでの絞り込み。cfolder=<id> でそのフォルダ、
+    // cfolder=unfiled で「お気に入りだがどのフォルダにも入っていない」を表す。
+    // 自動カテゴリ(folder)とは独立した条件で、他のフィルタとはANDで組み合わさる。
+    const cfolderRaw = searchParams.get('cfolder')?.trim() || '';
+    const cfolderUnfiled = cfolderRaw === 'unfiled' ? true : null;
+    const cfolderId =
+      cfolderRaw && cfolderRaw !== 'unfiled' && Number.isFinite(Number(cfolderRaw))
+        ? Number(cfolderRaw)
+        : null;
+
     const [rows, countRows, allRows, folderRows, tagRows] = await Promise.all([
       sql`
         SELECT id, user_id, file_name, auto_title, analysis_type, analysis_label,
@@ -115,6 +132,17 @@ export async function GET(req: NextRequest) {
           AND (${tagsOr}::text[] IS NULL OR tags && ${tagsOr})
           AND (${favV}::boolean IS NULL OR favorite = ${favV})
           AND (${inputV}::boolean IS NULL OR input_text IS NOT NULL)
+          AND (${cfolderId}::int IS NULL OR EXISTS (
+                SELECT 1 FROM custom_folder_items i
+                 WHERE i.item_id = text_analysis_saves.id
+                   AND i.user_id = text_analysis_saves.user_id
+                   AND i.scope = 'text_analysis'
+                   AND i.folder_id = ${cfolderId}))
+          AND (${cfolderUnfiled}::boolean IS NULL OR (favorite = true AND NOT EXISTS (
+                SELECT 1 FROM custom_folder_items i
+                 WHERE i.item_id = text_analysis_saves.id
+                   AND i.user_id = text_analysis_saves.user_id
+                   AND i.scope = 'text_analysis')))
         ORDER BY created_at DESC
         LIMIT ${limit} OFFSET ${offset}
       `,
@@ -128,6 +156,17 @@ export async function GET(req: NextRequest) {
           AND (${tagsOr}::text[] IS NULL OR tags && ${tagsOr})
           AND (${favV}::boolean IS NULL OR favorite = ${favV})
           AND (${inputV}::boolean IS NULL OR input_text IS NOT NULL)
+          AND (${cfolderId}::int IS NULL OR EXISTS (
+                SELECT 1 FROM custom_folder_items i
+                 WHERE i.item_id = text_analysis_saves.id
+                   AND i.user_id = text_analysis_saves.user_id
+                   AND i.scope = 'text_analysis'
+                   AND i.folder_id = ${cfolderId}))
+          AND (${cfolderUnfiled}::boolean IS NULL OR (favorite = true AND NOT EXISTS (
+                SELECT 1 FROM custom_folder_items i
+                 WHERE i.item_id = text_analysis_saves.id
+                   AND i.user_id = text_analysis_saves.user_id
+                   AND i.scope = 'text_analysis')))
       `,
       sql`SELECT COUNT(*)::int AS n FROM text_analysis_saves WHERE user_id = ${userId}`,
       sql`
@@ -145,8 +184,24 @@ export async function GET(req: NextRequest) {
       `,
     ]);
 
+    // 249: 表示中の記事に所属フォルダIDを付与する（本体クエリは変えず別クエリで足す）。
+    // ここが失敗しても一覧そのものは出す＝付加情報の欠落で本体を壊さない（R-39）。
+    let customFolderMap: Record<number, number[]> = {};
+    try {
+      customFolderMap = await getFolderIdsForItems(
+        userId,
+        'text_analysis',
+        (rows as { id: number }[]).map((r) => Number(r.id)),
+      );
+    } catch (e) {
+      console.error('[text-analysis/saves GET custom folders]', e);
+    }
+
     return NextResponse.json({
-      items: rows,
+      items: (rows as Record<string, unknown>[]).map((r) => ({
+        ...r,
+        custom_folder_ids: customFolderMap[Number(r.id)] ?? [],
+      })),
       total_count: countRows[0]?.n ?? 0,
       all_total: allRows[0]?.n ?? 0,
       folders: folderRows,
@@ -240,6 +295,10 @@ export async function PATCH(req: NextRequest) {
         DELETE FROM text_analysis_saves
         WHERE id = ${id} AND user_id = ${userId}
       `;
+      // 249: 分類（カスタムフォルダ）も外す。掃除の失敗で削除自体を失敗させない
+      await detachItemFromFolders(userId, 'text_analysis', Number(id)).catch((e) =>
+        console.error('[text-analysis/saves PATCH detach]', e),
+      );
     } else if (action === 'rename') {
       await sql`
         UPDATE text_analysis_saves
@@ -308,6 +367,10 @@ export async function DELETE(req: NextRequest) {
       DELETE FROM text_analysis_saves
       WHERE id = ${id} AND user_id = ${userId}
     `;
+    // 249: 分類（カスタムフォルダ）も外す。掃除の失敗で削除自体を失敗させない
+    await detachItemFromFolders(userId, 'text_analysis', Number(id)).catch((e) =>
+      console.error('[text-analysis/saves DELETE detach]', e),
+    );
     return NextResponse.json({ ok: true });
   } catch (error) {
     const message = error instanceof Error ? error.message : '不明なエラー';
