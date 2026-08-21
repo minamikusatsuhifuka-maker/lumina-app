@@ -831,6 +831,18 @@ async function mockAnalyze(page: import('@playwright/test').Page, text: string, 
 test('C29: 実行・クリアのショートカット（247）— 未入力/入力中/実行中/クリアの4パターン', async ({ page }) => {
   const analyzeCalls = await mockAnalyze(page, `[E2E] ${KB_TOKEN} モック分析結果`, 1200);
 
+  // 248: 自動下書き（155-157・feature_result_drafts）はマウント後に**非同期で**入力欄を
+  // 埋めるため、前回実行分が復元されると「未入力」の状態が作れず ②の判定が揺れる
+  // （実測でflaky: 未入力のはずが analyze が1回走った）。このテストはキーの挙動だけを
+  // 見るので、下書きAPIは空を返すよう固定する（PUT/DELETEも本番DBに書かない）
+  await page.route('**/api/feature-drafts**', (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify(route.request().method() === 'GET' ? { draft: null } : { ok: true }),
+    }),
+  );
+
   await page.goto('/dashboard/text-analysis');
   // このテストは保存を対象にしないので自動ストック保存はOFFにする（DBに書かない）
   await page.evaluate(() => localStorage.setItem('lumina_auto_stock_save', '0'));
@@ -847,6 +859,7 @@ test('C29: 実行・クリアのショートカット（247）— 未入力/入�
 
   // ── ②未入力（空）: 押しても実行されない（無効ボタンと同じ挙動） ──
   await textarea.click();
+  await expect(textarea, '「未入力」の前提が成立していること').toHaveValue('');
   await page.keyboard.press('ControlOrMeta+Enter');
   await page.waitForTimeout(500);
   expect(analyzeCalls(), '未入力では実行されないこと').toBe(0);
