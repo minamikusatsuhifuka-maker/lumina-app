@@ -743,7 +743,35 @@ test('C27: 追従ボタンの個別on/off＋トップへ戻る（243）— 既�
   expect(blockedByFab, '既定（全off・最上部）では右下に追従ボタンが無いこと').toBe(null);
 });
 
+/**
+ * 248: 自動下書き（155-157・feature_result_drafts）を空に固定する。
+ * この機構はマウント後に**非同期で**入力欄と復元バナー（「✕ クリア」を持つ）を出すため、
+ * 前回実行分が残っていると「未入力の状態」も「✕ クリアが1つだけ」も成立せず flaky になる。
+ * E2E自身も生成完走時に下書きを書くので、PUT/DELETEも本番DBに通さない（R-12）。
+ */
+async function stubFeatureDrafts(page: import('@playwright/test').Page) {
+  await page.route('**/api/feature-drafts**', (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify(route.request().method() === 'GET' ? { draft: null } : { ok: true }),
+    }),
+  );
+}
+
+/**
+ * 248: 画面のハイドレーション完了を待つ。実行ボタンのキー併記（⌘↵）は
+ * クライアントの effect（useShortcutHints）が動いて初めて出るため、
+ * 「Reactのハンドラが付いた」ことの機械的な合図として使える。
+ * これを待たずに fill/click すると、入力がstateに入らず実行ボタンが無効のままになる
+ * （従来は自動下書きの復元が結果を出していたため、この取りこぼしが見えなかった・R-12）。
+ */
+async function waitForRunReady(page: import('@playwright/test').Page) {
+  await expect(page.locator('button[data-kb-run]').first()).toHaveText(/(⌘↵|Ctrl\+↵)/, { timeout: 30000 });
+}
+
 test('C28: ディープリサーチの調査期間（245）— プリセット4パターンが排他で切り替わり、クリアが入力欄の上にある', async ({ page }) => {
+  await stubFeatureDrafts(page);
   await page.goto('/dashboard/deepresearch');
   const preset = (label: string) => page.getByRole('button', { name: label, exact: true });
   const selected = async (label: string) => (await preset(label).getAttribute('aria-pressed')) === 'true';
@@ -831,17 +859,9 @@ async function mockAnalyze(page: import('@playwright/test').Page, text: string, 
 test('C29: 実行・クリアのショートカット（247）— 未入力/入力中/実行中/クリアの4パターン', async ({ page }) => {
   const analyzeCalls = await mockAnalyze(page, `[E2E] ${KB_TOKEN} モック分析結果`, 1200);
 
-  // 248: 自動下書き（155-157・feature_result_drafts）はマウント後に**非同期で**入力欄を
-  // 埋めるため、前回実行分が復元されると「未入力」の状態が作れず ②の判定が揺れる
-  // （実測でflaky: 未入力のはずが analyze が1回走った）。このテストはキーの挙動だけを
-  // 見るので、下書きAPIは空を返すよう固定する（PUT/DELETEも本番DBに書かない）
-  await page.route('**/api/feature-drafts**', (route) =>
-    route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify(route.request().method() === 'GET' ? { draft: null } : { ok: true }),
-    }),
-  );
+  // 248: 前回実行分の下書きが復元されると「未入力」の状態を作れず ②が揺れる
+  // （実測でflaky: 未入力のはずが analyze が1回走った）
+  await stubFeatureDrafts(page);
 
   await page.goto('/dashboard/text-analysis');
   // このテストは保存を対象にしないので自動ストック保存はOFFにする（DBに書かない）
@@ -920,6 +940,7 @@ test('C29: 実行・クリアのショートカット（247）— 未入力/入�
 
 test('C30: 生成結果の自動ストック保存（247・テキスト分析）— OFFで保存されず、ONで保存されて一覧に出る', async ({ page, request }) => {
   const AUTO_TITLE = `[E2E] ${AUTO_TOKEN} 自動保存`;
+  await stubFeatureDrafts(page); // 248: 復元バナー・前回入力の混入を防ぐ（E2E自身の下書き書込みも止める）
   await mockAnalyze(page, `[E2E] ${AUTO_TOKEN} モック分析結果`);
   // タイトル生成はAI課金なのでモック（R-39: 落ちても保存自体は fallback で成立する）
   await page.route('**/api/text-analysis/generate-title', (route) =>
@@ -927,6 +948,7 @@ test('C30: 生成結果の自動ストック保存（247・テキスト分析）
   );
 
   const runAnalysis = async () => {
+    await waitForRunReady(page);
     await page.getByPlaceholder('ここに分析したいテキストを貼り付けてください...').fill(`[E2E] ${AUTO_TOKEN} 入力`);
     await page.locator('button[data-kb-run]').click();
     await expect(page.locator('button[data-kb-run]')).not.toHaveText(/分析中/, { timeout: 30000 });
@@ -979,6 +1001,7 @@ test('C30: 生成結果の自動ストック保存（247・テキスト分析）
 
 test('C31: 生成結果の自動ストック保存（247・ディープリサーチ）— ⌘Enterで実行し、完走時に保存済みになる', async ({ page }) => {
   const REPORT = `# [E2E] ${AUTO_TOKEN} モックレポート\n\n本文です。`;
+  await stubFeatureDrafts(page); // 248: 復元バナー・前回結果の混入を防ぐ（E2E自身の下書き書込みも止める）
   // 生成SSEをモック（AI課金なし）
   await page.route('**/api/deepresearch', (route) =>
     route.fulfill({
@@ -1034,6 +1057,7 @@ test('C31: 生成結果の自動ストック保存（247・ディープリサー
   await page.evaluate(() => localStorage.setItem('lumina_auto_stock_save', '0'));
   await page.reload({ waitUntil: 'domcontentloaded' });
   libraryPosts.length = 0;
+  await waitForRunReady(page);
   await page.getByPlaceholder(/調査したいテーマを詳しく入力してください/).fill(`[E2E] ${AUTO_TOKEN} 2回目`);
   await page.locator('button[data-kb-run]').click();
   await expect(page.getByRole('button', { name: '📚 リサーチ保存に追加' })).toBeVisible({ timeout: 30000 });
