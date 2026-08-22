@@ -23,6 +23,7 @@ import {
   parseNavLabels,
 } from '../../src/lib/nav-labels';
 import { ALL_NAV_ITEMS, navCategories } from '../../src/lib/nav-items';
+import { CLEAR_PASTE_MESSAGE, type ClearAndPasteResult } from '../../src/lib/clear-and-paste';
 
 // ============================================================================
 // 純関数の単体テスト（234【1】要件4）— ネットワーク・AI課金・認証を一切使わない
@@ -290,14 +291,31 @@ test('U15: 実行・クリアのキーが一覧（小窓＝使い方ガイドの
   expect(descs).toContain('クリア');
   // 実行は ⌘+Enter、クリアは ⌘+⌫（キーの並びまで一覧に出す＝押し方が分かる）
   // 248: クリアを ⌘⇧⌫（3キー）から ⌘⌫（2キー）へ変更。一覧・ボタン併記が同じ値を見る
-  expect(runSection!.items.map((i) => i.keys.join('+'))).toEqual(['⌘+Enter', '⌘+⌫']);
+  expect(runSection!.items.map((i) => i.keys.join('+'))).toEqual([
+    '⌘+Enter',
+    '⌘+⌫',
+    '⌘+⇧+V', // 254
+  ]);
   // ボタン併記の表記が Mac / Windows の両方用意されている（片方だけ嘘の案内にしない）
-  expect(RUN_KEY_LABELS.mac).toEqual({ run: '⌘↵', clear: '⌘⌫' });
-  expect(RUN_KEY_LABELS.win).toEqual({ run: 'Ctrl+↵', clear: 'Ctrl+⌫' });
-  // 248: どのキーも修飾キー1つ＋1キー（＝2キー）に収まっていること。
-  // 「押しやすさ」を意見ではなく形で固定する（3キー以上をこの一覧に足せない）
+  expect(RUN_KEY_LABELS.mac).toEqual({ run: '⌘↵', clear: '⌘⌫', clearPaste: '⌘⇧V' });
+  expect(RUN_KEY_LABELS.win).toEqual({ run: 'Ctrl+↵', clear: 'Ctrl+⌫', clearPaste: 'Ctrl+⇧V' });
+  // 248: キーの本数は「押しやすさ」を意見ではなく形で固定するためのもの。
+  // 実行とクリアは修飾キー1つ＋1キー（＝2キー）に収める。
+  // 254追記: 「クリアして貼り付け」だけは3キー（⌘⇧V）を許す——Mac/Windowsとも
+  // 「書式なしで貼り付け」の標準キーが ⌘⇧V で、それを踏襲した方が覚えやすいため
+  // （⌘⇧⌫ が押しにくかったのは右手が窮屈になるからで、⌘⇧V は左手だけで押せる）。
+  // 例外を作るときは、ここに理由付きで書いてから足す（無制限に増やさない）。
+  const MAX_KEYS: { match: string; max: number }[] = [
+    { match: '実行する', max: 2 },
+    { match: '入力をクリア', max: 2 },
+    { match: 'クリアして貼り付け', max: 3 },
+  ];
   for (const item of runSection!.items) {
-    expect(item.keys.length, `${item.desc} は2キーで押せること`).toBeLessThanOrEqual(2);
+    const rule = MAX_KEYS.find((r) => item.desc.includes(r.match));
+    expect(rule, `${item.desc} のキー本数の上限が決まっていること`).toBeTruthy();
+    expect(item.keys.length, `${item.desc} は${rule!.max}キーで押せること`).toBeLessThanOrEqual(
+      rule!.max,
+    );
   }
 });
 
@@ -394,4 +412,34 @@ test('U20: メニュー定義の正本が壊れていない（href重複なし�
   // カテゴリ名の重複も無いこと（カテゴリ名をキーに上書きを持つため）
   const cats = navCategories.map((c) => c.category);
   expect(new Set(cats).size).toBe(cats.length);
+});
+
+test('U21: クリアして貼付 — 4つの結末すべてに案内があり、キー表記が一覧と一致する（254）', () => {
+  // 実測した4パターン（成功・権限拒否・空クリップボード・何もしない）が漏れなく定義されていること
+  const results: ClearAndPasteResult[] = ['pasted', 'cleared-manual', 'empty', 'noop'];
+  for (const r of results) {
+    expect(CLEAR_PASTE_MESSAGE, `${r} の案内が定義されていること`).toHaveProperty(r);
+  }
+  // 何もしていないときに案内を出さない（嘘の成功を見せない）
+  expect(CLEAR_PASTE_MESSAGE.noop).toBeNull();
+  // 貼れなかったときは「次に何をすればよいか」を必ず書く
+  expect(CLEAR_PASTE_MESSAGE['cleared-manual']!.text).toContain('⌘V');
+  expect(CLEAR_PASTE_MESSAGE['cleared-manual']!.kind).not.toBe('success');
+  expect(CLEAR_PASTE_MESSAGE.empty!.text).toContain('空');
+  expect(CLEAR_PASTE_MESSAGE.empty!.kind).not.toBe('success');
+
+  // キー表記はボタン併記・一覧・ガイドが同じ値を見る（二重管理しない）
+  expect(RUN_KEY_LABELS.mac.clearPaste).toBe('⌘⇧V');
+  expect(RUN_KEY_LABELS.win.clearPaste).toBe('Ctrl+⇧V');
+  const runSection = SHORTCUT_SECTIONS.find((s) => s.scope === 'run')!;
+  const pasteItem = runSection.items.find((i) => i.desc.includes('クリアして貼り付け'));
+  expect(pasteItem, '一覧に「クリアして貼り付け」が登録されていること').toBeTruthy();
+  expect(pasteItem!.keys).toEqual(['⌘', '⇧', 'V']);
+  // ⌘V単独を奪う項目が一覧に無いこと（通常の貼り付けは絶対に壊さない）
+  for (const section of SHORTCUT_SECTIONS) {
+    for (const item of section.items) {
+      const combo = item.keys.join('');
+      expect(combo, `${item.desc} が ⌘V 単独を奪っていないこと`).not.toBe('⌘V');
+    }
+  }
 });

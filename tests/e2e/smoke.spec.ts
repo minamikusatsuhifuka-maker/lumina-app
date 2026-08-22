@@ -1891,3 +1891,120 @@ test('C45: 横断表示のUI — 両画面から同じフォルダを開くと�
     await request.delete(LIBRARY_API, { data: { ids: [libId] } });
   }
 });
+
+// ============================================================================
+// 254: 「📋 クリアして貼付」（ボタン＋⌘⇧V）
+// - 検証4パターン: 貼り付け成功 / 権限拒否 / 空クリップボード / 実行中
+// - 通常の ⌘V を壊していないこと・Undoで戻せることも判定する
+// ============================================================================
+
+test('C46: クリアして貼付 — 成功/空/実行中とUndo、⌘Vは壊さない（254）', async ({ page, context }) => {
+  const analyzeCalls = await mockAnalyze(page, `[E2E] ${KB_TOKEN} モック分析結果`, 1500);
+  await stubFeatureDrafts(page);
+  // クリップボードの読み書きを許可（院長のブラウザで「許可」した状態に相当）
+  await context.grantPermissions(['clipboard-read', 'clipboard-write'], { origin: BASE_URL });
+
+  await page.goto('/dashboard/text-analysis');
+  await page.evaluate(() => localStorage.setItem('lumina_auto_stock_save', '0'));
+  await page.reload({ waitUntil: 'domcontentloaded' });
+
+  const textarea = page.getByPlaceholder('ここに分析したいテキストを貼り付けてください...');
+  const pasteBtn = page.locator('[data-clear-paste]').filter({ visible: true }).first();
+  await expect(pasteBtn, 'ボタンが「✕ クリア」の隣に出ること').toBeVisible();
+  await expect(pasteBtn, 'ボタンにキーが併記されていること').toHaveText(/(⌘⇧V|Ctrl\+⇧V)/);
+  await expect(
+    page.getByRole('button', { name: /✕ クリア/ }).filter({ visible: true }).first(),
+    '既存の「✕ クリア」は残っていること',
+  ).toBeVisible();
+
+  const OLD = `[E2E] ${KB_TOKEN} もとの入力`;
+  const CLIP = `[E2E] ${KB_TOKEN} クリップボードの内容`;
+
+  // ── ① 貼り付け成功（ボタン）: 中身が置き換わり、カーソルは末尾 ──
+  await page.evaluate((t) => navigator.clipboard.writeText(t), CLIP);
+  await textarea.fill(OLD);
+  await pasteBtn.click();
+  await expect(textarea, 'クリップボードの内容で置き換わること').toHaveValue(CLIP);
+  await expect(textarea, '入力欄にフォーカスが戻ること').toBeFocused();
+  expect(
+    await textarea.evaluate((el: HTMLTextAreaElement) => el.selectionStart),
+    'カーソルが末尾にあること',
+  ).toBe(CLIP.length);
+
+  // ── ② Undo: 消えた内容を戻せる ──
+  const undo = page.getByRole('button', { name: '↩ 元に戻す' });
+  await expect(undo, '直後はUndoが出ること').toBeVisible();
+  await undo.click();
+  await expect(textarea, 'Undoで元の入力に戻ること').toHaveValue(OLD);
+
+  // ── ③ ショートカット（⌘⇧V）でも同じ経路 ──
+  const CLIP2 = `[E2E] ${KB_TOKEN} キーで貼った内容`;
+  await page.evaluate((t) => navigator.clipboard.writeText(t), CLIP2);
+  await textarea.click();
+  await page.keyboard.press('ControlOrMeta+Shift+v');
+  await expect(textarea, 'キーでもクリア＋貼付ができること').toHaveValue(CLIP2);
+  await expect(page.getByRole('button', { name: '↩ 元に戻す' })).toBeVisible();
+
+  // ── ④ 通常の ⌘V を壊していない（カーソル位置に追記される＝全消しにならない）──
+  await textarea.fill('AB');
+  await textarea.click();
+  await page.keyboard.press('End');
+  await page.keyboard.press('ControlOrMeta+v');
+  await expect(textarea, '⌘Vは従来どおりカーソル位置への貼り付けであること').toHaveValue(
+    `AB${CLIP2}`,
+  );
+
+  // ── ⑤ 空クリップボード: クリアだけ行い、内容はUndoで戻せる ──
+  await page.evaluate(() => navigator.clipboard.writeText(''));
+  await textarea.fill(OLD);
+  await pasteBtn.click();
+  await expect(textarea, 'クリップボードが空ならクリアだけ行うこと').toHaveValue('');
+  await expect(page.getByText('クリップボードが空でした')).toBeVisible();
+  await page.getByRole('button', { name: '↩ 元に戻す' }).click();
+  await expect(textarea, '空クリップボードでも内容を戻せること').toHaveValue(OLD);
+
+  // ── ⑥ 実行中は押せない（生成の途中で入力を差し替えさせない）──
+  await page.evaluate((t) => navigator.clipboard.writeText(t), CLIP);
+  await page.locator('button[data-kb-run]').click();
+  await expect(page.locator('button[data-kb-run]')).toHaveText(/分析中/);
+  await expect(pasteBtn, '実行中はボタンが無効であること').toBeDisabled();
+  await page.keyboard.press('ControlOrMeta+Shift+v');
+  await expect(textarea, '実行中はキーでも入力が変わらないこと').toHaveValue(OLD);
+  await expect(page.locator('button[data-kb-run]')).not.toHaveText(/分析中/, { timeout: 30000 });
+  expect(analyzeCalls(), '想定どおり1回だけ実行されたこと').toBe(2);
+
+  // ── ⑦ ショートカット一覧に登録されている ──
+  await page.locator('button[title*="キーボードショートカット一覧"]').click();
+  const palette = page.locator('[data-kb-palette]');
+  await expect(palette.getByText('クリアして貼り付け（Windowsは Ctrl+Shift+V）')).toBeVisible();
+  await page.locator('button[title*="キーボードショートカット一覧"]').click();
+});
+
+test('C47: クリップボードを読めないときは、クリアして⌘Vで貼れる状態にする（254・権限拒否）', async ({
+  browser,
+}) => {
+  // 権限を与えないコンテキスト＝院長が読み取りを許可していない状態
+  const ctx = await browser.newContext({ storageState: STORAGE_STATE, baseURL: BASE_URL });
+  const page = await ctx.newPage();
+  try {
+    await stubFeatureDrafts(page);
+    await page.goto('/dashboard/text-analysis');
+    await page.evaluate(() => localStorage.setItem('lumina_auto_stock_save', '0'));
+    await page.reload({ waitUntil: 'domcontentloaded' });
+
+    const textarea = page.getByPlaceholder('ここに分析したいテキストを貼り付けてください...');
+    const OLD = `[E2E] ${KB_TOKEN} 権限なしのときの入力`;
+    await textarea.fill(OLD);
+    await page.locator('[data-clear-paste]').filter({ visible: true }).first().click();
+
+    // クリアまで済ませ、あとは⌘Vを押せばよい状態にする（案A）
+    await expect(textarea, 'クリアは実行されること').toHaveValue('');
+    await expect(textarea, '入力欄にフォーカスが当たっていること').toBeFocused();
+    await expect(page.getByText(/⌘V（Ctrl\+V）で貼り付けてください/)).toBeVisible();
+    // 消えた内容は失われていない
+    await page.getByRole('button', { name: '↩ 元に戻す' }).click();
+    await expect(textarea, '権限が無くても内容は戻せること').toHaveValue(OLD);
+  } finally {
+    await ctx.close();
+  }
+});

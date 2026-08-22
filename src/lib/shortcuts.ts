@@ -120,6 +120,12 @@ export const SHORTCUT_SECTIONS: Array<{
         desc: '入力をクリア（Windowsは Ctrl+Backspace）',
         note: '直後に出る「↩ 元に戻す」で戻せます（note記事生成は実行キーのみ）',
       },
+      {
+        // 254: クリアしてクリップボードを貼り付ける（クリア→⌘V の2手を1手に）
+        keys: ['⌘', '⇧', 'V'],
+        desc: 'クリアして貼り付け（Windowsは Ctrl+Shift+V）',
+        note: 'クリップボードを読めないときはクリアだけ行い、⌘Vで貼れる状態にします',
+      },
     ],
   },
   {
@@ -166,12 +172,22 @@ export const SHORTCUT_SECTIONS: Array<{
 //   しないため。奪う既定動作は上のとおり同一なので、受け付けても新たな害はない。
 // - クリアは破壊的なので確認ダイアログではなく **Undo（↩ 元に戻す）** を画面側に置く。
 //   確認を挟むと「キーで速く消す」という目的自体が消えるため（R-52）。
+//
+// 254: クリアして貼付 = ⌘/Ctrl + Shift + V。
+//   実測（Chromium/Mac に実キーを送り textarea の値の変化を機械判定）:
+//   ・⌘⇧V / ⌥V / ⌘⇧Enter / Ctrl+⇧V … textarea 上で**何も起きない**（奪う既定動作なし）
+//   ・⌘V … 貼り付け（絶対に奪わない。このキーには一切触れていない）
+//   採用理由: 「貼り付け（⌘V）に Shift を足すと、消してから貼る」と意味が地続きで覚えやすい。
+//   実機の Chrome/Mac には ⌘⇧V＝「書式なしで貼り付け」があるが、**対象は textarea で
+//   プレーンテキストしか扱わないため結果が同じ**＝奪っても失われる機能が無い。
+//   不採用: ⌥V = Mac では特殊文字入力の層（⌥V＝√）。248で ⌥C を退けたのと同じ理由。
+//   不採用: ⌘⇧Enter = 実行（⌘Enter）と1キーしか違わず、押し間違えると生成が走る。
 // ─────────────────────────────────────────────────────────────
 
 // キー併記の表記（Mac / Windows）。ボタンラベル・一覧・ガイドが同じ値を見る
 export const RUN_KEY_LABELS = {
-  mac: { run: '⌘↵', clear: '⌘⌫' },
-  win: { run: 'Ctrl+↵', clear: 'Ctrl+⌫' },
+  mac: { run: '⌘↵', clear: '⌘⌫', clearPaste: '⌘⇧V' },
+  win: { run: 'Ctrl+↵', clear: 'Ctrl+⌫', clearPaste: 'Ctrl+⇧V' },
 } as const;
 
 // Mac判定は一度だけ。navigator を触るのは「ヒントを出す」と決まった後だけ＝
@@ -191,7 +207,7 @@ function isMacPlatform(): boolean {
  * 表示条件は既存のヒントと同じ（デスクトップ＋ショートカット設定ON）。
  * 出さない場合は null（＝効かないキーを案内しない）。
  */
-export function useRunKeyHints(): { run: string; clear: string } | null {
+export function useRunKeyHints(): { run: string; clear: string; clearPaste: string } | null {
   const show = useShortcutHints();
   if (!show) return null;
   return isMacPlatform() ? RUN_KEY_LABELS.mac : RUN_KEY_LABELS.win;
@@ -208,11 +224,17 @@ export type RunShortcutOptions = {
   /** クリアできる状態か（空欄・実行中は false） */
   canClear?: boolean;
   onClear?: () => void;
+  /** 254: クリアして貼り付け。入力が空でも「貼るだけ」に使えるので canClear とは別条件 */
+  canClearPaste?: boolean;
+  onClearPaste?: () => void;
 };
 
 /**
- * 生成・実行画面の共通ショートカット（⌘/Ctrl+Enter=実行 / ⌘/Ctrl+Backspace=クリア）。
+ * 生成・実行画面の共通ショートカット
+ * （⌘/Ctrl+Enter=実行 / ⌘/Ctrl+Backspace=クリア / ⌘/Ctrl+Shift+V=クリアして貼付）。
  * 各画面にキーハンドラを散らさず、この1本だけを設置する。
+ *
+ * **⌘V（Shiftなし）はどの分岐にも入らない**＝通常の貼り付けは一切横取りしない。
  */
 export function useRunShortcut(options: RunShortcutOptions) {
   // 最新の options をイベント時に読むための箱。描画中に書かず、毎描画後の effect で更新する
@@ -246,6 +268,13 @@ export function useRunShortcut(options: RunShortcutOptions) {
         if (!o.onClear || o.canClear === false) return;
         e.preventDefault();
         o.onClear();
+        return;
+      }
+      // 254: ⌘/Ctrl+⇧+V＝クリアして貼付。⌘V（Shiftなし）は素通しする＝通常の貼り付けは壊さない
+      if (e.shiftKey && (e.key === 'v' || e.key === 'V')) {
+        if (!o.onClearPaste || o.canClearPaste === false) return;
+        e.preventDefault();
+        o.onClearPaste();
       }
     };
     window.addEventListener('keydown', onKey);

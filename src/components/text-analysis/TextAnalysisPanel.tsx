@@ -36,6 +36,8 @@ import FeatureDraftBanner from '@/components/FeatureDraftBanner';
 import { TextRefinePanel } from '@/components/refine/TextRefinePanel';
 import FullscreenReader from '@/components/text-analysis/FullscreenReader';
 import { useRunKeyHints, useRunShortcut } from '@/lib/shortcuts';
+// 254: クリアして貼付（ボタンとキーで同じ関数を通す）
+import { clearAndPaste, CLEAR_PASTE_MESSAGE } from '@/lib/clear-and-paste';
 import { isAutoStockSaveEnabled } from '@/lib/auto-stock-save';
 
 // 215: 「全」は高さプリセットではなく FullscreenReader（保存一覧と同じ全画面ビューア）を
@@ -809,6 +811,35 @@ export default function TextAnalysisPanel({
   };
   useEffect(() => stopUndoTimer, []);
 
+  // ── 254: 「📋 クリアして貼付」 ─────────────────────────────
+  // クリア→⌘V の2手を1手に。消えた内容は247と同じ Undo（10秒）で戻せる。
+  // ボタンでもキー（⌘⇧V）でもこの関数を通す＝挙動が分かれない。
+  const inputRef = useRef<HTMLTextAreaElement>(null);
+  const [pasting, setPasting] = useState(false);
+  const handleClearAndPaste = async () => {
+    if (pasting || loading) return;
+    setPasting(true);
+    try {
+      const result = await clearAndPaste({
+        current: inputText,
+        setText: (next) => {
+          setInputText(next);
+          setAnalysisDone(false);
+        },
+        textareaRef: inputRef,
+        backup: (text) => {
+          setClearedText(text);
+          stopUndoTimer();
+          undoTimerRef.current = window.setTimeout(() => setClearedText(null), 10000);
+        },
+      });
+      const msg = CLEAR_PASTE_MESSAGE[result];
+      if (msg) showToast(msg.text, msg.kind === 'success' ? 'success' : 'warning');
+    } finally {
+      setPasting(false);
+    }
+  };
+
   // 247: ⌘/Ctrl+Enter=分析実行 / ⌘/Ctrl+Backspace=入力クリア（248で2キー化）。
   // panelRef の可視判定で、タブ切替（display:none）中は発火しない。
   // 「✏️ AIで修正」モーダル表示中も発火しない（refineTarget）
@@ -821,6 +852,9 @@ export default function TextAnalysisPanel({
     onRun: () => void handleAnalyze(),
     canClear: !!inputText,
     onClear: handleClearInput,
+    // 254: 入力が空でも「貼るだけ」に使えるので、クリアとは別条件（実行中だけ止める）
+    canClearPaste: !loading,
+    onClearPaste: () => void handleClearAndPaste(),
   });
   const keyHints = useRunKeyHints();
 
@@ -895,6 +929,7 @@ export default function TextAnalysisPanel({
           )}
         </div>
         <textarea
+          ref={inputRef}
           value={inputText}
           onChange={(e) => {
             setInputText(e.target.value);
@@ -945,6 +980,32 @@ export default function TextAnalysisPanel({
                 ↩ 元に戻す
               </button>
             )}
+            {/* 254: クリア→貼り付けの2手を1手に。既存の「✕ クリア」は残す
+                （クリアだけしたい場面もあるため） */}
+            <button
+              type="button"
+              data-clear-paste
+              onClick={() => void handleClearAndPaste()}
+              disabled={pasting || loading}
+              title={
+                keyHints
+                  ? `入力をクリアしてクリップボードを貼り付け（${keyHints.clearPaste}）／直後に「↩ 元に戻す」で戻せます`
+                  : '入力をクリアしてクリップボードを貼り付け（直後に「↩ 元に戻す」で戻せます）'
+              }
+              style={{
+                padding: '4px 10px',
+                fontSize: 12,
+                color: pasting || loading ? 'var(--text-muted)' : 'var(--text-secondary)',
+                background: 'transparent',
+                border: '1px solid var(--border)',
+                borderRadius: 6,
+                opacity: pasting || loading ? 0.5 : 1,
+                cursor: pasting || loading ? 'not-allowed' : 'pointer',
+                whiteSpace: 'nowrap',
+              }}
+            >
+              {pasting ? '⏳ 貼付中...' : `📋 クリアして貼付${keyHints ? ` ${keyHints.clearPaste}` : ''}`}
+            </button>
             <button
               type="button"
               onClick={handleClearInput}

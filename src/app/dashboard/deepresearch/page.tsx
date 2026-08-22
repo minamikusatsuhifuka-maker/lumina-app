@@ -31,6 +31,8 @@ import {
 import FeatureDraftBanner from '@/components/FeatureDraftBanner';
 import { TextRefinePanel } from '@/components/refine/TextRefinePanel';
 import { useRunKeyHints, useRunShortcut } from '@/lib/shortcuts';
+// 254: クリアして貼付（テキスト分析と同じ関数・同じ操作感）
+import { clearAndPaste, CLEAR_PASTE_MESSAGE } from '@/lib/clear-and-paste';
 import { isAutoStockSaveEnabled } from '@/lib/auto-stock-save';
 
 // 自動下書き（feature_result_drafts feature_key='deepresearch'）のpayload
@@ -1582,6 +1584,32 @@ ${contextText}
   };
   useEffect(() => stopUndoTimer, []);
 
+  // ── 254: 「📋 クリアして貼付」（テキスト分析と同じ lib を通す）──────────
+  const topicRef = useRef<HTMLTextAreaElement>(null);
+  const [pasting, setPasting] = useState(false);
+  const handleClearAndPasteTopic = async () => {
+    if (pasting || loading) return;
+    setPasting(true);
+    try {
+      const result = await clearAndPaste({
+        current: topic,
+        setText: setTopic,
+        textareaRef: topicRef,
+        backup: (text) => {
+          setClearedTopic(text);
+          stopUndoTimer();
+          undoTimerRef.current = window.setTimeout(() => setClearedTopic(null), 10000);
+        },
+      });
+      // この画面はトースト機構を持たないため案内は alert。
+      // 成功時は入力欄を見れば分かるので出さず、貼れなかったときだけ知らせる
+      const msg = CLEAR_PASTE_MESSAGE[result];
+      if (msg && msg.kind !== 'success') alert(msg.text);
+    } finally {
+      setPasting(false);
+    }
+  };
+
   // 247: ⌘/Ctrl+Enter=リサーチ開始 / ⌘/Ctrl+Backspace=トピックのクリア（248で2キー化）。
   // 通常リサーチタブ以外・各モーダル表示中は発火させない
   useRunShortcut({
@@ -1591,6 +1619,9 @@ ${contextText}
     onRun: () => void research(),
     canClear: !loading && !!topic.trim(),
     onClear: handleClearTopic,
+    // 254: 入力が空でも「貼るだけ」に使える（実行中だけ止める）
+    canClearPaste: !loading,
+    onClearPaste: () => void handleClearAndPasteTopic(),
   });
   const keyHints = useRunKeyHints();
 
@@ -1694,6 +1725,17 @@ ${contextText}
                   ↩ 元に戻す
                 </button>
               )}
+              {/* 254: クリア→貼り付けの2手を1手に。既存の「✕ クリア」は残す */}
+              <button
+                type="button"
+                data-clear-paste
+                onClick={() => void handleClearAndPasteTopic()}
+                disabled={loading || pasting}
+                title={keyHints ? `トピックをクリアしてクリップボードを貼り付け（${keyHints.clearPaste}）／直後に「↩ 元に戻す」で戻せます` : 'トピックをクリアしてクリップボードを貼り付け（直後に「↩ 元に戻す」で戻せます）'}
+                style={{ padding: '2px 8px', fontSize: 11, color: loading || pasting ? 'var(--text-muted)' : 'var(--text-secondary)', background: 'transparent', border: '1px solid var(--border)', borderRadius: 5, opacity: loading || pasting ? 0.5 : 1, cursor: loading || pasting ? 'not-allowed' : 'pointer', lineHeight: 1.6, whiteSpace: 'nowrap' }}
+              >
+                {pasting ? '⏳ 貼付中...' : `📋 クリアして貼付${keyHints ? ` ${keyHints.clearPaste}` : ''}`}
+              </button>
               <button
                 type="button"
                 onClick={handleClearTopic}
@@ -1707,6 +1749,7 @@ ${contextText}
           </div>
           <div style={{ position: 'relative' }}>
             <textarea
+              ref={topicRef}
               value={topic}
               onChange={e => setTopic(e.target.value)}
               onFocus={() => setShowQuerySuggest(true)}
