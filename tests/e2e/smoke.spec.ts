@@ -2100,6 +2100,36 @@ test('C48: 貼り付けで置き換える — 設定ON/OFFで貼り付けの意�
 // - タッチ端末（ホバーなし）では出ないこと＝操作を妨げないこと
 // ============================================================================
 
+// 257: プレビューの矩形がカードの矩形に**隣接**していることを座標で判定する。
+// 256の不具合（カーソル基準＋端での反転で266px離れる）を再発させないための機械判定。
+async function assertPreviewAdjacent(
+  page: import('@playwright/test').Page,
+  card: import('@playwright/test').Locator,
+  label: string,
+) {
+  const cb = await card.boundingBox();
+  const pb = await page.locator('[data-hover-preview]').boundingBox();
+  expect(cb, `${label}: カードの矩形が取れること`).not.toBeNull();
+  expect(pb, `${label}: プレビューの矩形が取れること`).not.toBeNull();
+  if (!cb || !pb) return;
+  // 2つの矩形の最短距離（重なっていれば0）。隙間は GAP(10px) + 三角/丸めの余裕
+  const dx = Math.max(0, Math.max(cb.x - (pb.x + pb.width), pb.x - (cb.x + cb.width)));
+  const dy = Math.max(0, Math.max(cb.y - (pb.y + pb.height), pb.y - (cb.y + cb.height)));
+  const distance = Math.hypot(dx, dy);
+  expect(
+    distance,
+    `${label}: プレビューがカードに隣接していること（実測 ${Math.round(distance)}px）`,
+  ).toBeLessThanOrEqual(14);
+  // 画面外にはみ出していないこと
+  const vp = page.viewportSize();
+  if (vp) {
+    expect(pb.x, `${label}: 左にはみ出さない`).toBeGreaterThanOrEqual(0);
+    expect(pb.y, `${label}: 上にはみ出さない`).toBeGreaterThanOrEqual(0);
+    expect(pb.x + pb.width, `${label}: 右にはみ出さない`).toBeLessThanOrEqual(vp.width + 1);
+    expect(pb.y + pb.height, `${label}: 下にはみ出さない`).toBeLessThanOrEqual(vp.height + 1);
+  }
+}
+
 test('C49: ホバープレビュー — 3画面で出て、Markdown記号が出ず、設定でOFFにできる（256）', async ({
   page,
 }) => {
@@ -2154,6 +2184,11 @@ test('C49: ホバープレビュー — 3画面で出て、Markdown記号が出�
     await expect(preview, 'Markdownの見出し記号が出ないこと').not.toContainText('##');
     await expect(preview, '強調記号が出ないこと').not.toContainText('**');
     await expect(preview, '長い本文は…で切られること').toContainText('…');
+    // ── ①-b 位置がカードに隣接していること（257・座標で機械判定）──
+    // 256はカーソル座標を基準にしていたため、画面端では箱ごと反転して
+    // カードから266px離れた位置に出ていた（本番実測）。ここを座標で固定する。
+    await assertPreviewAdjacent(page, page.locator(`[data-hover-card="${savedId}"]`), '保存一覧');
+
     // カードから外れたら消える
     await page.locator('h1').first().hover();
     await expect(preview, 'カードから外れたら消えること').toHaveCount(0);
@@ -2166,6 +2201,18 @@ test('C49: ホバープレビュー — 3画面で出て、Markdown記号が出�
     await hoverUntilPreview(libCard, 'リサーチ保存でプレビューが出ること');
     await expect(preview).toContainText(marker);
     await expect(preview).not.toContainText('##');
+    // 1〜4列のグリッドでも隣接すること（右端の列は左側へ回る）
+    // ※ libCard は行内のお気に入りボタン。位置の基準はホバー対象そのもの（ラッパー）
+    const libHoverCard = page.locator(`[data-hover-card="${libId}"]`);
+    await assertPreviewAdjacent(page, libHoverCard, 'リサーチ保存');
+
+    // ── ②-b スクロールしたあとの位置でも隣接すること（257）──
+    // スクロール中はいったん消える仕様（R-62(3)）。動きが止まってから当て直す
+    await page.mouse.wheel(0, 400);
+    await page.waitForTimeout(600);
+    await page.locator('h1').first().hover();
+    await hoverUntilPreview(libCard, 'スクロール後もプレビューが出ること');
+    await assertPreviewAdjacent(page, libHoverCard, 'リサーチ保存（スクロール後）');
 
     // ── ③ 🧠AI参照素材 ──
     // 検索で絞ってから掴むと、デバウンス後の再描画とホバーが競合して不安定だった。
@@ -2175,6 +2222,7 @@ test('C49: ホバープレビュー — 3画面で出て、Markdown記号が出�
     await expect(ctxCard).toBeVisible({ timeout: 30000 });
     await hoverUntilPreview(ctxCard, 'AI参照素材でプレビューが出ること');
     await expect(preview).toContainText(marker);
+    await assertPreviewAdjacent(page, page.locator(`[data-hover-card="${ctxId}"]`), 'AI参照素材');
 
     // ── ④ 🎛表示設定でOFFにすると出なくなる ──
     await page.goto('/dashboard/display-settings');
@@ -2184,7 +2232,7 @@ test('C49: ホバープレビュー — 3画面で出て、Markdown記号が出�
     await page.goto('/dashboard/saved');
     const card2 = page.locator('[data-saved-panel="text-analysis"]').locator(`[data-analysis-card="${savedId}"]`);
     await card2.hover();
-    await page.waitForTimeout(1200); // 遅延(500ms)より十分長く待つ
+    await page.waitForTimeout(1200); // 遅延(280ms・257)より十分長く待つ
     await expect(preview, 'OFFにしたら出ないこと').toHaveCount(0);
 
     // 戻す（既定はON）

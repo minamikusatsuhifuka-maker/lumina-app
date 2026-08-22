@@ -1267,6 +1267,8 @@ export default function ContextLibraryPanel() {
               key={item.id}
               // 187: 「→次へ」追従ボタンの位置計測用（NoteBundleDock が参照）
               data-bundle-key={`ctx-${item.id}`}
+              // 257: プレビューはこの要素の矩形に隣接して出る（位置の基準）
+              data-hover-card={item.id}
               {...hoverPreview.bind(async () =>
                 markdownToReadableText(await ensureFullText(item)),
               )}

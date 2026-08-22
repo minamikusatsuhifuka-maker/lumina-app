@@ -13,23 +13,35 @@
 // - ポップアップは `pointer-events: none` で、下のボタン（分類・削除・選択）を覆わない。
 // - `.page-enter` の transform 配下では position:fixed が効かないため createPortal（R-19）。
 // - スクロールしたら消す（一覧が動いたあとに前の位置へ残らない）。
+//
+// 257で変えたこと:
+// - **位置の基準をカーソルからカードの矩形へ**。256はカーソル座標＋16pxで出し、
+//   画面端では「カーソルを基準に箱ごと反転」していたため、箱の高さ・幅ぶん
+//   （実測260〜396px）カードから離れた場所へ飛んでいた。今はカードの右→左→下→上の
+//   順に**隣接**させ、三角のポインタでどのカードから出ているかを示す。
+// - **先読み**: カーソルが入った 80ms 後に本文の取得だけ先に始め、表示は 280ms 後。
+//   出たときには本文が揃っているので「読み込み中…」がほぼ出ない（＝チラつかない）。
 
-import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import {
+  computeArrowOffset,
+  computePreviewPlacement,
   HOVER_PREVIEW_DELAY_MS,
+  HOVER_PREVIEW_MAX_HEIGHT,
+  HOVER_PREVIEW_PREFETCH_MS,
+  HOVER_PREVIEW_WIDTH,
   isHoverPreviewEnabled,
   HOVER_PREVIEW_EVENT,
   toPreviewText,
+  type PreviewRect,
 } from '@/lib/hover-preview';
 
-const WIDTH = 380;
-const MAX_HEIGHT = 260;
-const OFFSET = 16;
+const ARROW = 8;
 
 type State = {
-  x: number;
-  y: number;
+  /** ホバー中のカードの矩形（ビューポート基準＝position:fixed と同じ座標系） */
+  card: PreviewRect;
   text: string | null;
   loading: boolean;
 };
@@ -40,7 +52,6 @@ export interface HoverPreviewApi {
   /** カードに展開するイベントハンドラ。getText は本文を返す（同期でも非同期でもよい） */
   bind: (getText: () => string | null | Promise<string | null>) => {
     onMouseEnter?: (e: React.MouseEvent) => void;
-    onMouseMove?: (e: React.MouseEvent) => void;
     onMouseLeave?: () => void;
   };
   /** 画面のどこか1箇所に置くポップアップ本体 */
@@ -52,7 +63,8 @@ export function useHoverPreview(): HoverPreviewApi {
   // SSR とズレないよう、確定はマウント後（初期値 false ＝何も出さない）
   const [active, setActive] = useState(false);
   const [state, setState] = useState<State | null>(null);
-  const timerRef = useRef<number | null>(null);
+  const showTimerRef = useRef<number | null>(null);
+  const prefetchTimerRef = useRef<number | null>(null);
   const seqRef = useRef(0);
 
   useEffect(() => {
@@ -66,15 +78,17 @@ export function useHoverPreview(): HoverPreviewApi {
     return () => window.removeEventListener(HOVER_PREVIEW_EVENT, update);
   }, []);
 
-  const clearTimer = () => {
-    if (timerRef.current !== null) {
-      window.clearTimeout(timerRef.current);
-      timerRef.current = null;
+  const clearTimers = () => {
+    for (const ref of [showTimerRef, prefetchTimerRef]) {
+      if (ref.current !== null) {
+        window.clearTimeout(ref.current);
+        ref.current = null;
+      }
     }
   };
 
   const hide = useCallback(() => {
-    clearTimer();
+    clearTimers();
     seqRef.current += 1; // 取得中の結果が後から届いても捨てる
     setState(null);
   }, []);
@@ -93,37 +107,79 @@ export function useHoverPreview(): HoverPreviewApi {
     };
   }, [state, hide]);
 
-  useEffect(() => clearTimer, []);
+  useEffect(() => clearTimers, []);
 
-  /** カーソルを止めてから出すまでの予約。同じ処理を2箇所に書かないためここに寄せる */
-  const schedule = (x: number, y: number, getText: () => string | null | Promise<string | null>) => {
-    clearTimer();
+  /**
+   * カーソルが入ったときの予約。
+   * 取得（先読み・80ms後）と表示（280ms後）を別々のタイマーで持つ。
+   */
+  const schedule = (el: HTMLElement, getText: () => string | null | Promise<string | null>) => {
+    clearTimers();
     const seq = ++seqRef.current;
-    timerRef.current = window.setTimeout(() => {
-      void (async () => {
-        // 取得の前に「読み込み中」を出す（本文が手元にある画面では一瞬で置き換わる）
-        setState({ x, y, text: null, loading: true });
-        let text: string | null = null;
+
+    // 先読みの結果は「もう届いているか」を同期で知れる形で持つ
+    // （届いていれば「読み込み中…」を挟まずいきなり本文を出せる）
+    const holder: { done: boolean; value: string | null; promise: Promise<string | null> | null } = {
+      done: false,
+      value: null,
+      promise: null,
+    };
+    const start = () => {
+      if (holder.promise) return holder.promise;
+      holder.promise = (async () => {
         try {
-          text = await getText();
+          return await getText();
         } catch {
-          text = null;
+          return null;
         }
-        if (seq !== seqRef.current) return; // 別のカードへ移った後なら捨てる
-        const preview = toPreviewText(text);
-        setState(preview ? { x, y, text: preview, loading: false } : null);
-      })();
+      })().then(v => {
+        holder.done = true;
+        holder.value = v;
+        return v;
+      });
+      return holder.promise;
+    };
+
+    prefetchTimerRef.current = window.setTimeout(() => {
+      prefetchTimerRef.current = null;
+      if (seq !== seqRef.current) return;
+      void start();
+    }, HOVER_PREVIEW_PREFETCH_MS);
+
+    showTimerRef.current = window.setTimeout(() => {
+      showTimerRef.current = null;
+      if (seq !== seqRef.current) return;
+      // 一覧が再描画されてカードが消えていたら出さない
+      if (!el.isConnected) return;
+      const r = el.getBoundingClientRect();
+      if (r.width === 0 && r.height === 0) return;
+      const card: PreviewRect = { left: r.left, top: r.top, width: r.width, height: r.height };
+
+      const promise = start();
+      if (holder.done) {
+        // 本文が既に手元にある（リサーチ保存など）／先読みが間に合った場合は一気に出す
+        const preview = toPreviewText(holder.value);
+        setState(preview ? { card, text: preview, loading: false } : null);
+        return;
+      }
+      // 間に合わなかったときだけ枠を先に出す（待たされている感じを減らす）
+      setState({ card, text: null, loading: true });
+      void promise.then(v => {
+        if (seq !== seqRef.current) return;
+        const preview = toPreviewText(v);
+        setState(prev => (prev ? (preview ? { ...prev, text: preview, loading: false } : null) : null));
+      });
     }, HOVER_PREVIEW_DELAY_MS);
   };
 
   const bind: HoverPreviewApi['bind'] = (getText) => {
     if (!active) return {};
     return {
-      onMouseEnter: (e: React.MouseEvent) => schedule(e.clientX, e.clientY, getText),
-      // 出る前にカーソルが動いたら位置を追う（出た後は動かさない＝ちらつかせない）
-      onMouseMove: (e: React.MouseEvent) => {
-        if (timerRef.current === null) return;
-        schedule(e.clientX, e.clientY, getText);
+      onMouseEnter: (e: React.MouseEvent) => {
+        // 位置はカードの矩形から決めるのでカーソル座標は使わない。
+        // 要素の参照だけ掴んで、表示の直前に測る（グリッドの再描画にも追随する）
+        const el = e.currentTarget as HTMLElement;
+        schedule(el, getText);
       },
       onMouseLeave: hide,
     };
@@ -138,23 +194,55 @@ export function useHoverPreview(): HoverPreviewApi {
 }
 
 function PreviewBox({ state }: { state: State }) {
-  // 画面端で見切れないよう、はみ出す側は反転させる
+  const boxRef = useRef<HTMLDivElement | null>(null);
+  // 本文が短いと箱は 260px より低くなる。三角の位置を正しく出すため実寸を測る
+  const [boxHeight, setBoxHeight] = useState(HOVER_PREVIEW_MAX_HEIGHT);
+
   const vw = typeof window !== 'undefined' ? window.innerWidth : 1280;
   const vh = typeof window !== 'undefined' ? window.innerHeight : 800;
-  const flipX = state.x + OFFSET + WIDTH > vw - 8;
-  const flipY = state.y + OFFSET + MAX_HEIGHT > vh - 8;
-  const left = flipX ? Math.max(8, state.x - OFFSET - WIDTH) : state.x + OFFSET;
-  const top = flipY ? Math.max(8, state.y - OFFSET - MAX_HEIGHT) : state.y + OFFSET;
+  const placement = computePreviewPlacement(state.card, { width: vw, height: vh });
+
+  useLayoutEffect(() => {
+    const h = boxRef.current?.offsetHeight;
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    if (h && h !== boxHeight) setBoxHeight(h);
+  }, [state.card, state.text, state.loading, boxHeight]);
+
+  const arrowOffset = computeArrowOffset(
+    state.card,
+    placement,
+    { width: HOVER_PREVIEW_WIDTH, height: boxHeight },
+    ARROW,
+  );
+
+  // 三角のポインタ: カード側の辺に、カードの方を向けて置く
+  const arrowStyle: React.CSSProperties = (() => {
+    const base: React.CSSProperties = { position: 'absolute', width: 0, height: 0 };
+    const line = `${ARROW}px solid var(--border)`;
+    const clear = `${ARROW}px solid transparent`;
+    if (placement.side === 'right') {
+      return { ...base, left: -ARROW, top: arrowOffset, borderTop: clear, borderBottom: clear, borderRight: line };
+    }
+    if (placement.side === 'left') {
+      return { ...base, right: -ARROW, top: arrowOffset, borderTop: clear, borderBottom: clear, borderLeft: line };
+    }
+    if (placement.side === 'bottom') {
+      return { ...base, top: -ARROW, left: arrowOffset, borderLeft: clear, borderRight: clear, borderBottom: line };
+    }
+    return { ...base, bottom: -ARROW, left: arrowOffset, borderLeft: clear, borderRight: clear, borderTop: line };
+  })();
 
   return (
     <div
+      ref={boxRef}
       data-hover-preview
+      data-hover-preview-side={placement.side}
       style={{
         position: 'fixed',
-        left,
-        top,
-        width: WIDTH,
-        maxHeight: MAX_HEIGHT,
+        left: placement.left,
+        top: placement.top,
+        width: HOVER_PREVIEW_WIDTH,
+        maxHeight: HOVER_PREVIEW_MAX_HEIGHT,
         overflow: 'hidden',
         zIndex: 9997,
         // 下のボタン（分類・削除・選択）を覆わない
@@ -171,6 +259,8 @@ function PreviewBox({ state }: { state: State }) {
         wordBreak: 'break-word',
       }}
     >
+      {/* カードとの繋がりを示す三角（枠と同じ色。pointer-events は親から継承で none） */}
+      <span data-hover-preview-arrow style={arrowStyle} />
       {state.loading ? (
         <span style={{ color: 'var(--text-muted)' }}>読み込み中…</span>
       ) : (

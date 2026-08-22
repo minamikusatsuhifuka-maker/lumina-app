@@ -563,6 +563,8 @@ function LibraryPageInner() {
       key={item.id}
       style={isDrCompact ? { minWidth: 0, height: '100%' } : undefined}
       // 256: 本文は既に手元にある（/api/library が content 込みで返す）＝追加リクエストなし
+      // 257: プレビューはこの要素の矩形に隣接して出る。E2Eが位置を座標で判定するための目印
+      data-hover-card={item.id}
       {...hoverPreview.bind(() => markdownToReadableText(item.content))}
     >
       <LibraryItemRow

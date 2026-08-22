@@ -26,9 +26,17 @@ import { ALL_NAV_ITEMS, navCategories } from '../../src/lib/nav-items';
 import { CLEAR_PASTE_MESSAGE, type ClearAndPasteResult } from '../../src/lib/clear-and-paste';
 import { applyReplacePaste } from '../../src/lib/paste-replace';
 import {
+  computeArrowOffset,
+  computePreviewPlacement,
   HOVER_PREVIEW_CHARS,
   HOVER_PREVIEW_DELAY_MS,
+  HOVER_PREVIEW_GAP,
+  HOVER_PREVIEW_MARGIN,
+  HOVER_PREVIEW_MAX_HEIGHT,
+  HOVER_PREVIEW_PREFETCH_MS,
+  HOVER_PREVIEW_WIDTH,
   toPreviewText,
+  type PreviewRect,
 } from '../../src/lib/hover-preview';
 import { markdownToReadableText } from '../../src/lib/markdownToText';
 
@@ -507,10 +515,86 @@ test('U23: ホバープレビューの本文整形 — Markdown記号を出さ�
   expect(plain, '強調記号が残らないこと').not.toContain('**');
   expect(toPreviewText(plain)).toContain('見出し');
 
-  // 遅延は「一覧を眺めるだけで次々出ない」範囲（指示書: 0.4〜0.6秒）
-  expect(HOVER_PREVIEW_DELAY_MS).toBeGreaterThanOrEqual(400);
-  expect(HOVER_PREVIEW_DELAY_MS).toBeLessThanOrEqual(600);
+  // 遅延の範囲（257で 0.4〜0.6秒 → 0.25〜0.30秒 へ引き下げ）。
+  //
+  // 下げた理由: 256の500msは「待たされる」と院長から指摘があった（指示書257②）。
+  // それでも下限を250ms未満にしないのは、一覧を横切るだけで次々出て煩わしくなるため
+  // ——256の「眺めているだけでは出ない」という要件（R-62(4)）を壊さない最小値がここ。
+  // 上限を300msに絞ったのは、これ以上戻すと再び「待たされる」に逆戻りするため。
+  expect(HOVER_PREVIEW_DELAY_MS).toBeGreaterThanOrEqual(250);
+  expect(HOVER_PREVIEW_DELAY_MS).toBeLessThanOrEqual(300);
+  // 先読みは表示より必ず前（先に取得を始めるという性質そのもの）。
+  // 0にしないのは、一覧を素早く横切るだけでカードの数だけ取得が走るため
+  expect(HOVER_PREVIEW_PREFETCH_MS).toBeGreaterThan(0);
+  expect(HOVER_PREVIEW_PREFETCH_MS).toBeLessThan(HOVER_PREVIEW_DELAY_MS);
   // 文字数は指示書の 300〜400 の範囲
   expect(HOVER_PREVIEW_CHARS).toBeGreaterThanOrEqual(300);
   expect(HOVER_PREVIEW_CHARS).toBeLessThanOrEqual(400);
+});
+
+test('U24: ホバープレビューはカードの矩形に隣接して出る（257・位置の機械判定）', () => {
+  // 256の不具合: 位置の基準がカーソル座標で、画面端では「カーソルを基準に箱ごと反転」
+  // していた。本番実測では、カードが y=636 にあるのにプレビューが y=370 に出ており、
+  // カードから266px離れていた（＝どのカードのものか分からない）。
+  // ここでは「カードとプレビューの矩形の距離」を機械判定する。
+
+  const VP = { width: 1440, height: 900 };
+  const W = HOVER_PREVIEW_WIDTH;
+  const H = HOVER_PREVIEW_MAX_HEIGHT;
+
+  /** 2つの矩形の最短距離（重なっていれば0） */
+  const rectDistance = (a: PreviewRect, b: PreviewRect) => {
+    const dx = Math.max(0, Math.max(a.left - (b.left + b.width), b.left - (a.left + a.width)));
+    const dy = Math.max(0, Math.max(a.top - (b.top + b.height), b.top - (a.top + a.height)));
+    return Math.hypot(dx, dy);
+  };
+  const boxOf = (card: PreviewRect): PreviewRect => {
+    const pl = computePreviewPlacement(card, VP);
+    return { left: pl.left, top: pl.top, width: W, height: H };
+  };
+  const inViewport = (r: PreviewRect) =>
+    r.left >= 0 && r.top >= 0 && r.left + r.width <= VP.width && r.top + r.height <= VP.height;
+
+  // 4隅・中央・グリッドの各列（1〜4列相当）を代表点として通す
+  const cards: Array<[string, PreviewRect]> = [
+    ['左上', { left: 24, top: 24, width: 320, height: 180 }],
+    ['右上', { left: 1096, top: 24, width: 320, height: 180 }],
+    ['左下', { left: 24, top: 696, width: 320, height: 180 }],
+    ['右下', { left: 1096, top: 696, width: 320, height: 180 }],
+    ['中央', { left: 560, top: 360, width: 320, height: 180 }],
+    // 256で実際に離れた位置に出た条件（画面下寄り・4列グリッドの各列）
+    ['4列1列目', { left: 261, top: 560, width: 256, height: 120 }],
+    ['4列4列目', { left: 1143, top: 560, width: 256, height: 120 }],
+    // 保存一覧の横長カード（左右に入らないので上下へ回る）
+    ['横長・上寄り', { left: 248, top: 200, width: 1164, height: 107 }],
+    ['横長・下寄り', { left: 248, top: 576, width: 1164, height: 107 }],
+  ];
+
+  for (const [label, card] of cards) {
+    const box = boxOf(card);
+    expect(rectDistance(card, box), `${label}: カードに隣接していること`).toBeLessThanOrEqual(
+      HOVER_PREVIEW_GAP + 1,
+    );
+    expect(inViewport(box), `${label}: 画面内に収まること`).toBe(true);
+    expect(box.left, `${label}: 左の余白を割らないこと`).toBeGreaterThanOrEqual(HOVER_PREVIEW_MARGIN);
+    expect(box.top, `${label}: 上の余白を割らないこと`).toBeGreaterThanOrEqual(HOVER_PREVIEW_MARGIN);
+  }
+
+  // 優先順は 右 → 左 → 下 → 上
+  expect(computePreviewPlacement(cards[0][1], VP).side, '左上は右へ').toBe('right');
+  expect(computePreviewPlacement(cards[1][1], VP).side, '右上は左へ').toBe('left');
+  expect(computePreviewPlacement(cards[7][1], VP).side, '横長・上寄りは下へ').toBe('bottom');
+  expect(computePreviewPlacement(cards[8][1], VP).side, '横長・下寄りは上へ').toBe('top');
+
+  // 三角のポインタはカードと箱が重なる範囲に入る（＝どのカードから出ているか分かる）
+  const card = cards[0][1];
+  const placement = computePreviewPlacement(card, VP);
+  const arrow = computeArrowOffset(card, placement, { width: W, height: H });
+  const arrowY = placement.top + arrow;
+  expect(arrowY, '三角がカードの縦範囲に入ること').toBeGreaterThanOrEqual(card.top);
+  expect(arrowY, '三角がカードの縦範囲に入ること').toBeLessThanOrEqual(card.top + card.height);
+
+  // 極端な条件（カードが画面いっぱい）でも画面外へ出さない
+  const huge = boxOf({ left: 0, top: 0, width: VP.width, height: VP.height });
+  expect(inViewport(huge), 'カードが画面いっぱいでも画面内に収まること').toBe(true);
 });

@@ -2293,6 +2293,8 @@ export default function SavedAnalysisList({
                 data-bundle-key={`ana-${record.id}`}
                 // 250: 一括削除のE2Eがカード単位で存在を判定するための目印
                 data-analysis-card={record.id}
+                // 257: プレビューはこの要素の矩形に隣接して出る（位置の基準）
+                data-hover-card={record.id}
                 {...hoverPreview.bind(async () =>
                   markdownToReadableText(await fetchContent(record.id)),
                 )}
