@@ -38,6 +38,8 @@ import FullscreenReader from '@/components/text-analysis/FullscreenReader';
 import { useRunKeyHints, useRunShortcut } from '@/lib/shortcuts';
 // 254: クリアして貼付（ボタンとキーで同じ関数を通す）
 import { clearAndPaste, CLEAR_PASTE_MESSAGE } from '@/lib/clear-and-paste';
+// 255: 「貼り付けたら前の内容を置き換える」（iOSで追加タップを出さずに1操作にする）
+import { applyReplacePaste, usePasteReplace } from '@/lib/paste-replace';
 import { isAutoStockSaveEnabled } from '@/lib/auto-stock-save';
 
 // 215: 「全」は高さプリセットではなく FullscreenReader（保存一覧と同じ全画面ビューア）を
@@ -811,6 +813,11 @@ export default function TextAnalysisPanel({
   };
   useEffect(() => stopUndoTimer, []);
 
+  // ── 255: 貼り付けで置き換え（設定ON時のみ）──────────────────
+  // ユーザーが普段どおり貼り付けた瞬間に置き換える＝iOSでも追加のタップが出ない。
+  // clipboardData はイベント内なら権限なしで読める（実測済み）。
+  const pasteReplace = usePasteReplace();
+
   // ── 254: 「📋 クリアして貼付」 ─────────────────────────────
   // クリア→⌘V の2手を1手に。消えた内容は247と同じ Undo（10秒）で戻せる。
   // ボタンでもキー（⌘⇧V）でもこの関数を通す＝挙動が分かれない。
@@ -930,6 +937,24 @@ export default function TextAnalysisPanel({
         </div>
         <textarea
           ref={inputRef}
+          onPaste={(e) => {
+            // 255: 設定ONのときだけ「置き換え」に変える。OFFなら何もしない＝通常の貼り付け
+            const replaced = applyReplacePaste({
+              enabled: pasteReplace.enabled,
+              current: inputText,
+              clipboardText: e.clipboardData?.getData('text/plain') ?? '',
+              setText: (next) => {
+                setInputText(next);
+                setAnalysisDone(false);
+              },
+              backup: (text) => {
+                setClearedText(text);
+                stopUndoTimer();
+                undoTimerRef.current = window.setTimeout(() => setClearedText(null), 10000);
+              },
+            });
+            if (replaced) e.preventDefault();
+          }}
           value={inputText}
           onChange={(e) => {
             setInputText(e.target.value);
@@ -988,9 +1013,13 @@ export default function TextAnalysisPanel({
               onClick={() => void handleClearAndPaste()}
               disabled={pasting || loading}
               title={
-                keyHints
+                (keyHints
                   ? `入力をクリアしてクリップボードを貼り付け（${keyHints.clearPaste}）／直後に「↩ 元に戻す」で戻せます`
-                  : '入力をクリアしてクリップボードを貼り付け（直後に「↩ 元に戻す」で戻せます）'
+                  : '入力をクリアしてクリップボードを貼り付け（直後に「↩ 元に戻す」で戻せます）') +
+                // 255: iPhoneではこのボタンだと確認が入って2タップになる。1操作にする道を案内する
+                (pasteReplace.enabled
+                  ? ''
+                  : '／🎛表示設定の「貼り付けで置き換える」をONにすると、普通に貼り付けるだけで置き換わります（iPhoneでも1操作）')
               }
               style={{
                 padding: '4px 10px',

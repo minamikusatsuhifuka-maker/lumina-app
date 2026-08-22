@@ -24,6 +24,7 @@ import {
 } from '../../src/lib/nav-labels';
 import { ALL_NAV_ITEMS, navCategories } from '../../src/lib/nav-items';
 import { CLEAR_PASTE_MESSAGE, type ClearAndPasteResult } from '../../src/lib/clear-and-paste';
+import { applyReplacePaste } from '../../src/lib/paste-replace';
 
 // ============================================================================
 // 純関数の単体テスト（234【1】要件4）— ネットワーク・AI課金・認証を一切使わない
@@ -442,4 +443,36 @@ test('U21: クリアして貼付 — 4つの結末すべてに案内があり、
       expect(combo, `${item.desc} が ⌘V 単独を奪っていないこと`).not.toBe('⌘V');
     }
   }
+});
+
+test('U22: 貼り付けで置き換え — 置き換える条件が3つそろったときだけ働く（255）', () => {
+  const calls: { set: string[]; backup: string[] } = { set: [], backup: [] };
+  const run = (o: { enabled: boolean; current: string; clipboardText: string }) => {
+    calls.set = [];
+    calls.backup = [];
+    return applyReplacePaste({
+      ...o,
+      setText: (v) => calls.set.push(v),
+      backup: (v) => calls.backup.push(v),
+    });
+  };
+
+  // 3条件がそろったときだけ置き換える
+  expect(run({ enabled: true, current: '前の内容', clipboardText: '新しい内容' })).toBe(true);
+  expect(calls.set).toEqual(['新しい内容']);
+  expect(calls.backup, 'Undoのために元の内容を退避すること').toEqual(['前の内容']);
+
+  // 設定OFF → 何もしない（＝ブラウザの通常の貼り付けがそのまま走る）
+  expect(run({ enabled: false, current: '前の内容', clipboardText: '新しい内容' })).toBe(false);
+  expect(calls.set).toEqual([]);
+  expect(calls.backup).toEqual([]);
+
+  // 入力が空 → 置き換えるものが無いので素通し（追記と同じ結果になる）
+  expect(run({ enabled: true, current: '', clipboardText: '新しい内容' })).toBe(false);
+  expect(calls.set).toEqual([]);
+
+  // クリップボードが空 → 素通し。**本文を消して終わりにしない**（255の安全条件）
+  expect(run({ enabled: true, current: '大事な本文', clipboardText: '' })).toBe(false);
+  expect(calls.set, '空の貼り付けで本文が消えないこと').toEqual([]);
+  expect(calls.backup).toEqual([]);
 });

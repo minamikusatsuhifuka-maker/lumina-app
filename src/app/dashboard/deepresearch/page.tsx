@@ -33,6 +33,8 @@ import { TextRefinePanel } from '@/components/refine/TextRefinePanel';
 import { useRunKeyHints, useRunShortcut } from '@/lib/shortcuts';
 // 254: クリアして貼付（テキスト分析と同じ関数・同じ操作感）
 import { clearAndPaste, CLEAR_PASTE_MESSAGE } from '@/lib/clear-and-paste';
+// 255: 「貼り付けたら前の内容を置き換える」（iOSで追加タップを出さずに1操作にする）
+import { applyReplacePaste, usePasteReplace } from '@/lib/paste-replace';
 import { isAutoStockSaveEnabled } from '@/lib/auto-stock-save';
 
 // 自動下書き（feature_result_drafts feature_key='deepresearch'）のpayload
@@ -1584,6 +1586,9 @@ ${contextText}
   };
   useEffect(() => stopUndoTimer, []);
 
+  // 255: 貼り付けで置き換え（設定ON時のみ・テキスト分析と同じ lib）
+  const pasteReplace = usePasteReplace();
+
   // ── 254: 「📋 クリアして貼付」（テキスト分析と同じ lib を通す）──────────
   const topicRef = useRef<HTMLTextAreaElement>(null);
   const [pasting, setPasting] = useState(false);
@@ -1752,6 +1757,21 @@ ${contextText}
               ref={topicRef}
               value={topic}
               onChange={e => setTopic(e.target.value)}
+              onPaste={(e) => {
+                // 255: 設定ONのときだけ「置き換え」に変える。OFFなら通常の貼り付け
+                const replaced = applyReplacePaste({
+                  enabled: pasteReplace.enabled,
+                  current: topic,
+                  clipboardText: e.clipboardData?.getData('text/plain') ?? '',
+                  setText: setTopic,
+                  backup: (text) => {
+                    setClearedTopic(text);
+                    stopUndoTimer();
+                    undoTimerRef.current = window.setTimeout(() => setClearedTopic(null), 10000);
+                  },
+                });
+                if (replaced) e.preventDefault();
+              }}
               onFocus={() => setShowQuerySuggest(true)}
               onBlur={() => setTimeout(() => setShowQuerySuggest(false), 150)}
               placeholder={'調査したいテーマを詳しく入力してください\n例：AIを活用したブログ記事の自動生成と収益化の最新事例'}

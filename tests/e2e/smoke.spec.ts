@@ -2015,3 +2015,81 @@ test('C47: クリップボードを読めないときは、クリアして⌘V�
     await ctx.close();
   }
 });
+
+// ============================================================================
+// 255: 「貼り付けで置き換える」（iPhoneで追加タップを出さずに1操作にする）
+// - 設定ONのとき、普段どおりの貼り付け操作そのものが「クリアして貼付」になる
+// - 254のボタン／キーの挙動（デスクトップ）は変えていないことも判定する
+// ============================================================================
+
+test('C48: 貼り付けで置き換える — 設定ON/OFFで貼り付けの意味が変わり、Undoで戻せる（255）', async ({
+  page,
+  context,
+}) => {
+  await stubFeatureDrafts(page);
+  await context.grantPermissions(['clipboard-read', 'clipboard-write'], { origin: BASE_URL });
+
+  // 既定はOFF＝これまでどおり追記であることから確認する
+  await page.goto('/dashboard/text-analysis');
+  await page.evaluate(() => {
+    localStorage.setItem('lumina_auto_stock_save', '0');
+    localStorage.removeItem('lumina_paste_replace');
+  });
+  await page.reload({ waitUntil: 'domcontentloaded' });
+  await waitForRunReady(page);
+
+  const textarea = page.getByPlaceholder('ここに分析したいテキストを貼り付けてください...');
+  const CLIP = `[E2E] ${KB_TOKEN} 貼り付ける内容`;
+  await page.evaluate((t) => navigator.clipboard.writeText(t), CLIP);
+
+  // ── ① 既定（OFF）: 貼り付けは従来どおり追記 ──
+  await textarea.fill('AB');
+  await expect(textarea, '前提: 入力がある').toHaveValue('AB');
+  await textarea.click();
+  await page.keyboard.press('End');
+  await page.keyboard.press('ControlOrMeta+v');
+  await expect(textarea, '既定では貼り付けの意味が変わらないこと').toHaveValue(`AB${CLIP}`);
+
+  // ── ② 設定をONにする（🎛表示設定から） ──
+  await page.goto('/dashboard/display-settings');
+  const toggle = page.locator('[data-paste-replace-toggle] input[type="checkbox"]');
+  await expect(toggle, '表示設定にトグルがあること').toBeVisible();
+  await expect(toggle, '既定はオフであること').not.toBeChecked();
+  await toggle.check();
+  await expect(page.locator('[data-paste-replace-toggle]')).toContainText('オン');
+
+  // ── ③ ONのとき: 普段どおりの貼り付けが「置き換え」になる（iOSで追加タップが出ない方式） ──
+  await page.goto('/dashboard/text-analysis');
+  await waitForRunReady(page);
+  const ta2 = page.getByPlaceholder('ここに分析したいテキストを貼り付けてください...');
+  await ta2.fill('前からあった本文');
+  await expect(ta2).toHaveValue('前からあった本文');
+  await ta2.click();
+  await page.keyboard.press('End');
+  await page.keyboard.press('ControlOrMeta+v');
+  await expect(ta2, '貼り付けだけで置き換わること').toHaveValue(CLIP);
+
+  // ── ④ Undoで戻せる（誤って置き換えても本文を失わない） ──
+  const undo = page.getByRole('button', { name: '↩ 元に戻す' });
+  await expect(undo, '置き換えた直後はUndoが出ること').toBeVisible();
+  await undo.click();
+  await expect(ta2, 'Undoで元の本文に戻ること').toHaveValue('前からあった本文');
+
+  // ── ⑤ 入力が空のときは素通し（置き換えるものが無い） ──
+  await ta2.fill('');
+  await ta2.click();
+  await page.keyboard.press('ControlOrMeta+v');
+  await expect(ta2, '空の入力欄には普通に貼り付くこと').toHaveValue(CLIP);
+  await expect(page.getByRole('button', { name: '↩ 元に戻す' }), '置き換えていないのでUndoは出ないこと').toHaveCount(0);
+
+  // ── ⑥ 254のボタンはON/OFFに関係なく従来どおり効く（デスクトップの挙動は不変） ──
+  const OLD = `[E2E] ${KB_TOKEN} ボタン検証`;
+  await ta2.fill(OLD);
+  await expect(ta2).toHaveValue(OLD);
+  await page.locator('[data-clear-paste]').filter({ visible: true }).first().click();
+  await expect(ta2, '「📋 クリアして貼付」は従来どおり動くこと').toHaveValue(CLIP);
+
+  // 後片付け（このブラウザコンテキストは使い捨てだが、設定を戻して終わる）
+  await page.goto('/dashboard/display-settings');
+  await page.locator('[data-paste-replace-toggle] input[type="checkbox"]').uncheck();
+});
