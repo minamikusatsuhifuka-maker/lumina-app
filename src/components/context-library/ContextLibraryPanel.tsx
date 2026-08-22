@@ -11,6 +11,8 @@ import FullscreenReader from '@/components/text-analysis/FullscreenReader';
 import { KEY_HINT, useShortcutHints } from '@/lib/shortcuts';
 import { cardActionBtnStyle } from '@/components/text-analysis/cardActionButtonStyle';
 import { confirmBulkDelete } from '@/lib/bulk-delete-confirm';
+// 256: カードにカーソルを当てたときの本文プレビュー
+import { useHoverPreview } from '@/components/HoverPreview';
 import { BundleSelectToggleButton, BundleSelectCheckbox } from '@/components/note-bundle/BundleSelectControls';
 import { useNoteBundleSelection } from '@/components/note-bundle/useNoteBundleSelection';
 // 249: マイフォルダ（院長が名前を付けるお気に入りの分類・自動カテゴリとは別軸）
@@ -188,6 +190,9 @@ export default function ContextLibraryPanel() {
       return next;
     });
   };
+  // 256: 本文は ensureFullText（取得済みならそのまま返す）を通す＝ホバーのたびに叩かない
+  const hoverPreview = useHoverPreview();
+
   // 250: 一括削除のための選択モード（📚リサーチ保存の「選択モード」と同じ流儀）。
   // note素材の選択モード（179/180・共有ストア）とは別物なので、同時には出さない。
   const [deleteMode, setDeleteMode] = useState(false);
@@ -1262,6 +1267,9 @@ export default function ContextLibraryPanel() {
               key={item.id}
               // 187: 「→次へ」追従ボタンの位置計測用（NoteBundleDock が参照）
               data-bundle-key={`ctx-${item.id}`}
+              {...hoverPreview.bind(async () =>
+                markdownToReadableText(await ensureFullText(item)),
+              )}
               style={{
                 background: item.is_favorite
                   ? 'rgba(245,158,11,0.08)'
@@ -1838,6 +1846,9 @@ export default function ContextLibraryPanel() {
           )
         }
       />
+
+      {/* 256: 本文プレビューのポップアップ（1画面に1つだけ） */}
+      {hoverPreview.layer}
 
       {/* 249: 分類パネル（☆ボタンから開く。createPortalでbody直下に出す＝R-19） */}
       {folderPicker &&

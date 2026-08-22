@@ -28,6 +28,8 @@ import { CATEGORY_GROUPS, OTHER_CATEGORY } from '@/lib/category-vocabulary';
 import CustomFolderBar from '@/components/custom-folders/CustomFolderBar';
 // 253: フォルダを開いたら両画面のアイテムをまとめて出す（共有したなら中身は全部見える）
 import FolderCrossView from '@/components/custom-folders/FolderCrossView';
+// 256: カードにカーソルを当てたときの本文プレビュー（markdownToReadableText は上で import 済み）
+import { useHoverPreview } from '@/components/HoverPreview';
 import FolderBadges from '@/components/custom-folders/FolderBadges';
 import FolderPickerPopover from '@/components/custom-folders/FolderPickerPopover';
 import {
@@ -148,6 +150,8 @@ export default function SavedAnalysisList({
   const [activeFolder, setActiveFolder] = useState<string | null>(null);
   // 249: マイフォルダ（自動カテゴリとは別軸の手動分類）。絞り込みは activeFolder と AND
   const customFolders = useCustomFolders('text_analysis', (msg) => showToast(msg, 'error'));
+  // 256: 本文はキャッシュ付きの fetchContent を通す＝ホバーのたびにAPIを叩かない
+  const hoverPreview = useHoverPreview();
   const [activeCustomFolder, setActiveCustomFolder] = useState<FolderFilter>(null);
   // 分類パネルを開いている記事（☆ボタンの矩形に合わせてポップオーバーを出す）
   const [folderPicker, setFolderPicker] = useState<{ id: number; rect: DOMRect } | null>(null);
@@ -2289,6 +2293,9 @@ export default function SavedAnalysisList({
                 data-bundle-key={`ana-${record.id}`}
                 // 250: 一括削除のE2Eがカード単位で存在を判定するための目印
                 data-analysis-card={record.id}
+                {...hoverPreview.bind(async () =>
+                  markdownToReadableText(await fetchContent(record.id)),
+                )}
                 onClick={() => {
                   if (highlighted) onHighlightClear?.();
                 }}
@@ -3018,6 +3025,9 @@ export default function SavedAnalysisList({
       />
       </>
       )}
+
+      {/* 256: 本文プレビューのポップアップ（1画面に1つだけ） */}
+      {hoverPreview.layer}
 
       {/* 249: 分類パネル（☆ボタンから開く。createPortalでbody直下に出す＝R-19） */}
       {folderPicker &&

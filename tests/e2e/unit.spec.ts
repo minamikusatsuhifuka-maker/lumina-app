@@ -25,6 +25,12 @@ import {
 import { ALL_NAV_ITEMS, navCategories } from '../../src/lib/nav-items';
 import { CLEAR_PASTE_MESSAGE, type ClearAndPasteResult } from '../../src/lib/clear-and-paste';
 import { applyReplacePaste } from '../../src/lib/paste-replace';
+import {
+  HOVER_PREVIEW_CHARS,
+  HOVER_PREVIEW_DELAY_MS,
+  toPreviewText,
+} from '../../src/lib/hover-preview';
+import { markdownToReadableText } from '../../src/lib/markdownToText';
 
 // ============================================================================
 // 純関数の単体テスト（234【1】要件4）— ネットワーク・AI課金・認証を一切使わない
@@ -475,4 +481,36 @@ test('U22: 貼り付けで置き換え — 置き換える条件が3つそろっ
   expect(run({ enabled: true, current: '大事な本文', clipboardText: '' })).toBe(false);
   expect(calls.set, '空の貼り付けで本文が消えないこと').toEqual([]);
   expect(calls.backup).toEqual([]);
+});
+
+test('U23: ホバープレビューの本文整形 — Markdown記号を出さず、長い本文は…で切る（256）', () => {
+  // 空・null はプレビューを出さない
+  expect(toPreviewText(null)).toBeNull();
+  expect(toPreviewText('')).toBeNull();
+  expect(toPreviewText('   \n\n  ')).toBeNull();
+
+  // 連続する空行は詰める（ふきだしの縦を無駄に使わない）
+  expect(toPreviewText('一行目\n\n\n\n二行目')).toBe('一行目\n\n二行目');
+
+  // 上限まではそのまま、超えたら「…」で切る
+  const short = 'あ'.repeat(HOVER_PREVIEW_CHARS);
+  expect(toPreviewText(short)).toBe(short);
+  const long = toPreviewText('あ'.repeat(HOVER_PREVIEW_CHARS + 200))!;
+  expect([...long].length, '上限＋「…」の長さに収まること').toBe(HOVER_PREVIEW_CHARS + 1);
+  expect(long.endsWith('…')).toBe(true);
+
+  // Markdownの整形は markdownToReadableText が担当（画面側で通す）。
+  // ここでは「## や ** が残った文字列は渡らない」ことを、その関数の出力で確かめる
+  const md = '## 見出し\n\n**強調**したい文章です。\n\n- 箇条書き\n';
+  const plain = markdownToReadableText(md);
+  expect(plain, '見出し記号が残らないこと').not.toContain('##');
+  expect(plain, '強調記号が残らないこと').not.toContain('**');
+  expect(toPreviewText(plain)).toContain('見出し');
+
+  // 遅延は「一覧を眺めるだけで次々出ない」範囲（指示書: 0.4〜0.6秒）
+  expect(HOVER_PREVIEW_DELAY_MS).toBeGreaterThanOrEqual(400);
+  expect(HOVER_PREVIEW_DELAY_MS).toBeLessThanOrEqual(600);
+  // 文字数は指示書の 300〜400 の範囲
+  expect(HOVER_PREVIEW_CHARS).toBeGreaterThanOrEqual(300);
+  expect(HOVER_PREVIEW_CHARS).toBeLessThanOrEqual(400);
 });

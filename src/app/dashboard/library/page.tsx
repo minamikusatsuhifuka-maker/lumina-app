@@ -15,6 +15,9 @@ import { confirmBulkDelete } from '@/lib/bulk-delete-confirm';
 import CustomFolderBar from '@/components/custom-folders/CustomFolderBar';
 // 253: フォルダを開いたら両画面のアイテムをまとめて出す（共有したなら中身は全部見える）
 import FolderCrossView from '@/components/custom-folders/FolderCrossView';
+// 256: カードにカーソルを当てたときの本文プレビュー（library は本文が手元にあるので追加取得なし）
+import { useHoverPreview } from '@/components/HoverPreview';
+import { markdownToReadableText } from '@/lib/markdownToText';
 import FolderPickerPopover from '@/components/custom-folders/FolderPickerPopover';
 import FolderBadges from '@/components/custom-folders/FolderBadges';
 import {
@@ -101,6 +104,7 @@ function LibraryPageInner() {
   const [mergeMode, setMergeMode] = useState(false);
   // 252: マイフォルダ（保存一覧と共有の 'stock' 体系）。絞り込みはタブ・検索とAND
   const customFolders = useCustomFolders('library', (msg) => alert(msg));
+  const hoverPreview = useHoverPreview();
   const [activeCustomFolder, setActiveCustomFolder] = useState<FolderFilter>(null);
   const [folderPicker, setFolderPicker] = useState<{ id: string; rect: DOMRect } | null>(null);
   const [mergeResult, setMergeResult] = useState('');
@@ -555,7 +559,12 @@ function LibraryPageInner() {
 
   /* ── 各アイテムのレンダリング ── */
   const renderItem = (item: any) => (
-    <div key={item.id} style={isDrCompact ? { minWidth: 0, height: '100%' } : undefined}>
+    <div
+      key={item.id}
+      style={isDrCompact ? { minWidth: 0, height: '100%' } : undefined}
+      // 256: 本文は既に手元にある（/api/library が content 込みで返す）＝追加リクエストなし
+      {...hoverPreview.bind(() => markdownToReadableText(item.content))}
+    >
       <LibraryItemRow
         item={item}
         openMenuId={openMenuId}
@@ -1094,6 +1103,9 @@ function LibraryPageInner() {
           </div>
         </div>
       )}
+
+      {/* 256: 本文プレビューのポップアップ（1画面に1つだけ） */}
+      {hoverPreview.layer}
 
       {/* 252: 分類パネル（☆ボタンから開く。createPortalでbody直下に出す＝R-19） */}
       {folderPicker &&

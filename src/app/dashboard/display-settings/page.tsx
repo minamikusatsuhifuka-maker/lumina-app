@@ -19,11 +19,14 @@ import { useAutoStockSave } from '@/lib/auto-stock-save';
 import NavLabelSettings from '@/components/NavLabelSettings';
 // 255: 貼り付けで置き換える（iPhoneで「クリアして貼付」を1操作にする）
 import { usePasteReplace } from '@/lib/paste-replace';
+// 256: カードのホバープレビュー
+import { useHoverPreviewSetting, HOVER_PREVIEW_CHARS } from '@/lib/hover-preview';
 
 export default function DisplaySettingsPage() {
   const { floating, setFloating } = useTheme();
   const autoStock = useAutoStockSave();
   const pasteReplace = usePasteReplace();
+  const hoverPreview = useHoverPreviewSetting();
   // localStorage の読み込みは ThemeProvider の useEffect 後に確定するため、
   // サーバー描画との食い違い（ハイドレーション不一致）を避けてマウント後に描く
   const [mounted, setMounted] = useState(false);
@@ -35,8 +38,8 @@ export default function DisplaySettingsPage() {
     <div style={{ maxWidth: 720 }}>
       <h1 style={{ fontSize: 24, fontWeight: 700, marginBottom: 6 }}>🎛 表示設定</h1>
       <p style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 24, lineHeight: 1.7 }}>
-        画面の右下に出る追従ボタンの表示、生成結果の自動ストック保存、貼り付けの挙動、
-        サイドバーのメニュー名を切り替えます。設定はこのブラウザに保存されます。
+        画面の右下に出る追従ボタンの表示、生成結果の自動ストック保存、カードのプレビュー、
+        貼り付けの挙動、サイドバーのメニュー名を切り替えます。設定はこのブラウザに保存されます。
       </p>
 
       <section
@@ -168,6 +171,74 @@ export default function DisplaySettingsPage() {
           保存に失敗しても生成結果は画面に残ります。そのときはボタンが「⚠️ 保存に失敗・再試行」に変わるので、
           押し直せば保存できます。
         </p>
+      </section>
+
+      {/* 256: カードのホバープレビュー */}
+      <section
+        style={{
+          marginTop: 16,
+          background: 'var(--bg-secondary)',
+          border: '1px solid var(--border)',
+          borderRadius: 14,
+          padding: 20,
+        }}
+      >
+        <h2 style={{ fontSize: 16, fontWeight: 700, marginBottom: 4 }}>👁 カードの内容プレビュー</h2>
+        <p style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 16, lineHeight: 1.7 }}>
+          一覧のカードにカーソルを当てて少し待つと、本文の冒頭{HOVER_PREVIEW_CHARS}字が
+          ふきだしで出ます。「▼ 全文表示」を開かなくても中身が分かります。対象は
+          <strong>🗂 保存一覧</strong>・<strong>📚 リサーチ保存</strong>・
+          <strong>🧠 AI参照素材</strong>の3画面です。
+          <br />
+          スマホ・タブレットなど<strong>カーソルが無い端末では出ません</strong>
+          （タップ操作の邪魔になるため）。
+        </p>
+
+        {!hoverPreview.mounted ? (
+          <div style={{ fontSize: 13, color: 'var(--text-muted)', padding: '12px 0' }}>読み込み中…</div>
+        ) : (
+          <label
+            data-hover-preview-toggle
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 14,
+              padding: '12px 14px',
+              borderRadius: 10,
+              border: `1px solid ${hoverPreview.enabled ? 'var(--border-accent, #6c63ff)' : 'var(--border)'}`,
+              background: hoverPreview.enabled ? 'rgba(108,99,255,0.08)' : 'transparent',
+              cursor: 'pointer',
+            }}
+          >
+            <span style={{ fontSize: 22, width: 28, textAlign: 'center' }}>👁</span>
+            <span style={{ flex: 1 }}>
+              <span style={{ display: 'block', fontSize: 14, fontWeight: 600 }}>
+                カーソルを当てたら内容をプレビューする
+              </span>
+              <span style={{ display: 'block', fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>
+                既定はオンです。煩わしいときはオフにしてください（「▼ 全文表示」はそのまま使えます）。
+              </span>
+            </span>
+            <input
+              type="checkbox"
+              checked={hoverPreview.enabled}
+              onChange={(e) => hoverPreview.setEnabled(e.target.checked)}
+              aria-label="カードの内容プレビューを表示する"
+              style={{ width: 18, height: 18, cursor: 'pointer', accentColor: '#6c63ff' }}
+            />
+            <span
+              style={{
+                fontSize: 12,
+                fontWeight: 700,
+                color: hoverPreview.enabled ? '#6c63ff' : 'var(--text-muted)',
+                width: 42,
+                textAlign: 'right',
+              }}
+            >
+              {hoverPreview.enabled ? 'オン' : 'オフ'}
+            </span>
+          </label>
+        )}
       </section>
 
       {/* 255: 貼り付けで置き換える（iPhoneでの追加タップをなくす） */}

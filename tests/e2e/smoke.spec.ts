@@ -2093,3 +2093,122 @@ test('C48: 貼り付けで置き換える — 設定ON/OFFで貼り付けの意�
   await page.goto('/dashboard/display-settings');
   await page.locator('[data-paste-replace-toggle] input[type="checkbox"]').uncheck();
 });
+
+// ============================================================================
+// 256: カードにカーソルを当てると本文の冒頭が出るプレビュー
+// - 3画面すべてで出ること・整形されていること・設定でOFFにできること
+// - タッチ端末（ホバーなし）では出ないこと＝操作を妨げないこと
+// ============================================================================
+
+test('C49: ホバープレビュー — 3画面で出て、Markdown記号が出ず、設定でOFFにできる（256）', async ({
+  page,
+}) => {
+  // この検証専用の資料を作る（一覧の先頭に来る＝探し回らない）
+  const marker = `HOVERTEST${RUN_ID}`;
+  const md = `## ${marker} の見出し\n\n**強調**した本文です。${'あ'.repeat(500)}`;
+  const savedId = await (async () => {
+    const res = await page.request.post(SAVES_API, {
+      data: { title: `プレビュー検証 ${marker}`, content: md, category: SEED_FOLDER },
+    });
+    expect(res.status()).toBe(200);
+    const j = await res.json();
+    return (j.save?.id ?? j.id) as number;
+  })();
+  const libId = await (async () => {
+    const res = await page.request.post(LIBRARY_API, {
+      data: { title: `[E2E] プレビュー検証 ${marker}`, content: md, type: 'research', tags: '', group_name: '' },
+    });
+    expect(res.status()).toBe(200);
+    return (await res.json()).id as string;
+  })();
+  const ctxId = await (async () => {
+    const res = await page.request.post(CONTEXT_API, {
+      data: { topic: `[E2E] プレビュー検証 ${marker}`, contextText: md, tags: [] },
+    });
+    expect(res.status()).toBe(200);
+    return (await res.json()).id as number;
+  })();
+
+  const preview = page.locator('[data-hover-preview]');
+
+  try {
+    // ── ① 🗂保存一覧（本文は一覧に載っていない＝ホバー時に取得する画面）──
+    await page.goto('/dashboard/saved');
+    const panel = page.locator('[data-saved-panel="text-analysis"]');
+    const card = panel.locator(`[data-analysis-card="${savedId}"]`);
+    await expect(card).toBeVisible();
+    await card.hover();
+    await expect(preview, '保存一覧でプレビューが出ること').toBeVisible({ timeout: 10000 });
+    await expect(preview, '本文の冒頭が出ること').toContainText(marker);
+    await expect(preview, 'Markdownの見出し記号が出ないこと').not.toContainText('##');
+    await expect(preview, '強調記号が出ないこと').not.toContainText('**');
+    await expect(preview, '長い本文は…で切られること').toContainText('…');
+    // カードから外れたら消える
+    await page.locator('h1').first().hover();
+    await expect(preview, 'カードから外れたら消えること').toHaveCount(0);
+
+    // ── ② 📚リサーチ保存（本文が手元にある＝追加リクエストなしの画面）──
+    await page.goto('/dashboard/library');
+    await page.locator('[data-library-search]').fill(marker);
+    const libCard = page.locator(`[data-favorite-button="${libId}"]`);
+    await expect(libCard).toBeVisible();
+    await libCard.hover();
+    await expect(preview, 'リサーチ保存でプレビューが出ること').toBeVisible({ timeout: 10000 });
+    await expect(preview).toContainText(marker);
+    await expect(preview).not.toContainText('##');
+
+    // ── ③ 🧠AI参照素材 ──
+    await page.goto('/dashboard/context-library');
+    await page.locator('[data-kb-search]').first().fill(marker);
+    const ctxCard = page.locator(`[data-bundle-key="ctx-${ctxId}"]`);
+    await expect(ctxCard).toBeVisible({ timeout: 15000 });
+    await ctxCard.hover();
+    await expect(preview, 'AI参照素材でプレビューが出ること').toBeVisible({ timeout: 10000 });
+    await expect(preview).toContainText(marker);
+
+    // ── ④ 🎛表示設定でOFFにすると出なくなる ──
+    await page.goto('/dashboard/display-settings');
+    const toggle = page.locator('[data-hover-preview-toggle] input[type="checkbox"]');
+    await expect(toggle, '既定はオンであること').toBeChecked();
+    await toggle.uncheck();
+    await page.goto('/dashboard/saved');
+    const card2 = page.locator('[data-saved-panel="text-analysis"]').locator(`[data-analysis-card="${savedId}"]`);
+    await card2.hover();
+    await page.waitForTimeout(1200); // 遅延(500ms)より十分長く待つ
+    await expect(preview, 'OFFにしたら出ないこと').toHaveCount(0);
+
+    // 戻す（既定はON）
+    await page.goto('/dashboard/display-settings');
+    await page.locator('[data-hover-preview-toggle] input[type="checkbox"]').check();
+  } finally {
+    await page.request.delete(`${SAVES_API}?id=${savedId}`);
+    await page.request.delete(LIBRARY_API, { data: { ids: [libId] } });
+    await page.request.delete(`${CONTEXT_API}?id=${ctxId}`);
+  }
+});
+
+test('C50: タッチ端末ではプレビューを出さない（256・操作を妨げない）', async ({ browser }) => {
+  // hasTouch + ホバーなしの端末として扱わせる（iPhone相当のビューポート）
+  const ctx = await browser.newContext({
+    storageState: STORAGE_STATE,
+    baseURL: BASE_URL,
+    hasTouch: true,
+    isMobile: true,
+    viewport: { width: 390, height: 844 },
+  });
+  const page = await ctx.newPage();
+  try {
+    await page.goto('/dashboard/saved');
+    const card = page.locator('[data-analysis-card]').first();
+    await expect(card).toBeVisible({ timeout: 15000 });
+    // タップ相当の操作をしてもプレビューは出ない
+    await card.tap();
+    await page.waitForTimeout(1200);
+    await expect(
+      page.locator('[data-hover-preview]'),
+      'カーソルの無い端末ではプレビューを出さないこと',
+    ).toHaveCount(0);
+  } finally {
+    await ctx.close();
+  }
+});
