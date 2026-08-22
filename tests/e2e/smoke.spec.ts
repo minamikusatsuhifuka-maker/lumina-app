@@ -1351,11 +1351,13 @@ test('C36: 保存一覧の画面でフォルダを作り、☆から分類して
       'カードに所属フォルダのバッジが出ること',
     ).toBeVisible();
 
-    // フォルダで絞り込むと、その記事だけが残る
+    // フォルダで絞り込むと、そのフォルダの中身が出る
+    // （253でここは両画面をまとめた横断ビューに変わった。中身はこの1件だけ）
     await card.click();
-    await expect
-      .poll(async () => panel.locator('[data-favorite-button]').count())
-      .toBe(1);
+    const cross = page.locator(`[data-folder-cross-view="${folderId}"]`);
+    await expect(cross, 'フォルダを開くと横断ビューが出ること').toBeVisible();
+    await expect(cross.locator('[data-cross-card]')).toHaveCount(1);
+    await expect(cross.locator('[data-origin-badge="text_analysis"]')).toHaveCount(1);
   } finally {
     if (folderId) await deleteFolder(request, 'text_analysis', folderId);
     // 検証用の記事ごと消す（お気に入り状態の後始末も兼ねる）
@@ -1754,12 +1756,13 @@ test('C43: リサーチ保存の画面で☆から分類し、バッジ表示と
       'コンパクトカードに所属フォルダのバッジが出ること',
     ).toBeVisible();
 
-    // フォルダで絞り込むと、その資料だけが残る
+    // フォルダで絞り込むと、そのフォルダの中身が出る（253: 両画面をまとめた横断ビュー）
     await page.locator('[data-library-search]').fill('');
     await card.click();
-    await expect
-      .poll(async () => page.locator('[data-favorite-button]').count())
-      .toBe(1);
+    const cross = page.locator(`[data-folder-cross-view="${folderId}"]`);
+    await expect(cross, 'フォルダを開くと横断ビューが出ること').toBeVisible();
+    await expect(cross.locator('[data-cross-card]')).toHaveCount(1);
+    await expect(cross.locator('[data-origin-badge="library"]')).toHaveCount(1);
   } finally {
     if (folderId) await deleteFolder(request, 'library', folderId);
     await request.delete(LIBRARY_API, { data: { ids: [itemId] } });
