@@ -182,6 +182,27 @@ export async function cleanupE2EContextSaves(request: APIRequestContext) {
 }
 
 export const LIBRARY_API = '/api/library';
+export const FOLDER_ITEMS_API = '/api/custom-folders/items';
+
+export type CrossFolderItem = {
+  scope: 'text_analysis' | 'library';
+  id: string;
+  title: string;
+  label: string;
+  char_count: number;
+  favorite: boolean;
+  custom_folder_ids: number[];
+};
+
+/** 253: フォルダの中身を画面をまたいで取得する（保存一覧＋リサーチ保存） */
+export async function listFolderItems(
+  request: APIRequestContext,
+  folderId: number,
+): Promise<{ items: CrossFolderItem[]; total: number; folder: { id: number; name: string } }> {
+  const res = await request.get(`${FOLDER_ITEMS_API}?folderId=${folderId}`);
+  expect(res.status(), `フォルダの中身API(folderId=${folderId})が200であること`).toBe(200);
+  return await res.json();
+}
 
 /** 📚リサーチ保存（library）のテスト用資料を作る。接頭辞はここで必ず付ける */
 export async function createLibraryItem(

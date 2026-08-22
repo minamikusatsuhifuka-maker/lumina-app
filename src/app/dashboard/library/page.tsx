@@ -13,6 +13,8 @@ import { copyRichMarkdown } from '@/lib/rich-copy';
 import { confirmBulkDelete } from '@/lib/bulk-delete-confirm';
 // 252: マイフォルダ（🗂保存一覧と同じフォルダ一覧を共有）
 import CustomFolderBar from '@/components/custom-folders/CustomFolderBar';
+// 253: フォルダを開いたら両画面のアイテムをまとめて出す（共有したなら中身は全部見える）
+import FolderCrossView from '@/components/custom-folders/FolderCrossView';
 import FolderPickerPopover from '@/components/custom-folders/FolderPickerPopover';
 import FolderBadges from '@/components/custom-folders/FolderBadges';
 import {
@@ -667,6 +669,22 @@ function LibraryPageInner() {
         />
       </div>
 
+      {/* 253: マイフォルダを開いている間は、両画面のアイテムをまとめた横断ビューに差し替える */}
+      {typeof activeCustomFolder === 'number' ? (
+        <FolderCrossView
+          folderId={activeCustomFolder}
+          folders={customFolders.folders}
+          onFoldersChanged={() => {
+            void customFolders.reload();
+            void refetchItems();
+          }}
+          onCreateFolder={customFolders.createFolder}
+          onExit={() => setActiveCustomFolder(null)}
+          notify={(m) => alert(m)}
+        />
+      ) : (
+      <>
+
       {/* 選択モードガイド */}
       {mergeMode && (
         <div style={{ padding: '10px 16px', background: 'var(--accent-soft)', border: '1px solid var(--border-accent)', borderRadius: 10, marginBottom: 16, fontSize: 13, color: 'var(--accent)', fontWeight: 600 }}>
@@ -986,6 +1004,9 @@ function LibraryPageInner() {
           </div>
         </div>
       )}
+      </>
+      )}
+
       {/* ── 選択モード フローティングツールバー ── */}
       {mergeMode && selectedIds.size > 0 && (
         <div style={{

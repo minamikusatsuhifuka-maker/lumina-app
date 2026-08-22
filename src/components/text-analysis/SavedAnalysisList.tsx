@@ -26,6 +26,8 @@ import { KEY_HINT, useShortcutHints } from '@/lib/shortcuts';
 import { CATEGORY_GROUPS, OTHER_CATEGORY } from '@/lib/category-vocabulary';
 // 249: マイフォルダ（院長が名前を付けるお気に入りの分類・自動カテゴリとは別軸）
 import CustomFolderBar from '@/components/custom-folders/CustomFolderBar';
+// 253: フォルダを開いたら両画面のアイテムをまとめて出す（共有したなら中身は全部見える）
+import FolderCrossView from '@/components/custom-folders/FolderCrossView';
 import FolderBadges from '@/components/custom-folders/FolderBadges';
 import FolderPickerPopover from '@/components/custom-folders/FolderPickerPopover';
 import {
@@ -275,8 +277,10 @@ export default function SavedAnalysisList({
     }
   };
 
-  // フィルタ変更・親からの再読込トリガで1ページ目から取り直す
+  // フィルタ変更・親からの再読込トリガで1ページ目から取り直す。
+  // 253: マイフォルダを開いている間は横断ビューが自分で取得するので、こちらは走らせない
   useEffect(() => {
+    if (typeof activeCustomFolder === 'number') return;
     fetchPage(0, false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [debouncedSearch, activeFolder, favoriteOnly, inputOnly, activeCustomFolder, reloadKey]);
@@ -1824,6 +1828,23 @@ export default function SavedAnalysisList({
         storageKey="ta_custom_folder_open"
       />
 
+      {/* 253: マイフォルダを開いている間は、両画面のアイテムをまとめた横断ビューに差し替える。
+          （252では自画面のぶんしか出ず、バッジの件数と表示件数が食い違っていた） */}
+      {typeof activeCustomFolder === 'number' ? (
+        <FolderCrossView
+          folderId={activeCustomFolder}
+          folders={customFolders.folders}
+          onFoldersChanged={() => {
+            void customFolders.reload();
+            onAllTotalChange?.(allTotal);
+          }}
+          onCreateFolder={customFolders.createFolder}
+          onExit={() => setActiveCustomFolder(null)}
+          notify={(m) => showToast(m, 'error')}
+        />
+      ) : (
+      <>
+
       {/* 検索 */}
       <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
         <input
@@ -2995,6 +3016,9 @@ export default function SavedAnalysisList({
           )
         }
       />
+      </>
+      )}
+
       {/* 249: 分類パネル（☆ボタンから開く。createPortalでbody直下に出す＝R-19） */}
       {folderPicker &&
         (() => {

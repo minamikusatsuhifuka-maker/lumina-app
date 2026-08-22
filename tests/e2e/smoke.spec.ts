@@ -23,6 +23,9 @@ import {
   LIBRARY_API,
   createLibraryItem,
   cleanupE2ELibrary,
+  // 253: フォルダの横断表示
+  FOLDER_ITEMS_API,
+  listFolderItems,
   assignFolders,
   deleteFolder,
   cleanupE2EFolders,
@@ -1640,7 +1643,19 @@ test('C42: 保存一覧とリサーチ保存でフォルダを共有する（作
       '両画面の記事が合算されて数えられること',
     ).toBe(2);
 
-    // 3) 絞り込みは各画面のアイテムだけを返す（混在していても画面はまたがない）
+    // 3) 253: フォルダを開くと、どちらの画面から見ても中身が全部返る。
+    // （252では自画面のぶんしか出ず、バッジの件数と表示件数が食い違っていた）
+    const cross = await listFolderItems(request, fromSaves);
+    expect(cross.total, 'フォルダの件数と中身の件数が一致すること').toBe(2);
+    expect(
+      cross.items.map((i) => i.scope).sort(),
+      '保存一覧とリサーチ保存の両方が並ぶこと',
+    ).toEqual(['library', 'text_analysis']);
+    expect(cross.items.find((i) => i.scope === 'text_analysis')!.id).toBe(String(savedId));
+    expect(cross.items.find((i) => i.scope === 'library')!.id).toBe(libId);
+
+    // 各画面の一覧API（cfolder）は従来どおり自分のテーブルだけを返す。
+    // 横断は /api/custom-folders/items が担う（役割を分けている）
     const savedFiltered = await listSaves(request, { cfolder: fromSaves, limit: 100 });
     expect(savedFiltered.items.map((i) => i.id)).toEqual([savedId]);
     const libFiltered = await request.get(`${LIBRARY_API}?q=${encodeURIComponent(RUN_ID)}`);
@@ -1748,5 +1763,128 @@ test('C43: リサーチ保存の画面で☆から分類し、バッジ表示と
   } finally {
     if (folderId) await deleteFolder(request, 'library', folderId);
     await request.delete(LIBRARY_API, { data: { ids: [itemId] } });
+  }
+});
+
+// ============================================================================
+// 253: マイフォルダを開いたら両画面のアイテムをまとめて表示する
+// ============================================================================
+
+test('C44: フォルダの中身API — 両画面が1つの並びで返り、出自と本文取得が種類ごとに正しい', async ({
+  request,
+}) => {
+  const folderId = await createFolder(request, 'text_analysis', `${E2E_PREFIX} 横断 ${RUN_ID}`);
+  const ctxFolder = await createFolder(request, 'context', `${E2E_PREFIX} 横断ctx ${RUN_ID}`);
+  const savedId = await createSave(request, {
+    title: `横断・分析 ${RUN_ID}`,
+    content: `分析側の本文です（${RUN_ID}）`,
+  });
+  const libId = await createLibraryItem(request, {
+    title: `横断・リサーチ ${RUN_ID}`,
+    content: `リサーチ側の本文です（${RUN_ID}）`,
+  });
+
+  try {
+    expect((await assignFolders(request, 'text_analysis', savedId, [folderId])).status()).toBe(200);
+    expect((await assignFolders(request, 'library', libId, [folderId])).status()).toBe(200);
+
+    const cross = await listFolderItems(request, folderId);
+    expect(cross.total).toBe(2);
+    expect(cross.folder.id).toBe(folderId);
+
+    const ta = cross.items.find((i) => i.scope === 'text_analysis')!;
+    const lib = cross.items.find((i) => i.scope === 'library')!;
+    expect(ta.title).toContain('横断・分析');
+    expect(lib.title).toContain('横断・リサーチ');
+    // 一覧では本文を返さない（重くしない）が、文字数は出す
+    expect(cross.items.every((i) => !('content' in i))).toBe(true);
+    expect(ta.char_count).toBeGreaterThan(0);
+    expect(lib.char_count).toBeGreaterThan(0);
+    // 所属フォルダのバッジ用IDが載っている
+    expect(ta.custom_folder_ids).toContain(folderId);
+    expect(lib.custom_folder_ids).toContain(folderId);
+
+    // 本文は種類ごとに取りに行ける（誤ったテーブルを引かない）
+    for (const item of [ta, lib]) {
+      const res = await request.get(
+        `${FOLDER_ITEMS_API}?full=1&scope=${item.scope}&id=${encodeURIComponent(item.id)}`,
+      );
+      expect(res.status()).toBe(200);
+      const body = await res.json();
+      expect(body.scope).toBe(item.scope);
+      expect(String(body.content)).toContain(RUN_ID);
+    }
+
+    // 防御: AI参照素材のフォルダ（独立体系）の中身は返さない／不在IDも404
+    expect((await request.get(`${FOLDER_ITEMS_API}?folderId=${ctxFolder}`)).status()).toBe(404);
+    expect((await request.get(`${FOLDER_ITEMS_API}?folderId=999999999`)).status()).toBe(404);
+    const anon = await pwRequest.newContext({
+      baseURL: BASE_URL,
+      storageState: { cookies: [], origins: [] },
+    });
+    try {
+      expect((await anon.get(`${FOLDER_ITEMS_API}?folderId=${folderId}`)).status()).toBe(401);
+    } finally {
+      await anon.dispose();
+    }
+  } finally {
+    await deleteFolder(request, 'text_analysis', folderId);
+    await deleteFolder(request, 'context', ctxFolder);
+    await deleteSave(request, savedId);
+    await request.delete(LIBRARY_API, { data: { ids: [libId] } });
+  }
+});
+
+test('C45: 横断表示のUI — 両画面から同じフォルダを開くと同じ件数・出自バッジが出る（253）', async ({
+  page,
+  request,
+}) => {
+  const folderId = await createFolder(request, 'text_analysis', `${E2E_PREFIX} 横断UI ${RUN_ID}`);
+  const savedId = await createSave(request, {
+    title: `横断UI・分析 ${RUN_ID}`,
+    content: `分析側の本文（${RUN_ID}）`,
+  });
+  const libId = await createLibraryItem(request, {
+    title: `横断UI・リサーチ ${RUN_ID}`,
+    content: `リサーチ側の本文（${RUN_ID}）`,
+  });
+
+  try {
+    expect((await assignFolders(request, 'text_analysis', savedId, [folderId])).status()).toBe(200);
+    expect((await assignFolders(request, 'library', libId, [folderId])).status()).toBe(200);
+
+    // 🗂保存一覧から開く
+    for (const url of ['/dashboard/saved', '/dashboard/library']) {
+      await page.goto(url);
+      const scopeAttr = url.endsWith('/saved') ? 'text_analysis' : 'library';
+      const bar = page.locator(`[data-custom-folder-bar="${scopeAttr}"]`);
+      await expect(bar).toBeVisible();
+      const card = bar.locator(`[data-folder-card="${folderId}"]`);
+      await expect(card, 'フォルダのカードが出ること').toBeVisible();
+      // バッジの件数が2（両画面の合算）
+      await expect(card).toContainText('2');
+      await card.click();
+
+      const view = page.locator(`[data-folder-cross-view="${folderId}"]`);
+      await expect(view, `${url} で横断ビューが出ること`).toBeVisible();
+      await expect(view.locator('[data-cross-total]'), '件数がバッジと一致すること').toContainText('2件');
+      // 両方の出自バッジが1つずつ出る
+      await expect(view.locator('[data-origin-badge="text_analysis"]')).toHaveCount(1);
+      await expect(view.locator('[data-origin-badge="library"]')).toHaveCount(1);
+      await expect(view.locator('[data-cross-card]'), 'カードが2件並ぶこと').toHaveCount(2);
+      // 相手画面のアイテムでも本文が開ける（誤ったAPIを叩いていない）
+      await view
+        .locator(`[data-cross-card="library:${libId}"]`)
+        .getByRole('button', { name: '▼ 全文表示' })
+        .click();
+      await expect(view.locator(`[data-cross-card="library:${libId}"]`)).toContainText(RUN_ID);
+      // 絞り込みを解除すると通常の一覧へ戻る
+      await view.locator('[data-cross-exit]').click();
+      await expect(page.locator(`[data-folder-cross-view="${folderId}"]`)).toHaveCount(0);
+    }
+  } finally {
+    await deleteFolder(request, 'text_analysis', folderId);
+    await deleteSave(request, savedId);
+    await request.delete(LIBRARY_API, { data: { ids: [libId] } });
   }
 });
