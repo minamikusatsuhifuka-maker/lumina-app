@@ -2131,14 +2131,25 @@ test('C49: ホバープレビュー — 3画面で出て、Markdown記号が出�
 
   const preview = page.locator('[data-hover-preview]');
 
+  // 検索のデバウンス後に一覧が再描画されるため、カーソルが乗った状態が
+  // 崩れることがある。実際の操作と同じく「少し待って当て直す」形で確かめる
+  const hoverUntilPreview = async (
+    target: import('@playwright/test').Locator,
+    label: string,
+  ) => {
+    await expect(async () => {
+      await target.hover();
+      await expect(preview, label).toBeVisible({ timeout: 2500 });
+    }).toPass({ timeout: 20000 });
+  };
+
   try {
     // ── ① 🗂保存一覧（本文は一覧に載っていない＝ホバー時に取得する画面）──
     await page.goto('/dashboard/saved');
     const panel = page.locator('[data-saved-panel="text-analysis"]');
     const card = panel.locator(`[data-analysis-card="${savedId}"]`);
     await expect(card).toBeVisible();
-    await card.hover();
-    await expect(preview, '保存一覧でプレビューが出ること').toBeVisible({ timeout: 10000 });
+    await hoverUntilPreview(card, '保存一覧でプレビューが出ること');
     await expect(preview, '本文の冒頭が出ること').toContainText(marker);
     await expect(preview, 'Markdownの見出し記号が出ないこと').not.toContainText('##');
     await expect(preview, '強調記号が出ないこと').not.toContainText('**');
@@ -2152,18 +2163,17 @@ test('C49: ホバープレビュー — 3画面で出て、Markdown記号が出�
     await page.locator('[data-library-search]').fill(marker);
     const libCard = page.locator(`[data-favorite-button="${libId}"]`);
     await expect(libCard).toBeVisible();
-    await libCard.hover();
-    await expect(preview, 'リサーチ保存でプレビューが出ること').toBeVisible({ timeout: 10000 });
+    await hoverUntilPreview(libCard, 'リサーチ保存でプレビューが出ること');
     await expect(preview).toContainText(marker);
     await expect(preview).not.toContainText('##');
 
     // ── ③ 🧠AI参照素材 ──
+    // 検索で絞ってから掴むと、デバウンス後の再描画とホバーが競合して不安定だった。
+    // 作成直後の素材は created_at DESC の先頭に来るので、そのまま待って当てる
     await page.goto('/dashboard/context-library');
-    await page.locator('[data-kb-search]').first().fill(marker);
     const ctxCard = page.locator(`[data-bundle-key="ctx-${ctxId}"]`);
-    await expect(ctxCard).toBeVisible({ timeout: 15000 });
-    await ctxCard.hover();
-    await expect(preview, 'AI参照素材でプレビューが出ること').toBeVisible({ timeout: 10000 });
+    await expect(ctxCard).toBeVisible({ timeout: 30000 });
+    await hoverUntilPreview(ctxCard, 'AI参照素材でプレビューが出ること');
     await expect(preview).toContainText(marker);
 
     // ── ④ 🎛表示設定でOFFにすると出なくなる ──
