@@ -1907,6 +1907,8 @@ test('C46: クリアして貼付 — 成功/空/実行中とUndo、⌘Vは壊さ
   await page.goto('/dashboard/text-analysis');
   await page.evaluate(() => localStorage.setItem('lumina_auto_stock_save', '0'));
   await page.reload({ waitUntil: 'domcontentloaded' });
+  // R-12: reload直後はハイドレーション前で fill が state に入らない。操作の前に待つ
+  await waitForRunReady(page);
 
   const textarea = page.getByPlaceholder('ここに分析したいテキストを貼り付けてください...');
   const pasteBtn = page.locator('[data-clear-paste]').filter({ visible: true }).first();
@@ -1923,6 +1925,7 @@ test('C46: クリアして貼付 — 成功/空/実行中とUndo、⌘Vは壊さ
   // ── ① 貼り付け成功（ボタン）: 中身が置き換わり、カーソルは末尾 ──
   await page.evaluate((t) => navigator.clipboard.writeText(t), CLIP);
   await textarea.fill(OLD);
+  await expect(textarea, '「入力がある」という前提が成立していること').toHaveValue(OLD);
   await pasteBtn.click();
   await expect(textarea, 'クリップボードの内容で置き換わること').toHaveValue(CLIP);
   await expect(textarea, '入力欄にフォーカスが戻ること').toBeFocused();
@@ -1991,10 +1994,14 @@ test('C47: クリップボードを読めないときは、クリアして⌘V�
     await page.goto('/dashboard/text-analysis');
     await page.evaluate(() => localStorage.setItem('lumina_auto_stock_save', '0'));
     await page.reload({ waitUntil: 'domcontentloaded' });
+    // R-12: ハイドレーション前に fill すると state に入らず「入力が空」のまま押すことになり、
+    // 何もしない（noop）経路に落ちて案内が出ない。実際にこれで一度落とした
+    await waitForRunReady(page);
 
     const textarea = page.getByPlaceholder('ここに分析したいテキストを貼り付けてください...');
     const OLD = `[E2E] ${KB_TOKEN} 権限なしのときの入力`;
     await textarea.fill(OLD);
+    await expect(textarea, '「入力がある」という前提が成立していること').toHaveValue(OLD);
     await page.locator('[data-clear-paste]').filter({ visible: true }).first().click();
 
     // クリアまで済ませ、あとは⌘Vを押せばよい状態にする（案A）
