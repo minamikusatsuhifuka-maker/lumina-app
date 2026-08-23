@@ -2347,7 +2347,7 @@ test('C51: 分析タイプの折りたたみ — 既定は閉じ、畳んだ側�
 // hasTouch/isMobile の WebKit コンテキストで実機と同じ分岐に入る。
 // ============================================================================
 
-test('C52: iPhone相当（WebKit）では「✕ クリア」→「📋 ペースト」の2操作で置き換わる（258/259/260）', async () => {
+test('C52: iPhone相当（WebKit）— キーボードを呼ぶ欄を置かず、読めないときも本文を壊さない（260）', async () => {
   const browser = await webkit.launch();
   const ctx = await browser.newContext({
     storageState: STORAGE_STATE,
@@ -2362,10 +2362,6 @@ test('C52: iPhone相当（WebKit）では「✕ クリア」→「📋 ペース
   const page = await ctx.newPage();
   try {
     await stubFeatureDrafts(page);
-    // 260: クリップボードの読み取りを許可した状態＝実機で確認に「許可」を押した後に相当する。
-    // 実機の確認ポップアップはOSが描くUIでヘッドレスからは操作できないため、
-    // ここで検証できるのは「許可された後に1タップで貼り付くこと」まで
-    await ctx.grantPermissions(['clipboard-read', 'clipboard-write'], { origin: BASE_URL });
     await page.goto('/dashboard/text-analysis');
 
     const textarea = page.getByPlaceholder('ここに分析したいテキストを貼り付けてください...');
@@ -2381,42 +2377,56 @@ test('C52: iPhone相当（WebKit）では「✕ クリア」→「📋 ペース
       page.locator('[data-clear-paste]'),
       'iOSでは「📋 クリアして貼付」を出さないこと',
     ).toHaveCount(0);
-    // ── ② 260: 編集可能な貼り付け欄は撤去した（タップでキーボードが出て位置がずれるため）──
+
+    // ── ② 260: 編集可能な貼り付け欄を置いていない ──
+    // 259の「長押し貼り付け欄」は実機でタップするとキーボードが立ち上がり、
+    // 欄の位置がずれて押し直しになった。**編集可能な要素を使わない**ことが260の要点なので、
+    // 入力欄（本文）以外に編集可能な要素が増えていないことまで数える
     await expect(
       page.locator('[data-long-press-paste]'),
       'キーボードを呼ぶ編集可能な貼り付け欄を置いていないこと',
     ).toHaveCount(0);
+    // 「長押し」を促す編集可能な要素が1つも無いこと（総数で数えると本文欄や目的欄まで
+    // 拾ってしまい、何を守っているのか分からない判定になるため、目印で数える）
+    const pasteFields = await page.evaluate(() =>
+      [
+        ...document.querySelectorAll<HTMLElement>(
+          'input, textarea, [contenteditable="true"], [contenteditable="plaintext-only"]',
+        ),
+      ].filter((el) =>
+        `${el.getAttribute('placeholder') ?? ''}${el.getAttribute('aria-label') ?? ''}`.includes(
+          '長押し',
+        ),
+      ).length,
+    );
+    expect(pasteFields, '長押しを促す編集可能な欄が復活していないこと').toBe(0);
+
     // ── ③ 「✕ クリア」と「📋 ペースト」が別々に並んでいる（259の要件1）──
     await expect(
       page.getByRole('button', { name: /✕ クリア/ }),
       '✕ クリアが出ていること',
     ).toBeVisible();
 
-    const OLD = `[E2E] ${RUN_ID} 前からあった本文`;
-    const CLIP = `[E2E] ${RUN_ID} 貼り付ける内容`;
-    await page.evaluate((t) => navigator.clipboard.writeText(t), CLIP);
-
     // ── ④ 「貼り付けで置き換える」は全端末で既定OFF（259で258の端末別既定を取り下げ）──
     const stored = await page.evaluate(() => localStorage.getItem('lumina_paste_replace'));
     expect(stored, '保存値が無い状態で検証していること').toBeNull();
 
-    // ── ⑤ 「📋 ペースト」は**入れるだけ**（消さない）＝カーソル位置に足される ──
+    // ── ⑤ クリップボードを読めないとき（実機で「許可しない」を選んだ場合に相当）──
+    // WebKit は clipboard-read の権限付与に対応していないため、この文脈の readText() は
+    // 必ず失敗する＝**拒否された経路をそのまま検証できる**。
+    // 大事なのは「黙って終わらない」「本文を壊さない」こと（R-59）
+    const OLD = `[E2E] ${RUN_ID} 前からあった本文`;
     await textarea.fill(OLD);
-    await expect(textarea, '前提: 入力がある').toHaveValue(OLD);
-    await textarea.click();
-    await page.keyboard.press('End');
     await pasteButton.click();
-    await expect(textarea, '貼り付けは追記であること（黙って消さない）').toHaveValue(`${OLD}${CLIP}`);
+    await expect(
+      page.getByText('クリップボードを読めませんでした').first(),
+      '読めなかったことを知らせ、代わりの操作を案内すること',
+    ).toBeVisible({ timeout: 10000 });
+    await expect(textarea, '読めなくても本文は無傷であること').toHaveValue(OLD);
 
-    // ── ⑥ 「✕ クリア」→「📋 ペースト」の2操作で置き換えが完了する（259/260の主目的）──
+    // ── ⑥ クリアはUndoで戻せる（消しても取り返しがつく）──
     await page.getByRole('button', { name: /✕ クリア/ }).click();
     await expect(textarea, 'クリアで空になること').toHaveValue('');
-    await pasteButton.click();
-    await expect(textarea, '2操作で置き換わること').toHaveValue(CLIP);
-
-    // ── ⑦ クリアはUndoで戻せる（消しても取り返しがつく）──
-    await textarea.fill(OLD);
-    await page.getByRole('button', { name: /✕ クリア/ }).click();
     const undo = page.getByRole('button', { name: '↩ 元に戻す' });
     await expect(undo, 'クリア直後はUndoが出ること').toBeVisible();
     await undo.click();
@@ -2424,6 +2434,53 @@ test('C52: iPhone相当（WebKit）では「✕ クリア」→「📋 ペース
   } finally {
     await ctx.close();
     await browser.close();
+  }
+});
+
+// 260: 「📋 ペースト」が実際に貼り付けるところの検証。
+// WebKit は clipboard-read の権限付与に対応していない（Playwrightの制約）ため、
+// **貼り付けが成功する側**はタッチ端末として扱った Chromium で確かめる。
+// 端末の出し分けは C52（WebKit）で押さえてあるので、ここは貼り付けの中身だけを見る。
+test('C54: タッチ端末で「✕ クリア」→「📋 ペースト」の2操作で置き換わる（259/260）', async ({
+  browser,
+}) => {
+  const ctx = await browser.newContext({
+    storageState: STORAGE_STATE,
+    baseURL: BASE_URL,
+    hasTouch: true,
+    isMobile: true,
+    viewport: { width: 390, height: 844 },
+  });
+  // 実機で確認に「許可」を押した後に相当する状態
+  // （確認そのものはOSが描くUIで、ヘッドレスからは操作も観測もできない）
+  await ctx.grantPermissions(['clipboard-read', 'clipboard-write'], { origin: BASE_URL });
+  const page = await ctx.newPage();
+  try {
+    await stubFeatureDrafts(page);
+    await page.goto('/dashboard/text-analysis');
+    const textarea = page.getByPlaceholder('ここに分析したいテキストを貼り付けてください...');
+    await expect(textarea).toBeVisible({ timeout: 30000 });
+    const pasteButton = page.locator('[data-paste-button]');
+    await expect(pasteButton, 'タッチ端末では📋 ペーストが出ること').toBeVisible({ timeout: 30000 });
+
+    const OLD = `[E2E] ${RUN_ID} 前からあった本文`;
+    const CLIP = `[E2E] ${RUN_ID} 貼り付ける内容`;
+    await page.evaluate((t) => navigator.clipboard.writeText(t), CLIP);
+
+    // ── ① 「📋 ペースト」は**入れるだけ**（消さない）＝カーソル位置に足される ──
+    await textarea.fill(OLD);
+    await textarea.click();
+    await page.keyboard.press('End');
+    await pasteButton.click();
+    await expect(textarea, '貼り付けは追記であること（黙って消さない）').toHaveValue(`${OLD}${CLIP}`);
+
+    // ── ② 「✕ クリア」→「📋 ペースト」の2操作で置き換えが完了する（259/260の主目的）──
+    await page.getByRole('button', { name: /✕ クリア/ }).click();
+    await expect(textarea, 'クリアで空になること').toHaveValue('');
+    await pasteButton.click();
+    await expect(textarea, '2操作で置き換わること').toHaveValue(CLIP);
+  } finally {
+    await ctx.close();
   }
 });
 
