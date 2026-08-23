@@ -1,4 +1,4 @@
-import { test, expect, request as pwRequest, APIRequestContext } from '@playwright/test';
+import { test, expect, request as pwRequest, webkit, APIRequestContext } from '@playwright/test';
 import { BASE_URL, STORAGE_STATE } from '../../playwright.config';
 import {
   SAVES_API,
@@ -2268,5 +2268,157 @@ test('C50: タッチ端末ではプレビューを出さない（256・操作を
     ).toHaveCount(0);
   } finally {
     await ctx.close();
+  }
+});
+
+// ============================================================================
+// 258【1】: 分析タイプの折りたたみ
+// - よく使う2つ（概要・要約／詳細にまとめる）は常時表示
+// - 残りと「目的・コンテキスト」は「▶ その他の分析タイプ」に畳む（既定は閉じる）
+// - 畳んだ側に選択が残っていたら、閉じていてもバッジで分かる（要件2）
+// ============================================================================
+
+test('C51: 分析タイプの折りたたみ — 既定は閉じ、畳んだ側の選択はバッジで分かる（258）', async ({
+  page,
+}) => {
+  await stubFeatureDrafts(page);
+  await page.goto('/dashboard/text-analysis');
+  await waitForRunReady(page);
+
+  const panel = page.locator('[data-kb-run]').first();
+  await expect(panel).toBeVisible();
+
+  const primary = page.getByRole('checkbox', { name: '概要・要約' });
+  const primary2 = page.getByRole('checkbox', { name: '詳細にまとめる' });
+  const secondary = page.getByRole('checkbox', { name: '全文書き起こし' });
+  const toggle = page.locator('[data-analysis-more-toggle]');
+  const body = page.locator('[data-analysis-more-body]');
+  const badge = page.locator('[data-analysis-more-badge]');
+
+  // ── ① 既定: よく使う2つだけが見えていて、残りは畳まれている ──
+  await expect(primary, '概要・要約は常時表示').toBeVisible();
+  await expect(primary2, '詳細にまとめるは常時表示').toBeVisible();
+  await expect(secondary, '全文書き起こしは畳まれていること').toHaveCount(0);
+  await expect(page.locator('[data-analysis-purpose]'), '目的も畳まれていること').toHaveCount(0);
+  await expect(toggle, '開くための入口があること').toBeVisible();
+  await expect(toggle).toHaveAttribute('aria-expanded', 'false');
+  await expect(badge, '何も選んでいなければバッジは出ないこと').toHaveCount(0);
+
+  // ── ② 開くと残りが出る ──
+  await toggle.click();
+  await expect(body).toBeVisible();
+  await expect(toggle).toHaveAttribute('aria-expanded', 'true');
+  await expect(secondary, '開けば選べること').toBeVisible();
+  await expect(page.getByRole('checkbox', { name: 'Gensparkスライド資料用まとめ' })).toBeVisible();
+  await expect(page.locator('[data-analysis-purpose]'), '目的も開けば出ること').toBeVisible();
+
+  // ── ③ 畳んだ側を選んで閉じても、選択中だと分かる（要件2）──
+  await secondary.check();
+  await toggle.click();
+  await expect(body, '閉じたら中身は消えること').toHaveCount(0);
+  await expect(badge, '閉じていても選択中が分かること').toBeVisible();
+  await expect(badge).toContainText('選択中 1');
+  await expect(badge, '何が選ばれているか名前まで分かること').toContainText('全文書き起こし');
+  // 実行ボタンの件数と一致している（見えている数と食い違わない）
+  await expect(page.locator('[data-kb-run]').first(), '選択数が実行ボタンと一致すること').toContainText('3件を分析');
+
+  // ── ④ 目的を入れて閉じても分かる ──
+  await toggle.click();
+  await page.locator('[data-analysis-purpose]').fill('[E2E] 258の検証');
+  await toggle.click();
+  await expect(page.locator('[data-analysis-purpose-badge]'), '目的が入っていることが分かること').toBeVisible();
+
+  // ── ⑤ 開閉は保存しない（再訪すると閉じている＝「すっきり」の既定に戻る）──
+  await page.reload({ waitUntil: 'domcontentloaded' });
+  await waitForRunReady(page);
+  await expect(page.locator('[data-analysis-more-toggle]'), '再訪時は閉じていること').toHaveAttribute(
+    'aria-expanded',
+    'false',
+  );
+});
+
+// ============================================================================
+// 258【2】: iPhone（WebKit）で「長押し→ペースト」の1操作にする
+// - iOSでは「📋 クリアして貼付」ボタンを出さない（押すと確認が何段も出るため）
+// - 255の「貼り付けで置き換える」が**未設定でもONで効く**こと
+// - デスクトップ（C46/C48）の挙動は変えない
+//
+// 判定は UA ではなく (hover: hover) and (pointer: fine) で行っているので、
+// hasTouch/isMobile の WebKit コンテキストで実機と同じ分岐に入る。
+// ============================================================================
+
+test('C52: iPhone相当（WebKit）では貼り付けだけで置き換わり、多段確認のボタンを出さない（258）', async () => {
+  const browser = await webkit.launch();
+  const ctx = await browser.newContext({
+    storageState: STORAGE_STATE,
+    baseURL: BASE_URL,
+    // 実機と同じ分岐に入れるための条件（UA判定はしていないので hasTouch/isMobile で足りる）
+    hasTouch: true,
+    isMobile: true,
+    viewport: { width: 390, height: 844 },
+    // アプリのService Workerが page.route を迂回するため、他のテストと同じく無効化する
+    serviceWorkers: 'block',
+  });
+  const page = await ctx.newPage();
+  try {
+    await stubFeatureDrafts(page);
+    await page.goto('/dashboard/text-analysis');
+
+    const textarea = page.getByPlaceholder('ここに分析したいテキストを貼り付けてください...');
+    await expect(textarea).toBeVisible({ timeout: 30000 });
+    // ハイドレーション完了の合図。この案内はクライアントの effect
+    // （端末判定＋設定の確定）が済んで初めて出るため、キー併記の代わりに使える
+    // （モバイルではキー併記を出さない仕様なので waitForRunReady は使えない・R-12）
+    const hint = page.locator('[data-paste-hint]');
+    await expect(hint, '代わりの操作が案内されていること').toBeVisible({ timeout: 30000 });
+    await expect(hint).toContainText('長押し→ペースト');
+
+    // ── ① 多段確認になるボタンを出していない ──
+    await expect(
+      page.locator('[data-clear-paste]'),
+      'iOSでは「📋 クリアして貼付」を出さないこと',
+    ).toHaveCount(0);
+
+    // ── ② 設定は未設定のままでも置き換えが効く（255が効かなかった真因） ──
+    const stored = await page.evaluate(() => localStorage.getItem('lumina_paste_replace'));
+    expect(stored, '保存値が無い状態で検証していること').toBeNull();
+
+    // ── ③ 「長押し→ペースト」の1操作で置き換わる ──
+    // iOSの長押し→ペーストがアプリに届く形は paste イベント。
+    // ここでは同じ WebKit 上で、クリップボード経由の**本物の貼り付け**を送る
+    const OLD = `[E2E] ${RUN_ID} 前からあった本文`;
+    const CLIP = `[E2E] ${RUN_ID} 貼り付ける内容`;
+    await textarea.fill(OLD);
+    await expect(textarea, '前提: 入力がある').toHaveValue(OLD);
+
+    // 別の入力欄に置いてコピー（権限APIを使わず、ユーザー操作としてクリップボードへ入れる）
+    await page.evaluate((t) => {
+      const tmp = document.createElement('textarea');
+      tmp.id = 'e2e-clip-src';
+      tmp.value = t;
+      tmp.style.position = 'fixed';
+      tmp.style.opacity = '0';
+      document.body.appendChild(tmp);
+      tmp.focus();
+      tmp.select();
+    }, CLIP);
+    await page.keyboard.press('ControlOrMeta+c');
+    await page.evaluate(() => document.getElementById('e2e-clip-src')?.remove());
+
+    await textarea.click();
+    await page.keyboard.press('ControlOrMeta+v');
+    await expect(
+      textarea,
+      '貼り付けの1操作だけで置き換わること（追加のタップが要らない）',
+    ).toHaveValue(CLIP);
+
+    // ── ④ Undoで元に戻せる（誤って置き換えても本文を失わない） ──
+    const undo = page.getByRole('button', { name: '↩ 元に戻す' });
+    await expect(undo, '置き換えた直後はUndoが出ること').toBeVisible();
+    await undo.click();
+    await expect(textarea, 'Undoで元の本文に戻ること').toHaveValue(OLD);
+  } finally {
+    await ctx.close();
+    await browser.close();
   }
 });

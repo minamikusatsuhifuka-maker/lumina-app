@@ -256,9 +256,13 @@ export default function DisplaySettingsPage() {
           入力欄に文章が入っている状態で貼り付けたとき、<strong>前の内容を消して貼り付けます</strong>。
           対象は<strong>📝 テキスト分析</strong>と<strong>🔭 ディープリサーチ</strong>の入力欄です。
           <br />
-          iPhoneでは「📋 クリアして貼付」ボタンを押すと、Safariの確認が入って2タップになります
-          （Appleの仕様でアプリ側からは消せません）。この設定をオンにすると、
+          iPhoneでは「📋 クリアして貼付」ボタンを押すと、Safariの確認が何段も入ります
+          （Appleの仕様でアプリ側からは消せません）。この設定がオンなら、
           <strong>いつもどおり長押しして貼り付けるだけ</strong>で置き換わるので、タップは増えません。
+          <br />
+          そのため<strong>スマホ・タブレットでは最初からオン</strong>、
+          パソコンでは<strong>最初はオフ</strong>にしてあります（パソコンにはボタンと
+          ショートカットがあり、1操作で済むため）。一度ご自分で切り替えたら、その設定が優先されます。
         </p>
 
         {!pasteReplace.mounted ? (
@@ -283,8 +287,9 @@ export default function DisplaySettingsPage() {
                 貼り付けたら前の内容を置き換える
               </span>
               <span style={{ display: 'block', fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>
-                既定はオフです。オフのときは、これまでどおりカーソルの位置に追記されます。
+                オフのときは、これまでどおりカーソルの位置に追記されます。
                 オンにしても、置き換えた直後に出る「↩ 元に戻す」で戻せます。
+                既定はこの端末の種類で決まります（スマホ・タブレットはオン／パソコンはオフ）。
               </span>
             </span>
             <input

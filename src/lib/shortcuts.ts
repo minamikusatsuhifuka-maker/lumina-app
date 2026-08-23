@@ -10,6 +10,7 @@
 //   （KeyboardShortcuts=全体 / FullscreenReader=リーダー内 / NoteBundleDock=選択モード）に集約
 
 import { useEffect, useRef, useState } from 'react';
+import { hasFinePointer } from './pointer-device';
 import type { RefObject } from 'react';
 
 export const KB_ENABLED_KEY = 'kb_shortcuts_enabled';
@@ -63,7 +64,8 @@ export function useShortcutHints(): boolean {
   const [show, setShow] = useState(false);
   useEffect(() => {
     const update = () => {
-      const desktop = window.matchMedia('(hover: hover) and (pointer: fine)').matches;
+      // 258: 端末判定は lib/pointer-device.ts に一本化（同じ問いを3箇所に書かない）
+      const desktop = hasFinePointer();
       setShow(desktop && isShortcutsEnabled());
     };
     update();

@@ -36,6 +36,7 @@ import {
   toPreviewText,
   type PreviewRect,
 } from '@/lib/hover-preview';
+import { hasFinePointer } from '@/lib/pointer-device';
 
 const ARROW = 8;
 
@@ -69,7 +70,9 @@ export function useHoverPreview(): HoverPreviewApi {
 
   useEffect(() => {
     const update = () => {
-      const canHover = window.matchMedia('(hover: hover) and (pointer: fine)').matches;
+      // 258: 端末判定は lib/pointer-device.ts に一本化（258で「クリアして貼付」ボタンの
+      // 出し分けにも同じ判定が要ったため。同じ問いを2箇所で書かない）
+      const canHover = hasFinePointer();
       // eslint-disable-next-line react-hooks/set-state-in-effect
       setActive(canHover && isHoverPreviewEnabled());
     };

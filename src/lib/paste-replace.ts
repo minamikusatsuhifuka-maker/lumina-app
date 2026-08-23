@@ -13,11 +13,20 @@
 // つまり **ユーザーが普段どおり長押し→ペーストするだけで置き換えが完了する**＝追加タップゼロ。
 // iOSの確認ポップアップは「標準の貼り付け操作」の一部なので、そもそも増えない。
 //
-// ── なぜ既定OFFか ──────────────────────────────────────
+// ── なぜ既定OFFか（255）／258で端末別に見直し ──────────────────
 // この設定をONにすると、**通常の「追記したい貼り付け」も置き換えになる**。
 // 院長の使い方（分析したい文章を丸ごと入れ替える）では便利だが、既定で全員の
 // 貼り付けの意味を変えるのは危険なので、選んだ人だけがONにする形にした。
 // ONのときも消えた内容は247のUndo（10秒）で戻せる。
+//
+// 258追記: **255はここで効かなくなっていた**。既定OFFのままだったので、
+// iPhoneの院長にはこの経路が一度も働かず、残っていた「📋 クリアして貼付」ボタンを
+// 押して従来どおりの多段確認（許可→ペースト）を踏んでいた。
+// 「iOSのための逃げ道」を作ったのに、iOSでは既定で閉じていた——**逃げ道は
+// 既定で開いていないと使われない**。
+// そこで既定を**端末で分ける**: カーソルの無い端末（＝ボタン経路が多段になる端末）は
+// 未設定なら ON、カーソルのある端末は従来どおり OFF。
+// 一度でも本人が設定したら、その値を必ず優先する（端末判定で上書きしない）。
 //
 // 不採用: 入力欄をタップした時点で自動クリア（指示書の案B）
 //   = 「読もうとしてタップしただけ」で本文が消える。Undoがあっても事故の頻度が高すぎる。
@@ -26,17 +35,37 @@
 //     設定にすれば分岐そのものが要らない。
 
 import { useCallback, useEffect, useState } from 'react';
+import { isCoarsePointer } from './pointer-device';
 
 export const PASTE_REPLACE_KEY = 'lumina_paste_replace';
 // 設定変更を同一タブ内の購読者へ即時通知する（auto-stock-save.ts と同方式）
 export const PASTE_REPLACE_EVENT = 'paste-replace-change';
 
-/** 既定OFF（'1' が保存されているときだけON） */
+/**
+ * 保存値と端末から有効・無効を決める純関数（単体テストで機械判定するためここに切り出す）。
+ *
+ * - 保存値があれば**必ずそれを優先**する（本人が決めた設定を端末判定で覆さない）
+ * - 未設定のときだけ端末で決める: カーソルの無い端末は ON（258）／あるなら OFF（255の既定）
+ */
+export function resolvePasteReplaceEnabled(
+  stored: string | null,
+  coarsePointer: boolean,
+): boolean {
+  if (stored === '1') return true;
+  if (stored === '0') return false;
+  return coarsePointer;
+}
+
+/** 既定はカーソルの無い端末でON・ある端末でOFF（保存値があればそれが優先） */
 export function isPasteReplaceEnabled(): boolean {
   try {
-    return localStorage.getItem(PASTE_REPLACE_KEY) === '1';
+    return resolvePasteReplaceEnabled(
+      localStorage.getItem(PASTE_REPLACE_KEY),
+      isCoarsePointer(),
+    );
   } catch {
-    return false;
+    // localStorage が使えない環境。端末判定だけで決める
+    return isCoarsePointer();
   }
 }
 

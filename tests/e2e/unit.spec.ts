@@ -24,7 +24,13 @@ import {
 } from '../../src/lib/nav-labels';
 import { ALL_NAV_ITEMS, navCategories } from '../../src/lib/nav-items';
 import { CLEAR_PASTE_MESSAGE, type ClearAndPasteResult } from '../../src/lib/clear-and-paste';
-import { applyReplacePaste } from '../../src/lib/paste-replace';
+import { applyReplacePaste, resolvePasteReplaceEnabled } from '../../src/lib/paste-replace';
+import {
+  ANALYSIS_OPTIONS,
+  PRIMARY_ANALYSIS_OPTIONS,
+  PRIMARY_ANALYSIS_TYPES,
+  SECONDARY_ANALYSIS_OPTIONS,
+} from '../../src/lib/analysis-prompts';
 import {
   computeArrowOffset,
   computePreviewPlacement,
@@ -597,4 +603,45 @@ test('U24: ホバープレビューはカードの矩形に隣接して出る（
   // 極端な条件（カードが画面いっぱい）でも画面外へ出さない
   const huge = boxOf({ left: 0, top: 0, width: VP.width, height: VP.height });
   expect(inViewport(huge), 'カードが画面いっぱいでも画面内に収まること').toBe(true);
+});
+
+test('U25: 貼り付けで置き換えの既定は端末で決まり、本人の設定が必ず優先される（258）', () => {
+  // 255は「iOSのための逃げ道」として作ったのに**既定OFF**だったため、
+  // iPhoneの院長には一度も働かず、多段確認のボタン経路が使われ続けた（258の真因）。
+  // 258では未設定のときだけ端末で決める。
+
+  // 未設定 → 端末で決まる
+  expect(resolvePasteReplaceEnabled(null, true), 'カーソルの無い端末は既定ON').toBe(true);
+  expect(resolvePasteReplaceEnabled(null, false), 'カーソルのある端末は既定OFF（255のまま）').toBe(false);
+
+  // 本人が設定していたら、端末に関係なくその値（端末判定で本人の意思を覆さない）
+  for (const coarse of [true, false]) {
+    expect(resolvePasteReplaceEnabled('1', coarse), '保存値ONが優先されること').toBe(true);
+    expect(resolvePasteReplaceEnabled('0', coarse), '保存値OFFが優先されること').toBe(false);
+  }
+
+  // 壊れた保存値は「未設定」と同じ扱い（243・251と同じ倒し方）
+  for (const broken of ['', 'true', 'yes', '2']) {
+    expect(resolvePasteReplaceEnabled(broken, true), `壊れた値(${broken})は端末で決まる`).toBe(true);
+    expect(resolvePasteReplaceEnabled(broken, false), `壊れた値(${broken})は端末で決まる`).toBe(false);
+  }
+});
+
+test('U26: 分析タイプの常時表示と折りたたみの分割（258）— 取りこぼしも重複も出ない', () => {
+  // 常時表示は院長がよく使う2つだけ
+  expect(PRIMARY_ANALYSIS_TYPES).toEqual(['summary', 'detail_summary']);
+  expect(PRIMARY_ANALYSIS_OPTIONS.map((o) => o.label)).toEqual(['概要・要約', '詳細にまとめる']);
+
+  // 残りは**自動的に**折りたたみ側へ回る（新しい分析タイプが増えても書き足しが要らない形）
+  expect(SECONDARY_ANALYSIS_OPTIONS.map((o) => o.value)).toEqual(
+    ANALYSIS_OPTIONS.filter((o) => !PRIMARY_ANALYSIS_TYPES.includes(o.value)).map((o) => o.value),
+  );
+
+  // 2つの集合を合わせると元の全件と一致し、どちらにも重複しない
+  const merged = [...PRIMARY_ANALYSIS_OPTIONS, ...SECONDARY_ANALYSIS_OPTIONS].map((o) => o.value);
+  expect(merged.slice().sort(), '全ての分析タイプがどちらかに入ること').toEqual(
+    ANALYSIS_OPTIONS.map((o) => o.value).slice().sort(),
+  );
+  expect(new Set(merged).size, '同じタイプが両方に出ないこと').toBe(ANALYSIS_OPTIONS.length);
+  expect(SECONDARY_ANALYSIS_OPTIONS.length, '畳む側が空にならないこと').toBeGreaterThan(0);
 });

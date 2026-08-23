@@ -17,6 +17,21 @@ export const ANALYSIS_OPTIONS: AnalysisOption[] = [
   { value: 'transcription', label: '全文書き起こし' },
 ];
 
+// 258: 📝テキスト分析の「分析タイプ」を、よく使う2つだけ常時表示にして残りは畳む。
+//
+// 分け方の正本はここ1箇所。**常時表示する側を列挙し、残りは自動的に畳む側へ回る**
+// ——こう書いておけば、あとで分析タイプが増えても畳む側の追記は要らない
+// （指示書258の「他にあれば全て」を、書き足しに頼らず構造で満たす）。
+export const PRIMARY_ANALYSIS_TYPES: AnalysisType[] = ['summary', 'detail_summary'];
+
+export const PRIMARY_ANALYSIS_OPTIONS: AnalysisOption[] = ANALYSIS_OPTIONS.filter((o) =>
+  PRIMARY_ANALYSIS_TYPES.includes(o.value),
+);
+
+export const SECONDARY_ANALYSIS_OPTIONS: AnalysisOption[] = ANALYSIS_OPTIONS.filter(
+  (o) => !PRIMARY_ANALYSIS_TYPES.includes(o.value),
+);
+
 export const ANALYSIS_PROMPTS: Record<AnalysisType, string> = {
   summary:
     'この資料の内容を簡潔に要約してください。主要なポイントを箇条書きで整理し、全体像がわかるようにまとめてください。',

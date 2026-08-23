@@ -3,7 +3,10 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   AnalysisType,
+  type AnalysisOption,
   ANALYSIS_OPTIONS,
+  PRIMARY_ANALYSIS_OPTIONS,
+  SECONDARY_ANALYSIS_OPTIONS,
   TARGET_OPTIONS,
   LEVEL_OPTIONS,
   PURPOSE_OPTIONS,
@@ -40,6 +43,8 @@ import { useRunKeyHints, useRunShortcut } from '@/lib/shortcuts';
 import { clearAndPaste, CLEAR_PASTE_MESSAGE } from '@/lib/clear-and-paste';
 // 255: 「貼り付けたら前の内容を置き換える」（iOSで追加タップを出さずに1操作にする）
 import { applyReplacePaste, usePasteReplace } from '@/lib/paste-replace';
+// 258: 「📋 クリアして貼付」を出すかの判定（iOSは押すと確認が何段も出るので出さない）
+import { useFinePointer } from '@/lib/pointer-device';
 import { isAutoStockSaveEnabled } from '@/lib/auto-stock-save';
 
 // 215: 「全」は高さプリセットではなく FullscreenReader（保存一覧と同じ全画面ビューア）を
@@ -813,10 +818,24 @@ export default function TextAnalysisPanel({
   };
   useEffect(() => stopUndoTimer, []);
 
+  // ── 258【1】: 「その他の分析タイプ」の開閉 ──────────────────
+  // 既定は閉じる。開閉は**保存しない**——「すっきりさせたい」が要望の中身なので、
+  // 前回開いたまま次も開いていると元の状態に戻ってしまう。
+  // 畳んだ側に選択が残っていても分かるよう、見出しにバッジを出す（要件2）。
+  const [moreOpen, setMoreOpen] = useState(false);
+  const hiddenSelected = SECONDARY_ANALYSIS_OPTIONS.filter((o) => selectedTypes.has(o.value));
+
   // ── 255: 貼り付けで置き換え（設定ON時のみ）──────────────────
   // ユーザーが普段どおり貼り付けた瞬間に置き換える＝iOSでも追加のタップが出ない。
   // clipboardData はイベント内なら権限なしで読める（実測済み）。
   const pasteReplace = usePasteReplace();
+  // 258【2】: カーソルの無い端末（iPhone等）では「📋 クリアして貼付」を出さない。
+  // このボタンは navigator.clipboard.readText() を通るため、iOSでは
+  // 「ペーストを許可しますか」→「許可」→「ペースト」と確認が重なり、押すほど手数が増える
+  // （Appleの仕様でアプリ側からは消せない）。**ボタンを残す限り多段は避けられない**ので、
+  // 代わりに255の「長押し→ペーストで置き換え」を主経路にする。
+  const pointer = useFinePointer();
+  const showClearPasteButton = pointer.mounted && pointer.fine;
 
   // ── 254: 「📋 クリアして貼付」 ─────────────────────────────
   // クリア→⌘V の2手を1手に。消えた内容は247と同じ Undo（10秒）で戻せる。
@@ -879,6 +898,180 @@ export default function TextAnalysisPanel({
       results: Object.fromEntries(next),
       models: Object.fromEntries(resultModels),
     });
+  };
+
+  // 258: 分析タイプ1件分の描画。常時表示の2件と折りたたみ側で**同じ描画**を使うため、
+  // map のコールバックから関数へ切り出した（2箇所に書き写すと片方だけ直る事故になる）
+  const renderAnalysisOption = (opt: AnalysisOption) => {
+    const checked = selectedTypes.has(opt.value);
+    const isGsSlide = opt.value === 'genspark_slide';
+    return (
+      <div key={opt.value}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          <label
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 8,
+              cursor: 'pointer',
+              flex: 1,
+              fontSize: 13,
+              color: 'var(--text-primary)',
+            }}
+          >
+            <input
+              type="checkbox"
+              checked={checked}
+              onChange={() => {
+                setSelectedTypes((prev) => {
+                  const next = new Set(prev);
+                  if (next.has(opt.value)) next.delete(opt.value);
+                  else next.add(opt.value);
+                  return next;
+                });
+              }}
+              style={{ accentColor: 'var(--accent)' }}
+            />
+            {opt.label}
+          </label>
+
+          {checked && (
+            <select
+              value={typeLengths[opt.value] || ''}
+              onChange={(e) =>
+                setTypeLengths((prev) => ({
+                  ...prev,
+                  [opt.value]: e.target.value,
+                }))
+              }
+              style={selectStyle()}
+            >
+              <option value="">文字数指定なし</option>
+              <option value="200">200字</option>
+              <option value="400">400字</option>
+              <option value="600">600字</option>
+              <option value="1000">1000字</option>
+              <option value="2000">2000字</option>
+              <option value="3000">3000字</option>
+            </select>
+          )}
+        </div>
+
+        {isGsSlide && checked && (
+          <div
+            style={{
+              marginTop: 8,
+              marginLeft: 24,
+              padding: 12,
+              borderRadius: 12,
+              border: '1px solid rgba(108,99,255,0.3)',
+              background: 'rgba(108,99,255,0.08)',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 10,
+            }}
+          >
+            <p
+              style={{
+                fontSize: 11,
+                fontWeight: 600,
+                color: 'var(--accent)',
+                margin: 0,
+              }}
+            >
+              🎯 Gensparkプレゼン設定
+            </p>
+            <div
+              style={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
+                gap: 8,
+              }}
+            >
+              {[
+                {
+                  label: '聴講ターゲット',
+                  value: gsTarget,
+                  set: setGsTarget,
+                  opts: TARGET_OPTIONS,
+                },
+                {
+                  label: '内容レベル',
+                  value: gsLevel,
+                  set: setGsLevel,
+                  opts: LEVEL_OPTIONS,
+                },
+                {
+                  label: 'プレゼンの目的',
+                  value: gsPurpose,
+                  set: setGsPurpose,
+                  opts: PURPOSE_OPTIONS,
+                },
+                {
+                  label: 'スライドのトーン',
+                  value: gsTone,
+                  set: setGsTone,
+                  opts: TONE_OPTIONS,
+                },
+              ].map((it) => (
+                <div key={it.label}>
+                  <label
+                    style={{
+                      fontSize: 10,
+                      color: 'var(--text-muted)',
+                      marginBottom: 4,
+                      display: 'block',
+                    }}
+                  >
+                    {it.label}
+                  </label>
+                  <select
+                    value={it.value}
+                    onChange={(e) => it.set(e.target.value)}
+                    style={{ ...selectStyle(), width: '100%' }}
+                  >
+                    {it.opts.map((o) => (
+                      <option key={o.value} value={o.value}>
+                        {o.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              ))}
+            </div>
+            <div>
+              <label
+                style={{
+                  fontSize: 10,
+                  color: 'var(--text-muted)',
+                  marginBottom: 4,
+                  display: 'block',
+                }}
+              >
+                追加要望（任意）
+              </label>
+              <textarea
+                value={gsNotes}
+                onChange={(e) => setGsNotes(e.target.value)}
+                placeholder="スライドへの追加要望..."
+                rows={2}
+                style={{
+                  width: '100%',
+                  fontSize: 11,
+                  padding: 6,
+                  borderRadius: 6,
+                  border: '1px solid var(--border)',
+                  background: 'var(--input-bg)',
+                  color: 'var(--text-primary)',
+                  resize: 'none',
+                  fontFamily: 'inherit',
+                }}
+              />
+            </div>
+          </div>
+        )}
+      </div>
+    );
   };
 
   return (
@@ -1006,7 +1199,9 @@ export default function TextAnalysisPanel({
               </button>
             )}
             {/* 254: クリア→貼り付けの2手を1手に。既存の「✕ クリア」は残す
-                （クリアだけしたい場面もあるため） */}
+                （クリアだけしたい場面もあるため）
+                258: カーソルのある端末だけに出す（iOSは押すほど確認が増えるため） */}
+            {showClearPasteButton && (
             <button
               type="button"
               data-clear-paste
@@ -1035,6 +1230,14 @@ export default function TextAnalysisPanel({
             >
               {pasting ? '⏳ 貼付中...' : `📋 クリアして貼付${keyHints ? ` ${keyHints.clearPaste}` : ''}`}
             </button>
+            )}
+            {/* 258: ボタンを出さない端末には、代わりの操作を入力欄のそばに小さく置く。
+                案内が無いと「機能が消えた」に見える（R-34の趣旨） */}
+            {pointer.mounted && !pointer.fine && pasteReplace.enabled && (
+              <span data-paste-hint style={{ fontSize: 11, color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>
+                長押し→ペーストで置き換わります
+              </span>
+            )}
             <button
               type="button"
               onClick={handleClearInput}
@@ -1082,207 +1285,116 @@ export default function TextAnalysisPanel({
           分析タイプ（複数選択可）
         </label>
 
+        {/* 258: よく使う2つだけ常時表示。残りは「▶ その他の分析タイプ」に畳む。
+            畳んだ側に選択が残っていても分かるよう、見出しにバッジを出す（指示書258【1】要件2） */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-          {ANALYSIS_OPTIONS.map((opt) => {
-            const checked = selectedTypes.has(opt.value);
-            const isGsSlide = opt.value === 'genspark_slide';
-            return (
-              <div key={opt.value}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                  <label
-                    style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: 8,
-                      cursor: 'pointer',
-                      flex: 1,
-                      fontSize: 13,
-                      color: 'var(--text-primary)',
-                    }}
-                  >
-                    <input
-                      type="checkbox"
-                      checked={checked}
-                      onChange={() => {
-                        setSelectedTypes((prev) => {
-                          const next = new Set(prev);
-                          if (next.has(opt.value)) next.delete(opt.value);
-                          else next.add(opt.value);
-                          return next;
-                        });
-                      }}
-                      style={{ accentColor: 'var(--accent)' }}
-                    />
-                    {opt.label}
-                  </label>
-
-                  {checked && (
-                    <select
-                      value={typeLengths[opt.value] || ''}
-                      onChange={(e) =>
-                        setTypeLengths((prev) => ({
-                          ...prev,
-                          [opt.value]: e.target.value,
-                        }))
-                      }
-                      style={selectStyle()}
-                    >
-                      <option value="">文字数指定なし</option>
-                      <option value="200">200字</option>
-                      <option value="400">400字</option>
-                      <option value="600">600字</option>
-                      <option value="1000">1000字</option>
-                      <option value="2000">2000字</option>
-                      <option value="3000">3000字</option>
-                    </select>
-                  )}
-                </div>
-
-                {isGsSlide && checked && (
-                  <div
-                    style={{
-                      marginTop: 8,
-                      marginLeft: 24,
-                      padding: 12,
-                      borderRadius: 12,
-                      border: '1px solid rgba(108,99,255,0.3)',
-                      background: 'rgba(108,99,255,0.08)',
-                      display: 'flex',
-                      flexDirection: 'column',
-                      gap: 10,
-                    }}
-                  >
-                    <p
-                      style={{
-                        fontSize: 11,
-                        fontWeight: 600,
-                        color: 'var(--accent)',
-                        margin: 0,
-                      }}
-                    >
-                      🎯 Gensparkプレゼン設定
-                    </p>
-                    <div
-                      style={{
-                        display: 'grid',
-                        gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
-                        gap: 8,
-                      }}
-                    >
-                      {[
-                        {
-                          label: '聴講ターゲット',
-                          value: gsTarget,
-                          set: setGsTarget,
-                          opts: TARGET_OPTIONS,
-                        },
-                        {
-                          label: '内容レベル',
-                          value: gsLevel,
-                          set: setGsLevel,
-                          opts: LEVEL_OPTIONS,
-                        },
-                        {
-                          label: 'プレゼンの目的',
-                          value: gsPurpose,
-                          set: setGsPurpose,
-                          opts: PURPOSE_OPTIONS,
-                        },
-                        {
-                          label: 'スライドのトーン',
-                          value: gsTone,
-                          set: setGsTone,
-                          opts: TONE_OPTIONS,
-                        },
-                      ].map((it) => (
-                        <div key={it.label}>
-                          <label
-                            style={{
-                              fontSize: 10,
-                              color: 'var(--text-muted)',
-                              marginBottom: 4,
-                              display: 'block',
-                            }}
-                          >
-                            {it.label}
-                          </label>
-                          <select
-                            value={it.value}
-                            onChange={(e) => it.set(e.target.value)}
-                            style={{ ...selectStyle(), width: '100%' }}
-                          >
-                            {it.opts.map((o) => (
-                              <option key={o.value} value={o.value}>
-                                {o.label}
-                              </option>
-                            ))}
-                          </select>
-                        </div>
-                      ))}
-                    </div>
-                    <div>
-                      <label
-                        style={{
-                          fontSize: 10,
-                          color: 'var(--text-muted)',
-                          marginBottom: 4,
-                          display: 'block',
-                        }}
-                      >
-                        追加要望（任意）
-                      </label>
-                      <textarea
-                        value={gsNotes}
-                        onChange={(e) => setGsNotes(e.target.value)}
-                        placeholder="スライドへの追加要望..."
-                        rows={2}
-                        style={{
-                          width: '100%',
-                          fontSize: 11,
-                          padding: 6,
-                          borderRadius: 6,
-                          border: '1px solid var(--border)',
-                          background: 'var(--input-bg)',
-                          color: 'var(--text-primary)',
-                          resize: 'none',
-                          fontFamily: 'inherit',
-                        }}
-                      />
-                    </div>
-                  </div>
-                )}
-              </div>
-            );
-          })}
+          {PRIMARY_ANALYSIS_OPTIONS.map((opt) => renderAnalysisOption(opt))}
         </div>
 
-        {/* 共通の目的（任意） */}
-        <div style={{ marginTop: 14 }}>
-          <label
+        <div style={{ marginTop: 12 }}>
+          <button
+            type="button"
+            data-analysis-more-toggle
+            aria-expanded={moreOpen}
+            onClick={() => setMoreOpen((v) => !v)}
             style={{
-              fontSize: 11,
-              color: 'var(--text-muted)',
-              marginBottom: 4,
-              display: 'block',
+              display: 'flex',
+              alignItems: 'center',
+              gap: 8,
+              width: '100%',
+              padding: '8px 10px',
+              background: 'transparent',
+              border: '1px solid var(--border)',
+              borderRadius: 8,
+              cursor: 'pointer',
+              fontSize: 12,
+              fontWeight: 600,
+              color: 'var(--text-secondary)',
+              textAlign: 'left',
             }}
           >
-            目的・コンテキスト（任意）
-          </label>
-          <input
-            type="text"
-            value={purpose}
-            onChange={(e) => setPurpose(e.target.value)}
-            placeholder="例: 院内ミーティング用、新人研修用..."
-            style={{
-              width: '100%',
-              fontSize: 12,
-              padding: 8,
-              borderRadius: 8,
-              border: '1px solid var(--border)',
-              background: 'var(--input-bg)',
-              color: 'var(--text-primary)',
-            }}
-          />
+            <span style={{ width: 12, display: 'inline-block' }}>{moreOpen ? '▼' : '▶'}</span>
+            <span>その他の分析タイプ</span>
+            {/* 畳んだせいで選択に気づけない状態を作らない。選択中は名前まで出す */}
+            {hiddenSelected.length > 0 && (
+              <span
+                data-analysis-more-badge
+                style={{
+                  fontSize: 11,
+                  fontWeight: 700,
+                  color: '#fff',
+                  background: 'var(--accent)',
+                  borderRadius: 999,
+                  padding: '2px 8px',
+                  whiteSpace: 'nowrap',
+                }}
+              >
+                選択中 {hiddenSelected.length}・{hiddenSelected.map((o) => o.label).join('／')}
+              </span>
+            )}
+            {/* 目的もこの中に畳んでいるので、入っていることが分かるようにする */}
+            {purpose.trim() !== '' && (
+              <span
+                data-analysis-purpose-badge
+                style={{
+                  fontSize: 11,
+                  fontWeight: 700,
+                  color: 'var(--accent)',
+                  border: '1px solid var(--accent)',
+                  borderRadius: 999,
+                  padding: '2px 8px',
+                  whiteSpace: 'nowrap',
+                }}
+              >
+                目的あり
+              </span>
+            )}
+          </button>
+
+          {moreOpen && (
+            <div
+              data-analysis-more-body
+              style={{
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 8,
+                marginTop: 10,
+                paddingLeft: 6,
+              }}
+            >
+              {SECONDARY_ANALYSIS_OPTIONS.map((opt) => renderAnalysisOption(opt))}
+
+              {/* 共通の目的（任意） */}
+              <div style={{ marginTop: 6 }}>
+                <label
+                  style={{
+                    fontSize: 11,
+                    color: 'var(--text-muted)',
+                    marginBottom: 4,
+                    display: 'block',
+                  }}
+                >
+                  目的・コンテキスト（任意）
+                </label>
+                <input
+                  type="text"
+                  data-analysis-purpose
+                  value={purpose}
+                  onChange={(e) => setPurpose(e.target.value)}
+                  placeholder="例: 院内ミーティング用、新人研修用..."
+                  style={{
+                    width: '100%',
+                    fontSize: 12,
+                    padding: 8,
+                    borderRadius: 8,
+                    border: '1px solid var(--border)',
+                    background: 'var(--input-bg)',
+                    color: 'var(--text-primary)',
+                  }}
+                />
+              </div>
+            </div>
+          )}
         </div>
       </div>
 

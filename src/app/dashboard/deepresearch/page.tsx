@@ -35,6 +35,8 @@ import { useRunKeyHints, useRunShortcut } from '@/lib/shortcuts';
 import { clearAndPaste, CLEAR_PASTE_MESSAGE } from '@/lib/clear-and-paste';
 // 255: 「貼り付けたら前の内容を置き換える」（iOSで追加タップを出さずに1操作にする）
 import { applyReplacePaste, usePasteReplace } from '@/lib/paste-replace';
+// 258: 「📋 クリアして貼付」を出すかの判定（iOSは押すと確認が何段も出るので出さない）
+import { useFinePointer } from '@/lib/pointer-device';
 import { isAutoStockSaveEnabled } from '@/lib/auto-stock-save';
 
 // 自動下書き（feature_result_drafts feature_key='deepresearch'）のpayload
@@ -1588,6 +1590,10 @@ ${contextText}
 
   // 255: 貼り付けで置き換え（設定ON時のみ・テキスト分析と同じ lib）
   const pasteReplace = usePasteReplace();
+  // 258【2】: カーソルの無い端末（iPhone等）では「📋 クリアして貼付」を出さない。
+  // 押すたびに「ペーストを許可しますか」→「許可」→「ペースト」と確認が重なるため、
+  // 代わりに255の「長押し→ペーストで置き換え」を主経路にする（テキスト分析と同じ扱い）
+  const pointer = useFinePointer();
 
   // ── 254: 「📋 クリアして貼付」（テキスト分析と同じ lib を通す）──────────
   const topicRef = useRef<HTMLTextAreaElement>(null);
@@ -1730,7 +1736,9 @@ ${contextText}
                   ↩ 元に戻す
                 </button>
               )}
-              {/* 254: クリア→貼り付けの2手を1手に。既存の「✕ クリア」は残す */}
+              {/* 254: クリア→貼り付けの2手を1手に。既存の「✕ クリア」は残す
+                  258: カーソルのある端末だけに出す（iOSは押すほど確認が増えるため） */}
+              {pointer.mounted && pointer.fine && (
               <button
                 type="button"
                 data-clear-paste
@@ -1741,6 +1749,13 @@ ${contextText}
               >
                 {pasting ? '⏳ 貼付中...' : `📋 クリアして貼付${keyHints ? ` ${keyHints.clearPaste}` : ''}`}
               </button>
+              )}
+              {/* 258: ボタンを出さない端末には、代わりの操作を小さく案内する */}
+              {pointer.mounted && !pointer.fine && pasteReplace.enabled && (
+                <span data-paste-hint style={{ fontSize: 11, color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>
+                  長押し→ペーストで置き換わります
+                </span>
+              )}
               <button
                 type="button"
                 onClick={handleClearTopic}
