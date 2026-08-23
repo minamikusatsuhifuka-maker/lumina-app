@@ -1,20 +1,20 @@
 'use client';
 
-// 259: カーソルの無い端末（iPhone等）で「クリア」と「ペースト」を別操作にするための部品。
+// 259/260: カーソルの無い端末（iPhone等）で「クリア」と「ペースト」を別操作にするための部品。
 // 📝テキスト分析 と 🔭ディープリサーチ の2画面で同じものを使う。
 //
-// ── なぜ2つ置くか ─────────────────────────────────────────
-// - `LongPressPasteField`（主）: **ボタンの見た目をした空の入力欄**。長押しすると
-//   iOSのメニューが出るが、**空欄なので「ペースト」しか出ない**（選択する文字が無いため）。
-//   ユーザー自身の貼り付け操作なので**確認ポップアップは出ない**。
-//   院長案の「ボタンを長押しで完了」は、実体を編集可能にすればこの形で成立する
-//   （ふつうの <button> では WebKit に paste が届かないことを実測。lib/paste-insert.ts 参照）。
-// - `PasteButton`（併設）: 指示書259の「📋 ペースト」。`readText()` を通るため
-//   **iOSでは確認が1回以上入る**（ブラウザ側の仕様でアプリからは減らせない）。
-//   長押しが使えない場面の保険として置く。
+// ── 260: 「📋 ペースト」ボタン1本に一本化した ────────────────────
+// 259では「ボタンの見た目をした空の入力欄」を長押ししてもらう形を主経路にしたが、
+// 実機で**タップするとキーボードが立ち上がり、欄の位置がずれて押し直しになる**
+// ——編集可能な欄である以上これは構造的に避けられないため撤去した。
+// readonly / inputmode="none" でも paste 自体は届くことを実測したが、実機で貼り付けを
+// 起こす唯一の手段（長押しメニューに「ペースト」が出るか）は**OSが描くUIで観測できない**。
+// 258・259と観測できないUIに賭けて2回外しているので、三度目は賭けない。
+// 「📋 ペースト」は編集可能な要素を一切使わない＝**キーボードが出る余地が構造的に無い**。
+// 判断の根拠と各案の実測値は `lib/paste-insert.ts` の冒頭に残している。
 //
-// どちらも**入れるだけ**（消さない）。置き換えたいときは「✕ クリア」→ 貼り付け の2操作で、
-// クリアには既存のUndo（10秒）が付いている＝取り返しがつく。
+// このボタンは**入れるだけ**（消さない）。置き換えたいときは「✕ クリア」→「📋 ペースト」の
+// 2操作で、クリアには既存のUndo（10秒）が付いている＝取り返しがつく。
 
 import { useRef, type RefObject } from 'react';
 import { useFinePointer } from '@/lib/pointer-device';
@@ -113,60 +113,5 @@ export function PasteButton(props: TouchPasteTarget) {
     >
       📋 ペースト
     </button>
-  );
-}
-
-/**
- * 案①＋案②: ボタンの見た目をした**空の貼り付け欄**。長押し→「ペースト」で本文へ入る。
- * 確認ポップアップは出ない（ユーザー自身の貼り付け操作のため）。
- * カーソルのある端末では出さない（マウスでは長押しに意味がないため）。
- */
-export function LongPressPasteField(props: TouchPasteTarget) {
-  const pointer = useFinePointer();
-  const insert = useInsert(props);
-  const fieldRef = useRef<HTMLInputElement>(null);
-  if (!pointer.mounted || pointer.fine) return null;
-
-  return (
-    <div style={{ marginTop: 8 }}>
-      <input
-        ref={fieldRef}
-        type="text"
-        data-long-press-paste
-        aria-label="長押しして「ペースト」を選ぶと、上の入力欄に貼り付きます"
-        placeholder="📋 ここを長押し →「ペースト」"
-        disabled={props.disabled}
-        // 中身は常に空に保つ。空欄だからこそ iOS のメニューが「ペースト」だけになる
-        value=""
-        onChange={() => {
-          /* 直接の入力は受け取らない（貼り付け専用）。value を空に固定するため必要 */
-        }}
-        onPaste={(e) => {
-          const text = e.clipboardData?.getData('text/plain') ?? '';
-          // この欄には残さない（空のままにしておかないと次の長押しで選択メニューが出る）
-          e.preventDefault();
-          if (!text) {
-            props.notify?.('クリップボードが空でした', 'warning');
-            return;
-          }
-          insert(text);
-          props.notify?.('貼り付けました', 'success');
-          // キーボードが出たままにならないよう閉じる
-          fieldRef.current?.blur();
-        }}
-        style={{
-          width: '100%',
-          padding: '10px 12px',
-          fontSize: 16, // iOS Safari の自動ズーム防止（16px以上）
-          textAlign: 'center',
-          color: 'var(--text-secondary)',
-          background: 'transparent',
-          border: '1px dashed var(--border)',
-          borderRadius: 8,
-          outline: 'none',
-          boxSizing: 'border-box',
-        }}
-      />
-    </div>
   );
 }

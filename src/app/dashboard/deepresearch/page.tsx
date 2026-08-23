@@ -38,7 +38,7 @@ import { applyReplacePaste, usePasteReplace } from '@/lib/paste-replace';
 // 258: 「📋 クリアして貼付」を出すかの判定（iOSは押すと確認が何段も出るので出さない）
 import { useFinePointer } from '@/lib/pointer-device';
 // 259: iOSの「クリア」と「ペースト」を別操作にする2部品（テキスト分析と同じ部品）
-import { LongPressPasteField, PasteButton } from '@/components/TouchPaste';
+import { PasteButton } from '@/components/TouchPaste';
 import { isAutoStockSaveEnabled } from '@/lib/auto-stock-save';
 
 // 自動下書き（feature_result_drafts feature_key='deepresearch'）のpayload
@@ -1752,7 +1752,8 @@ ${contextText}
                 {pasting ? '⏳ 貼付中...' : `📋 クリアして貼付${keyHints ? ` ${keyHints.clearPaste}` : ''}`}
               </button>
               )}
-              {/* 259: カーソルの無い端末には「📋 ペースト」を置く（部品側で出し分ける） */}
+              {/* 259/260: カーソルの無い端末には「📋 ペースト」を置く。260でこれ1本に
+                  一本化（編集可能な貼り付け欄はタップでキーボードが出るため撤去） */}
               <PasteButton
                 value={topic}
                 setValue={setTopic}
@@ -1803,16 +1804,6 @@ ${contextText}
             <div style={{ position: 'absolute', right: 10, bottom: 10 }}>
               <VoiceInputButton size="sm" onResult={(text) => setTopic(prev => prev + text)} />
             </div>
-            {/* 259: 主経路。空欄なので長押しのメニューが「ペースト」だけになる（確認なし） */}
-            <LongPressPasteField
-              value={topic}
-              setValue={setTopic}
-              targetRef={topicRef}
-              disabled={loading}
-              notify={(text, kind) => {
-                if (kind !== 'success') alert(text);
-              }}
-            />
             {/* 過去に実行したお題の候補表示（入力で絞り込み・クリックで入力欄に反映） */}
             {showQuerySuggest && (() => {
               const kw = topic.trim().toLowerCase();

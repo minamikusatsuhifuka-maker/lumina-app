@@ -46,7 +46,7 @@ import { applyReplacePaste, usePasteReplace } from '@/lib/paste-replace';
 // 258: 「📋 クリアして貼付」を出すかの判定（iOSは押すと確認が何段も出るので出さない）
 import { useFinePointer } from '@/lib/pointer-device';
 // 259: iOSの「クリア」と「ペースト」を別操作にする2部品（長押し貼り付け欄／📋 ペースト）
-import { LongPressPasteField, PasteButton } from '@/components/TouchPaste';
+import { PasteButton } from '@/components/TouchPaste';
 import { isAutoStockSaveEnabled } from '@/lib/auto-stock-save';
 
 // 215: 「全」は高さプリセットではなく FullscreenReader（保存一覧と同じ全画面ビューア）を
@@ -1233,9 +1233,9 @@ export default function TextAnalysisPanel({
               {pasting ? '⏳ 貼付中...' : `📋 クリアして貼付${keyHints ? ` ${keyHints.clearPaste}` : ''}`}
             </button>
             )}
-            {/* 259: カーソルの無い端末には「📋 ペースト」を置く（クリアとペーストを別操作に）。
-                このボタンは readText() を通るため iOS では確認が入る＝確認の要らない
-                「長押し貼り付け欄」を主経路とし、これはその保険（部品側で出し分ける） */}
+            {/* 259/260: カーソルの無い端末には「📋 ペースト」を置く（クリアとペーストを別操作に）。
+                260でこれ1本に一本化した——編集可能な貼り付け欄はタップでキーボードが出て
+                位置がずれるため（部品側で端末を見て出し分ける） */}
             <PasteButton
               value={inputText}
               setValue={(next) => {
@@ -1270,19 +1270,6 @@ export default function TextAnalysisPanel({
             </button>
           </span>
         </div>
-        {/* 259: 主経路。**空欄なので長押しのメニューが「ペースト」だけになる**
-            （本文の途中を長押しすると選択メニューが出て迷う、という258の不満への答え）。
-            確認ポップアップは出ない＝カーソルの無い端末での最短経路 */}
-        <LongPressPasteField
-          value={inputText}
-          setValue={(next) => {
-            setInputText(next);
-            setAnalysisDone(false);
-          }}
-          targetRef={inputRef}
-          disabled={loading}
-          notify={(text, kind) => showToast(text, kind)}
-        />
       </div>
 
       {/* 分析タイプ選択 */}

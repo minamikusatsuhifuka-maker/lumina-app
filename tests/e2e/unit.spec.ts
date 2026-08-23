@@ -644,8 +644,9 @@ test('U27: カーソル位置への差し込み（259）— 位置が取れな�
   // 貼るものが無ければ何も変えない（本文を消して終わり、を作らない）
   expect(insertAtCursor('ABCD', '', 1, 3)).toEqual({ next: 'ABCD', caret: 4 });
 
-  // 読めなかったときに黙って終わらせず、確認の要らない道へ案内する
-  expect(PASTE_BUTTON_MESSAGE.denied.text).toContain('長押し');
+  // 読めなかった（確認で「許可しない」を選んだ等）ときに黙って終わらせず、
+  // iPhoneの標準操作（入力欄そのものを長押し）へ案内する
+  expect(PASTE_BUTTON_MESSAGE.denied.text).toContain('入力欄を長押し');
   expect(PASTE_BUTTON_MESSAGE.denied.kind).toBe('warning');
   expect(PASTE_BUTTON_MESSAGE.empty.text).toContain('空');
 });
