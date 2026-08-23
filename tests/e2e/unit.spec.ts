@@ -25,6 +25,7 @@ import {
 import { ALL_NAV_ITEMS, navCategories } from '../../src/lib/nav-items';
 import { CLEAR_PASTE_MESSAGE, type ClearAndPasteResult } from '../../src/lib/clear-and-paste';
 import { applyReplacePaste, resolvePasteReplaceEnabled } from '../../src/lib/paste-replace';
+import { insertAtCursor, PASTE_BUTTON_MESSAGE } from '../../src/lib/paste-insert';
 import {
   ANALYSIS_OPTIONS,
   PRIMARY_ANALYSIS_OPTIONS,
@@ -605,26 +606,48 @@ test('U24: ホバープレビューはカードの矩形に隣接して出る（
   expect(inViewport(huge), 'カードが画面いっぱいでも画面内に収まること').toBe(true);
 });
 
-test('U25: 貼り付けで置き換えの既定は端末で決まり、本人の設定が必ず優先される（258）', () => {
-  // 255は「iOSのための逃げ道」として作ったのに**既定OFF**だったため、
-  // iPhoneの院長には一度も働かず、多段確認のボタン経路が使われ続けた（258の真因）。
-  // 258では未設定のときだけ端末で決める。
-
-  // 未設定 → 端末で決まる
-  expect(resolvePasteReplaceEnabled(null, true), 'カーソルの無い端末は既定ON').toBe(true);
-  expect(resolvePasteReplaceEnabled(null, false), 'カーソルのある端末は既定OFF（255のまま）').toBe(false);
-
-  // 本人が設定していたら、端末に関係なくその値（端末判定で本人の意思を覆さない）
-  for (const coarse of [true, false]) {
-    expect(resolvePasteReplaceEnabled('1', coarse), '保存値ONが優先されること').toBe(true);
-    expect(resolvePasteReplaceEnabled('0', coarse), '保存値OFFが優先されること').toBe(false);
-  }
-
-  // 壊れた保存値は「未設定」と同じ扱い（243・251と同じ倒し方）
+test('U25: 貼り付けで置き換えは全端末で既定OFF、明示的にONにしたときだけ働く（259）', () => {
+  // 258では「iOSの逃げ道が既定で閉じていた」ことを直すため、カーソルの無い端末の既定を
+  // ONにした。259で**取り下げ**——本文欄の長押しは iOS の選択メニューが出て主経路に
+  // ならないと分かり、代わりに「✕ クリア」＋「長押し貼り付け欄／📋 ペースト」を置いた。
+  // 主経路でないものを既定ONで残すと、**追記したいだけの貼り付けが黙って全消しになる**。
+  expect(resolvePasteReplaceEnabled(null), '未設定は全端末でOFF').toBe(false);
+  expect(resolvePasteReplaceEnabled('1'), '明示的にONにしたときだけ働く').toBe(true);
+  expect(resolvePasteReplaceEnabled('0'), 'OFFの保存値はOFF').toBe(false);
+  // 壊れた保存値は既定（OFF）に倒れる（243・251と同じ倒し方）
   for (const broken of ['', 'true', 'yes', '2']) {
-    expect(resolvePasteReplaceEnabled(broken, true), `壊れた値(${broken})は端末で決まる`).toBe(true);
-    expect(resolvePasteReplaceEnabled(broken, false), `壊れた値(${broken})は端末で決まる`).toBe(false);
+    expect(resolvePasteReplaceEnabled(broken), `壊れた値(${broken})はOFFに倒れる`).toBe(false);
   }
+});
+
+test('U27: カーソル位置への差し込み（259）— 位置が取れないときは末尾に足す', () => {
+  // 259の「📋 ペースト」と「長押し貼り付け欄」は**入れるだけ**（消さない）。
+  // 置き換えたいときは「✕ クリア」→ 貼り付けの2操作にする＝黙って消える経路を作らない。
+
+  // カーソル位置に差し込む
+  expect(insertAtCursor('ABCD', 'xy', 2, 2)).toEqual({ next: 'ABxyCD', caret: 4 });
+  // 選択範囲があればそこを置き換える
+  expect(insertAtCursor('ABCD', 'xy', 1, 3)).toEqual({ next: 'AxyD', caret: 3 });
+  // 先頭・末尾
+  expect(insertAtCursor('ABCD', 'xy', 0, 0)).toEqual({ next: 'xyABCD', caret: 2 });
+  expect(insertAtCursor('ABCD', 'xy', 4, 4)).toEqual({ next: 'ABCDxy', caret: 6 });
+
+  // 位置が取れない・壊れている → 末尾に足す（指示書259「カーソル位置または末尾」）
+  for (const bad of [null, undefined, -1, 99, NaN]) {
+    expect(insertAtCursor('ABCD', 'xy', bad as number | null), `位置=${String(bad)} は末尾へ`).toEqual({
+      next: 'ABCDxy',
+      caret: 6,
+    });
+  }
+  // 空の入力欄でも壊れない
+  expect(insertAtCursor('', 'xy', 0, 0)).toEqual({ next: 'xy', caret: 2 });
+  // 貼るものが無ければ何も変えない（本文を消して終わり、を作らない）
+  expect(insertAtCursor('ABCD', '', 1, 3)).toEqual({ next: 'ABCD', caret: 4 });
+
+  // 読めなかったときに黙って終わらせず、確認の要らない道へ案内する
+  expect(PASTE_BUTTON_MESSAGE.denied.text).toContain('長押し');
+  expect(PASTE_BUTTON_MESSAGE.denied.kind).toBe('warning');
+  expect(PASTE_BUTTON_MESSAGE.empty.text).toContain('空');
 });
 
 test('U26: 分析タイプの常時表示と折りたたみの分割（258）— 取りこぼしも重複も出ない', () => {

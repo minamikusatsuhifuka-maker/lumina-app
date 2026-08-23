@@ -2347,7 +2347,7 @@ test('C51: 分析タイプの折りたたみ — 既定は閉じ、畳んだ側�
 // hasTouch/isMobile の WebKit コンテキストで実機と同じ分岐に入る。
 // ============================================================================
 
-test('C52: iPhone相当（WebKit）では貼り付けだけで置き換わり、多段確認のボタンを出さない（258）', async () => {
+test('C52: iPhone相当（WebKit）では「✕ クリア」→「長押し貼り付け」の2操作で置き換わる（258/259）', async () => {
   const browser = await webkit.launch();
   const ctx = await browser.newContext({
     storageState: STORAGE_STATE,
@@ -2366,59 +2366,108 @@ test('C52: iPhone相当（WebKit）では貼り付けだけで置き換わり、
 
     const textarea = page.getByPlaceholder('ここに分析したいテキストを貼り付けてください...');
     await expect(textarea).toBeVisible({ timeout: 30000 });
-    // ハイドレーション完了の合図。この案内はクライアントの effect
-    // （端末判定＋設定の確定）が済んで初めて出るため、キー併記の代わりに使える
+    // ハイドレーション完了の合図。この欄はクライアントの effect（端末判定）が済んで
+    // 初めて出るため、キー併記の代わりに使える
     // （モバイルではキー併記を出さない仕様なので waitForRunReady は使えない・R-12）
-    const hint = page.locator('[data-paste-hint]');
-    await expect(hint, '代わりの操作が案内されていること').toBeVisible({ timeout: 30000 });
-    await expect(hint).toContainText('長押し→ペースト');
+    const dropField = page.locator('[data-long-press-paste]');
+    await expect(dropField, '長押し貼り付け欄が出ていること').toBeVisible({ timeout: 30000 });
 
-    // ── ① 多段確認になるボタンを出していない ──
+    // ── ① 多段確認になる「📋 クリアして貼付」は出さない（258で撤去・259でも復活させない）──
     await expect(
       page.locator('[data-clear-paste]'),
       'iOSでは「📋 クリアして貼付」を出さないこと',
     ).toHaveCount(0);
+    // ── ② 代わりに「📋 ペースト」と「✕ クリア」が別々に並んでいる（259の要件1）──
+    await expect(page.locator('[data-paste-button]'), '📋 ペーストが出ていること').toBeVisible();
+    await expect(
+      page.getByRole('button', { name: /✕ クリア/ }),
+      '✕ クリアが出ていること',
+    ).toBeVisible();
+    await expect(dropField, '空欄で保たれていること（長押しメニューを「ペースト」だけにするため）').toHaveValue('');
 
-    // ── ② 設定は未設定のままでも置き換えが効く（255が効かなかった真因） ──
+    // ── ③ 「貼り付けで置き換える」は全端末で既定OFF（259で258の端末別既定を取り下げ）──
     const stored = await page.evaluate(() => localStorage.getItem('lumina_paste_replace'));
     expect(stored, '保存値が無い状態で検証していること').toBeNull();
 
-    // ── ③ 「長押し→ペースト」の1操作で置き換わる ──
-    // iOSの長押し→ペーストがアプリに届く形は paste イベント。
-    // ここでは同じ WebKit 上で、クリップボード経由の**本物の貼り付け**を送る
     const OLD = `[E2E] ${RUN_ID} 前からあった本文`;
     const CLIP = `[E2E] ${RUN_ID} 貼り付ける内容`;
+
+    // クリップボードへ入れる（権限APIを使わず、ユーザー操作としてのコピー）
+    const copyToClipboard = async (text: string) => {
+      await page.evaluate((t) => {
+        const tmp = document.createElement('textarea');
+        tmp.id = 'e2e-clip-src';
+        tmp.value = t;
+        tmp.style.position = 'fixed';
+        tmp.style.opacity = '0';
+        document.body.appendChild(tmp);
+        tmp.focus();
+        tmp.select();
+      }, text);
+      await page.keyboard.press('ControlOrMeta+c');
+      await page.evaluate(() => document.getElementById('e2e-clip-src')?.remove());
+    };
+    await copyToClipboard(CLIP);
+
+    // ── ④ 既定OFFなので、本文欄への貼り付けは従来どおり「追記」（黙って全消しにならない）──
     await textarea.fill(OLD);
     await expect(textarea, '前提: 入力がある').toHaveValue(OLD);
-
-    // 別の入力欄に置いてコピー（権限APIを使わず、ユーザー操作としてクリップボードへ入れる）
-    await page.evaluate((t) => {
-      const tmp = document.createElement('textarea');
-      tmp.id = 'e2e-clip-src';
-      tmp.value = t;
-      tmp.style.position = 'fixed';
-      tmp.style.opacity = '0';
-      document.body.appendChild(tmp);
-      tmp.focus();
-      tmp.select();
-    }, CLIP);
-    await page.keyboard.press('ControlOrMeta+c');
-    await page.evaluate(() => document.getElementById('e2e-clip-src')?.remove());
-
     await textarea.click();
+    await page.keyboard.press('End');
     await page.keyboard.press('ControlOrMeta+v');
-    await expect(
-      textarea,
-      '貼り付けの1操作だけで置き換わること（追加のタップが要らない）',
-    ).toHaveValue(CLIP);
+    await expect(textarea, '既定では貼り付けの意味が変わらないこと').toHaveValue(`${OLD}${CLIP}`);
 
-    // ── ④ Undoで元に戻せる（誤って置き換えても本文を失わない） ──
+    // ── ⑤ 長押し貼り付け欄に貼ると、本文欄へ入って欄は空のまま ──
+    // iOSの「長押し →「ペースト」」がアプリに届く形は paste イベント。
+    // ここでは同じ WebKit 上で、クリップボード経由の**本物の貼り付け**を送る
+    await textarea.fill(OLD);
+    await dropField.click();
+    await page.keyboard.press('ControlOrMeta+v');
+    await expect(textarea, '長押し貼り付けの内容が本文へ入ること').toHaveValue(`${OLD}${CLIP}`);
+    await expect(dropField, '貼り付け欄には残らないこと（次も「ペースト」だけを出すため）').toHaveValue('');
+
+    // ── ⑥ 「✕ クリア」→ 長押し貼り付け の2操作で置き換えが完了する（259の主目的）──
+    await page.getByRole('button', { name: /✕ クリア/ }).click();
+    await expect(textarea, 'クリアで空になること').toHaveValue('');
+    await dropField.click();
+    await page.keyboard.press('ControlOrMeta+v');
+    await expect(textarea, '2操作で置き換わること').toHaveValue(CLIP);
+
+    // ── ⑦ クリアはUndoで戻せる（消しても取り返しがつく）──
+    await textarea.fill(OLD);
+    await page.getByRole('button', { name: /✕ クリア/ }).click();
     const undo = page.getByRole('button', { name: '↩ 元に戻す' });
-    await expect(undo, '置き換えた直後はUndoが出ること').toBeVisible();
+    await expect(undo, 'クリア直後はUndoが出ること').toBeVisible();
     await undo.click();
     await expect(textarea, 'Undoで元の本文に戻ること').toHaveValue(OLD);
   } finally {
     await ctx.close();
     await browser.close();
   }
+});
+
+// 259: デスクトップは現状維持。長押し欄も📋ペーストも出さず、254/258の口だけが並ぶ。
+test('C53: デスクトップにはiOS向けの貼り付け口を出さない（259・現状維持の確認）', async ({ page }) => {
+  await stubFeatureDrafts(page);
+  await page.goto('/dashboard/text-analysis');
+  await waitForRunReady(page);
+
+  await expect(
+    page.locator('[data-long-press-paste]'),
+    'デスクトップに長押し貼り付け欄は出さないこと',
+  ).toHaveCount(0);
+  await expect(
+    page.locator('[data-paste-button]'),
+    'デスクトップに📋 ペーストは出さないこと（クリアして貼付と⌘⇧Vで足りる）',
+  ).toHaveCount(0);
+  await expect(
+    page.locator('[data-clear-paste]').filter({ visible: true }).first(),
+    'デスクトップでは「📋 クリアして貼付」が従来どおり出ること',
+  ).toBeVisible();
+
+  // ディープリサーチ側も同じ扱い
+  await page.goto('/dashboard/deepresearch');
+  await expect(page.locator('[data-clear-paste]').first()).toBeVisible({ timeout: 30000 });
+  await expect(page.locator('[data-long-press-paste]')).toHaveCount(0);
+  await expect(page.locator('[data-paste-button]')).toHaveCount(0);
 });

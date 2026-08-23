@@ -37,6 +37,8 @@ import { clearAndPaste, CLEAR_PASTE_MESSAGE } from '@/lib/clear-and-paste';
 import { applyReplacePaste, usePasteReplace } from '@/lib/paste-replace';
 // 258: 「📋 クリアして貼付」を出すかの判定（iOSは押すと確認が何段も出るので出さない）
 import { useFinePointer } from '@/lib/pointer-device';
+// 259: iOSの「クリア」と「ペースト」を別操作にする2部品（テキスト分析と同じ部品）
+import { LongPressPasteField, PasteButton } from '@/components/TouchPaste';
 import { isAutoStockSaveEnabled } from '@/lib/auto-stock-save';
 
 // 自動下書き（feature_result_drafts feature_key='deepresearch'）のpayload
@@ -1750,12 +1752,18 @@ ${contextText}
                 {pasting ? '⏳ 貼付中...' : `📋 クリアして貼付${keyHints ? ` ${keyHints.clearPaste}` : ''}`}
               </button>
               )}
-              {/* 258: ボタンを出さない端末には、代わりの操作を小さく案内する */}
-              {pointer.mounted && !pointer.fine && pasteReplace.enabled && (
-                <span data-paste-hint style={{ fontSize: 11, color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>
-                  長押し→ペーストで置き換わります
-                </span>
-              )}
+              {/* 259: カーソルの無い端末には「📋 ペースト」を置く（部品側で出し分ける） */}
+              <PasteButton
+                value={topic}
+                setValue={setTopic}
+                targetRef={topicRef}
+                disabled={loading}
+                // この画面はトースト機構を持たない（254と同じ扱い）。成功は入力欄を見れば
+                // 分かるので出さず、貼れなかったときだけ知らせる
+                notify={(text, kind) => {
+                  if (kind !== 'success') alert(text);
+                }}
+              />
               <button
                 type="button"
                 onClick={handleClearTopic}
@@ -1795,6 +1803,16 @@ ${contextText}
             <div style={{ position: 'absolute', right: 10, bottom: 10 }}>
               <VoiceInputButton size="sm" onResult={(text) => setTopic(prev => prev + text)} />
             </div>
+            {/* 259: 主経路。空欄なので長押しのメニューが「ペースト」だけになる（確認なし） */}
+            <LongPressPasteField
+              value={topic}
+              setValue={setTopic}
+              targetRef={topicRef}
+              disabled={loading}
+              notify={(text, kind) => {
+                if (kind !== 'success') alert(text);
+              }}
+            />
             {/* 過去に実行したお題の候補表示（入力で絞り込み・クリックで入力欄に反映） */}
             {showQuerySuggest && (() => {
               const kw = topic.trim().toLowerCase();

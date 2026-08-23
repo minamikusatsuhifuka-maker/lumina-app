@@ -45,6 +45,8 @@ import { clearAndPaste, CLEAR_PASTE_MESSAGE } from '@/lib/clear-and-paste';
 import { applyReplacePaste, usePasteReplace } from '@/lib/paste-replace';
 // 258: 「📋 クリアして貼付」を出すかの判定（iOSは押すと確認が何段も出るので出さない）
 import { useFinePointer } from '@/lib/pointer-device';
+// 259: iOSの「クリア」と「ペースト」を別操作にする2部品（長押し貼り付け欄／📋 ペースト）
+import { LongPressPasteField, PasteButton } from '@/components/TouchPaste';
 import { isAutoStockSaveEnabled } from '@/lib/auto-stock-save';
 
 // 215: 「全」は高さプリセットではなく FullscreenReader（保存一覧と同じ全画面ビューア）を
@@ -1231,13 +1233,19 @@ export default function TextAnalysisPanel({
               {pasting ? '⏳ 貼付中...' : `📋 クリアして貼付${keyHints ? ` ${keyHints.clearPaste}` : ''}`}
             </button>
             )}
-            {/* 258: ボタンを出さない端末には、代わりの操作を入力欄のそばに小さく置く。
-                案内が無いと「機能が消えた」に見える（R-34の趣旨） */}
-            {pointer.mounted && !pointer.fine && pasteReplace.enabled && (
-              <span data-paste-hint style={{ fontSize: 11, color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>
-                長押し→ペーストで置き換わります
-              </span>
-            )}
+            {/* 259: カーソルの無い端末には「📋 ペースト」を置く（クリアとペーストを別操作に）。
+                このボタンは readText() を通るため iOS では確認が入る＝確認の要らない
+                「長押し貼り付け欄」を主経路とし、これはその保険（部品側で出し分ける） */}
+            <PasteButton
+              value={inputText}
+              setValue={(next) => {
+                setInputText(next);
+                setAnalysisDone(false);
+              }}
+              targetRef={inputRef}
+              disabled={loading}
+              notify={(text, kind) => showToast(text, kind)}
+            />
             <button
               type="button"
               onClick={handleClearInput}
@@ -1262,6 +1270,19 @@ export default function TextAnalysisPanel({
             </button>
           </span>
         </div>
+        {/* 259: 主経路。**空欄なので長押しのメニューが「ペースト」だけになる**
+            （本文の途中を長押しすると選択メニューが出て迷う、という258の不満への答え）。
+            確認ポップアップは出ない＝カーソルの無い端末での最短経路 */}
+        <LongPressPasteField
+          value={inputText}
+          setValue={(next) => {
+            setInputText(next);
+            setAnalysisDone(false);
+          }}
+          targetRef={inputRef}
+          disabled={loading}
+          notify={(text, kind) => showToast(text, kind)}
+        />
       </div>
 
       {/* 分析タイプ選択 */}
