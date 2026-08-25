@@ -1,6 +1,7 @@
 'use client';
 // 261: 🚀 発信ハブ — ディープリサーチ記事を起点に note記事・X投稿・Kindle本・戦略・画像へ展開する起点画面。
 // 261a: ①ペルソナ別サンプル比較 → note記事全文生成（236テイスト変換の「サンプル→選択→全文」方式を流用）。
+// 261b: ②分割記事化（プラン提案→1リクエスト=1記事で生成。シリーズ導線＝10原則ベースのマーケ設計込み）。
 // 生成APIは保存しない（R-38と同方針）。保存は SaveToLibraryButton の明示操作のみ。
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { SaveToLibraryButton } from '@/components/SaveToLibraryButton';
@@ -37,6 +38,26 @@ interface PersonaArticle {
   adCheck?: AdCheck | null;
 }
 
+// ② 分割プランの1記事分（/api/dr-hub/split mode:'plan' の articles[]）
+interface PlanArticle {
+  title: string;
+  role: string;
+  points: string[];
+  bridge: string;
+  principles: string[];
+}
+
+interface SplitPlan {
+  recommendedCount: number;
+  reason: string;
+  articles: PlanArticle[];
+}
+
+interface SplitArticleResult {
+  content: string;
+  adCheck?: AdCheck | null;
+}
+
 type Length = 'short' | 'medium' | 'long';
 const LENGTH_OPTIONS: Array<{ value: Length; label: string }> = [
   { value: 'short', label: '短め（1500〜2500字）' },
@@ -44,14 +65,27 @@ const LENGTH_OPTIONS: Array<{ value: Length; label: string }> = [
   { value: 'long', label: '長め（5000〜7000字）' },
 ];
 
+type Feature = 'persona' | 'split';
+const FEATURES: Array<{ key: Feature; label: string }> = [
+  { key: 'persona', label: '✍️ ペルソナ別note記事' },
+  { key: 'split', label: '🧩 分割記事化（シリーズ）' },
+];
+
 // 自動下書き（feature_result_drafts feature_key='dr-hub'）のpayload
 interface DrHubDraftPayload {
+  feature?: Feature;
   drId?: string;
   drTitle?: string;
   personaKeys?: PersonaStyleKey[];
   samples?: Partial<Record<PersonaStyleKey, string>> | null;
   article?: PersonaArticle | null;
   length?: Length;
+  // ② 分割記事化
+  splitCount?: number | 'auto';
+  splitPersona?: PersonaStyleKey | '';
+  splitPlan?: SplitPlan | null;
+  seriesKey?: string;
+  splitArticles?: Record<number, SplitArticleResult>;
 }
 
 const ACCENT = '#e0684b'; // 発信ハブのアクセント（ロケットの暖色系）
@@ -63,6 +97,7 @@ export default function DrHubPage() {
   const [drError, setDrError] = useState('');
   const [drQuery, setDrQuery] = useState('');
   const [selectedDrId, setSelectedDrId] = useState('');
+  const [feature, setFeature] = useState<Feature>('persona');
 
   // ── ① ペルソナ別サンプル比較 → 全文生成 ──
   const [personaKeys, setPersonaKeys] = useState<PersonaStyleKey[]>([]);
@@ -71,8 +106,20 @@ export default function DrHubPage() {
   const [fullBusyKey, setFullBusyKey] = useState<PersonaStyleKey | null>(null);
   const [article, setArticle] = useState<PersonaArticle | null>(null);
   const [length, setLength] = useState<Length>('medium');
+
+  // ── ② 分割記事化 ──
+  const [splitCount, setSplitCount] = useState<number | 'auto'>('auto');
+  const [splitPersona, setSplitPersona] = useState<PersonaStyleKey | ''>('');
+  const [splitPlan, setSplitPlan] = useState<SplitPlan | null>(null);
+  const [planBusy, setPlanBusy] = useState(false);
+  const [seriesKey, setSeriesKey] = useState('');
+  const [splitArticles, setSplitArticles] = useState<Record<number, SplitArticleResult>>({});
+  const [splitBusyIndex, setSplitBusyIndex] = useState<number | null>(null);
+  const [splitRunAll, setSplitRunAll] = useState(false);
+  const [openArticleIndex, setOpenArticleIndex] = useState<number | null>(null);
+
   const [error, setError] = useState('');
-  const [copied, setCopied] = useState(false);
+  const [copied, setCopied] = useState<string | null>(null);
   const [restoredAt, setRestoredAt] = useState<string | null>(null);
 
   const selectedDr = useMemo(
@@ -82,7 +129,12 @@ export default function DrHubPage() {
 
   // 復元取得が返ってきた時点で既に操作が始まっていたら復元しない
   const draftGuardRef = useRef(false);
-  draftGuardRef.current = samplesBusy || !!fullBusyKey || !!samples || !!article;
+  draftGuardRef.current =
+    samplesBusy || !!fullBusyKey || !!samples || !!article || planBusy || !!splitPlan;
+
+  // ②の逐次生成で最新stateを参照するためのref（連続fetch中のstale closure対策）
+  const splitArticlesRef = useRef(splitArticles);
+  splitArticlesRef.current = splitArticles;
 
   // DR記事一覧（📚リサーチ保存の type='deepresearch'）を取得
   useEffect(() => {
@@ -112,7 +164,8 @@ export default function DrHubPage() {
       if (cancelled || !draft?.payload) return;
       if (draftGuardRef.current) return;
       const p = draft.payload;
-      if (!p.samples && !p.article) return;
+      if (!p.samples && !p.article && !p.splitPlan) return;
+      if (p.feature) setFeature(p.feature);
       if (p.drId) setSelectedDrId(p.drId);
       if (Array.isArray(p.personaKeys)) {
         setPersonaKeys(p.personaKeys.filter((k) => k in PERSONA_STYLES));
@@ -120,6 +173,11 @@ export default function DrHubPage() {
       setSamples(p.samples ?? null);
       setArticle(p.article ?? null);
       if (p.length) setLength(p.length);
+      if (p.splitCount) setSplitCount(p.splitCount);
+      if (p.splitPersona && p.splitPersona in PERSONA_STYLES) setSplitPersona(p.splitPersona);
+      setSplitPlan(p.splitPlan ?? null);
+      if (p.seriesKey) setSeriesKey(p.seriesKey);
+      if (p.splitArticles) setSplitArticles(p.splitArticles);
       setRestoredAt(draft.updated_at);
     })();
     return () => {
@@ -132,7 +190,29 @@ export default function DrHubPage() {
     setSamples(null);
     setArticle(null);
     setPersonaKeys([]);
+    setSplitPlan(null);
+    setSplitArticles({});
+    setSeriesKey('');
     clearFeatureDraft('dr-hub');
+  };
+
+  // 下書き保存の共通化（そのとき点の全状態をまとめて保存）
+  const persistDraft = (over: Partial<DrHubDraftPayload> = {}) => {
+    saveFeatureDraft('dr-hub', {
+      feature,
+      drId: selectedDrId,
+      drTitle: selectedDr?.title,
+      personaKeys,
+      samples,
+      article,
+      length,
+      splitCount,
+      splitPersona,
+      splitPlan,
+      seriesKey,
+      splitArticles: splitArticlesRef.current,
+      ...over,
+    } satisfies DrHubDraftPayload);
   };
 
   const filteredDr = useMemo(() => {
@@ -168,14 +248,7 @@ export default function DrHubPage() {
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data?.error || `サンプル生成に失敗しました（${res.status}）`);
       setSamples(data.samples ?? null);
-      saveFeatureDraft('dr-hub', {
-        drId: selectedDrId,
-        drTitle: selectedDr?.title,
-        personaKeys,
-        samples: data.samples ?? null,
-        article: null,
-        length,
-      } satisfies DrHubDraftPayload);
+      persistDraft({ samples: data.samples ?? null, article: null });
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'サンプル生成に失敗しました');
     } finally {
@@ -209,18 +282,111 @@ export default function DrHubPage() {
         adCheck: data.ad_check ?? null,
       };
       setArticle(next);
-      saveFeatureDraft('dr-hub', {
-        drId: selectedDrId,
-        drTitle: selectedDr?.title,
-        personaKeys,
-        samples,
-        article: next,
-        length,
-      } satisfies DrHubDraftPayload);
+      persistDraft({ article: next });
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : '記事の生成に失敗しました');
     } finally {
       setFullBusyKey(null);
+    }
+  };
+
+  // ── ② 分割プランの提案 ──
+  const generatePlan = async () => {
+    if (!selectedDrId || planBusy) return;
+    setPlanBusy(true);
+    setError('');
+    setRestoredAt(null);
+    setSplitPlan(null);
+    setSplitArticles({});
+    try {
+      const res = await fetch('/api/dr-hub/split', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          drId: selectedDrId,
+          mode: 'plan',
+          count: splitCount === 'auto' ? 'auto' : splitCount,
+          personaKey: splitPersona || undefined,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data?.error || `分割プランの提案に失敗しました（${res.status}）`);
+      const plan: SplitPlan = {
+        recommendedCount: data.recommendedCount ?? (data.articles?.length || 0),
+        reason: data.reason ?? '',
+        articles: Array.isArray(data.articles) ? data.articles : [],
+      };
+      // シリーズ識別キー（保存時のmetadataで記事同士を関連付ける。229Bの関連付け方式の簡易版）
+      const key =
+        typeof crypto !== 'undefined' && 'randomUUID' in crypto
+          ? crypto.randomUUID()
+          : `series-${Math.random().toString(36).slice(2)}`;
+      setSplitPlan(plan);
+      setSeriesKey(key);
+      splitArticlesRef.current = {};
+      persistDraft({ splitPlan: plan, seriesKey: key, splitArticles: {} });
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : '分割プランの提案に失敗しました');
+    } finally {
+      setPlanBusy(false);
+    }
+  };
+
+  // ── ② 1記事分を生成（部分成功方針。全記事生成は直列で回す） ──
+  const generateSplitArticle = async (index: number): Promise<boolean> => {
+    if (!selectedDrId || !splitPlan) return false;
+    const a = splitPlan.articles[index - 1];
+    if (!a) return false;
+    setSplitBusyIndex(index);
+    setError('');
+    try {
+      const res = await fetch('/api/dr-hub/split', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          drId: selectedDrId,
+          mode: 'article',
+          article: a,
+          series: {
+            index,
+            total: splitPlan.articles.length,
+            prevTitle: splitPlan.articles[index - 2]?.title ?? '',
+            nextTitle: splitPlan.articles[index]?.title ?? '',
+          },
+          personaKey: splitPersona || undefined,
+          length,
+          model: getSavedModel(),
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data?.error || `第${index}記事の生成に失敗しました（${res.status}）`);
+      const next = {
+        ...splitArticlesRef.current,
+        [index]: { content: data.content || '', adCheck: data.ad_check ?? null },
+      };
+      splitArticlesRef.current = next;
+      setSplitArticles(next);
+      persistDraft({ splitArticles: next });
+      return true;
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : `第${index}記事の生成に失敗しました`);
+      return false;
+    } finally {
+      setSplitBusyIndex(null);
+    }
+  };
+
+  const generateAllSplitArticles = async () => {
+    if (!splitPlan || splitRunAll || splitBusyIndex) return;
+    setSplitRunAll(true);
+    try {
+      for (let i = 1; i <= splitPlan.articles.length; i++) {
+        if (splitArticlesRef.current[i]?.content) continue; // 生成済みは飛ばす（部分成功の続きから）
+        const ok = await generateSplitArticle(i);
+        if (!ok) break; // 失敗したら止める（エラーは画面に出ている）
+      }
+    } finally {
+      setSplitRunAll(false);
     }
   };
 
@@ -230,16 +396,19 @@ export default function DrHubPage() {
     return (m?.[1] || `${article.personaLabel}向け: ${selectedDr?.title ?? ''}`).trim();
   }, [article, selectedDr]);
 
-  const handleCopy = () => {
-    if (!article) return;
-    copyToClipboard(article.content);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+  const handleCopy = (text: string, key: string) => {
+    copyToClipboard(text);
+    setCopied(key);
+    setTimeout(() => setCopied(null), 2000);
   };
 
   const sampleKeys = samples
     ? PERSONA_STYLE_KEYS.filter((k) => typeof samples[k] === 'string' && samples[k])
     : [];
+
+  const splitDoneCount = splitPlan
+    ? splitPlan.articles.filter((_, i) => splitArticles[i + 1]?.content).length
+    : 0;
 
   return (
     <div>
@@ -327,7 +496,27 @@ export default function DrHubPage() {
         )}
       </div>
 
-      {/* ── STEP2: ① ペルソナ別note記事 ── */}
+      {/* ── STEP2: 機能を選ぶ ── */}
+      <div style={{ display: 'flex', gap: 8, marginBottom: 12, flexWrap: 'wrap' }}>
+        {FEATURES.map((f) => (
+          <button
+            key={f.key}
+            type="button"
+            onClick={() => setFeature(f.key)}
+            style={{
+              padding: '10px 18px', borderRadius: 10, cursor: 'pointer', fontSize: 13, fontWeight: 700,
+              border: feature === f.key ? `2px solid ${ACCENT}` : '1px solid var(--border)',
+              background: feature === f.key ? `${ACCENT}12` : 'var(--bg-secondary)',
+              color: feature === f.key ? ACCENT : 'var(--text-muted)',
+            }}
+          >
+            {f.label}
+          </button>
+        ))}
+      </div>
+
+      {/* ── ① ペルソナ別note記事 ── */}
+      {feature === 'persona' && (
       <div style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 12, padding: 20, marginBottom: 16 }}>
         <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 4 }}>
           2️⃣ ✍️ ペルソナ別note記事（読み比べて選ぶ）
@@ -379,6 +568,78 @@ export default function DrHubPage() {
           </button>
         </div>
       </div>
+      )}
+
+      {/* ── ② 分割記事化 ── */}
+      {feature === 'split' && (
+      <div style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 12, padding: 20, marginBottom: 16 }}>
+        <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 4 }}>
+          2️⃣ 🧩 分割記事化（DR記事1本 → note記事シリーズ）
+        </div>
+        <p style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 12 }}>
+          DR記事を1〜5本のnote記事シリーズに分割します。記事間の導線（第1記事で問題提起→続きへの興味／最終記事でまとめとCTA）をAIが設計します。
+        </p>
+
+        <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', alignItems: 'center', marginBottom: 12 }}>
+          <label style={{ fontSize: 12, color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: 6 }}>
+            分割数:
+            <select
+              value={String(splitCount)}
+              onChange={(e) => setSplitCount(e.target.value === 'auto' ? 'auto' : Number(e.target.value))}
+              style={{ padding: '6px 10px', background: 'var(--bg-primary)', border: '1px solid var(--border)', borderRadius: 6, color: 'var(--text-primary)', fontSize: 12, outline: 'none' }}
+            >
+              <option value="auto">🤖 AIにおまかせ（1〜5）</option>
+              {[1, 2, 3, 4, 5].map((n) => (
+                <option key={n} value={n}>{n}記事に分割</option>
+              ))}
+            </select>
+          </label>
+          <label style={{ fontSize: 12, color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: 6 }}>
+            読者ペルソナ:
+            <select
+              value={splitPersona}
+              onChange={(e) => setSplitPersona(e.target.value as PersonaStyleKey | '')}
+              style={{ padding: '6px 10px', background: 'var(--bg-primary)', border: '1px solid var(--border)', borderRadius: 6, color: 'var(--text-primary)', fontSize: 12, outline: 'none' }}
+            >
+              <option value="">指定なし（一般読者）</option>
+              {PERSONA_STYLE_KEYS.map((k) => (
+                <option key={k} value={k}>{PERSONA_STYLES[k].emoji} {PERSONA_STYLES[k].label}</option>
+              ))}
+            </select>
+          </label>
+          <label style={{ fontSize: 12, color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: 6 }}>
+            記事の長さ:
+            <select
+              value={length}
+              onChange={(e) => setLength(e.target.value as Length)}
+              style={{ padding: '6px 10px', background: 'var(--bg-primary)', border: '1px solid var(--border)', borderRadius: 6, color: 'var(--text-primary)', fontSize: 12, outline: 'none' }}
+            >
+              {LENGTH_OPTIONS.map((o) => (
+                <option key={o.value} value={o.value}>{o.label}</option>
+              ))}
+            </select>
+          </label>
+        </div>
+
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
+          <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>
+            {!selectedDrId && '先にDR記事を選んでください'}
+          </div>
+          <button
+            type="button"
+            onClick={generatePlan}
+            disabled={!selectedDrId || planBusy}
+            style={{
+              padding: '12px 28px', background: ACCENT, color: '#fff', border: 'none', borderRadius: 8,
+              fontWeight: 700, fontSize: 14, cursor: !selectedDrId || planBusy ? 'not-allowed' : 'pointer',
+              opacity: !selectedDrId || planBusy ? 0.5 : 1,
+            }}
+          >
+            {planBusy ? 'プランを提案中…' : '🧩 分割プランを提案してもらう'}
+          </button>
+        </div>
+      </div>
+      )}
 
       {error && (
         <div style={{ padding: 16, background: 'rgba(255,107,107,0.1)', border: '1px solid rgba(255,107,107,0.2)', borderRadius: 10, color: '#ff6b6b', fontSize: 14, marginBottom: 16 }}>
@@ -386,8 +647,8 @@ export default function DrHubPage() {
         </div>
       )}
 
-      {/* ── サンプル比較（2〜4列） ── */}
-      {sampleKeys.length > 0 && (
+      {/* ── ① サンプル比較（2〜4列） ── */}
+      {feature === 'persona' && sampleKeys.length > 0 && (
         <div style={{ marginBottom: 16 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8, marginBottom: 10 }}>
             <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--text-primary)' }}>
@@ -441,8 +702,8 @@ export default function DrHubPage() {
         </div>
       )}
 
-      {/* ── 記事全文 ── */}
-      {article && (
+      {/* ── ① 記事全文 ── */}
+      {feature === 'persona' && article && (
         <div style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 12, padding: 20, marginBottom: 16 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8, marginBottom: 8 }}>
             <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--text-primary)' }}>
@@ -460,15 +721,14 @@ export default function DrHubPage() {
                   sourceDrId: selectedDrId,
                   sourceDrTitle: selectedDr?.title ?? '',
                   persona: article.personaKey,
-                  savedAt: new Date().toISOString(),
                 }}
               />
               <button
                 type="button"
-                onClick={handleCopy}
+                onClick={() => handleCopy(article.content, 'persona-article')}
                 style={{ padding: '6px 14px', background: 'var(--bg-primary)', border: '1px solid var(--border)', color: 'var(--text-secondary)', borderRadius: 6, cursor: 'pointer', fontSize: 12 }}
               >
-                {copied ? '✅ コピー済み' : '📋 本文をコピー'}
+                {copied === 'persona-article' ? '✅ コピー済み' : '📋 本文をコピー'}
               </button>
             </div>
           </div>
@@ -489,6 +749,159 @@ export default function DrHubPage() {
             style={{ fontSize: 14, lineHeight: 1.9, color: 'var(--text-secondary)' }}
             dangerouslySetInnerHTML={{ __html: renderMarkdown(article.content) }}
           />
+        </div>
+      )}
+
+      {/* ── ② 分割プランと記事生成 ── */}
+      {feature === 'split' && splitPlan && (
+        <div style={{ marginBottom: 16 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8, marginBottom: 10 }}>
+            <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--text-primary)' }}>
+              3️⃣ プランを確認して、記事を生成する（{splitDoneCount}/{splitPlan.articles.length}本 生成済み）
+            </div>
+            <button
+              type="button"
+              onClick={generateAllSplitArticles}
+              disabled={splitRunAll || splitBusyIndex !== null || splitDoneCount >= splitPlan.articles.length}
+              style={{
+                padding: '10px 20px', background: ACCENT, color: '#fff', border: 'none', borderRadius: 8,
+                fontWeight: 700, fontSize: 13,
+                cursor: splitRunAll || splitBusyIndex !== null ? 'not-allowed' : 'pointer',
+                opacity: splitRunAll || splitBusyIndex !== null || splitDoneCount >= splitPlan.articles.length ? 0.5 : 1,
+              }}
+            >
+              {splitRunAll ? `順に生成中…（${splitDoneCount}/${splitPlan.articles.length}）` : '▶️ 残りの記事を順に生成'}
+            </button>
+          </div>
+
+          {splitPlan.reason && (
+            <div style={{ padding: 12, background: `${ACCENT}0d`, border: `1px solid ${ACCENT}30`, borderRadius: 8, fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.6, marginBottom: 12 }}>
+              🤖 AIの提案: {splitPlan.recommendedCount}本構成 — {splitPlan.reason}
+            </div>
+          )}
+
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+            {splitPlan.articles.map((a, i) => {
+              const index = i + 1;
+              const result = splitArticles[index];
+              const busy = splitBusyIndex === index;
+              const isOpen = openArticleIndex === index;
+              return (
+                <div key={index} style={{ background: 'var(--bg-secondary)', border: result ? `1px solid ${ACCENT}50` : '1px solid var(--border)', borderRadius: 12, padding: 16 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 8 }}>
+                    <div style={{ flex: 1, minWidth: 240 }}>
+                      <div style={{ fontSize: 12, color: ACCENT, fontWeight: 700, marginBottom: 2 }}>
+                        第{index}記事{a.role ? `｜${a.role}` : ''}
+                      </div>
+                      <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 6 }}>
+                        {a.title}
+                      </div>
+                      {a.points.length > 0 && (
+                        <ul style={{ margin: '0 0 6px 18px', padding: 0, fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.7 }}>
+                          {a.points.map((p, j) => (
+                            <li key={j}>{p}</li>
+                          ))}
+                        </ul>
+                      )}
+                      {a.bridge && (
+                        <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>↪ 導線設計: {a.bridge}</div>
+                      )}
+                      {a.principles.length > 0 && (
+                        <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', marginTop: 6 }}>
+                          {a.principles.map((p, j) => (
+                            <span key={j} style={{ fontSize: 10, padding: '2px 8px', borderRadius: 10, background: `${ACCENT}12`, color: ACCENT, border: `1px solid ${ACCENT}30` }}>
+                              {p}
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 6, alignItems: 'flex-end' }}>
+                      {!result && (
+                        <button
+                          type="button"
+                          onClick={() => generateSplitArticle(index)}
+                          disabled={splitBusyIndex !== null || splitRunAll}
+                          style={{
+                            padding: '8px 16px', background: `${ACCENT}15`, color: ACCENT,
+                            border: `1px solid ${ACCENT}50`, borderRadius: 8, fontWeight: 700, fontSize: 12,
+                            cursor: splitBusyIndex !== null || splitRunAll ? 'not-allowed' : 'pointer',
+                            opacity: splitBusyIndex !== null && !busy ? 0.5 : 1,
+                          }}
+                        >
+                          {busy ? '生成中…' : 'この記事を生成'}
+                        </button>
+                      )}
+                      {result && (
+                        <>
+                          <SaveToLibraryButton
+                            title={a.title}
+                            content={result.content}
+                            type="note-article"
+                            groupName="note記事"
+                            tags="note記事,下書き,発信ハブ,シリーズ"
+                            metadata={{
+                              from: 'dr-hub-split',
+                              sourceDrId: selectedDrId,
+                              sourceDrTitle: selectedDr?.title ?? '',
+                              seriesKey,
+                              seriesIndex: index,
+                              seriesTotal: splitPlan.articles.length,
+                              persona: splitPersona || null,
+                            }}
+                          />
+                          <div style={{ display: 'flex', gap: 6 }}>
+                            <button
+                              type="button"
+                              onClick={() => setOpenArticleIndex(isOpen ? null : index)}
+                              style={{ padding: '6px 12px', background: 'var(--bg-primary)', border: '1px solid var(--border)', color: 'var(--text-secondary)', borderRadius: 6, cursor: 'pointer', fontSize: 12 }}
+                            >
+                              {isOpen ? '▲ 本文を閉じる' : '▼ 本文を読む'}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleCopy(result.content, `split-${index}`)}
+                              style={{ padding: '6px 12px', background: 'var(--bg-primary)', border: '1px solid var(--border)', color: 'var(--text-secondary)', borderRadius: 6, cursor: 'pointer', fontSize: 12 }}
+                            >
+                              {copied === `split-${index}` ? '✅ コピー済み' : '📋 コピー'}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => generateSplitArticle(index)}
+                              disabled={splitBusyIndex !== null || splitRunAll}
+                              title="同じプランでこの記事だけ作り直します（現在の本文は置き換わります）"
+                              style={{ padding: '6px 12px', background: 'var(--bg-primary)', border: '1px solid var(--border)', color: 'var(--text-secondary)', borderRadius: 6, cursor: splitBusyIndex !== null || splitRunAll ? 'not-allowed' : 'pointer', fontSize: 12 }}
+                            >
+                              {busy ? '生成中…' : '🔄 再生成'}
+                            </button>
+                          </div>
+                        </>
+                      )}
+                    </div>
+                  </div>
+
+                  {result?.adCheck && result.adCheck.status === 'warn' && result.adCheck.findings.length > 0 && (
+                    <div style={{ padding: 10, background: 'rgba(180,83,9,0.08)', border: '1px solid rgba(180,83,9,0.25)', borderRadius: 8, marginTop: 10 }}>
+                      <div style={{ fontSize: 12, fontWeight: 700, color: '#B45309', marginBottom: 4 }}>
+                        ⚠️ 医療広告表現の自己チェック（投稿前に確認してください）
+                      </div>
+                      {result.adCheck.findings.map((f, j) => (
+                        <div key={j} style={{ fontSize: 11, color: 'var(--text-secondary)', lineHeight: 1.6 }}>・{f}</div>
+                      ))}
+                    </div>
+                  )}
+
+                  {result && isOpen && (
+                    <div
+                      className="markdown-body"
+                      style={{ fontSize: 14, lineHeight: 1.9, color: 'var(--text-secondary)', marginTop: 12, borderTop: '1px solid var(--border)', paddingTop: 12 }}
+                      dangerouslySetInnerHTML={{ __html: renderMarkdown(result.content) }}
+                    />
+                  )}
+                </div>
+              );
+            })}
+          </div>
         </div>
       )}
     </div>

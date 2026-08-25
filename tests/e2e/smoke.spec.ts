@@ -2524,11 +2524,12 @@ test('C55: 発信ハブ（261a）— 画面到達・ペルソナ選択の前提�
   const genBtn = page.getByRole('button', { name: /サンプルを生成して読み比べる/ });
   await expect(genBtn).toBeDisabled();
 
-  // 3) R-34: 📚リサーチ保存に常時表示の導線がある（DR画面側の導線はレポート表示後にのみ出るためこちらで固定）
+  // 3) R-34: 📚リサーチ保存に常時表示の導線がある（DR画面側の導線はレポート表示後にのみ出るためこちらで固定）。
+  //    サイドバーにも同名リンク（data-nav-href付き）があるため、ページ内の導線だけに絞って判定する
   await page.goto('/dashboard/library');
-  const toHub = page.getByRole('link', { name: '🚀 発信ハブ' });
+  const toHub = page.locator('a[href="/dashboard/dr-hub"]:not([data-nav-href])');
   await expect(toHub).toBeVisible();
-  await expect(toHub).toHaveAttribute('href', '/dashboard/dr-hub');
+  await expect(toHub).toContainText('発信ハブ');
 
   // 4) API契約: 未認証401（R-31）→ drId欠落400 → 存在しないIDは404（owner検証）
   const anon = await pwRequest.newContext({ baseURL: BASE_URL, storageState: { cookies: [], origins: [] } });
@@ -2541,6 +2542,36 @@ test('C55: 発信ハブ（261a）— 画面到達・ペルソナ選択の前提�
 
   const notFound = await api.post('/api/dr-hub/persona', {
     data: { drId: '00000000-0000-0000-0000-000000000000', mode: 'samples', personaKeys: ['expert', 'teen'] },
+  });
+  expect(notFound.status()).toBe(404);
+});
+
+test('C56: 発信ハブ ②分割記事化（261b）— タブ切替・前提・API契約', async ({ page }) => {
+  // 261bで追加した🧩分割記事化のスモーク。AI呼び出しに到達しない検証のみ（課金なし）。
+  await stubFeatureDrafts(page); // R-12: 前回結果の復元でプランが埋まると前提が崩れる
+
+  // 1) タブが並び、切り替えると②の設定UIが出る
+  await page.goto('/dashboard/dr-hub');
+  const splitTab = page.getByRole('button', { name: /分割記事化/ });
+  await expect(splitTab).toBeVisible();
+  await splitTab.click();
+  await expect(page.getByText('AIにおまかせ（1〜5）')).toBeVisible();
+
+  // 2) プラン提案はDR記事を選ぶまで押せない
+  const planBtn = page.getByRole('button', { name: /分割プランを提案してもらう/ });
+  await expect(planBtn).toBeDisabled();
+
+  // 3) API契約: 未認証401（R-31）→ drId欠落400 → 存在しないIDは404（owner検証）
+  const anon = await pwRequest.newContext({ baseURL: BASE_URL, storageState: { cookies: [], origins: [] } });
+  const unauth = await anon.post('/api/dr-hub/split', { data: { drId: 'x' } });
+  expect(unauth.status()).toBe(401);
+  await anon.dispose();
+
+  const noId = await api.post('/api/dr-hub/split', { data: {} });
+  expect(noId.status()).toBe(400);
+
+  const notFound = await api.post('/api/dr-hub/split', {
+    data: { drId: '00000000-0000-0000-0000-000000000000', mode: 'plan', count: 3 },
   });
   expect(notFound.status()).toBe(404);
 });
