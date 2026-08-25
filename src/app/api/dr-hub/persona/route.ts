@@ -21,6 +21,7 @@ import {
   getPersonaStyle,
   type PersonaStyleKey,
 } from '@/lib/persona-styles';
+import { getPlaybook, PLAYBOOK_VERSION } from '@/lib/knowledge/noteXPlaybook';
 
 export const runtime = 'nodejs';
 export const maxDuration = 300;
@@ -167,7 +168,25 @@ ${MEDICAL_AD_NG_RULES}
 
 ${NOTE_COMMON_RULES}`;
 
+  // 265b: KB v2.0 から①用の章のみ注入（N-04 読者心理／N-05 タイトル原則／N-06 構成／N-07 無料エリア／
+  // N-10 文章体／PART-A 専門領域補正）。全文は投げない（コスト・焦点の両面）。
+  const playbook = getPlaybook(['N-04', 'N-05', 'N-06', 'N-07', 'N-10', 'PART-A']);
+
   const prompt = `以下のディープリサーチ記事をもとに、指定された読者ペルソナに向けた note 記事を執筆してください。内容は「参照資料」の記述だけを根拠にします。
+
+# 発信ナレッジ（note×X運用ナレッジベース v${PLAYBOOK_VERSION} より抜粋）
+以下のナレッジを記事設計に活かすこと:
+- タイトル案には「ターゲットの明確化（【〜向け】等）」「具体的ベネフィット」「手軽さ・再現性（穴埋め式・そのまま使える等）」「一次情報の明示」を織り込む。ただし数字は**手順・時間・件数・項目数にのみ**使う（効果の数値は禁止）
+- 本文の骨格は N-06 の6段階（導入Hook&Problem→ベネフィット提示→信頼性の担保→展開Story&Insight→理論の要約Why/What→対象読者）を、ペルソナに合う粒度で採用する（有料ラインは引かない）
+- 文章体は N-10 のPREP法（結論→理由→具体例→結論）を基本にする
+
+${playbook}
+
+# ナレッジとガードの優先順位（最重要・厳守）
+上のナレッジと、以下の医療広告ガード・誇張禁止の規約が衝突する場合は、**必ずガードを優先**する。
+- 「常識の否定」フックは、主語を「過去の自分の理解」に限定する（一般論・他者・他院を否定する形にしない）
+- Before/Afterの主語は患者ではなく自分（かつての自分／教える側としての自分）に置く
+- 「〜しないと危険」「知らないと損する」型の煽りは禁止
 
 ${persona.promptBlock}
 
