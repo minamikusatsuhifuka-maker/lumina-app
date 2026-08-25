@@ -3006,3 +3006,66 @@ test('C65: 収益化ロードマップ（268）— 現在地の決定的表示�
   // 4) 成果を約束しない注意書きが常時表示される（§1-4）
   await expect(page.locator('[data-roadmap-disclaimer]')).toContainText('約束するものではありません');
 });
+
+test('C66: Kindle→note多軸展開（269）— 3軸の選択肢・警告表示・目視確認UI（APIモック）', async ({ page }) => {
+  await stubFeatureDrafts(page); // R-12
+  await page.route('**/api/library?type=deepresearch', (route) =>
+    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([]) }),
+  );
+  await page.route('**/api/kindle', (route) =>
+    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ books: [] }) }),
+  );
+  await page.route('**/api/kindle/note-remix', (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        success: true,
+        content: 'リード文です。\n\n## なぜ起きるのか\n\n本文。\n\n## まとめ\n\n前章で述べた内容も参考に。',
+        titles: ['タイトル案1', 'タイトル案2', 'タイトル案3'],
+        ad_check: { status: 'ok', findings: [] },
+        contextHits: [{ label: '前章への参照', matched: '前章', excerpt: 'まとめ 前章で述べた内容も参考に' }],
+        overlapRatio: 0.12,
+        overlapWarn: false,
+        personaKey: 'homemaker',
+        angleKey: 'mechanism',
+        chapterTitle: '',
+      }),
+    }),
+  );
+
+  await page.goto('/dashboard/dr-hub');
+  await page.getByRole('button', { name: /Kindle→note展開/ }).click();
+
+  // 「生成は多く、公開は選抜」方針の明記・「全部公開」を推奨する文言が無い
+  await expect(page.getByText('生成は多く、公開は選抜')).toBeVisible();
+  await expect(page.getByText(/全部公開しましょう|すべて公開する/)).toHaveCount(0);
+
+  // 軸2: 9ペルソナ／軸3: 7切り口がすべて選択肢に出る
+  expect(await page.locator('[data-remix-persona] option').count()).toBe(9);
+  expect(await page.locator('[data-remix-angle] option').count()).toBe(7);
+
+  // 手動貼り付けで生成（モック）→ 候補カードが出る
+  await page.getByRole('button', { name: /手動で章を貼り付け/ }).click();
+  await page.locator('[data-remix-manual-title]').fill('[E2E] 保湿の章');
+  await page.locator('[data-remix-manual-text]').fill('角層は水分を保つバリアの役割を持つ。入浴後は早めの保湿が基本。');
+  await page.getByRole('button', { name: /この組み合わせで1本書き下ろす/ }).click();
+
+  const card = page.locator('[data-remix-candidate]');
+  await expect(card).toBeVisible();
+
+  // §7: 書籍文脈の残存が警告としてハイライト表示される
+  const warn = page.locator('[data-remix-warnings]');
+  await expect(warn).toBeVisible();
+  await expect(warn).toContainText('書籍文脈の残存');
+  await expect(warn).toContainText('前章で述べた内容');
+
+  // §4: 元の章と並べた目視確認UI（促し文言つき）
+  await page.getByRole('button', { name: /▼ 確認する/ }).click();
+  await expect(page.locator('[data-fact-check-note]')).toContainText('事実関係が元の章と同一か');
+  await expect(page.getByText('📕 元の章（素材）')).toBeVisible();
+  await expect(page.getByText('📰 書き下ろした記事')).toBeVisible();
+
+  // note用リッチコピー（266の専用ラッパー経路）ボタンがある
+  await expect(page.getByRole('button', { name: /note用にコピー/ })).toBeVisible();
+});

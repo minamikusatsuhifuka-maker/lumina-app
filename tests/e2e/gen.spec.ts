@@ -438,3 +438,42 @@ test('B17: X投稿v2（265c）— 既定でミニ講義型（1,000字以上）�
     expect(del.status()).toBe(200);
   }
 });
+
+test('B18: Kindle多軸展開（269）— 書き下ろしが構造どおりで書籍文脈が残らない @gen', async ({ request }) => {
+  test.setTimeout(GEN_TIMEOUT);
+  // インライン章（手動アップロード経路）＝シード不要・残骸なし
+  const res = await request.post('/api/kindle/note-remix', {
+    data: {
+      chapter: {
+        title: '[E2E] 入浴後の保湿の基本',
+        content:
+          '角層は水分を保つバリアの役割を持つ。入浴後は角層に水分が残っているうちに保湿剤を塗るのが基本で、時間を置くほど水分は失われる。' +
+          'こすらず手のひらで押さえるようにのばす。熱すぎるお湯・長風呂は角層の油分を落としやすい。' +
+          '加湿と刺激の少ない肌着も助けになる。かゆみが強い場合は皮膚科での相談がすすめられる。',
+      },
+      bookTitle: '[E2E] 検証用書籍',
+      personaKey: 'homemaker',
+      angleKey: 'daily',
+    },
+    timeout: REQ_TIMEOUT,
+  });
+  expect(res.status()).toBe(200);
+  const data = await res.json();
+
+  // タイトル3本がマーカー分離で返る（264規約の再利用）
+  expect(Array.isArray(data.titles)).toBe(true);
+  expect(data.titles.length).toBe(3);
+
+  // 本文: h1なし・##見出し2本以上・書籍への導線を含む
+  const body = String(data.content ?? '');
+  expect(body.length).toBeGreaterThan(500);
+  expect(/^#\s/m.test(body)).toBe(false);
+  expect((body.match(/^##\s/gm) ?? []).length).toBeGreaterThanOrEqual(2);
+  expect(body).toContain('書籍');
+
+  // §7: 書籍文脈の残存なし（プロンプト＋機械検証の二段構えの実測）
+  expect(data.contextHits).toEqual([]);
+  // §2-2: 書き下ろしのため一致度は警告しきい値未満
+  expect(data.overlapWarn).toBe(false);
+  expect(data.ad_check?.status === 'ok' || data.ad_check?.status === 'warn').toBe(true);
+});

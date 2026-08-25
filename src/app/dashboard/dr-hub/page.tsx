@@ -11,6 +11,7 @@ import { renderMarkdown } from '@/lib/markdown-renderer';
 import { copyToClipboard } from '@/lib/copyToClipboard';
 import { copyRichMarkdown, copyRichMarkdownForNote } from '@/lib/rich-copy';
 import { PLAYBOOK_VERSION } from '@/lib/knowledge/noteXPlaybook';
+import KindleRemixTab from '@/components/dr-hub/KindleRemixTab';
 import {
   buildScheduleRows,
   scheduleToMarkdown,
@@ -94,7 +95,7 @@ const LENGTH_OPTIONS: Array<{ value: Length; label: string }> = [
   { value: 'long', label: '長め（5000〜7000字）' },
 ];
 
-type Feature = 'persona' | 'split' | 'xpost' | 'strategy' | 'schedule' | 'roadmap';
+type Feature = 'persona' | 'split' | 'xpost' | 'strategy' | 'schedule' | 'roadmap' | 'remix';
 const FEATURES: Array<{ key: Feature; label: string }> = [
   { key: 'persona', label: '✍️ ペルソナ別note記事' },
   { key: 'split', label: '🧩 分割記事化（シリーズ）' },
@@ -102,6 +103,7 @@ const FEATURES: Array<{ key: Feature; label: string }> = [
   { key: 'strategy', label: '📈 発信戦略' },
   { key: 'schedule', label: '🗓 予約投稿カレンダー' },
   { key: 'roadmap', label: '🗺 収益化ロードマップ' },
+  { key: 'remix', label: '📖 Kindle→note展開' },
 ];
 
 // ③ X投稿の生成結果と保存状態（265c: v2対応＝警告・URLリプライ導線・長さ/型）
@@ -1528,6 +1530,9 @@ export default function DrHubPage() {
         </div>
       </div>
       )}
+
+      {/* ── 📖 Kindle→note展開（269・独立コンポーネント） ── */}
+      {feature === 'remix' && <KindleRemixTab />}
 
       {/* ── 🗺 収益化ロードマップ（268・決定的判定＝AI不使用） ── */}
       {feature === 'roadmap' && (

@@ -65,6 +65,16 @@ import {
   reactionScore,
   roadmapToMarkdown,
 } from '../../src/lib/monetization-roadmap';
+import {
+  REMIX_ANGLES,
+  REMIX_ANGLE_KEYS,
+  getRemixAngle,
+  detectBookContext,
+  textOverlapRatio,
+  candidateSimilarity,
+  KDP_OVERLAP_WARN,
+  FACT_FIDELITY_RULES,
+} from '../../src/lib/kindle-note-remix';
 
 // ============================================================================
 // 純関数の単体テスト（234【1】要件4）— ネットワーク・AI課金・認証を一切使わない
@@ -1007,4 +1017,46 @@ test('U40: 有料化候補のランキング（268§4）— X-02の重みで決�
     { id: 'y', reaction: { impressions: 0, bookmarks: 0, shares: 0 } },
   ]);
   expect(tie.map((r) => r.id)).toEqual(['x', 'y']);
+});
+
+test('U41: Kindle多軸展開（269）— 7切り口・書籍文脈検出・一致度概算が決定的に働く', () => {
+  // 軸3（切り口）は7種すべて定義され、キー順も安定（選択肢の並びが揺れない）
+  expect(REMIX_ANGLE_KEYS).toEqual(['mechanism', 'qa', 'clinical', 'glossary', 'compare', 'daily', 'detour']);
+  for (const k of REMIX_ANGLE_KEYS) {
+    const a = REMIX_ANGLES[k];
+    expect(a.label).toBeTruthy();
+    expect(a.signal).toBeTruthy();
+    expect(a.promptBlock.length).toBeGreaterThan(50);
+  }
+  // 「遠回りの共有」は主語=自分を明示（患者を主語にしない・§4/R-69系の補正）
+  expect(REMIX_ANGLES.detour.promptBlock).toContain('主語は必ず自分');
+  expect(getRemixAngle('unknown').key).toBe('mechanism');
+
+  // §7: 書籍文脈の残存検出（正規表現で検出可能な範囲）
+  const dirty = '前章で述べたとおり、保湿は重要です。本書では第3章で詳しく扱い、巻末の付録も参照。';
+  const hits = detectBookContext(dirty);
+  const labels = hits.map((h) => h.label);
+  expect(labels).toContain('前章への参照');
+  expect(labels).toContain('「本書」');
+  expect(labels).toContain('章番号への参照');
+  expect(labels).toContain('巻末への参照');
+  expect(labels).toContain('付録への参照');
+  // 単独で成立する文は検出0件（誤検出しない）
+  expect(detectBookContext('入浴後の保湿は角層に水分が残っているうちに。詳しい手順は書籍にまとめています。')).toHaveLength(0);
+
+  // §2-2: 一致度の概算（3-gram containment・決定的）
+  const src = '角層は水分を保つバリアの役割を持ち、入浴後は早めの保湿が基本とされています。';
+  expect(textOverlapRatio(src, src)).toBe(1);
+  expect(textOverlapRatio('まったく無関係のリンゴとバナナの話。', src)).toBeLessThan(0.1);
+  // 書籍本文の複製に近いテキストは高い値になり、警告しきい値を超える
+  const copied = `保湿の話です。${src}以上が要点でした。`;
+  expect(textOverlapRatio(copied, src)).toBeGreaterThan(KDP_OVERLAP_WARN);
+  // §5: 候補間の類似は対称
+  const s1 = candidateSimilarity('AAAABBBB', 'AAAACCCC');
+  const s2 = candidateSimilarity('AAAACCCC', 'AAAABBBB');
+  expect(s1).toBe(s2);
+
+  // §4: 事実同一性の規約文言（喩えから結論を導かない・因果を変えない）
+  expect(FACT_FIDELITY_RULES).toContain('喩えから新たな結論を導かない');
+  expect(FACT_FIDELITY_RULES).toContain('因果関係を変えない');
 });
