@@ -2966,3 +2966,43 @@ test('C64: まとめ画像のタイトル折り返し（267§3）— 3形式と�
     expect(hLong - hShort, `${template}: 2行タイトルでキャンバスが+${expected}px`).toBe(expected);
   }
 });
+
+test('C65: 収益化ロードマップ（268）— 現在地の決定的表示・フェーズ3の警告・断定なしの注意書き', async ({ page }) => {
+  // フェーズ判定・タスク導出はAI不使用＝一覧APIとドラフトをモックするだけで全経路を検証できる。
+  await stubFeatureDrafts(page); // R-12: 保存済みの手入力値の復元を固定（未入力状態から始める）
+  await page.route('**/api/library?type=note-article', (route) =>
+    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([]) }),
+  );
+  await page.route('**/api/library?type=deepresearch', (route) =>
+    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([]) }),
+  );
+
+  await page.goto('/dashboard/dr-hub');
+  await page.getByRole('button', { name: /収益化ロードマップ/ }).click();
+
+  // 1) 記事0本・有料0本 → フェーズ0（現在地カードに根拠つき）
+  const phaseCard = page.locator('[data-rm-phase]');
+  await expect(phaseCard).toBeVisible();
+  await expect(phaseCard).toHaveAttribute('data-rm-phase', '0');
+  await expect(phaseCard).toContainText('土台づくり');
+  await expect(phaseCard).toContainText('有料記事がまだない');
+
+  // 2) 有料4本を入力 → フェーズ2に決定的に切り替わり、Kindle導線が出る
+  await page.locator('[data-rm-input="paidArticleCount"]').fill('4');
+  await expect(phaseCard).toHaveAttribute('data-rm-phase', '2');
+  await expect(phaseCard).toContainText('マガジン化 ／ Kindle出版');
+  await expect(page.locator('[data-rm-kindle]')).toBeVisible();
+  await expect(page.getByRole('link', { name: /Kindleウィザードへ/ })).toHaveAttribute('href', '/dashboard/kindle-wizard');
+
+  // 3) フェーズ2以下では警告なし → メンバーシップ開設済みでフェーズ3＋継続負荷の警告（§6-1）
+  await expect(page.locator('[data-continuity-warning]')).toHaveCount(0);
+  await page.locator('[data-rm-membership]').check();
+  await expect(phaseCard).toHaveAttribute('data-rm-phase', '3');
+  const warning = page.locator('[data-continuity-warning]');
+  await expect(warning).toBeVisible();
+  await expect(warning).toContainText('毎月の更新が必須');
+  await expect(warning).toContainText('撤退手順');
+
+  // 4) 成果を約束しない注意書きが常時表示される（§1-4）
+  await expect(page.locator('[data-roadmap-disclaimer]')).toContainText('約束するものではありません');
+});

@@ -18,6 +18,19 @@ import {
   DEFAULT_SCHEDULE_SLOT,
   type ScheduleSlot,
 } from '@/lib/posting-schedule';
+import {
+  EMPTY_ROADMAP_INPUTS,
+  PHASE_DEFS,
+  CONTINUITY_WARNING,
+  ROADMAP_DISCLAIMER,
+  judgePhase,
+  passConditionText,
+  reactionScore,
+  rankPaidCandidates,
+  roadmapToMarkdown,
+  type RoadmapInputs,
+  type ArticleReaction,
+} from '@/lib/monetization-roadmap';
 import { getSavedModel } from '@/lib/model-preference';
 import { EyecatchModal, type EyecatchKind } from '@/components/eyecatch/EyecatchModal';
 import NoteEnhancePanel from '@/components/note-enhance/NoteEnhancePanel';
@@ -81,13 +94,14 @@ const LENGTH_OPTIONS: Array<{ value: Length; label: string }> = [
   { value: 'long', label: '長め（5000〜7000字）' },
 ];
 
-type Feature = 'persona' | 'split' | 'xpost' | 'strategy' | 'schedule';
+type Feature = 'persona' | 'split' | 'xpost' | 'strategy' | 'schedule' | 'roadmap';
 const FEATURES: Array<{ key: Feature; label: string }> = [
   { key: 'persona', label: '✍️ ペルソナ別note記事' },
   { key: 'split', label: '🧩 分割記事化（シリーズ）' },
   { key: 'xpost', label: '🐦 X投稿連動' },
   { key: 'strategy', label: '📈 発信戦略' },
   { key: 'schedule', label: '🗓 予約投稿カレンダー' },
+  { key: 'roadmap', label: '🗺 収益化ロードマップ' },
 ];
 
 // ③ X投稿の生成結果と保存状態（265c: v2対応＝警告・URLリプライ導線・長さ/型）
@@ -239,6 +253,132 @@ export default function DrHubPage() {
   const [schedSlots, setSchedSlots] = useState<Partial<Record<number, ScheduleSlot>>>({});
   const [schedDefaultSlot, setSchedDefaultSlot] = useState<ScheduleSlot>(DEFAULT_SCHEDULE_SLOT);
 
+  // ── 🗺 収益化ロードマップ（268・フェーズ判定は決定的＝AI不使用） ──
+  const [rmInputs, setRmInputs] = useState<RoadmapInputs>(EMPTY_ROADMAP_INPUTS);
+  const [rmReactions, setRmReactions] = useState<Record<string, ArticleReaction>>({});
+  const [rmKindleSel, setRmKindleSel] = useState<string[]>([]);
+  const [paidPkg, setPaidPkg] = useState<{
+    articleId: string;
+    titles: string[];
+    freeOutline: string[];
+    paidOutline: string[];
+    deliverables: string[];
+  } | null>(null);
+  const [paidPkgBusy, setPaidPkgBusy] = useState<string | null>(null);
+  const rmSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // 手入力値の永続化は feature_result_drafts を流用（既存テーブル＝SQL不要・端末をまたいで復元）
+  interface RoadmapDraftPayload {
+    inputs?: Partial<RoadmapInputs>;
+    reactions?: Record<string, ArticleReaction>;
+  }
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const draft = await loadFeatureDraft<RoadmapDraftPayload>('monetization-roadmap');
+      if (cancelled) return;
+      if (draft?.payload?.inputs) setRmInputs((prev) => ({ ...prev, ...draft.payload.inputs }));
+      if (draft?.payload?.reactions) setRmReactions(draft.payload.reactions);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const persistRoadmap = (inputs: RoadmapInputs, reactions: Record<string, ArticleReaction>) => {
+    if (rmSaveTimer.current) clearTimeout(rmSaveTimer.current);
+    rmSaveTimer.current = setTimeout(() => {
+      // freeArticleCount は毎回自動取得するため保存しない（保存値が古くなるのを防ぐ）
+      const { freeArticleCount: _omit, ...manual } = inputs;
+      void _omit;
+      saveFeatureDraft('monetization-roadmap', { inputs: manual, reactions });
+    }, 800);
+  };
+
+  const setRmInput = (patch: Partial<RoadmapInputs>) => {
+    setRmInputs((prev) => {
+      const next = { ...prev, ...patch };
+      persistRoadmap(next, rmReactions);
+      return next;
+    });
+  };
+
+  const setReaction = (articleId: string, patch: Partial<ArticleReaction>) => {
+    setRmReactions((prev) => {
+      const cur = prev[articleId] ?? { impressions: 0, bookmarks: 0, shares: 0 };
+      const next = { ...prev, [articleId]: { ...cur, ...patch } };
+      persistRoadmap(rmInputs, next);
+      return next;
+    });
+  };
+
+  // 記事総本数は保存一覧から自動取得（§2-2: 自動で取れるものは自動で）
+  const rmEffectiveInputs = useMemo(
+    () => ({ ...rmInputs, freeArticleCount: noteItems.length }),
+    [rmInputs, noteItems.length],
+  );
+  const rmJudge = useMemo(() => judgePhase(rmEffectiveInputs), [rmEffectiveInputs]);
+  const rmPhaseDef = PHASE_DEFS[rmJudge.phase];
+
+  const rmCandidates = useMemo(
+    () =>
+      rankPaidCandidates(
+        noteItems.map((n) => ({
+          id: n.id,
+          title: n.title || '(無題)',
+          reaction: rmReactions[n.id] ?? { impressions: 0, bookmarks: 0, shares: 0 },
+        })),
+      ),
+    [noteItems, rmReactions],
+  );
+
+  const copyRoadmap = async () => {
+    try {
+      await copyRichMarkdown(roadmapToMarkdown(rmPhaseDef, rmEffectiveInputs, rmJudge.reasons));
+      setCopied('roadmap');
+      setTimeout(() => setCopied(null), 2000);
+    } catch {
+      /* 失敗時はボタン表示が変わらない */
+    }
+  };
+
+  const suggestPaidPackage = async (articleId: string) => {
+    if (paidPkgBusy) return;
+    setPaidPkgBusy(articleId);
+    setError('');
+    try {
+      const res = await fetch('/api/dr-hub/paid-package', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ articleId }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data?.error || `設計案の生成に失敗しました（${res.status}）`);
+      setPaidPkg({
+        articleId,
+        titles: data.titles ?? [],
+        freeOutline: data.freeOutline ?? [],
+        paidOutline: data.paidOutline ?? [],
+        deliverables: data.deliverables ?? [],
+      });
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : '設計案の生成に失敗しました');
+    } finally {
+      setPaidPkgBusy(null);
+    }
+  };
+
+  // §5: フェーズ2のKindle導線（既存ウィザードへ素材を引き継ぐだけ＝本体は改修しない）
+  const sendRmToKindle = () => {
+    if (rmKindleSel.length === 0) return;
+    try {
+      sessionStorage.setItem('lumina_kindle_selected', JSON.stringify(rmKindleSel));
+    } catch {
+      /* 書けなくても遷移は続行（Kindle側で選び直せる） */
+    }
+    window.location.href = '/dashboard/kindle-wizard';
+  };
+
   // 開始日の既定は「明日」（クライアントで一度だけ計算）
   useEffect(() => {
     if (schedStart) return;
@@ -338,9 +478,9 @@ export default function DrHubPage() {
     };
   }, []);
 
-  // ③④🗓のタブを開いたら保存済みnote記事の一覧を読み込む（開くまで取得しない）
+  // ③④🗓🗺のタブを開いたら保存済みnote記事の一覧を読み込む（開くまで取得しない）
   useEffect(() => {
-    if ((feature !== 'xpost' && feature !== 'strategy' && feature !== 'schedule') || noteItemsLoaded) return;
+    if ((feature !== 'xpost' && feature !== 'strategy' && feature !== 'schedule' && feature !== 'roadmap') || noteItemsLoaded) return;
     let cancelled = false;
     (async () => {
       try {
@@ -1385,6 +1525,251 @@ export default function DrHubPage() {
               <option value="noon">🍱 昼 12:30</option>
             </select>
           </label>
+        </div>
+      </div>
+      )}
+
+      {/* ── 🗺 収益化ロードマップ（268・決定的判定＝AI不使用） ── */}
+      {feature === 'roadmap' && (
+      <div data-roadmap style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 12, padding: 20, marginBottom: 16 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8, marginBottom: 4 }}>
+          <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--text-primary)' }}>
+            2️⃣ 🗺 収益化ロードマップ（現在地と、今やること）
+          </div>
+          <button
+            type="button"
+            onClick={copyRoadmap}
+            style={{ padding: '6px 14px', background: `${ACCENT}15`, border: `1px solid ${ACCENT}50`, color: ACCENT, borderRadius: 6, cursor: 'pointer', fontSize: 12, fontWeight: 600 }}
+          >
+            {copied === 'roadmap' ? '✅ コピー済み' : '📋 ロードマップをコピー'}
+          </button>
+        </div>
+        <p style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 14 }}>
+          入力した数値から現在のフェーズと週次タスクを<strong>決定的に</strong>導きます（同じ状況なら常に同じタスク＝淡々と実行できる）。入力値は保存され、次回も引き継がれます。
+        </p>
+
+        {/* 現在地の入力（自動: 記事総本数／手入力: それ以外） */}
+        <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap', alignItems: 'center', marginBottom: 14 }}>
+          <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>
+            📝 note記事: <strong style={{ color: 'var(--text-primary)' }}>{noteItems.length}本</strong>（保存一覧から自動）
+          </span>
+          {([
+            ['paidArticleCount', '💰 有料記事', '本'],
+            ['followerCount', '👥 フォロワー', '人'],
+            ['purchaseCount', '🛒 購入累計', '件'],
+          ] as const).map(([key, label, unit]) => (
+            <label key={key} style={{ fontSize: 12, color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: 4 }}>
+              {label}:
+              <input
+                type="number"
+                min={0}
+                data-rm-input={key}
+                value={rmInputs[key]}
+                onChange={(e) => setRmInput({ [key]: Math.max(0, Number(e.target.value) || 0) })}
+                style={{ width: 72, padding: '6px 8px', background: 'var(--bg-primary)', border: '1px solid var(--border)', borderRadius: 6, color: 'var(--text-primary)', fontSize: 12, outline: 'none' }}
+              />
+              {unit}
+            </label>
+          ))}
+          <label style={{ fontSize: 12, color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: 4, cursor: 'pointer' }}>
+            <input
+              type="checkbox"
+              data-rm-membership
+              checked={rmInputs.membershipOpen}
+              onChange={(e) => setRmInput({ membershipOpen: e.target.checked })}
+            />
+            メンバーシップ開設済み
+          </label>
+          <label style={{ fontSize: 12, color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: 4, cursor: 'pointer' }}>
+            <input
+              type="checkbox"
+              data-rm-subscription
+              checked={rmInputs.subscriptionStarted}
+              onChange={(e) => setRmInput({ subscriptionStarted: e.target.checked })}
+            />
+            定期購読/高単価を開始済み
+          </label>
+        </div>
+
+        {/* フェーズの位置（0〜4） */}
+        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 12 }}>
+          {([0, 1, 2, 3, 4] as const).map((p) => (
+            <span
+              key={p}
+              style={{
+                fontSize: 11, padding: '4px 10px', borderRadius: 12,
+                border: p === rmJudge.phase ? `2px solid ${ACCENT}` : '1px solid var(--border)',
+                background: p === rmJudge.phase ? `${ACCENT}12` : 'transparent',
+                color: p === rmJudge.phase ? ACCENT : 'var(--text-muted)',
+                fontWeight: p === rmJudge.phase ? 700 : 500,
+              }}
+            >
+              {PHASE_DEFS[p].emoji} {p}. {PHASE_DEFS[p].label}
+            </span>
+          ))}
+        </div>
+
+        {/* 現在地カード */}
+        <div data-rm-phase={rmJudge.phase} style={{ padding: 14, background: `${ACCENT}0d`, border: `1px solid ${ACCENT}30`, borderRadius: 10, marginBottom: 12 }}>
+          <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 4 }}>
+            現在地: フェーズ{rmJudge.phase}「{rmPhaseDef.emoji} {rmPhaseDef.label}」
+          </div>
+          <div style={{ fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.7 }}>{rmPhaseDef.summary}</div>
+          <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 6 }}>
+            根拠: {rmJudge.reasons.join('／')}
+          </div>
+        </div>
+
+        {/* §6-1: フェーズ3・4は継続負荷の警告を必ず併記 */}
+        {rmJudge.phase >= 3 && (
+          <div data-continuity-warning style={{ padding: 12, background: 'rgba(180,83,9,0.08)', border: '1px solid rgba(180,83,9,0.25)', borderRadius: 8, marginBottom: 12, fontSize: 12, color: '#B45309', lineHeight: 1.7 }}>
+            ⚠️ {CONTINUITY_WARNING}
+          </div>
+        )}
+
+        {/* 今フェーズでやること（タスクから既存機能へ直接飛べる） */}
+        <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 6 }}>今フェーズでやること</div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 12 }}>
+          {rmPhaseDef.tasks.map((t, i) => (
+            <div key={i} style={{ display: 'flex', alignItems: 'flex-start', gap: 8, padding: '8px 12px', background: 'var(--bg-primary)', border: '1px solid var(--border)', borderRadius: 8 }}>
+              <span style={{ fontSize: 10, fontWeight: 700, color: ACCENT, border: `1px solid ${ACCENT}40`, borderRadius: 8, padding: '2px 8px', whiteSpace: 'nowrap', flex: 'none' }}>
+                {t.cadence}
+              </span>
+              <span style={{ flex: 1, fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.6 }}>{t.text}</span>
+              {t.featureKey && (
+                <button
+                  type="button"
+                  onClick={() => setFeature(t.featureKey!)}
+                  style={{ padding: '4px 10px', background: `${ACCENT}12`, border: `1px solid ${ACCENT}40`, color: ACCENT, borderRadius: 6, cursor: 'pointer', fontSize: 11, whiteSpace: 'nowrap', flex: 'none' }}
+                >
+                  {t.linkLabel ?? '開く'}
+                </button>
+              )}
+              {t.href && (
+                <a
+                  href={t.href}
+                  style={{ padding: '4px 10px', background: `${ACCENT}12`, border: `1px solid ${ACCENT}40`, color: ACCENT, borderRadius: 6, fontSize: 11, whiteSpace: 'nowrap', textDecoration: 'none', flex: 'none' }}
+                >
+                  {t.linkLabel ?? '開く'}
+                </a>
+              )}
+            </div>
+          ))}
+        </div>
+
+        <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 12 }}>
+          ⛳ 次フェーズへの通過条件: {passConditionText(rmPhaseDef, rmEffectiveInputs)}
+        </div>
+
+        {/* §4: 有料化候補（反応の手入力→決定的な降順ランキング） */}
+        <div style={{ borderTop: '1px dashed var(--border)', paddingTop: 14, marginTop: 4 }}>
+          <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 4 }}>
+            💡 有料化候補（反応が集まったテーマから有料化する）
+          </div>
+          <p style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 8 }}>
+            各記事のXでの反応を入力すると、共有×40＋ブックマーク×3＋インプレッション÷1000 のスコア順に並びます（X-02の重み付け）。上位が有料化候補です。
+          </p>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6, maxHeight: 300, overflowY: 'auto' }}>
+            {rmCandidates.map((c, rank) => (
+              <div key={c.id} data-rm-candidate={rank} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', background: 'var(--bg-primary)', border: rank === 0 && reactionScore(c.reaction) > 0 ? `2px solid ${ACCENT}` : '1px solid var(--border)', borderRadius: 8, flexWrap: 'wrap' }}>
+                <span style={{ fontSize: 11, fontWeight: 700, color: rank === 0 && reactionScore(c.reaction) > 0 ? ACCENT : 'var(--text-muted)', width: 24 }}>
+                  {rank + 1}.
+                </span>
+                <span style={{ flex: 1, minWidth: 160, fontSize: 12, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.title}</span>
+                {([
+                  ['impressions', 'imp'],
+                  ['bookmarks', '🔖'],
+                  ['shares', '🔁共有'],
+                ] as const).map(([key, label]) => (
+                  <label key={key} style={{ fontSize: 10, color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: 2 }}>
+                    {label}
+                    <input
+                      type="number"
+                      min={0}
+                      value={c.reaction[key] || 0}
+                      onChange={(e) => setReaction(c.id, { [key]: Math.max(0, Number(e.target.value) || 0) })}
+                      style={{ width: 58, padding: '4px 6px', background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 5, color: 'var(--text-primary)', fontSize: 11, outline: 'none' }}
+                    />
+                  </label>
+                ))}
+                <span style={{ fontSize: 10, color: 'var(--text-muted)', width: 70 }}>score {Math.round(reactionScore(c.reaction))}</span>
+                <button
+                  type="button"
+                  onClick={() => suggestPaidPackage(c.id)}
+                  disabled={!!paidPkgBusy}
+                  style={{ padding: '4px 10px', background: `${ACCENT}12`, border: `1px solid ${ACCENT}40`, color: ACCENT, borderRadius: 6, cursor: paidPkgBusy ? 'not-allowed' : 'pointer', fontSize: 11, flex: 'none' }}
+                >
+                  {paidPkgBusy === c.id ? '生成中…' : '💡 有料化の設計案'}
+                </button>
+              </div>
+            ))}
+            {noteItems.length === 0 && (
+              <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>
+                {noteItemsLoaded ? 'note記事がまだありません。まずフェーズ0のタスク（無料記事づくり）から。' : '読み込み中…'}
+              </div>
+            )}
+          </div>
+
+          {paidPkg && (
+            <div data-paid-package style={{ marginTop: 10, padding: 12, background: `${ACCENT}0d`, border: `1px solid ${ACCENT}30`, borderRadius: 8, fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.7 }}>
+              <div style={{ fontWeight: 700, color: 'var(--text-primary)', marginBottom: 6 }}>
+                💡 有料化の設計案（無料60〜70%＋有料30〜40%）
+              </div>
+              {paidPkg.titles.length > 0 && (
+                <div style={{ marginBottom: 6 }}>🏷 タイトル案: {paidPkg.titles.map((t, i) => <div key={i}>・{t}</div>)}</div>
+              )}
+              {paidPkg.freeOutline.length > 0 && (
+                <div style={{ marginBottom: 6 }}>🆓 無料エリア: {paidPkg.freeOutline.map((t, i) => <div key={i}>・{t}</div>)}</div>
+              )}
+              {paidPkg.paidOutline.length > 0 && (
+                <div style={{ marginBottom: 6 }}>💰 有料エリア: {paidPkg.paidOutline.map((t, i) => <div key={i}>・{t}</div>)}</div>
+              )}
+              {paidPkg.deliverables.length > 0 && (
+                <div>🎁 同梱する成果物案（購入後5分で使えるもの）: {paidPkg.deliverables.map((t, i) => <div key={i}>・{t}</div>)}</div>
+              )}
+            </div>
+          )}
+        </div>
+
+        {/* §5: フェーズ2以降のKindle導線（既存ウィザードへ素材を引き継ぐだけ） */}
+        {rmJudge.phase >= 2 && (
+          <div data-rm-kindle style={{ borderTop: '1px dashed var(--border)', paddingTop: 14, marginTop: 14 }}>
+            <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 4 }}>
+              📕 Kindle化の候補（記事群を素材として引き継ぐ）
+            </div>
+            <p style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 8 }}>
+              有料記事が3〜5本たまったら、同じ記事群でKindle本も作れます（Kindle=広い入口／noteマガジン=深い実務知の二段構え）。
+            </p>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 4, maxHeight: 180, overflowY: 'auto', marginBottom: 8 }}>
+              {noteItems.map((n) => {
+                const checked = rmKindleSel.includes(n.id);
+                return (
+                  <button
+                    key={n.id}
+                    type="button"
+                    onClick={() => setRmKindleSel((prev) => (checked ? prev.filter((v) => v !== n.id) : [...prev, n.id].slice(0, 10)))}
+                    style={{ display: 'flex', alignItems: 'center', gap: 8, textAlign: 'left', padding: '6px 12px', borderRadius: 8, cursor: 'pointer', fontSize: 12, border: checked ? `2px solid ${ACCENT}` : '1px solid var(--border)', background: checked ? `${ACCENT}12` : 'var(--bg-primary)', color: 'var(--text-primary)' }}
+                  >
+                    <span>{checked ? '☑' : '☐'}</span>
+                    <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{n.title || '(無題)'}</span>
+                  </button>
+                );
+              })}
+            </div>
+            <button
+              type="button"
+              onClick={sendRmToKindle}
+              disabled={rmKindleSel.length === 0}
+              style={{ padding: '8px 16px', background: rmKindleSel.length === 0 ? 'var(--bg-primary)' : `${ACCENT}15`, border: `1px solid ${ACCENT}50`, color: ACCENT, borderRadius: 8, cursor: rmKindleSel.length === 0 ? 'not-allowed' : 'pointer', fontSize: 12, fontWeight: 600, opacity: rmKindleSel.length === 0 ? 0.5 : 1 }}
+            >
+              📕 選んだ{rmKindleSel.length}本をKindleウィザードへ引き継ぐ
+            </button>
+          </div>
+        )}
+
+        {/* §1-4: 成果を約束しない注意書き（常時表示） */}
+        <div data-roadmap-disclaimer style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 14, lineHeight: 1.7, borderTop: '1px solid var(--border)', paddingTop: 10 }}>
+          {ROADMAP_DISCLAIMER}
         </div>
       </div>
       )}

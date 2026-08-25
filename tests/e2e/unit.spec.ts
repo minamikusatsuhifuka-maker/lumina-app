@@ -55,6 +55,16 @@ import { promoteHeadingsForNote, markdownToWordHtml } from '../../src/lib/rich-c
 import { buildScheduleRows, scheduleToMarkdown } from '../../src/lib/posting-schedule';
 import { buildNotePasteText, buildNoteHtml } from '../../src/lib/note-compat';
 import { estimateTitleLines, estimateSummaryImageHeight } from '../../src/lib/summary-image-templates';
+import {
+  EMPTY_ROADMAP_INPUTS,
+  PHASE_DEFS,
+  ROADMAP_DISCLAIMER,
+  judgePhase,
+  passConditionText,
+  rankPaidCandidates,
+  reactionScore,
+  roadmapToMarkdown,
+} from '../../src/lib/monetization-roadmap';
 
 // ============================================================================
 // 純関数の単体テスト（234【1】要件4）— ネットワーク・AI課金・認証を一切使わない
@@ -933,4 +943,68 @@ test('U38: まとめ画像の高さ見積もり（267§3）— タイトルの�
 
   // 1行タイトルの高さは折り返し補正の影響を受けない（退行防止: 補正は2行目以降にだけ効く）
   expect(estimateTitleLines('table', 'あ'.repeat(26))).toBe(1);
+});
+
+test('U39: 収益化ロードマップのフェーズ判定（268）— 決定的・境界値・警告と断定なし', () => {
+  const base = { ...EMPTY_ROADMAP_INPUTS, freeArticleCount: 5, followerCount: 100, purchaseCount: 2 };
+
+  // 記事0本（有料0本）はフェーズ0
+  expect(judgePhase(EMPTY_ROADMAP_INPUTS).phase).toBe(0);
+  // 有料1〜2本はフェーズ1、3本以上（例: 4本）はフェーズ2
+  expect(judgePhase({ ...base, paidArticleCount: 1 }).phase).toBe(1);
+  expect(judgePhase({ ...base, paidArticleCount: 2 }).phase).toBe(1);
+  expect(judgePhase({ ...base, paidArticleCount: 4 }).phase).toBe(2);
+  // 手動フラグでフェーズ3・4（定期購読はメンバーシップより優先）
+  expect(judgePhase({ ...base, paidArticleCount: 4, membershipOpen: true }).phase).toBe(3);
+  expect(judgePhase({ ...base, paidArticleCount: 4, membershipOpen: true, subscriptionStarted: true }).phase).toBe(4);
+
+  // 決定的: 同じ入力は常に同じ結果（判定にAI・乱数・日時を使っていない）
+  const input = { ...base, paidArticleCount: 4 };
+  const a = judgePhase(input);
+  const b = judgePhase(input);
+  expect(a).toEqual(b);
+
+  // フェーズ1の通過条件は「あと◯本」が実値で埋まる
+  expect(passConditionText(PHASE_DEFS[1], { ...base, paidArticleCount: 1 })).toContain('あと2本');
+
+  // フェーズ3・4のコピー出力に継続負荷の警告が入り、フェーズ2以下には入らない
+  const md3 = roadmapToMarkdown(PHASE_DEFS[3], { ...base, membershipOpen: true }, ['x']);
+  expect(md3).toContain('毎月の更新が必須');
+  expect(md3).toContain('撤退手順');
+  const md1 = roadmapToMarkdown(PHASE_DEFS[1], { ...base, paidArticleCount: 1 }, ['x']);
+  expect(md1).not.toContain('撤退手順');
+
+  // 成果を断定する文言が全フェーズのタスク・要約・注意書きに無い（§1-4）
+  const allTexts = [
+    ROADMAP_DISCLAIMER,
+    ...([0, 1, 2, 3, 4] as const).flatMap((p) => [
+      PHASE_DEFS[p].summary,
+      PHASE_DEFS[p].passCondition,
+      ...PHASE_DEFS[p].tasks.map((t) => t.text),
+    ]),
+  ].join('\n');
+  for (const banned of ['必ず増え', '確実に増え', '必ず売れ', '絶対に', '保証します', '必ず成功']) {
+    expect(allTexts, `断定文言「${banned}」を含まない`).not.toContain(banned);
+  }
+  // 注意書き自体が「約束しない」ことを明言している
+  expect(ROADMAP_DISCLAIMER).toContain('約束するものではありません');
+});
+
+test('U40: 有料化候補のランキング（268§4）— X-02の重みで決定的に降順に並ぶ', () => {
+  const items = [
+    { id: 'a', reaction: { impressions: 10000, bookmarks: 0, shares: 0 } }, // score 10
+    { id: 'b', reaction: { impressions: 0, bookmarks: 0, shares: 1 } }, // score 40（共有はいいねの約40倍相当）
+    { id: 'c', reaction: { impressions: 0, bookmarks: 10, shares: 0 } }, // score 30
+    { id: 'd', reaction: { impressions: 0, bookmarks: 0, shares: 0 } }, // score 0
+  ];
+  const ranked = rankPaidCandidates(items);
+  expect(ranked.map((r) => r.id)).toEqual(['b', 'c', 'a', 'd']);
+  // 共有1件はインプレッション1万より重い（X-02: 共有が最重要シグナル）
+  expect(reactionScore(items[1].reaction)).toBeGreaterThan(reactionScore(items[0].reaction));
+  // 安定ソート: 同スコアは元の順を保つ（同じ入力で並びが揺れない）
+  const tie = rankPaidCandidates([
+    { id: 'x', reaction: { impressions: 0, bookmarks: 0, shares: 0 } },
+    { id: 'y', reaction: { impressions: 0, bookmarks: 0, shares: 0 } },
+  ]);
+  expect(tie.map((r) => r.id)).toEqual(['x', 'y']);
 });
