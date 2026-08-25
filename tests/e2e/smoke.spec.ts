@@ -2616,3 +2616,38 @@ test('C57: 発信ハブ ③X投稿連動（261c）— タブ・前提・生成/�
   });
   expect(saveBadArticle.status()).toBe(404);
 });
+
+test('C58: 発信ハブ ④発信戦略＋⑥Kindle導線（261e）— タブ・前提・API契約', async ({ page }) => {
+  // 261eで追加した📈発信戦略と📕Kindle handoffのスモーク。AI呼び出しに到達しない検証のみ（課金なし）。
+  await stubFeatureDrafts(page); // R-12: 前回結果の復元で戦略ドキュメントが埋まると前提が崩れる
+
+  await page.goto('/dashboard/dr-hub');
+
+  // 1) ⑥ Kindle導線はDR記事を選ぶまで押せない（存在と前提の両方を固定）
+  const kindleBtn = page.getByRole('button', { name: /Kindle本づくりへ/ });
+  await expect(kindleBtn).toBeVisible();
+  await expect(kindleBtn).toBeDisabled();
+
+  // 2) ④ タブ切替で戦略の設定UIが出て、「提案であり成果を保証しない」方針が明記されている
+  await page.getByRole('button', { name: /発信戦略/ }).click();
+  await expect(page.getByText('発信戦略の策定（AIの提案）')).toBeVisible();
+  await expect(page.getByText('成果を保証するものではありません')).toBeVisible();
+
+  // 3) 策定はDR記事を1件以上選ぶまで押せない
+  const genBtn = page.getByRole('button', { name: /発信戦略を策定してもらう/ });
+  await expect(genBtn).toBeDisabled();
+
+  // 4) API契約: 未認証401 → drIds欠落400 → 存在しないIDは404（owner検証）
+  const anon = await pwRequest.newContext({ baseURL: BASE_URL, storageState: { cookies: [], origins: [] } });
+  const unauth = await anon.post('/api/dr-hub/strategy', { data: { drIds: ['x'] } });
+  expect(unauth.status()).toBe(401);
+  await anon.dispose();
+
+  const noIds = await api.post('/api/dr-hub/strategy', { data: {} });
+  expect(noIds.status()).toBe(400);
+
+  const notFound = await api.post('/api/dr-hub/strategy', {
+    data: { drIds: ['00000000-0000-0000-0000-000000000000'] },
+  });
+  expect(notFound.status()).toBe(404);
+});

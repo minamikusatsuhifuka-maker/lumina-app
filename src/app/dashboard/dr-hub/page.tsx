@@ -68,11 +68,12 @@ const LENGTH_OPTIONS: Array<{ value: Length; label: string }> = [
   { value: 'long', label: '長め（5000〜7000字）' },
 ];
 
-type Feature = 'persona' | 'split' | 'xpost';
+type Feature = 'persona' | 'split' | 'xpost' | 'strategy';
 const FEATURES: Array<{ key: Feature; label: string }> = [
   { key: 'persona', label: '✍️ ペルソナ別note記事' },
   { key: 'split', label: '🧩 分割記事化（シリーズ）' },
   { key: 'xpost', label: '🐦 X投稿連動' },
+  { key: 'strategy', label: '📈 発信戦略' },
 ];
 
 // ③ X投稿の生成結果と保存状態
@@ -124,6 +125,10 @@ interface DrHubDraftPayload {
   // ⑤ 仕上げ（まとめ・図表・画像配置）の状態。本文とは別レイヤ＝失敗しても本文は無傷
   personaEnhance?: NoteEnhanceState;
   splitEnhance?: Record<number, NoteEnhanceState>;
+  // ④ 発信戦略
+  strategyDrIds?: string[];
+  strategyArticleIds?: string[];
+  strategyDoc?: string;
 }
 
 const ACCENT = '#e0684b'; // 発信ハブのアクセント（ロケットの暖色系）
@@ -181,6 +186,14 @@ export default function DrHubPage() {
   // enhance変更の自動下書き保存はデバウンス（入力のたびのPUT連打を避ける。note-articleと同方式）
   const enhanceSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // ── ④ 発信戦略（261e）──
+  const [strategyDrIds, setStrategyDrIds] = useState<string[]>([]);
+  const [strategyArticleIds, setStrategyArticleIds] = useState<string[]>([]);
+  const [strategyDoc, setStrategyDoc] = useState('');
+  const [strategyBusy, setStrategyBusy] = useState(false);
+  const [strategyEdit, setStrategyEdit] = useState(false);
+  const [strategySave, setStrategySave] = useState<XSaveState>(EMPTY_X_SAVE);
+
   const [error, setError] = useState('');
   const [copied, setCopied] = useState<string | null>(null);
   const [restoredAt, setRestoredAt] = useState<string | null>(null);
@@ -193,7 +206,8 @@ export default function DrHubPage() {
   // 復元取得が返ってきた時点で既に操作が始まっていたら復元しない
   const draftGuardRef = useRef(false);
   draftGuardRef.current =
-    samplesBusy || !!fullBusyKey || !!samples || !!article || planBusy || !!splitPlan || xBusy || !!xResult;
+    samplesBusy || !!fullBusyKey || !!samples || !!article || planBusy || !!splitPlan || xBusy || !!xResult ||
+    strategyBusy || !!strategyDoc;
 
   // ②の逐次生成で最新stateを参照するためのref（連続fetch中のstale closure対策）
   const splitArticlesRef = useRef(splitArticles);
@@ -251,6 +265,9 @@ export default function DrHubPage() {
         for (const [k, v] of Object.entries(p.splitEnhance)) m[Number(k)] = normalizeNoteEnhance(v);
         setSplitEnhance(m);
       }
+      if (Array.isArray(p.strategyDrIds)) setStrategyDrIds(p.strategyDrIds.map(String));
+      if (Array.isArray(p.strategyArticleIds)) setStrategyArticleIds(p.strategyArticleIds.map(String));
+      if (typeof p.strategyDoc === 'string') setStrategyDoc(p.strategyDoc);
       setRestoredAt(draft.updated_at);
     })();
     return () => {
@@ -258,9 +275,9 @@ export default function DrHubPage() {
     };
   }, []);
 
-  // ③のタブを開いたら保存済みnote記事の一覧を読み込む（開くまで取得しない）
+  // ③④のタブを開いたら保存済みnote記事の一覧を読み込む（開くまで取得しない）
   useEffect(() => {
-    if (feature !== 'xpost' || noteItemsLoaded) return;
+    if ((feature !== 'xpost' && feature !== 'strategy') || noteItemsLoaded) return;
     let cancelled = false;
     (async () => {
       try {
@@ -292,6 +309,9 @@ export default function DrHubPage() {
     setXSaveThread(EMPTY_X_SAVE);
     setPersonaEnhance(emptyNoteEnhance());
     setSplitEnhance({});
+    setStrategyDoc('');
+    setStrategyEdit(false);
+    setStrategySave(EMPTY_X_SAVE);
     clearFeatureDraft('dr-hub');
   };
 
@@ -316,6 +336,9 @@ export default function DrHubPage() {
       xResult,
       personaEnhance,
       splitEnhance,
+      strategyDrIds,
+      strategyArticleIds,
+      strategyDoc,
       ...over,
     } satisfies DrHubDraftPayload);
   };
@@ -615,6 +638,88 @@ export default function DrHubPage() {
     }
   };
 
+  // ── ④ 発信戦略 ──
+  const toggleStrategyDr = (id: string) => {
+    setStrategyDrIds((prev) => (prev.includes(id) ? prev.filter((v) => v !== id) : [...prev, id].slice(0, 10)));
+  };
+  const toggleStrategyArticle = (id: string) => {
+    setStrategyArticleIds((prev) => (prev.includes(id) ? prev.filter((v) => v !== id) : [...prev, id].slice(0, 10)));
+  };
+
+  // ④タブを開いたとき、STEP1で選んだDR記事を初期選択に含める（未選択のときだけ）
+  useEffect(() => {
+    if (feature === 'strategy' && selectedDrId && strategyDrIds.length === 0) {
+      setStrategyDrIds([selectedDrId]);
+    }
+    // strategyDrIds を依存に入れると選択解除のたびに再選択されてしまうため意図的に外す
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [feature, selectedDrId]);
+
+  const generateStrategy = async () => {
+    if (strategyDrIds.length === 0 || strategyBusy) return;
+    setStrategyBusy(true);
+    setError('');
+    setRestoredAt(null);
+    setStrategySave(EMPTY_X_SAVE);
+    try {
+      const res = await fetch('/api/dr-hub/strategy', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          drIds: strategyDrIds,
+          articleIds: strategyArticleIds,
+          model: getSavedModel(),
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data?.error || `戦略の生成に失敗しました（${res.status}）`);
+      setStrategyDoc(data.content || '');
+      setStrategyEdit(false);
+      persistDraft({ strategyDoc: data.content || '' });
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : '戦略の生成に失敗しました');
+    } finally {
+      setStrategyBusy(false);
+    }
+  };
+
+  // ④ 保存: 🗃保存一覧（text_analysis_saves）へ「編集可能なドキュメント」として保存
+  const saveStrategy = async () => {
+    if (!strategyDoc.trim() || strategySave.saving) return;
+    setStrategySave({ saving: true, savedId: '', error: '' });
+    try {
+      const m = strategyDoc.match(/^#\s+(.+)$/m);
+      const title = (m?.[1] || `発信戦略: ${selectedDr?.title ?? ''}`).trim();
+      const res = await fetch('/api/text-analysis/saves', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          title,
+          content: strategyDoc,
+          analysisType: 'dr_hub_strategy',
+          analysisLabel: '発信戦略',
+          tags: ['発信戦略', '発信ハブ'],
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data?.error || `保存に失敗しました（${res.status}）`);
+      setStrategySave({ saving: false, savedId: String(data.id ?? data.save?.id ?? 'saved'), error: '' });
+    } catch (e: unknown) {
+      setStrategySave({ saving: false, savedId: '', error: e instanceof Error ? e.message : '保存に失敗しました' });
+    }
+  };
+
+  // ── ⑥ Kindle本づくりへのhandoff（230/231の方式: sessionStorage＋読取後削除は受信側） ──
+  const sendToKindle = () => {
+    if (!selectedDrId) return;
+    try {
+      sessionStorage.setItem('lumina_kindle_selected', JSON.stringify([selectedDrId]));
+    } catch {
+      /* プライベートモード等で書けなくても遷移は続行（Kindle側で選び直せる） */
+    }
+    window.location.href = '/dashboard/kindle-wizard';
+  };
+
   const handleCopy = (text: string, key: string) => {
     copyToClipboard(text);
     setCopied(key);
@@ -661,12 +766,28 @@ export default function DrHubPage() {
           <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--text-primary)' }}>
             1️⃣ 元になるDR記事を選ぶ
           </div>
-          <input
-            value={drQuery}
-            onChange={(e) => setDrQuery(e.target.value)}
-            placeholder="🔍 タイトルで絞り込み"
-            style={{ padding: '8px 12px', background: 'var(--bg-primary)', border: '1px solid var(--border)', borderRadius: 8, color: 'var(--text-primary)', fontSize: 13, outline: 'none', minWidth: 220 }}
-          />
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+            {/* ⑥ Kindle本づくりへのhandoff（選んだDR記事を素材として引き継ぐ・230/231方式） */}
+            <button
+              type="button"
+              onClick={sendToKindle}
+              disabled={!selectedDrId}
+              title="選んだDR記事を素材として📕Kindle本づくりへ引き継ぎます"
+              style={{
+                padding: '8px 14px', borderRadius: 8, fontSize: 12, fontWeight: 600,
+                background: 'var(--bg-primary)', border: '1px solid var(--border)', color: 'var(--text-secondary)',
+                cursor: selectedDrId ? 'pointer' : 'not-allowed', opacity: selectedDrId ? 1 : 0.5,
+              }}
+            >
+              📕 Kindle本づくりへ
+            </button>
+            <input
+              value={drQuery}
+              onChange={(e) => setDrQuery(e.target.value)}
+              placeholder="🔍 タイトルで絞り込み"
+              style={{ padding: '8px 12px', background: 'var(--bg-primary)', border: '1px solid var(--border)', borderRadius: 8, color: 'var(--text-primary)', fontSize: 13, outline: 'none', minWidth: 220 }}
+            />
+          </div>
         </div>
 
         {drLoading && (
@@ -969,6 +1090,91 @@ export default function DrHubPage() {
             }}
           >
             {xBusy ? 'X投稿を生成中…' : '🐦 X投稿を生成する（単発＋スレッド）'}
+          </button>
+        </div>
+      </div>
+      )}
+
+      {/* ── ④ 発信戦略 ── */}
+      {feature === 'strategy' && (
+      <div style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 12, padding: 20, marginBottom: 16 }}>
+        <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 4 }}>
+          2️⃣ 📈 発信戦略の策定（AIの提案）
+        </div>
+        <p style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 12 }}>
+          選んだDR記事群・note記事群から、ターゲティング／投稿スケジュール／note⇄X⇄Kindleの導線設計を提案します。戦略はあくまで提案で、成果を保証するものではありません。
+        </p>
+
+        <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 6 }}>
+          対象のDR記事（{strategyDrIds.length}/10件選択中）
+        </div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 4, maxHeight: 200, overflowY: 'auto', marginBottom: 12 }}>
+          {drItems.map((d) => {
+            const checked = strategyDrIds.includes(d.id);
+            return (
+              <button
+                key={d.id}
+                type="button"
+                onClick={() => toggleStrategyDr(d.id)}
+                style={{
+                  display: 'flex', alignItems: 'center', gap: 8, textAlign: 'left', padding: '8px 12px',
+                  borderRadius: 8, cursor: 'pointer', fontSize: 13,
+                  border: checked ? `2px solid ${ACCENT}` : '1px solid var(--border)',
+                  background: checked ? `${ACCENT}12` : 'var(--bg-primary)', color: 'var(--text-primary)',
+                }}
+              >
+                <span>{checked ? '☑' : '☐'}</span>
+                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{d.title || '(無題)'}</span>
+              </button>
+            );
+          })}
+          {drItems.length === 0 && (
+            <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>保存済みのDR記事がありません。</div>
+          )}
+        </div>
+
+        <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 6 }}>
+          生成済みのnote記事も加える（任意・{strategyArticleIds.length}/10件選択中）
+        </div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 4, maxHeight: 160, overflowY: 'auto', marginBottom: 12 }}>
+          {noteItems.map((n) => {
+            const checked = strategyArticleIds.includes(n.id);
+            return (
+              <button
+                key={n.id}
+                type="button"
+                onClick={() => toggleStrategyArticle(n.id)}
+                style={{
+                  display: 'flex', alignItems: 'center', gap: 8, textAlign: 'left', padding: '8px 12px',
+                  borderRadius: 8, cursor: 'pointer', fontSize: 13,
+                  border: checked ? `2px solid ${ACCENT}` : '1px solid var(--border)',
+                  background: checked ? `${ACCENT}12` : 'var(--bg-primary)', color: 'var(--text-primary)',
+                }}
+              >
+                <span>{checked ? '☑' : '☐'}</span>
+                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{n.title || '(無題)'}</span>
+              </button>
+            );
+          })}
+          {noteItems.length === 0 && (
+            <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>
+              {noteItemsLoaded ? '保存済みのnote記事がありません（DR記事だけでも策定できます）。' : '読み込み中…'}
+            </div>
+          )}
+        </div>
+
+        <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+          <button
+            type="button"
+            onClick={generateStrategy}
+            disabled={strategyDrIds.length === 0 || strategyBusy}
+            style={{
+              padding: '12px 28px', background: ACCENT, color: '#fff', border: 'none', borderRadius: 8,
+              fontWeight: 700, fontSize: 14, cursor: strategyDrIds.length === 0 || strategyBusy ? 'not-allowed' : 'pointer',
+              opacity: strategyDrIds.length === 0 || strategyBusy ? 0.5 : 1,
+            }}
+          >
+            {strategyBusy ? '戦略を策定中…' : '📈 発信戦略を策定してもらう'}
           </button>
         </div>
       </div>
@@ -1389,6 +1595,60 @@ export default function DrHubPage() {
                 </div>
               )}
             </div>
+          )}
+        </div>
+      )}
+
+      {/* ── ④ 戦略ドキュメント（編集可能） ── */}
+      {feature === 'strategy' && strategyDoc && (
+        <div style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 12, padding: 20, marginBottom: 16 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8, marginBottom: 10 }}>
+            <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--text-primary)' }}>
+              3️⃣ 発信戦略（編集して保存できます）
+            </div>
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+              <button
+                type="button"
+                onClick={() => setStrategyEdit((v) => !v)}
+                style={{ padding: '6px 14px', background: strategyEdit ? `${ACCENT}15` : 'var(--bg-primary)', border: strategyEdit ? `1px solid ${ACCENT}50` : '1px solid var(--border)', color: strategyEdit ? ACCENT : 'var(--text-secondary)', borderRadius: 6, cursor: 'pointer', fontSize: 12, fontWeight: 600 }}
+              >
+                {strategyEdit ? '👁 プレビューに戻る' : '✏️ 編集する'}
+              </button>
+              <button
+                type="button"
+                onClick={() => handleCopy(strategyDoc, 'strategy')}
+                style={{ padding: '6px 14px', background: 'var(--bg-primary)', border: '1px solid var(--border)', color: 'var(--text-secondary)', borderRadius: 6, cursor: 'pointer', fontSize: 12 }}
+              >
+                {copied === 'strategy' ? '✅ コピー済み' : '📋 コピー'}
+              </button>
+              <button
+                type="button"
+                onClick={saveStrategy}
+                disabled={strategySave.saving || !!strategySave.savedId}
+                style={{ padding: '6px 14px', background: strategySave.savedId ? 'var(--bg-primary)' : `${ACCENT}15`, border: `1px solid ${ACCENT}50`, color: ACCENT, borderRadius: 6, cursor: strategySave.saving || strategySave.savedId ? 'not-allowed' : 'pointer', fontSize: 12, fontWeight: 600 }}
+              >
+                {strategySave.saving ? '保存中…' : strategySave.savedId ? '✅ 保存済み（🗃保存一覧）' : strategySave.error ? '⚠️ 保存に失敗・再試行' : '💾 保存一覧へ保存'}
+              </button>
+            </div>
+          </div>
+
+          {strategyEdit ? (
+            <textarea
+              value={strategyDoc}
+              onChange={(e) => {
+                setStrategyDoc(e.target.value);
+                // 編集したら「保存済み」を解除し、直した版をまた保存できるようにする（R-53と同方針）
+                if (strategySave.savedId) setStrategySave(EMPTY_X_SAVE);
+              }}
+              onBlur={() => persistDraft()}
+              style={{ width: '100%', minHeight: 400, padding: 14, background: 'var(--bg-primary)', border: '1px solid var(--border)', borderRadius: 8, color: 'var(--text-primary)', fontSize: 13, lineHeight: 1.8, outline: 'none', resize: 'vertical', fontFamily: 'inherit', boxSizing: 'border-box' }}
+            />
+          ) : (
+            <div
+              className="markdown-body"
+              style={{ fontSize: 14, lineHeight: 1.9, color: 'var(--text-secondary)' }}
+              dangerouslySetInnerHTML={{ __html: renderMarkdown(strategyDoc) }}
+            />
           )}
         </div>
       )}

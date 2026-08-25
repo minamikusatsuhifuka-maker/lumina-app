@@ -25,6 +25,7 @@ const COMMANDS: Command[] = [
   { id: 'action-new-search',   label: 'Web検索を開始',           icon: '🔍', category: 'クイックアクション', href: '/dashboard/websearch' },
   { id: 'action-new-workflow',  label: 'ワークフローを実行',     icon: '⚡', category: 'クイックアクション', href: '/dashboard/workflow' },
   { id: 'action-library',      label: 'リサーチ保存を開く',        icon: '📚', category: 'クイックアクション', href: '/dashboard/library' },
+  { id: 'action-dr-hub',       label: '発信ハブを開く',          icon: '🚀', category: 'クイックアクション', href: '/dashboard/dr-hub' },
   { id: 'action-memory',       label: 'AIメモリを確認',          icon: '🧠', category: 'クイックアクション', href: '/dashboard/memory' },
   { id: 'action-new-memory',   label: 'AIメモリを追加',          icon: '🧠', category: 'クイックアクション', href: '/dashboard/memory' },
   { id: 'action-glossary',     label: '用語を解説する',          icon: '📖', category: 'クイックアクション', href: '/dashboard/glossary' },

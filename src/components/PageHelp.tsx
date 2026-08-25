@@ -4,6 +4,19 @@ import { useState } from 'react';
 import { usePathname } from 'next/navigation';
 
 const PAGE_HELP: Record<string, { title: string; content: string }> = {
+  '/dashboard/dr-hub': {
+    title: '発信ハブの使い方',
+    content: `# 発信ハブの使い方
+DR記事を起点に、note記事・X投稿・Kindle本・発信戦略・画像へ展開します。
+1. 元になるDR記事を選ぶ（🔭ディープリサーチで調査→📚リサーチ保存に保存したもの）
+2. タブで機能を選ぶ
+- ✍️ ペルソナ別note記事: 読者ペルソナを2〜4つ選んで冒頭サンプルを読み比べ→気に入ったペルソナで記事全文を生成
+- 🧩 分割記事化: DR記事1本を1〜5本のnote記事シリーズに分割（記事間の導線をAIが設計）
+- 🐦 X投稿連動: note記事への導線ポストを単発＋スレッドで生成（自動投稿はしない・コピペ運用）
+- 📈 発信戦略: DR記事群からターゲティング・投稿スケジュール・note⇄X⇄Kindle導線を提案（🗃保存一覧へ保存可）
+- 記事の下の「仕上げ」でまとめ画像・図表・見出し画像を作成
+- 📕 Kindle本づくりへ: 選んだDR記事を素材として引き継ぎ`,
+  },
   '/dashboard/reviews': {
     title: '口コミ管理の使い方',
     content: `# 口コミ管理の使い方
