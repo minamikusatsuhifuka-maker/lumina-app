@@ -2555,7 +2555,8 @@ test('C56: 発信ハブ ②分割記事化（261b）— タブ切替・前提・
   const splitTab = page.getByRole('button', { name: /分割記事化/ });
   await expect(splitTab).toBeVisible();
   await splitTab.click();
-  await expect(page.getByText('AIにおまかせ（1〜5）')).toBeVisible();
+  // ※ <option> はPlaywright上hidden扱いになるため、セクション見出しで判定する
+  await expect(page.getByText('分割記事化（DR記事1本 → note記事シリーズ）')).toBeVisible();
 
   // 2) プラン提案はDR記事を選ぶまで押せない
   const planBtn = page.getByRole('button', { name: /分割プランを提案してもらう/ });
@@ -2574,4 +2575,44 @@ test('C56: 発信ハブ ②分割記事化（261b）— タブ切替・前提・
     data: { drId: '00000000-0000-0000-0000-000000000000', mode: 'plan', count: 3 },
   });
   expect(notFound.status()).toBe(404);
+});
+
+test('C57: 発信ハブ ③X投稿連動（261c）— タブ・前提・生成/保存APIの契約', async ({ page }) => {
+  // 261cで追加した🐦X投稿連動のスモーク。AI呼び出しに到達しない検証のみ（課金なし）。
+  await stubFeatureDrafts(page); // R-12: 前回結果の復元で生成結果が埋まると前提が崩れる
+
+  // 1) タブ切替で③の設定UIが出て、自動投稿しない方針が明記されている
+  await page.goto('/dashboard/dr-hub');
+  const xTab = page.getByRole('button', { name: /X投稿連動/ });
+  await expect(xTab).toBeVisible();
+  await xTab.click();
+  await expect(page.getByText('Xへの自動投稿は行いません')).toBeVisible();
+
+  // 2) 生成は連動元の記事を選ぶまで押せない
+  const genBtn = page.getByRole('button', { name: /X投稿を生成する/ });
+  await expect(genBtn).toBeDisabled();
+
+  // 3) 生成API契約: 未認証401 → 記事なし400 → 存在しないarticleIdは404（owner検証）
+  const anon = await pwRequest.newContext({ baseURL: BASE_URL, storageState: { cookies: [], origins: [] } });
+  const unauth = await anon.post('/api/dr-hub/x-post', { data: {} });
+  expect(unauth.status()).toBe(401);
+  const unauthSave = await anon.post('/api/dr-hub/x-post/save', { data: { content: 'x' } });
+  expect(unauthSave.status()).toBe(401);
+  await anon.dispose();
+
+  const noSource = await api.post('/api/dr-hub/x-post', { data: { threadCount: 3 } });
+  expect(noSource.status()).toBe(400);
+
+  const notFound = await api.post('/api/dr-hub/x-post', {
+    data: { articleId: '00000000-0000-0000-0000-000000000000', threadCount: 3 },
+  });
+  expect(notFound.status()).toBe(404);
+
+  // 4) 保存API契約: content欠落は400／存在しない連動元記事は404（誤った紐づけを作らない）
+  const saveNoContent = await api.post('/api/dr-hub/x-post/save', { data: {} });
+  expect(saveNoContent.status()).toBe(400);
+  const saveBadArticle = await api.post('/api/dr-hub/x-post/save', {
+    data: { content: '[E2E] 契約検証用（保存されない）', articleId: '00000000-0000-0000-0000-000000000000' },
+  });
+  expect(saveBadArticle.status()).toBe(404);
 });

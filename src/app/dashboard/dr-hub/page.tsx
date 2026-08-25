@@ -65,11 +65,37 @@ const LENGTH_OPTIONS: Array<{ value: Length; label: string }> = [
   { value: 'long', label: '長め（5000〜7000字）' },
 ];
 
-type Feature = 'persona' | 'split';
+type Feature = 'persona' | 'split' | 'xpost';
 const FEATURES: Array<{ key: Feature; label: string }> = [
   { key: 'persona', label: '✍️ ペルソナ別note記事' },
   { key: 'split', label: '🧩 分割記事化（シリーズ）' },
+  { key: 'xpost', label: '🐦 X投稿連動' },
 ];
+
+// ③ X投稿の生成結果と保存状態
+interface XPostResult {
+  single: string;
+  thread: string[];
+  charLimit: number;
+}
+
+interface XSaveState {
+  saving: boolean;
+  savedId: string;
+  error: string;
+}
+
+const EMPTY_X_SAVE: XSaveState = { saving: false, savedId: '', error: '' };
+
+// 全角換算の文字数（Xは半角=0.5、全角=1で280単位=全角140字。表示用の目安）
+function xCharCount(text: string): number {
+  let n = 0;
+  for (const ch of text) {
+    // 半角英数記号・半角スペースは0.5、それ以外（日本語・絵文字等）は1と数える
+    n += /[\x20-\x7e]/.test(ch) ? 0.5 : 1;
+  }
+  return Math.ceil(n);
+}
 
 // 自動下書き（feature_result_drafts feature_key='dr-hub'）のpayload
 interface DrHubDraftPayload {
@@ -86,6 +112,12 @@ interface DrHubDraftPayload {
   splitPlan?: SplitPlan | null;
   seriesKey?: string;
   splitArticles?: Record<number, SplitArticleResult>;
+  // ③ X投稿連動
+  xArticleId?: string;
+  xArticleTitle?: string;
+  threadCount?: number;
+  articleUrl?: string;
+  xResult?: XPostResult | null;
 }
 
 const ACCENT = '#e0684b'; // 発信ハブのアクセント（ロケットの暖色系）
@@ -118,6 +150,19 @@ export default function DrHubPage() {
   const [splitRunAll, setSplitRunAll] = useState(false);
   const [openArticleIndex, setOpenArticleIndex] = useState<number | null>(null);
 
+  // ── ③ X投稿連動 ──
+  const [noteItems, setNoteItems] = useState<DrItem[]>([]);
+  const [noteItemsLoaded, setNoteItemsLoaded] = useState(false);
+  const [xSourceKind, setXSourceKind] = useState<'saved' | 'session'>('saved');
+  const [xArticleId, setXArticleId] = useState('');
+  const [xSessionKey, setXSessionKey] = useState(''); // 'persona' | 'split-1'…
+  const [threadCount, setThreadCount] = useState(3);
+  const [articleUrl, setArticleUrl] = useState('');
+  const [xResult, setXResult] = useState<XPostResult | null>(null);
+  const [xBusy, setXBusy] = useState(false);
+  const [xSaveSingle, setXSaveSingle] = useState<XSaveState>(EMPTY_X_SAVE);
+  const [xSaveThread, setXSaveThread] = useState<XSaveState>(EMPTY_X_SAVE);
+
   const [error, setError] = useState('');
   const [copied, setCopied] = useState<string | null>(null);
   const [restoredAt, setRestoredAt] = useState<string | null>(null);
@@ -130,7 +175,7 @@ export default function DrHubPage() {
   // 復元取得が返ってきた時点で既に操作が始まっていたら復元しない
   const draftGuardRef = useRef(false);
   draftGuardRef.current =
-    samplesBusy || !!fullBusyKey || !!samples || !!article || planBusy || !!splitPlan;
+    samplesBusy || !!fullBusyKey || !!samples || !!article || planBusy || !!splitPlan || xBusy || !!xResult;
 
   // ②の逐次生成で最新stateを参照するためのref（連続fetch中のstale closure対策）
   const splitArticlesRef = useRef(splitArticles);
@@ -178,12 +223,37 @@ export default function DrHubPage() {
       setSplitPlan(p.splitPlan ?? null);
       if (p.seriesKey) setSeriesKey(p.seriesKey);
       if (p.splitArticles) setSplitArticles(p.splitArticles);
+      if (p.xArticleId) setXArticleId(p.xArticleId);
+      if (p.threadCount && p.threadCount >= 2 && p.threadCount <= 5) setThreadCount(p.threadCount);
+      if (p.articleUrl) setArticleUrl(p.articleUrl);
+      setXResult(p.xResult ?? null);
       setRestoredAt(draft.updated_at);
     })();
     return () => {
       cancelled = true;
     };
   }, []);
+
+  // ③のタブを開いたら保存済みnote記事の一覧を読み込む（開くまで取得しない）
+  useEffect(() => {
+    if (feature !== 'xpost' || noteItemsLoaded) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch('/api/library?type=note-article');
+        if (!res.ok) return; // 一覧が取れなくてもセッション内記事から作れる（劣化で許容）
+        const data = await res.json();
+        if (!cancelled && Array.isArray(data)) setNoteItems(data as DrItem[]);
+      } catch {
+        /* 一覧なしでも動く */
+      } finally {
+        if (!cancelled) setNoteItemsLoaded(true);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [feature, noteItemsLoaded]);
 
   const handleClearDraft = () => {
     setRestoredAt(null);
@@ -193,6 +263,9 @@ export default function DrHubPage() {
     setSplitPlan(null);
     setSplitArticles({});
     setSeriesKey('');
+    setXResult(null);
+    setXSaveSingle(EMPTY_X_SAVE);
+    setXSaveThread(EMPTY_X_SAVE);
     clearFeatureDraft('dr-hub');
   };
 
@@ -211,6 +284,10 @@ export default function DrHubPage() {
       splitPlan,
       seriesKey,
       splitArticles: splitArticlesRef.current,
+      xArticleId,
+      threadCount,
+      articleUrl,
+      xResult,
       ...over,
     } satisfies DrHubDraftPayload);
   };
@@ -395,6 +472,104 @@ export default function DrHubPage() {
     const m = article.content.match(/^#\s+(.+)$/m);
     return (m?.[1] || `${article.personaLabel}向け: ${selectedDr?.title ?? ''}`).trim();
   }, [article, selectedDr]);
+
+  // ── ③ このセッションで生成した記事（①・②）を連動元に選べるようにする ──
+  const sessionArticleOptions = useMemo(() => {
+    const opts: Array<{ key: string; label: string; title: string; content: string }> = [];
+    if (article) {
+      const m = article.content.match(/^#\s+(.+)$/m);
+      opts.push({
+        key: 'persona',
+        label: `①の記事（${article.personaLabel}）`,
+        title: (m?.[1] ?? '').trim() || `${article.personaLabel}向け記事`,
+        content: article.content,
+      });
+    }
+    if (splitPlan) {
+      for (let i = 1; i <= splitPlan.articles.length; i++) {
+        const r = splitArticles[i];
+        if (r?.content) {
+          opts.push({
+            key: `split-${i}`,
+            label: `②の第${i}記事`,
+            title: splitPlan.articles[i - 1].title,
+            content: r.content,
+          });
+        }
+      }
+    }
+    return opts;
+  }, [article, splitPlan, splitArticles]);
+
+  const xSourceReady =
+    xSourceKind === 'saved' ? !!xArticleId : !!sessionArticleOptions.find((o) => o.key === xSessionKey);
+
+  const generateXPosts = async () => {
+    if (!xSourceReady || xBusy) return;
+    setXBusy(true);
+    setError('');
+    setRestoredAt(null);
+    setXResult(null);
+    setXSaveSingle(EMPTY_X_SAVE);
+    setXSaveThread(EMPTY_X_SAVE);
+    try {
+      const session = sessionArticleOptions.find((o) => o.key === xSessionKey);
+      const res = await fetch('/api/dr-hub/x-post', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          ...(xSourceKind === 'saved'
+            ? { articleId: xArticleId }
+            : { article: { title: session?.title ?? '', content: session?.content ?? '' } }),
+          threadCount,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data?.error || `X投稿の生成に失敗しました（${res.status}）`);
+      const result: XPostResult = {
+        single: data.single ?? '',
+        thread: Array.isArray(data.thread) ? data.thread : [],
+        charLimit: data.charLimit ?? 135,
+      };
+      setXResult(result);
+      persistDraft({ xResult: result });
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : 'X投稿の生成に失敗しました');
+    } finally {
+      setXBusy(false);
+    }
+  };
+
+  // 投稿文＋記事URL（入力があれば末尾に付ける）
+  const withUrl = (text: string) => (articleUrl.trim() ? `${text}\n👉 ${articleUrl.trim()}` : text);
+
+  // ③ 保存（ペア管理: /api/dr-hub/x-post/save）。R-53: 保存済み表示・失敗時再試行を状態で持つ
+  const saveXPost = async (kind: 'single' | 'thread') => {
+    if (!xResult) return;
+    const setState = kind === 'single' ? setXSaveSingle : setXSaveThread;
+    const content =
+      kind === 'single'
+        ? withUrl(xResult.single)
+        : xResult.thread.map((t, i) => `${i + 1}/${xResult.thread.length}\n${i === xResult.thread.length - 1 ? withUrl(t) : t}`).join('\n\n---\n\n');
+    setState({ saving: true, savedId: '', error: '' });
+    try {
+      const res = await fetch('/api/dr-hub/x-post/save', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          content,
+          mode: kind,
+          articleId: xSourceKind === 'saved' ? xArticleId : '',
+          drId: selectedDrId,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data?.error || `保存に失敗しました（${res.status}）`);
+      setState({ saving: false, savedId: data.id ?? 'saved', error: '' });
+    } catch (e: unknown) {
+      setState({ saving: false, savedId: '', error: e instanceof Error ? e.message : '保存に失敗しました' });
+    }
+  };
 
   const handleCopy = (text: string, key: string) => {
     copyToClipboard(text);
@@ -636,6 +811,120 @@ export default function DrHubPage() {
             }}
           >
             {planBusy ? 'プランを提案中…' : '🧩 分割プランを提案してもらう'}
+          </button>
+        </div>
+      </div>
+      )}
+
+      {/* ── ③ X投稿連動 ── */}
+      {feature === 'xpost' && (
+      <div style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 12, padding: 20, marginBottom: 16 }}>
+        <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 4 }}>
+          2️⃣ 🐦 X投稿連動（記事への導線ポスト）
+        </div>
+        <p style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 12 }}>
+          note記事への導線となるX投稿を、単発ポストとスレッド形式の両方で作ります。Xへの自動投稿は行いません（コピーして貼り付ける運用です）。
+        </p>
+
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 10 }}>
+          {([
+            { kind: 'saved' as const, label: '📚 保存済みのnote記事から' },
+            { kind: 'session' as const, label: '🆕 この画面で生成した記事から' },
+          ]).map((o) => (
+            <button
+              key={o.kind}
+              type="button"
+              onClick={() => setXSourceKind(o.kind)}
+              style={{
+                padding: '8px 14px', borderRadius: 8, cursor: 'pointer', fontSize: 12, fontWeight: 600,
+                border: xSourceKind === o.kind ? `2px solid ${ACCENT}` : '1px solid var(--border)',
+                background: xSourceKind === o.kind ? `${ACCENT}12` : 'var(--bg-primary)',
+                color: xSourceKind === o.kind ? ACCENT : 'var(--text-muted)',
+              }}
+            >
+              {o.label}
+            </button>
+          ))}
+        </div>
+
+        {xSourceKind === 'saved' && (
+          <div style={{ marginBottom: 10 }}>
+            {noteItems.length === 0 ? (
+              <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>
+                {noteItemsLoaded ? '保存済みのnote記事がありません。①や②で記事を作って保存するとここに出ます。' : '読み込み中…'}
+              </div>
+            ) : (
+              <select
+                value={xArticleId}
+                onChange={(e) => setXArticleId(e.target.value)}
+                style={{ width: '100%', padding: '10px 12px', background: 'var(--bg-primary)', border: '1px solid var(--border)', borderRadius: 8, color: 'var(--text-primary)', fontSize: 13, outline: 'none' }}
+              >
+                <option value="">— 連動元のnote記事を選ぶ —</option>
+                {noteItems.map((n) => (
+                  <option key={n.id} value={n.id}>{n.title || '(無題)'}</option>
+                ))}
+              </select>
+            )}
+          </div>
+        )}
+
+        {xSourceKind === 'session' && (
+          <div style={{ marginBottom: 10 }}>
+            {sessionArticleOptions.length === 0 ? (
+              <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>
+                まだこの画面で生成した記事がありません。①ペルソナ別記事 か ②分割記事化 で記事を作るとここに出ます。
+              </div>
+            ) : (
+              <select
+                value={xSessionKey}
+                onChange={(e) => setXSessionKey(e.target.value)}
+                style={{ width: '100%', padding: '10px 12px', background: 'var(--bg-primary)', border: '1px solid var(--border)', borderRadius: 8, color: 'var(--text-primary)', fontSize: 13, outline: 'none' }}
+              >
+                <option value="">— 連動元の記事を選ぶ —</option>
+                {sessionArticleOptions.map((o) => (
+                  <option key={o.key} value={o.key}>{o.label}: {o.title}</option>
+                ))}
+              </select>
+            )}
+          </div>
+        )}
+
+        <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', alignItems: 'center', marginBottom: 12 }}>
+          <label style={{ fontSize: 12, color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: 6 }}>
+            スレッドの本数:
+            <select
+              value={threadCount}
+              onChange={(e) => setThreadCount(Number(e.target.value))}
+              style={{ padding: '6px 10px', background: 'var(--bg-primary)', border: '1px solid var(--border)', borderRadius: 6, color: 'var(--text-primary)', fontSize: 12, outline: 'none' }}
+            >
+              {[2, 3, 4, 5].map((n) => (
+                <option key={n} value={n}>{n}ポスト</option>
+              ))}
+            </select>
+          </label>
+          <label style={{ fontSize: 12, color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: 6, flex: 1, minWidth: 260 }}>
+            記事URL（任意）:
+            <input
+              value={articleUrl}
+              onChange={(e) => setArticleUrl(e.target.value)}
+              placeholder="https://note.com/…（コピー時に末尾へ付けます）"
+              style={{ flex: 1, padding: '8px 12px', background: 'var(--bg-primary)', border: '1px solid var(--border)', borderRadius: 6, color: 'var(--text-primary)', fontSize: 12, outline: 'none' }}
+            />
+          </label>
+        </div>
+
+        <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+          <button
+            type="button"
+            onClick={generateXPosts}
+            disabled={!xSourceReady || xBusy}
+            style={{
+              padding: '12px 28px', background: ACCENT, color: '#fff', border: 'none', borderRadius: 8,
+              fontWeight: 700, fontSize: 14, cursor: !xSourceReady || xBusy ? 'not-allowed' : 'pointer',
+              opacity: !xSourceReady || xBusy ? 0.5 : 1,
+            }}
+          >
+            {xBusy ? 'X投稿を生成中…' : '🐦 X投稿を生成する（単発＋スレッド）'}
           </button>
         </div>
       </div>
@@ -902,6 +1191,110 @@ export default function DrHubPage() {
               );
             })}
           </div>
+        </div>
+      )}
+      {/* ── ③ X投稿の生成結果 ── */}
+      {feature === 'xpost' && xResult && (
+        <div style={{ marginBottom: 16 }}>
+          <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 10 }}>
+            3️⃣ できた投稿（コピーしてXに貼り付け）
+          </div>
+
+          {/* 単発ポスト */}
+          {xResult.single && (
+            <div style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 12, padding: 16, marginBottom: 12 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8, marginBottom: 8 }}>
+                <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-primary)' }}>💬 単発ポスト</div>
+                <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                  <span style={{ fontSize: 11, color: xCharCount(xResult.single) > xResult.charLimit ? '#B45309' : 'var(--text-muted)' }}>
+                    {xCharCount(xResult.single)} / {xResult.charLimit}字
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => handleCopy(withUrl(xResult.single), 'x-single')}
+                    style={{ padding: '6px 12px', background: 'var(--bg-primary)', border: '1px solid var(--border)', color: 'var(--text-secondary)', borderRadius: 6, cursor: 'pointer', fontSize: 12 }}
+                  >
+                    {copied === 'x-single' ? '✅ コピー済み' : '📋 コピー'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => saveXPost('single')}
+                    disabled={xSaveSingle.saving || !!xSaveSingle.savedId}
+                    style={{ padding: '6px 12px', background: xSaveSingle.savedId ? 'var(--bg-primary)' : `${ACCENT}15`, border: `1px solid ${ACCENT}50`, color: ACCENT, borderRadius: 6, cursor: xSaveSingle.saving || xSaveSingle.savedId ? 'not-allowed' : 'pointer', fontSize: 12, fontWeight: 600 }}
+                  >
+                    {xSaveSingle.saving ? '保存中…' : xSaveSingle.savedId ? '✅ 保存済み' : xSaveSingle.error ? '⚠️ 保存に失敗・再試行' : '💾 保存（記事と関連付け）'}
+                  </button>
+                </div>
+              </div>
+              <div style={{ fontSize: 14, color: 'var(--text-secondary)', lineHeight: 1.8, whiteSpace: 'pre-wrap', background: 'var(--bg-primary)', border: '1px solid var(--border)', borderRadius: 8, padding: 12 }}>
+                {xResult.single}
+              </div>
+            </div>
+          )}
+
+          {/* スレッド */}
+          {xResult.thread.length > 0 && (
+            <div style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 12, padding: 16 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8, marginBottom: 8 }}>
+                <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-primary)' }}>🧵 スレッド（{xResult.thread.length}ポスト）</div>
+                <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      handleCopy(
+                        xResult.thread
+                          .map((t, i) => `${i + 1}/${xResult.thread.length}\n${i === xResult.thread.length - 1 ? withUrl(t) : t}`)
+                          .join('\n\n---\n\n'),
+                        'x-thread-all',
+                      )
+                    }
+                    style={{ padding: '6px 12px', background: 'var(--bg-primary)', border: '1px solid var(--border)', color: 'var(--text-secondary)', borderRadius: 6, cursor: 'pointer', fontSize: 12 }}
+                  >
+                    {copied === 'x-thread-all' ? '✅ コピー済み' : '📋 全ポストをコピー'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => saveXPost('thread')}
+                    disabled={xSaveThread.saving || !!xSaveThread.savedId}
+                    style={{ padding: '6px 12px', background: xSaveThread.savedId ? 'var(--bg-primary)' : `${ACCENT}15`, border: `1px solid ${ACCENT}50`, color: ACCENT, borderRadius: 6, cursor: xSaveThread.saving || xSaveThread.savedId ? 'not-allowed' : 'pointer', fontSize: 12, fontWeight: 600 }}
+                  >
+                    {xSaveThread.saving ? '保存中…' : xSaveThread.savedId ? '✅ 保存済み' : xSaveThread.error ? '⚠️ 保存に失敗・再試行' : '💾 保存（記事と関連付け）'}
+                  </button>
+                </div>
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                {xResult.thread.map((t, i) => {
+                  const isLast = i === xResult.thread.length - 1;
+                  const text = isLast ? withUrl(t) : t;
+                  return (
+                    <div key={i} style={{ background: 'var(--bg-primary)', border: '1px solid var(--border)', borderRadius: 8, padding: 12 }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                        <span style={{ fontSize: 11, fontWeight: 700, color: ACCENT }}>{i + 1}/{xResult.thread.length}</span>
+                        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                          <span style={{ fontSize: 11, color: xCharCount(t) > xResult.charLimit ? '#B45309' : 'var(--text-muted)' }}>
+                            {xCharCount(t)} / {xResult.charLimit}字
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => handleCopy(text, `x-thread-${i}`)}
+                            style={{ padding: '4px 10px', background: 'var(--bg-secondary)', border: '1px solid var(--border)', color: 'var(--text-muted)', borderRadius: 6, cursor: 'pointer', fontSize: 11 }}
+                          >
+                            {copied === `x-thread-${i}` ? '✅' : '📋'}
+                          </button>
+                        </div>
+                      </div>
+                      <div style={{ fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.8, whiteSpace: 'pre-wrap' }}>{t}</div>
+                    </div>
+                  );
+                })}
+              </div>
+              {articleUrl.trim() && (
+                <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 8 }}>
+                  ℹ️ コピー時、最終ポストの末尾に記事URL（👉 {articleUrl.trim()}）を付けます
+                </div>
+              )}
+            </div>
+          )}
         </div>
       )}
     </div>
