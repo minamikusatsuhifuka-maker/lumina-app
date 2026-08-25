@@ -19,11 +19,17 @@ export const X_HARD_LIMIT = 25000;
 export type XLength = 'short' | 'mini' | 'long';
 export const X_LENGTH_CONFIG: Record<
   XLength,
-  { label: string; chars: string; maxTokens: number }
+  { label: string; chars: string; promptNote: string; maxTokens: number }
 > = {
-  short: { label: '短文', chars: '140字前後', maxTokens: 4000 },
-  mini: { label: 'ミニ講義（既定）', chars: '1,000〜2,000字', maxTokens: 8000 },
-  long: { label: '長編', chars: '3,000〜5,000字', maxTokens: 13000 },
+  short: { label: '短文', chars: '140字前後', promptNote: '140字前後（160字を超えない）', maxTokens: 4000 },
+  mini: {
+    label: 'ミニ講義（既定）',
+    chars: '1,000〜2,000字',
+    // AIは指定帯のやや下に着地しがちなので、下限厳守＋帯の中央を狙わせる（B17実測: 素直な指定だと900字前後に落ちる）
+    promptNote: '1,000〜2,000字。**必ず1,000字以上**にする（1,200〜1,800字を狙う。900字台は不可）',
+    maxTokens: 8000,
+  },
+  long: { label: '長編', chars: '3,000〜5,000字', promptNote: '3,000〜5,000字。必ず3,000字以上にする', maxTokens: 13000 },
 };
 
 /** 投稿テンプレート5型（X-07）。既定は①ノウハウ体系化型（PART-A: 共有シグナルとの相性が最良） */

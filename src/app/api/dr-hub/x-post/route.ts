@@ -102,7 +102,7 @@ ${MEDICAL_AD_NG_RULES}
 - ハッシュタグは0〜2個まで（Xのスパム判定回避）
 
 # 作るもの（すべて）
-1. single: 単発ポスト1本。長さは**${lengthConf.label.replace('（既定）', '')}（${lengthConf.chars}）**
+1. single: 単発ポスト1本。長さは**${lengthConf.promptNote}**
 2. thread: ${threadCount}ポストのスレッド。1本目=フック＋本文の核、中間=要点の展開、最終=まとめ＋CTA。
    各ポストは読みやすい長さに（番号は付けない・画面側で付ける）
 3. urlReplyLeadin: 1つ目のリプライに記事URLと一緒に置く導線の一文（30字以内。例:「本文で触れた記事の全文はこちらです」）
