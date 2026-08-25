@@ -61,33 +61,49 @@ const INK = '#1F2A25';
 const MUTED = '#5B6B63';
 export const SUMMARY_IMAGE_WIDTH = 1200;
 
+// 267【3】: タイトルの折り返し行数の概算（全角基準・テンプレごとの実効幅/フォントサイズから算出）。
+// タイトルが2行に折り返すとき、この行数がキャンバス高さに入っていないと
+// 「緑のタイトルボックスの2行目の下端が切れる」崩れになる（院長実地確認で確定した事象）。
+const TITLE_CHARS_PER_LINE: Record<string, number> = {
+  card: 24, // 1200 - padding56×2 - 箱padding32×2 = 1024px ÷ 40px ≒ 25字 → 安全側24
+  poster: 22, // 1056px ÷ 44px（中央寄せ）→ 安全側22
+  // 表型・図表4種はタイトルが全幅40px: 1088px ÷ 40px ≒ 27字 → 安全側26
+};
+export function estimateTitleLines(template: AnyImageTemplateKey, title: string): number {
+  const perLine = TITLE_CHARS_PER_LINE[template] ?? 26;
+  return Math.max(1, Math.ceil((title ?? '').length / perLine));
+}
+
 // 高さの見積もり（satoriは固定キャンバスのため内容量から算出。上限でクランプ）
 export function estimateSummaryImageHeight(template: AnyImageTemplateKey, data: SummaryImageData): number {
   const points = data.groups.reduce((n, g) => n + g.points.length, 0);
   const headings = data.groups.filter((g) => g.heading).length;
   // 2行に折り返す長文ポイントを概算で加味（38字/行想定）
   const wraps = data.groups.reduce((n, g) => n + g.points.filter((p) => p.length > 38).length, 0);
+  // 267【3】: タイトルの折り返し分（2行目以降）を全テンプレ共通で上乗せする。
+  // 1行あたり: poster=44px×1.35≒60 → 62／その他=40px×1.35≒54 → 56（切れるより余る方に倒す）
+  const titleExtra = (estimateTitleLines(template, data.title) - 1) * (template === 'poster' ? 62 : 56);
   // 図表系の見積もり
   if (template === 'steps') {
-    return Math.max(630, Math.min(3600, 260 + points * 108 + wraps * 34));
+    return Math.max(630, Math.min(3600, titleExtra + 260 + points * 108 + wraps * 34));
   }
   if (template === 'compare') {
     // 列は横に並ぶ＝最大の列の行数で決まる
     const maxRows = Math.max(1, ...data.groups.map((g) => g.points.length));
     const maxWraps = Math.max(0, ...data.groups.map((g) => g.points.filter((p) => p.length > 18).length));
-    return Math.max(630, Math.min(3600, 300 + maxRows * 74 + maxWraps * 30));
+    return Math.max(630, Math.min(3600, titleExtra + 300 + maxRows * 74 + maxWraps * 30));
   }
   if (template === 'qa') {
-    return Math.max(630, Math.min(3600, 240 + headings * 96 + points * 64 + wraps * 34 + data.groups.length * 40));
+    return Math.max(630, Math.min(3600, titleExtra + 240 + headings * 96 + points * 64 + wraps * 34 + data.groups.length * 40));
   }
   if (template === 'beforeafter') {
     const maxRows = Math.max(1, ...data.groups.map((g) => g.points.length));
     const maxWraps = Math.max(0, ...data.groups.map((g) => g.points.filter((p) => p.length > 18).length));
-    return Math.max(630, Math.min(3600, 320 + maxRows * 74 + maxWraps * 30));
+    return Math.max(630, Math.min(3600, titleExtra + 320 + maxRows * 74 + maxWraps * 30));
   }
   const base = template === 'poster' ? 320 : 240;
   const perPoint = template === 'table' ? 78 : 64;
-  const h = base + headings * 86 + points * perPoint + wraps * 34;
+  const h = titleExtra + base + headings * 86 + points * perPoint + wraps * 34;
   return Math.max(630, Math.min(3600, h));
 }
 
@@ -130,7 +146,8 @@ function cardTemplate(data: SummaryImageData): El {
     { width: '100%', height: '100%', display: 'flex', flexDirection: 'column', background: '#ffffff', padding: 56, fontFamily: 'NotoSansJP' },
     [
       div(
-        { display: 'flex', background: GREEN, color: '#ffffff', padding: '20px 32px', borderRadius: 16, fontSize: 40, fontWeight: 700, lineHeight: 1.35 },
+        // 267【3】: flexShrink 0 = 高さ見積もりが足りない場合でもタイトル箱を圧縮させない（切れるのは余白側）
+        { display: 'flex', flexShrink: 0, background: GREEN, color: '#ffffff', padding: '20px 32px', borderRadius: 16, fontSize: 40, fontWeight: 700, lineHeight: 1.35 },
         data.title,
       ),
       ...data.groups.map((g) =>
@@ -169,7 +186,7 @@ function tableTemplate(data: SummaryImageData): El {
   return div(
     { width: '100%', height: '100%', display: 'flex', flexDirection: 'column', background: '#ffffff', padding: 56, fontFamily: 'NotoSansJP' },
     [
-      div({ display: 'flex', color: GREEN, fontSize: 40, fontWeight: 700, marginBottom: 24 }, data.title),
+      div({ display: 'flex', flexShrink: 0, color: GREEN, fontSize: 40, fontWeight: 700, lineHeight: 1.35, marginBottom: 24 }, data.title),
       div({ display: 'flex', flexDirection: 'column', border: `3px solid ${GREEN}`, borderRadius: 14, overflow: 'hidden' }, rows),
     ],
   );
@@ -183,7 +200,7 @@ function posterTemplate(data: SummaryImageData): El {
       div({ display: 'flex', height: 14, background: GREEN, width: '100%' }, ''),
       div({ display: 'flex', flexDirection: 'column', flex: 1, padding: '44px 72px' }, [
         div({ display: 'flex', justifyContent: 'center', color: MUTED, fontSize: 24, letterSpacing: 6 }, 'POINT'),
-        div({ display: 'flex', justifyContent: 'center', textAlign: 'center', color: INK, fontSize: 44, fontWeight: 700, marginTop: 10, lineHeight: 1.35 }, data.title),
+        div({ display: 'flex', flexShrink: 0, justifyContent: 'center', textAlign: 'center', color: INK, fontSize: 44, fontWeight: 700, marginTop: 10, lineHeight: 1.35 }, data.title),
         div({ display: 'flex', justifyContent: 'center', marginTop: 14 }, div({ display: 'flex', width: 120, height: 6, background: GREEN, borderRadius: 3 }, '')),
         ...data.groups.map((g) =>
           div({ display: 'flex', flexDirection: 'column', marginTop: g.heading ? 30 : 16 }, [
@@ -220,7 +237,7 @@ function stepsTemplate(data: SummaryImageData): El {
   return div(
     { width: '100%', height: '100%', display: 'flex', flexDirection: 'column', background: '#F7FBF9', padding: 56, fontFamily: 'NotoSansJP' },
     [
-      div({ display: 'flex', color: GREEN, fontSize: 40, fontWeight: 700, marginBottom: 24 }, data.title),
+      div({ display: 'flex', flexShrink: 0, color: GREEN, fontSize: 40, fontWeight: 700, lineHeight: 1.35, marginBottom: 24 }, data.title),
       div({ display: 'flex', flexDirection: 'column', gap: 8 }, rows),
     ],
   );
@@ -232,7 +249,7 @@ function compareTemplate(data: SummaryImageData): El {
   return div(
     { width: '100%', height: '100%', display: 'flex', flexDirection: 'column', background: '#ffffff', padding: 56, fontFamily: 'NotoSansJP' },
     [
-      div({ display: 'flex', color: GREEN, fontSize: 40, fontWeight: 700, marginBottom: 24 }, data.title),
+      div({ display: 'flex', flexShrink: 0, color: GREEN, fontSize: 40, fontWeight: 700, lineHeight: 1.35, marginBottom: 24 }, data.title),
       div(
         { display: 'flex', gap: 20, flex: 1 },
         cols.map((g, ci) =>
@@ -257,7 +274,7 @@ function qaTemplate(data: SummaryImageData): El {
   return div(
     { width: '100%', height: '100%', display: 'flex', flexDirection: 'column', background: '#F7FBF9', padding: 56, fontFamily: 'NotoSansJP' },
     [
-      div({ display: 'flex', color: GREEN, fontSize: 40, fontWeight: 700, marginBottom: 24 }, data.title),
+      div({ display: 'flex', flexShrink: 0, color: GREEN, fontSize: 40, fontWeight: 700, lineHeight: 1.35, marginBottom: 24 }, data.title),
       ...data.groups.map((g) =>
         div({ display: 'flex', flexDirection: 'column', background: '#ffffff', border: `2px solid ${GREEN_SOFT}`, borderRadius: 14, overflow: 'hidden', marginBottom: 18 }, [
           div({ display: 'flex', alignItems: 'flex-start', gap: 12, background: GREEN, color: '#ffffff', padding: '14px 22px' }, [
@@ -299,7 +316,7 @@ function beforeAfterTemplate(data: SummaryImageData): El {
   return div(
     { width: '100%', height: '100%', display: 'flex', flexDirection: 'column', background: '#F7FBF9', padding: 56, fontFamily: 'NotoSansJP' },
     [
-      div({ display: 'flex', color: GREEN, fontSize: 40, fontWeight: 700, marginBottom: 24 }, data.title),
+      div({ display: 'flex', flexShrink: 0, color: GREEN, fontSize: 40, fontWeight: 700, lineHeight: 1.35, marginBottom: 24 }, data.title),
       div({ display: 'flex', alignItems: 'stretch', gap: 0, flex: 1 }, [
         panel(before, 'before'),
         div({ display: 'flex', alignItems: 'center', color: GREEN, fontSize: 44, fontWeight: 700, padding: '0 14px' }, '→'),

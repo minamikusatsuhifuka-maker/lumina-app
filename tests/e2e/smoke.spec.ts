@@ -2941,3 +2941,28 @@ test('C63: 予約投稿カレンダー（266【3】NP-02）— 平日割り当�
   // 表のコピー導線がある
   await expect(page.getByRole('button', { name: /表をコピー/ })).toBeVisible();
 });
+
+test('C64: まとめ画像のタイトル折り返し（267§3）— 3形式とも長いタイトルでキャンバスが追随する', async () => {
+  // satori描画のみ＝AI課金なし。院長実地確認の実例（31字タイトル）で、キャンバス高さが
+  // タイトルの折り返し分だけ伸びることを本番APIで判定する（伸びない＝2行目が切れる旧挙動）。
+  const groups = [
+    { points: ['要点1の本文です', '要点2の本文です', '要点3の本文です', '要点4の本文です', '要点5の本文です', '要点6の本文です', '要点7の本文です', '要点8の本文です'] },
+  ];
+  const LONG_TITLE = '【肌と細胞の科学】肌荒れと関係するミトコンドリアの秘密｜まとめ';
+
+  for (const template of ['card', 'table', 'poster'] as const) {
+    const render = async (title: string) => {
+      const res = await api.post('/api/note-enhance/summary-image', {
+        data: { title, groups, template },
+      });
+      expect(res.status(), `${template} が描画できること`).toBe(200);
+      const json = await res.json();
+      expect(String(json.imageBase64 ?? '').length).toBeGreaterThan(1000);
+      return Number(json.height);
+    };
+    const hShort = await render('短いタイトル');
+    const hLong = await render(LONG_TITLE);
+    const expected = template === 'poster' ? 62 : 56;
+    expect(hLong - hShort, `${template}: 2行タイトルでキャンバスが+${expected}px`).toBe(expected);
+  }
+});
