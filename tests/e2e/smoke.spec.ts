@@ -2651,3 +2651,41 @@ test('C58: 発信ハブ ④発信戦略＋⑥Kindle導線（261e）— タブ・
   });
   expect(notFound.status()).toBe(404);
 });
+
+test('C59: 🎛メニュー名設定の並びがサイドバーの実表示と一致する（262）', async ({ page }) => {
+  // 262: 設定UIが定義順で表示していて、ホームのカスタマイズ（並び替え・追加・削除）と
+  // 食い違っていた。「設定画面を上から見ていけばサイドバーと同じ景色」を機械判定で固定する。
+  const order = ['/dashboard/deepresearch', '/dashboard', '/dashboard/text-analysis'];
+  await page.addInitScript((o) => {
+    localStorage.setItem('sidebar_home_items', JSON.stringify(o));
+  }, order);
+  await page.goto('/dashboard/display-settings');
+
+  // 1) サイドバーのホーム（先頭N件のリンク）が注入した並びで出ている
+  const sidebarHrefs = await page
+    .locator('a[data-nav-href]')
+    .evaluateAll((els) =>
+      els.filter((el) => (el as HTMLElement).checkVisibility()).map((el) => el.getAttribute('data-nav-href')),
+    );
+  expect(sidebarHrefs.slice(0, order.length), 'サイドバー側の実並び').toEqual(order);
+
+  // 2) 設定画面のホームカテゴリを開くと、同じ並びで行が出る（＝ラベル配列が同一）
+  await page.locator('[data-nav-category-toggle="ホーム"]').click();
+  const block = page.locator('[data-nav-category-block="ホーム"]');
+  const rows = await block
+    .locator('[data-nav-row]')
+    .evaluateAll((els) => els.map((el) => el.getAttribute('data-nav-row')));
+  expect(rows.slice(0, order.length), '設定画面の並びがサイドバーと一致').toEqual(order);
+
+  // 3) 非表示中（ホームから外した定義上の項目）は末尾にまとまり、実並びと混ざらない
+  const hidden = await block
+    .locator('[data-nav-hidden-row]')
+    .evaluateAll((els) => els.map((el) => el.getAttribute('data-nav-hidden-row')));
+  expect(hidden.length, '既定ホーム6件のうち残していない5件が非表示中').toBe(5);
+  expect(hidden).toContain('/dashboard/orchestrator');
+  expect(rows, '行の順序 = 表示中の実並び → 非表示中').toEqual([...order, ...hidden]);
+  await expect(block.locator('[data-nav-hidden-separator]')).toBeVisible();
+
+  // 4) 非表示中の項目もリネームはできる（入力欄が出る＝251の機能を失っていない）
+  await expect(block.locator('[data-nav-label-input="/dashboard/orchestrator"]')).toBeVisible();
+});

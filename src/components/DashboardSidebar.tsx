@@ -25,6 +25,7 @@ import {
   ITEM_BY_HREF,
   DEFAULT_HOME_HREFS,
   HOME_STORAGE_KEY,
+  resolveHomeHrefs,
   type NavItem,
 } from '@/lib/nav-items';
 import { ThemeSelector } from './ThemeSelector';
@@ -118,19 +119,13 @@ function EditableHome({ pathname }: { pathname: string }) {
   const [activeId, setActiveId] = useState<string | null>(null);
   const [showPicker, setShowPicker] = useState(false);
 
-  // localStorage はクライアントで読む（SSRのちらつき・エラー回避）
+  // localStorage はクライアントで読む（SSRのちらつき・エラー回避）。
+  // 262: 解決規則は resolveHomeHrefs（nav-items.ts）に一本化（🎛表示設定と共有）
   useEffect(() => {
     try {
-      const saved = localStorage.getItem(HOME_STORAGE_KEY);
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed)) {
-          const valid = parsed.filter((h) => typeof h === 'string' && ITEM_BY_HREF.has(h));
-          if (valid.length > 0) setHomeHrefs(valid);
-        }
-      }
+      setHomeHrefs(resolveHomeHrefs(localStorage.getItem(HOME_STORAGE_KEY)));
     } catch {
-      /* skip */
+      /* localStorage 自体が使えない環境は既定のまま */
     }
   }, []);
 

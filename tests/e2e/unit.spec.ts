@@ -23,7 +23,7 @@ import {
   normalizeNavLabel,
   parseNavLabels,
 } from '../../src/lib/nav-labels';
-import { ALL_NAV_ITEMS, navCategories } from '../../src/lib/nav-items';
+import { ALL_NAV_ITEMS, navCategories, DEFAULT_HOME_HREFS, resolveHomeHrefs } from '../../src/lib/nav-items';
 import { CLEAR_PASTE_MESSAGE, type ClearAndPasteResult } from '../../src/lib/clear-and-paste';
 import { applyReplacePaste, resolvePasteReplaceEnabled } from '../../src/lib/paste-replace';
 import { insertAtCursor, PASTE_BUTTON_MESSAGE } from '../../src/lib/paste-insert';
@@ -688,4 +688,23 @@ test('U28: 画像生成ガードの常時連結（261d）— 全経路でサー�
 
   // 3) 前後の空白は整えられ、本文は失われない
   expect(guardImagePrompt(`  ${base}  `)).toContain(base);
+});
+
+test('U29: ホーム並びの解決 resolveHomeHrefs（262）— 保存値を採用し、壊れた値・空は既定へ倒す', () => {
+  // 262: 🎛設定UIが nav-items.ts の定義順で表示していて、サイドバーの実並び
+  // （sidebar_home_items 適用後）とズレていた。解決規則をこの1関数に正本化し、
+  // サイドバー（EditableHome）と設定UI（NavLabelSettings）の両方が同じ結果を見る。
+  expect(resolveHomeHrefs(null)).toEqual(DEFAULT_HOME_HREFS);
+  expect(resolveHomeHrefs(undefined)).toEqual(DEFAULT_HOME_HREFS);
+  expect(resolveHomeHrefs('broken json')).toEqual(DEFAULT_HOME_HREFS);
+  expect(resolveHomeHrefs('[]')).toEqual(DEFAULT_HOME_HREFS);
+  expect(resolveHomeHrefs('{"a":1}')).toEqual(DEFAULT_HOME_HREFS);
+
+  // 保存された並びをそのまま採用（カスタマイズが反映される）
+  const order = ['/dashboard/deepresearch', '/dashboard', '/dashboard/text-analysis'];
+  expect(resolveHomeHrefs(JSON.stringify(order))).toEqual(order);
+
+  // 実在しない href・文字列以外の要素は落とす。有効分が残ればそれを、全滅なら既定を返す
+  expect(resolveHomeHrefs(JSON.stringify(['/nope', 42, '/dashboard']))).toEqual(['/dashboard']);
+  expect(resolveHomeHrefs(JSON.stringify(['/nope']))).toEqual(DEFAULT_HOME_HREFS);
 });

@@ -7,10 +7,22 @@
 //
 // カテゴリごとに折りたたむ。全カテゴリを開いた状態で並べると100項目を超えて
 // 目的の1つに辿り着けないため、既定は全部閉じ、変更済みの件数だけ見出しに出す。
+//
+// 262: 並びは**実際のサイドバーの表示**に一致させる。「ホーム」は院長がカスタマイズした
+// 実並び（sidebar_home_items 適用後＝resolveHomeHrefs で解決）を出し、ホームから外して
+// いる定義上のホーム項目は、カテゴリ末尾に「非表示中」として薄く出す（リネームは可能）。
+// 設定画面を上から見ていけばサイドバーと同じ景色になる、が判定基準。
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useTheme } from '@/components/ThemeProvider';
-import { navCategories } from '@/lib/nav-items';
+import {
+  navCategories,
+  DEFAULT_HOME_HREFS,
+  HOME_STORAGE_KEY,
+  ITEM_BY_HREF,
+  resolveHomeHrefs,
+  type NavItem,
+} from '@/lib/nav-items';
 import {
   countNavRenames,
   isNavItemRenamed,
@@ -31,7 +43,88 @@ export default function NavLabelSettings() {
   } = useTheme();
   const [openCategory, setOpenCategory] = useState<string | null>(null);
 
+  // 262: ホームの実並びを読む（サイドバーの EditableHome と同じ正本 resolveHomeHrefs を使う）
+  const [homeHrefs, setHomeHrefs] = useState<string[]>(DEFAULT_HOME_HREFS);
+  useEffect(() => {
+    try {
+      setHomeHrefs(resolveHomeHrefs(localStorage.getItem(HOME_STORAGE_KEY)));
+    } catch {
+      /* localStorage が使えない環境は既定のまま */
+    }
+  }, []);
+
+  // 262: 設定画面に出す並び＝実際のサイドバーの並び。
+  // ホーム: カスタマイズ後の実並び＋（末尾に）ホームから外している定義上の項目を非表示中として出す。
+  // 他カテゴリ: サイドバーと同じ静的定義順（サイドバー側も固定描画）。
+  const displayCategories = navCategories.map((cat) => {
+    if (cat.category !== 'ホーム') {
+      return { category: cat.category, items: cat.items, hiddenItems: [] as NavItem[] };
+    }
+    const items = homeHrefs
+      .map((h) => ITEM_BY_HREF.get(h))
+      .filter((x): x is NavItem => !!x);
+    const hiddenItems = cat.items.filter((i) => !homeHrefs.includes(i.href));
+    return { category: cat.category, items, hiddenItems };
+  });
+
   const renamedTotal = countNavRenames(navLabels);
+
+  // 1項目分の編集行（visible/非表示中で共通。hidden は薄く出して実並びと区別する）
+  const renderRow = (item: NavItem, hidden: boolean) => {
+    const renamed = isNavItemRenamed(navLabels, item.href);
+    return (
+      <div
+        key={item.href}
+        data-nav-row={item.href}
+        {...(hidden ? { 'data-nav-hidden-row': item.href } : {})}
+        style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', opacity: hidden ? 0.55 : 1 }}
+      >
+        <input
+          data-nav-icon-input={item.href}
+          value={navLabels.items[item.href]?.icon ?? ''}
+          placeholder={item.icon}
+          maxLength={MAX_NAV_ICON_LENGTH}
+          onChange={(e) => setNavItemLabel(item.href, { icon: e.target.value })}
+          aria-label={`${item.label}のアイコン`}
+          style={{ ...inputStyle(!!navLabels.items[item.href]?.icon), width: 52, textAlign: 'center', flex: 'none' }}
+        />
+        <input
+          data-nav-label-input={item.href}
+          value={navLabels.items[item.href]?.label ?? ''}
+          placeholder={item.label}
+          maxLength={MAX_NAV_LABEL_LENGTH}
+          onChange={(e) => setNavItemLabel(item.href, { label: e.target.value })}
+          aria-label={`${item.label}の表示名`}
+          style={{ ...inputStyle(!!navLabels.items[item.href]?.label), flex: 1, minWidth: 140 }}
+        />
+        <span
+          style={{
+            fontSize: 11,
+            color: 'var(--text-muted)',
+            width: 120,
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            whiteSpace: 'nowrap',
+          }}
+          title={`サイドバーでの表示: ${navIconOf(navLabels, item.href, item.icon)} ${navLabelOf(navLabels, item.href, item.label)}`}
+        >
+          {hidden ? '🚫 ' : ''}
+          {navIconOf(navLabels, item.href, item.icon)}{' '}
+          {navLabelOf(navLabels, item.href, item.label)}
+        </span>
+        <button
+          type="button"
+          data-nav-reset={item.href}
+          onClick={() => resetNavItem(item.href)}
+          disabled={!renamed}
+          title={`既定「${item.icon} ${item.label}」に戻す`}
+          style={{ ...resetBtnStyle, opacity: renamed ? 1 : 0.3, cursor: renamed ? 'pointer' : 'default' }}
+        >
+          ↩ 戻す
+        </button>
+      </div>
+    );
+  };
 
   const resetAll = () => {
     if (renamedTotal === 0) return;
@@ -93,10 +186,10 @@ export default function NavLabelSettings() {
       </p>
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-        {navCategories.map((cat) => {
+        {displayCategories.map((cat) => {
           const open = openCategory === cat.category;
           const renamedInCat =
-            cat.items.filter((i) => isNavItemRenamed(navLabels, i.href)).length +
+            [...cat.items, ...cat.hiddenItems].filter((i) => isNavItemRenamed(navLabels, i.href)).length +
             (navLabels.categories[cat.category] ? 1 : 0);
           return (
             <div
@@ -141,7 +234,9 @@ export default function NavLabelSettings() {
                     変更 {renamedInCat}
                   </span>
                 )}
-                <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>{cat.items.length}項目</span>
+                <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>
+                  {cat.items.length}項目{cat.hiddenItems.length > 0 ? `＋非表示${cat.hiddenItems.length}` : ''}
+                </span>
               </button>
 
               {open && (
@@ -181,59 +276,26 @@ export default function NavLabelSettings() {
                     )}
                   </div>
 
-                  {cat.items.map((item) => {
-                    const renamed = isNavItemRenamed(navLabels, item.href);
-                    return (
+                  {cat.items.map((item) => renderRow(item, false))}
+
+                  {/* 262: ホームから外している項目。実並びと混ざらないよう末尾にまとめ、薄く出す */}
+                  {cat.hiddenItems.length > 0 && (
+                    <>
                       <div
-                        key={item.href}
-                        data-nav-row={item.href}
-                        style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}
+                        data-nav-hidden-separator
+                        style={{
+                          fontSize: 11,
+                          color: 'var(--text-muted)',
+                          padding: '8px 0 2px',
+                          borderTop: '1px dashed var(--border)',
+                          marginTop: 6,
+                        }}
                       >
-                        <input
-                          data-nav-icon-input={item.href}
-                          value={navLabels.items[item.href]?.icon ?? ''}
-                          placeholder={item.icon}
-                          maxLength={MAX_NAV_ICON_LENGTH}
-                          onChange={(e) => setNavItemLabel(item.href, { icon: e.target.value })}
-                          aria-label={`${item.label}のアイコン`}
-                          style={{ ...inputStyle(!!navLabels.items[item.href]?.icon), width: 52, textAlign: 'center', flex: 'none' }}
-                        />
-                        <input
-                          data-nav-label-input={item.href}
-                          value={navLabels.items[item.href]?.label ?? ''}
-                          placeholder={item.label}
-                          maxLength={MAX_NAV_LABEL_LENGTH}
-                          onChange={(e) => setNavItemLabel(item.href, { label: e.target.value })}
-                          aria-label={`${item.label}の表示名`}
-                          style={{ ...inputStyle(!!navLabels.items[item.href]?.label), flex: 1, minWidth: 140 }}
-                        />
-                        <span
-                          style={{
-                            fontSize: 11,
-                            color: 'var(--text-muted)',
-                            width: 120,
-                            overflow: 'hidden',
-                            textOverflow: 'ellipsis',
-                            whiteSpace: 'nowrap',
-                          }}
-                          title={`サイドバーでの表示: ${navIconOf(navLabels, item.href, item.icon)} ${navLabelOf(navLabels, item.href, item.label)}`}
-                        >
-                          {navIconOf(navLabels, item.href, item.icon)}{' '}
-                          {navLabelOf(navLabels, item.href, item.label)}
-                        </span>
-                        <button
-                          type="button"
-                          data-nav-reset={item.href}
-                          onClick={() => resetNavItem(item.href)}
-                          disabled={!renamed}
-                          title={`既定「${item.icon} ${item.label}」に戻す`}
-                          style={{ ...resetBtnStyle, opacity: renamed ? 1 : 0.3, cursor: renamed ? 'pointer' : 'default' }}
-                        >
-                          ↩ 戻す
-                        </button>
+                        非表示中（ホームから外している項目。名前の変更はできます）
                       </div>
-                    );
-                  })}
+                      {cat.hiddenItems.map((item) => renderRow(item, true))}
+                    </>
+                  )}
                 </div>
               )}
             </div>

@@ -128,3 +128,22 @@ export const ITEM_BY_HREF = new Map(ALL_NAV_ITEMS.map((i) => [i.href, i]));
 export const DEFAULT_HOME_HREFS: string[] =
   navCategories.find((c) => c.category === 'ホーム')?.items.map((i) => i.href) ?? [];
 export const HOME_STORAGE_KEY = 'sidebar_home_items';
+
+// 262: 「ホーム」カテゴリの実際の並びを localStorage の保存値から解決する**唯一の正本**。
+// サイドバー（EditableHome）と🎛表示設定（NavLabelSettings）の両方がこれを使う
+// —— 解決規則を2箇所に書くと、片方だけ直して並びがズレる事故が再発するため。
+// 規則: JSON配列で・実在する href のみ・1件以上あればそれを採用、それ以外は既定に倒す。
+export function resolveHomeHrefs(saved: string | null | undefined): string[] {
+  try {
+    if (saved) {
+      const parsed = JSON.parse(saved);
+      if (Array.isArray(parsed)) {
+        const valid = parsed.filter((h): h is string => typeof h === 'string' && ITEM_BY_HREF.has(h));
+        if (valid.length > 0) return valid;
+      }
+    }
+  } catch {
+    /* 壊れた保存値は既定に倒す */
+  }
+  return DEFAULT_HOME_HREFS;
+}
