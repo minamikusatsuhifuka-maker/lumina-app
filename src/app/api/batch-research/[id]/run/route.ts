@@ -1,9 +1,11 @@
 import { NextRequest } from 'next/server';
 import { auth } from '@/lib/auth';
-import { neon } from '@neondatabase/serverless';
+import { neon, type NeonQueryFunction } from '@neondatabase/serverless';
+import { v4 as uuidv4 } from 'uuid';
 import { generateWithModel, type AIModel } from '@/lib/ai-client';
 import { GEMINI_TEXT_THINKING_LOW, GEMINI_TEXT_THINKING_MEDIUM, geminiMaxTokens } from '@/lib/ai-models';
 import { NO_LATEX_PROMPT_RULE } from '@/lib/markdown-renderer';
+import { sanitizeForDb } from '@/lib/sanitize';
 
 export const maxDuration = 300;
 
@@ -290,6 +292,15 @@ ${researchResult}
               )
             `;
 
+            // 263【3】: 📚リサーチ保存（library）へ本文＋1000字要約を自動保存。
+            // - サーバー側で完結（毎朝のcron実行＝ブラウザ無しでも残る——ここが最重要）
+            // - ジョブ作成時に確定した auto_save_library（🎛自動ストック保存・既定on）を尊重
+            // - 失敗しても topic は成功のまま（R-39: 付加の保存失敗で本体を壊さない。context_saves と画面には残る）
+            // - 二重保存防止: topic固有タグ（batch:<jobId>-<index>）の有無で判定（再開・スタック復帰でも増えない）
+            if (job.auto_save_library !== false) {
+              await saveTopicToLibrary(sql, job.user_id, jobId, i, savedTopic, researchResult, summaryText);
+            }
+
             topics[i] = {
               ...item,
               status: 'completed',
@@ -394,6 +405,63 @@ ${researchResult}
       Connection: 'keep-alive',
     },
   });
+}
+
+// 263【3】: リサーチ本文と1000字要約を 📚リサーチ保存（library）へ保存する。
+// 通常DR画面の保存と同じ形（type='deepresearch'・group_name='ディープリサーチ'、要約はタグ「要約」）。
+// 二重保存防止はトピック固有タグ（batch:<jobId>-<index> / 要約は末尾s）を ','||tags||',' LIKE で判定。
+// 失敗は warn のみ（呼び出し側で topic を失敗にしない＝R-39）。
+async function saveTopicToLibrary(
+  sql: NeonQueryFunction<false, false>,
+  userId: string,
+  jobId: number,
+  index: number,
+  title: string,
+  researchText: string,
+  summaryText: string | null,
+) {
+  const rows: Array<{ tagId: string; title: string; content: string; tags: string }> = [
+    {
+      tagId: `batch:${jobId}-${index}`,
+      title,
+      content: researchText,
+      tags: `ディープリサーチ,バッチ,batch:${jobId}-${index}`,
+    },
+  ];
+  if (summaryText) {
+    rows.push({
+      tagId: `batch:${jobId}-${index}s`,
+      title,
+      content: summaryText,
+      tags: `ディープリサーチ,要約,バッチ,batch:${jobId}-${index}s`,
+    });
+  }
+  for (const r of rows) {
+    try {
+      const existing = (await sql`
+        SELECT id FROM library
+        WHERE user_id = ${userId} AND type = 'deepresearch'
+          AND ',' || tags || ',' LIKE ${`%,${r.tagId},%`}
+        LIMIT 1
+      `) as { id: string }[];
+      if (existing.length > 0) continue; // 二重保存防止（再開時）
+
+      const metadata = {
+        from: 'batch-research',
+        jobId,
+        topicIndex: index,
+        kind: r.tagId.endsWith('s') ? 'summary' : 'research',
+        savedAt: new Date().toISOString(),
+      };
+      await sql`
+        INSERT INTO library (id, user_id, type, title, content, metadata, tags, group_name, is_favorite, folder_name)
+        VALUES (${uuidv4()}, ${userId}, ${'deepresearch'}, ${sanitizeForDb(r.title)}, ${sanitizeForDb(r.content)},
+                ${JSON.stringify(metadata)}, ${r.tags}, ${'ディープリサーチ'}, ${0}, ${null})
+      `;
+    } catch (e) {
+      console.warn(`[batch-research run] library自動保存失敗 (${r.tagId}):`, e);
+    }
+  }
 }
 
 // AI でバッチ保存用タイトルを生成（タイムアウト + フォールバック付き）

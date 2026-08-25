@@ -334,18 +334,18 @@ function BatchExpandedContent({ result }: { result: BatchResult }) {
               </button>
             </div>
           </div>
+          {/* 263【1】: 読む画面は整形表示（R-45）。コピーはリッチ・MDダウンロードは生のまま */}
           <div
+            className="markdown-body"
             style={{
-              whiteSpace: 'pre-wrap',
               fontSize: 13,
               lineHeight: 1.75,
               maxHeight: 300,
               overflowY: 'auto',
               color: 'var(--text-primary)',
             }}
-          >
-            {summarySection}
-          </div>
+            dangerouslySetInnerHTML={{ __html: renderMarkdown(summarySection) }}
+          />
         </div>
       )}
 
@@ -371,22 +371,28 @@ function BatchExpandedContent({ result }: { result: BatchResult }) {
           </button>
         </div>
       </div>
-      <div
-        style={{
-          maxHeight: 500,
-          overflowY: 'auto',
-          whiteSpace: 'pre-wrap',
-          fontSize: 13,
-          lineHeight: 1.7,
-          padding: 12,
-          background: 'var(--bg-primary)',
-          borderRadius: 6,
-          border: '1px solid var(--border)',
-          color: 'var(--text-primary)',
-        }}
-      >
-        {currentText || '（本文がありません）'}
-      </div>
+      {/* 263【1】: 本文・AI参照素材とも整形表示（R-45）。空のときだけ案内文 */}
+      {currentText ? (
+        <div
+          className="markdown-body"
+          style={{
+            maxHeight: 500,
+            overflowY: 'auto',
+            fontSize: 13,
+            lineHeight: 1.7,
+            padding: 12,
+            background: 'var(--bg-primary)',
+            borderRadius: 6,
+            border: '1px solid var(--border)',
+            color: 'var(--text-primary)',
+          }}
+          dangerouslySetInnerHTML={{ __html: renderMarkdown(currentText) }}
+        />
+      ) : (
+        <div style={{ padding: 12, fontSize: 13, color: 'var(--text-muted)', background: 'var(--bg-primary)', borderRadius: 6, border: '1px solid var(--border)' }}>
+          （本文がありません）
+        </div>
+      )}
     </div>
   );
 }
@@ -422,7 +428,8 @@ export default function DeepResearchPage() {
   const [showDeepDive, setShowDeepDive] = useState(false);
 
   // バッチリサーチ
-  const [batchTopics, setBatchTopics] = useState<BatchTopic[]>([{ topic: '', mode: 'standard' }]);
+  // 263【2】: 新規トピックの既定は 5000字（deep）。設定済みの行は変えない
+  const [batchTopics, setBatchTopics] = useState<BatchTopic[]>([{ topic: '', mode: 'deep' }]);
   const [scheduleType, setScheduleType] = useState<'immediate' | 'browser' | 'cron'>('immediate');
   const [scheduledAt, setScheduledAt] = useState('');
   const [notifyEmail, setNotifyEmail] = useState('');
@@ -597,7 +604,7 @@ export default function DeepResearchPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const addBatchTopic = () => setBatchTopics(prev => prev.length < 10 ? [...prev, { topic: '', mode: 'standard' }] : prev);
+  const addBatchTopic = () => setBatchTopics(prev => prev.length < 10 ? [...prev, { topic: '', mode: 'deep' }] : prev);
   const removeBatchTopic = (i: number) => setBatchTopics(prev => prev.filter((_, idx) => idx !== i));
   const updateBatchTopic = (i: number, patch: Partial<BatchTopic>) => {
     setBatchTopics(prev => prev.map((t, idx) => idx === i ? { ...t, ...patch } : t));
@@ -731,6 +738,9 @@ export default function DeepResearchPage() {
           scheduleType,
           scheduledAt: scheduledAt ? new Date(scheduledAt).toISOString() : undefined,
           notifyEmail: notifyEmail.trim() || undefined,
+          // 263【3】: 📚リサーチ保存への自動保存（247の自動ストック保存設定に統合）。
+          // サーバー自動実行でも保存が完結するよう、設定値はジョブ作成時に確定してジョブに載せる
+          autoSave: isAutoStockSaveEnabled(),
         }),
       });
       const data = await res.json();
@@ -1001,6 +1011,7 @@ export default function DeepResearchPage() {
             groupName: `関連リサーチ: ${t.slice(0, 20)}`,
             topics: [{ topic: t, mode }],
             scheduleType: 'immediate',
+            autoSave: isAutoStockSaveEnabled(), // 263【3】: 通常バッチと同じ扱い
           }),
         });
         const jobData = await jobRes.json();
@@ -3302,6 +3313,7 @@ ${contextText}
                       style={{ flex: 1, padding: 8, background: 'var(--bg-primary)', border: '1px solid var(--border)', borderRadius: 6, color: 'var(--text-primary)', fontSize: 13, outline: 'none' }}
                     />
                     <select
+                      data-batch-mode={i}
                       value={item.mode}
                       onChange={e => updateBatchTopic(i, { mode: e.target.value as BatchTopic['mode'] })}
                       style={{ padding: 8, background: 'var(--bg-primary)', border: '1px solid var(--border)', borderRadius: 6, color: 'var(--text-primary)', fontSize: 12, outline: 'none' }}

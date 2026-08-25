@@ -2689,3 +2689,42 @@ test('C59: 🎛メニュー名設定の並びがサイドバーの実表示と�
   // 4) 非表示中の項目もリネームはできる（入力欄が出る＝251の機能を失っていない）
   await expect(block.locator('[data-nav-label-input="/dashboard/orchestrator"]')).toBeVisible();
 });
+
+test('C60: バッチリサーチ（263）— 新規トピックの既定5000字・自動保存フラグがジョブに載る', async ({ page }) => {
+  // 263【2】【3】のスモーク。AIは呼ばず、ジョブの登録→フラグ確認→削除の自己完結型（R-55）。
+  await stubFeatureDrafts(page); // R-12: 下書き復元で画面状態が変わる前提を固定
+
+  // 1) バッチタブの新規トピック行の既定が「🔭 ディープ(5000字)」
+  await page.goto('/dashboard/deepresearch');
+  await page.getByRole('button', { name: '⚡ バッチリサーチ' }).click();
+  await expect(page.locator('[data-batch-mode="0"]')).toHaveValue('deep');
+  // 行を追加しても既定は5000字（既存行は変えず、新規行の既定だけ）
+  await page.getByRole('button', { name: /トピックを追加/ }).click();
+  await expect(page.locator('[data-batch-mode="1"]')).toHaveValue('deep');
+
+  // 2) ジョブ登録API: autoSave の値が auto_save_library としてジョブに確定する
+  //    scheduleType='browser'＋実行時刻なし＝絶対に走らない（AI課金なし）。検証後に削除
+  const mk = async (autoSave: boolean | undefined) => {
+    const res = await api.post('/api/batch-research', {
+      data: {
+        groupName: `[E2E] ${RUN_ID} 263自動保存フラグ検証`,
+        topics: [{ topic: '[E2E] 検証用（実行されない）', mode: 'deep' }],
+        scheduleType: 'browser',
+        ...(autoSave === undefined ? {} : { autoSave }),
+      },
+    });
+    expect(res.status()).toBe(200);
+    return (await res.json()).job;
+  };
+  const jobOn = await mk(undefined); // 省略＝既定on
+  const jobOff = await mk(false); // 🎛でoffにした状態
+  try {
+    expect(jobOn.auto_save_library, '省略時は既定で自動保存on').toBe(true);
+    expect(jobOff.auto_save_library, 'off指定がジョブに確定する').toBe(false);
+  } finally {
+    for (const j of [jobOn, jobOff]) {
+      const del = await api.delete(`/api/batch-research?id=${j.id}`);
+      expect(del.status()).toBe(200);
+    }
+  }
+});

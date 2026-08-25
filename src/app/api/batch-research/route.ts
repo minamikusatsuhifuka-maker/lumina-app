@@ -27,7 +27,7 @@ export async function POST(req: NextRequest) {
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
   try {
-    const { groupName, topics, scheduleType, scheduledAt, notifyEmail } = await req.json();
+    const { groupName, topics, scheduleType, scheduledAt, notifyEmail, autoSave } = await req.json();
 
     if (!Array.isArray(topics) || topics.length === 0) {
       return NextResponse.json({ error: 'topicsが必要です' }, { status: 400 });
@@ -65,9 +65,14 @@ export async function POST(req: NextRequest) {
     const sql = neon(process.env.DATABASE_URL!);
     const userId = (session.user as any).id;
 
+    // 263【3】: 📚リサーチ保存への自動保存フラグ（R-10: 冪等な列追加。既存行は既定on）。
+    // 設定（🎛自動ストック保存）はクライアントの localStorage にあるため、ジョブ作成時に
+    // 確定してジョブへ載せる——サーバー自動実行（毎朝のcron）でもこの値だけで保存が完結する。
+    await sql`ALTER TABLE batch_research_jobs ADD COLUMN IF NOT EXISTS auto_save_library BOOLEAN NOT NULL DEFAULT TRUE`;
+
     const rows = await sql`
       INSERT INTO batch_research_jobs
-        (user_id, group_name, topics, schedule_type, scheduled_at, notify_email, status)
+        (user_id, group_name, topics, schedule_type, scheduled_at, notify_email, status, auto_save_library)
       VALUES (
         ${userId},
         ${finalGroupName},
@@ -75,7 +80,8 @@ export async function POST(req: NextRequest) {
         ${finalScheduleType},
         ${scheduledAt || null},
         ${notifyEmail || null},
-        'pending'
+        'pending',
+        ${autoSave !== false}
       )
       RETURNING *
     `;

@@ -119,7 +119,9 @@ export default function DisplaySettingsPage() {
         <h2 style={{ fontSize: 16, fontWeight: 700, marginBottom: 4 }}>💾 生成結果の自動ストック保存</h2>
         <p style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 16, lineHeight: 1.7 }}>
           生成が終わった時点で、結果を自動でストックへ保存します。対象は
-          <strong>📝 テキスト分析</strong>と<strong>🔭 ディープリサーチ</strong>の2画面です。
+          <strong>📝 テキスト分析</strong>と<strong>🔭 ディープリサーチ</strong>の2画面です
+          （263: バッチリサーチも対象。本文と要約が📚リサーチ保存へ入ります。
+          サーバー自動実行分にも効き、offにすると<strong>その後に登録したジョブ</strong>から保存されなくなります）。
           手動の「💾 ストック保存」と同じ場所に入り、保存済みのボタンは「✅ 保存済み」に変わります
           （同じ内容が二重に入ることはありません）。
         </p>
