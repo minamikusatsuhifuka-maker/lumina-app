@@ -3060,8 +3060,8 @@ test('C66: Kindle→note多軸展開（269）— 3軸の選択肢・警告表示
   await expect(warn).toContainText('書籍文脈の残存');
   await expect(warn).toContainText('前章で述べた内容');
 
-  // §4: 元の章と並べた目視確認UI（促し文言つき）
-  await page.getByRole('button', { name: /▼ 確認する/ }).click();
+  // §4: 元の章と並べた目視確認UI（促し文言つき）。生成直後の候補は**自動で開く**＝促しが最初から見える
+  await expect(page.getByRole('button', { name: /▲ 閉じる/ })).toBeVisible();
   await expect(page.locator('[data-fact-check-note]')).toContainText('事実関係が元の章と同一か');
   await expect(page.getByText('📕 元の章（素材）')).toBeVisible();
   await expect(page.getByText('📰 書き下ろした記事')).toBeVisible();
