@@ -23,3 +23,11 @@ export function imagePromptRules(subject: string): string {
 
 export const IMAGE_GUARD_SUFFIX =
   '【厳守】画像内に文字・ロゴ・数字を入れない。実在の人物や特定できる顔を描かない。患部・症状の写実的描写や効果効能を示唆する演出をしない。';
+
+// 261d: 生成直前のプロンプトへガードを連結する（サーバ側で常時付与＝226承認条件）。
+// 既にガードが含まれていれば二重連結しない（起案済みプロンプトの再送・履歴からの再利用に備える）。
+export function guardImagePrompt(prompt: string): string {
+  const p = prompt.trim();
+  if (p.includes(IMAGE_GUARD_SUFFIX)) return p;
+  return `${p}\n\n${IMAGE_GUARD_SUFFIX}`;
+}

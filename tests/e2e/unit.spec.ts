@@ -3,6 +3,7 @@ import { describeAnthropicError, isFallbackWorthy } from '../../src/lib/anthropi
 import { findUngroundedTerms, findBannedExpressions, splitByPriority } from '../../src/lib/content-verify';
 import { buildDiffRows, describeDiffStats } from '../../src/lib/text-diff';
 import { sanitizeForDb } from '../../src/lib/sanitize';
+import { guardImagePrompt, IMAGE_GUARD_SUFFIX } from '../../src/lib/image-guards';
 import { cleanChapterBody } from '../../src/lib/kindle-text';
 import { KINDLE_TASTES, KINDLE_TASTE_KEYS, KINDLE_TASTE_GUARD, KINDLE_SCORE_AXES } from '../../src/lib/kindle-taste';
 import {
@@ -668,4 +669,23 @@ test('U26: 分析タイプの常時表示と折りたたみの分割（258）—
   );
   expect(new Set(merged).size, '同じタイプが両方に出ないこと').toBe(ANALYSIS_OPTIONS.length);
   expect(SECONDARY_ANALYSIS_OPTIONS.length, '畳む側が空にならないこと').toBeGreaterThan(0);
+});
+
+test('U28: 画像生成ガードの常時連結（261d）— 全経路でサーバ側連結・二重連結しない', () => {
+  // 226承認条件「ユーザー編集後のプロンプトにもサーバ側でガードを必ず連結する」が
+  // /api/image-gen・/api/image-gen/multi の2経路で漏れていた（261dで是正）。
+  // 連結は guardImagePrompt() の1本に集約し、ここで挙動を固定する。
+  const base = '朝の光が差し込むキッチンで白湯を飲む女性の後ろ姿';
+
+  // 1) 通常のプロンプトには末尾にガードが付く
+  const guarded = guardImagePrompt(base);
+  expect(guarded.startsWith(base)).toBe(true);
+  expect(guarded).toContain(IMAGE_GUARD_SUFFIX);
+
+  // 2) 既にガードを含むプロンプト（起案済み・履歴再利用）には二重連結しない
+  const twice = guardImagePrompt(guarded);
+  expect(twice.split(IMAGE_GUARD_SUFFIX).length - 1, 'ガードは1回だけ').toBe(1);
+
+  // 3) 前後の空白は整えられ、本文は失われない
+  expect(guardImagePrompt(`  ${base}  `)).toContain(base);
 });

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
 import { sql } from '@/lib/db';
+import { guardImagePrompt } from '@/lib/image-guards';
 
 // GPT Image 2（OpenAI）での画像生成 + 生成履歴（プロンプト・設定のみ、画像は保存しない）
 // APIキー秘匿のため必ずサーバー経由（クライアントからOpenAI直叩き禁止）
@@ -155,7 +156,8 @@ export async function POST(req: NextRequest) {
       },
       body: JSON.stringify({
         model: 'gpt-image-2',
-        prompt,
+        // 261d是正: 生成ガードをサーバ側で常時連結（226承認条件。履歴にはユーザーのプロンプトのみ記録）
+        prompt: guardImagePrompt(prompt),
         size,
         quality,
         n: 1,

@@ -8,6 +8,7 @@ import {
   type ImageModelKey,
   type ImageQuality,
 } from '@/lib/image-providers';
+import { guardImagePrompt } from '@/lib/image-guards';
 
 export const runtime = 'nodejs';
 // 複数モデルを並列生成。一番遅いモデル（GPT Image 2）に合わせて余裕を持たせる。
@@ -81,9 +82,14 @@ export async function POST(req: NextRequest) {
     const quality: ImageQuality =
       body.quality === 'low' || body.quality === 'high' ? body.quality : 'medium';
 
+    // 261d是正: 生成ガードをサーバ側で常時連結（226承認条件「編集で消されても効かせる」。
+    // kindle/wizard/images・note-enhance/image は連結済みで、この経路だけ漏れていた）。
+    // 履歴にはユーザーのプロンプトのみ記録する（再利用時にガード文が二重にならないように）。
+    const guardedPrompt = guardImagePrompt(prompt);
+
     // 並列実行。generateWithProvider は例外を投げず結果を返すので allSettled でも rejected は基本出ない
     const settled = await Promise.allSettled(
-      models.map((model) => generateWithProvider(model, { prompt, aspect, quality })),
+      models.map((model) => generateWithProvider(model, { prompt: guardedPrompt, aspect, quality })),
     );
     const results = settled.map((s, i) =>
       s.status === 'fulfilled'

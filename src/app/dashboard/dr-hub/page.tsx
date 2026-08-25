@@ -10,6 +10,9 @@ import { loadFeatureDraft, saveFeatureDraft, clearFeatureDraft } from '@/lib/fea
 import { renderMarkdown } from '@/lib/markdown-renderer';
 import { copyToClipboard } from '@/lib/copyToClipboard';
 import { getSavedModel } from '@/lib/model-preference';
+import { EyecatchModal, type EyecatchKind } from '@/components/eyecatch/EyecatchModal';
+import NoteEnhancePanel from '@/components/note-enhance/NoteEnhancePanel';
+import { emptyNoteEnhance, normalizeNoteEnhance, type NoteEnhanceState } from '@/lib/note-enhance';
 import {
   PERSONA_STYLES,
   PERSONA_STYLE_KEYS,
@@ -118,6 +121,9 @@ interface DrHubDraftPayload {
   threadCount?: number;
   articleUrl?: string;
   xResult?: XPostResult | null;
+  // ⑤ 仕上げ（まとめ・図表・画像配置）の状態。本文とは別レイヤ＝失敗しても本文は無傷
+  personaEnhance?: NoteEnhanceState;
+  splitEnhance?: Record<number, NoteEnhanceState>;
 }
 
 const ACCENT = '#e0684b'; // 発信ハブのアクセント（ロケットの暖色系）
@@ -162,6 +168,18 @@ export default function DrHubPage() {
   const [xBusy, setXBusy] = useState(false);
   const [xSaveSingle, setXSaveSingle] = useState<XSaveState>(EMPTY_X_SAVE);
   const [xSaveThread, setXSaveThread] = useState<XSaveState>(EMPTY_X_SAVE);
+
+  // ── ⑤ 画像・仕上げ（261d）──
+  const [personaEnhance, setPersonaEnhance] = useState<NoteEnhanceState>(emptyNoteEnhance());
+  const [splitEnhance, setSplitEnhance] = useState<Record<number, NoteEnhanceState>>({});
+  const [eyecatch, setEyecatch] = useState<{ open: boolean; title: string; text: string; kind: EyecatchKind }>({
+    open: false,
+    title: '',
+    text: '',
+    kind: 'note',
+  });
+  // enhance変更の自動下書き保存はデバウンス（入力のたびのPUT連打を避ける。note-articleと同方式）
+  const enhanceSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const [error, setError] = useState('');
   const [copied, setCopied] = useState<string | null>(null);
@@ -227,6 +245,12 @@ export default function DrHubPage() {
       if (p.threadCount && p.threadCount >= 2 && p.threadCount <= 5) setThreadCount(p.threadCount);
       if (p.articleUrl) setArticleUrl(p.articleUrl);
       setXResult(p.xResult ?? null);
+      if (p.personaEnhance) setPersonaEnhance(normalizeNoteEnhance(p.personaEnhance));
+      if (p.splitEnhance && typeof p.splitEnhance === 'object') {
+        const m: Record<number, NoteEnhanceState> = {};
+        for (const [k, v] of Object.entries(p.splitEnhance)) m[Number(k)] = normalizeNoteEnhance(v);
+        setSplitEnhance(m);
+      }
       setRestoredAt(draft.updated_at);
     })();
     return () => {
@@ -266,6 +290,8 @@ export default function DrHubPage() {
     setXResult(null);
     setXSaveSingle(EMPTY_X_SAVE);
     setXSaveThread(EMPTY_X_SAVE);
+    setPersonaEnhance(emptyNoteEnhance());
+    setSplitEnhance({});
     clearFeatureDraft('dr-hub');
   };
 
@@ -288,8 +314,26 @@ export default function DrHubPage() {
       threadCount,
       articleUrl,
       xResult,
+      personaEnhance,
+      splitEnhance,
       ...over,
     } satisfies DrHubDraftPayload);
+  };
+
+  // ⑤ 仕上げ状態の変更（デバウンスして下書き保存）
+  const handlePersonaEnhanceChange = (next: NoteEnhanceState) => {
+    setPersonaEnhance(next);
+    if (enhanceSaveTimer.current) clearTimeout(enhanceSaveTimer.current);
+    enhanceSaveTimer.current = setTimeout(() => persistDraft({ personaEnhance: next }), 1200);
+  };
+
+  const handleSplitEnhanceChange = (index: number, next: NoteEnhanceState) => {
+    setSplitEnhance((prev) => {
+      const merged = { ...prev, [index]: next };
+      if (enhanceSaveTimer.current) clearTimeout(enhanceSaveTimer.current);
+      enhanceSaveTimer.current = setTimeout(() => persistDraft({ splitEnhance: merged }), 1200);
+      return merged;
+    });
   };
 
   const filteredDr = useMemo(() => {
@@ -1019,6 +1063,13 @@ export default function DrHubPage() {
               >
                 {copied === 'persona-article' ? '✅ コピー済み' : '📋 本文をコピー'}
               </button>
+              <button
+                type="button"
+                onClick={() => setEyecatch({ open: true, title: articleTitle, text: article.content, kind: 'note' })}
+                style={{ padding: '6px 14px', background: 'var(--bg-primary)', border: '1px solid var(--border)', color: 'var(--text-secondary)', borderRadius: 6, cursor: 'pointer', fontSize: 12 }}
+              >
+                🎨 見出し画像を作る
+              </button>
             </div>
           </div>
 
@@ -1038,6 +1089,16 @@ export default function DrHubPage() {
             style={{ fontSize: 14, lineHeight: 1.9, color: 'var(--text-secondary)' }}
             dangerouslySetInnerHTML={{ __html: renderMarkdown(article.content) }}
           />
+
+          {/* ⑤ 仕上げ（まとめ・図表・画像配置・貼り付けキット。既存note系機能をそのまま接続） */}
+          <div style={{ marginTop: 16 }}>
+            <NoteEnhancePanel
+              title={articleTitle}
+              content={article.content}
+              state={personaEnhance}
+              onChange={handlePersonaEnhanceChange}
+            />
+          </div>
         </div>
       )}
 
@@ -1156,6 +1217,13 @@ export default function DrHubPage() {
                             </button>
                             <button
                               type="button"
+                              onClick={() => setEyecatch({ open: true, title: a.title, text: result.content, kind: 'note' })}
+                              style={{ padding: '6px 12px', background: 'var(--bg-primary)', border: '1px solid var(--border)', color: 'var(--text-secondary)', borderRadius: 6, cursor: 'pointer', fontSize: 12 }}
+                            >
+                              🎨 画像
+                            </button>
+                            <button
+                              type="button"
                               onClick={() => generateSplitArticle(index)}
                               disabled={splitBusyIndex !== null || splitRunAll}
                               title="同じプランでこの記事だけ作り直します（現在の本文は置き換わります）"
@@ -1181,11 +1249,22 @@ export default function DrHubPage() {
                   )}
 
                   {result && isOpen && (
-                    <div
-                      className="markdown-body"
-                      style={{ fontSize: 14, lineHeight: 1.9, color: 'var(--text-secondary)', marginTop: 12, borderTop: '1px solid var(--border)', paddingTop: 12 }}
-                      dangerouslySetInnerHTML={{ __html: renderMarkdown(result.content) }}
-                    />
+                    <>
+                      <div
+                        className="markdown-body"
+                        style={{ fontSize: 14, lineHeight: 1.9, color: 'var(--text-secondary)', marginTop: 12, borderTop: '1px solid var(--border)', paddingTop: 12 }}
+                        dangerouslySetInnerHTML={{ __html: renderMarkdown(result.content) }}
+                      />
+                      {/* ⑤ 仕上げ（記事ごとに独立した状態を持つ） */}
+                      <div style={{ marginTop: 16 }}>
+                        <NoteEnhancePanel
+                          title={a.title}
+                          content={result.content}
+                          state={splitEnhance[index] ?? emptyNoteEnhance()}
+                          onChange={(next) => handleSplitEnhanceChange(index, next)}
+                        />
+                      </div>
+                    </>
                   )}
                 </div>
               );
@@ -1196,8 +1275,24 @@ export default function DrHubPage() {
       {/* ── ③ X投稿の生成結果 ── */}
       {feature === 'xpost' && xResult && (
         <div style={{ marginBottom: 16 }}>
-          <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 10 }}>
-            3️⃣ できた投稿（コピーしてXに貼り付け）
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8, marginBottom: 10 }}>
+            <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--text-primary)' }}>
+              3️⃣ できた投稿（コピーしてXに貼り付け）
+            </div>
+            <button
+              type="button"
+              onClick={() =>
+                setEyecatch({
+                  open: true,
+                  title: 'X投稿画像',
+                  text: [xResult.single, ...xResult.thread].filter(Boolean).join('\n\n'),
+                  kind: 'sns',
+                })
+              }
+              style={{ padding: '6px 14px', background: 'var(--bg-primary)', border: '1px solid var(--border)', color: 'var(--text-secondary)', borderRadius: 6, cursor: 'pointer', fontSize: 12 }}
+            >
+              🎨 投稿画像を作る
+            </button>
           </div>
 
           {/* 単発ポスト */}
@@ -1297,6 +1392,15 @@ export default function DrHubPage() {
           )}
         </div>
       )}
+
+      {/* ⑤ 見出し/投稿画像の生成モーダル（226基盤: モデル比較・比率・ガードつき起案） */}
+      <EyecatchModal
+        open={eyecatch.open}
+        onClose={() => setEyecatch((s) => ({ ...s, open: false }))}
+        sourceTitle={eyecatch.title}
+        sourceText={eyecatch.text}
+        sourceKind={eyecatch.kind}
+      />
     </div>
   );
 }
