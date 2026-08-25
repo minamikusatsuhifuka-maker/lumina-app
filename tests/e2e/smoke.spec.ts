@@ -2821,7 +2821,9 @@ test('C61: ペルソナ別note記事の体裁（264）— タイトル分離・�
     }
     return '';
   });
-  expect(richHtml, 'note用コピーはHTML（見出しタグ）を含む').toMatch(/<h[2-4]/);
+  // 266【1】: noteはh2=大見出し。note用コピーは見出しが1段繰り上がり、大見出し(h2)が2本以上立つこと
+  expect((richHtml.match(/<h2\b/g) ?? []).length, 'note用コピーは大見出し(h2)が2本以上').toBeGreaterThanOrEqual(2);
+  expect(richHtml, '繰り上げ後もh1は作らない').not.toMatch(/<h1\b/);
 
   await page.locator('[data-copy-md]').click();
   await expect
@@ -2891,4 +2893,51 @@ test('C62: X投稿連動のv2対応（265c）— 既定ミニ講義・警告表�
   await expect(page.locator('[data-x-warnings="thread-0"]')).toBeVisible();
   await expect(page.locator('[data-x-warnings="thread-0"]')).toContainText('URLは1つ目のリプライへ');
   await expect(page.locator('[data-x-warnings="single"]')).toHaveCount(0);
+});
+
+test('C63: 予約投稿カレンダー（266【3】NP-02）— 平日割り当て・note夜帯の提示・行ごとの時間帯変更', async ({ page }) => {
+  // AI不使用の純ロジック画面。一覧APIだけモックして表の導出を検証する。
+  await stubFeatureDrafts(page); // R-12
+  await page.route('**/api/library?type=note-article', (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify([
+        { id: 'e2e-n1', title: '[E2E] 記事A', content: 'a', created_at: '2026-08-26' },
+        { id: 'e2e-n2', title: '[E2E] 記事B', content: 'b', created_at: '2026-08-26' },
+      ]),
+    }),
+  );
+  await page.route('**/api/library?type=deepresearch', (route) =>
+    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([]) }),
+  );
+
+  await page.goto('/dashboard/dr-hub');
+  await page.getByRole('button', { name: /予約投稿カレンダー/ }).click();
+
+  // 自動投稿しない方針の明記
+  await expect(page.getByText('自動投稿・note連携はしません')).toBeVisible();
+
+  // 記事2本を選び、開始日を金曜(2026-09-04)に設定 → 金→月の平日連続で割り当たる
+  await page.getByText('[E2E] 記事A').click();
+  await page.getByText('[E2E] 記事B').click();
+  await page.locator('[data-sched-start]').fill('2026-09-04');
+
+  const table = page.locator('[data-schedule-table]');
+  await expect(table).toBeVisible();
+  await expect(table).toContainText('2026-09-04');
+  await expect(table).toContainText('2026-09-07'); // 土日を飛ばして月曜
+  // 既定は夜20:30（NP-02）で、note夜帯（20:00〜22:30）とX夜帯のズレが明記される（R-70）
+  await expect(table.locator('tbody select').first()).toHaveValue('night');
+  await expect(table).toContainText('20:00〜22:30');
+  await expect(table).toContainText('18:00〜21:00');
+  // 夜公開のX告知は翌朝
+  await expect(table).toContainText('翌朝 7:00〜8:30');
+
+  // 行ごとの時間帯変更: 1行目を朝に → X告知が当日の夜帯に変わる
+  await table.locator('tbody select').first().selectOption('morning');
+  await expect(table.locator('tbody tr').first()).toContainText('当日 18:00〜21:00');
+
+  // 表のコピー導線がある
+  await expect(page.getByRole('button', { name: /表をコピー/ })).toBeVisible();
 });

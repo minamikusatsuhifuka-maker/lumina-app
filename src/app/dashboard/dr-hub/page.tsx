@@ -9,8 +9,15 @@ import FeatureDraftBanner from '@/components/FeatureDraftBanner';
 import { loadFeatureDraft, saveFeatureDraft, clearFeatureDraft } from '@/lib/feature-drafts';
 import { renderMarkdown } from '@/lib/markdown-renderer';
 import { copyToClipboard } from '@/lib/copyToClipboard';
-import { copyRichMarkdown } from '@/lib/rich-copy';
+import { copyRichMarkdown, copyRichMarkdownForNote } from '@/lib/rich-copy';
 import { PLAYBOOK_VERSION } from '@/lib/knowledge/noteXPlaybook';
+import {
+  buildScheduleRows,
+  scheduleToMarkdown,
+  NOTE_SLOTS,
+  DEFAULT_SCHEDULE_SLOT,
+  type ScheduleSlot,
+} from '@/lib/posting-schedule';
 import { getSavedModel } from '@/lib/model-preference';
 import { EyecatchModal, type EyecatchKind } from '@/components/eyecatch/EyecatchModal';
 import NoteEnhancePanel from '@/components/note-enhance/NoteEnhancePanel';
@@ -74,12 +81,13 @@ const LENGTH_OPTIONS: Array<{ value: Length; label: string }> = [
   { value: 'long', label: '長め（5000〜7000字）' },
 ];
 
-type Feature = 'persona' | 'split' | 'xpost' | 'strategy';
+type Feature = 'persona' | 'split' | 'xpost' | 'strategy' | 'schedule';
 const FEATURES: Array<{ key: Feature; label: string }> = [
   { key: 'persona', label: '✍️ ペルソナ別note記事' },
   { key: 'split', label: '🧩 分割記事化（シリーズ）' },
   { key: 'xpost', label: '🐦 X投稿連動' },
   { key: 'strategy', label: '📈 発信戦略' },
+  { key: 'schedule', label: '🗓 予約投稿カレンダー' },
 ];
 
 // ③ X投稿の生成結果と保存状態（265c: v2対応＝警告・URLリプライ導線・長さ/型）
@@ -225,6 +233,30 @@ export default function DrHubPage() {
   const [strategyEdit, setStrategyEdit] = useState(false);
   const [strategySave, setStrategySave] = useState<XSaveState>(EMPTY_X_SAVE);
 
+  // ── 🗓 予約投稿カレンダー（266【3】・NP-02。AI不使用＝選択と日付から即時に割り当て表を導出） ──
+  const [schedSelected, setSchedSelected] = useState<string[]>([]); // 選択順を保持（この順で割り当てる）
+  const [schedStart, setSchedStart] = useState('');
+  const [schedSlots, setSchedSlots] = useState<Partial<Record<number, ScheduleSlot>>>({});
+  const [schedDefaultSlot, setSchedDefaultSlot] = useState<ScheduleSlot>(DEFAULT_SCHEDULE_SLOT);
+
+  // 開始日の既定は「明日」（クライアントで一度だけ計算）
+  useEffect(() => {
+    if (schedStart) return;
+    const t = new Date();
+    t.setDate(t.getDate() + 1);
+    const p = (n: number) => String(n).padStart(2, '0');
+    setSchedStart(`${t.getFullYear()}-${p(t.getMonth() + 1)}-${p(t.getDate())}`);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const schedRows = useMemo(() => {
+    const items = schedSelected
+      .map((id) => noteItems.find((n) => n.id === id))
+      .filter((x): x is DrItem => !!x)
+      .map((n) => ({ id: n.id, title: n.title || '(無題)' }));
+    return buildScheduleRows(items, schedStart, schedSlots, schedDefaultSlot);
+  }, [schedSelected, noteItems, schedStart, schedSlots, schedDefaultSlot]);
+
   const [error, setError] = useState('');
   const [copied, setCopied] = useState<string | null>(null);
   const [restoredAt, setRestoredAt] = useState<string | null>(null);
@@ -306,9 +338,9 @@ export default function DrHubPage() {
     };
   }, []);
 
-  // ③④のタブを開いたら保存済みnote記事の一覧を読み込む（開くまで取得しない）
+  // ③④🗓のタブを開いたら保存済みnote記事の一覧を読み込む（開くまで取得しない）
   useEffect(() => {
-    if ((feature !== 'xpost' && feature !== 'strategy') || noteItemsLoaded) return;
+    if ((feature !== 'xpost' && feature !== 'strategy' && feature !== 'schedule') || noteItemsLoaded) return;
     let cancelled = false;
     (async () => {
       try {
@@ -751,6 +783,23 @@ export default function DrHubPage() {
     }
   };
 
+  // ── 🗓 カレンダーの選択・コピー ──
+  const toggleSched = (id: string) => {
+    setSchedSelected((prev) => (prev.includes(id) ? prev.filter((v) => v !== id) : [...prev, id]));
+    setSchedSlots({}); // 選択が変わったら行ごとの時間帯上書きはリセット（対応がズレるのを防ぐ）
+  };
+
+  const copySchedule = async () => {
+    if (schedRows.length === 0) return;
+    try {
+      await copyRichMarkdown(scheduleToMarkdown(schedRows));
+      setCopied('schedule');
+      setTimeout(() => setCopied(null), 2000);
+    } catch {
+      /* 失敗時はボタン表示が変わらない */
+    }
+  };
+
   // ── ⑥ Kindle本づくりへのhandoff（230/231の方式: sessionStorage＋読取後削除は受信側） ──
   const sendToKindle = () => {
     if (!selectedDrId) return;
@@ -768,10 +817,12 @@ export default function DrHubPage() {
     setTimeout(() => setCopied(null), 2000);
   };
 
-  // 264: note用のリッチコピー（text/html＋plain同時＝noteエディタで見出し・太字が保持される）
+  // 264→266【1】: note用のリッチコピー（text/html＋plain同時）。
+  // note は h2=大見出し/h3=小見出しのため、専用ラッパーで見出しを1段繰り上げてから書く
+  // （表示用 renderMarkdown の1段下げをそのまま貼ると全見出しが小見出しに落ちる）
   const handleRichCopy = async (text: string, key: string) => {
     try {
-      await copyRichMarkdown(text);
+      await copyRichMarkdownForNote(text);
       setCopied(key);
       setTimeout(() => setCopied(null), 2000);
     } catch {
@@ -1261,6 +1312,79 @@ export default function DrHubPage() {
           >
             {strategyBusy ? '戦略を策定中…' : '📈 発信戦略を策定してもらう'}
           </button>
+        </div>
+      </div>
+      )}
+
+      {/* ── 🗓 予約投稿カレンダー（266・NP-02） ── */}
+      {feature === 'schedule' && (
+      <div style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 12, padding: 20, marginBottom: 16 }}>
+        <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 4 }}>
+          2️⃣ 🗓 予約投稿カレンダー（書き溜め→平日に予約）
+        </div>
+        <p style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 12 }}>
+          保存済みのnote記事を選ぶと、平日1日1本で公開日時を割り当てた表を作ります（既定: 夜20:30）。
+          予約の実行は<strong>note側の予約投稿機能</strong>で行います（このアプリからの自動投稿・note連携はしません）。
+        </p>
+
+        <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 6 }}>
+          予約する記事（選んだ順に割り当て・{schedSelected.length}件選択中）
+        </div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 4, maxHeight: 220, overflowY: 'auto', marginBottom: 12 }}>
+          {noteItems.map((n) => {
+            const idx = schedSelected.indexOf(n.id);
+            const checked = idx >= 0;
+            return (
+              <button
+                key={n.id}
+                type="button"
+                onClick={() => toggleSched(n.id)}
+                style={{
+                  display: 'flex', alignItems: 'center', gap: 8, textAlign: 'left', padding: '8px 12px',
+                  borderRadius: 8, cursor: 'pointer', fontSize: 13,
+                  border: checked ? `2px solid ${ACCENT}` : '1px solid var(--border)',
+                  background: checked ? `${ACCENT}12` : 'var(--bg-primary)', color: 'var(--text-primary)',
+                }}
+              >
+                <span style={{ minWidth: 22, fontWeight: 700, color: checked ? ACCENT : 'var(--text-muted)' }}>
+                  {checked ? `${idx + 1}.` : '☐'}
+                </span>
+                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{n.title || '(無題)'}</span>
+              </button>
+            );
+          })}
+          {noteItems.length === 0 && (
+            <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>
+              {noteItemsLoaded ? '保存済みのnote記事がありません。①や②で記事を作って保存するとここに出ます。' : '読み込み中…'}
+            </div>
+          )}
+        </div>
+
+        <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', alignItems: 'center' }}>
+          <label style={{ fontSize: 12, color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: 6 }}>
+            開始日:
+            <input
+              type="date"
+              data-sched-start
+              value={schedStart}
+              onChange={(e) => setSchedStart(e.target.value)}
+              style={{ padding: '6px 10px', background: 'var(--bg-primary)', border: '1px solid var(--border)', borderRadius: 6, color: 'var(--text-primary)', fontSize: 12, outline: 'none' }}
+            />
+            <span style={{ fontSize: 11 }}>（土日は次の月曜へ送ります）</span>
+          </label>
+          <label style={{ fontSize: 12, color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: 6 }}>
+            時間帯の既定:
+            <select
+              data-sched-slot
+              value={schedDefaultSlot}
+              onChange={(e) => { setSchedDefaultSlot(e.target.value as ScheduleSlot); setSchedSlots({}); }}
+              style={{ padding: '6px 10px', background: 'var(--bg-primary)', border: '1px solid var(--border)', borderRadius: 6, color: 'var(--text-primary)', fontSize: 12, outline: 'none' }}
+            >
+              <option value="night">🌙 夜 20:30（長文・有料向き・既定）</option>
+              <option value="morning">☀️ 朝 7:30</option>
+              <option value="noon">🍱 昼 12:30</option>
+            </select>
+          </label>
         </div>
       </div>
       )}
@@ -1821,6 +1945,62 @@ export default function DrHubPage() {
               dangerouslySetInnerHTML={{ __html: renderMarkdown(strategyDoc) }}
             />
           )}
+        </div>
+      )}
+
+      {/* ── 🗓 割り当て表（選択と日付から即時導出・保存しない） ── */}
+      {feature === 'schedule' && schedRows.length > 0 && (
+        <div data-schedule-table style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 12, padding: 20, marginBottom: 16 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8, marginBottom: 10 }}>
+            <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--text-primary)' }}>
+              3️⃣ 割り当て表（noteの予約設定に転記）
+            </div>
+            <button
+              type="button"
+              onClick={copySchedule}
+              style={{ padding: '6px 14px', background: `${ACCENT}15`, border: `1px solid ${ACCENT}50`, color: ACCENT, borderRadius: 6, cursor: 'pointer', fontSize: 12, fontWeight: 600 }}
+            >
+              {copied === 'schedule' ? '✅ コピー済み' : '📋 表をコピー'}
+            </button>
+          </div>
+          <div style={{ overflowX: 'auto' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+              <thead>
+                <tr style={{ color: 'var(--text-muted)', fontSize: 11, textAlign: 'left' }}>
+                  <th style={{ padding: '6px 8px' }}>公開日</th>
+                  <th style={{ padding: '6px 8px' }}>曜日</th>
+                  <th style={{ padding: '6px 8px' }}>note公開</th>
+                  <th style={{ padding: '6px 8px' }}>記事</th>
+                  <th style={{ padding: '6px 8px' }}>X告知の目安</th>
+                </tr>
+              </thead>
+              <tbody>
+                {schedRows.map((r, i) => (
+                  <tr key={r.id} style={{ borderTop: '1px solid var(--border)', color: 'var(--text-secondary)' }}>
+                    <td style={{ padding: '8px' }}>{r.date}</td>
+                    <td style={{ padding: '8px' }}>{r.weekday}</td>
+                    <td style={{ padding: '8px', whiteSpace: 'nowrap' }}>
+                      <select
+                        value={r.slot}
+                        onChange={(e) => setSchedSlots((prev) => ({ ...prev, [i]: e.target.value as ScheduleSlot }))}
+                        style={{ padding: '4px 6px', background: 'var(--bg-primary)', border: '1px solid var(--border)', borderRadius: 6, color: 'var(--text-primary)', fontSize: 12, outline: 'none' }}
+                      >
+                        <option value="night">夜 {NOTE_SLOTS.night.time}</option>
+                        <option value="morning">朝 {NOTE_SLOTS.morning.time}</option>
+                        <option value="noon">昼 {NOTE_SLOTS.noon.time}</option>
+                      </select>
+                    </td>
+                    <td style={{ padding: '8px', maxWidth: 320, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.title}</td>
+                    <td style={{ padding: '8px' }}>{r.xHint}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 10, lineHeight: 1.7 }}>
+            🕐 note夜帯: 20:00〜22:30 ／ X夜帯: 18:00〜21:00（媒体でズレる点に注意・R-70）。
+            長文・重厚なノウハウ・有料コンテンツは夜帯が向いています。予約の実行はnoteの予約投稿機能で行ってください。
+          </div>
         </div>
       )}
 

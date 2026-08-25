@@ -51,6 +51,8 @@ import { parsePersonaArticleOutput } from '../../src/lib/persona-styles';
 import { PLAYBOOK, PLAYBOOK_VERSION, getPlaybook } from '../../src/lib/knowledge/noteXPlaybook';
 import { validateXPost, countHashtags, hasBlankLineRhythm } from '../../src/lib/x-post-rules';
 import { appendStrategyDisclaimer } from '../../src/lib/knowledge/strategyDisclaimer';
+import { promoteHeadingsForNote, markdownToWordHtml } from '../../src/lib/rich-copy';
+import { buildScheduleRows, scheduleToMarkdown } from '../../src/lib/posting-schedule';
 
 // ============================================================================
 // 純関数の単体テスト（234【1】要件4）— ネットワーク・AI課金・認証を一切使わない
@@ -813,4 +815,74 @@ test('U33: 戦略の数値補正（265d §8-1）— 注意書きがサーバー�
 
   // 空入力はそのまま（偽のドキュメントを作らない）
   expect(appendStrategyDisclaimer('')).toBe('');
+});
+
+test('U34: note用見出し繰り上げ（266【1】）— h3→h2に上がり、共有ヘルパーの既定は不変', () => {
+  // renderMarkdown は画面表示用に ## → h3 と1段下げる（h1をタイトルに予約。表示としては正しい）。
+  // note は h2=大見出し/h3=小見出しなので、note用コピーだけ1段繰り上げる。
+  const html = '<h3>大見出し</h3><p>本文</p><h4>小見出し</h4><h3>まとめ</h3>';
+  const promoted = promoteHeadingsForNote(html);
+  expect((promoted.match(/<h2\b/g) ?? []).length, '##由来のh3がh2へ').toBe(2);
+  expect(promoted).toContain('<h3>小見出し</h3>');
+  expect(promoted).not.toContain('<h4');
+  // 閉じタグも揃って変換される（半端なタグを作らない）
+  expect((promoted.match(/<\/h2>/g) ?? []).length).toBe(2);
+
+  // 段階置換による二重繰り上げがない（h4がh2まで上がらない）
+  expect(promoteHeadingsForNote('<h4>x</h4>')).toBe('<h3>x</h3>');
+  // h2はそのまま（h1を作らない）・見出し以外のタグは触らない
+  expect(promoteHeadingsForNote('<h2>x</h2><p>y</p>')).toBe('<h2>x</h2><p>y</p>');
+
+  // 共有ヘルパー（Word体裁・53箇所実績）の既定出力は不変: ## は h3 のまま
+  const word = markdownToWordHtml('## 大見出し\n\n本文');
+  expect(word).toContain('<h3');
+  expect(word).not.toContain('<h2');
+});
+
+test('U35: X投稿の下限検証（266【2】）— ミニ講義のみ1,000字下限・短文/長編は適用しない', () => {
+  const text900 = 'あ'.repeat(900);
+  // ミニ講義: 900字は下限警告（B17で観測した「900字台着地」をプロンプト頼みにしない二段構え）
+  expect(validateXPost(text900, { media: 'x', length: 'mini' }).some((w) => w.code === 'under-min')).toBe(true);
+  // 1,000字ちょうどはOK
+  expect(validateXPost('あ'.repeat(1000), { media: 'x', length: 'mini' }).some((w) => w.code === 'under-min')).toBe(false);
+  // 短文・長編プリセットには適用しない（指示書266の表）
+  expect(validateXPost(text900, { media: 'x', length: 'short' }).some((w) => w.code === 'under-min')).toBe(false);
+  expect(validateXPost(text900, { media: 'x', length: 'long' }).some((w) => w.code === 'under-min')).toBe(false);
+  // length未指定（既存呼び出し）では出ない＝後方互換
+  expect(validateXPost(text900, { media: 'x' }).some((w) => w.code === 'under-min')).toBe(false);
+  // 空文字には出ない（生成失敗はfail-closed側で扱う）
+  expect(validateXPost('', { media: 'x', length: 'mini' }).some((w) => w.code === 'under-min')).toBe(false);
+});
+
+test('U36: 予約投稿カレンダー（266【3】NP-02）— 平日連続割り当て・媒体別時間帯・土日送り', () => {
+  const items = [
+    { id: 'a', title: '記事A' },
+    { id: 'b', title: '記事B' },
+    { id: 'c', title: '記事C' },
+  ];
+  // 2026-09-04は金曜。金→（土日を飛ばして）月→火 と平日連続で割り当てる
+  const rows = buildScheduleRows(items, '2026-09-04');
+  expect(rows.map((r) => [r.date, r.weekday])).toEqual([
+    ['2026-09-04', '金'],
+    ['2026-09-07', '月'],
+    ['2026-09-08', '火'],
+  ]);
+  // 既定は夜20:30（NP-02: 長文・有料は夜帯）。note夜公開のX告知は翌朝（X夜帯18-21時を過ぎているため）
+  expect(rows[0].noteTime).toBe('20:30');
+  expect(rows[0].xHint).toContain('翌朝');
+  // 行ごとの時間帯上書き: 朝7:30ならX告知は当日の夜帯（18:00〜21:00）
+  const withMorning = buildScheduleRows(items, '2026-09-04', { 0: 'morning' });
+  expect(withMorning[0].noteTime).toBe('7:30');
+  expect(withMorning[0].xHint).toContain('18:00〜21:00');
+  // 開始日が土曜なら次の月曜から
+  expect(buildScheduleRows(items, '2026-09-05')[0].date).toBe('2026-09-07');
+  // 壊れた日付・空選択は空配列（偽の表を作らない）
+  expect(buildScheduleRows(items, 'broken')).toEqual([]);
+  expect(buildScheduleRows([], '2026-09-04')).toEqual([]);
+  // Markdown表に媒体別の時間帯注意が入る（R-70）
+  const md = scheduleToMarkdown(rows);
+  expect(md).toContain('| 2026-09-04 | 金 | 夜 20:30 | 記事A |');
+  expect(md).toContain('note夜帯: 20:00〜22:30');
+  expect(md).toContain('X夜帯: 18:00〜21:00');
+  expect(md).toContain('自動投稿はしない');
 });
