@@ -53,6 +53,8 @@ import { validateXPost, countHashtags, hasBlankLineRhythm } from '../../src/lib/
 import { appendStrategyDisclaimer } from '../../src/lib/knowledge/strategyDisclaimer';
 import { promoteHeadingsForNote, markdownToWordHtml } from '../../src/lib/rich-copy';
 import { buildScheduleRows, scheduleToMarkdown } from '../../src/lib/posting-schedule';
+import { buildNotePasteText, buildNoteHtml } from '../../src/lib/note-compat';
+import { estimateTitleLines, estimateSummaryImageHeight } from '../../src/lib/summary-image-templates';
 
 // ============================================================================
 // 純関数の単体テスト（234【1】要件4）— ネットワーク・AI課金・認証を一切使わない
@@ -885,4 +887,50 @@ test('U36: 予約投稿カレンダー（266【3】NP-02）— 平日連続割�
   expect(md).toContain('note夜帯: 20:00〜22:30');
   expect(md).toContain('X夜帯: 18:00〜21:00');
   expect(md).toContain('自動投稿はしない');
+});
+
+test('U37: note貼り付けキットの画像・位置指示（267§1退行防止）— マーカー行と<img>が出続ける', () => {
+  // 院長実地確認で「リッチコピーは画像も貼り、位置指示も出力している（良好）」と確認された挙動を固定。
+  // 266の rich-copy.ts 変更は追加のみ（削除0行）で、この経路（note-compat.ts）は未変更＝退行なしの機械的裏付け。
+  const md = '## 見出し\n\n本文の段落です。\n\n- 箇条書き1\n- 箇条書き2';
+  const images = [
+    { afterBlock: 0, kind: 'hook', label: '導入画像', url: 'https://example.com/a.png' },
+    { afterBlock: 2, kind: 'steps', label: '手順図', url: 'https://example.com/b.png' },
+  ];
+
+  // 位置指示（マーカー行）が画像の数だけ入り、ラベルとファイル名を含む
+  const text = buildNotePasteText(md, images);
+  const markers = text.split('\n').filter((l) => l.startsWith('――― 画像'));
+  expect(markers.length).toBe(2);
+  expect(markers[0]).toContain('導入画像');
+  expect(markers[0]).toContain('をここに挿入');
+
+  // リッチHTML側は <img> が入り、## は h2（note互換の正マッピング）
+  const html = buildNoteHtml(md, new Map([[0, ['https://example.com/a.png']]]));
+  expect(html).toContain('<img src="https://example.com/a.png"');
+  expect(html).toContain('<h2>見出し</h2>');
+});
+
+test('U38: まとめ画像の高さ見積もり（267§3）— タイトルの折り返し行数が高さに乗る', () => {
+  // 要点は多めにして最小クランプ（630px）の外で比較する（クランプ内だと差分が0に吸われる）
+  const groups = [{ points: Array.from({ length: 10 }, (_, i) => `要点${i + 1}の本文です`) }];
+  const short = { title: '短いタイトル', groups };
+  // 院長実地確認の実例（31字）: カード型で2行に折り返し、2行目下端が切れていた
+  const long = { title: '【肌と細胞の科学】肌荒れと関係するミトコンドリアの秘密｜まとめ', groups };
+
+  expect(estimateTitleLines('card', short.title)).toBe(1);
+  expect(estimateTitleLines('card', long.title)).toBe(2);
+  // 3行になる超長タイトルにも追随する（動的拡張・省略はしない＝タイトルは編集済みデータ）
+  expect(estimateTitleLines('card', 'あ'.repeat(60))).toBe(3);
+
+  // カード・表・ポスター＋図表テンプレの全形式で、折り返し分だけ高さが増える
+  for (const t of ['card', 'table', 'poster', 'steps', 'compare', 'qa', 'beforeafter'] as const) {
+    const hs = estimateSummaryImageHeight(t, short);
+    const hl = estimateSummaryImageHeight(t, long);
+    const perLine = t === 'poster' ? 62 : 56;
+    expect(hl - hs, `${t}: 2行タイトルで+${perLine}px`).toBe(perLine);
+  }
+
+  // 1行タイトルの高さは折り返し補正の影響を受けない（退行防止: 補正は2行目以降にだけ効く）
+  expect(estimateTitleLines('table', 'あ'.repeat(26))).toBe(1);
 });
