@@ -2509,3 +2509,38 @@ test('C53: デスクトップにはiOS向けの貼り付け口を出さない（
   await expect(page.locator('[data-long-press-paste]')).toHaveCount(0);
   await expect(page.locator('[data-paste-button]')).toHaveCount(0);
 });
+
+test('C55: 発信ハブ（261a）— 画面到達・ペルソナ選択の前提・導線・API契約', async ({ page }) => {
+  // 261aで新設した🚀発信ハブのスモーク。AI呼び出しに到達しない検証のみ（課金なし）。
+  await stubFeatureDrafts(page); // R-12: 前回結果の復元でペルソナ選択が埋まると「押せない」前提が崩れる
+
+  // 1) 画面が開き、ペルソナカード（既定6種＋Claude推奨3種の代表）が並ぶ
+  await page.goto('/dashboard/dr-hub');
+  await expect(page.getByRole('heading', { name: '発信ハブ' })).toBeVisible();
+  await expect(page.getByText('専門家向け')).toBeVisible();
+  await expect(page.getByText('子育て中のママ向け')).toBeVisible();
+
+  // 2) サンプル生成はDR記事＋2〜4ペルソナを選ぶまで押せない（前提が崩れた実行を作らない）
+  const genBtn = page.getByRole('button', { name: /サンプルを生成して読み比べる/ });
+  await expect(genBtn).toBeDisabled();
+
+  // 3) R-34: 📚リサーチ保存に常時表示の導線がある（DR画面側の導線はレポート表示後にのみ出るためこちらで固定）
+  await page.goto('/dashboard/library');
+  const toHub = page.getByRole('link', { name: '🚀 発信ハブ' });
+  await expect(toHub).toBeVisible();
+  await expect(toHub).toHaveAttribute('href', '/dashboard/dr-hub');
+
+  // 4) API契約: 未認証401（R-31）→ drId欠落400 → 存在しないIDは404（owner検証）
+  const anon = await pwRequest.newContext({ baseURL: BASE_URL, storageState: { cookies: [], origins: [] } });
+  const unauth = await anon.post('/api/dr-hub/persona', { data: { drId: 'x' } });
+  expect(unauth.status()).toBe(401);
+  await anon.dispose();
+
+  const noId = await api.post('/api/dr-hub/persona', { data: {} });
+  expect(noId.status()).toBe(400);
+
+  const notFound = await api.post('/api/dr-hub/persona', {
+    data: { drId: '00000000-0000-0000-0000-000000000000', mode: 'samples', personaKeys: ['expert', 'teen'] },
+  });
+  expect(notFound.status()).toBe(404);
+});

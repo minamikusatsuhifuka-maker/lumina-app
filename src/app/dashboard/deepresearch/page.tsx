@@ -2104,6 +2104,26 @@ ${contextText}
               >
                 ✍️ note 記事にする
               </button>
+              {/* 261: 発信ハブへの導線（R-34）。ハブ側は保存済みDR記事から選ぶため、本文は渡さない */}
+              <a
+                href="/dashboard/dr-hub"
+                style={{
+                  padding: '6px 14px',
+                  background: 'rgba(224,104,75,0.1)',
+                  color: '#e0684b',
+                  border: '1px solid rgba(224,104,75,0.3)',
+                  borderRadius: 6,
+                  cursor: 'pointer',
+                  fontSize: 12,
+                  fontWeight: 500,
+                  textDecoration: 'none',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                }}
+                title="保存済みのDR記事から、note記事・X投稿・Kindle本・戦略・画像への展開をまとめて行えます"
+              >
+                🚀 発信ハブで展開する
+              </a>
               {/* 背景情報として保存（ボタン＋ドロップダウンモーダル） */}
               <div
                 data-context-modal

@@ -647,6 +647,21 @@ function LibraryPageInner() {
       {/* ヘッダー */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
         <h1 style={{ fontSize: 28, fontWeight: 700, color: 'var(--text-primary)' }}>📚 リサーチ保存</h1>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+        {/* 261: 発信ハブへの導線（R-34・常時表示）。DR記事からnote/X/Kindle/戦略/画像へ展開する */}
+        <a
+          href="/dashboard/dr-hub"
+          style={{
+            padding: '8px 16px', borderRadius: 8, cursor: 'pointer',
+            background: 'rgba(224,104,75,0.1)', color: '#e0684b',
+            border: '1px solid rgba(224,104,75,0.3)',
+            fontSize: 13, fontWeight: 600, textDecoration: 'none',
+            display: 'inline-flex', alignItems: 'center', gap: 4,
+          }}
+          title="保存済みのDR記事から、note記事・X投稿・Kindle本・戦略・画像への展開をまとめて行えます"
+        >
+          🚀 発信ハブ
+        </a>
         <button
           onClick={() => { setMergeMode(!mergeMode); setSelectedIds(new Set()); setMergeResult(''); }}
           style={{
@@ -659,6 +674,7 @@ function LibraryPageInner() {
         >
           {mergeMode ? '✕ 選択モード終了' : '✓ 選択モード'}
         </button>
+        </div>
       </div>
       <p style={{ color: 'var(--text-muted)', marginBottom: 6 }}>保存した調査・分析・文章を管理。お気に入り・タグ・フォルダ分けに対応。</p>
       <p style={{ color: 'var(--text-muted)', fontSize: 13, marginBottom: 20 }}>読み返す用の保管庫です。生成時にAIへ参照させたいものは <a href="/dashboard/context-library" style={{ color: 'var(--accent)', fontWeight: 600 }}>🧠 AI参照素材</a> へ</p>
