@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { RUN_ID, createSave, deleteSave } from './helpers';
+import { RUN_ID, createSave, deleteSave, createLibraryItem } from './helpers';
 
 // ============================================================================
 // 生成完走系（B1/B3〜B7/B9/B10）— 実AI課金が発生するため既定スキップ（@gen）
@@ -334,5 +334,49 @@ test('B15: Kindle目次生成が2目的とも成功する @gen', async ({ reques
     }
   } finally {
     await request.delete('/api/library', { data: { id: sourceId } });
+  }
+});
+
+test('B16: ペルソナ別note記事（264）— タイトル案3本と構造化された本文が分離して返る @gen', async ({ request }) => {
+  test.setTimeout(GEN_TIMEOUT);
+  // 素材のDR記事を自作（[E2E]接頭辞・末尾で削除＝R-55）
+  const drId = await createLibraryItem(request, {
+    title: `264検証用DR記事 ${RUN_ID}`,
+    content:
+      '# 冬の乾燥肌と保湿ケア\n\n角層は水分を保つバリアの役割を持つ。冬は空気の乾燥と暖房で角層の水分が失われやすい。' +
+      '入浴後は早めに保湿剤を塗る・こすらず押さえるようにのばす・熱すぎるお湯を避ける、が基本とされる。' +
+      '室内の加湿や刺激の少ない肌着も助けになる。かゆみが強い場合は皮膚科での相談がすすめられる。',
+    type: 'deepresearch',
+  });
+  try {
+    const res = await request.post('/api/dr-hub/persona', {
+      data: { drId, mode: 'full', personaKey: 'homemaker', length: 'short' },
+      timeout: REQ_TIMEOUT,
+    });
+    expect(res.status()).toBe(200);
+    const data = await res.json();
+
+    // タイトル案は本文と分離して返る（noteのタイトル欄に貼るため）
+    expect(Array.isArray(data.titles), 'titlesが配列').toBe(true);
+    expect(data.titles.length, 'タイトル案が3本').toBe(3);
+    for (const t of data.titles) {
+      expect(String(t)).not.toContain('#');
+    }
+
+    // 本文: h1なし・大見出し(##)2本以上・空行段落・最後まで書き切る
+    const body = String(data.content ?? '');
+    expect(body.length).toBeGreaterThan(500);
+    expect(/^#\s/m.test(body), '本文にh1（#）が無い').toBe(false);
+    const h2 = body.match(/^##\s/gm) ?? [];
+    expect(h2.length, '大見出し(##)が2本以上').toBeGreaterThanOrEqual(2);
+    expect(body).toContain('\n\n');
+    expect(body).not.toContain('【タイトル案】');
+    expect(body).not.toContain('【本文】');
+
+    // ad_check が併記される（形の検証のみ）
+    expect(data.ad_check?.status === 'ok' || data.ad_check?.status === 'warn').toBe(true);
+  } finally {
+    const del = await request.delete('/api/library', { data: { id: drId } });
+    expect(del.status()).toBe(200);
   }
 });

@@ -2728,3 +2728,100 @@ test('C60: バッチリサーチ（263）— 新規トピックの既定5000字�
     }
   }
 });
+
+test('C61: ペルソナ別note記事の体裁（264）— タイトル分離・整形表示・2種コピー（APIモック）', async ({
+  page,
+  context,
+}) => {
+  // 264のUI経路をAPIモックで固定（AI課金なし）。AI出力の実構造は @gen B16 側で検証する。
+  await stubFeatureDrafts(page); // R-12
+  await context.grantPermissions(['clipboard-read', 'clipboard-write'], { origin: BASE_URL });
+
+  const BODY_MD = `リード文です。段落の間に空行があります。
+
+## 保湿の基本を見直す
+
+**大切なのは順番**です。
+
+## まとめ
+
+- 今日からできること`;
+
+  await page.route('**/api/library?type=deepresearch', (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify([
+        { id: 'e2e-dr-1', title: '[E2E] モックDR記事', content: 'モック本文', created_at: '2026-08-25' },
+      ]),
+    }),
+  );
+  await page.route('**/api/dr-hub/persona', async (route) => {
+    const body = route.request().postDataJSON() as { mode?: string };
+    const payload =
+      body.mode === 'samples'
+        ? {
+            success: true,
+            samples: {
+              expert: '## 専門家向けの視点\n\n**機序**から説明します。E2EMARKER_EXPERT',
+              teen: 'むずかしい言葉を使わずに説明します。E2EMARKER_TEEN',
+            },
+          }
+        : {
+            success: true,
+            content: BODY_MD,
+            titles: ['タイトル案その1', 'タイトル案その2', 'タイトル案その3'],
+            ad_check: { status: 'ok', findings: [] },
+            personaKey: 'expert',
+            personaLabel: '専門家向け',
+          };
+    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(payload) });
+  });
+
+  await page.goto('/dashboard/dr-hub');
+  await page.getByText('[E2E] モックDR記事').click();
+  await page.getByText('専門家向け', { exact: false }).first().click();
+  await page.getByText('中学生でも分かる').click();
+  await page.getByRole('button', { name: /サンプルを生成して読み比べる/ }).click();
+
+  // 1) サンプルカードは整形表示＝生の ## / ** が露出しない
+  await expect(page.getByText('E2EMARKER_EXPERT')).toBeVisible();
+  const sampleHtml = await page.locator('.markdown-body').first().innerText();
+  expect(sampleHtml, 'サンプルに生の##が出ない').not.toContain('##');
+  expect(sampleHtml, 'サンプルに生の**が出ない').not.toContain('**');
+
+  // 2) 全文生成 → タイトル案が本文と分離して出て、1本ずつコピーできる
+  await page.getByRole('button', { name: 'このペルソナで記事全文を生成' }).first().click();
+  const titlesBox = page.locator('[data-title-suggestions]');
+  await expect(titlesBox).toBeVisible();
+  await expect(titlesBox.getByText('タイトル案その1')).toBeVisible();
+  await titlesBox.getByRole('button', { name: /コピー/ }).first().click();
+  await expect
+    .poll(async () => page.evaluate(() => navigator.clipboard.readText()))
+    .toBe('タイトル案その1');
+
+  // 3) 本文は整形表示（h2が2本以上・生の記法が出ない）
+  const articleBody = page.locator('.markdown-body').last();
+  await expect(articleBody.getByText('リード文です。', { exact: false })).toBeVisible();
+  const h2Count = await articleBody.locator('h2').count();
+  expect(h2Count, '大見出しがレンダリングされている').toBeGreaterThanOrEqual(2);
+  const bodyText = await articleBody.innerText();
+  expect(bodyText).not.toContain('##');
+  expect(bodyText).not.toContain('**');
+
+  // 4) 2種コピー: note用＝text/htmlを含むリッチ形式／Markdown＝生MD
+  await page.locator('[data-copy-note]').click();
+  const richHtml = await page.evaluate(async () => {
+    const items = await navigator.clipboard.read();
+    for (const it of items) {
+      if (it.types.includes('text/html')) return await (await it.getType('text/html')).text();
+    }
+    return '';
+  });
+  expect(richHtml, 'note用コピーはHTML（見出しタグ）を含む').toContain('<h2');
+
+  await page.locator('[data-copy-md]').click();
+  await expect
+    .poll(async () => page.evaluate(() => navigator.clipboard.readText()))
+    .toContain('## 保湿の基本を見直す');
+});

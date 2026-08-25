@@ -9,6 +9,7 @@ import FeatureDraftBanner from '@/components/FeatureDraftBanner';
 import { loadFeatureDraft, saveFeatureDraft, clearFeatureDraft } from '@/lib/feature-drafts';
 import { renderMarkdown } from '@/lib/markdown-renderer';
 import { copyToClipboard } from '@/lib/copyToClipboard';
+import { copyRichMarkdown } from '@/lib/rich-copy';
 import { getSavedModel } from '@/lib/model-preference';
 import { EyecatchModal, type EyecatchKind } from '@/components/eyecatch/EyecatchModal';
 import NoteEnhancePanel from '@/components/note-enhance/NoteEnhancePanel';
@@ -38,6 +39,8 @@ interface PersonaArticle {
   personaKey: PersonaStyleKey;
   personaLabel: string;
   content: string;
+  /** 264: noteのタイトル欄に貼る用のタイトル案（本文と分離して生成） */
+  titles?: string[];
   adCheck?: AdCheck | null;
 }
 
@@ -423,6 +426,7 @@ export default function DrHubPage() {
         personaKey,
         personaLabel: data.personaLabel || PERSONA_STYLES[personaKey].label,
         content: data.content || '',
+        titles: Array.isArray(data.titles) ? data.titles : [],
         adCheck: data.ad_check ?? null,
       };
       setArticle(next);
@@ -536,6 +540,9 @@ export default function DrHubPage() {
 
   const articleTitle = useMemo(() => {
     if (!article) return '';
+    // 264以降はタイトル案の1本目を正とする（本文に # h1 は入らない）。旧形式は # 抽出でフォールバック
+    const fromTitles = article.titles?.[0]?.trim();
+    if (fromTitles) return fromTitles;
     const m = article.content.match(/^#\s+(.+)$/m);
     return (m?.[1] || `${article.personaLabel}向け: ${selectedDr?.title ?? ''}`).trim();
   }, [article, selectedDr]);
@@ -548,7 +555,7 @@ export default function DrHubPage() {
       opts.push({
         key: 'persona',
         label: `①の記事（${article.personaLabel}）`,
-        title: (m?.[1] ?? '').trim() || `${article.personaLabel}向け記事`,
+        title: article.titles?.[0]?.trim() || (m?.[1] ?? '').trim() || `${article.personaLabel}向け記事`,
         content: article.content,
       });
     }
@@ -724,6 +731,17 @@ export default function DrHubPage() {
     copyToClipboard(text);
     setCopied(key);
     setTimeout(() => setCopied(null), 2000);
+  };
+
+  // 264: note用のリッチコピー（text/html＋plain同時＝noteエディタで見出し・太字が保持される）
+  const handleRichCopy = async (text: string, key: string) => {
+    try {
+      await copyRichMarkdown(text);
+      setCopied(key);
+      setTimeout(() => setCopied(null), 2000);
+    } catch {
+      /* 失敗時はボタン表示が変わらない（コピーできていないことが分かる） */
+    }
   };
 
   const sampleKeys = samples
@@ -1264,10 +1282,21 @@ export default function DrHubPage() {
               />
               <button
                 type="button"
-                onClick={() => handleCopy(article.content, 'persona-article')}
+                data-copy-note
+                onClick={() => handleRichCopy(article.content, 'persona-note')}
+                title="noteエディタに貼ると見出し・太字が保持される形式でコピーします"
+                style={{ padding: '6px 14px', background: `${ACCENT}15`, border: `1px solid ${ACCENT}50`, color: ACCENT, borderRadius: 6, cursor: 'pointer', fontSize: 12, fontWeight: 600 }}
+              >
+                {copied === 'persona-note' ? '✅ コピー済み' : '📋 note用にコピー'}
+              </button>
+              <button
+                type="button"
+                data-copy-md
+                onClick={() => handleCopy(article.content, 'persona-md')}
+                title="生のMarkdownをコピーします（他ツール・保管用）"
                 style={{ padding: '6px 14px', background: 'var(--bg-primary)', border: '1px solid var(--border)', color: 'var(--text-secondary)', borderRadius: 6, cursor: 'pointer', fontSize: 12 }}
               >
-                {copied === 'persona-article' ? '✅ コピー済み' : '📋 本文をコピー'}
+                {copied === 'persona-md' ? '✅ コピー済み' : '📋 Markdownでコピー'}
               </button>
               <button
                 type="button"
@@ -1278,6 +1307,29 @@ export default function DrHubPage() {
               </button>
             </div>
           </div>
+
+          {/* 264: タイトル案（noteのタイトル欄に貼るため本文と分離。1本ずつコピーできる） */}
+          {(article.titles?.length ?? 0) > 0 && (
+            <div data-title-suggestions style={{ padding: 12, background: `${ACCENT}0d`, border: `1px solid ${ACCENT}30`, borderRadius: 8, marginBottom: 12 }}>
+              <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 8 }}>
+                🏷 タイトル案（noteのタイトル欄に貼り付け）
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                {article.titles!.map((t, i) => (
+                  <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <span style={{ flex: 1, fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.6 }}>{t}</span>
+                    <button
+                      type="button"
+                      onClick={() => handleCopy(t, `title-${i}`)}
+                      style={{ padding: '4px 10px', background: 'var(--bg-primary)', border: '1px solid var(--border)', color: 'var(--text-muted)', borderRadius: 6, cursor: 'pointer', fontSize: 11, flex: 'none' }}
+                    >
+                      {copied === `title-${i}` ? '✅' : '📋 コピー'}
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
 
           {article.adCheck && article.adCheck.status === 'warn' && article.adCheck.findings.length > 0 && (
             <div style={{ padding: 12, background: 'rgba(180,83,9,0.08)', border: '1px solid rgba(180,83,9,0.25)', borderRadius: 8, marginBottom: 12 }}>

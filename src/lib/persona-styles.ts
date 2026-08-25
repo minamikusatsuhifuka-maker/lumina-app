@@ -150,6 +150,75 @@ export const PERSONA_STYLE_KEYS = Object.keys(PERSONA_STYLES) as PersonaStyleKey
 export const PERSONA_COMPARE_MIN = 2;
 export const PERSONA_COMPARE_MAX = 4;
 
+/* ══════════════ 264: note記事の体裁（①ペルソナ別note記事 専用） ══════════════
+ * 236（Kindleテイスト変換）とはコード非共有（方式の流用のみ）。ここを変えても236側の出力は変わらない。
+ * ②分割記事化などへの適用は別便（264の範囲外）。 */
+
+/** 「記事の長さ」→ 大見出し本数の目安（まとめ含む・指示書264の表） */
+export const PERSONA_HEADING_RANGE: Record<'short' | 'medium' | 'long', string> = {
+  short: '3〜4本',
+  medium: '4〜6本',
+  long: '6〜8本',
+};
+
+/** タイトル案と本文を分けるマーカー（区切り線 --- は本文でも使うため専用マーカーにする） */
+export const PERSONA_TITLES_MARKER = '【タイトル案】';
+export const PERSONA_BODY_MARKER = '【本文】';
+
+/** 見出し・タイトルのガード（本文と同等・緩和しない。見出しは煽り・断定が最も出やすい） */
+export const PERSONA_HEADING_GUARD = `# 見出し・タイトル案のガード（本文と同等・緩和しない）
+- タイトル案・見出しに誇張・断定・不安煽りを使わない（禁止語の例: 「必ず」「絶対」「劇的に」「〇〇が治る」「最強」「危険」「手遅れ」）
+- ビフォーアフター的な効果対比表現を見出し・タイトルに使わない
+- 数字で釣る見出し（根拠のない「99%」等）を作らない（素材にある数値の転記のみ可）`;
+
+/** note投稿前提の出力構造・記法・可読性の規約（全文生成にのみ課す。サンプルには課さない） */
+export function personaStructureRules(headingRange: string): string {
+  return `# 出力構造（厳守）
+最初に「${PERSONA_TITLES_MARKER}」の行、続けてタイトル案を番号付きで3本（各30字以内）、
+次に「${PERSONA_BODY_MARKER}」の行、その後に記事本文だけを出力する。
+- タイトル案は本文に混ぜない（noteのタイトル欄に貼るため分離する）
+- 本文の冒頭はリード文150〜250字（見出しを付けずに書き出す）
+- 本文は大見出し（##）で章立てし、必要に応じて小見出し（###）を使う
+- 大見出しの本数はまとめを含めて${headingRange}
+- 最終章は「## まとめ」に相当する締めの章にする（見出しの文言は記事に合わせてよい）
+
+# noteの記法制約（厳守）
+- 見出しは大見出し(##)・小見出し(###)の2階層のみ。#（h1）は使わない
+- 使ってよい記法: 見出し／太字(**)／箇条書き(-)／引用(>)／区切り線(---)のみ
+- 表・脚注・HTMLタグ・Markdownリンク記法は使わない（URLは生のURLのみ）
+- 画像プレースホルダ（「ここに画像」等）を挿入しない
+
+# 可読性（noteで読みやすく）
+- 1段落は3〜4行以内。段落の間に必ず空行を入れる
+- 太字は1章あたり1〜2箇所まで（乱用しない）
+- 箇条書きは1記事あたり2〜4箇所程度。全文の箇条書き化は禁止`;
+}
+
+/**
+ * 264: 生成出力を「タイトル案3本」と「本文」に分離する。
+ * マーカーが無い・壊れている場合は fail-open（全文を本文として返す＝記事を失わない）。
+ */
+export function parsePersonaArticleOutput(raw: string): { titles: string[]; body: string } {
+  const text = (raw || '').trim();
+  const bodyIdx = text.indexOf(PERSONA_BODY_MARKER);
+  if (bodyIdx < 0) return { titles: [], body: text };
+
+  const head = text.slice(0, bodyIdx);
+  const body = text.slice(bodyIdx + PERSONA_BODY_MARKER.length).trim();
+
+  const titlesIdx = head.indexOf(PERSONA_TITLES_MARKER);
+  const titlesBlock = titlesIdx >= 0 ? head.slice(titlesIdx + PERSONA_TITLES_MARKER.length) : head;
+  const titles = titlesBlock
+    .split('\n')
+    .map((l) => l.replace(/^\s*(?:\d+[.)．]|[-・*])\s*/, '').trim())
+    .filter(Boolean)
+    .slice(0, 3);
+
+  // 本文が実質空ならタイトルごと全文を本文扱いに倒す（偽の分離を作らない）
+  if (!body) return { titles: [], body: text };
+  return { titles, body };
+}
+
 /** 全ペルソナ共通の厳守事項（サンプル生成・全文生成の双方に差し込む。緩和しない） */
 export const PERSONA_GUARD = `# ペルソナ共通の厳守事項（どの読者向けでも緩和しない）
 - ペルソナは「誰に向けて・どう届けるか」の調整であって、内容の創作ではない。事実・数値・固有名詞を変えない

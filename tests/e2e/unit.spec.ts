@@ -47,6 +47,7 @@ import {
   type PreviewRect,
 } from '../../src/lib/hover-preview';
 import { markdownToReadableText } from '../../src/lib/markdownToText';
+import { parsePersonaArticleOutput } from '../../src/lib/persona-styles';
 
 // ============================================================================
 // 純関数の単体テスト（234【1】要件4）— ネットワーク・AI課金・認証を一切使わない
@@ -707,4 +708,34 @@ test('U29: ホーム並びの解決 resolveHomeHrefs（262）— 保存値を採
   // 実在しない href・文字列以外の要素は落とす。有効分が残ればそれを、全滅なら既定を返す
   expect(resolveHomeHrefs(JSON.stringify(['/nope', 42, '/dashboard']))).toEqual(['/dashboard']);
   expect(resolveHomeHrefs(JSON.stringify(['/nope']))).toEqual(DEFAULT_HOME_HREFS);
+});
+
+test('U30: ペルソナ記事のタイトル案/本文分離（264）— マーカー欠落は全文を本文に倒す', () => {
+  // 264: noteのタイトル欄に貼るためタイトル案3本を本文と分離して生成する。
+  // 分離はマーカー（【タイトル案】/【本文】）方式——区切り線 --- は本文の許可記法なので区切りに使わない。
+  const raw = `【タイトル案】
+1. 乾燥肌と上手につきあう
+2) 保湿の基本を見直す
+3．今日からできる保湿ケア
+【本文】
+リード文です。
+
+## 最初の章`;
+  const parsed = parsePersonaArticleOutput(raw);
+  expect(parsed.titles).toEqual(['乾燥肌と上手につきあう', '保湿の基本を見直す', '今日からできる保湿ケア']);
+  expect(parsed.body.startsWith('リード文です。')).toBe(true);
+  expect(parsed.body).toContain('## 最初の章');
+  expect(parsed.body).not.toContain('【タイトル案】');
+
+  // マーカーが無い（旧形式・AIの逸脱）→ 全文を本文として返す＝記事を失わない（fail-open）
+  const legacy = '# 旧形式のタイトル\n\n本文…';
+  expect(parsePersonaArticleOutput(legacy)).toEqual({ titles: [], body: legacy });
+
+  // 本文が空の壊れた出力 → 偽の分離を作らず全文を本文へ
+  const broken = '【タイトル案】\n1. だけがある\n【本文】\n';
+  expect(parsePersonaArticleOutput(broken).body).toContain('だけがある');
+
+  // タイトルは3本まで（4本以上返されても切り詰める）
+  const many = '【タイトル案】\n1. a\n2. b\n3. c\n4. d\n【本文】\n本文';
+  expect(parsePersonaArticleOutput(many).titles).toEqual(['a', 'b', 'c']);
 });

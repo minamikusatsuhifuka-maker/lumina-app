@@ -14,6 +14,10 @@ import {
   PERSONA_GUARD,
   PERSONA_COMPARE_MIN,
   PERSONA_COMPARE_MAX,
+  PERSONA_HEADING_RANGE,
+  PERSONA_HEADING_GUARD,
+  personaStructureRules,
+  parsePersonaArticleOutput,
   getPersonaStyle,
   type PersonaStyleKey,
 } from '@/lib/persona-styles';
@@ -32,10 +36,12 @@ const SAMPLE_SOURCE_CHARS = 6000; // サンプル生成に渡すDR記事の冒�
 const FULL_SOURCE_CHARS = 60000; // 全文生成に渡す上限（DR記事は長大になり得るため防御的に切る）
 
 type Length = 'short' | 'medium' | 'long';
-const LENGTH_CONFIG: Record<Length, { label: string; chars: string }> = {
-  short: { label: '短め', chars: '1500〜2500字' },
-  medium: { label: '標準', chars: '3000〜4500字' },
-  long: { label: '長め', chars: '5000〜7000字' },
+// 264【3-6】: maxTokens を長さプリセットに連動（4500字≈7000トークン超。12000固定ではlongが切れ得る。
+// Gemini は思考がこの枠を消費するため、目標字数のトークン換算+思考・タイトル分の余裕を持たせる）
+const LENGTH_CONFIG: Record<Length, { label: string; chars: string; maxTokens: number }> = {
+  short: { label: '短め', chars: '1500〜2500字', maxTokens: 8000 },
+  medium: { label: '標準', chars: '3000〜4500字', maxTokens: 13000 },
+  long: { label: '長め', chars: '5000〜7000字', maxTokens: 18000 },
 };
 
 export async function POST(req: NextRequest) {
@@ -102,7 +108,8 @@ ${MEDICAL_AD_NG_RULES}
 - 各ペルソナとも、記事の冒頭（導入〜本題の入り口）を**500〜800字**で書く
 - ペルソナごとの違いが読み比べて分かるように、語りかけ方・切り口の特徴をはっきり出す
 - 内容の根拠は渡された資料の記述のみ。ペルソナを出すために事実を足さない
-- 見出しは使わず、記事の書き出しとして自然な文章にする
+- 記事の書き出しとして自然な文章にする。見出しは入れても大見出し（##）1本まで（読み比べの目的は文体の差のため）
+- 段落を2〜3に分け、段落の間に空行を入れる（読みやすさもサンプルの一部）
 
 必ず以下のJSON形式のみを返してください（前置き・コードフェンス不要）:
 {"samples": {${unique.map((k) => `"${k}": "…"`).join(', ')}}}`;
@@ -165,41 +172,43 @@ ${NOTE_COMMON_RULES}`;
 ${persona.promptBlock}
 
 ${PERSONA_GUARD}
+
+${PERSONA_HEADING_GUARD}
 ${myStyleBlock ? `\n${myStyleBlock}\n` : ''}
 ${NOTE_WRITING_DESIGN}
 
+${personaStructureRules(PERSONA_HEADING_RANGE[length])}
+
 # 記事の長さ
-${config.label}（${config.chars}）
+${config.label}（本文${config.chars}）
 
 # 参照資料（記事の根拠はこの資料の記述のみ）
 ## ${title}
 ${content.slice(0, FULL_SOURCE_CHARS)}
 
-# 記事の構成
-- 導入: このペルソナの関心・悩みに寄り添う問題提起や語りかけ
-- 本論: 構造化された見出し・小見出し（## / ###）で、要点を資料に基づいて展開
-- 結論: 読者へのメッセージ・次の一歩で締めくくる
-
-# 出力形式
-- Markdown 形式（先頭に # タイトルを置く。記事タイトルは読者の興味を引く30〜40字で新規に作る。前置き・コードフェンス不要）
-- 適度に箇条書きを使用
-
 # 厳守事項
-- ${config.chars} の範囲内で、必ず最後の結論まで書ききる
+- 本文は${config.chars}の範囲内で、必ず最後のまとめまで書ききる
+- タイトル案・見出しの粒度・文体・語彙もこのペルソナに合わせる（構成をテンプレート的に均一化しない）
 - 根拠は参照資料の記述のみ。資料に無い出典・数値・固有の研究名を新たに書かない
-- AI らしい不自然な文章を避け、人間が書いたような自然な文体に`;
+- AI らしい不自然な文章を避け、人間が書いたような自然な文体に
+- 前置き・コードフェンスは不要（${'【タイトル案】'}の行から書き始める）`;
 
-  // 記事本文＝品質優先で medium を明示（claude時は geminiGenerationConfig は無視される）
-  const article = await generateWithModel(aiModel, prompt, system, 12000, GEMINI_TEXT_THINKING_MEDIUM);
-  if (!article || !article.trim()) {
+  // 記事本文＝品質優先で medium を明示（claude時は geminiGenerationConfig は無視される）。
+  // 264: 枠は長さプリセットに連動（切れ対策・R-04と同方針で思考分の余裕込み）
+  const raw = await generateWithModel(aiModel, prompt, system, config.maxTokens, GEMINI_TEXT_THINKING_MEDIUM);
+  if (!raw || !raw.trim()) {
     return NextResponse.json({ error: '記事の生成結果が空でした。もう一度お試しください' }, { status: 502 });
   }
 
-  const adCheck = await checkMedicalAd(article);
+  // 264: タイトル案3本と本文を分離（マーカー欠落時は全文を本文として返す＝fail-open）
+  const { titles, body: articleBody } = parsePersonaArticleOutput(raw);
+
+  const adCheck = await checkMedicalAd(articleBody);
 
   return NextResponse.json({
     success: true,
-    content: article,
+    content: articleBody,
+    titles,
     ad_check: adCheck,
     personaKey: persona.key,
     personaLabel: persona.label,
