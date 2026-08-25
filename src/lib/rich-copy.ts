@@ -74,3 +74,26 @@ export async function copyRichMarkdown(markdown: string): Promise<boolean> {
   }
   return copyToClipboard(plain);
 }
+
+// ── 266【1】: note貼り付け用の見出しレベル繰り上げ ─────────────────────────────
+// renderMarkdown は画面表示用に見出しを1段下げる（## → <h3>。h1を記事タイトルに予約する設計で、
+// **画面表示としては正しい**）。しかし note は h2=大見出し／h3=小見出しなので、この変換のまま
+// 貼ると全見出しが小見出しに落ちる。note向けコピーだけ h3→h2・h4→h3…と1段繰り上げる。
+// **共有ヘルパー copyRichMarkdown の既定動作（Word体裁・53箇所実績）は変更しない**（専用ラッパー方式）。
+export function promoteHeadingsForNote(html: string): string {
+  // 1回の置換で全レベルを同時に変換する（h4→h3→h2 と段階置換すると二重に繰り上がるため）。
+  // h2 はそのまま（264以降の本文に h1 由来の h2 は現れないが、現れても note の大見出しとして妥当）。
+  return html.replace(/<(\/?)h([3-6])\b/g, (_m, slash: string, level: string) => `<${slash}h${Number(level) - 1}`);
+}
+
+/** 発信ハブ①「📋 note用にコピー」専用（適用先を広げるときは266 §1-4の影響確認を行うこと） */
+export async function copyRichMarkdownForNote(markdown: string): Promise<boolean> {
+  const plain = sanitizeLatex(markdown);
+  try {
+    const html = promoteHeadingsForNote(markdownToWordHtml(markdown));
+    if (await copyRichText(html, plain)) return true;
+  } catch {
+    // 変換失敗はプレーンにフォールバック（fail-closed: エラーにしない）
+  }
+  return copyToClipboard(plain);
+}
