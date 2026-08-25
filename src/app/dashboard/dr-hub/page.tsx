@@ -49,6 +49,8 @@ interface PersonaArticle {
 interface PlanArticle {
   title: string;
   role: string;
+  /** 265c: 対象読者1行（N-03 ターゲットの極小化） */
+  audience?: string;
   points: string[];
   bridge: string;
   principles: string[];
@@ -80,12 +82,34 @@ const FEATURES: Array<{ key: Feature; label: string }> = [
   { key: 'strategy', label: '📈 発信戦略' },
 ];
 
-// ③ X投稿の生成結果と保存状態
+// ③ X投稿の生成結果と保存状態（265c: v2対応＝警告・URLリプライ導線・長さ/型）
+interface XPostWarningItem {
+  code: string;
+  message: string;
+}
+
 interface XPostResult {
   single: string;
   thread: string[];
   charLimit: number;
+  urlReplyLeadin?: string;
+  warnings?: Record<string, XPostWarningItem[]>;
+  xLength?: 'short' | 'mini' | 'long';
 }
+
+const X_LENGTH_OPTIONS: Array<{ value: 'short' | 'mini' | 'long'; label: string }> = [
+  { value: 'short', label: '短文（140字前後）' },
+  { value: 'mini', label: 'ミニ講義（1,000〜2,000字・既定）' },
+  { value: 'long', label: '長編（3,000〜5,000字）' },
+];
+
+const X_TYPE_OPTIONS: Array<{ value: string; label: string }> = [
+  { value: 'knowhow', label: '📚 ノウハウ体系化型（既定・保存/共有）' },
+  { value: 'story', label: '🔄 Before/After逆転ストーリー型（主語は自分）' },
+  { value: 'debate', label: '💬 二者択一・議論型（リプライ）' },
+  { value: 'insight', label: '💡 常識破壊・本質論型（引用リポスト）' },
+  { value: 'infographic', label: '🖼 図解・インフォグラフィック型（滞在時間）' },
+];
 
 interface XSaveState {
   saving: boolean;
@@ -173,6 +197,9 @@ export default function DrHubPage() {
   const [xSessionKey, setXSessionKey] = useState(''); // 'persona' | 'split-1'…
   const [threadCount, setThreadCount] = useState(3);
   const [articleUrl, setArticleUrl] = useState('');
+  const [xLengthSel, setXLengthSel] = useState<'short' | 'mini' | 'long'>('mini'); // 265c: 既定=ミニ講義
+  const [xTypeSel, setXTypeSel] = useState('knowhow'); // 265c: 既定=①ノウハウ体系化型
+  const [appendRipNote, setAppendRipNote] = useState(true); // 「▼詳細はリプ欄に」を末尾に付ける
   const [xResult, setXResult] = useState<XPostResult | null>(null);
   const [xBusy, setXBusy] = useState(false);
   const [xSaveSingle, setXSaveSingle] = useState<XSaveState>(EMPTY_X_SAVE);
@@ -597,6 +624,8 @@ export default function DrHubPage() {
             ? { articleId: xArticleId }
             : { article: { title: session?.title ?? '', content: session?.content ?? '' } }),
           threadCount,
+          xLength: xLengthSel,
+          postType: xTypeSel,
         }),
       });
       const data = await res.json().catch(() => ({}));
@@ -604,7 +633,10 @@ export default function DrHubPage() {
       const result: XPostResult = {
         single: data.single ?? '',
         thread: Array.isArray(data.thread) ? data.thread : [],
-        charLimit: data.charLimit ?? 135,
+        charLimit: data.charLimit ?? 25000,
+        urlReplyLeadin: data.urlReplyLeadin ?? '',
+        warnings: data.warnings ?? {},
+        xLength: data.xLength ?? xLengthSel,
       };
       setXResult(result);
       persistDraft({ xResult: result });
@@ -615,17 +647,19 @@ export default function DrHubPage() {
     }
   };
 
-  // 投稿文＋記事URL（入力があれば末尾に付ける）
-  const withUrl = (text: string) => (articleUrl.trim() ? `${text}\n👉 ${articleUrl.trim()}` : text);
+  // 265c: URLは本文に入れない（X-03）。1つ目のリプライへ置く前提の「2通目」を別に組み立てる
+  const ripNote = (text: string) => (appendRipNote ? `${text}\n\n▼詳細はリプ欄に` : text);
+  const urlReplyContent = `${xResult?.urlReplyLeadin || '本文で触れた記事の全文はこちらです'}\n👉 ${articleUrl.trim() || '（記事URLをここに貼ってください）'}`;
 
   // ③ 保存（ペア管理: /api/dr-hub/x-post/save）。R-53: 保存済み表示・失敗時再試行を状態で持つ
   const saveXPost = async (kind: 'single' | 'thread') => {
     if (!xResult) return;
     const setState = kind === 'single' ? setXSaveSingle : setXSaveThread;
+    const replySection = `\n\n---\n\n[1つ目のリプライ（URL用）]\n${urlReplyContent}`;
     const content =
       kind === 'single'
-        ? withUrl(xResult.single)
-        : xResult.thread.map((t, i) => `${i + 1}/${xResult.thread.length}\n${i === xResult.thread.length - 1 ? withUrl(t) : t}`).join('\n\n---\n\n');
+        ? ripNote(xResult.single) + replySection
+        : xResult.thread.map((t, i) => `${i + 1}/${xResult.thread.length}\n${i === 0 ? ripNote(t) : t}`).join('\n\n---\n\n') + replySection;
     setState({ saving: true, savedId: '', error: '' });
     try {
       const res = await fetch('/api/dr-hub/x-post/save', {
@@ -1078,6 +1112,34 @@ export default function DrHubPage() {
         )}
 
         <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', alignItems: 'center', marginBottom: 12 }}>
+          {/* 265c: 長さ3プリセット（既定=ミニ講義。Xプレミアム前提・上限25,000字） */}
+          <label style={{ fontSize: 12, color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: 6 }}>
+            長さ:
+            <select
+              data-x-length
+              value={xLengthSel}
+              onChange={(e) => setXLengthSel(e.target.value as 'short' | 'mini' | 'long')}
+              style={{ padding: '6px 10px', background: 'var(--bg-primary)', border: '1px solid var(--border)', borderRadius: 6, color: 'var(--text-primary)', fontSize: 12, outline: 'none' }}
+            >
+              {X_LENGTH_OPTIONS.map((o) => (
+                <option key={o.value} value={o.value}>{o.label}</option>
+              ))}
+            </select>
+          </label>
+          {/* 265c: 投稿テンプレート5型（X-07。既定=①ノウハウ体系化型） */}
+          <label style={{ fontSize: 12, color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: 6 }}>
+            型:
+            <select
+              data-x-type
+              value={xTypeSel}
+              onChange={(e) => setXTypeSel(e.target.value)}
+              style={{ padding: '6px 10px', background: 'var(--bg-primary)', border: '1px solid var(--border)', borderRadius: 6, color: 'var(--text-primary)', fontSize: 12, outline: 'none' }}
+            >
+              {X_TYPE_OPTIONS.map((o) => (
+                <option key={o.value} value={o.value}>{o.label}</option>
+              ))}
+            </select>
+          </label>
           <label style={{ fontSize: 12, color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: 6 }}>
             スレッドの本数:
             <select
@@ -1409,6 +1471,11 @@ export default function DrHubPage() {
                       <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 6 }}>
                         {a.title}
                       </div>
+                      {a.audience && (
+                        <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginBottom: 6 }}>
+                          🎯 対象読者: {a.audience}
+                        </div>
+                      )}
                       {a.points.length > 0 && (
                         <ul style={{ margin: '0 0 6px 18px', padding: 0, fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.7 }}>
                           {a.points.map((p, j) => (
@@ -1535,41 +1602,71 @@ export default function DrHubPage() {
           </div>
         </div>
       )}
-      {/* ── ③ X投稿の生成結果 ── */}
-      {feature === 'xpost' && xResult && (
+      {/* ── ③ X投稿の生成結果（265c: v2対応） ── */}
+      {feature === 'xpost' && xResult && (() => {
+        const renderWarnings = (key: string) => {
+          const ws = xResult.warnings?.[key] ?? [];
+          if (ws.length === 0) return null;
+          return (
+            <div data-x-warnings={key} style={{ padding: 10, background: 'rgba(180,83,9,0.08)', border: '1px solid rgba(180,83,9,0.25)', borderRadius: 8, marginBottom: 8 }}>
+              {ws.map((w, j) => (
+                <div key={j} style={{ fontSize: 11, color: '#B45309', lineHeight: 1.7 }}>⚠️ {w.message}</div>
+              ))}
+              <div style={{ fontSize: 10, color: 'var(--text-muted)', marginTop: 4 }}>
+                直す場合は本文を手で調整するか、「🐦 X投稿を生成する」で再生成してください（自動では書き換えません）
+              </div>
+            </div>
+          );
+        };
+        const charInfo = (t: string) => (
+          <span style={{ fontSize: 11, color: t.length > xResult.charLimit || (xResult.xLength === 'short' && xCharCount(t) > 140) ? '#B45309' : 'var(--text-muted)' }}>
+            {xCharCount(t).toLocaleString()}字{xResult.xLength === 'short' ? '（140字目安）' : `（上限${xResult.charLimit.toLocaleString()}字）`}
+          </span>
+        );
+        return (
         <div style={{ marginBottom: 16 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8, marginBottom: 10 }}>
             <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--text-primary)' }}>
               3️⃣ できた投稿（コピーしてXに貼り付け）
             </div>
-            <button
-              type="button"
-              onClick={() =>
-                setEyecatch({
-                  open: true,
-                  title: 'X投稿画像',
-                  text: [xResult.single, ...xResult.thread].filter(Boolean).join('\n\n'),
-                  kind: 'sns',
-                })
-              }
-              style={{ padding: '6px 14px', background: 'var(--bg-primary)', border: '1px solid var(--border)', color: 'var(--text-secondary)', borderRadius: 6, cursor: 'pointer', fontSize: 12 }}
-            >
-              🎨 投稿画像を作る
-            </button>
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+              <label style={{ fontSize: 11, color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: 4, cursor: 'pointer' }}>
+                <input type="checkbox" checked={appendRipNote} onChange={(e) => setAppendRipNote(e.target.checked)} />
+                末尾に「▼詳細はリプ欄に」を付ける
+              </label>
+              <button
+                type="button"
+                onClick={() =>
+                  setEyecatch({
+                    open: true,
+                    title: 'X投稿画像',
+                    text: [xResult.single, ...xResult.thread].filter(Boolean).join('\n\n'),
+                    kind: 'sns',
+                  })
+                }
+                style={{ padding: '6px 14px', background: 'var(--bg-primary)', border: '1px solid var(--border)', color: 'var(--text-secondary)', borderRadius: 6, cursor: 'pointer', fontSize: 12 }}
+              >
+                🎨 投稿画像を作る
+              </button>
+            </div>
           </div>
 
-          {/* 単発ポスト */}
+          {/* §5-2: 投稿時間帯の目安（媒体でズレる。表示のみ・予約投稿はしない） */}
+          <div data-posting-times style={{ padding: 10, background: `${ACCENT}0d`, border: `1px solid ${ACCENT}30`, borderRadius: 8, fontSize: 11, color: 'var(--text-secondary)', lineHeight: 1.7, marginBottom: 12 }}>
+            🕐 投稿時間帯の目安 — <strong>note公開: 20:00〜22:30</strong>（朝7:00〜8:30・昼12:00〜13:00も可）／
+            <strong>Xポスト: 18:00〜21:00</strong>（朝7:00〜8:30・昼12:00〜13:00も可）。noteとXでゴールデンタイムがズレる点に注意
+          </div>
+
+          {/* 単発ポスト（1通目。URLは入れない） */}
           {xResult.single && (
             <div style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 12, padding: 16, marginBottom: 12 }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8, marginBottom: 8 }}>
-                <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-primary)' }}>💬 単発ポスト</div>
+                <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-primary)' }}>💬 単発ポスト（1通目）</div>
                 <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                  <span style={{ fontSize: 11, color: xCharCount(xResult.single) > xResult.charLimit ? '#B45309' : 'var(--text-muted)' }}>
-                    {xCharCount(xResult.single)} / {xResult.charLimit}字
-                  </span>
+                  {charInfo(xResult.single)}
                   <button
                     type="button"
-                    onClick={() => handleCopy(withUrl(xResult.single), 'x-single')}
+                    onClick={() => handleCopy(ripNote(xResult.single), 'x-single')}
                     style={{ padding: '6px 12px', background: 'var(--bg-primary)', border: '1px solid var(--border)', color: 'var(--text-secondary)', borderRadius: 6, cursor: 'pointer', fontSize: 12 }}
                   >
                     {copied === 'x-single' ? '✅ コピー済み' : '📋 コピー'}
@@ -1584,11 +1681,34 @@ export default function DrHubPage() {
                   </button>
                 </div>
               </div>
+              {renderWarnings('single')}
               <div style={{ fontSize: 14, color: 'var(--text-secondary)', lineHeight: 1.8, whiteSpace: 'pre-wrap', background: 'var(--bg-primary)', border: '1px solid var(--border)', borderRadius: 8, padding: 12 }}>
                 {xResult.single}
               </div>
             </div>
           )}
+
+          {/* 2通目（リプライ・URL用）— 本文にURLを入れず露出低下を避ける（X-03/C-02） */}
+          <div data-url-reply style={{ background: 'var(--bg-secondary)', border: `1px dashed ${ACCENT}50`, borderRadius: 12, padding: 16, marginBottom: 12 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8, marginBottom: 8 }}>
+              <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-primary)' }}>
+                ↩️ 2通目（1つ目のリプライ・記事URL用）
+              </div>
+              <button
+                type="button"
+                onClick={() => handleCopy(urlReplyContent, 'x-url-reply')}
+                style={{ padding: '6px 12px', background: `${ACCENT}15`, border: `1px solid ${ACCENT}50`, color: ACCENT, borderRadius: 6, cursor: 'pointer', fontSize: 12, fontWeight: 600 }}
+              >
+                {copied === 'x-url-reply' ? '✅ コピー済み' : '📋 コピー'}
+              </button>
+            </div>
+            <div style={{ fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.8, whiteSpace: 'pre-wrap', background: 'var(--bg-primary)', border: '1px solid var(--border)', borderRadius: 8, padding: 12 }}>
+              {urlReplyContent}
+            </div>
+            <div style={{ fontSize: 10, color: 'var(--text-muted)', marginTop: 6 }}>
+              ℹ️ 本文にURLを貼ると露出が下がるため、URLは投稿直後にこの内容を1つ目のリプライとして貼ります
+            </div>
+          </div>
 
           {/* スレッド */}
           {xResult.thread.length > 0 && (
@@ -1601,8 +1721,8 @@ export default function DrHubPage() {
                     onClick={() =>
                       handleCopy(
                         xResult.thread
-                          .map((t, i) => `${i + 1}/${xResult.thread.length}\n${i === xResult.thread.length - 1 ? withUrl(t) : t}`)
-                          .join('\n\n---\n\n'),
+                          .map((t, i) => `${i + 1}/${xResult.thread.length}\n${i === 0 ? ripNote(t) : t}`)
+                          .join('\n\n---\n\n') + `\n\n---\n\n[リプライ用]\n${urlReplyContent}`,
                         'x-thread-all',
                       )
                     }
@@ -1621,40 +1741,34 @@ export default function DrHubPage() {
                 </div>
               </div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                {xResult.thread.map((t, i) => {
-                  const isLast = i === xResult.thread.length - 1;
-                  const text = isLast ? withUrl(t) : t;
-                  return (
-                    <div key={i} style={{ background: 'var(--bg-primary)', border: '1px solid var(--border)', borderRadius: 8, padding: 12 }}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
-                        <span style={{ fontSize: 11, fontWeight: 700, color: ACCENT }}>{i + 1}/{xResult.thread.length}</span>
-                        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                          <span style={{ fontSize: 11, color: xCharCount(t) > xResult.charLimit ? '#B45309' : 'var(--text-muted)' }}>
-                            {xCharCount(t)} / {xResult.charLimit}字
-                          </span>
-                          <button
-                            type="button"
-                            onClick={() => handleCopy(text, `x-thread-${i}`)}
-                            style={{ padding: '4px 10px', background: 'var(--bg-secondary)', border: '1px solid var(--border)', color: 'var(--text-muted)', borderRadius: 6, cursor: 'pointer', fontSize: 11 }}
-                          >
-                            {copied === `x-thread-${i}` ? '✅' : '📋'}
-                          </button>
-                        </div>
+                {xResult.thread.map((t, i) => (
+                  <div key={i} style={{ background: 'var(--bg-primary)', border: '1px solid var(--border)', borderRadius: 8, padding: 12 }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                      <span style={{ fontSize: 11, fontWeight: 700, color: ACCENT }}>{i + 1}/{xResult.thread.length}</span>
+                      <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                        {charInfo(t)}
+                        <button
+                          type="button"
+                          onClick={() => handleCopy(i === 0 ? ripNote(t) : t, `x-thread-${i}`)}
+                          style={{ padding: '4px 10px', background: 'var(--bg-secondary)', border: '1px solid var(--border)', color: 'var(--text-muted)', borderRadius: 6, cursor: 'pointer', fontSize: 11 }}
+                        >
+                          {copied === `x-thread-${i}` ? '✅' : '📋'}
+                        </button>
                       </div>
-                      <div style={{ fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.8, whiteSpace: 'pre-wrap' }}>{t}</div>
                     </div>
-                  );
-                })}
+                    {renderWarnings(`thread-${i}`)}
+                    <div style={{ fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.8, whiteSpace: 'pre-wrap' }}>{t}</div>
+                  </div>
+                ))}
               </div>
-              {articleUrl.trim() && (
-                <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 8 }}>
-                  ℹ️ コピー時、最終ポストの末尾に記事URL（👉 {articleUrl.trim()}）を付けます
-                </div>
-              )}
+              <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 8 }}>
+                ℹ️ 記事URLは最終ポストではなく「2通目（1つ目のリプライ）」に貼ります（露出低下の回避）
+              </div>
             </div>
           )}
         </div>
-      )}
+        );
+      })()}
 
       {/* ── ④ 戦略ドキュメント（編集可能） ── */}
       {feature === 'strategy' && strategyDoc && (

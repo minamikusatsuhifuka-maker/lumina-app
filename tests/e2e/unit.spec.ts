@@ -49,6 +49,7 @@ import {
 import { markdownToReadableText } from '../../src/lib/markdownToText';
 import { parsePersonaArticleOutput } from '../../src/lib/persona-styles';
 import { PLAYBOOK, PLAYBOOK_VERSION, getPlaybook } from '../../src/lib/knowledge/noteXPlaybook';
+import { validateXPost, countHashtags, hasBlankLineRhythm } from '../../src/lib/x-post-rules';
 
 // ============================================================================
 // 純関数の単体テスト（234【1】要件4）— ネットワーク・AI課金・認証を一切使わない
@@ -764,4 +765,33 @@ test('U31: ナレッジ基盤（265a）— getPlaybookのfail-closedとPart A/W/
   // 存在しないIDは例外（fail-closed。黙って空文字を返して品質土台が抜け落ちるのを防ぐ）
   expect(() => getPlaybook(['X-99'])).toThrow(/未定義のナレッジID/);
   expect(() => getPlaybook(['X-02', 'NOPE-01'])).toThrow();
+});
+
+test('U32: X投稿の機械検証（265c）— URL/ハッシュタグ/空行/禁止表現を媒体別ルールで判定', () => {
+  // URLは1通目の本文NG（露出低下）・2通目（リプライ）はOK
+  expect(
+    validateXPost('本文です https://note.com/xxx', { media: 'x', isFirstPost: true }).some((w) => w.code === 'url-in-body'),
+  ).toBe(true);
+  expect(
+    validateXPost('記事はこちら https://note.com/xxx', { media: 'x', isFirstPost: false }).some((w) => w.code === 'url-in-body'),
+  ).toBe(false);
+
+  // ハッシュタグ: Xは3個で警告・2個までOK。noteには適用しない（§5-1: 媒体で真逆）
+  expect(countHashtags('#皮膚科 ＃保湿 #スキンケア')).toBe(3);
+  expect(validateXPost('#皮膚科 ＃保湿 #スキンケア', { media: 'x' }).some((w) => w.code === 'too-many-hashtags')).toBe(true);
+  expect(validateXPost('#皮膚科 ＃保湿', { media: 'x' }).some((w) => w.code === 'too-many-hashtags')).toBe(false);
+  expect(validateXPost('#皮膚科 ＃保湿 #スキンケア #お題', { media: 'note' }).some((w) => w.code === 'too-many-hashtags')).toBe(false);
+
+  // 空行リズム（X-06: 2〜3行ごとに空白行）: 5行以上ベタ続きは警告、空行入りはOK
+  const dense = ['一行目', '二行目', '三行目', '四行目', '五行目', '六行目'].join('\n');
+  expect(hasBlankLineRhythm(dense)).toBe(false);
+  expect(validateXPost(dense, { media: 'x' }).some((w) => w.code === 'no-blank-lines')).toBe(true);
+  const spaced = ['一行目', '二行目', '', '三行目', '四行目', '', '五行目'].join('\n');
+  expect(hasBlankLineRhythm(spaced)).toBe(true);
+  expect(validateXPost(spaced, { media: 'x' }).some((w) => w.code === 'no-blank-lines')).toBe(false);
+
+  // 禁止表現（§4-2）: 既存の content-verify 辞書で検出される
+  const banned = validateXPost('この方法で必ず治ります', { media: 'x' });
+  expect(banned.some((w) => w.code === 'banned-expression')).toBe(true);
+  expect(validateXPost('保湿の基本を3ステップで整理しました', { media: 'x' })).toHaveLength(0);
 });

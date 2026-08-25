@@ -11,6 +11,7 @@ import { NOTE_WRITING_DESIGN } from '@/lib/note-writing';
 import { KINDLE_PROOFREAD_PRINCIPLES } from '@/lib/kindle-proofread';
 import { getMyStylePrompt } from '@/lib/my-style-server';
 import { PERSONA_STYLES, PERSONA_GUARD, getPersonaStyle } from '@/lib/persona-styles';
+import { getPlaybook, PLAYBOOK_VERSION } from '@/lib/knowledge/noteXPlaybook';
 
 export const runtime = 'nodejs';
 export const maxDuration = 300;
@@ -81,10 +82,23 @@ export async function POST(req: NextRequest) {
 interface PlanArticle {
   title: string;
   role: string;
+  /** 265c: この記事の対象読者を1行で（N-03「ターゲットの極小化」） */
+  audience: string;
   points: string[];
   bridge: string;
   principles: string[];
 }
+
+// 265c: ②に注入するKB章（N-03 テーマ選定と1記事1テーマ／N-06 構成／C-02 X→note導線／PART-A 専門領域補正）
+const SPLIT_PLAYBOOK_IDS = ['N-03', 'N-06', 'C-02', 'PART-A'];
+
+// ナレッジ→ガードの後勝ち原則（§4。KBの拡散セオリーより医療広告ガードを必ず優先）
+const KB_GUARD_PRECEDENCE = `# ナレッジとガードの優先順位（最重要・厳守）
+上のナレッジと医療広告ガード・誇張禁止の規約が衝突する場合は、**必ずガードを優先**する。
+- 「常識の否定」は主語を「過去の自分の理解」に限定（一般論・他者・他院を否定しない）
+- Before/Afterの主語は自分に限定（患者・症例を主語にしない）
+- 「〜しないと危険」「知らないと損する」型の煽り禁止
+- 数字は手順・時間・件数・項目数にのみ使う（効果の数値化は禁止）`;
 
 // ── 段階1: 分割プランの提案（1回のAI呼び出し） ──
 async function generatePlan(
@@ -104,18 +118,26 @@ async function generatePlan(
 
   const system = `あなたは note の連載記事を設計する編集者です。渡されたディープリサーチ記事を、note記事のシリーズへ分割するプランを提案してください。
 
+# 発信ナレッジ（note×X運用ナレッジベース v${PLAYBOOK_VERSION} より抜粋）
+${getPlaybook(SPLIT_PLAYBOOK_IDS)}
+
+${KB_GUARD_PRECEDENCE}
+
 ${SERIES_DESIGN_RULES}
 ${persona ? `\n${persona.promptBlock}\n` : ''}
 # プランの作り方
+- **1記事1テーマの原則**（N-03）: 1本の記事に複数テーマを詰め込まない。テーマが混ざるなら分割数を増やす
 - ${fixedCount ? `記事数はちょうど${fixedCount}本にする` : `記事数は素材の量と話題のまとまりから1〜${MAX_SPLIT}本で最適な数を選ぶ`}
 - recommendedCount には、素材から見て最適と考える記事数（1〜${MAX_SPLIT}）とその理由を入れる
-- 各記事の title は読者の興味を引く30〜40字。role はシリーズ内での役割（第1記事=問題提起 等）を1行で
+- 各記事の title は読者の興味を引く30〜40字。「ターゲットの明確化」「具体的ベネフィット」「手軽さ・再現性」「一次情報の明示」を織り込む（数字は手順・件数のみ）
+- audience は**その記事の対象読者を1行で**（N-03「ターゲットの極小化」: 「〜で悩む〜な人」まで絞る）
+- role はシリーズ内での役割（第1記事=問題提起 等）を1行で
 - points は素材にある内容から選ぶ（素材に無い話題を立てない）。1記事あたり3〜6個
 - bridge はその記事の末尾に置く「次への導線」の設計を1行で（最終記事は締めのCTA設計）
 - principles は活かす原則の名前を1〜3個（上記の観点リストから）
 
 必ず以下のJSON形式のみを返してください（前置き・コードフェンス不要）:
-{"recommendedCount": 数値, "reason": "…", "articles": [{"title": "…", "role": "…", "points": ["…"], "bridge": "…", "principles": ["…"]}]}`;
+{"recommendedCount": 数値, "reason": "…", "articles": [{"title": "…", "role": "…", "audience": "…", "points": ["…"], "bridge": "…", "principles": ["…"]}]}`;
 
   const ai = await generateTextWithFallback({
     system,
@@ -139,6 +161,7 @@ ${persona ? `\n${persona.promptBlock}\n` : ''}
     .map((a: Record<string, unknown>) => ({
       title: String(a?.title ?? '').trim(),
       role: String(a?.role ?? '').trim(),
+      audience: String(a?.audience ?? '').trim(),
       points: (Array.isArray(a?.points) ? a.points : []).map((p) => String(p).trim()).filter(Boolean).slice(0, 8),
       bridge: String(a?.bridge ?? '').trim(),
       principles: (Array.isArray(a?.principles) ? a.principles : []).map((p) => String(p).trim()).filter(Boolean).slice(0, 3),
@@ -181,6 +204,7 @@ async function generateArticle(
     return NextResponse.json({ error: 'article.title（記事タイトル）が必要です' }, { status: 400 });
   }
   const role = String(a.role ?? '').trim();
+  const audience = String(a.audience ?? '').trim();
   const points = (Array.isArray(a.points) ? a.points : []).map((p) => String(p).trim()).filter(Boolean).slice(0, 8);
   const bridge = String(a.bridge ?? '').trim();
 
@@ -218,9 +242,14 @@ ${nextTitle ? `- 次の記事:「${nextTitle}」（末尾で次の記事への�
 
   const prompt = `以下のプランに基づいて、シリーズの1記事分の note 記事を執筆してください。内容は「参照資料」の記述だけを根拠にします。
 
+# 発信ナレッジ（note×X運用ナレッジベース v${PLAYBOOK_VERSION} より抜粋）
+${getPlaybook(SPLIT_PLAYBOOK_IDS)}
+
+${KB_GUARD_PRECEDENCE}
+
 # 記事タイトル
 ${articleTitle}
-${role ? `\n# この記事の役割\n${role}\n` : ''}${points.length ? `\n# この記事に盛り込む要点\n${points.map((p) => `- ${p}`).join('\n')}\n` : ''}${bridge ? `\n# 末尾の導線設計\n${bridge}\n` : ''}
+${role ? `\n# この記事の役割\n${role}\n` : ''}${audience ? `\n# この記事の対象読者（1記事1テーマ・この読者だけに向けて書く）\n${audience}\n` : ''}${points.length ? `\n# この記事に盛り込む要点\n${points.map((p) => `- ${p}`).join('\n')}\n` : ''}${bridge ? `\n# 末尾の導線設計\n${bridge}\n` : ''}
 ${seriesSection}
 ${SERIES_DESIGN_RULES}
 ${persona ? `\n${persona.promptBlock}\n\n${PERSONA_GUARD}\n` : ''}${myStyleBlock ? `\n${myStyleBlock}\n` : ''}

@@ -2828,3 +2828,67 @@ test('C61: ペルソナ別note記事の体裁（264）— タイトル分離・�
     .poll(async () => page.evaluate(() => navigator.clipboard.readText()))
     .toContain('## 保湿の基本を見直す');
 });
+
+test('C62: X投稿連動のv2対応（265c）— 既定ミニ講義・警告表示・URLは2通目・媒体別時間帯（APIモック）', async ({
+  page,
+}) => {
+  // 265cのUI経路をAPIモックで固定（AI課金なし）。実AIの出力（1,000字以上等）は @gen B17 側で検証。
+  await stubFeatureDrafts(page); // R-12
+
+  await page.route('**/api/library?type=note-article', (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify([{ id: 'e2e-note-1', title: '[E2E] モックnote記事', content: '本文', created_at: '2026-08-26' }]),
+    }),
+  );
+  await page.route('**/api/library?type=deepresearch', (route) =>
+    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([]) }),
+  );
+  await page.route('**/api/dr-hub/x-post', async (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        success: true,
+        single: '本文ポストです。URLは入っていません。\n\n・要点1\n・要点2',
+        thread: ['1本目フック https://bad.example.com', '2本目です'],
+        urlReplyLeadin: '本文で触れた記事の全文はこちらです',
+        warnings: {
+          single: [],
+          'thread-0': [{ code: 'url-in-body', message: '本文にURLが入っています。露出低下を避けるため、URLは1つ目のリプライへ移してください' }],
+          'thread-1': [],
+        },
+        xLength: 'mini',
+        charLimit: 25000,
+      }),
+    }),
+  );
+
+  await page.goto('/dashboard/dr-hub');
+  await page.getByRole('button', { name: /X投稿連動/ }).click();
+
+  // 1) v2既定: 長さ=ミニ講義（1,000〜2,000字）・型=ノウハウ体系化型
+  await expect(page.locator('[data-x-length]')).toHaveValue('mini');
+  await expect(page.locator('[data-x-type]')).toHaveValue('knowhow');
+
+  // 2) 生成 → 結果表示
+  await page.locator('select').filter({ hasText: '連動元のnote記事を選ぶ' }).selectOption('e2e-note-1');
+  await page.getByRole('button', { name: /X投稿を生成する/ }).click();
+
+  // 3) 媒体別の投稿時間帯が両方（noteとXでズレて）表示される（§5-2）
+  const times = page.locator('[data-posting-times]');
+  await expect(times).toBeVisible();
+  await expect(times).toContainText('20:00〜22:30');
+  await expect(times).toContainText('18:00〜21:00');
+
+  // 4) URLは2通目（リプライ）カードに分離される（X-03/C-02）
+  const urlReply = page.locator('[data-url-reply]');
+  await expect(urlReply).toBeVisible();
+  await expect(urlReply).toContainText('1つ目のリプライ');
+
+  // 5) 機械検証の警告が該当ポストにだけ出る（自動修正しない＝R-26）
+  await expect(page.locator('[data-x-warnings="thread-0"]')).toBeVisible();
+  await expect(page.locator('[data-x-warnings="thread-0"]')).toContainText('URLは1つ目のリプライへ');
+  await expect(page.locator('[data-x-warnings="single"]')).toHaveCount(0);
+});
