@@ -2800,17 +2800,20 @@ test('C61: ペルソナ別note記事の体裁（264）— タイトル分離・�
     .poll(async () => page.evaluate(() => navigator.clipboard.readText()))
     .toBe('タイトル案その1');
 
-  // 3) 本文は整形表示（h2が2本以上・生の記法が出ない）
+  // 3) 本文は整形表示（見出しタグが2本以上・生の記法が出ない）
+  //    ※ renderMarkdown は ## を <h3> に割り当てる（# → h2 の1段ずらし）ためタグ幅で数える
   const articleBody = page.locator('.markdown-body').last();
   await expect(articleBody.getByText('リード文です。', { exact: false })).toBeVisible();
-  const h2Count = await articleBody.locator('h2').count();
-  expect(h2Count, '大見出しがレンダリングされている').toBeGreaterThanOrEqual(2);
+  const headingCount = await articleBody.locator('h2, h3, h4').count();
+  expect(headingCount, '大見出しがレンダリングされている').toBeGreaterThanOrEqual(2);
   const bodyText = await articleBody.innerText();
   expect(bodyText).not.toContain('##');
   expect(bodyText).not.toContain('**');
 
   // 4) 2種コピー: note用＝text/htmlを含むリッチ形式／Markdown＝生MD
+  //    書き込みは非同期＝「✅ コピー済み」表示を待ってから読む（クリック直後に読むと前の内容が返る）
   await page.locator('[data-copy-note]').click();
+  await expect(page.locator('[data-copy-note]')).toHaveText(/コピー済み/);
   const richHtml = await page.evaluate(async () => {
     const items = await navigator.clipboard.read();
     for (const it of items) {
@@ -2818,7 +2821,7 @@ test('C61: ペルソナ別note記事の体裁（264）— タイトル分離・�
     }
     return '';
   });
-  expect(richHtml, 'note用コピーはHTML（見出しタグ）を含む').toContain('<h2');
+  expect(richHtml, 'note用コピーはHTML（見出しタグ）を含む').toMatch(/<h[2-4]/);
 
   await page.locator('[data-copy-md]').click();
   await expect
