@@ -48,6 +48,7 @@ import {
 } from '../../src/lib/hover-preview';
 import { markdownToReadableText } from '../../src/lib/markdownToText';
 import { parsePersonaArticleOutput } from '../../src/lib/persona-styles';
+import { PLAYBOOK, PLAYBOOK_VERSION, getPlaybook } from '../../src/lib/knowledge/noteXPlaybook';
 
 // ============================================================================
 // 純関数の単体テスト（234【1】要件4）— ネットワーク・AI課金・認証を一切使わない
@@ -738,4 +739,29 @@ test('U30: ペルソナ記事のタイトル案/本文分離（264）— マー�
   // タイトルは3本まで（4本以上返されても切り詰める）
   const many = '【タイトル案】\n1. a\n2. b\n3. c\n4. d\n【本文】\n本文';
   expect(parsePersonaArticleOutput(many).titles).toEqual(['a', 'b', 'c']);
+});
+
+test('U31: ナレッジ基盤（265a）— getPlaybookのfail-closedとPart A/W/S/RのID付与', () => {
+  // KB v2.0 は48章（IDタグ章44＋IDなしPart 4）。全文注入せず必要IDだけ結合する。
+  expect(PLAYBOOK_VERSION).toBe('2.0');
+  expect(PLAYBOOK.length).toBe(48);
+
+  // IDタグを持たないPartにも機械付与したIDで取得できる
+  const partA = getPlaybook(['PART-A']);
+  expect(partA).toContain('[PART-A]');
+  expect(partA).toContain('主語を「かつての自分／教える側としての自分」');
+  for (const id of ['PART-W', 'PART-S', 'PART-R']) {
+    expect(getPlaybook([id]).length).toBeGreaterThan(100);
+  }
+
+  // 複数IDは指定順に結合される
+  const joined = getPlaybook(['X-02', 'X-03']);
+  expect(joined.indexOf('[X-02]')).toBeGreaterThanOrEqual(0);
+  expect(joined.indexOf('[X-02]')).toBeLessThan(joined.indexOf('[X-03]'));
+  // v2の中核（40倍シグナル）が本文無編集で入っている
+  expect(joined).toContain('約40倍相当');
+
+  // 存在しないIDは例外（fail-closed。黙って空文字を返して品質土台が抜け落ちるのを防ぐ）
+  expect(() => getPlaybook(['X-99'])).toThrow(/未定義のナレッジID/);
+  expect(() => getPlaybook(['X-02', 'NOPE-01'])).toThrow();
 });

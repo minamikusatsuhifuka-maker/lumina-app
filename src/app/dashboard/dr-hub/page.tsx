@@ -10,6 +10,7 @@ import { loadFeatureDraft, saveFeatureDraft, clearFeatureDraft } from '@/lib/fea
 import { renderMarkdown } from '@/lib/markdown-renderer';
 import { copyToClipboard } from '@/lib/copyToClipboard';
 import { copyRichMarkdown } from '@/lib/rich-copy';
+import { PLAYBOOK_VERSION } from '@/lib/knowledge/noteXPlaybook';
 import { getSavedModel } from '@/lib/model-preference';
 import { EyecatchModal, type EyecatchKind } from '@/components/eyecatch/EyecatchModal';
 import NoteEnhancePanel from '@/components/note-enhance/NoteEnhancePanel';
@@ -759,6 +760,10 @@ export default function DrHubPage() {
       </h1>
       <p style={{ color: 'var(--text-muted)', marginBottom: 12, fontSize: 14 }}>
         ディープリサーチ記事を起点に、note記事・X投稿・Kindle本・発信戦略・画像へ展開します
+        {/* 265a: 生成の土台にしているナレッジの版（KB自身が定期更新前提のため見えるところに出す） */}
+        <span style={{ marginLeft: 8, fontSize: 11, padding: '2px 8px', borderRadius: 10, border: '1px solid var(--border)', color: 'var(--text-muted)' }}>
+          📚 ナレッジ v{PLAYBOOK_VERSION}
+        </span>
       </p>
 
       {restoredAt && <FeatureDraftBanner restoredAt={restoredAt} onClear={handleClearDraft} />}
