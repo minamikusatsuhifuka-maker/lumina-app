@@ -5,6 +5,8 @@ import { generateWithModel } from '@/lib/ai-client';
 import { GEMINI_TEXT_THINKING_MEDIUM, DEFAULT_AI_MODEL } from '@/lib/ai-models';
 import { MEDICAL_AD_NG_RULES } from '@/lib/medical-ad-check';
 import { PERSONA_STYLES, PERSONA_STYLE_KEYS } from '@/lib/persona-styles';
+import { getPlaybook, PLAYBOOK_VERSION } from '@/lib/knowledge/noteXPlaybook';
+import { appendStrategyDisclaimer } from '@/lib/knowledge/strategyDisclaimer';
 
 export const runtime = 'nodejs';
 export const maxDuration = 300;
@@ -78,14 +80,37 @@ export async function POST(req: NextRequest) {
           .join('\n\n---\n\n')
       : '';
 
+    // 265d: KB v2.0 の④用の章を注入（4層モデル・ポジショニング・課金レイヤー・連携・
+    // ワークフロー・セットアップ・数値リファレンス）。院長は Xプレミアム・noteプレミアム加入済み。
+    const playbook = getPlaybook([
+      'CORE-01', 'X-13', 'XP-02', 'XP-03',
+      'NP-01', 'NP-02', 'NP-03', 'NP-04', 'NP-05', 'NP-06',
+      'N-14', 'C-01', 'C-02', 'C-03', 'C-04',
+      'PART-W', 'PART-S', 'PART-R',
+    ]);
+
     const system = `あなたは医療クリニックの情報発信を支援するコンテンツ戦略プランナーです。
 渡された素材（ディープリサーチ記事群・生成済みnote記事群）をもとに、院長が1人で実行できる発信戦略を策定してください。
 
+# 発信ナレッジ（note×X運用ナレッジベース v${PLAYBOOK_VERSION} より抜粋）
+${playbook}
+
+# 前提
+- 院長は **Xプレミアム・noteプレミアムの両方に加入済み**。課金レイヤーの施策（予約投稿・数量限定・価格上限10万円・
+  コメント欄ON/OFF・リプライ優先表示 等）は「使える前提」で戦略に組み込んでよい
+
+# ナレッジとガードの優先順位（最重要・厳守）
+上のナレッジと以下の規約が衝突する場合は、**必ず規約を優先**する。
 ${STRATEGY_RULES}
+
+# 数値の扱い（§8-1・厳守）
+- XP-01のインプレッション倍率（プレミアム約6倍／プラス約15倍）やPART-Rの数値を提示する場合は、
+  「中央値の比較であり対照実験ではない。自己選択バイアスを含み得る」「実践知見の集約値であり公式の確定値ではない。
+  自アカウントの実測で補正する」という補正を必ず併記する。数値を断定的な効果予測として書かない
 
 # 使える発信チャネル
 - note記事（無料公開・この素材から生成できる）
-- X投稿（単発・スレッド。note記事への導線）
+- X投稿（単発ミニ講義・スレッド。note記事への導線）
 - Kindle本（複数のDR記事・note記事を素材にできる。本命コンテンツ候補）
 
 # 選べる読者ペルソナ（発信ハブに定義済み）
@@ -93,12 +118,16 @@ ${personaList}
 
 # 出力形式（Markdown・編集可能なドキュメントとして保存される前提で見出しを揃える）
 # 発信戦略: <素材群を要約した短いタイトル>
-## 1. 素材の棚卸しと強み
-## 2. ターゲティング（どのペルソナに何を届けるか）
-## 3. コンテンツ計画（note⇄X⇄Kindleの導線設計: 無料記事→リードマグネット→本命の流れ）
-## 4. 投稿スケジュール案（週あたりの回数・曜日・時間帯の提案。一般論としての提案と明記）
-## 5. 最初の2週間のアクションリスト（チェックボックス形式）
-## 6. ふりかえりの観点（数値目標ではなく、続けるための観点）
+## 1. 4層モデルでの現在地（CORE-01: あり方／設計技術／課金ツール／収益のどこが手薄か）
+## 2. ポジショニング（X-13: WANTS × CAN × MUST の3円の重なりの言語化）
+## 3. ターゲティング（どのペルソナに何を届けるか）
+## 4. 導線設計（C-01/C-02: X＝認知と信頼／note＝収益の役割分担。URLはリプライに置く運用まで含める）
+## 5. 収益ポートフォリオの成長順路（C-03/N-14: 単発→買い切りマガジン→メンバーシップ→定期購読/高単価のどのSTEPか）
+## 6. プレミアム機能の使いどころ（NP-02〜NP-06: 予約投稿・数量限定・価格上限10万円・コメント欄ON/OFF・公式キュレーション）
+## 7. 週次運用モデル（C-04ベースで、素材と診療の両立ができる分量に調整）
+## 8. 追跡KPI（インプレッション・URL共有数・ブックマーク数・リプライ往復数・プロフィール遷移率・note購入率）
+## 9. 数値リファレンス（PART-Rから戦略に関係する値のみ。必ず上記の補正を併記）
+## 10. 最初の2週間のアクションリスト（チェックボックス形式）
 
 冒頭に「この戦略はAIによる提案です。実際の成果を保証するものではありません。」の1行を必ず入れる。
 前置き・コードフェンスは不要。`;
@@ -109,6 +138,7 @@ ${personaList}
 ${drSection}
 ${articleSection}`;
 
+    // 265d: KB注入でプロンプトが大きくなったぶん、出力枠は据え置きでも思考分の余裕を確認済み（12000）
     const content = await generateWithModel(aiModel, prompt, system, 12000, GEMINI_TEXT_THINKING_MEDIUM);
     if (!content || !content.trim()) {
       return NextResponse.json({ error: '戦略の生成結果が空でした。もう一度お試しください' }, { status: 502 });
@@ -116,7 +146,8 @@ ${articleSection}`;
 
     return NextResponse.json({
       success: true,
-      content,
+      // §8-1: 数値の補正はプロンプト指示に加えて、サーバー側で定型の注意書きを必ず末尾に付与（決定的な担保）
+      content: appendStrategyDisclaimer(content),
       usedDrIds: drRows.map((r) => r.id),
       usedArticleIds: articleRows.map((r) => r.id),
     });

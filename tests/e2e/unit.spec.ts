@@ -50,6 +50,7 @@ import { markdownToReadableText } from '../../src/lib/markdownToText';
 import { parsePersonaArticleOutput } from '../../src/lib/persona-styles';
 import { PLAYBOOK, PLAYBOOK_VERSION, getPlaybook } from '../../src/lib/knowledge/noteXPlaybook';
 import { validateXPost, countHashtags, hasBlankLineRhythm } from '../../src/lib/x-post-rules';
+import { appendStrategyDisclaimer } from '../../src/lib/knowledge/strategyDisclaimer';
 
 // ============================================================================
 // 純関数の単体テスト（234【1】要件4）— ネットワーク・AI課金・認証を一切使わない
@@ -794,4 +795,22 @@ test('U32: X投稿の機械検証（265c）— URL/ハッシュタグ/空行/禁
   const banned = validateXPost('この方法で必ず治ります', { media: 'x' });
   expect(banned.some((w) => w.code === 'banned-expression')).toBe(true);
   expect(validateXPost('保湿の基本を3ステップで整理しました', { media: 'x' })).toHaveLength(0);
+});
+
+test('U33: 戦略の数値補正（265d §8-1）— 注意書きがサーバー側で必ず・1回だけ付く', () => {
+  // 倍率（6倍/15倍）等の数値を断定的な効果予測として出さないための決定的な担保。
+  // AIの遵守（プロンプト指示）に依存せず、appendStrategyDisclaimer() が末尾に定型文を付ける。
+  const doc = '# 発信戦略: テスト\n\nXプレミアムはインプレッション中央値が約6倍とされる。';
+  const out = appendStrategyDisclaimer(doc);
+  expect(out).toContain('自己選択バイアス');
+  expect(out).toContain('中央値の比較であり対照実験ではありません');
+  expect(out).toContain('実践知見の集約値であり、公式の確定値ではありません');
+  expect(out.startsWith('# 発信戦略: テスト')).toBe(true);
+
+  // 二重付与しない（保存→復元→再保存でも増えない）
+  const twice = appendStrategyDisclaimer(out);
+  expect(twice.split('本戦略の数値の扱いについて').length - 1).toBe(1);
+
+  // 空入力はそのまま（偽のドキュメントを作らない）
+  expect(appendStrategyDisclaimer('')).toBe('');
 });

@@ -380,3 +380,46 @@ test('B16: ペルソナ別note記事（264）— タイトル案3本と構造化
     expect(del.status()).toBe(200);
   }
 });
+
+test('B17: X投稿v2（265c）— 既定でミニ講義型（1,000字以上）・URLは本文に入らない @gen', async ({ request }) => {
+  test.setTimeout(GEN_TIMEOUT);
+  // 素材のnote記事を自作（[E2E]接頭辞・末尾で削除＝R-55）
+  const articleId = await createLibraryItem(request, {
+    title: `265検証用note記事 ${RUN_ID}`,
+    content:
+      '入浴後の保湿は「早さ」と「塗り方」で差が出ます。角層に水分が残っているうちに保湿剤を重ねると、水分の蒸発を抑えやすくなります。' +
+      'こすらず手のひらで押さえるようにのばすこと、熱すぎるお湯を避けること、加湿と肌着の素材選びも合わせると続けやすくなります。' +
+      '新人スタッフに説明するときは「順番→理由→今日の一歩」の順で伝えると腹落ちしやすい、というのがこの記事の要点です。',
+    type: 'note-article',
+  });
+  try {
+    // 既定値の検証のため xLength / postType は**送らない**（サーバー側の既定がミニ講義・ノウハウ型であること）
+    const res = await request.post('/api/dr-hub/x-post', {
+      data: { articleId, threadCount: 2 },
+      timeout: REQ_TIMEOUT,
+    });
+    expect(res.status()).toBe(200);
+    const data = await res.json();
+
+    // 既定=ミニ講義型: 単発ポストが1,000字以上（v2の最重要変更。旧140字上限は廃止）
+    expect(data.xLength).toBe('mini');
+    const single = String(data.single ?? '');
+    expect(single.length, '既定でミニ講義型（1,000字以上）').toBeGreaterThanOrEqual(1000);
+    expect(single.length).toBeLessThanOrEqual(25000);
+
+    // URLは本文に入らない（1つ目のリプライへ＝X-03）。サーバー検証の警告も出ていないこと
+    expect(/https?:\/\//.test(single), '単発ポスト本文にURLが無い').toBe(false);
+    const thread = (data.thread ?? []) as string[];
+    expect(thread.length).toBeGreaterThanOrEqual(2);
+    expect(/https?:\/\//.test(thread[0] ?? ''), 'スレッド1本目にURLが無い').toBe(false);
+    const singleWarnings = (data.warnings?.single ?? []) as Array<{ code: string }>;
+    expect(singleWarnings.some((w) => w.code === 'url-in-body')).toBe(false);
+    expect(singleWarnings.some((w) => w.code === 'too-many-hashtags'), 'ハッシュタグ2個以下').toBe(false);
+
+    // URLリプライ用の導線文が別で返る
+    expect(String(data.urlReplyLeadin ?? '').length).toBeGreaterThan(0);
+  } finally {
+    const del = await request.delete('/api/library', { data: { id: articleId } });
+    expect(del.status()).toBe(200);
+  }
+});
