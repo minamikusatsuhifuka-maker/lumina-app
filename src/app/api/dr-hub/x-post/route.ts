@@ -145,7 +145,8 @@ ${MEDICAL_AD_NG_RULES}
 
     // 機械検証②: 警告リスト（表示のみ・自動修正しない＝R-26）
     const warnings: Record<string, XPostWarning[]> = {};
-    if (result.single) warnings.single = validateXPost(result.single, { media: 'x', isFirstPost: true });
+    // 下限検証は単発ポスト（長さプリセットの対象）にのみ適用。スレッド各ポストは対象外
+    if (result.single) warnings.single = validateXPost(result.single, { media: 'x', isFirstPost: true, length: xLength });
     result.thread.forEach((t, i) => {
       warnings[`thread-${i}`] = validateXPost(t, { media: 'x', isFirstPost: i === 0 });
     });

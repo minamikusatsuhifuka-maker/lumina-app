@@ -8,7 +8,7 @@ import { findBannedExpressions } from '@/lib/content-verify';
 export type XPostMedia = 'x' | 'note';
 
 export interface XPostWarning {
-  code: 'url-in-body' | 'too-many-hashtags' | 'no-blank-lines' | 'banned-expression' | 'over-limit';
+  code: 'url-in-body' | 'too-many-hashtags' | 'no-blank-lines' | 'banned-expression' | 'over-limit' | 'under-min';
   message: string;
 }
 
@@ -17,19 +17,22 @@ export const X_HARD_LIMIT = 25000;
 
 /** 長さプリセット（v2: 既定はミニ講義。旧140字上限は既定にしない） */
 export type XLength = 'short' | 'mini' | 'long';
+// 266【2】: minChars = 機械検証の下限（プリセットに応じて持つ。指示書266の表: 下限検証はミニ講義のみ・
+// 短文/長編には適用しない＝null）。下限割れは警告表示＋手動再生成（投稿は可能なため自動再生成にしない）
 export const X_LENGTH_CONFIG: Record<
   XLength,
-  { label: string; chars: string; promptNote: string; maxTokens: number }
+  { label: string; chars: string; promptNote: string; maxTokens: number; minChars: number | null }
 > = {
-  short: { label: '短文', chars: '140字前後', promptNote: '140字前後（160字を超えない）', maxTokens: 4000 },
+  short: { label: '短文', chars: '140字前後', promptNote: '140字前後（160字を超えない）', maxTokens: 4000, minChars: null },
   mini: {
     label: 'ミニ講義（既定）',
     chars: '1,000〜2,000字',
     // AIは指定帯のやや下に着地しがちなので、下限厳守＋帯の中央を狙わせる（B17実測: 素直な指定だと900字前後に落ちる）
     promptNote: '1,000〜2,000字。**必ず1,000字以上**にする（1,200〜1,800字を狙う。900字台は不可）',
     maxTokens: 8000,
+    minChars: 1000,
   },
-  long: { label: '長編', chars: '3,000〜5,000字', promptNote: '3,000〜5,000字。必ず3,000字以上にする', maxTokens: 13000 },
+  long: { label: '長編', chars: '3,000〜5,000字', promptNote: '3,000〜5,000字。必ず3,000字以上にする', maxTokens: 13000, minChars: null },
 };
 
 /** 投稿テンプレート5型（X-07）。既定は①ノウハウ体系化型（PART-A: 共有シグナルとの相性が最良） */
@@ -128,10 +131,20 @@ export function hasBlankLineRhythm(text: string): boolean {
  */
 export function validateXPost(
   text: string,
-  opts: { media: XPostMedia; isFirstPost?: boolean } = { media: 'x', isFirstPost: true },
+  opts: { media: XPostMedia; isFirstPost?: boolean; length?: XLength } = { media: 'x', isFirstPost: true },
 ): XPostWarning[] {
   const warnings: XPostWarning[] = [];
   const t = text ?? '';
+
+  // 266【2】: 長さプリセットの下限（ミニ講義=1,000字）。B17でAIが900字台に着地する癖が観測されたため、
+  // プロンプト頼みにせず機械検証の二段構えにする（265の他項目と同方針）
+  const minChars = opts.length ? X_LENGTH_CONFIG[opts.length].minChars : null;
+  if (minChars !== null && t.length > 0 && t.length < minChars) {
+    warnings.push({
+      code: 'under-min',
+      message: `${X_LENGTH_CONFIG[opts.length!].label.replace('（既定）', '')}の下限${minChars.toLocaleString()}字を下回っています（現在${t.length.toLocaleString()}字）。手動で再生成してください`,
+    });
+  }
 
   if ((opts.isFirstPost ?? true) && hasUrl(t)) {
     warnings.push({
