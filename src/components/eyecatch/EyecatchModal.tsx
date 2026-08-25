@@ -233,6 +233,11 @@ export function EyecatchModal({
           >
             {generating ? '生成中...' : `🎨 生成（合計${totalImages}枚）`}
           </button>
+          {/* 267【2】: 無言で数十秒待たせない＝所要時間の目安を常時提示 */}
+          <p className="text-[11px] text-gray-400">
+            ⏱ 目安: GPT Image 2 は1〜3分、Nano Banana は10〜60秒ほどかかることがあります。
+            {generating ? ' 生成中はこの画面を閉じずにお待ちください。' : ''}
+          </p>
 
           {/* 生成結果（モデルごとに比較・各カードから保存） */}
           {slots.length > 0 && (

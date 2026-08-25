@@ -267,6 +267,11 @@ export default function ImageGenPage() {
           {generating ? '🎨 生成中...' : `🎨 画像を生成（合計${totalImages}枚）`}
         </button>
       </div>
+      {/* 267【2】: 無言で数十秒待たせない＝所要時間の目安を常時提示 */}
+      <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 16 }}>
+        ⏱ 目安: GPT Image 2 は1〜3分、Nano Banana は10〜60秒ほどかかることがあります。
+        {generating ? ' 生成中はこの画面を閉じずにお待ちください。' : ''}
+      </div>
 
       {/* エラー（通信レベル） */}
       {error && (

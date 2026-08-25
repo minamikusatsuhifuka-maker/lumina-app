@@ -12,7 +12,9 @@ import { guardImagePrompt } from '@/lib/image-guards';
 
 export const runtime = 'nodejs';
 // 複数モデルを並列生成。一番遅いモデル（GPT Image 2）に合わせて余裕を持たせる。
-export const maxDuration = 180;
+// 267【2】: GPT Image 2 の内部タイムアウト引き上げ（280秒）に合わせ、プラン上限内の300へ
+// （180ではリトライ込みの生成が時間切れになっていた＝院長実地確認）
+export const maxDuration = 300;
 
 const VALID_KEYS = new Set<ImageModelKey>(IMAGE_MODELS.map((m) => m.key));
 const HISTORY_LIMIT = 20;

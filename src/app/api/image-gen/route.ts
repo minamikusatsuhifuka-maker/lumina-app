@@ -7,7 +7,8 @@ import { guardImagePrompt } from '@/lib/image-guards';
 // APIキー秘匿のため必ずサーバー経由（クライアントからOpenAI直叩き禁止）
 export const runtime = 'nodejs';
 // 生成に最大2分かかることがあるため余裕を持たせる
-export const maxDuration = 180;
+// 267【2】: リトライ込みで180秒を超えることがあるため、プラン上限内の300へ
+export const maxDuration = 300;
 
 // 許可する解像度・品質（不正値は既定に落とす）
 const ALLOWED_SIZES = new Set(['1024x1024', '1536x1024', '1024x1536', 'auto']);

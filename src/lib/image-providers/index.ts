@@ -76,9 +76,12 @@ const GEMINI_MODEL_ID: Record<'nano-banana-2' | 'nano-banana-pro', string> = {
   'nano-banana-pro': 'gemini-3-pro-image',
 };
 
-// モデルごとの個別タイムアウト（1つの遅延で全体を巻き込まない）
+// モデルごとの個別タイムアウト（1つの遅延で全体を巻き込まない）。
+// 267【2】: GPT Image 2 は1枚に最大2分かかることがあり、5xx/429の自動リトライ（最大2回・
+// バックオフ込み）が起きると150秒では構造的に足りず、院長の実地確認で時間切れが確定した。
+// ルートの maxDuration 300（プラン上限内・本プロジェクトの慣行上限）に合わせ、余白20秒で280秒に引き上げる。
 const TIMEOUT_MS: Record<ImageModelKey, number> = {
-  'gpt-image-2': 150_000,
+  'gpt-image-2': 280_000,
   'nano-banana-2': 90_000,
   'nano-banana-pro': 120_000,
 };
@@ -87,7 +90,15 @@ function withTimeout<T>(p: Promise<T>, ms: number, label: string): Promise<T> {
   return Promise.race([
     p,
     new Promise<T>((_, reject) =>
-      setTimeout(() => reject(new Error(`${label} がタイムアウトしました（${ms / 1000}秒）`)), ms),
+      setTimeout(
+        () =>
+          reject(
+            new Error(
+              `⏱ ${label} が時間切れになりました（${Math.round(ms / 1000)}秒）。混雑時に起きることがあります。もう一度お試しください（画像は保存されていません）`,
+            ),
+          ),
+        ms,
+      ),
     ),
   ]);
 }
