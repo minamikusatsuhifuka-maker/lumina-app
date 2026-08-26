@@ -15,6 +15,13 @@
 //
 // このボタンは**入れるだけ**（消さない）。置き換えたいときは「✕ クリア」→「📋 ペースト」の
 // 2操作で、クリアには既存のUndo（10秒）が付いている＝取り返しがつく。
+//
+// ── 270: 「どの端末に出すか」を画面側の指定に変えた ──────────────────
+// 259/260は「カーソルの無い端末にだけ出す」を部品側に固定していたが、270で
+// 📝テキスト分析だけ**全端末に3ボタン（✕クリア／📋ペースト／📋クリアして貼付）**を
+// 並べる方針になった（デスクトップと操作を揃えたいという院長判断・2026/8/26）。
+// 画面ごとに構成が違うので、出し分けの判断は部品ではなく**置く側**が持つ。
+// 既定は従来どおり（カーソルの無い端末だけ）＝🔭ディープリサーチの見た目は変わらない。
 
 import { useRef, type RefObject } from 'react';
 import { useFinePointer } from '@/lib/pointer-device';
@@ -36,6 +43,12 @@ export interface TouchPasteTarget {
   disabled?: boolean;
   /** 結果の案内（トースト） */
   notify?: (text: string, kind: 'success' | 'warning') => void;
+  /**
+   * 270: カーソルのある端末（デスクトップ）にも出すか。
+   * 既定 false＝259/260のまま「カーソルの無い端末だけ」。
+   * 3ボタン構成の画面（📝テキスト分析）だけ true を渡す。
+   */
+  showOnFinePointer?: boolean;
 }
 
 /** カーソル位置に差し込んで、カーソルをその直後へ置く（2つの部品で共通） */
@@ -63,14 +76,16 @@ function useInsert(target: TouchPasteTarget) {
 }
 
 /**
- * 案③: 「📋 ペースト」ボタン。カーソルのある端末では出さない
- * （デスクトップには「📋 クリアして貼付」と ⌘⇧V があり、増やす意味がないため）。
+ * 案③: 「📋 ペースト」ボタン。既定ではカーソルのある端末に出さない
+ * （デスクトップには「📋 クリアして貼付」と ⌘⇧V があるため）。
+ * 270の3ボタン構成の画面だけ showOnFinePointer で全端末に出す。
  */
 export function PasteButton(props: TouchPasteTarget) {
   const pointer = useFinePointer();
   const insert = useInsert(props);
   const busy = useRef(false);
-  if (!pointer.mounted || pointer.fine) return null;
+  // 270: 全端末に出す指定のときは端末判定を通さない（SSRでも同じものを描く＝ちらつかない）
+  if (!props.showOnFinePointer && (!pointer.mounted || pointer.fine)) return null;
 
   const onClick = async () => {
     if (busy.current || props.disabled) return;

@@ -256,7 +256,7 @@ export default function DisplaySettingsPage() {
         <h2 style={{ fontSize: 16, fontWeight: 700, marginBottom: 4 }}>📋 貼り付けで置き換える</h2>
         <p style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 16, lineHeight: 1.7 }}>
           入力欄に文章が入っている状態で貼り付けたとき、<strong>前の内容を消して貼り付けます</strong>。
-          対象は<strong>📝 テキスト分析</strong>と<strong>🔭 ディープリサーチ</strong>の入力欄です。
+          対象は<strong>🔭 ディープリサーチ</strong>のリサーチトピック欄です。
           <br />
           この設定がオンなら、<strong>いつもどおり貼り付けるだけ</strong>で置き換わります。
           <br />
@@ -264,6 +264,10 @@ export default function DisplaySettingsPage() {
           <strong>「✕ クリア」→「📋 ペースト」の2操作</strong>を主な使い方にしています
           （長押しは選択メニューが出たりキーボードが立ち上がったりして狙いにくいため）。
           この設定は、貼り付けだけで置き換わる方が好みの方のために残しています。
+          <br />
+          <strong>📝 テキスト分析は対象外です</strong>（270）。あちらは全端末に
+          <strong>「✕ クリア」「📋 ペースト」「📋 クリアして貼付」の3ボタン</strong>が並んでいて、
+          この設定と役割が重なるためです。貼り付けはいつもどおりカーソル位置に入ります。
         </p>
 
         {!pasteReplace.mounted ? (

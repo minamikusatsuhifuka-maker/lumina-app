@@ -1626,9 +1626,11 @@ ${contextText}
         },
       });
       // この画面はトースト機構を持たないため案内は alert。
-      // 成功時は入力欄を見れば分かるので出さず、貼れなかったときだけ知らせる
+      // 成功時は入力欄を見れば分かるので出さず、貼れなかったときだけ知らせる。
+      // 270: 貼れなかったとき（読み取り失敗・空）は**トピックを消さない**ようになった（R-76）。
+      // この画面のボタン構成（デスクトップ＝クリアして貼付／スマホ＝ペースト）は270でも変えていない
       const msg = CLEAR_PASTE_MESSAGE[result];
-      if (msg && msg.kind !== 'success') alert(msg.text);
+      if (msg.kind !== 'success') alert(msg.text);
     } finally {
       setPasting(false);
     }

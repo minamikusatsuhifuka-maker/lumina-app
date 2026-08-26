@@ -1898,7 +1898,7 @@ test('C45: 横断表示のUI — 両画面から同じフォルダを開くと�
 // - 通常の ⌘V を壊していないこと・Undoで戻せることも判定する
 // ============================================================================
 
-test('C46: クリアして貼付 — 成功/空/実行中とUndo、⌘Vは壊さない（254）', async ({ page, context }) => {
+test('C46: クリアして貼付 — 成功/空/実行中とUndo、⌘Vは壊さない（254/270）', async ({ page, context }) => {
   const analyzeCalls = await mockAnalyze(page, `[E2E] ${KB_TOKEN} モック分析結果`, 1500);
   await stubFeatureDrafts(page);
   // クリップボードの読み書きを許可（院長のブラウザで「許可」した状態に相当）
@@ -1957,14 +1957,18 @@ test('C46: クリアして貼付 — 成功/空/実行中とUndo、⌘Vは壊さ
     `AB${CLIP2}`,
   );
 
-  // ── ⑤ 空クリップボード: クリアだけ行い、内容はUndoで戻せる ──
+  // ── ⑤ 空クリップボード: 貼るものが無いので**入力欄に触らない**（270で変更・R-76）──
+  // 254は「クリアだけ行う」だったが、貼るものが手に入っていないのに消すのは破壊的操作の先行。
+  // iOSではキャンセルのたびにこの経路へ落ちるため、消さない側へ倒した
   await page.evaluate(() => navigator.clipboard.writeText(''));
   await textarea.fill(OLD);
   await pasteBtn.click();
-  await expect(textarea, 'クリップボードが空ならクリアだけ行うこと').toHaveValue('');
   await expect(page.getByText('クリップボードが空でした')).toBeVisible();
-  await page.getByRole('button', { name: '↩ 元に戻す' }).click();
-  await expect(textarea, '空クリップボードでも内容を戻せること').toHaveValue(OLD);
+  await expect(textarea, 'クリップボードが空なら入力はそのままであること').toHaveValue(OLD);
+  await expect(
+    page.getByRole('button', { name: '↩ 元に戻す' }),
+    '何も消していないのでUndoは出ないこと',
+  ).toHaveCount(0);
 
   // ── ⑥ 実行中は押せない（生成の途中で入力を差し替えさせない）──
   await page.evaluate((t) => navigator.clipboard.writeText(t), CLIP);
@@ -1983,10 +1987,11 @@ test('C46: クリアして貼付 — 成功/空/実行中とUndo、⌘Vは壊さ
   await page.locator('button[title*="キーボードショートカット一覧"]').click();
 });
 
-test('C47: クリップボードを読めないときは、クリアして⌘Vで貼れる状態にする（254・権限拒否）', async ({
+test('C47: クリップボードを読めないときは入力を一切変更しない（270・権限拒否／iOSのキャンセル相当）', async ({
   browser,
 }) => {
-  // 権限を与えないコンテキスト＝院長が読み取りを許可していない状態
+  // 権限を与えないコンテキスト＝院長が読み取りを許可していない状態。
+  // iPhoneで確認ポップアップを「許可しない」で閉じたときと同じ経路（readText が失敗する）
   const ctx = await browser.newContext({ storageState: STORAGE_STATE, baseURL: BASE_URL });
   const page = await ctx.newPage();
   try {
@@ -1995,7 +2000,7 @@ test('C47: クリップボードを読めないときは、クリアして⌘V�
     await page.evaluate(() => localStorage.setItem('lumina_auto_stock_save', '0'));
     await page.reload({ waitUntil: 'domcontentloaded' });
     // R-12: ハイドレーション前に fill すると state に入らず「入力が空」のまま押すことになり、
-    // 何もしない（noop）経路に落ちて案内が出ない。実際にこれで一度落とした
+    // 守りたい前提（入力がある状態でキャンセルする）が崩れる。実際にこれで一度落とした
     await waitForRunReady(page);
 
     const textarea = page.getByPlaceholder('ここに分析したいテキストを貼り付けてください...');
@@ -2004,25 +2009,33 @@ test('C47: クリップボードを読めないときは、クリアして⌘V�
     await expect(textarea, '「入力がある」という前提が成立していること').toHaveValue(OLD);
     await page.locator('[data-clear-paste]').filter({ visible: true }).first().click();
 
-    // クリアまで済ませ、あとは⌘Vを押せばよい状態にする（案A）
-    await expect(textarea, 'クリアは実行されること').toHaveValue('');
-    await expect(textarea, '入力欄にフォーカスが当たっていること').toBeFocused();
-    await expect(page.getByText(/⌘V（Ctrl\+V）で貼り付けてください/)).toBeVisible();
-    // 消えた内容は失われていない
-    await page.getByRole('button', { name: '↩ 元に戻す' }).click();
-    await expect(textarea, '権限が無くても内容は戻せること').toHaveValue(OLD);
+    // 270の最重要要件: 読めなかったら**何もしない**（254はここでクリアまで実行していた）
+    await expect(
+      page.getByText('クリップボードを読み取れませんでした').first(),
+      '読めなかったことを知らせ、代わりの操作を案内すること（黙って終わらせない）',
+    ).toBeVisible();
+    await expect(textarea, '読めなくても入力が消えないこと').toHaveValue(OLD);
+    await expect(
+      page.getByRole('button', { name: '↩ 元に戻す' }),
+      '何も消していないのでUndoは出ないこと',
+    ).toHaveCount(0);
+
+    // キー（⌘⇧V）でも同じ結末になる（ボタンとキーで挙動が分かれない）
+    await textarea.click();
+    await page.keyboard.press('ControlOrMeta+Shift+v');
+    await expect(textarea, 'キーでも入力が消えないこと').toHaveValue(OLD);
   } finally {
     await ctx.close();
   }
 });
 
 // ============================================================================
-// 255: 「貼り付けで置き換える」（iPhoneで追加タップを出さずに1操作にする）
-// - 設定ONのとき、普段どおりの貼り付け操作そのものが「クリアして貼付」になる
-// - 254のボタン／キーの挙動（デスクトップ）は変えていないことも判定する
+// 255/270: 「貼り付けで置き換える」（設定ON時のみ・対象は🔭ディープリサーチだけ）
+// - 設定ONのとき、DRのトピック欄では普段どおりの貼り付けが「置き換え」になる
+// - 270: 📝テキスト分析は**対象外**（3ボタンと役割が重なるため）。設定値は保持する
 // ============================================================================
 
-test('C48: 貼り付けで置き換える — 設定ON/OFFで貼り付けの意味が変わり、Undoで戻せる（255）', async ({
+test('C48: 貼り付けで置き換える — DRだけが対象。テキスト分析は3ボタン化で対象外（255/270）', async ({
   page,
   context,
 }) => {
@@ -2050,15 +2063,20 @@ test('C48: 貼り付けで置き換える — 設定ON/OFFで貼り付けの意�
   await page.keyboard.press('ControlOrMeta+v');
   await expect(textarea, '既定では貼り付けの意味が変わらないこと').toHaveValue(`AB${CLIP}`);
 
-  // ── ② 設定をONにする（🎛表示設定から） ──
+  // ── ② 設定をONにする（🎛表示設定から。設定そのものは270でも残す） ──
   await page.goto('/dashboard/display-settings');
   const toggle = page.locator('[data-paste-replace-toggle] input[type="checkbox"]');
   await expect(toggle, '表示設定にトグルがあること').toBeVisible();
   await expect(toggle, '既定はオフであること').not.toBeChecked();
   await toggle.check();
   await expect(page.locator('[data-paste-replace-toggle]')).toContainText('オン');
+  // 270: 対象画面の案内が実装と一致していること（テキスト分析を対象と書かない）
+  await expect(
+    page.getByText('📝 テキスト分析は対象外です'),
+    '3ボタンの画面が対象外であることを設定画面に書くこと',
+  ).toBeVisible();
 
-  // ── ③ ONのとき: 普段どおりの貼り付けが「置き換え」になる（iOSで追加タップが出ない方式） ──
+  // ── ③ 270: ONでも📝テキスト分析の貼り付けは**変わらない**（3ボタンと二重化させない） ──
   await page.goto('/dashboard/text-analysis');
   await waitForRunReady(page);
   const ta2 = page.getByPlaceholder('ここに分析したいテキストを貼り付けてください...');
@@ -2067,27 +2085,46 @@ test('C48: 貼り付けで置き換える — 設定ON/OFFで貼り付けの意�
   await ta2.click();
   await page.keyboard.press('End');
   await page.keyboard.press('ControlOrMeta+v');
-  await expect(ta2, '貼り付けだけで置き換わること').toHaveValue(CLIP);
+  await expect(ta2, 'テキスト分析では設定ONでも追記のままであること').toHaveValue(
+    `前からあった本文${CLIP}`,
+  );
 
-  // ── ④ Undoで戻せる（誤って置き換えても本文を失わない） ──
+  // ── ④ 🔭ディープリサーチ（2ボタン構成）では従来どおり置き換わる ──
+  await page.goto('/dashboard/deepresearch');
+  const topic = page.getByPlaceholder(/調査したいテーマを詳しく入力してください/);
+  await expect(topic).toBeVisible({ timeout: 30000 });
+  await topic.fill('前からあったトピック');
+  await expect(topic).toHaveValue('前からあったトピック');
+  await topic.click();
+  await page.keyboard.press('End');
+  await page.keyboard.press('ControlOrMeta+v');
+  await expect(topic, 'DRでは貼り付けだけで置き換わること').toHaveValue(CLIP);
+
+  // ── ⑤ Undoで戻せる（誤って置き換えても本文を失わない） ──
   const undo = page.getByRole('button', { name: '↩ 元に戻す' });
   await expect(undo, '置き換えた直後はUndoが出ること').toBeVisible();
   await undo.click();
-  await expect(ta2, 'Undoで元の本文に戻ること').toHaveValue('前からあった本文');
+  await expect(topic, 'Undoで元のトピックに戻ること').toHaveValue('前からあったトピック');
 
-  // ── ⑤ 入力が空のときは素通し（置き換えるものが無い） ──
-  await ta2.fill('');
-  await ta2.click();
+  // ── ⑥ 入力が空のときは素通し（置き換えるものが無い） ──
+  await topic.fill('');
+  await topic.click();
   await page.keyboard.press('ControlOrMeta+v');
-  await expect(ta2, '空の入力欄には普通に貼り付くこと').toHaveValue(CLIP);
-  await expect(page.getByRole('button', { name: '↩ 元に戻す' }), '置き換えていないのでUndoは出ないこと').toHaveCount(0);
+  await expect(topic, '空の入力欄には普通に貼り付くこと').toHaveValue(CLIP);
+  await expect(
+    page.getByRole('button', { name: '↩ 元に戻す' }),
+    '置き換えていないのでUndoは出ないこと',
+  ).toHaveCount(0);
 
-  // ── ⑥ 254のボタンはON/OFFに関係なく従来どおり効く（デスクトップの挙動は不変） ──
+  // ── ⑦ 254のボタンは設定に関係なく従来どおり効く（テキスト分析） ──
+  await page.goto('/dashboard/text-analysis');
+  await waitForRunReady(page);
+  const ta3 = page.getByPlaceholder('ここに分析したいテキストを貼り付けてください...');
   const OLD = `[E2E] ${KB_TOKEN} ボタン検証`;
-  await ta2.fill(OLD);
-  await expect(ta2).toHaveValue(OLD);
+  await ta3.fill(OLD);
+  await expect(ta3).toHaveValue(OLD);
   await page.locator('[data-clear-paste]').filter({ visible: true }).first().click();
-  await expect(ta2, '「📋 クリアして貼付」は従来どおり動くこと').toHaveValue(CLIP);
+  await expect(ta3, '「📋 クリアして貼付」は従来どおり動くこと').toHaveValue(CLIP);
 
   // 後片付け（このブラウザコンテキストは使い捨てだが、設定を戻して終わる）
   await page.goto('/dashboard/display-settings');
@@ -2338,16 +2375,18 @@ test('C51: 分析タイプの折りたたみ — 既定は閉じ、畳んだ側�
 });
 
 // ============================================================================
-// 258【2】: iPhone（WebKit）で「長押し→ペースト」の1操作にする
-// - iOSでは「📋 クリアして貼付」ボタンを出さない（押すと確認が何段も出るため）
-// - 255の「貼り付けで置き換える」が**未設定でもONで効く**こと
-// - デスクトップ（C46/C48）の挙動は変えない
+// 270: iPhone（WebKit）でも📝テキスト分析は3ボタン（✕クリア／📋ペースト／📋クリアして貼付）
+// - 258の「iOSでは📋クリアして貼付を出さない」は院長判断で撤回（デスクトップと操作を揃える）
+// - 読み取りに失敗したら**入力欄に触らない**ことを、iOSと同じエンジン（WebKit）で実測する
+//   （R-64: Chromiumだけで測らない。WebKit は clipboard-read の権限付与に対応していないため、
+//    この文脈の readText() は必ず失敗する＝「キャンセルした」経路をそのまま再現できる）
+// - 260で撤去した「編集可能な貼り付け欄」は復活させない
 //
 // 判定は UA ではなく (hover: hover) and (pointer: fine) で行っているので、
 // hasTouch/isMobile の WebKit コンテキストで実機と同じ分岐に入る。
 // ============================================================================
 
-test('C52: iPhone相当（WebKit）— キーボードを呼ぶ欄を置かず、読めないときも本文を壊さない（260）', async () => {
+test('C52: iPhone相当（WebKit）— 3ボタンが並び、読めないときも本文を壊さない（260/270）', async () => {
   const browser = await webkit.launch();
   const ctx = await browser.newContext({
     storageState: STORAGE_STATE,
@@ -2372,11 +2411,11 @@ test('C52: iPhone相当（WebKit）— キーボードを呼ぶ欄を置かず�
     const pasteButton = page.locator('[data-paste-button]');
     await expect(pasteButton, '📋 ペーストが出ていること').toBeVisible({ timeout: 30000 });
 
-    // ── ① 多段確認になる「📋 クリアして貼付」は出さない（258で撤去・以後も復活させない）──
-    await expect(
-      page.locator('[data-clear-paste]'),
-      'iOSでは「📋 クリアして貼付」を出さないこと',
-    ).toHaveCount(0);
+    // ── ① 270: iOSにも「📋 クリアして貼付」を出す（258の出し分けを撤回）──
+    const clearPaste = page.locator('[data-clear-paste]');
+    await expect(clearPaste, 'iOSでも「📋 クリアして貼付」が出ること').toBeVisible();
+    // 押せないキーを案内しない（キーボードの無い端末にキー併記を出さない）
+    await expect(clearPaste, 'iPhoneではキー併記を出さないこと').not.toHaveText(/(⌘⇧V|Ctrl\+⇧V)/);
 
     // ── ② 260: 編集可能な貼り付け欄を置いていない ──
     // 259の「長押し貼り付け欄」は実機でタップするとキーボードが立ち上がり、
@@ -2401,11 +2440,27 @@ test('C52: iPhone相当（WebKit）— キーボードを呼ぶ欄を置かず�
     );
     expect(pasteFields, '長押しを促す編集可能な欄が復活していないこと').toBe(0);
 
-    // ── ③ 「✕ クリア」と「📋 ペースト」が別々に並んでいる（259の要件1）──
-    await expect(
-      page.getByRole('button', { name: /✕ クリア/ }),
-      '✕ クリアが出ていること',
-    ).toBeVisible();
+    // ── ③ 270: 3ボタンが「✕ クリア → 📋 ペースト → 📋 クリアして貼付」の順に並ぶ ──
+    const clearBtn = page.getByRole('button', { name: /✕ クリア/ });
+    await expect(clearBtn, '✕ クリアが出ていること').toBeVisible();
+    const xs = await Promise.all(
+      [clearBtn, pasteButton, clearPaste].map(async (b) => {
+        const box = await b.first().boundingBox();
+        return box!;
+      }),
+    );
+    // 折り返した場合は行（y）で、同じ行なら x で並び順を見る（375px級では2行になり得る）
+    const orderKey = (b: { x: number; y: number }) => b.y * 10000 + b.x;
+    expect(orderKey(xs[0]), '✕ クリアが📋 ペーストより前にあること').toBeLessThan(orderKey(xs[1]));
+    expect(orderKey(xs[1]), '📋 ペーストが📋 クリアして貼付より前にあること').toBeLessThan(
+      orderKey(xs[2]),
+    );
+    // 3つとも画面幅に収まっていること（押せない位置に押し出されていない）
+    const width = page.viewportSize()!.width;
+    for (const box of xs) {
+      expect(box.x, 'ボタンが画面の左外に出ていないこと').toBeGreaterThanOrEqual(0);
+      expect(box.x + box.width, 'ボタンが画面の右外に出ていないこと').toBeLessThanOrEqual(width);
+    }
 
     // ── ④ 「貼り付けで置き換える」は全端末で既定OFF（259で258の端末別既定を取り下げ）──
     const stored = await page.evaluate(() => localStorage.getItem('lumina_paste_replace'));
@@ -2423,6 +2478,20 @@ test('C52: iPhone相当（WebKit）— キーボードを呼ぶ欄を置かず�
       '読めなかったことを知らせ、代わりの操作を案内すること',
     ).toBeVisible({ timeout: 10000 });
     await expect(textarea, '読めなくても本文は無傷であること').toHaveValue(OLD);
+
+    // ── ⑤-2【270の最重要】「📋 クリアして貼付」でも本文が消えないこと ──
+    // 実機で確認ポップアップを「キャンセル」したときと同じ経路（readText が失敗する）。
+    // 254は**ここでクリアまで実行していた**ので、長文を書いた後にキャンセルすると全部消えた
+    await clearPaste.click();
+    await expect(
+      page.getByText('クリップボードを読み取れませんでした').first(),
+      '読めなかったことを知らせること（黙って終わらせない）',
+    ).toBeVisible({ timeout: 10000 });
+    await expect(textarea, 'キャンセル相当でも本文が消えないこと').toHaveValue(OLD);
+    await expect(
+      page.getByRole('button', { name: '↩ 元に戻す' }),
+      '何も消していないのでUndoは出ないこと',
+    ).toHaveCount(0);
 
     // ── ⑥ クリアはUndoで戻せる（消しても取り返しがつく）──
     await page.getByRole('button', { name: /✕ クリア/ }).click();
@@ -2484,8 +2553,9 @@ test('C54: タッチ端末で「✕ クリア」→「📋 ペースト」の2�
   }
 });
 
-// 259/260: デスクトップは現状維持。iOS向けの📋ペーストは出さず、254/258の口だけが並ぶ。
-test('C53: デスクトップにはiOS向けの貼り付け口を出さない（259・現状維持の確認）', async ({ page }) => {
+// 270: デスクトップの📝テキスト分析も3ボタンにする（iOSと操作を揃える＝環境で出し分けない）。
+// 🔭ディープリサーチは対象外＝従来どおり（デスクトップに📋ペーストを出さない）。
+test('C53: デスクトップ — テキスト分析は3ボタン、DRは従来どおり2ボタン（259/270）', async ({ page }) => {
   await stubFeatureDrafts(page);
   await page.goto('/dashboard/text-analysis');
   await waitForRunReady(page);
@@ -2495,19 +2565,93 @@ test('C53: デスクトップにはiOS向けの貼り付け口を出さない（
     '260で撤去した編集可能な貼り付け欄が復活していないこと',
   ).toHaveCount(0);
   await expect(
-    page.locator('[data-paste-button]'),
-    'デスクトップに📋 ペーストは出さないこと（クリアして貼付と⌘⇧Vで足りる）',
-  ).toHaveCount(0);
+    page.locator('[data-paste-button]').filter({ visible: true }).first(),
+    '270: デスクトップにも「📋 ペースト」を出すこと（iOSと同じ3ボタン）',
+  ).toBeVisible();
   await expect(
     page.locator('[data-clear-paste]').filter({ visible: true }).first(),
     'デスクトップでは「📋 クリアして貼付」が従来どおり出ること',
   ).toBeVisible();
 
-  // ディープリサーチ側も同じ扱い
+  // ディープリサーチ側は270の対象外＝259/260のまま（デスクトップに📋ペーストは出さない）
   await page.goto('/dashboard/deepresearch');
   await expect(page.locator('[data-clear-paste]').first()).toBeVisible({ timeout: 30000 });
   await expect(page.locator('[data-long-press-paste]')).toHaveCount(0);
-  await expect(page.locator('[data-paste-button]')).toHaveCount(0);
+  await expect(
+    page.locator('[data-paste-button]'),
+    'DRは2ボタンのまま（本便の対象はテキスト分析だけ）',
+  ).toHaveCount(0);
+});
+
+// ============================================================================
+// 270: 📝テキスト分析の3ボタン（デスクトップ側の並び順・ラベル・クリア動作・設定の非表示）
+// ※ 実際に貼り付くか／iOSの確認をキャンセルしたときの挙動は C52（WebKit）と実機確認で見る
+// ============================================================================
+
+test('C67: テキスト分析の3ボタン — 順序・ラベル・⌘⌫クリア・「貼り付けで置き換える」を出さない（270）', async ({
+  page,
+}) => {
+  await stubFeatureDrafts(page);
+  await page.goto('/dashboard/text-analysis');
+  await page.evaluate(() => localStorage.setItem('lumina_auto_stock_save', '0'));
+  await page.reload({ waitUntil: 'domcontentloaded' });
+  await waitForRunReady(page);
+
+  const textarea = page.getByPlaceholder('ここに分析したいテキストを貼り付けてください...');
+  const clearBtn = page.getByRole('button', { name: /✕ クリア/ }).filter({ visible: true }).first();
+  const pasteBtn = page.locator('[data-paste-button]').filter({ visible: true }).first();
+  const clearPasteBtn = page.locator('[data-clear-paste]').filter({ visible: true }).first();
+
+  // ── ① 3つとも出ていて、ラベルが指示書§3-1の表どおり ──
+  await expect(clearBtn).toBeVisible();
+  await expect(pasteBtn).toBeVisible();
+  await expect(clearPasteBtn).toBeVisible();
+  await expect(pasteBtn).toHaveText(/^📋 ペースト$/);
+  await expect(clearPasteBtn).toHaveText(/^📋 クリアして貼付/);
+
+  // ── ② 並び順は ✕クリア → 📋ペースト → 📋クリアして貼付 ──
+  const boxes = await Promise.all([clearBtn, pasteBtn, clearPasteBtn].map((b) => b.boundingBox()));
+  const orderKey = (b: { x: number; y: number }) => b.y * 10000 + b.x;
+  expect(orderKey(boxes[0]!), '✕ クリアが先頭').toBeLessThan(orderKey(boxes[1]!));
+  expect(orderKey(boxes[1]!), '📋 ペーストが2番目').toBeLessThan(orderKey(boxes[2]!));
+
+  // ── ③ キー併記（デスクトップのみ）が実装と一致する ──
+  await expect(clearBtn, 'クリアに⌘⌫が併記されること').toHaveText(/(⌘⌫|Ctrl\+⌫)/);
+  await expect(clearPasteBtn, 'クリアして貼付に⌘⇧Vが併記されること').toHaveText(/(⌘⇧V|Ctrl\+⇧V)/);
+
+  // ── ④ ⌘⌫ でクリアでき、Undoで戻せる（248/247の退行防止）──
+  const OLD = `[E2E] ${KB_TOKEN} 3ボタンのクリア検証`;
+  await textarea.fill(OLD);
+  await textarea.click();
+  await page.keyboard.press('ControlOrMeta+Backspace');
+  await expect(textarea, '⌘⌫ で入力が消えること').toHaveValue('');
+  const undo = page.getByRole('button', { name: '↩ 元に戻す' });
+  await expect(undo).toBeVisible();
+  await undo.click();
+  await expect(textarea, 'Undoで戻ること').toHaveValue(OLD);
+
+  // ── ⑤ 3ボタンの画面には「貼り付けで置き換える」設定を出さない（機能が重複するため）──
+  await expect(
+    page.getByText('貼り付けで置き換える'),
+    'テキスト分析にこの設定を出さないこと',
+  ).toHaveCount(0);
+  await expect(
+    page.getByText('貼り付けたら前の内容を置き換える'),
+    'テキスト分析にこの設定のトグルを出さないこと',
+  ).toHaveCount(0);
+  const mentions = await page.evaluate(() =>
+    [...document.querySelectorAll<HTMLElement>('[title]')].filter((el) =>
+      (el.getAttribute('title') ?? '').includes('貼り付けで置き換える'),
+    ).length,
+  );
+  expect(mentions, 'ツールチップからも設定への案内を消していること').toBe(0);
+
+  // ── ⑥ 設定値そのものは消していない（🔭ディープリサーチでは引き続き使う）──
+  await page.goto('/dashboard/display-settings');
+  await expect(
+    page.locator('[data-paste-replace-toggle]'),
+    '設定は表示設定に残っていること（値も削除しない）',
+  ).toBeVisible();
 });
 
 test('C55: 発信ハブ（261a）— 画面到達・ペルソナ選択の前提・導線・API契約', async ({ page }) => {

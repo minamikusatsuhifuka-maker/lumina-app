@@ -24,7 +24,7 @@ import {
   parseNavLabels,
 } from '../../src/lib/nav-labels';
 import { ALL_NAV_ITEMS, navCategories, DEFAULT_HOME_HREFS, resolveHomeHrefs } from '../../src/lib/nav-items';
-import { CLEAR_PASTE_MESSAGE, type ClearAndPasteResult } from '../../src/lib/clear-and-paste';
+import { CLEAR_PASTE_MESSAGE, clearAndPaste, type ClearAndPasteResult } from '../../src/lib/clear-and-paste';
 import { applyReplacePaste, resolvePasteReplaceEnabled } from '../../src/lib/paste-replace';
 import { insertAtCursor, PASTE_BUTTON_MESSAGE } from '../../src/lib/paste-insert';
 import {
@@ -356,6 +356,9 @@ test('U15: 実行・クリアのキーが一覧（小窓＝使い方ガイドの
   // 「書式なしで貼り付け」の標準キーが ⌘⇧V で、それを踏襲した方が覚えやすいため
   // （⌘⇧⌫ が押しにくかったのは右手が窮屈になるからで、⌘⇧V は左手だけで押せる）。
   // 例外を作るときは、ここに理由付きで書いてから足す（無制限に増やさない）。
+  // 270追記（R-60の例外表の更新）: 📝テキスト分析を全端末3ボタンにした便でも
+  // **キーの割り当ては増やしていない**。⌘⇧V は254で登録済みの3キー例外のまま据え置く
+  // （iPhoneにはキー併記を出さない＝押せないキーを案内しないので、例外は増えない）。
   const MAX_KEYS: { match: string; max: number }[] = [
     { match: '実行する', max: 2 },
     { match: '入力をクリア', max: 2 },
@@ -465,19 +468,28 @@ test('U20: メニュー定義の正本が壊れていない（href重複なし�
   expect(new Set(cats).size).toBe(cats.length);
 });
 
-test('U21: クリアして貼付 — 4つの結末すべてに案内があり、キー表記が一覧と一致する（254）', () => {
-  // 実測した4パターン（成功・権限拒否・空クリップボード・何もしない）が漏れなく定義されていること
-  const results: ClearAndPasteResult[] = ['pasted', 'cleared-manual', 'empty', 'noop'];
+test('U21: クリアして貼付 — 3つの結末すべてに案内があり、キー表記が一覧と一致する（254/270）', () => {
+  // 270: 結末を3つに整理した（成功・読めなかった・空）。
+  // 254の 'cleared-manual'（読めなくてもクリアだけ実行する）と 'noop' は廃止
+  // ——**貼るものが手に入らないときは入力欄に触らない**ようにしたため（R-76）
+  const results: ClearAndPasteResult[] = ['pasted', 'denied', 'empty'];
   for (const r of results) {
     expect(CLEAR_PASTE_MESSAGE, `${r} の案内が定義されていること`).toHaveProperty(r);
   }
-  // 何もしていないときに案内を出さない（嘘の成功を見せない）
-  expect(CLEAR_PASTE_MESSAGE.noop).toBeNull();
-  // 貼れなかったときは「次に何をすればよいか」を必ず書く
-  expect(CLEAR_PASTE_MESSAGE['cleared-manual']!.text).toContain('⌘V');
-  expect(CLEAR_PASTE_MESSAGE['cleared-manual']!.kind).not.toBe('success');
-  expect(CLEAR_PASTE_MESSAGE.empty!.text).toContain('空');
-  expect(CLEAR_PASTE_MESSAGE.empty!.kind).not.toBe('success');
+  // 結末は3つだけ（増やすときはここと画面の案内を必ず揃える）
+  expect(Object.keys(CLEAR_PASTE_MESSAGE).sort()).toEqual(['denied', 'empty', 'pasted']);
+
+  // 貼れなかった2経路は成功に見せない（偽の成功を返さない・fail-closed）
+  expect(CLEAR_PASTE_MESSAGE.denied.kind).not.toBe('success');
+  expect(CLEAR_PASTE_MESSAGE.empty.kind).not.toBe('success');
+  // 270の要点は「消えていないこと」が伝わること。案内文の一番の関心事なので文言で固定する
+  expect(CLEAR_PASTE_MESSAGE.denied.text, '入力が無事であることを伝えること').toContain('そのまま');
+  expect(CLEAR_PASTE_MESSAGE.empty.text, '入力が無事であることを伝えること').toContain('そのまま');
+  // 貼れなかったときは「次に何をすればよいか」も書く
+  expect(CLEAR_PASTE_MESSAGE.denied.text).toContain('⌘V');
+  expect(CLEAR_PASTE_MESSAGE.empty.text).toContain('空');
+  // 260の「📋 ペースト」の案内と取り違えない文言であること（E2Eが両者を区別して判定するため）
+  expect(CLEAR_PASTE_MESSAGE.denied.text).not.toBe(PASTE_BUTTON_MESSAGE.denied.text);
 
   // キー表記はボタン併記・一覧・ガイドが同じ値を見る（二重管理しない）
   expect(RUN_KEY_LABELS.mac.clearPaste).toBe('⌘⇧V');
@@ -486,12 +498,87 @@ test('U21: クリアして貼付 — 4つの結末すべてに案内があり、
   const pasteItem = runSection.items.find((i) => i.desc.includes('クリアして貼り付け'));
   expect(pasteItem, '一覧に「クリアして貼り付け」が登録されていること').toBeTruthy();
   expect(pasteItem!.keys).toEqual(['⌘', '⇧', 'V']);
+  // 270: 一覧の補足も「読めないときは消えない」に更新されていること（嘘の案内を残さない）
+  expect(pasteItem!.note, '読めなかったときの説明が実装と一致すること').toContain('そのまま');
   // ⌘V単独を奪う項目が一覧に無いこと（通常の貼り付けは絶対に壊さない）
   for (const section of SHORTCUT_SECTIONS) {
     for (const item of section.items) {
       const combo = item.keys.join('');
       expect(combo, `${item.desc} が ⌘V 単独を奪っていないこと`).not.toBe('⌘V');
     }
+  }
+});
+
+// ============================================================================
+// 270【最重要】: 破壊的操作（クリア）は「貼るものが手に入ってから」だけ行う（R-76）
+// iOSの確認ポップアップはユーザーがキャンセルできる。素直に「クリア→読み取り→貼付」と
+// 実装すると、キャンセルのたびに本文が消える。ここは実機でしか観測できない経路なので、
+// **順序そのもの**を純関数の呼び出し記録で機械判定する（E2Eでは確認ポップアップを出せない）
+// ============================================================================
+
+test('U42: クリアして貼付は、読み取りに成功したときだけ入力を触る（270・キャンセルで本文を失わない）', async () => {
+  // Node の globalThis.navigator は getter のみ（代入できない）ため defineProperty で差し替える
+  const originalNavigator = Object.getOwnPropertyDescriptor(globalThis, 'navigator');
+  const setNavigator = (value: unknown) =>
+    Object.defineProperty(globalThis, 'navigator', { value, configurable: true, writable: true });
+  const originalRaf = (globalThis as any).requestAnimationFrame;
+  // requestAnimationFrame は「貼れた後のカーソル移動」にしか使わない。
+  // ここでは DOM を持たない（textareaRef.current = null）ので実行だけさせる
+  (globalThis as any).requestAnimationFrame = (cb: () => void) => {
+    cb();
+    return 0;
+  };
+
+  const run = async (readText: () => Promise<string>) => {
+    setNavigator({ clipboard: { readText } });
+    const calls: { set: string[]; backup: string[] } = { set: [], backup: [] };
+    const result = await clearAndPaste({
+      current: '大事な本文',
+      setText: (v) => calls.set.push(v),
+      textareaRef: { current: null },
+      backup: (v) => calls.backup.push(v),
+    });
+    return { result, calls };
+  };
+
+  try {
+    // ① 読み取り成功 → クリアして貼付（＝置き換え）。Undo用に元の内容を退避する
+    const ok = await run(async () => '貼り付ける内容');
+    expect(ok.result).toBe('pasted');
+    expect(ok.calls.set, '置き換えは1回の書き込みで行う（空を挟まない）').toEqual(['貼り付ける内容']);
+    expect(ok.calls.backup, 'Undoのために元の内容を退避すること').toEqual(['大事な本文']);
+
+    // ② 読み取り失敗（iOSで確認をキャンセル／権限拒否）→ **入力欄に一切触らない**
+    const denied = await run(async () => {
+      throw new DOMException('The request is not allowed', 'NotAllowedError');
+    });
+    expect(denied.result).toBe('denied');
+    expect(denied.calls.set, 'キャンセルしたら本文を消さないこと').toEqual([]);
+    expect(denied.calls.backup, '触っていないのでUndoも出さないこと').toEqual([]);
+
+    // ③ クリップボードが空 → 貼るものが無いので、これも触らない
+    const empty = await run(async () => '');
+    expect(empty.result).toBe('empty');
+    expect(empty.calls.set, '空クリップボードで本文を消さないこと').toEqual([]);
+    expect(empty.calls.backup).toEqual([]);
+
+    // ④ クリップボードAPIが無い環境（古いブラウザ）でも本文を壊さない
+    setNavigator({});
+    const noApi = await clearAndPaste({
+      current: '大事な本文',
+      setText: () => {
+        throw new Error('APIが無い環境で入力を書き換えてはいけない');
+      },
+      textareaRef: { current: null },
+      backup: () => {
+        throw new Error('APIが無い環境で退避が走ってはいけない');
+      },
+    });
+    expect(noApi).toBe('denied');
+  } finally {
+    if (originalNavigator) Object.defineProperty(globalThis, 'navigator', originalNavigator);
+    else delete (globalThis as any).navigator;
+    (globalThis as any).requestAnimationFrame = originalRaf;
   }
 });
 

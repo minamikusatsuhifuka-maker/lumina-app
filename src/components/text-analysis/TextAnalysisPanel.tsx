@@ -42,10 +42,9 @@ import { useRunKeyHints, useRunShortcut } from '@/lib/shortcuts';
 // 254: クリアして貼付（ボタンとキーで同じ関数を通す）
 import { clearAndPaste, CLEAR_PASTE_MESSAGE } from '@/lib/clear-and-paste';
 // 255: 「貼り付けたら前の内容を置き換える」（iOSで追加タップを出さずに1操作にする）
-import { applyReplacePaste, usePasteReplace } from '@/lib/paste-replace';
-// 258: 「📋 クリアして貼付」を出すかの判定（iOSは押すと確認が何段も出るので出さない）
-import { useFinePointer } from '@/lib/pointer-device';
-// 259: iOSの「クリア」と「ペースト」を別操作にする2部品（長押し貼り付け欄／📋 ペースト）
+// 270: 「貼り付けで置き換える」設定はこの画面では使わない（3ボタン構成と機能が重複するため）。
+// 設定そのもの・保存値・🔭ディープリサーチでの動作は残す（lib/paste-replace.ts）
+// 259/270: 「📋 ペースト」ボタン（270からは全端末に出す）
 import { PasteButton } from '@/components/TouchPaste';
 import { isAutoStockSaveEnabled } from '@/lib/auto-stock-save';
 
@@ -827,17 +826,16 @@ export default function TextAnalysisPanel({
   const [moreOpen, setMoreOpen] = useState(false);
   const hiddenSelected = SECONDARY_ANALYSIS_OPTIONS.filter((o) => selectedTypes.has(o.value));
 
-  // ── 255: 貼り付けで置き換え（設定ON時のみ）──────────────────
-  // ユーザーが普段どおり貼り付けた瞬間に置き換える＝iOSでも追加のタップが出ない。
-  // clipboardData はイベント内なら権限なしで読める（実測済み）。
-  const pasteReplace = usePasteReplace();
-  // 258【2】: カーソルの無い端末（iPhone等）では「📋 クリアして貼付」を出さない。
-  // このボタンは navigator.clipboard.readText() を通るため、iOSでは
-  // 「ペーストを許可しますか」→「許可」→「ペースト」と確認が重なり、押すほど手数が増える
-  // （Appleの仕様でアプリ側からは消せない）。**ボタンを残す限り多段は避けられない**ので、
-  // 代わりに255の「長押し→ペーストで置き換え」を主経路にする。
-  const pointer = useFinePointer();
-  const showClearPasteButton = pointer.mounted && pointer.fine;
+  // ── 270: この画面は全端末で3ボタン（✕ クリア／📋 ペースト／📋 クリアして貼付）──────
+  // 258は「iOSでは📋クリアして貼付を出さない（確認が何段も出るため）」としていたが、
+  // 270で**デスクトップと操作を揃える**という院長判断により上書きした（2026/8/26）。
+  // iOSの確認ポップアップはApple仕様で消せない——それは**受け入れたうえで**ボタンを置く
+  // （R-61に反しない。ポップアップを回避する方法は探さない）。
+  // 事故（キャンセルで本文が消える）は lib/clear-and-paste.ts の順序で防いでいる（R-76）。
+  //
+  // 255の「貼り付けで置き換える」設定は、260でiOSから📋クリアして貼付を撤去した
+  // **代替**として置かれたもの。3ボタンが揃った以上この画面では役目が終わっているので、
+  // ここでは参照しない（設定値は消さない＝🔭ディープリサーチでは従来どおり効く）。
 
   // ── 254: 「📋 クリアして貼付」 ─────────────────────────────
   // クリア→⌘V の2手を1手に。消えた内容は247と同じ Undo（10秒）で戻せる。
@@ -862,7 +860,7 @@ export default function TextAnalysisPanel({
         },
       });
       const msg = CLEAR_PASTE_MESSAGE[result];
-      if (msg) showToast(msg.text, msg.kind === 'success' ? 'success' : 'warning');
+      showToast(msg.text, msg.kind === 'success' ? 'success' : 'warning');
     } finally {
       setPasting(false);
     }
@@ -1132,24 +1130,8 @@ export default function TextAnalysisPanel({
         </div>
         <textarea
           ref={inputRef}
-          onPaste={(e) => {
-            // 255: 設定ONのときだけ「置き換え」に変える。OFFなら何もしない＝通常の貼り付け
-            const replaced = applyReplacePaste({
-              enabled: pasteReplace.enabled,
-              current: inputText,
-              clipboardText: e.clipboardData?.getData('text/plain') ?? '',
-              setText: (next) => {
-                setInputText(next);
-                setAnalysisDone(false);
-              },
-              backup: (text) => {
-                setClearedText(text);
-                stopUndoTimer();
-                undoTimerRef.current = window.setTimeout(() => setClearedText(null), 10000);
-              },
-            });
-            if (replaced) e.preventDefault();
-          }}
+          // 270: 貼り付けは常に「いつもどおり」（カーソル位置に入る）。
+          // 置き換えたいときは 📋 クリアして貼付 ボタン／⌘⇧V を使う＝操作が二重化しない
           value={inputText}
           onChange={(e) => {
             setInputText(e.target.value);
@@ -1173,13 +1155,28 @@ export default function TextAnalysisPanel({
           style={{
             display: 'flex',
             justifyContent: 'space-between',
+            alignItems: 'center',
+            // 270: 3ボタンになったので、狭い画面では文字数表示ごと折り返させる
+            flexWrap: 'wrap',
+            gap: 6,
             marginTop: 6,
             fontSize: 11,
             color: 'var(--text-muted)',
           }}
         >
           <span>{inputText.length.toLocaleString()} 文字</span>
-          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+          {/* 270: ✕ クリア → 📋 ペースト → 📋 クリアして貼付 の順に並べる（指示書§3-1の表と同じ順）。
+              スマホの幅（375px前後）では3つが1行に収まらないので折り返させる
+              ——押せない位置に押し出すより、2行になる方が事故が小さい */}
+          <span
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              justifyContent: 'flex-end',
+              flexWrap: 'wrap',
+              gap: 6,
+            }}
+          >
             {/* 247: クリア直後だけ出る Undo（10秒）。確認ダイアログの代わり */}
             {clearedText !== null && (
               <button
@@ -1200,52 +1197,6 @@ export default function TextAnalysisPanel({
                 ↩ 元に戻す
               </button>
             )}
-            {/* 254: クリア→貼り付けの2手を1手に。既存の「✕ クリア」は残す
-                （クリアだけしたい場面もあるため）
-                258: カーソルのある端末だけに出す（iOSは押すほど確認が増えるため） */}
-            {showClearPasteButton && (
-            <button
-              type="button"
-              data-clear-paste
-              onClick={() => void handleClearAndPaste()}
-              disabled={pasting || loading}
-              title={
-                (keyHints
-                  ? `入力をクリアしてクリップボードを貼り付け（${keyHints.clearPaste}）／直後に「↩ 元に戻す」で戻せます`
-                  : '入力をクリアしてクリップボードを貼り付け（直後に「↩ 元に戻す」で戻せます）') +
-                // 255: iPhoneではこのボタンだと確認が入って2タップになる。1操作にする道を案内する
-                (pasteReplace.enabled
-                  ? ''
-                  : '／🎛表示設定の「貼り付けで置き換える」をONにすると、普通に貼り付けるだけで置き換わります（iPhoneでも1操作）')
-              }
-              style={{
-                padding: '4px 10px',
-                fontSize: 12,
-                color: pasting || loading ? 'var(--text-muted)' : 'var(--text-secondary)',
-                background: 'transparent',
-                border: '1px solid var(--border)',
-                borderRadius: 6,
-                opacity: pasting || loading ? 0.5 : 1,
-                cursor: pasting || loading ? 'not-allowed' : 'pointer',
-                whiteSpace: 'nowrap',
-              }}
-            >
-              {pasting ? '⏳ 貼付中...' : `📋 クリアして貼付${keyHints ? ` ${keyHints.clearPaste}` : ''}`}
-            </button>
-            )}
-            {/* 259/260: カーソルの無い端末には「📋 ペースト」を置く（クリアとペーストを別操作に）。
-                260でこれ1本に一本化した——編集可能な貼り付け欄はタップでキーボードが出て
-                位置がずれるため（部品側で端末を見て出し分ける） */}
-            <PasteButton
-              value={inputText}
-              setValue={(next) => {
-                setInputText(next);
-                setAnalysisDone(false);
-              }}
-              targetRef={inputRef}
-              disabled={loading}
-              notify={(text, kind) => showToast(text, kind)}
-            />
             <button
               type="button"
               onClick={handleClearInput}
@@ -1264,9 +1215,49 @@ export default function TextAnalysisPanel({
                 borderRadius: 6,
                 opacity: inputText ? 1 : 0.5,
                 cursor: inputText ? 'pointer' : 'not-allowed',
+                whiteSpace: 'nowrap',
               }}
             >
               ✕ クリア{keyHints ? ` ${keyHints.clear}` : ''}
+            </button>
+            {/* 259/270: 「📋 ペースト」＝入れるだけ（消さない）。
+                270からはカーソルのある端末にも出す（3ボタンを全環境で揃える） */}
+            <PasteButton
+              value={inputText}
+              setValue={(next) => {
+                setInputText(next);
+                setAnalysisDone(false);
+              }}
+              targetRef={inputRef}
+              disabled={loading}
+              notify={(text, kind) => showToast(text, kind)}
+              showOnFinePointer
+            />
+            {/* 254/270: クリア→貼り付けの2手を1手に。全端末に出す（258の端末別の出し分けは270で撤回）。
+                iOSで確認をキャンセルしても本文は消えない（clear-and-paste.ts・R-76） */}
+            <button
+              type="button"
+              data-clear-paste
+              onClick={() => void handleClearAndPaste()}
+              disabled={pasting || loading}
+              title={
+                keyHints
+                  ? `入力をクリアしてクリップボードを貼り付け（${keyHints.clearPaste}）／直後に「↩ 元に戻す」で戻せます`
+                  : '入力をクリアしてクリップボードを貼り付け（読み取れなかったときは入力をそのままにします）'
+              }
+              style={{
+                padding: '4px 10px',
+                fontSize: 12,
+                color: pasting || loading ? 'var(--text-muted)' : 'var(--text-secondary)',
+                background: 'transparent',
+                border: '1px solid var(--border)',
+                borderRadius: 6,
+                opacity: pasting || loading ? 0.5 : 1,
+                cursor: pasting || loading ? 'not-allowed' : 'pointer',
+                whiteSpace: 'nowrap',
+              }}
+            >
+              {pasting ? '⏳ 貼付中...' : `📋 クリアして貼付${keyHints ? ` ${keyHints.clearPaste}` : ''}`}
             </button>
           </span>
         </div>

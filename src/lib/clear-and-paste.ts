@@ -11,26 +11,35 @@
 // 指示書の案Bは「キー押下時にクリアしてブラウザ標準の貼り付けを通す」だったが、
 // **標準の貼り付けを起こせるのは ⌘V だけ**で、⌘V は奪ってはいけないキー。
 // ⌘⇧V に対して既定の貼り付けは走らない（実測）ので、案Bは成立しない。
-// そこで readText() を主軸にし、権限が無い場合だけ案A（クリアしてフォーカスし、
-// 「⌘Vで貼り付けてください」と案内）へ落とす。**ボタンもキーも同じ関数を通す**ので
-// 挙動が分かれない（247の流儀）。
+// そこで readText() を主軸にする。**ボタンもキーも同じ関数を通す**ので挙動が分かれない（247の流儀）。
 //
-// どの結果でも消えた内容は Undo（↩ 元に戻す・10秒）で戻せる＝壊れない。
+// ── 270【最重要】: 破壊的操作（クリア）は「貼るものが手に入ってから」だけ行う ──────
+// 254〜260は、クリップボードを**読めなかったときもクリアしていた**（案A＝「クリアして
+// フォーカスまで済ませ、⌘V は本人に押してもらう」）。デスクトップでは権限拒否のときだけの
+// 話だったが、**iOSでは確認ポップアップを「許可しない」で閉じるたびに同じ経路に落ちる**。
+// 270でiOSにも「📋 クリアして貼付」を置く以上、これは
+// 「長文を書いたあと、確認をキャンセルしただけで全部消える」事故そのものになる。
+//
+// そこで順序と条件を次のとおりに固定した:
+//   1. まずクリップボードを読む（readText）→ iOSはここでOS確認が出る
+//   2. **読めて、中身があったときだけ** 入力欄をクリアして貼り付ける
+//   3. キャンセル・権限拒否・空クリップボード → **入力欄には一切触れない**
+// フォーカスも当てない（iOSでは focus() がキーボードを立ち上げ、画面が動いてしまうため）。
+// 貼り付けに成功したときだけ、消えた内容は Undo（↩ 元に戻す・10秒）で戻せる。
+// これは R-76 として規約化した（デスクトップ・iOSで同じ順序＝環境で分岐しない）。
 
 /** 実行結果。画面はこれを見て案内文を出す */
 export type ClearAndPasteResult =
-  /** クリップボードの内容で置き換えた */
+  /** クリップボードの内容で置き換えた（このときだけ入力欄を触る） */
   | 'pasted'
-  /** クリップボードは読めなかった。クリアしてフォーカスまで済ませたので ⌘V を押せばよい */
-  | 'cleared-manual'
-  /** クリップボードが空だった。クリアだけ済んでいる */
-  | 'empty'
-  /** 入力が元から空で、やることが無かった */
-  | 'noop';
+  /** クリップボードを読めなかった（権限拒否・iOSの確認をキャンセル・非対応）。入力欄は元のまま */
+  | 'denied'
+  /** クリップボードが空だった。貼るものが無いので入力欄は元のまま */
+  | 'empty';
 
 /**
  * クリップボードのテキストを読む。読めなければ null（権限拒否・未対応・例外すべて）。
- * 失敗を握りつぶすのは、呼び出し側が案A（手動貼り付け）へ落とすため。
+ * 失敗を握りつぶすのは、呼び出し側が「入力欄に触れない」判断をするため。
  */
 export async function readClipboardText(): Promise<string | null> {
   try {
@@ -38,7 +47,7 @@ export async function readClipboardText(): Promise<string | null> {
     const text = await navigator.clipboard.readText();
     return typeof text === 'string' ? text : null;
   } catch {
-    // NotAllowedError（権限拒否）/ SecurityError / 非対応ブラウザ
+    // NotAllowedError（権限拒否・iOSの確認をキャンセル）/ SecurityError / 非対応ブラウザ
     return null;
   }
 }
@@ -55,8 +64,9 @@ export interface ClearAndPasteOptions {
 }
 
 /**
- * クリアして貼り付ける。**先にクリップボードを読んでから**入力を触るので、
- * 権限拒否でも「消えただけで貼れない」状態にはならない（消す前に結果が分かる）。
+ * クリアして貼り付ける。**貼るものが手に入ったときだけ**入力を触る（270・R-76）。
+ * 読めなかった・空だったときは入力欄・フォーカスとも一切変更しない
+ * ＝ iOSで確認をキャンセルしても本文が消えない。
  */
 export async function clearAndPaste(
   options: ClearAndPasteOptions,
@@ -64,61 +74,40 @@ export async function clearAndPaste(
   const { current, setText, textareaRef, backup } = options;
 
   // 読み取りはユーザー操作（クリック/キー押下）の直後に呼ばれる前提。
-  // ここで先に読むことで、権限拒否のときに入力を消すかどうかを選べる。
+  // ここで先に読むことで、入力を消してよいかどうかを**消す前に**確定できる。
   const clip = await readClipboardText();
 
-  const hasCurrent = current.length > 0;
-  if (hasCurrent) backup(current);
+  // 貼るものが無い2経路。入力欄もフォーカスも触らない（案内だけ出す）
+  if (clip === null) return 'denied';
+  if (clip.length === 0) return 'empty';
 
-  const focusEnd = (value: string) => {
+  if (current.length > 0) backup(current);
+  setText(clip);
+  // state 反映後に DOM を触るため、次のフレームで実行する
+  requestAnimationFrame(() => {
     const el = textareaRef.current;
     if (!el) return;
     el.focus();
     // カーソルを末尾に置く（要件: 貼り付けた続きから書ける）
     try {
-      el.setSelectionRange(value.length, value.length);
+      el.setSelectionRange(clip.length, clip.length);
     } catch {
       /* type によっては setSelectionRange が使えない。フォーカスだけで十分 */
     }
-  };
-
-  // 権限が無い・非対応 → 案A: クリアしてフォーカスまで済ませ、⌘V は本人に押してもらう
-  if (clip === null) {
-    if (!hasCurrent) {
-      focusEnd('');
-      return 'noop';
-    }
-    setText('');
-    // state 反映後に DOM を触るため、次のフレームで実行する
-    requestAnimationFrame(() => focusEnd(''));
-    return 'cleared-manual';
-  }
-
-  if (clip.length === 0) {
-    if (!hasCurrent) {
-      focusEnd('');
-      return 'noop';
-    }
-    setText('');
-    requestAnimationFrame(() => focusEnd(''));
-    return 'empty';
-  }
-
-  setText(clip);
-  requestAnimationFrame(() => focusEnd(clip));
+  });
   return 'pasted';
 }
 
 /** 結果に対する画面の案内文（3画面で同じ文言にする） */
 export const CLEAR_PASTE_MESSAGE: Record<
   ClearAndPasteResult,
-  { text: string; kind: 'success' | 'warning' | 'info' } | null
+  { text: string; kind: 'success' | 'warning' | 'info' }
 > = {
   pasted: { text: 'クリアして貼り付けました', kind: 'success' },
-  'cleared-manual': {
-    text: 'クリアしました。クリップボードを読めなかったので ⌘V（Ctrl+V）で貼り付けてください',
+  // 270: 「消していない」ことを最初に伝える（消えたかどうかが利用者の一番の関心事のため）
+  denied: {
+    text: 'クリップボードを読み取れませんでした。入力はそのままです（「✕ クリア」→ ⌘V で置き換えられます）',
     kind: 'warning',
   },
-  empty: { text: 'クリップボードが空でした。クリアだけ行いました', kind: 'warning' },
-  noop: null,
+  empty: { text: 'クリップボードが空でした。入力はそのままです', kind: 'warning' },
 };
