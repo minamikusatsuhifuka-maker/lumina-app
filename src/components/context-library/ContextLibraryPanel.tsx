@@ -107,7 +107,9 @@ export default function ContextLibraryPanel() {
   const [batchFilter, setBatchFilter] = useState<string | null>(null);
   // お気に入り絞り込み（コンテキストライブラリ内で完結＝テキスト分析とは別管理）
   const [favoriteOnly, setFavoriteOnly] = useState(false);
-  const [expandedId, setExpandedId] = useState<number | null>(null);
+  // 274: 複数カードを同時に展開できるようにする（1枚開くと他が閉じる排他制御にしない）
+  const [expandedIds, setExpandedIds] = useState<Set<number>>(new Set());
+  const openExpanded = (id: number) => setExpandedIds(prev => (prev.has(id) ? prev : new Set(prev).add(id)));
   // 下部アクション（文章作成へ〜要約・詳細）のアコーディオン開閉。カードごと・既定は閉（誤発火防止）。
   const [actionsOpen, setActionsOpen] = useState<Record<number, boolean>>({});
   // 197: 「⋯ その他」メニュー（全画面/テキスト/MD/Word/編集/削除を格納）を開いているカードのid
@@ -451,10 +453,30 @@ export default function ContextLibraryPanel() {
     }
   };
 
+  /** 274: カード内の操作がクリック展開へ伝わらないようにする（領域限定と併せた二重の守り） */
+  const stopCardClick = (e: React.MouseEvent) => e.stopPropagation();
+
+  /**
+   * 274: 本文の展開トグル。「▼全文表示」ボタンと、タイトル・メタ情報のクリックで**同じ状態**を切り替える。
+   * 開くときだけ本文を単体取得する（一覧APIは本文を返さない）。
+   * ホバープレビュー（256/273）が出ていたら閉じる——本文の上にふきだしが残らないようにする（§5）。
+   */
+  const toggleExpand = async (item: ContextSave) => {
+    const willOpen = !expandedIds.has(item.id);
+    hoverPreview.hide();
+    setExpandedIds(prev => {
+      const next = new Set(prev);
+      if (willOpen) next.add(item.id); else next.delete(item.id);
+      return next;
+    });
+    if (!willOpen) return;
+    try { await ensureFullText(item); } catch { flashToast('❌ 本文の取得に失敗しました', 4000); }
+  };
+
   // 「✏️ 編集」: 現在の topic/context_text を編集 state にコピーして編集モードへ（展開も保証）
   // 本文は一覧に載っていないため、先に単体取得してから編集フォームへ入れる。
   const startEdit = async (item: ContextSave) => {
-    setExpandedId(item.id);
+    openExpanded(item.id);
     try {
       const text = await ensureFullText(item);
       setEditingId(item.id);
@@ -1260,7 +1282,7 @@ export default function ContextLibraryPanel() {
 
       <div style={{ display: 'grid', gap: 14 }}>
         {items.map(item => {
-          const expanded = expandedId === item.id;
+          const expanded = expandedIds.has(item.id);
           const bundleChecked = isBundleSelected('context', item.id);
           return (
             <div
@@ -1306,11 +1328,28 @@ export default function ContextLibraryPanel() {
                       if (e.target.checked) next.add(item.id); else next.delete(item.id);
                       setSelectedIds(next);
                     }}
+                    onClick={stopCardClick}
                     title="一括削除の対象にする"
                     style={{ width: 18, height: 18, cursor: 'pointer', accentColor: '#dc2626', marginTop: 4 }}
                   />
                 )}
-                <div style={{ flex: 1, minWidth: 200 }}>
+                {/* 274: ここ（タイトル・生成元バッジ・日付/文字数/タグ・フォルダ）が本文の展開領域。
+                    ボタン類は含めない＝押しても展開が走らない。展開後の本文も含めない（文字を選べる）。 */}
+                <div
+                  className="card-expand-zone"
+                  data-ctx-expand-zone={item.id}
+                  role="button"
+                  tabIndex={0}
+                  aria-expanded={expanded}
+                  title={expanded ? 'クリックで本文を閉じる' : 'クリックで本文を開く'}
+                  onClick={() => toggleExpand(item)}
+                  onKeyDown={(e) => {
+                    if (e.key !== 'Enter' && e.key !== ' ') return;
+                    e.preventDefault(); // Space での画面スクロールを止める
+                    void toggleExpand(item);
+                  }}
+                  style={{ flex: 1, minWidth: 200 }}
+                >
                   <div style={{ fontSize: 16, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 4 }}>
                     {item.topic}
                   </div>
@@ -1369,14 +1408,14 @@ export default function ContextLibraryPanel() {
                   使用頻度の低い ⛶全画面 / ⬇テキスト / 📥MD / 📄Word / ✏編集 / 🗑削除 は
                   「⋯ その他」メニューに格納（各操作のハンドラ・挙動は無変更）。
                   モバイル幅でも1行に収まる本数に抑える。 */}
-              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' as const, alignItems: 'center' }}>
+              <div
+                // 274: 領域限定と併せた二重の守り。この中の操作が上へ伝わって展開が走らないようにする
+                onClick={stopCardClick}
+                style={{ display: 'flex', gap: 6, flexWrap: 'wrap' as const, alignItems: 'center' }}
+              >
                 <button
-                  onClick={async () => {
-                    if (expanded) { setExpandedId(null); return; }
-                    setExpandedId(item.id);
-                    // 本文は一覧に載っていないため展開時に単体取得（取得済みなら即表示）
-                    try { await ensureFullText(item); } catch { flashToast('❌ 本文の取得に失敗しました', 4000); }
-                  }}
+                  data-ctx-expand-button={item.id}
+                  onClick={() => toggleExpand(item)}
                   style={cardActionBtnStyle()}
                 >
                   {expanded ? '▲ 閉じる' : '▼ 全文表示'}
@@ -1521,6 +1560,9 @@ export default function ContextLibraryPanel() {
               {/* 全文表示（カード内インライン展開）。編集モード時は topic/本文の編集フォーム。 */}
               {expanded && (
                 <div
+                  data-ctx-expanded-body={item.id}
+                  // 274: 展開後の本文はクリックしても閉じない（コピーのためのドラッグ選択を妨げない）
+                  onClick={stopCardClick}
                   style={{
                     marginTop: 12,
                     background: 'var(--bg-primary)',
@@ -1627,7 +1669,10 @@ export default function ContextLibraryPanel() {
               )}
 
               {/* ── コンテキスト固有のアクション（活用する）。テキスト分析には無い別枠。── */}
-              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' as const, alignItems: 'center', marginTop: 8 }}>
+              <div
+                onClick={stopCardClick}
+                style={{ display: 'flex', gap: 6, flexWrap: 'wrap' as const, alignItems: 'center', marginTop: 8 }}
+              >
                 {/* 活用する：下部アクションのアコーディオン開閉（既定閉・誤発火防止） */}
                 <button
                   onClick={() => setActionsOpen(prev => ({ ...prev, [item.id]: !prev[item.id] }))}
@@ -1654,6 +1699,7 @@ export default function ContextLibraryPanel() {
                   「活用する」展開時のみ表示。各ボタンの機能・遷移・生成は無変更。 */}
               {actionsOpen[item.id] && (
                 <div
+                  onClick={stopCardClick}
                   style={{
                     display: 'flex',
                     gap: 8,

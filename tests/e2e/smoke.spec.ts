@@ -3538,3 +3538,97 @@ test('C71: ホバープレビューの既定OFF（273）— 3画面で出ない�
     await page.request.delete(`${CONTEXT_API}?id=${ctxId}`);
   }
 });
+
+// ============================================================================
+// 274: 🧠AI参照素材のカードをクリックで本文展開
+// - 展開領域はタイトル・生成元・日付/文字数/タグに限定（ボタンでは展開が走らない）
+// - 「▼全文表示」は残す／複数同時に開ける／キーボードでも開ける
+// ============================================================================
+
+test('C72: カードのクリックで本文を展開（274）— 領域限定・ボタンで走らない・複数同時・キーボード', async ({ page }) => {
+  const marker = `CLICKOPEN${RUN_ID}`;
+  const mk = async (suffix: string) => {
+    const res = await page.request.post(CONTEXT_API, {
+      data: { topic: `[E2E] クリック展開 ${suffix} ${marker}`, contextText: `## ${marker}${suffix}\n\n本文${suffix}です。${'あ'.repeat(200)}`, tags: [] },
+    });
+    expect(res.status()).toBe(200);
+    return (await res.json()).id as number;
+  };
+  const idB = await mk('B'); // 先に作った方が一覧では下（created_at DESC）
+  const idA = await mk('A');
+
+  const zone = (id: number) => page.locator(`[data-ctx-expand-zone="${id}"]`);
+  const body = (id: number) => page.locator(`[data-ctx-expanded-body="${id}"]`);
+  const card = (id: number) => page.locator(`[data-bundle-key="ctx-${id}"]`);
+
+  try {
+    await page.goto('/dashboard/context-library');
+    await page.evaluate(() => localStorage.removeItem('lumina_hover_preview')); // 273の既定OFFで始める
+    await page.reload({ waitUntil: 'domcontentloaded' });
+    await expect(zone(idA)).toBeVisible({ timeout: 30000 });
+
+    // 1) タイトルのクリックで開く（既定は閉じている）
+    await expect(body(idA)).toHaveCount(0);
+    await zone(idA).getByText(`[E2E] クリック展開 A ${marker}`).click();
+    await expect(body(idA), 'タイトルのクリックで本文が開くこと').toBeVisible();
+    await expect(zone(idA)).toHaveAttribute('aria-expanded', 'true');
+
+    // 2) 展開後の本文をクリックしても閉じない（コピーのための選択を妨げない）
+    await body(idA).click();
+    await expect(body(idA), '本文のクリックで閉じないこと').toBeVisible();
+
+    // 3) メタ情報行（日付・文字数）のクリックでも切り替わる
+    await zone(idA).getByText(/📅/).first().click();
+    await expect(body(idA), 'メタ情報のクリックで閉じること').toHaveCount(0);
+    await zone(idA).getByText(/📅/).first().click();
+    await expect(body(idA), 'メタ情報のクリックで開くこと').toBeVisible();
+
+    // 4) カード内のボタンでは展開状態が変わらない
+    await card(idA).getByRole('button', { name: /コピー/ }).click();
+    await expect(body(idA), '📋コピーで展開状態が変わらないこと').toBeVisible();
+    await card(idA).getByRole('button', { name: /活用する/ }).click();
+    await expect(body(idA), '▼活用するで展開状態が変わらないこと').toBeVisible();
+    await expect(card(idA).getByRole('button', { name: '✍️ 文章作成へ' }), '活用するの中身が開くこと').toBeVisible();
+
+    // 5) 「▼ 全文表示」ボタンは残っていて、同じ状態をトグルする
+    await page.locator(`[data-ctx-expand-button="${idA}"]`).click();
+    await expect(body(idA), '▲閉じるで閉じること').toHaveCount(0);
+    await page.locator(`[data-ctx-expand-button="${idA}"]`).click();
+    await expect(body(idA), '▼全文表示で開くこと').toBeVisible();
+
+    // 6) 複数カードを同時に展開できる（排他にしない）
+    await zone(idB).getByText(`[E2E] クリック展開 B ${marker}`).click();
+    await expect(body(idB)).toBeVisible();
+    await expect(body(idA), '他のカードは開いたままであること').toBeVisible();
+
+    // 7) キーボード（Enter／Space）で開閉できる
+    await zone(idB).press('Enter');
+    await expect(body(idB), 'Enterで閉じること').toHaveCount(0);
+    await zone(idB).press(' ');
+    await expect(body(idB), 'Spaceで開くこと').toBeVisible();
+
+    // 8) ☆お気に入りボタンでも展開状態が変わらない
+    await card(idA).getByRole('button', { name: /お気に入り|分類/ }).click();
+    await expect(body(idA), '☆お気に入りで展開状態が変わらないこと').toBeVisible();
+    await page.keyboard.press('Escape');
+
+    // 9) 273のホバープレビューをONに戻しても競合しない
+    //    （ふきだしが出ている状態でクリックすると、ふきだしは閉じて本文が開く）
+    await page.evaluate(() => localStorage.setItem('lumina_hover_preview', '1'));
+    await page.reload({ waitUntil: 'domcontentloaded' });
+    await expect(zone(idA)).toBeVisible({ timeout: 30000 });
+    const preview = page.locator('[data-hover-preview]');
+    await expect(async () => {
+      await card(idA).hover();
+      await expect(preview).toBeVisible({ timeout: 2500 });
+    }).toPass({ timeout: 20000 });
+    await zone(idA).getByText(`[E2E] クリック展開 A ${marker}`).click();
+    await expect(body(idA), 'プレビューが出ていてもクリックで開くこと').toBeVisible();
+    await expect(preview, 'プレビューは本文の上に残らないこと').toHaveCount(0);
+  } finally {
+    await page.evaluate(() => localStorage.removeItem('lumina_hover_preview')).catch(() => {});
+    for (const id of [idA, idB]) {
+      await page.request.delete(`${CONTEXT_API}?id=${id}`);
+    }
+  }
+});

@@ -59,6 +59,8 @@ export interface HoverPreviewApi {
   };
   /** 画面のどこか1箇所に置くポップアップ本体 */
   layer: ReactNode;
+  /** 274: 出ているプレビューを閉じる（カードをクリックして展開するとき、本文の上に残さない） */
+  hide: () => void;
 }
 
 export function useHoverPreview(): HoverPreviewApi {
@@ -195,7 +197,7 @@ export function useHoverPreview(): HoverPreviewApi {
       ? createPortal(<PreviewBox state={state} />, document.body)
       : null;
 
-  return { active, bind, layer };
+  return { active, bind, layer, hide };
 }
 
 function PreviewBox({ state }: { state: State }) {

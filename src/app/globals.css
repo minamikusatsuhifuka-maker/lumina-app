@@ -344,6 +344,24 @@ a[href*="dashboard"]:hover {
   box-shadow: var(--shadow-md);
 }
 
+/* 274: カードの「押したら本文が開く」領域（タイトル・生成元・日付/文字数/タグ）。
+   カード全体をクリック可能にすると中のボタンと二重に反応するため、領域を限定する。
+   色はテーマごとに定義済みの --bg-card-hover を使う（4テーマとも成立する）。 */
+.card-expand-zone {
+  cursor: pointer;
+  border-radius: 10px;
+  margin: -6px -8px;
+  padding: 6px 8px;
+  transition: background var(--transition-base);
+}
+.card-expand-zone:hover {
+  background: var(--bg-card-hover);
+}
+.card-expand-zone:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
 /* ボタン ripple */
 .btn-ripple { position: relative; overflow: hidden; }
 .btn-ripple::after {
