@@ -55,6 +55,17 @@ import { promoteHeadingsForNote, markdownToWordHtml } from '../../src/lib/rich-c
 import { buildScheduleRows, scheduleToMarkdown } from '../../src/lib/posting-schedule';
 import { buildNotePasteText, buildNoteHtml } from '../../src/lib/note-compat';
 import { estimateTitleLines, estimateSummaryImageHeight } from '../../src/lib/summary-image-templates';
+// 271: 横並び比較の判断（列数・上限・本文/要約の取り出し・同期スクロールの割合）
+import {
+  BATCH_COMPARE_MAX,
+  compareGridClass,
+  parseContextWithSummary,
+  pickCompareText,
+  resolveCompareColumns,
+  scrollRatioOf,
+  syncScrollTop,
+  toggleCompareId,
+} from '../../src/lib/batch-compare';
 import {
   EMPTY_ROADMAP_INPUTS,
   PHASE_DEFS,
@@ -1146,4 +1157,59 @@ test('U41: Kindle多軸展開（269）— 7切り口・書籍文脈検出・一�
   // §4: 事実同一性の規約文言（喩えから結論を導かない・因果を変えない）
   expect(FACT_FIDELITY_RULES).toContain('喩えから新たな結論を導かない');
   expect(FACT_FIDELITY_RULES).toContain('因果関係を変えない');
+});
+
+
+test('U43: 横並び比較の判断（271）— 上限3件・列数・割合スクロール・要約フォールバック', () => {
+  // §4-1: 上限は3。超える追加は受け付けない（古い方を押し出さない＝比較中の列が黙って消えない）
+  expect(BATCH_COMPARE_MAX).toBe(3);
+  let ids: number[] = [];
+  for (const id of [1, 2, 3, 4]) ids = toggleCompareId(ids, id);
+  expect(ids).toEqual([1, 2, 3]);
+  // 外してから足せる
+  ids = toggleCompareId(ids, 2);
+  expect(ids).toEqual([1, 3]);
+  ids = toggleCompareId(ids, 4);
+  expect(ids).toEqual([1, 3, 4]);
+
+  // §4-2: 列数はカーソルの有無と選択件数の小さい方。タッチ端末は常に1列
+  expect(resolveCompareColumns(3, true)).toBe(3);
+  expect(resolveCompareColumns(2, true)).toBe(2);
+  expect(resolveCompareColumns(0, true)).toBe(1);
+  expect(resolveCompareColumns(9, true)).toBe(3); // 4列以上は作らない（§1-2）
+  expect(resolveCompareColumns(3, false)).toBe(1);
+
+  // R-17: Tailwindは完全リテラル（動的組み立てをしない）。3列は xl まで段階的に減る＝横スクロールを出さない
+  expect(compareGridClass(3)).toBe('grid gap-3 grid-cols-1 md:grid-cols-2 xl:grid-cols-3');
+  expect(compareGridClass(2)).toBe('grid gap-3 grid-cols-1 md:grid-cols-2');
+  expect(compareGridClass(1)).toBe('grid gap-3 grid-cols-1');
+  for (const cols of [1, 2, 3] as const) {
+    expect(compareGridClass(cols)).not.toContain('${');
+  }
+
+  // §3-1: 同期は割合ベース。長さの違う列でも底・頭が対応する
+  expect(scrollRatioOf(0, 2000, 500)).toBe(0);
+  expect(scrollRatioOf(1500, 2000, 500)).toBe(1);
+  expect(scrollRatioOf(750, 2000, 500)).toBeCloseTo(0.5, 5);
+  expect(scrollRatioOf(100, 400, 500)).toBe(0); // スクロールできない列は0
+  // 5000字の列の半分 → 3000字の列でも半分の位置になる（ピクセルでは合わない）
+  expect(syncScrollTop(0.5, 5000, 500)).toBe(2250);
+  expect(syncScrollTop(0.5, 3000, 500)).toBe(1250);
+  expect(syncScrollTop(1, 3000, 500)).toBe(2500);
+  expect(syncScrollTop(0.5, 400, 500)).toBe(0);
+
+  // §2-1: 要約は263③の保存済みセクションを使う（再生成しない）。
+  const withSummary = {
+    research_text: '本文です。',
+    // 実データと同じ形（run/route.ts が組み立てる見出し行）
+    context_text: '## 📋 要約（1000字以内）\n\n要約の中身。\n\n---\n\n## 📚 詳細コンテキスト\n\n詳細の中身。',
+  };
+  expect(parseContextWithSummary(withSummary.context_text).summarySection).toBe('要約の中身。');
+  expect(pickCompareText(withSummary, 'research')).toEqual({ text: '本文です。', fellBack: false });
+  expect(pickCompareText(withSummary, 'summary')).toEqual({ text: '要約の中身。', fellBack: false });
+
+  // 要約が無い古いデータは、空にせず本文へフォールバックし、その旨を呼び出し側へ返す
+  const legacy = { research_text: '古い本文。', context_text: '要約セクションのない素材。' };
+  expect(parseContextWithSummary(legacy.context_text).summarySection).toBeNull();
+  expect(pickCompareText(legacy, 'summary')).toEqual({ text: '古い本文。', fellBack: true });
 });

@@ -40,6 +40,9 @@ import { useFinePointer } from '@/lib/pointer-device';
 // 259: iOSの「クリア」と「ペースト」を別操作にする2部品（テキスト分析と同じ部品）
 import { PasteButton } from '@/components/TouchPaste';
 import { isAutoStockSaveEnabled } from '@/lib/auto-stock-save';
+// 271: バッチリサーチ結果の横並び比較（最大3列・本文/要約・同期スクロール）
+import BatchCompareView from '@/components/deepresearch/BatchCompareView';
+import { type BatchResult, parseContextWithSummary } from '@/lib/batch-compare';
 
 // 自動下書き（feature_result_drafts feature_key='deepresearch'）のpayload
 // 対話的（単発）実行の結果＋生成後コンテキストを守る（バッチはcontext_savesにDB保存済みで対象外）
@@ -182,46 +185,7 @@ const formatReport = (text: string): string => {
   return html.join('');
 };
 
-type BatchResult = {
-  id: number;
-  topic: string;
-  context_text: string;
-  research_text: string;
-  created_at: string;
-};
-
-// コンテキスト本文から「## 📋 要約」と「## 📚 詳細コンテキスト」セクションを分離
-// 既存データ（要約セクションなし）の場合は summarySection: null、detailContext に全文を返す
-function parseContextWithSummary(contextText: string): {
-  summarySection: string | null;
-  detailContext: string;
-} {
-  if (!contextText) return { summarySection: null, detailContext: '' };
-  const summaryHeader = '## 📋 要約';
-  const detailHeader = '## 📚 詳細コンテキスト';
-  if (!contextText.startsWith(summaryHeader)) {
-    return { summarySection: null, detailContext: contextText };
-  }
-  const detailIdx = contextText.indexOf(detailHeader);
-  if (detailIdx === -1) {
-    // 要約ヘッダはあるが詳細ヘッダがない → 全文を要約として扱わず安全側に倒す
-    return { summarySection: null, detailContext: contextText };
-  }
-  // 要約セクション = 要約ヘッダ直後〜詳細ヘッダ手前（区切り --- を除去）
-  const rawSummary = contextText.slice(summaryHeader.length, detailIdx);
-  const summarySection = rawSummary
-    .replace(/^[^\n]*\n+/, '')
-    .replace(/\n+---\n*$/, '')
-    .trim();
-  const detailContext = contextText
-    .slice(detailIdx + detailHeader.length)
-    .replace(/^\n+/, '')
-    .trim();
-  return {
-    summarySection: summarySection || null,
-    detailContext: detailContext || contextText,
-  };
-}
+// 271: BatchResult 型と parseContextWithSummary は lib/batch-compare.ts に集約（横並び比較と共用）
 
 // バッチ完了トピックの本文インライン展開コンポーネント
 function BatchExpandedContent({ result }: { result: BatchResult }) {
@@ -456,6 +420,8 @@ export default function DeepResearchPage() {
   const [topicStatuses, setTopicStatuses] = useState<Record<number, TopicStatus>>({});
   // バッチ結果（jobId → context_saves から取得した本文配列、実行順）
   const [batchResults, setBatchResults] = useState<Record<number, BatchResult[]>>({});
+  // 271: 横並び比較を開いているジョブ（null＝閉じている）
+  const [compareJobId, setCompareJobId] = useState<number | null>(null);
   // 展開中トピックのキー（`${jobId}-${index}`）
   const [expandedTopics, setExpandedTopics] = useState<Set<string>>(new Set());
   // 直近で完了したバッチ ID（runningJobId が null になった後もクリック展開を有効にする）
@@ -550,6 +516,16 @@ export default function DeepResearchPage() {
       console.error('[loadBatchResults] error:', e);
       return [];
     }
+  };
+
+  // 271: 横並び比較を開く（本文はDB保存済みのものを読むだけ＝AI再生成なし）
+  const openBatchCompare = async (jobId: number) => {
+    if (compareJobId === jobId) {
+      setCompareJobId(null);
+      return;
+    }
+    await loadBatchResults(jobId);
+    setCompareJobId(jobId);
   };
 
   // トピック行の展開トグル
@@ -3729,23 +3705,44 @@ ${contextText}
                     <div style={{ fontSize: 13, fontWeight: 700, color: '#1D9E75', marginBottom: 8 }}>
                       🎉 全件完了！AI参照素材に保存されました
                     </div>
-                    <a
-                      href="/dashboard/context-library"
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      style={{
-                        display: 'inline-block',
-                        padding: '8px 16px',
-                        background: 'linear-gradient(135deg, #1D9E75, #00d4b8)',
-                        color: '#fff',
-                        textDecoration: 'none',
-                        borderRadius: 8,
-                        fontSize: 12,
-                        fontWeight: 700,
-                      }}
-                    >
-                      🧠 AI参照素材で確認する →
-                    </a>
+                    <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' as const, alignItems: 'center' }}>
+                      <a
+                        href="/dashboard/context-library"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        style={{
+                          display: 'inline-block',
+                          padding: '8px 16px',
+                          background: 'linear-gradient(135deg, #1D9E75, #00d4b8)',
+                          color: '#fff',
+                          textDecoration: 'none',
+                          borderRadius: 8,
+                          fontSize: 12,
+                          fontWeight: 700,
+                        }}
+                      >
+                        🧠 AI参照素材で確認する →
+                      </a>
+                      {/* 271: 実行直後にそのまま読み比べる導線（本文は保存済みのものを読むだけ） */}
+                      {(runningJobId ?? lastCompletedJobId) !== null && totalCount >= 2 && (
+                        <button
+                          data-batch-compare-open={runningJobId ?? lastCompletedJobId ?? undefined}
+                          onClick={() => openBatchCompare((runningJobId ?? lastCompletedJobId) as number)}
+                          style={{
+                            padding: '8px 16px',
+                            background: 'var(--bg-primary)',
+                            border: '1px solid var(--border-accent)',
+                            color: 'var(--text-primary)',
+                            borderRadius: 8,
+                            fontSize: 12,
+                            fontWeight: 700,
+                            cursor: 'pointer',
+                          }}
+                        >
+                          ⇔ 結果を横並びで比較
+                        </button>
+                      )}
+                    </div>
                   </div>
                 )}
 
@@ -3766,6 +3763,15 @@ ${contextText}
               </div>
             );
           })()}
+
+          {/* 271: 横並び比較パネル（本文はDB保存済み＝再生成しない） */}
+          {compareJobId !== null && (batchResults[compareJobId]?.length ?? 0) > 0 && (
+            <BatchCompareView
+              jobId={compareJobId}
+              results={batchResults[compareJobId]}
+              onClose={() => setCompareJobId(null)}
+            />
+          )}
 
           {/* 履歴 */}
           {batchJobs.length > 0 && (
@@ -3842,6 +3848,16 @@ ${contextText}
                       >
                         🧠 AI参照素材を確認
                       </a>
+                      {/* 271: 過去のバッチも読み比べられる（完了が2件以上ある時だけ出す） */}
+                      {job.topics.filter(t => t.status === 'completed').length >= 2 && (
+                        <button
+                          data-batch-compare-open={job.id}
+                          onClick={() => openBatchCompare(job.id)}
+                          style={{ padding: '4px 10px', background: 'var(--bg-primary)', border: '1px solid var(--border-accent)', color: 'var(--text-primary)', borderRadius: 6, cursor: 'pointer', fontSize: 11, fontWeight: 600 }}
+                        >
+                          {compareJobId === job.id ? '⇔ 比較を閉じる' : '⇔ 横並びで比較'}
+                        </button>
+                      )}
                       {(job.status === 'pending' && job.schedule_type !== 'cron') && (
                         <button
                           onClick={() => runBatchJob(job.id)}

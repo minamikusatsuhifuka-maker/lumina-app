@@ -3274,3 +3274,158 @@ test('C68: バッチリサーチの文字数を一括変更（272）— 全行�
   await page.locator('[data-batch-topic="0"]').fill('[E2E] 表示確認のみ（実行しない）');
   await expect(page.getByRole('button', { name: '⚡ 今すぐ一括実行' })).toBeEnabled();
 });
+
+// ============================================================================
+// 271: バッチリサーチ結果の横並び比較（最大3列・本文/要約・同期スクロール・sticky）
+// - AIは呼ばず、ジョブ一覧と結果本文をモックして固定（課金なし・本番データを触らない）
+// ============================================================================
+
+const COMPARE_JOB_ID = 987654321; // 実在しないID（モック専用）
+
+/** 271のモック: バッチジョブ履歴1件＋その結果4件（本文と263③の要約セクション付き） */
+async function stubBatchCompare(page: import('@playwright/test').Page) {
+  const topics = ['[E2E] 比較A', '[E2E] 比較B', '[E2E] 比較C', '[E2E] 比較D'];
+  const body = (i: number) =>
+    `## 見出し${i}\n\n${`本文${i}のダミー行です。`.repeat(60)}\n\n### 小見出し${i}\n\n${`さらに本文${i}が続きます。`.repeat(60)}`;
+  const context = (i: number) =>
+    `## 📋 要約（1000字以内）\n\n**要約${i}** のダミーです。\n\n---\n\n## 📚 詳細コンテキスト\n\n詳細${i}の本文。`;
+
+  // クエリ付きURLはグロブだと曖昧になるため述語で判定する
+  await page.route((url) => url.pathname === '/api/batch-research' && url.searchParams.get('limit') === '10', (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        jobs: [
+          {
+            id: COMPARE_JOB_ID,
+            group_name: '[E2E] 271比較用（モック）',
+            topics: topics.map((t) => ({ topic: t, mode: 'deep', status: 'completed' })),
+            schedule_type: 'immediate',
+            scheduled_at: null,
+            status: 'completed',
+            created_at: '2026-08-27T01:00:00.000Z',
+          },
+        ],
+      }),
+    }),
+  );
+  await page.route((url) => url.pathname === '/api/context-saves' && url.searchParams.get('tag') === `batch:${COMPARE_JOB_ID}`, (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify(
+        topics.map((t, i) => ({
+          id: 900000 + i,
+          topic: t,
+          context_text: context(i),
+          research_text: body(i),
+          created_at: '2026-08-27T01:00:00.000Z',
+        })),
+      ),
+    }),
+  );
+}
+
+/** バッチタブを開いて履歴から比較パネルを開く */
+async function openBatchCompare(page: import('@playwright/test').Page) {
+  await page.goto('/dashboard/deepresearch');
+  await page.getByRole('button', { name: '⚡ バッチリサーチ' }).click();
+  await page.locator(`[data-batch-compare-open="${COMPARE_JOB_ID}"]`).click();
+  await expect(page.locator('[data-batch-compare]')).toBeVisible();
+}
+
+test('C69: バッチ結果の横並び比較（271）— 3列・4件目は選べない・本文既定・同期スクロール・sticky', async ({ page }) => {
+  await stubFeatureDrafts(page);
+  await stubBatchCompare(page);
+  await page.setViewportSize({ width: 1600, height: 900 }); // 3列が出る幅（xl以上）
+  // モードの保持を素の状態から確かめるため、保存済みの選択を消してから開く
+  await page.goto('/dashboard/deepresearch');
+  await page.evaluate(() => localStorage.removeItem('lumina_batch_compare_mode'));
+  await openBatchCompare(page);
+
+  // 1) 既定で3件が選ばれ、3列で出る（横スクロールを出さない＝grid）
+  await expect(page.locator('[data-compare-col]')).toHaveCount(3);
+  await expect(page.locator('[data-compare-cols="3"]')).toHaveCount(1);
+  await expect(page.locator('[data-compare-count]')).toContainText('選択中: 3/3件');
+
+  // 2) 4件目は選べない（上限3件・押しても増えない）
+  const fourth = page.locator('[data-compare-pick="900003"]');
+  await expect(fourth).toBeDisabled();
+  await expect(page.locator('[data-compare-col]')).toHaveCount(3);
+
+  // 3) 初回の既定は本文（要約ではない）
+  await expect(page.locator('[data-compare-mode="research"]')).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.locator('[data-compare-col="0"]')).toContainText('本文0のダミー行です。');
+
+  // 4) 整形表示（R-45）— 生MD記法が出ず、見出しがタグになっている
+  const col0 = page.locator('[data-compare-col="0"]');
+  await expect(col0, 'Markdown記号がそのまま出ていないこと').not.toContainText('## 見出し0');
+  expect(await col0.locator('h2, h3, h4').count(), '見出しがHTMLタグで描かれていること').toBeGreaterThan(0);
+
+  // 5) 列ヘッダーがsticky固定（§3-2）
+  const header0 = page.locator('[data-compare-header="0"]');
+  expect(await header0.evaluate((el) => getComputedStyle(el).position)).toBe('sticky');
+  // 本文を送ってもヘッダーは列の上端に残る
+  await col0.evaluate((el) => { el.scrollTop = 800; });
+  const colBox = await col0.boundingBox();
+  const headBox = await header0.boundingBox();
+  expect(colBox && headBox && headBox.y - colBox.y, 'スクロール後もヘッダーが列の上端に居ること').toBeLessThan(4);
+
+  // 6) 同期スクロールが既定ONで、他の列も追随する（§3-1・割合ベース）
+  await expect(page.locator('[data-compare-sync]')).toBeChecked();
+  await col0.evaluate((el) => { el.scrollTop = el.scrollHeight; el.dispatchEvent(new Event('scroll')); });
+  await expect
+    .poll(async () => page.locator('[data-compare-col="1"]').evaluate((el) => el.scrollTop))
+    .toBeGreaterThan(0);
+
+  // 7) OFFにできる（OFF後は他列が動かない）
+  await page.locator('[data-compare-sync]').uncheck();
+  await page.locator('[data-compare-col="1"]').evaluate((el) => { el.scrollTop = 0; });
+  await col0.evaluate((el) => { el.scrollTop = 0; el.dispatchEvent(new Event('scroll')); });
+  await page.waitForTimeout(300);
+  await col0.evaluate((el) => { el.scrollTop = el.scrollHeight; el.dispatchEvent(new Event('scroll')); });
+  await page.waitForTimeout(300);
+  expect(await page.locator('[data-compare-col="1"]').evaluate((el) => el.scrollTop), '同期OFFなら他列は動かない').toBe(0);
+
+  // 8) 本文／要約の一括切り替え（全列が同時に変わる）
+  await page.locator('[data-compare-mode="summary"]').click();
+  for (const i of [0, 1, 2]) {
+    await expect(page.locator(`[data-compare-col="${i}"]`)).toContainText(`要約${i}`);
+  }
+  await expect(page.locator('[data-compare-col="0"]')).not.toContainText('本文0のダミー行です。');
+
+  // 9) 選んだモードは次回も保持される（§2-1）
+  await openBatchCompare(page);
+  await expect(page.locator('[data-compare-mode="summary"]')).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.locator('[data-compare-col="0"]')).toContainText('要約0');
+
+  // 10) 選択を外すと列も減る（個別に選び直せる）
+  await page.locator('[data-compare-pick="900002"]').click();
+  await expect(page.locator('[data-compare-col]')).toHaveCount(2);
+  await expect(page.locator('[data-compare-cols="2"]')).toHaveCount(1);
+});
+
+test('C70: 横並び比較はタッチ端末では1列（271§4-2・既存の端末判定を再利用）', async ({ browser }) => {
+  const ctx = await browser.newContext({
+    storageState: STORAGE_STATE,
+    baseURL: BASE_URL,
+    hasTouch: true,
+    isMobile: true,
+    viewport: { width: 390, height: 844 },
+  });
+  const page = await ctx.newPage();
+  try {
+    await stubFeatureDrafts(page);
+    await stubBatchCompare(page);
+    await openBatchCompare(page);
+    // 3件選ばれていても、カーソルの無い端末では1列だけ描く（横スクロールを出さない）
+    await expect(page.locator('[data-compare-count]')).toContainText('選択中: 3/3件');
+    await expect(page.locator('[data-compare-cols="1"]')).toHaveCount(1);
+    // 横スクロールが出ていないこと（本文はカード内で折り返す）
+    const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+    expect(overflow, 'ページに横スクロールが出ていないこと').toBeLessThanOrEqual(1);
+  } finally {
+    await ctx.close();
+  }
+});
