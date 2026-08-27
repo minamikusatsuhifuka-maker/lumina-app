@@ -2211,6 +2211,12 @@ test('C49: ホバープレビュー — 3画面で出て、Markdown記号が出�
   };
 
   try {
+    // ── ⓪ 273: 既定はOFF。この検証は🎛でONにしてから始める ──
+    await page.goto('/dashboard/display-settings');
+    const initToggle = page.locator('[data-hover-preview-toggle] input[type="checkbox"]');
+    await expect(initToggle, '273: 既定はオフであること').not.toBeChecked();
+    await initToggle.check();
+
     // ── ① 🗂保存一覧（本文は一覧に載っていない＝ホバー時に取得する画面）──
     await page.goto('/dashboard/saved');
     const panel = page.locator('[data-saved-panel="text-analysis"]');
@@ -2264,7 +2270,7 @@ test('C49: ホバープレビュー — 3画面で出て、Markdown記号が出�
     // ── ④ 🎛表示設定でOFFにすると出なくなる ──
     await page.goto('/dashboard/display-settings');
     const toggle = page.locator('[data-hover-preview-toggle] input[type="checkbox"]');
-    await expect(toggle, '既定はオンであること').toBeChecked();
+    await expect(toggle, '⓪でONにした値が保たれていること（273）').toBeChecked();
     await toggle.uncheck();
     await page.goto('/dashboard/saved');
     const card2 = page.locator('[data-saved-panel="text-analysis"]').locator(`[data-analysis-card="${savedId}"]`);
@@ -2272,9 +2278,7 @@ test('C49: ホバープレビュー — 3画面で出て、Markdown記号が出�
     await page.waitForTimeout(1200); // 遅延(280ms・257)より十分長く待つ
     await expect(preview, 'OFFにしたら出ないこと').toHaveCount(0);
 
-    // 戻す（既定はON）
-    await page.goto('/dashboard/display-settings');
-    await page.locator('[data-hover-preview-toggle] input[type="checkbox"]').check();
+    // 273: 既定はOFFになったので、OFFのまま終える（④で外したところが最終状態）
   } finally {
     await page.request.delete(`${SAVES_API}?id=${savedId}`);
     await page.request.delete(LIBRARY_API, { data: { ids: [libId] } });
@@ -3427,5 +3431,110 @@ test('C70: 横並び比較はタッチ端末では1列（271§4-2・既存の端
     expect(overflow, 'ページに横スクロールが出ていないこと').toBeLessThanOrEqual(1);
   } finally {
     await ctx.close();
+  }
+});
+
+// ============================================================================
+// 273: ホバープレビューの既定をOFFへ
+// - 初期状態（設定を一度も触っていない）では3画面とも出ない
+// - 🎛でONにすれば従来どおり出る／明示的に設定した値は次に開いても保たれる
+// - §3の調査で見つかった「文字サイズ（ルートのzoom）で座標がずれる」件も座標で判定する
+// ============================================================================
+
+test('C71: ホバープレビューの既定OFF（273）— 3画面で出ない・🎛でONに戻せる・明示値は保たれる', async ({ page }) => {
+  const marker = `HOVEROFF${RUN_ID}`;
+  const md = `## ${marker} の見出し\n\n**強調**した本文です。${'あ'.repeat(500)}`;
+  const savedId = await (async () => {
+    const res = await page.request.post(SAVES_API, {
+      data: { title: `既定OFF検証 ${marker}`, content: md, category: SEED_FOLDER },
+    });
+    expect(res.status()).toBe(200);
+    const j = await res.json();
+    return (j.save?.id ?? j.id) as number;
+  })();
+  const libId = await (async () => {
+    const res = await page.request.post(LIBRARY_API, {
+      data: { title: `[E2E] 既定OFF検証 ${marker}`, content: md, type: 'research', tags: '', group_name: '' },
+    });
+    expect(res.status()).toBe(200);
+    return (await res.json()).id as string;
+  })();
+  const ctxId = await (async () => {
+    const res = await page.request.post(CONTEXT_API, {
+      data: { topic: `[E2E] 既定OFF検証 ${marker}`, contextText: md, tags: [] },
+    });
+    expect(res.status()).toBe(200);
+    return (await res.json()).id as number;
+  })();
+
+  const preview = page.locator('[data-hover-preview]');
+  /** 設定を「一度も触っていない状態」に戻す（既定の判定を素で確かめるため） */
+  const resetSetting = async (url: string) => {
+    await page.goto(url);
+    await page.evaluate(() => localStorage.removeItem('lumina_hover_preview'));
+    await page.reload({ waitUntil: 'domcontentloaded' });
+  };
+
+  try {
+    // ── ① 初期状態では3画面とも出ない ──
+    await resetSetting('/dashboard/saved');
+    const savedCard = page.locator('[data-saved-panel="text-analysis"]').locator(`[data-analysis-card="${savedId}"]`);
+    await expect(savedCard).toBeVisible({ timeout: 30000 });
+    await savedCard.hover();
+    await page.waitForTimeout(1200); // 表示遅延(280ms)より十分長く待つ
+    await expect(preview, '🗂保存一覧: 既定では出ないこと').toHaveCount(0);
+
+    await resetSetting('/dashboard/library');
+    await page.locator('[data-library-search]').fill(marker);
+    const libCard = page.locator(`[data-hover-card="${libId}"]`);
+    await expect(libCard).toBeVisible({ timeout: 30000 });
+    await libCard.hover();
+    await page.waitForTimeout(1200);
+    await expect(preview, '📚リサーチ保存: 既定では出ないこと').toHaveCount(0);
+
+    await resetSetting('/dashboard/context-library');
+    const ctxCard = page.locator(`[data-hover-card="${ctxId}"]`);
+    await expect(ctxCard).toBeVisible({ timeout: 30000 });
+    await ctxCard.hover();
+    await page.waitForTimeout(1200);
+    await expect(preview, '🧠AI参照素材: 既定では出ないこと').toHaveCount(0);
+
+    // ── ② 🎛表示設定は「オフ」と表示され、ONに戻せる ──
+    await page.goto('/dashboard/display-settings');
+    await page.evaluate(() => localStorage.removeItem('lumina_hover_preview'));
+    await page.reload({ waitUntil: 'domcontentloaded' });
+    const toggle = page.locator('[data-hover-preview-toggle] input[type="checkbox"]');
+    await expect(toggle, '既定はオフであること').not.toBeChecked();
+    await toggle.check();
+
+    await page.goto('/dashboard/saved');
+    const savedCard2 = page.locator('[data-saved-panel="text-analysis"]').locator(`[data-analysis-card="${savedId}"]`);
+    await expect(async () => {
+      await savedCard2.hover();
+      await expect(preview, 'ONにしたら出ること').toBeVisible({ timeout: 2500 });
+    }).toPass({ timeout: 20000 });
+
+    // ── ③ 273§3: 文字サイズ（ルートのzoom）を上げても、カードの隣に出る ──
+    await page.evaluate(() => localStorage.setItem('lumina_text_scale', '140'));
+    await page.reload({ waitUntil: 'domcontentloaded' });
+    const savedCard3 = page.locator('[data-saved-panel="text-analysis"]').locator(`[data-analysis-card="${savedId}"]`);
+    await expect(savedCard3).toBeVisible({ timeout: 30000 });
+    await expect(async () => {
+      await savedCard3.hover();
+      await expect(preview).toBeVisible({ timeout: 2500 });
+    }).toPass({ timeout: 20000 });
+    await assertPreviewAdjacent(page, page.locator(`[data-hover-card="${savedId}"]`), '文字サイズ最大(zoom1.4)');
+    await page.evaluate(() => localStorage.setItem('lumina_text_scale', '100'));
+
+    // ── ④ 明示的に設定した値は、開き直しても保たれる（上書きしない） ──
+    await page.goto('/dashboard/display-settings');
+    await expect(page.locator('[data-hover-preview-toggle] input[type="checkbox"]'), 'ONにした値が保たれること').toBeChecked();
+    await page.locator('[data-hover-preview-toggle] input[type="checkbox"]').uncheck();
+    await page.reload({ waitUntil: 'domcontentloaded' });
+    await expect(page.locator('[data-hover-preview-toggle] input[type="checkbox"]'), 'OFFにした値も保たれること').not.toBeChecked();
+  } finally {
+    await page.request.delete(`${SAVES_API}?id=${savedId}`);
+    await page.request.delete(LIBRARY_API, { data: { ids: [libId] } });
+    await page.request.delete(`${CONTEXT_API}?id=${ctxId}`);
   }
 });

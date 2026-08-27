@@ -43,6 +43,7 @@ import {
   HOVER_PREVIEW_MAX_HEIGHT,
   HOVER_PREVIEW_PREFETCH_MS,
   HOVER_PREVIEW_WIDTH,
+  toLayoutPx,
   toPreviewText,
   type PreviewRect,
 } from '../../src/lib/hover-preview';
@@ -1212,4 +1213,38 @@ test('U43: 横並び比較の判断（271）— 上限3件・列数・割合ス�
   const legacy = { research_text: '古い本文。', context_text: '要約セクションのない素材。' };
   expect(parseContextWithSummary(legacy.context_text).summarySection).toBeNull();
   expect(pickCompareText(legacy, 'summary')).toEqual({ text: '古い本文。', fellBack: true });
+});
+
+
+test('U44: ホバープレビューの座標は文字サイズ(zoom)で潰れない（273§3）', () => {
+  // 240の文字サイズはルートの CSS zoom。getBoundingClientRect は拡大後（視覚px）を返すが、
+  // position:fixed の left/top はズーム前（レイアウトpx）として解釈され、描画時に zoom 倍される。
+  // 本番実測: zoom=1.25 で style.left=310px のポップアップが 388px（=310×1.25）に出ていた。
+  const card: PreviewRect = { left: 620, top: 1000, width: 1236, height: 107 };
+  const viewport = { width: 1512, height: 900 }; // innerWidth/Height は zoom で変わらない
+
+  // 箱の実寸も視覚pxに直して「どちら側に置けるか」を判定する
+  const zoom = 1.4;
+  const boxVisual = { width: HOVER_PREVIEW_WIDTH * zoom, height: HOVER_PREVIEW_MAX_HEIGHT * zoom };
+  const placement = computePreviewPlacement(card, viewport, boxVisual);
+  // style へ渡す値（レイアウトpx）→ 描画されると zoom 倍されて、決めた視覚pxに戻る
+  const styleLeft = toLayoutPx(placement.left, zoom);
+  const styleTop = toLayoutPx(placement.top, zoom);
+  expect(styleLeft * zoom).toBeCloseTo(placement.left, 5);
+  expect(styleTop * zoom).toBeCloseTo(placement.top, 5);
+
+  // zoom=1 のときは従来と1pxも変わらない（既存の挙動を壊さない）
+  expect(toLayoutPx(310, 1)).toBe(310);
+  const plain = computePreviewPlacement(card, viewport);
+  expect(toLayoutPx(plain.left, 1)).toBe(plain.left);
+  expect(toLayoutPx(plain.top, 1)).toBe(plain.top);
+  // 0や負のzoom（読めなかったとき）は素通しする＝位置を壊さない
+  expect(toLayoutPx(310, 0)).toBe(310);
+
+  // 拡大時は箱も大きくなるので、拡大を見込まないと画面からはみ出す組み合わせが出る。
+  // 見込んだ結果は視覚pxで画面内に収まっていること
+  expect(placement.left).toBeGreaterThanOrEqual(HOVER_PREVIEW_MARGIN);
+  expect(placement.left + boxVisual.width).toBeLessThanOrEqual(viewport.width);
+  expect(placement.top).toBeGreaterThanOrEqual(HOVER_PREVIEW_MARGIN);
+  expect(placement.top + boxVisual.height).toBeLessThanOrEqual(viewport.height);
 });

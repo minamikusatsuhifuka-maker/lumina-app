@@ -33,6 +33,8 @@ import {
   HOVER_PREVIEW_WIDTH,
   isHoverPreviewEnabled,
   HOVER_PREVIEW_EVENT,
+  rootZoom,
+  toLayoutPx,
   toPreviewText,
   type PreviewRect,
 } from '@/lib/hover-preview';
@@ -203,7 +205,13 @@ function PreviewBox({ state }: { state: State }) {
 
   const vw = typeof window !== 'undefined' ? window.innerWidth : 1280;
   const vh = typeof window !== 'undefined' ? window.innerHeight : 800;
-  const placement = computePreviewPlacement(state.card, { width: vw, height: vh });
+  // 273§3: 240の文字サイズ（ルートの zoom）が入っていると、
+  // getBoundingClientRect（視覚px）と position:fixed の left/top（レイアウトpx）で
+  // 座標系が食い違う。**位置は視覚pxで決め、styleに渡すときだけレイアウトpxへ戻す**。
+  // 箱の実寸も視覚pxに直してから「どちら側に置けるか」を判定する（zoom=1なら従来と同一）。
+  const zoom = rootZoom();
+  const boxVisual = { width: HOVER_PREVIEW_WIDTH * zoom, height: boxHeight * zoom };
+  const placement = computePreviewPlacement(state.card, { width: vw, height: vh }, boxVisual);
 
   useLayoutEffect(() => {
     const h = boxRef.current?.offsetHeight;
@@ -211,11 +219,10 @@ function PreviewBox({ state }: { state: State }) {
     if (h && h !== boxHeight) setBoxHeight(h);
   }, [state.card, state.text, state.loading, boxHeight]);
 
-  const arrowOffset = computeArrowOffset(
-    state.card,
-    placement,
-    { width: HOVER_PREVIEW_WIDTH, height: boxHeight },
-    ARROW,
+  // 三角の位置も視覚pxで求めてから、箱の中の座標（レイアウトpx）へ戻す
+  const arrowOffset = toLayoutPx(
+    computeArrowOffset(state.card, placement, boxVisual, ARROW * zoom),
+    zoom,
   );
 
   // 三角のポインタ: カード側の辺に、カードの方を向けて置く
@@ -242,8 +249,8 @@ function PreviewBox({ state }: { state: State }) {
       data-hover-preview-side={placement.side}
       style={{
         position: 'fixed',
-        left: placement.left,
-        top: placement.top,
+        left: toLayoutPx(placement.left, zoom),
+        top: toLayoutPx(placement.top, zoom),
         width: HOVER_PREVIEW_WIDTH,
         maxHeight: HOVER_PREVIEW_MAX_HEIGHT,
         overflow: 'hidden',

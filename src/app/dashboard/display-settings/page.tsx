@@ -218,7 +218,7 @@ export default function DisplaySettingsPage() {
                 カーソルを当てたら内容をプレビューする
               </span>
               <span style={{ display: 'block', fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>
-                既定はオンです。煩わしいときはオフにしてください（「▼ 全文表示」はそのまま使えます）。
+                既定はオフです。使いたいときにオンにしてください（「▼ 全文表示」はそのまま使えます）。
               </span>
             </span>
             <input

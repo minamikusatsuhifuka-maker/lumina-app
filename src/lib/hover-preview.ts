@@ -1,7 +1,11 @@
-// 256: カードにカーソルを当てたときの本文プレビュー設定（既定ON）。
+// 256: カードにカーソルを当てたときの本文プレビュー設定。
 //
 // 一覧で「▼全文表示」を開かなくても中身が分かるようにするための表示。
-// 煩わしいと感じる場面があるため 🎛表示設定 でオフにできる（院長指示）。
+// 煩わしいと感じる場面があるため 🎛表示設定 でオン・オフを切り替えられる（院長指示）。
+//
+// 273: **既定をOFFに変更した**（院長指示「ポップアップ要約が本文に重なって読みにくい」）。
+// 機能は残し、🎛表示設定でONに戻せる。既に自分で設定した人の値は上書きしない——
+// 保存値が '1'（自分でONにした）ならON、'0'（自分でOFFにした）ならOFF、**未設定ならOFF**。
 //
 // 保存はテーマ・追従ボタン・自動ストック保存と同じ localStorage（このブラウザ単位）。
 
@@ -28,12 +32,13 @@ export const HOVER_PREVIEW_PREFETCH_MS = 80;
 /** プレビューに出す本文の最大文字数（超えたら「…」で切る） */
 export const HOVER_PREVIEW_CHARS = 400;
 
-/** 既定ON（'0' が保存されているときのみOFF） */
+/** 273: 既定OFF（'1' が保存されているときだけON＝自分でONにした人の値は保つ） */
 export function isHoverPreviewEnabled(): boolean {
   try {
-    return localStorage.getItem(HOVER_PREVIEW_KEY) !== '0';
+    return localStorage.getItem(HOVER_PREVIEW_KEY) === '1';
   } catch {
-    return true;
+    // 読めない環境（プライベートモード等）は既定に倒す＝出さない
+    return false;
   }
 }
 
@@ -54,7 +59,8 @@ export function useHoverPreviewSetting(): {
   setEnabled: (on: boolean) => void;
   mounted: boolean;
 } {
-  const [enabled, setEnabledState] = useState(true);
+  // 273: 既定OFF。確定前に「オン」と見せない（mounted を見てから出し分ける）
+  const [enabled, setEnabledState] = useState(false);
   const [mounted, setMounted] = useState(false);
 
   useEffect(() => {
@@ -111,6 +117,30 @@ export const HOVER_PREVIEW_MAX_HEIGHT = 260;
 export const HOVER_PREVIEW_GAP = 10;
 /** 画面端に残す余白(px) */
 export const HOVER_PREVIEW_MARGIN = 8;
+
+/**
+ * 273§3: 240の「文字サイズ」はルート要素の CSS `zoom` で全体を拡大する方式。
+ * このとき getBoundingClientRect は**拡大後（視覚）の座標**を返すのに対し、
+ * `position: fixed` の left/top はズーム前（レイアウト）の値として解釈され、
+ * 描画時に zoom 倍される。つまり素直に代入すると **座標が zoom 倍ずれる**
+ * （実測: zoom=1.25 で style.left=310px → 実際は 388px に出る）。
+ * 位置は視覚pxで決めて、styleに渡すときだけレイアウトpxへ戻す。
+ */
+export function rootZoom(): number {
+  try {
+    if (typeof window === 'undefined' || typeof document === 'undefined') return 1;
+    const raw = getComputedStyle(document.documentElement).zoom;
+    const z = Number.parseFloat(raw);
+    return Number.isFinite(z) && z > 0 ? z : 1;
+  } catch {
+    return 1;
+  }
+}
+
+/** 視覚px → レイアウトpx（style に渡す値）。zoom が 1 のときは何も変えない */
+export function toLayoutPx(visual: number, zoom: number): number {
+  return zoom > 0 ? visual / zoom : visual;
+}
 
 export type PreviewRect = { left: number; top: number; width: number; height: number };
 export type PreviewSide = 'right' | 'left' | 'bottom' | 'top';
