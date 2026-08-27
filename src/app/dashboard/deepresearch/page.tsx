@@ -398,6 +398,18 @@ function BatchExpandedContent({ result }: { result: BatchResult }) {
 }
 
 type BatchTopic = { topic: string; mode: 'quick' | 'standard' | 'deep' };
+
+// 272: バッチリサーチの文字数プリセット。ここが3つ以下ならボタン並び、4つ以上ならドロップダウンで
+// 一括設定を出す（プリセットの正本はこの配列1本。行ごとの<select>もこれを使う）。
+const BATCH_MODE_PRESETS: { value: BatchTopic['mode']; label: string; chars: string }[] = [
+  { value: 'quick', label: '⚡ クイック', chars: '1500字' },
+  { value: 'standard', label: '📊 標準', chars: '3000字' },
+  { value: 'deep', label: '🔭 ディープ', chars: '5000字' },
+];
+// 3つ以下なら「押したら変わる」ボタン並び。増やしたときは自動でドロップダウンに切り替わる。
+const BATCH_BULK_AS_BUTTONS = BATCH_MODE_PRESETS.length <= 3;
+// 263【2】の既定＝5000字（deep）。272の一括設定はこれを初期値として引き継ぐ（正本はここ1箇所）。
+const BATCH_DEFAULT_MODE: BatchTopic['mode'] = 'deep';
 type ProgressEvent = { type: string; index?: number; topic?: string; total?: number; error?: string; success?: boolean; jobId?: number; message?: string };
 type BatchJob = {
   id: number;
@@ -429,7 +441,10 @@ export default function DeepResearchPage() {
 
   // バッチリサーチ
   // 263【2】: 新規トピックの既定は 5000字（deep）。設定済みの行は変えない
-  const [batchTopics, setBatchTopics] = useState<BatchTopic[]>([{ topic: '', mode: 'deep' }]);
+  // 272: その5000字を「一括設定の初期値」として保持する。一括設定を押すと既存の全行が変わり、
+  //      以後の「＋トピックを追加」もこの値で入る（押した瞬間だけの変更にしない）。
+  const [batchDefaultMode, setBatchDefaultMode] = useState<BatchTopic['mode']>(BATCH_DEFAULT_MODE);
+  const [batchTopics, setBatchTopics] = useState<BatchTopic[]>([{ topic: '', mode: BATCH_DEFAULT_MODE }]);
   const [scheduleType, setScheduleType] = useState<'immediate' | 'browser' | 'cron'>('immediate');
   const [scheduledAt, setScheduledAt] = useState('');
   const [notifyEmail, setNotifyEmail] = useState('');
@@ -604,7 +619,14 @@ export default function DeepResearchPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const addBatchTopic = () => setBatchTopics(prev => prev.length < 10 ? [...prev, { topic: '', mode: 'deep' }] : prev);
+  // 272: 新規行は「一括設定で選んだ値」で入る（初期値は263の5000字＝deep）
+  const addBatchTopic = () => setBatchTopics(prev => prev.length < 10 ? [...prev, { topic: '', mode: batchDefaultMode }] : prev);
+  /** 272: 文字数の一括設定。既定値を更新し、空行も含む既存の全行に適用する。
+   *  非破壊（データを消さず押し直せば戻る）ため R-56 の確認ダイアログは付けない。 */
+  const applyBatchModeToAll = (mode: BatchTopic['mode']) => {
+    setBatchDefaultMode(mode);
+    setBatchTopics(prev => prev.map(t => ({ ...t, mode })));
+  };
   const removeBatchTopic = (i: number) => setBatchTopics(prev => prev.filter((_, idx) => idx !== i));
   const updateBatchTopic = (i: number, patch: Partial<BatchTopic>) => {
     setBatchTopics(prev => prev.map((t, idx) => idx === i ? { ...t, ...patch } : t));
@@ -3304,11 +3326,50 @@ ${contextText}
             {/* トピックリスト */}
             <div style={{ marginBottom: 14 }}>
               <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.06em' }}>リサーチトピック（最大10件）</div>
+
+              {/* 272: 文字数の一括設定。押すと既存の全行（空行含む）が変わり、以後の追加行もこの値で入る。
+                  非破壊のため確認ダイアログは出さない（R-56の適用外）。行ごとの個別変更は下の<select>で従来どおり可能。 */}
+              <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' as const, marginBottom: 10, padding: '8px 10px', background: 'var(--bg-primary)', border: '1px solid var(--border)', borderRadius: 8 }}>
+                <span style={{ fontSize: 12, color: 'var(--text-muted)', fontWeight: 600 }}>文字数を一括変更</span>
+                {BATCH_BULK_AS_BUTTONS ? (
+                  <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' as const }}>
+                    {BATCH_MODE_PRESETS.map(p => (
+                      <button
+                        key={p.value}
+                        data-batch-bulk-mode={p.value}
+                        aria-pressed={batchDefaultMode === p.value}
+                        onClick={() => applyBatchModeToAll(p.value)}
+                        title={`全${batchTopics.length}行を${p.chars}にします（個別の変更はこのあとも可能です）`}
+                        style={{
+                          padding: '6px 12px', borderRadius: 999, cursor: 'pointer', fontSize: 12, fontWeight: 600,
+                          border: batchDefaultMode === p.value ? '2px solid var(--accent)' : '1px solid var(--border)',
+                          background: batchDefaultMode === p.value ? 'var(--accent-soft)' : 'var(--bg-secondary)',
+                          color: batchDefaultMode === p.value ? 'var(--text-secondary)' : 'var(--text-muted)',
+                        }}
+                      >{p.label}({p.chars})</button>
+                    ))}
+                  </div>
+                ) : (
+                  <select
+                    data-batch-bulk-select
+                    value={batchDefaultMode}
+                    onChange={e => applyBatchModeToAll(e.target.value as BatchTopic['mode'])}
+                    style={{ padding: 6, background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 6, color: 'var(--text-primary)', fontSize: 12, outline: 'none' }}
+                  >
+                    {BATCH_MODE_PRESETS.map(p => (
+                      <option key={p.value} value={p.value}>{p.label}({p.chars})</option>
+                    ))}
+                  </select>
+                )}
+                <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>全{batchTopics.length}行に適用され、追加する行もこの文字数になります</span>
+              </div>
+
               <div style={{ display: 'flex', flexDirection: 'column' as const, gap: 8 }}>
                 {batchTopics.map((item, i) => (
                   <div key={i} style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
                     <span style={{ fontSize: 12, color: 'var(--text-muted)', width: 24, textAlign: 'center' as const }}>{i + 1}</span>
                     <input
+                      data-batch-topic={i}
                       value={item.topic}
                       onChange={e => updateBatchTopic(i, { topic: e.target.value })}
                       placeholder={`トピック ${i + 1}`}
@@ -3320,9 +3381,9 @@ ${contextText}
                       onChange={e => updateBatchTopic(i, { mode: e.target.value as BatchTopic['mode'] })}
                       style={{ padding: 8, background: 'var(--bg-primary)', border: '1px solid var(--border)', borderRadius: 6, color: 'var(--text-primary)', fontSize: 12, outline: 'none' }}
                     >
-                      <option value="quick">⚡ クイック(1500字)</option>
-                      <option value="standard">📊 標準(3000字)</option>
-                      <option value="deep">🔭 ディープ(5000字)</option>
+                      {BATCH_MODE_PRESETS.map(p => (
+                        <option key={p.value} value={p.value}>{p.label}({p.chars})</option>
+                      ))}
                     </select>
                     {batchTopics.length > 1 && (
                       <button

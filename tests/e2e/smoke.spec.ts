@@ -3213,3 +3213,64 @@ test('C66: Kindle→note多軸展開（269）— 3軸の選択肢・警告表示
   // note用リッチコピー（266の専用ラッパー経路）ボタンがある
   await expect(page.getByRole('button', { name: /note用にコピー/ })).toBeVisible();
 });
+
+test('C68: バッチリサーチの文字数を一括変更（272）— 全行に効く・追加行にも継承・個別変更は残る・確認なし', async ({ page }) => {
+  // 272のUIスモーク。AIは呼ばずジョブも作らないので課金・残骸なし（R-55の対象データを作らない）。
+  await stubFeatureDrafts(page); // R-12: 下書き復元で画面状態が変わる前提を固定
+
+  // 確認ダイアログを実装していないこと（§2-4）を機械判定するため、出たら記録して落とす
+  let dialogMessage = '';
+  page.on('dialog', async (d) => {
+    dialogMessage = d.message();
+    await d.dismiss();
+  });
+
+  await page.goto('/dashboard/deepresearch');
+  await page.getByRole('button', { name: '⚡ バッチリサーチ' }).click();
+
+  // 1) 初期状態は263の既定＝5000字（deep）のまま
+  await expect(page.locator('[data-batch-mode="0"]')).toHaveValue('deep');
+  await expect(page.locator('[data-batch-bulk-mode="deep"]')).toHaveAttribute('aria-pressed', 'true');
+
+  // 3行にしてから、行ごとにばらばらの値を入れる
+  const addBtn = page.getByRole('button', { name: /トピックを追加/ });
+  await addBtn.click();
+  await addBtn.click();
+  await page.locator('[data-batch-mode="1"]').selectOption('quick');
+  await page.locator('[data-batch-mode="2"]').selectOption('standard');
+
+  // 2) 一括設定を押すと、空行も含む既存の全行が変わる
+  await page.locator('[data-batch-bulk-mode="quick"]').click();
+  for (const i of [0, 1, 2]) {
+    await expect(page.locator(`[data-batch-mode="${i}"]`)).toHaveValue('quick');
+  }
+
+  // 3) その後に追加した行も同じ値で入る（＝既定値として保持されている）
+  await addBtn.click();
+  await expect(page.locator('[data-batch-mode="3"]')).toHaveValue('quick');
+
+  // 4) 個別のドロップダウンは引き続き使え、次に一括設定を押すまで値を保つ
+  await page.locator('[data-batch-mode="2"]').selectOption('deep');
+  await expect(page.locator('[data-batch-mode="2"]')).toHaveValue('deep');
+  await expect(page.locator('[data-batch-mode="0"]'), '個別変更は他行に波及しない').toHaveValue('quick');
+  await addBtn.click(); // 追加しても既定は一括設定の値のまま
+  await expect(page.locator('[data-batch-mode="4"]')).toHaveValue('quick');
+  await expect(page.locator('[data-batch-mode="2"]'), '個別変更した行は保たれる').toHaveValue('deep');
+
+  // 5) もう一度一括設定を押すと、個別変更した行も含めて揃う
+  await page.locator('[data-batch-bulk-mode="standard"]').click();
+  for (const i of [0, 1, 2, 3, 4]) {
+    await expect(page.locator(`[data-batch-mode="${i}"]`)).toHaveValue('standard');
+  }
+
+  // 6) ここまで確認ダイアログが一度も出ていないこと（§2-4・非破壊なのでR-56は適用外）
+  expect(dialogMessage, '文字数の一括変更で確認ダイアログを出さない').toBe('');
+
+  // 7) プリセットは3つ＝ボタン並び（4つ以上ならドロップダウンに切り替わる実装）
+  await expect(page.locator('[data-batch-bulk-mode]')).toHaveCount(3);
+  await expect(page.locator('[data-batch-bulk-select]')).toHaveCount(0);
+
+  // 8) 実行導線に退行がないこと（登録ボタンが押せる状態で残っている）
+  await page.locator('[data-batch-topic="0"]').fill('[E2E] 表示確認のみ（実行しない）');
+  await expect(page.getByRole('button', { name: '⚡ 今すぐ一括実行' })).toBeEnabled();
+});
