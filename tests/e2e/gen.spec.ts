@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { RUN_ID, createSave, deleteSave, createLibraryItem } from './helpers';
+import { SUMMARY_FOR_NEXT_MAX } from '../../src/lib/presentation';
 
 // ============================================================================
 // 生成完走系（B1/B3〜B7/B9/B10）— 実AI課金が発生するため既定スキップ（@gen）
@@ -476,4 +477,50 @@ test('B18: Kindle多軸展開（269）— 書き下ろしが構造どおりで�
   // §2-2: 書き下ろしのため一致度は警告しきい値未満
   expect(data.overlapWarn).toBe(false);
   expect(data.ad_check?.status === 'ok' || data.ad_check?.status === 'warn').toBe(true);
+});
+
+// 275: プレゼン原稿は**マルチモーダル**（画像＋テキスト）で1ページ1リクエスト。
+// モック版（C73）では画像の受け渡し形式（inlineData）が正しいかを検証できないため、
+// 実AIで1枚だけ通す（R-36: AI経路の成否を検証しないE2Eは証拠にならない）。
+const TINY_PNG_B64 =
+  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
+
+test('B19: プレゼン原稿1ページ（275）— 画像＋テキストで4要素・要点・テーマ推定が返る @gen', async ({ request }) => {
+  test.setTimeout(GEN_TIMEOUT);
+  const res = await request.post('/api/presentation/page-script', {
+    data: {
+      pageNumber: 1,
+      totalPages: 2,
+      audience: 'staff',
+      theme: '', // 未指定＝1枚目から推定させる（§3-3）
+      imageDataUrl: `data:image/png;base64,${TINY_PNG_B64}`,
+      pageText: '保湿剤の基本／角層の水分を保つ／入浴後は早めに塗る／1日2回が目安',
+      prevSummary: '',
+      nextTitle: '外用薬の塗り方',
+    },
+    timeout: REQ_TIMEOUT,
+  });
+  expect(res.status()).toBe(200);
+  const json = await res.json();
+  // §3-5: 原稿の型（4要素）がすべて文字列で返る
+  for (const key of ['connect', 'main', 'supplement', 'handoff']) {
+    expect(typeof json.sections?.[key], `${key} が文字列で返る`).toBe('string');
+  }
+  expect(json.sections.main.length, '本題が空でない').toBeGreaterThan(0);
+  // §3-3: 次ページへ渡す要点は1〜2文に圧縮されている
+  expect(json.summaryForNext.length).toBeGreaterThan(0);
+  expect(json.summaryForNext.length).toBeLessThanOrEqual(SUMMARY_FOR_NEXT_MAX + 1);
+  // テーマ未指定でも1枚目から推定される
+  expect(String(json.inferredTheme).length).toBeGreaterThan(0);
+  expect(json._ai?.provider).toBe('gemini');
+  // 話し言葉の原稿＝見出し記号を含まない
+  expect(json.sections.main).not.toContain('##');
+});
+
+test('B20: プレゼン原稿は読むものが無ければ400（偽の原稿を作らない） @gen', async ({ request }) => {
+  // AIは呼ばない（バリデーションで弾く経路）
+  const res = await request.post('/api/presentation/page-script', {
+    data: { pageNumber: 1, totalPages: 1, audience: 'staff', theme: '', imageDataUrl: '', pageText: '' },
+  });
+  expect(res.status()).toBe(400);
 });
