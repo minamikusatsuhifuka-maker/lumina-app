@@ -49,3 +49,6 @@ next-env.d.ts
 /playwright-report/
 /blob-report/
 /playwright/.auth/
+
+# 275: pdf.js の実行時アセット（scripts/copy-pdfjs-assets.mjs が prebuild/predev で生成）
+/public/pdfjs/

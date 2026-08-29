@@ -182,6 +182,23 @@ export default function DocPromptPage() {
       <p style={{ color: 'var(--text-muted)', marginBottom: 12 }}>
         資料の種類に合わせて、AIに指示するための最適なプロンプトを生成します
       </p>
+
+      {/* 275: できあがった資料を「話す原稿」にする導線（R-34） */}
+      <a
+        href="/dashboard/presentation"
+        style={{
+          display: 'inline-flex', alignItems: 'center', gap: 8, marginBottom: 16, padding: '10px 16px',
+          background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 10,
+          textDecoration: 'none', color: 'var(--text-primary)', fontSize: 13, lineHeight: 1.6,
+        }}
+      >
+        <span style={{ fontSize: 18 }}>🎤</span>
+        <span>
+          <strong>できた資料の発表原稿を作る</strong>
+          <span style={{ color: 'var(--text-muted)' }}> — PDF・画像を読み込んで、スライド1枚ずつの話す原稿を生成</span>
+        </span>
+        <span style={{ color: 'var(--text-muted)', fontWeight: 700 }}>→</span>
+      </a>
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 20 }}>
         <span style={{ fontSize: 11, color: 'var(--text-muted)', alignSelf: 'center' }}>関連機能：</span>
         {[

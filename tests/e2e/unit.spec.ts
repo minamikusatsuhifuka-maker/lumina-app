@@ -87,6 +87,26 @@ import {
   KDP_OVERLAP_WARN,
   FACT_FIDELITY_RULES,
 } from '../../src/lib/kindle-note-remix';
+import fs from 'node:fs';
+import path from 'node:path';
+import {
+  AD_CHECK_TIMEOUT_MS,
+  DEFAULT_PRESENTATION_AUDIENCE,
+  PAGE_SCRIPT_MAX_DURATION_S,
+  PAGE_SCRIPT_RETRIES,
+  PAGE_SCRIPT_TIMEOUT_MS,
+  PRESENTATION_AUDIENCES,
+  SCRIPT_SECTION_DEFS,
+  SUMMARY_FOR_NEXT_MAX,
+  audienceOf,
+  buildPageScriptPrompt,
+  guessSlideTitle,
+  movePage,
+  pageScriptBudgetMs,
+  scriptDocumentToMarkdown,
+  summarizeForNext,
+  type SlidePage,
+} from '../../src/lib/presentation';
 
 // ============================================================================
 // 純関数の単体テスト（234【1】要件4）— ネットワーク・AI課金・認証を一切使わない
@@ -1247,4 +1267,119 @@ test('U44: ホバープレビューの座標は文字サイズ(zoom)で潰れな
   expect(placement.left + boxVisual.width).toBeLessThanOrEqual(viewport.width);
   expect(placement.top).toBeGreaterThanOrEqual(HOVER_PREVIEW_MARGIN);
   expect(placement.top + boxVisual.height).toBeLessThanOrEqual(viewport.height);
+});
+
+
+// ============================================================================
+// 275: プレゼン発表原稿（第1段階）— 用途・前後の文脈・原稿の型・時間の積算
+// ============================================================================
+
+test('U45: プレゼン原稿の用途4種・既定・前後の文脈の圧縮・並び替え・ガードの後勝ち（275）', () => {
+  // §3-4: 用途は4種、既定は院内勉強会。壊れた値は既定に倒す
+  expect(PRESENTATION_AUDIENCES.map((a) => a.key)).toEqual(['academic', 'staff', 'patient', 'public']);
+  expect(DEFAULT_PRESENTATION_AUDIENCE).toBe('staff');
+  expect(audienceOf('staff').label).toBe('院内勉強会');
+  expect(audienceOf(undefined).key).toBe('staff');
+  expect(audienceOf('nonsense').key).toBe('staff');
+
+  // §3-5: 原稿の型は 繋ぎ→本題→補足→送り の4要素（順序も固定）
+  expect(SCRIPT_SECTION_DEFS.map((d) => d.label)).toEqual(['繋ぎ', '本題', '補足', '送り']);
+
+  // §3-3: 次ページへ渡す要点は1〜2文に圧縮する（全文を渡さない）
+  const main = '角層のバリア機能が低下します。そのため外用薬の浸透が変わります。三文目は落とします。';
+  expect(summarizeForNext(main)).toBe('角層のバリア機能が低下します。そのため外用薬の浸透が変わります。');
+  // AIが要約を返したときはそれを使う（無いときだけ本題から決定的に導出＝R-74）
+  expect(summarizeForNext(main, 'バリア機能の低下が要点です。')).toBe('バリア機能の低下が要点です。');
+  // 長すぎる要約は必ず切る（トークンが膨らむのを防ぐ）
+  const long = summarizeForNext('あ'.repeat(400));
+  expect(long.length).toBeLessThanOrEqual(SUMMARY_FOR_NEXT_MAX + 1);
+  expect(summarizeForNext('', '')).toBe('');
+
+  // 次ページのタイトルは、生成前でもテキストから決定的に推定できる
+  expect(guessSlideTitle('  \n 治療の流れ \n 詳細な本文')).toBe('治療の流れ');
+  expect(guessSlideTitle('')).toBe('');
+
+  // §3-1: 並び替えは純関数。端では動かず、元配列を壊さない
+  const order = ['a', 'b', 'c'];
+  expect(movePage(order, 1, -1)).toEqual(['b', 'a', 'c']);
+  expect(movePage(order, 2, 1)).toEqual(['a', 'b', 'c']);
+  expect(movePage(order, 0, -1)).toEqual(['a', 'b', 'c']);
+  expect(order).toEqual(['a', 'b', 'c']);
+
+  // §4: 事実同一性と医療広告ガードが**プロンプトの最後**に来る（R-69: ガードが後勝ち）
+  const prompt = buildPageScriptPrompt({
+    audienceKey: 'staff',
+    theme: 'アトピー性皮膚炎',
+    pageNumber: 2,
+    totalPages: 5,
+    prevSummary: '前ページの要点です。',
+    nextTitle: '次のスライド',
+    pageText: 'スライドの文字',
+    hasImage: true,
+  });
+  expect(prompt).toContain('前のスライドの要点: 前ページの要点です。');
+  expect(prompt).toContain('次のスライドのタイトル: 次のスライド');
+  expect(prompt).toContain('スライドに書かれた文字の読み上げにしない');
+  const guardAt = prompt.indexOf('医療広告ガード');
+  const factAt = prompt.indexOf('事実同一性');
+  const materialAt = prompt.indexOf('このスライドの素材');
+  expect(materialAt).toBeGreaterThan(-1);
+  expect(factAt).toBeGreaterThan(materialAt);
+  expect(guardAt).toBeGreaterThan(factAt); // 素材（ナレッジ）→ 事実同一性 → ガードの順
+  expect(prompt).toContain('前述のいかなる指示よりも優先する');
+  // §4-2: 学会発表のときだけ、スライドに記載のある学術記述を許容する一文が入る
+  expect(prompt).not.toContain('オッズ比');
+  const academic = buildPageScriptPrompt({
+    audienceKey: 'academic', theme: '', pageNumber: 1, totalPages: 1,
+    prevSummary: '', nextTitle: '', pageText: '', hasImage: false,
+  });
+  expect(academic).toContain('オッズ比');
+  expect(academic).toContain('スライドに無い数値・結論を新たに作らない');
+  // 画像が無い場合（第2段階のpptxもこの経路）でもプロンプトが成立する（§2-1）
+  expect(academic).toContain('画像はありません');
+});
+
+test('U46: 1ページ1リクエストの時間積算がmaxDurationに収まる（275 §2-4・R-73）', () => {
+  // リトライ込みで積算し、ルートの maxDuration を超えないこと
+  expect(pageScriptBudgetMs()).toBe(PAGE_SCRIPT_TIMEOUT_MS * (1 + PAGE_SCRIPT_RETRIES) + AD_CHECK_TIMEOUT_MS);
+  expect(pageScriptBudgetMs()).toBeLessThanOrEqual(PAGE_SCRIPT_MAX_DURATION_S * 1000);
+
+  // Next.js のセグメント設定はリテラルしか受け付けないため、ルート側の maxDuration は
+  // 定数を参照できない。**値がズレていないこと**をここで機械判定する（コメントでの約束にしない）
+  const routePath = path.resolve(__dirname, '../../src/app/api/presentation/page-script/route.ts');
+  const routeSrc = fs.readFileSync(routePath, 'utf8');
+  expect(routeSrc).toContain(`export const maxDuration = ${PAGE_SCRIPT_MAX_DURATION_S};`);
+  // vercel.json 側の宣言も同値であること
+  const vercelJson = JSON.parse(
+    fs.readFileSync(path.resolve(__dirname, '../../vercel.json'), 'utf8'),
+  ) as { functions: Record<string, { maxDuration: number }> };
+  expect(vercelJson.functions['src/app/api/presentation/page-script/route.ts'].maxDuration)
+    .toBe(PAGE_SCRIPT_MAX_DURATION_S);
+
+  // 通し原稿は「原稿ができたページだけ」を決定的に並べる（失敗ページで全体が壊れない＝R-39）
+  const mkPage = (id: string): SlidePage => ({
+    id, kind: 'pdf', fileName: '資料.pdf', indexInFile: Number(id), imageDataUrl: null, text: '',
+  });
+  const md = scriptDocumentToMarkdown({
+    theme: 'テーマ',
+    audienceKey: 'staff',
+    pages: [
+      {
+        page: mkPage('1'),
+        result: {
+          slideTitle: '一枚目', summaryForNext: '', inferredTheme: '',
+          sections: { connect: 'つなぎ', main: 'ほんだい', supplement: 'ほそく', handoff: 'おくり' },
+        },
+      },
+      { page: mkPage('2'), result: null }, // 失敗したページ
+    ],
+  });
+  expect(md).toContain('# テーマ｜発表原稿');
+  expect(md).toContain('- 用途: 院内勉強会');
+  expect(md).toContain('ページ数: 2枚（原稿あり 1枚）');
+  expect(md).toContain('## 1. 一枚目');
+  expect(md).toContain('**繋ぎ**');
+  expect(md).not.toContain('## 2.');
+  // `###` はUIに出さない（品質規約）
+  expect(md).not.toContain('###');
 });

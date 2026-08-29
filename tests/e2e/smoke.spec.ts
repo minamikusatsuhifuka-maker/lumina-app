@@ -3632,3 +3632,187 @@ test('C72: カードのクリックで本文を展開（274）— 領域限定�
     }
   }
 });
+
+
+// ============================================================================
+// 275: 🎤 プレゼン発表原稿（第1段階: PDF・画像）
+// - 複数ファイルを一度に読み込む／PDFは全ページに展開／順序の入れ替え
+// - 生成は**1ページ1リクエスト**（§2-4）・1枚の失敗で他を巻き添えにしない（R-39）
+// - 用途4種と既定（院内勉強会）／ページ単位の再生成／スライドと原稿の並列表示（§4-1）
+// - リッチコピー／保存一覧への保存
+// AIは呼ばずAPIをモックするため課金なし。保存物は [E2E] 印を付けて最後に削除する（R-55）
+// ============================================================================
+
+/** ページ数ぶんの空PDF（xref付き・全ASCII＝文字長がそのままバイトオフセット） */
+function buildBlankPdf(pageCount: number): Buffer {
+  const kids = Array.from({ length: pageCount }, (_, i) => `${i + 3} 0 R`).join(' ');
+  const objs = [
+    '<< /Type /Catalog /Pages 2 0 R >>',
+    `<< /Type /Pages /Kids [${kids}] /Count ${pageCount} >>`,
+    ...Array.from({ length: pageCount }, () => '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 320 240] /Resources << >> >>'),
+  ];
+  let out = '%PDF-1.4\n';
+  const offsets: number[] = [];
+  objs.forEach((body, idx) => {
+    offsets.push(out.length);
+    out += `${idx + 1} 0 obj\n${body}\nendobj\n`;
+  });
+  const startxref = out.length;
+  out += `xref\n0 ${objs.length + 1}\n0000000000 65535 f \n`;
+  for (const off of offsets) out += `${String(off).padStart(10, '0')} 00000 n \n`;
+  out += `trailer\n<< /Size ${objs.length + 1} /Root 1 0 R >>\nstartxref\n${startxref}\n%%EOF\n`;
+  return Buffer.from(out, 'latin1');
+}
+
+/** 1x1の透明PNG（画像レーンの検証用。中身は問わない） */
+const TINY_PNG = Buffer.from(
+  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==',
+  'base64',
+);
+
+test('C73: プレゼン発表原稿（275）— 複数同時読み込み・PDF展開・並び替え・1ページ1リクエスト・失敗の局所化・再生成・並列表示（APIモック）', async ({
+  page,
+  context,
+}) => {
+  const marker = `PRES${RUN_ID}`;
+  const inferredTheme = `${E2E_PREFIX} 推定テーマ ${marker}`;
+  await context.grantPermissions(['clipboard-read', 'clipboard-write'], { origin: BASE_URL });
+
+  // 生成APIをモック（AI課金なし）。呼ばれたリクエストを全部ためて、1ページ1リクエストを機械判定する
+  const calls: Record<string, unknown>[] = [];
+  let failPage2Once = true;
+  await page.route('**/api/presentation/page-script', async (route) => {
+    const body = (route.request().postDataJSON() ?? {}) as Record<string, unknown>;
+    calls.push(body);
+    const n = Number(body.pageNumber);
+    if (n === 2 && failPage2Once) {
+      failPage2Once = false; // 再生成では成功させる
+      return route.fulfill({
+        status: 502,
+        contentType: 'application/json',
+        body: JSON.stringify({ error: '[E2E] 想定内の失敗' }),
+      });
+    }
+    return route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        slideTitle: `見出し${n}`,
+        sections: { connect: `つなぎ${n}`, main: `ほんだい${n}`, supplement: `ほそく${n}`, handoff: `おくり${n}` },
+        summaryForNext: `ようてん${n}`,
+        inferredTheme,
+        adCheck: { status: 'ok', findings: [] },
+        _ai: { provider: 'gemini', modelLabel: 'Gemini 3.7 Flash' },
+      }),
+    });
+  });
+
+  const savedIds: number[] = [];
+  try {
+    await page.goto('/dashboard/presentation');
+    await expect(page.getByRole('heading', { name: /プレゼン発表原稿/ })).toBeVisible({ timeout: 30000 });
+
+    // §2-3: ファイル自体を保存しないことが画面に明記されている／§2-1: pptxは第2段階の案内
+    await expect(page.getByText('ファイル自体は保存されません')).toBeVisible();
+    await expect(page.getByText(/pptx.*第2段階/)).toBeVisible();
+
+    // §3-4: 用途は4種・既定は院内勉強会
+    const audience = page.locator('[data-pres-audience]');
+    expect(await audience.locator('option').count(), '用途は4種').toBe(4);
+    await expect(audience).toHaveValue('staff');
+    await expect(audience.locator('option[value="staff"]')).toHaveText(/院内勉強会/);
+    for (const label of ['学会発表', '患者向け講演', '一般向けセミナー']) {
+      await expect(audience.locator('option', { hasText: label })).toHaveCount(1);
+    }
+
+    // §3-1: PDF（2ページ）と画像を**一度に**読み込む → PDFは全ページに展開される
+    await page.locator('[data-pres-file-input]').setInputFiles([
+      { name: '資料.pdf', mimeType: 'application/pdf', buffer: buildBlankPdf(2) },
+      { name: 'スライド.png', mimeType: 'image/png', buffer: TINY_PNG },
+    ]);
+    const rows = page.locator('[data-pres-page]');
+    await expect(rows, 'PDF2ページ＋画像1枚＝3ページに展開される').toHaveCount(3, { timeout: 30000 });
+    const labels = async () => rows.evaluateAll((els) => els.map((e) => e.getAttribute('data-pres-page-label')));
+    expect(await labels()).toEqual(['資料.pdf p.1', '資料.pdf p.2', 'スライド.png']);
+
+    // §3-1: 順序を入れ替えられる（↑で1つ前へ／↓で戻る）
+    await rows.nth(2).locator('[data-pres-move-up]').click();
+    expect(await labels(), '↑でページ順が入れ替わる').toEqual(['資料.pdf p.1', 'スライド.png', '資料.pdf p.2']);
+    await rows.nth(1).locator('[data-pres-move-down]').click();
+    expect(await labels(), '↓で元に戻る').toEqual(['資料.pdf p.1', '資料.pdf p.2', 'スライド.png']);
+
+    // 実行（テーマは空欄＝1枚目から推定させる）
+    await page.locator('[data-pres-run]').click();
+
+    // §3-7: 進捗が出る／失敗ページが分かる（2枚目だけ失敗させている）
+    await expect(page.locator('[data-pres-failed]')).toBeVisible({ timeout: 60000 });
+    await expect(page.locator('[data-pres-progress]')).toContainText('進捗: 2 / 3 ページ');
+
+    // §2-4: 全ページを1リクエストで処理しない＝3ページなら3回、ページ番号は1,2,3の逐次
+    expect(calls.length, '1ページ1リクエスト（3ページ＝3回）').toBe(3);
+    expect(calls.map((c) => c.pageNumber)).toEqual([1, 2, 3]);
+    // §3-3: 渡すのは「前ページの要点」「次ページのタイトル」「全体のテーマ」だけ。全ページは渡さない
+    expect(calls[0].prevSummary, '1枚目に前ページの要点は無い').toBe('');
+    expect(calls[2].prevSummary, '前ページの要点が次の生成に渡る').toBe('ようてん2');
+    expect(calls[2].theme, '1枚目から推定したテーマが以降へ引き継がれる').toBe(inferredTheme);
+    for (const c of calls) {
+      expect(Object.keys(c), '全ページの束を送っていない').not.toContain('pages');
+      expect(typeof c.imageDataUrl, 'ページ画像を送っている').toBe('string');
+    }
+
+    // R-39: 2枚目の失敗が他ページを巻き添えにしない
+    const resultPage = (n: number) => page.locator(`[data-pres-result-page="${n}"]`);
+    await expect(resultPage(2).locator('[data-pres-page-error]')).toBeVisible();
+    await expect(resultPage(1)).toContainText('ほんだい1');
+    await expect(resultPage(3)).toContainText('ほんだい3');
+
+    // §4-1: スライドと原稿が**並んで**表示される（左にスライド・右に原稿）
+    const slide = resultPage(1).locator('[data-pres-slide-image]');
+    const script = resultPage(1).locator('[data-pres-script]');
+    await expect(slide).toBeVisible();
+    await expect(script).toBeVisible();
+    const slideBox = await slide.boundingBox();
+    const scriptBox = await script.boundingBox();
+    expect(slideBox && scriptBox).toBeTruthy();
+    expect(scriptBox!.x, '原稿はスライドの右側に並ぶ').toBeGreaterThan(slideBox!.x);
+    await expect(page.locator('[data-pres-fact-note]')).toContainText('スライドに書かれていない事実');
+    // §3-5: 原稿の型（4要素）が見える
+    for (const label of ['繋ぎ', '本題', '補足', '送り']) {
+      await expect(resultPage(1).getByText(label, { exact: true })).toBeVisible();
+    }
+
+    // §3-6: ページ単位で作り直せる（この1枚だけ再生成＝リクエストは1回だけ増える）
+    await resultPage(2).locator('[data-pres-regenerate]').click();
+    await expect(resultPage(2)).toContainText('ほんだい2', { timeout: 60000 });
+    expect(calls.length, '再生成は該当ページの1リクエストだけ').toBe(4);
+    await expect(page.locator('[data-pres-progress]')).toContainText('進捗: 3 / 3 ページ');
+
+    // §3-6: リッチコピー（通し原稿）
+    await page.locator('[data-pres-copy-all]').click();
+    await expect(page.locator('[data-pres-copy-all]')).toHaveText(/コピーしました/);
+    const clip = await page.evaluate(() => navigator.clipboard.readText());
+    expect(clip).toContain('## 1. 見出し1');
+    expect(clip).toContain('**繋ぎ**');
+    expect(clip).toContain(inferredTheme);
+
+    // §3-6: 保存一覧（text_analysis_saves）へ保存できる
+    await page.locator('[data-pres-save]').click();
+    await expect(page.locator('[data-pres-save]')).toHaveText(/保存済み/, { timeout: 30000 });
+    const list = await listSaves(api, { q: marker, limit: 100 });
+    const mine = list.items.filter((it) => String(it.auto_title ?? '').includes(marker));
+    expect(mine.length, '保存一覧に原稿が1件入る').toBe(1);
+    savedIds.push(...mine.map((it) => it.id as number));
+    expect(String(mine[0].auto_title)).toContain('プレゼン原稿:');
+    expect(String(mine[0].analysis_label)).toBe('プレゼン原稿');
+
+    // 通し表示に切り替えると整形表示になる（生のMarkdown記法が出ない）
+    await page.locator('[data-pres-view="full"]').click();
+    const full = page.locator('[data-pres-full]');
+    await expect(full).toBeVisible();
+    const fullText = await full.innerText();
+    expect(fullText).toContain('つなぎ1');
+    expect(fullText).not.toContain('##');
+  } finally {
+    for (const id of savedIds) await api.delete(`${SAVES_API}?id=${id}`);
+  }
+});
