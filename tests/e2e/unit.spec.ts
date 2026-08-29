@@ -102,6 +102,7 @@ import {
   buildPageScriptPrompt,
   guessSlideTitle,
   movePage,
+  nearestPrevSummary,
   pageScriptBudgetMs,
   scriptDocumentToMarkdown,
   summarizeForNext,
@@ -1294,6 +1295,11 @@ test('U45: プレゼン原稿の用途4種・既定・前後の文脈の圧縮�
   const long = summarizeForNext('あ'.repeat(400));
   expect(long.length).toBeLessThanOrEqual(SUMMARY_FOR_NEXT_MAX + 1);
   expect(summarizeForNext('', '')).toBe('');
+
+  // R-39: 直前のページが失敗していても、最も近い生成済みページの要点を次へ渡す
+  expect(nearestPrevSummary(['ようてん1', '', undefined], 2)).toBe('ようてん1');
+  expect(nearestPrevSummary(['', ''], 1)).toBe('');
+  expect(nearestPrevSummary(['ようてん1'], 0)).toBe('');
 
   // 次ページのタイトルは、生成前でもテキストから決定的に推定できる
   expect(guessSlideTitle('  \n 治療の流れ \n 詳細な本文')).toBe('治療の流れ');

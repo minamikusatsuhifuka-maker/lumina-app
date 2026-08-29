@@ -22,6 +22,7 @@ import {
   audienceOf,
   guessSlideTitle,
   movePage,
+  nearestPrevSummary,
   pageLabelOf,
   pageScriptToMarkdown,
   scriptDocumentToMarkdown,
@@ -224,7 +225,6 @@ export default function PresentationPage() {
     themeForRun: string,
   ): Promise<{ result: PageScriptResult; adCheck: AdCheck }> => {
     const target = list[index];
-    const prev = index > 0 ? list[index - 1] : null;
     const next = index + 1 < list.length ? list[index + 1] : null;
     const res = await fetch('/api/presentation/page-script', {
       method: 'POST',
@@ -237,7 +237,7 @@ export default function PresentationPage() {
         imageDataUrl: target.page.imageDataUrl,
         pageText: target.page.text,
         // §3-3: 前ページの要点（1〜2文）と次ページのタイトルだけを渡す。全ページは渡さない
-        prevSummary: prev?.result?.summaryForNext ?? '',
+        prevSummary: nearestPrevSummary(list.map((x) => x.result?.summaryForNext), index),
         nextTitle: next?.result?.slideTitle || guessSlideTitle(next?.page.text ?? ''),
       }),
     });

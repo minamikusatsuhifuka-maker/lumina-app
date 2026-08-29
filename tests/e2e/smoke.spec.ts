@@ -3677,6 +3677,9 @@ test('C73: プレゼン発表原稿（275）— 複数同時読み込み・PDF�
   const marker = `PRES${RUN_ID}`;
   const inferredTheme = `${E2E_PREFIX} 推定テーマ ${marker}`;
   await context.grantPermissions(['clipboard-read', 'clipboard-write'], { origin: BASE_URL });
+  // R-12: 自動下書き（R-20の復元）を止めてから本題を判定する。
+  // 止めないと、前回実行ぶんのページが復元された上に読み込みが積まれて枚数が合わない（実測）
+  await stubFeatureDrafts(page);
 
   // 生成APIをモック（AI課金なし）。呼ばれたリクエストを全部ためて、1ページ1リクエストを機械判定する
   const calls: Record<string, unknown>[] = [];
@@ -3753,7 +3756,9 @@ test('C73: プレゼン発表原稿（275）— 複数同時読み込み・PDF�
     expect(calls.map((c) => c.pageNumber)).toEqual([1, 2, 3]);
     // §3-3: 渡すのは「前ページの要点」「次ページのタイトル」「全体のテーマ」だけ。全ページは渡さない
     expect(calls[0].prevSummary, '1枚目に前ページの要点は無い').toBe('');
-    expect(calls[2].prevSummary, '前ページの要点が次の生成に渡る').toBe('ようてん2');
+    // 2枚目は失敗させているため、3枚目には**最も近い生成済み**の1枚目の要点が渡る（R-39）
+    expect(calls[1].prevSummary, '前ページの要点が次の生成に渡る').toBe('ようてん1');
+    expect(calls[2].prevSummary, '失敗ページを飛ばして直近の要点が渡る').toBe('ようてん1');
     expect(calls[2].theme, '1枚目から推定したテーマが以降へ引き継がれる').toBe(inferredTheme);
     for (const c of calls) {
       expect(Object.keys(c), '全ページの束を送っていない').not.toContain('pages');
@@ -3814,5 +3819,7 @@ test('C73: プレゼン発表原稿（275）— 複数同時読み込み・PDF�
     expect(fullText).not.toContain('##');
   } finally {
     for (const id of savedIds) await api.delete(`${SAVES_API}?id=${id}`);
+    // 下書きはモックで書かれないが、モック前の実行で残った分があれば消しておく
+    await api.delete('/api/feature-drafts?feature=presentation').catch(() => {});
   }
 });

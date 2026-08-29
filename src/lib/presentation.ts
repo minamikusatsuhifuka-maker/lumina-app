@@ -165,6 +165,22 @@ export function summarizeForNext(main: string, aiSummary?: string | null): strin
 }
 
 /**
+ * 直前のページが失敗している場合に備え、**最も近い生成済みページ**の要点を返す。
+ * 直前だけを見て空を渡すと、1枚失敗しただけで以降の「繋ぎ」が作れなくなる
+ * （失敗の影響を次のページまで広げない＝R-39）。
+ */
+export function nearestPrevSummary(
+  summaries: readonly (string | null | undefined)[],
+  index: number,
+): string {
+  for (let i = index - 1; i >= 0; i--) {
+    const s = (summaries[i] ?? '').trim();
+    if (s) return s;
+  }
+  return '';
+}
+
+/**
  * 次ページのタイトルを、まだ生成していない段階でも渡せるように推定する（§3-3）。
  * テキストレイヤーの先頭行を使う決定的な導出（R-74）。取れないときは空文字。
  */
