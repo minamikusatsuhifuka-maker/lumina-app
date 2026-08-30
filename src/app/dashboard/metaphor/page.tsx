@@ -30,6 +30,7 @@ import {
   METAPHOR_AXES,
   METAPHOR_FIELDS,
   METAPHOR_INPUT_MAX,
+  alignAxes,
   audiencesForField,
   checkColumnPlainLanguage,
   columnToMarkdown,
@@ -113,7 +114,8 @@ export default function MetaphorPage() {
           .map((c) => ({
             audienceKey: c.audienceKey,
             status: c.items && c.items.length > 0 ? 'done' : 'idle',
-            items: c.items,
+            // 復元した下書きも同じ整列を通す（保存時期によって軸の数が違っても表示は揃う）
+            items: c.items ? alignAxes(c.items) : null,
             adCheck: null,
             error: '',
           })),
@@ -194,7 +196,9 @@ export default function MetaphorPage() {
     });
     const data = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(data?.error || `生成に失敗しました（${res.status}）`);
-    return { items: Array.isArray(data.items) ? data.items : [], adCheck: data.adCheck ?? null };
+    // §6-2: 表示側でも3軸・固定順に揃える。サーバーが整えた配列をそのまま信じると、
+    // 軸が欠けた応答（古い保存・別経路）で列ごとに軸の数が変わってしまう（R-74）
+    return { items: alignAxes(data.items), adCheck: data.adCheck ?? null };
   };
 
   const runAll = async () => {

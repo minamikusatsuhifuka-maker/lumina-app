@@ -3966,8 +3966,8 @@ test('C74: 喩え話・比喩（276）— 分野の既定と出し分け・上�
     // §8-3: 列数は選んだ数どおり（3列）
     await expect(page.locator('[data-metaphor-cols="3"]')).toHaveCount(1);
 
-    // R-39: seniorの失敗が他の層を巻き添えにしない
-    await expect(page.locator('[data-metaphor-col="junior"]')).toContainText('ポンプのようなもの');
+    // R-39: seniorの失敗が他の層を巻き添えにしない（junior列は抽象語入りのモック＝別の文言で確認）
+    await expect(page.locator('[data-metaphor-col="junior"]')).toContainText('部活の朝練');
     await expect(page.locator('[data-metaphor-col="worker"]')).toContainText('ポンプのようなもの');
 
     // §5-2: 各比喩に「当てはまる範囲／当てはまらない点」が併記される
