@@ -524,3 +524,38 @@ test('B20: プレゼン原稿は読むものが無ければ400（偽の原稿を
   });
   expect(res.status()).toBe(400);
 });
+
+// 276: 比喩生成もモック版（C74）ではAIの応答形（3軸・限界の併記）を検証できないため、
+// 1層だけ実AIで通す（R-36）。医療分野＝ガードが最も厚い経路を選ぶ。
+test('B21: 喩え話・比喩（276）— 医療分野の1層が3軸で返り、各比喩に限界が併記される @gen', async ({ request }) => {
+  test.setTimeout(GEN_TIMEOUT);
+  const res = await request.post('/api/metaphor', {
+    data: {
+      text: 'ミトコンドリアは細胞の中にある小器官で、栄養と酸素からATPというエネルギーの通貨を作り出しています。',
+      field: 'medical',
+      audience: 'junior',
+    },
+    timeout: REQ_TIMEOUT,
+  });
+  expect(res.status()).toBe(200);
+  const json = await res.json();
+  // §6-2: 3軸が固定順で必ず3つ返る（軸をAIに選ばせない）
+  expect(json.items?.map((i: { axis: string }) => i.axis)).toEqual(['structure', 'process', 'scale']);
+  // §5-2: 「該当なし」でない比喩には当てはまる範囲／当てはまらない点が付く
+  const real = (json.items as { metaphor: string; appliesTo: string; doesNotApply: string }[])
+    .filter((i) => !i.metaphor.startsWith('該当なし'));
+  expect(real.length, '少なくとも1軸は比喩が立つ').toBeGreaterThan(0);
+  for (const item of real) {
+    expect(item.appliesTo.length, '当てはまる範囲が空でない').toBeGreaterThan(0);
+    expect(item.doesNotApply.length, '当てはまらない点が空でない').toBeGreaterThan(0);
+  }
+  expect(json._ai?.provider).toBe('gemini');
+});
+
+test('B22: 一般分野では医療特化のターゲット層を受け付けない（276§4-2・画面の出し分けをサーバーでも担保） @gen', async ({ request }) => {
+  // AIは呼ばない（バリデーションで弾く経路）
+  const res = await request.post('/api/metaphor', {
+    data: { text: 'インフレは物の値段が上がることです。', field: 'general', audience: 'beauty' },
+  });
+  expect(res.status()).toBe(400);
+});

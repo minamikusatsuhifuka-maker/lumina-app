@@ -108,6 +108,30 @@ import {
   summarizeForNext,
   type SlidePage,
 } from '../../src/lib/presentation';
+import {
+  ABSTRACT_WORDS,
+  AXIS_NOT_APPLICABLE,
+  DEFAULT_METAPHOR_AUDIENCE,
+  DEFAULT_METAPHOR_FIELD,
+  LONG_SENTENCE_MAX,
+  MAX_METAPHOR_TARGETS,
+  METAPHOR_AXES,
+  METAPHOR_MAX_DURATION_S,
+  METAPHOR_AD_CHECK_TIMEOUT_MS,
+  METAPHOR_RETRIES,
+  METAPHOR_TIMEOUT_MS,
+  alignAxes,
+  audiencesForField,
+  buildMetaphorPrompt,
+  checkPlainLanguage,
+  isAxisNotApplicable,
+  metaphorBudgetMs,
+  metaphorDocumentToMarkdown,
+  metaphorFieldOf,
+  sanitizeTargets,
+  toggleMetaphorTarget,
+  type MetaphorAudienceKey,
+} from '../../src/lib/metaphor';
 
 // ============================================================================
 // 純関数の単体テスト（234【1】要件4）— ネットワーク・AI課金・認証を一切使わない
@@ -1387,5 +1411,121 @@ test('U46: 1ページ1リクエストの時間積算がmaxDurationに収まる�
   expect(md).toContain('**繋ぎ**');
   expect(md).not.toContain('## 2.');
   // `###` はUIに出さない（品質規約）
+  expect(md).not.toContain('###');
+});
+
+
+// ============================================================================
+// 276: 喩え話・比喩表現 — 分野の既定・層の出し分け・3軸・機械検証・ガードの2層
+// ============================================================================
+
+test('U47: 比喩の分野と層（276）— 既定は医療・一般では医療特化層が消える・上限3つ・3軸整列', () => {
+  // §2-3: 分野の既定は「医療・健康」。壊れた値・未指定も安全側（医療）に倒す
+  expect(DEFAULT_METAPHOR_FIELD).toBe('medical');
+  expect(metaphorFieldOf(undefined)).toBe('medical');
+  expect(metaphorFieldOf('nonsense')).toBe('medical');
+  expect(metaphorFieldOf('general')).toBe('general');
+
+  // §4: 汎用7層は常に出る。医療特化3層は分野が医療のときだけ増える
+  const general = audiencesForField('general').map((a) => a.key);
+  const medical = audiencesForField('medical').map((a) => a.key);
+  expect(general).toEqual(['junior', 'elementary', 'student', 'worker', 'senior', 'adjacent', 'expert']);
+  expect(medical.length).toBe(general.length + 3);
+  for (const key of ['beauty', 'family', 'parenting']) {
+    expect(medical, `医療分野では ${key} が選べる`).toContain(key);
+    expect(general, `一般分野では ${key} が出ない`).not.toContain(key);
+  }
+  // §4-1: 既定は「中学生でも分かる」
+  expect(DEFAULT_METAPHOR_AUDIENCE).toBe('junior');
+
+  // §4-3: 3つまで。4つ目は**受け付けない**（古い方を押し出さない）
+  const three: MetaphorAudienceKey[] = ['junior', 'senior', 'worker'];
+  expect(toggleMetaphorTarget(three, 'expert')).toEqual(three);
+  expect(toggleMetaphorTarget(three, 'senior')).toEqual(['junior', 'worker']);
+  expect(MAX_METAPHOR_TARGETS).toBe(3);
+  // 一般へ切り替えたら、選んでいた医療特化の層は落ちる
+  expect(sanitizeTargets(['junior', 'beauty', 'family'], 'general')).toEqual(['junior']);
+  expect(sanitizeTargets(['junior', 'beauty'], 'medical')).toEqual(['junior', 'beauty']);
+
+  // §6-2: 3軸は固定順。AIの返しが欠けていても順序どおり3つ揃い、欠けは「該当なし」で埋まる
+  expect(METAPHOR_AXES.map((a) => a.key)).toEqual(['structure', 'process', 'scale']);
+  const aligned = alignAxes([
+    { axis: 'scale', metaphor: '教室の人数くらい', appliesTo: '数の多さ', doesNotApply: '正確な個数ではない' },
+    { axis: 'structure', metaphor: '発電所', appliesTo: '作る役割', doesNotApply: '外へ送らない' },
+  ]);
+  expect(aligned.map((i) => i.axis)).toEqual(['structure', 'process', 'scale']);
+  expect(aligned[0].metaphor).toBe('発電所');
+  expect(aligned[1].metaphor).toBe(AXIS_NOT_APPLICABLE);
+  expect(isAxisNotApplicable(aligned[1])).toBe(true);
+  expect(isAxisNotApplicable(aligned[2])).toBe(false);
+  expect(alignAxes(null).every(isAxisNotApplicable)).toBe(true);
+
+  // §3-4: 機械検証（表示のみ）。抽象語と長すぎる文を拾う
+  expect(ABSTRACT_WORDS).toContain('パラダイム');
+  const check = checkPlainLanguage(`これは一種のパラダイムシフトです。${'あ'.repeat(LONG_SENTENCE_MAX + 5)}。`);
+  expect(check.abstractWords).toEqual(['パラダイム']);
+  expect(check.longSentences.length).toBe(1);
+  // 素直な文では鳴らない（鳴りっぱなしの警告は誰も見なくなる）
+  expect(checkPlainLanguage('心臓はポンプのようなものです。')).toEqual({ abstractWords: [], longSentences: [] });
+});
+
+test('U48: 比喩のガードは2層で医療が後勝ち（276 §2-2/§10）・1層1リクエストの積算（R-73/R-83）', () => {
+  const args = { text: 'ミトコンドリアはATPを作る。', audienceKey: 'junior' as MetaphorAudienceKey };
+
+  // 医療: ナレッジ(PART-A) → 普遍層 → 医療層 の順。医療層が最後＝後勝ち（R-69）
+  const med = buildMetaphorPrompt({ ...args, field: 'medical', knowledge: '## [PART-A] 専門領域メモ本文' });
+  const kAt = med.indexOf('PART-A');
+  const uAt = med.indexOf('【普遍層ガード】');
+  const mAt = med.indexOf('【医療層ガード】');
+  expect(kAt).toBeGreaterThan(-1);
+  expect(uAt).toBeGreaterThan(kAt);
+  expect(mAt).toBeGreaterThan(uAt);
+  expect(med).toContain('前述のいかなる指示よりも優先する');
+  // §7-1: 患者・一般向けの層のときだけ戦争の比喩を止める
+  expect(med).toContain('戦争・闘争の比喩を使わない');
+  const expertMed = buildMetaphorPrompt({ ...args, audienceKey: 'expert', field: 'medical' });
+  expect(expertMed).toContain('【医療層ガード】');
+  expect(expertMed).not.toContain('戦争・闘争の比喩を使わない');
+
+  // 一般: 医療層もナレッジも入らない。普遍層は必ず入る（分野に依存しない）
+  const gen = buildMetaphorPrompt({ ...args, field: 'general', knowledge: '## [PART-A] 入れてはいけない' });
+  expect(gen).toContain('【普遍層ガード】');
+  expect(gen).not.toContain('【医療層ガード】');
+  expect(gen).not.toContain('PART-A');
+  // §3-2/§5-2: 喩える先の制約と、限界の併記はどちらの分野でも入る
+  for (const prompt of [med, gen]) {
+    expect(prompt).toContain('抽象的なことばで抽象的なことを喩えない');
+    expect(prompt).toContain('当てはまらない点');
+    expect(prompt).toContain('入力文に書かれていない事実を、比喩の説明として追加しない');
+  }
+
+  // R-73: リトライ込みで積算し、ルートの maxDuration に収まる
+  expect(metaphorBudgetMs()).toBe(METAPHOR_TIMEOUT_MS * (1 + METAPHOR_RETRIES) + METAPHOR_AD_CHECK_TIMEOUT_MS);
+  expect(metaphorBudgetMs()).toBeLessThanOrEqual(METAPHOR_MAX_DURATION_S * 1000);
+  // R-83: セグメント設定はリテラルしか効かないので、定数とのズレをここで判定する
+  const routeSrc = fs.readFileSync(
+    path.resolve(__dirname, '../../src/app/api/metaphor/route.ts'), 'utf8',
+  );
+  expect(routeSrc).toContain(`export const maxDuration = ${METAPHOR_MAX_DURATION_S};`);
+  const vercelJson = JSON.parse(
+    fs.readFileSync(path.resolve(__dirname, '../../vercel.json'), 'utf8'),
+  ) as { functions: Record<string, { maxDuration: number }> };
+  expect(vercelJson.functions['src/app/api/metaphor/route.ts'].maxDuration).toBe(METAPHOR_MAX_DURATION_S);
+
+  // 失敗した層は本文に混ざらない（R-39）／`###` をUIに出さない
+  const md = metaphorDocumentToMarkdown({
+    field: 'medical',
+    columns: [
+      {
+        audienceKey: 'junior',
+        items: alignAxes([{ axis: 'structure', metaphor: '発電所', appliesTo: '作る役割', doesNotApply: '外へ送らない' }]),
+      },
+      { audienceKey: 'senior', items: null },
+    ],
+  });
+  expect(md).toContain('- 分野: 医療・健康');
+  expect(md).toContain('## 🧒 中学生でも分かる');
+  expect(md).toContain('【当てはまらない点】外へ送らない');
+  expect(md).not.toContain('年配の方');
   expect(md).not.toContain('###');
 });

@@ -77,6 +77,7 @@ export const navCategories: NavCategory[] = [
       { href: '/dashboard/image-prompt', label: '画像プロンプト', icon: '🎨' },
       { href: '/dashboard/doc-prompt', label: '資料プロンプト', icon: '📋' },
       { href: '/dashboard/presentation', label: 'プレゼン原稿', icon: '🎤' },
+      { href: '/dashboard/metaphor', label: '喩え話・比喩', icon: '🔗' },
       { href: '/dashboard/simplifier', label: '難易度変換', icon: '🎓' },
       { href: '/dashboard/video-script', label: '動画スクリプト', icon: '🎬' },
       { href: '/dashboard/infographic', label: 'インフォグラフィック', icon: '📊' },

@@ -3823,3 +3823,275 @@ test('C73: プレゼン発表原稿（275）— 複数同時読み込み・PDF�
     await api.delete('/api/feature-drafts?feature=presentation').catch(() => {});
   }
 });
+
+
+// ============================================================================
+// 276: 🔗 喩え話・比喩表現（汎用・中学生に伝わる水準）
+// - 分野の既定は医療・健康／一般では医療特化の層が消える（§2-3・§4-2）
+// - 層は最大3つ・既定は中学生／列数は選択数どおり（§4-3・§8-3）
+// - 各比喩に「当てはまる範囲／当てはまらない点」・3軸は該当なしでも明示（§5-2・§6-2）
+// - 抽象語の機械検証（§3-4）／1層の失敗が他を巻き添えにしない（R-39）
+// - 入力欄は270の3ボタン／サイドバー・🎛メニュー名設定への登録（§9）
+// AIは呼ばずAPIをモックするため課金なし。保存物は [E2E] 印で作り、最後に削除する（R-55）
+// ============================================================================
+
+/** 1層ぶんのモック応答。axes を絞ると「該当なし」の埋めも検証できる */
+function metaphorMockItems(audience: string, opts: { abstract?: boolean; skipScale?: boolean } = {}) {
+  const items = [
+    {
+      axis: 'structure',
+      metaphor: opts.abstract
+        ? `${audience}向け: これは一種のパラダイムシフトのようなものです。`
+        : `${audience}向け: 心臓は水をくみ上げるポンプのようなものです。`,
+      appliesTo: '押し出して送り出すという役割の点。',
+      doesNotApply: 'ポンプと違い、自分で休むことはできません。',
+    },
+    {
+      axis: 'process',
+      metaphor: `${audience}向け: 部活の朝練のように、毎日少しずつ続きます。`,
+      appliesTo: '積み重ねで変わっていく点。',
+      doesNotApply: '練習と違い、休んだ分を取り返すことはできません。',
+    },
+  ];
+  if (!opts.skipScale) {
+    items.push({
+      axis: 'scale',
+      metaphor: `${audience}向け: 教室の人数くらいの数があります。`,
+      appliesTo: '数の多さの実感。',
+      doesNotApply: '正確な個数を表すものではありません。',
+    });
+  }
+  return items;
+}
+
+test('C74: 喩え話・比喩（276）— 分野の既定と出し分け・上限3つ・列数・限界の併記・失敗の局所化・3ボタン（APIモック）', async ({
+  page,
+  context,
+}) => {
+  const marker = `META${RUN_ID}`;
+  await context.grantPermissions(['clipboard-read', 'clipboard-write'], { origin: BASE_URL });
+  await stubFeatureDrafts(page); // R-12: 自動下書きの復元を止めてから判定する
+
+  const calls: Record<string, unknown>[] = [];
+  let failSenior = true;
+  await page.route('**/api/metaphor', async (route) => {
+    const body = (route.request().postDataJSON() ?? {}) as Record<string, unknown>;
+    calls.push(body);
+    const audience = String(body.audience);
+    if (audience === 'senior' && failSenior) {
+      failSenior = false; // 再生成では成功させる
+      return route.fulfill({
+        status: 502,
+        contentType: 'application/json',
+        body: JSON.stringify({ error: '[E2E] 想定内の失敗' }),
+      });
+    }
+    return route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        audience,
+        field: body.field,
+        // 中学生の列だけ抽象語入り＋scale欠けにして、機械検証と「該当なし」の埋めを見る
+        items: metaphorMockItems(audience, {
+          abstract: audience === 'junior',
+          skipScale: audience === 'junior',
+        }),
+        adCheck: { status: 'ok', findings: [] },
+        _ai: { provider: 'gemini', modelLabel: 'Gemini 3.7 Flash' },
+      }),
+    });
+  });
+
+  const savedIds: number[] = [];
+  try {
+    // §9-1: サイドバーからメニューに到達できる（URL直打ちでしか行けない状態にしない）
+    await page.goto('/dashboard');
+    const navLink = page.locator('a[data-nav-href="/dashboard/metaphor"]');
+    await expect(navLink, 'サイドバーに🔗喩え話・比喩のリンクがある').toBeVisible({ timeout: 30000 });
+    await navLink.click();
+    await expect(page.getByRole('heading', { name: /喩え話・比喩表現/ })).toBeVisible({ timeout: 30000 });
+
+    // §2-3: 分野の既定は「医療・健康」
+    await expect(page.locator('[data-metaphor-field="medical"]')).toHaveAttribute('aria-pressed', 'true');
+    await expect(page.locator('[data-metaphor-field="general"]')).toHaveAttribute('aria-pressed', 'false');
+    await expect(page.getByText('分野は自動で判定しません', { exact: false })).toBeVisible();
+
+    // §4-1/§4-2: 汎用7層＋医療特化3層。既定は「中学生でも分かる」が選択済み
+    await expect(page.locator('[data-metaphor-target]')).toHaveCount(10);
+    await expect(page.locator('[data-metaphor-target="junior"]')).toHaveAttribute('aria-pressed', 'true');
+    await expect(page.locator('[data-metaphor-count]')).toContainText('選択中: 1/3件');
+    for (const key of ['beauty', 'family', 'parenting']) {
+      await expect(page.locator(`[data-metaphor-target="${key}"]`), '医療分野では医療特化層が出る').toBeVisible();
+    }
+
+    // 分野を「一般」にすると医療特化の3層が消える（選択済みでも外れる）
+    await page.locator('[data-metaphor-target="beauty"]').click();
+    await expect(page.locator('[data-metaphor-count]')).toContainText('選択中: 2/3件');
+    await page.locator('[data-metaphor-field="general"]').click();
+    await expect(page.locator('[data-metaphor-target]')).toHaveCount(7);
+    for (const key of ['beauty', 'family', 'parenting']) {
+      await expect(page.locator(`[data-metaphor-target="${key}"]`), '一般分野では医療特化層が出ない').toHaveCount(0);
+    }
+    await expect(page.locator('[data-metaphor-count]'), '外れた層は選択からも落ちる').toContainText('選択中: 1/3件');
+    // 医療へ戻すと再び追加される
+    await page.locator('[data-metaphor-field="medical"]').click();
+    await expect(page.locator('[data-metaphor-target]')).toHaveCount(10);
+
+    // §4-3: 3つまで。4つ目は押せない（disabled）
+    await page.locator('[data-metaphor-target="senior"]').click();
+    await page.locator('[data-metaphor-target="worker"]').click();
+    await expect(page.locator('[data-metaphor-count]')).toContainText('選択中: 3/3件');
+    await expect(page.locator('[data-metaphor-target="expert"]'), '4つ目は選べない').toBeDisabled();
+
+    // §8-1: 270の3ボタン（✕クリア → ↩元に戻す／📋ペースト／📋クリアして貼付）が揃って動く
+    const input = page.locator('[data-metaphor-input]');
+    await input.fill(`[E2E] ${marker} 心臓は全身に血液を送り出すポンプの役割を持つ臓器です。`);
+    await page.locator('[data-metaphor-clear]').click();
+    await expect(input, '✕クリアで入力が空になる').toHaveValue('');
+    await page.getByRole('button', { name: '↩ 元に戻す' }).click();
+    await expect(input, '↩元に戻すで入力が戻る').toHaveValue(new RegExp(marker));
+    await expect(page.locator('[data-paste-button]'), '📋ペーストがある').toBeVisible();
+    await expect(page.locator('[data-clear-paste]'), '📋クリアして貼付がある').toBeVisible();
+
+    // ── 実行（3層）: 1層1リクエスト・senior だけ失敗させる ──
+    await page.locator('[data-metaphor-run]').click();
+    await expect(page.locator('[data-metaphor-col-error]')).toBeVisible({ timeout: 60000 });
+    expect(calls.length, '1ターゲット層 = 1リクエスト（3層＝3回）').toBe(3);
+    expect(calls.map((c) => c.audience)).toEqual(['junior', 'senior', 'worker']);
+    for (const c of calls) {
+      expect(c.field, '分野はサーバーへ明示的に渡す（自動判定させない）').toBe('medical');
+    }
+
+    // §8-3: 列数は選んだ数どおり（3列）
+    await expect(page.locator('[data-metaphor-cols="3"]')).toHaveCount(1);
+
+    // R-39: seniorの失敗が他の層を巻き添えにしない
+    await expect(page.locator('[data-metaphor-col="junior"]')).toContainText('ポンプのようなもの');
+    await expect(page.locator('[data-metaphor-col="worker"]')).toContainText('ポンプのようなもの');
+
+    // §5-2: 各比喩に「当てはまる範囲／当てはまらない点」が併記される
+    const workerCol = page.locator('[data-metaphor-col="worker"]');
+    await expect(workerCol.locator('[data-metaphor-applies]').first()).toContainText('当てはまる範囲');
+    await expect(workerCol.locator('[data-metaphor-not-applies]').first()).toContainText('当てはまらない点');
+
+    // §6-2: 3軸が固定で並び、欠けた軸は「該当なし」と明示される（空欄にしない）
+    const juniorCol = page.locator('[data-metaphor-col="junior"]');
+    await expect(juniorCol.locator('[data-metaphor-item]')).toHaveCount(3);
+    await expect(juniorCol.locator('[data-metaphor-item="scale"]')).toContainText('該当なし');
+    await expect(workerCol.locator('[data-metaphor-item="scale"]')).not.toContainText('該当なし');
+
+    // §3-4: 抽象語（パラダイム）の機械検証が効く。素直な列では鳴らない
+    await expect(juniorCol.locator('[data-metaphor-plain-warn]')).toContainText('パラダイム');
+    await expect(workerCol.locator('[data-metaphor-plain-warn]')).toHaveCount(0);
+
+    // §8-4: 列ごとの再生成（この層だけ作り直す＝リクエストは1回だけ増える）
+    await page.locator('[data-metaphor-regenerate="senior"]').click();
+    await expect(page.locator('[data-metaphor-col="senior"]')).toContainText('ポンプのようなもの', { timeout: 60000 });
+    expect(calls.length, '再生成は該当層の1リクエストだけ').toBe(4);
+    await expect(page.locator('[data-metaphor-col-error]')).toHaveCount(0);
+
+    // 列ヘッダーは sticky（271と同じ・スクロールしてもどの層か分かる）
+    const headerPosition = await page
+      .locator('[data-metaphor-header="worker"]')
+      .evaluate((el) => getComputedStyle(el).position);
+    expect(headerPosition).toBe('sticky');
+
+    // §8-4: リッチコピー（全部）
+    await page.locator('[data-metaphor-copy-all]').click();
+    await expect(page.locator('[data-metaphor-copy-all]')).toHaveText(/コピーしました/);
+    const clip = await page.evaluate(() => navigator.clipboard.readText());
+    expect(clip).toContain('# 喩え話・比喩表現');
+    expect(clip).toContain('【当てはまらない点】');
+
+    // §8-4: 保存一覧への保存
+    await page.locator('[data-metaphor-save]').click();
+    await expect(page.locator('[data-metaphor-save]')).toHaveText(/保存済み/, { timeout: 30000 });
+    const list = await listSaves(api, { q: marker, limit: 100 });
+    const mine = list.items.filter((it) => String(it.auto_title ?? '').includes(marker));
+    expect(mine.length, '保存一覧に比喩が1件入る').toBe(1);
+    savedIds.push(...mine.map((it) => it.id as number));
+    expect(String(mine[0].analysis_label)).toBe('喩え話・比喩');
+
+    // §8-3: 選択を減らすと列数も減る（3→2→1・空トラックを出さない）
+    await page.locator('[data-metaphor-target="worker"]').click();
+    await page.locator('[data-metaphor-run]').click();
+    await expect(page.locator('[data-metaphor-cols="2"]')).toHaveCount(1, { timeout: 60000 });
+    await page.locator('[data-metaphor-target="senior"]').click();
+    await page.locator('[data-metaphor-run]').click();
+    await expect(page.locator('[data-metaphor-cols="1"]')).toHaveCount(1, { timeout: 60000 });
+
+    // §9-1/§9-2: 🎛メニュー名設定に 276 と 275 の項目が載っている（登録漏れの再発防止）。
+    // 262に従い、設定画面の並びはサイドバーの実表示と同じ正本（nav-items.ts）から出る
+    await page.goto('/dashboard/display-settings');
+    await page.locator('[data-nav-category-toggle="コンテンツ作成"]').click();
+    const block = page.locator('[data-nav-category-block="コンテンツ作成"]');
+    await expect(block.locator('[data-nav-row="/dashboard/metaphor"]'), '276がメニュー名設定に載る').toHaveCount(1);
+    await expect(block.locator('[data-nav-row="/dashboard/presentation"]'), '275がメニュー名設定に載る').toHaveCount(1);
+    await expect(block.locator('[data-nav-label-input="/dashboard/metaphor"]'), '276もリネームできる').toBeVisible();
+    // サイドバーの「コンテンツ作成」区画と設定画面の並びが同じ順（262）。
+    // ホームはユーザーが並べ替えるため、比較対象はこのカテゴリの区画だけに限定する
+    const sidebarSection = page.locator('div:has(> [data-nav-category="コンテンツ作成"])');
+    const sidebarOrder = await sidebarSection
+      .locator('a[data-nav-href]')
+      .evaluateAll((els) => els.map((el) => el.getAttribute('data-nav-href')));
+    const rows = await block
+      .locator('[data-nav-row]')
+      .evaluateAll((els) => els.map((el) => el.getAttribute('data-nav-row')));
+    expect(rows, '🎛設定の並びがサイドバーの実表示と一致する').toEqual(sidebarOrder);
+  } finally {
+    for (const id of savedIds) await api.delete(`${SAVES_API}?id=${id}`);
+    await api.delete('/api/feature-drafts?feature=metaphor').catch(() => {});
+  }
+});
+
+test('C75: 275のプレゼン原稿にサイドバーから到達できる（276§9-2の確認）', async ({ page }) => {
+  await page.goto('/dashboard');
+  const link = page.locator('a[data-nav-href="/dashboard/presentation"]');
+  await expect(link, 'サイドバーに🎤プレゼン原稿のリンクがある').toBeVisible({ timeout: 30000 });
+  await link.click();
+  await expect(page.getByRole('heading', { name: /プレゼン発表原稿/ })).toBeVisible({ timeout: 30000 });
+});
+
+test('C76: 比喩の読み比べはタッチ端末では1列（276§8-3・271の端末判定を再利用）', async ({ browser }) => {
+  const ctx = await browser.newContext({
+    storageState: STORAGE_STATE,
+    baseURL: BASE_URL,
+    hasTouch: true,
+    isMobile: true,
+    viewport: { width: 390, height: 844 },
+  });
+  const page = await ctx.newPage();
+  try {
+    await stubFeatureDrafts(page);
+    await page.route('**/api/metaphor', (route) => {
+      const body = (route.request().postDataJSON() ?? {}) as Record<string, unknown>;
+      return route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          audience: body.audience,
+          field: body.field,
+          items: metaphorMockItems(String(body.audience)),
+          adCheck: null,
+          _ai: { provider: 'gemini', modelLabel: 'Gemini 3.7 Flash' },
+        }),
+      });
+    });
+    await page.goto('/dashboard/metaphor');
+    await expect(page.locator('[data-metaphor-input]')).toBeVisible({ timeout: 30000 });
+    await page.locator('[data-metaphor-input]').fill('[E2E] 心臓は血液を送り出す臓器です。');
+    await page.locator('[data-metaphor-target="senior"]').click();
+    await page.locator('[data-metaphor-target="worker"]').click();
+    await expect(page.locator('[data-metaphor-count]')).toContainText('選択中: 3/3件');
+    await page.locator('[data-metaphor-run]').click();
+    // 3層選んでいても、カーソルの無い端末では1列だけ描く（横スクロールを出さない）
+    await expect(page.locator('[data-metaphor-cols="1"]')).toHaveCount(1, { timeout: 60000 });
+    const overflow = await page.evaluate(
+      () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
+    );
+    expect(overflow, 'ページに横スクロールが出ていないこと').toBeLessThanOrEqual(1);
+  } finally {
+    await ctx.close();
+  }
+});

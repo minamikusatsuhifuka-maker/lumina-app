@@ -43,6 +43,7 @@
     "src/app/api/clinic/dialogue/route.ts": { "maxDuration": 120 },
     "src/app/api/batch-research/[id]/run/route.ts": { "maxDuration": 300 },
     "src/app/api/cron/batch-research/route.ts": { "maxDuration": 60 },
-    "src/app/api/presentation/page-script/route.ts": { "maxDuration": 120 }
+    "src/app/api/presentation/page-script/route.ts": { "maxDuration": 120 },
+    "src/app/api/metaphor/route.ts": { "maxDuration": 120 }
   }
 }
