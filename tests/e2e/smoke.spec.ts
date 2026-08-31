@@ -4095,3 +4095,225 @@ test('C76: 比喩の読み比べはタッチ端末では1列（276§8-3・271の
     await ctx.close();
   }
 });
+
+
+// ============================================================================
+// 277: バッチジョブのタイトル付与・タイムゾーン是正・二重発火の遮断
+// - タイトルはグループ名 → トピック名の連結（時刻は使わない・§2-2）
+// - 同一内容の連続登録はサーバー側でも遮断（§3）
+// - 改名は `group:` タグに波及しない（§2-4）
+// - 表示日時は端末のタイムゾーンに関わらずJST（§2-3）
+// AIは呼ばない（POST=登録のみ／run は叩かない）。作ったジョブは最後に削除する（R-55）
+// ============================================================================
+
+const BATCH_API = '/api/batch-research';
+
+test('C77: バッチジョブのタイトルと二重登録の遮断（277 §2-2/§2-4/§3）', async () => {
+  const marker = `BATCH${RUN_ID}`;
+  const jobIds: number[] = [];
+  const contextIds: number[] = [];
+
+  const createJob = async (data: Record<string, unknown>) => {
+    const res = await api.post(BATCH_API, { data });
+    expect(res.status(), 'ジョブ登録が200であること').toBe(200);
+    const json = await res.json();
+    const job = json.job;
+    expect(typeof job?.id).toBe('number');
+    if (!jobIds.includes(job.id)) jobIds.push(job.id);
+    return { job, deduplicated: json.deduplicated === true };
+  };
+
+  try {
+    // 1) グループ名があればそれがタイトルになる
+    const named = await createJob({
+      groupName: `${E2E_PREFIX} ザクロ美容効果 ${marker}`,
+      topics: [{ topic: `${E2E_PREFIX} トピックA ${marker}`, mode: 'quick' }],
+      scheduleType: 'cron',
+      scheduledAt: '2030-01-01T00:00:00.000Z',
+    });
+    expect(named.job.group_name).toBe(`${E2E_PREFIX} ザクロ美容効果 ${marker}`);
+
+    // 2) グループ名が空 × トピック1件 → トピック名そのもの（「他n件」を付けない）
+    const single = await createJob({
+      topics: [{ topic: `${E2E_PREFIX} 単独トピック ${marker}`, mode: 'quick' }],
+      scheduleType: 'cron',
+      scheduledAt: '2030-01-01T00:00:00.000Z',
+    });
+    expect(single.job.group_name).toBe(`${E2E_PREFIX} 単独トピック ${marker}`);
+
+    // 3) グループ名が空 × 3件 → 「先頭 他2件」
+    const multi = await createJob({
+      topics: [
+        { topic: `${E2E_PREFIX} 先頭トピック ${marker}`, mode: 'quick' },
+        { topic: `${E2E_PREFIX} 2件目 ${marker}`, mode: 'quick' },
+        { topic: `${E2E_PREFIX} 3件目 ${marker}`, mode: 'quick' },
+      ],
+      scheduleType: 'cron',
+      scheduledAt: '2030-01-01T00:00:00.000Z',
+    });
+    expect(multi.job.group_name).toBe(`${E2E_PREFIX} 先頭トピック ${marker} 他2件`);
+
+    // 4) **どのタイトルにも日付・時刻が入らない**（UTCのタイムスタンプ名を作らない）
+    const timeLike = /\d{1,4}\/\d{1,2}\/\d{1,2}|\d{1,2}:\d{2}/;
+    for (const job of [named.job, single.job, multi.job]) {
+      expect(String(job.group_name), `タイトルに時刻が無い: ${job.group_name}`).not.toMatch(timeLike);
+    }
+
+    // 5) §3: 同一内容をもう一度登録しても**新しい行を作らない**（同じジョブが返る）
+    const again = await createJob({
+      topics: [
+        { topic: `${E2E_PREFIX} 先頭トピック ${marker}`, mode: 'quick' },
+        { topic: `${E2E_PREFIX} 2件目 ${marker}`, mode: 'quick' },
+        { topic: `${E2E_PREFIX} 3件目 ${marker}`, mode: 'quick' },
+      ],
+      scheduleType: 'cron',
+      scheduledAt: '2030-01-01T00:00:00.000Z',
+    });
+    expect(again.job.id, '直近の同一内容ジョブが返る').toBe(multi.job.id);
+    expect(again.deduplicated, '重複として扱われたことが分かる').toBe(true);
+
+    // 内容が違えば当然そのまま作られる（遮断が効きすぎていないこと）
+    const other = await createJob({
+      topics: [{ topic: `${E2E_PREFIX} 別トピック ${marker}`, mode: 'quick' }],
+      scheduleType: 'cron',
+      scheduledAt: '2030-01-01T00:00:00.000Z',
+    });
+    expect(other.job.id).not.toBe(multi.job.id);
+
+    // 一覧でも件数が増えていない（同一内容は1件のまま）
+    const listRes = await api.get(`${BATCH_API}?limit=100`);
+    expect(listRes.status()).toBe(200);
+    const jobs = ((await listRes.json()).jobs ?? []) as { id: number; group_name: string }[];
+    const mine = jobs.filter((j) => String(j.group_name).includes(marker));
+    expect(mine.length, `[E2E]印のジョブは4件（重複登録は増えない）`).toBe(4);
+
+    // 6) §2-4: 改名できる。既存の保存記事の `group:` タグには波及しない
+    const oldName = named.job.group_name;
+    const tagged = await api.post(CONTEXT_API, {
+      data: {
+        topic: `${E2E_PREFIX} タグ確認 ${marker}`,
+        contextText: `${E2E_PREFIX} 本文`,
+        tags: [`batch:${named.job.id}`, `group:${oldName}`],
+      },
+    });
+    expect(tagged.status()).toBe(200);
+    contextIds.push((await tagged.json()).id as number);
+
+    const newName = `${E2E_PREFIX} 改名後 ${marker}`;
+    const patched = await api.patch(BATCH_API, { data: { id: named.job.id, groupName: newName } });
+    expect(patched.status(), '改名が200であること').toBe(200);
+    expect((await patched.json()).job.group_name).toBe(newName);
+
+    const savedRes = await api.get(`${CONTEXT_API}?id=${contextIds[0]}`);
+    expect(savedRes.status()).toBe(200);
+    const saved = await savedRes.json();
+    const savedTags: string[] = saved.item?.tags ?? saved.tags ?? [];
+    expect(savedTags, '保存記事のタグは改名前のまま（既存の絞り込みを壊さない）').toContain(`group:${oldName}`);
+    expect(savedTags).not.toContain(`group:${newName}`);
+
+    // 空のタイトルには改名できない（無題のジョブを作らない）
+    const empty = await api.patch(BATCH_API, { data: { id: named.job.id, groupName: '   ' } });
+    expect(empty.status()).toBe(400);
+
+    // 他人・存在しないジョブは404（所有者チェック）
+    const missing = await api.patch(BATCH_API, { data: { id: 999999999, groupName: 'x' } });
+    expect(missing.status()).toBe(404);
+  } finally {
+    for (const id of jobIds) await api.delete(`${BATCH_API}?id=${id}`);
+    for (const id of contextIds) await api.delete(`${CONTEXT_API}?id=${id}`);
+  }
+});
+
+test('C78: 実行ボタンの二重発火でジョブが増えない・表示日時はJST（277 §3-5/§2-3）', async ({ browser }) => {
+  // 端末のタイムゾーンをUTCにしても、表示はJSTでなければならない（§2-3）
+  const ctx = await browser.newContext({
+    storageState: STORAGE_STATE,
+    baseURL: BASE_URL,
+    timezoneId: 'UTC',
+  });
+  const page = await ctx.newPage();
+  const JOB_ID = 987654322; // 実在しないID（モック専用）
+  let postCount = 0;
+  let patchBody: Record<string, unknown> | null = null;
+  let jobTitle = `${E2E_PREFIX} 277モック`;
+
+  try {
+    await stubFeatureDrafts(page);
+    // 一覧・登録・改名・実行をすべてモック（AIも実データも触らない）
+    await page.route((url) => url.pathname === '/api/batch-research', async (route) => {
+      const method = route.request().method();
+      if (method === 'GET') {
+        return route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            jobs: [
+              {
+                id: JOB_ID,
+                group_name: jobTitle,
+                topics: [{ topic: '[E2E] モックトピック', mode: 'quick', status: 'completed' }],
+                schedule_type: 'immediate',
+                scheduled_at: null,
+                status: 'completed',
+                // 実際にずれていた瞬間（UTC 5:41:17 = JST 14:41:17）
+                created_at: '2026-08-31T05:41:17.000Z',
+              },
+            ],
+          }),
+        });
+      }
+      if (method === 'PATCH') {
+        patchBody = route.request().postDataJSON();
+        jobTitle = String((patchBody as { groupName?: string }).groupName ?? jobTitle);
+        return route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({ job: { id: JOB_ID, group_name: jobTitle } }),
+        });
+      }
+      // POST: 登録。二重発火の検出のため回数を数え、わざと遅らせる
+      postCount++;
+      await new Promise((r) => setTimeout(r, 800));
+      return route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ job: { id: JOB_ID, group_name: jobTitle } }),
+      });
+    });
+    await page.route(`**/api/batch-research/${JOB_ID}/run`, (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'text/event-stream',
+        body: 'data: {"type":"all_done"}\n\n',
+      }),
+    );
+
+    await page.goto('/dashboard/deepresearch');
+    await page.getByRole('button', { name: '⚡ バッチリサーチ' }).click();
+
+    // §2-3: ブラウザがUTCでも履歴の日時はJST（9時間ずれた表示を出さない）
+    await expect(page.locator(`[data-batch-job-created="${JOB_ID}"]`)).toHaveText('2026/8/31 14:41:17');
+
+    // §3-5: 実行ボタンを続けて2回押しても登録は1回だけ
+    await page.locator('[data-batch-topic="0"]').fill(`${E2E_PREFIX} 二重発火の確認`);
+    const submit = page.locator('[data-batch-submit]');
+    await submit.click();
+    await submit.click({ force: true, timeout: 3000 }).catch(() => { /* disabled なら押せなくて正しい */ });
+    await expect(submit).toBeDisabled(); // 登録中は押せない
+    await page.waitForTimeout(2000);
+    expect(postCount, '二重発火してもジョブ登録は1回').toBe(1);
+
+    // §2-4: 履歴から改名できる（保存記事のタグへは波及しない＝PATCHはジョブだけを更新する）
+    await page.locator(`[data-batch-rename="${JOB_ID}"]`).click();
+    const input = page.locator(`[data-batch-rename-input="${JOB_ID}"]`);
+    await input.fill(`${E2E_PREFIX} 改名テスト`);
+    await page.locator(`[data-batch-rename-save="${JOB_ID}"]`).click();
+    await expect(page.locator(`[data-batch-job-title="${JOB_ID}"]`)).toHaveText(`${E2E_PREFIX} 改名テスト`);
+    expect(patchBody, '改名はジョブのタイトルだけを送る（タグは送らない）').toEqual({
+      id: JOB_ID,
+      groupName: `${E2E_PREFIX} 改名テスト`,
+    });
+  } finally {
+    await ctx.close();
+  }
+});

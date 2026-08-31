@@ -3,6 +3,7 @@ import { CLAUDE_TEXT_MODEL } from '@/lib/ai-models';
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
 import { NO_LATEX_PROMPT_RULE } from '@/lib/markdown-renderer';
+import { jstDateString } from '@/lib/jst';
 
 export const maxDuration = 120;
 
@@ -22,7 +23,8 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'ANTHROPIC_API_KEY が未設定です' }, { status: 500 });
     }
 
-    const today = new Date().toISOString().slice(0, 10);
+    // 277 §2-3: 「本日」はJSTで（UTCのままだと 0〜9時JSTの間は前日をAIに渡す）
+    const today = jstDateString();
 
     const system = `あなたはAIに読み込ませる背景情報（コンテキスト）を整理する専門家です。
 リサーチレポートを、AIが他のタスク（文章作成・SNS投稿・LP作成・資料作成）で活用しやすい

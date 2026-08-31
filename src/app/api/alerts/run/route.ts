@@ -4,6 +4,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
 import { neon } from '@neondatabase/serverless';
 import { extractAnthropicText } from '@/lib/anthropic-text';
+import { formatJst } from '@/lib/jst';
 
 export const maxDuration = 300;
 
@@ -102,5 +103,6 @@ export async function POST(req: NextRequest) {
     }
   } catch {}
 
-  return NextResponse.json({ result, topic, date: new Date().toLocaleDateString('ja-JP'), diffAnalysis });
+  // 277 §2-3: サーバー（UTC）で日付を作ると 0〜9時JSTの間は前日になる
+  return NextResponse.json({ result, topic, date: formatJst(new Date(), { year: 'numeric', month: 'numeric', day: 'numeric' }), diffAnalysis });
 }

@@ -132,6 +132,13 @@ import {
   toggleMetaphorTarget,
   type MetaphorAudienceKey,
 } from '../../src/lib/metaphor';
+import {
+  BATCH_TITLE_FALLBACK,
+  BATCH_TITLE_TOPIC_MAX,
+  deriveBatchJobTitle,
+  truncateTitle,
+} from '../../src/lib/batch-title';
+import { formatJst, jstDateString, jstDateTimeString, jstShortDate } from '../../src/lib/jst';
 
 // ============================================================================
 // 純関数の単体テスト（234【1】要件4）— ネットワーク・AI課金・認証を一切使わない
@@ -1528,4 +1535,66 @@ test('U48: 比喩のガードは2層で医療が後勝ち（276 §2-2/§10）・
   expect(md).toContain('【当てはまらない点】外へ送らない');
   expect(md).not.toContain('年配の方');
   expect(md).not.toContain('###');
+});
+
+
+// ============================================================================
+// 277: バッチジョブのタイトル（決定的導出）とタイムゾーン（JST統一）
+// ============================================================================
+
+test('U49: バッチジョブ名は決定的に導出し、時刻を含めない（277 §2-2・R-74）', () => {
+  const topics = [
+    { topic: '生体内の抗酸化力の測定方法', mode: 'standard' },
+    { topic: 'ザクロの美容効果', mode: 'quick' },
+    { topic: 'ビタミンCの安定性', mode: 'deep' },
+  ];
+
+  // 1) グループ名があればそのまま使う
+  expect(deriveBatchJobTitle('ザクロ美容効果', topics)).toBe('ザクロ美容効果');
+  // 空白だけのグループ名は「未入力」として扱う（トピック名へ倒す）
+  expect(deriveBatchJobTitle('   ', topics)).toBe('生体内の抗酸化力の測定方法 他2件');
+  expect(deriveBatchJobTitle(undefined, topics)).toBe('生体内の抗酸化力の測定方法 他2件');
+  // 2) トピック1件なら「他n件」を付けない
+  expect(deriveBatchJobTitle('', [{ topic: 'ザクロの美容効果' }])).toBe('ザクロの美容効果');
+  // 文字列配列でも同じ結果（呼び出し側の形に依存しない）
+  expect(deriveBatchJobTitle('', ['A', 'B'])).toBe('A 他1件');
+  // 3) 長いトピック名は省略する（履歴の1行が崩れない）
+  const long = 'あ'.repeat(BATCH_TITLE_TOPIC_MAX + 20);
+  const truncated = deriveBatchJobTitle('', [{ topic: long }]);
+  expect(truncated.endsWith('…')).toBe(true);
+  expect(truncated.length).toBe(BATCH_TITLE_TOPIC_MAX + 1);
+  expect(truncateTitle('短い', 40)).toBe('短い');
+  // 4) トピックが無い（通常は起きない）ときも時刻は使わない
+  expect(deriveBatchJobTitle('', [])).toBe(BATCH_TITLE_FALLBACK);
+
+  // 5) **どの経路でもタイトルに日付・時刻が入らない**（UTC/JSTのずれた名前を作らない）
+  const timeLike = /\d{1,4}\/\d{1,2}\/\d{1,2}|\d{1,2}:\d{2}/;
+  for (const title of [
+    deriveBatchJobTitle('', topics),
+    deriveBatchJobTitle(undefined, []),
+    deriveBatchJobTitle('ザクロ美容効果', topics),
+  ]) {
+    expect(title, `タイトルに時刻が含まれない: ${title}`).not.toMatch(timeLike);
+  }
+
+  // 6) 決定的（同じ入力なら何度呼んでも同じ・時刻に依存しない）
+  expect(deriveBatchJobTitle('', topics)).toBe(deriveBatchJobTitle('', topics));
+});
+
+test('U50: 日時はJSTで組み立てる（277 §2-3・R-86）', () => {
+  // 実際に起きたずれ: ジョブ名「2026/8/31 5:41:17」（UTC）と表示「14:41:17」（JST）
+  const utcMoment = '2026-08-31T05:41:17Z';
+  expect(jstDateTimeString(utcMoment)).toBe('2026/8/31 14:41:17');
+  expect(formatJst(utcMoment, { month: 'numeric', day: 'numeric' })).toBe('8/31');
+  expect(jstShortDate(utcMoment)).toBe('8/31');
+
+  // 日付だけの導出も同じ。UTCの15:30は**翌日**のJST 0:30
+  expect(jstDateString('2026-08-30T15:30:00Z')).toBe('2026-08-31');
+  expect(jstDateString('2026-08-30T14:59:00Z')).toBe('2026-08-30');
+  // UTCで日付を作る従来のやり方とは1日ずれることを固定しておく
+  expect(new Date('2026-08-30T15:30:00Z').toISOString().slice(0, 10)).toBe('2026-08-30');
+
+  // 壊れた値は例外にせず空文字（表示が落ちない＝R-06の握りつぶしではなく「出さない」）
+  expect(jstDateTimeString('not-a-date')).toBe('');
+  expect(jstDateString('not-a-date')).toBe('');
 });

@@ -43,6 +43,7 @@ import { isAutoStockSaveEnabled } from '@/lib/auto-stock-save';
 // 271: バッチリサーチ結果の横並び比較（最大3列・本文/要約・同期スクロール）
 import BatchCompareView from '@/components/deepresearch/BatchCompareView';
 import { type BatchResult, parseContextWithSummary } from '@/lib/batch-compare';
+import { jstDateTimeString } from '@/lib/jst';
 
 // 自動下書き（feature_result_drafts feature_key='deepresearch'）のpayload
 // 対話的（単発）実行の結果＋生成後コンテキストを守る（バッチはcontext_savesにDB保存済みで対象外）
@@ -608,6 +609,15 @@ export default function DeepResearchPage() {
     setBatchTopics(prev => prev.map((t, idx) => idx === i ? { ...t, ...patch } : t));
   };
 
+  // 277 §3: 二重発火の遮断（stateは描画までラグがあるので同期的なrefで持つ）
+  const submitLockRef = useRef(false);
+  const runningJobRef = useRef<number | null>(null);
+  const [batchSubmitting, setBatchSubmitting] = useState(false);
+  // 277 §2-4: ジョブ名の改名（編集中の行と入力値）
+  const [renamingJobId, setRenamingJobId] = useState<number | null>(null);
+  const [renameValue, setRenameValue] = useState('');
+  const [renameBusy, setRenameBusy] = useState(false);
+
   const clearBatchTimers = () => {
     if (stuckTimerRef.current) clearTimeout(stuckTimerRef.current);
     if (elapsedTimerRef.current) clearInterval(elapsedTimerRef.current);
@@ -633,7 +643,34 @@ export default function DeepResearchPage() {
     await runBatchJob(job.id);
   };
 
+  /** 277 §2-4: ジョブ名の改名。保存済み記事の `group:` タグには波及させない */
+  const submitRename = async (jobId: number) => {
+    const title = renameValue.trim();
+    if (!title || renameBusy) return;
+    setRenameBusy(true);
+    try {
+      const res = await fetch('/api/batch-research', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: jobId, groupName: title }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        alert(`改名エラー: ${data?.error || '不明なエラー'}`);
+        return;
+      }
+      setRenamingJobId(null);
+      await loadBatchJobs();
+    } finally {
+      setRenameBusy(false);
+    }
+  };
+
   const runBatchJob = async (jobId: number) => {
+    // 277 §3: 多重起動の遮断。state（runningJobId）は次の描画まで反映されないため
+    // ボタンの disabled だけでは連打を止められない。同期的に効く ref で受ける
+    if (runningJobRef.current !== null) return;
+    runningJobRef.current = jobId;
     setRunningJobId(jobId);
     setBatchProgress([]);
     setTopicStatuses({});
@@ -711,11 +748,28 @@ export default function DeepResearchPage() {
       alert(`通信エラー: ${e?.message || ''}`);
     } finally {
       clearBatchTimers();
+      runningJobRef.current = null;
       setRunningJobId(null);
     }
   };
 
   const handleBatchSubmit = async () => {
+    // 277 §3: 実行ボタンの二重発火を止める（真因）。
+    // 従来は disabled が runningJobId 依存で、その state はPOST往復のあとにしか立たないため、
+    // クリック〜登録完了までの1秒弱は**押し放題**だった＝同じジョブが2〜3件でき、
+    // それぞれが /run まで走ってAI消費も倍になっていた。stateでなくrefで同期的に閉じる。
+    if (submitLockRef.current) return;
+    submitLockRef.current = true;
+    setBatchSubmitting(true);
+    try {
+      await runBatchSubmit();
+    } finally {
+      submitLockRef.current = false;
+      setBatchSubmitting(false);
+    }
+  };
+
+  const runBatchSubmit = async () => {
     const validTopics = batchTopics.filter(t => t.topic.trim());
     if (validTopics.length === 0) {
       alert('トピックを入力してください');
@@ -3435,19 +3489,22 @@ ${contextText}
             {/* 実行ボタン */}
             <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
               <button
+                data-batch-submit
                 onClick={handleBatchSubmit}
-                disabled={!!runningJobId}
+                disabled={!!runningJobId || batchSubmitting}
                 style={{
                   padding: '10px 28px',
-                  background: runningJobId ? 'var(--bg-secondary)' : 'linear-gradient(135deg, #6c63ff, #8b5cf6)',
-                  color: runningJobId ? 'var(--text-muted)' : '#fff',
+                  background: runningJobId || batchSubmitting ? 'var(--bg-secondary)' : 'linear-gradient(135deg, #6c63ff, #8b5cf6)',
+                  color: runningJobId || batchSubmitting ? 'var(--text-muted)' : '#fff',
                   border: 'none', borderRadius: 8, fontWeight: 700, fontSize: 14,
-                  cursor: runningJobId ? 'not-allowed' : 'pointer',
+                  cursor: runningJobId || batchSubmitting ? 'not-allowed' : 'pointer',
                 }}
               >
                 {runningJobId
                   ? '⏳ 実行中...'
-                  : scheduleType === 'immediate' ? '⚡ 今すぐ一括実行' : '📅 スケジュール登録'}
+                  : batchSubmitting
+                    ? '⏳ 登録中...'
+                    : scheduleType === 'immediate' ? '⚡ 今すぐ一括実行' : '📅 スケジュール登録'}
               </button>
             </div>
           </div>
@@ -3782,7 +3839,46 @@ ${contextText}
                   <div key={job.id} style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 10, padding: 12 }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap' as const, gap: 6 }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' as const }}>
-                        <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)' }}>{job.group_name}</span>
+                        {renamingJobId === job.id ? (
+                          <span style={{ display: 'inline-flex', gap: 4, alignItems: 'center' }}>
+                            <input
+                              data-batch-rename-input={job.id}
+                              value={renameValue}
+                              onChange={e => setRenameValue(e.target.value)}
+                              onKeyDown={e => { if (e.key === 'Enter') void submitRename(job.id); if (e.key === 'Escape') setRenamingJobId(null); }}
+                              autoFocus
+                              style={{ padding: '3px 8px', fontSize: 13, background: 'var(--bg-primary)', border: '1px solid var(--border-accent)', borderRadius: 6, color: 'var(--text-primary)', outline: 'none', minWidth: 220 }}
+                            />
+                            <button
+                              data-batch-rename-save={job.id}
+                              onClick={() => void submitRename(job.id)}
+                              disabled={renameBusy}
+                              style={{ padding: '3px 8px', fontSize: 11, background: 'var(--accent-soft)', border: '1px solid var(--border-accent)', color: 'var(--text-primary)', borderRadius: 6, cursor: 'pointer' }}
+                            >
+                              {renameBusy ? '…' : '保存'}
+                            </button>
+                            <button
+                              onClick={() => setRenamingJobId(null)}
+                              style={{ padding: '3px 8px', fontSize: 11, background: 'transparent', border: '1px solid var(--border)', color: 'var(--text-muted)', borderRadius: 6, cursor: 'pointer' }}
+                            >
+                              取消
+                            </button>
+                          </span>
+                        ) : (
+                          <>
+                            <span data-batch-job-title={job.id} style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)' }}>{job.group_name}</span>
+                            {/* 277 §2-4: 走らせた後に「何のバッチだったか」を書き足せるようにする。
+                                改名は保存済み記事の `group:` タグには波及させない（既存の絞り込みを壊さないため） */}
+                            <button
+                              data-batch-rename={job.id}
+                              onClick={() => { setRenamingJobId(job.id); setRenameValue(job.group_name); }}
+                              title="このジョブのタイトルを変更（保存済み記事のタグは変わりません）"
+                              style={{ padding: '1px 6px', fontSize: 11, background: 'transparent', border: '1px solid var(--border)', color: 'var(--text-muted)', borderRadius: 6, cursor: 'pointer' }}
+                            >
+                              ✏️
+                            </button>
+                          </>
+                        )}
                         <span style={{
                           fontSize: 10, padding: '2px 8px', borderRadius: 10, fontWeight: 700,
                           background:
@@ -3823,8 +3919,9 @@ ${contextText}
                           {job.schedule_type === 'immediate' ? '即時' : job.schedule_type === 'browser' ? 'ブラウザ' : 'cron'}
                         </span>
                       </div>
-                      <span style={{ fontSize: 10, color: 'var(--text-muted)' }}>
-                        {new Date(job.created_at).toLocaleString('ja-JP')}
+                      <span data-batch-job-created={job.id} style={{ fontSize: 10, color: 'var(--text-muted)' }}>
+                        {/* 277 §2-3: 端末のタイムゾーンに関わらずJSTで出す */}
+                        {jstDateTimeString(job.created_at)}
                       </span>
                     </div>
                     <div style={{ marginTop: 6, fontSize: 11, color: 'var(--text-muted)', display: 'flex', flexWrap: 'wrap' as const, gap: 8 }}>
@@ -3836,7 +3933,7 @@ ${contextText}
                     </div>
                     {job.status === 'pending' && job.scheduled_at && (
                       <div style={{ marginTop: 4, fontSize: 11, color: '#6c63ff' }}>
-                        ⏰ 実行予定: {new Date(job.scheduled_at).toLocaleString('ja-JP')}
+                        ⏰ 実行予定: {jstDateTimeString(job.scheduled_at)}
                       </div>
                     )}
                     <div style={{ marginTop: 8, display: 'flex', gap: 6, flexWrap: 'wrap' as const }}>

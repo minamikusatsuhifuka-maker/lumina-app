@@ -6,6 +6,7 @@ import { generateWithModel, type AIModel } from '@/lib/ai-client';
 import { GEMINI_TEXT_THINKING_LOW, GEMINI_TEXT_THINKING_MEDIUM, geminiMaxTokens } from '@/lib/ai-models';
 import { NO_LATEX_PROMPT_RULE } from '@/lib/markdown-renderer';
 import { sanitizeForDb } from '@/lib/sanitize';
+import { jstDateString } from '@/lib/jst';
 
 export const maxDuration = 300;
 
@@ -196,7 +197,8 @@ ${item.topic}
             send({ type: 'research_done', index: i, topic: item.topic });
 
             // コンテキスト最適化
-            const today = new Date().toISOString().slice(0, 10);
+            // 277 §2-3: 「本日」はJSTで（UTCのままだと 0〜9時JSTの間は前日をAIに渡す）
+            const today = jstDateString();
             const contextPrompt = `以下のリサーチ結果を、AIに読み込ませる背景情報コンテキストとして再構造化してください。
 Markdown形式のみで出力（前置き・後書き不要）。
 

@@ -3,6 +3,7 @@ import { CLAUDE_TEXT_MODEL } from '@/lib/ai-models';
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
 import { neon } from '@neondatabase/serverless';
+import { jstShortDate } from '@/lib/jst';
 import { extractAnthropicText } from '@/lib/anthropic-text';
 
 export const runtime = 'nodejs';
@@ -74,7 +75,8 @@ Markdown形式で出力してください。`,
     const data = await response.json();
     const reportContent = extractAnthropicText(data.content) || '';
 
-    const weekStr = new Date().toLocaleDateString('ja-JP', { month: 'numeric', day: 'numeric' });
+    // 277 §2-3: 実行環境（Vercel）はUTCのため、JSTで日付を作る（cronは早朝JST＝前日になっていた）
+    const weekStr = jstShortDate();
     await sql`
       INSERT INTO library (id, user_id, title, content, group_name, tags)
       VALUES (gen_random_uuid()::text, ${userId}, ${'週次活動レポート ' + weekStr}, ${reportContent}, '週次レポート', '週次レポート')
