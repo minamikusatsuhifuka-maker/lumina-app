@@ -559,3 +559,29 @@ test('B22: 一般分野では医療特化のターゲット層を受け付けな
   });
   expect(res.status()).toBe(400);
 });
+
+// 279: 言い換え1箇所の実AI経路（R-36）。医療分野＝ガードが最も厚い経路。
+test('B23: 分かりやすさ診断の言い換え（279）— 1箇所で候補が返り、元の文と異なる @gen', async ({ request }) => {
+  test.setTimeout(GEN_TIMEOUT);
+  const sentence = '角層のバリア機能が低下すると経皮吸収が亢進する。';
+  const res = await request.post('/api/plain-check/rephrase', {
+    data: { field: 'medical', audience: 'junior', kind: 'term', sentence, excerpt: '角層', detail: '＝肌のいちばん外側の層', before: '', after: '' },
+    timeout: REQ_TIMEOUT,
+  });
+  expect(res.status()).toBe(200);
+  const json = await res.json();
+  expect(Array.isArray(json.candidates)).toBe(true);
+  // 候補が空なら reason が付く（偽の成功にしない）。候補があれば元の文と異なる
+  if (json.candidates.length === 0) expect(String(json.reason).length).toBeGreaterThan(0);
+  for (const c of json.candidates) {
+    expect(typeof c.text).toBe('string');
+    expect(c.text).not.toBe(sentence);
+  }
+  expect(json._ai?.provider).toBe('gemini');
+});
+
+test('B24: 言い換えは文が無ければ400（279） @gen', async ({ request }) => {
+  const res = await request.post('/api/plain-check/rephrase', { data: { field: 'medical', audience: 'junior', kind: 'long' } });
+  expect(res.status()).toBe(400);
+});
+
