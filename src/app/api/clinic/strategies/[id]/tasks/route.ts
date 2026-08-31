@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
 import { neon } from '@neondatabase/serverless';
 import { v4 as uuidv4 } from 'uuid';
+import { jstDateString } from '@/lib/jst';
 
 export async function GET(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const session = await auth();
@@ -22,7 +23,8 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
 
   const sql = neon(process.env.DATABASE_URL!);
   const taskId = uuidv4();
-  const dueDate = dueInDays ? new Date(Date.now() + dueInDays * 86400000).toISOString().slice(0, 10) : null;
+  // 277 §2-3: 期限日は保存される日付。UTCで作ると 0〜9時JSTの間は1日手前になる
+  const dueDate = dueInDays ? jstDateString(Date.now() + dueInDays * 86400000) : null;
 
   await sql`INSERT INTO action_tasks (id, title, description, assignee_name, priority, due_date, category, strategy_id)
     VALUES (${taskId}, ${title}, ${description || null}, ${assigneeName || null}, ${priority || 'medium'}, ${dueDate}, ${category || null}, ${id})`;
