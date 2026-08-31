@@ -483,9 +483,11 @@ export default function DrHubPage() {
     };
   }, []);
 
-  // ③④🗓🗺のタブを開いたら保存済みnote記事の一覧を読み込む（開くまで取得しない）
+  // ③📆④🗓🗺のタブを開いたら保存済みnote記事の一覧を読み込む（開くまで取得しない）。
+  // 278: 新タブを足すときはここにも足す——漏れると「読み込み中…」のまま素材が選べない（C79で実測）
+  const NOTE_ITEM_FEATURES: Feature[] = ['xpost', 'xfanout', 'strategy', 'schedule', 'roadmap'];
   useEffect(() => {
-    if ((feature !== 'xpost' && feature !== 'strategy' && feature !== 'schedule' && feature !== 'roadmap') || noteItemsLoaded) return;
+    if (!NOTE_ITEM_FEATURES.includes(feature) || noteItemsLoaded) return;
     let cancelled = false;
     (async () => {
       try {

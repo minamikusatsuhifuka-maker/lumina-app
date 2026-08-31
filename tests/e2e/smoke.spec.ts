@@ -4329,10 +4329,11 @@ test('C78: 実行ボタンの二重発火でジョブが増えない・表示日
 test('C79: 記事→X時間差展開（278）— 1型1リクエスト・失敗/該当なしの局所化・被り警告・URL既定2件・時間帯・同日禁止（APIモック）', async ({ page }) => {
   await stubFeatureDrafts(page); // R-12
   const ARTICLE_ID = 'e2e-fanout-article';
-  await page.route('**/api/library?type=deepresearch', (route) =>
+  // クエリ付きURLはグロブだと曖昧になるため述語で判定する（stubBatchCompare と同じ）
+  await page.route((url) => url.pathname === '/api/library' && url.searchParams.get('type') === 'deepresearch', (route) =>
     route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([]) }),
   );
-  await page.route('**/api/library?type=note-article', (route) =>
+  await page.route((url) => url.pathname === '/api/library' && url.searchParams.get('type') === 'note-article', (route) =>
     route.fulfill({
       status: 200, contentType: 'application/json',
       body: JSON.stringify([{ id: ARTICLE_ID, title: '[E2E] 保湿の基本', content: '保湿の順番と量の話。' }]),
