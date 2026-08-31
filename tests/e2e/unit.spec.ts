@@ -135,6 +135,7 @@ import {
 import {
   BATCH_TITLE_FALLBACK,
   BATCH_TITLE_TOPIC_MAX,
+  batchJobSignature,
   deriveBatchJobTitle,
   truncateTitle,
 } from '../../src/lib/batch-title';
@@ -1579,6 +1580,39 @@ test('U49: バッチジョブ名は決定的に導出し、時刻を含めない
 
   // 6) 決定的（同じ入力なら何度呼んでも同じ・時刻に依存しない）
   expect(deriveBatchJobTitle('', topics)).toBe(deriveBatchJobTitle('', topics));
+});
+
+test('U51: 二重登録の判定は「登録内容が全部同じ」ときだけ一致する（277 §3・R-87）', () => {
+  const base = {
+    title: 'ザクロ美容効果',
+    topics: [{ topic: 'A', mode: 'quick' }, { topic: 'B', mode: 'deep' }],
+    scheduleType: 'immediate',
+    scheduledAt: null,
+    autoSave: true,
+  };
+  // 同じ内容なら一致（＝二重発火として遮断される）
+  expect(batchJobSignature(base)).toBe(batchJobSignature({ ...base }));
+  // 保存済み行から作り直しても一致する（DBはDate型・空白まじりで返ることがある）
+  expect(
+    batchJobSignature({ ...base, title: ' ザクロ美容効果 ', scheduledAt: undefined }),
+  ).toBe(batchJobSignature(base));
+  expect(
+    batchJobSignature({ ...base, scheduledAt: new Date('2030-01-01T00:00:00Z') }),
+  ).toBe(batchJobSignature({ ...base, scheduledAt: '2030-01-01T00:00:00.000Z' }));
+
+  // 一部でも違えば別物として通す（設定を変えた登録し直しを塞がない）
+  for (const diff of [
+    { title: '別の名前' },
+    { topics: [{ topic: 'A', mode: 'quick' }] },
+    { topics: [{ topic: 'A', mode: 'deep' }, { topic: 'B', mode: 'deep' }] },
+    { scheduleType: 'cron' },
+    { scheduledAt: '2030-01-02T00:00:00.000Z' },
+    { autoSave: false }, // 263の自動保存フラグだけを変えた登録（C60が実際に行う操作）
+  ]) {
+    expect(batchJobSignature({ ...base, ...diff }), JSON.stringify(diff)).not.toBe(
+      batchJobSignature(base),
+    );
+  }
 });
 
 test('U50: 日時はJSTで組み立てる（277 §2-3・R-86）', () => {

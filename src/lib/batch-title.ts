@@ -1,5 +1,6 @@
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 277 §2-2: バッチリサーチのジョブ名を**決定的に**導出する（R-74）。
+// 277: バッチリサーチのジョブの「名前」と「同一性」を決める純関数（R-74）。
+// §2-2 タイトルの決定的な導出と、§3 二重登録を見分けるための署名をここに集約する。
 //
 // AIによる命名はしない——トピック名がすでに十分説明的で、即時に決まり、
 // 何度作っても同じ名前になる方が履歴として役に立つ（生成待ちも課金も発生しない）。
@@ -45,4 +46,36 @@ export function deriveBatchJobTitle(
 
   const head = truncateTitle(names[0], BATCH_TITLE_TOPIC_MAX);
   return names.length === 1 ? head : `${head} 他${names.length - 1}件`;
+}
+
+// ── §3: 二重登録の判定（同一性の署名）────────────────────────────
+// 実行ボタンの二重発火で「まったく同じ登録」が1秒差で2件できていた。
+// 直近の登録と**リクエストの中身すべて**を突き合わせ、一致したら新規行を作らない。
+// 一部でも違えば別物として通す（設定を変えて登録し直す操作を塞がないため）。
+export interface BatchJobSignatureInput {
+  title: string;
+  topics: readonly { topic?: unknown; mode?: unknown }[];
+  scheduleType: string;
+  scheduledAt: unknown;
+  autoSave: boolean;
+}
+
+/** 日時は表記ゆれ（Date / ISO文字列 / null）を吸収して比較する */
+function normalizeTime(value: unknown): string | null {
+  if (!value) return null;
+  const d = value instanceof Date ? value : new Date(String(value));
+  return Number.isNaN(d.getTime()) ? null : d.toISOString();
+}
+
+export function batchJobSignature(input: BatchJobSignatureInput): string {
+  return JSON.stringify({
+    title: squash(input.title),
+    topics: (input.topics ?? []).map((t) => ({
+      topic: squash(typeof t === 'string' ? t : t?.topic),
+      mode: typeof t?.mode === 'string' ? t.mode : '',
+    })),
+    type: input.scheduleType,
+    at: normalizeTime(input.scheduledAt),
+    save: input.autoSave,
+  });
 }

@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
 import { neon } from '@neondatabase/serverless';
 import { sanitizeForDb } from '@/lib/sanitize';
-import { BATCH_TITLE_GROUP_MAX, deriveBatchJobTitle, truncateTitle } from '@/lib/batch-title';
+import { BATCH_TITLE_GROUP_MAX, batchJobSignature, deriveBatchJobTitle, truncateTitle } from '@/lib/batch-title';
 
 // バッチリサーチジョブの一覧取得・新規登録・改名・削除API
 
@@ -79,10 +79,18 @@ export async function POST(req: NextRequest) {
     const sql = neon(process.env.DATABASE_URL!);
     const userId = (session.user as any).id;
 
-    // §3: 直近の同一内容ジョブがあれば、それを返して二重登録しない（新規行を作らない）
-    const signature = JSON.stringify(
-      topicsWithStatus.map((t) => ({ topic: t.topic, mode: t.mode })),
-    );
+    // §3: 直近に**まったく同じ登録**があれば、それを返して二重登録しない（新規行を作らない）。
+    // 比較はリクエストの中身すべて（名前・トピック構成・実行方法・時刻・自動保存）。
+    // 一部でも違えば別の登録として通す——設定を変えて登録し直す操作を塞がないため。
+    const finalAutoSave = autoSave !== false;
+    const finalScheduledAt = scheduledAt || null;
+    const signature = batchJobSignature({
+      title: finalGroupName,
+      topics: topicsWithStatus,
+      scheduleType: finalScheduleType,
+      scheduledAt: finalScheduledAt,
+      autoSave: finalAutoSave,
+    });
     const recent = await sql`
       SELECT * FROM batch_research_jobs
       WHERE user_id = ${userId}
@@ -90,13 +98,16 @@ export async function POST(req: NextRequest) {
       ORDER BY created_at DESC
       LIMIT 5
     `;
-    const duplicate = recent.find((row: any) => {
-      const rowTopics = Array.isArray(row.topics) ? row.topics : [];
-      const rowSignature = JSON.stringify(
-        rowTopics.map((t: any) => ({ topic: t?.topic, mode: t?.mode })),
-      );
-      return rowSignature === signature && row.schedule_type === finalScheduleType;
-    });
+    const duplicate = recent.find(
+      (row: any) =>
+        batchJobSignature({
+          title: row.group_name,
+          topics: Array.isArray(row.topics) ? row.topics : [],
+          scheduleType: row.schedule_type,
+          scheduledAt: row.scheduled_at,
+          autoSave: row.auto_save_library !== false,
+        }) === signature,
+    );
     if (duplicate) {
       // 偽の成功ではない: 実体のあるジョブを返す。呼び出し側は同じidで進める（二重実行にならない）
       return NextResponse.json({ job: duplicate, deduplicated: true });
@@ -115,10 +126,10 @@ export async function POST(req: NextRequest) {
         ${finalGroupName},
         ${JSON.stringify(topicsWithStatus)},
         ${finalScheduleType},
-        ${scheduledAt || null},
+        ${finalScheduledAt},
         ${notifyEmail || null},
         'pending',
-        ${autoSave !== false}
+        ${finalAutoSave}
       )
       RETURNING *
     `;
