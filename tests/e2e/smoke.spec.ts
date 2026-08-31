@@ -4520,7 +4520,8 @@ test('C80: 分かりやすさ診断（279）— 決定的な機械検出・参�
   expect(rephraseCalls[0].field).toBe('medical');
   await expect(termIssue.locator('[data-plain-diff-left]').first()).toContainText('元の文');
   await expect(termIssue.locator('[data-plain-diff-right]').first()).toContainText('言い換え後');
-  await expect(termIssue.locator('[data-plain-diff-right]').first()).toContainText('玄関');
+  await expect(termIssue.locator('[data-plain-diff-right]').first()).toContainText('塗った薬が中に入りやすくなる');
+  await expect(termIssue.locator('[data-plain-candidate]').first(), '候補の注記（使った場面）が出る').toContainText('玄関の鍵');
   await expect(termIssue.locator('[data-plain-diff-right] mark').first(), '追加箇所が色分けされる').toBeVisible();
   await expect(input, '本文は自動で書き換わらない').toHaveValue(text);
   await expect(page.locator('[data-plain-stale]')).toHaveCount(0);
