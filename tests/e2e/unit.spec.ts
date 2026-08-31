@@ -140,6 +140,21 @@ import {
   truncateTitle,
 } from '../../src/lib/batch-title';
 import { formatJst, jstDateString, jstDateTimeString, jstShortDate } from '../../src/lib/jst';
+import {
+  DEFAULT_TYPE_SLOT,
+  DEFAULT_URL_COUNT,
+  FANOUT_ROUTE_MAX_DURATION_S,
+  FANOUT_SIMILARITY_DEFAULT,
+  X_FANOUT_TYPES,
+  X_SLOTS,
+  buildFanoutSchedule,
+  defaultUrlFlags,
+  fanoutScheduleToMarkdown,
+  findSimilarPairs,
+  hasSameDayCollision,
+  normalizeSelectedTypes,
+} from '../../src/lib/x-fanout';
+import { NOTE_SLOTS } from '../../src/lib/posting-schedule';
 
 // ============================================================================
 // 純関数の単体テスト（234【1】要件4）— ネットワーク・AI課金・認証を一切使わない
@@ -1632,3 +1647,78 @@ test('U50: 日時はJSTで組み立てる（277 §2-3・R-86）', () => {
   expect(jstDateTimeString('not-a-date')).toBe('');
   expect(jstDateString('not-a-date')).toBe('');
 });
+
+// ============================================================================
+// 278: note記事→X時間差展開 — URL既定2件・型別時間帯・同日禁止・類似度・R-73
+// ============================================================================
+
+test('U52: X時間差展開の判断（278）— URLは既定2件で③④は除外・型別時間帯・同日に載せない・被り検出', () => {
+  // §2-3: 既定は全5型。壊れた入力は既定へ
+  expect(normalizeSelectedTypes(undefined)).toEqual(['knowhow', 'story', 'debate', 'insight', 'infographic']);
+  expect(normalizeSelectedTypes(['insight', 'knowhow', 'bogus'])).toEqual(['knowhow', 'insight']); // 型の順に固定
+
+  // §5-2: URLは既定2件＝先頭と最後。③議論型・④常識破壊型には付けない
+  const all = [...X_FANOUT_TYPES];
+  const flags = defaultUrlFlags(all);
+  expect(DEFAULT_URL_COUNT).toBe(2);
+  expect(Object.values(flags).filter(Boolean).length).toBe(2);
+  expect(flags.knowhow).toBe(true);
+  expect(flags.infographic).toBe(true);
+  expect(flags.debate).toBe(false);
+  expect(flags.insight).toBe(false);
+  // 件数を上げても③④には付かない（候補3件が上限）
+  expect(Object.values(defaultUrlFlags(all, 5)).filter(Boolean).length).toBe(3);
+  expect(defaultUrlFlags(all, 5).debate).toBe(false);
+  // ③④しか選んでいなければURLは0件（無理に付けない）
+  expect(Object.values(defaultUrlFlags(['debate', 'insight'])).filter(Boolean).length).toBe(0);
+  expect(Object.values(defaultUrlFlags(all, 0)).filter(Boolean).length).toBe(0);
+
+  // §4-2: 型ごとの既定時間帯（①②③夜・④朝・⑤昼）。Xの時間帯はnoteと別（R-70）
+  expect(DEFAULT_TYPE_SLOT).toEqual({ knowhow: 'night', story: 'night', debate: 'night', insight: 'morning', infographic: 'noon' });
+  expect(X_SLOTS.night.window).toBe('18:00〜21:00');
+  expect(NOTE_SLOTS.night.window).toBe('20:00〜22:30');
+  expect(X_SLOTS.night.time).not.toBe(NOTE_SLOTS.night.time);
+
+  // §4-1/§4-3/§3-2③: 3日おき・土日は次の平日（266と同じ toWeekday）・同じ日に2件入らない
+  // 2026-09-02 は水曜。水→土(→月)→木→日(→月)→木 … 土日送りで同日に寄る組み合わせ
+  const rows = buildFanoutSchedule(all.map((type) => ({ type })), '2026-09-02', 3);
+  expect(rows.map((r) => r.date)).toEqual(['2026-09-02', '2026-09-07', '2026-09-10', '2026-09-14', '2026-09-17']);
+  expect(rows.map((r) => r.weekday)).toEqual(['水', '月', '木', '月', '木']);
+  expect(hasSameDayCollision(rows)).toBe(false);
+  // 間隔1日・金曜開始: 金→(土→月)→火… 土日送りでも重ならない
+  const tight = buildFanoutSchedule(all.map((type) => ({ type })), '2026-09-04', 1);
+  expect(hasSameDayCollision(tight)).toBe(false);
+  expect(tight.map((r) => r.weekday).every((w) => w !== '土' && w !== '日')).toBe(true);
+  // 間隔0（不正）は1に丸められ、それでも同日にはならない
+  const zero = buildFanoutSchedule(all.map((type) => ({ type })), '2026-09-02', 0);
+  expect(hasSameDayCollision(zero)).toBe(false);
+  // 型別の既定時間帯が行に載り、行ごとの上書きが効く
+  expect(rows.find((r) => r.type === 'insight')?.slot).toBe('morning');
+  expect(rows.find((r) => r.type === 'infographic')?.time).toBe('12:30');
+  const over = buildFanoutSchedule([{ type: 'insight', slot: 'noon', withUrl: true }], '2026-09-02');
+  expect(over[0].slot).toBe('noon');
+  expect(over[0].withUrl).toBe(true);
+  expect(hasSameDayCollision([{ date: 'a' }, { date: 'a' }])).toBe(true);
+
+  // §3-2①: 類似度は269の判定を流用（既定0.65）。ほぼ同文は拾い、別内容は拾わない
+  expect(FANOUT_SIMILARITY_DEFAULT).toBe(0.65);
+  const base = '朝の保湿は洗顔のあと3分以内に。順番は化粧水→乳液→クリームの3手順で、量は指先1関節ぶんが目安です。';
+  const pairs = findSimilarPairs([
+    { type: 'knowhow', text: base },
+    { type: 'story', text: `${base} 私はこの順番を最初に習いました。` },
+    { type: 'debate', text: '説明は先に結論から話す派と、順を追って話す派、みなさんはどちらですか。私は失敗して結論先出しに変えました。' },
+  ]);
+  expect(pairs.map((p) => `${p.a}-${p.b}`)).toEqual(['knowhow-story']);
+  expect(findSimilarPairs([{ type: 'knowhow', text: base }, { type: 'story', text: base }], 0.95).length).toBe(1);
+
+  // 表は「全件を投稿する」ことを勧める文言を含まない（§3-2②）
+  const md = fanoutScheduleToMarkdown('記事タイトル', rows);
+  expect(md).toContain('| 投稿日 |');
+  expect(md).not.toMatch(/全件|すべて投稿|全部投稿/);
+  expect(md).toContain('1つ目のリプライ');
+
+  // R-73/R-83: 見切り時間は③ルートの maxDuration と同値（定数とソースの両方を固定）
+  const routeSrc = fs.readFileSync(path.resolve(__dirname, '../../src/app/api/dr-hub/x-post/route.ts'), 'utf8');
+  expect(routeSrc).toContain(`export const maxDuration = ${FANOUT_ROUTE_MAX_DURATION_S};`);
+});
+

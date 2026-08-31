@@ -12,6 +12,7 @@ import { copyToClipboard } from '@/lib/copyToClipboard';
 import { copyRichMarkdown, copyRichMarkdownForNote } from '@/lib/rich-copy';
 import { PLAYBOOK_VERSION } from '@/lib/knowledge/noteXPlaybook';
 import KindleRemixTab from '@/components/dr-hub/KindleRemixTab';
+import XFanoutTab from '@/components/dr-hub/XFanoutTab';
 import {
   buildScheduleRows,
   scheduleToMarkdown,
@@ -95,11 +96,13 @@ const LENGTH_OPTIONS: Array<{ value: Length; label: string }> = [
   { value: 'long', label: '長め（5000〜7000字）' },
 ];
 
-type Feature = 'persona' | 'split' | 'xpost' | 'strategy' | 'schedule' | 'roadmap' | 'remix';
+type Feature = 'persona' | 'split' | 'xpost' | 'xfanout' | 'strategy' | 'schedule' | 'roadmap' | 'remix';
 const FEATURES: Array<{ key: Feature; label: string }> = [
   { key: 'persona', label: '✍️ ペルソナ別note記事' },
   { key: 'split', label: '🧩 分割記事化（シリーズ）' },
   { key: 'xpost', label: '🐦 X投稿連動' },
+  // 278: 記事1本→5型を時間差で。③の単発生成は残し、生成APIも③のものを型ごとに呼ぶ（新規エンジンなし）
+  { key: 'xfanout', label: '📆 記事→X時間差展開' },
   { key: 'strategy', label: '📈 発信戦略' },
   { key: 'schedule', label: '🗓 予約投稿カレンダー' },
   { key: 'roadmap', label: '🗺 収益化ロードマップ' },
@@ -1533,6 +1536,7 @@ export default function DrHubPage() {
 
       {/* ── 📖 Kindle→note展開（269・独立コンポーネント） ── */}
       {feature === 'remix' && <KindleRemixTab />}
+      {feature === 'xfanout' && <XFanoutTab noteItems={noteItems} noteItemsLoaded={noteItemsLoaded} />}
 
       {/* ── 🗺 収益化ロードマップ（268・決定的判定＝AI不使用） ── */}
       {feature === 'roadmap' && (

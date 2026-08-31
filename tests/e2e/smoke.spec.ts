@@ -4317,3 +4317,121 @@ test('C78: 実行ボタンの二重発火でジョブが増えない・表示日
     await ctx.close();
   }
 });
+
+// ============================================================================
+// 278: 📆 記事→X時間差展開（発信ハブの新規タブ・③の単発生成は不変）
+// - 5型を1型1リクエストで生成／一部だけ選べる／1型の失敗・該当なしが他を巻き添えにしない
+// - 類似度の警告／URLは既定2件で③④なし／型別の時間帯と行ごとの変更／同日に載らない
+// - 「全件を投稿する」を勧める文言が出ない
+// AIは呼ばずAPIをモック（課金なし・保存物なし）
+// ============================================================================
+
+test('C79: 記事→X時間差展開（278）— 1型1リクエスト・失敗/該当なしの局所化・被り警告・URL既定2件・時間帯・同日禁止（APIモック）', async ({ page }) => {
+  await stubFeatureDrafts(page); // R-12
+  const ARTICLE_ID = 'e2e-fanout-article';
+  await page.route('**/api/library?type=deepresearch', (route) =>
+    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([]) }),
+  );
+  await page.route('**/api/library?type=note-article', (route) =>
+    route.fulfill({
+      status: 200, contentType: 'application/json',
+      body: JSON.stringify([{ id: ARTICLE_ID, title: '[E2E] 保湿の基本', content: '保湿の順番と量の話。' }]),
+    }),
+  );
+  const calls: Record<string, unknown>[] = [];
+  const base = '朝の保湿は洗顔のあと3分以内に。\n\n順番は化粧水→乳液→クリームの3手順で、量は指先1関節ぶんが目安です。\n\n※後で見返せるようにブックマークを';
+  await page.route('**/api/dr-hub/x-post', (route) => {
+    const body = (route.request().postDataJSON() ?? {}) as Record<string, unknown>;
+    calls.push(body);
+    const t = String(body.postType);
+    if (t === 'debate') {
+      return route.fulfill({ status: 502, contentType: 'application/json', body: JSON.stringify({ error: '[E2E] 想定内の失敗' }) });
+    }
+    if (t === 'infographic') {
+      return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ success: true, notApplicable: true, reason: '図解にする項目が記事にない', postType: t }) });
+    }
+    // story は knowhow とほぼ同文＝被り警告の対象
+    const single = t === 'knowhow' ? base
+      : t === 'story' ? `${base}\n\n私はこの順番を最初に習いました。`
+      : '私は「保湿は高い化粧品ほど効く」と思っていました。\n\n実際に大事なのは量と順番と続けやすさでした。\n\n今日は洗面所に化粧水を置くところから。';
+    return route.fulfill({
+      status: 200, contentType: 'application/json',
+      body: JSON.stringify({ success: true, single, thread: [single, 'まとめ'], urlReplyLeadin: '本文で触れた記事の全文はこちらです', warnings: { single: [] }, xLength: 'mini', postType: t, charLimit: 25000 }),
+    });
+  });
+
+  await page.goto('/dashboard/dr-hub');
+  await page.getByRole('button', { name: /記事→X時間差展開/ }).click();
+  await expect(page.locator('[data-fanout-root]')).toBeVisible();
+
+  // §2-3: 既定は全5型が選択済み
+  for (const t of ['knowhow', 'story', 'debate', 'insight', 'infographic']) {
+    await expect(page.locator(`[data-fanout-type="${t}"]`)).toHaveAttribute('aria-pressed', 'true');
+  }
+  // 「全件を投稿する」を勧める文言が無い（§3-2②）
+  await expect(page.locator('[data-fanout-root]')).not.toContainText(/全件を投稿|すべて投稿しましょう|全部投稿/);
+
+  await page.locator('[data-fanout-article]').selectOption(ARTICLE_ID);
+  await page.locator('[data-fanout-run]').click();
+  await expect(page.locator('[data-fanout-card="infographic"]')).toHaveAttribute('data-fanout-status', 'na', { timeout: 60000 });
+
+  // §2-4: 1型1リクエスト（5型＝5回・型の順）・全て fanout フラグ付きで③のAPIを呼ぶ
+  expect(calls.length).toBe(5);
+  expect(calls.map((c) => c.postType)).toEqual(['knowhow', 'story', 'debate', 'insight', 'infographic']);
+  expect(calls.every((c) => c.fanout === true && c.articleId === ARTICLE_ID)).toBe(true);
+
+  // R-39: ③の失敗・⑤の該当なしが他を巻き添えにしない
+  await expect(page.locator('[data-fanout-card="debate"] [data-fanout-error]')).toBeVisible();
+  await expect(page.locator('[data-fanout-card="infographic"] [data-fanout-na]')).toContainText('該当なし');
+  for (const t of ['knowhow', 'story', 'insight']) {
+    await expect(page.locator(`[data-fanout-card="${t}"]`)).toHaveAttribute('data-fanout-status', 'done');
+  }
+
+  // §3-2①: 被り警告（knowhow×story）。insight には出ない
+  await expect(page.locator('[data-fanout-similar]')).toContainText('ノウハウ体系化型 × Before/After逆転ストーリー型');
+  await expect(page.locator('[data-fanout-card="story"] [data-fanout-card-similar]')).toBeVisible();
+  await expect(page.locator('[data-fanout-card="insight"] [data-fanout-card-similar]')).toHaveCount(0);
+
+  // §5-2: URLは既定2件（先頭=knowhow・最後の候補=infographic。生成できた中では knowhow のみON）、③④はOFF
+  await expect(page.locator('[data-fanout-url="knowhow"]')).toBeChecked();
+  await expect(page.locator('[data-fanout-url="story"]')).not.toBeChecked();
+  await expect(page.locator('[data-fanout-url="insight"]')).not.toBeChecked();
+  await expect(page.locator('[data-fanout-copy-url="knowhow"]'), 'URLありの投稿だけ2通目コピーが出る').toBeVisible();
+  await expect(page.locator('[data-fanout-copy-url="insight"]')).toHaveCount(0);
+
+  // §4-2: 型ごとの既定時間帯（①②夜・④朝）
+  await expect(page.locator('[data-fanout-slot="knowhow"]')).toHaveValue('night');
+  await expect(page.locator('[data-fanout-slot="insight"]')).toHaveValue('morning');
+
+  // §3-2②: 既定では日程に何も載らない（選んだものだけ）
+  await expect(page.locator('[data-fanout-row]')).toHaveCount(0);
+  for (const t of ['knowhow', 'story', 'insight']) await page.locator(`[data-fanout-pick="${t}"]`).check();
+  await page.locator('[data-fanout-start]').fill('2026-09-02'); // 水曜
+  await page.locator('[data-fanout-interval]').fill('3');
+  await expect(page.locator('[data-fanout-row]')).toHaveCount(3);
+  const dates = await page.locator('[data-fanout-row]').evaluateAll((els) => els.map((e) => e.getAttribute('data-fanout-row-date')));
+  expect(dates, '3日おき・土曜は翌月曜へ（266と同じ）').toEqual(['2026-09-02', '2026-09-07', '2026-09-10']);
+  expect(new Set(dates).size, '同一記事由来の投稿が同じ日に入らない').toBe(3);
+  await expect(page.locator('[data-fanout-row="insight"]')).toContainText('朝 7:30');
+  // 行ごとの時間帯変更が表に反映される
+  await page.locator('[data-fanout-slot="insight"]').selectOption('noon');
+  await expect(page.locator('[data-fanout-row="insight"]')).toContainText('昼 12:30');
+  // 間隔を1日にしても同日には寄らない
+  await page.locator('[data-fanout-interval]').fill('1');
+  const tight = await page.locator('[data-fanout-row]').evaluateAll((els) => els.map((e) => e.getAttribute('data-fanout-row-date')));
+  expect(new Set(tight).size).toBe(3);
+
+  // 型を一部だけ選んで生成できる（2型＝2リクエスト増）
+  for (const t of ['story', 'debate', 'infographic']) await page.locator(`[data-fanout-type="${t}"]`).click();
+  await expect(page.locator('[data-fanout-run]')).toContainText('2型');
+  await page.locator('[data-fanout-run]').click();
+  await expect(page.locator('[data-fanout-card="insight"]')).toHaveAttribute('data-fanout-status', 'done', { timeout: 60000 });
+  await expect(page.locator('[data-fanout-card]')).toHaveCount(2);
+  expect(calls.length).toBe(7);
+
+  // ③X投稿連動の単発生成UIは無傷（タブ・型セレクト・生成ボタンが残る）
+  await page.getByRole('button', { name: '🐦 X投稿連動' }).click();
+  await expect(page.locator('[data-x-type]')).toBeVisible();
+  await expect(page.getByRole('button', { name: /X投稿を生成する（単発＋スレッド）/ })).toBeVisible();
+});
+

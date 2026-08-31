@@ -66,6 +66,10 @@ export async function POST(req: NextRequest) {
       typeof body.personaKey === 'string' && body.personaKey in PERSONA_STYLES
         ? getPersonaStyle(body.personaKey)
         : null;
+    // 278: 記事→X展開からの呼び出し。単発生成（既定）の挙動は変えない（fanout=true のときだけ差分が入る）
+    //  - 素材の性質上その型が成立しないなら、無理に作らず notApplicable で返させる（fail-closed）
+    //  - R-75: 元の記事に無い医学的主張を追加しない一文をガード側（後勝ち）に加える
+    const fanout = body.fanout === true;
 
     // 265c: KB v2.0 の③用の章を注入（X-02〜X-09・XP-04・PART-A）
     const playbook = getPlaybook(['X-02', 'X-03', 'X-04', 'X-05', 'X-06', 'X-07', 'X-08', 'X-09', 'XP-04', 'PART-A']);
@@ -91,7 +95,7 @@ ${MEDICAL_AD_NG_RULES}
 - Before/Afterの主語は自分に限定（患者・症例を主語にしない）
 - 「〜しないと危険」「知らないと損する」型の煽り禁止
 - 効果の数値化禁止（数字は手順・時間・件数・項目数のみ）
-- 記事にない事実・数値・出典を書かない
+- 記事にない事実・数値・出典を書かない${fanout ? '\n- **元のnote記事に書かれていない医学的主張・治療の推奨を追加しない**（表現の変換で事実を変えない）' : ''}
 
 # 構成と体裁（厳守）
 - 構成は Hook → Before → Solution → After → CTA（X-04のv2版）
@@ -107,7 +111,11 @@ ${MEDICAL_AD_NG_RULES}
    各ポストは読みやすい長さに（番号は付けない・画面側で付ける）
 3. urlReplyLeadin: 1つ目のリプライに記事URLと一緒に置く導線の一文（30字以内。例:「本文で触れた記事の全文はこちらです」）
 
-必ず以下のJSON形式のみを返してください（前置き・コードフェンス不要）:
+${fanout ? `# この型が素材に合わない場合
+記事の内容からこの型の投稿が**無理なく**作れない（例: 議論になる論点が記事に無い・体系化できる項目が無い）ときは、
+無理に作らず {"notApplicable": true, "reason": "理由を1文"} だけを返してください。
+
+` : ''}必ず以下のJSON形式のみを返してください（前置き・コードフェンス不要）:
 {"single": "…", "thread": ["…", "…"], "urlReplyLeadin": "…"}`;
 
     const userMessage = `以下のnote記事「${title}」への導線となるX投稿を作ってください。\n\n--- 記事 ---\n${content.slice(0, MAX_SOURCE_CHARS)}\n--- ここまで ---`;
@@ -118,8 +126,10 @@ ${MEDICAL_AD_NG_RULES}
         maxTokens: lengthConf.maxTokens,
         messages: [{ role: 'user', content: userMessage }],
       });
-      const parsed = robustJsonParse<{ single?: unknown; thread?: unknown; urlReplyLeadin?: unknown }>(ai.text);
+      const parsed = robustJsonParse<{ single?: unknown; thread?: unknown; urlReplyLeadin?: unknown; notApplicable?: unknown; reason?: unknown }>(ai.text);
       return {
+        notApplicable: fanout && parsed?.notApplicable === true,
+        reason: String(parsed?.reason ?? '').trim().slice(0, 200),
         single: String(parsed?.single ?? '').trim(),
         thread: (Array.isArray(parsed?.thread) ? parsed.thread : [])
           .map((t) => String(t).trim())
@@ -131,6 +141,16 @@ ${MEDICAL_AD_NG_RULES}
     };
 
     let result = await generate();
+    // 278: 型が素材に合わないという判断は「成功のうち」として返す（画面は「該当なし」を明示する）
+    if (result.notApplicable) {
+      return NextResponse.json({
+        success: true,
+        notApplicable: true,
+        reason: result.reason || 'この記事からはこの型の投稿を無理なく作れません',
+        postType: typeof body.postType === 'string' ? body.postType : 'knowhow',
+        _ai: result._ai,
+      });
+    }
     // 機械検証①: 25,000字（投稿不能）超過のみ**1回だけ自動再生成**（それ以外は警告表示に留める）
     const overLimit = (r: typeof result) =>
       r.single.length > X_HARD_LIMIT || r.thread.some((t) => t.length > X_HARD_LIMIT);
