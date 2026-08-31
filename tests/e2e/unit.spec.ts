@@ -155,6 +155,23 @@ import {
   normalizeSelectedTypes,
 } from '../../src/lib/x-fanout';
 import { NOTE_SLOTS } from '../../src/lib/posting-schedule';
+import {
+  DEFAULT_PLAIN_AUDIENCE,
+  PLAIN_AUDIENCES,
+  PLAIN_CHECK_THRESHOLDS,
+  PLAIN_MAX_DURATION_S,
+  REPHRASE_AD_CHECK_TIMEOUT_MS,
+  REPHRASE_RETRIES,
+  REPHRASE_TIMEOUT_MS,
+  TERM_DICTIONARY,
+  buildRephrasePrompt,
+  buildReviewPrompt,
+  diagnose,
+  issuesSignature,
+  rephraseBudgetMs,
+  reportToMarkdown,
+  splitSentences,
+} from '../../src/lib/plain-check';
 
 // ============================================================================
 // 純関数の単体テスト（234【1】要件4）— ネットワーク・AI課金・認証を一切使わない
@@ -1720,5 +1737,103 @@ test('U52: X時間差展開の判断（278）— URLは既定2件で③④は除
   // R-73/R-83: 見切り時間は③ルートの maxDuration と同値（定数とソースの両方を固定）
   const routeSrc = fs.readFileSync(path.resolve(__dirname, '../../src/app/api/dr-hub/x-post/route.ts'), 'utf8');
   expect(routeSrc).toContain(`export const maxDuration = ${FANOUT_ROUTE_MAX_DURATION_S};`);
+});
+
+// ============================================================================
+// 279: 分かりやすさ診断 — 機械検出は決定的・6項目・読者/分野の既定・ガード順・R-73
+// ============================================================================
+
+test('U53: 分かりやすさ診断の機械検出は決定的で6項目を拾う（279 §2-3・R-74）', () => {
+  const text = [
+    '角層のバリア機能が低下すると経皮吸収が亢進し、外用薬のアドヒアランスがQOLに与えるインパクトはエビデンスベースで多角的かつ継続的に検討されるべきパラダイムであると考えられている。',
+    '細胞内酸化還元応答機構が関与する。',
+    'ソリューション・プラットフォーム・エコシステムを整える。',
+    '朝は洗顔（ぬるま湯で30秒ほど、こすらずに手のひらで押さえるように行うのがよい）のあとに保湿する。',
+    '短い文です。',
+  ].join('\n');
+
+  // 決定的: 2回呼んで完全一致・順序も固定（文の順→種別の順）
+  const a = diagnose(text);
+  const b = diagnose(text);
+  expect(issuesSignature(a)).toBe(issuesSignature(b));
+  expect(a.length).toBeGreaterThan(0);
+
+  // 1文目: 長文(>80字)・抽象語(パラダイム)・専門用語(角層/バリア機能/経皮吸収/アドヒアランス/QOL/エビデンス)
+  const s0 = a.filter((i) => i.sentenceIndex === 0);
+  expect(s0.some((i) => i.kind === 'long')).toBe(true);
+  expect(s0.some((i) => i.kind === 'abstract' && i.excerpt === 'パラダイム')).toBe(true);
+  const terms0 = s0.filter((i) => i.kind === 'term').map((i) => i.excerpt);
+  expect(terms0).toEqual(expect.arrayContaining(['角層', 'バリア機能', '経皮吸収', 'アドヒアランス', 'QOL']));
+  expect(s0.find((i) => i.kind === 'term' && i.excerpt === '角層')?.detail).toBe('＝肌のいちばん外側の層');
+  // 2文目: 漢語の連続（7字以上）
+  const kanji = a.find((i) => i.sentenceIndex === 1 && i.kind === 'kanji');
+  expect(kanji?.excerpt).toBe('細胞内酸化還元応答機構');
+  expect(kanji!.excerpt.length).toBeGreaterThanOrEqual(PLAIN_CHECK_THRESHOLDS.kanjiRun);
+  // 3文目: カタカナ語の連続（3語）＋抽象語
+  expect(a.some((i) => i.sentenceIndex === 2 && i.kind === 'katakana')).toBe(true);
+  expect(a.filter((i) => i.sentenceIndex === 2 && i.kind === 'abstract').map((i) => i.excerpt)).toEqual(['エコシステム', 'ソリューション', 'プラットフォーム']);
+  // 4文目: 括弧内の補足が長い
+  expect(a.find((i) => i.sentenceIndex === 3 && i.kind === 'paren')?.excerpt.startsWith('（')).toBe(true);
+  // 5文目: 何も出ない（鳴りっぱなしにしない）
+  expect(a.filter((i) => i.sentenceIndex === 4).length).toBe(0);
+  // 素直な文は0件
+  expect(diagnose('心臓はポンプのようなものです。')).toEqual([]);
+  expect(splitSentences('一。二！三？\n四')).toEqual(['一。', '二！', '三？', '四']);
+  // 辞書は定数として1箇所（追加すれば検出に載る形）
+  expect(TERM_DICTIONARY.every((t) => t.term && t.plain)).toBe(true);
+});
+
+test('U54: 言い換えの読者・分野・ガード順・R-73の積算（279 §4/§5/§6-3）', () => {
+  // §4-1: 汎用7層＋主婦向け＝8層。既定は中学生。276の医療特化層（美容/家族/子育て）は入れない
+  expect(PLAIN_AUDIENCES.map((a) => a.key)).toEqual(['junior', 'elementary', 'student', 'worker', 'senior', 'adjacent', 'expert', 'homemaker']);
+  expect(DEFAULT_PLAIN_AUDIENCE).toBe('junior');
+
+  const issue = { kind: 'term' as const, sentence: '角層のバリア機能が低下する。', excerpt: '角層', detail: '＝肌のいちばん外側の層' };
+  // 医療: 制約 → 事実同一性 → 普遍層 → 医療層（最後＝後勝ち・R-69）。患者向け層なので戦争メタファー禁止が入る
+  const med = buildRephrasePrompt({ field: 'medical', audienceKey: 'junior', issue, before: '前の文。', after: '次の文。' });
+  const at = (k: string) => med.indexOf(k);
+  expect(at('喩える先')).toBeGreaterThan(-1);
+  expect(at('事実の同一性')).toBeGreaterThan(at('喩える先'));
+  expect(at('【普遍層ガード】')).toBeGreaterThan(at('事実の同一性'));
+  expect(at('【医療層ガード】')).toBeGreaterThan(at('【普遍層ガード】'));
+  expect(med).toContain('戦争・闘争の比喩を使わない');
+  expect(med).toContain('元の文が伝えていた内容と同一');
+  expect(med).toContain('前: 前の文。');
+  // 一般: 医療層は入らない・普遍層と事実同一性は入る
+  const gen = buildRephrasePrompt({ field: 'general', audienceKey: 'worker', issue, before: '', after: '' });
+  expect(gen).not.toContain('【医療層ガード】');
+  expect(gen).toContain('【普遍層ガード】');
+  expect(gen).toContain('事実の同一性');
+  // 専門家向けは戦争メタファーの禁止文が入らない（医療層自体は入る）
+  const expert = buildRephrasePrompt({ field: 'medical', audienceKey: 'expert', issue, before: '', after: '' });
+  expect(expert).toContain('【医療層ガード】');
+  expect(expert).not.toContain('戦争・闘争の比喩を使わない');
+  // AI判定（参考）は言い換えを書かせない・機械検出の重複項目を挙げさせない
+  const review = buildReviewPrompt('本文。', 'junior');
+  expect(review).toContain('言い換え案は書かない');
+  expect(review).toContain('機械で検出済みなので挙げない');
+
+  // R-73: 生成45秒×2 + 広告チェック15秒 = 105秒 ≤ maxDuration 120秒。ルート2本とvercel.jsonの値も一致（R-83）
+  expect(rephraseBudgetMs()).toBe(REPHRASE_TIMEOUT_MS * (1 + REPHRASE_RETRIES) + REPHRASE_AD_CHECK_TIMEOUT_MS);
+  expect(rephraseBudgetMs()).toBeLessThanOrEqual(PLAIN_MAX_DURATION_S * 1000);
+  const vercelJson = JSON.parse(fs.readFileSync(path.resolve(__dirname, '../../vercel.json'), 'utf8')) as { functions: Record<string, { maxDuration: number }> };
+  for (const r of ['rephrase', 'review']) {
+    const src = fs.readFileSync(path.resolve(__dirname, `../../src/app/api/plain-check/${r}/route.ts`), 'utf8');
+    expect(src).toContain(`export const maxDuration = ${PLAIN_MAX_DURATION_S};`);
+    expect(vercelJson.functions[`src/app/api/plain-check/${r}/route.ts`].maxDuration).toBe(PLAIN_MAX_DURATION_S);
+  }
+
+  // レポートは機械検出とAI判定を別見出しで出し、本文を書き換えていないと明記・`###` なし
+  const md = reportToMarkdown({
+    sourceText: 'x', field: 'medical', audienceKey: 'junior',
+    issues: diagnose('角層のバリア機能が低下する。'),
+    aiIssues: [{ kind: 'logic', excerpt: '角層のバリア機能が低下する。', note: '理由がない' }],
+    rephrases: { 'term-0-0': [{ text: '肌のいちばん外側の層の守る力が弱まる。', note: '' }] },
+  });
+  expect(md).toContain('## 機械検出（確定）');
+  expect(md).toContain('## AI判定（参考）');
+  expect(md).toContain('本文は書き換えていません');
+  expect(md).toContain('言い換え案: 肌のいちばん外側');
+  expect(md).not.toContain('###');
 });
 

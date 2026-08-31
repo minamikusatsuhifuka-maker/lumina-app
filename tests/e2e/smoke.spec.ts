@@ -4436,3 +4436,109 @@ test('C79: 記事→X時間差展開（278）— 1型1リクエスト・失敗/�
   await expect(page.getByRole('button', { name: /X投稿を生成する（単発＋スレッド）/ })).toBeVisible();
 });
 
+// ============================================================================
+// 279: 🔍 分かりやすさ診断（新規ページ）
+// - 機械検出は決定的（2回診断で一致）／AI判定は「参考」で別枠／一括変換ボタンなし／本文は書き換えない
+// - 元の文↔言い換え後の並列差分／読者の既定=中学生・分野の既定=医療／1箇所の失敗が他に波及しない
+// - サイドバー到達・🎛設定の行（R-84）／270の3ボタン
+// AIは呼ばずAPIをモック（課金なし）。保存物は作らない
+// ============================================================================
+
+test('C80: 分かりやすさ診断（279）— 決定的な機械検出・参考のAI判定・提案のみ・並列差分・既定・失敗の局所化・R-84（APIモック）', async ({ page }) => {
+  await stubFeatureDrafts(page); // R-12
+  const rephraseCalls: Record<string, unknown>[] = [];
+  await page.route('**/api/plain-check/rephrase', (route) => {
+    const body = (route.request().postDataJSON() ?? {}) as Record<string, unknown>;
+    rephraseCalls.push(body);
+    if (body.kind === 'abstract') {
+      return route.fulfill({ status: 502, contentType: 'application/json', body: JSON.stringify({ error: '[E2E] 想定内の失敗' }) });
+    }
+    return route.fulfill({
+      status: 200, contentType: 'application/json',
+      body: JSON.stringify({
+        candidates: [
+          { text: '肌のいちばん外側の層（角層）が弱ると、塗った薬が中に入りやすくなる。', note: '玄関の鍵' },
+          { text: '肌の外側の層が弱ると、薬が入りやすくなる。', note: '' },
+        ],
+        reason: '', adCheck: { status: 'ok', findings: [] },
+      }),
+    });
+  });
+  await page.route('**/api/plain-check/review', (route) =>
+    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ items: [{ kind: 'premise', excerpt: '短い文です。', note: '何が短いのか前提が書かれていない' }] }) }),
+  );
+
+  // R-84: サイドバーから到達
+  await page.goto('/dashboard');
+  const navLink = page.locator('a[data-nav-href="/dashboard/plain-check"]');
+  await expect(navLink, 'サイドバーに🔍分かりやすさ診断がある').toBeVisible({ timeout: 30000 });
+  await navLink.click();
+  await expect(page.getByRole('heading', { name: /分かりやすさ診断/ })).toBeVisible({ timeout: 30000 });
+
+  // 既定: 読者=中学生・分野=医療（R-85）。一括変換ボタンは存在しない（§3-2）
+  await expect(page.locator('[data-plain-audience]')).toHaveValue('junior');
+  await expect(page.locator('[data-plain-field="medical"]')).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.getByRole('button', { name: /全部まとめて|一括で変換|すべて変換/ })).toHaveCount(0);
+  // 270の3ボタン
+  await expect(page.locator('[data-plain-clear]')).toBeVisible();
+  await expect(page.locator('[data-paste-button]')).toBeVisible();
+  await expect(page.locator('[data-clear-paste]')).toBeVisible();
+
+  const text = '角層のバリア機能が低下すると経皮吸収が亢進し、外用薬のアドヒアランスがQOLに与えるインパクトはエビデンスベースで多角的かつ継続的に検討されるべきパラダイムであると考えられている。\n短い文です。';
+  const input = page.locator('[data-plain-input]');
+  await input.fill(text);
+  await page.locator('[data-plain-diagnose]').click();
+  await expect(page.locator('[data-plain-machine]')).toBeVisible();
+
+  // 1文80字超・抽象語（パラダイム）が検出される
+  await expect(page.locator('[data-plain-kind="long"]')).toHaveCount(1);
+  await expect(page.locator('[data-plain-kind="abstract"]')).toContainText('パラダイム');
+  const first = await page.locator('[data-plain-issue]').evaluateAll((els) => els.map((e) => e.getAttribute('data-plain-issue')));
+  expect(first.length).toBeGreaterThan(3);
+
+  // 決定的: もう一度診断しても同じ指摘IDの並び
+  await page.locator('[data-plain-diagnose]').click();
+  const second = await page.locator('[data-plain-issue]').evaluateAll((els) => els.map((e) => e.getAttribute('data-plain-issue')));
+  expect(second, '同じ文章を2回診断すると機械検出が一致する').toEqual(first);
+
+  // 機械検出とAI判定が視覚的に別枠（確定バッジ／参考ラベル）。AI判定は別ボタンで、結果に「参考」が付く
+  await expect(page.locator('[data-plain-machine]')).toContainText('確定');
+  await expect(page.locator('[data-plain-ai] [data-plain-ai-label]')).toContainText('参考');
+  await expect(page.locator('[data-plain-ai-issue]')).toHaveCount(0);
+  await page.locator('[data-plain-ai-run]').click();
+  await expect(page.locator('[data-plain-ai-issue]')).toHaveCount(1);
+  await expect(page.locator('[data-plain-ai-issue]')).toContainText('参考 ／ 前提の省略');
+  await expect(page.locator('[data-plain-machine] [data-plain-ai-issue]'), 'AI判定は機械検出の枠に混ざらない').toHaveCount(0);
+
+  // 言い換え: 指摘ごとのボタン → 1箇所1リクエスト → 候補が元の文と並んで差分表示。本文は変わらない
+  const termIssue = page.locator('[data-plain-kind="term"]').first();
+  const termId = await termIssue.getAttribute('data-plain-issue');
+  await page.locator(`[data-plain-rephrase="${termId}"]`).click();
+  await expect(termIssue.locator('[data-plain-candidate]')).toHaveCount(2, { timeout: 30000 });
+  expect(rephraseCalls.length).toBe(1);
+  expect(rephraseCalls[0].sentence, '送るのは指摘対象の1文だけ').toBe(text.split('\n')[0]);
+  expect(rephraseCalls[0].field).toBe('medical');
+  await expect(termIssue.locator('[data-plain-diff-left]').first()).toContainText('元の文');
+  await expect(termIssue.locator('[data-plain-diff-right]').first()).toContainText('言い換え後');
+  await expect(termIssue.locator('[data-plain-diff-right]').first()).toContainText('玄関');
+  await expect(termIssue.locator('[data-plain-diff-right] mark').first(), '追加箇所が色分けされる').toBeVisible();
+  await expect(input, '本文は自動で書き換わらない').toHaveValue(text);
+  await expect(page.locator('[data-plain-stale]')).toHaveCount(0);
+
+  // R-39: 抽象語の箇所は失敗させる → その箇所だけエラー、上の候補は残る
+  const absIssue = page.locator('[data-plain-kind="abstract"]').first();
+  const absId = await absIssue.getAttribute('data-plain-issue');
+  await page.locator(`[data-plain-rephrase="${absId}"]`).click();
+  await expect(absIssue.locator('[data-plain-rephrase-error]')).toBeVisible({ timeout: 30000 });
+  await expect(termIssue.locator('[data-plain-candidate]')).toHaveCount(2);
+  expect(rephraseCalls.length).toBe(2);
+
+  // 診断結果のコピーボタンがある（一括変換ではない）
+  await expect(page.locator('[data-plain-copy-report]')).toBeVisible();
+
+  // R-84: 🎛メニュー名設定に行がある（サイドバーと同じ正本）
+  await page.goto('/dashboard/display-settings');
+  await page.locator('[data-nav-category-toggle="コンテンツ作成"]').click();
+  await expect(page.locator('[data-nav-category-block="コンテンツ作成"] [data-nav-row="/dashboard/plain-check"]')).toHaveCount(1);
+});
+
