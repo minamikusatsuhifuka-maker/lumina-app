@@ -1,5 +1,6 @@
 'use client';
 import { useEffect, useRef, useState } from 'react';
+import { MarkdownBody } from '@/components/MarkdownBody';
 import { ProgressBar } from '@/components/ProgressBar';
 import { useProgress } from '@/components/useProgress';
 import { SaveToLibraryButton } from '@/components/SaveToLibraryButton';
@@ -469,9 +470,8 @@ export default function EmailGeneratorPage() {
 
                 {/* 本文 */}
                 <div style={{ marginBottom: 20, padding: '16px 20px', background: 'var(--bg-primary)', border: '1px solid var(--border)', borderRadius: 10 }}>
-                  <div style={{ fontSize: 14, color: 'var(--text-secondary)', lineHeight: 1.8, whiteSpace: 'pre-wrap' }}>
-                    {email.body}
-                  </div>
+                  {/* 288/R-45: 読む画面は整形表示 */}
+                  <MarkdownBody text={email.body} style={{ fontSize: 14, color: 'var(--text-secondary)', lineHeight: 1.8 }} />
                 </div>
 
                 {/* CTAプレビュー */}

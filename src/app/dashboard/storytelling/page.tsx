@@ -1,5 +1,6 @@
 'use client';
 import { useState } from 'react';
+import { MarkdownBody } from '@/components/MarkdownBody';
 import { useRouter } from 'next/navigation';
 import { SaveToLibraryButton } from '@/components/SaveToLibraryButton';
 import { ProgressBar } from '@/components/ProgressBar';
@@ -377,13 +378,15 @@ export default function StorytellingPage() {
                 {copied ? '✓ コピー済み' : 'コピー'}
               </button>
             </div>
-            <div style={{
-              fontSize: 14, color: 'var(--text-secondary)', lineHeight: 2.0, whiteSpace: 'pre-wrap',
-              padding: '16px 20px', background: 'var(--bg-primary)', borderRadius: 8,
-              border: '1px solid var(--border)',
-            }}>
-              {result.story}
-            </div>
+            {/* 288/R-45: 読む画面は整形表示 */}
+            <MarkdownBody
+              text={result.story}
+              style={{
+                fontSize: 14, color: 'var(--text-secondary)', lineHeight: 2.0,
+                padding: '16px 20px', background: 'var(--bg-primary)', borderRadius: 8,
+                border: '1px solid var(--border)',
+              }}
+            />
           </div>
 
           {/* 核心メッセージ */}

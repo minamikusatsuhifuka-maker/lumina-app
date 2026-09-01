@@ -1,5 +1,6 @@
 'use client';
 import { useEffect, useRef, useState } from 'react';
+import { MarkdownBody } from '@/components/MarkdownBody';
 import { ProgressBar } from '@/components/ProgressBar';
 import { useProgress } from '@/components/useProgress';
 import { SaveToLibraryButton } from '@/components/SaveToLibraryButton';
@@ -395,9 +396,8 @@ export default function CopyGeneratorPage() {
                 {copied === 'body' ? 'コピー済み' : 'コピー'}
               </button>
             </div>
-            <div style={{ fontSize: 14, color: 'var(--text-secondary)', lineHeight: 1.8, whiteSpace: 'pre-wrap' }}>
-              {result.body}
-            </div>
+            {/* 288/R-45: 読む画面は整形表示 */}
+            <MarkdownBody text={result.body} style={{ fontSize: 14, color: 'var(--text-secondary)', lineHeight: 1.8 }} />
           </div>
 
           {/* CTAボタンプレビュー */}

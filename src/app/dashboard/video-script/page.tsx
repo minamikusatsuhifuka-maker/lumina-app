@@ -1,5 +1,6 @@
 'use client';
 import { useState } from 'react';
+import { MarkdownBody } from '@/components/MarkdownBody';
 import { ProgressBar } from '@/components/ProgressBar';
 import { useProgress } from '@/components/useProgress';
 import { SaveToLibraryButton } from '@/components/SaveToLibraryButton';
@@ -403,13 +404,15 @@ export default function VideoScriptPage() {
               <div style={{ padding: 20 }}>
                 <div style={{ marginBottom: 14 }}>
                   <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--accent)', marginBottom: 6 }}>読み上げ原稿</div>
-                  <div style={{
-                    fontSize: 14, color: 'var(--text-secondary)', lineHeight: 1.8, whiteSpace: 'pre-wrap',
-                    padding: '14px 18px', background: 'var(--bg-primary)', borderRadius: 8,
-                    border: '1px solid var(--border)',
-                  }}>
-                    {result.sections[activeTab]?.script}
-                  </div>
+                  {/* 288/R-45: 読む画面は整形表示 */}
+                  <MarkdownBody
+                    text={result.sections[activeTab]?.script}
+                    style={{
+                      fontSize: 14, color: 'var(--text-secondary)', lineHeight: 1.8,
+                      padding: '14px 18px', background: 'var(--bg-primary)', borderRadius: 8,
+                      border: '1px solid var(--border)',
+                    }}
+                  />
                 </div>
                 <div>
                   <div style={{ fontSize: 12, fontWeight: 600, color: '#f5a623', marginBottom: 6 }}>映像・演出ノート</div>
@@ -448,9 +451,7 @@ export default function VideoScriptPage() {
               <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 8 }}>
                 動画説明文
               </div>
-              <div style={{ fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.7, whiteSpace: 'pre-wrap' }}>
-                {result.description}
-              </div>
+              <MarkdownBody text={result.description} style={{ fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.7 }} />
             </div>
           )}
 

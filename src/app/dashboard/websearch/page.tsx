@@ -1,5 +1,6 @@
 'use client';
 import { useState } from 'react';
+import { MarkdownBody } from '@/components/MarkdownBody';
 import { CLAUDE_TEXT_MODEL_LABEL } from '@/lib/ai-models';
 import { ProgressBar } from '@/components/ProgressBar';
 import { VoiceInputButton } from '@/components/VoiceInputButton';
@@ -589,13 +590,14 @@ export default function WebSearchPage() {
                 ))}
               </div>
               {followupA && (
-                <div style={{
-                  padding: 14, background: 'var(--bg-primary)',
-                  borderRadius: 8, fontSize: 13, color: 'var(--text-secondary)',
-                  lineHeight: 1.8, whiteSpace: 'pre-wrap',
-                }}>
-                  {followupA}
-                </div>
+                <MarkdownBody
+                  text={followupA}
+                  style={{
+                    padding: 14, background: 'var(--bg-primary)',
+                    borderRadius: 8, fontSize: 13, color: 'var(--text-secondary)',
+                    lineHeight: 1.8,
+                  }}
+                />
               )}
             </div>
           )}

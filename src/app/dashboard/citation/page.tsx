@@ -1,5 +1,6 @@
 'use client';
 import { useState } from 'react';
+import { MarkdownBody } from '@/components/MarkdownBody';
 import { SaveToLibraryButton } from '@/components/SaveToLibraryButton';
 import { ProgressBar } from '@/components/ProgressBar';
 import { useProgress } from '@/components/useProgress';
@@ -316,9 +317,8 @@ export default function CitationPage() {
                 {copied === 'bib' ? '✓ コピー済み' : 'コピー'}
               </button>
             </div>
-            <div style={{ fontSize: 14, color: 'var(--text-secondary)', lineHeight: 1.8, whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>
-              {result.bibliography_entry}
-            </div>
+            {/* 288/R-45: 読む画面は整形表示 */}
+            <MarkdownBody text={result.bibliography_entry} style={{ fontSize: 14, color: 'var(--text-secondary)', lineHeight: 1.8, wordBreak: 'break-all' }} />
           </div>
 
           {/* 不足情報の警告 */}

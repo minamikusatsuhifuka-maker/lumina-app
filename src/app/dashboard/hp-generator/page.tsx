@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
+import { MarkdownBody } from '@/components/MarkdownBody';
 import { copyToClipboard } from '@/lib/copyToClipboard';
 import { triggerDownload } from '@/lib/download';
 import ContextSelector, {
@@ -402,18 +403,17 @@ export default function HpGeneratorPage() {
               ✕ 閉じる
             </button>
           </div>
-          <div
+          {/* 288/R-45: 読む画面は整形表示 */}
+          <MarkdownBody
+            text={deepDiveContent}
             style={{
               fontSize: 12,
               lineHeight: 1.7,
               maxHeight: 280,
               overflowY: 'auto',
-              whiteSpace: 'pre-wrap',
               color: 'var(--text-primary)',
             }}
-          >
-            {deepDiveContent}
-          </div>
+          />
         </div>
       )}
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 20 }}>

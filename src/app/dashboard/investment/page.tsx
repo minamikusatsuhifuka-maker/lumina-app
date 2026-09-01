@@ -1,5 +1,6 @@
 'use client';
 import { GEMINI_TEXT_MODEL_LABEL } from '@/lib/ai-models';
+import { MarkdownBody } from '@/components/MarkdownBody';
 import { useRef, useState } from 'react';
 import { ProgressBar } from '@/components/ProgressBar';
 import { VoiceInputButton } from '@/components/VoiceInputButton';
@@ -618,9 +619,8 @@ export default function InvestmentResearchPage() {
               />
             </div>
           </div>
-          <div style={{ fontSize: 14, color: 'var(--text-secondary)', lineHeight: 1.85, whiteSpace: 'pre-wrap' }}>
-            {insights.summary}
-          </div>
+          {/* 288/R-45: 読む画面は整形表示 */}
+          <MarkdownBody text={insights.summary} style={{ fontSize: 14, color: 'var(--text-secondary)', lineHeight: 1.85 }} />
           <div style={{ marginTop: 10, fontSize: 11, color: 'var(--text-muted)', textAlign: 'right' }}>
             {insights.summary.length.toLocaleString()} 字
           </div>
@@ -655,9 +655,7 @@ export default function InvestmentResearchPage() {
               />
             </div>
           </div>
-          <div style={{ fontSize: 14, color: 'var(--text-secondary)', lineHeight: 1.85, whiteSpace: 'pre-wrap' }}>
-            {insights.advice}
-          </div>
+          <MarkdownBody text={insights.advice} style={{ fontSize: 14, color: 'var(--text-secondary)', lineHeight: 1.85 }} />
           <div style={{ marginTop: 10, fontSize: 11, color: 'var(--text-muted)', textAlign: 'right' }}>
             {insights.advice.length.toLocaleString()} 字
           </div>
