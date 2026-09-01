@@ -2,6 +2,21 @@
 
 import { useState } from 'react';
 import { copyRichMarkdown } from '@/lib/rich-copy';
+// 283: 展開した本文は整形表示（R-45）。全画面（FullscreenReader）と同じレンダラ
+import { renderMarkdown, sanitizeLatex } from '@/lib/markdown-renderer';
+import type { LibraryArtifactKind, LibraryLinkKind } from '@/lib/library-groups';
+
+// 283: 1枚のカードにまとめた成果物（本文・要約など）。呼び出し元が判定（lib/library-groups.ts）し、
+// 選択/展開/検索ヒットの状態も行単位で渡す（この部品は一覧の状態を持たない）
+export type LibraryArtifactView = {
+  item: any;
+  kind: LibraryArtifactKind;
+  label: string;
+  selected: boolean;
+  expanded: boolean;
+  // 検索中のみ true/false（検索していないときは undefined＝印を出さない）
+  hit?: boolean;
+};
 
 const CATEGORY_CONFIG: Record<string, { icon: string; badgeBg: string; badgeColor: string }> = {
   'Intelligence Hub':   { icon: '🧠', badgeBg: 'rgba(108,99,255,0.1)',  badgeColor: '#6c63ff' },
@@ -78,6 +93,11 @@ interface Props {
   // 282: タイトル・メタ情報のクリックでも展開する（274の🧠AI参照素材と同じ挙動に揃える）。
   // 当たり判定は操作要素と本文の外側だけ（R-81）。既定 off＝既存の呼び出し元は無変更
   clickToExpand?: boolean;
+  // 283: 同一リサーチの成果物（2件以上のときだけタブを出す）。compact のみ対応。
+  // 渡されたときは item の代わりに「選択中の成果物」に対して操作（📋/📥/☆/🗑/⛶/展開）を行う
+  artifacts?: LibraryArtifactView[];
+  // 283: まとめ方（batch=保存時のトピック固有タグで確実 ／ estimated=タイトル一致＋時刻の推定）
+  linkKind?: LibraryLinkKind | null;
 }
 
 export function LibraryItemRow({
@@ -96,6 +116,8 @@ export function LibraryItemRow({
   onFavoriteClick,
   onFullscreen,
   clickToExpand = false,
+  artifacts,
+  linkKind = null,
 }: Props) {
   const meta = parseMetadata(item.metadata);
   const subCategory: string | undefined = typeof meta?.subCategory === 'string' ? meta.subCategory : undefined;
@@ -113,6 +135,19 @@ export function LibraryItemRow({
     typeof meta?.classifyAttempts === 'number' ? meta.classifyAttempts : undefined;
   const hasClassifyError = !!classifyError && !subCategory;
   const [copied, setCopied] = useState(false);
+  // 283: 成果物タブの選択（2件以上のときだけ意味を持つ）。展開されている成果物があればそれを優先して表示
+  const hasArtifacts = Array.isArray(artifacts) && artifacts.length >= 2;
+  const [activeIdxState, setActiveIdx] = useState(0);
+  const expandedArtifactIdx = hasArtifacts ? artifacts!.findIndex((a) => a.expanded) : -1;
+  const activeIdx = hasArtifacts
+    ? (expandedArtifactIdx >= 0 ? expandedArtifactIdx : Math.min(activeIdxState, artifacts!.length - 1))
+    : 0;
+  const activeArtifact = hasArtifacts ? artifacts![activeIdx] : null;
+  // cur = 操作対象の行（成果物タブがあれば選択中、無ければ従来どおり item）
+  const cur: any = activeArtifact ? activeArtifact.item : item;
+  const curExpanded = activeArtifact ? activeArtifact.expanded : isExpanded;
+  const curSelected = activeArtifact ? activeArtifact.selected : selected;
+  const anyFavorite = hasArtifacts ? artifacts!.some((a) => !!a.item.is_favorite) : !!item.is_favorite;
 
   // 229B: Kindle→note展開の相互リンク（metadata.sourceBookId → ?bookId= でウィザード復帰）
   const sourceBookId = typeof meta?.sourceBookId === 'number' ? meta.sourceBookId : undefined;
@@ -124,9 +159,11 @@ export function LibraryItemRow({
     badgeColor: '#9ca3af',
   };
 
-  const content = item.content || '';
+  const content = cur.content || '';
   // 231: 一覧APIが本文非返却の行（テキスト分析）は char_count 列を優先する
-  const charCount = typeof item.char_count === 'number' ? item.char_count : content.length;
+  const charCountOf = (row: any): number =>
+    typeof row.char_count === 'number' ? row.char_count : (row.content || '').length;
+  const charCount = charCountOf(cur);
   const previewText = content.slice(0, 180);
 
   const tagsArr: string[] = Array.isArray(item.tags)
@@ -161,13 +198,13 @@ export function LibraryItemRow({
         'data-library-expand-zone': item.id,
         role: 'button',
         tabIndex: 0,
-        'aria-expanded': isExpanded,
-        title: isExpanded ? 'クリックで本文を閉じる' : 'クリックで本文を開く',
-        onClick: () => onExpandToggle(item.id),
+        'aria-expanded': curExpanded,
+        title: curExpanded ? 'クリックで本文を閉じる' : 'クリックで本文を開く',
+        onClick: () => onExpandToggle(cur.id),
         onKeyDown: (e: React.KeyboardEvent<HTMLDivElement>) => {
           if (e.key !== 'Enter' && e.key !== ' ') return;
           e.preventDefault(); // Space での画面スクロールを止める
-          onExpandToggle(item.id);
+          onExpandToggle(cur.id);
         },
       }
     : {};
@@ -192,16 +229,26 @@ export function LibraryItemRow({
       padding: '3px 8px',
       fontSize: 10,
     };
+    // 283: 成果物タブ（本文/要約…）を押すとその成果物を展開する。ページ側の onExpandToggle は
+    // 「同じidなら閉じる・違うidならそれを開く」の1状態なので、タブ切替＝展開先の切替になる
+    const pickArtifact = (idx: number) => {
+      if (!hasArtifacts) return;
+      setActiveIdx(idx);
+      onExpandToggle(artifacts![idx].item.id);
+    };
+    const kindLabel = activeArtifact ? activeArtifact.label : '';
     return (
       <div
         className="group"
+        data-library-card={item.id}
+        data-library-link={linkKind ?? undefined}
         style={{
           padding: 12,
           background: 'var(--bg-secondary)',
           borderRadius: 10,
-          border: selected
+          border: curSelected
             ? '2px solid var(--accent)'
-            : item.is_favorite
+            : anyFavorite
               ? '1px solid rgba(245,166,35,0.4)'
               : '1px solid var(--border)',
           transition: 'border-color 0.15s',
@@ -218,7 +265,7 @@ export function LibraryItemRow({
         <div {...expandZoneProps} style={{ display: 'flex', flexDirection: 'column', gap: 8, minWidth: 0 }}>
         {/* タイトル行（★は常時表示） */}
         <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8, minWidth: 0 }}>
-          {mergeMode && (
+          {mergeMode && !hasArtifacts && (
             <input
               type="checkbox"
               checked={selected}
@@ -227,7 +274,7 @@ export function LibraryItemRow({
               style={{ marginTop: 2, width: 16, height: 16, cursor: 'pointer', flexShrink: 0 }}
             />
           )}
-          {item.is_favorite ? (
+          {anyFavorite ? (
             <span style={{ color: '#f5a623', fontSize: 13, flexShrink: 0 }}>★</span>
           ) : null}
           <strong
@@ -262,11 +309,33 @@ export function LibraryItemRow({
           </div>
         )}
 
-        {/* 日付・文字数のみ */}
+        {/* 日付・文字数のみ（283: 成果物が複数ならタブ側に文字数を出し、ここでは件数） */}
         <div style={{ fontSize: 11, color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
           {createdDate && <span>{createdDate}</span>}
           <span>・</span>
-          <span>{charCount.toLocaleString()}文字</span>
+          {hasArtifacts ? (
+            <span>{artifacts!.length}件の成果物</span>
+          ) : (
+            <span>{charCount.toLocaleString()}文字</span>
+          )}
+          {/* 283: まとめ方の表示。推定は必ず明示する（保存データに紐付けは無い） */}
+          {hasArtifacts && linkKind === 'estimated' && (
+            <span
+              data-library-estimated
+              title="タイトルが完全一致し、保存時刻が近い2件を同一リサーチと推定してまとめています（保存データに紐付けの情報は無いため推定です）"
+              style={{ padding: '0 6px', borderRadius: 8, background: 'rgba(245,158,11,0.12)', color: '#b45309', fontSize: 10, fontWeight: 700, cursor: 'help' }}
+            >
+              🔗 推定でまとめ
+            </span>
+          )}
+          {hasArtifacts && linkKind === 'batch' && (
+            <span
+              title="バッチ実行のトピック固有タグ（batch:ジョブ-番号）で紐付いた同一実行の成果物です"
+              style={{ padding: '0 6px', borderRadius: 8, background: 'rgba(108,99,255,0.1)', color: '#6c63ff', fontSize: 10, fontWeight: 700, cursor: 'help' }}
+            >
+              🔗 同一実行
+            </span>
+          )}
           {/* 229B: Kindle→note展開で保存された記事は元の本へ復帰できる */}
           {sourceBookId !== undefined && (
             <a
@@ -281,7 +350,64 @@ export function LibraryItemRow({
         </div>
         </div>
 
-        {/* 操作ボタン: ホバー時オーバーレイ表示（タッチ端末は常時表示） */}
+        {/* 283: 成果物タブ（種別＋文字数を併記）。押すとその内容が展開される。選択モードでは成果物ごとにチェック */}
+        {hasArtifacts && (
+          <div
+            onClick={stopCardClick}
+            role="tablist"
+            aria-label="成果物"
+            style={{ display: 'flex', gap: 4, flexWrap: 'wrap', alignItems: 'center' }}
+          >
+            {artifacts!.map((a, idx) => {
+              const isActive = idx === activeIdx;
+              const dim = a.hit === false; // 検索中にヒットしていない成果物は薄く
+              return (
+                <span key={a.item.id} style={{ display: 'inline-flex', alignItems: 'center', gap: 3 }}>
+                  {mergeMode && (
+                    <input
+                      type="checkbox"
+                      data-library-artifact-check={a.item.id}
+                      checked={a.selected}
+                      onChange={(e) => onSelectToggle(a.item.id, e.target.checked)}
+                      onClick={stopCardClick}
+                      title={`${a.label}を選択`}
+                      style={{ width: 14, height: 14, cursor: 'pointer', flexShrink: 0 }}
+                    />
+                  )}
+                  <button
+                    type="button"
+                    role="tab"
+                    aria-selected={isActive}
+                    data-library-artifact-tab={a.item.id}
+                    data-library-artifact-kind={a.kind}
+                    data-library-artifact-hit={a.hit === undefined ? undefined : a.hit ? '1' : '0'}
+                    onClick={() => pickArtifact(idx)}
+                    title={
+                      (a.expanded ? `${a.label}を閉じる` : `${a.label}を展開`) +
+                      (a.hit ? '（検索にヒット）' : '')
+                    }
+                    style={{
+                      ...compactBtnStyle,
+                      padding: '3px 9px',
+                      fontWeight: isActive ? 700 : 500,
+                      borderColor: isActive ? 'var(--accent)' : a.item.is_favorite ? 'rgba(245,158,11,0.4)' : 'var(--border)',
+                      background: isActive ? 'var(--accent-soft, rgba(108,99,255,0.12))' : 'var(--bg-primary)',
+                      color: isActive ? 'var(--text-primary)' : 'var(--text-secondary)',
+                      opacity: dim ? 0.55 : 1,
+                    }}
+                  >
+                    {a.hit ? '🔍 ' : ''}
+                    {a.item.is_favorite ? '⭐ ' : ''}
+                    {a.expanded ? '▲ ' : '▼ '}
+                    {a.label} {charCountOf(a.item).toLocaleString()}字
+                  </button>
+                </span>
+              );
+            })}
+          </div>
+        )}
+
+        {/* 操作ボタン: ホバー時オーバーレイ表示（タッチ端末は常時表示）。283: 成果物タブがあれば選択中の成果物に対して動く */}
         <div
           className="opacity-0 group-hover:opacity-100 focus-within:opacity-100 [@media(hover:none)]:opacity-100 transition-opacity"
           onClick={stopCardClick}
@@ -290,73 +416,78 @@ export function LibraryItemRow({
           {/* 4列時(xl〜)はアイコンのみ・ツールチップで機能名を補う */}
           <button
             type="button"
-            onClick={() => onExpandToggle(item.id)}
+            onClick={() => onExpandToggle(cur.id)}
             style={compactBtnStyle}
-            title={isExpanded ? '閉じる' : '全文表示'}
+            title={curExpanded ? '閉じる' : '全文表示'}
           >
-            {isExpanded ? '▲' : '▼'}
-            <span className="xl:hidden">{isExpanded ? ' 閉じる' : ' 全文表示'}</span>
+            {curExpanded ? '▲' : '▼'}
+            <span className="xl:hidden">{curExpanded ? ' 閉じる' : ' 全文表示'}</span>
           </button>
           {/* 282: 狭い列幅では読みにくいため、全画面リーダー（整形表示）への導線を置く */}
           {onFullscreen && content && (
             <button
               type="button"
-              data-library-fullscreen={item.id}
-              onClick={() => onFullscreen(item)}
+              data-library-fullscreen={cur.id}
+              onClick={() => onFullscreen(cur)}
               style={compactBtnStyle}
-              title="全画面のリーダー表示で読む"
+              title={hasArtifacts ? `${kindLabel}を全画面のリーダー表示で読む` : '全画面のリーダー表示で読む'}
             >
               ⛶<span className="xl:hidden"> 全画面</span>
             </button>
           )}
           {content && (
-            <button type="button" onClick={handleCopy} style={compactBtnStyle} title="本文をコピー">
+            <button type="button" onClick={handleCopy} style={compactBtnStyle} title={hasArtifacts ? `${kindLabel}をコピー` : '本文をコピー'}>
               {copied ? '✓' : '📋'}
               <span className="xl:hidden">{copied ? ' コピー済' : ' コピー'}</span>
             </button>
           )}
           {onExportMd && (
-            <button type="button" onClick={() => onExportMd(item)} style={compactBtnStyle} title="Markdownをダウンロード">
+            <button type="button" onClick={() => onExportMd(cur)} style={compactBtnStyle} title="Markdownをダウンロード">
               📥<span className="xl:hidden"> MD</span>
             </button>
           )}
           {(onFavoriteClick || onFavoriteToggle) && (
             <button
               type="button"
-              data-favorite-button={item.id}
+              data-favorite-button={cur.id}
               onClick={(e) =>
                 onFavoriteClick
-                  ? onFavoriteClick(item, e.currentTarget.getBoundingClientRect())
-                  : onFavoriteToggle?.(item)
+                  ? onFavoriteClick(cur, e.currentTarget.getBoundingClientRect())
+                  : onFavoriteToggle?.(cur)
               }
               title={
-                onFavoriteClick
-                  ? item.is_favorite
+                (onFavoriteClick
+                  ? cur.is_favorite
                     ? 'フォルダ分類の変更・お気に入り解除'
                     : 'お気に入りに登録してフォルダに分類する'
-                  : item.is_favorite
+                  : cur.is_favorite
                     ? 'お気に入り解除'
-                    : 'お気に入りに追加'
+                    : 'お気に入りに追加') + (hasArtifacts ? `（${kindLabel}）` : '')
               }
               style={{
                 ...compactBtnStyle,
-                color: item.is_favorite ? '#f59e0b' : 'var(--text-secondary)',
-                borderColor: item.is_favorite ? 'rgba(245,158,11,0.4)' : 'var(--border)',
-                background: item.is_favorite ? 'rgba(245,158,11,0.08)' : 'var(--bg-primary)',
+                color: cur.is_favorite ? '#f59e0b' : 'var(--text-secondary)',
+                borderColor: cur.is_favorite ? 'rgba(245,158,11,0.4)' : 'var(--border)',
+                background: cur.is_favorite ? 'rgba(245,158,11,0.08)' : 'var(--bg-primary)',
               }}
             >
-              {item.is_favorite ? '⭐' : '☆'}
+              {cur.is_favorite ? '⭐' : '☆'}
             </button>
           )}
           {onDelete && (
           <button
             type="button"
+            data-library-delete={cur.id}
             onClick={() => {
-              if (confirm('このアイテムを削除しますか？')) {
-                onDelete(item.id);
+              // 283: 削除は成果物単位。まとめたカードでは「何を消すか・何が残るか」を確認文に出す
+              const msg = hasArtifacts
+                ? `この「${kindLabel}」を削除しますか？（同じカードの他の成果物は残ります）`
+                : 'このアイテムを削除しますか？';
+              if (confirm(msg)) {
+                onDelete(cur.id);
               }
             }}
-            title="削除"
+            title={hasArtifacts ? `${kindLabel}を削除` : '削除'}
             style={{
               ...compactBtnStyle,
               color: '#ef4444',
@@ -370,10 +501,11 @@ export function LibraryItemRow({
           )}
         </div>
 
-        {/* 全文表示（▼全文表示の展開時のみ本文を表示）。282: 本文のクリックで閉じない（文字を選べる） */}
-        {isExpanded && (
+        {/* 全文表示（▼全文表示の展開時のみ本文を表示）。282: 本文のクリックで閉じない（文字を選べる）。
+            283: 整形表示（R-45）＝全画面と同じ renderMarkdown */}
+        {curExpanded && (
           <div
-            data-library-expanded-body={item.id}
+            data-library-expanded-body={cur.id}
             onClick={stopCardClick}
             style={{
               padding: 12,
@@ -383,7 +515,6 @@ export function LibraryItemRow({
               fontSize: 13,
               lineHeight: 1.7,
               color: 'var(--text-secondary)',
-              whiteSpace: 'pre-wrap',
               wordBreak: 'break-word',
               maxHeight: 600,
               overflowY: 'auto',
@@ -402,7 +533,7 @@ export function LibraryItemRow({
             >
               <button
                 type="button"
-                onClick={() => onExpandToggle(item.id)}
+                onClick={() => onExpandToggle(cur.id)}
                 style={{
                   padding: '4px 10px',
                   fontSize: 11,
@@ -422,7 +553,15 @@ export function LibraryItemRow({
                 ▲ 閉じる
               </button>
             </div>
-            {content}
+            {hasArtifacts && (
+              <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--text-muted)', marginBottom: 6 }}>
+                {kindLabel}・{charCount.toLocaleString()}文字
+              </div>
+            )}
+            <div
+              className="markdown-body"
+              dangerouslySetInnerHTML={{ __html: renderMarkdown(sanitizeLatex(content)) }}
+            />
           </div>
         )}
       </div>
@@ -748,7 +887,11 @@ export function LibraryItemRow({
             </button>
           </div>
         )}
-        {isExpanded ? content : previewText}
+        {isExpanded ? (
+          <div className="markdown-body" style={{ whiteSpace: 'normal' }} dangerouslySetInnerHTML={{ __html: renderMarkdown(sanitizeLatex(content)) }} />
+        ) : (
+          previewText
+        )}
         {!isExpanded && charCount > 180 && '...'}
       </div>
     </div>

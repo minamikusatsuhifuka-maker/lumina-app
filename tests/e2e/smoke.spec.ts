@@ -23,6 +23,7 @@ import {
   LIBRARY_API,
   createLibraryItem,
   cleanupE2ELibrary,
+  withE2EPrefix,
   // 253: フォルダの横断表示
   FOLDER_ITEMS_API,
   listFolderItems,
@@ -4912,6 +4913,146 @@ test('C83: リサーチ保存の全画面表示（282）— ⛶で共通リー�
     await deleteFolder(request, 'library', folderId).catch(() => {});
     await request.delete(`${CONTEXT_API}?id=${ctxId}`).catch(() => {});
     await cleanupE2EContextSaves(request);
+    await cleanupE2ELibrary(request);
+  }
+});
+
+// ───────────────────────────────────────────────────────────────────────────
+// 283: 同一リサーチの本文・要約を1枚のカードに（表示側グルーピング）
+// ───────────────────────────────────────────────────────────────────────────
+test('C84: リサーチ保存のカードまとめ（283）— batch紐付け1枚/推定1枚/同題3件は個別・成果物タブで展開（整形）・成果物ごとに⛶・検索ヒットの印・タグ/お気に入り絞り込み・成果物単位の削除・件と枚の表示', async ({
+  page,
+  request,
+}) => {
+  const marker = `GROUP${RUN_ID}`;
+  const jobId = 9900001;
+  const HA = `本文見出し${marker}`;
+  const HS = `要約見出し${marker}`;
+  const SUMTOKEN = `SUMONLY${marker}`;
+  const now = new Date().toISOString();
+  // R-79: 保存側（saveTopicToLibrary / SaveToLibraryButton）の形をそのまま写す
+  const post = async (body: Record<string, unknown>) => {
+    const res = await request.post(LIBRARY_API, { data: body });
+    expect(res.status()).toBe(200);
+    return (await res.json()).id as string;
+  };
+  const a1 = await post({
+    type: 'deepresearch', title: withE2EPrefix(`TA ${marker}`),
+    content: `導入。\n\n## ${HA}\n\n**太字A** の本文。${'長い本文。'.repeat(60)}`,
+    metadata: { from: 'batch-research', jobId, topicIndex: 0, kind: 'research', savedAt: now },
+    tags: `ディープリサーチ,バッチ,batch:${jobId}-0`, group_name: 'ディープリサーチ',
+  });
+  const a2 = await post({
+    type: 'deepresearch', title: withE2EPrefix(`TA ${marker}`),
+    content: `導入。\n\n## ${HS}\n\n${SUMTOKEN} を含む要約。`,
+    metadata: { from: 'batch-research', jobId, topicIndex: 0, kind: 'summary', savedAt: now },
+    tags: `ディープリサーチ,要約,バッチ,batch:${jobId}-0s`, group_name: 'ディープリサーチ',
+  });
+  const b1 = await post({ type: 'deepresearch', title: withE2EPrefix(`TB ${marker}`), content: `通常DR本文 ${marker}`, metadata: { savedAt: now }, tags: 'ディープリサーチ', group_name: 'ディープリサーチ' });
+  const b2 = await post({ type: 'deepresearch', title: withE2EPrefix(`TB ${marker}`), content: `通常DR要約 ${marker}`, metadata: { savedAt: now }, tags: 'ディープリサーチ,要約', group_name: 'ディープリサーチ' });
+  const cs: string[] = [];
+  for (let i = 0; i < 3; i++) {
+    cs.push(await post({ type: 'deepresearch', title: withE2EPrefix(`TC ${marker}`), content: `同題${i} ${marker}`, metadata: { savedAt: now }, tags: 'ディープリサーチ', group_name: 'ディープリサーチ' }));
+  }
+  const all = [a1, a2, b1, b2, ...cs];
+
+  const dialog = page.locator('[role="dialog"][data-kb-scope="reader"]');
+  const closeReader = async () => {
+    await dialog.getByRole('button', { name: '✕ 閉じる' }).click();
+    await expect(dialog).toHaveCount(0);
+  };
+  const cards = page.locator('[data-library-card]');
+  const tab = (id: string) => page.locator(`[data-library-artifact-tab="${id}"]`);
+  const body = (id: string) => page.locator(`[data-library-expanded-body="${id}"]`);
+
+  try {
+    await page.goto('/dashboard/library');
+    await page.locator('[data-library-search]').fill(marker);
+    await expect(page.locator(`[data-library-card="${a1}"]`), 'バッチの本文が代表のカードが出ること').toBeVisible({ timeout: 30000 });
+
+    // ── ① 枚数: A(batch 2件→1枚) + B(推定 2件→1枚) + C(同題3件→3枚) = 5枚／7件 ──
+    await expect(cards, '7件が5枚のカードになること').toHaveCount(5);
+    await expect(page.getByText(`の検索結果: 7件（カード 5枚）`), '件（成果物）と枚（カード）を併記すること').toBeVisible();
+    await expect(page.locator('[data-library-artifact-tab]'), '成果物タブはAとBの計4つだけ（Cの3件は個別）').toHaveCount(4);
+    await expect(page.locator(`[data-library-card="${a1}"]`)).toHaveAttribute('data-library-link', 'batch');
+    await expect(page.locator(`[data-library-card="${b1}"]`), '推定でまとめたカードは本文が代表').toHaveAttribute('data-library-link', 'estimated');
+    await expect(page.locator(`[data-library-card="${b1}"] [data-library-estimated]`), '推定でまとめた旨の表示があること').toBeVisible();
+    for (const c of cs) await expect(page.locator(`[data-library-card="${c}"]`), '同題3件は個別カードで残ること').toBeVisible();
+    // 種別と文字数の併記
+    await expect(tab(a1)).toContainText('本文');
+    await expect(tab(a1)).toContainText(/\d字/);
+    await expect(tab(a2)).toContainText('要約');
+    await expect(tab(a2)).toHaveAttribute('data-library-artifact-kind', 'summary');
+
+    // ── ② 成果物タブで展開（整形表示・R-45）。タブ切替で展開先が切り替わる ──
+    await expect(body(a1)).toHaveCount(0);
+    await tab(a2).click();
+    await expect(body(a2), '要約タブで要約が展開されること').toBeVisible();
+    await expect(body(a2).locator(':is(h1,h2,h3,h4)').filter({ hasText: HS }), '展開も整形表示（見出しがhタグ）').toBeVisible();
+    expect(await body(a2).innerText(), '生MD記法が露出しないこと').not.toContain('## ');
+    await tab(a1).click();
+    await expect(body(a1), '本文タブで本文が展開されること').toBeVisible();
+    await expect(body(a2), '要約側は閉じること').toHaveCount(0);
+    await expect(body(a1).locator('strong').filter({ hasText: '太字A' })).toBeVisible();
+
+    // ── ③ 成果物ごとに全画面（282の共通リーダー）──
+    await page.locator(`[data-library-fullscreen="${a1}"]`).click();
+    await expect(dialog).toBeVisible();
+    await expect(dialog.locator('.markdown-body :is(h1,h2,h3,h4)').filter({ hasText: HA }), '本文の全画面').toBeVisible();
+    await closeReader();
+    await tab(a2).click();
+    await expect(body(a2)).toBeVisible();
+    await page.locator(`[data-library-fullscreen="${a2}"]`).click();
+    await expect(dialog).toBeVisible();
+    await expect(dialog.locator('.markdown-body :is(h1,h2,h3,h4)').filter({ hasText: HS }), '要約の全画面').toBeVisible();
+    await closeReader();
+
+    // ── ④ 検索: 要約にしかない語 → カードは出て、ヒットした成果物に印が付き、本文側は印なし ──
+    await page.locator('[data-library-search]').fill(SUMTOKEN);
+    await expect(page.locator(`[data-library-card="${a1}"]`), '要約だけがヒットしてもカードは欠落しない').toBeVisible();
+    await expect(cards).toHaveCount(1);
+    await expect(tab(a2)).toHaveAttribute('data-library-artifact-hit', '1');
+    await expect(tab(a1)).toHaveAttribute('data-library-artifact-hit', '0');
+    await expect(page.getByText('の検索結果: 1件（カード 1枚）')).toBeVisible();
+    // タグで絞り込み（batch タグ）: 本文・要約の両方がヒット
+    await page.locator('[data-library-search]').fill(`batch:${jobId}-0`);
+    await expect(page.locator(`[data-library-card="${a1}"]`)).toBeVisible();
+    await expect(page.getByText('の検索結果: 2件（カード 1枚）'), 'タグ絞り込みで両成果物がヒット').toBeVisible();
+
+    // ── ⑤ お気に入り絞り込み（成果物単位）: 本文だけ⭐ → ★タブでカードが出て、本文タブに⭐ ──
+    expect((await request.put(LIBRARY_API, { data: { id: a1, is_favorite: 1 } })).status()).toBe(200);
+    await page.reload({ waitUntil: 'domcontentloaded' });
+    await page.getByRole('button', { name: /★お気に入り/ }).click();
+    await page.locator('[data-library-search]').fill(marker);
+    await expect(page.locator(`[data-library-card="${a1}"]`), 'お気に入り絞り込みでカードが出ること').toBeVisible({ timeout: 30000 });
+    await expect(cards, 'お気に入りはAの本文だけ').toHaveCount(1);
+    await expect(tab(a1)).toContainText('⭐');
+    await expect(tab(a2)).not.toContainText('⭐');
+
+    // ── ⑥ 削除は成果物単位: 要約だけ消して本文カードは残る ──
+    await page.getByRole('button', { name: /^すべて/ }).click();
+    await page.locator('[data-library-search]').fill(marker);
+    await expect(tab(a2)).toBeVisible({ timeout: 30000 });
+    await tab(a2).click(); // 要約を選択中にする
+    await expect(body(a2)).toBeVisible();
+    const acceptAll = (d: import('@playwright/test').Dialog) => void d.accept();
+    page.on('dialog', acceptAll);
+    await page.locator(`[data-library-delete="${a2}"]`).click();
+    await expect(tab(a2), '要約が消えること').toHaveCount(0);
+    page.off('dialog', acceptAll);
+    await expect(page.locator(`[data-library-card="${a1}"]`), '本文のカードは残ること').toBeVisible();
+    await expect
+      .poll(async () => {
+        const rows = (await (await request.get(`${LIBRARY_API}?q=${encodeURIComponent(marker)}`)).json()) as { id: string }[];
+        return [rows.some((r) => r.id === a1), rows.some((r) => r.id === a2)];
+      }, 'サーバ側でも要約だけが消えること')
+      .toEqual([true, false]);
+
+    // ── ⑦ 統計にも件と枚を出す ──
+    await expect(page.getByText('総アイテム（件＝成果物）')).toBeVisible();
+    await expect(page.getByText('カード（枚）')).toBeVisible();
+  } finally {
+    await request.delete(LIBRARY_API, { data: { ids: all } }).catch(() => {});
     await cleanupE2ELibrary(request);
   }
 });

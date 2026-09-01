@@ -28,6 +28,13 @@ import {
 import { ALL_NAV_ITEMS, navCategories, DEFAULT_HOME_HREFS, resolveHomeHrefs } from '../../src/lib/nav-items';
 import { CLEAR_PASTE_MESSAGE, clearAndPaste, type ClearAndPasteResult } from '../../src/lib/clear-and-paste';
 import { applyReplacePaste, resolvePasteReplaceEnabled } from '../../src/lib/paste-replace';
+import {
+  ARTIFACT_LABEL,
+  ESTIMATED_PAIR_WINDOW_MS,
+  artifactKindOf,
+  batchLinkKey,
+  groupLibraryItems,
+} from '../../src/lib/library-groups';
 import { insertAtCursor, PASTE_BUTTON_MESSAGE } from '../../src/lib/paste-insert';
 import {
   ANALYSIS_OPTIONS,
@@ -1925,4 +1932,121 @@ test('U55: エピソード記録（281）— 行動の数字は警告せず効�
   const nav = ALL_NAV_ITEMS.find((i) => i.href === '/dashboard/episodes');
   expect(nav?.label).toBe('エピソード記録');
   expect((nav?.label ?? '').length).toBeLessThanOrEqual(12);
+});
+
+// ───────────────────────────────────────────────────────────────────────────
+// 283: 同一リサーチの本文・要約を1枚のカードにまとめる判定（表示側・決定的）
+// R-79: テスト入力は保存側から写す——
+//   バッチ: src/app/api/batch-research/[id]/run/route.ts saveTopicToLibrary
+//   通常DR: src/app/dashboard/deepresearch/page.tsx の SaveToLibraryButton（tags="ディープリサーチ" / "ディープリサーチ,要約"）
+// ───────────────────────────────────────────────────────────────────────────
+test('U56: リサーチ保存のカードまとめ（283）— batchタグは確実に紐付く・通常DRはタイトル一致＋時刻近接の2件のみ推定・3件以上/同種別/時間差/非DRはまとめない', () => {
+  const T0 = Date.parse('2026-08-31T10:00:00+09:00');
+  const iso = (ms: number) => new Date(ms).toISOString();
+  // ── バッチ（saveTopicToLibrary の INSERT をそのまま写す）──
+  const jobId = 123;
+  const batchRow = (id: string, kind: 'research' | 'summary', index: number, title: string, at: number) => ({
+    id,
+    type: 'deepresearch',
+    title,
+    content: kind === 'research' ? '本文'.repeat(3000) : '要約'.repeat(400),
+    metadata: JSON.stringify({ from: 'batch-research', jobId, topicIndex: index, kind, savedAt: iso(at) }),
+    tags:
+      kind === 'research'
+        ? `ディープリサーチ,バッチ,batch:${jobId}-${index}`
+        : `ディープリサーチ,要約,バッチ,batch:${jobId}-${index}s`,
+    group_name: 'ディープリサーチ',
+    created_at: iso(at),
+  });
+  // ── 通常DR（SaveToLibraryButton: type/title/content/metadata{savedAt}/tags/group_name）──
+  const drRow = (id: string, title: string, tags: string, at: number) => ({
+    id,
+    type: 'deepresearch',
+    title,
+    content: 'x',
+    metadata: { savedAt: iso(at) },
+    tags,
+    group_name: 'ディープリサーチ',
+    created_at: iso(at),
+  });
+
+  // 種別の判定
+  expect(artifactKindOf(batchRow('a', 'summary', 0, 'T', T0))).toBe('summary');
+  expect(artifactKindOf(batchRow('a', 'research', 0, 'T', T0))).toBe('research');
+  expect(artifactKindOf(drRow('a', 'T', 'ディープリサーチ,要約', T0))).toBe('summary');
+  expect(artifactKindOf(drRow('a', 'T', 'ディープリサーチ,詳細', T0))).toBe('detail');
+  expect(artifactKindOf(drRow('a', 'T', 'ディープリサーチ,活用アドバイス', T0))).toBe('advice');
+  expect(artifactKindOf(drRow('a', 'T', 'ディープリサーチ', T0))).toBe('research');
+  expect(artifactKindOf(drRow('a', 'T', 'ディープリサーチ,お気に入り', T0))).toBe('research');
+  // batch キー（要約の末尾 s を落として本文と同じ鍵）
+  expect(batchLinkKey(batchRow('a', 'summary', 4, 'T', T0))).toBe('batch:123-4');
+  expect(batchLinkKey(batchRow('a', 'research', 4, 'T', T0))).toBe('batch:123-4');
+  expect(batchLinkKey(drRow('a', 'T', 'ディープリサーチ', T0))).toBeNull();
+
+  // 1) バッチの本文＋要約 → 1枚・確実（link=batch）・本文が先頭。一覧APIの順（新しい方が先）でも同じ
+  const bS = batchRow('b-s', 'summary', 0, 'バッチ題', T0 + 60_000);
+  const bR = batchRow('b-r', 'research', 0, 'バッチ題', T0);
+  const c1 = groupLibraryItems([bS, bR]);
+  expect(c1).toHaveLength(1);
+  expect(c1[0].link).toBe('batch');
+  expect(c1[0].key).toBe('batch:123-0');
+  expect(c1[0].artifacts.map((a) => a.kind)).toEqual(['research', 'summary']);
+  expect(c1[0].primary.id).toBe('b-r');
+  expect(ARTIFACT_LABEL[c1[0].artifacts[1].kind]).toBe('要約');
+  // 要約が生成失敗で本文だけ → 単体（link=null）
+  expect(groupLibraryItems([bR])[0].link).toBeNull();
+  // 別トピック（index違い）は混ざらない
+  const b2 = batchRow('b2-r', 'research', 1, 'バッチ題', T0);
+  expect(groupLibraryItems([bS, bR, b2])).toHaveLength(2);
+
+  // 2) 通常DR: タイトル一致＋10分差＋本文/要約 → 1枚・推定（link=estimated）
+  const nR = drRow('n-r', '抗酸化力の測定', 'ディープリサーチ', T0);
+  const nS = drRow('n-s', '抗酸化力の測定', 'ディープリサーチ,要約', T0 + 10 * 60_000);
+  const c2 = groupLibraryItems([nS, nR]);
+  expect(c2).toHaveLength(1);
+  expect(c2[0].link).toBe('estimated');
+  expect(c2[0].artifacts.map((a) => a.item.id)).toEqual(['n-r', 'n-s']);
+
+  // 3) 3件以上が該当 → まとめずに個別（SOD酵素の4件のケース）
+  const s1 = drRow('s1', 'SOD酵素の比較', 'ディープリサーチ', T0);
+  const s2 = drRow('s2', 'SOD酵素の比較', 'ディープリサーチ,要約', T0 + 5 * 60_000);
+  const s3 = drRow('s3', 'SOD酵素の比較', 'ディープリサーチ', T0 + 8 * 60_000);
+  const s4 = drRow('s4', 'SOD酵素の比較', 'ディープリサーチ,要約', T0 + 12 * 60_000);
+  const c3 = groupLibraryItems([s4, s3, s2, s1]);
+  expect(c3).toHaveLength(4);
+  expect(c3.every((c) => c.link === null && c.artifacts.length === 1)).toBe(true);
+
+  // 4) 同タイトル2件でも同種別（277で遮断した重複実行の残骸など）はまとめない
+  const d1 = drRow('d1', '重複', 'ディープリサーチ', T0);
+  const d2 = drRow('d2', '重複', 'ディープリサーチ', T0 + 60_000);
+  expect(groupLibraryItems([d1, d2])).toHaveLength(2);
+
+  // 5) 時間差が閾値を超えたらまとめない（閾値は定数1箇所）
+  const f1 = drRow('f1', '遠い', 'ディープリサーチ', T0);
+  const f2 = drRow('f2', '遠い', 'ディープリサーチ,要約', T0 + ESTIMATED_PAIR_WINDOW_MS + 1);
+  expect(groupLibraryItems([f1, f2])).toHaveLength(2);
+  const g2 = drRow('g2', '遠い', 'ディープリサーチ,要約', T0 + ESTIMATED_PAIR_WINDOW_MS);
+  expect(groupLibraryItems([f1, g2])).toHaveLength(1);
+
+  // 6) 別々の実行が離れた時刻にある同タイトル4件 → 時刻の塊ごとに判定（前の塊は2件でまとまり、後の塊は同種別でまとまらない）
+  const h1 = drRow('h1', 'H', 'ディープリサーチ', T0);
+  const h2 = drRow('h2', 'H', 'ディープリサーチ,要約', T0 + 60_000);
+  const h3 = drRow('h3', 'H', 'ディープリサーチ', T0 + 5 * ESTIMATED_PAIR_WINDOW_MS);
+  const h4 = drRow('h4', 'H', 'ディープリサーチ', T0 + 5 * ESTIMATED_PAIR_WINDOW_MS + 60_000);
+  const c6 = groupLibraryItems([h4, h3, h2, h1]);
+  expect(c6).toHaveLength(3);
+  expect(c6.find((c) => c.link === 'estimated')?.artifacts.map((a) => a.item.id)).toEqual(['h1', 'h2']);
+
+  // 7) DR以外（note検索など）はタイトルが同じでもまとめない
+  const o1 = { ...drRow('o1', '同名', 'note検索', T0), type: 'note', group_name: 'note検索' };
+  const o2 = { ...drRow('o2', '同名', 'note検索,要約', T0 + 1000), type: 'note', group_name: 'note検索' };
+  expect(groupLibraryItems([o1, o2])).toHaveLength(2);
+
+  // 8) 決定的（R-74）: 同じ入力なら同じ結果。カードの並びは入力で最初に現れた位置を保つ
+  const mixed = [nS, s4, bS, nR, s3, bR, s2, s1, d1];
+  const r1 = groupLibraryItems(mixed);
+  const r2 = groupLibraryItems(mixed);
+  expect(r1.map((c) => c.key)).toEqual(r2.map((c) => c.key));
+  expect(r1.map((c) => c.key)).toEqual(['est:n-r', 's4', 'batch:123-0', 's3', 's2', 's1', 'd1']);
+  expect(r1.flatMap((c) => c.artifacts.map((a) => a.item.id)).sort()).toEqual(mixed.map((i) => i.id).sort());
 });

@@ -26,7 +26,9 @@ import {
 } from '@/components/custom-folders/useCustomFolders';
 import { triggerDownload } from '@/lib/download';
 import { KINDLE_LIBRARY_TYPES, MAX_KINDLE_SOURCES } from '@/lib/kindle-limits';
-import { LibraryItemRow } from '@/components/LibraryItemRow';
+import { LibraryItemRow, type LibraryArtifactView } from '@/components/LibraryItemRow';
+// 283: 同一リサーチの本文・要約を1枚のカードにまとめる判定（表示側のみ・DB無変更）
+import { ARTIFACT_LABEL, groupLibraryItems, type LibraryCard } from '@/lib/library-groups';
 // 282: 全画面リーダーは新設せず、AI参照素材/保存一覧と同じ共通部品を呼び出す（画面ごとに別実装を増やさない）
 import FullscreenReader from '@/components/text-analysis/FullscreenReader';
 import { sanitizeLatex } from '@/lib/markdown-renderer';
@@ -527,26 +529,58 @@ function LibraryPageInner() {
   };
 
   /* フォルダ別グルーピング */
+  // 283: 全行をカードにまとめる（判定は lib/library-groups.ts・決定的）。絞り込みは従来どおり行単位で行い、
+  // 1件でも残った成果物があるカードを出す＝まとめたことで検索結果が欠落しない。
+  // 検索中は「どの成果物がヒットしたか」を hit で渡す（カード内の他の成果物も薄く表示して残す）
+  const allCards = useMemo(() => groupLibraryItems<any>(items), [items]);
+  const cardOfItem = useMemo(() => {
+    const m = new Map<string, LibraryCard<any>>();
+    for (const c of allCards) for (const a of c.artifacts) m.set(String(a.item.id), c);
+    return m;
+  }, [allCards]);
+  type VisibleCard = { card: LibraryCard<any>; matched: Set<string>; first: any };
+  const visibleCards = useMemo<VisibleCard[]>(() => {
+    const out: VisibleCard[] = [];
+    const idx = new Map<string, VisibleCard>();
+    for (const it of tabFilteredItems) {
+      const card = cardOfItem.get(String(it.id));
+      if (!card) continue;
+      let v = idx.get(card.key);
+      if (!v) {
+        v = { card, matched: new Set<string>(), first: it };
+        idx.set(card.key, v);
+        out.push(v);
+      }
+      v.matched.add(String(it.id));
+    }
+    return out;
+  }, [tabFilteredItems, cardOfItem]);
+
   const groupedByFolder = useMemo(() => {
-    const folders = new Map<string, any[]>();
-    const noFolder: any[] = [];
-    for (const item of tabFilteredItems) {
-      if (item.folder_name) {
-        const arr = folders.get(item.folder_name) || [];
-        arr.push(item);
-        folders.set(item.folder_name, arr);
+    const folders = new Map<string, VisibleCard[]>();
+    const noFolder: VisibleCard[] = [];
+    for (const v of visibleCards) {
+      // カードの置き場所は、絞り込みを通った最初の成果物の（旧）フォルダ名で決める
+      const folderName = v.first.folder_name;
+      if (folderName) {
+        const arr = folders.get(folderName) || [];
+        arr.push(v);
+        folders.set(folderName, arr);
       } else {
-        noFolder.push(item);
+        noFolder.push(v);
       }
     }
     // フォルダ名でソート
     const sortedFolders = Array.from(folders.entries()).sort((a, b) => a[0].localeCompare(b[0], 'ja'));
     return { sortedFolders, noFolder };
-  }, [tabFilteredItems]);
+  }, [visibleCards]);
 
   // 282: 全画面リーダーの j/k（前後の資料）は画面に出ている順（フォルダ節→未整理）で動く
   const readerOrder = useMemo(
-    () => [...groupedByFolder.sortedFolders.flatMap(([, arr]) => arr), ...groupedByFolder.noFolder],
+    () =>
+      [...groupedByFolder.sortedFolders.flatMap(([, arr]) => arr), ...groupedByFolder.noFolder].flatMap((v) =>
+        v.card.artifacts.map((a) => a.item),
+      ),
     [groupedByFolder],
   );
   const openReader = (item: any) => {
@@ -576,10 +610,25 @@ function LibraryPageInner() {
   // 画面幅に応じて自動で1〜4列（院長指定のリテラル）
   const drGridClass = 'grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4';
 
-  /* ── 各アイテムのレンダリング ── */
-  const renderItem = (item: any) => (
+  /* ── 各カードのレンダリング（283: 1枚＝同一リサーチの成果物1〜4件） ── */
+  const renderItem = (v: VisibleCard) => {
+    const { card, matched } = v;
+    const item = card.primary;
+    const searching = search.trim().length > 0;
+    const artifacts: LibraryArtifactView[] | undefined =
+      card.artifacts.length >= 2
+        ? card.artifacts.map((a) => ({
+            item: a.item,
+            kind: a.kind,
+            label: ARTIFACT_LABEL[a.kind],
+            selected: selectedIds.has(a.item.id),
+            expanded: expandedId === a.item.id,
+            hit: searching ? matched.has(String(a.item.id)) : undefined,
+          }))
+        : undefined;
+    return (
     <div
-      key={item.id}
+      key={card.key}
       style={isDrCompact ? { minWidth: 0, height: '100%' } : undefined}
       // 256: 本文は既に手元にある（/api/library が content 込みで返す）＝追加リクエストなし
       // 257: プレビューはこの要素の矩形に隣接して出る。E2Eが位置を座標で判定するための目印
@@ -588,6 +637,8 @@ function LibraryPageInner() {
     >
       <LibraryItemRow
         item={item}
+        artifacts={artifacts}
+        linkKind={card.link}
         openMenuId={openMenuId}
         setOpenMenuId={setOpenMenuId}
         mergeMode={mergeMode}
@@ -632,10 +683,11 @@ function LibraryPageInner() {
         </div>
       )}
     </div>
-  );
+    );
+  };
 
   /* ── フォルダセクション描画 ── */
-  const renderFolderSection = (folderName: string, folderItems: any[]) => {
+  const renderFolderSection = (folderName: string, folderItems: VisibleCard[]) => {
     const isCollapsed = collapsedFolders.has(folderName);
     return (
       <div key={folderName} style={{ marginBottom: 12 }}>
@@ -853,7 +905,7 @@ function LibraryPageInner() {
       {/* 検索結果件数 */}
       {search.trim() && (
         <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 12 }}>
-          🔍 「{search}」の検索結果: {tabFilteredItems.length}件
+          🔍 「{search}」の検索結果: {tabFilteredItems.length}件（カード {visibleCards.length}枚）
           {searchScope === 'all' ? '（全カテゴリ横断）' : `（${activeTab === 'all' ? '全件' : activeTab === 'favorite' ? 'お気に入り' : activeTab + ' タブ'}内）`}
         </div>
       )}
@@ -861,7 +913,9 @@ function LibraryPageInner() {
       {/* 統計 */}
       <div style={{ display: 'flex', gap: 12, marginBottom: 20, flexWrap: 'wrap' }}>
         {[
-          { label: '総アイテム', value: items.length, color: '#6c63ff' },
+          // 283: 「件」は成果物（本文・要約などの行）、「枚」はまとめた後のカード。両方見せて取り違えを防ぐ
+          { label: '総アイテム（件＝成果物）', value: items.length, color: '#6c63ff' },
+          { label: 'カード（枚）', value: allCards.length, color: '#8b5cf6' },
           { label: 'お気に入り', value: items.filter(i => i.is_favorite).length, color: '#f5a623' },
           { label: 'フォルダ数', value: existingFolders.length, color: '#00d4b8' },
         ].map(s => (
