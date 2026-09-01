@@ -46,6 +46,7 @@
     "src/app/api/presentation/page-script/route.ts": { "maxDuration": 120 },
     "src/app/api/metaphor/route.ts": { "maxDuration": 120 },
     "src/app/api/plain-check/rephrase/route.ts": { "maxDuration": 120 },
-    "src/app/api/plain-check/review/route.ts": { "maxDuration": 120 }
+    "src/app/api/plain-check/review/route.ts": { "maxDuration": 120 },
+    "src/app/api/episodes/examples/route.ts": { "maxDuration": 60 }
   }
 }

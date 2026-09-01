@@ -7,6 +7,8 @@ import {
   hasNoteMaterials,
   hasAnalysisMaterials,
   KINDLE_ANALYSIS_SOURCE_RULES,
+  hasEpisodeMaterials,
+  KINDLE_EPISODE_SOURCE_RULES,
   KINDLE_MATERIAL_SOURCE_META,
   KINDLE_NOTE_SOURCE_RULES,
 } from '@/lib/kindle-materials';
@@ -183,7 +185,7 @@ ${style.promptBlock}
 
 ${KINDLE_LAYOUT_RULES}
 
-${KINDLE_COMMON_RULES}${hasNoteMaterials(materials) ? `\n\n${KINDLE_NOTE_SOURCE_RULES}` : ''}${hasAnalysisMaterials(materials) ? `\n\n${KINDLE_ANALYSIS_SOURCE_RULES}` : ''}`;
+${KINDLE_COMMON_RULES}${hasNoteMaterials(materials) ? `\n\n${KINDLE_NOTE_SOURCE_RULES}` : ''}${hasAnalysisMaterials(materials) ? `\n\n${KINDLE_ANALYSIS_SOURCE_RULES}` : ''}${hasEpisodeMaterials(materials) ? `\n\n${KINDLE_EPISODE_SOURCE_RULES}` : ''}`;
 
   const prompt = `以下の章の本文を執筆してください。本文のみを出力してください（説明文・前置き不要）。
 章タイトルの見出し（「# 第N章 …」等）は本文に含めず、書き出しの段落（または「この章でわかること」）から始めてください。

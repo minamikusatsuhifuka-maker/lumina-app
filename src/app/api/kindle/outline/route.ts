@@ -15,6 +15,8 @@ import {
   KINDLE_NOTE_SOURCE_RULES,
   hasAnalysisMaterials,
   KINDLE_ANALYSIS_SOURCE_RULES,
+  hasEpisodeMaterials,
+  KINDLE_EPISODE_SOURCE_RULES,
 } from '@/lib/kindle-materials';
 import { getKindlePurpose, KINDLE_COMMON_RULES } from '@/lib/kindle-purposes';
 import { getKindleStyle } from '@/lib/kindle-styles';
@@ -214,7 +216,7 @@ ${purpose.promptBlock}
 ${style.promptBlock}
 
 ${KINDLE_COMMON_RULES}
-${hasNoteMaterials(materials) ? `\n${KINDLE_NOTE_SOURCE_RULES}\n` : ''}${hasAnalysisMaterials(materials) ? `\n${KINDLE_ANALYSIS_SOURCE_RULES}\n` : ''}
+${hasNoteMaterials(materials) ? `\n${KINDLE_NOTE_SOURCE_RULES}\n` : ''}${hasAnalysisMaterials(materials) ? `\n${KINDLE_ANALYSIS_SOURCE_RULES}\n` : ''}${hasEpisodeMaterials(materials) ? `\n${KINDLE_EPISODE_SOURCE_RULES}\n` : ''}
 
 # 分量指定（厳守）
 - プリセット: ${presetDef.label}

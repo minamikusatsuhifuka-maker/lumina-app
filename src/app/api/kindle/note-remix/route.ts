@@ -7,6 +7,7 @@ import { checkMedicalAd, MEDICAL_AD_NG_RULES } from '@/lib/medical-ad-check';
 import { NOTE_COMMON_RULES } from '@/lib/note-styles';
 import { getMyStylePrompt } from '@/lib/my-style-server';
 import { getPlaybook, PLAYBOOK_VERSION } from '@/lib/knowledge/noteXPlaybook';
+import { loadEpisodePromptBlock } from '@/lib/episodes-server';
 import {
   PERSONA_STYLES,
   PERSONA_GUARD,
@@ -89,6 +90,8 @@ export async function POST(req: NextRequest) {
     // 269§9: KB注入（N-06 構成／N-08 無料はWhy・What／N-10 文章体／X-02 シグナル／PART-A）→ ガード後勝ち
     const playbook = getPlaybook(['N-06', 'N-08', 'N-10', 'X-02', 'PART-A']);
     const myStyleBlock = await getMyStylePrompt(userId);
+    // 281: 著者の実体験エピソード（episodeIds を送ったときだけ・R-88／R-75の規約つき・脚色禁止）
+    const episode = await loadEpisodePromptBlock(userId, body.episodeIds);
 
     const system = `あなたは note プラットフォームで読者を惹きつける記事を執筆する優秀なライターです。
 医療に関わる内容では医療広告規制（医療法・医療広告ガイドライン／薬機法）に配慮し、以下のNG表現は使いません:
@@ -137,7 +140,7 @@ ${bookTitle ? `   - 書籍名は『${bookTitle}』。煽らず、読みたい人
 
 # 素材（テーマと事実関係の根拠はこの章のみ。本文は複製しない）
 ## 章「${chapterTitle || '無題'}」
-${chapterText.slice(0, MAX_SOURCE_CHARS)}`;
+${chapterText.slice(0, MAX_SOURCE_CHARS)}${episode.block ? `\n\n${episode.block}\n\n# 厳守事項（追加）\n- 実体験エピソードは「記録どおり」に使う。記録にない出来事・数字・感情を足さない（R-75）` : ''}`;
 
     const raw = await generateWithModel(aiModel, prompt, system, 10000, GEMINI_TEXT_THINKING_MEDIUM);
     if (!raw || !raw.trim()) {
@@ -165,6 +168,7 @@ ${chapterText.slice(0, MAX_SOURCE_CHARS)}`;
       angleKey: angle.key,
       angleLabel: angle.label,
       chapterTitle,
+      episodeCount: episode.count, // 281
     });
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : '不明なエラー';

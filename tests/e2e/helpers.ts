@@ -248,3 +248,48 @@ export async function cleanupE2EFolders(request: APIRequestContext) {
     }
   }
 }
+
+// ============================================================================
+// 281: 📔 エピソード記録（episode_records）
+// ============================================================================
+
+export const EPISODES_API = '/api/episodes';
+
+/** エピソード記録のテスト用レコードを作る。接頭辞はタイトルにここで必ず付ける（R-55） */
+export async function createEpisode(
+  request: APIRequestContext,
+  body: {
+    title: string;
+    period?: string;
+    situation?: string;
+    feelings?: string;
+    details?: string;
+    thoughts?: string;
+    reflection?: string;
+    tags?: string[];
+  },
+): Promise<number> {
+  const res = await request.post(EPISODES_API, {
+    data: { ...body, title: withE2EPrefix(body.title), tags: body.tags ?? [] },
+  });
+  expect(res.status(), 'テスト用のエピソード記録が作成できること').toBe(200);
+  const id = (await res.json()).id;
+  expect(typeof id, '作成レスポンスにidが含まれること').toBe('number');
+  return id as number;
+}
+
+/** 過去実行分を含め、[E2E] 印のエピソード記録を全削除する（全文検索は全欄＋タグを対象にする） */
+export async function cleanupE2EEpisodes(request: APIRequestContext) {
+  for (let pass = 0; pass < 10; pass++) {
+    const res = await request.get(`${EPISODES_API}?q=${encodeURIComponent(E2E_PREFIX)}&limit=100`);
+    expect(res.status(), 'エピソード記録の一覧APIが200であること').toBe(200);
+    const items = ((await res.json()).items ?? []) as { id: number; title: string; tags: string[] }[];
+    const targets = items.filter(
+      (it) => String(it.title ?? '').includes(E2E_PREFIX) || (it.tags ?? []).some((t) => String(t).includes(E2E_PREFIX)),
+    );
+    if (targets.length === 0) break;
+    for (const it of targets) {
+      await request.delete(`${EPISODES_API}?id=${it.id}`);
+    }
+  }
+}

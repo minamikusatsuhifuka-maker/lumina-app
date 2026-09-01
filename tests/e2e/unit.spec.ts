@@ -1,4 +1,6 @@
 import { test, expect } from '@playwright/test';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { describeAnthropicError, isFallbackWorthy } from '../../src/lib/anthropic-error';
 import { findUngroundedTerms, findBannedExpressions, splitByPriority } from '../../src/lib/content-verify';
 import { buildDiffRows, describeDiffStats } from '../../src/lib/text-diff';
@@ -56,6 +58,21 @@ import { promoteHeadingsForNote, markdownToWordHtml } from '../../src/lib/rich-c
 import { buildScheduleRows, scheduleToMarkdown } from '../../src/lib/posting-schedule';
 import { buildNotePasteText, buildNoteHtml } from '../../src/lib/note-compat';
 import { estimateTitleLines, estimateSummaryImageHeight } from '../../src/lib/summary-image-templates';
+import {
+  EPISODE_FACT_GUARD,
+  EXAMPLES_MAX_DURATION_S,
+  EXAMPLES_RETRIES,
+  EXAMPLES_TIMEOUT_MS,
+  EXAMPLE_COUNT_MAX,
+  detectEffectClaims,
+  emptyEpisodeInput,
+  episodeDisplayTitle,
+  formatEpisodesForPrompt,
+  normalizeEpisodeTags,
+  normalizeExamples,
+  parseEpisodeIds,
+} from '../../src/lib/episodes';
+import { parseKindleSourceKey, makeEpisodeSourceKey, KINDLE_MATERIAL_SOURCE_META } from '../../src/lib/kindle-limits';
 // 271: 横並び比較の判断（列数・上限・本文/要約の取り出し・同期スクロールの割合）
 import {
   BATCH_COMPARE_MAX,
@@ -1837,3 +1854,75 @@ test('U54: 言い換えの読者・分野・ガード順・R-73の積算（279 �
   expect(md).not.toContain('###');
 });
 
+
+// 281: エピソード記録の純関数（§3 数字の扱い・§2-3 問いかけの形・§6 脚色禁止・R-73・R-84）
+test('U55: エピソード記録（281）— 行動の数字は警告せず効果の数値化だけ拾う・参考例は問いかけのみ・脚色禁止の規約・R-73積算・ep-N名前空間', () => {
+  // §3: 自分の行動の数字（時間・回数・年数）は絶対に拾わない
+  const action = { ...emptyEpisodeInput(), details: '1日10時間勉強した。毎朝5時に起きた。3年続けた。週6日、2時間の演習を続けた。' };
+  expect(detectEffectClaims(action)).toEqual([]);
+  // §3: 効果の標榜（割合・倍率・N人中M人 × 効果語）は拾う。同じ入力なら同じ結果（R-74）
+  const effect = {
+    ...emptyEpisodeInput(),
+    feelings: 'この方法で痛みが8割減った。',
+    reflection: '95%の人が改善する。2倍の効果があった。10人中9人が良くなった。3年続けた。',
+  };
+  const found = detectEffectClaims(effect);
+  expect(found.map((c) => c.field)).toEqual(['feelings', 'reflection', 'reflection', 'reflection']);
+  expect(found[0].quantity).toBe('8割');
+  expect(found.map((c) => c.sentence)).not.toContain('3年続けた。');
+  expect(detectEffectClaims(effect)).toEqual(found);
+  // 割合があっても効果語が無ければ拾わない（例: 模試の正答率）
+  expect(detectEffectClaims({ ...emptyEpisodeInput(), details: '模試の正答率は6割だった。' })).toEqual([]);
+
+  // §2-3: 参考例は問いかけの形だけ。断定形・重複・空を落とし、上限7件
+  const normalized = normalizeExamples([
+    '朝は何時に起きていましたか？',
+    '閉店間際の半額弁当が唯一の楽しみでしたよね',
+    '朝は何時に起きていましたか？',
+    '',
+    42,
+    '一番つらかった時間帯はいつでしたか',
+    'A?', 'B?', 'C?', 'D?', 'E?', 'F?', 'G?',
+  ]);
+  expect(normalized).not.toContain('閉店間際の半額弁当が唯一の楽しみでしたよね');
+  expect(normalized[0]).toBe('朝は何時に起きていましたか？');
+  expect(normalized.filter((s) => s === '朝は何時に起きていましたか？').length).toBe(1);
+  expect(normalized.length).toBe(EXAMPLE_COUNT_MAX);
+
+  // §6-2: 脚色禁止の規約が下流ブロックに必ず入る。記録の文言はそのまま
+  const rec = {
+    id: 1, title: '', period: '19歳', situation: '', feelings: '', details: '朝5時起床。', thoughts: '', reflection: '',
+    tags: ['受験'], created_at: '2026-09-01T00:00:00Z', updated_at: '2026-09-01T00:00:00Z',
+  };
+  const block = formatEpisodesForPrompt([rec]);
+  expect(block).toContain('朝5時起床。');
+  expect(block).toContain('- 時期: 19歳');
+  expect(block).not.toContain('- 状況:'); // 空欄は載せない（無い事実を作らない）
+  expect(EPISODE_FACT_GUARD).toContain('記録にない出来事');
+  expect(EPISODE_FACT_GUARD).toContain('感情を誇張しない');
+  expect(EPISODE_FACT_GUARD).toContain('そのまま使うか、使わない');
+  expect(formatEpisodesForPrompt([])).toBe('');
+  expect(episodeDisplayTitle(rec)).toBe('朝5時起床。');
+  expect(episodeDisplayTitle({ title: '', situation: '', details: '', period: '' })).toBe('（無題）');
+
+  // 入力の正規化
+  expect(parseEpisodeIds(['3', 3, -1, 'x', 2.5, 7])).toEqual([3, 7]);
+  expect(normalizeEpisodeTags('健康, 受験、受験 仕事')).toEqual(['健康', '受験', '仕事']);
+
+  // R-73: 25秒 × (1+1) = 50秒 ≤ maxDuration 60。ルートの文字列と vercel.json も同じ値
+  expect(EXAMPLES_TIMEOUT_MS * (1 + EXAMPLES_RETRIES)).toBeLessThanOrEqual(EXAMPLES_MAX_DURATION_S * 1000);
+  const routeSrc = readFileSync(join(__dirname, '../../src/app/api/episodes/examples/route.ts'), 'utf8');
+  expect(routeSrc).toContain(`export const maxDuration = ${EXAMPLES_MAX_DURATION_S};`);
+  const vercel = JSON.parse(readFileSync(join(__dirname, '../../vercel.json'), 'utf8'));
+  expect(vercel.functions['src/app/api/episodes/examples/route.ts']?.maxDuration).toBe(EXAMPLES_MAX_DURATION_S);
+
+  // Kindle素材の名前空間 ep-N（ana-N と同じ流儀）
+  expect(parseKindleSourceKey(makeEpisodeSourceKey(12))).toEqual({ kind: 'episode', id: 12 });
+  expect(parseKindleSourceKey('ep-0')).toEqual({ kind: 'library', id: 'ep-0' });
+  expect(KINDLE_MATERIAL_SOURCE_META.episode.label).toBe('エピソード記録');
+
+  // R-84/R-57: サイドバー登録・12文字以内
+  const nav = ALL_NAV_ITEMS.find((i) => i.href === '/dashboard/episodes');
+  expect(nav?.label).toBe('エピソード記録');
+  expect((nav?.label ?? '').length).toBeLessThanOrEqual(12);
+});

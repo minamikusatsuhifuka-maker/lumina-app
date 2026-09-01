@@ -13,6 +13,7 @@ import { copyRichMarkdown, copyRichMarkdownForNote } from '@/lib/rich-copy';
 import { PLAYBOOK_VERSION } from '@/lib/knowledge/noteXPlaybook';
 import KindleRemixTab from '@/components/dr-hub/KindleRemixTab';
 import XFanoutTab from '@/components/dr-hub/XFanoutTab';
+import EpisodePicker from '@/components/EpisodePicker';
 import {
   buildScheduleRows,
   scheduleToMarkdown,
@@ -196,6 +197,7 @@ export default function DrHubPage() {
   const [drQuery, setDrQuery] = useState('');
   const [selectedDrId, setSelectedDrId] = useState('');
   const [feature, setFeature] = useState<Feature>('persona');
+  const [episodeIds, setEpisodeIds] = useState<number[]>([]); // 281: 素材にするエピソード（手動選択）
 
   // ── ① ペルソナ別サンプル比較 → 全文生成 ──
   const [personaKeys, setPersonaKeys] = useState<PersonaStyleKey[]>([]);
@@ -625,6 +627,7 @@ export default function DrHubPage() {
           personaKey,
           length,
           model: getSavedModel(),
+          ...(episodeIds.length > 0 ? { episodeIds } : {}), // 281（未選択なら従来どおり・R-88）
         }),
       });
       const data = await res.json().catch(() => ({}));
@@ -701,6 +704,7 @@ export default function DrHubPage() {
         body: JSON.stringify({
           drId: selectedDrId,
           mode: 'article',
+          ...(episodeIds.length > 0 ? { episodeIds } : {}), // 281
           article: a,
           series: {
             index,
@@ -1144,6 +1148,9 @@ export default function DrHubPage() {
           })}
         </div>
 
+        {/* 281: 自分のエピソードを素材に（全文生成に入る。サンプル生成には使わない） */}
+        <EpisodePicker scope="persona" selectedIds={episodeIds} onChange={setEpisodeIds} />
+
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
           <div style={{ fontSize: 12, color: personaKeys.length > 0 ? 'var(--text-secondary)' : 'var(--text-muted)' }}>
             選択中: {personaKeys.length}/{PERSONA_COMPARE_MAX}件
@@ -1174,6 +1181,9 @@ export default function DrHubPage() {
         <p style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 12 }}>
           DR記事を1〜5本のnote記事シリーズに分割します。記事間の導線（第1記事で問題提起→続きへの興味／最終記事でまとめとCTA）をAIが設計します。
         </p>
+
+        {/* 281: 自分のエピソードを素材に（各記事の本文生成に入る。プラン生成には使わない） */}
+        <EpisodePicker scope="split" selectedIds={episodeIds} onChange={setEpisodeIds} />
 
         <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', alignItems: 'center', marginBottom: 12 }}>
           <label style={{ fontSize: 12, color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: 6 }}>

@@ -12,6 +12,7 @@ import { KINDLE_PROOFREAD_PRINCIPLES } from '@/lib/kindle-proofread';
 import { getMyStylePrompt } from '@/lib/my-style-server';
 import { PERSONA_STYLES, PERSONA_GUARD, getPersonaStyle } from '@/lib/persona-styles';
 import { getPlaybook, PLAYBOOK_VERSION } from '@/lib/knowledge/noteXPlaybook';
+import { loadEpisodePromptBlock } from '@/lib/episodes-server';
 
 export const runtime = 'nodejs';
 export const maxDuration = 300;
@@ -193,6 +194,7 @@ async function generateArticle(
     personaKey?: unknown;
     length?: unknown;
     model?: unknown;
+    episodeIds?: unknown; // 281
   },
   userId: string,
   title: string,
@@ -225,6 +227,8 @@ async function generateArticle(
   const aiModel = body.model === 'claude' ? 'claude' : DEFAULT_AI_MODEL;
 
   const myStyleBlock = await getMyStylePrompt(userId);
+  // 281: 著者の実体験エピソード（episodeIds を送ったときだけ・R-88／R-75の規約つき）
+  const episode = await loadEpisodePromptBlock(userId, body.episodeIds);
 
   const system = `あなたは note プラットフォームで読者を惹きつける連載記事を執筆する優秀なライターです。SEO・心理学・マーケティングの知識を駆使しつつ、読者の心に響く文章を生成してください。
 医療に関わる内容では医療広告規制（医療法・医療広告ガイドライン／薬機法）に配慮し、以下のNG表現は使いません:
@@ -261,14 +265,14 @@ ${config.label}（${config.chars}）
 # 参照資料（記事の根拠はこの資料の記述のみ）
 ## ${title}
 ${content.slice(0, FULL_SOURCE_CHARS)}
-
+${episode.block ? `\n${episode.block}\n` : ''}
 # 出力形式
 - Markdown 形式（先頭に # ${articleTitle} を置く。前置き・コードフェンス不要）
 - 構造化された見出し・小見出し（## / ###）と適度な箇条書き
 
 # 厳守事項
 - ${config.chars} の範囲内で、必ず最後の結論まで書ききる
-- 根拠は参照資料の記述のみ。資料に無い出典・数値・固有の研究名を新たに書かない
+- 根拠は参照資料の記述のみ。資料に無い出典・数値・固有の研究名を新たに書かない${episode.block ? '\n- 実体験エピソードは「記録どおり」に使う。記録にない出来事・数字・感情を足さない（R-75）' : ''}
 - AI らしい不自然な文章を避け、人間が書いたような自然な文体に`;
 
   const article = await generateWithModel(aiModel, prompt, system, 12000, GEMINI_TEXT_THINKING_MEDIUM);

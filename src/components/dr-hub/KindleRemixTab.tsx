@@ -11,6 +11,7 @@ import { copyRichMarkdownForNote } from '@/lib/rich-copy';
 import { getSavedModel } from '@/lib/model-preference';
 import { loadFeatureDraft, saveFeatureDraft, clearFeatureDraft } from '@/lib/feature-drafts';
 import FeatureDraftBanner from '@/components/FeatureDraftBanner';
+import EpisodePicker from '@/components/EpisodePicker';
 import {
   PERSONA_STYLES,
   PERSONA_STYLE_KEYS,
@@ -69,6 +70,7 @@ interface RemixDraftPayload {
 const ACCENT = '#e0684b';
 
 export default function KindleRemixTab() {
+  const [episodeIds, setEpisodeIds] = useState<number[]>([]); // 281
   const [books, setBooks] = useState<KindleBook[]>([]);
   const [booksLoaded, setBooksLoaded] = useState(false);
   const [sourceKind, setSourceKind] = useState<'book' | 'manual'>('book');
@@ -196,6 +198,8 @@ export default function KindleRemixTab() {
           angleKey,
           kdpSelect,
           model: getSavedModel(),
+          // 281: 選んだときだけ送る（未選択なら従来どおり・R-88）
+          ...(episodeIds.length > 0 ? { episodeIds } : {}),
         }),
       });
       const data = await res.json().catch(() => ({}));
@@ -359,6 +363,9 @@ export default function KindleRemixTab() {
             />
           </div>
         )}
+
+        {/* 281: 自分のエピソードを素材に（手動選択・記録どおりに使う） */}
+        <EpisodePicker scope="remix" selectedIds={episodeIds} onChange={setEpisodeIds} />
 
         {/* ペルソナ × 切り口（軸2・軸3） */}
         <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap', alignItems: 'center', marginBottom: 10 }}>

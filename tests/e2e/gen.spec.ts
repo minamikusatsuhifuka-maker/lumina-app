@@ -585,3 +585,27 @@ test('B24: 言い換えは文が無ければ400（279） @gen', async ({ request
   expect(res.status()).toBe(400);
 });
 
+
+// 281: 参考例（あるある）の実AI経路（R-36）。問いかけの形・5〜7件の上限をサーバ側で担保する
+test('B25: エピソード記録の参考例（281）— 問いかけの形で1〜7件返る @gen', async ({ request }) => {
+  test.setTimeout(GEN_TIMEOUT);
+  const res = await request.post('/api/episodes/examples', {
+    data: { theme: '[E2E] 浪人時代の勉強' },
+    timeout: REQ_TIMEOUT,
+  });
+  expect(res.status()).toBe(200);
+  const json = await res.json();
+  expect(Array.isArray(json.items)).toBe(true);
+  expect(json.items.length).toBeGreaterThanOrEqual(1);
+  expect(json.items.length).toBeLessThanOrEqual(7);
+  for (const it of json.items) {
+    expect(typeof it).toBe('string');
+    expect(String(it).trim()).toMatch(/(か|？|\?)$/);
+  }
+  expect(json._ai?.provider).toBe('gemini');
+});
+
+test('B26: 参考例はテーマが無ければ400（281） @gen', async ({ request }) => {
+  const res = await request.post('/api/episodes/examples', { data: {} });
+  expect(res.status()).toBe(400);
+});

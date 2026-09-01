@@ -2,6 +2,7 @@
 // 223: Kindle本づくりウィザード（先行リリース=リードマグネット）
 // 6ステップ: ①素材 → ②目的 → ③分量・文体 → ④目次生成・編集 → ⑤本文生成 → ⑥出力
 // ④確定以降は kindle_books/kindle_chapters が正（?bookId= で復帰・章status駆動レジューム）
+import { episodeDisplayTitle, episodeToText } from '@/lib/episodes';
 import { useState, useEffect, useMemo, useRef, useCallback, Suspense } from 'react';
 import { createPortal } from 'react-dom';
 import { useSearchParams, useRouter } from 'next/navigation';
@@ -20,6 +21,7 @@ import {
   KINDLE_SOURCE_TABS,
   KINDLE_MATERIAL_SOURCE_META,
   type KindleMaterialSource,
+  makeEpisodeSourceKey,
 } from '@/lib/kindle-limits';
 import { stripLeadingChapterHeading, cleanChapterBody } from '@/lib/kindle-text';
 import { triggerDownload } from '@/lib/download';
@@ -407,6 +409,21 @@ function KindleWizardInner() {
       tags: Array.isArray(row.tags) ? row.tags.join(',') : row.tags || '',
     });
 
+    // 281: エピソード記録を①の行として混載できる形に正規化（本文＝欄をまとめたテキスト・ep-N）
+    const normalizeEpisodeItem = (row: any) => {
+      const text = episodeToText(row);
+      return {
+        id: makeEpisodeSourceKey(Number(row.id)),
+        title: episodeDisplayTitle(row),
+        content: text,
+        char_count: text.length,
+        created_at: row.created_at,
+        type: 'episode',
+        is_favorite: 0,
+        tags: Array.isArray(row.tags) ? row.tags.join(',') : '',
+      };
+    };
+
     (async () => {
       try {
         const lists = await Promise.all([
@@ -419,6 +436,11 @@ function KindleWizardInner() {
           fetch(`/api/text-analysis/saves?limit=100`)
             .then((r) => r.json())
             .then((data) => (Array.isArray(data?.items) ? data.items.map((row: any) => normalizeAnalysisItem(row)) : []))
+            .catch(() => []),
+          // 281: エピソード記録（ep-N名前空間・最新100件）。失敗しても他の素材は出す（R-39）
+          fetch(`/api/episodes?limit=100`)
+            .then((r) => r.json())
+            .then((data) => (Array.isArray(data?.items) ? data.items.map((row: any) => normalizeEpisodeItem(row)) : []))
             .catch(() => []),
         ]);
         let arr = lists.flat();
@@ -1705,7 +1727,9 @@ function KindleWizardInner() {
                   ? 'ディープリサーチ結果がありません。先に🔭ディープリサーチで調査・保存してください。'
                   : sourceTab === 'note-article'
                     ? 'note記事がありません。✍️note記事群生成などで作成し、ライブラリに保存すると表示されます。'
-                    : 'テキスト分析の保存がありません。🗂テキスト分析で分析・保存すると表示されます（最新100件）。'}
+                    : sourceTab === 'episode'
+                      ? 'エピソード記録がありません。📔エピソード記録で自分の経験を書くと、ここから素材として選べます（最新100件）。'
+                      : 'テキスト分析の保存がありません。🗂テキスト分析で分析・保存すると表示されます（最新100件）。'}
               </div>
               {/* 230【B-3】: 逆方向の案内（リサーチ保存の選択モード→📖Kindle本にする） */}
               <div style={{ marginTop: 12, fontSize: 12 }}>
@@ -1723,14 +1747,14 @@ function KindleWizardInner() {
                     mergeMode={true}
                     selected={selectedIds.has(item.id)}
                     onSelectToggle={toggleSelect}
-                    // 231: ana-行（テキスト分析）は/api/libraryの対象外のため⭐/🗑/📥は出さない
+                    // 231: ana-行（テキスト分析）は/api/libraryの対象外のため⭐/🗑/📥は出さない（281: ep-行も同じ）
                     //（編集・削除は🗂テキスト分析の保存一覧で行う。素材選択には影響しない）
-                    onFavoriteToggle={item.type === 'analysis' ? undefined : async (it) => {
+                    onFavoriteToggle={item.type === 'analysis' || item.type === 'episode' ? undefined : async (it) => {
                       const newVal = it.is_favorite ? 0 : 1;
                       await fetch('/api/library', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: it.id, is_favorite: newVal }) });
                       setItems((prev) => prev.map((i) => (i.id === it.id ? { ...i, is_favorite: newVal } : i)));
                     }}
-                    onDelete={item.type === 'analysis' ? undefined : async (id) => {
+                    onDelete={item.type === 'analysis' || item.type === 'episode' ? undefined : async (id) => {
                       await fetch('/api/library', { method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id }) });
                       setItems((prev) => prev.filter((i) => i.id !== id));
                       setSelectedIds((prev) => {
@@ -1739,7 +1763,7 @@ function KindleWizardInner() {
                         return next;
                       });
                     }}
-                    onExportMd={item.type === 'analysis' ? undefined : (it) => triggerDownload(`${(it.title || '無題').slice(0, 30)}.md`, `# ${it.title}\n\n${it.content || ''}`)}
+                    onExportMd={item.type === 'analysis' || item.type === 'episode' ? undefined : (it) => triggerDownload(`${(it.title || '無題').slice(0, 30)}.md`, `# ${it.title}\n\n${it.content || ''}`)}
                     onExpandToggle={(id) => setExpandedId(expandedId === id ? null : id)}
                     isExpanded={expandedId === item.id}
                     variant="compact"

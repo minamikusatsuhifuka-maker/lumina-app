@@ -15,9 +15,12 @@ import {
   KINDLE_LIBRARY_TYPES,
   KINDLE_MATERIAL_SOURCE_META,
   makeAnalysisSourceKey,
+  makeEpisodeSourceKey,
   parseKindleSourceKey,
   type KindleMaterialSource,
 } from '@/lib/kindle-limits';
+import { EPISODE_FACT_GUARD, episodeDisplayTitle, episodeToText } from '@/lib/episodes';
+import { ensureEpisodeTables } from '@/lib/episodes-server';
 
 // 定数の実体は kindle-limits.ts（クライアント共用）。サーバ側の既存importを壊さないため再export
 export { MAX_KINDLE_SOURCES, MAX_KINDLE_TOTAL_CHARS, OUTLINE_EXCERPT_CHARS, KINDLE_MATERIAL_SOURCE_META };
@@ -42,16 +45,20 @@ export async function fetchKindleMaterials(
   if (!Array.isArray(ids) || ids.length === 0) return [];
   const sql = neon(process.env.DATABASE_URL!);
 
-  // 名前空間で2テーブルに振り分け（ana-N のみ analysis。それ以外は従来どおり library）
+  // 名前空間で3テーブルに振り分け（ana-N=analysis／ep-N=episode（281）／それ以外は従来どおり library）
   const libIds: string[] = [];
   const anaIds: number[] = [];
+  const epIds: number[] = [];
   for (const raw of ids) {
     const parsed = parseKindleSourceKey(String(raw));
     if (parsed.kind === 'analysis') anaIds.push(parsed.id);
+    else if (parsed.kind === 'episode') epIds.push(parsed.id);
     else libIds.push(parsed.id);
   }
+  // 281: エピソード表は冪等DDLで用意してから読む（未作成環境で一覧ごと落とさない・R-39）
+  if (epIds.length > 0) await ensureEpisodeTables(sql);
 
-  const [libRowsRaw, anaRowsRaw] = await Promise.all([
+  const [libRowsRaw, anaRowsRaw, epRowsRaw] = await Promise.all([
     libIds.length > 0
       ? sql`
           SELECT id, title, content, type, created_at
@@ -66,9 +73,20 @@ export async function fetchKindleMaterials(
           WHERE user_id = ${userId} AND id = ANY(${anaIds})
         `
       : Promise.resolve([]),
+    epIds.length > 0
+      ? sql`
+          SELECT id, title, period, situation, feelings, details, thoughts, reflection, tags, created_at
+          FROM episode_records
+          WHERE user_id = ${userId} AND id = ANY(${epIds})
+        `
+      : Promise.resolve([]),
   ]);
   const libRows = libRowsRaw as { id: string; title: string; content: string; type: string; created_at: string | null }[];
   const anaRows = anaRowsRaw as { id: number; title: string; content: string; created_at: string | null }[];
+  const epRows = epRowsRaw as {
+    id: number; title: string; period: string; situation: string; feelings: string; details: string;
+    thoughts: string; reflection: string; tags: string[] | null; created_at: string | null;
+  }[];
 
   const byId = new Map<string, KindleMaterialRow>();
   for (const r of libRows) {
@@ -91,6 +109,19 @@ export async function fetchKindleMaterials(
       charCount: (r.content || '').length,
       createdAt: r.created_at,
       source: 'analysis',
+    });
+  }
+  for (const r of epRows) {
+    const key = makeEpisodeSourceKey(Number(r.id));
+    const ep = { ...r, tags: Array.isArray(r.tags) ? r.tags : [] };
+    const text = episodeToText(ep);
+    byId.set(key, {
+      id: key,
+      title: episodeDisplayTitle(ep),
+      text,
+      charCount: text.length,
+      createdAt: r.created_at,
+      source: 'episode',
     });
   }
   return ids
@@ -123,6 +154,14 @@ export const KINDLE_ANALYSIS_SOURCE_RULES = `# テキスト分析素材の扱い
 
 export function hasAnalysisMaterials(materials: KindleMaterialRow[]): boolean {
   return materials.some((m) => m.source === 'analysis');
+}
+
+// 281: エピソード記録（著者の一次情報）が素材に含まれるときのみ注入する規約（R-75の直接適用）。
+// 文言の正本は lib/episodes.ts の EPISODE_FACT_GUARD（note側の経路と同一の規約を使う＝二重管理しない）。
+export const KINDLE_EPISODE_SOURCE_RULES = EPISODE_FACT_GUARD;
+
+export function hasEpisodeMaterials(materials: KindleMaterialRow[]): boolean {
+  return materials.some((m) => m.source === 'episode');
 }
 
 // 上限バリデーション。違反時は理由を返す（fail-closed: 呼び出し側は400で弾く）

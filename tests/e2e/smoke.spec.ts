@@ -29,6 +29,10 @@ import {
   assignFolders,
   deleteFolder,
   cleanupE2EFolders,
+  // 281: エピソード記録
+  EPISODES_API,
+  createEpisode,
+  cleanupE2EEpisodes,
 } from './helpers';
 
 // ============================================================================
@@ -91,6 +95,8 @@ test.afterAll(async () => {
   await cleanupE2ELibrary(api);
   // 249: テスト用フォルダも消す（フォルダを消しても記事は残るので、記事の掃除とは独立）
   await cleanupE2EFolders(api);
+  // 281: エピソード記録の残骸も掃除する
+  await cleanupE2EEpisodes(api);
   await api.dispose();
 });
 
@@ -4543,3 +4549,218 @@ test('C80: 分かりやすさ診断（279）— 決定的な機械検出・参�
   await expect(page.locator('[data-nav-category-block="コンテンツ作成"] [data-nav-row="/dashboard/plain-check"]')).toHaveCount(1);
 });
 
+
+// ============================================================================
+// 281: 📔 エピソード記録（一次情報の貯蔵）
+// ============================================================================
+
+test('C81: エピソード記録（281）— 参考例と記録欄の分離・コピー/流し込み経路なし・行動の数字は警告しない・効果の数値化に警告・空でも保存・タグ絞り込み・R-39・3ボタン・R-84（参考例APIモック）', async ({
+  page,
+  context,
+}) => {
+  test.setTimeout(120_000);
+  const marker = `EP${RUN_ID}`;
+  await context.grantPermissions(['clipboard-read', 'clipboard-write'], { origin: BASE_URL });
+  await stubFeatureDrafts(page); // R-12: 自動下書きの復元を止めてから判定する
+
+  // 参考例API: 1回目は失敗（R-39の判定）、2回目以降は問いかけ6件
+  let exampleCalls = 0;
+  await page.route('**/api/episodes/examples', async (route) => {
+    exampleCalls += 1;
+    if (exampleCalls === 1) {
+      return route.fulfill({ status: 502, contentType: 'application/json', body: JSON.stringify({ error: '[E2E] 想定内の失敗' }) });
+    }
+    return route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        items: [
+          `[E2E] ${marker} 朝は何時ごろに起きていましたか？`,
+          '机の上にいつも置いていたものはありましたか？',
+          '一番つらかった時間帯はいつでしたか？',
+          '誰かに言われて覚えている言葉はありますか？',
+          '休憩のときに決まってしていたことはありましたか？',
+          'やめたくなった場面はどんなときでしたか？',
+        ],
+        _ai: { provider: 'gemini', modelLabel: 'Gemini 3.7 Flash' },
+      }),
+    });
+  });
+
+  // 事前データ: タグ絞り込み用に2件（[E2E]付き）
+  const tagA = `[E2E]${marker}A`;
+  const tagB = `[E2E]${marker}B`;
+  const idA = await createEpisode(api, { title: `${marker} タグA`, details: '朝5時起床。', tags: [tagA] });
+  const idB = await createEpisode(api, { title: `${marker} タグB`, details: '1日10時間。', tags: [tagB] });
+  const createdIds: number[] = [idA, idB];
+
+  try {
+    // R-84: サイドバーから到達できる
+    await page.goto('/dashboard');
+    const navLink = page.locator('a[data-nav-href="/dashboard/episodes"]');
+    await expect(navLink, 'サイドバーに📔エピソード記録のリンクがある').toBeVisible({ timeout: 30000 });
+    await navLink.click();
+    await expect(page.getByRole('heading', { name: /エピソード記録/ })).toBeVisible({ timeout: 30000 });
+
+    // §2-2: 参考例と記録欄が別枠。注意書きは生成前から常時表示
+    const examplesFrame = page.locator('[data-ep-examples-frame]');
+    const recordFrame = page.locator('[data-ep-record-frame]');
+    await expect(examplesFrame).toHaveCount(1);
+    await expect(recordFrame).toHaveCount(1);
+    await expect(examplesFrame.locator('[data-ep-example-notice]'), '参考例の注意書きが常時表示される').toContainText('思い出すためのきっかけ');
+    // 参考例の枠の中に記録欄（textarea）が無い＝流し込み先が枠内に存在しない
+    await expect(examplesFrame.locator('textarea')).toHaveCount(0);
+
+    // R-39: 参考例の生成失敗が記録の入力を妨げない
+    await page.locator('[data-ep-theme]').fill('浪人時代');
+    await page.locator('[data-ep-examples-run]').click();
+    await expect(page.locator('[data-ep-examples-error]'), '失敗が枠内に局所化される').toBeVisible({ timeout: 15000 });
+    const details = page.locator('[data-ep-field="details"]');
+    await details.fill('1日10時間勉強した。毎朝5時に起きた。3年続けた。');
+    await expect(details).toHaveValue(/1日10時間/);
+    // §3-2: 自分の行動の数字は警告されない
+    await expect(page.locator('[data-ep-effect-warn]'), '行動の数字（1日10時間・毎朝5時・3年）に警告が出ない').toHaveCount(0);
+
+    // 2回目: 参考例6件が問いかけの形で出る。コピー・挿入・採用ボタンが**存在しない**
+    await page.locator('[data-ep-examples-run]').click();
+    const examples = page.locator('[data-ep-example]');
+    await expect(examples).toHaveCount(6, { timeout: 15000 });
+    for (const text of await examples.allTextContents()) {
+      expect(text.trim(), '参考例は問いかけの形').toMatch(/(か|？|\?)$/);
+    }
+    await expect(examplesFrame.locator('[data-ep-example] button, [data-ep-example] a, [data-ep-example] input'), '参考例の各行に操作要素が無い').toHaveCount(0);
+    await expect(examplesFrame.locator('button'), '参考例の枠のボタンは生成ボタン1つだけ').toHaveCount(1);
+    await expect(examplesFrame.locator('button:has-text("コピー"), button:has-text("挿入"), button:has-text("採用"), button:has-text("記録欄へ")')).toHaveCount(0);
+    await expect(examplesFrame.locator('[data-ep-example-notice]'), '生成後も注意書きが残る').toBeVisible();
+    // 参考例を出しても記録欄の値は変わらない（自動流し込みが無い）
+    await expect(details).toHaveValue('1日10時間勉強した。毎朝5時に起きた。3年続けた。');
+
+    // §3-2: 効果を数値化した記述には警告が出る。保存ボタンは無効にならない
+    const feelings = page.locator('[data-ep-field="feelings"]');
+    await feelings.fill('この方法で痛みが8割減った。');
+    await expect(page.locator('[data-ep-effect-warn]')).toHaveCount(1);
+    await expect(page.locator('[data-ep-effect-claim]')).toHaveCount(1);
+    await expect(page.locator('[data-ep-save]')).toBeEnabled();
+    // 警告があっても保存できる（判断は院長）
+    await page.locator('[data-ep-field="title"]').fill(`[E2E] ${marker} 警告あり`);
+    await page.locator('[data-ep-save]').click();
+    await expect(page.locator(`[data-ep-card]:has-text("${marker} 警告あり")`), '警告つきでも保存され一覧に出る').toHaveCount(1, { timeout: 15000 });
+    await expect(page.locator('[data-ep-field="title"]'), '保存後はフォームが空になる').toHaveValue('');
+
+    // 270の3ボタン（details 欄で判定）: ✕クリア→↩元に戻す／📋ペースト／📋クリアして貼付
+    await details.fill('消える前の内容');
+    await page.locator('[data-ep-clear="details"]').click();
+    await expect(details).toHaveValue('');
+    await page.locator('[data-ep-undo="details"]').click();
+    await expect(details).toHaveValue('消える前の内容');
+    await page.evaluate((t) => navigator.clipboard.writeText(t), `貼付${marker}`);
+    await page.locator('[data-ep-field-row="details"] [data-paste-button]').click();
+    await expect(details).toHaveValue(new RegExp(`貼付${marker}`));
+    await page.locator('[data-clear-paste="details"]').click();
+    await expect(details, 'クリアして貼付＝クリップボードの内容だけになる').toHaveValue(`貼付${marker}`);
+
+    // §4-1: 全項目が空でも保存できる（UIはタグだけ・APIは完全に空）
+    await page.locator('[data-ep-reset]').click();
+    await expect(details).toHaveValue('');
+    await page.locator('[data-ep-tag-input]').fill(`[E2E]${marker}empty`);
+    await page.locator('[data-ep-tag-input]').press('Enter');
+    await page.locator('[data-ep-save]').click();
+    await expect(page.locator(`[data-ep-card]:has-text("#[E2E]${marker}empty")`), '本文が全部空でも保存される').toHaveCount(1, { timeout: 15000 });
+    const emptyRes = await api.post(EPISODES_API, { data: {} });
+    expect(emptyRes.status(), 'APIも全項目空で200').toBe(200);
+    createdIds.push((await emptyRes.json()).id as number);
+
+    // §4-2: タグで絞り込める
+    await page.locator(`[data-ep-tag-filter="${tagA}"]`).click();
+    await expect(page.locator(`[data-ep-card="${idA}"]`)).toHaveCount(1, { timeout: 15000 });
+    await expect(page.locator(`[data-ep-card="${idB}"]`)).toHaveCount(0);
+    await page.locator(`[data-ep-tag-filter="${tagA}"]`).click(); // 解除
+    await expect(page.locator(`[data-ep-card="${idB}"]`)).toHaveCount(1, { timeout: 15000 });
+
+    // 274/R-81: 読む領域のクリックで開く・操作ボタンでは開閉しない
+    await page.locator(`[data-ep-expand-zone="${idA}"]`).click();
+    await expect(page.locator(`[data-ep-expanded-body="${idA}"]`)).toBeVisible();
+    await page.locator(`[data-ep-edit="${idA}"]`).click();
+    await expect(page.locator(`[data-ep-expanded-body="${idA}"]`), '編集ボタンで展開状態が変わらない').toBeVisible();
+    await expect(page.locator('[data-ep-editing]')).toContainText(`#${idA}`);
+
+    // R-84: 🎛メニュー名設定に行があり、並びがサイドバーと一致する
+    await page.goto('/dashboard/display-settings');
+    await page.locator('[data-nav-category-toggle="情報収集・調査"]').click();
+    const block = page.locator('[data-nav-category-block="情報収集・調査"]');
+    await expect(block.locator('[data-nav-row="/dashboard/episodes"]'), '281がメニュー名設定に載る').toHaveCount(1);
+    const sidebarSection = page.locator('div:has(> [data-nav-category="情報収集・調査"])');
+    const sidebarOrder = await sidebarSection.locator('a[data-nav-href]').evaluateAll((els) => els.map((el) => el.getAttribute('data-nav-href')));
+    const rows = await block.locator('[data-nav-row]').evaluateAll((els) => els.map((el) => el.getAttribute('data-nav-row')));
+    expect(rows, '🎛設定の並びがサイドバーの実表示と一致する').toEqual(sidebarOrder);
+  } finally {
+    for (const id of createdIds) await api.delete(`${EPISODES_API}?id=${id}`).catch(() => {});
+    await cleanupE2EEpisodes(api);
+    await api.delete('/api/feature-drafts?feature=episodes').catch(() => {});
+  }
+});
+
+test('C82: エピソードを素材として選べる（281 §6-1）— 発信ハブ①②・269 Kindle→note（episodeIds送信）・Kindleウィザード①の📔タブ', async ({ page }) => {
+  test.setTimeout(120_000);
+  const marker = `EPS${RUN_ID}`;
+  await stubFeatureDrafts(page);
+  const epId = await createEpisode(api, { title: `${marker} 素材`, details: '毎朝5時に起きて2時間書いた。', tags: ['[E2E]素材'] });
+
+  const remixCalls: Record<string, unknown>[] = [];
+  await page.route('**/api/kindle/note-remix', async (route) => {
+    remixCalls.push((route.request().postDataJSON() ?? {}) as Record<string, unknown>);
+    return route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        success: true,
+        content: `# [E2E] ${marker}\n\n本文`,
+        titles: [`[E2E] ${marker}`],
+        ad_check: { status: 'ok', findings: [] },
+        contextHits: [], overlapRatio: 0.1, overlapWarn: false, kdpSelect: false,
+        personaKey: 'beginner', personaLabel: '初心者', angleKey: 'why', angleLabel: 'Why', chapterTitle: 'x',
+        episodeCount: 1,
+      }),
+    });
+  });
+
+  try {
+    await page.goto('/dashboard/dr-hub');
+    await expect(page.getByRole('heading', { name: /発信ハブ/ })).toBeVisible({ timeout: 30000 });
+    // ①ペルソナ別（既定タブ）: 選択部品がある・手動で選べる
+    const personaPicker = page.locator('[data-episode-picker="persona"]');
+    await expect(personaPicker).toHaveCount(1);
+    await personaPicker.locator('[data-episode-picker-toggle]').click();
+    await personaPicker.locator(`[data-episode-picker-item="${epId}"] input[type="checkbox"]`).check();
+    await expect(personaPicker.locator('[data-episode-picker-count]')).toContainText('1件');
+    // ②分割記事化にもある
+    await page.getByRole('button', { name: /分割記事化/ }).first().click();
+    await expect(page.locator('[data-episode-picker="split"]')).toHaveCount(1);
+
+    // 269 Kindle→note: 手動章＋エピソード選択で生成→リクエストに episodeIds が載る
+    await page.getByRole('button', { name: /Kindle→note展開/ }).first().click();
+    const remixPicker = page.locator('[data-episode-picker="remix"]');
+    await expect(remixPicker).toHaveCount(1);
+    await page.getByRole('button', { name: /手動で章を貼り付け/ }).click();
+    await page.locator('[data-remix-manual-title]').fill(`[E2E] ${marker} 章`);
+    await page.locator('[data-remix-manual-text]').fill('[E2E] 章の本文。'.repeat(20));
+    await remixPicker.locator('[data-episode-picker-toggle]').click();
+    await remixPicker.locator(`[data-episode-picker-item="${epId}"] input[type="checkbox"]`).check();
+    await page.getByRole('button', { name: /この組み合わせで1本書き下ろす/ }).click();
+    await expect(page.locator('[data-remix-candidate]')).toHaveCount(1, { timeout: 30000 });
+    expect(remixCalls.length).toBe(1);
+    expect(remixCalls[0].episodeIds, '選んだエピソードのIDが送られる').toEqual([epId]);
+
+    // Kindleウィザード①: 📔エピソード記録のタブに出て、素材として選べる
+    await page.goto('/dashboard/kindle-wizard');
+    const epTab = page.getByRole('button', { name: /📔 エピソード記録/ });
+    await expect(epTab).toBeVisible({ timeout: 30000 });
+    await epTab.click();
+    await expect(page.getByText(`${marker} 素材`).first()).toBeVisible({ timeout: 30000 });
+  } finally {
+    await api.delete(`${EPISODES_API}?id=${epId}`).catch(() => {});
+    await cleanupE2EEpisodes(api);
+    await api.delete('/api/feature-drafts?feature=dr-hub').catch(() => {});
+    await api.delete('/api/feature-drafts?feature=kindle-remix').catch(() => {});
+  }
+});
