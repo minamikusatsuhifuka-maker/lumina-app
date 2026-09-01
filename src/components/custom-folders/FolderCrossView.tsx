@@ -14,6 +14,8 @@ import { triggerDownload } from '@/lib/download';
 import { renderMarkdown, sanitizeLatex } from '@/lib/markdown-renderer';
 import { sanitizeFilename, yyyymmdd } from '@/lib/title-generator';
 import { cardActionBtnStyle } from '@/components/text-analysis/cardActionButtonStyle';
+// 282: 全画面リーダーは各画面で別実装せず共通部品を呼び出す（リサーチ保存と同時に横断表示にも揃える）
+import FullscreenReader from '@/components/text-analysis/FullscreenReader';
 import { confirmBulkDelete } from '@/lib/bulk-delete-confirm';
 import FolderBadges from './FolderBadges';
 import FolderPickerPopover from './FolderPickerPopover';
@@ -80,6 +82,8 @@ export default function FolderCrossView({
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [bulkDeleting, setBulkDeleting] = useState(false);
   const [picker, setPicker] = useState<{ item: CrossFolderItem; rect: DOMRect } | null>(null);
+  // 282: 全画面リーダーで表示中のアイテムと本文（null=非表示。本文は fetchBody を共有＝二重実装しない）
+  const [reader, setReader] = useState<{ item: CrossFolderItem; content: string } | null>(null);
 
   const key = (it: { scope: CrossScope; id: string }) => `${it.scope}:${it.id}`;
 
@@ -142,6 +146,13 @@ export default function FolderCrossView({
     await copyToClipboard(body);
     setCopiedId(key(item));
     setTimeout(() => setCopiedId(null), 1800);
+  };
+
+  // 282: ⛶全画面（本文を取得してから開く。取得失敗は fetchBody 側の notify に任せ、開かない＝fail-closed）
+  const openReader = async (item: CrossFolderItem) => {
+    const body = await fetchBody(item);
+    if (body === null) return;
+    setReader({ item, content: body });
   };
 
   const handleDownloadMd = async (item: CrossFolderItem) => {
@@ -450,6 +461,15 @@ export default function FolderCrossView({
                       <button type="button" onClick={() => void handleExpand(item)} style={cardActionBtnStyle()}>
                         {busyId === k ? '⏳ 取得中...' : isOpen ? '▲ 閉じる' : '▼ 全文表示'}
                       </button>
+                      <button
+                        type="button"
+                        data-cross-fullscreen={k}
+                        onClick={() => void openReader(item)}
+                        style={cardActionBtnStyle()}
+                        title="全画面のリーダー表示で読む"
+                      >
+                        ⛶ 全画面
+                      </button>
                       <button type="button" onClick={() => void handleCopy(item)} style={cardActionBtnStyle()}>
                         {copiedId === k ? '✅ コピー済み' : '📋 コピー'}
                       </button>
@@ -509,6 +529,27 @@ export default function FolderCrossView({
           })}
         </div>
       )}
+
+      {/* 282: 全画面リーダー（横断表示の本文を読み物表示）。カードと同じハンドラを共有。
+          一覧の状態を変える操作（分類・削除）は誤操作防止のため入れない */}
+      <FullscreenReader
+        open={reader !== null}
+        title={reader?.item.title ?? '無題'}
+        content={reader?.content ?? ''}
+        onClose={() => setReader(null)}
+        actions={
+          reader && (
+            <>
+              <button type="button" onClick={() => void handleCopy(reader.item)} style={cardActionBtnStyle()}>
+                {copiedId === key(reader.item) ? '✅ コピー済み' : '📋 コピー'}
+              </button>
+              <button type="button" onClick={() => void handleDownloadMd(reader.item)} style={cardActionBtnStyle()}>
+                📥 MD
+              </button>
+            </>
+          )
+        }
+      />
 
       {picker && (
         <FolderPickerPopover

@@ -71,6 +71,13 @@ interface Props {
   // 252: ☆から分類パネルを開く。渡されたときは onFavoriteToggle の代わりにこちらを呼ぶ
   // （このファイルの item は既存コード互換で any だが、新しい口は必要な形だけを受ける）
   onFavoriteClick?: (item: { id: string; is_favorite?: number }, rect: DOMRect) => void;
+  // 282: ⛶全画面（共通部品 FullscreenReader）を開く。渡されたときだけボタンを描画する
+  //（R-88 オプトイン＝渡さない既存の呼び出し元（Kindleウィザード①）は見た目・挙動が変わらない）。
+  // 全画面ビュー自体はこの部品が持たず、呼び出し元が1つだけマウントする（一覧の前後移動を持てる）
+  onFullscreen?: (item: any) => void;
+  // 282: タイトル・メタ情報のクリックでも展開する（274の🧠AI参照素材と同じ挙動に揃える）。
+  // 当たり判定は操作要素と本文の外側だけ（R-81）。既定 off＝既存の呼び出し元は無変更
+  clickToExpand?: boolean;
 }
 
 export function LibraryItemRow({
@@ -87,6 +94,8 @@ export function LibraryItemRow({
   variant = 'default',
   folderBadges,
   onFavoriteClick,
+  onFullscreen,
+  clickToExpand = false,
 }: Props) {
   const meta = parseMetadata(item.metadata);
   const subCategory: string | undefined = typeof meta?.subCategory === 'string' ? meta.subCategory : undefined;
@@ -143,6 +152,26 @@ export function LibraryItemRow({
     }
   };
 
+  // 282/R-81: 展開の当たり判定はタイトル・メタ情報の領域だけ。ボタン類・リンク・本文は含めず、
+  // その中の操作は stopPropagation で上へ伝えない（領域限定と併せた二重の守り）
+  const stopCardClick = (e: React.MouseEvent) => e.stopPropagation();
+  const expandZoneProps: React.HTMLAttributes<HTMLDivElement> & Record<string, unknown> = clickToExpand
+    ? {
+        className: 'card-expand-zone',
+        'data-library-expand-zone': item.id,
+        role: 'button',
+        tabIndex: 0,
+        'aria-expanded': isExpanded,
+        title: isExpanded ? 'クリックで本文を閉じる' : 'クリックで本文を開く',
+        onClick: () => onExpandToggle(item.id),
+        onKeyDown: (e: React.KeyboardEvent<HTMLDivElement>) => {
+          if (e.key !== 'Enter' && e.key !== ' ') return;
+          e.preventDefault(); // Space での画面スクロールを止める
+          onExpandToggle(item.id);
+        },
+      }
+    : {};
+
   const btnStyle: React.CSSProperties = {
     padding: '4px 10px',
     borderRadius: 6,
@@ -184,6 +213,9 @@ export function LibraryItemRow({
           gap: 8,
         }}
       >
+        {/* 282: ここ（タイトル・フォルダ・日付/文字数）が本文の展開領域（clickToExpand 時のみ有効）。
+            入れ子の flex column は外側と同じ gap にして、有効/無効で見た目が変わらないようにする */}
+        <div {...expandZoneProps} style={{ display: 'flex', flexDirection: 'column', gap: 8, minWidth: 0 }}>
         {/* タイトル行（★は常時表示） */}
         <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8, minWidth: 0 }}>
           {mergeMode && (
@@ -191,6 +223,7 @@ export function LibraryItemRow({
               type="checkbox"
               checked={selected}
               onChange={(e) => onSelectToggle(item.id, e.target.checked)}
+              onClick={stopCardClick}
               style={{ marginTop: 2, width: 16, height: 16, cursor: 'pointer', flexShrink: 0 }}
             />
           )}
@@ -246,10 +279,12 @@ export function LibraryItemRow({
             </a>
           )}
         </div>
+        </div>
 
         {/* 操作ボタン: ホバー時オーバーレイ表示（タッチ端末は常時表示） */}
         <div
           className="opacity-0 group-hover:opacity-100 focus-within:opacity-100 [@media(hover:none)]:opacity-100 transition-opacity"
+          onClick={stopCardClick}
           style={{ display: 'flex', gap: 4, flexWrap: 'wrap', alignItems: 'center', marginTop: 'auto' }}
         >
           {/* 4列時(xl〜)はアイコンのみ・ツールチップで機能名を補う */}
@@ -262,6 +297,18 @@ export function LibraryItemRow({
             {isExpanded ? '▲' : '▼'}
             <span className="xl:hidden">{isExpanded ? ' 閉じる' : ' 全文表示'}</span>
           </button>
+          {/* 282: 狭い列幅では読みにくいため、全画面リーダー（整形表示）への導線を置く */}
+          {onFullscreen && content && (
+            <button
+              type="button"
+              data-library-fullscreen={item.id}
+              onClick={() => onFullscreen(item)}
+              style={compactBtnStyle}
+              title="全画面のリーダー表示で読む"
+            >
+              ⛶<span className="xl:hidden"> 全画面</span>
+            </button>
+          )}
           {content && (
             <button type="button" onClick={handleCopy} style={compactBtnStyle} title="本文をコピー">
               {copied ? '✓' : '📋'}
@@ -323,9 +370,11 @@ export function LibraryItemRow({
           )}
         </div>
 
-        {/* 全文表示（▼全文表示の展開時のみ本文を表示） */}
+        {/* 全文表示（▼全文表示の展開時のみ本文を表示）。282: 本文のクリックで閉じない（文字を選べる） */}
         {isExpanded && (
           <div
+            data-library-expanded-body={item.id}
+            onClick={stopCardClick}
             style={{
               padding: 12,
               background: 'var(--bg-primary)',
@@ -401,6 +450,7 @@ export function LibraryItemRow({
             type="checkbox"
             checked={selected}
             onChange={(e) => onSelectToggle(item.id, e.target.checked)}
+            onClick={stopCardClick}
             style={{ marginTop: 4, width: 16, height: 16, cursor: 'pointer', flexShrink: 0 }}
           />
         )}
@@ -415,6 +465,8 @@ export function LibraryItemRow({
           {config.icon}
         </div>
         <div style={{ flex: 1, minWidth: 0 }}>
+          {/* 282: タイトル・メタ情報・AI分類が展開領域（clickToExpand 時のみ有効）。操作バーは含めない */}
+          <div {...expandZoneProps}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
             {item.is_favorite ? (
               <span style={{ color: '#f5a623', fontSize: 13 }}>★</span>
@@ -559,8 +611,11 @@ export function LibraryItemRow({
             </div>
           )}
 
+          </div>
+
           {/* ── アクションバー（タイトル直下に配置） ── */}
           <div
+            onClick={stopCardClick}
             style={{
               display: 'flex',
               gap: 6,
@@ -577,6 +632,18 @@ export function LibraryItemRow({
             >
               {isExpanded ? '▲ 閉じる' : '▼ 全文表示'}
             </button>
+            {/* 282: 全画面リーダー（整形表示）への導線 */}
+            {onFullscreen && content && (
+              <button
+                type="button"
+                data-library-fullscreen={item.id}
+                onClick={() => onFullscreen(item)}
+                style={btnStyle}
+                title="全画面のリーダー表示で読む"
+              >
+                ⛶ 全画面
+              </button>
+            )}
             <button type="button" onClick={handleCopy} style={btnStyle}>
               📋 {copied ? 'コピー済' : 'コピー'}
             </button>
@@ -627,8 +694,10 @@ export function LibraryItemRow({
         </div>
       </div>
 
-      {/* プレビュー or 全文 */}
+      {/* プレビュー or 全文（282: 本文のクリックで開閉しない＝文字を選べる） */}
       <div
+        data-library-expanded-body={isExpanded ? item.id : undefined}
+        onClick={stopCardClick}
         style={{
           padding: 12,
           background: 'var(--bg-primary)',

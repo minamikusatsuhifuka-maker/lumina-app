@@ -4764,3 +4764,149 @@ test('C82: エピソードを素材として選べる（281 §6-1）— 発信�
     await api.delete('/api/feature-drafts?feature=kindle-remix').catch(() => {});
   }
 });
+
+// ───────────────────────────────────────────────────────────────────────────
+// 282: リサーチ保存に全画面表示（共通 FullscreenReader の横展開）
+// ───────────────────────────────────────────────────────────────────────────
+test('C83: リサーチ保存の全画面表示（282）— ⛶で共通リーダーへ到達・整形表示（R-45）・ルートzoom（文字サイズ4段階）が効く・閉じるとスクロール位置が保たれる・既存5ボタン動作・クリック展開（R-81）・横断表示の⛶・AI参照素材側に退行なし', async ({
+  page,
+  context,
+  request,
+}) => {
+  await context.grantPermissions(['clipboard-read', 'clipboard-write'], { origin: BASE_URL });
+  const marker = `FULLSCREEN${RUN_ID}`;
+  const heading = `見出し${marker}`;
+  const bold = `太字${marker}`;
+  const content = `## ${heading}\n\n**${bold}** の段落です。\n\n- 箇条書き一\n- 箇条書き二\n\n${'長い本文の行です。'.repeat(150)}`;
+  const itemId = await createLibraryItem(request, { title: `全画面 ${marker}`, content });
+  const ctxId = await createContextSave(request, {
+    topic: `全画面退行 ${marker}`,
+    contextText: `## CTX${heading}\n\n**CTX${bold}** の本文。${'あ'.repeat(200)}`,
+  });
+  const folderId = await createFolder(request, 'library', `全画面 ${marker}`);
+  expect((await assignFolders(request, 'library', itemId, [folderId])).status()).toBe(200);
+
+  const dialog = page.locator('[role="dialog"][data-kb-scope="reader"]');
+  const readerBody = dialog.locator('.markdown-body');
+  const closeReader = async () => {
+    await dialog.getByRole('button', { name: '✕ 閉じる' }).click();
+    await expect(dialog, '閉じるでリーダーが消えること').toHaveCount(0);
+  };
+  const expectFormatted = async (h: string, b: string) => {
+    await expect(readerBody.locator(':is(h1,h2,h3,h4)').filter({ hasText: h }), '見出しがhタグで整形されること').toBeVisible();
+    await expect(readerBody.locator('strong').filter({ hasText: b }), '太字がstrongで整形されること').toBeVisible();
+    const text = (await readerBody.innerText()) ?? '';
+    expect(text, '生MD記法（##）が露出しないこと').not.toContain('## ');
+    expect(text, '生MD記法（**）が露出しないこと').not.toContain('**');
+  };
+
+  try {
+    await page.goto('/dashboard/library');
+    await page.evaluate(() => {
+      localStorage.removeItem('lumina_hover_preview'); // 273の既定OFFで始める
+      localStorage.setItem('lumina_text_scale', '100');
+    });
+    // ページが縦にスクロールする高さにする（§2-4 の位置保持を空振りさせない）
+    await page.setViewportSize({ width: 1280, height: 600 });
+    await page.reload({ waitUntil: 'domcontentloaded' });
+
+    // ── ① 253の横断表示（FolderCrossView）にも ⛶全画面 が付く ──
+    const bar = page.locator('[data-custom-folder-bar="library"]');
+    await expect(bar).toBeVisible({ timeout: 30000 });
+    await bar.locator(`[data-folder-card="${folderId}"]`).click();
+    const cross = page.locator(`[data-folder-cross-view="${folderId}"]`);
+    await expect(cross, 'フォルダを開くと横断ビューが出ること').toBeVisible();
+    await cross.locator(`[data-cross-fullscreen="library:${itemId}"]`).click();
+    await expect(dialog, '横断表示の⛶で共通リーダーが開くこと').toBeVisible({ timeout: 20000 });
+    await expectFormatted(heading, bold);
+    await closeReader();
+
+    // ── ② リサーチ保存のカード（検索で1件に絞る） ──
+    await page.goto('/dashboard/library');
+    await page.locator('[data-library-search]').fill(marker);
+    const zone = page.locator(`[data-library-expand-zone="${itemId}"]`);
+    const body = page.locator(`[data-library-expanded-body="${itemId}"]`);
+    const fsBtn = page.locator(`[data-library-fullscreen="${itemId}"]`);
+    await expect(zone, '対象カードが出ること').toBeVisible({ timeout: 30000 });
+
+    // クリック展開（274と同じ挙動・R-81）: 既定は閉、タイトルで開く、本文クリックでは閉じない
+    await expect(body).toHaveCount(0);
+    await expect(zone).toHaveAttribute('aria-expanded', 'false');
+    await zone.getByText(`全画面 ${marker}`).click();
+    await expect(body, 'タイトルのクリックで本文が開くこと').toBeVisible();
+    await expect(zone).toHaveAttribute('aria-expanded', 'true');
+    await body.click();
+    await expect(body, '本文のクリックで閉じないこと').toBeVisible();
+
+    // ⛶ボタンを画面上端へ寄せてスクロール位置を作る（開閉前後で同じ位置に戻ることを確かめる）
+    await fsBtn.evaluate((el) => el.scrollIntoView({ block: 'start' }));
+    const y0 = await page.evaluate(() => window.scrollY);
+    expect(y0, 'テストの前提: ページがスクロールされていること').toBeGreaterThan(0);
+
+    // ── ③ ⛶で共通リーダーへ到達・整形表示（R-45）・タイトル ──
+    await fsBtn.click();
+    await expect(dialog, '⛶で全画面リーダーが開くこと').toBeVisible();
+    await expect(dialog.getByText(`全画面 ${marker}`).first(), 'ヘッダーにタイトルが出ること').toBeVisible();
+    await expectFormatted(heading, bold);
+    await expect(body, '⛶で展開状態が変わらないこと（R-81 操作要素は展開の当たり判定に含めない）').toBeVisible();
+    await expect(dialog.getByRole('button', { name: '中' }), 'リーダー自身の文字サイズ切替も残っていること').toBeVisible();
+
+    // ── ④ 文字サイズ4段階（ルート zoom）がリーダーにも効く（body直下のportalが継承） ──
+    const w1 = await readerBody.evaluate((el) => el.getBoundingClientRect().width);
+    await page.evaluate(() => { document.documentElement.style.zoom = '1.4'; });
+    const w2 = await readerBody.evaluate((el) => el.getBoundingClientRect().width);
+    expect(Math.abs(w2 - w1 * 1.4), `zoom1.4で本文幅が1.4倍になること（${w1}→${w2}）`).toBeLessThan(4);
+    await page.evaluate(() => { document.documentElement.style.zoom = ''; });
+
+    // リーダーのアクション: 📋コピー（リッチコピー・plain側はMD原文）
+    await dialog.locator('[data-library-reader-copy]').click();
+    await expect(dialog.locator('[data-library-reader-copy]')).toContainText('コピー済み');
+    expect(await page.evaluate(() => navigator.clipboard.readText()), 'リーダーのコピーが本文を含むこと').toContain(bold);
+
+    // ── ⑤ 閉じると元の一覧の同じ位置に戻る ──
+    await closeReader();
+    expect(await page.evaluate(() => window.scrollY), '閉じた後もスクロール位置が同じであること').toBe(y0);
+    expect(await page.evaluate(() => document.body.style.overflow), '背面スクロールロックが解除されること').toBe('');
+    await expect(body, '閉じた後も展開状態が保たれること').toBeVisible();
+
+    // ── ⑥ 既存ボタンが動く: ▲閉じる／📋／📥／☆／🗑 ──
+    const card = zone.locator('xpath=..');
+    await card.locator('button[title="閉じる"]').click();
+    await expect(body, '▲閉じるで本文が閉じること').toHaveCount(0);
+    await card.locator('button[title="本文をコピー"]').click();
+    expect(await page.evaluate(() => navigator.clipboard.readText()), 'カードの📋が本文を含むこと').toContain(heading);
+    const dl = page.waitForEvent('download');
+    await card.locator('button[title="Markdownをダウンロード"]').click();
+    expect((await dl).suggestedFilename(), '📥でMDが落ちること').toMatch(/\.md$/);
+    await page.locator(`[data-favorite-button="${itemId}"]`).click();
+    const picker = page.locator('[data-folder-picker]');
+    await expect(picker, '☆から分類パネルが開くこと').toBeVisible();
+    await picker.getByRole('button', { name: '閉じる' }).click();
+    await expect(picker).toHaveCount(0);
+    page.once('dialog', (d) => d.accept());
+    await card.locator('button[title="削除"]').click();
+    await expect(zone, '🗑でカードが消えること').toHaveCount(0);
+    await expect
+      .poll(async () => {
+        const rows = (await (await request.get(`${LIBRARY_API}?q=${encodeURIComponent(marker)}`)).json()) as { id: string }[];
+        return Array.isArray(rows) ? rows.some((r) => r.id === itemId) : true;
+      }, '🗑がサーバでも削除されること')
+      .toBe(false);
+
+    // ── ⑦ AI参照素材側（ContextLibraryPanel）の全画面に退行がない ──
+    await page.goto('/dashboard/context-library');
+    const ctxCard = page.locator(`[data-bundle-key="ctx-${ctxId}"]`);
+    await expect(ctxCard).toBeVisible({ timeout: 30000 });
+    await ctxCard.getByRole('button', { name: 'その他の操作' }).click();
+    await ctxCard.getByRole('menuitem', { name: /全画面/ }).click();
+    await expect(dialog, 'AI参照素材の⋯→⛶全画面が開くこと').toBeVisible({ timeout: 20000 });
+    await expectFormatted(`CTX${heading}`, `CTX${bold}`);
+    await closeReader();
+  } finally {
+    await request.delete(LIBRARY_API, { data: { ids: [itemId] } }).catch(() => {});
+    await deleteFolder(request, 'library', folderId).catch(() => {});
+    await request.delete(`${CONTEXT_API}?id=${ctxId}`).catch(() => {});
+    await cleanupE2EContextSaves(request);
+    await cleanupE2ELibrary(request);
+  }
+});

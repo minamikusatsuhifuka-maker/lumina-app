@@ -27,6 +27,10 @@ import {
 import { triggerDownload } from '@/lib/download';
 import { KINDLE_LIBRARY_TYPES, MAX_KINDLE_SOURCES } from '@/lib/kindle-limits';
 import { LibraryItemRow } from '@/components/LibraryItemRow';
+// 282: 全画面リーダーは新設せず、AI参照素材/保存一覧と同じ共通部品を呼び出す（画面ごとに別実装を増やさない）
+import FullscreenReader from '@/components/text-analysis/FullscreenReader';
+import { sanitizeLatex } from '@/lib/markdown-renderer';
+import { cardActionBtnStyle } from '@/components/text-analysis/cardActionButtonStyle';
 // LibraryPreviewPanel は廃止（カード内インライン展開に統一）
 
 /* ── タブ定義（サイドメニュー対応） ── */
@@ -114,6 +118,9 @@ function LibraryPageInner() {
   const [editTags, setEditTags] = useState('');
   const [editGroup, setEditGroup] = useState('');
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  // 282: 全画面リーダーで表示中のアイテム（null=非表示）。本文は /api/library が content 込みで返すため追加取得なし
+  const [readerItem, setReaderItem] = useState<any | null>(null);
+  const [readerCopied, setReaderCopied] = useState(false);
   const [activeTab, setActiveTab] = useState<TabKey>(initialTab);
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
   const [favFilterInTab, setFavFilterInTab] = useState(false);
@@ -537,6 +544,18 @@ function LibraryPageInner() {
     return { sortedFolders, noFolder };
   }, [tabFilteredItems]);
 
+  // 282: 全画面リーダーの j/k（前後の資料）は画面に出ている順（フォルダ節→未整理）で動く
+  const readerOrder = useMemo(
+    () => [...groupedByFolder.sortedFolders.flatMap(([, arr]) => arr), ...groupedByFolder.noFolder],
+    [groupedByFolder],
+  );
+  const openReader = (item: any) => {
+    hoverPreview.hide();
+    setReaderCopied(false);
+    setReaderItem(item);
+  };
+  const readerIdx = readerItem ? readerOrder.findIndex((i) => i.id === readerItem.id) : -1;
+
   /* 既存フォルダ名一覧（モーダルのサジェスト用） */
   const existingFolders = useMemo(() => {
     const set = new Set<string>();
@@ -588,11 +607,18 @@ function LibraryPageInner() {
         onExportPdf={async (it) => { const { exportToPdf } = await import('@/lib/exportPdf'); await exportToPdf(it.title?.slice(0, 40) || 'リサーチ保存', it.content || ''); }}
         onUseInWrite={(it) => { localStorage.setItem('lumina_research_context', it.content || ''); window.location.href = '/dashboard/write'; }}
         onStartTagEdit={(it) => { setEditingId(it.id); setEditTags(it.tags || ''); setEditGroup(it.group_name || '未分類'); }}
-        onExpandToggle={(id) => setExpandedId(expandedId === id ? null : id)}
+        onExpandToggle={(id) => {
+          // 274と同じ: ホバープレビュー（256/273）が出ていたら閉じる（本文の上にふきだしを残さない）
+          hoverPreview.hide();
+          setExpandedId(expandedId === id ? null : id);
+        }}
         isExpanded={expandedId === item.id}
         onMoveToFolder={openFolderModal}
         onTagClick={(t) => setSearch(t)}
         variant={isDrCompact ? 'compact' : 'default'}
+        // 282: ⛶全画面（共通 FullscreenReader）とタイトルクリック展開（274と同じ挙動）を有効にする
+        onFullscreen={openReader}
+        clickToExpand
       />
 
       {editingId === item.id && (
@@ -1121,6 +1147,57 @@ function LibraryPageInner() {
           </div>
         </div>
       )}
+
+      {/* 282: 全画面リーダー（リサーチ保存の本文を読み物表示）。AI参照素材/保存一覧と同じ共通部品。
+          ヘッダーのアクションはカードと同じハンドラ（downloadMd）を共有し、一覧の状態を変える操作
+          （お気に入り/削除）は誤操作防止のため入れない（191と同じ方針）。
+          文字サイズ4段階（ルート zoom）は body 直下の portal にもそのまま効く */}
+      <FullscreenReader
+        open={readerItem !== null}
+        title={readerItem?.title || '無題'}
+        content={readerItem?.content ?? ''}
+        onClose={() => setReaderItem(null)}
+        onPrev={readerIdx > 0 ? () => openReader(readerOrder[readerIdx - 1]) : undefined}
+        onNext={
+          readerIdx >= 0 && readerIdx < readerOrder.length - 1
+            ? () => openReader(readerOrder[readerIdx + 1])
+            : undefined
+        }
+        actions={
+          readerItem && (
+            <>
+              <button
+                type="button"
+                data-library-reader-copy
+                onClick={async () => {
+                  try {
+                    // 他2画面のリーダーと同じく LaTeX 正規化を掛けてリッチコピー（貼り付け先は不定＝汎用ラッパー）
+                    await copyRichMarkdown(sanitizeLatex(readerItem.content || ''));
+                    setReaderCopied(true);
+                    setTimeout(() => setReaderCopied(false), 2000);
+                  } catch {}
+                }}
+                style={{
+                  ...cardActionBtnStyle(),
+                  ...(readerCopied
+                    ? { background: 'rgba(34,197,94,0.12)', borderColor: 'rgba(34,197,94,0.4)', color: '#16a34a' }
+                    : {}),
+                }}
+              >
+                {readerCopied ? '✅ コピー済み' : '📋 コピー'}
+              </button>
+              <button
+                type="button"
+                data-library-reader-md
+                onClick={() => downloadMd(readerItem)}
+                style={cardActionBtnStyle()}
+              >
+                📥 MD
+              </button>
+            </>
+          )
+        }
+      />
 
       {/* 256: 本文プレビューのポップアップ（1画面に1つだけ） */}
       {hoverPreview.layer}
