@@ -9,8 +9,13 @@
 //       本文: tags "ディープリサーチ"（自動ストック保存も同じ）
 //       要約: tags "ディープリサーチ,要約" ／ 詳細: "…,詳細" ／ 活用アドバイス: "…,活用アドバイス"
 //       metadata は { savedAt } のみ。親子関係を示すフィールドは**無い**。
-//     → タイトル完全一致＋保存時刻が近い、の推定だけ。誤結合を避けるため
-//       「2件だけ・種別が異なる」ときに限ってまとめ、3件以上や同種別は個別のまま残す（§2-4）。
+//     → タイトル完全一致＋保存時刻が近い、の推定だけ。
+//
+// 286: 推定は**ペアリング**で解く（283の「ちょうど2件」は廃止）。
+//   同一タイトルの成果物を本文群と要約群（詳細・活用アドバイスも同様）に分け、
+//   保存時刻が最も近いもの同士から順に組にする（貪欲マッチング・時間窓あり）。
+//   同種別同士は組にしない（本文2件は別々の実行）。組にならなかったものは単独カード。
+//   同点の順序: 時間差 → 本文の方が先に保存されている組を優先 → 本文の id → 相手の id（決定的・R-74）。
 //
 // 判定は決定的（R-74）: 入力の並びと値だけから同じ結果を返す。乱数・現在時刻を使わない。
 
@@ -26,10 +31,12 @@ export const ARTIFACT_LABEL: Record<LibraryArtifactKind, string> = {
 /** カード内の並び順（本文を先頭に） */
 export const ARTIFACT_ORDER: LibraryArtifactKind[] = ['research', 'summary', 'detail', 'advice'];
 
-/** 推定でまとめるときの「保存時刻が近い」の閾値（1箇所で管理）。通常DRは本文の自動保存→要約の手動保存が同じ画面内で続くため1時間 */
+/**
+ * 推定でまとめるときの「保存時刻が近い」の上限（1箇所で管理）。通常DRは本文の自動保存→要約の手動保存が
+ * 同じ画面内で続くため1時間。ペアリング（最も近いもの同士）を入れたので窓の重要度は下がったが、
+ * 1年前の要約と今日の本文が組にならないよう上限は残す（286 §3-2）。
+ */
 export const ESTIMATED_PAIR_WINDOW_MS = 60 * 60 * 1000;
-/** 推定でまとめる最大件数。これを超えて該当したら別々の実行が混ざっている可能性が高いので個別のまま */
-export const ESTIMATED_PAIR_MAX = 2;
 
 export type LibraryLinkKind = 'batch' | 'estimated';
 
@@ -150,8 +157,9 @@ export function groupLibraryItems<T extends LibraryLike>(items: T[]): LibraryCar
     }
   }
 
-  // 2) 推定: 通常DRでタイトル完全一致＋時刻が近い＋2件だけ＋種別が異なる
-  const estimatedOf = new Map<string, string>(); // itemId -> card key
+  // 2) 推定（286 ペアリング）: 通常DRでタイトル完全一致の成果物を、本文と他の種別（要約/詳細/活用アドバイス）で
+  //    時刻が最も近いもの同士から組にする。同種別は組にしない。窓を超える組は作らない
+  const estimatedOf = new Map<string, string>(); // itemId -> card key（est:<本文id>）
   const byTitle = new Map<string, T[]>();
   for (const it of rest) {
     if (!isDeepResearchItem(it)) continue;
@@ -163,25 +171,42 @@ export function groupLibraryItems<T extends LibraryLike>(items: T[]): LibraryCar
   }
   for (const arr of byTitle.values()) {
     if (arr.length < 2) continue;
-    const sorted = [...arr].sort((a, b) => createdMs(a) - createdMs(b) || String(a.id).localeCompare(String(b.id)));
-    // 時刻の近いものを前から塊にする（塊の先頭からの差が閾値以内）
-    let i = 0;
-    while (i < sorted.length) {
-      const cluster = [sorted[i]];
-      let j = i + 1;
-      while (j < sorted.length && createdMs(sorted[j]) - createdMs(sorted[i]) <= ESTIMATED_PAIR_WINDOW_MS) {
-        cluster.push(sorted[j]);
-        j++;
+    const researches = arr.filter((it) => artifactKindOf(it) === 'research');
+    const others = arr.filter((it) => artifactKindOf(it) !== 'research');
+    if (researches.length === 0 || others.length === 0) continue; // 同種別だけ → 組にしない
+    // 候補: 窓内の（本文, 他種別）の全組み合わせを、時間差 → 本文が先 → 本文id → 相手id の順に並べる（決定的）
+    type Cand = { r: T; o: T; dt: number; rFirst: 0 | 1 };
+    const cands: Cand[] = [];
+    for (const r of researches) {
+      for (const o of others) {
+        const dt = Math.abs(createdMs(o) - createdMs(r));
+        if (dt > ESTIMATED_PAIR_WINDOW_MS) continue;
+        cands.push({ r, o, dt, rFirst: createdMs(r) <= createdMs(o) ? 0 : 1 });
       }
-      if (cluster.length === ESTIMATED_PAIR_MAX) {
-        const kinds = new Set(cluster.map(artifactKindOf));
-        if (kinds.size === cluster.length) {
-          const key = `est:${cluster[0].id}`;
-          for (const c of cluster) estimatedOf.set(String(c.id), key);
-        }
-      }
-      // 3件以上・同種別は個別のまま（塊はそのまま飛ばす）
-      i = j;
+    }
+    cands.sort(
+      (a, b) =>
+        a.dt - b.dt ||
+        a.rFirst - b.rFirst ||
+        String(a.r.id).localeCompare(String(b.r.id)) ||
+        String(a.o.id).localeCompare(String(b.o.id)),
+    );
+    // 貪欲マッチング: 本文1件につき同じ種別は1つまで、他種別の成果物はどこか1枚にだけ属する
+    const taken = new Map<string, Set<LibraryArtifactKind>>(); // 本文id -> 既に組んだ種別
+    const used = new Set<string>(); // 他種別のid
+    for (const c of cands) {
+      const rid = String(c.r.id);
+      const oid = String(c.o.id);
+      if (used.has(oid)) continue;
+      const kind = artifactKindOf(c.o);
+      const kinds = taken.get(rid) ?? new Set<LibraryArtifactKind>();
+      if (kinds.has(kind)) continue;
+      kinds.add(kind);
+      taken.set(rid, kinds);
+      used.add(oid);
+      const key = `est:${rid}`;
+      estimatedOf.set(rid, key);
+      estimatedOf.set(oid, key);
     }
   }
 

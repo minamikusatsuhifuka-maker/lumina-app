@@ -5412,3 +5412,54 @@ test('C87: AI統合サマリー（287）— 生MDが露出しない・見出し/
     await cleanupE2ELibrary(request);
   }
 });
+
+// ───────────────────────────────────────────────────────────────────────────
+// 286: 本文・要約のグルーピングをペアリングに（同題3件以上でも組になる／同種別は組まない）
+// ───────────────────────────────────────────────────────────────────────────
+test('C88: リサーチ保存のペアリング（286）— 同題で本文3＋要約3は3枚・本文2だけは2枚・🔗推定バッジ・batch紐付けと検索の欠落なしは不変', async ({ page, request }) => {
+  const marker = `PAIR${RUN_ID}`;
+  const now = new Date().toISOString();
+  // R-79: 通常DRの保存側（SaveToLibraryButton: type/title/content/metadata{savedAt}/tags/group_name）を写す
+  const post = async (title: string, content: string, tags: string) => {
+    const res = await request.post(LIBRARY_API, {
+      data: { type: 'deepresearch', title: withE2EPrefix(title), content, metadata: { savedAt: now }, tags, group_name: 'ディープリサーチ' },
+    });
+    expect(res.status()).toBe(200);
+    return (await res.json()).id as string;
+  };
+  const ids: string[] = [];
+  const trioTitle = `三組 ${marker}`;
+  for (let i = 0; i < 3; i++) {
+    ids.push(await post(trioTitle, `本文${i} ${marker}`, 'ディープリサーチ'));
+    ids.push(await post(trioTitle, `要約${i} ${marker}`, 'ディープリサーチ,要約'));
+  }
+  const dupTitle = `重複 ${marker}`;
+  ids.push(await post(dupTitle, `重複本文A ${marker}`, 'ディープリサーチ'));
+  ids.push(await post(dupTitle, `重複本文B ${marker}`, 'ディープリサーチ'));
+
+  try {
+    await page.goto('/dashboard/library');
+    await page.locator('[data-library-search]').fill(trioTitle);
+    const cards = page.locator('[data-library-card]');
+    await expect(cards.first()).toBeVisible({ timeout: 30000 });
+    await expect(cards, '本文3＋要約3 → 3枚').toHaveCount(3);
+    await expect(page.locator('[data-library-artifact-tab]'), '各カードに本文・要約の2タブ').toHaveCount(6);
+    await expect(page.locator('[data-library-estimated]'), '推定でまとめた🔗バッジが全カードに出る').toHaveCount(3);
+    await expect(page.locator('[data-library-link="estimated"]')).toHaveCount(3);
+    await expect(page.getByText(`の検索結果: 6件（カード 3枚）`), '件と枚の併記').toBeVisible();
+    // 要約だけにある語で検索しても欠落しない（283 §4-5 維持）
+    await page.locator('[data-library-search]').fill(`要約1 ${marker}`);
+    await expect(cards).toHaveCount(1);
+    await expect(page.locator('[data-library-artifact-hit="1"]')).toHaveCount(1);
+    await expect(page.locator('[data-library-artifact-hit="0"]')).toHaveCount(1);
+
+    // 同種別（本文2件）は組まない
+    await page.locator('[data-library-search]').fill(dupTitle);
+    await expect(cards, '本文2件だけ → 2枚（誤結合しない）').toHaveCount(2);
+    await expect(page.locator('[data-library-artifact-tab]')).toHaveCount(0);
+    await expect(page.locator('[data-library-estimated]')).toHaveCount(0);
+  } finally {
+    await request.delete(LIBRARY_API, { data: { ids } }).catch(() => {});
+    await cleanupE2ELibrary(request);
+  }
+});

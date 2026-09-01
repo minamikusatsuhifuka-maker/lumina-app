@@ -1959,7 +1959,7 @@ test('U55: エピソード記録（281）— 行動の数字は警告せず効�
 //   バッチ: src/app/api/batch-research/[id]/run/route.ts saveTopicToLibrary
 //   通常DR: src/app/dashboard/deepresearch/page.tsx の SaveToLibraryButton（tags="ディープリサーチ" / "ディープリサーチ,要約"）
 // ───────────────────────────────────────────────────────────────────────────
-test('U56: リサーチ保存のカードまとめ（283）— batchタグは確実に紐付く・通常DRはタイトル一致＋時刻近接の2件のみ推定・3件以上/同種別/時間差/非DRはまとめない', () => {
+test('U56: リサーチ保存のカードまとめ（283/286）— batchタグは確実に紐付く・通常DRはタイトル一致＋時刻近接のペアリング（最も近いもの同士・同種別は組まない・余りは単独）・時間差超過/非DRはまとめない', () => {
   const T0 = Date.parse('2026-08-31T10:00:00+09:00');
   const iso = (ms: number) => new Date(ms).toISOString();
   // ── バッチ（saveTopicToLibrary の INSERT をそのまま写す）──
@@ -2026,14 +2026,16 @@ test('U56: リサーチ保存のカードまとめ（283）— batchタグは確
   expect(c2[0].link).toBe('estimated');
   expect(c2[0].artifacts.map((a) => a.item.id)).toEqual(['n-r', 'n-s']);
 
-  // 3) 3件以上が該当 → まとめずに個別（SOD酵素の4件のケース）
+  // 3) 286: 同題4件（本文2＋要約2）はペアリングで2枚（283の「3件以上は個別」を廃止）。
+  //    時刻が最も近いもの同士: s1(0分)–s2(+2分) と s3(+15分)–s4(+18分)
   const s1 = drRow('s1', 'SOD酵素の比較', 'ディープリサーチ', T0);
-  const s2 = drRow('s2', 'SOD酵素の比較', 'ディープリサーチ,要約', T0 + 5 * 60_000);
-  const s3 = drRow('s3', 'SOD酵素の比較', 'ディープリサーチ', T0 + 8 * 60_000);
-  const s4 = drRow('s4', 'SOD酵素の比較', 'ディープリサーチ,要約', T0 + 12 * 60_000);
+  const s2 = drRow('s2', 'SOD酵素の比較', 'ディープリサーチ,要約', T0 + 2 * 60_000);
+  const s3 = drRow('s3', 'SOD酵素の比較', 'ディープリサーチ', T0 + 15 * 60_000);
+  const s4 = drRow('s4', 'SOD酵素の比較', 'ディープリサーチ,要約', T0 + 18 * 60_000);
   const c3 = groupLibraryItems([s4, s3, s2, s1]);
-  expect(c3).toHaveLength(4);
-  expect(c3.every((c) => c.link === null && c.artifacts.length === 1)).toBe(true);
+  expect(c3).toHaveLength(2);
+  expect(c3.map((c) => c.artifacts.map((a) => a.item.id))).toEqual([['s3', 's4'], ['s1', 's2']]);
+  expect(c3.every((c) => c.link === 'estimated')).toBe(true);
 
   // 4) 同タイトル2件でも同種別（277で遮断した重複実行の残骸など）はまとめない
   const d1 = drRow('d1', '重複', 'ディープリサーチ', T0);
@@ -2066,8 +2068,76 @@ test('U56: リサーチ保存のカードまとめ（283）— batchタグは確
   const r1 = groupLibraryItems(mixed);
   const r2 = groupLibraryItems(mixed);
   expect(r1.map((c) => c.key)).toEqual(r2.map((c) => c.key));
-  expect(r1.map((c) => c.key)).toEqual(['est:n-r', 's4', 'batch:123-0', 's3', 's2', 's1', 'd1']);
+  expect(r1.map((c) => c.key)).toEqual(['est:n-r', 'est:s3', 'batch:123-0', 'est:s1', 'd1']);
   expect(r1.flatMap((c) => c.artifacts.map((a) => a.item.id)).sort()).toEqual(mixed.map((i) => i.id).sort());
+
+  // ── 286: ペアリングの検証（実データの例と誤結合の防止）──
+  // 実例1「日本でMLM…」: 要約979字／本文2,431字・同日 → 1枚（要約タグは deepresearch/page.tsx の SaveToLibraryButton が付ける）
+  const mlmTitle = '日本でMLM　マルチレベルネットワークビジネスを展開する　サプリ';
+  const mlmR = { ...drRow('mlm-r', mlmTitle, 'ディープリサーチ', T0), content: 'あ'.repeat(2431) };
+  const mlmS = { ...drRow('mlm-s', mlmTitle, 'ディープリサーチ,要約', T0 + 25 * 60_000), content: 'い'.repeat(979) };
+  const cm = groupLibraryItems([mlmS, mlmR]);
+  expect(cm).toHaveLength(1);
+  expect(cm[0].link).toBe('estimated');
+  expect(cm[0].artifacts.map((a) => a.item.id)).toEqual(['mlm-r', 'mlm-s']);
+  // 実例2「ダイレクトセリング…」同題4枚: 本文2＋要約2 → 2枚（別々の実行が混ざらない）／本文4 → 4枚（同種別は組まない）
+  const dsTitle = 'ダイレクトセリング（直接販売）およびマルチレベルマーケティング';
+  const ds = [
+    drRow('ds1', dsTitle, 'ディープリサーチ', T0),
+    drRow('ds2', dsTitle, 'ディープリサーチ,要約', T0 + 3 * 60_000),
+    drRow('ds3', dsTitle, 'ディープリサーチ', T0 + 40 * 60_000),
+    drRow('ds4', dsTitle, 'ディープリサーチ,要約', T0 + 44 * 60_000),
+  ];
+  const cds = groupLibraryItems([...ds].reverse());
+  expect(cds).toHaveLength(2);
+  expect(cds.map((c) => c.artifacts.map((a) => a.item.id).sort())).toEqual([['ds3', 'ds4'], ['ds1', 'ds2']]);
+  const ds4r = [0, 1, 2, 3].map((i) => drRow(`dr${i}`, dsTitle, 'ディープリサーチ', T0 + i * 60_000));
+  expect(groupLibraryItems(ds4r)).toHaveLength(4);
+  // 本文3＋要約3 → 3ペア＝3枚。余りは単独カード（本文3＋要約2 → 2枚＋単独1）
+  const trio = [0, 1, 2].flatMap((i) => [
+    drRow(`t${i}r`, 'T', 'ディープリサーチ', T0 + i * 20 * 60_000),
+    drRow(`t${i}s`, 'T', 'ディープリサーチ,要約', T0 + i * 20 * 60_000 + 60_000),
+  ]);
+  const ct = groupLibraryItems(trio);
+  expect(ct).toHaveLength(3);
+  expect(ct.every((c) => c.artifacts.length === 2 && c.link === 'estimated')).toBe(true);
+  expect(ct.map((c) => c.artifacts.map((a) => a.item.id))).toEqual([['t0r', 't0s'], ['t1r', 't1s'], ['t2r', 't2s']]);
+  const ct2 = groupLibraryItems(trio.filter((i) => i.id !== 't2s'));
+  expect(ct2).toHaveLength(3);
+  expect(ct2.find((c) => c.primary.id === 't2r')?.artifacts.length).toBe(1);
+  expect(ct2.find((c) => c.primary.id === 't2r')?.link).toBeNull();
+  // 最も近いもの同士: 要約が2つの本文の間にあるとき、時間差の小さい方と組む
+  const nr1 = drRow('nr1', 'N', 'ディープリサーチ', T0);
+  const ns = drRow('ns', 'N', 'ディープリサーチ,要約', T0 + 10 * 60_000);
+  const nr2 = drRow('nr2', 'N', 'ディープリサーチ', T0 + 12 * 60_000);
+  const cn = groupLibraryItems([nr2, ns, nr1]);
+  expect(cn.find((c) => c.link === 'estimated')?.artifacts.map((a) => a.item.id)).toEqual(['nr2', 'ns']);
+  expect(cn).toHaveLength(2);
+  // 同点（時間差が同じ）は本文が先に保存された組を優先し、さらに同点なら id 順（決定的）
+  const e1 = drRow('e1', 'E', 'ディープリサーチ', T0 - 5 * 60_000);
+  const es = drRow('es', 'E', 'ディープリサーチ,要約', T0);
+  const e2 = drRow('e2', 'E', 'ディープリサーチ', T0 + 5 * 60_000);
+  expect(groupLibraryItems([e2, es, e1]).find((c) => c.link === 'estimated')?.artifacts.map((a) => a.item.id)).toEqual(['e1', 'es']);
+  // 本文1件に要約と詳細と活用アドバイスが付く（同じ種別は1つまで）
+  const m = [
+    drRow('m-r', 'M', 'ディープリサーチ', T0),
+    drRow('m-s', 'M', 'ディープリサーチ,要約', T0 + 60_000),
+    drRow('m-d', 'M', 'ディープリサーチ,詳細', T0 + 120_000),
+    drRow('m-a', 'M', 'ディープリサーチ,活用アドバイス', T0 + 180_000),
+    drRow('m-s2', 'M', 'ディープリサーチ,要約', T0 + 240_000), // 2つ目の要約は余る
+  ];
+  const cmm = groupLibraryItems(m);
+  expect(cmm).toHaveLength(2);
+  expect(cmm[0].artifacts.map((a) => a.kind)).toEqual(['research', 'summary', 'detail', 'advice']);
+  expect(cmm[1].primary.id).toBe('m-s2');
+  // 277の重複残骸（同題・同時刻近傍の本文2件）は組まない／窓（1時間）を超える要約は組まない
+  expect(groupLibraryItems([drRow('dup1', 'D', 'ディープリサーチ', T0), drRow('dup2', 'D', 'ディープリサーチ', T0 + 1000)])).toHaveLength(2);
+  expect(groupLibraryItems([drRow('w-r', 'W', 'ディープリサーチ', T0), drRow('w-s', 'W', 'ディープリサーチ,要約', T0 + ESTIMATED_PAIR_WINDOW_MS + 1)])).toHaveLength(2);
+  // 決定的（R-74）: 入力順を変えても組は同じ
+  const shuffled = [ds[2], ds[0], ds[3], ds[1]];
+  expect(groupLibraryItems(shuffled).map((c) => c.artifacts.map((a) => a.item.id).sort()).sort()).toEqual(
+    groupLibraryItems(ds).map((c) => c.artifacts.map((a) => a.item.id).sort()).sort(),
+  );
 });
 
 // ───────────────────────────────────────────────────────────────────────────
