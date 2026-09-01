@@ -5136,10 +5136,8 @@ test('C85: 中断したバッチジョブ（284）— running/pending＋閾値�
     await expect(info).toContainText('約98日');
     await expect(page.locator(`[data-batch-job-saved-count="${F_RUN_STALE}"]`), '中断でも保存済みの記事数が出ること').toContainText('保存済み 1/2件');
     await expect(page.locator(`[data-batch-job-saved-count="${p1}"]`)).toContainText('保存済み 0/1件');
-    // 決定的（R-74）: 再読込しても同じ判定
-    await page.reload({ waitUntil: 'domcontentloaded' });
-    await page.getByRole('button', { name: '⚡ バッチリサーチ' }).click();
-    await expect(jobRow(F_RUN_STALE)).toHaveAttribute('data-batch-job-display', 'stale', { timeout: 30000 });
+    // 決定的（R-74）: 同じ入力での一致は U57 で固定。ここでは同じ一覧内で判定が揺れないことだけ見る
+    await expect(jobRow(F_RUN_STALE)).toHaveAttribute('data-batch-job-display', 'stale');
     await expect(jobRow(F_RUN_FRESH)).toHaveAttribute('data-batch-job-display', 'running');
     // 中断した running の🗑は押せる／本当に実行中の running は押せない
     await expect(page.locator(`[data-batch-job-delete="${F_RUN_STALE}"]`)).toBeEnabled();
@@ -5172,6 +5170,9 @@ test('C85: 中断したバッチジョブ（284）— running/pending＋閾値�
     expect(confirms[0]).toContain('保存された記事は削除されません');
     page.off('dialog', onDialog);
     await expect.poll(() => listHas(p1)).toBe(false);
+    // 片付けの対象はサーバーが全件から数える（履歴10件の外も含む）＝この利用者の中断ジョブは残らない
+    const after = (await (await request.get(`${BATCH}?limit=10`)).json()) as { staleIds?: number[] };
+    expect(after.staleIds ?? [], 'まとめて削除の後は中断ジョブが残らないこと').toEqual([]);
     await expect(bulk, '中断ジョブが無くなればボタンも消える').toHaveCount(0);
 
     // ── ④ 記事は消えていない: context_saves（タグ batch:<jobId>）とリサーチ保存の本文＋要約 ──

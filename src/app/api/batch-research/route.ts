@@ -35,7 +35,20 @@ export async function GET(req: NextRequest) {
     ORDER BY created_at DESC
     LIMIT ${limit}
   `;
-  return NextResponse.json({ jobs });
+  // 284: 中断（running/pending のまま閾値超過）しているジョブの id を**全件**から数えて添える。
+  // 履歴は最新 limit 件しか出さないため、古い中断ジョブが表示の外に残っても片付けの対象から漏れないようにする。
+  // 判定は表示側の純関数と同じ閾値（STALE_JOB_THRESHOLD_SECONDS）。status は書き換えない
+  const stale = (await sql`
+    SELECT id FROM batch_research_jobs
+    WHERE user_id = ${userId}
+      AND (
+        (status = 'running' AND COALESCE(started_at, created_at) < NOW() - (${STALE_JOB_THRESHOLD_SECONDS} * INTERVAL '1 second'))
+        OR
+        (status = 'pending' AND COALESCE(scheduled_at, created_at) < NOW() - (${STALE_JOB_THRESHOLD_SECONDS} * INTERVAL '1 second'))
+      )
+    ORDER BY created_at ASC
+  `) as { id: number }[];
+  return NextResponse.json({ jobs, staleIds: stale.map((r) => r.id) });
 }
 
 export async function POST(req: NextRequest) {

@@ -561,22 +561,26 @@ export default function DeepResearchPage() {
       const data = await res.json();
       setJobsNowMs(Date.now());
       setBatchJobs(data.jobs || []);
+      // 284: 片付けの対象はサーバーが全件から数えた中断ジョブ（履歴10件の外にある古いものも含む）。
+      // 無い場合は表示中の分だけで判定（同じ閾値）
+      setStaleIdsAll(Array.isArray(data.staleIds) ? data.staleIds.map(Number).filter(Number.isInteger) : null);
     } catch {}
   };
-  const staleJobs = batchJobs.filter((j) => isStaleBatchJob(j, jobsNowMs));
+  const [staleIdsAll, setStaleIdsAll] = useState<number[] | null>(null);
+  const staleJobIds: number[] = staleIdsAll ?? batchJobs.filter((j) => isStaleBatchJob(j, jobsNowMs)).map((j) => j.id);
 
   // 284 §4-3: 中断したジョブをまとめて削除。確認は1回だけ（R-56）・件数と「記事は消えない」を明記。
   // 削除対象はジョブ履歴の行だけ（API側でも中断判定を通す＝本当に実行中のものは消えない）
   const [bulkDeletingStale, setBulkDeletingStale] = useState(false);
   const handleDeleteStaleJobs = async () => {
-    if (staleJobs.length === 0 || bulkDeletingStale) return;
-    if (!confirm(`中断した ${staleJobs.length} 件のジョブ履歴を削除します。保存された記事は削除されません。\nこの操作は元に戻せません。`)) return;
+    if (staleJobIds.length === 0 || bulkDeletingStale) return;
+    if (!confirm(`中断した ${staleJobIds.length} 件のジョブ履歴を削除します。保存された記事は削除されません。\nこの操作は元に戻せません。`)) return;
     setBulkDeletingStale(true);
     try {
       const res = await fetch('/api/batch-research', {
         method: 'DELETE',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ staleIds: staleJobs.map((j) => j.id) }),
+        body: JSON.stringify({ staleIds: staleJobIds }),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
@@ -3871,7 +3875,7 @@ ${contextText}
               <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' as const, marginBottom: 10 }}>
                 <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)' }}>📋 バッチジョブ履歴</div>
                 {/* 284: 中断（終わらないまま止まった）ジョブがあるときだけ片付けの導線を出す */}
-                {staleJobs.length > 0 && (
+                {staleJobIds.length > 0 && (
                   <button
                     data-batch-stale-bulk-delete
                     onClick={() => void handleDeleteStaleJobs()}
@@ -3879,7 +3883,7 @@ ${contextText}
                     title="running / pending のまま6時間を超えて止まっているジョブの履歴をまとめて削除します。保存された記事（AI参照素材・リサーチ保存）は消えません"
                     style={{ padding: '4px 10px', background: 'rgba(239,68,68,0.06)', border: '1px solid rgba(239,68,68,0.4)', color: '#dc2626', borderRadius: 6, cursor: bulkDeletingStale ? 'not-allowed' : 'pointer', fontSize: 11, fontWeight: 700, opacity: bulkDeletingStale ? 0.6 : 1 }}
                   >
-                    {bulkDeletingStale ? '⏳ 削除中...' : `🧹 中断したジョブをまとめて削除（${staleJobs.length}件）`}
+                    {bulkDeletingStale ? '⏳ 削除中...' : `🧹 中断したジョブをまとめて削除（${staleJobIds.length}件）`}
                   </button>
                 )}
               </div>
