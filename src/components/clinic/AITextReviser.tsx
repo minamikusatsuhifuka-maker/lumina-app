@@ -1,5 +1,6 @@
 'use client';
 import { useState } from 'react';
+import { MarkdownBody } from '@/components/MarkdownBody';
 
 const PURPOSES = [
   { key: 'patient',    label: '🏥 患者向け',      desc: '分かりやすく温かく' },
@@ -186,14 +187,16 @@ export function AITextReviser({
             </div>
             <div>
               <div style={{ fontSize: 10, color: '#4ade80', marginBottom: 4, fontWeight: 700 }}>修正後</div>
-              <div style={{
-                padding: 8, background: 'rgba(74,222,128,0.06)',
-                border: '1px solid rgba(74,222,128,0.2)', borderRadius: 6,
-                fontSize: 12, color: 'var(--text-primary)', lineHeight: 1.6,
-                maxHeight: 150, overflowY: 'auto', whiteSpace: 'pre-wrap',
-              }}>
-                {revised}
-              </div>
+              {/* 288/R-45: AI改善案（After）は整形表示 */}
+              <MarkdownBody
+                text={revised}
+                style={{
+                  padding: 8, background: 'rgba(74,222,128,0.06)',
+                  border: '1px solid rgba(74,222,128,0.2)', borderRadius: 6,
+                  fontSize: 12, color: 'var(--text-primary)', lineHeight: 1.6,
+                  maxHeight: 150, overflowY: 'auto',
+                }}
+              />
             </div>
           </div>
           <div style={{ display: 'flex', gap: 6 }}>

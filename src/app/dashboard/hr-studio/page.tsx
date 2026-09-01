@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { MarkdownBody } from '@/components/MarkdownBody';
 import { copyRichMarkdown } from '@/lib/rich-copy';
 import { renderMarkdown } from '@/lib/markdown-renderer';
 import ContextSelector, {
@@ -934,22 +935,19 @@ export default function HrStudioPage() {
                             </button>
                           </div>
                         </div>
-                        <div
+                        {/* 288/R-45: 保存済み人事書類のプレビューは整形表示 */}
+                        <MarkdownBody
+                          text={record.content.length > 400 ? `${record.content.slice(0, 400)}...` : record.content}
                           style={{
                             padding: 16,
                             fontSize: 12,
                             lineHeight: 1.7,
-                            whiteSpace: 'pre-wrap',
                             maxHeight: 200,
                             overflowY: 'auto',
                             color: 'var(--text-primary)',
                             background: 'var(--bg-primary)',
                           }}
-                        >
-                          {record.content.length > 400
-                            ? `${record.content.slice(0, 400)}...`
-                            : record.content}
-                        </div>
+                        />
                       </div>
                     );
                   })}

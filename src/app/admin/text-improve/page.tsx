@@ -1,5 +1,6 @@
 'use client';
 import { useState, useEffect } from 'react';
+import { MarkdownBody } from '@/components/MarkdownBody';
 import { copyRichMarkdown } from '@/lib/rich-copy';
 
 const PURPOSES = [
@@ -257,9 +258,8 @@ export default function TextImprovePage() {
                 </div>
                 <div>
                   <div style={{ fontSize: 11, fontWeight: 700, color: '#1D9E75', marginBottom: 4 }}>After（AI改善案）</div>
-                  <div style={{ padding: 12, background: 'rgba(29,158,117,0.04)', border: '1px solid rgba(29,158,117,0.2)', borderRadius: 8, fontSize: 12, color: 'var(--text-primary)', lineHeight: 1.8, whiteSpace: 'pre-wrap', height: 480, overflowY: 'auto' }}>
-                    {improveLoading ? '生成中...' : improvedText}
-                  </div>
+                  {/* 288/R-45: AI改善案（After）は整形表示。Before（元の文）は生のまま */}
+                  <MarkdownBody text={improveLoading ? '生成中...' : improvedText} raw={improveLoading} style={{ padding: 12, background: 'rgba(29,158,117,0.04)', border: '1px solid rgba(29,158,117,0.2)', borderRadius: 8, fontSize: 12, color: 'var(--text-primary)', lineHeight: 1.8, height: 480, overflowY: 'auto' }} />
                 </div>
               </div>
               {improvedText && !improveLoading && (

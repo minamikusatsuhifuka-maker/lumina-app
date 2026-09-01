@@ -1,5 +1,6 @@
 'use client';
 import { useState, useEffect, use } from 'react';
+import { MarkdownBody } from '@/components/MarkdownBody';
 import { renderMarkdown } from '@/lib/markdown-renderer';
 
 type Tab = 'overview' | 'tasks' | 'progress' | 'chat';
@@ -259,7 +260,8 @@ export default function StrategyDetailPage({ params }: { params: Promise<{ id: s
             </div>
           ))}
           {chatResult && !chatHistory.find(h => h.res === chatResult) && (
-            <div style={{ padding: '8px 10px', background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 8, fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.6, whiteSpace: 'pre-wrap' }}>{chatResult}</div>
+            /* 288/R-45: 生成中（chatting）は生のまま流し、完了したら整形（admin/grade と同じ型） */
+            <MarkdownBody text={chatResult} raw={chatting} style={{ padding: '8px 10px', background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 8, fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.6 }} />
           )}
         </div>
         <div style={{ display: 'flex', gap: 6 }}>

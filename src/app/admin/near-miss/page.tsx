@@ -1,5 +1,6 @@
 'use client';
 import { useState, useEffect } from 'react';
+import { MarkdownBody } from '@/components/MarkdownBody';
 import { copyRichMarkdown } from '@/lib/rich-copy';
 import { renderMarkdown } from '@/lib/markdown-renderer';
 
@@ -1323,7 +1324,8 @@ export default function NearMissPage() {
                     {r.admin_comment && adminCommentId !== r.id && (
                       <div style={{ marginTop: '12px', padding: '12px', background: '#f0fdf4', borderRadius: '10px', border: '1px solid #bbf7d0' }}>
                         <p style={{ fontSize: '12px', fontWeight: 'bold', color: '#16a34a', marginBottom: '4px' }}>✅ 管理者コメント</p>
-                        <p style={{ fontSize: '13px', color: '#374151', lineHeight: '1.7', whiteSpace: 'pre-wrap' }}>{r.admin_comment}</p>
+                        {/* 288/R-45: AI生成のコメントは整形表示 */}
+                        <MarkdownBody text={r.admin_comment} style={{ fontSize: '13px', color: '#374151', lineHeight: '1.7' }} />
                       </div>
                     )}
 

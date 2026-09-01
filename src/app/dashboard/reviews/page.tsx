@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
+import { MarkdownBody } from '@/components/MarkdownBody';
 import { copyRichMarkdown } from '@/lib/rich-copy';
 import { renderMarkdown } from '@/lib/markdown-renderer';
 
@@ -1179,7 +1180,8 @@ export default function ReviewsPage() {
                   </h3>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                     {aiAnalysis.replyIdeas.map((r, i) => (
-                      <div key={i} className="reply-item">{r}</div>
+                      /* 288/R-45: AIの返信案は整形表示 */
+                      <MarkdownBody key={i} className="reply-item" text={r} />
                     ))}
                   </div>
                 </div>
