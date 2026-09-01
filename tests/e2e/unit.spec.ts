@@ -43,6 +43,7 @@ import {
   savedTopicCount,
   staleJobLabel,
 } from '../../src/lib/batch-stale';
+import { MERGE_TITLE_PREFIX, deriveMergeTitle, hasSavableContent } from '../../src/lib/merge-report';
 import { insertAtCursor, PASTE_BUTTON_MESSAGE } from '../../src/lib/paste-insert';
 import {
   ANALYSIS_OPTIONS,
@@ -2132,4 +2133,28 @@ test('U57: バッチジョブの中断判定（284）— running/pending＋閾�
   expect(label).toContain('2026/5/26 14:02:10'); // UTC 05:02 → JST 14:02
   expect(label).toContain('開始・未完了');
   expect(label).toContain('約97日'); // 5/26 05:02 UTC → 9/1 03:00 UTC は 97日22時間
+});
+
+// ───────────────────────────────────────────────────────────────────────────
+// 287: AI統合サマリーの保存名は決定的に導出（AI命名・時刻なし）／空本文は保存不可（fail-closed）
+// ───────────────────────────────────────────────────────────────────────────
+test('U58: AI統合サマリーの保存名と空本文判定（287）— 選んだ資料から決定的に導く・同じ入力で同じ名前・空/空白は保存不可', () => {
+  expect(deriveMergeTitle(['肌老化の原因', 'ROSと抗酸化'])).toBe(`${MERGE_TITLE_PREFIX}: 肌老化の原因 他1件`);
+  expect(deriveMergeTitle(['肌老化の原因'])).toBe(`${MERGE_TITLE_PREFIX}: 肌老化の原因`);
+  expect(deriveMergeTitle(['A', 'B', 'C', 'D'])).toBe(`${MERGE_TITLE_PREFIX}: A 他3件`);
+  expect(deriveMergeTitle([])).toBe(MERGE_TITLE_PREFIX);
+  expect(deriveMergeTitle(['', null, undefined, '  '])).toBe(MERGE_TITLE_PREFIX);
+  // 長い題名は40字で切る（一覧の表示が破綻しない）・空白は畳む
+  const long = 'あ'.repeat(60);
+  expect(deriveMergeTitle([long, 'x'])).toBe(`${MERGE_TITLE_PREFIX}: ${'あ'.repeat(40)}… 他1件`);
+  expect(deriveMergeTitle(['前  後\n改行'])).toBe(`${MERGE_TITLE_PREFIX}: 前 後 改行`);
+  // 決定的（R-74）
+  expect(deriveMergeTitle(['X', 'Y'])).toBe(deriveMergeTitle(['X', 'Y']));
+  // 空本文は保存しない
+  expect(hasSavableContent('')).toBe(false);
+  expect(hasSavableContent('   \n\t')).toBe(false);
+  expect(hasSavableContent(null)).toBe(false);
+  expect(hasSavableContent(undefined)).toBe(false);
+  expect(hasSavableContent(123)).toBe(false);
+  expect(hasSavableContent('## 見出し\n本文')).toBe(true);
 });

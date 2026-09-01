@@ -33,6 +33,15 @@ import { ARTIFACT_LABEL, groupLibraryItems, type LibraryCard } from '@/lib/libra
 import FullscreenReader from '@/components/text-analysis/FullscreenReader';
 import { sanitizeLatex } from '@/lib/markdown-renderer';
 import { cardActionBtnStyle } from '@/components/text-analysis/cardActionButtonStyle';
+// 287: AI統合サマリーの保存（決定的タイトル・空本文は保存しない）と整形表示
+import { renderMarkdown } from '@/lib/markdown-renderer';
+import {
+  MERGE_REPORT_GROUP,
+  MERGE_REPORT_TAGS,
+  MERGE_REPORT_TYPE,
+  deriveMergeTitle,
+  hasSavableContent,
+} from '@/lib/merge-report';
 // LibraryPreviewPanel は廃止（カード内インライン展開に統一）
 
 /* ── タブ定義（サイドメニュー対応） ── */
@@ -114,6 +123,8 @@ function LibraryPageInner() {
   const [activeCustomFolder, setActiveCustomFolder] = useState<FolderFilter>(null);
   const [folderPicker, setFolderPicker] = useState<{ id: string; rect: DOMRect } | null>(null);
   const [mergeResult, setMergeResult] = useState('');
+  // 287: 生成時に選んでいた資料のタイトル（保存名を決定的に導くため。保存時に選択が変わっていても影響しない）
+  const [mergeSourceTitles, setMergeSourceTitles] = useState<string[]>([]);
   const [merging, setMerging] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -165,21 +176,47 @@ function LibraryPageInner() {
         return;
       }
       setMergeResult(data.result);
+      setMergeSourceTitles(selected.map((i: any) => String(i.title || '')));
       setShowMergeModal(true);
     } catch (e: any) {
       alert(`通信エラー: ${e.message}`);
     } finally { setMerging(false); }
   };
 
+  // 287 §3: 保存は fail-closed。
+  // 旧実装は POST の応答（{success,id} だけ）をそのまま一覧の行として差し込んでいたため、
+  // 「(無題) 0文字」のカードが出ていた（DBには本文が入っていても画面には空に見える）。
+  // 保存後は一覧を再取得して**保存された行**を表示し、失敗は必ず知らせる。
   const handleSaveMergeReport = async () => {
-    if (!mergeResult) return;
+    if (!hasSavableContent(mergeResult)) {
+      alert('本文が空のため保存できません。もう一度「🔗 AIでまとめる」を実行してください。');
+      return;
+    }
+    if (isSaving) return;
     setIsSaving(true);
     try {
+      const title = deriveMergeTitle(mergeSourceTitles);
       const res = await fetch('/api/library', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ title: `統合レポート ${new Date().toLocaleDateString('ja-JP')}`, content: mergeResult, type: 'merge', tags: '統合レポート', group_name: '統合レポート' }),
+        body: JSON.stringify({ title, content: mergeResult, type: MERGE_REPORT_TYPE, tags: MERGE_REPORT_TAGS, group_name: MERGE_REPORT_GROUP }),
       });
-      if (res.ok) { const newItem = await res.json(); setItems(prev => [newItem, ...prev]); alert('リサーチ保存に追加しました！'); }
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data?.id) {
+        alert(`保存できませんでした: ${data?.error || res.status}`);
+        return;
+      }
+      // 一覧はサーバーの行で更新（再取得に失敗したときだけ、送った内容で行を組み立てる）
+      const refreshed = await refetchItems();
+      if (!refreshed) {
+        setItems(prev => [{
+          id: data.id, title, content: mergeResult, type: MERGE_REPORT_TYPE, tags: MERGE_REPORT_TAGS,
+          group_name: MERGE_REPORT_GROUP, is_favorite: 0, metadata: {}, created_at: new Date().toISOString(), custom_folder_ids: [],
+        }, ...prev]);
+      }
+      setShowMergeModal(false);
+      alert(`リサーチ保存に追加しました（${title}）`);
+    } catch (e: any) {
+      alert(`保存中にエラーが発生しました: ${e?.message || e}`);
     } finally { setIsSaving(false); }
   };
 
@@ -1170,7 +1207,7 @@ function LibraryPageInner() {
 
       {/* ── 統合レポートモーダル ── */}
       {showMergeModal && mergeResult && (
-        <div style={{ position: 'fixed', inset: 0, zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,0.6)' }}
+        <div data-merge-modal style={{ position: 'fixed', inset: 0, zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,0.6)' }}
           onClick={() => setShowMergeModal(false)}>
           <div style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 16, width: '90vw', maxWidth: 800, maxHeight: '85vh', display: 'flex', flexDirection: 'column', boxShadow: '0 12px 40px rgba(0,0,0,0.3)' }}
             onClick={e => e.stopPropagation()}>
@@ -1183,17 +1220,24 @@ function LibraryPageInner() {
               <button onClick={() => setShowMergeModal(false)}
                 style={{ width: 28, height: 28, borderRadius: 6, border: '1px solid var(--border)', background: 'var(--bg-secondary)', color: 'var(--text-muted)', cursor: 'pointer', fontSize: 14, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>✕</button>
             </div>
-            {/* コンテンツ */}
-            <div style={{ flex: 1, overflowY: 'auto', padding: 20, fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.8, whiteSpace: 'pre-wrap' }}>
-              {mergeResult}
+            {/* コンテンツ（287 / R-45: 読む画面は整形表示。生MD記法を見せない。全画面・カード展開と同じ renderMarkdown） */}
+            <div style={{ flex: 1, overflowY: 'auto', padding: 20 }}>
+              <div
+                data-merge-body
+                className="markdown-body"
+                style={{ fontSize: 14, lineHeight: 1.85, color: 'var(--text-primary)' }}
+                dangerouslySetInnerHTML={{ __html: renderMarkdown(mergeResult) }}
+              />
             </div>
             {/* フッター */}
             <div style={{ padding: '12px 20px', borderTop: '1px solid var(--border)', display: 'flex', gap: 8 }}>
-              <button onClick={handleSaveMergeReport} disabled={isSaving}
+              <button data-merge-save onClick={handleSaveMergeReport} disabled={isSaving}
                 style={{ padding: '8px 16px', borderRadius: 8, border: 'none', background: isSaving ? 'rgba(108,99,255,0.3)' : 'linear-gradient(135deg, #6c63ff, #8b5cf6)', color: '#fff', fontWeight: 700, fontSize: 13, cursor: isSaving ? 'not-allowed' : 'pointer' }}>
                 {isSaving ? '保存中...' : '📚 リサーチ保存に追加'}
               </button>
-              <button onClick={() => copyRichMarkdown(mergeResult).then(() => alert('コピーしました！'))}
+              {/* 287 §2-4: Word体裁のリッチコピー（text/html＋text/plain）。copyRichMarkdown の既定動作が
+                  Word貼付を目的にしたものなので、専用ラッパー（R-71）は不要 */}
+              <button data-merge-copy onClick={() => copyRichMarkdown(mergeResult).then((ok) => alert(ok ? 'コピーしました！（Wordに貼ると見出し・太字が保持されます）' : 'コピーできませんでした'))}
                 style={{ padding: '8px 16px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--bg-secondary)', color: 'var(--text-secondary)', cursor: 'pointer', fontSize: 13 }}>
                 📋 コピー
               </button>

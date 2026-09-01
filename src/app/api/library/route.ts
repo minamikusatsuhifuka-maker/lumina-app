@@ -10,6 +10,7 @@ import {
   ensureCustomFolderTables,
   getFolderIdsForItems,
 } from '@/lib/custom-folders';
+import { hasSavableContent } from '@/lib/merge-report';
 
 // 250: 一括削除の1リクエストあたりの上限（text-analysis / context-saves と同値）。
 const BULK_DELETE_LIMIT = 500;
@@ -90,6 +91,11 @@ export async function POST(req: NextRequest) {
   // 表示上ほぼ意味を持たない不可視文字だけを落として、保存は必ず通す（R-39）。
   const safeTitle = sanitizeForDb(title);
   const safeContent = sanitizeForDb(content);
+
+  // 287 §3-4: 本文が空なら保存しない（fail-closed）。「(無題) 0文字」の行をDBに作らず、失敗として返す
+  if (!hasSavableContent(safeContent)) {
+    return NextResponse.json({ error: '本文が空のため保存しませんでした' }, { status: 400 });
+  }
 
   try {
     await sql`INSERT INTO library (id, user_id, type, title, content, metadata, tags, group_name, is_favorite, folder_name)

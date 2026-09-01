@@ -5305,3 +5305,108 @@ test('C86: 横並び比較4件（285）— 2xlで4列・中間幅は2×2に折�
   await page.locator('[data-compare-mode="research"]').click();
   await expect(page.locator('[data-compare-label="3"]')).toContainText('リサーチ本文');
 });
+
+// ───────────────────────────────────────────────────────────────────────────
+// 287: AI統合サマリーの体裁（整形表示・Word体裁コピー）と保存の fail-closed
+// ───────────────────────────────────────────────────────────────────────────
+test('C87: AI統合サマリー（287）— 生MDが露出しない・見出し/太字/箇条書きが描画・コピーはtext/htmlに見出しタグ・保存でタイトルと本文が残る（決定的な名前）・空本文はAPIが400・保存後の一覧も整形表示', async ({
+  page,
+  context,
+  request,
+}) => {
+  await context.grantPermissions(['clipboard-read', 'clipboard-write'], { origin: BASE_URL });
+  const marker = `MERGE${RUN_ID}`;
+  const a = await createLibraryItem(request, { title: `統合A ${marker}`, content: `資料Aの本文 ${marker}` });
+  const b = await createLibraryItem(request, { title: `統合B ${marker}`, content: `資料Bの本文 ${marker}` });
+  const created: string[] = [a, b];
+  const heading = `エグゼクティブ${marker}`;
+  const bold = `太字${marker}`;
+  // /api/merge はAI課金のためモック（出力はプロンプト規約どおり ## 見出し・**太字**・- 箇条書きのMarkdown）
+  await page.route((url) => url.pathname === '/api/merge', (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        result: `## 🎯 ${heading}\n\n**${bold}** が要点です。\n\n- 箇条書き一 ${marker}\n- 箇条書き二\n\n## 💡 主要インサイト\n\n本文 ${marker} の段落。`,
+      }),
+    }),
+  );
+  const dialogs: string[] = [];
+  const onDialog = (d: import('@playwright/test').Dialog) => { dialogs.push(d.message()); void d.accept(); };
+  page.on('dialog', onDialog);
+
+  try {
+    // ── ① 空本文は保存されない（fail-closed・API）──
+    const emptyTitle = `空保存 ${marker}`;
+    for (const content of ['', '   \n']) {
+      const res = await request.post(LIBRARY_API, { data: { title: emptyTitle, content, type: 'merge', tags: '統合レポート', group_name: '統合レポート' } });
+      expect(res.status(), '本文が空なら400').toBe(400);
+      expect((await res.json()).error, '失敗理由が返ること').toContain('本文が空');
+    }
+    const afterEmpty = (await (await request.get(`${LIBRARY_API}?q=${encodeURIComponent(emptyTitle)}`)).json()) as { id: string }[];
+    expect(afterEmpty.length, '空本文の行がDBに書かれていないこと').toBe(0);
+
+    // ── ② 選択→AIでまとめる→モーダルは整形表示 ──
+    await page.goto('/dashboard/library');
+    await page.locator('[data-library-search]').fill(marker);
+    await expect(page.locator(`[data-library-card="${a}"]`)).toBeVisible({ timeout: 30000 });
+    await page.getByRole('button', { name: '✓ 選択モード' }).click();
+    await page.locator(`[data-library-card="${a}"] input[type="checkbox"]`).check();
+    await page.locator(`[data-library-card="${b}"] input[type="checkbox"]`).check();
+    await page.getByRole('button', { name: '🔗 AIでまとめる' }).click();
+    const modal = page.locator('[data-merge-modal]');
+    const body = page.locator('[data-merge-body]');
+    await expect(modal).toBeVisible();
+    await expect(body.locator(':is(h1,h2,h3,h4)').filter({ hasText: heading }), '見出しがhタグで描画されること').toBeVisible();
+    await expect(body.locator('strong').filter({ hasText: bold }), '太字がstrongで描画されること').toBeVisible();
+    await expect(body.locator('li').filter({ hasText: `箇条書き一 ${marker}` }), '箇条書きがliで描画されること').toBeVisible();
+    const text = await body.innerText();
+    expect(text, '生MD記法（##）が露出しないこと').not.toContain('## ');
+    expect(text, '生MD記法（**）が露出しないこと').not.toContain('**');
+    expect(text, '生MD記法（- ）が露出しないこと').not.toMatch(/^- /m);
+
+    // ── ③ コピーは text/html を持ち、見出し・太字がHTMLタグとして含まれる（Word貼付の担保）──
+    await page.locator('[data-merge-copy]').click();
+    await expect.poll(() => dialogs.some((m) => m.includes('コピーしました')), 'コピー完了が知らされること').toBe(true);
+    const clip = await page.evaluate(async () => {
+      const items = await navigator.clipboard.read();
+      for (const it of items) {
+        if (it.types.includes('text/html')) return { html: await (await it.getType('text/html')).text(), plain: await (await it.getType('text/plain')).text() };
+      }
+      return { html: '', plain: await navigator.clipboard.readText() };
+    });
+    expect(clip.html, 'text/html が取得できること').not.toBe('');
+    expect(clip.html, '見出しがHTMLタグで含まれること').toMatch(/<h[1-4][^>]*>[^<]*エグゼクティブ/);
+    expect(clip.html, '太字がHTMLタグで含まれること').toMatch(/<(strong|b)[^>]*>[^<]*太字/);
+    expect(clip.plain, 'plain 側は原文のMarkdown').toContain('## 🎯');
+
+    // ── ④ 保存: タイトルは選んだ資料から決定的に、本文はそのまま残る ──
+    await page.locator('[data-merge-save]').click();
+    await expect(modal, '保存後にモーダルが閉じること').toHaveCount(0);
+    const expectedTitle = `統合サマリー: [E2E] 統合A ${marker} 他1件`;
+    await expect.poll(() => dialogs.some((m) => m.includes('リサーチ保存に追加しました') && m.includes(expectedTitle)), '保存完了と保存名が知らされること').toBe(true);
+    const rows = (await (await request.get(`${LIBRARY_API}?q=${encodeURIComponent(marker)}`)).json()) as { id: string; title: string; content: string; type: string }[];
+    const saved = rows.find((r) => r.type === 'merge');
+    expect(saved, '統合サマリーの行が保存されていること').toBeTruthy();
+    created.push(saved!.id);
+    expect(saved!.title, 'タイトルが(無題)でなく決定的な名前').toBe(expectedTitle);
+    expect(saved!.content, '本文が空でないこと').toContain(bold);
+    expect(saved!.content.length).toBeGreaterThan(50);
+
+    // ── ⑤ 保存後の一覧: カードに本文と名前が出て、展開も整形表示（§2-6・283の経路）──
+    const card = page.locator(`[data-library-card="${saved!.id}"]`);
+    await expect(card, '保存された行がカードとして出ること').toBeVisible({ timeout: 30000 });
+    await expect(card).toContainText(expectedTitle);
+    await expect(card).not.toContainText('(無題)');
+    await expect(card).not.toContainText(' 0文字');
+    await page.locator(`[data-library-expand-zone="${saved!.id}"] strong`).click();
+    const expanded = page.locator(`[data-library-expanded-body="${saved!.id}"]`);
+    await expect(expanded).toBeVisible();
+    await expect(expanded.locator(':is(h1,h2,h3,h4)').filter({ hasText: heading }), '保存後の展開も整形表示').toBeVisible();
+    expect(await expanded.innerText()).not.toContain('## ');
+  } finally {
+    page.off('dialog', onDialog);
+    await request.delete(LIBRARY_API, { data: { ids: created } }).catch(() => {});
+    await cleanupE2ELibrary(request);
+  }
+});

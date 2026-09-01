@@ -609,3 +609,22 @@ test('B26: 参考例はテーマが無ければ400（281） @gen', async ({ requ
   const res = await request.post('/api/episodes/examples', { data: {} });
   expect(res.status()).toBe(400);
 });
+
+test('B27: AI統合サマリー（287 §2-5）— 実AIの出力に h1（# ）が無く ## で構成される @gen', async ({ request }) => {
+  test.setTimeout(GEN_TIMEOUT);
+  const res = await request.post('/api/merge', {
+    data: {
+      items: [
+        { title: '[E2E] 保湿剤の基礎', content: '保湿剤は角層の水分保持を助ける。ヘパリン類似物質・尿素・ワセリンが代表的。' },
+        { title: '[E2E] ワセリンの特性', content: 'ワセリンは閉塞性の保湿剤で刺激が少ない。べたつきが欠点。' },
+      ],
+    },
+    timeout: REQ_TIMEOUT,
+  });
+  expect(res.status()).toBe(200);
+  const { result } = (await res.json()) as { result: string };
+  expect(typeof result).toBe('string');
+  expect(result.length).toBeGreaterThan(100);
+  expect(result, '見出しレベル1（# ）を使わないこと').not.toMatch(/^# /m);
+  expect(result, '見出しは ## で構成されること').toMatch(/^## /m);
+});
