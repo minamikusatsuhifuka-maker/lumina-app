@@ -5216,10 +5216,21 @@ test('C86: 横並び比較4件（285）— 2xlで4列・中間幅は2×2に折�
     const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
     expect(overflow, `${label}: ページに横スクロールが出ていないこと`).toBeLessThanOrEqual(1);
   };
+  // 4列の y 座標を**1回の evaluate で同時に**取る（パネル表示直後の smooth スクロール中に逐次計測するとずれる）。
+  // 2回連続で同じ値になるまで待ってから返す
   const rows = async () => {
-    const ys: number[] = [];
-    for (let i = 0; i < 4; i++) ys.push(Math.round((await col(i).boundingBox())!.y));
-    return ys;
+    const read = () =>
+      page.evaluate(() =>
+        [0, 1, 2, 3].map((i) => Math.round(document.querySelector(`[data-compare-col="${i}"]`)!.getBoundingClientRect().y)),
+      );
+    let prev = await read();
+    for (let n = 0; n < 20; n++) {
+      await page.waitForTimeout(150);
+      const cur = await read();
+      if (cur.join(',') === prev.join(',')) return cur;
+      prev = cur;
+    }
+    return prev;
   };
   const checkSyncAndSticky = async (label: string) => {
     // 同期スクロール（割合ベース）: 列0を底まで送ると他の3列も動く（2×2でも4列全部が同期）
@@ -5277,16 +5288,17 @@ test('C86: 横並び比較4件（285）— 2xlで4列・中間幅は2×2に折�
   const researchLen = (i: number) =>
     `## 見出し${i}\n\n${`本文${i}のダミー行です。`.repeat(60)}\n\n### 小見出し${i}\n\n${`さらに本文${i}が続きます。`.repeat(60)}`.length;
   const labelE = page.locator('[data-compare-label="3"]');
-  await expect(labelE, 'フォールバック列のラベルは本文').toContainText('本文（要約なし）');
-  await expect(labelE, '文字数は表示している本文のもの').toContainText(`${researchLen(4).toLocaleString()}字`);
-  await expect(labelE).not.toContainText('要約 ');
+  // ラベルは「本文（要約なし）」で始まり、文字数は表示している本文のもの（先頭が「要約」ではない）
+  await expect(labelE, 'フォールバック列のラベルは本文・文字数は本文のもの').toHaveText(
+    new RegExp(`^本文（要約なし） ${researchLen(4).toLocaleString()}字`),
+  );
   await expect(col(3)).toContainText('※ この結果には要約が保存されていないため、本文を表示しています');
   await expect(col(3)).toContainText('本文4のダミー行です。');
   for (const i of [0, 1, 2]) {
     const l = page.locator(`[data-compare-label="${i}"]`);
-    await expect(l, '正常な列は「要約」のまま').toContainText('要約 ');
-    await expect(l).not.toContainText('本文');
-    await expect(l).toContainText(`${`**要約${i}** のダミーです。`.length.toLocaleString()}字`);
+    await expect(l, '正常な列は「要約 N字」のまま').toHaveText(
+      new RegExp(`^要約 ${`**要約${i}** のダミーです。`.length.toLocaleString()}字`),
+    );
     await expect(col(i)).not.toContainText('※ この結果には要約が保存されていない');
   }
   // 本文モードでは全列「リサーチ本文」
