@@ -59,10 +59,74 @@ export function toggleCompareId(ids: number[], id: number, max = BATCH_COMPARE_M
  * 幅による 3→2 の切り替えはCSS側（Tailwindのブレークポイント）が受け持つ。
  */
 export type CompareColumns = 1 | 2 | 3 | 4;
-export function resolveCompareColumns(selectedCount: number, finePointer: boolean): CompareColumns {
+
+/**
+ * 289: 列数の手動指定。'auto'（既定）は従来どおり画面幅で決める。1〜4は院長の指定に従う——
+ * 狭い画面でも制限・警告はかけない（§2-1。1列が狭くなるだけで、カード内の折り返しで収める）。
+ */
+export type CompareColumnChoice = 'auto' | CompareColumns;
+export const COMPARE_COLUMN_CHOICES: CompareColumnChoice[] = ['auto', 1, 2, 3, 4];
+export const COMPARE_COLUMN_CHOICE_DEFAULT: CompareColumnChoice = 'auto';
+export const COMPARE_COLUMN_CHOICE_KEY = 'lumina_batch_compare_cols';
+
+export function loadColumnChoice(): CompareColumnChoice {
+  try {
+    if (typeof window === 'undefined') return COMPARE_COLUMN_CHOICE_DEFAULT;
+    const v = window.localStorage.getItem(COMPARE_COLUMN_CHOICE_KEY);
+    if (v === '1' || v === '2' || v === '3' || v === '4') return Number(v) as CompareColumns;
+    return COMPARE_COLUMN_CHOICE_DEFAULT;
+  } catch {
+    return COMPARE_COLUMN_CHOICE_DEFAULT;
+  }
+}
+export function saveColumnChoice(choice: CompareColumnChoice): void {
+  try {
+    window.localStorage.setItem(COMPARE_COLUMN_CHOICE_KEY, String(choice));
+  } catch {}
+}
+
+/**
+ * 289: カード高さのプリセット（vh）。定数はここ1箇所。
+ * - low: 2列×2行で4枚が1画面に収まる高さ（比較パネルのヘッダー・選択エリアを除いた残りを2で割った目安）
+ * - mid: low と high の中間
+ * - high: 68vh（271で「文字サイズ最大140%でも収まる」として決めた従来値・既定）
+ * - max: 画面いっぱい（1件を集中して読む）
+ */
+export type CompareHeightPreset = 'low' | 'mid' | 'high' | 'max';
+export const COMPARE_HEIGHT_PRESETS: CompareHeightPreset[] = ['low', 'mid', 'high', 'max'];
+export const COMPARE_HEIGHT_VH: Record<CompareHeightPreset, number> = { low: 34, mid: 50, high: 68, max: 92 };
+export const COMPARE_HEIGHT_LABEL: Record<CompareHeightPreset, string> = { low: '低', mid: '中', high: '高', max: '最大' };
+export const COMPARE_HEIGHT_DEFAULT: CompareHeightPreset = 'high';
+export const COMPARE_HEIGHT_KEY = 'lumina_batch_compare_height';
+
+export function loadHeightPreset(): CompareHeightPreset {
+  try {
+    if (typeof window === 'undefined') return COMPARE_HEIGHT_DEFAULT;
+    const v = window.localStorage.getItem(COMPARE_HEIGHT_KEY);
+    return v === 'low' || v === 'mid' || v === 'high' || v === 'max' ? v : COMPARE_HEIGHT_DEFAULT;
+  } catch {
+    return COMPARE_HEIGHT_DEFAULT;
+  }
+}
+export function saveHeightPreset(preset: CompareHeightPreset): void {
+  try {
+    window.localStorage.setItem(COMPARE_HEIGHT_KEY, preset);
+  } catch {}
+}
+
+/**
+ * 実際に出す列数。タッチ端末は常に1列。手動指定があれば「指定と選択件数の小さい方」（空トラックを出さない）。
+ * 'auto' は従来どおり選択件数（幅による段階はCSS側）。
+ */
+export function resolveCompareColumns(
+  selectedCount: number,
+  finePointer: boolean,
+  choice: CompareColumnChoice = 'auto',
+): CompareColumns {
   if (!finePointer) return 1; // タッチ端末は常に1列（271§4-2・モバイル多列は範囲外）
   const n = Math.min(Math.max(selectedCount, 1), BATCH_COMPARE_MAX);
-  return n as CompareColumns;
+  if (choice === 'auto') return n as CompareColumns;
+  return Math.min(n, choice) as CompareColumns;
 }
 
 /**
@@ -71,7 +135,15 @@ export function resolveCompareColumns(selectedCount: number, finePointer: boolea
  * 285: 4件は 2xl（1536px〜）で4列、それ未満〜md は2列（4件なら2列×2行に折り返す）、md未満は1列。
  *      xl で3列にすると 3＋1 の段違いになるため、中間幅は2×2に倒す（§2-2）。
  */
-export function compareGridClass(cols: CompareColumns): string {
+export function compareGridClass(cols: CompareColumns, choice: CompareColumnChoice = 'auto'): string {
+  if (choice !== 'auto') {
+    // 289: 手動指定は幅による段階を持たない固定列（狭い画面でも指定どおり。Tailwind の grid-cols-N は
+    // repeat(N, minmax(0,1fr)) なので内容がはみ出さず、ページの横スクロールは出ない）
+    if (cols === 1) return 'grid gap-3 grid-cols-1';
+    if (cols === 2) return 'grid gap-3 grid-cols-2';
+    if (cols === 3) return 'grid gap-3 grid-cols-3';
+    return 'grid gap-3 grid-cols-4';
+  }
   if (cols === 1) return 'grid gap-3 grid-cols-1';
   if (cols === 2) return 'grid gap-3 grid-cols-1 md:grid-cols-2';
   if (cols === 3) return 'grid gap-3 grid-cols-1 md:grid-cols-2 xl:grid-cols-3';

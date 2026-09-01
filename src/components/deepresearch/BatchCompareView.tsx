@@ -16,12 +16,22 @@ import {
   BATCH_COMPARE_MAX,
   type BatchCompareMode,
   type BatchResult,
+  COMPARE_COLUMN_CHOICES,
+  COMPARE_HEIGHT_LABEL,
+  COMPARE_HEIGHT_PRESETS,
+  COMPARE_HEIGHT_VH,
+  type CompareColumnChoice,
+  type CompareHeightPreset,
   compareColumnLabel,
   compareGridClass,
+  loadColumnChoice,
   loadCompareMode,
+  loadHeightPreset,
   pickCompareText,
   resolveCompareColumns,
+  saveColumnChoice,
   saveCompareMode,
+  saveHeightPreset,
   scrollRatioOf,
   syncScrollTop,
   toggleCompareId,
@@ -49,6 +59,9 @@ export default function BatchCompareView({ jobId, results, onClose }: Props) {
   const [mode, setMode] = useState<BatchCompareMode>('research');
   const [syncScroll, setSyncScroll] = useState(true); // §3-1: 同期は既定ON
   const [copied, setCopied] = useState<number | null>(null);
+  // 289: 列数（既定 auto＝従来の幅による自動）と高さ（既定 high＝従来の68vh）。選んだ値は次回も使う
+  const [colChoice, setColChoice] = useState<CompareColumnChoice>('auto');
+  const [heightPreset, setHeightPreset] = useState<CompareHeightPreset>('high');
 
   const rootRef = useRef<HTMLDivElement | null>(null);
   const colRefs = useRef<(HTMLDivElement | null)[]>([]);
@@ -58,6 +71,8 @@ export default function BatchCompareView({ jobId, results, onClose }: Props) {
     // localStorage はクライアントでしか読めないので、描画後に反映する（SSRと差分を作らない）
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setMode(loadCompareMode());
+    setColChoice(loadColumnChoice());
+    setHeightPreset(loadHeightPreset());
   }, []);
 
   useEffect(() => {
@@ -70,7 +85,15 @@ export default function BatchCompareView({ jobId, results, onClose }: Props) {
   );
 
   // タッチ端末は1列（§4-2）。mounted 前はデスクトップ扱い（pointer-device の方針に合わせる）
-  const cols = resolveCompareColumns(selected.length, mounted ? fine : true);
+  const cols = resolveCompareColumns(selected.length, mounted ? fine : true, colChoice);
+  const applyColChoice = (c: CompareColumnChoice) => {
+    setColChoice(c);
+    saveColumnChoice(c);
+  };
+  const applyHeight = (h: CompareHeightPreset) => {
+    setHeightPreset(h);
+    saveHeightPreset(h);
+  };
 
   const applyMode = (next: BatchCompareMode) => {
     setMode(next);
@@ -155,6 +178,41 @@ export default function BatchCompareView({ jobId, results, onClose }: Props) {
           <button type="button" data-compare-mode="summary" aria-pressed={mode === 'summary'} onClick={() => applyMode('summary')} style={modeBtnStyle(mode === 'summary')}>
             📋 要約
           </button>
+          {/* 289 §3-1: 列数の手動指定（タッチ端末は1列固定なので出さない）。狭い画面でも制限・警告はかけない */}
+          {(!mounted || fine) && (
+            <span data-compare-cols-picker style={{ display: 'inline-flex', alignItems: 'center', gap: 2 }} title="横に並べる列数（自動＝画面幅で決める）">
+              <span style={{ fontSize: 11, color: 'var(--text-muted)', marginRight: 2 }}>列</span>
+              {COMPARE_COLUMN_CHOICES.map((c) => (
+                <button
+                  key={String(c)}
+                  type="button"
+                  data-compare-cols-choice={String(c)}
+                  aria-pressed={colChoice === c}
+                  onClick={() => applyColChoice(c)}
+                  style={{ ...compactBtnStyle, padding: '4px 8px', borderColor: colChoice === c ? ACCENT : 'var(--border)', background: colChoice === c ? `${ACCENT}15` : 'var(--bg-primary)', fontWeight: colChoice === c ? 700 : 600 }}
+                >
+                  {c === 'auto' ? '自動' : c}
+                </button>
+              ))}
+            </span>
+          )}
+          {/* 289 §4: カード高さのプリセット（低＝2×2で4枚が1画面に収まる／高＝従来68vh） */}
+          <span data-compare-height-picker style={{ display: 'inline-flex', alignItems: 'center', gap: 2 }} title="カードの高さ（低＝2列×2行で4枚が1画面に収まる目安）">
+            <span style={{ fontSize: 11, color: 'var(--text-muted)', marginRight: 2 }}>高さ</span>
+            {COMPARE_HEIGHT_PRESETS.map((h) => (
+              <button
+                key={h}
+                type="button"
+                data-compare-height-choice={h}
+                aria-pressed={heightPreset === h}
+                onClick={() => applyHeight(h)}
+                title={`${COMPARE_HEIGHT_LABEL[h]}（${COMPARE_HEIGHT_VH[h]}vh）`}
+                style={{ ...compactBtnStyle, padding: '4px 8px', borderColor: heightPreset === h ? ACCENT : 'var(--border)', background: heightPreset === h ? `${ACCENT}15` : 'var(--bg-primary)', fontWeight: heightPreset === h ? 700 : 600 }}
+              >
+                {COMPARE_HEIGHT_LABEL[h]}
+              </button>
+            ))}
+          </span>
           <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--text-muted)', cursor: 'pointer' }}>
             <input
               type="checkbox"
@@ -220,7 +278,7 @@ export default function BatchCompareView({ jobId, results, onClose }: Props) {
           比較したい結果を選んでください。
         </div>
       ) : (
-        <div className={compareGridClass(cols)} data-compare-cols={cols}>
+        <div className={compareGridClass(cols, colChoice)} data-compare-cols={cols} data-compare-cols-mode={colChoice === 'auto' ? 'auto' : 'manual'} data-compare-height={heightPreset}>
           {selected.map((r, i) => {
             const { text, fellBack } = pickCompareText(r, mode);
             // 285§3-2: フォールバック列はラベルも「本文（要約なし）」。文字数は text（＝実際に出している内容）のもの
@@ -234,9 +292,10 @@ export default function BatchCompareView({ jobId, results, onClose }: Props) {
                 }}
                 onScroll={() => handleScroll(i)}
                 style={{
-                  // §4-3: 長文比較なので画面高さをできるだけ使う（カード高さを小さく固定しない）。
-                  // 文字サイズ4段階（ルート zoom）でも収まるよう、vh は控えめに取る。
-                  maxHeight: '68vh',
+                  // §4-3: 長文比較なので画面高さをできるだけ使う。289: 高さはプリセット（既定 high＝68vh）。
+                  // ルート zoom（文字サイズ4段階）は vh 指定の要素も拡大するため、低プリセットの2×2は
+                  // 100%以外の倍率では1画面に収まらないことがある（§4-3・報告済み）
+                  maxHeight: `${COMPARE_HEIGHT_VH[heightPreset]}vh`,
                   overflowY: 'auto',
                   background: 'var(--bg-primary)',
                   border: '1px solid var(--border)',

@@ -92,6 +92,9 @@ import { parseKindleSourceKey, makeEpisodeSourceKey, KINDLE_MATERIAL_SOURCE_META
 // 271: 横並び比較の判断（列数・上限・本文/要約の取り出し・同期スクロールの割合）
 import {
   BATCH_COMPARE_MAX,
+  COMPARE_HEIGHT_VH,
+  COMPARE_HEIGHT_DEFAULT,
+  COMPARE_COLUMN_CHOICE_DEFAULT,
   compareColumnLabel,
   compareGridClass,
   parseContextWithSummary,
@@ -1280,7 +1283,7 @@ test('U41: Kindle多軸展開（269）— 7切り口・書籍文脈検出・一�
 });
 
 
-test('U43: 横並び比較の判断（271/285）— 上限4件・列数（4列は2xl・中間は2×2）・割合スクロール・要約フォールバックのラベル', () => {
+test('U43: 横並び比較の判断（271/285/289）— 上限4件・列数（自動＝幅／手動＝固定列）・高さプリセット・割合スクロール・要約フォールバックのラベル', () => {
   // §4-1: 上限は4（285で3→4）。超える追加は受け付けない（古い方を押し出さない＝比較中の列が黙って消えない）
   expect(BATCH_COMPARE_MAX).toBe(4);
   let ids: number[] = [];
@@ -1336,6 +1339,30 @@ test('U43: 横並び比較の判断（271/285）— 上限4件・列数（4列�
   const legacy = { research_text: '古い本文。', context_text: '要約セクションのない素材。' };
   expect(parseContextWithSummary(legacy.context_text).summarySection).toBeNull();
   expect(pickCompareText(legacy, 'summary')).toEqual({ text: '古い本文。', fellBack: true });
+
+  // 289: 列数の手動指定。既定は 'auto'（従来の幅による自動）。手動は「指定と件数の小さい方」・タッチ端末は常に1列
+  expect(COMPARE_COLUMN_CHOICE_DEFAULT).toBe('auto');
+  expect(resolveCompareColumns(4, true, 'auto')).toBe(4);
+  expect(resolveCompareColumns(4, true, 2)).toBe(2);
+  expect(resolveCompareColumns(4, true, 3)).toBe(3);
+  expect(resolveCompareColumns(2, true, 4)).toBe(2); // 空トラックを出さない
+  expect(resolveCompareColumns(4, false, 4)).toBe(1); // タッチ端末は指定より1列を優先
+  // 手動指定のクラスは幅の段階を持たない固定列（狭い画面でも指定どおり）。完全リテラル
+  expect(compareGridClass(4, 4)).toBe('grid gap-3 grid-cols-4');
+  expect(compareGridClass(3, 3)).toBe('grid gap-3 grid-cols-3');
+  expect(compareGridClass(2, 2)).toBe('grid gap-3 grid-cols-2');
+  expect(compareGridClass(1, 1)).toBe('grid gap-3 grid-cols-1');
+  expect(compareGridClass(2, 4)).toBe('grid gap-3 grid-cols-2'); // 2件選択で4列指定 → 2列分だけ
+  expect(compareGridClass(4, 'auto')).toBe(compareGridClass(4));
+  for (const c of [1, 2, 3, 4] as const) expect(compareGridClass(c, c)).not.toContain('${');
+  // 289 §4-2: 高さプリセット。既定は high＝68vh（従来値）。low は 2×2 で1画面に収まる目安（2段＋隙間が100vh未満）
+  expect(COMPARE_HEIGHT_DEFAULT).toBe('high');
+  expect(COMPARE_HEIGHT_VH.high).toBe(68);
+  expect(COMPARE_HEIGHT_VH.low * 2).toBeLessThan(80);
+  expect(COMPARE_HEIGHT_VH.low).toBeLessThan(COMPARE_HEIGHT_VH.mid);
+  expect(COMPARE_HEIGHT_VH.mid).toBeLessThan(COMPARE_HEIGHT_VH.high);
+  expect(COMPARE_HEIGHT_VH.high).toBeLessThan(COMPARE_HEIGHT_VH.max);
+  expect(COMPARE_HEIGHT_VH.max).toBeLessThanOrEqual(100);
 
   // 285§3-2: フォールバック列のラベルは実際に出している内容（本文）に合わせる。正常な列の表記は変えない
   expect(compareColumnLabel('summary', true)).toBe('本文（要約なし）');

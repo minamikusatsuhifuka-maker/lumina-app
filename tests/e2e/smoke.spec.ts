@@ -3438,6 +3438,8 @@ test('C70: 横並び比較はタッチ端末では1列（271§4-2・既存の端
     // 4件選ばれていても、カーソルの無い端末では1列だけ描く（横スクロールを出さない）
     await expect(page.locator('[data-compare-count]')).toContainText('選択中: 4/4件');
     await expect(page.locator('[data-compare-cols="1"]')).toHaveCount(1);
+    // 289 §3-3: タッチ端末では列数の切り替えUIを出さない（高さは出してよい）
+    await expect(page.locator('[data-compare-cols-picker]')).toHaveCount(0);
     // 横スクロールが出ていないこと（本文はカード内で折り返す）
     const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
     expect(overflow, 'ページに横スクロールが出ていないこと').toBeLessThanOrEqual(1);
@@ -5547,4 +5549,103 @@ test('C90: Kindle出版のチャット（288）— 完了したAI返答は整形
   await expectNoRawMarkdown(ai, 'Kindleチャット AI返答');
   // 利用者の発言は raw（整形しない）＝ ** が文字として残る
   await expect(page.getByText(userText, { exact: true }), '利用者の発言は生のまま').toBeVisible();
+});
+
+// ───────────────────────────────────────────────────────────────────────────
+// 289: 比較の列数・高さを手動で選べる
+// ───────────────────────────────────────────────────────────────────────────
+test('C91: 横並び比較の列数・高さ（289）— 既定は自動/高・1000pxでも4列を選べて横スクロールなし・2列は2×2・低プリセットで4枚が1画面・保持・同期スクロールとsticky', async ({ page }) => {
+  await stubFeatureDrafts(page);
+  await stubBatchCompare(page);
+  await page.goto('/dashboard/deepresearch');
+  await page.evaluate(() => {
+    localStorage.removeItem('lumina_batch_compare_mode');
+    localStorage.removeItem('lumina_batch_compare_cols');
+    localStorage.removeItem('lumina_batch_compare_height');
+    localStorage.setItem('lumina_text_scale', '100');
+  });
+  const col = (i: number) => page.locator(`[data-compare-col="${i}"]`);
+  const grid = page.locator('[data-compare-cols]');
+  const ys = async () => {
+    const read = () => page.evaluate(() => [0, 1, 2, 3].map((i) => Math.round(document.querySelector(`[data-compare-col="${i}"]`)!.getBoundingClientRect().y)));
+    let prev = await read();
+    for (let n = 0; n < 20; n++) { await page.waitForTimeout(150); const cur = await read(); if (cur.join() === prev.join()) return cur; prev = cur; }
+    return prev;
+  };
+  const noHScroll = async (label: string) => {
+    const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+    expect(overflow, `${label}: ページに横スクロールが出ていないこと`).toBeLessThanOrEqual(1);
+  };
+  const checkSyncAndSticky = async (label: string) => {
+    for (let i = 1; i < 4; i++) await col(i).evaluate((el) => { el.scrollTop = 0; });
+    await col(0).evaluate((el) => { el.scrollTop = el.scrollHeight; el.dispatchEvent(new Event('scroll')); });
+    for (let i = 1; i < 4; i++) await expect.poll(async () => col(i).evaluate((el) => el.scrollTop), `${label}: 列${i}が同期`).toBeGreaterThan(0);
+    for (let i = 0; i < 4; i++) {
+      const header = page.locator(`[data-compare-header="${i}"]`);
+      expect(await header.evaluate((el) => getComputedStyle(el).position)).toBe('sticky');
+      const c = await col(i).boundingBox(); const h = await header.boundingBox();
+      expect(c && h && h.y - c.y, `${label}: 列${i}のヘッダーが上端に固定`).toBeLessThan(4);
+    }
+    for (let i = 0; i < 4; i++) await col(i).evaluate((el) => { el.scrollTop = 0; });
+  };
+
+  // ── ① 既定: 列数=自動・高さ=高（68vh）。1000px幅の自動は2列（従来どおり）──
+  await page.setViewportSize({ width: 1000, height: 900 });
+  await openBatchCompare(page);
+  await expect(page.locator('[data-compare-cols-choice="auto"]')).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.locator('[data-compare-height-choice="high"]')).toHaveAttribute('aria-pressed', 'true');
+  await expect(grid).toHaveAttribute('data-compare-cols-mode', 'auto');
+  const maxH = await col(0).evaluate((el) => getComputedStyle(el).maxHeight);
+  expect(Math.round(parseFloat(maxH)), '既定の高さは68vh相当').toBe(Math.round(900 * 0.68));
+  let y = await ys();
+  expect(y[0]).toBe(y[1]); expect(y[2]).toBeGreaterThan(y[0]);
+
+  // ── ② 1000px でも 4列を選べる（制限・警告なし）→ 実際に4列・横スクロールなし ──
+  await expect(page.locator('[data-compare-cols-choice="4"]')).toBeEnabled();
+  await page.locator('[data-compare-cols-choice="4"]').click();
+  await expect(grid).toHaveAttribute('data-compare-cols', '4');
+  await expect(grid).toHaveAttribute('data-compare-cols-mode', 'manual');
+  y = await ys();
+  expect(new Set(y).size, `1000pxでも4列に並ぶ（y=${y.join(',')}）`).toBe(1);
+  await noHScroll('1000px・4列');
+  await expect(page.locator('[data-batch-compare]')).not.toContainText(/警告|収まりません|狭すぎ/);
+  await checkSyncAndSticky('4列');
+  // 3列 → 3+1
+  await page.locator('[data-compare-cols-choice="3"]').click();
+  y = await ys();
+  expect(y[0]).toBe(y[1]); expect(y[1]).toBe(y[2]); expect(y[3]).toBeGreaterThan(y[0]);
+  // 1列 → 縦4段
+  await page.locator('[data-compare-cols-choice="1"]').click();
+  y = await ys();
+  expect(y[0] < y[1] && y[1] < y[2] && y[2] < y[3]).toBe(true);
+
+  // ── ③ 2列 × 低 → 4枚が1画面に収まる ──
+  await page.locator('[data-compare-cols-choice="2"]').click();
+  await page.locator('[data-compare-height-choice="low"]').click();
+  await expect(grid).toHaveAttribute('data-compare-height', 'low');
+  await grid.evaluate((el) => el.scrollIntoView({ block: 'start' }));
+  await page.waitForTimeout(300);
+  const boxes = await page.evaluate(() => [0, 1, 2, 3].map((i) => { const r = document.querySelector(`[data-compare-col="${i}"]`)!.getBoundingClientRect(); return { top: Math.round(r.top), bottom: Math.round(r.bottom) }; }));
+  const vh = await page.evaluate(() => window.innerHeight);
+  expect(boxes[0].top, '1行目が画面内').toBeGreaterThanOrEqual(0);
+  expect(boxes[3].bottom, `低プリセットの2×2は4枚が1画面（${vh}px）に収まる: ${JSON.stringify(boxes)}`).toBeLessThanOrEqual(vh);
+  expect(boxes[0].top).toBe(boxes[1].top); expect(boxes[2].top).toBe(boxes[3].top);
+  // 低でもヘッダーが本文を食い尽くさない（ヘッダーは列の高さの半分未満）
+  const hh = await page.locator('[data-compare-header="0"]').evaluate((el) => el.getBoundingClientRect().height);
+  expect(hh / (boxes[0].bottom - boxes[0].top), '低プリセットでヘッダーが列の半分未満').toBeLessThan(0.5);
+  await checkSyncAndSticky('2×2・低');
+  await noHScroll('2×2・低');
+  // 最大 → 画面に近い高さ
+  await page.locator('[data-compare-height-choice="max"]').click();
+  expect(Math.round(parseFloat(await col(0).evaluate((el) => getComputedStyle(el).maxHeight)))).toBe(Math.round(900 * 0.92));
+
+  // ── ④ 選んだ列数・高さは次回も保持される ──
+  await page.locator('[data-compare-height-choice="low"]').click();
+  await openBatchCompare(page);
+  await expect(page.locator('[data-compare-cols-choice="2"]')).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.locator('[data-compare-height-choice="low"]')).toHaveAttribute('aria-pressed', 'true');
+  await expect(grid).toHaveAttribute('data-compare-cols', '2');
+  // 自動に戻せる
+  await page.locator('[data-compare-cols-choice="auto"]').click();
+  await expect(grid).toHaveAttribute('data-compare-cols-mode', 'auto');
 });
