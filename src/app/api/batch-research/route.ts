@@ -3,6 +3,11 @@ import { auth } from '@/lib/auth';
 import { neon } from '@neondatabase/serverless';
 import { sanitizeForDb } from '@/lib/sanitize';
 import { BATCH_TITLE_GROUP_MAX, batchJobSignature, deriveBatchJobTitle, truncateTitle } from '@/lib/batch-title';
+// 284: 終わらないジョブ（running/pending のまま閾値超過）の判定。表示と削除の可否で同じ純関数・同じ閾値を使う
+import { STALE_JOB_THRESHOLD_SECONDS, isStaleBatchJob } from '@/lib/batch-stale';
+
+// 284: まとめて削除の1リクエストあたりの上限（library / context-saves と同値）
+const BULK_DELETE_LIMIT = 500;
 
 // バッチリサーチジョブの一覧取得・新規登録・改名・削除API
 
@@ -181,23 +186,49 @@ export async function DELETE(req: NextRequest) {
   const session = await auth();
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-  const { searchParams } = new URL(req.url);
-  const id = searchParams.get('id');
-  if (!id) return NextResponse.json({ error: 'idが必要です' }, { status: 400 });
-
   const sql = neon(process.env.DATABASE_URL!);
   const userId = (session.user as any).id;
+  const { searchParams } = new URL(req.url);
+  const id = searchParams.get('id');
+
+  // 284 §4-3: 中断したジョブをまとめて削除（body: { staleIds: number[] }）。
+  // - 削除するのは batch_research_jobs の行だけ。context_saves / library の記事には一切触れない
+  //   （記事側の batch:<jobId>-<index> タグは残るため、283のグルーピングにも影響しない）
+  // - 画面が「中断」と判定した id を受け取るが、サーバー側でも同じ閾値で判定し直し、
+  //   中断していない行（本当に実行中・未来の予約）は削除しない（fail-closed）。
+  //   件数の確認は画面側で1回だけ（R-56）。
+  if (!id) {
+    const body = await req.json().catch(() => ({}));
+    const staleIds = Array.isArray(body?.staleIds)
+      ? body.staleIds.map((v: unknown) => Number(v)).filter((n: number) => Number.isInteger(n) && n > 0).slice(0, BULK_DELETE_LIMIT)
+      : [];
+    if (staleIds.length === 0) return NextResponse.json({ error: 'idが必要です' }, { status: 400 });
+    const deleted = await sql`
+      DELETE FROM batch_research_jobs
+      WHERE user_id = ${userId}
+        AND id = ANY(${staleIds}::integer[])
+        AND (
+          (status = 'running' AND COALESCE(started_at, created_at) < NOW() - (${STALE_JOB_THRESHOLD_SECONDS} * INTERVAL '1 second'))
+          OR
+          (status = 'pending' AND COALESCE(scheduled_at, created_at) < NOW() - (${STALE_JOB_THRESHOLD_SECONDS} * INTERVAL '1 second'))
+        )
+      RETURNING id
+    `;
+    return NextResponse.json({ success: true, deleted: deleted.length, skipped: staleIds.length - deleted.length });
+  }
+
   const jobId = parseInt(id, 10);
   if (isNaN(jobId)) return NextResponse.json({ error: '無効なidです' }, { status: 400 });
 
   // ジョブの存在確認＆所有権チェック＆実行中チェック
   const rows = await sql`
-    SELECT status FROM batch_research_jobs WHERE id = ${jobId} AND user_id = ${userId}
+    SELECT status, created_at, started_at, scheduled_at FROM batch_research_jobs WHERE id = ${jobId} AND user_id = ${userId}
   `;
   if (rows.length === 0) {
     return NextResponse.json({ error: 'ジョブが見つかりません' }, { status: 404 });
   }
-  if (rows[0].status === 'running') {
+  // 284 §4-2: running でも閾値を超えて止まっている（中断）なら消せる。本当に走っているものだけ守る
+  if (rows[0].status === 'running' && !isStaleBatchJob(rows[0] as any, Date.now())) {
     return NextResponse.json({ error: '実行中のジョブは削除できません' }, { status: 409 });
   }
 

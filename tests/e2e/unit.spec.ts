@@ -35,6 +35,14 @@ import {
   batchLinkKey,
   groupLibraryItems,
 } from '../../src/lib/library-groups';
+import {
+  STALE_JOB_THRESHOLD_MS,
+  batchJobDisplayStatus,
+  elapsedLabel,
+  isStaleBatchJob,
+  savedTopicCount,
+  staleJobLabel,
+} from '../../src/lib/batch-stale';
 import { insertAtCursor, PASTE_BUTTON_MESSAGE } from '../../src/lib/paste-insert';
 import {
   ANALYSIS_OPTIONS,
@@ -2049,4 +2057,69 @@ test('U56: リサーチ保存のカードまとめ（283）— batchタグは確
   expect(r1.map((c) => c.key)).toEqual(r2.map((c) => c.key));
   expect(r1.map((c) => c.key)).toEqual(['est:n-r', 's4', 'batch:123-0', 's3', 's2', 's1', 'd1']);
   expect(r1.flatMap((c) => c.artifacts.map((a) => a.item.id)).sort()).toEqual(mixed.map((i) => i.id).sort());
+});
+
+// ───────────────────────────────────────────────────────────────────────────
+// 284: 終わらないバッチジョブを「中断」と判定する純関数（決定的・JST）
+// R-79: 入力は書き込み側（/api/batch-research POST → status 'pending'、run route → 'running' + started_at、
+//        完了時 'completed'/'completed_with_errors'/'failed'、致命的エラー 'paused'）の値を写す
+// ───────────────────────────────────────────────────────────────────────────
+test('U57: バッチジョブの中断判定（284）— running/pending＋閾値超過だけが中断・閾値内は現状維持・completedは不変・未来の予約は中断にしない・同じ入力で同じ結果・経過表示はJST', () => {
+  const NOW = Date.parse('2026-09-01T12:00:00+09:00');
+  const H = 60 * 60 * 1000;
+  const iso = (ms: number) => new Date(ms).toISOString();
+  const job = (status: string, createdAgoMs: number, extra: Record<string, unknown> = {}) => ({
+    id: 1,
+    group_name: 'x',
+    topics: [{ topic: 'a', mode: 'quick', status: 'pending' }],
+    schedule_type: 'immediate',
+    scheduled_at: null,
+    status,
+    created_at: iso(NOW - createdAgoMs),
+    ...extra,
+  });
+
+  // 閾値は6時間（定数1箇所）
+  expect(STALE_JOB_THRESHOLD_MS).toBe(6 * H);
+
+  // running: 3ヶ月前（実データ 168/170/27/28 のケース）→ 中断
+  expect(isStaleBatchJob(job('running', 98 * 24 * H), NOW)).toBe(true);
+  expect(batchJobDisplayStatus(job('running', 98 * 24 * H), NOW)).toBe('stale');
+  // pending: 4ヶ月前（実データ 3/4/6）→ 中断
+  expect(batchJobDisplayStatus(job('pending', 119 * 24 * H), NOW)).toBe('stale');
+  // 閾値ちょうど内側は実行中のまま／超えたら中断（境界）
+  expect(batchJobDisplayStatus(job('running', 6 * H), NOW)).toBe('running');
+  expect(batchJobDisplayStatus(job('running', 6 * H + 1), NOW)).toBe('stale');
+  expect(batchJobDisplayStatus(job('running', 10 * 60 * 1000), NOW)).toBe('running');
+  expect(batchJobDisplayStatus(job('pending', 5 * H), NOW)).toBe('pending');
+  // running は started_at を優先（作成が古くても、直前に再開されていれば実行中）
+  expect(batchJobDisplayStatus(job('running', 3 * 24 * H, { started_at: iso(NOW - 30 * 60 * 1000) }), NOW)).toBe('running');
+  // pending の予約（cron）: scheduled_at が未来なら順番待ち＝中断ではない。過去に取り残されていれば中断
+  expect(batchJobDisplayStatus(job('pending', 3 * 24 * H, { schedule_type: 'cron', scheduled_at: iso(NOW + 12 * H) }), NOW)).toBe('pending');
+  expect(batchJobDisplayStatus(job('pending', 3 * 24 * H, { schedule_type: 'cron', scheduled_at: iso(NOW - 7 * H) }), NOW)).toBe('stale');
+  // 終わっているものは何日経っても変わらない
+  for (const st of ['completed', 'completed_with_errors', 'failed', 'paused']) {
+    expect(batchJobDisplayStatus(job(st, 200 * 24 * H), NOW)).toBe(st);
+    expect(isStaleBatchJob(job(st, 200 * 24 * H), NOW)).toBe(false);
+  }
+  // created_at が壊れていたら中断にしない（偽の判定をしない）
+  expect(isStaleBatchJob(job('running', 0, { created_at: 'not-a-date' }), NOW)).toBe(false);
+
+  // 決定的（R-74）: 同じ入力・同じ now で同じ結果。now が変われば結果は now にだけ依存する
+  const j = job('running', 5 * H);
+  expect(batchJobDisplayStatus(j, NOW)).toBe(batchJobDisplayStatus(j, NOW));
+  expect(batchJobDisplayStatus(j, NOW + 2 * H)).toBe('stale');
+
+  // 保存記事数（中断しても記事は残る）: topics の completed 数
+  expect(savedTopicCount(job('running', 0, { topics: [{ status: 'completed' }, { status: 'completed' }, { status: 'pending' }] }))).toBe(2);
+  expect(savedTopicCount(job('pending', 0, { topics: [] }))).toBe(0);
+
+  // 経過表示（日／時間）と、開始時刻の JST 表示（R-86）
+  expect(elapsedLabel(NOW - 98 * 24 * H, NOW)).toBe('約98日');
+  expect(elapsedLabel(NOW - 7 * H, NOW)).toBe('約7時間');
+  expect(elapsedLabel(NOW - 30 * 60 * 1000, NOW)).toBe('1時間未満');
+  const label = staleJobLabel(job('running', 0, { created_at: '2026-05-26T05:02:10.000Z' }), NOW);
+  expect(label).toContain('2026/5/26 14:02:10'); // UTC 05:02 → JST 14:02
+  expect(label).toContain('開始・未完了');
+  expect(label).toContain('約97日'); // 5/26 05:02 UTC → 9/1 03:00 UTC は 97日22時間
 });

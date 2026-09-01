@@ -5056,3 +5056,144 @@ test('C84: リサーチ保存のカードまとめ（283）— batch紐付け1�
     await cleanupE2ELibrary(request);
   }
 });
+
+// ───────────────────────────────────────────────────────────────────────────
+// 284: 中断したバッチジョブの表示と片付け
+// ───────────────────────────────────────────────────────────────────────────
+test('C85: 中断したバッチジョブ（284）— running/pending＋閾値超過は「中断」表示・閾値内runningとcompletedは不変・開始時刻(JST)と保存記事数・🗑で消せる・まとめて削除は確認1回で記事は残る・283グルーピング不変', async ({
+  page,
+  request,
+}) => {
+  const marker = `STALE${RUN_ID}`;
+  const BATCH = '/api/batch-research';
+  // 中断したジョブ（pending・scheduled_at が過去に取り残された）を実データとして2件作る。
+  // schedule_type は 'browser'（cron の対象外＝テスト中に勝手に走らない）。scheduled_at 2020年 → 閾値超過
+  const mkStale = async (suffix: string) => {
+    const res = await request.post(BATCH, {
+      data: {
+        groupName: `${E2E_PREFIX} 中断 ${suffix} ${marker}`,
+        topics: [{ topic: `${E2E_PREFIX} ${suffix} ${marker}`, mode: 'quick' }],
+        scheduleType: 'browser',
+        scheduledAt: '2020-01-01T00:00:00.000Z',
+      },
+    });
+    expect(res.status()).toBe(200);
+    return (await res.json()).job.id as number;
+  };
+  const p1 = await mkStale('A');
+  const p2 = await mkStale('B');
+  // ジョブに紐づく記事（AI参照素材・リサーチ保存の本文＋要約）。ジョブ履歴を消しても残ることを確かめる
+  const ctxId = await createContextSave(request, { topic: `中断記事 ${marker}`, contextText: `記事本文 ${marker}`, tags: [`batch:${p1}`, `group:${marker}`] });
+  const post = async (body: Record<string, unknown>) => {
+    const res = await request.post(LIBRARY_API, { data: body });
+    expect(res.status()).toBe(200);
+    return (await res.json()).id as string;
+  };
+  const now = new Date().toISOString();
+  const l1 = await post({ type: 'deepresearch', title: withE2EPrefix(`LIB ${marker}`), content: `本文 ${marker}`, metadata: { from: 'batch-research', jobId: p1, topicIndex: 0, kind: 'research', savedAt: now }, tags: `ディープリサーチ,バッチ,batch:${p1}-0`, group_name: 'ディープリサーチ' });
+  const l2 = await post({ type: 'deepresearch', title: withE2EPrefix(`LIB ${marker}`), content: `要約 ${marker}`, metadata: { from: 'batch-research', jobId: p1, topicIndex: 0, kind: 'summary', savedAt: now }, tags: `ディープリサーチ,要約,バッチ,batch:${p1}-0s`, group_name: 'ディープリサーチ' });
+
+  const jobRow = (id: number) => page.locator(`[data-batch-job="${id}"]`);
+  const listHas = async (id: number) => {
+    const rows = (await (await request.get(`${BATCH}?limit=100`)).json()).jobs as { id: number }[];
+    return rows.some((j) => j.id === id);
+  };
+
+  try {
+    await stubFeatureDrafts(page);
+    // ── ① 表示の出し分け: 実データ（pending・過去予約）＋モックで running 中断／閾値内 running／completed を同じ一覧に混ぜる ──
+    const H = 60 * 60 * 1000;
+    const fake = (id: number, status: string, createdAgoMs: number, topics: { status: string }[]) => ({
+      id, group_name: `${E2E_PREFIX} 模擬 ${status} ${id}`, topics: topics.map((t, i) => ({ topic: `t${i}`, mode: 'quick', ...t })),
+      schedule_type: 'immediate', scheduled_at: null, status, created_at: new Date(Date.now() - createdAgoMs).toISOString(),
+    });
+    const F_RUN_STALE = 999990001, F_RUN_FRESH = 999990002, F_DONE = 999990003;
+    await page.route((url) => url.pathname === '/api/batch-research' && url.searchParams.has('limit'), async (route) => {
+      const res = await route.fetch();
+      const json = await res.json();
+      json.jobs = [
+        fake(F_RUN_STALE, 'running', 98 * 24 * H, [{ status: 'completed' }, { status: 'pending' }]),
+        fake(F_RUN_FRESH, 'running', 10 * 60 * 1000, [{ status: 'pending' }]),
+        fake(F_DONE, 'completed', 200 * 24 * H, [{ status: 'completed' }]),
+        ...(json.jobs ?? []),
+      ];
+      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(json) });
+    });
+    await page.goto('/dashboard/deepresearch');
+    await page.getByRole('button', { name: '⚡ バッチリサーチ' }).click();
+    await expect(jobRow(p1), '実データの中断ジョブが履歴に出ること').toBeVisible({ timeout: 30000 });
+    await expect(jobRow(p1), 'pending＋閾値超過 → 中断').toHaveAttribute('data-batch-job-display', 'stale');
+    await expect(jobRow(p1)).toContainText('⚠ 中断（未完了）');
+    await expect(jobRow(F_RUN_STALE), 'running＋閾値超過 → 中断').toHaveAttribute('data-batch-job-display', 'stale');
+    await expect(jobRow(F_RUN_FRESH), '閾値内の running は実行中のまま').toHaveAttribute('data-batch-job-display', 'running');
+    await expect(jobRow(F_RUN_FRESH)).toContainText('⏳ 実行中');
+    await expect(jobRow(F_RUN_FRESH)).not.toContainText('中断');
+    await expect(jobRow(F_DONE), 'completed は変わらない').toHaveAttribute('data-batch-job-display', 'completed');
+    await expect(jobRow(F_DONE)).toContainText('✅ 完了');
+    // 開始時刻（JST）・保存記事数
+    const info = page.locator(`[data-batch-job-stale-info="${F_RUN_STALE}"]`);
+    await expect(info).toContainText('開始・未完了');
+    await expect(info).toContainText('約98日');
+    await expect(page.locator(`[data-batch-job-saved-count="${F_RUN_STALE}"]`), '中断でも保存済みの記事数が出ること').toContainText('保存済み 1/2件');
+    await expect(page.locator(`[data-batch-job-saved-count="${p1}"]`)).toContainText('保存済み 0/1件');
+    // 決定的（R-74）: 再読込しても同じ判定
+    await page.reload({ waitUntil: 'domcontentloaded' });
+    await page.getByRole('button', { name: '⚡ バッチリサーチ' }).click();
+    await expect(jobRow(F_RUN_STALE)).toHaveAttribute('data-batch-job-display', 'stale', { timeout: 30000 });
+    await expect(jobRow(F_RUN_FRESH)).toHaveAttribute('data-batch-job-display', 'running');
+    // 中断した running の🗑は押せる／本当に実行中の running は押せない
+    await expect(page.locator(`[data-batch-job-delete="${F_RUN_STALE}"]`)).toBeEnabled();
+    await expect(page.locator(`[data-batch-job-delete="${F_RUN_FRESH}"]`)).toBeDisabled();
+    await page.unroute((url) => url.pathname === '/api/batch-research' && url.searchParams.has('limit'));
+
+    // ── ② 個別🗑で中断ジョブが消える（確認1回・記事は残る） ──
+    await page.reload({ waitUntil: 'domcontentloaded' });
+    await page.getByRole('button', { name: '⚡ バッチリサーチ' }).click();
+    await expect(jobRow(p2)).toBeVisible({ timeout: 30000 });
+    const dialogs: string[] = [];
+    const onDialog = (d: import('@playwright/test').Dialog) => { dialogs.push(`${d.type()}:${d.message()}`); void d.accept(); };
+    page.on('dialog', onDialog);
+    await page.locator(`[data-batch-job-delete="${p2}"]`).click();
+    await expect(jobRow(p2), '🗑で中断ジョブが消えること').toHaveCount(0);
+    expect(dialogs.filter((d) => d.startsWith('confirm:')), '確認は1回').toHaveLength(1);
+    expect(dialogs[0]).toContain('保存された記事は削除されません');
+    await expect.poll(() => listHas(p2)).toBe(false);
+
+    // ── ③ まとめて削除: 確認は1回だけ（R-56）・件数と「記事は消えない」を明記・ジョブ行だけ消える ──
+    dialogs.length = 0;
+    const bulk = page.locator('[data-batch-stale-bulk-delete]');
+    await expect(bulk, '中断ジョブがあるときだけ出る片付けボタン').toBeVisible();
+    await expect(bulk).toContainText('中断したジョブをまとめて削除');
+    await bulk.click();
+    await expect(jobRow(p1), 'まとめて削除で中断ジョブが消えること').toHaveCount(0, { timeout: 20000 });
+    const confirms = dialogs.filter((d) => d.startsWith('confirm:'));
+    expect(confirms, '確認ダイアログは1回だけ（R-56）').toHaveLength(1);
+    expect(confirms[0]).toMatch(/中断した \d+ 件のジョブ履歴を削除します/);
+    expect(confirms[0]).toContain('保存された記事は削除されません');
+    page.off('dialog', onDialog);
+    await expect.poll(() => listHas(p1)).toBe(false);
+    await expect(bulk, '中断ジョブが無くなればボタンも消える').toHaveCount(0);
+
+    // ── ④ 記事は消えていない: context_saves（タグ batch:<jobId>）とリサーチ保存の本文＋要約 ──
+    const ctxRows = (await (await request.get(`${CONTEXT_API}?tag=batch:${p1}`)).json()) as { id: number }[] | { items?: { id: number }[] };
+    const ctxList = Array.isArray(ctxRows) ? ctxRows : (ctxRows.items ?? []);
+    expect(ctxList.some((r) => r.id === ctxId), 'context_saves の記事が残っていること').toBe(true);
+    const libRows = (await (await request.get(`${LIBRARY_API}?q=${encodeURIComponent(marker)}`)).json()) as { id: string }[];
+    expect(libRows.some((r) => r.id === l1) && libRows.some((r) => r.id === l2), 'リサーチ保存の本文・要約が残っていること').toBe(true);
+
+    // ── ⑤ ジョブ行を消しても 283 のグルーピング（batch タグ）は効いたまま ──
+    await page.goto('/dashboard/library');
+    await page.locator('[data-library-search]').fill(marker);
+    await expect(page.locator(`[data-library-card="${l1}"]`)).toBeVisible({ timeout: 30000 });
+    await expect(page.locator('[data-library-card]')).toHaveCount(1);
+    await expect(page.locator(`[data-library-card="${l1}"]`)).toHaveAttribute('data-library-link', 'batch');
+    await expect(page.locator(`[data-library-artifact-tab="${l2}"]`)).toBeVisible();
+  } finally {
+    await request.delete(`${BATCH}?id=${p1}`).catch(() => {});
+    await request.delete(`${BATCH}?id=${p2}`).catch(() => {});
+    await request.delete(`${CONTEXT_API}?id=${ctxId}`).catch(() => {});
+    await request.delete(LIBRARY_API, { data: { ids: [l1, l2] } }).catch(() => {});
+    await cleanupE2EContextSaves(request);
+    await cleanupE2ELibrary(request);
+  }
+});

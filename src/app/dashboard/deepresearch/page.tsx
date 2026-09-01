@@ -40,6 +40,8 @@ import { useFinePointer } from '@/lib/pointer-device';
 // 259: iOSの「クリア」と「ペースト」を別操作にする2部品（テキスト分析と同じ部品）
 import { PasteButton } from '@/components/TouchPaste';
 import { isAutoStockSaveEnabled } from '@/lib/auto-stock-save';
+// 284: 終わらないジョブ（running/pending のまま閾値超過）を「中断」として表示・片付け
+import { batchJobDisplayStatus, isStaleBatchJob, savedTopicCount, staleJobLabel } from '@/lib/batch-stale';
 // 271: バッチリサーチ結果の横並び比較（最大3列・本文/要約・同期スクロール）
 import BatchCompareView from '@/components/deepresearch/BatchCompareView';
 import { type BatchResult, parseContextWithSummary } from '@/lib/batch-compare';
@@ -384,6 +386,7 @@ type BatchJob = {
   scheduled_at: string | null;
   status: string;
   created_at: string;
+  started_at?: string | null;
   completed_indices?: number[];
   failed_indices?: number[];
   last_completed_at?: string | null;
@@ -485,9 +488,10 @@ export default function DeepResearchPage() {
     return () => window.removeEventListener('beforeunload', handleBeforeUnload);
   }, [browserCountdown]);
 
-  const handleDeleteJob = async (jobId: number, status: string) => {
-    if (status === 'running') return;
-    if (!confirm('このジョブを削除しますか？')) return;
+  const handleDeleteJob = async (jobId: number, status: string, stale = false) => {
+    // 284: 本当に走っている running だけ守る。中断（閾値超過）なら消せる
+    if (status === 'running' && !stale) return;
+    if (!confirm(stale ? 'この中断したジョブ履歴を削除しますか？保存された記事は削除されません。' : 'このジョブを削除しますか？')) return;
     try {
       const res = await fetch(`/api/batch-research?id=${jobId}`, { method: 'DELETE' });
       if (res.ok) {
@@ -548,13 +552,44 @@ export default function DeepResearchPage() {
     });
   };
 
+  // 284: 中断判定の「今」。一覧を読み込んだ時刻で固定し、描画のたびに結果が揺れないようにする（R-74）
+  const [jobsNowMs, setJobsNowMs] = useState(() => Date.now());
   const loadBatchJobs = async () => {
     try {
       const res = await fetch('/api/batch-research?limit=10');
       if (!res.ok) return;
       const data = await res.json();
+      setJobsNowMs(Date.now());
       setBatchJobs(data.jobs || []);
     } catch {}
+  };
+  const staleJobs = batchJobs.filter((j) => isStaleBatchJob(j, jobsNowMs));
+
+  // 284 §4-3: 中断したジョブをまとめて削除。確認は1回だけ（R-56）・件数と「記事は消えない」を明記。
+  // 削除対象はジョブ履歴の行だけ（API側でも中断判定を通す＝本当に実行中のものは消えない）
+  const [bulkDeletingStale, setBulkDeletingStale] = useState(false);
+  const handleDeleteStaleJobs = async () => {
+    if (staleJobs.length === 0 || bulkDeletingStale) return;
+    if (!confirm(`中断した ${staleJobs.length} 件のジョブ履歴を削除します。保存された記事は削除されません。\nこの操作は元に戻せません。`)) return;
+    setBulkDeletingStale(true);
+    try {
+      const res = await fetch('/api/batch-research', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ staleIds: staleJobs.map((j) => j.id) }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        alert(`削除できませんでした: ${data.error || res.status}`);
+        return;
+      }
+      alert(`${data.deleted ?? 0}件の中断したジョブ履歴を削除しました${data.skipped ? `（${data.skipped}件は中断ではないため残しました）` : ''}`);
+      await loadBatchJobs();
+    } catch {
+      alert('削除中にエラーが発生しました');
+    } finally {
+      setBulkDeletingStale(false);
+    }
   };
 
   useEffect(() => {
@@ -3833,10 +3868,28 @@ ${contextText}
           {/* 履歴 */}
           {batchJobs.length > 0 && (
             <div>
-              <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 10 }}>📋 バッチジョブ履歴</div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' as const, marginBottom: 10 }}>
+                <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)' }}>📋 バッチジョブ履歴</div>
+                {/* 284: 中断（終わらないまま止まった）ジョブがあるときだけ片付けの導線を出す */}
+                {staleJobs.length > 0 && (
+                  <button
+                    data-batch-stale-bulk-delete
+                    onClick={() => void handleDeleteStaleJobs()}
+                    disabled={bulkDeletingStale}
+                    title="running / pending のまま6時間を超えて止まっているジョブの履歴をまとめて削除します。保存された記事（AI参照素材・リサーチ保存）は消えません"
+                    style={{ padding: '4px 10px', background: 'rgba(239,68,68,0.06)', border: '1px solid rgba(239,68,68,0.4)', color: '#dc2626', borderRadius: 6, cursor: bulkDeletingStale ? 'not-allowed' : 'pointer', fontSize: 11, fontWeight: 700, opacity: bulkDeletingStale ? 0.6 : 1 }}
+                  >
+                    {bulkDeletingStale ? '⏳ 削除中...' : `🧹 中断したジョブをまとめて削除（${staleJobs.length}件）`}
+                  </button>
+                )}
+              </div>
               <div style={{ display: 'flex', flexDirection: 'column' as const, gap: 8 }}>
-                {batchJobs.map(job => (
-                  <div key={job.id} style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 10, padding: 12 }}>
+                {batchJobs.map(job => {
+                  // 284: running/pending のまま閾値を超えたものは「中断」。DBの status は書き換えない
+                  const displayStatus = batchJobDisplayStatus(job, jobsNowMs);
+                  const isStale = displayStatus === 'stale';
+                  return (
+                  <div key={job.id} data-batch-job={job.id} data-batch-job-display={displayStatus} style={{ background: 'var(--bg-secondary)', border: `1px solid ${isStale ? 'rgba(239,68,68,0.45)' : 'var(--border)'}`, borderRadius: 10, padding: 12 }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap' as const, gap: 6 }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' as const }}>
                         {renamingJobId === job.id ? (
@@ -3882,6 +3935,7 @@ ${contextText}
                         <span style={{
                           fontSize: 10, padding: '2px 8px', borderRadius: 10, fontWeight: 700,
                           background:
+                            isStale ? 'rgba(239,68,68,0.14)' :
                             job.status === 'completed' ? 'rgba(29,158,117,0.18)' :
                             job.status === 'completed_with_errors' ? 'rgba(245,158,11,0.2)' :
                             job.status === 'running' ? 'rgba(108,99,255,0.18)' :
@@ -3889,6 +3943,7 @@ ${contextText}
                             job.status === 'failed' ? 'rgba(239,68,68,0.18)' :
                             'rgba(100,116,139,0.18)',
                           color:
+                            isStale ? '#dc2626' :
                             job.status === 'completed' ? '#1D9E75' :
                             job.status === 'completed_with_errors' ? '#92400e' :
                             job.status === 'running' ? '#6c63ff' :
@@ -3896,7 +3951,8 @@ ${contextText}
                             job.status === 'failed' ? '#ef4444' :
                             '#64748b',
                         }}>
-                          {job.status === 'completed' ? '✅ 完了' :
+                          {isStale ? '⚠ 中断（未完了）' :
+                           job.status === 'completed' ? '✅ 完了' :
                            job.status === 'completed_with_errors' ? '⚠️ 一部完了' :
                            job.status === 'running' ? '⏳ 実行中' :
                            job.status === 'paused' ? '⏸ 一時停止' :
@@ -3924,6 +3980,15 @@ ${contextText}
                         {jstDateTimeString(job.created_at)}
                       </span>
                     </div>
+                    {/* 284 §3-1/§3-2: いつ開始して止まったか（JST・R-86）と、保存済みの記事数（記事は失われていない） */}
+                    {isStale && (
+                      <div data-batch-job-stale-info={job.id} style={{ marginTop: 6, fontSize: 11, color: '#b91c1c', display: 'flex', flexWrap: 'wrap' as const, gap: 8 }}>
+                        <span>⚠ {staleJobLabel(job, jobsNowMs)}</span>
+                        <span data-batch-job-saved-count={job.id} style={{ color: 'var(--text-secondary)' }}>
+                          保存済み {savedTopicCount(job)}/{job.topics.length}件（記事は残っています）
+                        </span>
+                      </div>
+                    )}
                     <div style={{ marginTop: 6, fontSize: 11, color: 'var(--text-muted)', display: 'flex', flexWrap: 'wrap' as const, gap: 8 }}>
                       {job.topics.map((t, i) => (
                         <span key={i}>
@@ -3931,7 +3996,7 @@ ${contextText}
                         </span>
                       ))}
                     </div>
-                    {job.status === 'pending' && job.scheduled_at && (
+                    {job.status === 'pending' && job.scheduled_at && !isStale && (
                       <div style={{ marginTop: 4, fontSize: 11, color: '#6c63ff' }}>
                         ⏰ 実行予定: {jstDateTimeString(job.scheduled_at)}
                       </div>
@@ -4009,28 +4074,36 @@ ${contextText}
                             ▶ 強制再開
                           </button>
                         )}
+                      {(() => {
+                        // 284: 本当に走っている running だけ削除不可。中断（閾値超過）は消せる
+                        const locked = job.status === 'running' && !isStale;
+                        return (
                       <button
-                        onClick={() => handleDeleteJob(job.id, job.status)}
-                        disabled={job.status === 'running'}
-                        title={job.status === 'running' ? '実行中は削除できません' : 'このジョブを削除'}
+                        data-batch-job-delete={job.id}
+                        onClick={() => handleDeleteJob(job.id, job.status, isStale)}
+                        disabled={locked}
+                        title={locked ? '実行中は削除できません' : isStale ? '中断したジョブ履歴を削除（保存された記事は消えません）' : 'このジョブを削除'}
                         style={{
                           marginLeft: 'auto',
                           padding: '4px 10px',
                           background: 'transparent',
-                          border: `1px solid ${job.status === 'running' ? 'var(--border)' : '#ef4444'}`,
-                          color: job.status === 'running' ? 'var(--text-muted)' : '#ef4444',
+                          border: `1px solid ${locked ? 'var(--border)' : '#ef4444'}`,
+                          color: locked ? 'var(--text-muted)' : '#ef4444',
                           borderRadius: 6,
-                          cursor: job.status === 'running' ? 'not-allowed' : 'pointer',
+                          cursor: locked ? 'not-allowed' : 'pointer',
                           fontSize: 11,
                           fontWeight: 600,
-                          opacity: job.status === 'running' ? 0.5 : 1,
+                          opacity: locked ? 0.5 : 1,
                         }}
                       >
                         🗑 削除
                       </button>
+                        );
+                      })()}
                     </div>
                   </div>
-                ))}
+                  );
+                })}
               </div>
             </div>
           )}
