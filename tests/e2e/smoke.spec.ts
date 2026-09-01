@@ -3295,11 +3295,14 @@ const COMPARE_JOB_ID = 987654321; // 実在しないID（モック専用）
 
 /** 271のモック: バッチジョブ履歴1件＋その結果4件（本文と263③の要約セクション付き） */
 async function stubBatchCompare(page: import('@playwright/test').Page) {
-  const topics = ['[E2E] 比較A', '[E2E] 比較B', '[E2E] 比較C', '[E2E] 比較D'];
+  // 285: 5件（5件目は選べないことの確認用）。比較E は要約セクションの無い古いデータ（フォールバックのラベル確認用）
+  const topics = ['[E2E] 比較A', '[E2E] 比較B', '[E2E] 比較C', '[E2E] 比較D', '[E2E] 比較E'];
   const body = (i: number) =>
     `## 見出し${i}\n\n${`本文${i}のダミー行です。`.repeat(60)}\n\n### 小見出し${i}\n\n${`さらに本文${i}が続きます。`.repeat(60)}`;
   const context = (i: number) =>
-    `## 📋 要約（1000字以内）\n\n**要約${i}** のダミーです。\n\n---\n\n## 📚 詳細コンテキスト\n\n詳細${i}の本文。`;
+    i === 4
+      ? `要約セクションのない古い素材${i}。`
+      : `## 📋 要約（1000字以内）\n\n**要約${i}** のダミーです。\n\n---\n\n## 📚 詳細コンテキスト\n\n詳細${i}の本文。`;
 
   // クエリ付きURLはグロブだと曖昧になるため述語で判定する
   await page.route((url) => url.pathname === '/api/batch-research' && url.searchParams.get('limit') === '10', (route) =>
@@ -3346,24 +3349,24 @@ async function openBatchCompare(page: import('@playwright/test').Page) {
   await expect(page.locator('[data-batch-compare]')).toBeVisible();
 }
 
-test('C69: バッチ結果の横並び比較（271）— 3列・4件目は選べない・本文既定・同期スクロール・sticky', async ({ page }) => {
+test('C69: バッチ結果の横並び比較（271/285）— 4件選択・5件目は選べない・本文既定・同期スクロール・sticky', async ({ page }) => {
   await stubFeatureDrafts(page);
   await stubBatchCompare(page);
-  await page.setViewportSize({ width: 1600, height: 900 }); // 3列が出る幅（xl以上）
+  await page.setViewportSize({ width: 1920, height: 900 }); // 4列が出る幅（2xl以上）
   // モードの保持を素の状態から確かめるため、保存済みの選択を消してから開く
   await page.goto('/dashboard/deepresearch');
   await page.evaluate(() => localStorage.removeItem('lumina_batch_compare_mode'));
   await openBatchCompare(page);
 
-  // 1) 既定で3件が選ばれ、3列で出る（横スクロールを出さない＝grid）
-  await expect(page.locator('[data-compare-col]')).toHaveCount(3);
-  await expect(page.locator('[data-compare-cols="3"]')).toHaveCount(1);
-  await expect(page.locator('[data-compare-count]')).toContainText('選択中: 3/3件');
+  // 1) 既定で4件が選ばれ、4列で出る（横スクロールを出さない＝grid）
+  await expect(page.locator('[data-compare-col]')).toHaveCount(4);
+  await expect(page.locator('[data-compare-cols="4"]')).toHaveCount(1);
+  await expect(page.locator('[data-compare-count]')).toContainText('選択中: 4/4件');
 
-  // 2) 4件目は選べない（上限3件・押しても増えない）
-  const fourth = page.locator('[data-compare-pick="900003"]');
-  await expect(fourth).toBeDisabled();
-  await expect(page.locator('[data-compare-col]')).toHaveCount(3);
+  // 2) 5件目は選べない（上限4件・押しても増えない）
+  const fifth = page.locator('[data-compare-pick="900004"]');
+  await expect(fifth).toBeDisabled();
+  await expect(page.locator('[data-compare-col]')).toHaveCount(4);
 
   // 3) 初回の既定は本文（要約ではない）
   await expect(page.locator('[data-compare-mode="research"]')).toHaveAttribute('aria-pressed', 'true');
@@ -3401,7 +3404,7 @@ test('C69: バッチ結果の横並び比較（271）— 3列・4件目は選べ
 
   // 8) 本文／要約の一括切り替え（全列が同時に変わる）
   await page.locator('[data-compare-mode="summary"]').click();
-  for (const i of [0, 1, 2]) {
+  for (const i of [0, 1, 2, 3]) {
     await expect(page.locator(`[data-compare-col="${i}"]`)).toContainText(`要約${i}`);
   }
   await expect(page.locator('[data-compare-col="0"]')).not.toContainText('本文0のダミー行です。');
@@ -3413,8 +3416,8 @@ test('C69: バッチ結果の横並び比較（271）— 3列・4件目は選べ
 
   // 10) 選択を外すと列も減る（個別に選び直せる）
   await page.locator('[data-compare-pick="900002"]').click();
-  await expect(page.locator('[data-compare-col]')).toHaveCount(2);
-  await expect(page.locator('[data-compare-cols="2"]')).toHaveCount(1);
+  await expect(page.locator('[data-compare-col]')).toHaveCount(3);
+  await expect(page.locator('[data-compare-cols="3"]')).toHaveCount(1);
 });
 
 test('C70: 横並び比較はタッチ端末では1列（271§4-2・既存の端末判定を再利用）', async ({ browser }) => {
@@ -3430,8 +3433,8 @@ test('C70: 横並び比較はタッチ端末では1列（271§4-2・既存の端
     await stubFeatureDrafts(page);
     await stubBatchCompare(page);
     await openBatchCompare(page);
-    // 3件選ばれていても、カーソルの無い端末では1列だけ描く（横スクロールを出さない）
-    await expect(page.locator('[data-compare-count]')).toContainText('選択中: 3/3件');
+    // 4件選ばれていても、カーソルの無い端末では1列だけ描く（横スクロールを出さない）
+    await expect(page.locator('[data-compare-count]')).toContainText('選択中: 4/4件');
     await expect(page.locator('[data-compare-cols="1"]')).toHaveCount(1);
     // 横スクロールが出ていないこと（本文はカード内で折り返す）
     const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
@@ -5197,4 +5200,96 @@ test('C85: 中断したバッチジョブ（284）— running/pending＋閾値�
     await cleanupE2EContextSaves(request);
     await cleanupE2ELibrary(request);
   }
+});
+
+// ───────────────────────────────────────────────────────────────────────────
+// 285: 比較を最大4件に・列数は幅で折り返す・要約フォールバック時のラベル是正
+// ───────────────────────────────────────────────────────────────────────────
+test('C86: 横並び比較4件（285）— 2xlで4列・中間幅は2×2に折り返す・横スクロールなし・4列/2×2とも同期スクロールとsticky・要約なし列は「本文（要約なし）」で文字数は本文・正常列は「要約」のまま', async ({ page }) => {
+  await stubFeatureDrafts(page);
+  await stubBatchCompare(page);
+  await page.goto('/dashboard/deepresearch');
+  await page.evaluate(() => localStorage.removeItem('lumina_batch_compare_mode'));
+
+  const col = (i: number) => page.locator(`[data-compare-col="${i}"]`);
+  const noHScroll = async (label: string) => {
+    const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+    expect(overflow, `${label}: ページに横スクロールが出ていないこと`).toBeLessThanOrEqual(1);
+  };
+  const rows = async () => {
+    const ys: number[] = [];
+    for (let i = 0; i < 4; i++) ys.push(Math.round((await col(i).boundingBox())!.y));
+    return ys;
+  };
+  const checkSyncAndSticky = async (label: string) => {
+    // 同期スクロール（割合ベース）: 列0を底まで送ると他の3列も動く（2×2でも4列全部が同期）
+    await expect(page.locator('[data-compare-sync]')).toBeChecked();
+    for (let i = 1; i < 4; i++) await col(i).evaluate((el) => { el.scrollTop = 0; });
+    await col(0).evaluate((el) => { el.scrollTop = el.scrollHeight; el.dispatchEvent(new Event('scroll')); });
+    for (let i = 1; i < 4; i++) {
+      await expect.poll(async () => col(i).evaluate((el) => el.scrollTop), `${label}: 列${i}が同期して動くこと`).toBeGreaterThan(0);
+    }
+    // sticky: 送った後も各列のヘッダーが列の上端に居る
+    for (let i = 0; i < 4; i++) {
+      const header = page.locator(`[data-compare-header="${i}"]`);
+      expect(await header.evaluate((el) => getComputedStyle(el).position)).toBe('sticky');
+      const c = await col(i).boundingBox();
+      const h = await header.boundingBox();
+      expect(c && h && h.y - c.y, `${label}: 列${i}のヘッダーが上端に固定されていること`).toBeLessThan(4);
+    }
+    for (let i = 0; i < 4; i++) await col(i).evaluate((el) => { el.scrollTop = 0; });
+  };
+
+  // ── ① 2xl（1920px）: 4件が4列＝4つのカードが同じ高さ位置に並ぶ ──
+  await page.setViewportSize({ width: 1920, height: 900 });
+  await openBatchCompare(page);
+  await expect(page.locator('[data-compare-col]')).toHaveCount(4);
+  await expect(page.locator('[data-compare-cols="4"]')).toHaveCount(1);
+  let ys = await rows();
+  expect(new Set(ys).size, `1920px では4列（y=${ys.join(',')}）`).toBe(1);
+  await noHScroll('1920px');
+  await checkSyncAndSticky('4列');
+
+  // ── ② 中間（1400px＝xl）: 2列×2行に折り返す（3+1の段違いにしない）──
+  await page.setViewportSize({ width: 1400, height: 900 });
+  await expect(page.locator('[data-compare-col]')).toHaveCount(4);
+  ys = await rows();
+  expect(ys[0], `1400px では列0と列1が同じ行（y=${ys.join(',')}）`).toBe(ys[1]);
+  expect(ys[2], '列2と列3が同じ行').toBe(ys[3]);
+  expect(ys[2], '2行目は1行目より下').toBeGreaterThan(ys[0]);
+  await noHScroll('1400px');
+  await checkSyncAndSticky('2×2');
+
+  // ── ③ 狭い（1000px＝md）: 2列のまま ──
+  await page.setViewportSize({ width: 1000, height: 900 });
+  ys = await rows();
+  expect(ys[0]).toBe(ys[1]);
+  expect(ys[2]).toBeGreaterThan(ys[0]);
+  await noHScroll('1000px');
+
+  // ── ④ 要約モード: 要約が無い列（比較E）はラベル「本文（要約なし）」＋文字数は本文のもの、正常列は「要約」のまま ──
+  await page.setViewportSize({ width: 1920, height: 900 });
+  // 比較D を外して 比較E（要約なし）を入れる
+  await page.locator('[data-compare-pick="900003"]').click();
+  await page.locator('[data-compare-pick="900004"]').click();
+  await expect(page.locator('[data-compare-col]')).toHaveCount(4);
+  await page.locator('[data-compare-mode="summary"]').click();
+  const researchLen = (i: number) =>
+    `## 見出し${i}\n\n${`本文${i}のダミー行です。`.repeat(60)}\n\n### 小見出し${i}\n\n${`さらに本文${i}が続きます。`.repeat(60)}`.length;
+  const labelE = page.locator('[data-compare-label="3"]');
+  await expect(labelE, 'フォールバック列のラベルは本文').toContainText('本文（要約なし）');
+  await expect(labelE, '文字数は表示している本文のもの').toContainText(`${researchLen(4).toLocaleString()}字`);
+  await expect(labelE).not.toContainText('要約 ');
+  await expect(col(3)).toContainText('※ この結果には要約が保存されていないため、本文を表示しています');
+  await expect(col(3)).toContainText('本文4のダミー行です。');
+  for (const i of [0, 1, 2]) {
+    const l = page.locator(`[data-compare-label="${i}"]`);
+    await expect(l, '正常な列は「要約」のまま').toContainText('要約 ');
+    await expect(l).not.toContainText('本文');
+    await expect(l).toContainText(`${`**要約${i}** のダミーです。`.length.toLocaleString()}字`);
+    await expect(col(i)).not.toContainText('※ この結果には要約が保存されていない');
+  }
+  // 本文モードでは全列「リサーチ本文」
+  await page.locator('[data-compare-mode="research"]').click();
+  await expect(page.locator('[data-compare-label="3"]')).toContainText('リサーチ本文');
 });

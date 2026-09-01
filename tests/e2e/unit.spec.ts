@@ -91,6 +91,7 @@ import { parseKindleSourceKey, makeEpisodeSourceKey, KINDLE_MATERIAL_SOURCE_META
 // 271: 横並び比較の判断（列数・上限・本文/要約の取り出し・同期スクロールの割合）
 import {
   BATCH_COMPARE_MAX,
+  compareColumnLabel,
   compareGridClass,
   parseContextWithSummary,
   pickCompareText,
@@ -1278,30 +1279,34 @@ test('U41: Kindle多軸展開（269）— 7切り口・書籍文脈検出・一�
 });
 
 
-test('U43: 横並び比較の判断（271）— 上限3件・列数・割合スクロール・要約フォールバック', () => {
-  // §4-1: 上限は3。超える追加は受け付けない（古い方を押し出さない＝比較中の列が黙って消えない）
-  expect(BATCH_COMPARE_MAX).toBe(3);
+test('U43: 横並び比較の判断（271/285）— 上限4件・列数（4列は2xl・中間は2×2）・割合スクロール・要約フォールバックのラベル', () => {
+  // §4-1: 上限は4（285で3→4）。超える追加は受け付けない（古い方を押し出さない＝比較中の列が黙って消えない）
+  expect(BATCH_COMPARE_MAX).toBe(4);
   let ids: number[] = [];
-  for (const id of [1, 2, 3, 4]) ids = toggleCompareId(ids, id);
-  expect(ids).toEqual([1, 2, 3]);
+  for (const id of [1, 2, 3, 4, 5]) ids = toggleCompareId(ids, id);
+  expect(ids).toEqual([1, 2, 3, 4]);
   // 外してから足せる
   ids = toggleCompareId(ids, 2);
-  expect(ids).toEqual([1, 3]);
-  ids = toggleCompareId(ids, 4);
   expect(ids).toEqual([1, 3, 4]);
+  ids = toggleCompareId(ids, 5);
+  expect(ids).toEqual([1, 3, 4, 5]);
 
   // §4-2: 列数はカーソルの有無と選択件数の小さい方。タッチ端末は常に1列
+  expect(resolveCompareColumns(4, true)).toBe(4);
   expect(resolveCompareColumns(3, true)).toBe(3);
   expect(resolveCompareColumns(2, true)).toBe(2);
   expect(resolveCompareColumns(0, true)).toBe(1);
-  expect(resolveCompareColumns(9, true)).toBe(3); // 4列以上は作らない（§1-2）
-  expect(resolveCompareColumns(3, false)).toBe(1);
+  expect(resolveCompareColumns(9, true)).toBe(4); // 5列以上は作らない（285§4）
+  expect(resolveCompareColumns(4, false)).toBe(1);
 
   // R-17: Tailwindは完全リテラル（動的組み立てをしない）。3列は xl まで段階的に減る＝横スクロールを出さない
+  // 285§2-2: 4件は 2xl で4列、xl では3列にせず 2列×2行、md 未満は1列
+  expect(compareGridClass(4)).toBe('grid gap-3 grid-cols-1 md:grid-cols-2 2xl:grid-cols-4');
+  expect(compareGridClass(4)).not.toContain('xl:grid-cols-3');
   expect(compareGridClass(3)).toBe('grid gap-3 grid-cols-1 md:grid-cols-2 xl:grid-cols-3');
   expect(compareGridClass(2)).toBe('grid gap-3 grid-cols-1 md:grid-cols-2');
   expect(compareGridClass(1)).toBe('grid gap-3 grid-cols-1');
-  for (const cols of [1, 2, 3] as const) {
+  for (const cols of [1, 2, 3, 4] as const) {
     expect(compareGridClass(cols)).not.toContain('${');
   }
 
@@ -1330,6 +1335,11 @@ test('U43: 横並び比較の判断（271）— 上限3件・列数・割合ス�
   const legacy = { research_text: '古い本文。', context_text: '要約セクションのない素材。' };
   expect(parseContextWithSummary(legacy.context_text).summarySection).toBeNull();
   expect(pickCompareText(legacy, 'summary')).toEqual({ text: '古い本文。', fellBack: true });
+
+  // 285§3-2: フォールバック列のラベルは実際に出している内容（本文）に合わせる。正常な列の表記は変えない
+  expect(compareColumnLabel('summary', true)).toBe('本文（要約なし）');
+  expect(compareColumnLabel('summary', false)).toBe('要約');
+  expect(compareColumnLabel('research', false)).toBe('リサーチ本文');
 });
 
 

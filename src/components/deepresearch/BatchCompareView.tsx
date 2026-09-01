@@ -1,6 +1,7 @@
 'use client';
 
-// 271: バッチリサーチ結果の横並び比較（PC最大3列・本文/要約・同期スクロール・列ヘッダーsticky）。
+// 271: バッチリサーチ結果の横並び比較（本文/要約・同期スクロール・列ヘッダーsticky）。
+// 285: 選択上限は4件（BATCH_COMPARE_MAX）。列数は幅で折り返す（2xl:4列／md〜:2列＝4件なら2×2／それ未満:1列）。
 //
 // UIの土台は①ペルソナ別note記事の「読み比べて選ぶ」（dr-hub）と同じ:
 //   選択カードの並び → 「選択中: n/N件」 → 横並びカード（カード内スクロール）。
@@ -15,6 +16,7 @@ import {
   BATCH_COMPARE_MAX,
   type BatchCompareMode,
   type BatchResult,
+  compareColumnLabel,
   compareGridClass,
   loadCompareMode,
   pickCompareText,
@@ -173,8 +175,8 @@ export default function BatchCompareView({ jobId, results, onClose }: Props) {
         </div>
       </div>
 
-      {/* ── 比較対象の選択（①の読み比べと同じ形式・上限3件） ── */}
-      <div className="grid gap-2 grid-cols-1 md:grid-cols-2 xl:grid-cols-3" style={{ marginBottom: 8 }}>
+      {/* ── 比較対象の選択（①の読み比べと同じ形式・上限は BATCH_COMPARE_MAX 件） ── */}
+      <div className="grid gap-2 grid-cols-1 md:grid-cols-2 xl:grid-cols-4" style={{ marginBottom: 8 }}>
         {results.map((r) => {
           const checked = selectedIds.includes(r.id);
           const full = !checked && selectedIds.length >= BATCH_COMPARE_MAX;
@@ -212,7 +214,7 @@ export default function BatchCompareView({ jobId, results, onClose }: Props) {
         {mounted && !fine && '（この端末では1列ずつ表示します）'}
       </div>
 
-      {/* ── 横並び比較（最大3列・横スクロールを出さない） ── */}
+      {/* ── 横並び比較（横スクロールを出さない。4件は 2xl で4列、それ未満は2列×2行） ── */}
       {selected.length === 0 ? (
         <div style={{ padding: 12, fontSize: 12, color: 'var(--text-muted)', background: 'var(--bg-primary)', borderRadius: 8, border: '1px solid var(--border)' }}>
           比較したい結果を選んでください。
@@ -221,7 +223,8 @@ export default function BatchCompareView({ jobId, results, onClose }: Props) {
         <div className={compareGridClass(cols)} data-compare-cols={cols}>
           {selected.map((r, i) => {
             const { text, fellBack } = pickCompareText(r, mode);
-            const label = mode === 'research' ? 'リサーチ本文' : '要約';
+            // 285§3-2: フォールバック列はラベルも「本文（要約なし）」。文字数は text（＝実際に出している内容）のもの
+            const label = compareColumnLabel(mode, fellBack);
             return (
               <div
                 key={r.id}
@@ -257,7 +260,7 @@ export default function BatchCompareView({ jobId, results, onClose }: Props) {
                     {r.topic}
                   </div>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 6, marginTop: 4, flexWrap: 'wrap' }}>
-                    <span style={{ fontSize: 10, color: 'var(--text-muted)' }}>
+                    <span data-compare-label={i} style={{ fontSize: 10, color: 'var(--text-muted)' }}>
                       {label} {text.length.toLocaleString()}字 ／ {new Date(r.created_at).toLocaleString('ja-JP')}
                     </span>
                     <span style={{ display: 'flex', gap: 6 }}>

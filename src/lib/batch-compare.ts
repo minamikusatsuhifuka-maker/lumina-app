@@ -14,10 +14,12 @@ export type BatchResult = {
 };
 
 /**
- * 271§1-2: 最大3列。1920px幅で1列あたり約600px＝日本語35〜40字/行となり、
- * 3,000〜5,000字の本文でも読める幅になる。4列（約450px）は長文比較に窮屈なので実装しない。
+ * 285§1-2: 最大4件（271の「最大3列」を更新）。
+ * 「選べる件数」と「同時に出す列数」は別の問題——4件揃って初めて意味を持つ比較（4社の企業哲学など）があるため
+ * 件数は4まで選べるようにし、列数は画面幅で折り返す（2xl未満では2列×2行＝1列約900px。無理に4列にしない）。
+ * 上限を変えるときはこの定数だけを変える（画面側にマジックナンバーを散らさない）。
  */
-export const BATCH_COMPARE_MAX = 3;
+export const BATCH_COMPARE_MAX = 4;
 
 /** 表示モード。初回の既定は本文（271§2-1） */
 export type BatchCompareMode = 'research' | 'summary';
@@ -56,20 +58,34 @@ export function toggleCompareId(ids: number[], id: number, max = BATCH_COMPARE_M
  * 「選んだ件数」と「端末（カーソルの有無）」の小さい方に倒す。
  * 幅による 3→2 の切り替えはCSS側（Tailwindのブレークポイント）が受け持つ。
  */
-export function resolveCompareColumns(selectedCount: number, finePointer: boolean): 1 | 2 | 3 {
+export type CompareColumns = 1 | 2 | 3 | 4;
+export function resolveCompareColumns(selectedCount: number, finePointer: boolean): CompareColumns {
   if (!finePointer) return 1; // タッチ端末は常に1列（271§4-2・モバイル多列は範囲外）
   const n = Math.min(Math.max(selectedCount, 1), BATCH_COMPARE_MAX);
-  return n as 1 | 2 | 3;
+  return n as CompareColumns;
 }
 
 /**
  * 列数に対応するTailwindクラス（R-17: 完全リテラル。動的組み立てをしない）。
  * 3列は xl（1280px〜）で3列、md（768px〜）で2列、それ未満は1列＝横スクロールが出ない。
+ * 285: 4件は 2xl（1536px〜）で4列、それ未満〜md は2列（4件なら2列×2行に折り返す）、md未満は1列。
+ *      xl で3列にすると 3＋1 の段違いになるため、中間幅は2×2に倒す（§2-2）。
  */
-export function compareGridClass(cols: 1 | 2 | 3): string {
+export function compareGridClass(cols: CompareColumns): string {
   if (cols === 1) return 'grid gap-3 grid-cols-1';
   if (cols === 2) return 'grid gap-3 grid-cols-1 md:grid-cols-2';
-  return 'grid gap-3 grid-cols-1 md:grid-cols-2 xl:grid-cols-3';
+  if (cols === 3) return 'grid gap-3 grid-cols-1 md:grid-cols-2 xl:grid-cols-3';
+  return 'grid gap-3 grid-cols-1 md:grid-cols-2 2xl:grid-cols-4';
+}
+
+/**
+ * 285§3-2: 列ヘッダーのラベルは**実際に表示している内容**に合わせる。
+ * 要約モードでも要約が無くて本文にフォールバックした列は「本文（要約なし）」＝文字数も本文のもの。
+ * 正常に要約がある列の表記（「要約」）は変えない。
+ */
+export function compareColumnLabel(mode: BatchCompareMode, fellBack: boolean): string {
+  if (mode === 'research') return 'リサーチ本文';
+  return fellBack ? '本文（要約なし）' : '要約';
 }
 
 /**
