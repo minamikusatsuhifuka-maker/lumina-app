@@ -1,4 +1,4 @@
-import { APIRequestContext, expect } from '@playwright/test';
+import { APIRequestContext, type Locator, expect } from '@playwright/test';
 
 export const SAVES_API = '/api/text-analysis/saves';
 
@@ -291,5 +291,26 @@ export async function cleanupE2EEpisodes(request: APIRequestContext) {
     for (const it of targets) {
       await request.delete(`${EPISODES_API}?id=${it.id}`);
     }
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// 288: 生MD記法の露出を検知する共通判定（R-45）。
+// 読む画面（整形表示）の要素に対して、見出し記号・太字記号・箇条書き記号が**文字として**見えていないことを判定する。
+// 29画面に個別のE2Eを書かず、この1関数を主要画面のE2Eから呼ぶ。
+// ─────────────────────────────────────────────────────────────────────────
+export const RAW_MARKDOWN_PATTERNS: { name: string; re: RegExp }[] = [
+  { name: '見出し記号（# ）', re: /^#{1,6} /m },
+  { name: '太字記号（**）', re: /\*\*[^*\n]+\*\*/ },
+  { name: '箇条書き＋太字（- **）', re: /^- \*\*/m },
+  { name: '箇条書き記号（- ）の行', re: /^- \S/m },
+  { name: '区切り線（---）', re: /^---+$/m },
+];
+
+/** locator の表示テキストに生MD記法が含まれないことを判定する（label は失敗時の説明） */
+export async function expectNoRawMarkdown(locator: Locator, label = '整形表示') {
+  const text = await locator.innerText();
+  for (const p of RAW_MARKDOWN_PATTERNS) {
+    expect(p.re.test(text), `${label}: ${p.name} が文字として露出していること（先頭200字: ${text.slice(0, 200)}）`).toBe(false);
   }
 }

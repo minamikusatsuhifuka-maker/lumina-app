@@ -34,6 +34,8 @@ import {
   EPISODES_API,
   createEpisode,
   cleanupE2EEpisodes,
+  // 288: 生MD露出の共通判定
+  expectNoRawMarkdown,
 } from './helpers';
 
 // ============================================================================
@@ -3711,7 +3713,8 @@ test('C73: プレゼン発表原稿（275）— 複数同時読み込み・PDF�
       contentType: 'application/json',
       body: JSON.stringify({
         slideTitle: `見出し${n}`,
-        sections: { connect: `つなぎ${n}`, main: `ほんだい${n}`, supplement: `ほそく${n}`, handoff: `おくり${n}` },
+        // 288: 本題にMarkdown（太字）を混ぜ、スライド別表示が整形されること（R-45）も同時に判定する
+        sections: { connect: `つなぎ${n}`, main: `ほんだい${n} **強調${n}**`, supplement: `ほそく${n}`, handoff: `おくり${n}` },
         summaryForNext: `ようてん${n}`,
         inferredTheme,
         adCheck: { status: 'ok', findings: [] },
@@ -3780,6 +3783,9 @@ test('C73: プレゼン発表原稿（275）— 複数同時読み込み・PDF�
     await expect(resultPage(2).locator('[data-pres-page-error]')).toBeVisible();
     await expect(resultPage(1)).toContainText('ほんだい1');
     await expect(resultPage(3)).toContainText('ほんだい3');
+    // 288/R-45: スライド別表示は整形（太字がstrong・** が文字として出ない）
+    await expect(resultPage(1).locator('[data-md-view] strong').filter({ hasText: '強調1' })).toBeVisible();
+    await expectNoRawMarkdown(resultPage(1).locator('[data-pres-script]'), 'プレゼン原稿（スライド別）');
 
     // §4-1: スライドと原稿が**並んで**表示される（左にスライド・右に原稿）
     const slide = resultPage(1).locator('[data-pres-slide-image]');
@@ -5462,4 +5468,83 @@ test('C88: リサーチ保存のペアリング（286）— 同題で本文3＋�
     await request.delete(LIBRARY_API, { data: { ids } }).catch(() => {});
     await cleanupE2ELibrary(request);
   }
+});
+
+// ───────────────────────────────────────────────────────────────────────────
+// 288: R-45違反の一括是正（S区分29件）— 主要画面の整形表示を共通ヘルパーで判定
+// ───────────────────────────────────────────────────────────────────────────
+test('C89: 発信ハブのX投稿（288）— ③X投稿連動の本文/URLリプ/スレッドと、記事→X時間差展開の各型が整形表示され生MDが露出しない（APIモック）・コピーは原文のまま', async ({ page, context }) => {
+  await context.grantPermissions(['clipboard-read', 'clipboard-write'], { origin: BASE_URL });
+  await stubFeatureDrafts(page);
+  const ARTICLE_ID = 'e2e-288-article';
+  await page.route((url) => url.pathname === '/api/library' && url.searchParams.get('type') === 'deepresearch', (route) =>
+    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([]) }),
+  );
+  await page.route((url) => url.pathname === '/api/library' && url.searchParams.get('type') === 'note-article', (route) =>
+    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([{ id: ARTICLE_ID, title: '[E2E] 288 保湿の基本', content: '保湿の順番と量の話。', created_at: '2026-08-26' }]) }),
+  );
+  const single = '## 朝の保湿\n\n**3分以内**に化粧水→乳液→クリーム。\n\n- 量は指先1関節ぶん\n- 続けやすさが最優先\n\n#スキンケア';
+  await page.route('**/api/dr-hub/x-post', (route) => {
+    const body = (route.request().postDataJSON() ?? {}) as Record<string, unknown>;
+    return route.fulfill({
+      status: 200, contentType: 'application/json',
+      body: JSON.stringify({ success: true, single, thread: [single, '**まとめ**です'], urlReplyLeadin: '本文で触れた記事の全文はこちらです', warnings: { single: [] }, xLength: 'mini', postType: String(body.postType ?? 'knowhow'), charLimit: 25000 }),
+    });
+  });
+
+  await page.goto('/dashboard/dr-hub');
+  // ── ③ X投稿連動 ──
+  await page.getByRole('button', { name: /X投稿連動/ }).click();
+  await page.locator('select').filter({ hasText: '連動元のnote記事を選ぶ' }).selectOption(ARTICLE_ID);
+  await page.getByRole('button', { name: /X投稿を生成する/ }).click();
+  const body = page.locator('[data-x-single-body]');
+  await expect(body).toBeVisible({ timeout: 30000 });
+  await expect(body.locator(':is(h1,h2,h3,h4)').filter({ hasText: '朝の保湿' }), '見出しがhタグ').toBeVisible();
+  await expect(body.locator('strong').filter({ hasText: '3分以内' }), '太字がstrong').toBeVisible();
+  await expect(body.locator('li').filter({ hasText: '指先1関節' }), '箇条書きがli').toBeVisible();
+  await expect(body, 'ハッシュタグ（# の後に空白なし）は見出しにならず文字として残る').toContainText('#スキンケア');
+  await expectNoRawMarkdown(body, 'X投稿本文');
+  // スレッドの各投稿も整形
+  const views = page.locator('[data-md-view]');
+  expect(await views.count()).toBeGreaterThanOrEqual(2);
+  for (let i = 0; i < (await views.count()); i++) await expectNoRawMarkdown(views.nth(i), `dr-hub 整形ブロック${i}`);
+  // R-71: コピーは表示用レンダラの変換を経ず原文（MD記法のまま）
+  await page.getByRole('button', { name: /^📋 コピー$/ }).first().click();
+  const clip = await page.evaluate(() => navigator.clipboard.readText());
+  expect(clip, 'コピーは原文のまま（表示用の変換を流用しない）').toContain('**3分以内**');
+
+  // ── 記事→X時間差展開（XFanoutTab） ──
+  await page.getByRole('button', { name: /記事→X時間差展開/ }).click();
+  await expect(page.locator('[data-fanout-root]')).toBeVisible();
+  await page.locator('[data-fanout-article]').selectOption(ARTICLE_ID);
+  await page.locator('[data-fanout-run]').click();
+  const fan = page.locator('[data-fanout-body]');
+  await expect(fan.first()).toBeVisible({ timeout: 60000 });
+  await expect(fan.first().locator('strong').filter({ hasText: '3分以内' })).toBeVisible();
+  for (let i = 0; i < (await fan.count()); i++) await expectNoRawMarkdown(fan.nth(i), `時間差展開 型${i}`);
+});
+
+test('C90: Kindle出版のチャット（288）— 完了したAI返答は整形表示・利用者の発言は生のまま（APIモック）', async ({ page }) => {
+  await stubFeatureDrafts(page);
+  const BOOK_ID = 424242;
+  const aiText = '## Phase 1: 市場分析\n\n**ジャンル候補**を3つ挙げます。\n\n- 投資・お金\n- 健康・美容\n- 子育て';
+  const userText = 'こちらは**利用者**の発言 **そのまま**';
+  await page.route((url) => url.pathname === '/api/kindle', async (route) => {
+    const method = route.request().method();
+    const id = new URL(route.request().url()).searchParams.get('id');
+    if (method === 'GET' && !id) return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ books: [{ id: BOOK_ID, title: '[E2E] 288 モック本', language: 'ja', targetWordCount: 30000, currentWordCount: 0, status: 'draft', phase: 1 }] }) });
+    if (method === 'GET' && id) return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ book: { id: BOOK_ID, title: '[E2E] 288 モック本', language: 'ja', targetWordCount: 30000, currentWordCount: 0, status: 'draft', phase: 1, messages: [{ role: 'assistant', content: aiText, timestamp: '2026-09-01T00:00:00.000Z' }, { role: 'user', content: userText, timestamp: '2026-09-01T00:01:00.000Z' }] }, chapters: [] }) });
+    return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ success: true }) });
+  });
+  await page.route('**/api/kindle/chapters**', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ chapters: [] }) }));
+  await page.goto('/dashboard/kindle');
+  await page.getByText('[E2E] 288 モック本').first().click();
+  const ai = page.locator('[data-md-view]').first();
+  await expect(ai).toBeVisible({ timeout: 30000 });
+  await expect(ai.locator(':is(h1,h2,h3,h4)').filter({ hasText: 'Phase 1' }), 'AI返答の見出しがhタグ').toBeVisible();
+  await expect(ai.locator('strong').filter({ hasText: 'ジャンル候補' }), 'AI返答の太字がstrong').toBeVisible();
+  await expect(ai.locator('li')).toHaveCount(3);
+  await expectNoRawMarkdown(ai, 'Kindleチャット AI返答');
+  // 利用者の発言は raw（整形しない）＝ ** が文字として残る
+  await expect(page.getByText(userText, { exact: true }), '利用者の発言は生のまま').toBeVisible();
 });
