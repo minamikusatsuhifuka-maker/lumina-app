@@ -5383,13 +5383,15 @@ test('C87: AI統合サマリー（287）— 生MDが露出しない・見出し/
     // ── ④ 保存: タイトルは選んだ資料から決定的に、本文はそのまま残る ──
     await page.locator('[data-merge-save]').click();
     await expect(modal, '保存後にモーダルが閉じること').toHaveCount(0);
-    const expectedTitle = `統合サマリー: [E2E] 統合A ${marker} 他1件`;
-    await expect.poll(() => dialogs.some((m) => m.includes('リサーチ保存に追加しました') && m.includes(expectedTitle)), '保存完了と保存名が知らされること').toBe(true);
+    // 保存名は「統合サマリー: <選択の1件目> 他1件」。一覧は新しい順なので1件目は統合B（後に作った方）になる
+    const titleRe = new RegExp(`^統合サマリー: \\[E2E\\] 統合[AB] ${marker} 他1件$`);
+    await expect.poll(() => dialogs.some((m) => m.includes('リサーチ保存に追加しました') && titleRe.test(m.replace(/^.*（/, '').replace(/）$/, ''))), '保存完了と保存名が知らされること').toBe(true);
     const rows = (await (await request.get(`${LIBRARY_API}?q=${encodeURIComponent(marker)}`)).json()) as { id: string; title: string; content: string; type: string }[];
     const saved = rows.find((r) => r.type === 'merge');
     expect(saved, '統合サマリーの行が保存されていること').toBeTruthy();
     created.push(saved!.id);
-    expect(saved!.title, 'タイトルが(無題)でなく決定的な名前').toBe(expectedTitle);
+    expect(saved!.title, 'タイトルが(無題)でなく決定的な名前').toMatch(titleRe);
+    const expectedTitle = saved!.title;
     expect(saved!.content, '本文が空でないこと').toContain(bold);
     expect(saved!.content.length).toBeGreaterThan(50);
 
