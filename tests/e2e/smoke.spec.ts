@@ -4777,11 +4777,12 @@ test('C83: リサーチ保存の全画面表示（282）— ⛶で共通リー�
   const marker = `FULLSCREEN${RUN_ID}`;
   const heading = `見出し${marker}`;
   const bold = `太字${marker}`;
-  const content = `## ${heading}\n\n**${bold}** の段落です。\n\n- 箇条書き一\n- 箇条書き二\n\n${'長い本文の行です。'.repeat(150)}`;
+  // 1行目は導入文（helpers が本文先頭に [E2E] を付けるため、見出し行を先頭に置くと ## が行頭でなくなる）
+  const content = `検証用の本文です。\n\n## ${heading}\n\n**${bold}** の段落です。\n\n- 箇条書き一\n- 箇条書き二\n\n${'長い本文の行です。'.repeat(150)}`;
   const itemId = await createLibraryItem(request, { title: `全画面 ${marker}`, content });
   const ctxId = await createContextSave(request, {
     topic: `全画面退行 ${marker}`,
-    contextText: `## CTX${heading}\n\n**CTX${bold}** の本文。${'あ'.repeat(200)}`,
+    contextText: `検証用の本文です。\n\n## CTX${heading}\n\n**CTX${bold}** の本文。${'あ'.repeat(200)}`,
   });
   const folderId = await createFolder(request, 'library', `全画面 ${marker}`);
   expect((await assignFolders(request, 'library', itemId, [folderId])).status()).toBe(200);
@@ -4832,7 +4833,8 @@ test('C83: リサーチ保存の全画面表示（282）— ⛶で共通リー�
     // クリック展開（274と同じ挙動・R-81）: 既定は閉、タイトルで開く、本文クリックでは閉じない
     await expect(body).toHaveCount(0);
     await expect(zone).toHaveAttribute('aria-expanded', 'false');
-    await zone.getByText(`全画面 ${marker}`).click();
+    // タイトル（strong）を押す。フォルダ名も同じ文字列なので文字一致では2要素になる
+    await zone.locator('strong').click();
     await expect(body, 'タイトルのクリックで本文が開くこと').toBeVisible();
     await expect(zone).toHaveAttribute('aria-expanded', 'true');
     await body.click();
@@ -4883,9 +4885,12 @@ test('C83: リサーチ保存の全画面表示（282）— ⛶で共通リー�
     await expect(picker, '☆から分類パネルが開くこと').toBeVisible();
     await picker.getByRole('button', { name: '閉じる' }).click();
     await expect(picker).toHaveCount(0);
-    page.once('dialog', (d) => d.accept());
+    // 削除確認はカード側と画面側で2回出る（既存挙動）ため、この区間だけ全部承諾する
+    const acceptAll = (d: import('@playwright/test').Dialog) => void d.accept();
+    page.on('dialog', acceptAll);
     await card.locator('button[title="削除"]').click();
     await expect(zone, '🗑でカードが消えること').toHaveCount(0);
+    page.off('dialog', acceptAll);
     await expect
       .poll(async () => {
         const rows = (await (await request.get(`${LIBRARY_API}?q=${encodeURIComponent(marker)}`)).json()) as { id: string }[];
