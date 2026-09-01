@@ -4,6 +4,7 @@
 // 261b: ②分割記事化（プラン提案→1リクエスト=1記事で生成。シリーズ導線＝10原則ベースのマーケ設計込み）。
 // 生成APIは保存しない（R-38と同方針）。保存は SaveToLibraryButton の明示操作のみ。
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { MarkdownBody } from '@/components/MarkdownBody';
 import { SaveToLibraryButton } from '@/components/SaveToLibraryButton';
 import FeatureDraftBanner from '@/components/FeatureDraftBanner';
 import { loadFeatureDraft, saveFeatureDraft, clearFeatureDraft } from '@/lib/feature-drafts';
@@ -2212,9 +2213,8 @@ export default function DrHubPage() {
                 </div>
               </div>
               {renderWarnings('single')}
-              <div style={{ fontSize: 14, color: 'var(--text-secondary)', lineHeight: 1.8, whiteSpace: 'pre-wrap', background: 'var(--bg-primary)', border: '1px solid var(--border)', borderRadius: 8, padding: 12 }}>
-                {xResult.single}
-              </div>
+              {/* 288/R-45: 読む画面は整形表示（コピーは従来どおり原文） */}
+              <MarkdownBody data-x-single-body text={xResult.single} style={{ fontSize: 14, color: 'var(--text-secondary)', lineHeight: 1.8, background: 'var(--bg-primary)', border: '1px solid var(--border)', borderRadius: 8, padding: 12 }} />
             </div>
           )}
 
@@ -2232,9 +2232,7 @@ export default function DrHubPage() {
                 {copied === 'x-url-reply' ? '✅ コピー済み' : '📋 コピー'}
               </button>
             </div>
-            <div style={{ fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.8, whiteSpace: 'pre-wrap', background: 'var(--bg-primary)', border: '1px solid var(--border)', borderRadius: 8, padding: 12 }}>
-              {urlReplyContent}
-            </div>
+            <MarkdownBody text={urlReplyContent} style={{ fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.8, background: 'var(--bg-primary)', border: '1px solid var(--border)', borderRadius: 8, padding: 12 }} />
             <div style={{ fontSize: 10, color: 'var(--text-muted)', marginTop: 6 }}>
               ℹ️ 本文にURLを貼ると露出が下がるため、URLは投稿直後にこの内容を1つ目のリプライとして貼ります
             </div>
@@ -2287,7 +2285,7 @@ export default function DrHubPage() {
                       </div>
                     </div>
                     {renderWarnings(`thread-${i}`)}
-                    <div style={{ fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.8, whiteSpace: 'pre-wrap' }}>{t}</div>
+                    <MarkdownBody text={t} style={{ fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.8 }} />
                   </div>
                 ))}
               </div>

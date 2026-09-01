@@ -11,6 +11,7 @@
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { MarkdownBody } from '@/components/MarkdownBody';
 import { loadFeatureDraft, saveFeatureDraft } from '@/lib/feature-drafts';
 import { copyToClipboard } from '@/lib/copyToClipboard';
 import { copyRichMarkdown } from '@/lib/rich-copy';
@@ -395,7 +396,8 @@ export default function XFanoutTab({ noteItems, noteItemsLoaded }: { noteItems: 
                   {r.status === 'na' && <div data-fanout-na style={{ fontSize: 12, color: 'var(--text-muted)' }}>該当なし — この記事からはこの型を無理なく作れません{r.reason ? `（${r.reason}）` : ''}</div>}
                   {r.status === 'done' && (
                     <>
-                      <div style={{ fontSize: 13, color: 'var(--text-primary)', lineHeight: 1.9, whiteSpace: 'pre-wrap', marginBottom: 8 }}>{r.text}</div>
+                      {/* 288/R-45: 読む画面は整形表示（コピーは従来どおり原文） */}
+                      <MarkdownBody data-fanout-body text={r.text} style={{ fontSize: 13, color: 'var(--text-primary)', lineHeight: 1.9, marginBottom: 8 }} />
                       {r.warnings.length > 0 && (
                         <div data-fanout-warnings style={{ fontSize: 11, color: '#B45309', marginBottom: 8, lineHeight: 1.7 }}>
                           {r.warnings.map((w, i) => <div key={i}>⚠️ {w.message}</div>)}

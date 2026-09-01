@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
+import { MarkdownBody } from '@/components/MarkdownBody';
 import { sanitizeFilename, yyyymmdd } from '@/lib/title-generator';
 import { copyRichMarkdown } from '@/lib/rich-copy';
 import { triggerDownload } from '@/lib/download';
@@ -800,7 +801,8 @@ ${body}`;
                     </button>
                   </div>
                 )}
-                {isExpanded ? (item.content || '') : preview + (item.content && item.content.length > 200 ? '…' : '')}
+                {/* 288/R-45: 展開した本文は整形表示（折りたたみ中のプレビューは平文のまま）。親が pre-wrap なので normal に戻す */}
+                {isExpanded ? <MarkdownBody text={item.content || ''} style={{ whiteSpace: 'normal' }} /> : preview + (item.content && item.content.length > 200 ? '…' : '')}
               </div>
             </div>
           );

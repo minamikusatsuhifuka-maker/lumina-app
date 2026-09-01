@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
+import { MarkdownBody } from '@/components/MarkdownBody';
 import { triggerDownload } from '@/lib/download';
 
 export type AnalysisPageType = 'seo' | 'conversion' | 'competitor' | 'contacts';
@@ -248,7 +249,10 @@ export function AnalysisHistory<T>({
                           🗑 削除
                         </button>
                       </div>
-                      <pre
+                      {/* 288/R-45: buildMarkdown で組んだMarkdownを <pre> に生で出していた。読む画面なので整形表示にする
+                          （<pre> を使う理由＝整形済みテキストの保持は無い。コピー/DL経路は buildMarkdown の原文のまま） */}
+                      <MarkdownBody
+                        text={buildMarkdown(s.data)}
                         style={{
                           fontSize: 11,
                           color: 'var(--text-secondary)',
@@ -257,15 +261,10 @@ export function AnalysisHistory<T>({
                           borderRadius: 8,
                           maxHeight: 320,
                           overflow: 'auto',
-                          whiteSpace: 'pre-wrap',
                           wordBreak: 'break-word',
-                          fontFamily: 'inherit',
                           lineHeight: 1.6,
-                          margin: 0,
                         }}
-                      >
-                        {buildMarkdown(s.data)}
-                      </pre>
+                      />
                     </div>
                   )}
                 </div>

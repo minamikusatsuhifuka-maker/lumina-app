@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
+import { MarkdownBody } from '@/components/MarkdownBody';
 import { copyToClipboard } from '@/lib/copyToClipboard';
 import SeoArticleTab from '@/components/meo/SeoArticleTab';
 import RankTrackerTab from '@/components/meo/RankTrackerTab';
@@ -514,7 +515,8 @@ function PostTab() {
             <span style={{ fontWeight: 700, fontSize: 14 }}>{d.style || `案${i + 1}`}</span>
             <AdCheckBadge adCheck={d.ad_check} />
           </div>
-          <div style={{ whiteSpace: 'pre-wrap', fontSize: 14, marginTop: 8, lineHeight: 1.7 }}>{d.text}</div>
+          {/* 288/R-45: AI下書きは整形表示（コピーは原文のまま） */}
+          <MarkdownBody text={d.text} style={{ fontSize: 14, marginTop: 8, lineHeight: 1.7 }} />
           {d.ad_check?.status === 'warn' && d.ad_check.findings && d.ad_check.findings.length > 0 && (
             <ul style={{ fontSize: 12, color: '#b45309', marginTop: 6 }}>
               {d.ad_check.findings.map((f, j) => (
@@ -544,7 +546,7 @@ function PostTab() {
                 </span>
                 <AdCheckBadge adCheck={h.ad_check ?? undefined} />
               </div>
-              <div style={{ whiteSpace: 'pre-wrap', fontSize: 14, marginTop: 6, lineHeight: 1.7 }}>{h.body}</div>
+              <MarkdownBody text={h.body} style={{ fontSize: 14, marginTop: 6, lineHeight: 1.7 }} />
               <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
                 <button onClick={() => copyToClipboard(h.body)} style={smallBtn}>
                   コピー

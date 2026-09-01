@@ -10,6 +10,7 @@
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { MarkdownBody } from '@/components/MarkdownBody';
 import FeatureDraftBanner from '@/components/FeatureDraftBanner';
 import { clearFeatureDraft, loadFeatureDraft, saveFeatureDraft } from '@/lib/feature-drafts';
 import { renderMarkdown } from '@/lib/markdown-renderer';
@@ -618,9 +619,8 @@ export default function PresentationPage() {
                           {SCRIPT_SECTION_DEFS.map((d) => (
                             <div key={d.key} style={{ marginBottom: 10 }}>
                               <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--accent)', marginBottom: 2 }}>{d.label}</div>
-                              <div style={{ fontSize: 13, color: 'var(--text-primary)', lineHeight: 1.9, whiteSpace: 'pre-wrap' }}>
-                                {r.sections[d.key] || '（生成されませんでした）'}
-                              </div>
+                              {/* 288/R-45: スライド別表示も整形（全文表示と同じ renderMarkdown） */}
+                              <MarkdownBody text={r.sections[d.key] || '（生成されませんでした）'} style={{ fontSize: 13, color: 'var(--text-primary)', lineHeight: 1.9 }} />
                             </div>
                           ))}
                           {it.adCheck && it.adCheck.status === 'warn' && it.adCheck.findings.length > 0 && (
