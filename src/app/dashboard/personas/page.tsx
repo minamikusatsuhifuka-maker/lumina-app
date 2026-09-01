@@ -1,5 +1,6 @@
 'use client';
 import { useState, useEffect } from 'react';
+import { MarkdownBody } from '@/components/MarkdownBody';
 
 const INDUSTRY_PRESETS = [
   { industry: '医療・クリニック', role: '院長・経営者', icon: '🏥', desc: '皮膚科・美容医療・クリニック経営' },
@@ -162,9 +163,9 @@ export default function PersonasPage() {
                   maxWidth: '80%', padding: '10px 14px', borderRadius: 10, fontSize: 13, lineHeight: 1.7,
                   background: msg.role === 'user' ? 'linear-gradient(135deg, #6c63ff, #8b5cf6)' : 'var(--bg-secondary)',
                   color: msg.role === 'user' ? '#fff' : 'var(--text-secondary)',
-                  whiteSpace: 'pre-wrap',
                 }}>
-                  {msg.content}
+                  {/* 288/R-45: AIの返答は整形表示（利用者の発言は生のまま） */}
+                  <MarkdownBody text={msg.content} raw={msg.role === 'user'} />
                 </div>
               </div>
             ))}

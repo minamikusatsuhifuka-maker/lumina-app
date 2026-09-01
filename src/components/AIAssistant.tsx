@@ -1,5 +1,6 @@
 'use client';
 import { useState, useRef, useEffect, useCallback } from 'react';
+import { MarkdownBody } from '@/components/MarkdownBody';
 import { usePathname } from 'next/navigation';
 import { VoiceInputButton } from '@/components/VoiceInputButton';
 import { useTheme, useFloatingSlot, floatingBottom, FLOATING_ORDER } from '@/components/ThemeProvider';
@@ -238,9 +239,10 @@ export function AIAssistant() {
                   background: msg.role === 'user' ? 'linear-gradient(135deg, #6c63ff, #8b5cf6)' : 'var(--bg-card)',
                   border: msg.role === 'assistant' ? '1px solid var(--border)' : 'none',
                   color: msg.role === 'user' ? '#fff' : 'var(--text-secondary)',
-                  fontSize: 13, lineHeight: 1.6, whiteSpace: 'pre-wrap',
+                  fontSize: 13, lineHeight: 1.6,
                 }}>
-                  {msg.content}
+                  {/* 288/R-45: AIの返答は整形表示（利用者の発言は生のまま） */}
+                  <MarkdownBody text={msg.content} raw={msg.role === 'user'} />
                 </div>
               </div>
             ))}

@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
+import { MarkdownBody } from '@/components/MarkdownBody';
 import { copyToClipboard } from '@/lib/copyToClipboard';
 import { triggerDownload } from '@/lib/download';
 
@@ -488,9 +489,8 @@ ${architecture.mermaid}
                       color: m.role === 'user' ? '#fff' : 'var(--text-primary)',
                       border: m.role === 'user' ? 'none' : '1px solid var(--border)',
                     }}>
-                      <div style={{ fontSize: 13, whiteSpace: 'pre-wrap' as const, lineHeight: 1.7 }}>
-                        {renderMessageContent(m.content)}
-                      </div>
+                      {/* 288/R-45: 完了したAI返答は整形表示（生成中の streamingText は従来どおり生） */}
+                      <MarkdownBody text={renderMessageContent(m.content)} raw={m.role === 'user'} style={{ fontSize: 13, lineHeight: 1.7 }} />
                       <div style={{ fontSize: 9, marginTop: 4, opacity: 0.7 }}>
                         {new Date(m.timestamp).toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' })}
                       </div>
@@ -606,9 +606,7 @@ ${architecture.mermaid}
                   <h3 style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 8 }}>
                     📋 アーキテクチャ概要
                   </h3>
-                  <p style={{ fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.7, whiteSpace: 'pre-wrap' as const }}>
-                    {architecture.summary}
-                  </p>
+                  <MarkdownBody text={architecture.summary} style={{ fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.7 }} />
                 </div>
 
                 {/* 技術スタック */}

@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
+import { MarkdownBody } from '@/components/MarkdownBody';
 import { copyRichMarkdown } from '@/lib/rich-copy';
 import { renderMarkdown } from '@/lib/markdown-renderer';
 import ContextSelector, {
@@ -742,10 +743,10 @@ export default function BusinessStudioPage() {
                             : 'none',
                         fontSize: 14,
                         lineHeight: 1.7,
-                        whiteSpace: 'pre-wrap',
                       }}
                     >
-                      {renderContent(msg.content)}
+                      {/* 288/R-45: 完了したAI返答は整形表示（生成中の streamingText は従来どおり生） */}
+                      <MarkdownBody text={renderContent(msg.content)} raw={msg.role === 'user'} />
                     </div>
                   </div>
                 ))}
@@ -1238,16 +1239,14 @@ export default function BusinessStudioPage() {
                           padding: 16,
                           fontSize: 13,
                           lineHeight: 1.7,
-                          whiteSpace: 'pre-wrap',
                           maxHeight: 200,
                           overflowY: 'auto',
                           color: 'var(--text-primary)',
                           background: 'var(--bg-primary)',
                         }}
                       >
-                        {asset.content.length > 300
-                          ? `${asset.content.slice(0, 300)}...`
-                          : asset.content}
+                        {/* 288/R-45: 保存資産のプレビューも整形表示 */}
+                        <MarkdownBody text={asset.content.length > 300 ? `${asset.content.slice(0, 300)}...` : asset.content} />
                       </div>
                     </div>
                   ))}

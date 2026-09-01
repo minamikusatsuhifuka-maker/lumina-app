@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
+import { MarkdownBody } from '@/components/MarkdownBody';
 import ContextSelector, {
   buildContextText,
   type ContextItem,
@@ -683,9 +684,8 @@ export default function KindlePage() {
                       color: m.role === 'user' ? '#fff' : 'var(--text-primary)',
                       border: m.role === 'user' ? 'none' : '1px solid var(--border)',
                     }}>
-                      <div style={{ fontSize: 13, whiteSpace: 'pre-wrap' as const, lineHeight: 1.7 }}>
-                        {renderContent(m.content)}
-                      </div>
+                      {/* 288/R-45: 完了したAI返答は整形表示（利用者の発言は生のまま）。生成中の streamingText は下で従来どおり生 */}
+                      <MarkdownBody text={renderContent(m.content)} raw={m.role === 'user'} style={{ fontSize: 13, lineHeight: 1.7 }} />
                     </div>
                   </div>
                 ))}

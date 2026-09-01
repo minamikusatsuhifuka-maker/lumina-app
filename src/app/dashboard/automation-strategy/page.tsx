@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
+import { MarkdownBody } from '@/components/MarkdownBody';
 import { copyRichMarkdown } from '@/lib/rich-copy';
 import { triggerDownload } from '@/lib/download';
 import { renderMarkdown } from '@/lib/markdown-renderer';
@@ -578,9 +579,10 @@ export default function AutomationStrategyPage() {
                     background: msg.role === 'user' ? (currentDomain?.color ?? '#4f46e5') : 'var(--bg-secondary)',
                     color: msg.role === 'user' ? '#fff' : 'var(--text-primary)',
                     border: msg.role === 'assistant' ? '1px solid var(--border-color)' : 'none',
-                    fontSize: 13, lineHeight: 1.8, whiteSpace: 'pre-wrap',
+                    fontSize: 13, lineHeight: 1.8,
                   }}>
-                    {msg.content}
+                    {/* 288/R-45: 完了したAI返答は整形表示（生成中の streamingText は従来どおり生） */}
+                    <MarkdownBody text={msg.content} raw={msg.role === 'user'} />
                   </div>
                 </div>
               ))}

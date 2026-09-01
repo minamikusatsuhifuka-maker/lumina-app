@@ -1,5 +1,6 @@
 'use client';
 import { useState, useEffect, useRef } from 'react';
+import { MarkdownBody } from '@/components/MarkdownBody';
 
 type ChatMode = 'propose' | 'analyze' | 'free';
 type Message = { role: 'user' | 'assistant'; content: string };
@@ -45,7 +46,8 @@ function BeforeAfterCard({ item, onApply, onSave }: { item: BeforeAfter; onApply
         </div>
         <div style={{ padding: 10, background: 'rgba(74,222,128,0.04)' }}>
           <div style={{ fontSize: 10, fontWeight: 700, color: '#4ade80', marginBottom: 4 }}>AFTER</div>
-          <div style={{ fontSize: 11, color: 'var(--text-primary)', lineHeight: 1.6, whiteSpace: 'pre-wrap' }}>{item.after}</div>
+          {/* 288/R-45: AIの改善案は整形表示（BEFORE＝元の文は生のまま） */}
+          <MarkdownBody text={item.after} style={{ fontSize: 11, color: 'var(--text-primary)', lineHeight: 1.6 }} />
         </div>
       </div>
       <div style={{ padding: '6px 10px', borderTop: '1px solid var(--border)', display: 'flex', gap: 6, background: 'var(--bg-secondary)' }}>
@@ -74,9 +76,9 @@ function MessageBubble({ msg, onApply, onSave }: { msg: Message; onApply?: (t: s
           borderRadius: msg.role === 'user' ? '12px 12px 2px 12px' : '12px 12px 12px 2px',
           background: msg.role === 'user' ? 'linear-gradient(135deg, #6c63ff, #8b5cf6)' : 'var(--bg-secondary)',
           color: msg.role === 'user' ? '#fff' : 'var(--text-primary)',
-          fontSize: 12, lineHeight: 1.7, whiteSpace: 'pre-wrap',
+          fontSize: 12, lineHeight: 1.7,
           border: msg.role === 'assistant' ? '1px solid var(--border)' : 'none',
-        }}>{textWithoutBA}</div>
+        }}><MarkdownBody text={textWithoutBA} raw={msg.role === 'user'} /></div>
       )}
       {baItems.map((item, i) => (
         <div key={i} style={{ width: '95%' }}>

@@ -1,5 +1,6 @@
 'use client';
 import { useState, useEffect, useRef } from 'react';
+import { MarkdownBody } from '@/components/MarkdownBody';
 
 interface Message { role: 'user' | 'assistant'; content: string; timestamp: string; }
 
@@ -124,10 +125,11 @@ export function AIDialoguePanel({ contextType, contextLabel, contextData, onInsi
               background: msg.role === 'user' ? 'linear-gradient(135deg, #6c63ff, #8b5cf6)' : 'var(--bg-card)',
               border: msg.role === 'assistant' ? '1px solid var(--border)' : 'none',
               color: msg.role === 'user' ? '#fff' : 'var(--text-secondary)',
-              fontSize: 13, lineHeight: 1.7, whiteSpace: 'pre-wrap',
+              fontSize: 13, lineHeight: 1.7,
             }}>
               {msg.role === 'assistant' && <span style={{ fontSize: 10, color: '#6c63ff', fontWeight: 600, display: 'block', marginBottom: 4 }}>🤖 AI</span>}
-              {msg.content}
+              {/* 288/R-45: AIの返答は整形表示（利用者の発言は生のまま） */}
+              <MarkdownBody text={msg.content} raw={msg.role === 'user'} />
             </div>
           </div>
         ))}
