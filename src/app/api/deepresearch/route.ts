@@ -5,8 +5,12 @@ import { getClinicSystemPrompt } from '@/lib/clinicProfile';
 import { trackUsage } from '@/lib/trackUsage';
 import { streamWithModel, type AIModel } from '@/lib/ai-client';
 import { NO_LATEX_PROMPT_RULE } from '@/lib/markdown-renderer';
-import { fetchAnthropic } from '@/lib/anthropic-compat';
+import { fetchAnthropic, iterateSSE } from '@/lib/anthropic-compat';
+import { describeAnthropicError } from '@/lib/anthropic-error';
+// 290: Gemini／Claude Opus 5 の並列比較（オプトイン・R-88）。ラベル・モデルIDは lib/model-compare.ts が正本
+import { COMPARE_SIDE_LABEL, COMPARE_SIDE_MODEL_ID, parseCompareSide } from '@/lib/model-compare';
 
+// R-83: リテラル必須。正本は lib/model-compare.ts の DEEPRESEARCH_MAX_DURATION_S（U59で一致を固定）
 export const maxDuration = 300;
 
 export async function POST(req: NextRequest) {
@@ -14,13 +18,23 @@ export async function POST(req: NextRequest) {
   // 認証必須（未ログインは401。AI利用コストの無断消費を防ぐ）
   if (!session) return new Response('Unauthorized', { status: 401 });
   const userId = session ? (session.user as any).id : '';
-  const { topic, depth, periodStart, periodEnd, model = DEFAULT_AI_MODEL } = (await req.json()) as {
+  const { topic, depth, periodStart, periodEnd, model = DEFAULT_AI_MODEL, compare } = (await req.json()) as {
     topic: string;
     depth?: string;
     periodStart?: string;
     periodEnd?: string;
     model?: AIModel;
+    /** 290: 'gemini' | 'opus' のときだけ比較経路（フォールバック無効・1リクエスト1モデル）。未指定＝従来どおり */
+    compare?: unknown;
   };
+
+  // 290: 比較フラグの検証。未指定は従来経路（null）。不正値は 400（黙って従来経路に倒さない）
+  const compareSide = parseCompareSide(compare);
+  if (compareSide === undefined) {
+    return new Response(JSON.stringify({ error: 'compare は gemini または opus を指定してください' }), {
+      status: 400, headers: { 'Content-Type': 'application/json' },
+    });
+  }
 
   // 対象期間セクション（指定がある場合のみ。未指定時は既存と完全互換）
   // 期間はプロンプト注入だけでは実効性ゼロ（古い知識の現在形作文になる）ため、
@@ -118,6 +132,91 @@ ${outline}
     async start(controller) {
       try {
         controller.enqueue(encoder.encode('data: {"type":"start"}\n\n'));
+
+        // ── 290: 比較経路（compare 指定時のみ。以下の従来経路には一切触れない・R-88） ──
+        // 同じ systemPrompt（クリニック背景＝ナレッジ注入込み）・同じ userPrompt を両モデルに渡す（§7: 同じガード）。
+        // 1リクエスト1モデル（R-73）。Claude 側は fetchAnthropic の fallback:false で Gemini へ切り替えない（§3）。
+        if (compareSide) {
+          const t0 = Date.now();
+          const modelId = COMPARE_SIDE_MODEL_ID[compareSide];
+          const send = (obj: Record<string, unknown>) =>
+            controller.enqueue(encoder.encode(`data: ${JSON.stringify({ side: compareSide, ...obj })}\n\n`));
+          send({ type: 'meta', model: modelId, label: COMPARE_SIDE_LABEL[compareSide] });
+          let inputTokens = 0;
+          let outputTokens = 0;
+          let chars = 0;
+          try {
+            if (compareSide === 'gemini') {
+              // 通常経路の Gemini と同じ関数・同じ引数（検索グラウンディング有効）。
+              // 'delta' 形式にするのは、'standard' が自前で done を出すため（比較経路の done は使用量つきで1回だけ出す）
+              const counting = {
+                enqueue: (chunk: Uint8Array) => {
+                  chars += chunk.byteLength; // 目安（文字数はクライアントが本文長から確定する）
+                  controller.enqueue(chunk);
+                },
+              } as unknown as ReadableStreamDefaultController;
+              const usage = await streamWithModel('gemini', userPrompt, systemPrompt, counting, encoder, maxTokens, 'delta', true);
+              inputTokens = usage.inputTokens;
+              outputTokens = usage.outputTokens;
+            } else {
+              // Claude Opus 5（CLAUDE_OPUS_MODEL・244で実在確認・290で疎通再確認）。ストリーミングで本文を逐次流す。
+              // web_search は Opus 5 で受理を確認した新版（web_search_20260209）を使う（R-47: パラメータ受理確認済み）
+              const res = await fetchAnthropic(
+                {
+                  model: modelId,
+                  max_tokens: Math.max(maxTokens, 2048), // R-03
+                  stream: true,
+                  tools: [{ type: 'web_search_20260209', name: 'web_search' }],
+                  system: systemPrompt,
+                  messages: [{ role: 'user', content: userPrompt }],
+                },
+                { fallback: false },
+              );
+              if (!res.ok) {
+                const errBody = await res.json().catch(() => null);
+                // §3-2: 失敗は失敗として返す（Gemini で代替しない）。理由は原文つきで（R-33）
+                send({ type: 'error', message: describeAnthropicError(res.status, errBody) });
+                return;
+              }
+              for await (const ev of iterateSSE(res)) {
+                if (ev.type === 'message_start') {
+                  inputTokens = ev.message?.usage?.input_tokens ?? 0;
+                } else if (ev.type === 'content_block_delta' && ev.delta?.type === 'text_delta') {
+                  chars += ev.delta.text.length;
+                  send({ type: 'text', content: ev.delta.text });
+                } else if (ev.type === 'message_delta') {
+                  outputTokens = ev.usage?.output_tokens ?? outputTokens;
+                } else if ((ev as { type: string }).type === 'error') {
+                  const msg = (ev as unknown as { error?: { message?: string } }).error?.message;
+                  throw new Error(msg || 'Anthropic のストリームがエラーで終了しました');
+                }
+              }
+              if (chars === 0) {
+                // 200 なのに本文が空（枠切れ・refusal 等）。偽の成功にしない（R-05）
+                send({ type: 'error', message: `${COMPARE_SIDE_LABEL[compareSide]} の応答が空でした（思考枠の不足または生成の拒否）。` });
+                return;
+              }
+            }
+            await trackUsage({
+              userId,
+              featureKey: 'deepresearch',
+              stepLabel: `[比較:${COMPARE_SIDE_LABEL[compareSide]}] ${topic ?? ''}`.slice(0, 50),
+              inputTokens,
+              outputTokens,
+              ...(compareSide === 'opus' ? { model: modelId } : {}),
+            });
+            send({
+              type: 'done',
+              model: modelId,
+              elapsedMs: Date.now() - t0,
+              usage: { input_tokens: inputTokens, output_tokens: outputTokens },
+            });
+          } catch (e) {
+            // ネットワーク断・Gemini 側の例外など。理由を列に出す（空欄にしない）
+            send({ type: 'error', message: e instanceof Error ? e.message : String(e) });
+          }
+          return;
+        }
 
         // Gemini: streamWithModel（Google検索グラウンディング有効・出典は本文末尾に自動追記）
         if (model === 'gemini') {

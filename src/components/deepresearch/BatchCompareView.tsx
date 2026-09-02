@@ -17,9 +17,6 @@ import {
   type BatchCompareMode,
   type BatchResult,
   COMPARE_COLUMN_CHOICES,
-  COMPARE_HEIGHT_LABEL,
-  COMPARE_HEIGHT_PRESETS,
-  COMPARE_HEIGHT_VH,
   type CompareColumnChoice,
   type CompareHeightPreset,
   compareColumnLabel,
@@ -32,14 +29,21 @@ import {
   saveColumnChoice,
   saveCompareMode,
   saveHeightPreset,
-  scrollRatioOf,
-  syncScrollTop,
   toggleCompareId,
 } from '@/lib/batch-compare';
 import { renderMarkdown } from '@/lib/markdown-renderer';
 import { copyRichMarkdown } from '@/lib/rich-copy';
 import { triggerDownload } from '@/lib/download';
 import { useFinePointer } from '@/lib/pointer-device';
+// 290: 同期スクロール・高さプリセット・列の外枠（sticky ヘッダー）は共通部品へ（モデル比較と共用）
+import {
+  COMPARE_ACCENT,
+  CompareColumnShell,
+  CompareHeightPicker,
+  CompareSyncToggle,
+  compareCompactBtnStyle,
+  useSyncedScroll,
+} from '@/components/deepresearch/CompareGrid';
 
 type Props = {
   jobId: number;
@@ -47,7 +51,7 @@ type Props = {
   onClose: () => void;
 };
 
-const ACCENT = '#6c63ff';
+const ACCENT = COMPARE_ACCENT;
 
 export default function BatchCompareView({ jobId, results, onClose }: Props) {
   // 258: 端末判定は lib/pointer-device.ts に一本化（255〜260・270と同じ関数を使う）
@@ -64,8 +68,8 @@ export default function BatchCompareView({ jobId, results, onClose }: Props) {
   const [heightPreset, setHeightPreset] = useState<CompareHeightPreset>('high');
 
   const rootRef = useRef<HTMLDivElement | null>(null);
-  const colRefs = useRef<(HTMLDivElement | null)[]>([]);
-  const syncingRef = useRef(false);
+  // 271 §3-1: 同期スクロール（割合ベース）。290で共通フックへ
+  const { setColRef, handleScroll } = useSyncedScroll(syncScroll);
 
   useEffect(() => {
     // localStorage はクライアントでしか読めないので、描画後に反映する（SSRと差分を作らない）
@@ -100,22 +104,6 @@ export default function BatchCompareView({ jobId, results, onClose }: Props) {
     saveCompareMode(next);
   };
 
-  const handleScroll = (idx: number) => {
-    if (!syncScroll || syncingRef.current) return;
-    const src = colRefs.current[idx];
-    if (!src) return;
-    const ratio = scrollRatioOf(src.scrollTop, src.scrollHeight, src.clientHeight);
-    syncingRef.current = true;
-    colRefs.current.forEach((el, i) => {
-      if (!el || i === idx) return;
-      el.scrollTop = syncScrollTop(ratio, el.scrollHeight, el.clientHeight);
-    });
-    // 同期で動かした側の scroll イベントが跳ね返って無限に往復するのを防ぐ
-    requestAnimationFrame(() => {
-      syncingRef.current = false;
-    });
-  };
-
   const handleCopy = async (text: string, id: number) => {
     if (!text) return;
     // R-71: 貼り付け先を決め打ちしない一般コピー。263の挙動（Word体裁のリッチコピー）をそのまま使う
@@ -142,16 +130,7 @@ export default function BatchCompareView({ jobId, results, onClose }: Props) {
     color: active ? 'var(--text-primary)' : 'var(--text-muted)',
   });
 
-  const compactBtnStyle: React.CSSProperties = {
-    padding: '4px 8px',
-    borderRadius: 5,
-    fontSize: 11,
-    fontWeight: 600,
-    border: '1px solid var(--border)',
-    background: 'var(--bg-primary)',
-    color: 'var(--text-primary)',
-    cursor: 'pointer',
-  };
+  const compactBtnStyle = compareCompactBtnStyle;
 
   return (
     <div
@@ -197,31 +176,8 @@ export default function BatchCompareView({ jobId, results, onClose }: Props) {
             </span>
           )}
           {/* 289 §4: カード高さのプリセット（低＝2×2で4枚が1画面に収まる／高＝従来68vh） */}
-          <span data-compare-height-picker style={{ display: 'inline-flex', alignItems: 'center', gap: 2 }} title="カードの高さ（低＝2列×2行で4枚が1画面に収まる目安）">
-            <span style={{ fontSize: 11, color: 'var(--text-muted)', marginRight: 2 }}>高さ</span>
-            {COMPARE_HEIGHT_PRESETS.map((h) => (
-              <button
-                key={h}
-                type="button"
-                data-compare-height-choice={h}
-                aria-pressed={heightPreset === h}
-                onClick={() => applyHeight(h)}
-                title={`${COMPARE_HEIGHT_LABEL[h]}（${COMPARE_HEIGHT_VH[h]}vh）`}
-                style={{ ...compactBtnStyle, padding: '4px 8px', borderColor: heightPreset === h ? ACCENT : 'var(--border)', background: heightPreset === h ? `${ACCENT}15` : 'var(--bg-primary)', fontWeight: heightPreset === h ? 700 : 600 }}
-              >
-                {COMPARE_HEIGHT_LABEL[h]}
-              </button>
-            ))}
-          </span>
-          <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--text-muted)', cursor: 'pointer' }}>
-            <input
-              type="checkbox"
-              data-compare-sync
-              checked={syncScroll}
-              onChange={(e) => setSyncScroll(e.target.checked)}
-            />
-            同期スクロール
-          </label>
+          <CompareHeightPicker value={heightPreset} onChange={applyHeight} />
+          <CompareSyncToggle checked={syncScroll} onChange={setSyncScroll} />
           <button
             type="button"
             data-compare-close
@@ -284,37 +240,13 @@ export default function BatchCompareView({ jobId, results, onClose }: Props) {
             // 285§3-2: フォールバック列はラベルも「本文（要約なし）」。文字数は text（＝実際に出している内容）のもの
             const label = compareColumnLabel(mode, fellBack);
             return (
-              <div
+              <CompareColumnShell
                 key={r.id}
-                data-compare-col={i}
-                ref={(el) => {
-                  colRefs.current[i] = el;
-                }}
+                index={i}
+                heightPreset={heightPreset}
+                colRef={setColRef(i)}
                 onScroll={() => handleScroll(i)}
-                style={{
-                  // §4-3: 長文比較なので画面高さをできるだけ使う。289: 高さはプリセット（既定 high＝68vh）。
-                  // ルート zoom（文字サイズ4段階）は vh 指定の要素も拡大するため、低プリセットの2×2は
-                  // 100%以外の倍率では1画面に収まらないことがある（§4-3・報告済み）
-                  maxHeight: `${COMPARE_HEIGHT_VH[heightPreset]}vh`,
-                  overflowY: 'auto',
-                  background: 'var(--bg-primary)',
-                  border: '1px solid var(--border)',
-                  borderRadius: 10,
-                  minWidth: 0,
-                }}
-              >
-                {/* §3-2: 列ヘッダーはsticky固定。5,000字をスクロールしてもどの列か分かるようにする */}
-                <div
-                  data-compare-header={i}
-                  style={{
-                    position: 'sticky',
-                    top: 0,
-                    zIndex: 1,
-                    padding: '10px 12px',
-                    background: 'var(--bg-secondary)',
-                    borderBottom: '1px solid var(--border)',
-                  }}
-                >
+                header={<>
                   <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                     {r.topic}
                   </div>
@@ -345,8 +277,8 @@ export default function BatchCompareView({ jobId, results, onClose }: Props) {
                       ※ この結果には要約が保存されていないため、本文を表示しています
                     </div>
                   )}
-                </div>
-
+                </>}
+              >
                 {/* R-45: 読む画面は整形表示（生MD記法をUIに出さない） */}
                 {text ? (
                   <div
@@ -357,7 +289,7 @@ export default function BatchCompareView({ jobId, results, onClose }: Props) {
                 ) : (
                   <div style={{ padding: 12, fontSize: 12, color: 'var(--text-muted)' }}>（本文がありません）</div>
                 )}
-              </div>
+              </CompareColumnShell>
             );
           })}
         </div>

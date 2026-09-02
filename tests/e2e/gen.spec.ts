@@ -628,3 +628,28 @@ test('B27: AI統合サマリー（287 §2-5）— 実AIの出力に h1（# ）�
   expect(result, '見出しレベル1（# ）を使わないこと').not.toMatch(/^# /m);
   expect(result, '見出しは ## で構成されること').toMatch(/^## /m);
 });
+
+test('B28: モデル比較の Claude Opus 5 側（290）— compare:"opus" で実生成が完走し、meta が claude-opus-5・done に使用量・error なし・Gemini へ切り替わらない @gen', async ({ request }) => {
+  test.setTimeout(GEN_TIMEOUT);
+  const t0 = Date.now();
+  const res = await request.post('/api/deepresearch', {
+    data: { topic: '[E2E] 保湿剤の基礎', depth: 'quick', model: 'claude', compare: 'opus' },
+    timeout: REQ_TIMEOUT,
+  });
+  const elapsedMs = Date.now() - t0;
+  expect(res.status()).toBe(200);
+  expect(res.headers()['x-ai-provider'], 'フォールバック無効＝Gemini のヘッダが付かない（R-99）').toBeUndefined();
+  const body = await res.text();
+  const events = body.split('\n').filter((l) => l.startsWith('data: ')).map((l) => JSON.parse(l.slice(6)) as Record<string, unknown>);
+  const meta = events.find((e) => e.type === 'meta');
+  expect(meta?.model, '実際に呼んだモデルが Opus 5').toBe('claude-opus-5');
+  expect(events.some((e) => e.type === 'error'), `error が無いこと: ${JSON.stringify(events.find((e) => e.type === 'error'))}`).toBe(false);
+  const done = events.find((e) => e.type === 'done') as { usage?: { input_tokens?: number; output_tokens?: number }; elapsedMs?: number } | undefined;
+  expect(done, 'done で終わる').toBeTruthy();
+  expect(done?.usage?.output_tokens ?? 0).toBeGreaterThan(0);
+  const chars = events.filter((e) => e.type === 'text').map((e) => String(e.content ?? '')).join('').length;
+  expect(chars, '本文が返る').toBeGreaterThan(200);
+  // R-73: 実測所要を報告に載せる（maxDuration 300秒との整合判断用）
+  console.log(`[B28] Opus 5 quick: client ${elapsedMs}ms / server ${done?.elapsedMs}ms / ${chars}字 / usage ${JSON.stringify(done?.usage)}`);
+  expect(elapsedMs, 'maxDuration の内側で終わる').toBeLessThan(300_000);
+});

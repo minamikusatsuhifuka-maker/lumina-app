@@ -5649,3 +5649,197 @@ test('C91: 横並び比較の列数・高さ（289）— 既定は自動/高・1
   await page.locator('[data-compare-cols-choice="auto"]').click();
   await expect(grid).toHaveAttribute('data-compare-cols-mode', 'auto');
 });
+
+test('C92: Gemini と Claude Opus 5 の並列比較（290）— 2本のリクエスト・列ヘッダーにモデル名・整形表示（R-97）・高さ/同期/sticky（289/271）・列ごとの保存（タイトル/タグ/metadataにモデル）・Claude失敗は理由表示でGeminiへ切り替えない（R-99）・他方は無事（R-39）・二重押しで増えない（R-87）・通常開始は1本で不変（R-88）', async ({ page }) => {
+  await stubFeatureDrafts(page); // R-12: 下書き復元（通常・比較とも同じAPI）を固定
+  // 完了後に走る付随AI・履歴・分類はモックして課金も書き込みもさせない
+  for (const pattern of ['**/api/knowledge/**', '**/api/glossary/research-extract', '**/api/deepresearch/insights', '**/api/deepresearch/query-history', '**/api/library/auto-categorize']) {
+    await page.route(pattern, (route) => route.fulfill({ status: 200, contentType: 'application/json', body: '{}' }));
+  }
+  // 保存先はモック（本番ライブラリに書かない）。保存要求の中身（タイトル・タグ・metadata）を検証する
+  const libraryPosts: { title?: string; tags?: string; content?: string; metadata?: Record<string, unknown> }[] = [];
+  await page.route('**/api/library', async (route) => {
+    if (route.request().method() === 'POST') {
+      libraryPosts.push(route.request().postDataJSON());
+      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ id: 'e2e-mock' }) });
+      return;
+    }
+    await route.fallback();
+  });
+  // 生成SSEをモック（AI課金なし）。compare の値で3経路（Gemini成功／Opus成功 or 失敗／通常）を返す
+  const posts: { compare?: unknown; model?: string; topic?: string }[] = [];
+  const sse = (events: object[]) => events.map((e) => `data: ${JSON.stringify(e)}\n\n`).join('');
+  const longBody = (name: string) =>
+    `## ${name}の見出し\n\n**要点**をまとめます。\n\n${`${name}の本文行です。`.repeat(90)}\n\n### ${name}の小見出し\n\n- 箇条書きその1\n- 箇条書きその2\n\n${`さらに${name}の説明が続きます。`.repeat(90)}`;
+  await page.route('**/api/deepresearch', async (route) => {
+    const body = route.request().postDataJSON() as { compare?: unknown; model?: string; topic?: string };
+    posts.push({ compare: body.compare, model: body.model, topic: body.topic });
+    await new Promise((r) => setTimeout(r, 400)); // 「実行中」の時間を作る（二重押しの判定用）
+    const side = body.compare;
+    if (side === 'opus' && /失敗ケース/.test(body.topic ?? '')) {
+      // Claude 側が上限で落ちたケース。サーバーは Gemini で代替せず error を返す（R-99）
+      await route.fulfill({
+        status: 200,
+        contentType: 'text/event-stream',
+        body: sse([
+          { type: 'start' },
+          { side, type: 'meta', model: 'claude-opus-5', label: 'Claude Opus 5' },
+          { side, type: 'error', message: 'AIの利用上限に達しています（アプリの不具合ではありません）。／原文: [E2E] usage limits' },
+        ]),
+      });
+      return;
+    }
+    if (side === 'gemini' || side === 'opus') {
+      const name = side === 'gemini' ? 'Gemini' : 'Opus';
+      const text = longBody(name);
+      const chunks = text.match(/[\s\S]{1,200}/g) ?? [];
+      await route.fulfill({
+        status: 200,
+        contentType: 'text/event-stream',
+        body: sse([
+          { type: 'start' },
+          { side, type: 'meta', model: side === 'gemini' ? 'gemini-3.7-flash' : 'claude-opus-5' },
+          // 実サーバーと同じ形: Gemini 側は streamWithModel の 'delta'、Opus 側は 'text'
+          ...chunks.map((c) => (side === 'gemini' ? { side, type: 'delta', text: c } : { side, type: 'text', content: c })),
+          { side, type: 'done', model: side === 'gemini' ? 'gemini-3.7-flash' : 'claude-opus-5', elapsedMs: 12345, usage: { input_tokens: 1000, output_tokens: 2000 } },
+        ]),
+      });
+      return;
+    }
+    // 通常経路（compare なし）: 従来どおりの SSE
+    await route.fulfill({
+      status: 200,
+      contentType: 'text/event-stream',
+      body: sse([{ type: 'start' }, { type: 'text', content: '## 通常の結果\n\n通常経路の本文です。' }, { type: 'done', usage: { input_tokens: 1, output_tokens: 1 } }]),
+    });
+  });
+
+  await page.setViewportSize({ width: 1280, height: 900 }); // md 以上＝2列
+  await page.goto('/dashboard/deepresearch');
+  await page.evaluate(() => {
+    localStorage.removeItem('lumina_batch_compare_height');
+    localStorage.setItem('lumina_auto_stock_save', '0'); // 通常経路の自動保存はこのテストの対象外（DBに書かない）
+    localStorage.setItem('lumina_text_scale', '100');
+  });
+  await page.reload({ waitUntil: 'domcontentloaded' });
+  await waitForRunReady(page); // R-12: ハイドレーション完了を待ってから fill する
+  const topic = page.getByPlaceholder(/調査したいテーマを詳しく入力してください/);
+  const compareBtn = page.locator('button[data-compare-run]');
+  const panel = page.locator('[data-model-compare]');
+  const col = (i: number) => page.locator(`[data-compare-col="${i}"]`);
+  const sideCol = (s: string) => page.locator(`[data-compare-model="${s}"]`);
+
+  await expect(compareBtn, 'ボタンにモデル名が分かる表記（§5-1）').toContainText(/Gemini 3\.7 Flash と Claude Opus 5/);
+  await expect(compareBtn, '未入力では押せない').toBeDisabled();
+  await topic.fill('[E2E] 比較の検証');
+  await expect(topic, '入力がstateに入っている前提').toHaveValue('[E2E] 比較の検証');
+  await expect(compareBtn).toBeEnabled();
+
+  // ── ① 両方成功: 2本のリクエスト（1本にまとまっていない・§4-1）。二重押しで増えない（R-87） ──
+  await compareBtn.click();
+  await compareBtn.click({ force: true, noWaitAfter: true }).catch(() => {});
+  await expect(panel).toBeVisible();
+  await expect(sideCol('gemini'), '実行中→完了の状態が列に出る').toHaveAttribute('data-compare-status', 'done', { timeout: 20000 });
+  await expect(sideCol('opus')).toHaveAttribute('data-compare-status', 'done', { timeout: 20000 });
+  const comparePosts = posts.filter((p) => p.compare);
+  expect(comparePosts.length, '比較は2本のリクエスト（二重押ししても増えない）').toBe(2);
+  expect(comparePosts.map((p) => String(p.compare)).sort()).toEqual(['gemini', 'opus']);
+  expect(posts.filter((p) => !p.compare).length, '比較ボタンで通常経路は走らない').toBe(0);
+
+  // 列ヘッダーにモデル名（§5-3）
+  await expect(page.locator('[data-compare-model-label="gemini"]')).toContainText('Gemini 3.7 Flash');
+  await expect(page.locator('[data-compare-model-label="opus"]')).toContainText('Claude Opus 5');
+  await expect(page.locator('[data-compare-model-label="opus"]'), 'モデルIDも併記').toContainText('claude-opus-5');
+  await expect(page.locator('[data-compare-status-label="gemini"]')).toContainText('完了');
+
+  // 整形表示（R-45/R-97）: 生MD記法が露出せず見出しがタグになっている
+  await expect(col(0)).toContainText('Geminiの本文行です。');
+  await expect(col(1)).toContainText('Opusの本文行です。');
+  for (const i of [0, 1]) {
+    await expectNoRawMarkdown(col(i).locator('[data-md-view]'), `比較列${i}`);
+    expect(await col(i).locator('h2, h3, h4').count(), `列${i}の見出しがHTMLタグ`).toBeGreaterThan(0);
+  }
+  // 使用量（§6-3）: 所要・文字数・トークン
+  await expect(page.locator('[data-compare-usage="gemini"]')).toContainText(/所要 12秒 ／ [\d,]+字 ／ 入力 1,000 tok ／ 出力 2,000 tok/);
+
+  // 2列固定（列数UIは無い）・同じ行に並ぶ
+  const grid = page.locator('[data-model-compare] [data-compare-cols]');
+  await expect(grid).toHaveAttribute('data-compare-cols', '2');
+  await expect(page.locator('[data-model-compare] [data-compare-cols-picker]'), '2件固定なので列数の選択UIは置かない').toHaveCount(0);
+  const ys = await page.evaluate(() => [0, 1].map((i) => Math.round(document.querySelector(`[data-compare-col="${i}"]`)!.getBoundingClientRect().y)));
+  expect(ys[0], '2列が横に並ぶ').toBe(ys[1]);
+  const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+  expect(overflow, 'ページに横スクロールが出ない').toBeLessThanOrEqual(1);
+
+  // 高さプリセット（289）: 既定 高(68vh) → 低(34vh)
+  const maxH = () => col(0).evaluate((el) => Math.round(parseFloat(getComputedStyle(el).maxHeight)));
+  await expect(page.locator('[data-model-compare] [data-compare-height-choice="high"]')).toHaveAttribute('aria-pressed', 'true');
+  expect(await maxH(), '既定の高さは68vh相当').toBe(Math.round(900 * 0.68));
+  await page.locator('[data-model-compare] [data-compare-height-choice="low"]').click();
+  await expect(grid).toHaveAttribute('data-compare-height', 'low');
+  expect(await maxH(), '低プリセットは34vh相当').toBe(Math.round(900 * 0.34));
+
+  // 同期スクロール（271・割合ベース）と sticky
+  await col(1).evaluate((el) => { el.scrollTop = 0; });
+  await col(0).evaluate((el) => { el.scrollTop = el.scrollHeight; el.dispatchEvent(new Event('scroll')); });
+  await expect.poll(() => col(1).evaluate((el) => el.scrollTop), '列0を送ると列1も動く').toBeGreaterThan(0);
+  for (const i of [0, 1]) {
+    const header = page.locator(`[data-compare-header="${i}"]`);
+    expect(await header.evaluate((el) => getComputedStyle(el).position), `列${i}のヘッダーがsticky`).toBe('sticky');
+    const c = await col(i).boundingBox();
+    const h = await header.boundingBox();
+    expect(c && h && h.y - c.y, `列${i}のヘッダーが上端に固定`).toBeLessThan(4);
+  }
+  const before = await col(1).evaluate((el) => el.scrollTop);
+  await page.locator('[data-model-compare] [data-compare-sync]').uncheck();
+  await col(0).evaluate((el) => { el.scrollTop = 0; el.dispatchEvent(new Event('scroll')); });
+  await page.waitForTimeout(200);
+  expect(await col(1).evaluate((el) => el.scrollTop), 'OFFにすると他列は動かない').toBe(before);
+
+  // 保存（§5-5/§5-6）: 列ごとに保存でき、タイトル・タグ・metadata でどのモデルか分かる
+  await expect(page.locator('[data-compare-save="gemini"]').getByRole('button', { name: '📚 リサーチ保存に追加' })).toBeVisible();
+  await page.locator('[data-compare-save="opus"]').getByRole('button', { name: '📚 リサーチ保存に追加' }).click();
+  await expect.poll(() => libraryPosts.length).toBe(1);
+  expect(libraryPosts[0].title, 'タイトルにモデル名（286の同題ペアリングから外れる）').toBe('[E2E] 比較の検証［Claude Opus 5］');
+  expect(String(libraryPosts[0].tags)).toContain('ディープリサーチ');
+  expect(String(libraryPosts[0].tags)).toContain('model:claude-opus-5');
+  expect(libraryPosts[0].metadata?.model).toBe('claude-opus-5');
+  expect(libraryPosts[0].metadata?.compare).toBe(true);
+  expect(libraryPosts[0].content).toContain('Opusの本文行です。');
+  await expect(page.locator('[data-compare-save="opus"]').getByRole('button', { name: '✅ 保存済み' })).toBeVisible();
+  expect(libraryPosts.length, 'Gemini 側は押していないので保存されない（片方だけ保存できる）').toBe(1);
+
+  // ── ② Claude 側が失敗: 理由を表示・Gemini へ切り替えない（R-99）・Gemini 側は無事（R-39） ──
+  await page.locator('[data-model-compare] [data-compare-close]').click();
+  await expect(panel).toHaveCount(0);
+  await topic.fill('[E2E] 比較の失敗ケース');
+  await compareBtn.click();
+  await expect(sideCol('opus')).toHaveAttribute('data-compare-status', 'error', { timeout: 20000 });
+  await expect(sideCol('gemini')).toHaveAttribute('data-compare-status', 'done', { timeout: 20000 });
+  await expect(page.locator('[data-compare-error="opus"]'), '失敗の理由が表示される（空欄にしない）').toContainText('AIの利用上限に達しています');
+  await expect(page.locator('[data-compare-status-label="opus"]')).toContainText('失敗');
+  await expect(sideCol('opus'), 'Opus列に Gemini の本文が入らない（切り替えない）').not.toContainText('Geminiの本文行です。');
+  await expect(sideCol('opus'), '「✨…で生成」の代替表示が無い').not.toContainText('で生成');
+  await expect(page.locator('[data-compare-model-label="opus"]'), 'ヘッダーは Opus のまま').toContainText('Claude Opus 5');
+  await expect(page.locator('[data-compare-save="opus"]'), '失敗した列に保存ボタンは出ない').toHaveCount(0);
+  await expect(sideCol('gemini'), 'Gemini 側は巻き添えにならない').toContainText('Geminiの本文行です。');
+  await expect(page.locator('[data-compare-save="gemini"]')).toHaveCount(1);
+  expect(posts.filter((p) => p.compare).length).toBe(4);
+
+  // ── ③ 通常の「開始」は不変（R-88）: 1本・compare フラグなし・従来の結果表示 ──
+  await page.locator('[data-model-compare] [data-compare-close]').click();
+  await topic.fill('[E2E] 通常のお題');
+  await page.locator('button[data-kb-run]').click();
+  await expect(page.getByText('通常経路の本文です。')).toBeVisible({ timeout: 20000 });
+  const normal = posts.filter((p) => !p.compare);
+  expect(normal.length, '通常開始は1本').toBe(1);
+  expect(normal[0].compare, 'compare フラグが載らない').toBeUndefined();
+  expect(posts.length).toBe(5);
+  await expect(panel, '通常開始で比較パネルは出ない').toHaveCount(0);
+});
+
+test('C93: /api/deepresearch の compare は gemini／opus 以外なら 400（290）— 黙って従来経路に倒さない', async ({ request }) => {
+  const res = await request.post('/api/deepresearch', { data: { topic: '[E2E] compare検証', depth: 'quick', compare: 'claude' } });
+  expect(res.status()).toBe(400);
+  expect((await res.json()).error).toContain('compare');
+});

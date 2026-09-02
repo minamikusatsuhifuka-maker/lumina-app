@@ -146,9 +146,39 @@ function eventsToSSE(events: Record<string, unknown>[]): string {
  *   const res = await fetch('https://api.anthropic.com/v1/messages', { ...init });
  *   → const res = await fetchAnthropic(body);
  */
-export async function fetchAnthropic(body: AnthropicBody): Promise<Response> {
+export interface FetchAnthropicOptions {
+  /**
+   * 290: false にすると Gemini へのフォールバックを行わず、Anthropic の失敗をそのまま返す
+   * （エラー応答は Response のまま・ネットワーク断は throw）。
+   * 用途は「Gemini と Claude を並べて比較する」経路だけ——両方 Gemini になれば比較の意味が消えるため。
+   * 既定（未指定＝true）は 235/242 どおり上限・混雑で Gemini へ切り替える。通常経路は1文字も変えない（R-88）。
+   */
+  fallback?: boolean;
+}
+
+/**
+ * 290: Anthropic が失敗したときに取る行動（純関数・U59）。
+ * - fallback=false … 常に 'passthrough'（比較経路。失敗は失敗として返す）
+ * - 上限・混雑（isFallbackWorthy） … 'gemini'
+ * - 認証・リクエスト不正 … 'passthrough'（R-33: 隠さず表面化させる）
+ */
+export function anthropicFailureAction(status: number, errBody: unknown, fallback = true): 'passthrough' | 'gemini' {
+  if (!fallback) return 'passthrough';
+  return isFallbackWorthy(status, errBody) ? 'gemini' : 'passthrough';
+}
+
+export async function fetchAnthropic(body: AnthropicBody, options?: FetchAnthropicOptions): Promise<Response> {
   const apiKey = process.env.ANTHROPIC_API_KEY;
+  const fallback = options?.fallback ?? true;
   let fallbackReason: string | null = null;
+
+  if (!apiKey && !fallback) {
+    // 比較経路でキーが無い＝Claude 側は成立しない。Gemini で代替せず、その旨を Anthropic 形式のエラーで返す
+    return new Response(
+      JSON.stringify({ type: 'error', error: { type: 'authentication_error', message: 'ANTHROPIC_API_KEY が未設定です' } }),
+      { status: 401, headers: { 'Content-Type': 'application/json' } },
+    );
+  }
 
   if (apiKey) {
     try {
@@ -161,10 +191,12 @@ export async function fetchAnthropic(body: AnthropicBody): Promise<Response> {
       if (res.ok) return res;
 
       const errBody = await res.clone().json().catch(() => null);
-      // 上限・混雑以外（認証・リクエスト不正）は隠さずそのまま返す（R-33）
-      if (!isFallbackWorthy(res.status, errBody)) return res;
+      // 上限・混雑以外（認証・リクエスト不正）は隠さずそのまま返す（R-33）。比較経路（fallback=false）は常にそのまま返す
+      if (anthropicFailureAction(res.status, errBody, fallback) === 'passthrough') return res;
       fallbackReason = describeAnthropicError(res.status, errBody);
     } catch (e) {
+      // 比較経路ではネットワーク断も隠さない（呼び出し側が理由を列に出す）
+      if (!fallback) throw e;
       fallbackReason = e instanceof Error ? e.message : String(e);
     }
   } else {
@@ -233,8 +265,11 @@ export function providerHeaders(res: Response): Record<string, string> {
 
 /* ══════════════ ② SDK 互換（new Anthropic() ルート向け） ══════════════ */
 
-/** SSE の Response を「イベントを1件ずつ yield する AsyncIterable」に変える（逐次・バッファ蓄積なし） */
-async function* iterateSSE(res: Response): AsyncGenerator<AnthropicStreamEvent> {
+/**
+ * SSE の Response を「イベントを1件ずつ yield する AsyncIterable」に変える（逐次・バッファ蓄積なし）。
+ * 290: ルート側でストリームを読むとき（比較経路の Opus）もこれを使い、SSEの行解釈を各ルートに書かない。
+ */
+export async function* iterateSSE(res: Response): AsyncGenerator<AnthropicStreamEvent> {
   const reader = res.body!.getReader();
   const decoder = new TextDecoder();
   let buffer = '';

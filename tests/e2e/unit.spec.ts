@@ -2,6 +2,25 @@ import { test, expect } from '@playwright/test';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describeAnthropicError, isFallbackWorthy } from '../../src/lib/anthropic-error';
+// 290: モデル比較
+import { anthropicFailureAction } from '../../src/lib/anthropic-compat';
+import { CLAUDE_OPUS_MODEL, GEMINI_TEXT_MODEL } from '../../src/lib/ai-models';
+import {
+  COMPARE_BUTTON_LABEL,
+  COMPARE_CLIENT_TIMEOUT_MS,
+  COMPARE_RETRIES,
+  COMPARE_SIDE_LABEL,
+  COMPARE_SIDE_MODEL_ID,
+  DEEPRESEARCH_MAX_DURATION_S,
+  allCompareSettled,
+  compareSaveMetadata,
+  compareSaveTags,
+  compareSaveTitle,
+  compareUsageLabel,
+  formatElapsed,
+  initialCompareRuns,
+  parseCompareSide,
+} from '../../src/lib/model-compare';
 import { findUngroundedTerms, findBannedExpressions, splitByPriority } from '../../src/lib/content-verify';
 import { buildDiffRows, describeDiffStats } from '../../src/lib/text-diff';
 import { sanitizeForDb } from '../../src/lib/sanitize';
@@ -2254,4 +2273,110 @@ test('U58: AI統合サマリーの保存名と空本文判定（287）— 選ん
   expect(hasSavableContent(undefined)).toBe(false);
   expect(hasSavableContent(123)).toBe(false);
   expect(hasSavableContent('## 見出し\n本文')).toBe(true);
+});
+
+// ───────────────────────────────────────────────────────────────────────────
+// 290: Gemini／Claude Opus 5 の並列比較——フラグ検証・保存名/タグ/metadata・使用量表記・
+//      フォールバック無効の判定（R-99）・maxDuration の一致（R-83）と積算（R-73）
+// ───────────────────────────────────────────────────────────────────────────
+test('U59: モデル比較（290）— compare の検証・保存名にモデル名（286ペアリングの対象外）・タグ/metadata・使用量表記・比較経路はフォールバックしない（R-99）・maxDuration 一致（R-83）と積算（R-73）', () => {
+  // compare フラグ: 未指定は従来経路（null）、gemini/opus はその側、それ以外は 400 の合図（undefined）
+  expect(parseCompareSide(undefined)).toBe(null);
+  expect(parseCompareSide(null)).toBe(null);
+  expect(parseCompareSide('')).toBe(null);
+  expect(parseCompareSide('gemini')).toBe('gemini');
+  expect(parseCompareSide('opus')).toBe('opus');
+  expect(parseCompareSide('claude')).toBe(undefined);
+  expect(parseCompareSide(1)).toBe(undefined);
+  expect(parseCompareSide(true)).toBe(undefined);
+
+  // モデルID・ラベルは ai-models.ts の定数を参照（直書き禁止・R-47）。ボタン表記にモデル名が入る（§5-1）
+  expect(COMPARE_SIDE_MODEL_ID.opus).toBe(CLAUDE_OPUS_MODEL);
+  expect(COMPARE_SIDE_MODEL_ID.gemini).toBe(GEMINI_TEXT_MODEL);
+  expect(COMPARE_SIDE_LABEL.opus).toBe('Claude Opus 5');
+  expect(COMPARE_BUTTON_LABEL).toContain(COMPARE_SIDE_LABEL.gemini);
+  expect(COMPARE_BUTTON_LABEL).toContain(COMPARE_SIDE_LABEL.opus);
+
+  // 保存名（§5-6）: モデル名を角括弧で付ける＝同題でも2モデルで別のタイトルになる。決定的（R-74）
+  expect(compareSaveTitle('肌老化の原因', 'opus')).toBe('肌老化の原因［Claude Opus 5］');
+  expect(compareSaveTitle('肌老化の原因', 'gemini')).toBe('肌老化の原因［Gemini 3.7 Flash］');
+  expect(compareSaveTitle('肌老化の原因', 'gemini')).not.toBe(compareSaveTitle('肌老化の原因', 'opus'));
+  expect(compareSaveTitle('  前  後\n改行 ', 'opus')).toBe('前 後 改行［Claude Opus 5］');
+  expect(compareSaveTitle('', 'opus')).toBe('ディープリサーチ［Claude Opus 5］');
+  expect(compareSaveTitle('X', 'opus')).toBe(compareSaveTitle('X', 'opus'));
+
+  // タグ: 通常DRの「ディープリサーチ」を含む（📚リサーチ保存の一覧に載る）。要約/詳細/活用アドバイスは含まない＝種別は本文
+  const opusTags = compareSaveTags('opus').split(',');
+  expect(opusTags).toContain('ディープリサーチ');
+  expect(opusTags).toContain('モデル比較');
+  expect(opusTags).toContain(`model:${CLAUDE_OPUS_MODEL}`);
+  for (const k of ['要約', '詳細', '活用アドバイス']) expect(opusTags).not.toContain(k);
+  expect(compareSaveTags('gemini')).toContain(`model:${GEMINI_TEXT_MODEL}`);
+
+  // 286のグルーピングへの影響（§5-6）: 同じお題の Gemini/Opus 本文2件は、別カード・推定ペアなし・種別は本文
+  const now = '2026-09-03T00:00:00.000Z';
+  const pair = [
+    { id: 'g1', type: 'deepresearch', title: compareSaveTitle('同題', 'gemini'), tags: compareSaveTags('gemini'), metadata: compareSaveMetadata('gemini'), created_at: now, group_name: 'ディープリサーチ' },
+    { id: 'o1', type: 'deepresearch', title: compareSaveTitle('同題', 'opus'), tags: compareSaveTags('opus'), metadata: compareSaveMetadata('opus'), created_at: now, group_name: 'ディープリサーチ' },
+  ];
+  const cards = groupLibraryItems(pair);
+  expect(cards).toHaveLength(2);
+  expect(cards.every((c) => c.link === null)).toBe(true);
+  expect(pair.map((it) => artifactKindOf(it))).toEqual(['research', 'research']);
+  // 通常DRの要約（同題・タグ「要約」）が後から保存されても、角括弧つきタイトルとは完全一致しないので誤って組まない
+  const summary = { id: 's1', type: 'deepresearch', title: '同題', tags: 'ディープリサーチ,要約', metadata: { savedAt: now }, created_at: now, group_name: 'ディープリサーチ' };
+  expect(groupLibraryItems([...pair, summary])).toHaveLength(3);
+
+  // metadata（§5-5/§6-3）: どのモデルか＋使用量
+  const meta = compareSaveMetadata('opus', { elapsedMs: 65000, chars: 4120, inputTokens: 12, outputTokens: 34 });
+  expect(meta.compare).toBe(true);
+  expect(meta.model).toBe(CLAUDE_OPUS_MODEL);
+  expect(meta.modelLabel).toBe('Claude Opus 5');
+  expect(meta.elapsedMs).toBe(65000);
+  expect(meta.chars).toBe(4120);
+  expect(meta.inputTokens).toBe(12);
+  expect(meta.outputTokens).toBe(34);
+  expect(compareSaveMetadata('gemini')).toEqual({ compare: true, model: GEMINI_TEXT_MODEL, modelLabel: 'Gemini 3.7 Flash' });
+
+  // 使用量の表記（§6-3）
+  expect(formatElapsed(0)).toBe('0秒');
+  expect(formatElapsed(5400)).toBe('5秒');
+  expect(formatElapsed(65000)).toBe('1分5秒');
+  expect(formatElapsed(180_000)).toBe('3分0秒');
+  expect(compareUsageLabel(undefined)).toBe('');
+  expect(compareUsageLabel({ elapsedMs: 65000, chars: 4120 })).toBe('所要 1分5秒 ／ 4,120字');
+  expect(compareUsageLabel({ elapsedMs: 65000, chars: 4120, inputTokens: 1200, outputTokens: 34 })).toBe('所要 1分5秒 ／ 4,120字 ／ 入力 1,200 tok ／ 出力 34 tok');
+
+  // 実行状態: 片方が終わっても他方が実行中なら未完（R-39: 巻き添えにしない・待ち合わせは allSettled）
+  const runs = initialCompareRuns();
+  expect(allCompareSettled(runs)).toBe(false);
+  runs.gemini = { status: 'done', text: 'ok' };
+  expect(allCompareSettled(runs)).toBe(false);
+  runs.opus = { status: 'error', text: '', error: '上限' };
+  expect(allCompareSettled(runs)).toBe(true);
+
+  // R-99: 比較経路（fallback=false）では上限・混雑でも Gemini へ切り替えない。既定（省略/true）は 235/242 どおり
+  const limit = { error: { type: 'billing_error', message: 'You have reached your specified API usage limits.' } };
+  expect(anthropicFailureAction(400, limit, true)).toBe('gemini');
+  expect(anthropicFailureAction(400, limit)).toBe('gemini');
+  expect(anthropicFailureAction(400, limit, false)).toBe('passthrough');
+  expect(anthropicFailureAction(429, { error: { type: 'rate_limit_error', message: 'rate' } }, false)).toBe('passthrough');
+  expect(anthropicFailureAction(529, { error: { type: 'overloaded_error', message: 'busy' } })).toBe('gemini');
+  expect(anthropicFailureAction(529, { error: { type: 'overloaded_error', message: 'busy' } }, false)).toBe('passthrough');
+  // 認証・リクエスト不正は元から切り替えない（R-33）——fallback の値に関係なく passthrough
+  expect(anthropicFailureAction(401, { error: { type: 'authentication_error', message: 'bad key' } }, true)).toBe('passthrough');
+  expect(anthropicFailureAction(400, { error: { type: 'invalid_request_error', message: 'bad' } }, true)).toBe('passthrough');
+
+  // R-83: ルートの maxDuration（リテラル）と vercel.json が正本の定数と一致
+  const route = readFileSync(join(__dirname, '../../src/app/api/deepresearch/route.ts'), 'utf8');
+  expect(route).toContain(`export const maxDuration = ${DEEPRESEARCH_MAX_DURATION_S};`);
+  const vercel = JSON.parse(readFileSync(join(__dirname, '../../vercel.json'), 'utf8'));
+  expect(vercel.functions['src/app/api/deepresearch/route.ts'].maxDuration).toBe(DEEPRESEARCH_MAX_DURATION_S);
+  // R-73: 積算 = 1本の最悪所要（maxDuration）×(1+リトライ回数) が上限内。クライアントの打ち切りはサーバーより後
+  expect(COMPARE_RETRIES).toBe(0);
+  expect(DEEPRESEARCH_MAX_DURATION_S * (1 + COMPARE_RETRIES)).toBeLessThanOrEqual(DEEPRESEARCH_MAX_DURATION_S);
+  expect(COMPARE_CLIENT_TIMEOUT_MS).toBeGreaterThan(DEEPRESEARCH_MAX_DURATION_S * 1000);
+  // 比較経路の Claude 呼び出しは fallback:false を渡し、通常経路（CLAUDE_TEXT_MODEL）の呼び出しは options なし＝235維持（§3-3）
+  expect(route).toMatch(/fetchAnthropic\(\s*\{[\s\S]*?model: modelId,[\s\S]*?\},\s*\{ fallback: false \},?\s*\)/);
+  expect(route).toMatch(/fetchAnthropic\(\{\s*model: CLAUDE_TEXT_MODEL,[\s\S]*?messages: \[\{ role: 'user', content: userPrompt \}\],\s*\}\);/);
 });
