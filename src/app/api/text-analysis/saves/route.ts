@@ -99,6 +99,10 @@ export async function GET(req: NextRequest) {
     const qRaw = searchParams.get('q');
     const qLike = qRaw && qRaw.trim() ? `%${qRaw.trim()}%` : null;
     const folderV = searchParams.get('folder'); // null=全カテゴリ
+    // 293 §4-2: 種別（analysis_type）で絞る。null=すべて。
+    const typeV = searchParams.get('analysisType')?.trim() || null;
+    // 293 §3-1: qScope=title で本文を検索対象から外す（既定は従来どおりタイトル・ファイル名・本文）
+    const searchBody = searchParams.get('qScope') !== 'title';
     const favV = searchParams.get('favorite') === '1' ? true : null;
     const inputV = searchParams.get('hasInput') === '1' ? true : null; // 「📥入力付き」仮想フィルタ
 
@@ -123,7 +127,7 @@ export async function GET(req: NextRequest) {
         ? Number(cfolderRaw)
         : null;
 
-    const [rows, countRows, allRows, folderRows, tagRows] = await Promise.all([
+    const [rows, countRows, allRows, folderRows, tagRows, typeRows] = await Promise.all([
       sql`
         SELECT id, user_id, file_name, auto_title, analysis_type, analysis_label,
                tags, folder, favorite, locked, char_count, created_at, updated_at,
@@ -131,8 +135,9 @@ export async function GET(req: NextRequest) {
                COALESCE(LENGTH(input_text), 0) AS input_char_count
         FROM text_analysis_saves
         WHERE user_id = ${userId}
-          AND (${qLike}::text IS NULL OR auto_title ILIKE ${qLike} OR file_name ILIKE ${qLike} OR content ILIKE ${qLike})
+          AND (${qLike}::text IS NULL OR auto_title ILIKE ${qLike} OR file_name ILIKE ${qLike} OR (${searchBody}::boolean AND content ILIKE ${qLike}))
           AND (${folderV}::text IS NULL OR COALESCE(folder, '') = ${folderV})
+          AND (${typeV}::text IS NULL OR analysis_type = ${typeV})
           AND (${tagsAnd}::text[] IS NULL OR tags @> ${tagsAnd})
           AND (${tagsOr}::text[] IS NULL OR tags && ${tagsOr})
           AND (${favV}::boolean IS NULL OR favorite = ${favV})
@@ -155,8 +160,9 @@ export async function GET(req: NextRequest) {
         SELECT COUNT(*)::int AS n
         FROM text_analysis_saves
         WHERE user_id = ${userId}
-          AND (${qLike}::text IS NULL OR auto_title ILIKE ${qLike} OR file_name ILIKE ${qLike} OR content ILIKE ${qLike})
+          AND (${qLike}::text IS NULL OR auto_title ILIKE ${qLike} OR file_name ILIKE ${qLike} OR (${searchBody}::boolean AND content ILIKE ${qLike}))
           AND (${folderV}::text IS NULL OR COALESCE(folder, '') = ${folderV})
+          AND (${typeV}::text IS NULL OR analysis_type = ${typeV})
           AND (${tagsAnd}::text[] IS NULL OR tags @> ${tagsAnd})
           AND (${tagsOr}::text[] IS NULL OR tags && ${tagsOr})
           AND (${favV}::boolean IS NULL OR favorite = ${favV})
@@ -187,6 +193,14 @@ export async function GET(req: NextRequest) {
         WHERE user_id = ${userId}
         ORDER BY 1
       `,
+      // 293 §4-3: 種別ごとの件数（全件母数・folders と同じ考え方）。ラベルは保存値の代表（MIN）＝決定的
+      sql`
+        SELECT analysis_type, MIN(analysis_label) AS label, COUNT(*)::int AS count
+        FROM text_analysis_saves
+        WHERE user_id = ${userId}
+        GROUP BY 1
+        ORDER BY 3 DESC, 1
+      `,
     ]);
 
     // 249: 表示中の記事に所属フォルダIDを付与する（本体クエリは変えず別クエリで足す）。
@@ -211,6 +225,8 @@ export async function GET(req: NextRequest) {
       all_total: allRows[0]?.n ?? 0,
       folders: folderRows,
       all_tags: tagRows.map((r) => (r as { tag: string }).tag),
+      // 293: 種別ごとの件数（analysis_type / label / count）
+      types: typeRows,
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : '不明なエラー';
