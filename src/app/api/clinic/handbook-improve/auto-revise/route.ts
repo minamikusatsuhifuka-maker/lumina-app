@@ -1,4 +1,5 @@
 import { CLAUDE_OPUS_MODEL } from '@/lib/ai-models';
+import { NO_HTML_PROMPT_RULE } from '@/lib/markdown-renderer';
 import { NextResponse } from 'next/server';
 import { createAnthropicClient } from '@/lib/anthropic-compat';
 import { requireAuth } from '@/lib/require-auth';
@@ -39,7 +40,8 @@ ${improvementList.length ? improvementList.map((s, i) => `${i + 1}. ${s}`).join(
 - 元の文章の良い点（原体験の具体性、誠実な語り口、温かみなど）は必ず保持する
 - 改善案を自然に文章へ反映する（無理に詰め込まない）
 - クリニックの理念（AIR：感謝・誠実・分かち愛／インサイドアウト・先払い・リードマネジメント・ティール組織）に沿う
-- 修正した文章のみを出力（説明・前置き・後書き不要）`;
+- 修正した文章のみを出力（説明・前置き・後書き不要）
+- ${NO_HTML_PROMPT_RULE}`;
 
   try {
     const message = await anthropic.messages.create({

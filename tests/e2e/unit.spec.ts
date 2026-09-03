@@ -250,7 +250,12 @@ import {
   LIBRARY_COMPARE_MIN,
   LIST_COLUMN_CHOICES,
   LIST_COLUMN_CHOICE_DEFAULT,
+  LIST_COLUMN_KEY,
   LIST_DENSITY_DEFAULT,
+  LIST_DENSITY_KEY,
+  TA_LIST_COLUMN_CHOICE_DEFAULT,
+  TA_LIST_COLUMN_KEY,
+  TA_LIST_DENSITY_KEY,
   charCountTier,
   charCountTitle,
   libraryCompareEntries,
@@ -260,6 +265,8 @@ import {
   loadListDensity,
   resolveListColumns,
 } from '../../src/lib/library-view';
+// 292: Opus出力のHTMLタグ露出はプロンプト側で是正
+import { NO_HTML_PROMPT_RULE } from '../../src/lib/markdown-renderer';
 
 // ============================================================================
 // 純関数の単体テスト（234【1】要件4）— ネットワーク・AI課金・認証を一切使わない
@@ -2552,4 +2559,43 @@ test('U61: リサーチ保存の見え方と選択比較（291）— 文字数�
   expect(entries.map((e) => e.label)).toEqual(['要約', '活用アドバイス', '本文']);
   expect(libraryCompareEntries(['r1', 's1', 'x1', 'y1', 'z1'], rows, cards).map((e) => e.item.id)).toEqual(['r1', 's1', 'x1', 'y1']);
   expect(libraryCompareEntries([], rows, cards)).toEqual([]);
+});
+
+// ───────────────────────────────────────────────────────────────────────────
+// 292: テキスト分析の保存一覧への横展開（判断の共有）と Opus出力のHTMLタグ露出の是正（プロンプト側）
+// ───────────────────────────────────────────────────────────────────────────
+test('U62: 横展開（292）— 判断は library-view を共有し別の閾値・別の判定を持たない・既定は1列/詳細（現状維持）・保存先キーは画面別・283/286グルーピングを持ち込まない／NO_HTML_PROMPT_RULE が DR（system＋user）とOpusのハンドブック経路に入り、表示側でタグを剥がしていない', () => {
+  // §2-3/§2-5: 既定と保存先
+  expect(TA_LIST_COLUMN_CHOICE_DEFAULT).toBe(1);
+  expect(TA_LIST_COLUMN_KEY).not.toBe(LIST_COLUMN_KEY);
+  expect(TA_LIST_DENSITY_KEY).not.toBe(LIST_DENSITY_KEY);
+  // window の無い環境では既定（1列／詳細）
+  expect(loadListColumnChoice(TA_LIST_COLUMN_KEY, TA_LIST_COLUMN_CHOICE_DEFAULT)).toBe(1);
+  expect(loadListDensity(TA_LIST_DENSITY_KEY)).toBe('detail');
+  // 📚側の既定は変わらない（引数省略＝従来）
+  expect(loadListColumnChoice()).toBe('auto');
+  expect(loadListDensity()).toBe('detail');
+  // SavedAnalysisList は library-view の判断と CharCountBadge を使い、自前の閾値・列クラス・グルーピングを持たない
+  const sal = readFileSync(join(__dirname, '../../src/components/text-analysis/SavedAnalysisList.tsx'), 'utf8');
+  expect(sal).toContain("from '@/lib/library-view'");
+  expect(sal).toContain("import { CharCountBadge } from '@/components/LibraryItemRow'");
+  expect(sal).toContain('LibraryCompareView');
+  expect(sal).not.toMatch(/CHAR_COUNT_TIERS\s*=|function charCountTier|grid-cols-\$\{/);
+  expect(sal, '283/286 のグルーピングをテキスト分析へ持ち込まない（§2-5）').not.toContain('groupLibraryItems');
+  expect(sal, '5件目は無効化＋理由（R-101）＝同じ判断関数').toContain('libraryCompareState(selectedIds.size)');
+  // 比較の列の種別は文字列（分析タイプをそのまま通せる）
+  const entry: { item: { id: string }; kind: string; label: string } = { item: { id: '1' }, kind: 'transcription', label: '全文書き起こし' };
+  expect(entry.kind).toBe('transcription');
+
+  // §3-3: 是正はプロンプト側。共通の1行が DR の system と user の両方、Opus を使うハンドブック経路に入っている
+  expect(NO_HTML_PROMPT_RULE).toContain('<span>');
+  expect(NO_HTML_PROMPT_RULE).toContain('**太字**');
+  const dr = readFileSync(join(__dirname, '../../src/app/api/deepresearch/route.ts'), 'utf8');
+  expect((dr.match(/\$\{NO_HTML_PROMPT_RULE\}/g) ?? []).length, 'DR は system と user の両方').toBeGreaterThanOrEqual(2);
+  for (const f of ['src/app/api/clinic/handbook-improve/auto-revise/route.ts', 'src/app/api/clinic/handbook-improve/compare-models/route.ts']) {
+    expect(readFileSync(join(__dirname, '../../', f), 'utf8'), `${f} に NO_HTML_PROMPT_RULE`).toContain('${NO_HTML_PROMPT_RULE}');
+  }
+  // 表示側（MarkdownBody）にタグ除去の変換を足していない（R-71 の趣旨・§3-3）
+  const mb = readFileSync(join(__dirname, '../../src/components/MarkdownBody.tsx'), 'utf8');
+  expect(mb).not.toMatch(/\.replace\(|<\\?\/?span/);
 });

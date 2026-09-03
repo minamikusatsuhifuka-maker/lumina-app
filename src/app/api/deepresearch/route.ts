@@ -4,7 +4,7 @@ import { auth } from '@/lib/auth';
 import { getClinicSystemPrompt } from '@/lib/clinicProfile';
 import { trackUsage } from '@/lib/trackUsage';
 import { streamWithModel, type AIModel } from '@/lib/ai-client';
-import { NO_LATEX_PROMPT_RULE } from '@/lib/markdown-renderer';
+import { NO_HTML_PROMPT_RULE, NO_LATEX_PROMPT_RULE } from '@/lib/markdown-renderer';
 import { fetchAnthropic, iterateSSE } from '@/lib/anthropic-compat';
 import { describeAnthropicError } from '@/lib/anthropic-error';
 // 290: Gemini／Claude Opus 5 の並列比較（オプトイン・R-88）。ラベル・モデルIDは lib/model-compare.ts が正本
@@ -96,7 +96,7 @@ export async function POST(req: NextRequest) {
 
 絶対に守るルール：
 1. URLは生のURLのみ記載（例: https://example.com）
-2. HTMLタグは一切使用禁止（<a href=...>など）
+2. HTMLタグは一切使用禁止（<a href=...>など）。${NO_HTML_PROMPT_RULE}
 3. Markdownのリンク記法も禁止（[テキスト](URL)形式も使わない）
 4. 出典は「出典: サイト名 https://URL」の形式のみ
 5. URLの後に属性やスタイルは絶対に書かない
@@ -121,6 +121,7 @@ ${outline}
 【出力ルール】
 - 各情報の引用元URLを必ず記載
 - URLは生のURL（https://...）のみ。HTMLタグやMarkdownリンク記法は禁止
+- ${NO_HTML_PROMPT_RULE}
 - 出典の形式: 「出典: サイト名 https://URL」
 - 事実と推測を明確に区別
 

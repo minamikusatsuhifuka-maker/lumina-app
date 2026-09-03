@@ -652,4 +652,28 @@ test('B28: モデル比較の Claude Opus 5 側（290）— compare:"opus" で�
   // R-73: 実測所要を報告に載せる（maxDuration 300秒との整合判断用）
   console.log(`[B28] Opus 5 quick: client ${elapsedMs}ms / server ${done?.elapsedMs}ms / ${chars}字 / usage ${JSON.stringify(done?.usage)}`);
   expect(elapsedMs, 'maxDuration の内側で終わる').toBeLessThan(300_000);
+  // 292 §3-5: Opus 5 の出力に HTML タグ（<span> <div> <p> 等）が含まれない（是正はプロンプト側・表示側は不変）
+  const text = events.filter((e) => e.type === 'text').map((e) => String(e.content ?? '')).join('');
+  const tag = text.match(HTML_TAG_RE);
+  expect(tag, `HTMLタグが本文に出ないこと（検出: ${tag?.[0] ?? '無し'} …${text.slice(Math.max(0, (tag?.index ?? 0) - 40), (tag?.index ?? 0) + 60)}）`).toBeNull();
+});
+
+/** 292: 本文に出てはいけない HTML タグ（装飾・レイアウト用途）。コードブロック内も含めて本文に無いことを見る */
+const HTML_TAG_RE = /<\/?(span|div|p|b|i|u|br|font|a|strong|em|h[1-6]|ul|ol|li|table|tr|td)\b[^>]*>/i;
+
+test('B29: モデル比較の Gemini 側（292 §3-5）— compare:"gemini" の実生成に退行がなく、HTML タグが本文に出ない @gen', async ({ request }) => {
+  test.setTimeout(GEN_TIMEOUT);
+  const res = await request.post('/api/deepresearch', {
+    data: { topic: '[E2E] 保湿剤の基礎', depth: 'quick', model: 'gemini', compare: 'gemini' },
+    timeout: REQ_TIMEOUT,
+  });
+  expect(res.status()).toBe(200);
+  const body = await res.text();
+  const events = body.split('\n').filter((l) => l.startsWith('data: ')).map((l) => JSON.parse(l.slice(6)) as Record<string, unknown>);
+  expect(events.some((e) => e.type === 'error'), `error が無いこと: ${JSON.stringify(events.find((e) => e.type === 'error'))}`).toBe(false);
+  expect(events.find((e) => e.type === 'done'), 'done で終わる').toBeTruthy();
+  const text = events.filter((e) => e.type === 'text').map((e) => String(e.content ?? '')).join('');
+  expect(text.length, '本文が返る').toBeGreaterThan(200);
+  const tag = text.match(HTML_TAG_RE);
+  expect(tag, `HTMLタグが本文に出ないこと（検出: ${tag?.[0] ?? '無し'}）`).toBeNull();
 });

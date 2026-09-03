@@ -4,6 +4,7 @@ import { robustJsonParse } from '@/lib/ai-json-parser';
 import { requireAuth } from '@/lib/require-auth';
 import { CLAUDE_TEXT_MODEL, CLAUDE_OPUS_MODEL, CLAUDE_OPUS_PREV_MODEL } from '@/lib/ai-models';
 import { extractAnthropicText } from '@/lib/anthropic-text';
+import { NO_HTML_PROMPT_RULE } from '@/lib/markdown-renderer';
 
 const anthropic = createAnthropicClient();
 
@@ -36,7 +37,8 @@ ${templatePrompt}
 【元の文章】
 ${content}
 
-改善後の文章のみを出力してください。前置き・説明不要。`,
+改善後の文章のみを出力してください。前置き・説明不要。
+${NO_HTML_PROMPT_RULE}`,
     }],
   });
   return extractAnthropicText(message.content);
