@@ -45,6 +45,8 @@ export async function createSave(
     tags?: string[];
     inputText?: string;
     analysisType?: string;
+    // 292: 保存APIは analysis_label を種別から導かず本文の値を保存する（未指定は「概要・要約」）。画面と同じ形で渡す
+    analysisLabel?: string;
   },
 ): Promise<number> {
   const res = await request.post(SAVES_API, {
@@ -55,6 +57,7 @@ export async function createSave(
       category: body.folder ?? SEED_FOLDER,
       tags: body.tags ?? [],
       analysisType: body.analysisType ?? 'summary',
+      ...(body.analysisLabel ? { analysisLabel: body.analysisLabel } : {}),
       inputText: body.inputText,
     },
   });

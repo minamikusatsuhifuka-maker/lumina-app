@@ -6391,11 +6391,12 @@ test('C98: テキスト分析の保存一覧への横展開（292）— 選択�
   test.setTimeout(150_000);
   const marker = `TA292${RUN_ID}`;
   // createSave は [E2E] 接頭辞を付ける。d/e は本文の長さを揃える（同じ文字数→同じ段階・同じ色）
-  const a = await createSave(request, { title: `TA-A ${marker}`, content: longMarkdown(`A${marker}`, 30), analysisType: 'transcription' });
-  const b = await createSave(request, { title: `TA-B ${marker}`, content: longMarkdown(`B${marker}`, 30), analysisType: 'summary' });
-  const c = await createSave(request, { title: `TA-C ${marker}`, content: longMarkdown(`C${marker}`, 30), analysisType: 'detail_summary' });
-  const d = await createSave(request, { title: `TA-D ${marker}`, content: `${'d'.repeat(400)} ${marker}`, analysisType: 'summary' });
-  const e = await createSave(request, { title: `TA-E ${marker}`, content: `${'e'.repeat(400)} ${marker}`, analysisType: 'summary' });
+  // 分析タイプとラベルは画面の保存と同じ組（保存APIはラベルを種別から導かない）
+  const a = await createSave(request, { title: `TA-A ${marker}`, content: longMarkdown(`A${marker}`, 30), analysisType: 'transcription', analysisLabel: '全文書き起こし' });
+  const b = await createSave(request, { title: `TA-B ${marker}`, content: longMarkdown(`B${marker}`, 30), analysisType: 'summary', analysisLabel: '概要・要約' });
+  const c = await createSave(request, { title: `TA-C ${marker}`, content: longMarkdown(`C${marker}`, 30), analysisType: 'detail_summary', analysisLabel: '詳細にまとめる' });
+  const d = await createSave(request, { title: `TA-D ${marker}`, content: `${'d'.repeat(400)} ${marker}`, analysisType: 'summary', analysisLabel: '概要・要約' });
+  const e = await createSave(request, { title: `TA-E ${marker}`, content: `${'e'.repeat(400)} ${marker}`, analysisType: 'summary', analysisLabel: '概要・要約' });
   const panel = page.locator('[data-saved-panel="text-analysis"]');
   const card = (id: number) => panel.locator(`[data-analysis-card="${id}"]`);
   const badge = (id: number) => card(id).locator('[data-char-count]');

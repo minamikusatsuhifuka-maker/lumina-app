@@ -672,7 +672,8 @@ test('B29: モデル比較の Gemini 側（292 §3-5）— compare:"gemini" の�
   const events = body.split('\n').filter((l) => l.startsWith('data: ')).map((l) => JSON.parse(l.slice(6)) as Record<string, unknown>);
   expect(events.some((e) => e.type === 'error'), `error が無いこと: ${JSON.stringify(events.find((e) => e.type === 'error'))}`).toBe(false);
   expect(events.find((e) => e.type === 'done'), 'done で終わる').toBeTruthy();
-  const text = events.filter((e) => e.type === 'text').map((e) => String(e.content ?? '')).join('');
+  // Gemini 側は streamWithModel の 'delta' 形式（画面側も text/delta の両方を本文として扱う）
+  const text = events.filter((e) => e.type === 'text' || e.type === 'delta').map((e) => String(e.content ?? e.text ?? '')).join('');
   expect(text.length, '本文が返る').toBeGreaterThan(200);
   const tag = text.match(HTML_TAG_RE);
   expect(tag, `HTMLタグが本文に出ないこと（検出: ${tag?.[0] ?? '無し'}）`).toBeNull();
