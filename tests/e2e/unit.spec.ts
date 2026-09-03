@@ -242,6 +242,24 @@ import {
   reportToMarkdown,
   splitSentences,
 } from '../../src/lib/plain-check';
+// 291: リサーチ保存の一覧の見え方・選択比較
+import {
+  CHAR_COUNT_TIERS,
+  CHAR_COUNT_TIER_STYLE,
+  LIBRARY_COMPARE_MAX,
+  LIBRARY_COMPARE_MIN,
+  LIST_COLUMN_CHOICES,
+  LIST_COLUMN_CHOICE_DEFAULT,
+  LIST_DENSITY_DEFAULT,
+  charCountTier,
+  charCountTitle,
+  libraryCompareEntries,
+  libraryCompareState,
+  listGridClass,
+  loadListColumnChoice,
+  loadListDensity,
+  resolveListColumns,
+} from '../../src/lib/library-view';
 
 // ============================================================================
 // 純関数の単体テスト（234【1】要件4）— ネットワーク・AI課金・認証を一切使わない
@@ -2443,4 +2461,95 @@ test('U60: カテゴリメモ（208）— context_ref 正規化・トースト�
   expect(FLOATING_BUTTONS.find((b) => b.key === 'drmemo')?.label).toBe('カテゴリメモ');
   // 既存の📝メモ小窓は残っている（置き換えではない）
   expect(FLOATING_BUTTONS.find((b) => b.key === 'memo')?.label).toBe('メモ小窓');
+});
+
+// ───────────────────────────────────────────────────────────────────────────
+// 291: リサーチ保存の一覧の見え方（列数・密度・文字数の段階）と選択比較の判断
+// ───────────────────────────────────────────────────────────────────────────
+test('U61: リサーチ保存の見え方と選択比較（291）— 文字数の段階は閾値1箇所で決定的・単調・数値併記／列クラスは完全リテラルで既定は従来／タッチは1列／密度の既定は詳細／比較は2〜4件で5件目は無効化（理由つき）／列は選んだ順に種別ラベル付き', () => {
+  // §3-3 閾値は昇順で最後は上限なし（1箇所）
+  for (let i = 1; i < CHAR_COUNT_TIERS.length; i++) expect(CHAR_COUNT_TIERS[i].max).toBeGreaterThan(CHAR_COUNT_TIERS[i - 1].max);
+  expect(CHAR_COUNT_TIERS[CHAR_COUNT_TIERS.length - 1].max).toBe(Number.POSITIVE_INFINITY);
+  // 境界値: max 未満がその段階
+  expect(charCountTier(0)).toBe(0);
+  expect(charCountTier(999)).toBe(0);
+  expect(charCountTier(1000)).toBe(1);
+  expect(charCountTier(2999)).toBe(1);
+  expect(charCountTier(3000)).toBe(2);
+  expect(charCountTier(5999)).toBe(2);
+  expect(charCountTier(6000)).toBe(3);
+  expect(charCountTier(1_000_000)).toBe(3);
+  // 不正値は最小段階（落ちない）
+  expect(charCountTier(Number.NaN)).toBe(0);
+  expect(charCountTier(-5)).toBe(0);
+  // 決定的（R-74）＋単調非減少
+  let prev = 0;
+  for (let n = 0; n <= 10_000; n += 7) {
+    const t = charCountTier(n);
+    expect(charCountTier(n)).toBe(t);
+    expect(t).toBeGreaterThanOrEqual(prev);
+    prev = t;
+  }
+  // 段階ごとに濃淡が違う（同じ色を2段階に割り当てない）
+  const bgs = ([0, 1, 2, 3] as const).map((t) => CHAR_COUNT_TIER_STYLE[t].bg);
+  expect(new Set(bgs).size).toBe(4);
+  // 色だけに意味を持たせない: ツールチップにも数値を併記
+  expect(charCountTitle(1234)).toBe('1,234文字（標準）');
+  expect(charCountTitle(500)).toBe('500文字（短め）');
+  expect(charCountTitle(9000)).toBe('9,000文字（長文）');
+
+  // §3-1 列クラス: 完全リテラル（文字列結合・テンプレート無し）。既定 auto は従来のクラスそのもの
+  expect(LIST_COLUMN_CHOICE_DEFAULT).toBe('auto');
+  expect(LIST_COLUMN_CHOICES).toEqual(['auto', 1, 2, 3, 4]);
+  expect(listGridClass('auto')).toBe('grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4');
+  expect(listGridClass(1)).toBe('grid grid-cols-1');
+  expect(listGridClass(2)).toBe('grid grid-cols-2');
+  expect(listGridClass(3)).toBe('grid grid-cols-3');
+  expect(listGridClass(4)).toBe('grid grid-cols-4');
+  const src = readFileSync(join(__dirname, '../../src/lib/library-view.ts'), 'utf8');
+  expect(src.includes('grid-cols-${'), 'クラス名を動的に組み立てない（Tailwind完全リテラル）').toBe(false);
+  // タッチ端末は1列固定。カーソルのある端末は指定どおり
+  expect(resolveListColumns(false, 4)).toBe(1);
+  expect(resolveListColumns(false, 'auto')).toBe(1);
+  expect(resolveListColumns(true, 'auto')).toBe('auto');
+  expect(resolveListColumns(true, 3)).toBe(3);
+  // window の無い環境では既定（落ちない）
+  expect(loadListColumnChoice()).toBe('auto');
+  expect(loadListDensity()).toBe('detail');
+  expect(LIST_DENSITY_DEFAULT).toBe('detail');
+
+  // §2-2 比較は2〜4件。5件目を選んでいる間は無効化して理由を出す（先頭4件に黙って切らない）
+  expect(LIBRARY_COMPARE_MIN).toBe(2);
+  expect(LIBRARY_COMPARE_MAX).toBe(4);
+  expect(libraryCompareState(0).enabled).toBe(false);
+  expect(libraryCompareState(1).enabled).toBe(false);
+  expect(libraryCompareState(1).reason).toContain('2件以上');
+  for (const n of [2, 3, 4]) {
+    const st = libraryCompareState(n);
+    expect(st.enabled).toBe(true);
+    expect(st.reason).toBeNull();
+    expect(st.label).toContain(`${n}件`);
+  }
+  const five = libraryCompareState(5);
+  expect(five.enabled).toBe(false);
+  expect(five.reason).toContain('4件まで');
+  expect(five.reason).toContain('5件');
+
+  // §2-4 列は選んだ順・種別は 283/286 のカードまとめから（無ければ行から判定）・無い id は落とす・上限4
+  type Row = { id: string; type: string; title: string; tags: string; metadata: unknown; created_at: string; group_name: string };
+  const now = '2026-09-03T00:00:00.000Z';
+  const rows: Row[] = [
+    { id: 'r1', type: 'deepresearch', title: 'T', tags: 'ディープリサーチ,バッチ,batch:1-0', metadata: { kind: 'research' }, created_at: now, group_name: 'ディープリサーチ' },
+    { id: 's1', type: 'deepresearch', title: 'T', tags: 'ディープリサーチ,要約,バッチ,batch:1-0s', metadata: { kind: 'summary' }, created_at: now, group_name: 'ディープリサーチ' },
+    { id: 'x1', type: 'deepresearch', title: 'X', tags: 'ディープリサーチ,活用アドバイス', metadata: {}, created_at: now, group_name: 'ディープリサーチ' },
+    { id: 'y1', type: 'research', title: 'Y', tags: '', metadata: {}, created_at: now, group_name: 'Web情報収集' },
+    { id: 'z1', type: 'research', title: 'Z', tags: '', metadata: {}, created_at: now, group_name: '' },
+  ];
+  const cards = groupLibraryItems(rows);
+  const entries = libraryCompareEntries(['s1', 'missing', 'x1', 'r1'], rows, cards);
+  expect(entries.map((e) => e.item.id)).toEqual(['s1', 'x1', 'r1']);
+  expect(entries.map((e) => e.kind)).toEqual(['summary', 'advice', 'research']);
+  expect(entries.map((e) => e.label)).toEqual(['要約', '活用アドバイス', '本文']);
+  expect(libraryCompareEntries(['r1', 's1', 'x1', 'y1', 'z1'], rows, cards).map((e) => e.item.id)).toEqual(['r1', 's1', 'x1', 'y1']);
+  expect(libraryCompareEntries([], rows, cards)).toEqual([]);
 });

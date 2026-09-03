@@ -6071,3 +6071,315 @@ test('C95: カテゴリメモAPI（208）— 未認証は401・本文空/不正u
   }
   // 後片付けは afterAll の cleanupE2EMemos
 });
+
+// ───────────────────────────────────────────────────────────────────────────
+// 291: 📚リサーチ保存の「選択して比較」と一覧の視認性
+// ───────────────────────────────────────────────────────────────────────────
+/** 291: テスト用のリサーチ保存行を保存側（263/SaveToLibraryButton）と同じ形で作る（R-79） */
+async function postLibraryRow(request: APIRequestContext, body: Record<string, unknown>): Promise<string> {
+  const res = await request.post(LIBRARY_API, { data: body });
+  expect(res.status(), 'テスト用の資料が作成できること').toBe(200);
+  return (await res.json()).id as string;
+}
+/** 291: 見出し＋太字＋長い本文（比較列がスクロールできる長さ・整形表示の判定材料） */
+function longMarkdown(tag: string, paragraphs = 40): string {
+  return `導入 ${tag}。\n\n## 見出し${tag}\n\n**太字${tag}** の本文。\n\n${(`${'長い本文。'.repeat(20)}\n\n`).repeat(paragraphs)}`;
+}
+/** 291: ページに横スクロールが出ていないこと（C91と同じ判定） */
+async function expectNoPageHScroll(page: import('@playwright/test').Page, label: string) {
+  const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+  expect(overflow, `${label}: ページに横スクロールが出ていないこと`).toBeLessThanOrEqual(1);
+}
+/** 291: 要素群の y 座標（レイアウトが落ち着くまで待って読む） */
+async function stableYs(page: import('@playwright/test').Page, selector: string): Promise<number[]> {
+  const read = () => page.evaluate((sel) => Array.from(document.querySelectorAll(sel)).map((el) => Math.round(el.getBoundingClientRect().y)), selector);
+  let prev = await read();
+  for (let n = 0; n < 20; n++) {
+    await page.waitForTimeout(150);
+    const cur = await read();
+    if (cur.join() === prev.join()) return cur;
+    prev = cur;
+  }
+  return prev;
+}
+
+test('C96: リサーチ保存の選択比較（291）— 選択モードの操作バーから開く・2〜4件・5件目は無効化と理由・列ヘッダーに種別（本文／要約）・列数と高さ（289）・同期スクロールとsticky（271）・各列から全画面（282）・生MDが露出しない（R-97）・283のまとめと🔗は不変', async ({ page, request }) => {
+  test.setTimeout(120_000);
+  const marker = `CMP${RUN_ID}`;
+  const jobId = 9900291;
+  const now = new Date().toISOString();
+  const a1 = await postLibraryRow(request, {
+    type: 'deepresearch', title: withE2EPrefix(`CA ${marker}`), content: longMarkdown(`A本文${marker}`),
+    metadata: { from: 'batch-research', jobId, topicIndex: 0, kind: 'research', savedAt: now },
+    tags: `ディープリサーチ,バッチ,batch:${jobId}-0`, group_name: 'ディープリサーチ',
+  });
+  const a2 = await postLibraryRow(request, {
+    type: 'deepresearch', title: withE2EPrefix(`CA ${marker}`), content: longMarkdown(`A要約${marker}`, 30),
+    metadata: { from: 'batch-research', jobId, topicIndex: 0, kind: 'summary', savedAt: now },
+    tags: `ディープリサーチ,要約,バッチ,batch:${jobId}-0s`, group_name: 'ディープリサーチ',
+  });
+  const bs: string[] = [];
+  for (let i = 0; i < 3; i++) {
+    bs.push(await postLibraryRow(request, { type: 'deepresearch', title: withE2EPrefix(`CB${i} ${marker}`), content: longMarkdown(`B${i}${marker}`), metadata: { savedAt: now }, tags: 'ディープリサーチ', group_name: 'ディープリサーチ' }));
+  }
+  const all = [a1, a2, ...bs];
+  const col = (i: number) => page.locator(`[data-compare-col="${i}"]`);
+  const panel = page.locator('[data-library-compare]');
+  const openBtn = page.locator('[data-library-compare-open]');
+  const dialog = page.locator('[role="dialog"][data-kb-scope="reader"]');
+
+  try {
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto('/dashboard/library');
+    await page.evaluate(() => {
+      localStorage.removeItem('lumina_batch_compare_cols');
+      localStorage.removeItem('lumina_batch_compare_height');
+      localStorage.setItem('lumina_text_scale', '100');
+    });
+    await page.locator('[data-library-search]').fill(marker);
+    await expect(page.locator(`[data-library-card="${a1}"]`)).toBeVisible({ timeout: 30000 });
+    // 283 のまとめは不変（batch 紐付け1枚・🔗同一実行）
+    await expect(page.locator(`[data-library-card="${a1}"]`)).toHaveAttribute('data-library-link', 'batch');
+    await expect(page.locator(`[data-library-card="${a1}"]`)).toContainText('🔗 同一実行');
+    await expect(page.locator('[data-library-card]')).toHaveCount(4);
+
+    // ── ① 選択モード → 成果物（行）単位でチェック。比較は2件から、5件目で無効化＋理由 ──
+    await page.getByRole('button', { name: '✓ 選択モード' }).click();
+    await page.locator(`[data-library-artifact-check="${a1}"]`).check();
+    await expect(openBtn, '1件では比較できない（操作バーには出る）').toBeDisabled();
+    await page.locator(`[data-library-artifact-check="${a2}"]`).check();
+    await expect(openBtn, '2件で有効').toBeEnabled();
+    await expect(openBtn).toContainText('選択した2件を比較');
+    await page.locator(`[data-library-check="${bs[0]}"]`).check();
+    await page.locator(`[data-library-check="${bs[1]}"]`).check();
+    await expect(openBtn).toContainText('選択した4件を比較');
+    await page.locator(`[data-library-check="${bs[2]}"]`).check();
+    await expect(openBtn, '5件目を選んでいる間は無効化（先頭4件に黙って切らない）').toBeDisabled();
+    await expect(openBtn).toHaveAttribute('title', /4件まで/);
+    await expect(openBtn).toHaveAttribute('title', /5件選択中/);
+    // 既存の操作（AIでまとめる／Kindle／削除）は同じバーに並んだまま
+    await expect(page.getByRole('button', { name: '🔗 AIでまとめる' })).toBeVisible();
+    await expect(page.getByRole('button', { name: '📖 Kindle本にする' })).toBeVisible();
+    await expect(page.locator('[data-bulk-delete]')).toContainText('5件を削除');
+    await page.locator(`[data-library-check="${bs[2]}"]`).uncheck();
+    await expect(openBtn).toBeEnabled();
+
+    // ── ② 開く: 4列＝選んだ順（本文・要約・B0・B1）。列ヘッダーに種別 ──
+    await openBtn.click();
+    await expect(panel).toBeVisible();
+    await expect(page.locator('[data-compare-col]')).toHaveCount(4);
+    await expect(col(0)).toHaveAttribute('data-compare-kind', 'research');
+    await expect(col(1)).toHaveAttribute('data-compare-kind', 'summary');
+    await expect(col(0)).toHaveAttribute('data-compare-item', a1);
+    await expect(col(1)).toHaveAttribute('data-compare-item', a2);
+    await expect(col(2)).toHaveAttribute('data-compare-item', bs[0]);
+    await expect(page.locator('[data-compare-kind-label]'), '全列のヘッダーに種別ラベル').toHaveCount(4);
+    await expect(col(0).locator('[data-compare-kind-label]')).toHaveText('本文');
+    await expect(col(1).locator('[data-compare-kind-label]')).toHaveText('要約');
+    await expect(col(2).locator('[data-compare-kind-label]')).toHaveText('本文');
+    await expect(col(0).locator('[data-compare-label="0"]')).toContainText(/\d字/);
+    // 整形表示（R-97）: 見出しが h タグ・太字が strong・生MD記法が文字として出ない
+    await expect(col(0).locator('[data-md-view] :is(h1,h2,h3,h4)').filter({ hasText: `見出しA本文${marker}` })).toBeVisible();
+    await expect(col(1).locator('[data-md-view] strong').filter({ hasText: `太字A要約${marker}` })).toBeVisible();
+    for (let i = 0; i < 4; i++) await expectNoRawMarkdown(col(i).locator('[data-md-view]'), `比較列${i}`);
+
+    // ── ③ 289: 既定は自動／高。1280px の自動は 2×2。4列を選べて横スクロールなし。低で 34vh ──
+    await expect(page.locator('[data-compare-cols-choice="auto"]')).toHaveAttribute('aria-pressed', 'true');
+    await expect(page.locator('[data-compare-height-choice="high"]')).toHaveAttribute('aria-pressed', 'true');
+    let y = await stableYs(page, '[data-compare-col]');
+    expect(y[0]).toBe(y[1]); expect(y[2]).toBeGreaterThan(y[0]);
+    await page.locator('[data-compare-cols-choice="4"]').click();
+    await expect(page.locator('[data-library-compare] [data-compare-cols]')).toHaveAttribute('data-compare-cols', '4');
+    y = await stableYs(page, '[data-compare-col]');
+    expect(new Set(y).size, `4列に並ぶ（y=${y.join(',')}）`).toBe(1);
+    await expectNoPageHScroll(page, '比較4列');
+    await page.locator('[data-compare-height-choice="low"]').click();
+    expect(Math.round(parseFloat(await col(0).evaluate((el) => getComputedStyle(el).maxHeight))), '低＝34vh').toBe(Math.round(900 * 0.34));
+    await page.locator('[data-compare-height-choice="high"]').click();
+
+    // ── ④ 271: 同期スクロール（割合）と sticky 列ヘッダー ──
+    for (let i = 1; i < 4; i++) await col(i).evaluate((el) => { el.scrollTop = 0; });
+    await col(0).evaluate((el) => { el.scrollTop = el.scrollHeight; el.dispatchEvent(new Event('scroll')); });
+    for (let i = 1; i < 4; i++) await expect.poll(async () => col(i).evaluate((el) => el.scrollTop), `列${i}が同期`).toBeGreaterThan(0);
+    for (let i = 0; i < 4; i++) {
+      const header = page.locator(`[data-compare-header="${i}"]`);
+      expect(await header.evaluate((el) => getComputedStyle(el).position)).toBe('sticky');
+      const c = await col(i).boundingBox(); const h = await header.boundingBox();
+      expect(c && h && h.y - c.y, `列${i}のヘッダーが上端に固定`).toBeLessThan(4);
+      await expect(header.locator('[data-compare-kind-label]'), `スクロール後も列${i}の種別が見える`).toBeVisible();
+    }
+    // OFF にすると他列は動かない
+    await page.locator('[data-compare-sync]').uncheck();
+    for (let i = 0; i < 4; i++) await col(i).evaluate((el) => { el.scrollTop = 0; });
+    await col(0).evaluate((el) => { el.scrollTop = 200; el.dispatchEvent(new Event('scroll')); });
+    await page.waitForTimeout(300);
+    expect(await col(1).evaluate((el) => el.scrollTop), '同期OFFでは他列が動かない').toBe(0);
+    await page.locator('[data-compare-sync]').check();
+
+    // ── ⑤ 282: 各列から個別に全画面（共通リーダー） ──
+    await page.locator('[data-compare-fullscreen="1"]').click();
+    await expect(dialog).toBeVisible();
+    await expect(dialog.locator('.markdown-body :is(h1,h2,h3,h4)').filter({ hasText: `見出しA要約${marker}` }), '要約の列から要約の全画面').toBeVisible();
+    await dialog.getByRole('button', { name: '✕ 閉じる' }).click();
+    await expect(dialog).toHaveCount(0);
+    await page.locator('[data-compare-fullscreen="2"]').click();
+    await expect(dialog.locator('.markdown-body :is(h1,h2,h3,h4)').filter({ hasText: `見出しB0${marker}` }), 'B0の列からB0の全画面').toBeVisible();
+    await dialog.getByRole('button', { name: '✕ 閉じる' }).click();
+    await expect(dialog).toHaveCount(0);
+
+    // ── ⑥ 閉じる。列数の指定は保持される（289と同じ保存先） ──
+    await page.locator('[data-library-compare] [data-compare-close]').click();
+    await expect(panel).toHaveCount(0);
+    await openBtn.click();
+    await expect(page.locator('[data-compare-cols-choice="4"]')).toHaveAttribute('aria-pressed', 'true');
+    await page.locator('[data-compare-cols-choice="auto"]').click();
+    await page.locator('[data-library-compare] [data-compare-close]').click();
+  } finally {
+    await request.delete(LIBRARY_API, { data: { ids: all } }).catch(() => {});
+    await cleanupE2ELibrary(request);
+  }
+});
+
+test('C97: リサーチ保存の一覧の見え方（291）— 列数1〜4（既定は自動・横スクロールなし）・密度（既定は詳細・コンパクトは低い）・文字数の段階は決定的で数値併記・バッジ行→タイトル行・保持・タッチ端末は1列固定・283の🔗/成果物タブ/🔍と検索の欠落は不変', async ({ page, request, browser }) => {
+  test.setTimeout(120_000);
+  const marker = `LIST${RUN_ID}`;
+  const jobId = 9900292;
+  const SUMTOKEN = `SUMONLY${marker}`;
+  const now = new Date().toISOString();
+  const text = (tag: string, len: number) => `${tag} ${marker} ` + 'あ'.repeat(Math.max(0, len - tag.length - marker.length - 2));
+  const c500a = await postLibraryRow(request, { type: 'deepresearch', title: withE2EPrefix(`L500a ${marker}`), content: text('L500a', 500), metadata: { savedAt: now }, tags: 'ディープリサーチ', group_name: 'ディープリサーチ' });
+  const c500b = await postLibraryRow(request, { type: 'deepresearch', title: withE2EPrefix(`L500b ${marker}`), content: text('L500b', 500), metadata: { savedAt: now }, tags: 'ディープリサーチ', group_name: 'ディープリサーチ' });
+  const c1200 = await postLibraryRow(request, { type: 'deepresearch', title: withE2EPrefix(`L1200 ${marker}`), content: text('L1200', 1200), metadata: { savedAt: now }, tags: 'ディープリサーチ', group_name: 'ディープリサーチ' });
+  const c5000 = await postLibraryRow(request, { type: 'deepresearch', title: withE2EPrefix(`L5000 ${marker}`), content: text('L5000', 5000), metadata: { savedAt: now }, tags: 'ディープリサーチ', group_name: 'ディープリサーチ' });
+  const p1 = await postLibraryRow(request, {
+    type: 'deepresearch', title: withE2EPrefix(`LP ${marker}`), content: text('LP本文', 800),
+    metadata: { from: 'batch-research', jobId, topicIndex: 0, kind: 'research', savedAt: now },
+    tags: `ディープリサーチ,バッチ,batch:${jobId}-0`, group_name: 'ディープリサーチ',
+  });
+  const p2 = await postLibraryRow(request, {
+    type: 'deepresearch', title: withE2EPrefix(`LP ${marker}`), content: `${SUMTOKEN} を含む要約 ${marker}`,
+    metadata: { from: 'batch-research', jobId, topicIndex: 0, kind: 'summary', savedAt: now },
+    tags: `ディープリサーチ,要約,バッチ,batch:${jobId}-0s`, group_name: 'ディープリサーチ',
+  });
+  const all = [c500a, c500b, c1200, c5000, p1, p2];
+  const card = (id: string) => page.locator(`[data-library-card="${id}"]`);
+  const badge = (id: string) => card(id).locator('[data-char-count]');
+  const grid = page.locator('[data-library-grid]').first();
+  const tierOf = async (id: string) => Number(await badge(id).getAttribute('data-char-tier'));
+  const bgOf = (id: string) => badge(id).evaluate((el) => getComputedStyle(el).backgroundColor);
+
+  try {
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto('/dashboard/library');
+    await page.evaluate(() => {
+      localStorage.removeItem('lumina_library_cols');
+      localStorage.removeItem('lumina_library_density');
+      localStorage.setItem('lumina_text_scale', '100');
+    });
+    await page.reload({ waitUntil: 'domcontentloaded' });
+    await page.locator('[data-library-search]').fill(marker);
+    await expect(card(c500a)).toBeVisible({ timeout: 30000 });
+    await expect(page.locator('[data-library-card]'), '6件が5枚（283のまとめは不変）').toHaveCount(5);
+
+    // ── ① 既定は自動／詳細（現状維持）。1280px の自動は xl＝4列 ──
+    await expect(page.locator('[data-library-cols-choice="auto"]')).toHaveAttribute('aria-pressed', 'true');
+    await expect(page.locator('[data-library-density-choice="detail"]')).toHaveAttribute('aria-pressed', 'true');
+    await expect(grid).toHaveAttribute('data-library-cols', 'auto');
+    await expect(grid).toHaveAttribute('data-library-density', 'detail');
+    let y = await stableYs(page, '[data-library-card]');
+    expect(new Set(y.slice(0, 4)).size, `自動（xl）は4列（y=${y.join(',')}）`).toBe(1);
+
+    // ── ② §3-3 文字数の段階: 同じ文字数は同じ段階・同じ色。数値は必ず併記。段階は文字数に単調 ──
+    await expect(badge(c500a)).toHaveText('500文字');
+    await expect(badge(c500b)).toHaveText('500文字');
+    await expect(badge(c5000)).toHaveText('5,000文字');
+    await expect(badge(c1200)).toHaveText('1,200文字');
+    expect(await tierOf(c500a)).toBe(await tierOf(c500b));
+    expect(await bgOf(c500a), '同じ文字数なら同じ色').toBe(await bgOf(c500b));
+    expect(await tierOf(c1200)).toBeGreaterThan(await tierOf(c500a));
+    expect(await tierOf(c5000)).toBeGreaterThan(await tierOf(c1200));
+    expect(await bgOf(c5000)).not.toBe(await bgOf(c500a));
+    await expect(badge(c5000)).toHaveAttribute('title', /5,000文字/);
+    // まとめたカードは成果物タブ側に文字数（種別＋数値）。🔗同一実行も出る
+    await expect(page.locator(`[data-library-artifact-tab="${p1}"] [data-char-count]`)).toHaveText(/\d字/);
+    await expect(card(p1)).toContainText('🔗 同一実行');
+    // ── §3-4 1行目バッジ（種別・文字数・日付）→ 2行目タイトル ──
+    const badgesBox = await card(c500a).locator('[data-library-badges]').boundingBox();
+    const titleBox = await card(c500a).locator('[data-library-title]').boundingBox();
+    expect(badgesBox && titleBox && titleBox.y > badgesBox.y, 'バッジ行がタイトル行より上').toBe(true);
+    await expect(card(c500a).locator('[data-library-badges] [data-library-category]')).toContainText('ディープリサーチ');
+    await expect(card(c500a).locator('[data-library-title]')).toContainText(`L500a ${marker}`);
+
+    // ── ③ §3-1 列数 2／1／4 を選べる。横スクロールなし ──
+    await page.locator('[data-library-cols-choice="2"]').click();
+    await expect(grid).toHaveAttribute('data-library-cols', '2');
+    y = await stableYs(page, '[data-library-card]');
+    expect(y[0]).toBe(y[1]); expect(y[2]).toBeGreaterThan(y[0]);
+    await expectNoPageHScroll(page, '一覧2列');
+    await page.locator('[data-library-cols-choice="1"]').click();
+    y = await stableYs(page, '[data-library-card]');
+    expect(y[0] < y[1] && y[1] < y[2] && y[2] < y[3]).toBe(true);
+    await page.locator('[data-library-cols-choice="4"]').click();
+    y = await stableYs(page, '[data-library-card]');
+    expect(new Set(y.slice(0, 4)).size, `4列（y=${y.join(',')}）`).toBe(1);
+    await expectNoPageHScroll(page, '一覧4列');
+
+    // ── ④ §3-2 密度: コンパクトは同じカードが低くなる（1列で自分の高さを測る）。成果物タブ・🔗・🔍は残る ──
+    await page.locator('[data-library-cols-choice="1"]').click();
+    const hDetail = (await card(c500a).boundingBox())!.height;
+    await page.locator('[data-library-density-choice="compact"]').click();
+    await expect(grid).toHaveAttribute('data-library-density', 'compact');
+    await page.waitForTimeout(200);
+    const hCompact = (await card(c500a).boundingBox())!.height;
+    expect(hCompact, `コンパクト(${hCompact}) < 詳細(${hDetail})`).toBeLessThan(hDetail);
+    await expect(card(c500a).locator('[data-library-fullscreen]'), 'コンパクトでは操作ボタンを出さない').toHaveCount(0);
+    await expect(badge(c500a), 'コンパクトでも文字数バッジ').toHaveText('500文字');
+    await expect(page.locator(`[data-library-artifact-tab="${p1}"]`), 'コンパクトでも成果物タブ').toBeVisible();
+    await expect(card(p1)).toContainText('🔗 同一実行');
+    // 283 §4-5: 検索でヒットした成果物に🔍（コンパクトでも欠落しない）
+    await page.locator('[data-library-search]').fill(SUMTOKEN);
+    await expect(card(p1), '要約だけがヒットしてもカードは欠落しない').toBeVisible();
+    await expect(page.locator(`[data-library-artifact-tab="${p2}"]`)).toHaveAttribute('data-library-artifact-hit', '1');
+    await expect(page.locator(`[data-library-artifact-tab="${p1}"]`)).toHaveAttribute('data-library-artifact-hit', '0');
+    await page.locator('[data-library-search]').fill(marker);
+    await expect(card(c500a)).toBeVisible();
+    // 詳細に戻すと操作ボタンとフォルダ等が戻る
+    await page.locator('[data-library-density-choice="detail"]').click();
+    await expect(card(c500a).locator('[data-library-fullscreen]')).toHaveCount(1);
+    await page.locator('[data-library-density-choice="compact"]').click();
+
+    // ── ⑤ 保持: 列数2・コンパクトで再読込しても同じ ──
+    await page.locator('[data-library-cols-choice="2"]').click();
+    await page.reload({ waitUntil: 'domcontentloaded' });
+    await page.locator('[data-library-search]').fill(marker);
+    await expect(card(c500a)).toBeVisible({ timeout: 30000 });
+    await expect(page.locator('[data-library-cols-choice="2"]')).toHaveAttribute('aria-pressed', 'true');
+    await expect(page.locator('[data-library-density-choice="compact"]')).toHaveAttribute('aria-pressed', 'true');
+    await expect(grid).toHaveAttribute('data-library-cols', '2');
+    await expect(grid).toHaveAttribute('data-library-density', 'compact');
+    // 既定へ戻す（後続テストへ持ち越さない）
+    await page.locator('[data-library-cols-choice="auto"]').click();
+    await page.locator('[data-library-density-choice="detail"]').click();
+  } finally {
+    // ── ⑥ タッチ端末: 列数の選択は出さず1列固定・横スクロールなし ──
+    const ctx = await browser.newContext({ storageState: STORAGE_STATE, baseURL: BASE_URL, hasTouch: true, isMobile: true, viewport: { width: 390, height: 844 } });
+    try {
+      const mp = await ctx.newPage();
+      await mp.goto('/dashboard/library');
+      await mp.evaluate(() => { localStorage.setItem('lumina_library_cols', '4'); });
+      await mp.reload({ waitUntil: 'domcontentloaded' });
+      await mp.locator('[data-library-search]').fill(marker);
+      await expect(mp.locator(`[data-library-card="${c500a}"]`)).toBeVisible({ timeout: 30000 });
+      await expect(mp.locator('[data-library-cols-picker]'), 'タッチ端末では列数の選択を出さない').toHaveCount(0);
+      await expect(mp.locator('[data-library-grid]').first(), '保存値が4でもタッチ端末は1列').toHaveAttribute('data-library-cols', '1');
+      const ys = await stableYs(mp, '[data-library-card]');
+      expect(new Set(ys).size, `1列に並ぶ（y=${ys.join(',')}）`).toBe(ys.length);
+      await expectNoPageHScroll(mp, 'タッチ端末');
+      await mp.evaluate(() => { localStorage.removeItem('lumina_library_cols'); });
+    } finally {
+      await ctx.close();
+    }
+    await request.delete(LIBRARY_API, { data: { ids: all } }).catch(() => {});
+    await cleanupE2ELibrary(request);
+  }
+});

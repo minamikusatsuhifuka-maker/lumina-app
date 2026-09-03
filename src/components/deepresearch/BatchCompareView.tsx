@@ -16,7 +16,6 @@ import {
   BATCH_COMPARE_MAX,
   type BatchCompareMode,
   type BatchResult,
-  COMPARE_COLUMN_CHOICES,
   type CompareColumnChoice,
   type CompareHeightPreset,
   compareColumnLabel,
@@ -39,6 +38,7 @@ import { useFinePointer } from '@/lib/pointer-device';
 import {
   COMPARE_ACCENT,
   CompareColumnShell,
+  CompareColumnsPicker,
   CompareHeightPicker,
   CompareSyncToggle,
   compareCompactBtnStyle,
@@ -157,24 +157,8 @@ export default function BatchCompareView({ jobId, results, onClose }: Props) {
           <button type="button" data-compare-mode="summary" aria-pressed={mode === 'summary'} onClick={() => applyMode('summary')} style={modeBtnStyle(mode === 'summary')}>
             📋 要約
           </button>
-          {/* 289 §3-1: 列数の手動指定（タッチ端末は1列固定なので出さない）。狭い画面でも制限・警告はかけない */}
-          {(!mounted || fine) && (
-            <span data-compare-cols-picker style={{ display: 'inline-flex', alignItems: 'center', gap: 2 }} title="横に並べる列数（自動＝画面幅で決める）">
-              <span style={{ fontSize: 11, color: 'var(--text-muted)', marginRight: 2 }}>列</span>
-              {COMPARE_COLUMN_CHOICES.map((c) => (
-                <button
-                  key={String(c)}
-                  type="button"
-                  data-compare-cols-choice={String(c)}
-                  aria-pressed={colChoice === c}
-                  onClick={() => applyColChoice(c)}
-                  style={{ ...compactBtnStyle, padding: '4px 8px', borderColor: colChoice === c ? ACCENT : 'var(--border)', background: colChoice === c ? `${ACCENT}15` : 'var(--bg-primary)', fontWeight: colChoice === c ? 700 : 600 }}
-                >
-                  {c === 'auto' ? '自動' : c}
-                </button>
-              ))}
-            </span>
-          )}
+          {/* 289 §3-1: 列数の手動指定（タッチ端末は1列固定なので出さない）。291で共通部品へ（リサーチ保存の比較と共用） */}
+          {(!mounted || fine) && <CompareColumnsPicker value={colChoice} onChange={applyColChoice} />}
           {/* 289 §4: カード高さのプリセット（低＝2×2で4枚が1画面に収まる／高＝従来68vh） */}
           <CompareHeightPicker value={heightPreset} onChange={applyHeight} />
           <CompareSyncToggle checked={syncScroll} onChange={setSyncScroll} />

@@ -5,6 +5,39 @@ import { copyRichMarkdown } from '@/lib/rich-copy';
 // 283: 展開した本文は整形表示（R-45）。全画面（FullscreenReader）と同じレンダラ
 import { renderMarkdown, sanitizeLatex } from '@/lib/markdown-renderer';
 import type { LibraryArtifactKind, LibraryLinkKind } from '@/lib/library-groups';
+// 291: 文字数の段階（濃淡）と表示密度の判断は lib/library-view.ts（決定的・閾値は1箇所）
+import { CHAR_COUNT_TIER_STYLE, type ListDensity, charCountTier, charCountTitle } from '@/lib/library-view';
+
+/**
+ * 291 §3-3: 文字数バッジ。段階（0〜3）で濃淡を変えるが、色だけに意味を持たせず数値を必ず併記する。
+ * data-char-count / data-char-tier は E2E（同じ文字数なら同じ段階・同じ色）の目印。
+ */
+export function CharCountBadge({ n, unit = '文字', compact = false }: { n: number; unit?: '文字' | '字'; compact?: boolean }) {
+  const v = Number.isFinite(n) && n > 0 ? Math.floor(n) : 0;
+  const tier = charCountTier(v);
+  const st = CHAR_COUNT_TIER_STYLE[tier];
+  return (
+    <span
+      data-char-count={v}
+      data-char-tier={tier}
+      title={charCountTitle(v)}
+      style={{
+        display: 'inline-block',
+        padding: compact ? '0 5px' : '1px 7px',
+        borderRadius: 8,
+        background: st.bg,
+        color: st.color,
+        border: st.border,
+        fontSize: 10,
+        fontWeight: 700,
+        whiteSpace: 'nowrap',
+        lineHeight: 1.5,
+      }}
+    >
+      {v.toLocaleString()}{unit}
+    </span>
+  );
+}
 
 // 283: 1枚のカードにまとめた成果物（本文・要約など）。呼び出し元が判定（lib/library-groups.ts）し、
 // 選択/展開/検索ヒットの状態も行単位で渡す（この部品は一覧の状態を持たない）
@@ -98,6 +131,9 @@ interface Props {
   artifacts?: LibraryArtifactView[];
   // 283: まとめ方（batch=保存時のトピック固有タグで確実 ／ estimated=タイトル一致＋時刻の推定）
   linkKind?: LibraryLinkKind | null;
+  // 291 §3-2: 表示密度。detail（既定＝従来どおり）／compact＝バッジとタイトルのみ（フォルダ・操作ボタンを出さず高さを抑える）。
+  // compact のみ対応。成果物タブ（種別＋文字数のバッジ＝選択の口）と展開本文は密度に関わらず出す（R-88 オプトイン）
+  density?: ListDensity;
 }
 
 export function LibraryItemRow({
@@ -118,6 +154,7 @@ export function LibraryItemRow({
   clickToExpand = false,
   artifacts,
   linkKind = null,
+  density = 'detail',
 }: Props) {
   const meta = parseMetadata(item.metadata);
   const subCategory: string | undefined = typeof meta?.subCategory === 'string' ? meta.subCategory : undefined;
@@ -260,64 +297,36 @@ export function LibraryItemRow({
           gap: 8,
         }}
       >
-        {/* 282: ここ（タイトル・フォルダ・日付/文字数）が本文の展開領域（clickToExpand 時のみ有効）。
+        {/* 282: ここ（バッジ行・タイトル・フォルダ）が本文の展開領域（clickToExpand 時のみ有効）。
+            291 §3-4: 1行目にバッジ（種別・文字数・日付）、2行目にタイトル——長いタイトルでもバッジの位置が動かない。
             入れ子の flex column は外側と同じ gap にして、有効/無効で見た目が変わらないようにする */}
         <div {...expandZoneProps} style={{ display: 'flex', flexDirection: 'column', gap: 8, minWidth: 0 }}>
-        {/* タイトル行（★は常時表示） */}
-        <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8, minWidth: 0 }}>
+        {/* 1行目: バッジ（種別・文字数・日付・🔗まとめ方） */}
+        <div data-library-badges style={{ fontSize: 11, color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', minWidth: 0 }}>
           {mergeMode && !hasArtifacts && (
             <input
               type="checkbox"
+              data-library-check={item.id}
               checked={selected}
               onChange={(e) => onSelectToggle(item.id, e.target.checked)}
               onClick={stopCardClick}
-              style={{ marginTop: 2, width: 16, height: 16, cursor: 'pointer', flexShrink: 0 }}
+              style={{ width: 16, height: 16, cursor: 'pointer', flexShrink: 0, margin: 0 }}
             />
           )}
-          {anyFavorite ? (
-            <span style={{ color: '#f5a623', fontSize: 13, flexShrink: 0 }}>★</span>
-          ) : null}
-          <strong
-            className="line-clamp-2"
-            title={item.title || '(無題)'}
-            style={{
-              fontSize: 13,
-              fontWeight: 700,
-              color: 'var(--text-primary)',
-              wordBreak: 'break-word',
-              lineHeight: 1.5,
-              minWidth: 0,
-            }}
+          <span
+            data-library-category={groupName}
+            title={groupName}
+            style={{ padding: '1px 7px', borderRadius: 8, background: config.badgeBg, color: config.badgeColor, fontSize: 10, fontWeight: 700, whiteSpace: 'nowrap', lineHeight: 1.5 }}
           >
-            {item.title || '(無題)'}
-          </strong>
-        </div>
-
-        {/* 252: 所属マイフォルダ。コンパクトカードなので1行に収め、溢れは隠す */}
-        {folderBadges && (
-          <div
-            style={{
-              display: 'flex',
-              gap: 4,
-              flexWrap: 'nowrap',
-              overflow: 'hidden',
-              maxHeight: 20,
-              minWidth: 0,
-            }}
-          >
-            {folderBadges}
-          </div>
-        )}
-
-        {/* 日付・文字数のみ（283: 成果物が複数ならタブ側に文字数を出し、ここでは件数） */}
-        <div style={{ fontSize: 11, color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-          {createdDate && <span>{createdDate}</span>}
-          <span>・</span>
+            {config.icon} {groupName}
+          </span>
+          {/* 283: 成果物が複数ならタブ側に文字数を出し、ここでは件数 */}
           {hasArtifacts ? (
             <span>{artifacts!.length}件の成果物</span>
           ) : (
-            <span>{charCount.toLocaleString()}文字</span>
+            <CharCountBadge n={charCount} />
           )}
+          {createdDate && <span>{createdDate}</span>}
           {/* 283: まとめ方の表示。推定は必ず明示する（保存データに紐付けは無い） */}
           {hasArtifacts && linkKind === 'estimated' && (
             <span
@@ -348,6 +357,43 @@ export function LibraryItemRow({
             </a>
           )}
         </div>
+
+        {/* 2行目: タイトル（★は常時表示） */}
+        <div data-library-title style={{ display: 'flex', alignItems: 'flex-start', gap: 6, minWidth: 0 }}>
+          {anyFavorite ? (
+            <span style={{ color: '#f5a623', fontSize: 13, flexShrink: 0 }}>★</span>
+          ) : null}
+          <strong
+            className="line-clamp-2"
+            title={item.title || '(無題)'}
+            style={{
+              fontSize: 13,
+              fontWeight: 700,
+              color: 'var(--text-primary)',
+              wordBreak: 'break-word',
+              lineHeight: 1.5,
+              minWidth: 0,
+            }}
+          >
+            {item.title || '(無題)'}
+          </strong>
+        </div>
+
+        {/* 252: 所属マイフォルダ。コンパクトカードなので1行に収め、溢れは隠す（291: 密度=コンパクトでは出さない） */}
+        {density === 'detail' && folderBadges && (
+          <div
+            style={{
+              display: 'flex',
+              gap: 4,
+              flexWrap: 'nowrap',
+              overflow: 'hidden',
+              maxHeight: 20,
+              minWidth: 0,
+            }}
+          >
+            {folderBadges}
+          </div>
+        )}
         </div>
 
         {/* 283: 成果物タブ（種別＋文字数を併記）。押すとその内容が展開される。選択モードでは成果物ごとにチェック */}
@@ -399,7 +445,7 @@ export function LibraryItemRow({
                     {a.hit ? '🔍 ' : ''}
                     {a.item.is_favorite ? '⭐ ' : ''}
                     {a.expanded ? '▲ ' : '▼ '}
-                    {a.label} {charCountOf(a.item).toLocaleString()}字
+                    {a.label} <CharCountBadge n={charCountOf(a.item)} unit="字" compact />
                   </button>
                 </span>
               );
@@ -407,7 +453,9 @@ export function LibraryItemRow({
           </div>
         )}
 
-        {/* 操作ボタン: ホバー時オーバーレイ表示（タッチ端末は常時表示）。283: 成果物タブがあれば選択中の成果物に対して動く */}
+        {/* 操作ボタン: ホバー時オーバーレイ表示（タッチ端末は常時表示）。283: 成果物タブがあれば選択中の成果物に対して動く。
+            291 §3-2: 密度=コンパクトでは出さない（高さを抑える。操作は詳細に切り替えるか、クリック展開→本文内から） */}
+        {density === 'detail' && (
         <div
           className="opacity-0 group-hover:opacity-100 focus-within:opacity-100 [@media(hover:none)]:opacity-100 transition-opacity"
           onClick={stopCardClick}
@@ -500,6 +548,7 @@ export function LibraryItemRow({
           </button>
           )}
         </div>
+        )}
 
         {/* 全文表示（▼全文表示の展開時のみ本文を表示）。282: 本文のクリックで閉じない（文字を選べる）。
             283: 整形表示（R-45）＝全画面と同じ renderMarkdown */}
@@ -587,6 +636,7 @@ export function LibraryItemRow({
         {mergeMode && (
           <input
             type="checkbox"
+            data-library-check={item.id}
             checked={selected}
             onChange={(e) => onSelectToggle(item.id, e.target.checked)}
             onClick={stopCardClick}

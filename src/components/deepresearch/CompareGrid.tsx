@@ -7,9 +7,11 @@
 
 import { useRef, type CSSProperties, type ReactNode } from 'react';
 import {
+  COMPARE_COLUMN_CHOICES,
   COMPARE_HEIGHT_LABEL,
   COMPARE_HEIGHT_PRESETS,
   COMPARE_HEIGHT_VH,
+  type CompareColumnChoice,
   type CompareHeightPreset,
   scrollRatioOf,
   syncScrollTop,
@@ -80,6 +82,37 @@ export function CompareHeightPicker({
           style={{ ...compareCompactBtnStyle, padding: '4px 8px', borderColor: value === h ? COMPARE_ACCENT : 'var(--border)', background: value === h ? `${COMPARE_ACCENT}15` : 'var(--bg-primary)', fontWeight: value === h ? 700 : 600 }}
         >
           {COMPARE_HEIGHT_LABEL[h]}
+        </button>
+      ))}
+    </span>
+  );
+}
+
+/**
+ * 289 §3-1: 列数の手動指定（自動／1〜4）。291で BatchCompareView から切り出し、リサーチ保存の比較と共用。
+ * data-compare-cols-picker / data-compare-cols-choice の目印は C91 がそのまま使うため変えない。
+ * タッチ端末では呼び出し側が出さない（1列固定）。狭い画面でも制限・警告はかけない。
+ */
+export function CompareColumnsPicker({
+  value,
+  onChange,
+}: {
+  value: CompareColumnChoice;
+  onChange: (c: CompareColumnChoice) => void;
+}) {
+  return (
+    <span data-compare-cols-picker style={{ display: 'inline-flex', alignItems: 'center', gap: 2 }} title="横に並べる列数（自動＝画面幅で決める）">
+      <span style={{ fontSize: 11, color: 'var(--text-muted)', marginRight: 2 }}>列</span>
+      {COMPARE_COLUMN_CHOICES.map((c) => (
+        <button
+          key={String(c)}
+          type="button"
+          data-compare-cols-choice={String(c)}
+          aria-pressed={value === c}
+          onClick={() => onChange(c)}
+          style={{ ...compareCompactBtnStyle, padding: '4px 8px', borderColor: value === c ? COMPARE_ACCENT : 'var(--border)', background: value === c ? `${COMPARE_ACCENT}15` : 'var(--bg-primary)', fontWeight: value === c ? 700 : 600 }}
+        >
+          {c === 'auto' ? '自動' : c}
         </button>
       ))}
     </span>

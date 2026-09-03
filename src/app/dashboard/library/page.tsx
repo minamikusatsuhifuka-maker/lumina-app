@@ -42,6 +42,24 @@ import {
   deriveMergeTitle,
   hasSavableContent,
 } from '@/lib/merge-report';
+// 291: 一覧の列数・密度・文字数の段階と「選択して比較」の判断（純関数）。比較UIは 271〜290 の共通部品を流用
+import {
+  LIST_COLUMN_CHOICES,
+  LIST_DENSITIES,
+  LIST_DENSITY_LABEL,
+  type ListColumnChoice,
+  type ListDensity,
+  libraryCompareEntries,
+  libraryCompareState,
+  listGridClass,
+  loadListColumnChoice,
+  loadListDensity,
+  resolveListColumns,
+  saveListColumnChoice,
+  saveListDensity,
+} from '@/lib/library-view';
+import LibraryCompareView from '@/components/library/LibraryCompareView';
+import { useFinePointer } from '@/lib/pointer-device';
 // LibraryPreviewPanel は廃止（カード内インライン展開に統一）
 
 /* ── タブ定義（サイドメニュー対応） ── */
@@ -142,6 +160,19 @@ function LibraryPageInner() {
   const [folderInput, setFolderInput] = useState('');
   const [collapsedFolders, setCollapsedFolders] = useState<Set<string>>(new Set());
   const [showMergeModal, setShowMergeModal] = useState(false);
+  // 291 §3: 一覧の列数（既定 auto＝従来）と密度（既定 detail＝従来）。選んだ値は次回も使う
+  const [listColChoice, setListColChoice] = useState<ListColumnChoice>('auto');
+  const [listDensity, setListDensity] = useState<ListDensity>('detail');
+  // 291 §2: 比較パネルに出す成果物 id（開いた時点の選択のスナップショット・選んだ順）。null=閉じている
+  const [compareIds, setCompareIds] = useState<string[] | null>(null);
+  // 258: 端末判定は lib/pointer-device.ts に一本化（タッチ端末は一覧・比較とも1列固定）
+  const { fine: finePointer, mounted: pointerMounted } = useFinePointer();
+
+  useEffect(() => {
+    // localStorage はクライアントでしか読めないので、描画後に反映する（SSRと差分を作らない）
+    setListColChoice(loadListColumnChoice());
+    setListDensity(loadListDensity());
+  }, []);
 
   useEffect(() => {
     fetch('/api/library')
@@ -644,8 +675,31 @@ function LibraryPageInner() {
   // （219のDRタブ限定と「全体横断検索中は通常表示に戻す」安全弁は院長指示で撤去。
   //   全タブcompactになったため混在表示でも列が揃う）
   const isDrCompact = true;
-  // 画面幅に応じて自動で1〜4列（院長指定のリテラル）
-  const drGridClass = 'grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4';
+  // 291 §3-1: 列数は lib/library-view.ts で解決（auto＝従来の幅による1〜4列のリテラル／1〜4＝固定／タッチ端末は1列）。
+  // mounted 前はデスクトップ扱い（pointer-device の方針に合わせる）
+  const resolvedListCols = resolveListColumns(pointerMounted ? finePointer : true, listColChoice);
+  const drGridClass = listGridClass(resolvedListCols);
+  const listGridAttrs = { 'data-library-grid': '', 'data-library-cols': String(resolvedListCols), 'data-library-density': listDensity } as const;
+  const applyListCols = (c: ListColumnChoice) => {
+    setListColChoice(c);
+    saveListColumnChoice(c);
+  };
+  const applyListDensity = (d: ListDensity) => {
+    setListDensity(d);
+    saveListDensity(d);
+  };
+
+  // 291 §2: 比較パネルの列（選択した成果物）。種別は 283/286 のカードまとめから引く（判定は変えない）
+  const compareEntries = useMemo(
+    () => (compareIds ? libraryCompareEntries(compareIds, items, allCards) : []),
+    [compareIds, items, allCards],
+  );
+  const compareState = libraryCompareState(selectedIds.size);
+  const openCompare = () => {
+    if (!compareState.enabled) return;
+    hoverPreview.hide();
+    setCompareIds(Array.from(selectedIds));
+  };
 
   /* ── 各カードのレンダリング（283: 1枚＝同一リサーチの成果物1〜4件） ── */
   const renderItem = (v: VisibleCard) => {
@@ -707,6 +761,8 @@ function LibraryPageInner() {
         // 282: ⛶全画面（共通 FullscreenReader）とタイトルクリック展開（274と同じ挙動）を有効にする
         onFullscreen={openReader}
         clickToExpand
+        // 291 §3-2: 表示密度（既定 detail＝従来）
+        density={listDensity}
       />
 
       {editingId === item.id && (
@@ -744,7 +800,7 @@ function LibraryPageInner() {
         </button>
         {!isCollapsed && (
           isDrCompact ? (
-            <div className={drGridClass} style={{ gap: 12, paddingLeft: 12 }}>
+            <div className={drGridClass} {...listGridAttrs} style={{ gap: 12, paddingLeft: 12 }}>
               {folderItems.map(renderItem)}
             </div>
           ) : (
@@ -830,8 +886,18 @@ function LibraryPageInner() {
       {/* 選択モードガイド */}
       {mergeMode && (
         <div style={{ padding: '10px 16px', background: 'var(--accent-soft)', border: '1px solid var(--border-accent)', borderRadius: 10, marginBottom: 16, fontSize: 13, color: 'var(--accent)', fontWeight: 600 }}>
-          ✓ 資料をチェックすると、下のバーから「AIでまとめる（2件以上）」「Kindle本にする」「一括削除」が使えます
+          ✓ 資料をチェックすると、下のバーから「AIでまとめる（2件以上）」「選択した件を比較（2〜4件）」「Kindle本にする」「一括削除」が使えます
         </div>
+      )}
+
+      {/* 291 §2: 選択した成果物の横並び比較（271〜290 の共通部品・全画面は 282 の共通リーダー） */}
+      {compareIds && (
+        <LibraryCompareView
+          entries={compareEntries}
+          onClose={() => setCompareIds(null)}
+          onFullscreen={openReader}
+          onExportMd={downloadMd}
+        />
       )}
 
       {/* 検索 + スコープ切替 + お気に入り絞り込み + 一括AI分類 */}
@@ -1075,6 +1141,42 @@ function LibraryPageInner() {
         </div>
       )}
 
+      {/* ── 291 §3: 一覧の見え方（列数・密度）。タッチ端末は1列固定なので列数の選択は出さない ── */}
+      <div data-library-view-bar style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', marginBottom: 12, fontSize: 11, color: 'var(--text-muted)' }}>
+        {(!pointerMounted || finePointer) && (
+          <span data-library-cols-picker style={{ display: 'inline-flex', alignItems: 'center', gap: 2 }} title="一覧の列数（自動＝画面幅で1〜4列）">
+            <span style={{ marginRight: 2 }}>列</span>
+            {LIST_COLUMN_CHOICES.map((c) => (
+              <button
+                key={String(c)}
+                type="button"
+                data-library-cols-choice={String(c)}
+                aria-pressed={listColChoice === c}
+                onClick={() => applyListCols(c)}
+                style={{ padding: '4px 8px', borderRadius: 5, fontSize: 11, fontWeight: listColChoice === c ? 700 : 600, border: `1px solid ${listColChoice === c ? 'var(--accent)' : 'var(--border)'}`, background: listColChoice === c ? 'var(--accent-soft)' : 'var(--bg-primary)', color: 'var(--text-primary)', cursor: 'pointer' }}
+              >
+                {c === 'auto' ? '自動' : c}
+              </button>
+            ))}
+          </span>
+        )}
+        <span data-library-density-picker style={{ display: 'inline-flex', alignItems: 'center', gap: 2 }} title="表示密度（コンパクト＝バッジとタイトルのみ）">
+          <span style={{ marginRight: 2 }}>密度</span>
+          {LIST_DENSITIES.map((d) => (
+            <button
+              key={d}
+              type="button"
+              data-library-density-choice={d}
+              aria-pressed={listDensity === d}
+              onClick={() => applyListDensity(d)}
+              style={{ padding: '4px 8px', borderRadius: 5, fontSize: 11, fontWeight: listDensity === d ? 700 : 600, border: `1px solid ${listDensity === d ? 'var(--accent)' : 'var(--border)'}`, background: listDensity === d ? 'var(--accent-soft)' : 'var(--bg-primary)', color: 'var(--text-primary)', cursor: 'pointer' }}
+            >
+              {LIST_DENSITY_LABEL[d]}
+            </button>
+          ))}
+        </span>
+      </div>
+
       {/* ── アイテムリスト（フォルダグルーピング） ── */}
       {loading ? (
         <div style={{ color: 'var(--text-muted)', textAlign: 'center', padding: 40 }}>読み込み中...</div>
@@ -1095,7 +1197,7 @@ function LibraryPageInner() {
                 <div style={{ fontSize: 11, color: 'var(--text-muted)', padding: '4px 10px', fontWeight: 600 }}>未整理</div>
               )}
               {isDrCompact ? (
-                <div className={drGridClass} style={{ gap: 12 }}>
+                <div className={drGridClass} {...listGridAttrs} style={{ gap: 12 }}>
                   {groupedByFolder.noFolder.map(renderItem)}
                 </div>
               ) : (
@@ -1164,6 +1266,15 @@ function LibraryPageInner() {
           <button onClick={generateMergeReport} disabled={merging || selectedIds.size < 2}
             style={{ padding: '6px 16px', borderRadius: 99, background: '#fff', color: '#6c63ff', border: 'none', cursor: merging || selectedIds.size < 2 ? 'not-allowed' : 'pointer', fontSize: 13, fontWeight: 700, opacity: merging || selectedIds.size < 2 ? 0.6 : 1 }}>
             {merging ? '分析中...' : '🔗 AIでまとめる'}
+          </button>
+          {/* 291 §2-1/§2-2: 選択した成果物を横並びで比較（2〜4件）。5件目を選んでいる間は無効化し理由を出す（先頭4件に黙って切らない） */}
+          <button
+            data-library-compare-open
+            onClick={openCompare}
+            disabled={!compareState.enabled}
+            title={compareState.reason ?? '選択した成果物を横並びで比較します（列数・高さ・同期スクロール・全画面）'}
+            style={{ padding: '6px 16px', borderRadius: 99, background: 'rgba(255,255,255,0.15)', color: '#fff', border: '1px solid rgba(255,255,255,0.5)', cursor: compareState.enabled ? 'pointer' : 'not-allowed', fontSize: 13, fontWeight: 700, opacity: compareState.enabled ? 1 : 0.6 }}>
+            {compareState.label}
           </button>
           {/* 230【B-1】: 選択→Kindleウィザード①へhandoff（対象=DR/note記事のみ・読取後削除の冪等キー） */}
           <button
