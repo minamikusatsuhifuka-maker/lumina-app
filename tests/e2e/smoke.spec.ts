@@ -5851,6 +5851,8 @@ test('C93: /api/deepresearch の compare は gemini／opus 以外なら 400（29
 });
 
 test('C94: 追従🗒カテゴリメモ（208）— 既定off・🎛表示設定に導線・onでDR画面右下に4つ目として出て他と重ならない（1280/375px）・fixed追従・非モーダル・新規カテゴリ→選択・保存→トーストにカテゴリ名→一覧・お題が紐付く・絞り込み・編集・カテゴリ削除でメモは未分類に残る・削除は2段階', async ({ page }) => {
+  // 2幅×4追従の描画待ち＋実API往復×10段で 60秒の既定を超える（初回本番実測 1分超）ため個別に延ばす
+  test.setTimeout(180_000);
   await stubFeatureDrafts(page);
   const marker = RUN_ID;
   const FAB_ICONS = ['💬', '📝', '🗒', '📖'];
