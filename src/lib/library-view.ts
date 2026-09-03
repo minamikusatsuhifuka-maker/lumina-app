@@ -30,19 +30,32 @@ export const LIST_COLUMN_CHOICES: ListColumnChoice[] = ['auto', 1, 2, 3, 4];
 export const LIST_COLUMN_CHOICE_DEFAULT: ListColumnChoice = 'auto';
 export const LIST_COLUMN_KEY = 'lumina_library_cols';
 
-export function loadListColumnChoice(): ListColumnChoice {
+/**
+ * 292: 🗂テキスト分析の保存一覧は従来が常に1列（縦積み）なので、既定は 1（現状維持）。
+ * 判断関数（resolveListColumns / listGridClass）と選択肢は📚リサーチ保存と同じものを使い、
+ * 保存先キーと既定値だけを画面ごとに分ける（同じ列数判定・同じ色分け＝§2-3）。
+ */
+export const TA_LIST_COLUMN_KEY = 'lumina_ta_cols';
+export const TA_LIST_COLUMN_CHOICE_DEFAULT: ListColumnChoice = 1;
+export const TA_LIST_DENSITY_KEY = 'lumina_ta_density';
+
+export function loadListColumnChoice(
+  key: string = LIST_COLUMN_KEY,
+  fallback: ListColumnChoice = LIST_COLUMN_CHOICE_DEFAULT,
+): ListColumnChoice {
   try {
-    if (typeof window === 'undefined') return LIST_COLUMN_CHOICE_DEFAULT;
-    const v = window.localStorage.getItem(LIST_COLUMN_KEY);
+    if (typeof window === 'undefined') return fallback;
+    const v = window.localStorage.getItem(key);
     if (v === '1' || v === '2' || v === '3' || v === '4') return Number(v) as ListColumns;
-    return LIST_COLUMN_CHOICE_DEFAULT;
+    if (v === 'auto') return 'auto';
+    return fallback;
   } catch {
-    return LIST_COLUMN_CHOICE_DEFAULT;
+    return fallback;
   }
 }
-export function saveListColumnChoice(choice: ListColumnChoice): void {
+export function saveListColumnChoice(choice: ListColumnChoice, key: string = LIST_COLUMN_KEY): void {
   try {
-    window.localStorage.setItem(LIST_COLUMN_KEY, String(choice));
+    window.localStorage.setItem(key, String(choice));
   } catch {}
 }
 
@@ -79,18 +92,18 @@ export const LIST_DENSITY_LABEL: Record<ListDensity, string> = { detail: '詳細
 export const LIST_DENSITY_DEFAULT: ListDensity = 'detail';
 export const LIST_DENSITY_KEY = 'lumina_library_density';
 
-export function loadListDensity(): ListDensity {
+export function loadListDensity(key: string = LIST_DENSITY_KEY): ListDensity {
   try {
     if (typeof window === 'undefined') return LIST_DENSITY_DEFAULT;
-    const v = window.localStorage.getItem(LIST_DENSITY_KEY);
+    const v = window.localStorage.getItem(key);
     return v === 'compact' || v === 'detail' ? v : LIST_DENSITY_DEFAULT;
   } catch {
     return LIST_DENSITY_DEFAULT;
   }
 }
-export function saveListDensity(density: ListDensity): void {
+export function saveListDensity(density: ListDensity, key: string = LIST_DENSITY_KEY): void {
   try {
-    window.localStorage.setItem(LIST_DENSITY_KEY, density);
+    window.localStorage.setItem(key, density);
   } catch {}
 }
 
@@ -164,8 +177,12 @@ export function libraryCompareState(selectedCount: number): { enabled: boolean; 
   return { enabled: true, label: `⇔ 選択した${selectedCount}件を比較`, reason: null };
 }
 
-/** 比較パネルの1列＝選択した成果物（行）。種別ラベルは列ヘッダーに出す（§2-4） */
-export type LibraryCompareEntry<T extends LibraryLike> = { item: T; kind: LibraryArtifactKind; label: string };
+/**
+ * 比較パネルの1列。種別ラベルは列ヘッダーに出す（§2-4）。
+ * 292: kind は画面ごとの体系（📚は本文/要約…の LibraryArtifactKind、🗂テキスト分析は analysis_type）なので文字列。
+ * 283/286 のグルーピングはテキスト分析へ持ち込まない（292 §2-5）＝比較の単位は保存された1件そのもの。
+ */
+export type LibraryCompareEntry<T extends LibraryLike> = { item: T; kind: string; label: string };
 
 /**
  * 選んだ id（選択順）を比較の列に写す。カードのまとめ（283/286）から種別を引き、無ければ行から判定する。

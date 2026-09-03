@@ -11,6 +11,8 @@
 //
 // 比較の単位は成果物（行）。283/286 のカードまとめは変えず、選んだ行を選んだ順に列へ置く。
 // 列ヘッダーには種別（本文／要約／詳細／活用アドバイス）を必ず出す（§2-4）。
+// 292: 🗂テキスト分析の保存一覧（SavedAnalysisList）からも同じ部品を使う。そちらの種別は分析タイプ
+//（全文書き起こし／詳細にまとめる／概要・要約…）で、kind/label は呼び出し側が決める（この部品は体系を持たない）。
 // 全画面は 282 の共通 FullscreenReader（呼び出し元が1つだけマウント）へ onFullscreen で渡す（§2-5）。
 // 本文の整形は MarkdownBody（R-45/R-97）。コピー・DLは原文のまま（R-71）。
 
@@ -48,9 +50,17 @@ type Props<T extends Row> = {
   onFullscreen: (item: T) => void;
   /** 一覧のカードと同じ MD ダウンロード（原文のまま） */
   onExportMd: (item: T) => void;
+  /** 292: 列ヘッダーに出す種別の説明文（画面ごとの体系に合わせて呼び出し側が渡す。省略時は📚の文言） */
+  kindNote?: string;
 };
 
-export default function LibraryCompareView<T extends Row>({ entries, onClose, onFullscreen, onExportMd }: Props<T>) {
+export default function LibraryCompareView<T extends Row>({
+  entries,
+  onClose,
+  onFullscreen,
+  onExportMd,
+  kindNote = '各列の見出しに種別（本文／要約／詳細／活用アドバイス）を表示しています。',
+}: Props<T>) {
   const { fine, mounted } = useFinePointer();
   const [syncScroll, setSyncScroll] = useState(true);
   const [copied, setCopied] = useState<string | null>(null);
@@ -117,7 +127,7 @@ export default function LibraryCompareView<T extends Row>({ entries, onClose, on
         </div>
       </div>
       <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 10, lineHeight: 1.6 }}>
-        列は選んだ順。各列の見出しに種別（本文／要約／詳細／活用アドバイス）を表示しています。
+        列は選んだ順。{kindNote}
         {mounted && !fine && '（この端末では1列ずつ表示します）'}
       </div>
 
