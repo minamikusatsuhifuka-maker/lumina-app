@@ -5908,6 +5908,20 @@ test('C94: 追従🗒カテゴリメモ（208）— 既定off・🎛表示設定
   await expect(panel).toBeVisible();
   expect(await panel.evaluate((el) => getComputedStyle(el).position)).toBe('fixed');
   await expect(panel).toHaveAttribute('aria-modal', 'false');
+  // R-48: パネルが追従ボタン列（4つ全部 on）と交差しない＝上段のボタンが行末の🗑を覆わない（機械判定）
+  {
+    const pb = (await panel.boundingBox())!;
+    const fabBoxes = await page.evaluate(() =>
+      [...document.querySelectorAll('button')]
+        .filter((b) => getComputedStyle(b).position === 'fixed' && ['💬', '📝', '🗒', '📖'].includes((b.textContent || '').trim()))
+        .map((b) => { const r = b.getBoundingClientRect(); return { text: (b.textContent || '').trim(), x: r.x, y: r.y, w: r.width, h: r.height }; }),
+    );
+    expect(fabBoxes.length).toBe(4);
+    for (const f of fabBoxes) {
+      const overlap = f.x < pb.x + pb.width && f.x + f.w > pb.x && f.y < pb.y + pb.height && f.y + f.h > pb.y;
+      expect(overlap, `${f.text} がパネルに重ならない`).toBe(false);
+    }
+  }
   await expect(panel.locator('[data-drmemo-context]')).toContainText(`[E2E] お題 ${marker}`);
   await topicInput.fill(`[E2E] お題 ${marker} 追記`);
   await expect(topicInput, '開いたまま背後の入力欄が使える').toHaveValue(`[E2E] お題 ${marker} 追記`);

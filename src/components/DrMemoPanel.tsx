@@ -367,11 +367,12 @@ export function DrMemoPanel() {
           aria-label="カテゴリメモ"
           style={{
             position: 'fixed',
-            right: 16,
-            // ボタンの1段上に置く（段の高さは useFloatingSlot と同じ 56px）。ボタン列には重ねない
-            bottom: `calc(${fabBottom} + 56px)`,
+            // 追従ボタン列（right:16・幅48）の**左隣**に置き、上段のボタン（📖等・z 9998）と一切重ねない（R-48）。
+            // 当初は「自分のボタンの1段上」に置いたが、上段のボタンがパネル右下の🗑を覆ってクリックできなかった（C94で実測）
+            right: 76,
+            bottom: fabBottom,
             zIndex: 9997,
-            width: 'min(400px, calc(100vw - 32px))',
+            width: 'min(400px, calc(100vw - 92px))',
             maxHeight: '70vh',
             display: 'flex',
             flexDirection: 'column',
