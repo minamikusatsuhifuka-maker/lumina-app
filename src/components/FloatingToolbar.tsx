@@ -2,6 +2,8 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { loadMemoSheets, appendToMemoSheet } from '@/lib/memo-storage';
 import { PipMemoPanel } from './pip-memo-panel';
+// 208: 🗒カテゴリメモ（DB保存・既定off）。段組みは useFloatingSlot('drmemo')
+import { DrMemoPanel } from './DrMemoPanel';
 
 const FLOAT_COLORS = [
   { color: '#ef4444', label: '赤' },
@@ -241,6 +243,8 @@ export function FloatingToolbar() {
 
       {/* PiPメモパネル（右下から2番目・AIアシスタントの左隣） */}
       <PipMemoPanel />
+      {/* 208: カテゴリメモ（📝メモ小窓とは別枠・別用途） */}
+      <DrMemoPanel />
     </>
   );
 }

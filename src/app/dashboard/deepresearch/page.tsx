@@ -46,6 +46,8 @@ import { batchJobDisplayStatus, isStaleBatchJob, savedTopicCount, staleJobLabel 
 import BatchCompareView from '@/components/deepresearch/BatchCompareView';
 import { type BatchResult, parseContextWithSummary } from '@/lib/batch-compare';
 import { jstDateTimeString } from '@/lib/jst';
+// 208: 追従🗒カテゴリメモに「今開いているお題」を渡す（保存時 context_ref に入る）
+import { setDrMemoContext } from '@/lib/dr-memo-context';
 // 290: Gemini と Claude Opus 5 の並列実行・横並び比較（ボタンを押したときだけ。既定経路は不変・R-88）
 import ModelCompareView from '@/components/deepresearch/ModelCompareView';
 import {
@@ -982,6 +984,12 @@ export default function DeepResearchPage() {
   // R-87: 二重発火は同期的な ref で閉じる（state の disabled では1回目の描画前に2回目が通る）
   const compareLockRef = useRef(false);
   const compareRunning = !!compareRuns && !allCompareSettled(compareRuns);
+
+  // 208: 入力中のお題を追従🗒カテゴリメモへ渡す。画面を離れたら消す（他画面のメモに紐付かない）
+  useEffect(() => {
+    setDrMemoContext(topic);
+  }, [topic]);
+  useEffect(() => () => setDrMemoContext(null), []);
 
   // 290: 前回の比較結果を復元（R-20）。通常リサーチの下書き（'deepresearch'）とはキーを分け、互いに上書きしない
   useEffect(() => {

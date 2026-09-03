@@ -3,6 +3,20 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describeAnthropicError, isFallbackWorthy } from '../../src/lib/anthropic-error';
 // 290: モデル比較
+// 208: 追従カテゴリメモ
+import {
+  DR_MEMO_CONTEXT_MAX,
+  DR_MEMO_PAGE_SIZE,
+  DR_MEMO_UNCATEGORIZED,
+  categoryIdOf,
+  drMemoToastMessage,
+  memoListQuery,
+  moveItem,
+  normalizeContextRef,
+  resolveCategoryChoice,
+  sortOrderPatches,
+} from '../../src/lib/dr-memo';
+import { FLOATING_BUTTONS, FLOATING_DEFAULT, FLOATING_ORDER } from '../../src/components/ThemeProvider';
 import { anthropicFailureAction } from '../../src/lib/anthropic-compat';
 import { CLAUDE_OPUS_MODEL, GEMINI_TEXT_MODEL } from '../../src/lib/ai-models';
 import {
@@ -2379,4 +2393,54 @@ test('U59: モデル比較（290）— compare の検証・保存名にモデル
   // 比較経路の Claude 呼び出しは fallback:false を渡し、通常経路（CLAUDE_TEXT_MODEL）の呼び出しは options なし＝235維持（§3-3）
   expect(route).toMatch(/fetchAnthropic\(\s*\{[\s\S]*?model: modelId,[\s\S]*?\},\s*\{ fallback: false \},?\s*\)/);
   expect(route).toMatch(/fetchAnthropic\(\{\s*model: CLAUDE_TEXT_MODEL,[\s\S]*?messages: \[\{ role: 'user', content: userPrompt \}\],\s*\}\);/);
+});
+
+// ───────────────────────────────────────────────────────────────────────────
+// 208: 追従🗒カテゴリメモの純ロジック（context_ref の正規化・一覧クエリ・並び替え・追従枠の既定off）
+// ───────────────────────────────────────────────────────────────────────────
+test('U60: カテゴリメモ（208）— context_ref 正規化・トースト文言・一覧クエリはページング必須・保存値の解決・▲▼の並び替えと差分PATCH・追従枠 drmemo は既定off（R-48）', () => {
+  // context_ref: 空白畳み・上限・空は null
+  expect(normalizeContextRef('  肌老化の  原因\n最新 ')).toBe('肌老化の 原因 最新');
+  expect(normalizeContextRef('')).toBeNull();
+  expect(normalizeContextRef('   ')).toBeNull();
+  expect(normalizeContextRef(123)).toBeNull();
+  expect(normalizeContextRef(undefined)).toBeNull();
+  expect(normalizeContextRef('あ'.repeat(DR_MEMO_CONTEXT_MAX + 50))).toHaveLength(DR_MEMO_CONTEXT_MAX);
+  // トースト: カテゴリ名を必ず出す（未分類も）
+  expect(drMemoToastMessage('研究アイデア')).toBe('🗒 「研究アイデア」に保存しました');
+  expect(drMemoToastMessage(null)).toBe('🗒 「未分類」に保存しました');
+  expect(drMemoToastMessage('  ')).toBe('🗒 「未分類」に保存しました');
+  // 選択値 → category_id
+  expect(categoryIdOf(DR_MEMO_UNCATEGORIZED)).toBeNull();
+  expect(categoryIdOf('abc')).toBe('abc');
+  // 一覧クエリ: limit が必ず付く（全件走査しない）。未分類は uncategorized=1
+  const q1 = new URLSearchParams(memoListQuery(DR_MEMO_UNCATEGORIZED));
+  expect(q1.get('limit')).toBe(String(DR_MEMO_PAGE_SIZE));
+  expect(q1.get('uncategorized')).toBe('1');
+  expect(q1.get('category_id')).toBeNull();
+  expect(q1.get('offset')).toBeNull();
+  const q2 = new URLSearchParams(memoListQuery('cat-1', 60));
+  expect(q2.get('category_id')).toBe('cat-1');
+  expect(q2.get('uncategorized')).toBeNull();
+  expect(q2.get('offset')).toBe('60');
+  // 保存値の解決: 存在するIDだけ採用。消えたカテゴリ・不正値は未分類
+  expect(resolveCategoryChoice('b', ['a', 'b'])).toBe('b');
+  expect(resolveCategoryChoice('zzz', ['a', 'b'])).toBe(DR_MEMO_UNCATEGORIZED);
+  expect(resolveCategoryChoice(null, ['a'])).toBe(DR_MEMO_UNCATEGORIZED);
+  // 並び替え: 隣と入れ替え・端では不変・入力を壊さない
+  const list = [{ id: 'a', sort_order: 0 }, { id: 'b', sort_order: 1 }, { id: 'c', sort_order: 2 }];
+  expect(moveItem(list, 1, -1).map((x) => x.id)).toEqual(['b', 'a', 'c']);
+  expect(moveItem(list, 2, 1).map((x) => x.id)).toEqual(['a', 'b', 'c']);
+  expect(moveItem(list, 0, -1).map((x) => x.id)).toEqual(['a', 'b', 'c']);
+  expect(list.map((x) => x.id)).toEqual(['a', 'b', 'c']);
+  // 差分PATCH: 位置が変わった項目だけ
+  expect(sortOrderPatches(moveItem(list, 1, -1))).toEqual([{ id: 'b', sort_order: 0 }, { id: 'a', sort_order: 1 }]);
+  expect(sortOrderPatches(list)).toEqual([]);
+  // 追従枠: drmemo が登録され、既定 off（R-48）。🎛表示設定の一覧（FLOATING_BUTTONS）にも載る（導線）
+  expect(FLOATING_ORDER).toContain('drmemo');
+  expect(FLOATING_DEFAULT.drmemo).toBe(false);
+  expect(Object.values(FLOATING_DEFAULT).every((v) => v === false)).toBe(true);
+  expect(FLOATING_BUTTONS.find((b) => b.key === 'drmemo')?.label).toBe('カテゴリメモ');
+  // 既存の📝メモ小窓は残っている（置き換えではない）
+  expect(FLOATING_BUTTONS.find((b) => b.key === 'memo')?.label).toBe('メモ小窓');
 });

@@ -206,6 +206,11 @@ export async function ensureMemoTables(sql: Sql): Promise<void> {
   //   再triageでAIに上書きさせない(human-in-the-loop / 手修正が消える事故を防ぐ)。
   await sql`ALTER TABLE memos ADD COLUMN IF NOT EXISTS quadrant_locked boolean NOT NULL DEFAULT false`;
 
+  // 208: 追従カテゴリメモ。メモ時に開いていたリサーチのお題（任意）と、カテゴリの手動並び順。
+  //   新テーブルは作らない（同目的の memos / memo_categories をそのまま使う）。
+  await sql`ALTER TABLE memos ADD COLUMN IF NOT EXISTS context_ref text`;
+  await sql`ALTER TABLE memo_categories ADD COLUMN IF NOT EXISTS sort_order int NOT NULL DEFAULT 0`;
+
   // 122: 期限アラートの二重送信防止。due_at の 7d/3d/1d 閾値ごとに1回だけ送る記録。
   //   UNIQUE(memo_id, threshold) で同一閾値の重複通知を防ぐ。
   await sql`CREATE TABLE IF NOT EXISTS memo_alerts (

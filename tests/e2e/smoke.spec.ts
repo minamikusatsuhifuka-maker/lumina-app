@@ -36,6 +36,10 @@ import {
   cleanupE2EEpisodes,
   // 288: 生MD露出の共通判定
   expectNoRawMarkdown,
+  // 208: 追従カテゴリメモ
+  createMemoCategory,
+  createMemo,
+  cleanupE2EMemos,
 } from './helpers';
 
 // ============================================================================
@@ -100,6 +104,8 @@ test.afterAll(async () => {
   await cleanupE2EFolders(api);
   // 281: エピソード記録の残骸も掃除する
   await cleanupE2EEpisodes(api);
+  // 208: カテゴリメモ（memos / memo_categories）の残骸も掃除する
+  await cleanupE2EMemos(api);
   await api.dispose();
 });
 
@@ -5842,4 +5848,204 @@ test('C93: /api/deepresearch の compare は gemini／opus 以外なら 400（29
   const res = await request.post('/api/deepresearch', { data: { topic: '[E2E] compare検証', depth: 'quick', compare: 'claude' } });
   expect(res.status()).toBe(400);
   expect((await res.json()).error).toContain('compare');
+});
+
+test('C94: 追従🗒カテゴリメモ（208）— 既定off・🎛表示設定に導線・onでDR画面右下に4つ目として出て他と重ならない（1280/375px）・fixed追従・非モーダル・新規カテゴリ→選択・保存→トーストにカテゴリ名→一覧・お題が紐付く・絞り込み・編集・カテゴリ削除でメモは未分類に残る・削除は2段階', async ({ page }) => {
+  await stubFeatureDrafts(page);
+  const marker = RUN_ID;
+  const FAB_ICONS = ['💬', '📝', '🗒', '📖'];
+  const fabRects = () =>
+    page.evaluate(() =>
+      [...document.querySelectorAll('button')]
+        .filter((b) => {
+          const s = getComputedStyle(b);
+          const r = b.getBoundingClientRect();
+          return s.position === 'fixed' && Math.round(r.width) === Math.round(r.height) && r.width >= 44 && r.width <= 60;
+        })
+        .map((b) => ({ text: (b.textContent || '').trim(), bottom: Math.round(window.innerHeight - b.getBoundingClientRect().bottom) }))
+        .sort((a, b) => a.bottom - b.bottom),
+    );
+
+  // ── ① 既定 off: DR画面に 🗒 が出ない（R-48） ──
+  await page.goto('/dashboard/deepresearch');
+  await page.evaluate(() => localStorage.removeItem('lumina_floating_buttons'));
+  await page.reload({ waitUntil: 'domcontentloaded' });
+  await waitForRunReady(page);
+  await expect(page.locator('[data-drmemo-fab]')).toHaveCount(0);
+
+  // ── ② 🎛表示設定に導線があり、チェックで on になる ──
+  await page.goto('/dashboard/display-settings');
+  const toggle = page.getByRole('checkbox', { name: 'カテゴリメモを表示する' });
+  await expect(toggle).toBeVisible();
+  await expect(toggle).not.toBeChecked();
+  await toggle.check();
+  await expect.poll(() => page.evaluate(() => JSON.parse(localStorage.getItem('lumina_floating_buttons') || '{}').drmemo)).toBe(true);
+
+  // ── ③ 全部 on: 4つが縦に並び重ならない（1280px と 375px）。既存3つも壊れていない ──
+  await page.evaluate(() => localStorage.setItem('lumina_floating_buttons', JSON.stringify({ assistant: true, memo: true, drmemo: true, glossary: true })));
+  for (const width of [1280, 375]) {
+    await page.setViewportSize({ width, height: 800 });
+    await page.goto('/dashboard/deepresearch');
+    const fab = page.locator('[data-drmemo-fab]');
+    await expect(fab, `${width}px で 🗒 が出る`).toBeVisible();
+    await expect.poll(async () => (await fabRects()).filter((r) => FAB_ICONS.includes(r.text)).length, `${width}px で追従4つ`).toBe(4);
+    const fabs = (await fabRects()).filter((r) => FAB_ICONS.includes(r.text));
+    expect(fabs.map((r) => r.text), `${width}px: 下から 💬→📝→🗒→📖`).toEqual(FAB_ICONS);
+    for (let i = 1; i < fabs.length; i++) expect(fabs[i].bottom - fabs[i - 1].bottom, `${width}px: 隣と重ならない`).toBeGreaterThanOrEqual(48);
+    expect(await fab.evaluate((el) => getComputedStyle(el).position)).toBe('fixed');
+  }
+
+  // ── ④ 開く: 非モーダル（背後の入力欄が使える）・fixed・お題が表示される ──
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await page.goto('/dashboard/deepresearch');
+  await waitForRunReady(page);
+  const topicInput = page.getByPlaceholder(/調査したいテーマを詳しく入力してください/);
+  await topicInput.fill(`[E2E] お題 ${marker}`);
+  await page.locator('[data-drmemo-fab]').click();
+  const panel = page.locator('[data-drmemo-panel]');
+  await expect(panel).toBeVisible();
+  expect(await panel.evaluate((el) => getComputedStyle(el).position)).toBe('fixed');
+  await expect(panel).toHaveAttribute('aria-modal', 'false');
+  await expect(panel.locator('[data-drmemo-context]')).toContainText(`[E2E] お題 ${marker}`);
+  await topicInput.fill(`[E2E] お題 ${marker} 追記`);
+  await expect(topicInput, '開いたまま背後の入力欄が使える').toHaveValue(`[E2E] お題 ${marker} 追記`);
+  await expect(panel.locator('[data-drmemo-context]'), 'お題の変更に追随').toContainText('追記');
+  // 追従: 本文をスクロールしてもボタンの位置（下端からの距離）が変わらない
+  const bottomOf = () => page.locator('[data-drmemo-fab]').evaluate((el) => Math.round(window.innerHeight - el.getBoundingClientRect().bottom));
+  const b0 = await bottomOf();
+  await page.evaluate(() => {
+    const m = document.querySelector('main');
+    if (m) m.scrollTop = 400;
+    window.scrollTo(0, 400);
+  });
+  await page.waitForTimeout(200);
+  expect(await bottomOf(), 'スクロールしても追従する').toBe(b0);
+
+  // ── ⑤ 新規カテゴリ → 作成 → 選択状態 ──
+  await panel.locator('[data-drmemo-newcat]').click();
+  await panel.locator('[data-drmemo-newcat-input]').fill(`[E2E] カテゴリ ${marker}`);
+  await panel.locator('[data-drmemo-newcat-create]').click();
+  const catChip = panel.locator('[data-drmemo-cat]', { hasText: `[E2E] カテゴリ ${marker}` });
+  await expect(catChip).toHaveAttribute('aria-pressed', 'true');
+  const catId = (await catChip.getAttribute('data-drmemo-cat'))!;
+  expect(catId).toMatch(/^[0-9a-f-]{36}$/);
+
+  // ── ⑥ 保存 → トーストにカテゴリ名 → 一覧に出る → お題が紐付く（API でも確認） ──
+  await panel.locator('[data-drmemo-input]').fill(`[E2E] メモ本文 ${marker}`);
+  await panel.locator('[data-drmemo-save]').click();
+  await expect(page.getByText(`「[E2E] カテゴリ ${marker}」に保存しました`)).toBeVisible();
+  const item = panel.locator('[data-drmemo-item]', { hasText: `[E2E] メモ本文 ${marker}` });
+  await expect(item).toBeVisible();
+  await expect(item.locator('[data-drmemo-item-context]')).toContainText(`[E2E] お題 ${marker} 追記`);
+  await expect(panel.locator('[data-drmemo-input]'), '保存後は入力欄が空になる').toHaveValue('');
+  await expect(catChip, '件数が増える').toContainText('1');
+  const memoId = (await item.getAttribute('data-drmemo-item'))!;
+  const listed = (await (await api.get(`/api/memos?category_id=${catId}&limit=30`)).json()).memos as { id: string; category_id: string | null; context_ref: string | null }[];
+  const mine = listed.find((m) => m.id === memoId);
+  expect(mine?.category_id).toBe(catId);
+  expect(mine?.context_ref).toBe(`[E2E] お題 ${marker} 追記`);
+
+  // ── ⑦ 絞り込み: 未分類に切り替えると消え、戻すと出る ──
+  await panel.locator('[data-drmemo-cat="none"]').click();
+  await expect(panel.locator('[data-drmemo-cat="none"]')).toHaveAttribute('aria-pressed', 'true');
+  await expect(item).toHaveCount(0);
+  await panel.locator(`[data-drmemo-cat="${catId}"]`).click();
+  await expect(item).toBeVisible();
+
+  // ── ⑧ 編集 ──
+  await item.locator('[data-drmemo-edit]').click();
+  await item.locator('textarea').fill(`[E2E] メモ本文 ${marker} 修正済`);
+  await item.locator('[data-drmemo-edit-save]').click();
+  const edited = panel.locator('[data-drmemo-item]', { hasText: `[E2E] メモ本文 ${marker} 修正済` });
+  await expect(edited).toBeVisible();
+
+  // ── ⑨ カテゴリ削除（2段階・「メモは未分類に移動」を明示）→ メモは未分類に残る ──
+  await panel.locator('[data-drmemo-manage]').click();
+  const row = panel.locator(`[data-drmemo-cat-row="${catId}"]`);
+  await expect(row).toBeVisible();
+  await row.locator('[data-drmemo-cat-delete]').click();
+  await expect(row).toContainText('メモは未分類に移動します');
+  await row.locator('[data-drmemo-cat-delete-confirm]').click();
+  await expect(panel.locator(`[data-drmemo-cat="${catId}"]`)).toHaveCount(0);
+  await expect(panel.locator('[data-drmemo-cat="none"]'), '消したカテゴリを見ていたら未分類へ').toHaveAttribute('aria-pressed', 'true');
+  await expect(edited, 'メモは消えず未分類に残る').toBeVisible();
+  const after = (await (await api.get(`/api/memos?uncategorized=1&limit=100`)).json()).memos as { id: string; category_id: string | null }[];
+  expect(after.find((m) => m.id === memoId)?.category_id, 'DB でも category_id が NULL').toBeNull();
+
+  // ── ⑩ メモ削除は2段階 ──
+  await edited.locator('[data-drmemo-delete]').click();
+  await expect(edited.locator('[data-drmemo-delete-confirm]')).toBeVisible();
+  await edited.locator('[data-drmemo-delete-confirm]').click();
+  await expect(edited).toHaveCount(0);
+
+  // ── ⑪ 閉じる → 設定を既定に戻す（他テストに影響させない） ──
+  await page.locator('[data-drmemo-close]').click();
+  await expect(panel).toHaveCount(0);
+  await page.evaluate(() => localStorage.removeItem('lumina_floating_buttons'));
+});
+
+test('C95: カテゴリメモAPI（208）— 未認証は401・本文空/不正uuidは400・他人のカテゴリは404で秘匿・context_ref正規化・絞り込みとページング（limit+1でhas_more）・従来の全件形は不変・カテゴリ件数・並び替え・メモのカテゴリ変更・カテゴリ削除でメモは残りSET NULL', async () => {
+  // 未認証（R-32: storageState を空にして叩く）
+  const anon = await pwRequest.newContext({ baseURL: BASE_URL, storageState: { cookies: [], origins: [] } });
+  expect((await anon.get('/api/memos?limit=1')).status()).toBe(401);
+  expect((await anon.post('/api/memos', { data: { raw_text: '[E2E] x' } })).status()).toBe(401);
+  expect((await anon.get('/api/memo-categories')).status()).toBe(401);
+  await anon.dispose();
+
+  // 入力検証
+  expect((await api.post('/api/memos', { data: { raw_text: '   ' } })).status(), '本文空は400').toBe(400);
+  expect((await api.post('/api/memos', { data: { raw_text: '[E2E] x', category_id: 'not-a-uuid' } })).status(), '不正uuidは400').toBe(400);
+  expect((await api.post('/api/memos', { data: { raw_text: '[E2E] x', category_id: '00000000-0000-4000-8000-000000000000' } })).status(), '存在しない/他人のカテゴリは404').toBe(404);
+  expect((await api.post('/api/memo-categories', { data: { name: '  ' } })).status(), 'カテゴリ名空は400').toBe(400);
+
+  const catA = await createMemoCategory(api, `カテゴリA ${RUN_ID}`);
+  const catB = await createMemoCategory(api, `カテゴリB ${RUN_ID}`);
+  const m1 = await createMemo(api, { text: `m1 ${RUN_ID}`, categoryId: catA.id, contextRef: `  お題  ${RUN_ID}  ` });
+  expect(m1.category_id).toBe(catA.id);
+  expect(m1.context_ref, 'context_ref は空白を畳んで保存').toBe(`お題 ${RUN_ID}`);
+  const m2 = await createMemo(api, { text: `m2 ${RUN_ID}`, categoryId: catA.id });
+  const m3 = await createMemo(api, { text: `m3 ${RUN_ID}` });
+  expect(m3.category_id).toBeNull();
+  expect(m3.context_ref).toBeNull();
+
+  // 絞り込み＋ページング（limit+1 で has_more）
+  const p1 = await (await api.get(`/api/memos?category_id=${catA.id}&limit=1`)).json();
+  expect(p1.memos).toHaveLength(1);
+  expect(p1.has_more).toBe(true);
+  expect(p1.todos, 'ページング時は todos を返さない').toEqual([]);
+  const p2 = await (await api.get(`/api/memos?category_id=${catA.id}&limit=1&offset=1`)).json();
+  expect(p2.memos).toHaveLength(1);
+  expect(p2.has_more).toBe(false);
+  expect(new Set([p1.memos[0].id, p2.memos[0].id])).toEqual(new Set([m1.id, m2.id]));
+  const un = await (await api.get('/api/memos?uncategorized=1&limit=100')).json();
+  expect((un.memos as { id: string }[]).some((m) => m.id === m3.id)).toBe(true);
+  expect((un.memos as { category_id: string | null }[]).every((m) => m.category_id === null)).toBe(true);
+  // 従来（limit なし）は memos＋todos の形のまま（/dashboard/memo を壊さない）
+  const legacy = await (await api.get('/api/memos')).json();
+  expect(Array.isArray(legacy.todos)).toBe(true);
+  expect(legacy.has_more).toBeUndefined();
+
+  // カテゴリ件数
+  const cats = (await (await api.get('/api/memo-categories')).json()).categories as { id: string; memo_count: number; sort_order: number }[];
+  expect(cats.find((c) => c.id === catA.id)?.memo_count).toBe(2);
+  expect(cats.find((c) => c.id === catB.id)?.memo_count).toBe(0);
+
+  // 並び替え: B を A の前へ
+  expect((await api.patch('/api/memo-categories', { data: { id: catB.id, sort_order: -1 } })).status()).toBe(200);
+  const ordered = ((await (await api.get('/api/memo-categories')).json()).categories as { id: string }[]).map((c) => c.id);
+  expect(ordered.indexOf(catB.id)).toBeLessThan(ordered.indexOf(catA.id));
+
+  // メモのカテゴリ変更（編集）
+  const patched = await (await api.patch(`/api/memos/${m3.id}`, { data: { category_id: catB.id } })).json();
+  expect(patched.memo.category_id).toBe(catB.id);
+
+  // カテゴリ削除 → メモは残り category_id が NULL
+  expect((await api.delete(`/api/memo-categories?id=${catA.id}`)).status()).toBe(200);
+  const after = (await (await api.get('/api/memos?uncategorized=1&limit=100')).json()).memos as { id: string; category_id: string | null }[];
+  for (const id of [m1.id, m2.id]) {
+    const m = after.find((x) => x.id === id);
+    expect(m, 'メモが残っている').toBeTruthy();
+    expect(m?.category_id).toBeNull();
+  }
+  // 後片付けは afterAll の cleanupE2EMemos
 });

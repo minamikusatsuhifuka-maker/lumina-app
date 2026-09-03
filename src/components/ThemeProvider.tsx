@@ -37,20 +37,22 @@ function applyTextScale(scale: TextScale) {
 // 常時表示だと本文や操作ボタンに重なるため、3つを個別にon/offできるようにする。
 // **既定は3つとも off**（院長の指示）。必要な人が設定画面で入れる。
 // ─────────────────────────────────────────────────────────────
-export type FloatingKey = 'assistant' | 'memo' | 'glossary';
+export type FloatingKey = 'assistant' | 'memo' | 'drmemo' | 'glossary';
 
 /** 下から積む順。既存の並び（💬24 → 📝80 → 📖136）をそのまま維持する */
-export const FLOATING_ORDER: FloatingKey[] = ['assistant', 'memo', 'glossary'];
+// 208: 🗒カテゴリメモ（DB保存）は 📝メモ小窓（localStorage・PiP別窓＝その場の走り書き）と用途が違うので別枠で足す
+export const FLOATING_ORDER: FloatingKey[] = ['assistant', 'memo', 'drmemo', 'glossary'];
 
 export const FLOATING_BUTTONS: { key: FloatingKey; icon: string; label: string; hint: string }[] = [
   { key: 'glossary', icon: '📖', label: '用語解説', hint: '文章から専門用語を抽出して解説する小窓' },
   { key: 'memo', icon: '📝', label: 'メモ小窓', hint: '別ウィンドウ（ピクチャinピクチャ）で開くメモ' },
+  { key: 'drmemo', icon: '🗒', label: 'カテゴリメモ', hint: 'カテゴリ分けして保存するメモ（AIメモと同じ保管場所）。ディープリサーチ中はそのお題も一緒に記録する' },
   { key: 'assistant', icon: '💬', label: 'xLUMINAアシスタント', hint: '画面の右下から呼び出すAIチャット' },
 ];
 
 export const FLOATING_STORAGE_KEY = 'lumina_floating_buttons';
 export type FloatingState = Record<FloatingKey, boolean>;
-export const FLOATING_DEFAULT: FloatingState = { assistant: false, memo: false, glossary: false };
+export const FLOATING_DEFAULT: FloatingState = { assistant: false, memo: false, drmemo: false, glossary: false };
 
 /** 追従ボタンの縦位置（下端からの段数）。セーフエリア分を足してiPhoneのホームバーに被らせない */
 const FLOATING_BASE = 24;
@@ -132,6 +134,7 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
         setFloatingState({
           assistant: parsed.assistant === true,
           memo: parsed.memo === true,
+          drmemo: parsed.drmemo === true,
           glossary: parsed.glossary === true,
         });
       }

@@ -314,3 +314,38 @@ export async function expectNoRawMarkdown(locator: Locator, label = '整形表�
     expect(p.re.test(text), `${label}: ${p.name} が文字として露出していること（先頭200字: ${text.slice(0, 200)}）`).toBe(false);
   }
 }
+
+// ─────────────────────────────────────────────────────────────────────────
+// 208: 追従🗒カテゴリメモ（AIメモの memos / memo_categories を共用）。作成は [E2E] 接頭辞を強制（R-55）
+// ─────────────────────────────────────────────────────────────────────────
+export const MEMOS_API = '/api/memos';
+export const MEMO_CATEGORIES_API = '/api/memo-categories';
+
+export async function createMemoCategory(request: APIRequestContext, name: string): Promise<{ id: string; name: string }> {
+  const res = await request.post(MEMO_CATEGORIES_API, { data: { name: withE2EPrefix(name) } });
+  expect(res.status(), 'カテゴリ作成').toBe(200);
+  return (await res.json()).category;
+}
+
+export async function createMemo(
+  request: APIRequestContext,
+  input: { text: string; categoryId?: string | null; contextRef?: string | null },
+): Promise<{ id: string; raw_text: string; category_id: string | null; context_ref: string | null }> {
+  const res = await request.post(MEMOS_API, {
+    data: { raw_text: withE2EPrefix(input.text), category_id: input.categoryId ?? undefined, context_ref: input.contextRef ?? undefined },
+  });
+  expect(res.status(), 'メモ作成').toBe(200);
+  return (await res.json()).memo;
+}
+
+/** [E2E] 接頭辞のメモとカテゴリを全て消す（カテゴリは先にメモを消してから） */
+export async function cleanupE2EMemos(request: APIRequestContext) {
+  const memos = (await (await request.get(MEMOS_API)).json().catch(() => ({ memos: [] }))).memos ?? [];
+  for (const m of memos as { id: string; raw_text?: string | null }[]) {
+    if (String(m.raw_text ?? '').startsWith(E2E_PREFIX)) await request.delete(`${MEMOS_API}/${m.id}`);
+  }
+  const cats = (await (await request.get(MEMO_CATEGORIES_API)).json().catch(() => ({ categories: [] }))).categories ?? [];
+  for (const c of cats as { id: string; name?: string | null }[]) {
+    if (String(c.name ?? '').startsWith(E2E_PREFIX)) await request.delete(`${MEMO_CATEGORIES_API}?id=${c.id}`);
+  }
+}
