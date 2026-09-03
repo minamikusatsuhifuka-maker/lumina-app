@@ -42,9 +42,12 @@ export async function PATCH(req: NextRequest, { params }: Ctx) {
   const dueAt = hasDueAt ? (body.due_at || null) : null;
   const hasTime = typeof body.has_time === 'boolean' ? body.has_time : null;
 
+  // 208で発見: status 未指定（null）のとき下の `WHEN $n IS NOT NULL` の型を Postgres が決められず 42P18
+  // （could not determine data type of parameter）で 500 になっていた（122以降、status を送らない PATCH＝本文編集・
+  // カテゴリ変更・due_at 編集が全て失敗）。null になりうるパラメータは必ず ::型 を付ける（R-100）。
   const rows = await sql`
     UPDATE memos SET
-      status      = COALESCE(${status}, status),
+      status      = COALESCE(${status}::text, status),
       kind        = COALESCE(${kind}, kind),
       importance  = COALESCE(${importance}::int, importance),
       urgency     = COALESCE(${urgency}::int, urgency),
@@ -62,8 +65,8 @@ export async function PATCH(req: NextRequest, { params }: Ctx) {
       has_time    = COALESCE(${hasTime}::boolean, has_time),
       -- 122: 完了印。done化で completed_at をセット(既存値は維持)、他状態へ変更で NULL。
       completed_at = CASE
-        WHEN ${status} = 'done' THEN COALESCE(completed_at, now())
-        WHEN ${status} IS NOT NULL THEN NULL
+        WHEN ${status}::text = 'done' THEN COALESCE(completed_at, now())
+        WHEN ${status}::text IS NOT NULL THEN NULL
         ELSE completed_at END
     WHERE id = ${id} AND owner = ${owner}
     RETURNING *

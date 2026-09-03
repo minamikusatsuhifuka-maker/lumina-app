@@ -5956,8 +5956,14 @@ test('C94: 追従🗒カテゴリメモ（208）— 既定off・🎛表示設定
   await item.locator('[data-drmemo-edit]').click();
   await item.locator('textarea').fill(`[E2E] メモ本文 ${marker} 修正済`);
   await item.locator('[data-drmemo-edit-save]').click();
+  // 偽の緑を防ぐ（R-12）: 編集中の textarea の文字でも hasText が一致してしまうため、
+  // 「編集モードが閉じた」→「表示側の本文が変わった」→「APIでも変わった」の順に判定する
+  await expect(item.locator('textarea'), '保存で編集モードが閉じる（PATCH が成功している）').toHaveCount(0);
   const edited = panel.locator('[data-drmemo-item]', { hasText: `[E2E] メモ本文 ${marker} 修正済` });
   await expect(edited).toBeVisible();
+  await expect(edited.locator('textarea')).toHaveCount(0);
+  const afterEdit = (await (await api.get(`/api/memos?category_id=${catId}&limit=30`)).json()).memos as { id: string; raw_text: string }[];
+  expect(afterEdit.find((m) => m.id === memoId)?.raw_text, 'API でも本文が更新されている').toBe(`[E2E] メモ本文 ${marker} 修正済`);
 
   // ── ⑨ カテゴリ削除（2段階・「メモは未分類に移動」を明示）→ メモは未分類に残る ──
   await panel.locator('[data-drmemo-manage]').click();
