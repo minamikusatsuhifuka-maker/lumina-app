@@ -60,6 +60,29 @@ import {
 } from '@/lib/library-view';
 import LibraryCompareView from '@/components/library/LibraryCompareView';
 import { useFinePointer } from '@/lib/pointer-device';
+// 293: 検索範囲・種別/AIカテゴリのフィルタ・件数・適用中の条件（判断は lib/library-filters.ts・🗂と共有）
+import {
+  type ActiveCondition,
+  KIND_FILTERS,
+  KIND_FILTER_LABEL,
+  type KindFilter,
+  LIBRARY_SEARCH_SCOPE_KEY,
+  SEARCH_PLACEHOLDER,
+  SEARCH_SCOPES,
+  SEARCH_SCOPE_LABEL,
+  type SearchScope,
+  UNCATEGORIZED,
+  categoryCounts,
+  kindCounts,
+  loadSearchScope,
+  matchesCategory,
+  matchesSearch,
+  saveSearchScope,
+  subCategoryOf,
+  zeroResultMessage,
+} from '@/lib/library-filters';
+import { artifactKindOf } from '@/lib/library-groups';
+import { ActiveConditionChips } from '@/components/ActiveConditionChips';
 // LibraryPreviewPanel は廃止（カード内インライン展開に統一）
 
 /* ── タブ定義（サイドメニュー対応） ── */
@@ -124,6 +147,10 @@ function LibraryPageInner() {
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [searchScope, setSearchScope] = useState<'current' | 'all'>('current');
+  // 293 §3-1: 検索範囲（すべて＝タイトル・本文・タグ／タイトルのみ）。既定は従来どおり「すべて」・保持
+  const [searchRange, setSearchRange] = useState<SearchScope>('all');
+  // 293 §4-1: 成果物の種別で絞る（本文/要約/詳細/活用アドバイス）。タブを変えても保持（条件チップで外せる）
+  const [kindFilter, setKindFilter] = useState<KindFilter>('all');
   const [bulkCategorizing, setBulkCategorizing] = useState(false);
   const [categorizeElapsed, setCategorizeElapsed] = useState(0);
   // サブカテゴリ絞り込み（タブ内の二段目フィルタ）
@@ -172,7 +199,12 @@ function LibraryPageInner() {
     // localStorage はクライアントでしか読めないので、描画後に反映する（SSRと差分を作らない）
     setListColChoice(loadListColumnChoice());
     setListDensity(loadListDensity());
+    setSearchRange(loadSearchScope(LIBRARY_SEARCH_SCOPE_KEY));
   }, []);
+  const applySearchRange = (s: SearchScope) => {
+    setSearchRange(s);
+    saveSearchScope(s, LIBRARY_SEARCH_SCOPE_KEY);
+  };
 
   useEffect(() => {
     fetch('/api/library')
@@ -480,15 +512,11 @@ function LibraryPageInner() {
   };
 
   /* ── フィルタリング ── */
-  // 検索フィルタ（タイトル + 本文 + タグ、大文字小文字区別なし）
+  // 検索フィルタ（タイトル + 本文 + タグ、大文字小文字・全角半角の区別なし）。
+  // 293: 判定は lib/library-filters.ts の matchesSearch（検索範囲「タイトルのみ」は本文・タグを見ない）
   const filterBySearch = (list: any[]): any[] => {
-    const q = search.trim().toLowerCase();
-    if (!q) return list;
-    return list.filter(i =>
-      (i.title || '').toLowerCase().includes(q) ||
-      (i.content || '').toLowerCase().includes(q) ||
-      (i.tags || '').toLowerCase().includes(q)
-    );
+    if (!search.trim()) return list;
+    return list.filter((i) => matchesSearch(i, search, searchRange));
   };
 
   // 252: マイフォルダの絞り込み（全件が手元にあるのでクライアント側で足りる）。
@@ -503,12 +531,13 @@ function LibraryPageInner() {
     return list.filter((i) => (i.custom_folder_ids ?? []).includes(activeCustomFolder));
   };
 
-  const tabFilteredItems = useMemo(() => {
+  // 293: 種別・AIカテゴリ・分類失敗を除いた「土台」。件数（ファセット）はこの土台から数える＝
+  // 各ファセットの件数は「他の条件を通したうえで、その値を選んだら何件になるか」（決定的・R-74）
+  const facetBase = useMemo(() => {
     // searchScope='all' で検索クエリ有のときはタブ無視で全体検索
     if (search.trim() && searchScope === 'all') {
       return filterByCustomFolder(filterBySearch(items));
     }
-    // それ以外は従来通り（タブ → 検索 → お気に入り絞り込み → サブカテゴリ絞り込み）
     let list = items;
     if (activeTab === 'favorite') {
       list = list.filter(i => i.is_favorite);
@@ -519,32 +548,46 @@ function LibraryPageInner() {
     if (favFilterInTab && activeTab !== 'favorite') {
       list = list.filter(i => i.is_favorite);
     }
+    return filterByCustomFolder(list);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [items, search, searchScope, searchRange, activeTab, favFilterInTab, activeCustomFolder]);
+
+  const filterByCategory = (list: any[]): any[] => {
+    let out = list;
     if (selectedSubCategory) {
-      list = list.filter(i => parseMetadata(i.metadata)?.subCategory === selectedSubCategory);
+      out = out.filter((i) => matchesCategory(subCategoryOf(i.metadata), selectedSubCategory));
     }
     if (showFailedOnly) {
-      list = list.filter(i => {
+      out = out.filter((i) => {
         const m = parseMetadata(i.metadata);
         return !!m?.classifyError && !m?.subCategory;
       });
     }
-    return filterByCustomFolder(list);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [items, search, searchScope, activeTab, favFilterInTab, selectedSubCategory, showFailedOnly, activeCustomFolder]);
+    return out;
+  };
+  const filterByKind = (list: any[]): any[] =>
+    kindFilter === 'all' ? list : list.filter((i) => artifactKindOf(i) === kindFilter);
 
-  // タブ内で利用可能なサブカテゴリ一覧（all/favorite では空）
-  const availableSubCategories = useMemo<string[]>(() => {
-    if (activeTab === 'all' || activeTab === 'favorite') return [];
-    const targetItems = items.filter(
-      (i) => normalizeGroup(i.group_name || '') === activeTab,
-    );
-    const subs = targetItems
-      .map((i) => parseMetadata(i.metadata)?.subCategory)
-      .filter((s: any): s is string => typeof s === 'string' && s.trim().length > 0)
-      .map((s: string) => s.trim());
-    return Array.from(new Set(subs)).sort((a, b) => a.localeCompare(b, 'ja'));
+  const tabFilteredItems = useMemo(
+    () => filterByKind(filterByCategory(facetBase)),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [items, activeTab]);
+    [facetBase, selectedSubCategory, showFailedOnly, kindFilter],
+  );
+
+  // 293 §4-3: 種別の件数（件＝成果物＝行）。AIカテゴリ側の条件を通した土台から数える
+  const kindFacet = useMemo(
+    () => kindCounts(filterByCategory(facetBase), (i) => artifactKindOf(i)),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [facetBase, selectedSubCategory, showFailedOnly],
+  );
+  // 293 §5: AIカテゴリ（metadata.subCategory・保存済みの値から選ぶ・未分類は必ず出す）の件数。種別の条件を通した土台から数える
+  const categoryFacet = useMemo(
+    () => categoryCounts(filterByKind(facetBase).map((i) => subCategoryOf(i.metadata))),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [facetBase, kindFilter],
+  );
+
+  // 293: タブ内サブカテゴリ一覧（availableSubCategories）は AIカテゴリフィルタ（categoryFacet・全タブ・件数つき）に置き換えた
 
   // 未分類アイテム（subCategory なし）
   const uncategorizedItems = useMemo(() => {
@@ -665,6 +708,44 @@ function LibraryPageInner() {
     return Array.from(set).sort((a, b) => a.localeCompare(b, 'ja'));
   }, [items]);
 
+  // 293 §6: 適用中の条件を一覧にする（何が効いているかを見せ、個別に外せる）。順番は画面の並び（決定的）
+  const activeConditions: ActiveCondition[] = [];
+  if (activeTab !== 'all' && !(search.trim() && searchScope === 'all')) {
+    const label = TABS.find((t) => t.key === activeTab)?.label ?? activeTab;
+    activeConditions.push({ key: 'tab', label: `タブ: ${label}`, onRemove: () => { setActiveTab('all'); setFavFilterInTab(false); } });
+  }
+  if (search.trim()) {
+    activeConditions.push({ key: 'search', label: `検索: 「${search.trim()}」${searchScope === 'all' ? '（全体）' : ''}`, onRemove: () => setSearch('') });
+  }
+  if (searchRange === 'title') {
+    activeConditions.push({ key: 'range', label: '検索範囲: タイトルのみ', onRemove: () => applySearchRange('all') });
+  }
+  if (favFilterInTab && activeTab !== 'favorite') {
+    activeConditions.push({ key: 'fav', label: '★ お気に入りのみ', onRemove: () => setFavFilterInTab(false) });
+  }
+  if (kindFilter !== 'all') {
+    activeConditions.push({ key: 'kind', label: `種別: ${KIND_FILTER_LABEL[kindFilter]}`, onRemove: () => setKindFilter('all') });
+  }
+  if (selectedSubCategory) {
+    activeConditions.push({ key: 'category', label: `AIカテゴリ: ${selectedSubCategory === UNCATEGORIZED ? '未分類' : selectedSubCategory}`, onRemove: () => setSelectedSubCategory(null) });
+  }
+  if (showFailedOnly) {
+    activeConditions.push({ key: 'failed', label: '分類失敗のみ', onRemove: () => setShowFailedOnly(false) });
+  }
+  if (activeCustomFolder === 'unfiled') {
+    activeConditions.push({ key: 'cfolder', label: 'マイフォルダ: 未分類のお気に入り', onRemove: () => setActiveCustomFolder(null) });
+  }
+  const clearAllConditions = () => {
+    setActiveTab('all');
+    setSearch('');
+    applySearchRange('all');
+    setFavFilterInTab(false);
+    setKindFilter('all');
+    setSelectedSubCategory(null);
+    setShowFailedOnly(false);
+    if (activeCustomFolder === 'unfiled') setActiveCustomFolder(null);
+  };
+
   const tabCount = (key: TabKey) => {
     if (key === 'all') return items.length;
     if (key === 'favorite') return items.filter(i => i.is_favorite).length;
@@ -705,7 +786,8 @@ function LibraryPageInner() {
   const renderItem = (v: VisibleCard) => {
     const { card, matched } = v;
     const item = card.primary;
-    const searching = search.trim().length > 0;
+    // 293 §4-1: 種別で絞ったときも検索と同じ（283 §4-5）: カードは出し、条件に合う成果物に🔍・合わないものは薄く
+    const searching = search.trim().length > 0 || kindFilter !== 'all';
     const artifacts: LibraryArtifactView[] | undefined =
       card.artifacts.length >= 2
         ? card.artifacts.map((a) => ({
@@ -906,7 +988,7 @@ function LibraryPageInner() {
           data-library-search
           value={search}
           onChange={e => setSearch(e.target.value)}
-          placeholder="🔍 タイトル・本文・タグを検索..."
+          placeholder={SEARCH_PLACEHOLDER.library[searchRange]}
           style={{ flex: 1, minWidth: 200, maxWidth: 480, padding: '9px 14px', background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 8, color: 'var(--text-primary)', fontSize: 13, outline: 'none', boxSizing: 'border-box' }}
         />
 
@@ -938,6 +1020,27 @@ function LibraryPageInner() {
           >
             🌐 全体
           </button>
+        </div>
+
+        {/* 293 §3-1: 検索範囲（すべて＝タイトル・本文・タグ／タイトルのみ）。既定は「すべて」・選んだ値は保持 */}
+        <div data-library-search-range style={{ display: 'inline-flex', borderRadius: 8, overflow: 'hidden', border: '1px solid var(--border)' }} title="検索範囲（タイトルのみ＝本文・タグを見ない）">
+          {SEARCH_SCOPES.map((s) => (
+            <button
+              key={s}
+              type="button"
+              data-library-search-range-choice={s}
+              aria-pressed={searchRange === s}
+              onClick={() => applySearchRange(s)}
+              style={{
+                padding: '8px 12px', fontSize: 12, fontWeight: 600, cursor: 'pointer',
+                background: searchRange === s ? 'var(--accent)' : 'var(--bg-secondary)',
+                color: searchRange === s ? '#fff' : 'var(--text-muted)',
+                border: 'none',
+              }}
+            >
+              {SEARCH_SCOPE_LABEL[s]}
+            </button>
+          ))}
         </div>
 
         {search && (
@@ -1054,11 +1157,40 @@ function LibraryPageInner() {
         })}
       </div>
 
-      {/* ── サブカテゴリ絞り込みチップ（タブ内2段目フィルタ） ── */}
-      {activeTab !== 'all' && activeTab !== 'favorite' && (availableSubCategories.length > 0 || failedCount > 0) && (
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 16 }}>
+      {/* ── 293 §4-1/§4-3: 種別フィルタ（成果物の種別・件＝成果物）。絞ってもカードは出し、該当成果物に🔍（283 §4-5） ── */}
+      <div data-library-kind-filter style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 8, alignItems: 'center' }}>
+        <span style={{ fontSize: 11, color: 'var(--text-muted)', fontWeight: 600 }}>種別（件＝成果物）:</span>
+        {KIND_FILTERS.map((k) => {
+          const active = kindFilter === k;
+          const count = k === 'all' ? Object.values(kindFacet).reduce((a, b) => a + b, 0) : kindFacet[k];
+          return (
+            <button
+              key={k}
+              type="button"
+              data-library-kind-choice={k}
+              data-library-kind-count={count}
+              aria-pressed={active}
+              onClick={() => setKindFilter(active && k !== 'all' ? 'all' : k)}
+              style={{
+                padding: '4px 12px', borderRadius: 12, border: 'none', fontSize: 11, fontWeight: 600, cursor: 'pointer',
+                background: active ? '#6c63ff' : 'var(--bg-secondary)',
+                color: active ? '#fff' : 'var(--text-secondary)',
+              }}
+            >
+              {KIND_FILTER_LABEL[k]} ({count})
+            </button>
+          );
+        })}
+      </div>
+
+      {/* ── 293 §5: AIカテゴリフィルタ（metadata.subCategory＝保存時の自動分類。既存データを一括で分類し直さない）。
+             全タブで使え、未分類を必ず出す。件数は件＝成果物 ── */}
+      <div data-library-category-filter style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 16, alignItems: 'center' }}>
+        <span style={{ fontSize: 11, color: 'var(--text-muted)', fontWeight: 600 }}>AIカテゴリ（件）:</span>
           <button
             type="button"
+            data-library-category-choice="all"
+            aria-pressed={!selectedSubCategory && !showFailedOnly}
             onClick={() => { setSelectedSubCategory(null); setShowFailedOnly(false); }}
             style={{
               padding: '4px 12px',
@@ -1073,17 +1205,20 @@ function LibraryPageInner() {
           >
             すべて
           </button>
-          {availableSubCategories.map((sub) => {
-            const active = selectedSubCategory === sub;
+          {categoryFacet.items.map((c) => {
+            const active = selectedSubCategory === c.value;
             return (
               <button
-                key={sub}
+                key={c.value}
                 type="button"
-                onClick={() => setSelectedSubCategory(active ? null : sub)}
+                data-library-category-choice={c.value}
+                data-library-category-count={c.count}
+                aria-pressed={active}
+                onClick={() => { setShowFailedOnly(false); setSelectedSubCategory(active ? null : c.value); }}
                 style={{
                   padding: '4px 12px',
                   borderRadius: 12,
-                  border: 'none',
+                  border: c.value === UNCATEGORIZED ? '1px dashed var(--border)' : 'none',
                   fontSize: 11,
                   fontWeight: 600,
                   cursor: 'pointer',
@@ -1091,10 +1226,13 @@ function LibraryPageInner() {
                   color: active ? '#fff' : 'var(--text-secondary)',
                 }}
               >
-                🏷 {sub}
+                {c.value === UNCATEGORIZED ? '📭' : '🏷'} {c.label} ({c.count})
               </button>
             );
           })}
+          {categoryFacet.overflow > 0 && (
+            <span style={{ fontSize: 10, color: 'var(--text-muted)' }}>…他{categoryFacet.overflow}種（件数の少ないカテゴリ。タブや検索で絞ると出ます）</span>
+          )}
           {/* 失敗フィルタチップ（失敗が1件以上ある時のみ） */}
           {failedCount > 0 && (
             <button
@@ -1118,8 +1256,10 @@ function LibraryPageInner() {
               🚫 分類失敗 {failedCount}
             </button>
           )}
-        </div>
-      )}
+      </div>
+
+      {/* ── 293 §6: 適用中の条件（192のタグ条件チップと同じ形）。個別に外せる・すべて解除 ── */}
+      <ActiveConditionChips conditions={activeConditions} onClearAll={clearAllConditions} />
 
       {/* ── 失敗フィルタON時の説明バナー ── */}
       {showFailedOnly && (
@@ -1181,10 +1321,27 @@ function LibraryPageInner() {
       {loading ? (
         <div style={{ color: 'var(--text-muted)', textAlign: 'center', padding: 40 }}>読み込み中...</div>
       ) : tabFilteredItems.length === 0 ? (
-        <div style={{ textAlign: 'center', padding: 60, color: 'var(--text-muted)' }}>
+        <div data-library-empty style={{ textAlign: 'center', padding: 60, color: 'var(--text-muted)' }}>
           <div style={{ fontSize: 48, marginBottom: 16 }}>📭</div>
-          <div style={{ fontSize: 16 }}>アイテムがありません</div>
-          <div style={{ fontSize: 13, marginTop: 8 }}>各ページの「保存」ボタンで追加できます</div>
+          {activeConditions.length > 0 ? (
+            <>
+              {/* 293 §6-2: 0件のときは「絞りすぎ」を示し、その場で外せるようにする */}
+              <div style={{ fontSize: 14, lineHeight: 1.7 }}>{zeroResultMessage(activeConditions.length)}</div>
+              <button
+                type="button"
+                data-library-empty-clear
+                onClick={clearAllConditions}
+                style={{ marginTop: 12, padding: '8px 16px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--bg-secondary)', color: 'var(--text-primary)', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}
+              >
+                条件をすべて解除
+              </button>
+            </>
+          ) : (
+            <>
+              <div style={{ fontSize: 16 }}>アイテムがありません</div>
+              <div style={{ fontSize: 13, marginTop: 8 }}>各ページの「保存」ボタンで追加できます</div>
+            </>
+          )}
         </div>
       ) : (
         <div>
