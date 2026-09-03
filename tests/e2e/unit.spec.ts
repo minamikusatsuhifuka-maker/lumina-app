@@ -267,6 +267,23 @@ import {
 } from '../../src/lib/library-view';
 // 292: Opus出力のHTMLタグ露出はプロンプト側で是正
 import { NO_HTML_PROMPT_RULE } from '../../src/lib/markdown-renderer';
+// 293: 検索とフィルタの判断（📚/🗂共有）
+import {
+  KIND_FILTERS,
+  SEARCH_PLACEHOLDER,
+  SEARCH_SCOPE_DEFAULT,
+  UNCATEGORIZED,
+  UNCATEGORIZED_LABEL,
+  cardHasMatch,
+  categoryCounts,
+  kindCounts,
+  loadSearchScope,
+  matchesCategory,
+  matchesSearch,
+  normalizeSearchText,
+  subCategoryOf,
+  zeroResultMessage,
+} from '../../src/lib/library-filters';
 
 // ============================================================================
 // 純関数の単体テスト（234【1】要件4）— ネットワーク・AI課金・認証を一切使わない
@@ -2598,4 +2615,88 @@ test('U62: 横展開（292）— 判断は library-view を共有し別の閾値
   // 表示側（MarkdownBody）にタグ除去の変換を足していない（R-71 の趣旨・§3-3）
   const mb = readFileSync(join(__dirname, '../../src/components/MarkdownBody.tsx'), 'utf8');
   expect(mb).not.toMatch(/\.replace\(|<\\?\/?span/);
+});
+
+// ───────────────────────────────────────────────────────────────────────────
+// 293: 検索範囲・種別/AIカテゴリの件数・適用中の条件（純関数・決定的）
+// ───────────────────────────────────────────────────────────────────────────
+test('U63: 検索とフィルタ（293）— 既定は「すべて」／正規化は小文字＋NFKC／タイトルのみは本文・タグを見ない／件数は件＝成果物で決定的（入力順に依らない）／未分類は必ず末尾／0件文言／説明文は実装と一致／既存データの一括AI分類を自動で呼ばない', () => {
+  // §3-1 既定＝現状維持（すべて）。window の無い環境でも既定
+  expect(SEARCH_SCOPE_DEFAULT).toBe('all');
+  expect(loadSearchScope('lumina_library_search_scope')).toBe('all');
+  // §2-2 正規化: 全角英数・半角カナ・大文字
+  expect(normalizeSearchText('ＡＢＣ Ｄ')).toBe('abc d');
+  expect(normalizeSearchText('ｶﾀｶﾅ')).toBe('カタカナ');
+  expect(normalizeSearchText(null)).toBe('');
+  // 一致判定: タイトルのみは本文・タグを見ない。すべて＝タイトル・本文・タグ（従来どおり）
+  const row = { title: '保湿剤の基礎', content: 'ワセリンは閉塞性', tags: 'ディープリサーチ,要約' };
+  expect(matchesSearch(row, '', 'title')).toBe(true);
+  expect(matchesSearch(row, '保湿', 'title')).toBe(true);
+  expect(matchesSearch(row, 'ワセリン', 'title')).toBe(false);
+  expect(matchesSearch(row, 'ワセリン', 'all')).toBe(true);
+  expect(matchesSearch(row, '要約', 'title')).toBe(false);
+  expect(matchesSearch(row, '要約', 'all')).toBe(true);
+  expect(matchesSearch({ ...row, tags: ['A', 'B'] }, 'b', 'all')).toBe(true);
+  expect(matchesSearch(row, 'ﾜｾﾘﾝ', 'all'), '半角カナでも一致').toBe(true);
+  // §4-3 種別の件数（件＝行）。同じ入力なら同じ数・入力順を変えても同じ
+  type Row = { id: string; type: string; title: string; tags: string; metadata: unknown; created_at: string; group_name: string };
+  const now = '2026-09-03T00:00:00.000Z';
+  const mk = (id: string, tags: string, meta: unknown = {}): Row => ({ id, type: 'deepresearch', title: 'T', tags, metadata: meta, created_at: now, group_name: 'ディープリサーチ' });
+  const rows: Row[] = [
+    mk('r1', 'ディープリサーチ,バッチ,batch:1-0', { kind: 'research', subCategory: '保湿' }),
+    mk('s1', 'ディープリサーチ,要約,バッチ,batch:1-0s', { kind: 'summary' }),
+    mk('r2', 'ディープリサーチ', { subCategory: '保湿' }),
+    mk('d1', 'ディープリサーチ,詳細', JSON.stringify({ subCategory: '日焼け' })),
+    mk('a1', 'ディープリサーチ,活用アドバイス', {}),
+  ];
+  const kc = kindCounts(rows, artifactKindOf);
+  expect(kc).toEqual({ research: 2, summary: 1, detail: 1, advice: 1 });
+  expect(kindCounts([...rows].reverse(), artifactKindOf)).toEqual(kc);
+  expect(KIND_FILTERS).toEqual(['all', 'research', 'summary', 'detail', 'advice']);
+  // §5 AIカテゴリ: metadata（オブジェクト／TEXT）から subCategory。件数は多い順→名前順、未分類は必ず末尾（0件でも）
+  expect(rows.map((r) => subCategoryOf(r.metadata))).toEqual(['保湿', '', '保湿', '日焼け', '']);
+  const cc = categoryCounts(rows.map((r) => subCategoryOf(r.metadata)));
+  expect(cc.items).toEqual([
+    { value: '保湿', label: '保湿', count: 2 },
+    { value: '日焼け', label: '日焼け', count: 1 },
+    { value: UNCATEGORIZED, label: UNCATEGORIZED_LABEL, count: 2 },
+  ]);
+  expect(cc.overflow).toBe(0);
+  expect(categoryCounts([...rows].reverse().map((r) => subCategoryOf(r.metadata)))).toEqual(cc);
+  const capped = categoryCounts(['a', 'b', 'c', 'b'], 1);
+  expect(capped.items.map((c) => c.value)).toEqual(['b', UNCATEGORIZED]);
+  expect(capped.overflow).toBe(2);
+  expect(categoryCounts([]).items).toEqual([{ value: UNCATEGORIZED, label: UNCATEGORIZED_LABEL, count: 0 }]);
+  expect(matchesCategory('', null)).toBe(true);
+  expect(matchesCategory('', UNCATEGORIZED)).toBe(true);
+  expect(matchesCategory('保湿', UNCATEGORIZED)).toBe(false);
+  expect(matchesCategory('保湿', '保湿')).toBe(true);
+  // §4-1 283 §4-5 に揃える: 1件でも条件に合えばカードを出す
+  const cards = groupLibraryItems(rows);
+  const batchCard = cards.find((c) => c.key === 'batch:1-0')!;
+  expect(cardHasMatch(batchCard, new Set(['s1']))).toBe(true);
+  expect(cardHasMatch(batchCard, new Set(['r2']))).toBe(false);
+  // §6-2 0件文言: 条件があるときは「絞りすぎ」と解除の案内
+  expect(zeroResultMessage(0)).toBe('条件に一致するものがありません');
+  expect(zeroResultMessage(3)).toContain('3件の条件');
+  expect(zeroResultMessage(3)).toContain('すべて解除');
+  // §3-2 説明文は実装と一致: 📚の all はタイトル・本文・タグ、🗂の all はタイトル・ファイル名・本文（route の ILIKE 対象）
+  expect(SEARCH_PLACEHOLDER.library.all).toContain('タイトル・本文・タグ');
+  expect(SEARCH_PLACEHOLDER.library.all).not.toMatch(/カテゴリ|フォルダ/);
+  const taRoute = readFileSync(join(__dirname, '../../src/app/api/text-analysis/saves/route.ts'), 'utf8');
+  expect(taRoute).toMatch(/auto_title ILIKE[\s\S]*file_name ILIKE[\s\S]*content ILIKE/);
+  expect(SEARCH_PLACEHOLDER.ta.all).toContain('タイトル・ファイル名・本文');
+  expect(taRoute, 'qScope=title で本文を外す').toContain("searchParams.get('qScope') !== 'title'");
+  expect(taRoute, '種別の絞り込み').toContain("searchParams.get('analysisType')");
+  expect(taRoute, '種別の件数集計').toMatch(/SELECT analysis_type, MIN\(analysis_label\) AS label, COUNT\(\*\)::int AS count/);
+  const lib = readFileSync(join(__dirname, '../../src/app/dashboard/library/page.tsx'), 'utf8');
+  expect(lib).toContain('SEARCH_PLACEHOLDER.library[searchRange]');
+  expect(lib).toContain('matchesSearch(i, search, searchRange)');
+  // §5-4 既存データの一括AI分類を自動で呼ばない: 判断ファイル・条件チップは fetch を持たず、📚の一括分類は従来の2ボタン（confirm つき）だけ
+  const filters = readFileSync(join(__dirname, '../../src/lib/library-filters.ts'), 'utf8');
+  expect(filters).not.toContain('fetch(');
+  expect(readFileSync(join(__dirname, '../../src/components/ActiveConditionChips.tsx'), 'utf8')).not.toContain('fetch(');
+  expect((lib.match(/auto-categorize/g) ?? []).length, '📚の auto-categorize 呼び出しは従来の2箇所（一括・未分類再分類）のまま').toBe(2);
+  const sal = readFileSync(join(__dirname, '../../src/components/text-analysis/SavedAnalysisList.tsx'), 'utf8');
+  expect((sal.match(/fetch\('\/api\/text-analysis\/auto-categorize'/g) ?? []).length, '🗂の auto-categorize 呼び出しは従来の1箇所（🤖ボタン・confirm つき）のまま').toBe(1);
 });

@@ -39,6 +39,21 @@ import {
   saveListDensity,
 } from '@/lib/library-view';
 import { useFinePointer } from '@/lib/pointer-device';
+// 293: 検索範囲・種別フィルタ・適用中の条件（判断は lib/library-filters.ts・📚と共有。絞り込み自体はサーバー側）
+import {
+  type ActiveCondition,
+  SEARCH_PLACEHOLDER,
+  SEARCH_SCOPES,
+  SEARCH_SCOPE_LABEL,
+  type SearchScope,
+  TA_SEARCH_SCOPE_KEY,
+  UNCATEGORIZED,
+  UNCATEGORIZED_LABEL,
+  loadSearchScope,
+  saveSearchScope,
+  zeroResultMessage,
+} from '@/lib/library-filters';
+import { ActiveConditionChips } from '@/components/ActiveConditionChips';
 import { BundleSelectToggleButton, BundleSelectCheckbox } from '@/components/note-bundle/BundleSelectControls';
 import { useNoteBundleSelection } from '@/components/note-bundle/useNoteBundleSelection';
 import JSZip from 'jszip';
@@ -224,6 +239,18 @@ export default function SavedAnalysisList({
     }
   };
   const [searchTerm, setSearchTerm] = useState('');
+  // 293 §3-1: 検索範囲（すべて＝タイトル・ファイル名・本文／タイトルのみ）。既定は従来どおり「すべて」・保持
+  const [searchRange, setSearchRange] = useState<SearchScope>('all');
+  useEffect(() => {
+    setSearchRange(loadSearchScope(TA_SEARCH_SCOPE_KEY));
+  }, []);
+  const applySearchRange = (s: SearchScope) => {
+    setSearchRange(s);
+    saveSearchScope(s, TA_SEARCH_SCOPE_KEY);
+  };
+  // 293 §4-2: 種別（analysis_type）で絞る。null=すべて。件数はサーバー集計（全件母数・folders と同じ考え方）
+  const [typeFilter, setTypeFilter] = useState<string | null>(null);
+  const [serverTypes, setServerTypes] = useState<{ analysis_type: string; label: string; count: number }[]>([]);
   // 「入力付き」仮想フィルタ（実フォルダは作らない＝auto-categorize対策）
   const [inputOnly, setInputOnly] = useState(false);
   // 「お気に入り」絞り込み（inputOnly と AND）
@@ -304,6 +331,8 @@ export default function SavedAnalysisList({
       p.set('limit', String(PAGE_SIZE));
       p.set('offset', String(offset));
       if (debouncedSearch) p.set('q', debouncedSearch);
+      if (debouncedSearch && searchRange === 'title') p.set('qScope', 'title'); // 293: 本文を対象から外す
+      if (typeFilter) p.set('analysisType', typeFilter); // 293: 種別
       if (activeFolder !== null) p.set('folder', activeFolder);
       if (favoriteOnly) p.set('favorite', '1');
       if (inputOnly) p.set('hasInput', '1');
@@ -322,6 +351,7 @@ export default function SavedAnalysisList({
       setAllTotal(at);
       onAllTotalChange?.(at);
       setServerFolders(Array.isArray(data.folders) ? data.folders : []);
+      setServerTypes(Array.isArray(data.types) ? data.types : []);
     } catch {
       if (!append) {
         setRecords([]);
@@ -340,7 +370,7 @@ export default function SavedAnalysisList({
     if (typeof activeCustomFolder === 'number') return;
     fetchPage(0, false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [debouncedSearch, activeFolder, favoriteOnly, inputOnly, activeCustomFolder, reloadKey]);
+  }, [debouncedSearch, searchRange, typeFilter, activeFolder, favoriteOnly, inputOnly, activeCustomFolder, reloadKey]);
 
   // ── 194: 本文（content）の遅延取得＋キャッシュ（fetchInputText と同型）。
   // 失敗時は null を返しキャッシュしない（再試行可能。✏編集の空content上書きガードにも使う） ──
@@ -1012,6 +1042,43 @@ export default function SavedAnalysisList({
 
   // 194: 絞り込み（検索/カテゴリ/入力付き/お気に入り）はサーバ側で適用済み＝ロード済みをそのまま表示
   const visibleRecords = records;
+
+  // 293 §5: 未分類（folder 空）の件数＝全件−分類済みの合計（サーバ集計から決定的に導く・追加クエリなし）
+  const uncategorizedCount = Math.max(0, allTotal - serverFolders.reduce((a, f) => a + f.count, 0));
+
+  // 293 §6: 適用中の条件（何が効いているかを見せ、個別に外せる）。順番は画面の並び（決定的）
+  const activeConditions: ActiveCondition[] = [];
+  if (debouncedSearch) {
+    activeConditions.push({ key: 'search', label: `検索: 「${debouncedSearch}」`, onRemove: () => setSearchTerm('') });
+  }
+  if (searchRange === 'title') {
+    activeConditions.push({ key: 'range', label: '検索範囲: タイトルのみ', onRemove: () => applySearchRange('all') });
+  }
+  if (activeFolder !== null) {
+    activeConditions.push({ key: 'category', label: `カテゴリ: ${activeFolder || UNCATEGORIZED_LABEL}`, onRemove: () => setActiveFolder(null) });
+  }
+  if (typeFilter) {
+    const t = serverTypes.find((x) => x.analysis_type === typeFilter);
+    activeConditions.push({ key: 'type', label: `種別: ${t?.label || typeFilter}`, onRemove: () => setTypeFilter(null) });
+  }
+  if (inputOnly) {
+    activeConditions.push({ key: 'input', label: '📥 入力付き', onRemove: () => setInputOnly(false) });
+  }
+  if (favoriteOnly) {
+    activeConditions.push({ key: 'fav', label: '⭐ お気に入り', onRemove: () => setFavoriteOnly(false) });
+  }
+  if (activeCustomFolder === 'unfiled') {
+    activeConditions.push({ key: 'cfolder', label: 'マイフォルダ: 未分類のお気に入り', onRemove: () => setActiveCustomFolder(null) });
+  }
+  const clearAllConditions = () => {
+    setSearchTerm('');
+    applySearchRange('all');
+    setActiveFolder(null);
+    setTypeFilter(null);
+    setInputOnly(false);
+    setFavoriteOnly(false);
+    if (activeCustomFolder === 'unfiled') setActiveCustomFolder(null);
+  };
 
   // 表示中レコードから分析タイプ別の件数とラベルを動的に抽出
   const typeStats = useMemo(() => {
@@ -1808,6 +1875,21 @@ export default function SavedAnalysisList({
             </span>
           </button>
 
+          {/* 293 §5: 未分類（folder が空）を必ず選べるようにする。件数は全件−分類済みの合計（決定的） */}
+          <button
+            type="button"
+            data-ta-category-choice={UNCATEGORIZED}
+            data-ta-category-count={uncategorizedCount}
+            onClick={() => setActiveFolder('')}
+            style={{ ...categoryCardStyle(activeFolder === ''), borderStyle: 'dashed' }}
+          >
+            <span style={{ fontSize: 15 }}>📭</span>
+            <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-secondary)', flex: 1, textAlign: 'left', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              {UNCATEGORIZED_LABEL}
+            </span>
+            <span style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-muted)' }}>{uncategorizedCount}</span>
+          </button>
+
           {serverFolders.map(({ folder, count }) => {
             const color = getFolderColor(folder, uniqueFolders);
             const active = activeFolder === folder;
@@ -1820,6 +1902,8 @@ export default function SavedAnalysisList({
                   if (!isEditing) setActiveFolder(folder);
                 }}
                 className="category-card"
+                data-ta-category-choice={folder}
+                data-ta-category-count={count}
                 style={{
                   ...categoryCardStyle(active),
                   position: 'relative',
@@ -1958,7 +2042,7 @@ export default function SavedAnalysisList({
           data-kb-search
           value={searchTerm}
           onChange={(e) => setSearchTerm(e.target.value)}
-          placeholder={`🔍 タイトル・本文で検索${showKbHints ? KEY_HINT.searchSuffix : ''}`}
+          placeholder={`${SEARCH_PLACEHOLDER.ta[searchRange]}${showKbHints ? KEY_HINT.searchSuffix : ''}`}
           style={{
             flex: 1,
             padding: '8px 12px',
@@ -1969,6 +2053,26 @@ export default function SavedAnalysisList({
             fontSize: 12,
           }}
         />
+        {/* 293 §3-1: 検索範囲（タイトルのみ＝本文を対象から外す）。既定は「すべて」・保持 */}
+        <span data-ta-search-range style={{ display: 'inline-flex', borderRadius: 8, overflow: 'hidden', border: '1px solid var(--border)' }} title="検索範囲（タイトルのみ＝本文を見ない）">
+          {SEARCH_SCOPES.map((s) => (
+            <button
+              key={s}
+              type="button"
+              data-ta-search-range-choice={s}
+              aria-pressed={searchRange === s}
+              onClick={() => applySearchRange(s)}
+              style={{
+                padding: '8px 12px', fontSize: 12, fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap',
+                background: searchRange === s ? 'var(--accent)' : 'transparent',
+                color: searchRange === s ? '#fff' : 'var(--text-secondary)',
+                border: 'none',
+              }}
+            >
+              {SEARCH_SCOPE_LABEL[s]}
+            </button>
+          ))}
+        </span>
         <button
           type="button"
           onClick={() => setInputOnly((v) => !v)}
@@ -2045,6 +2149,41 @@ export default function SavedAnalysisList({
           ))}
         </span>
       </div>
+
+      {/* ── 293 §4-2/§4-3: 種別フィルタ（analysis_type・件数はサーバー集計＝全件母数） ── */}
+      {serverTypes.length > 0 && (
+        <div data-ta-type-filter style={{ display: 'flex', flexWrap: 'wrap', gap: 6, alignItems: 'center' }}>
+          <span style={{ fontSize: 11, color: 'var(--text-muted)', fontWeight: 600 }}>種別（件）:</span>
+          <button
+            type="button"
+            data-ta-type-choice="all"
+            aria-pressed={typeFilter === null}
+            onClick={() => setTypeFilter(null)}
+            style={{ padding: '4px 12px', borderRadius: 12, border: 'none', fontSize: 11, fontWeight: 600, cursor: 'pointer', background: typeFilter === null ? '#6c63ff' : 'var(--bg-card)', color: typeFilter === null ? '#fff' : 'var(--text-secondary)' }}
+          >
+            すべて ({allTotal})
+          </button>
+          {serverTypes.map((t) => {
+            const active = typeFilter === t.analysis_type;
+            return (
+              <button
+                key={t.analysis_type}
+                type="button"
+                data-ta-type-choice={t.analysis_type}
+                data-ta-type-count={t.count}
+                aria-pressed={active}
+                onClick={() => setTypeFilter(active ? null : t.analysis_type)}
+                style={{ padding: '4px 12px', borderRadius: 12, border: 'none', fontSize: 11, fontWeight: 600, cursor: 'pointer', background: active ? '#6c63ff' : 'var(--bg-card)', color: active ? '#fff' : 'var(--text-secondary)' }}
+              >
+                {t.label || t.analysis_type} ({t.count})
+              </button>
+            );
+          })}
+        </div>
+      )}
+
+      {/* ── 293 §6: 適用中の条件（192のタグ条件チップと同じ形）。個別に外せる・すべて解除 ── */}
+      <ActiveConditionChips conditions={activeConditions} onClearAll={clearAllConditions} />
 
       {/* 一括移動パネル */}
       {selectedIds.size > 0 && (
@@ -2435,13 +2574,22 @@ export default function SavedAnalysisList({
             borderRadius: 12,
           }}
         >
-          {debouncedSearch ||
-          activeFolder !== null ||
-          inputOnly ||
-          favoriteOnly ||
-          activeCustomFolder !== null
-            ? '条件に一致する保存はありません'
-            : '保存された分析結果はまだありません'}
+          {activeConditions.length > 0 ? (
+            <>
+              {/* 293 §6-2: 0件のときは「絞りすぎ」を示し、その場で外せるようにする */}
+              <div data-ta-empty style={{ lineHeight: 1.7 }}>{zeroResultMessage(activeConditions.length)}</div>
+              <button
+                type="button"
+                data-ta-empty-clear
+                onClick={clearAllConditions}
+                style={{ marginTop: 10, padding: '6px 14px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--bg-card)', color: 'var(--text-primary)', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}
+              >
+                条件をすべて解除
+              </button>
+            </>
+          ) : (
+            '保存された分析結果はまだありません'
+          )}
         </div>
       ) : (
         <div className={listGridClass(resolvedListCols)} {...listGridAttrs} style={{ gap: 8 }}>

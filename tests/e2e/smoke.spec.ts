@@ -6551,3 +6551,217 @@ test('C98: テキスト分析の保存一覧への横展開（292）— 選択�
     await cleanupE2ESaves(request);
   }
 });
+
+// ───────────────────────────────────────────────────────────────────────────
+// 293: 検索とフィルタの強化（📚リサーチ保存／🗂テキスト分析）
+// ───────────────────────────────────────────────────────────────────────────
+test('C99: リサーチ保存の検索とフィルタ（293）— 「タイトルのみ」は本文にヒットしない・「すべて」はヒット・範囲の保持・種別フィルタ（件＝成果物・決定的・カードは出して該当成果物に🔍）・AIカテゴリ（未分類が選べる）・複数条件が同時に効く・適用中の条件の表示と個別解除・すべて解除・0件は絞りすぎの案内・一括AI分類が自動で走らない・283/291に退行なし', async ({ page, request }) => {
+  test.setTimeout(120_000);
+  const marker = `FLT${RUN_ID}`;
+  const jobId = 9900293;
+  const SUMTOKEN = `SUMONLY${marker}`;
+  const CAT_A = `E2Eカテ${RUN_ID}`;
+  const CAT_B = `E2E別${RUN_ID}`;
+  const now = new Date().toISOString();
+  const a1 = await postLibraryRow(request, {
+    type: 'deepresearch', title: withE2EPrefix(`FA ${marker}`), content: `本文A ${marker}`,
+    metadata: { from: 'batch-research', jobId, topicIndex: 0, kind: 'research', savedAt: now },
+    tags: `ディープリサーチ,バッチ,batch:${jobId}-0`, group_name: 'ディープリサーチ',
+  });
+  const a2 = await postLibraryRow(request, {
+    type: 'deepresearch', title: withE2EPrefix(`FA ${marker}`), content: `${SUMTOKEN} を含む要約 ${marker}`,
+    metadata: { from: 'batch-research', jobId, topicIndex: 0, kind: 'summary', savedAt: now },
+    tags: `ディープリサーチ,要約,バッチ,batch:${jobId}-0s`, group_name: 'ディープリサーチ',
+  });
+  const b1 = await postLibraryRow(request, { type: 'deepresearch', title: withE2EPrefix(`FB1 ${marker}`), content: `本文B1 ${marker}`, metadata: { savedAt: now, subCategory: CAT_A }, tags: 'ディープリサーチ', group_name: 'ディープリサーチ' });
+  const b2 = await postLibraryRow(request, { type: 'deepresearch', title: withE2EPrefix(`FB2 ${marker}`), content: `本文B2 ${marker}`, metadata: { savedAt: now }, tags: 'ディープリサーチ', group_name: 'ディープリサーチ' });
+  const b3 = await postLibraryRow(request, { type: 'deepresearch', title: withE2EPrefix(`FB3 ${marker}`), content: `本文B3 ${marker}`, metadata: { savedAt: now, subCategory: CAT_B }, tags: 'ディープリサーチ', group_name: 'ディープリサーチ' });
+  const all = [a1, a2, b1, b2, b3];
+  const cards = page.locator('[data-library-card]');
+  const card = (id: string) => page.locator(`[data-library-card="${id}"]`);
+  const tab = (id: string) => page.locator(`[data-library-artifact-tab="${id}"]`);
+  const search = page.locator('[data-library-search]');
+  const cond = (k: string) => page.locator(`[data-active-condition="${k}"]`);
+  const kindCount = (k: string) => page.locator(`[data-library-kind-choice="${k}"]`).getAttribute('data-library-kind-count');
+  const catCount = (v: string) => page.locator(`[data-library-category-choice="${v}"]`).getAttribute('data-library-category-count');
+  // §5-4: 既存データの一括AI分類が自動で走らない（画面操作の間、分類APIが1回も呼ばれない）
+  let categorizeCalls = 0;
+  await page.route('**/api/library/auto-categorize**', (route) => { categorizeCalls += 1; void route.fulfill({ status: 500, body: '{}' }); });
+
+  try {
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto('/dashboard/library');
+    await page.evaluate(() => { localStorage.removeItem('lumina_library_search_scope'); });
+    await page.reload({ waitUntil: 'domcontentloaded' });
+    await search.fill(marker);
+    await expect(card(a1)).toBeVisible({ timeout: 30000 });
+    await expect(cards, '5件が4枚（283のまとめは不変）').toHaveCount(4);
+    await expect(card(a1)).toContainText('🔗 同一実行');
+    await expect(page.locator('[data-library-cols-picker]'), '291の列数ピッカーは残る').toBeVisible();
+
+    // ── ① 検索範囲: 既定「すべて」（本文にヒット）→「タイトルのみ」では本文にヒットしない → 0件は絞りすぎの案内＋個別解除 ──
+    await expect(page.locator('[data-library-search-range-choice="all"]')).toHaveAttribute('aria-pressed', 'true');
+    await expect(search).toHaveAttribute('placeholder', /タイトル・本文・タグ/);
+    await search.fill(SUMTOKEN);
+    await expect(card(a1), '「すべて」は要約の本文にヒット').toBeVisible();
+    await expect(cards).toHaveCount(1);
+    await page.locator('[data-library-search-range-choice="title"]').click();
+    await expect(search).toHaveAttribute('placeholder', /タイトルで検索/);
+    await expect(cards, '「タイトルのみ」は本文にヒットしない').toHaveCount(0);
+    const empty = page.locator('[data-library-empty]');
+    await expect(empty).toBeVisible();
+    await expect(empty).toContainText('絞りすぎ');
+    await expect(page.locator('[data-active-conditions]')).toHaveAttribute('data-active-conditions', '2');
+    await expect(cond('search')).toContainText(SUMTOKEN);
+    await expect(cond('range')).toContainText('タイトルのみ');
+    await cond('range').locator('[data-active-condition-remove="range"]').click();
+    await expect(cards, '検索範囲の条件だけ外すとまたヒットする').toHaveCount(1);
+    await expect(page.locator('[data-library-search-range-choice="all"]')).toHaveAttribute('aria-pressed', 'true');
+    // 保持: タイトルのみにして再読込
+    await page.locator('[data-library-search-range-choice="title"]').click();
+    await page.reload({ waitUntil: 'domcontentloaded' });
+    await expect(page.locator('[data-library-search-range-choice="title"]'), '選んだ検索範囲は保持される').toHaveAttribute('aria-pressed', 'true', { timeout: 30000 });
+    await page.locator('[data-library-search-range-choice="all"]').click();
+
+    // ── ② 種別フィルタ: 件数は件＝成果物・決定的。絞ってもカードは出して該当成果物に🔍（283 §4-5） ──
+    await search.fill(marker);
+    await expect(cards).toHaveCount(4);
+    expect(await kindCount('research'), '本文4件').toBe('4');
+    expect(await kindCount('summary'), '要約1件').toBe('1');
+    expect(await kindCount('all')).toBe('5');
+    await page.locator('[data-library-kind-choice="summary"]').click();
+    await expect(cards, '要約を持つカードだけ').toHaveCount(1);
+    await expect(tab(a2)).toHaveAttribute('data-library-artifact-hit', '1');
+    await expect(tab(a1), '該当しない成果物は印なし（薄く）').toHaveAttribute('data-library-artifact-hit', '0');
+    await expect(cond('kind')).toContainText('要約');
+    expect(await kindCount('summary'), '同じデータなら同じ数（切り替え後も不変）').toBe('1');
+    await page.locator('[data-library-kind-choice="research"]').click();
+    await expect(cards).toHaveCount(4);
+    await expect(tab(a1)).toHaveAttribute('data-library-artifact-hit', '1');
+    await cond('kind').locator('[data-active-condition-remove="kind"]').click();
+    await expect(cond('kind')).toHaveCount(0);
+
+    // ── ③ AIカテゴリ（metadata.subCategory）: 未分類が選べる・件数は決定的 ──
+    expect(await catCount(CAT_A)).toBe('1');
+    expect(await catCount(CAT_B)).toBe('1');
+    expect(await catCount('__uncategorized__'), '未分類＝a1,a2,b2').toBe('3');
+    await page.locator(`[data-library-category-choice="${CAT_A}"]`).click();
+    await expect(cards).toHaveCount(1);
+    await expect(card(b1)).toBeVisible();
+    await expect(cond('category')).toContainText(CAT_A);
+    await page.locator('[data-library-category-choice="__uncategorized__"]').click();
+    await expect(cards, '未分類＝a1カード（a1,a2）とb2').toHaveCount(2);
+    await expect(cond('category')).toContainText('未分類');
+    // 複数条件: 未分類 × 種別=要約 → a1カードだけ（a2に🔍）
+    await page.locator('[data-library-kind-choice="summary"]').click();
+    await expect(cards).toHaveCount(1);
+    await expect(card(a1)).toBeVisible();
+    await expect(tab(a2)).toHaveAttribute('data-library-artifact-hit', '1');
+    await expect(page.locator('[data-active-conditions]')).toHaveAttribute('data-active-conditions', '3');
+    expect(await catCount('__uncategorized__'), '種別条件を通した土台で数える（要約は未分類の1件）').toBe('1');
+    // すべて解除 → 条件0（検索も消える）
+    await page.locator('[data-active-conditions-clear]').click();
+    await expect(page.locator('[data-active-conditions]')).toHaveCount(0);
+    await expect(page.locator('[data-library-kind-choice="all"]')).toHaveAttribute('aria-pressed', 'true');
+    await search.fill(marker);
+    await expect(cards).toHaveCount(4);
+    expect(categorizeCalls, '一括AI分類が自動で呼ばれていない').toBe(0);
+  } finally {
+    await request.delete(LIBRARY_API, { data: { ids: all } }).catch(() => {});
+    await cleanupE2ELibrary(request);
+  }
+});
+
+test('C100: テキスト分析の検索とフィルタ（293）— 「タイトルのみ」は本文にヒットしない・保持・種別フィルタ（サーバー集計・決定的）・カテゴリ「未分類」が選べる・複数条件が同時に効く・適用中の条件と個別解除・すべて解除・0件は絞りすぎの案内・一括AI分類が自動で走らない・292/一括操作に退行なし', async ({ page, request }) => {
+  test.setTimeout(120_000);
+  const marker = `TAF${RUN_ID}`;
+  const BODYTOKEN = `BODYONLY${marker}`;
+  // t1/t2 は未分類（folder=''）、t3/t4 は [E2E]検証 カテゴリ
+  const t1 = await createSave(request, { title: `TF1 ${marker}`, content: `${BODYTOKEN} 本文1 ${marker}`, analysisType: 'transcription', analysisLabel: '全文書き起こし', folder: '' });
+  const t2 = await createSave(request, { title: `TF2 ${marker}`, content: `本文2 ${marker}`, analysisType: 'summary', analysisLabel: '概要・要約', folder: '' });
+  const t3 = await createSave(request, { title: `TF3 ${marker}`, content: `本文3 ${marker}`, analysisType: 'detail_summary', analysisLabel: '詳細にまとめる' });
+  const t4 = await createSave(request, { title: `TF4 ${marker}`, content: `本文4 ${marker}`, analysisType: 'transcription', analysisLabel: '全文書き起こし' });
+  const panel = page.locator('[data-saved-panel="text-analysis"]');
+  const cards = panel.locator('[data-analysis-card]');
+  const card = (id: number) => panel.locator(`[data-analysis-card="${id}"]`);
+  const search = panel.locator('[data-kb-search]');
+  const cond = (k: string) => panel.locator(`[data-active-condition="${k}"]`);
+  const typeCount = (t: string) => panel.locator(`[data-ta-type-choice="${t}"]`).getAttribute('data-ta-type-count');
+  let categorizeCalls = 0;
+  await page.route('**/api/text-analysis/auto-categorize**', (route) => { categorizeCalls += 1; void route.fulfill({ status: 500, body: '{}' }); });
+
+  try {
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto('/dashboard/saved');
+    await page.evaluate(() => { localStorage.removeItem('lumina_ta_search_scope'); localStorage.setItem('ta_category_open', '1'); });
+    await page.reload({ waitUntil: 'domcontentloaded' });
+    await search.fill(marker);
+    await expect(card(t1)).toBeVisible({ timeout: 30000 });
+    await expect(cards).toHaveCount(4);
+
+    // ── ① 検索範囲: 既定「すべて」→ 本文トークンでヒット／「タイトルのみ」で0件＋絞りすぎの案内＋個別解除 ──
+    await expect(panel.locator('[data-ta-search-range-choice="all"]')).toHaveAttribute('aria-pressed', 'true');
+    await expect(search).toHaveAttribute('placeholder', /タイトル・ファイル名・本文/);
+    await search.fill(BODYTOKEN);
+    await expect(card(t1), '「すべて」は本文にヒット').toBeVisible();
+    await expect(cards).toHaveCount(1);
+    await panel.locator('[data-ta-search-range-choice="title"]').click();
+    await expect(search).toHaveAttribute('placeholder', /本文は対象外/);
+    await expect(cards, '「タイトルのみ」は本文にヒットしない').toHaveCount(0);
+    await expect(panel.locator('[data-ta-empty]')).toContainText('絞りすぎ');
+    await expect(panel.locator('[data-active-conditions]')).toHaveAttribute('data-active-conditions', '2');
+    await cond('range').locator('[data-active-condition-remove="range"]').click();
+    await expect(cards).toHaveCount(1);
+    // 保持
+    await panel.locator('[data-ta-search-range-choice="title"]').click();
+    await page.reload({ waitUntil: 'domcontentloaded' });
+    await expect(panel.locator('[data-ta-search-range-choice="title"]'), '検索範囲は保持される').toHaveAttribute('aria-pressed', 'true', { timeout: 30000 });
+    await panel.locator('[data-ta-search-range-choice="all"]').click();
+
+    // ── ② 種別フィルタ（件数はサーバー集計・全件母数・決定的） ──
+    await search.fill(marker);
+    await expect(cards).toHaveCount(4);
+    const c1 = Number(await typeCount('transcription'));
+    expect(c1).toBeGreaterThanOrEqual(2);
+    await panel.locator('[data-ta-type-choice="transcription"]').click();
+    await expect(cards, '全文書き起こしの2件').toHaveCount(2);
+    await expect(card(t1)).toBeVisible();
+    await expect(card(t4)).toBeVisible();
+    await expect(cond('type')).toContainText('全文書き起こし');
+    expect(Number(await typeCount('transcription')), '同じデータなら同じ数').toBe(c1);
+
+    // ── ③ カテゴリ「未分類」（folder 空）が選べる。複数条件（種別×未分類）が同時に効く ──
+    const unc = panel.locator('[data-ta-category-choice="__uncategorized__"]');
+    await expect(unc).toBeVisible();
+    const u1 = Number(await unc.getAttribute('data-ta-category-count'));
+    expect(u1).toBeGreaterThanOrEqual(2);
+    await unc.click();
+    await expect(cards, '全文書き起こし × 未分類 = t1').toHaveCount(1);
+    await expect(card(t1)).toBeVisible();
+    await expect(cond('category')).toContainText('未分類');
+    await expect(panel.locator('[data-active-conditions]')).toHaveAttribute('data-active-conditions', '3');
+    expect(Number(await unc.getAttribute('data-ta-category-count')), '件数は絞り込みで変わらない（全件母数・決定的）').toBe(u1);
+    await panel.locator('[data-ta-type-choice="summary"]').click();
+    await expect(cards, '概要・要約 × 未分類 = t2').toHaveCount(1);
+    await expect(card(t2)).toBeVisible();
+    // 個別解除: 種別だけ外す → 未分類の2件
+    await cond('type').locator('[data-active-condition-remove="type"]').click();
+    await expect(cards).toHaveCount(2);
+    // すべて解除 → 条件0
+    await panel.locator('[data-active-conditions-clear]').click();
+    await expect(panel.locator('[data-active-conditions]')).toHaveCount(0);
+    await search.fill(marker);
+    await expect(cards).toHaveCount(4);
+
+    // ── ④ 退行なし: 292 の列数/密度ピッカー・選択→一括パネル（削除・比較） ──
+    await expect(panel.locator('[data-library-cols-picker]')).toBeVisible();
+    await panel.locator(`[data-select-check="${t1}"]`).check();
+    await panel.locator(`[data-select-check="${t2}"]`).check();
+    await expect(panel.locator('[data-bulk-delete]')).toContainText('2件');
+    await expect(panel.locator('[data-library-compare-open]')).toBeEnabled();
+    await panel.getByRole('button', { name: '✕ 選択をすべて解除' }).click();
+    expect(categorizeCalls, '一括AI分類が自動で呼ばれていない').toBe(0);
+  } finally {
+    await cleanupE2ESaves(request);
+  }
+});
