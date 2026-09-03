@@ -13,6 +13,32 @@ import { triggerDownload } from '@/lib/download';
 import { markdownToReadableText } from '@/lib/markdownToText';
 import FullscreenReader from '@/components/text-analysis/FullscreenReader';
 import { cardActionBtnStyle } from '@/components/text-analysis/cardActionButtonStyle';
+// 292: 291（📚リサーチ保存）で整えた部品をそのまま持ち込む。判断（列数・密度・文字数の段階・比較件数）は
+// lib/library-view.ts を共有し、テキスト分析用の別の閾値・別の判定は作らない（§2-3）。
+// 283/286 の成果物グルーピングは持ち込まない（§2-5）＝比較の単位は保存された1件そのもの。
+import LibraryCompareView from '@/components/library/LibraryCompareView';
+import { CharCountBadge } from '@/components/LibraryItemRow';
+import {
+  LIBRARY_COMPARE_MAX,
+  LIST_COLUMN_CHOICES,
+  LIST_DENSITIES,
+  LIST_DENSITY_DEFAULT,
+  LIST_DENSITY_LABEL,
+  TA_LIST_COLUMN_CHOICE_DEFAULT,
+  TA_LIST_COLUMN_KEY,
+  TA_LIST_DENSITY_KEY,
+  type LibraryCompareEntry,
+  type ListColumnChoice,
+  type ListDensity,
+  libraryCompareState,
+  listGridClass,
+  loadListColumnChoice,
+  loadListDensity,
+  resolveListColumns,
+  saveListColumnChoice,
+  saveListDensity,
+} from '@/lib/library-view';
+import { useFinePointer } from '@/lib/pointer-device';
 import { BundleSelectToggleButton, BundleSelectCheckbox } from '@/components/note-bundle/BundleSelectControls';
 import { useNoteBundleSelection } from '@/components/note-bundle/useNoteBundleSelection';
 import JSZip from 'jszip';
@@ -224,6 +250,33 @@ export default function SavedAnalysisList({
   const [downloadingId, setDownloadingId] = useState<number | null>(null);
   // 選択項目の一括MDダウンロード（ZIP）中フラグ（二度押し防止）
   const [bulkDownloading, setBulkDownloading] = useState(false);
+
+  // ── 292 §2-3: 一覧の列数・密度（291と同じ判断・保存先キーだけ別）。既定は 1列／詳細＝従来どおり ──
+  const [listColChoice, setListColChoice] = useState<ListColumnChoice>(TA_LIST_COLUMN_CHOICE_DEFAULT);
+  const [listDensity, setListDensity] = useState<ListDensity>(LIST_DENSITY_DEFAULT);
+  // 258: 端末判定は lib/pointer-device.ts に一本化（タッチ端末は1列固定・列数の選択を出さない）
+  const { fine: finePointer, mounted: pointerMounted } = useFinePointer();
+  useEffect(() => {
+    // localStorage はクライアントでしか読めないので、描画後に反映する（SSRと差分を作らない）
+    setListColChoice(loadListColumnChoice(TA_LIST_COLUMN_KEY, TA_LIST_COLUMN_CHOICE_DEFAULT));
+    setListDensity(loadListDensity(TA_LIST_DENSITY_KEY));
+  }, []);
+  const applyListCols = (c: ListColumnChoice) => {
+    setListColChoice(c);
+    saveListColumnChoice(c, TA_LIST_COLUMN_KEY);
+  };
+  const applyListDensity = (d: ListDensity) => {
+    setListDensity(d);
+    saveListDensity(d, TA_LIST_DENSITY_KEY);
+  };
+  const resolvedListCols = resolveListColumns(pointerMounted ? finePointer : true, listColChoice);
+  const listGridAttrs = { 'data-library-grid': '', 'data-library-cols': String(resolvedListCols), 'data-library-density': listDensity } as const;
+
+  // ── 292 §2: 選択して比較。列＝保存された1件（グルーピング無し）。本文は ?ids= で一括取得してから開く ──
+  type CompareRow = { id: string; title: string; content: string; char_count: number; created_at: string | null };
+  const [compareEntries, setCompareEntries] = useState<LibraryCompareEntry<CompareRow>[] | null>(null);
+  const [comparePreparing, setComparePreparing] = useState(false);
+  const compareState = libraryCompareState(selectedIds.size);
   const [isAutoCategorizing, setIsAutoCategorizing] = useState(false);
   const [categorizationResult, setCategorizationResult] =
     useState<AutoCategorizeResult | null>(null);
@@ -906,6 +959,55 @@ export default function SavedAnalysisList({
     } finally {
       setCrossPreparing(false);
     }
+  };
+
+  // 292 §2: 選択した保存を横並びで比較。横断分析（handleCrossSelect）と同じく ?ids= で本文を一括取得
+  //（一覧APIは本文を返さない）。列ヘッダーには分析タイプ（analysis_label）を出す（§2-5）。
+  const handleCompareSelect = async () => {
+    if (!compareState.enabled || comparePreparing) return;
+    setComparePreparing(true);
+    try {
+      const ids = Array.from(selectedIds);
+      const items = await fetchItemsByIds(ids);
+      if (items === null || items.length === 0) {
+        showToast('本文の取得に失敗しました', 'error');
+        return;
+      }
+      const byId = new Map(items.map((it) => [it.id, it] as const));
+      const entries: LibraryCompareEntry<CompareRow>[] = [];
+      for (const id of ids) {
+        const it = byId.get(id);
+        if (!it) continue; // 取得できなかった行は落とす（件数差で分かる。空の列は出さない）
+        const rec = records.find((r) => r.id === id);
+        const content = typeof it.content === 'string' ? it.content : '';
+        entries.push({
+          item: {
+            id: String(it.id),
+            title: it.auto_title || it.file_name || '無題',
+            content,
+            char_count: content.length,
+            created_at: rec?.created_at ?? null,
+          },
+          kind: it.analysis_type,
+          label: it.analysis_label || it.analysis_type || '分析結果',
+        });
+        if (entries.length >= LIBRARY_COMPARE_MAX) break;
+      }
+      hoverPreview.hide();
+      setCompareEntries(entries);
+    } finally {
+      setComparePreparing(false);
+    }
+  };
+  // 比較の列 → 一覧の record（絞り込みで一覧から外れていても、取得済みの本文で全画面・DLできるよう最小形を組む）
+  const compareRecordOf = (item: CompareRow): AnalysisRecord => {
+    const rec = records.find((r) => String(r.id) === item.id);
+    if (rec) return rec;
+    return {
+      id: Number(item.id), user_id: '', file_name: null, auto_title: item.title, analysis_type: '', analysis_label: '',
+      content: item.content, tags: null, folder: null, favorite: false, locked: false, char_count: item.char_count,
+      created_at: item.created_at ?? '', updated_at: '',
+    };
   };
 
   // 194: 絞り込み（検索/カテゴリ/入力付き/お気に入り）はサーバ側で適用済み＝ロード済みをそのまま表示
@@ -1908,6 +2010,42 @@ export default function SavedAnalysisList({
         </span>
       </div>
 
+      {/* ── 292 §2-3: 一覧の見え方（列数・密度）。291と同じ選択肢・同じ判断。タッチ端末は1列固定なので列数の選択は出さない ── */}
+      <div data-library-view-bar style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', fontSize: 11, color: 'var(--text-muted)' }}>
+        {(!pointerMounted || finePointer) && (
+          <span data-library-cols-picker style={{ display: 'inline-flex', alignItems: 'center', gap: 2 }} title="一覧の列数（自動＝画面幅で1〜4列）">
+            <span style={{ marginRight: 2 }}>列</span>
+            {LIST_COLUMN_CHOICES.map((c) => (
+              <button
+                key={String(c)}
+                type="button"
+                data-library-cols-choice={String(c)}
+                aria-pressed={listColChoice === c}
+                onClick={() => applyListCols(c)}
+                style={{ padding: '4px 8px', borderRadius: 5, fontSize: 11, fontWeight: listColChoice === c ? 700 : 600, border: `1px solid ${listColChoice === c ? 'var(--accent)' : 'var(--border)'}`, background: listColChoice === c ? 'rgba(108,99,255,0.12)' : 'var(--bg-card)', color: 'var(--text-primary)', cursor: 'pointer' }}
+              >
+                {c === 'auto' ? '自動' : c}
+              </button>
+            ))}
+          </span>
+        )}
+        <span data-library-density-picker style={{ display: 'inline-flex', alignItems: 'center', gap: 2 }} title="表示密度（コンパクト＝バッジとタイトルのみ）">
+          <span style={{ marginRight: 2 }}>密度</span>
+          {LIST_DENSITIES.map((d) => (
+            <button
+              key={d}
+              type="button"
+              data-library-density-choice={d}
+              aria-pressed={listDensity === d}
+              onClick={() => applyListDensity(d)}
+              style={{ padding: '4px 8px', borderRadius: 5, fontSize: 11, fontWeight: listDensity === d ? 700 : 600, border: `1px solid ${listDensity === d ? 'var(--accent)' : 'var(--border)'}`, background: listDensity === d ? 'rgba(108,99,255,0.12)' : 'var(--bg-card)', color: 'var(--text-primary)', cursor: 'pointer' }}
+            >
+              {LIST_DENSITY_LABEL[d]}
+            </button>
+          ))}
+        </span>
+      </div>
+
       {/* 一括移動パネル */}
       {selectedIds.size > 0 && (
         <div
@@ -2167,6 +2305,28 @@ export default function SavedAnalysisList({
                 : `📥 選択した${selectedIds.size}件をMDダウンロード`}
             </button>
 
+            {/* 292 §2: 選択した保存を横並びで比較（2〜4件。5件目を選んでいる間は無効化して理由を出す＝R-101） */}
+            <button
+              type="button"
+              data-library-compare-open
+              onClick={handleCompareSelect}
+              disabled={!compareState.enabled || comparePreparing}
+              title={compareState.reason ?? '選択した保存を横並びで比較します（列数・高さ・同期スクロール・各列から全画面）'}
+              style={{
+                padding: '10px 22px',
+                borderRadius: 12,
+                fontSize: 13,
+                fontWeight: 700,
+                border: 'none',
+                background: !compareState.enabled || comparePreparing ? 'var(--border)' : '#6c63ff',
+                color: '#fff',
+                cursor: !compareState.enabled || comparePreparing ? 'not-allowed' : 'pointer',
+                boxShadow: !compareState.enabled || comparePreparing ? 'none' : '0 4px 12px rgba(108,99,255,0.3)',
+              }}
+            >
+              {comparePreparing ? '⏳ 本文を取得中...' : compareState.label}
+            </button>
+
             {selectedIds.size >= 2 && onSelectForCross && (
               <button
                 type="button"
@@ -2241,6 +2401,17 @@ export default function SavedAnalysisList({
         </div>
       )}
 
+      {/* 292 §2: 横並び比較パネル（291の共通部品。全画面は下の FullscreenReader を共用・MDは同じハンドラ） */}
+      {compareEntries && (
+        <LibraryCompareView
+          entries={compareEntries}
+          kindNote="各列の見出しに分析タイプ（全文書き起こし／詳細にまとめる／概要・要約 など）を表示しています。"
+          onClose={() => setCompareEntries(null)}
+          onFullscreen={(item) => void openReader(compareRecordOf(item))}
+          onExportMd={(item) => void handleDownloadMd(compareRecordOf(item))}
+        />
+      )}
+
       {/* 一覧 */}
       {listLoading ? (
         <div
@@ -2273,9 +2444,7 @@ export default function SavedAnalysisList({
             : '保存された分析結果はまだありません'}
         </div>
       ) : (
-        <div
-          style={{ display: 'flex', flexDirection: 'column', gap: 8 }}
-        >
+        <div className={listGridClass(resolvedListCols)} {...listGridAttrs} style={{ gap: 8 }}>
           {visibleRecords.map((record) => {
             const title =
               record.auto_title || record.file_name || '無題';
@@ -2312,6 +2481,7 @@ export default function SavedAnalysisList({
                   }`,
                   borderRadius: 12,
                   padding: 12,
+                  minWidth: 0,
                   boxShadow: highlighted ? '0 0 0 3px rgba(147,51,234,0.25)' : undefined,
                   transition: 'all 0.2s',
                   // お気に入りは金色の左ボーダー+淡アンバー背景で一目で区別
@@ -2390,35 +2560,35 @@ export default function SavedAnalysisList({
                     />
                   )}
                   <div style={{ flex: 1, minWidth: 0 }}>
+                    {/* 292（291 §3-4と同じ構成）: 1行目にバッジ（分析タイプ・文字数・日付・カテゴリ・⭐）、2行目にタイトル。
+                        長いタイトルでもバッジの位置が動かない。文字数の濃淡は lib/library-view.ts の段階（数値併記） */}
                     <div
+                      data-ta-badges
                       style={{
                         display: 'flex',
                         alignItems: 'center',
-                        gap: 8,
+                        gap: 6,
                         flexWrap: 'wrap',
                         marginBottom: 4,
+                        fontSize: 11,
+                        color: 'var(--text-muted)',
                       }}
                     >
                       <span
-                        style={{
-                          fontSize: 13,
-                          fontWeight: 600,
-                          color: 'var(--text-primary)',
-                        }}
-                      >
-                        {title}
-                      </span>
-                      <span
+                        data-ta-type-label={record.analysis_type}
                         style={{
                           fontSize: 10,
                           padding: '2px 6px',
                           borderRadius: 4,
                           background: 'rgba(108,99,255,0.15)',
                           color: 'var(--accent)',
+                          fontWeight: 700,
                         }}
                       >
                         {record.analysis_label}
                       </span>
+                      <CharCountBadge n={record.char_count ?? 0} />
+                      <span>{new Date(record.created_at).toLocaleString('ja-JP')}</span>
                       {record.folder && folderColor && (
                         <span
                           style={{
@@ -2433,11 +2603,13 @@ export default function SavedAnalysisList({
                           📁 {record.folder}
                         </span>
                       )}
-                      {/* 249: 所属マイフォルダ（複数可）。自動カテゴリ📁の隣に📂で並ぶ */}
-                      <FolderBadges
-                        folderIds={record.custom_folder_ids}
-                        folders={customFolders.folders}
-                      />
+                      {/* 249: 所属マイフォルダ（複数可）。自動カテゴリ📁の隣に📂で並ぶ（292: コンパクトでは出さない） */}
+                      {listDensity === 'detail' && (
+                        <FolderBadges
+                          folderIds={record.custom_folder_ids}
+                          folders={customFolders.folders}
+                        />
+                      )}
                       {record.favorite && (
                         <span
                           style={{
@@ -2451,17 +2623,20 @@ export default function SavedAnalysisList({
                         </span>
                       )}
                     </div>
-                    <div
-                      style={{
-                        fontSize: 11,
-                        color: 'var(--text-muted)',
-                        marginBottom: 6,
-                      }}
-                    >
-                      {new Date(record.created_at).toLocaleString('ja-JP')} ・
-                      {record.char_count?.toLocaleString() ?? 0}文字
+                    <div data-ta-title style={{ marginBottom: 6 }}>
+                      <span
+                        style={{
+                          fontSize: 13,
+                          fontWeight: 600,
+                          color: 'var(--text-primary)',
+                          wordBreak: 'break-word',
+                        }}
+                      >
+                        {title}
+                      </span>
                     </div>
-                    {/* ── アクションバー（タイトル直下に配置） ── */}
+                    {/* ── アクションバー（タイトル直下に配置）。292: 密度=コンパクトでは出さない（高さを抑える） ── */}
+                    {listDensity === 'detail' && (
                     <div
                       style={{
                         display: 'flex',
@@ -2621,6 +2796,7 @@ export default function SavedAnalysisList({
                         🗑 削除
                       </button>
                     </div>
+                    )}
                     {expanded ? (
                       <>
                       {/* 本文表示枠の高さ切替（S/M/L/全）。生成結果カードと同じ仕様・見た目 */}
