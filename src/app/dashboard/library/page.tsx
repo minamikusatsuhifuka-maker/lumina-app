@@ -1139,6 +1139,7 @@ function LibraryPageInner() {
           return (
             <button
               key={tab.key}
+              data-library-tab={tab.key}
               onClick={() => { setActiveTab(tab.key); setFavFilterInTab(false); }}
               style={{
                 flexShrink: 0, padding: '6px 12px', fontSize: 12,

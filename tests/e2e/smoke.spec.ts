@@ -5047,7 +5047,8 @@ test('C84: リサーチ保存のカードまとめ（283）— batch紐付け1�
     await expect(tab(a2)).not.toContainText('⭐');
 
     // ── ⑥ 削除は成果物単位: 要約だけ消して本文カードは残る ──
-    await page.getByRole('button', { name: /^すべて/ }).click();
+    // 293: 種別/AIカテゴリの「すべて」ボタンが増えたため、タブは目印属性で指す
+    await page.locator('[data-library-tab="all"]').click();
     await page.locator('[data-library-search]').fill(marker);
     await expect(tab(a2)).toBeVisible({ timeout: 30000 });
     await tab(a2).click(); // 要約を選択中にする
