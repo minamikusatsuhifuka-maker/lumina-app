@@ -6594,6 +6594,8 @@ test('C99: リサーチ保存の検索とフィルタ（293）— 「タイト�
     await page.goto('/dashboard/library');
     await page.evaluate(() => { localStorage.removeItem('lumina_library_search_scope'); });
     await page.reload({ waitUntil: 'domcontentloaded' });
+    // hydration 前に入力すると値が失われる（一覧の初回取得＝effect 完了を待ってから入力する）
+    await expect(cards.first()).toBeVisible({ timeout: 30000 });
     await search.fill(marker);
     await expect(card(a1)).toBeVisible({ timeout: 30000 });
     await expect(cards, '5件が4枚（283のまとめは不変）').toHaveCount(4);
@@ -6622,6 +6624,7 @@ test('C99: リサーチ保存の検索とフィルタ（293）— 「タイト�
     await page.locator('[data-library-search-range-choice="title"]').click();
     await page.reload({ waitUntil: 'domcontentloaded' });
     await expect(page.locator('[data-library-search-range-choice="title"]'), '選んだ検索範囲は保持される').toHaveAttribute('aria-pressed', 'true', { timeout: 30000 });
+    await expect(cards.first()).toBeVisible({ timeout: 30000 });
     await page.locator('[data-library-search-range-choice="all"]').click();
 
     // ── ② 種別フィルタ: 件数は件＝成果物・決定的。絞ってもカードは出して該当成果物に🔍（283 §4-5） ──
@@ -6696,6 +6699,8 @@ test('C100: テキスト分析の検索とフィルタ（293）— 「タイト�
     await page.goto('/dashboard/saved');
     await page.evaluate(() => { localStorage.removeItem('lumina_ta_search_scope'); localStorage.setItem('ta_category_open', '1'); });
     await page.reload({ waitUntil: 'domcontentloaded' });
+    // hydration 前に入力すると値が失われる（一覧の初回取得＝effect 完了を待ってから入力する）
+    await expect(cards.first()).toBeVisible({ timeout: 30000 });
     await search.fill(marker);
     await expect(card(t1)).toBeVisible({ timeout: 30000 });
     await expect(cards).toHaveCount(4);
@@ -6717,6 +6722,7 @@ test('C100: テキスト分析の検索とフィルタ（293）— 「タイト�
     await panel.locator('[data-ta-search-range-choice="title"]').click();
     await page.reload({ waitUntil: 'domcontentloaded' });
     await expect(panel.locator('[data-ta-search-range-choice="title"]'), '検索範囲は保持される').toHaveAttribute('aria-pressed', 'true', { timeout: 30000 });
+    await expect(cards.first()).toBeVisible({ timeout: 30000 });
     await panel.locator('[data-ta-search-range-choice="all"]').click();
 
     // ── ② 種別フィルタ（件数はサーバー集計・全件母数・決定的） ──
