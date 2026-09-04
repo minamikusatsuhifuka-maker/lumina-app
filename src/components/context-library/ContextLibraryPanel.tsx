@@ -232,7 +232,8 @@ export default function ContextLibraryPanel() {
 
   // 250: 一括削除のための選択モード（📚リサーチ保存の「選択モード」と同じ流儀）。
   // note素材の選択モード（179/180・共有ストア）とは別物なので、同時には出さない。
-  const [deleteMode, setDeleteMode] = useState(false);
+  // 296: 選択は既定＝チェック常時表示（「☑ 選んで削除」のモード切替は撤去）。選択状態はこの state だけ＝保存しない（§2-3）。
+  // 操作バー（削除・比較）は1件以上選んだときだけ出す。全選択は置かない（§2-4）
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
   const [bulkDeleting, setBulkDeleting] = useState(false);
 
@@ -764,12 +765,7 @@ export default function ContextLibraryPanel() {
     setActiveCustomFolder(null);
   };
 
-  // 表示中（ロード済み）の全件を選択／解除
-  const toggleSelectAllVisible = () => {
-    const allIds = items.map((it) => it.id);
-    const allSelected = allIds.length > 0 && allIds.every((id) => selectedIds.has(id));
-    setSelectedIds(allSelected ? new Set() : new Set(allIds));
-  };
+  // 296 §2-4: toggleSelectAllVisible（表示中N件を全選択）は撤去（全選択を置かない）
 
   // 要約／詳細生成 → text_analysis_saves に保存
   const handleSummarize = async (item: ContextSave, mode: 'summary' | 'detail') => {
@@ -1223,27 +1219,7 @@ export default function ContextLibraryPanel() {
         >
           ⭐ お気に入り
         </button>
-        {/* 250: 一括削除のための選択モード。note素材の選択モード中は出さない（チェックが二重になるため） */}
-        {!bundleSelectMode && (
-          <button
-            type="button"
-            data-ctx-select-mode
-            onClick={() => { setDeleteMode(v => !v); setSelectedIds(new Set()); }}
-            title="複数の素材を選んでまとめて削除します"
-            style={{
-              padding: '8px 14px',
-              borderRadius: 8,
-              border: `1px solid ${deleteMode ? '#dc2626' : 'var(--border)'}`,
-              background: deleteMode ? '#dc2626' : 'transparent',
-              color: deleteMode ? '#fff' : 'var(--text-secondary)',
-              fontSize: 12,
-              fontWeight: 600,
-              cursor: 'pointer',
-            }}
-          >
-            {deleteMode ? '✕ 選択をやめる' : '☑ 選んで削除'}
-          </button>
-        )}
+        {/* 296 §3-2: 「☑ 選んで削除」のモード切替ボタンは撤去（チェックは常時表示。解除は操作バーの「✕ 選択を解除」） */}
         <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>
           表示{items.length} / 全{totalCount ?? items.length}件
         </span>
@@ -1285,8 +1261,8 @@ export default function ContextLibraryPanel() {
         </span>
       </div>
 
-      {/* 250: 選択削除モードの操作バー（📚リサーチ保存と同じく、選択中だけ操作を出す） */}
-      {deleteMode && (
+      {/* 250/296: 選択中の操作バー（📚リサーチ保存と同じく、1件以上選んだときだけ出す。note素材の選択モード中はチェック自体を出さない） */}
+      {!bundleSelectMode && selectedIds.size > 0 && (
         <div
           style={{
             display: 'flex',
@@ -1301,17 +1277,16 @@ export default function ContextLibraryPanel() {
           }}
         >
           <span style={{ fontSize: 13, fontWeight: 700, color: '#dc2626' }}>
-            🗑 {selectedIds.size}件を選択中
+            ☑ {selectedIds.size}件を選択中
           </span>
+          {/* 296 §2-4: 「表示中N件を全選択」は撤去（全選択を置かない）。解除だけ残す */}
           <button
             type="button"
-            data-ctx-select-all
-            onClick={toggleSelectAllVisible}
+            data-ctx-select-clear
+            onClick={() => setSelectedIds(new Set())}
             style={{ ...cardActionBtnStyle(), fontSize: 12, padding: '6px 12px' }}
           >
-            {items.length > 0 && items.every((it) => selectedIds.has(it.id))
-              ? '☑ 表示中の選択を解除'
-              : `☑ 表示中${items.length}件を全選択`}
+            ✕ 選択を解除
           </button>
           <button
             type="button"
@@ -1551,8 +1526,9 @@ export default function ContextLibraryPanel() {
                     onLimit={(m) => flashToast(`❌ ${m}`)}
                   />
                 )}
-                {/* 250: 選択削除モード中のチェックボックス（note選択とは排他なので二重にならない） */}
-                {deleteMode && !bundleSelectMode && (
+                {/* 250/296: 選択のチェックボックスは常時表示（note選択モード中は BundleSelectCheckbox と排他＝二重にならない）。
+                    R-81: 展開領域の外側にあり、クリックは stopCardClick で上へ伝えない（チェックしても本文は開かない） */}
+                {!bundleSelectMode && (
                   <input
                     type="checkbox"
                     data-ctx-delete-check={item.id}

@@ -161,7 +161,8 @@ function LibraryPageInner() {
   const [retrying, setRetrying] = useState(false);
   const [retryElapsed, setRetryElapsed] = useState(0);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
-  const [mergeMode, setMergeMode] = useState(false);
+  // 296: 選択モードは既定＝常時チェック表示（「✓ 選択モード」ボタンは撤去）。選択状態はこの画面の state だけに置き、
+  // 保存しない（画面を離れれば消える・§2-3）。操作バーは1件以上選んだときだけ出す（従来どおり）。
   // 252: マイフォルダ（保存一覧と共有の 'stock' 体系）。絞り込みはタブ・検索とAND
   const customFolders = useCustomFolders('library', (msg) => alert(msg));
   const hoverPreview = useHoverPreview();
@@ -814,7 +815,7 @@ function LibraryPageInner() {
         linkKind={card.link}
         openMenuId={openMenuId}
         setOpenMenuId={setOpenMenuId}
-        mergeMode={mergeMode}
+        mergeMode={true /* 296: チェックは常時表示 */}
         selected={selectedIds.has(item.id)}
         onSelectToggle={(id, checked) => { const next = new Set(selectedIds); if (checked) next.add(id); else next.delete(id); setSelectedIds(next); }}
         onFavoriteToggle={toggleFavorite}
@@ -915,18 +916,7 @@ function LibraryPageInner() {
         >
           🚀 発信ハブ
         </a>
-        <button
-          onClick={() => { setMergeMode(!mergeMode); setSelectedIds(new Set()); setMergeResult(''); }}
-          style={{
-            padding: '8px 16px', borderRadius: 8, cursor: 'pointer',
-            background: mergeMode ? 'linear-gradient(135deg, #6c63ff, #8b5cf6)' : 'var(--bg-card)',
-            color: mergeMode ? '#fff' : 'var(--text-muted)',
-            border: `1px solid ${mergeMode ? 'transparent' : 'var(--border)'}`,
-            fontSize: 13, fontWeight: 600,
-          }}
-        >
-          {mergeMode ? '✕ 選択モード終了' : '✓ 選択モード'}
-        </button>
+        {/* 296 §3-1: 「✓ 選択モード」ボタンは撤去（チェックは常時表示。解除は操作バーの ✕） */}
         </div>
       </div>
       <p style={{ color: 'var(--text-muted)', marginBottom: 6 }}>保存した調査・分析・文章を管理。お気に入り・タグ・フォルダ分けに対応。</p>
@@ -965,12 +955,7 @@ function LibraryPageInner() {
       ) : (
       <>
 
-      {/* 選択モードガイド */}
-      {mergeMode && (
-        <div style={{ padding: '10px 16px', background: 'var(--accent-soft)', border: '1px solid var(--border-accent)', borderRadius: 10, marginBottom: 16, fontSize: 13, color: 'var(--accent)', fontWeight: 600 }}>
-          ✓ 資料をチェックすると、下のバーから「AIでまとめる（2件以上）」「選択した件を比較（2〜4件）」「Kindle本にする」「一括削除」が使えます
-        </div>
-      )}
+      {/* 296: 選択モードガイドは撤去（常時チェックなので案内の出し分けが無い。操作は下のバーの文言で分かる） */}
 
       {/* 291 §2: 選択した成果物の横並び比較（271〜290 の共通部品・全画面は 282 の共通リーダー） */}
       {compareIds && (
@@ -1411,8 +1396,8 @@ function LibraryPageInner() {
       </>
       )}
 
-      {/* ── 選択モード フローティングツールバー ── */}
-      {mergeMode && selectedIds.size > 0 && (
+      {/* ── 選択中のフローティングツールバー（296: 1件以上選んだときだけ出す。全選択は置かない・§2-4） ── */}
+      {selectedIds.size > 0 && (
         <div style={{
           position: 'fixed', bottom: 24, left: '50%', transform: 'translateX(-50%)', zIndex: 40,
           display: 'flex', alignItems: 'center', gap: 12,
@@ -1467,7 +1452,7 @@ function LibraryPageInner() {
             style={{ padding: '6px 16px', borderRadius: 99, background: bulkDeleting ? 'rgba(255,255,255,0.2)' : '#dc2626', color: '#fff', border: '1px solid rgba(255,255,255,0.5)', cursor: bulkDeleting ? 'not-allowed' : 'pointer', fontSize: 13, fontWeight: 700 }}>
             {bulkDeleting ? '⏳ 削除中...' : `🗑 ${selectedIds.size}件を削除`}
           </button>
-          <button onClick={() => { setSelectedIds(new Set()); setMergeMode(false); }}
+          <button data-library-select-clear onClick={() => setSelectedIds(new Set())} title="選択を解除" aria-label="選択を解除"
             style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,0.7)', cursor: 'pointer', fontSize: 16 }}>
             ✕
           </button>

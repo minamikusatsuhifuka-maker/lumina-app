@@ -5373,7 +5373,7 @@ test('C87: AI統合サマリー（287）— 生MDが露出しない・見出し/
     await page.goto('/dashboard/library');
     await page.locator('[data-library-search]').fill(marker);
     await expect(page.locator(`[data-library-card="${a}"]`)).toBeVisible({ timeout: 30000 });
-    await page.getByRole('button', { name: '✓ 選択モード' }).click();
+    // 296: チェックは常時表示（「✓ 選択モード」ボタンは撤去）
     await page.locator(`[data-library-card="${a}"] input[type="checkbox"]`).check();
     await page.locator(`[data-library-card="${b}"] input[type="checkbox"]`).check();
     await page.getByRole('button', { name: '🔗 AIでまとめる' }).click();
@@ -6152,8 +6152,7 @@ test('C96: リサーチ保存の選択比較（291）— 選択モードの操�
     await expect(page.locator(`[data-library-card="${a1}"]`)).toContainText('🔗 同一実行');
     await expect(page.locator('[data-library-card]')).toHaveCount(4);
 
-    // ── ① 選択モード → 成果物（行）単位でチェック。比較は2件から、5件目で無効化＋理由 ──
-    await page.getByRole('button', { name: '✓ 選択モード' }).click();
+    // ── ① 成果物（行）単位でチェック（296: チェックは常時表示・モード切替なし）。比較は2件から、5件目で無効化＋理由 ──
     await page.locator(`[data-library-artifact-check="${a1}"]`).check();
     await expect(openBtn, '1件では比較できない（操作バーには出る）').toBeDisabled();
     await page.locator(`[data-library-artifact-check="${a2}"]`).check();
@@ -6889,7 +6888,8 @@ test('C101: AI参照素材の一覧の見え方と選択比較（295）— 列�
     await page.mouse.click(5, 5);
 
     // ── ④ 選択して比較: 「☑ 選んで削除」の選択状態を流用。2件から・4件まで・5件目は無効化＋理由。一括削除は同じバーに残る ──
-    await page.locator('[data-ctx-select-mode]').click();
+    // 296: チェックは常時表示（「☑ 選んで削除」ボタンは撤去）。操作バーは1件以上で出る
+    await expect(openBtn, '0件では操作バー自体が出ない').toHaveCount(0);
     await check(a).check();
     await expect(openBtn, '1件では無効').toBeDisabled();
     await check(b).check();
@@ -6947,7 +6947,8 @@ test('C101: AI参照素材の一覧の見え方と選択比較（295）— 列�
     await page.locator('[data-library-compare] [data-compare-close]').click();
     await expect(cmp).toHaveCount(0);
     await page.evaluate(() => { localStorage.removeItem('lumina_batch_compare_cols'); localStorage.removeItem('lumina_batch_compare_height'); });
-    await page.locator('[data-ctx-select-mode]').click(); // 選択をやめる
+    await page.locator('[data-ctx-select-clear]').click(); // 選択を解除（296）
+    await expect(openBtn, '0件に戻ると操作バーは消える').toHaveCount(0);
 
     // ── ⑤ 保持: 列数2・コンパクトで再読込しても同じ。最後に既定へ戻す ──
     await page.locator('[data-library-cols-choice="2"]').click();
@@ -7042,9 +7043,134 @@ test('C102: AI参照素材の検索範囲と適用中の条件（295 §2-6）—
     await expect(page.locator('[data-kb-search]')).toHaveValue('');
     await expect(page.locator('[data-cl-search-range-choice="all"]')).toHaveAttribute('aria-pressed', 'true');
     await expect(page.getByRole('button', { name: '⭐ お気に入り' })).toBeVisible();
-    await expect(page.locator('[data-ctx-select-mode]')).toBeVisible();
+    await expect(page.locator('[data-ctx-delete-check]').first(), '296: チェックは常時表示').toBeVisible();
   } finally {
     await page.evaluate(() => localStorage.removeItem('lumina_cl_search_scope')).catch(() => {});
+    await cleanupE2EContextSaves(request);
+  }
+});
+
+// ───────────────────────────────────────────────────────────────────────────
+// 296: 選択モードを既定にする（📚リサーチ保存・🗂テキスト分析・🧠AI参照素材）
+// ───────────────────────────────────────────────────────────────────────────
+test('C103: 選択は既定で常時チェック（296）— 3画面とも初期表示でチェックが出てモード切替ボタンが無い・0件は操作バーなし・1件以上で出る・削除の確認は1回で件数入り（R-56）・画面を離れて戻る/再読込で選択が消える・「全選択」が無い・チェックで展開が走らず（R-81）カードのクリック展開でチェックが変わらない', async ({ page, request }) => {
+  test.setTimeout(150_000);
+  const marker = `SEL296${RUN_ID}`;
+  const now = new Date().toISOString();
+  const l1 = await postLibraryRow(request, { type: 'deepresearch', title: withE2EPrefix(`SEL-L1 ${marker}`), content: `L1 ${marker}\n\n## 見出しL1${marker}\n\n本文`, metadata: { savedAt: now }, tags: 'ディープリサーチ', group_name: 'ディープリサーチ' });
+  const l2 = await postLibraryRow(request, { type: 'deepresearch', title: withE2EPrefix(`SEL-L2 ${marker}`), content: `L2 ${marker}\n\n本文`, metadata: { savedAt: now }, tags: 'ディープリサーチ', group_name: 'ディープリサーチ' });
+  const t1 = await createSave(request, { title: `SEL-T1 ${marker}`, content: `T1 ${marker} 本文`, analysisType: 'summary', analysisLabel: '概要・要約' });
+  const t2 = await createSave(request, { title: `SEL-T2 ${marker}`, content: `T2 ${marker} 本文`, analysisType: 'summary', analysisLabel: '概要・要約' });
+  const x1 = await createContextSave(request, { topic: `SEL-X1 ${marker}`, contextText: `X1 ${marker}\n\n## 見出しX1${marker}\n\n本文` });
+  const x2 = await createContextSave(request, { topic: `SEL-X2 ${marker}`, contextText: `X2 ${marker}\n\n本文` });
+  // 削除の確認ダイアログは文言だけ取り、すべて「キャンセル」＝削除は走らせない（R-56: 1回だけ出ることも数える）
+  const dialogs: string[] = [];
+  page.on('dialog', (d) => { dialogs.push(d.message()); void d.dismiss(); });
+  const noSelectAll = async (label: string) => {
+    await expect(page.getByText(/全選択/), `${label}: 「全選択」を置かない`).toHaveCount(0);
+  };
+
+  try {
+    // ════ 📚 リサーチ保存 ════
+    await page.goto('/dashboard/library');
+    await page.locator('[data-library-search]').fill(marker);
+    const lc1 = page.locator(`[data-library-card="${l1}"]`);
+    await expect(lc1).toBeVisible({ timeout: 30000 });
+    await expect(page.locator(`[data-library-check="${l1}"]`), '初期表示でチェックが出ている').toBeVisible();
+    await expect(page.getByRole('button', { name: /選択モード/ }), 'モード切替ボタンは無い').toHaveCount(0);
+    await expect(page.locator('[data-bulk-delete]'), '0件では操作バーが出ない').toHaveCount(0);
+    await noSelectAll('📚');
+    // R-81 両方向: チェックを押しても展開しない／カードのクリックで展開してもチェックは変わらない
+    await page.locator(`[data-library-check="${l1}"]`).check();
+    await expect(page.locator(`[data-library-expanded-body="${l1}"]`), 'チェックで展開が走らない').toHaveCount(0);
+    await lc1.locator(`[data-library-expand-zone="${l1}"]`).click();
+    await expect(page.locator(`[data-library-expanded-body="${l1}"]`), 'カードのクリックで展開する').toBeVisible();
+    await expect(page.locator(`[data-library-check="${l1}"]`), '展開してもチェックは変わらない').toBeChecked();
+    await lc1.locator(`[data-library-expand-zone="${l1}"]`).click();
+    await expect(page.locator(`[data-library-expanded-body="${l1}"]`)).toHaveCount(0);
+    await expect(page.locator(`[data-library-check="${l1}"]`)).toBeChecked();
+    // 1件以上で操作バー。削除の確認は1回・成果物の件数入り（283 §4-3: 削除は成果物単位）
+    await page.locator(`[data-library-check="${l2}"]`).check();
+    await expect(page.locator('[data-bulk-delete]')).toContainText('2件を削除');
+    dialogs.length = 0;
+    await page.locator('[data-bulk-delete]').click();
+    await expect.poll(() => dialogs.length, '確認は1回だけ（R-56）').toBe(1);
+    expect(dialogs[0], '確認文に件数').toMatch(/^2件の資料を削除します/);
+    expect(dialogs[0]).toContain('元に戻せません');
+    await expect(lc1, 'キャンセルしたので消えない').toBeVisible();
+    // 画面を離れて戻ると選択は解除。再読込でも解除（保持しない）
+    await page.getByRole('link', { name: '🧠 AI参照素材' }).first().click();
+    await page.waitForURL('**/dashboard/context-library');
+    await page.goBack();
+    await page.waitForURL('**/dashboard/library');
+    await page.locator('[data-library-search]').fill(marker);
+    await expect(lc1).toBeVisible({ timeout: 30000 });
+    await expect(page.locator(`[data-library-check="${l1}"]`), '画面を離れて戻ると選択が消える').not.toBeChecked();
+    await expect(page.locator('[data-bulk-delete]')).toHaveCount(0);
+    await page.locator(`[data-library-check="${l1}"]`).check();
+    await page.reload({ waitUntil: 'domcontentloaded' });
+    await page.locator('[data-library-search]').fill(marker);
+    await expect(lc1).toBeVisible({ timeout: 30000 });
+    await expect(page.locator(`[data-library-check="${l1}"]`), '再読込で選択が消える（保持しない）').not.toBeChecked();
+    expect(await page.evaluate(() => Object.keys(localStorage).concat(Object.keys(sessionStorage)).filter((k) => /select/i.test(k))), '選択状態を保存するキーが無い').toEqual([]);
+
+    // ════ 🗂 テキスト分析（既に常時チェック。§2-2/§2-3/§2-4 の確認） ════
+    await page.goto('/dashboard/saved');
+    const panel = page.locator('[data-saved-panel="text-analysis"]');
+    await panel.locator('[data-kb-search]').fill(marker);
+    await expect(panel.locator(`[data-analysis-card="${t1}"]`)).toBeVisible({ timeout: 30000 });
+    await expect(panel.locator(`[data-select-check="${t1}"]`), '初期表示でチェックが出ている').toBeVisible();
+    await expect(panel.locator('[data-bulk-delete]'), '0件では操作バーが出ない').toHaveCount(0);
+    await noSelectAll('🗂');
+    await panel.locator(`[data-select-check="${t1}"]`).check();
+    await panel.locator(`[data-select-check="${t2}"]`).check();
+    await expect(panel.locator('[data-bulk-delete]')).toBeVisible();
+    dialogs.length = 0;
+    await panel.locator('[data-bulk-delete]').click();
+    await expect.poll(() => dialogs.length, '確認は1回だけ（R-56）').toBe(1);
+    expect(dialogs[0]).toMatch(/^2件の保存テキストを削除します/);
+    await expect(panel.locator(`[data-analysis-card="${t1}"]`)).toBeVisible();
+    await page.reload({ waitUntil: 'domcontentloaded' });
+    await panel.locator('[data-kb-search]').fill(marker);
+    await expect(panel.locator(`[data-analysis-card="${t1}"]`)).toBeVisible({ timeout: 30000 });
+    await expect(panel.locator(`[data-select-check="${t1}"]`), '再読込で選択が消える').not.toBeChecked();
+
+    // ════ 🧠 AI参照素材 ════
+    await page.goto('/dashboard/context-library');
+    await page.locator('[data-kb-search]').fill(marker);
+    const xc1 = page.locator(`[data-ctx-card="${x1}"]`);
+    await expect(xc1).toBeVisible({ timeout: 30000 });
+    await expect(page.locator(`[data-ctx-delete-check="${x1}"]`), '初期表示でチェックが出ている').toBeVisible();
+    await expect(page.getByRole('button', { name: /選んで削除|選択をやめる/ }), 'モード切替ボタンは無い').toHaveCount(0);
+    await expect(page.locator('[data-bulk-delete]'), '0件では操作バーが出ない').toHaveCount(0);
+    await noSelectAll('🧠');
+    await page.locator(`[data-ctx-delete-check="${x1}"]`).check();
+    await expect(page.locator(`[data-ctx-expanded-body="${x1}"]`), 'チェックで展開が走らない（R-81）').toHaveCount(0);
+    await xc1.locator(`[data-ctx-expand-zone="${x1}"]`).click();
+    await expect(page.locator(`[data-ctx-expanded-body="${x1}"]`)).toBeVisible();
+    await expect(page.locator(`[data-ctx-delete-check="${x1}"]`), '展開してもチェックは変わらない').toBeChecked();
+    await xc1.locator(`[data-ctx-expand-zone="${x1}"]`).click();
+    await expect(page.locator(`[data-ctx-expanded-body="${x1}"]`)).toHaveCount(0);
+    await page.locator(`[data-ctx-delete-check="${x2}"]`).check();
+    await expect(page.locator('[data-bulk-delete]')).toContainText('選択した2件を削除');
+    await expect(page.locator('[data-ctx-compare-open]'), '295の比較も常時の選択から使える').toBeEnabled();
+    dialogs.length = 0;
+    await page.locator('[data-bulk-delete]').click();
+    await expect.poll(() => dialogs.length, '確認は1回だけ（R-56）').toBe(1);
+    expect(dialogs[0]).toMatch(/^2件のAI参照素材を削除します/);
+    await expect(xc1).toBeVisible();
+    await page.locator('[data-ctx-select-clear]').click();
+    await expect(page.locator('[data-bulk-delete]'), '解除で操作バーが消える').toHaveCount(0);
+    await page.locator(`[data-ctx-delete-check="${x1}"]`).check();
+    await page.getByRole('link', { name: /リサーチ保存|📚/ }).first().click().catch(async () => page.goto('/dashboard/library'));
+    await page.goto('/dashboard/context-library');
+    await page.locator('[data-kb-search]').fill(marker);
+    await expect(xc1).toBeVisible({ timeout: 30000 });
+    await expect(page.locator(`[data-ctx-delete-check="${x1}"]`), '画面を離れて戻ると選択が消える').not.toBeChecked();
+  } finally {
+    await request.delete(LIBRARY_API, { data: { ids: [l1, l2] } }).catch(() => {});
+    await cleanupE2ELibrary(request);
+    await cleanupE2ESaves(request);
     await cleanupE2EContextSaves(request);
   }
 });

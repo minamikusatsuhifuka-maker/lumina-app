@@ -2811,3 +2811,44 @@ test('U65: AI参照素材の横展開（295）— 保存先キーは画面別で
   expect((api.match(/context_text ILIKE \$\{qBody\}/g) ?? []).length, '一覧と件数の両方のクエリに効く').toBe(2);
   expect(api).not.toMatch(/context_text ILIKE \$\{qLike\}/);
 });
+
+// ───────────────────────────────────────────────────────────────────────────
+// 296: 選択モードを既定にする（安全策3点: 件数入りの確認1回・選択の非永続化・全選択なし）
+// ───────────────────────────────────────────────────────────────────────────
+test('U66: 選択の既定（296）— 3画面ともモード切替の状態を持たず常時チェック／削除の確認は confirmBulkDelete 1本で件数入り（R-56）／選択状態を localStorage・sessionStorage に保存しない／「全選択」の実装が無い／チェックは stopPropagation で展開へ伝えない（R-81）', () => {
+  const lib = readFileSync(join(__dirname, '../../src/app/dashboard/library/page.tsx'), 'utf8');
+  const sal = readFileSync(join(__dirname, '../../src/components/text-analysis/SavedAnalysisList.tsx'), 'utf8');
+  const ctx = readFileSync(join(__dirname, '../../src/components/context-library/ContextLibraryPanel.tsx'), 'utf8');
+  const row = readFileSync(join(__dirname, '../../src/components/LibraryItemRow.tsx'), 'utf8');
+  // モード切替の状態・ボタンが無い（📚 mergeMode の useState／🧠 deleteMode）
+  expect(lib).not.toMatch(/useState\(false\);?\s*\/\/.*選択モード|const \[mergeMode, setMergeMode\]/);
+  expect(lib).toContain('mergeMode={true');
+  expect(lib, 'ボタンの文字列リテラルが無い（撤去の注記コメントは除く）').not.toMatch(/'✓ 選択モード'|'✕ 選択モード終了'/);
+  expect(ctx).not.toMatch(/const \[deleteMode, setDeleteMode\]|data-ctx-select-mode|'☑ 選んで削除'/);
+  // 操作バーは1件以上で出す
+  expect(lib).toContain('{selectedIds.size > 0 && (');
+  expect(ctx).toContain('{!bundleSelectMode && selectedIds.size > 0 && (');
+  expect(sal).toContain('{selectedIds.size > 0 && (');
+  // 削除の確認は共通1本（件数・種類・戻せない）。他に confirm を重ねない（R-56）
+  for (const [src, label] of [[lib, '資料'], [sal, '保存テキスト'], [ctx, 'AI参照素材']] as const) {
+    expect(src).toContain(`confirmBulkDelete(ids.length, '${label}')`);
+  }
+  const helper = readFileSync(join(__dirname, '../../src/lib/bulk-delete-confirm.ts'), 'utf8');
+  expect(helper).toContain('`${count}件の${label}を削除します');
+  expect(helper).toContain('元に戻せません');
+  // 選択状態を保存しない（Kindle handoff の sessionStorage は選択の保存ではなく受け渡し＝別物）
+  for (const src of [lib, sal, ctx]) {
+    expect(src).not.toMatch(/(localStorage|sessionStorage)\.setItem\((?!'lumina_kindle_selected')[^)]*select/i);
+    expect(src).not.toMatch(/setSelectedIds\(new Set\(JSON\.parse/);
+  }
+  // 全選択が無い（🗂の「表示中を全選択」・🧠の「表示中N件を全選択」は撤去）
+  // 撤去の注記コメントは除いてコード部分だけを見る
+  const codeOnly = (src: string) => src.replace(/\{\/\*[\s\S]*?\*\/\}/g, '').replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+  for (const src of [lib, sal, ctx]) {
+    expect(codeOnly(src)).not.toMatch(/全選択|handleSelectAllVisible|toggleSelectAllVisible|data-ctx-select-all/);
+  }
+  // R-81: チェックボックスはクリックを上へ伝えない
+  expect((row.match(/data-library-check=\{item\.id\}[\s\S]{0,200}?onClick=\{stopCardClick\}/g) ?? []).length).toBeGreaterThanOrEqual(2);
+  expect(row).toMatch(/data-library-artifact-check=\{a\.item\.id\}[\s\S]{0,200}?onClick=\{stopCardClick\}/);
+  expect(ctx).toMatch(/data-ctx-delete-check=\{item\.id\}[\s\S]{0,700}?onClick=\{stopCardClick\}/);
+});

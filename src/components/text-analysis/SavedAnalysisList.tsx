@@ -1121,20 +1121,7 @@ export default function SavedAnalysisList({
     return targetIds.every((id) => selectedIds.has(id));
   };
 
-  const handleSelectAllVisible = () => {
-    const allIds = visibleRecords.map((r) => r.id);
-    if (allIds.length === 0) return;
-    const allSelected = allIds.every((id) => selectedIds.has(id));
-    if (allSelected) {
-      const next = new Set(selectedIds);
-      allIds.forEach((id) => next.delete(id));
-      setSelectedIds(next);
-    } else {
-      const next = new Set(selectedIds);
-      allIds.forEach((id) => next.add(id));
-      setSelectedIds(next);
-    }
-  };
+  // 296 §2-4: handleSelectAllVisible（表示中を全選択）は撤去（全選択を置かない）
 
   const handleBulkMove = async (folder: string) => {
     if (selectedIds.size === 0) return;
@@ -2289,49 +2276,7 @@ export default function SavedAnalysisList({
                     </button>
                   );
                 })}
-                {visibleRecords.length > 0 && (
-                  <button
-                    type="button"
-                    onClick={handleSelectAllVisible}
-                    style={{
-                      display: 'inline-flex',
-                      alignItems: 'center',
-                      gap: 6,
-                      padding: '5px 12px',
-                      borderRadius: 999,
-                      fontSize: 11,
-                      fontWeight: 600,
-                      border: `1px solid ${
-                        visibleRecords.every((r) => selectedIds.has(r.id))
-                          ? 'var(--text-primary)'
-                          : 'var(--border)'
-                      }`,
-                      background: visibleRecords.every((r) => selectedIds.has(r.id))
-                        ? 'var(--text-primary)'
-                        : 'var(--bg-card)',
-                      color: visibleRecords.every((r) => selectedIds.has(r.id))
-                        ? 'var(--bg-primary)'
-                        : 'var(--text-secondary)',
-                      cursor: 'pointer',
-                      transition: 'all 0.15s',
-                    }}
-                  >
-                    <span>📋</span>
-                    <span>表示中を全選択</span>
-                    <span
-                      style={{
-                        padding: '1px 7px',
-                        borderRadius: 999,
-                        fontSize: 10,
-                        fontWeight: 600,
-                        background: 'var(--bg-secondary)',
-                        color: 'var(--text-muted)',
-                      }}
-                    >
-                      {visibleRecords.length}
-                    </span>
-                  </button>
-                )}
+                {/* 296 §2-4: 「表示中を全選択」は撤去（院長の指定＝全選択を置かない。分析タイプ別の絞り選択は残す） */}
               </div>
             </div>
           )}
