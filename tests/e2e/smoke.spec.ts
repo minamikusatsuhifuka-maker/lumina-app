@@ -30,6 +30,13 @@ import {
   assignFolders,
   deleteFolder,
   cleanupE2EFolders,
+  // 297: 用途カテゴリ
+  PURPOSES_API,
+  listPurposes,
+  createPurpose,
+  assignPurposes,
+  deletePurpose,
+  cleanupE2EPurposes,
   // 281: エピソード記録
   EPISODES_API,
   createEpisode,
@@ -102,6 +109,7 @@ test.afterAll(async () => {
   await cleanupE2ELibrary(api);
   // 249: テスト用フォルダも消す（フォルダを消しても記事は残るので、記事の掃除とは独立）
   await cleanupE2EFolders(api);
+  await cleanupE2EPurposes(api);
   // 281: エピソード記録の残骸も掃除する
   await cleanupE2EEpisodes(api);
   // 208: カテゴリメモ（memos / memo_categories）の残骸も掃除する
@@ -7169,6 +7177,235 @@ test('C103: 選択は既定で常時チェック（296）— 3画面とも初期
     await expect(page.locator(`[data-ctx-delete-check="${x1}"]`), '画面を離れて戻ると選択が消える').not.toBeChecked();
   } finally {
     await request.delete(LIBRARY_API, { data: { ids: [l1, l2] } }).catch(() => {});
+    await cleanupE2ELibrary(request);
+    await cleanupE2ESaves(request);
+    await cleanupE2EContextSaves(request);
+  }
+});
+
+// ───────────────────────────────────────────────────────────────────────────
+// 297: 🎯用途カテゴリ（マイフォルダ＝テーマとは別体系・別テーブル・3画面で共有）
+// ───────────────────────────────────────────────────────────────────────────
+test('C104: 用途カテゴリの体系（297）— 作成→3画面へ割り当て（記事種別を跨ぐ1体系・件数は画面別と合計で決定的）→複数所属→pcat絞り込みが検索/マイフォルダとANDで効く→リネームで所属保持→削除しても記事は残る→未認証は401・他人の記事は404', async ({ request }) => {
+  const marker = `PUR${RUN_ID}`;
+  const t1 = await createSave(request, { title: `PUR-T1 ${marker}`, content: `T1 ${marker} 本文`, analysisType: 'summary', analysisLabel: '概要・要約' });
+  const t2 = await createSave(request, { title: `PUR-T2 ${marker}`, content: `T2 ${marker} 本文`, analysisType: 'summary', analysisLabel: '概要・要約' });
+  const x1 = await createContextSave(request, { topic: `PUR-X1 ${marker}`, contextText: `X1 ${marker} 本文` });
+  const l1 = await postLibraryRow(request, { type: 'deepresearch', title: withE2EPrefix(`PUR-L1 ${marker}`), content: `L1 ${marker} 本文`, metadata: { savedAt: new Date().toISOString() }, tags: 'ディープリサーチ', group_name: 'ディープリサーチ' });
+  const folderId = await createFolder(request, 'text_analysis', `PURF ${marker}`);
+  let a = 0, b = 0;
+  try {
+    a = await createPurpose(request, `note用 ${marker}`);
+    b = await createPurpose(request, `Kindle用 ${marker}`);
+    // 同名は409（体系は user 単位で1つ）
+    const dup = await request.post(PURPOSES_API, { data: { name: withE2EPrefix(`note用 ${marker}`) } });
+    expect(dup.status(), '同名の用途カテゴリは409').toBe(409);
+    // 3画面で同じ一覧（体系が共有されている）
+    for (const scope of ['text_analysis', 'library', 'context'] as const) {
+      const { categories } = await listPurposes(request, scope);
+      expect(categories.map((c) => c.id), `${scope} からも同じカテゴリが見える`).toEqual(expect.arrayContaining([a, b]));
+      expect(categories.find((c) => c.id === a)!.count, '作成直後は0件').toBe(0);
+    }
+    // 割り当て（記事種別を跨いで1体系・1記事が複数に入れる）
+    expect((await assignPurposes(request, 'text_analysis', t1, [a, b])).status()).toBe(200);
+    expect((await assignPurposes(request, 'text_analysis', t2, [a])).status()).toBe(200);
+    expect((await assignPurposes(request, 'context', x1, [a])).status()).toBe(200);
+    expect((await assignPurposes(request, 'library', l1, [b])).status()).toBe(200);
+    // 件数: count は画面の種別、count_total は3画面合計（決定的・R-74）
+    const ta = (await listPurposes(request, 'text_analysis')).categories;
+    expect(ta.find((c) => c.id === a)!.count).toBe(2);
+    expect(ta.find((c) => c.id === a)!.count_total).toBe(3);
+    expect(ta.find((c) => c.id === b)!.count).toBe(1);
+    expect(ta.find((c) => c.id === b)!.count_total).toBe(2);
+    const ctx = (await listPurposes(request, 'context')).categories;
+    expect(ctx.find((c) => c.id === a)!.count).toBe(1);
+    expect(ctx.find((c) => c.id === b)!.count).toBe(0);
+    const lib = (await listPurposes(request, 'library')).categories;
+    expect(lib.find((c) => c.id === b)!.count).toBe(1);
+    // 一覧APIに所属IDが載る・pcat で絞れる
+    const saves = await listSaves(request, { q: marker, limit: 100 });
+    expect((saves.items.find((i) => i.id === t1) as { purpose_category_ids?: number[] }).purpose_category_ids?.sort()).toEqual([a, b].sort());
+    const onlyB = await listSaves(request, { q: marker, pcat: b, limit: 100 });
+    expect(onlyB.items.map((i) => i.id), 'pcat=b は t1 だけ').toEqual([t1]);
+    expect(onlyB.total_count).toBe(1);
+    // マイフォルダと AND: t2 だけをフォルダへ → pcat=a & cfolder=folder は t2 だけ
+    expect((await assignFolders(request, 'text_analysis', t2, [folderId])).status()).toBe(200);
+    const both = await listSaves(request, { q: marker, pcat: a, cfolder: folderId, limit: 100 });
+    expect(both.items.map((i) => i.id), '用途×マイフォルダ×検索の AND').toEqual([t2]);
+    // マイフォルダ側の件数・所属は用途の割り当てで変わらない（別テーブル＝退行なし）
+    const folders = await listFolders(request, 'text_analysis');
+    expect(folders.folders.find((f) => f.id === folderId)!.count, 'マイフォルダの件数は用途に影響されない').toBe(1);
+    expect((saves.items.find((i) => i.id === t1) as { custom_folder_ids?: number[] }).custom_folder_ids ?? []).toEqual([]);
+    // 🧠 側の pcat
+    const ctxList = await request.get(`${CONTEXT_API}?q=${encodeURIComponent(marker)}&pcat=${a}&limit=100`);
+    expect(ctxList.status()).toBe(200);
+    const ctxItems = ((await ctxList.json()).items ?? []) as { id: number; purpose_category_ids?: number[] }[];
+    expect(ctxItems.map((i) => i.id)).toEqual([x1]);
+    expect(ctxItems[0].purpose_category_ids).toEqual([a]);
+    // 📚 側は一覧に所属IDが載る（絞り込みは画面側）
+    const libRows = (await (await request.get('/api/library')).json()) as { id: string; purpose_category_ids?: number[] }[];
+    expect(libRows.find((r) => r.id === l1)?.purpose_category_ids).toEqual([b]);
+    // リネームしても所属は保持
+    const renamed = `${E2E_PREFIX} note用改 ${marker}`;
+    expect((await request.patch(PURPOSES_API, { data: { action: 'rename', id: a, name: renamed } })).status()).toBe(200);
+    const afterRename = (await listPurposes(request, 'text_analysis')).categories.find((c) => c.id === a)!;
+    expect(afterRename.name).toBe(renamed);
+    expect(afterRename.count).toBe(2);
+    // 解除（置き換え式）: t1 を [] にすると a/b から外れる
+    expect((await assignPurposes(request, 'text_analysis', t1, [])).status()).toBe(200);
+    expect((await listPurposes(request, 'text_analysis')).categories.find((c) => c.id === b)!.count).toBe(0);
+    // 削除 → カテゴリは消えるが記事は残る（3種別とも）
+    expect((await deletePurpose(request, a)).status()).toBe(200);
+    expect((await listPurposes(request, 'library')).categories.find((c) => c.id === a)).toBeUndefined();
+    expect((await request.get(`${SAVES_API}?id=${t2}`)).status(), '🗂の記事は残る').toBe(200);
+    expect((await request.get(`${CONTEXT_API}?id=${x1}`)).status(), '🧠の記事は残る').toBe(200);
+    expect(libRows.find((r) => r.id === l1), '📚の記事は残る（一覧に存在）').toBeTruthy();
+    expect((await listSaves(request, { q: marker, limit: 100 })).items.map((i) => i.id).sort(), '記事の数は変わらない').toEqual([t1, t2].sort());
+    // 未認証は401・他人（存在しない）の記事への割り当ては404・不正 scope は400
+    const anon = await pwRequest.newContext({ baseURL: BASE_URL, storageState: { cookies: [], origins: [] } });
+    try {
+      expect((await anon.get(`${PURPOSES_API}?scope=library`)).status()).toBe(401);
+      expect((await anon.post(PURPOSES_API, { data: { name: 'x' } })).status()).toBe(401);
+    } finally {
+      await anon.dispose();
+    }
+    expect((await assignPurposes(request, 'text_analysis', 999999999, [b])).status()).toBe(404);
+    expect((await request.patch(PURPOSES_API, { data: { action: 'assign', scope: 'nope', itemId: t1, categoryIds: [b] } })).status()).toBe(400);
+  } finally {
+    await deleteFolder(request, 'text_analysis', folderId).catch(() => {});
+    await cleanupE2EPurposes(request);
+    await request.delete(LIBRARY_API, { data: { ids: [l1] } }).catch(() => {});
+    await cleanupE2ELibrary(request);
+    await cleanupE2ESaves(request);
+    await cleanupE2EContextSaves(request);
+  }
+});
+
+test('C105: 用途カテゴリの画面（297）— 3画面とも⭐マイフォルダとは別の枠・別色・見出しに用途・「フォルダ」の語なし／🎯用途から付け外し（📚は成果物単位・複数同時）／バッジは📂と別色でコンパクトでは出さない／絞り込みは件数つきで条件チップに載り個別解除・検索とAND／削除の確認は1回で件数と「記事は削除されません」', async ({ page, request }) => {
+  test.setTimeout(150_000);
+  const marker = `PURUI${RUN_ID}`;
+  const now = new Date().toISOString();
+  const jobId = 9900297;
+  // 📚: 同一実行の本文＋要約（283のまとめ）＝成果物単位の割り当てを確かめる
+  const p1 = await postLibraryRow(request, { type: 'deepresearch', title: withE2EPrefix(`PU ${marker}`), content: `本文 ${marker}`, metadata: { from: 'batch-research', jobId, topicIndex: 0, kind: 'research', savedAt: now }, tags: `ディープリサーチ,バッチ,batch:${jobId}-0`, group_name: 'ディープリサーチ' });
+  const p2 = await postLibraryRow(request, { type: 'deepresearch', title: withE2EPrefix(`PU ${marker}`), content: `要約 ${marker}`, metadata: { from: 'batch-research', jobId, topicIndex: 0, kind: 'summary', savedAt: now }, tags: `ディープリサーチ,要約,バッチ,batch:${jobId}-0s`, group_name: 'ディープリサーチ' });
+  const t1 = await createSave(request, { title: `PU-T1 ${marker}`, content: `T1 ${marker} 本文`, analysisType: 'summary', analysisLabel: '概要・要約' });
+  const t2 = await createSave(request, { title: `PU-T2 ${marker}`, content: `T2 ${marker} 本文`, analysisType: 'summary', analysisLabel: '概要・要約' });
+  const x1 = await createContextSave(request, { topic: `PU-X1 ${marker}`, contextText: `X1 ${marker} 本文` });
+  const catName = `${E2E_PREFIX} note用 ${marker}`;
+  const dialogs: string[] = [];
+  page.on('dialog', (d) => { dialogs.push(d.message()); void d.accept(); });
+  const assertSeparateFrame = async (scope: 'library' | 'text_analysis' | 'context') => {
+    const bar = page.locator(`[data-purpose-bar="${scope}"]`);
+    await expect(bar, `${scope}: 用途の枠がある`).toBeVisible({ timeout: 30000 });
+    await expect(page.locator(`[data-custom-folder-bar="${scope}"]`), `${scope}: マイフォルダの枠は別に残る`).toBeVisible();
+    await expect(bar.locator('[data-purpose-heading]')).toContainText('用途');
+    expect(await bar.innerText(), `${scope}: 用途の枠に「フォルダ」の語を使わない`).not.toContain('フォルダ');
+    // 枠の位置が別（マイフォルダの枠の内側に無い）
+    expect(await page.locator(`[data-custom-folder-bar="${scope}"] [data-purpose-bar]`).count()).toBe(0);
+  };
+  let catId = 0;
+  try {
+    // ════ 📚: 🎯から新規作成→要約（成果物）だけに付く ════
+    await page.goto('/dashboard/library');
+    await page.locator('[data-library-search]').fill(marker);
+    const card = page.locator(`[data-library-card="${p1}"]`);
+    await expect(card).toBeVisible({ timeout: 30000 });
+    await assertSeparateFrame('library');
+    await page.locator(`[data-library-artifact-tab="${p2}"]`).click();
+    await page.locator(`[data-purpose-button="${p2}"]`).click();
+    const picker = page.locator('[data-purpose-picker]');
+    await expect(picker).toBeVisible();
+    await picker.locator('[data-purpose-picker-new-name]').fill(catName);
+    await picker.locator('[data-purpose-picker-create]').click();
+    await expect(picker.locator('[data-purpose-option] input:checked')).toHaveCount(1, { timeout: 15000 });
+    await page.keyboard.press('Escape');
+    await expect(picker).toHaveCount(0);
+    await expect(card.locator('[data-purpose-badge]'), '要約タブにバッジ').toHaveCount(1);
+    const libRows = (await (await request.get('/api/library')).json()) as { id: string; purpose_category_ids?: number[] }[];
+    catId = (libRows.find((r) => r.id === p2)?.purpose_category_ids ?? [])[0] ?? 0;
+    expect(catId, '要約（p2）に付いている').toBeGreaterThan(0);
+    expect(libRows.find((r) => r.id === p1)?.purpose_category_ids ?? [], '本文（p1）には付いていない＝成果物単位').toEqual([]);
+    // 本文タブへ切り替えるとバッジは出ない（成果物ごとの表示）
+    await page.locator(`[data-library-artifact-tab="${p1}"]`).click();
+    await expect(card.locator('[data-purpose-badge]')).toHaveCount(0);
+    // 📚の絞り込み: 用途カードに件数1・チップ・解除
+    const libBar = page.locator('[data-purpose-bar="library"]');
+    await expect(libBar.locator(`[data-purpose-card="${catId}"]`)).toHaveAttribute('data-purpose-count', '1');
+    await libBar.locator(`[data-purpose-card="${catId}"]`).click();
+    await expect(page.locator('[data-active-condition="purpose"]')).toContainText('用途');
+    await expect(card, '要約が入っているカードは残る').toBeVisible();
+    await page.locator('[data-active-condition-remove="purpose"]').click();
+    await expect(page.locator('[data-active-condition="purpose"]')).toHaveCount(0);
+
+    // ════ 🗂: 既存カテゴリを付ける（体系共有）＋2つ目を作って複数所属＋絞り込み ════
+    await page.goto('/dashboard/saved');
+    const panel = page.locator('[data-saved-panel="text-analysis"]');
+    await panel.locator('[data-kb-search]').fill(marker);
+    await expect(panel.locator(`[data-analysis-card="${t1}"]`)).toBeVisible({ timeout: 30000 });
+    await assertSeparateFrame('text_analysis');
+    await expect(page.locator(`[data-purpose-bar="text_analysis"] [data-purpose-card="${catId}"]`), '📚で作ったカテゴリが🗂にも見える').toBeVisible();
+    await panel.locator(`[data-purpose-button="${t1}"]`).click();
+    await expect(picker).toBeVisible();
+    await picker.locator(`[data-purpose-option="${catId}"] input`).check();
+    await picker.locator('[data-purpose-picker-new-name]').fill(`${E2E_PREFIX} Kindle用 ${marker}`);
+    await picker.locator('[data-purpose-picker-create]').click();
+    await expect(picker.locator('[data-purpose-option] input:checked')).toHaveCount(2, { timeout: 15000 });
+    await page.keyboard.press('Escape');
+    await expect(panel.locator(`[data-analysis-card="${t1}"] [data-purpose-badge]`), '1記事が2つの用途に入る').toHaveCount(2);
+    // バッジは📂（マイフォルダ）と別色・コンパクトでは出さない
+    const badge = panel.locator(`[data-analysis-card="${t1}"] [data-purpose-badge]`).first();
+    const purposeBg = await badge.evaluate((el) => getComputedStyle(el).backgroundColor);
+    expect(purposeBg).toBe('rgb(204, 251, 241)');
+    await panel.locator('[data-library-density-choice="compact"]').click();
+    await expect(panel.locator(`[data-analysis-card="${t1}"] [data-purpose-badge]`), 'コンパクトでは用途バッジを出さない').toHaveCount(0);
+    await panel.locator('[data-library-density-choice="detail"]').click();
+    // 絞り込み（件数つき）→ t1 だけ。検索と AND。チップに載る
+    const taBar = page.locator('[data-purpose-bar="text_analysis"]');
+    await expect(taBar.locator(`[data-purpose-card="${catId}"]`)).toHaveAttribute('data-purpose-count', '1');
+    await taBar.locator(`[data-purpose-card="${catId}"]`).click();
+    await expect(panel.locator(`[data-analysis-card="${t2}"]`)).toHaveCount(0, { timeout: 30000 });
+    await expect(panel.locator(`[data-analysis-card="${t1}"]`)).toBeVisible();
+    await expect(panel.locator('[data-active-condition="purpose"]')).toContainText('note用');
+    await expect(panel.locator('[data-active-condition="search"]')).toBeVisible();
+    await panel.locator('[data-active-condition-remove="purpose"]').click();
+    await expect(panel.locator(`[data-analysis-card="${t2}"]`)).toBeVisible({ timeout: 30000 });
+
+    // ════ 🧠: 体系共有・付け外し・削除の確認文 ════
+    await page.goto('/dashboard/context-library');
+    await page.locator('[data-kb-search]').fill(marker);
+    const xc = page.locator(`[data-ctx-card="${x1}"]`);
+    await expect(xc).toBeVisible({ timeout: 30000 });
+    await assertSeparateFrame('context');
+    const ctxBar = page.locator('[data-purpose-bar="context"]');
+    await expect(ctxBar.locator(`[data-purpose-card="${catId}"]`), '📚で作ったカテゴリが🧠にも見える').toBeVisible();
+    await page.locator(`[data-purpose-button="${x1}"]`).click();
+    await expect(picker).toBeVisible();
+    await picker.locator(`[data-purpose-option="${catId}"] input`).check();
+    await page.keyboard.press('Escape');
+    await expect(xc.locator('[data-purpose-badge]')).toHaveCount(1);
+    await expect(ctxBar.locator(`[data-purpose-card="${catId}"]`)).toHaveAttribute('data-purpose-count', '1');
+    // 外す
+    await page.locator(`[data-purpose-button="${x1}"]`).click();
+    await picker.locator(`[data-purpose-option="${catId}"] input`).uncheck();
+    await page.keyboard.press('Escape');
+    await expect(xc.locator('[data-purpose-badge]')).toHaveCount(0);
+    // 削除（🛠用途を管理→🗑）: 確認は1回・件数（3画面合計=📚1＋🗂1）と「記事は削除されません」。記事は残る
+    await ctxBar.locator('[data-purpose-manage-toggle]').click();
+    dialogs.length = 0;
+    await ctxBar.locator(`[data-purpose-delete="${catId}"]`).click();
+    await expect.poll(() => dialogs.length, '確認は1回（R-56）').toBe(1);
+    expect(dialogs[0]).toContain('2件');
+    expect(dialogs[0]).toContain('記事は削除されません');
+    await expect(ctxBar.locator(`[data-purpose-card="${catId}"]`)).toHaveCount(0, { timeout: 15000 });
+    await expect(xc, '記事は残る').toBeVisible();
+    expect((await request.get(`${SAVES_API}?id=${t1}`)).status(), '🗂の記事も残る').toBe(200);
+    const after = (await (await request.get('/api/library')).json()) as { id: string; purpose_category_ids?: number[] }[];
+    expect(after.find((r) => r.id === p2), '📚の記事も残る').toBeTruthy();
+    expect(after.find((r) => r.id === p2)?.purpose_category_ids ?? []).toEqual([]);
+  } finally {
+    await cleanupE2EPurposes(request);
+    await request.delete(LIBRARY_API, { data: { ids: [p1, p2] } }).catch(() => {});
     await cleanupE2ELibrary(request);
     await cleanupE2ESaves(request);
     await cleanupE2EContextSaves(request);

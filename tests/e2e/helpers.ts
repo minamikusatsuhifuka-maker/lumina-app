@@ -352,3 +352,49 @@ export async function cleanupE2EMemos(request: APIRequestContext) {
     if (String(c.name ?? '').startsWith(E2E_PREFIX)) await request.delete(`${MEMO_CATEGORIES_API}?id=${c.id}`);
   }
 }
+
+// ============================================================================
+// 297: 🎯用途カテゴリ（マイフォルダとは別テーブル・3画面で1体系）
+// ============================================================================
+
+export const PURPOSES_API = '/api/purpose-categories';
+
+export type PurposeListResponse = {
+  categories: { id: number; name: string; sort_order: number; count: number; count_total: number }[];
+};
+
+export async function listPurposes(request: APIRequestContext, scope: FolderScopeName): Promise<PurposeListResponse> {
+  const res = await request.get(`${PURPOSES_API}?scope=${scope}`);
+  expect(res.status(), `用途カテゴリ一覧API(scope=${scope})が200であること`).toBe(200);
+  return (await res.json()) as PurposeListResponse;
+}
+
+export async function createPurpose(request: APIRequestContext, name: string): Promise<number> {
+  // 名前も掃除の判定対象。接頭辞はここで必ず付ける（R-55）
+  const res = await request.post(PURPOSES_API, { data: { name: withE2EPrefix(name) } });
+  expect(res.status(), `用途カテゴリ作成(${name})が200であること`).toBe(200);
+  const json = await res.json();
+  expect(typeof json.category?.id, '作成レスポンスにidが含まれること').toBe('number');
+  return json.category.id as number;
+}
+
+export async function assignPurposes(
+  request: APIRequestContext,
+  scope: FolderScopeName,
+  itemId: number | string,
+  categoryIds: number[],
+) {
+  return request.patch(PURPOSES_API, { data: { action: 'assign', scope, itemId, categoryIds } });
+}
+
+export async function deletePurpose(request: APIRequestContext, id: number) {
+  return request.delete(`${PURPOSES_API}?id=${id}`);
+}
+
+/** 過去実行分を含め、[E2E] 印の用途カテゴリを全削除する（記事は消えない・所属だけ外れる） */
+export async function cleanupE2EPurposes(request: APIRequestContext) {
+  const { categories } = await listPurposes(request, 'library');
+  for (const c of categories) {
+    if (String(c.name).includes(E2E_PREFIX)) await deletePurpose(request, c.id);
+  }
+}

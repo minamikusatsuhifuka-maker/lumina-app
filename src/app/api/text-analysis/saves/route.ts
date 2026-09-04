@@ -8,6 +8,8 @@ import {
   ensureCustomFolderTables,
   getFolderIdsForItems,
 } from '@/lib/custom-folders';
+// 297: 🎯用途カテゴリ（マイフォルダとは別テーブル・別体系）
+import { detachItemFromPurposes, detachItemsFromPurposes, ensurePurposeTables, getPurposeIdsForItems } from '@/lib/purpose-categories';
 
 export const runtime = 'nodejs';
 
@@ -43,6 +45,7 @@ export async function GET(req: NextRequest) {
     await ensureInputTextColumn();
     // 249: カスタムフォルダ（お気に入りの手動分類）。一覧の絞り込みで参照するため先に用意する
     await ensureCustomFolderTables();
+    await ensurePurposeTables(); // 297: 一覧SQLが purpose_category_items を参照するため先に用意する
     const { searchParams } = new URL(req.url);
     const id = searchParams.get('id');
     const withInput = searchParams.get('withInput');
@@ -126,6 +129,9 @@ export async function GET(req: NextRequest) {
       cfolderRaw && cfolderRaw !== 'unfiled' && Number.isFinite(Number(cfolderRaw))
         ? Number(cfolderRaw)
         : null;
+    // 297: 用途カテゴリでの絞り込み（pcat=<id>）。マイフォルダ・AIカテゴリ・検索と AND で重なる
+    const pcatRaw = searchParams.get('pcat')?.trim() || '';
+    const pcatId = pcatRaw && Number.isFinite(Number(pcatRaw)) ? Number(pcatRaw) : null;
 
     const [rows, countRows, allRows, folderRows, tagRows, typeRows] = await Promise.all([
       sql`
@@ -153,6 +159,12 @@ export async function GET(req: NextRequest) {
                  WHERE i.item_key = text_analysis_saves.id::text
                    AND i.user_id = text_analysis_saves.user_id
                    AND i.scope = 'text_analysis')))
+          AND (${pcatId}::int IS NULL OR EXISTS (
+                SELECT 1 FROM purpose_category_items pc
+                 WHERE pc.item_key = text_analysis_saves.id::text
+                   AND pc.user_id = text_analysis_saves.user_id
+                   AND pc.scope = 'text_analysis'
+                   AND pc.category_id = ${pcatId}))
         ORDER BY created_at DESC
         LIMIT ${limit} OFFSET ${offset}
       `,
@@ -178,6 +190,12 @@ export async function GET(req: NextRequest) {
                  WHERE i.item_key = text_analysis_saves.id::text
                    AND i.user_id = text_analysis_saves.user_id
                    AND i.scope = 'text_analysis')))
+          AND (${pcatId}::int IS NULL OR EXISTS (
+                SELECT 1 FROM purpose_category_items pc
+                 WHERE pc.item_key = text_analysis_saves.id::text
+                   AND pc.user_id = text_analysis_saves.user_id
+                   AND pc.scope = 'text_analysis'
+                   AND pc.category_id = ${pcatId}))
       `,
       sql`SELECT COUNT(*)::int AS n FROM text_analysis_saves WHERE user_id = ${userId}`,
       sql`
@@ -215,11 +233,20 @@ export async function GET(req: NextRequest) {
     } catch (e) {
       console.error('[text-analysis/saves GET custom folders]', e);
     }
+    // 297: 所属用途カテゴリIDも同じ流儀で付与（失敗しても一覧は出す）
+    let purposeMap: Record<string, number[]> = {};
+    try {
+      await ensurePurposeTables();
+      purposeMap = await getPurposeIdsForItems(userId, 'text_analysis', (rows as { id: number }[]).map((r) => Number(r.id)));
+    } catch (e) {
+      console.error('[text-analysis/saves GET purposes]', e);
+    }
 
     return NextResponse.json({
       items: (rows as Record<string, unknown>[]).map((r) => ({
         ...r,
         custom_folder_ids: customFolderMap[String(r.id)] ?? [],
+        purpose_category_ids: purposeMap[String(r.id)] ?? [],
       })),
       total_count: countRows[0]?.n ?? 0,
       all_total: allRows[0]?.n ?? 0,
@@ -320,6 +347,9 @@ export async function PATCH(req: NextRequest) {
       await detachItemFromFolders(userId, 'text_analysis', String(id)).catch((e) =>
         console.error('[text-analysis/saves PATCH detach]', e),
       );
+      await detachItemFromPurposes(userId, 'text_analysis', String(id)).catch((e) =>
+        console.error('[text-analysis/saves PATCH detach purposes]', e),
+      );
     } else if (action === 'bulk_delete') {
       // 250: 選択中をまとめて削除。owner検証つきで、自分の行だけが消える（他人のIDが
       // 混ざっていても無視されるだけ）。削除は不可逆なので確認はUI側で必須にしている。
@@ -337,6 +367,9 @@ export async function PATCH(req: NextRequest) {
       // 249: 分類（カスタムフォルダ）も外す。掃除の失敗で削除自体を失敗させない
       await detachItemsFromFolders(userId, 'text_analysis', idsArray).catch((e) =>
         console.error('[text-analysis/saves bulk_delete detach]', e),
+      );
+      await detachItemsFromPurposes(userId, 'text_analysis', idsArray).catch((e) =>
+        console.error('[text-analysis/saves bulk_delete detach purposes]', e),
       );
       return NextResponse.json({ ok: true, deleted: deleted.length });
     } else if (action === 'rename') {
