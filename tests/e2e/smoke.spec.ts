@@ -7390,6 +7390,8 @@ test('C105: 用途カテゴリの画面（297）— 3画面とも⭐マイフォ
     await picker.locator(`[data-purpose-option="${catId}"] input`).uncheck();
     await page.keyboard.press('Escape');
     await expect(xc.locator('[data-purpose-badge]')).toHaveCount(0);
+    // バッジは楽観更新で先に消える。件数はサーバー応答で更新されるので、外れたことが件数に反映されるまで待つ
+    await expect(ctxBar.locator(`[data-purpose-card="${catId}"]`)).toHaveAttribute('data-purpose-count', '0', { timeout: 15000 });
     // 削除（🛠用途を管理→🗑）: 確認は1回・件数（3画面合計=📚1＋🗂1）と「記事は削除されません」。記事は残る
     await ctxBar.locator('[data-purpose-manage-toggle]').click();
     dialogs.length = 0;
