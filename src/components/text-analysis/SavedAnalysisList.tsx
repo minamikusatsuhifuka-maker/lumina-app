@@ -1259,7 +1259,8 @@ export default function SavedAnalysisList({
     purposePickerDirtyRef.current = true;
     setRecords((prev) => prev.map((r) => (r.id === id ? { ...r, purpose_category_ids: categoryIds } : r)));
     const ok = await purposes.assignItem(id, categoryIds);
-    if (!ok) setRecords((prev) => prev.map((r) => (r.id === id ? { ...r, purpose_category_ids: before } : r)));
+    // 保存に成功したら所属を再適用する（保存より前に投げた一覧取得の応答が後から届いて楽観更新を上書きする競合への対処）
+    setRecords((prev) => prev.map((r) => (r.id === id ? { ...r, purpose_category_ids: ok ? categoryIds : before } : r)));
   };
 
   /** パネルからのお気に入り解除。分類だけ残らないよう先に全解除する */

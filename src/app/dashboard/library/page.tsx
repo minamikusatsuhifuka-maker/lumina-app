@@ -335,7 +335,8 @@ function LibraryPageInner() {
     const before = items.find((i) => i.id === id)?.purpose_category_ids ?? [];
     setItems(prev => prev.map(i => (i.id === id ? { ...i, purpose_category_ids: categoryIds } : i)));
     const ok = await purposes.assignItem(id, categoryIds);
-    if (!ok) setItems(prev => prev.map(i => (i.id === id ? { ...i, purpose_category_ids: before } : i)));
+    // 保存に成功したら所属を再適用する（保存より前に投げた一覧取得の応答が後から届いて楽観更新を上書きする競合への対処）
+    setItems(prev => prev.map(i => (i.id === id ? { ...i, purpose_category_ids: ok ? categoryIds : before } : i)));
   };
 
   /** パネルからのお気に入り解除。分類だけ残らないよう先に全解除する */

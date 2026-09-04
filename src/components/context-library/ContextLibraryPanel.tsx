@@ -657,7 +657,9 @@ export default function ContextLibraryPanel() {
     purposePickerDirty.current = true;
     setItems(prev => prev.map(it => (it.id === id ? { ...it, purpose_category_ids: categoryIds } : it)));
     const ok = await purposes.assignItem(id, categoryIds);
-    if (!ok) setItems(prev => prev.map(it => (it.id === id ? { ...it, purpose_category_ids: before } : it)));
+    // 保存に成功したら所属を再適用する。検索入力直後など、保存より前に投げた一覧取得の応答が保存の応答より先に届くと
+    // 楽観更新が古い一覧で上書きされ、バッジが消えて「開き直すと未チェック」になる（診断で実測）。再適用で確定値に揃える
+    setItems(prev => prev.map(it => (it.id === id ? { ...it, purpose_category_ids: ok ? categoryIds : before } : it)));
   };
 
   /** パネルからのお気に入り解除。分類だけ残らないよう先に全解除する */

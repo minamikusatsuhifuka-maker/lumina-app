@@ -7295,6 +7295,20 @@ test('C105: 用途カテゴリの画面（297）— 3画面とも⭐マイフォ
   const catName = `${E2E_PREFIX} note用 ${marker}`;
   const dialogs: string[] = [];
   page.on('dialog', (d) => { dialogs.push(d.message()); void d.accept(); });
+  // 用途APIの往復を記録（失敗時の原因切り分け用: どの要求が何を返したか）
+  const apiLog: string[] = [];
+  page.on('request', (req) => {
+    if (req.url().includes('/api/purpose-categories')) apiLog.push(`→ ${req.method()} ${(req.postData() ?? '').slice(0, 100)}`);
+  });
+  page.on('requestfailed', (req) => {
+    if (req.url().includes('/api/purpose-categories')) apiLog.push(`✗ ${req.method()} ${req.failure()?.errorText ?? ''}`);
+  });
+  page.on('response', (res) => {
+    if (res.url().includes('/api/purpose-categories')) {
+      const body = res.request().postData();
+      apiLog.push(`← ${res.request().method()} ${res.status()} ${body ? body.slice(0, 100) : ''}`);
+    }
+  });
   const assertSeparateFrame = async (scope: 'library' | 'text_analysis' | 'context') => {
     const bar = page.locator(`[data-purpose-bar="${scope}"]`);
     await expect(bar, `${scope}: 用途の枠がある`).toBeVisible({ timeout: 30000 });
@@ -7311,6 +7325,9 @@ test('C105: 用途カテゴリの画面（297）— 3画面とも⭐マイフォ
     await page.locator('[data-library-search]').fill(marker);
     const card = page.locator(`[data-library-card="${p1}"]`);
     await expect(card).toBeVisible({ timeout: 30000 });
+    // 検索の絞り込みが落ち着いてから操作する（初期ページに載っていた記事は検索前から見えるため、検索の取得中に保存すると
+    // 古い一覧の応答で楽観更新が上書きされる＝実利用でも起きる競合。画面側は保存後の再適用で対処し、テストは待つ）
+    await expect(page.locator('[data-library-card]')).toHaveCount(1, { timeout: 30000 });
     await assertSeparateFrame('library');
     await page.locator(`[data-library-artifact-tab="${p2}"]`).click();
     await page.locator(`[data-purpose-button="${p2}"]`).click();
@@ -7343,6 +7360,7 @@ test('C105: 用途カテゴリの画面（297）— 3画面とも⭐マイフォ
     const panel = page.locator('[data-saved-panel="text-analysis"]');
     await panel.locator('[data-kb-search]').fill(marker);
     await expect(panel.locator(`[data-analysis-card="${t1}"]`)).toBeVisible({ timeout: 30000 });
+    await expect(panel.locator('[data-analysis-card]')).toHaveCount(2, { timeout: 30000 });
     await assertSeparateFrame('text_analysis');
     await expect(page.locator(`[data-purpose-bar="text_analysis"] [data-purpose-card="${catId}"]`), '📚で作ったカテゴリが🗂にも見える').toBeVisible();
     await panel.locator(`[data-purpose-button="${t1}"]`).click();
@@ -7376,6 +7394,7 @@ test('C105: 用途カテゴリの画面（297）— 3画面とも⭐マイフォ
     await page.locator('[data-kb-search]').fill(marker);
     const xc = page.locator(`[data-ctx-card="${x1}"]`);
     await expect(xc).toBeVisible({ timeout: 30000 });
+    await expect(page.locator('[data-ctx-card]')).toHaveCount(1, { timeout: 30000 });
     await assertSeparateFrame('context');
     const ctxBar = page.locator('[data-purpose-bar="context"]');
     await expect(ctxBar.locator(`[data-purpose-card="${catId}"]`), '📚で作ったカテゴリが🧠にも見える').toBeVisible();
@@ -7387,11 +7406,12 @@ test('C105: 用途カテゴリの画面（297）— 3画面とも⭐マイフォ
     await expect(ctxBar.locator(`[data-purpose-card="${catId}"]`)).toHaveAttribute('data-purpose-count', '1');
     // 外す
     await page.locator(`[data-purpose-button="${x1}"]`).click();
+    await expect(picker.locator(`[data-purpose-option="${catId}"] input`), '開き直したパネルでチェック済みに見える（所属が state に残っている）').toBeChecked();
     await picker.locator(`[data-purpose-option="${catId}"] input`).uncheck();
     await page.keyboard.press('Escape');
     await expect(xc.locator('[data-purpose-badge]')).toHaveCount(0);
     // バッジは楽観更新で先に消える。件数はサーバー応答で更新されるので、外れたことが件数に反映されるまで待つ
-    await expect(ctxBar.locator(`[data-purpose-card="${catId}"]`)).toHaveAttribute('data-purpose-count', '0', { timeout: 15000 });
+    await expect(ctxBar.locator(`[data-purpose-card="${catId}"]`), `外した件数がバーに反映される（API往復: ${apiLog.slice(-8).join(' | ')}）`).toHaveAttribute('data-purpose-count', '0', { timeout: 30000 });
     // 削除（🛠用途を管理→🗑）: 確認は1回・件数（3画面合計=📚1＋🗂1）と「記事は削除されません」。記事は残る
     await ctxBar.locator('[data-purpose-manage-toggle]').click();
     dialogs.length = 0;
