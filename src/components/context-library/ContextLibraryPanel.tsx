@@ -19,11 +19,6 @@ import { useNoteBundleSelection } from '@/components/note-bundle/useNoteBundleSe
 import CustomFolderBar from '@/components/custom-folders/CustomFolderBar';
 import FolderBadges from '@/components/custom-folders/FolderBadges';
 import FolderPickerPopover from '@/components/custom-folders/FolderPickerPopover';
-// 297: 🎯用途カテゴリ（マイフォルダとは別の枠・別テーブル・別色）
-import PurposeCategoryBar from '@/components/purpose-categories/PurposeCategoryBar';
-import PurposePickerPopover from '@/components/purpose-categories/PurposePickerPopover';
-import PurposeBadges from '@/components/purpose-categories/PurposeBadges';
-import { usePurposeCategories, type PurposeFilter } from '@/components/purpose-categories/usePurposeCategories';
 // 295: 291・292・293 の部品と判断をそのまま使う（新規に作らない・R-91）
 import LibraryCompareView from '@/components/library/LibraryCompareView';
 import { CharCountBadge } from '@/components/LibraryItemRow';
@@ -80,8 +75,6 @@ type ContextSave = {
   char_count?: number | string;
   // 249: 所属するマイフォルダのID（複数可・自動カテゴリの category とは別軸）
   custom_folder_ids?: number[];
-  // 297: 所属用途カテゴリID（マイフォルダとは別体系）
-  purpose_category_ids?: number[];
 };
 
 // 1ページの取得件数（165ギャラリーの「もっと見る」方式と同系統）
@@ -273,11 +266,6 @@ export default function ContextLibraryPanel() {
   const [activeCustomFolder, setActiveCustomFolder] = useState<FolderFilter>(null);
   // 分類パネルを開いている素材（☆ボタンの矩形に合わせてポップオーバーを出す）
   const [folderPicker, setFolderPicker] = useState<{ id: number; rect: DOMRect } | null>(null);
-  // 297: 用途カテゴリ（3画面で共有の1体系）。絞り込みはサーバー側 pcat= で他条件と AND
-  const purposes = usePurposeCategories('context', (msg) => { setToast(`❌ ${msg}`); setTimeout(() => setToast(''), 3000); });
-  const [activePurpose, setActivePurpose] = useState<PurposeFilter>(null);
-  const [purposePicker, setPurposePicker] = useState<{ id: number; rect: DOMRect } | null>(null);
-  const purposePickerDirty = useRef(false);
   // 分類を変えたまま閉じたときだけ、絞り込み中の一覧を取り直すためのフラグ
   const folderPickerDirty = useRef(false);
   const [isAutoCategorizing, setIsAutoCategorizing] = useState(false);
@@ -321,7 +309,6 @@ export default function ContextLibraryPanel() {
       if (activeCategory !== null) p.set('category', activeCategory);
       // 249: マイフォルダでの絞り込み（id指定 / お気に入りの未分類）
       if (activeCustomFolder !== null) p.set('cfolder', String(activeCustomFolder));
-      if (activePurpose !== null) p.set('pcat', String(activePurpose)); // 297: 用途カテゴリ
       const res = await fetch(`/api/context-saves?${p.toString()}`);
       if (res.ok) {
         const data = await res.json();
@@ -343,7 +330,7 @@ export default function ContextLibraryPanel() {
   useEffect(() => {
     fetchPage(0, false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [debouncedSearch, searchRange, tagFilters, tagMode, favoriteOnly, activeCategory, activeCustomFolder, activePurpose]);
+  }, [debouncedSearch, searchRange, tagFilters, tagMode, favoriteOnly, activeCategory, activeCustomFolder]);
 
   // items 取得後、各カードに対する「デフォルト登録機能マップ」を取得（未取得のIDのみ追加取得）
   useEffect(() => {
@@ -644,22 +631,6 @@ export default function ContextLibraryPanel() {
     }
   };
 
-  // 297: 「🎯 用途」ボタン → 割り当てパネル。閉じたとき、用途で絞り込み中なら取り直す
-  const handlePurposeButton = (item: ContextSave, rect: DOMRect) => setPurposePicker({ id: item.id, rect });
-  const closePurposePicker = () => {
-    const changed = purposePickerDirty.current;
-    purposePickerDirty.current = false;
-    setPurposePicker(null);
-    if (changed && activePurpose !== null) void fetchPage(0, false);
-  };
-  const handleAssignPurposes = async (id: number, categoryIds: number[]) => {
-    const before = items.find(it => it.id === id)?.purpose_category_ids ?? [];
-    purposePickerDirty.current = true;
-    setItems(prev => prev.map(it => (it.id === id ? { ...it, purpose_category_ids: categoryIds } : it)));
-    const ok = await purposes.assignItem(id, categoryIds);
-    if (!ok) setItems(prev => prev.map(it => (it.id === id ? { ...it, purpose_category_ids: before } : it)));
-  };
-
   /** パネルからのお気に入り解除。分類だけ残らないよう先に全解除する */
   const handleUnfavorite = async (item: ContextSave) => {
     await customFolders.assignItem(item.id, []);
@@ -784,11 +755,7 @@ export default function ContextLibraryPanel() {
       onRemove: () => setActiveCustomFolder(null),
     });
   }
-  if (activePurpose !== null) {
-    activeConditions.push({ key: 'purpose', label: `🎯 用途: ${purposes.categories.find((c) => c.id === activePurpose)?.name ?? activePurpose}`, onRemove: () => setActivePurpose(null) });
-  }
   const clearAllConditions = () => {
-    setActivePurpose(null);
     setSearch('');
     applySearchRange('all');
     setTagFilters([]);
@@ -1157,21 +1124,6 @@ export default function ContextLibraryPanel() {
           onDelete={customFolders.deleteFolder}
           onReorder={customFolders.reorderFolders}
           storageKey="cl_custom_folder_open"
-        />
-      </div>
-
-      {/* 297: 🎯用途カテゴリ（マイフォルダ＝テーマ別とは別の枠・別色・別テーブル。3画面で共有） */}
-      <div style={{ marginBottom: 20 }}>
-        <PurposeCategoryBar
-          scope="context"
-          categories={purposes.categories}
-          totalCount={allTotal}
-          value={activePurpose}
-          onChange={setActivePurpose}
-          onCreate={purposes.createCategory}
-          onRename={purposes.renameCategory}
-          onDelete={purposes.deleteCategory}
-          storageKey="cl_purpose_open"
         />
       </div>
 
@@ -1636,11 +1588,9 @@ export default function ContextLibraryPanel() {
                     {item.topic}
                   </div>
                   {/* 249: 所属マイフォルダ（複数可）。どのフォルダに入れたか一目で分かるように（295: コンパクトでは出さない） */}
-                  {!compact && ((item.custom_folder_ids?.length ?? 0) > 0 || (item.purpose_category_ids?.length ?? 0) > 0) && (
+                  {!compact && (item.custom_folder_ids?.length ?? 0) > 0 && (
                     <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' as const, marginTop: 6 }}>
                       <FolderBadges folderIds={item.custom_folder_ids} folders={customFolders.folders} />
-                      {/* 297: 所属用途カテゴリ（🎯青緑。📂金色のマイフォルダと区別）。コンパクトでは出さない */}
-                      <PurposeBadges categoryIds={item.purpose_category_ids} categories={purposes.categories} />
                     </div>
                   )}
                 </div>
@@ -1707,16 +1657,6 @@ export default function ContextLibraryPanel() {
                   }
                 >
                   {item.is_favorite ? '⭐ 分類' : '☆ お気に入り'}
-                </button>
-                {/* 297: 用途カテゴリの割り当て（お気に入りとは無関係・☆と同じ操作感） */}
-                <button
-                  type="button"
-                  data-purpose-button={item.id}
-                  onClick={(e) => handlePurposeButton(item, e.currentTarget.getBoundingClientRect())}
-                  title="用途カテゴリを割り当て（note用・Kindle用など）"
-                  style={{ ...cardActionBtnStyle(), color: '#115e59', border: '1px solid rgba(13,148,136,0.45)', background: 'rgba(13,148,136,0.08)' }}
-                >
-                  🎯 用途
                 </button>
                 <div data-ctx-more-menu style={{ position: 'relative', marginLeft: 'auto' }}>
                   <button
@@ -2190,23 +2130,6 @@ export default function ContextLibraryPanel() {
               onCreate={customFolders.createFolder}
               onUnfavorite={() => void handleUnfavorite(target)}
               onClose={closeFolderPicker}
-            />
-          );
-        })()}
-
-      {/* 297: 用途の割り当てパネル（🎯ボタンから開く） */}
-      {purposePicker &&
-        (() => {
-          const target = items.find(it => it.id === purposePicker.id);
-          if (!target) return null;
-          return (
-            <PurposePickerPopover
-              anchorRect={purposePicker.rect}
-              categories={purposes.categories}
-              selectedIds={target.purpose_category_ids ?? []}
-              onChange={(ids) => void handleAssignPurposes(target.id, ids)}
-              onCreate={purposes.createCategory}
-              onClose={closePurposePicker}
             />
           );
         })()}

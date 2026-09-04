@@ -109,8 +109,6 @@ import { NO_PREAMBLE_PROMPT_RULE } from '../../src/lib/markdown-renderer';
 import { CL_LIST_COLUMN_CHOICE_DEFAULT, CL_LIST_COLUMN_KEY, CL_LIST_DENSITY_KEY } from '../../src/lib/library-view';
 import { CL_SEARCH_SCOPE_KEY, LIBRARY_SEARCH_SCOPE_KEY, TA_SEARCH_SCOPE_KEY } from '../../src/lib/library-filters';
 import { CONTEXT_ORIGIN_LABEL, contextOriginKind, originLabel } from '../../src/lib/context-origin';
-// 297: 用途カテゴリ
-import { MAX_PURPOSE_NAME_LENGTH, normalizePurposeName, purposeDeleteConfirmMessage } from '../../src/lib/purpose-categories';
 import { buildScheduleRows, scheduleToMarkdown } from '../../src/lib/posting-schedule';
 import { buildNotePasteText, buildNoteHtml } from '../../src/lib/note-compat';
 import { estimateTitleLines, estimateSummaryImageHeight } from '../../src/lib/summary-image-templates';
@@ -2853,67 +2851,4 @@ test('U66: 選択の既定（296）— 3画面ともモード切替の状態を�
   expect((row.match(/data-library-check=\{item\.id\}[\s\S]{0,200}?onClick=\{stopCardClick\}/g) ?? []).length).toBeGreaterThanOrEqual(2);
   expect(row).toMatch(/data-library-artifact-check=\{a\.item\.id\}[\s\S]{0,200}?onClick=\{stopCardClick\}/);
   expect(ctx).toMatch(/data-ctx-delete-check=\{item\.id\}[\s\S]{0,700}?onClick=\{stopCardClick\}/);
-});
-
-// ───────────────────────────────────────────────────────────────────────────
-// 297: 🎯用途カテゴリ（マイフォルダとは別テーブル・別体系・3画面で共有）
-// ───────────────────────────────────────────────────────────────────────────
-test('U67: 用途カテゴリ（297）— 名前の正規化／削除の確認文は件数と「記事は削除されません」／スキーマは冪等DDLのみ（既存テーブルへの ALTER なし）／マイフォルダの実装（lib/custom-folders・components/custom-folders）は無変更／3画面が同じ部品・同じ hook を使い「フォルダ」の語を用途の文言に使わない／記事削除時に用途の所属も外す', () => {
-  // 名前の正規化（前後空白・連続空白・上限）
-  expect(normalizePurposeName('  note用  ')).toBe('note用');
-  expect(normalizePurposeName('a   b')).toBe('a b');
-  expect(normalizePurposeName('')).toBeNull();
-  expect(normalizePurposeName(null)).toBeNull();
-  expect(normalizePurposeName('あ'.repeat(40))!.length).toBe(MAX_PURPOSE_NAME_LENGTH);
-  // 削除の確認文（284・296と同じ形）
-  const msg = purposeDeleteConfirmMessage('note用', 3);
-  expect(msg).toContain('3件');
-  expect(msg).toContain('記事は削除されません');
-  expect(msg).not.toContain('フォルダ');
-  // スキーマ: CREATE TABLE/INDEX IF NOT EXISTS だけ（停止条件①の例外に収まる）。既存テーブルの ALTER は無い
-  const lib = readFileSync(join(__dirname, '../../src/lib/purpose-categories.ts'), 'utf8');
-  expect((lib.match(/CREATE TABLE IF NOT EXISTS/g) ?? []).length).toBe(2);
-  expect(lib).toMatch(/CREATE UNIQUE INDEX IF NOT EXISTS idx_purpose_category_items_uniq/);
-  expect(lib).toMatch(/ON DELETE CASCADE/);
-  expect(lib).not.toMatch(/ALTER TABLE|DROP TABLE|TRUNCATE/);
-  // マイフォルダの表を読み書きしない（コメント・型の import は除く）
-  const libCode = lib.replace(/^\s*\/\/.*$/gm, '').replace(/\/\*[\s\S]*?\*\//g, '');
-  expect(libCode).not.toMatch(/custom_folder_items|FROM custom_folders|INTO custom_folders|UPDATE custom_folders/);
-  // 3画面の記事を跨ぐ: 件数は3テーブルと JOIN（孤児を数えない）
-  for (const t of ['text_analysis_saves', 'library', 'context_saves']) expect(lib).toContain(`JOIN ${t} `);
-  // マイフォルダの実装は無変更（297のコミットで触らない＝文言の目印で固定）
-  const cf = readFileSync(join(__dirname, '../../src/lib/custom-folders.ts'), 'utf8');
-  expect(cf).not.toMatch(/purpose/i);
-  for (const f of ['CustomFolderBar.tsx', 'FolderPickerPopover.tsx', 'FolderBadges.tsx', 'useCustomFolders.ts', 'folderStyles.ts']) {
-    expect(readFileSync(join(__dirname, '../../src/components/custom-folders/', f), 'utf8'), `${f} に用途の実装を混ぜない`).not.toMatch(/purpose/i);
-  }
-  // 3画面が同じ部品・同じ hook（新規に画面ごとの体系を作らない）
-  const screens = [
-    'src/app/dashboard/library/page.tsx',
-    'src/components/text-analysis/SavedAnalysisList.tsx',
-    'src/components/context-library/ContextLibraryPanel.tsx',
-  ].map((f) => readFileSync(join(__dirname, '../../', f), 'utf8'));
-  for (const s of screens) {
-    expect(s).toContain("from '@/components/purpose-categories/usePurposeCategories'");
-    expect(s).toContain('<PurposeCategoryBar');
-    expect(s).toContain('<PurposePickerPopover');
-    expect(s).toContain('<PurposeBadges');
-    expect(s).toContain("key: 'purpose'");
-  }
-  // 用途の部品は「フォルダ」の語を使わない（§3-1）。色はマイフォルダ（金）と別（青緑）
-  for (const f of ['PurposeCategoryBar.tsx', 'PurposePickerPopover.tsx', 'PurposeBadges.tsx', 'purposeStyles.ts']) {
-    const src = readFileSync(join(__dirname, '../../src/components/purpose-categories/', f), 'utf8');
-    const visible = src.replace(/\/\/.*$/gm, '').replace(/\/\*[\s\S]*?\*\//g, '');
-    expect(visible, `${f}: 表示文言に「フォルダ」を使わない`).not.toContain('フォルダ');
-  }
-  const styles = readFileSync(join(__dirname, '../../src/components/purpose-categories/purposeStyles.ts'), 'utf8');
-  expect(styles).toContain("PURPOSE_ACCENT = '#0d9488'");
-  expect(styles.replace(/^\s*\/\/.*$/gm, ''), 'マイフォルダの金色を用途の色に使わない（コメントは除く）').not.toContain('#f59e0b');
-  // 記事削除時に用途の所属も外す（3つの削除API）
-  for (const f of ['src/app/api/library/route.ts', 'src/app/api/text-analysis/saves/route.ts', 'src/app/api/context-saves/route.ts']) {
-    const src = readFileSync(join(__dirname, '../../', f), 'utf8');
-    expect(src, `${f}: 単体削除で外す`).toContain('detachItemFromPurposes(');
-    expect(src, `${f}: 一括削除で外す`).toContain('detachItemsFromPurposes(');
-    expect(src, `${f}: 一覧に所属IDを付与`).toContain('purpose_category_ids');
-  }
 });
