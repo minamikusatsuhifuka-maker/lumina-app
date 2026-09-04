@@ -77,6 +77,8 @@ import FolderPickerPopover from '@/components/custom-folders/FolderPickerPopover
 import PurposeCategoryBar from '@/components/purpose-categories/PurposeCategoryBar';
 import PurposePickerPopover from '@/components/purpose-categories/PurposePickerPopover';
 import PurposeBadges from '@/components/purpose-categories/PurposeBadges';
+import PurposeBulkPanel from '@/components/purpose-categories/PurposeBulkPanel';
+import { type PurposeBulkMode, purposeBulkState } from '@/lib/purpose-categories-shared';
 import { usePurposeCategories, type PurposeFilter } from '@/components/purpose-categories/usePurposeCategories';
 import {
   useCustomFolders,
@@ -207,6 +209,8 @@ export default function SavedAnalysisList({
   const purposes = usePurposeCategories('text_analysis', (msg) => showToast(msg, 'error'));
   const [activePurpose, setActivePurpose] = useState<PurposeFilter>(null);
   const [purposePicker, setPurposePicker] = useState<{ id: number; rect: DOMRect } | null>(null);
+  // 298: 選択した記事にまとめて付け外し
+  const [purposeBulk, setPurposeBulk] = useState<{ rect: DOMRect } | null>(null);
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
   // カテゴリ概覧の開閉（デフォルト閉。開閉状態は localStorage で記憶）
   const [showCategoryGrid, setShowCategoryGrid] = useState(false);
@@ -1263,6 +1267,23 @@ export default function SavedAnalysisList({
     setRecords((prev) => prev.map((r) => (r.id === id ? { ...r, purpose_category_ids: ok ? categoryIds : before } : r)));
   };
 
+  /** 298: 一括付け外し。成功した記事（changed＋unchanged）にだけ確定値を反映する（失敗分は触らない・R-39） */
+  const handleBulkPurposes = async (mode: PurposeBulkMode, categoryIds: number[]) => {
+    const ids = Array.from(selectedIds);
+    const out = await purposes.bulkAssign(ids, categoryIds, mode);
+    if (!out) return null;
+    const okKeys = new Set([...out.changedKeys, ...out.unchangedKeys]);
+    setRecords((prev) => prev.map((r) => {
+      if (!okKeys.has(String(r.id))) return r;
+      const cur = new Set(r.purpose_category_ids ?? []);
+      for (const cid of categoryIds) { if (mode === 'add') cur.add(cid); else cur.delete(cid); }
+      return { ...r, purpose_category_ids: Array.from(cur) };
+    }));
+    // 用途で絞り込み中に外したら、条件から外れた記事を残さないよう取り直す
+    if (mode === 'remove' && activePurpose !== null && categoryIds.includes(activePurpose)) void fetchPage(0, false);
+    return out;
+  };
+
   /** パネルからのお気に入り解除。分類だけ残らないよう先に全解除する */
   const handleUnfavorite = async (id: number) => {
     await customFolders.assignItem(id, []);
@@ -2268,6 +2289,19 @@ export default function SavedAnalysisList({
             >
               ✕ 選択をすべて解除
             </button>
+            {/* 298: 用途の一括付け外し。削除（下段の右端・赤）とは段も色も分けて置く（§3-2） */}
+            {(() => { const st = purposeBulkState(selectedIds.size); return (
+              <button
+                type="button"
+                data-purpose-bulk-open
+                onClick={(e) => setPurposeBulk({ rect: e.currentTarget.getBoundingClientRect() })}
+                disabled={!st.enabled}
+                title={st.reason ?? '選択した記事に用途カテゴリをまとめて付ける／外す（記事は削除されません）'}
+                style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '4px 12px', fontSize: 11, fontWeight: 700, color: '#115e59', background: '#ccfbf1', border: '1px solid rgba(13,148,136,0.6)', borderRadius: 999, cursor: st.enabled ? 'pointer' : 'not-allowed', opacity: st.enabled ? 1 : 0.6 }}
+              >
+                🎯 用途
+              </button>
+            ); })()}
           </div>
           {/* 分析タイプ別一括選択 */}
           {typeStats.length > 0 && (
@@ -3379,6 +3413,18 @@ export default function SavedAnalysisList({
             />
           );
         })()}
+
+      {/* 298: 選択した記事への一括付け外し */}
+      {purposeBulk && (
+        <PurposeBulkPanel
+          anchorRect={purposeBulk.rect}
+          categories={purposes.categories}
+          selectedCount={selectedIds.size}
+          onApply={handleBulkPurposes}
+          onCreate={purposes.createCategory}
+          onClose={() => setPurposeBulk(null)}
+        />
+      )}
 
       {/* 297: 用途の割り当てパネル（🎯ボタンから開く） */}
       {purposePicker &&

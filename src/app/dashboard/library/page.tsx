@@ -26,6 +26,8 @@ import FolderBadges from '@/components/custom-folders/FolderBadges';
 import PurposeCategoryBar from '@/components/purpose-categories/PurposeCategoryBar';
 import PurposePickerPopover from '@/components/purpose-categories/PurposePickerPopover';
 import PurposeBadges from '@/components/purpose-categories/PurposeBadges';
+import PurposeBulkPanel from '@/components/purpose-categories/PurposeBulkPanel';
+import { type PurposeBulkMode, purposeBulkState } from '@/lib/purpose-categories-shared';
 import { usePurposeCategories, type PurposeFilter } from '@/components/purpose-categories/usePurposeCategories';
 import {
   useCustomFolders,
@@ -179,6 +181,9 @@ function LibraryPageInner() {
   const purposes = usePurposeCategories('library', (msg) => alert(msg));
   const [activePurpose, setActivePurpose] = useState<PurposeFilter>(null);
   const [purposePicker, setPurposePicker] = useState<{ id: string; rect: DOMRect } | null>(null);
+  // 298: 選択した成果物（行）にまとめて付け外し。選択の単位は成果物（283 §4-3）なので「本文はKindle用・要約はnote用」が保てる
+  const [purposeBulk, setPurposeBulk] = useState<{ rect: DOMRect } | null>(null);
+  const purposeBulkState_ = purposeBulkState(selectedIds.size);
   const [mergeResult, setMergeResult] = useState('');
   // 287: 生成時に選んでいた資料のタイトル（保存名を決定的に導くため。保存時に選択が変わっていても影響しない）
   const [mergeSourceTitles, setMergeSourceTitles] = useState<string[]>([]);
@@ -337,6 +342,21 @@ function LibraryPageInner() {
     const ok = await purposes.assignItem(id, categoryIds);
     // 保存に成功したら所属を再適用する（保存より前に投げた一覧取得の応答が後から届いて楽観更新を上書きする競合への対処）
     setItems(prev => prev.map(i => (i.id === id ? { ...i, purpose_category_ids: ok ? categoryIds : before } : i)));
+  };
+
+  /** 298: 一括付け外し。1リクエストで処理し、成功した記事（changed＋unchanged）にだけ確定値を反映する（失敗分は触らない・R-39） */
+  const handleBulkPurposes = async (mode: PurposeBulkMode, categoryIds: number[]) => {
+    const ids = Array.from(selectedIds);
+    const out = await purposes.bulkAssign(ids, categoryIds, mode);
+    if (!out) return null;
+    const okKeys = new Set([...out.changedKeys, ...out.unchangedKeys]);
+    setItems(prev => prev.map(i => {
+      if (!okKeys.has(String(i.id))) return i;
+      const cur = new Set(i.purpose_category_ids ?? []);
+      for (const cid of categoryIds) { if (mode === 'add') cur.add(cid); else cur.delete(cid); }
+      return { ...i, purpose_category_ids: Array.from(cur) };
+    }));
+    return out;
   };
 
   /** パネルからのお気に入り解除。分類だけ残らないよう先に全解除する */
@@ -1458,6 +1478,16 @@ function LibraryPageInner() {
           boxShadow: '0 8px 32px rgba(108,99,255,0.4)',
         }}>
           <span style={{ fontSize: 13, fontWeight: 600 }}>{selectedIds.size}件選択中</span>
+          {/* 298: 用途の一括付け外し。削除（右端・赤）から離した左側に青緑で置く（§3-2） */}
+          <button
+            type="button"
+            data-purpose-bulk-open
+            onClick={(e) => setPurposeBulk({ rect: e.currentTarget.getBoundingClientRect() })}
+            disabled={!purposeBulkState_.enabled}
+            title={purposeBulkState_.reason ?? '選択した成果物に用途カテゴリをまとめて付ける／外す（記事は削除されません）'}
+            style={{ padding: '6px 16px', borderRadius: 99, background: '#ccfbf1', color: '#115e59', border: '1px solid rgba(13,148,136,0.6)', cursor: purposeBulkState_.enabled ? 'pointer' : 'not-allowed', fontSize: 13, fontWeight: 700, opacity: purposeBulkState_.enabled ? 1 : 0.6 }}>
+            🎯 用途
+          </button>
           <button onClick={generateMergeReport} disabled={merging || selectedIds.size < 2}
             style={{ padding: '6px 16px', borderRadius: 99, background: '#fff', color: '#6c63ff', border: 'none', cursor: merging || selectedIds.size < 2 ? 'not-allowed' : 'pointer', fontSize: 13, fontWeight: 700, opacity: merging || selectedIds.size < 2 ? 0.6 : 1 }}>
             {merging ? '分析中...' : '🔗 AIでまとめる'}
@@ -1624,6 +1654,18 @@ function LibraryPageInner() {
             />
           );
         })()}
+
+      {/* 298: 選択した成果物への一括付け外し（操作バーの🎯用途から開く。形は297の1件用に揃える） */}
+      {purposeBulk && (
+        <PurposeBulkPanel
+          anchorRect={purposeBulk.rect}
+          categories={purposes.categories}
+          selectedCount={selectedIds.size}
+          onApply={handleBulkPurposes}
+          onCreate={purposes.createCategory}
+          onClose={() => setPurposeBulk(null)}
+        />
+      )}
 
       {/* 297: 用途の割り当てパネル（🎯ボタンから開く。マイフォルダの分類パネルと同じ操作感） */}
       {purposePicker &&

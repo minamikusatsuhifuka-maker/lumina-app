@@ -111,7 +111,7 @@ import { CL_SEARCH_SCOPE_KEY, LIBRARY_SEARCH_SCOPE_KEY, TA_SEARCH_SCOPE_KEY } fr
 import { CONTEXT_ORIGIN_LABEL, contextOriginKind, originLabel } from '../../src/lib/context-origin';
 // 297: 用途カテゴリ
 import { normalizePurposeName } from '../../src/lib/purpose-categories';
-import { MAX_PURPOSE_NAME_LENGTH, purposeDeleteConfirmMessage } from '../../src/lib/purpose-categories-shared';
+import { MAX_PURPOSE_NAME_LENGTH, PURPOSE_BULK_LIMIT, purposeBulkResultMessage, purposeBulkState, purposeDeleteConfirmMessage } from '../../src/lib/purpose-categories-shared';
 import { buildScheduleRows, scheduleToMarkdown } from '../../src/lib/posting-schedule';
 import { buildNotePasteText, buildNoteHtml } from '../../src/lib/note-compat';
 import { estimateTitleLines, estimateSummaryImageHeight } from '../../src/lib/summary-image-templates';
@@ -2926,4 +2926,58 @@ test('U67: 用途カテゴリ（297）— 名前の正規化／削除の確認�
     expect(src, `${f}: 一括削除で外す`).toContain('detachItemsFromPurposes(');
     expect(src, `${f}: 一覧に所属IDを付与`).toContain('purpose_category_ids');
   }
+});
+
+// ───────────────────────────────────────────────────────────────────────────
+// 298: 用途カテゴリの一括付け外し
+// ───────────────────────────────────────────────────────────────────────────
+test('U68: 用途の一括付け外し（298）— 上限は一括削除と同値で超過は無効化＋理由（R-101）／結果文言は決定的で失敗分を隠さない（R-39）／3画面が同じパネル・同じ hook（bulk は1リクエスト）／付ける・外すに confirm を足していない／二重発火は ref／サーバーは記事ごとに独立実行（トランザクションで包まない）', () => {
+  expect(PURPOSE_BULK_LIMIT).toBe(500);
+  expect(purposeBulkState(0).enabled).toBe(false);
+  expect(purposeBulkState(1).enabled).toBe(true);
+  expect(purposeBulkState(500).enabled).toBe(true);
+  const over = purposeBulkState(501);
+  expect(over.enabled).toBe(false);
+  expect(over.reason).toContain('500件まで');
+  expect(over.reason).toContain('501件選択中');
+  // 結果文言（決定的・失敗を隠さない）
+  expect(purposeBulkResultMessage('add', { changed: 3, unchanged: 0, failed: 0 })).toBe('✅ 3件に付けました');
+  expect(purposeBulkResultMessage('add', { changed: 2, unchanged: 1, failed: 0 })).toBe('✅ 2件に付けました・1件は既に付いていました');
+  expect(purposeBulkResultMessage('remove', { changed: 2, unchanged: 1, failed: 0 })).toBe('✅ 2件から外しました・1件は元から付いていませんでした');
+  const partial = purposeBulkResultMessage('add', { changed: 2, unchanged: 0, failed: 1 });
+  expect(partial).toContain('⚠️');
+  expect(partial).toContain('2件に付けました');
+  expect(partial).toContain('1件は失敗しました');
+  expect(partial).toContain('成功した分は反映されています');
+  // 3画面が同じパネル・同じ hook。confirm を足していない
+  const screens = ['src/app/dashboard/library/page.tsx', 'src/components/text-analysis/SavedAnalysisList.tsx', 'src/components/context-library/ContextLibraryPanel.tsx'];
+  for (const f of screens) {
+    const src = readFileSync(join(__dirname, '../../', f), 'utf8');
+    expect(src, `${f}: 共通パネル`).toContain('<PurposeBulkPanel');
+    expect(src, `${f}: 操作バーの入口`).toContain('data-purpose-bulk-open');
+    expect(src, `${f}: hook の bulkAssign（1リクエスト）`).toContain('purposes.bulkAssign(');
+    const bulkFn = src.slice(src.indexOf('const handleBulkPurposes'), src.indexOf('const handleBulkPurposes') + 900);
+    expect(bulkFn, `${f}: 付け外しに confirm を足さない`).not.toMatch(/confirm\(/);
+    expect(bulkFn, `${f}: 成功分だけ反映（changed＋unchanged）`).toContain('out.changedKeys, ...out.unchangedKeys');
+  }
+  const panelSrc = readFileSync(join(__dirname, '../../src/components/purpose-categories/PurposeBulkPanel.tsx'), 'utf8');
+  expect(panelSrc).toContain('busyRef.current = true');
+  expect(panelSrc).not.toMatch(/window\.confirm|confirm\(/);
+  expect(panelSrc).toContain('data-purpose-bulk-add');
+  expect(panelSrc).toContain('data-purpose-bulk-remove');
+  expect(panelSrc, 'クライアント部品はサーバー専用 lib から値を import しない（R-108）').not.toMatch(/^import (?!type )[^;]*from '@\/lib\/purpose-categories';/m);
+  // サーバー: 記事ごとに独立実行し、トランザクションで包まない（R-39）。上限は共有定数
+  const lib = readFileSync(join(__dirname, '../../src/lib/purpose-categories.ts'), 'utf8');
+  const bulk = lib.slice(lib.indexOf('export async function bulkSetItemPurposes'));
+  expect(bulk).not.toContain('sql.transaction');
+  expect(bulk).toContain('ON CONFLICT DO NOTHING');
+  expect(bulk).toContain('failedKeys.push(key)');
+  const api = readFileSync(join(__dirname, '../../src/app/api/purpose-categories/route.ts'), 'utf8');
+  expect(api).toContain("action === 'bulk'");
+  expect(api).toContain('itemIds.length > PURPOSE_BULK_LIMIT');
+  // 一括の hook も最後の要求の応答だけ採用（297 の競合対処が効く）
+  const hook = readFileSync(join(__dirname, '../../src/components/purpose-categories/usePurposeCategories.ts'), 'utf8');
+  const bulkHook = hook.slice(hook.indexOf('const bulkAssign'));
+  expect(bulkHook).toContain('++seq.current');
+  expect(bulkHook).toContain('adopt(my, data.categories)');
 });

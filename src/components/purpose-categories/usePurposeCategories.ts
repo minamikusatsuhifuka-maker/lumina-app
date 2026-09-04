@@ -6,11 +6,23 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { ItemScope, PurposeCategory } from '@/lib/purpose-categories';
+import type { PurposeBulkMode } from '@/lib/purpose-categories-shared';
 
 export type { PurposeCategory };
 
 /** 用途の絞り込みの選択値。null=絞り込みなし / number=カテゴリID */
 export type PurposeFilter = number | null;
+
+/** 298: 一括付け外しの結果（成功分は反映済み・失敗分は failedKeys） */
+export type PurposeBulkOutcome = {
+  mode: PurposeBulkMode;
+  changed: number;
+  unchanged: number;
+  failed: number;
+  changedKeys: string[];
+  unchangedKeys: string[];
+  failedKeys: string[];
+};
 
 export interface UsePurposeCategoriesResult {
   categories: PurposeCategory[];
@@ -21,6 +33,8 @@ export interface UsePurposeCategoriesResult {
   deleteCategory: (id: number) => Promise<boolean>;
   /** 記事の所属を categoryIds の内容に置き換える（追加・変更・全解除の共通口） */
   assignItem: (itemId: number | string, categoryIds: number[]) => Promise<boolean>;
+  /** 298: 選択した記事にまとめて付ける／外す（1リクエスト）。失敗時は null（成功分の反映は呼び出し側が outcome から行う） */
+  bulkAssign: (itemIds: (number | string)[], categoryIds: number[], mode: PurposeBulkMode) => Promise<PurposeBulkOutcome | null>;
 }
 
 export function usePurposeCategories(scope: ItemScope, onError?: (message: string) => void): UsePurposeCategoriesResult {
@@ -112,5 +126,28 @@ export function usePurposeCategories(scope: ItemScope, onError?: (message: strin
     }
   }, [scope, notify, adopt]);
 
-  return { categories, loading, reload, createCategory, renameCategory, deleteCategory, assignItem };
+  const bulkAssign = useCallback(async (itemIds: (number | string)[], categoryIds: number[], mode: PurposeBulkMode): Promise<PurposeBulkOutcome | null> => {
+    const my = ++seq.current;
+    try {
+      const res = await fetch('/api/purpose-categories', {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'bulk', scope, itemIds, categoryIds, mode }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data?.error || '用途の一括更新に失敗しました');
+      adopt(my, data.categories);
+      return {
+        mode,
+        changed: Number(data.changed ?? 0), unchanged: Number(data.unchanged ?? 0), failed: Number(data.failed ?? 0),
+        changedKeys: Array.isArray(data.changedKeys) ? data.changedKeys.map(String) : [],
+        unchangedKeys: Array.isArray(data.unchangedKeys) ? data.unchangedKeys.map(String) : [],
+        failedKeys: Array.isArray(data.failedKeys) ? data.failedKeys.map(String) : [],
+      };
+    } catch (e) {
+      notify(e instanceof Error ? e.message : '用途の一括更新に失敗しました');
+      return null;
+    }
+  }, [scope, notify, adopt]);
+
+  return { categories, loading, reload, createCategory, renameCategory, deleteCategory, assignItem, bulkAssign };
 }

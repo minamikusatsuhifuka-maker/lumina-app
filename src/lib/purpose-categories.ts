@@ -194,3 +194,80 @@ export async function detachItemsFromPurposes(userId: string, scope: ItemScope, 
   await sql`DELETE FROM purpose_category_items
     WHERE user_id = ${userId} AND scope = ${scope} AND item_key = ANY(${keys})`;
 }
+
+// ============================================================
+// 298: 一括付け外し（1リクエストで複数件）
+// ============================================================
+
+export type { PurposeBulkMode } from '@/lib/purpose-categories-shared';
+
+export interface PurposeBulkResult {
+  /** 状態が変わった記事のキー（付いた／外れた） */
+  changedKeys: string[];
+  /** 既にその状態だった記事のキー */
+  unchangedKeys: string[];
+  /** 失敗した記事のキー（自分の記事でない・DBエラー等） */
+  failedKeys: string[];
+}
+
+/** 自分の記事だけに絞る（他人のID・存在しないIDは失敗扱いにする） */
+async function ownedItemKeys(userId: string, scope: ItemScope, keys: string[]): Promise<Set<string>> {
+  const rows =
+    scope === 'text_analysis'
+      ? ((await sql`SELECT id::text AS k FROM text_analysis_saves WHERE user_id = ${userId} AND id::text = ANY(${keys})`) as { k: string }[])
+      : scope === 'library'
+        ? ((await sql`SELECT id::text AS k FROM library WHERE user_id = ${userId} AND id::text = ANY(${keys})`) as { k: string }[])
+        : ((await sql`SELECT id::text AS k FROM context_saves WHERE user_id = ${userId} AND id::text = ANY(${keys})`) as { k: string }[]);
+  return new Set(rows.map((r) => String(r.k)));
+}
+
+/**
+ * 選択した記事に用途カテゴリをまとめて付ける／外す。
+ * - 記事ごとに独立して実行し、1件の失敗で他を巻き戻さない（R-39）。トランザクションで包まない
+ * - 付ける: INSERT ... ON CONFLICT DO NOTHING（既に付いている分は unchanged）。自分のカテゴリだけ（EXISTS）
+ * - 外す:   DELETE（元から付いていない分は unchanged）
+ * - 📚は item_key が library の行id＝成果物単位（283 §4-3・297 §5-4 と同じ）
+ */
+export async function bulkSetItemPurposes(
+  userId: string,
+  scope: ItemScope,
+  itemKeys: string[],
+  categoryIds: number[],
+  mode: 'add' | 'remove',
+): Promise<PurposeBulkResult> {
+  const keys = Array.from(new Set(itemKeys.map((v) => String(v).trim()).filter(Boolean)));
+  const cids = Array.from(new Set(categoryIds.map((n) => Number(n)).filter((n) => Number.isFinite(n))));
+  const result: PurposeBulkResult = { changedKeys: [], unchangedKeys: [], failedKeys: [] };
+  if (keys.length === 0 || cids.length === 0) return result;
+  const owned = await ownedItemKeys(userId, scope, keys);
+  for (const key of keys) {
+    if (!owned.has(key)) { result.failedKeys.push(key); continue; }
+    try {
+      let affected = 0;
+      if (mode === 'add') {
+        for (const cid of cids) {
+          const rows = (await sql`
+            INSERT INTO purpose_category_items (category_id, user_id, scope, item_key)
+            SELECT ${cid}, ${userId}, ${scope}, ${key}
+            WHERE EXISTS (SELECT 1 FROM purpose_categories WHERE id = ${cid} AND user_id = ${userId})
+            ON CONFLICT DO NOTHING
+            RETURNING category_id
+          `) as unknown[];
+          affected += rows.length;
+        }
+      } else {
+        const rows = (await sql`
+          DELETE FROM purpose_category_items
+          WHERE user_id = ${userId} AND scope = ${scope} AND item_key = ${key} AND category_id = ANY(${cids})
+          RETURNING category_id
+        `) as unknown[];
+        affected = rows.length;
+      }
+      (affected > 0 ? result.changedKeys : result.unchangedKeys).push(key);
+    } catch (e) {
+      console.error('[purpose bulk item]', key, e);
+      result.failedKeys.push(key);
+    }
+  }
+  return result;
+}

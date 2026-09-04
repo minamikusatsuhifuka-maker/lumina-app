@@ -4,6 +4,8 @@
 // POST   {name}                             作成
 // PATCH  {action:'rename', id, name}        名前の変更（所属はそのまま）
 // PATCH  {action:'assign', scope, itemId, categoryIds}  記事の所属を置き換える（追加・変更・全解除を1本で）
+// PATCH  {action:'bulk', scope, itemIds, categoryIds, mode:'add'|'remove'}  298: 選択した記事にまとめて付ける／外す
+//        （1リクエストで複数件・記事ごとに独立して実行し一部失敗でも成功分は反映＝R-39・上限 PURPOSE_BULK_LIMIT）
 // DELETE ?id=                               削除（記事は消えず所属だけ外れる＝CASCADE）
 //
 // マイフォルダ API（/api/custom-folders）とは別体系・別テーブル。マイフォルダの実装には触れない（§6）。
@@ -14,6 +16,7 @@ import { sql } from '@/lib/db';
 import {
   MAX_PURPOSES,
   MAX_PURPOSE_NAME_LENGTH,
+  bulkSetItemPurposes,
   ensurePurposeTables,
   isItemScope,
   isPurposeUniqueViolation,
@@ -21,6 +24,7 @@ import {
   normalizePurposeName,
   setItemPurposes,
 } from '@/lib/purpose-categories';
+import { PURPOSE_BULK_LIMIT } from '@/lib/purpose-categories-shared';
 
 export const runtime = 'nodejs';
 
@@ -120,6 +124,35 @@ export async function PATCH(req: NextRequest) {
       await setItemPurposes(userId, scope, itemKey, categoryIds);
       const categories = await listPurposesWithCounts(userId, scope);
       return NextResponse.json({ ok: true, categories });
+    }
+
+    // 298: 一括付け外し
+    if (action === 'bulk') {
+      const scope = body?.scope;
+      if (!isItemScope(scope)) return NextResponse.json({ error: 'scope が不正です' }, { status: 400 });
+      const mode = body?.mode;
+      if (mode !== 'add' && mode !== 'remove') return NextResponse.json({ error: 'mode は add か remove です' }, { status: 400 });
+      const itemIds: unknown[] = Array.isArray(body?.itemIds) ? body.itemIds : [];
+      const categoryIds: number[] = Array.isArray(body?.categoryIds) ? body.categoryIds : [];
+      if (itemIds.length === 0) return NextResponse.json({ error: 'itemIds が空です' }, { status: 400 });
+      if (itemIds.length > PURPOSE_BULK_LIMIT) {
+        // 黙って先頭N件に切らない（R-101）
+        return NextResponse.json({ error: `一度に扱えるのは${PURPOSE_BULK_LIMIT}件までです（${itemIds.length}件）` }, { status: 400 });
+      }
+      if (categoryIds.length === 0) return NextResponse.json({ error: 'categoryIds が空です' }, { status: 400 });
+      const r = await bulkSetItemPurposes(userId, scope, itemIds.map((v) => String(v)), categoryIds, mode);
+      const categories = await listPurposesWithCounts(userId, scope);
+      return NextResponse.json({
+        ok: true,
+        mode,
+        changed: r.changedKeys.length,
+        unchanged: r.unchangedKeys.length,
+        failed: r.failedKeys.length,
+        changedKeys: r.changedKeys,
+        unchangedKeys: r.unchangedKeys,
+        failedKeys: r.failedKeys,
+        categories,
+      });
     }
 
     return NextResponse.json({ error: '不正なactionです' }, { status: 400 });

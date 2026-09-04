@@ -7433,3 +7433,196 @@ test('C105: 用途カテゴリの画面（297）— 3画面とも⭐マイフォ
     await cleanupE2EContextSaves(request);
   }
 });
+
+// ───────────────────────────────────────────────────────────────────────────
+// 298: 選択した記事に用途カテゴリを一括で付け外し
+// ───────────────────────────────────────────────────────────────────────────
+test('C106: 用途カテゴリの一括付け外し（298）— 3画面とも操作バーの🎯用途から同じパネルで「付ける」「外す」／選択中の件数・カテゴリ別件数・実行結果（何件に付いた/外れた）／📚は成果物単位（要約だけに付く）／用途ボタンは削除から離れ確認ダイアログなし／二重発火は1回（R-87）／記事は消えない／297の1件ずつの割り当ては不変', async ({ page, request }) => {
+  test.setTimeout(180_000);
+  const marker = `PBULK${RUN_ID}`;
+  const now = new Date().toISOString();
+  const jobId = 9900298;
+  const p1 = await postLibraryRow(request, { type: 'deepresearch', title: withE2EPrefix(`PB ${marker}`), content: `本文 ${marker}`, metadata: { from: 'batch-research', jobId, topicIndex: 0, kind: 'research', savedAt: now }, tags: `ディープリサーチ,バッチ,batch:${jobId}-0`, group_name: 'ディープリサーチ' });
+  const p2 = await postLibraryRow(request, { type: 'deepresearch', title: withE2EPrefix(`PB ${marker}`), content: `要約 ${marker}`, metadata: { from: 'batch-research', jobId, topicIndex: 0, kind: 'summary', savedAt: now }, tags: `ディープリサーチ,要約,バッチ,batch:${jobId}-0s`, group_name: 'ディープリサーチ' });
+  const l3 = await postLibraryRow(request, { type: 'deepresearch', title: withE2EPrefix(`PB-L3 ${marker}`), content: `L3 ${marker}`, metadata: { savedAt: now }, tags: 'ディープリサーチ', group_name: 'ディープリサーチ' });
+  const t1 = await createSave(request, { title: `PB-T1 ${marker}`, content: `T1 ${marker} 本文`, analysisType: 'summary', analysisLabel: '概要・要約' });
+  const t2 = await createSave(request, { title: `PB-T2 ${marker}`, content: `T2 ${marker} 本文`, analysisType: 'summary', analysisLabel: '概要・要約' });
+  const t3 = await createSave(request, { title: `PB-T3 ${marker}`, content: `T3 ${marker} 本文`, analysisType: 'summary', analysisLabel: '概要・要約' });
+  const x1 = await createContextSave(request, { topic: `PB-X1 ${marker}`, contextText: `X1 ${marker} 本文` });
+  const x2 = await createContextSave(request, { topic: `PB-X2 ${marker}`, contextText: `X2 ${marker} 本文` });
+  const catA = await createPurpose(request, `note用 ${marker}`);
+  const catB = await createPurpose(request, `Kindle用 ${marker}`);
+  const dialogs: string[] = [];
+  page.on('dialog', (d) => { dialogs.push(d.message()); void d.dismiss(); });
+  const bulkRequests: string[] = [];
+  page.on('request', (req) => {
+    if (req.url().includes('/api/purpose-categories') && req.method() === 'PATCH' && (req.postData() ?? '').includes('"bulk"')) bulkRequests.push(req.postData() ?? '');
+  });
+  const panelLoc = page.locator('[data-purpose-bulk-panel]');
+  const apart = async (scopeLabel: string, scopeRoot = page.locator('body')) => {
+    const b = await scopeRoot.locator('[data-purpose-bulk-open]').first().boundingBox();
+    const d = await scopeRoot.locator('[data-bulk-delete]').first().boundingBox();
+    expect(b && d, `${scopeLabel}: 用途ボタンと削除ボタンがある`).toBeTruthy();
+    const gap = Math.max(d!.x - (b!.x + b!.width), b!.x - (d!.x + d!.width), Math.abs(d!.y - b!.y));
+    expect(gap, `${scopeLabel}: 用途ボタンは削除ボタンから離れている（隙間 ${Math.round(gap)}px）`).toBeGreaterThanOrEqual(40);
+    const delBg = await scopeRoot.locator('[data-bulk-delete]').first().evaluate((el) => getComputedStyle(el).backgroundColor);
+    const purBg = await scopeRoot.locator('[data-purpose-bulk-open]').first().evaluate((el) => getComputedStyle(el).backgroundColor);
+    expect(purBg, `${scopeLabel}: 色が削除（赤）と違う`).not.toBe(delBg);
+    expect(purBg).toBe('rgb(204, 251, 241)');
+  };
+  try {
+    // ════ 📚: 要約（p2）と L3 だけを選んで一括で付ける → 本文（p1）には付かない（成果物単位） ════
+    await page.goto('/dashboard/library');
+    await page.locator('[data-library-search]').fill(marker);
+    await expect(page.locator(`[data-library-card="${p1}"]`)).toBeVisible({ timeout: 30000 });
+    await expect(page.locator('[data-library-card]')).toHaveCount(2, { timeout: 30000 });
+    await page.locator(`[data-library-artifact-check="${p2}"]`).check();
+    await page.locator(`[data-library-check="${l3}"]`).check();
+    await expect(page.locator('[data-purpose-bulk-open]')).toBeVisible();
+    await apart('📚');
+    dialogs.length = 0; bulkRequests.length = 0;
+    await page.locator('[data-purpose-bulk-open]').click();
+    await expect(panelLoc).toBeVisible();
+    await expect(panelLoc.locator('[data-purpose-bulk-count]')).toHaveAttribute('data-purpose-bulk-count', '2');
+    await expect(panelLoc.locator(`[data-purpose-bulk-option="${catA}"] [data-purpose-bulk-option-count]`), 'カテゴリ別の現在の件数').toHaveAttribute('data-purpose-bulk-option-count', '0');
+    await panelLoc.locator(`[data-purpose-bulk-option="${catA}"] input`).check();
+    // R-87: 二重クリックでも1リクエスト
+    await panelLoc.locator('[data-purpose-bulk-add]').dblclick();
+    await expect(panelLoc.locator('[data-purpose-bulk-result]')).toContainText('2件に付けました', { timeout: 20000 });
+    expect(bulkRequests.length, '二重発火でも bulk は1回').toBe(1);
+    expect(dialogs.length, '付けるのに確認ダイアログを出さない').toBe(0);
+    await expect(panelLoc.locator(`[data-purpose-bulk-option="${catA}"] [data-purpose-bulk-option-count]`), '実行後はカテゴリ別件数が更新される').toHaveAttribute('data-purpose-bulk-option-count', '2');
+    await page.keyboard.press('Escape');
+    await expect(panelLoc).toHaveCount(0);
+    const libRows = (await (await request.get('/api/library')).json()) as { id: string; purpose_category_ids?: number[] }[];
+    expect(libRows.find((r) => r.id === p2)?.purpose_category_ids, '要約に付く').toEqual([catA]);
+    expect(libRows.find((r) => r.id === l3)?.purpose_category_ids).toEqual([catA]);
+    expect(libRows.find((r) => r.id === p1)?.purpose_category_ids ?? [], '本文には付かない（成果物単位・カード全体に付けない）').toEqual([]);
+    await expect(page.locator(`[data-library-card="${l3}"] [data-purpose-badge]`), '画面にもバッジ').toHaveCount(1);
+    // 一括で外す（確認なし・件数入りの結果）
+    await page.locator('[data-purpose-bulk-open]').click();
+    await panelLoc.locator(`[data-purpose-bulk-option="${catA}"] input`).check();
+    dialogs.length = 0;
+    await panelLoc.locator('[data-purpose-bulk-remove]').click();
+    await expect(panelLoc.locator('[data-purpose-bulk-result]')).toContainText('2件から外しました', { timeout: 20000 });
+    expect(dialogs.length, '外すのにも確認ダイアログを出さない').toBe(0);
+    await page.keyboard.press('Escape');
+    await expect(page.locator(`[data-library-card="${l3}"] [data-purpose-badge]`)).toHaveCount(0);
+    expect(((await (await request.get('/api/library')).json()) as { id: string; purpose_category_ids?: number[] }[]).find((r) => r.id === p2)?.purpose_category_ids ?? []).toEqual([]);
+    // 記事は残る
+    await expect(page.locator(`[data-library-card="${p1}"]`)).toBeVisible();
+    await page.locator('[data-library-select-clear]').click();
+
+    // ════ 🗂: 2件を選び付ける／3件目は付けない。混在（t1,t2 付き・t3 なし）で「外す」→ 2件から外れ・1件は元から無し ════
+    await page.goto('/dashboard/saved');
+    const panel = page.locator('[data-saved-panel="text-analysis"]');
+    await panel.locator('[data-kb-search]').fill(marker);
+    await expect(panel.locator(`[data-analysis-card="${t1}"]`)).toBeVisible({ timeout: 30000 });
+    await expect(panel.locator('[data-analysis-card]')).toHaveCount(3, { timeout: 30000 });
+    await panel.locator(`[data-select-check="${t1}"]`).check();
+    await panel.locator(`[data-select-check="${t2}"]`).check();
+    await apart('🗂', panel);
+    await panel.locator('[data-purpose-bulk-open]').click();
+    await expect(panelLoc.locator('[data-purpose-bulk-count]')).toHaveAttribute('data-purpose-bulk-count', '2');
+    await panelLoc.locator(`[data-purpose-bulk-option="${catA}"] input`).check();
+    await panelLoc.locator(`[data-purpose-bulk-option="${catB}"] input`).check();
+    await panelLoc.locator('[data-purpose-bulk-add]').click();
+    await expect(panelLoc.locator('[data-purpose-bulk-result]')).toContainText('2件に付けました', { timeout: 20000 });
+    await page.keyboard.press('Escape');
+    await expect(panel.locator(`[data-analysis-card="${t1}"] [data-purpose-badge]`), '2カテゴリ同時に付く').toHaveCount(2);
+    await expect(panel.locator(`[data-analysis-card="${t3}"] [data-purpose-badge]`), '選んでいない記事には付かない').toHaveCount(0);
+    // 混在: t3 も選んで catA を外す
+    await panel.locator(`[data-select-check="${t3}"]`).check();
+    await panel.locator('[data-purpose-bulk-open]').click();
+    await expect(panelLoc.locator('[data-purpose-bulk-count]')).toHaveAttribute('data-purpose-bulk-count', '3');
+    await panelLoc.locator(`[data-purpose-bulk-option="${catA}"] input`).check();
+    await panelLoc.locator('[data-purpose-bulk-remove]').click();
+    await expect(panelLoc.locator('[data-purpose-bulk-result]')).toContainText('2件から外しました', { timeout: 20000 });
+    await expect(panelLoc.locator('[data-purpose-bulk-result]'), '混在: 元から付いていない分は別に数える').toContainText('1件は元から付いていませんでした');
+    await page.keyboard.press('Escape');
+    await expect(panel.locator(`[data-analysis-card="${t1}"] [data-purpose-badge]`), 'catB は残る').toHaveCount(1);
+    const saves = await listSaves(request, { q: marker, limit: 100 });
+    expect((saves.items.find((i) => i.id === t1) as { purpose_category_ids?: number[] }).purpose_category_ids).toEqual([catB]);
+    expect(saves.items.length, '記事は消えない').toBe(3);
+    // 297の1件ずつの割り当ては不変（🎯用途 → チェック）
+    await panel.locator(`[data-purpose-button="${t3}"]`).click();
+    await page.locator('[data-purpose-picker]').locator(`[data-purpose-option="${catA}"] input`).check();
+    await page.keyboard.press('Escape');
+    await expect(panel.locator(`[data-analysis-card="${t3}"] [data-purpose-badge]`)).toHaveCount(1);
+    await panel.getByRole('button', { name: '✕ 選択をすべて解除' }).click();
+
+    // ════ 🧠: 同じ操作で付ける → 外す ════
+    await page.goto('/dashboard/context-library');
+    await page.locator('[data-kb-search]').fill(marker);
+    await expect(page.locator(`[data-ctx-card="${x1}"]`)).toBeVisible({ timeout: 30000 });
+    await expect(page.locator('[data-ctx-card]')).toHaveCount(2, { timeout: 30000 });
+    await page.locator(`[data-ctx-delete-check="${x1}"]`).check();
+    await page.locator(`[data-ctx-delete-check="${x2}"]`).check();
+    await apart('🧠');
+    await page.locator('[data-purpose-bulk-open]').click();
+    await expect(panelLoc.locator('[data-purpose-bulk-count]')).toHaveAttribute('data-purpose-bulk-count', '2');
+    await panelLoc.locator(`[data-purpose-bulk-option="${catB}"] input`).check();
+    await panelLoc.locator('[data-purpose-bulk-add]').click();
+    await expect(panelLoc.locator('[data-purpose-bulk-result]')).toContainText('2件に付けました', { timeout: 20000 });
+    await page.keyboard.press('Escape');
+    await expect(page.locator(`[data-ctx-card="${x1}"] [data-purpose-badge]`)).toHaveCount(1);
+    await expect(page.locator(`[data-ctx-card="${x2}"] [data-purpose-badge]`)).toHaveCount(1);
+    await expect(page.locator(`[data-purpose-bar="context"] [data-purpose-card="${catB}"]`), 'バーの件数も更新').toHaveAttribute('data-purpose-count', '2');
+    await page.locator('[data-purpose-bulk-open]').click();
+    await panelLoc.locator(`[data-purpose-bulk-option="${catB}"] input`).check();
+    await panelLoc.locator('[data-purpose-bulk-remove]').click();
+    await expect(panelLoc.locator('[data-purpose-bulk-result]')).toContainText('2件から外しました', { timeout: 20000 });
+    await page.keyboard.press('Escape');
+    await expect(page.locator(`[data-ctx-card="${x1}"] [data-purpose-badge]`)).toHaveCount(0);
+    expect((await request.get(`${CONTEXT_API}?id=${x1}`)).status(), '素材は消えない').toBe(200);
+  } finally {
+    await cleanupE2EPurposes(request);
+    await request.delete(LIBRARY_API, { data: { ids: [p1, p2, l3] } }).catch(() => {});
+    await cleanupE2ELibrary(request);
+    await cleanupE2ESaves(request);
+    await cleanupE2EContextSaves(request);
+  }
+});
+
+test('C107: 用途の一括API（298）— 1リクエストで複数件・一部失敗でも成功分は反映され件数で返る（R-39）・他人/存在しないIDは失敗扱い・上限超えは400（R-101）・mode不正は400・未認証401', async ({ request }) => {
+  const marker = `PBAPI${RUN_ID}`;
+  const t1 = await createSave(request, { title: `PBAPI-T1 ${marker}`, content: `T1 ${marker}`, analysisType: 'summary', analysisLabel: '概要・要約' });
+  const t2 = await createSave(request, { title: `PBAPI-T2 ${marker}`, content: `T2 ${marker}`, analysisType: 'summary', analysisLabel: '概要・要約' });
+  const cat = await createPurpose(request, `bulk ${marker}`);
+  try {
+    // 存在しないIDを混ぜる → その1件だけ失敗、他は反映（巻き戻さない）
+    const res = await request.patch(PURPOSES_API, { data: { action: 'bulk', scope: 'text_analysis', itemIds: [t1, 999999999, t2], categoryIds: [cat], mode: 'add' } });
+    expect(res.status()).toBe(200);
+    const j = await res.json();
+    expect(j.changed, '成功分').toBe(2);
+    expect(j.failed, '失敗分').toBe(1);
+    expect(j.failedKeys).toEqual(['999999999']);
+    expect(j.categories.find((c: { id: number }) => c.id === cat).count).toBe(2);
+    const saves = await listSaves(request, { q: marker, limit: 100 });
+    for (const id of [t1, t2]) expect((saves.items.find((i) => i.id === id) as { purpose_category_ids?: number[] }).purpose_category_ids).toEqual([cat]);
+    // 同じ操作をもう一度 → changed 0・unchanged 2（偽の成功を出さない）
+    const again = await (await request.patch(PURPOSES_API, { data: { action: 'bulk', scope: 'text_analysis', itemIds: [t1, t2], categoryIds: [cat], mode: 'add' } })).json();
+    expect(again.changed).toBe(0);
+    expect(again.unchanged).toBe(2);
+    // 外す（1件だけ）→ changed 1
+    const rm = await (await request.patch(PURPOSES_API, { data: { action: 'bulk', scope: 'text_analysis', itemIds: [t1], categoryIds: [cat], mode: 'remove' } })).json();
+    expect(rm.changed).toBe(1);
+    expect((await listSaves(request, { q: marker, pcat: cat, limit: 100 })).items.map((i) => i.id)).toEqual([t2]);
+    // 上限超え・mode不正・空
+    const over = await request.patch(PURPOSES_API, { data: { action: 'bulk', scope: 'text_analysis', itemIds: Array.from({ length: 501 }, (_, i) => i + 1), categoryIds: [cat], mode: 'add' } });
+    expect(over.status(), '上限超えは黙って切らず400').toBe(400);
+    expect((await request.patch(PURPOSES_API, { data: { action: 'bulk', scope: 'text_analysis', itemIds: [t1], categoryIds: [cat], mode: 'toggle' } })).status()).toBe(400);
+    expect((await request.patch(PURPOSES_API, { data: { action: 'bulk', scope: 'text_analysis', itemIds: [], categoryIds: [cat], mode: 'add' } })).status()).toBe(400);
+    const anon = await pwRequest.newContext({ baseURL: BASE_URL, storageState: { cookies: [], origins: [] } });
+    try {
+      expect((await anon.patch(PURPOSES_API, { data: { action: 'bulk', scope: 'text_analysis', itemIds: [t1], categoryIds: [cat], mode: 'add' } })).status()).toBe(401);
+    } finally {
+      await anon.dispose();
+    }
+    // 記事は消えない
+    expect((await listSaves(request, { q: marker, limit: 100 })).items.length).toBe(2);
+  } finally {
+    await cleanupE2EPurposes(request);
+    await cleanupE2ESaves(request);
+  }
+});

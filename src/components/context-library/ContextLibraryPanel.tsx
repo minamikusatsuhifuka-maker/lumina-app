@@ -23,6 +23,8 @@ import FolderPickerPopover from '@/components/custom-folders/FolderPickerPopover
 import PurposeCategoryBar from '@/components/purpose-categories/PurposeCategoryBar';
 import PurposePickerPopover from '@/components/purpose-categories/PurposePickerPopover';
 import PurposeBadges from '@/components/purpose-categories/PurposeBadges';
+import PurposeBulkPanel from '@/components/purpose-categories/PurposeBulkPanel';
+import { type PurposeBulkMode, purposeBulkState } from '@/lib/purpose-categories-shared';
 import { usePurposeCategories, type PurposeFilter } from '@/components/purpose-categories/usePurposeCategories';
 // 295: 291・292・293 の部品と判断をそのまま使う（新規に作らない・R-91）
 import LibraryCompareView from '@/components/library/LibraryCompareView';
@@ -278,6 +280,8 @@ export default function ContextLibraryPanel() {
   const [activePurpose, setActivePurpose] = useState<PurposeFilter>(null);
   const [purposePicker, setPurposePicker] = useState<{ id: number; rect: DOMRect } | null>(null);
   const purposePickerDirty = useRef(false);
+  // 298: 選択した素材にまとめて付け外し
+  const [purposeBulk, setPurposeBulk] = useState<{ rect: DOMRect } | null>(null);
   // 分類を変えたまま閉じたときだけ、絞り込み中の一覧を取り直すためのフラグ
   const folderPickerDirty = useRef(false);
   const [isAutoCategorizing, setIsAutoCategorizing] = useState(false);
@@ -660,6 +664,22 @@ export default function ContextLibraryPanel() {
     // 保存に成功したら所属を再適用する。検索入力直後など、保存より前に投げた一覧取得の応答が保存の応答より先に届くと
     // 楽観更新が古い一覧で上書きされ、バッジが消えて「開き直すと未チェック」になる（診断で実測）。再適用で確定値に揃える
     setItems(prev => prev.map(it => (it.id === id ? { ...it, purpose_category_ids: ok ? categoryIds : before } : it)));
+  };
+
+  /** 298: 一括付け外し。成功した素材（changed＋unchanged）にだけ確定値を反映する（失敗分は触らない・R-39） */
+  const handleBulkPurposes = async (mode: PurposeBulkMode, categoryIds: number[]) => {
+    const ids = Array.from(selectedIds);
+    const out = await purposes.bulkAssign(ids, categoryIds, mode);
+    if (!out) return null;
+    const okKeys = new Set([...out.changedKeys, ...out.unchangedKeys]);
+    setItems(prev => prev.map(it => {
+      if (!okKeys.has(String(it.id))) return it;
+      const cur = new Set(it.purpose_category_ids ?? []);
+      for (const cid of categoryIds) { if (mode === 'add') cur.add(cid); else cur.delete(cid); }
+      return { ...it, purpose_category_ids: Array.from(cur) };
+    }));
+    if (mode === 'remove' && activePurpose !== null && categoryIds.includes(activePurpose)) void fetchPage(0, false);
+    return out;
   };
 
   /** パネルからのお気に入り解除。分類だけ残らないよう先に全解除する */
@@ -1338,6 +1358,19 @@ export default function ContextLibraryPanel() {
           >
             ✕ 選択を解除
           </button>
+          {/* 298: 用途の一括付け外し。削除（右端・赤）から離した左側に青緑で置く（§3-2） */}
+          {(() => { const st = purposeBulkState(selectedIds.size); return (
+            <button
+              type="button"
+              data-purpose-bulk-open
+              onClick={(e) => setPurposeBulk({ rect: e.currentTarget.getBoundingClientRect() })}
+              disabled={!st.enabled}
+              title={st.reason ?? '選択した素材に用途カテゴリをまとめて付ける／外す（素材は削除されません）'}
+              style={{ ...cardActionBtnStyle(), fontSize: 12, padding: '6px 12px', fontWeight: 700, color: '#115e59', background: '#ccfbf1', border: '1px solid rgba(13,148,136,0.6)', cursor: st.enabled ? 'pointer' : 'not-allowed', opacity: st.enabled ? 1 : 0.6 }}
+            >
+              🎯 用途
+            </button>
+          ); })()}
           <button
             type="button"
             data-bulk-delete
@@ -2195,6 +2228,18 @@ export default function ContextLibraryPanel() {
             />
           );
         })()}
+
+      {/* 298: 選択した素材への一括付け外し */}
+      {purposeBulk && (
+        <PurposeBulkPanel
+          anchorRect={purposeBulk.rect}
+          categories={purposes.categories}
+          selectedCount={selectedIds.size}
+          onApply={handleBulkPurposes}
+          onCreate={purposes.createCategory}
+          onClose={() => setPurposeBulk(null)}
+        />
+      )}
 
       {/* 297: 用途の割り当てパネル（🎯ボタンから開く） */}
       {purposePicker &&
