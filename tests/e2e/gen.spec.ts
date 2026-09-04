@@ -656,10 +656,25 @@ test('B28: モデル比較の Claude Opus 5 側（290）— compare:"opus" で�
   const text = events.filter((e) => e.type === 'text').map((e) => String(e.content ?? '')).join('');
   const tag = text.match(HTML_TAG_RE);
   expect(tag, `HTMLタグが本文に出ないこと（検出: ${tag?.[0] ?? '無し'} …${text.slice(Math.max(0, (tag?.index ?? 0) - 40), (tag?.index ?? 0) + 60)}）`).toBeNull();
+  // 294 §2-5: 出力が本文（見出しまたは本文の1文目）から始まり、英語の前置き（作業宣言）を含まない。是正はプロンプト側
+  expectNoPreamble(text, 'B28');
 });
 
 /** 292: 本文に出てはいけない HTML タグ（装飾・レイアウト用途）。コードブロック内も含めて本文に無いことを見る */
 const HTML_TAG_RE = /<\/?(span|div|p|b|i|u|br|font|a|strong|em|h[1-6]|ul|ol|li|table|tr|td)\b[^>]*>/i;
+
+/** 294 §2: Opus が出した英語の作業宣言（"I'll research this topic thoroughly before writing the report."）の型 */
+const PREAMBLE_RE = /^\s*(I['’]ll|I will|I am going to|Let me|Here is|Here's|Sure|Certainly|Okay|OK)\b/i;
+
+/** 294 §2-5: 本文が見出し（#）または日本語の1文目から始まり、前置きが「#」に連結していないこと */
+function expectNoPreamble(text: string, label: string) {
+  const head = text.trimStart().slice(0, 120);
+  expect(head, `[${label}] 英語の作業宣言で始まらない（先頭: ${JSON.stringify(head)}）`).not.toMatch(PREAMBLE_RE);
+  expect(head, `[${label}] 見出し（#）または日本語の本文から始まる（先頭: ${JSON.stringify(head)}）`).toMatch(/^(#{1,6}\s|[^\x00-\x7F])/);
+  // 「前置き# 見出し」のように空白なしで # が連結されて見出しが壊れる形が無い（行頭以外の "# " は本文中の記号として許容しない）
+  const glued = text.match(/[^\n\s]#{1,6} \S/);
+  expect(glued, `[${label}] 前置きと見出しが1行に混ざらない（検出: ${glued?.[0] ?? '無し'}）`).toBeNull();
+}
 
 test('B29: モデル比較の Gemini 側（292 §3-5）— compare:"gemini" の実生成に退行がなく、HTML タグが本文に出ない @gen', async ({ request }) => {
   test.setTimeout(GEN_TIMEOUT);
@@ -677,4 +692,6 @@ test('B29: モデル比較の Gemini 側（292 §3-5）— compare:"gemini" の�
   expect(text.length, '本文が返る').toBeGreaterThan(200);
   const tag = text.match(HTML_TAG_RE);
   expect(tag, `HTMLタグが本文に出ないこと（検出: ${tag?.[0] ?? '無し'}）`).toBeNull();
+  // 294 §6: Gemini 側にも同じ定数が入る（害なし）。前置きが出ないこと＝退行なし
+  expectNoPreamble(text, 'B29');
 });
