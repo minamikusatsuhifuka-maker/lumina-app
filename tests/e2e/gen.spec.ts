@@ -671,8 +671,9 @@ function expectNoPreamble(text: string, label: string) {
   const head = text.trimStart().slice(0, 120);
   expect(head, `[${label}] 英語の作業宣言で始まらない（先頭: ${JSON.stringify(head)}）`).not.toMatch(PREAMBLE_RE);
   expect(head, `[${label}] 見出し（#）または日本語の本文から始まる（先頭: ${JSON.stringify(head)}）`).toMatch(/^(#{1,6}\s|[^\x00-\x7F])/);
-  // 「前置き# 見出し」のように空白なしで # が連結されて見出しが壊れる形が無い（行頭以外の "# " は本文中の記号として許容しない）
-  const glued = text.match(/[^\n\s]#{1,6} \S/);
+  // 「前置き# 見出し」のように空白なしで # が連結されて見出しが壊れる形が無い（行頭以外の "# " は本文中の記号として許容しない）。
+  // 直前の1文字に # 自身を含めない（"## 見出し" の1文字目の # が [^\n\s] に食われて偽陽性になった＝初回実測）
+  const glued = text.match(/[^\n\s#]#{1,6} \S/);
   expect(glued, `[${label}] 前置きと見出しが1行に混ざらない（検出: ${glued?.[0] ?? '無し'}）`).toBeNull();
 }
 

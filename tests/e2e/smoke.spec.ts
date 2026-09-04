@@ -368,7 +368,9 @@ test('C17: 一括フォルダ移動（action:bulk_folder）', async ({ request }
 // ============================================================================
 
 async function selectTwoCrossCards(page: import('@playwright/test').Page) {
-  const search = page.getByPlaceholder('🔍 タイトル・本文で検索').filter({ visible: true });
+  // 293 で検索欄の説明文が検索範囲に連動（SEARCH_PLACEHOLDER.ta）し「🔍 タイトル・ファイル名・本文で検索」に
+  // 変わった。文言の完全一致で探すと 293 以降 C18/C19 が恒常タイムアウトになる（294 の本番E2Eで検出）
+  const search = page.getByPlaceholder(/^🔍 タイトル.*で検索/).filter({ visible: true });
   await search.fill(CROSS_TOKEN);
   // C19/C20安定化: ポインタクリックは浮遊要素（追従ボタン等）の一時的な重なりで
   // 「<div> intercepts pointer events」の恒常タイムアウトになることがある（repeat-each 3で再現）。
@@ -438,7 +440,7 @@ test('C20: note素材選択（180）でプラン画面に到達し、選択し�
   });
 
   await page.goto('/dashboard/saved');
-  const search = page.getByPlaceholder('🔍 タイトル・本文で検索').filter({ visible: true });
+  const search = page.getByPlaceholder(/^🔍 タイトル.*で検索/).filter({ visible: true }); // 293で説明文が変わった（294で是正）
   await search.fill(CROSS_TOKEN);
   await expect(page.locator(`[data-bundle-key="ana-${crossIds[0]}"]`)).toBeVisible();
 
@@ -564,7 +566,7 @@ test('C22: note選択モード中の干渉（214）— 案内表示＋カート�
   // 切り替わり横断分析のselectedIdsに入らない（180の仕様）。
   // 案③=モード中の案内表示、案④=カートの確認モーダルから横断分析へ流せることを検証する
   await page.goto('/dashboard/saved');
-  const search = page.getByPlaceholder(/🔍 タイトル・本文で検索/).filter({ visible: true });
+  const search = page.getByPlaceholder(/^🔍 タイトル.*で検索/).filter({ visible: true }); // 293で説明文が変わった（294で是正）
   await search.fill(CROSS_TOKEN);
   await expect(page.locator(`[data-bundle-key="ana-${crossIds[0]}"]`)).toBeVisible();
 
