@@ -1336,3 +1336,16 @@
   components/custom-folders/*）に新体系の語が入らないことを単体テストで固定する（U67 が雛形）。画面では枠・見出しの役割・色を
   分け、既存分類の語（「フォルダ」）を新体系の文言に使わない。
 - 初出: 297 / 2026-09-04
+
+## R-108: クライアント部品はサーバー専用モジュール（`@/lib/db` を import する lib）から値を import しない。純関数・定数は DB 非依存のファイルに分け、ビルド後のクライアントチャンクに `neondatabase` / `DATABASE_URL` が無いことを確認する
+- 分類: デプロイ
+- 背景: 297 の初回デプロイで、`PurposeCategoryBar`（'use client'）が `lib/purpose-categories.ts` の純関数
+  `purposeDeleteConfirmMessage` を import した。同ファイルは `@/lib/db`（neon）を import するため、ブラウザ側バンドルに
+  neon と `process.env.DATABASE_URL` の参照が混入し、モジュール初期化で例外→📚🗂🧠の3画面が丸ごと描画されなくなった。
+  `npm run build` も tsc も通るので静的には気づけず、本番E2Eの画面系14件が一斉に落ちて検出（API系は合格）。即 revert。
+- 検証: サーバー専用 lib から画面へ渡す純関数・定数は `lib/<name>-shared.ts`（`@/lib/db`・`sanitize` を import しない）に置き、
+  クライアントは必ずそこから import する（サーバー lib からは `import type` のみ）。単体テストで「クライアント部品の値 import
+  元」を固定する（U67 が雛形）。デプロイ前に `grep -l '<画面固有の文言>' .next/static/chunks/*.js` で該当チャンクを特定し、
+  `grep -c neondatabase` が 0 であることを確認する。画面系E2Eが同じページで一斉に落ちたら、まずクライアントバンドルへの
+  サーバーモジュール混入を疑う。
+- 初出: 297 / 2026-09-04

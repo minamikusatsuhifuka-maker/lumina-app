@@ -8,7 +8,8 @@
 
 import { useEffect, useState } from 'react';
 import type { PurposeCategory } from '@/lib/purpose-categories';
-import { purposeDeleteConfirmMessage } from '@/lib/purpose-categories';
+// 値の import は DB 非依存の shared から（lib/purpose-categories は neon を含むサーバー専用・R-108）
+import { purposeDeleteConfirmMessage } from '@/lib/purpose-categories-shared';
 import type { PurposeFilter } from './usePurposeCategories';
 import { PURPOSE_ACCENT, purposeChipStyle } from './purposeStyles';
 

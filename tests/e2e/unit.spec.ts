@@ -110,7 +110,8 @@ import { CL_LIST_COLUMN_CHOICE_DEFAULT, CL_LIST_COLUMN_KEY, CL_LIST_DENSITY_KEY 
 import { CL_SEARCH_SCOPE_KEY, LIBRARY_SEARCH_SCOPE_KEY, TA_SEARCH_SCOPE_KEY } from '../../src/lib/library-filters';
 import { CONTEXT_ORIGIN_LABEL, contextOriginKind, originLabel } from '../../src/lib/context-origin';
 // 297: 用途カテゴリ
-import { MAX_PURPOSE_NAME_LENGTH, normalizePurposeName, purposeDeleteConfirmMessage } from '../../src/lib/purpose-categories';
+import { normalizePurposeName } from '../../src/lib/purpose-categories';
+import { MAX_PURPOSE_NAME_LENGTH, purposeDeleteConfirmMessage } from '../../src/lib/purpose-categories-shared';
 import { buildScheduleRows, scheduleToMarkdown } from '../../src/lib/posting-schedule';
 import { buildNotePasteText, buildNoteHtml } from '../../src/lib/note-compat';
 import { estimateTitleLines, estimateSummaryImageHeight } from '../../src/lib/summary-image-templates';
@@ -2909,6 +2910,15 @@ test('U67: 用途カテゴリ（297）— 名前の正規化／削除の確認�
   const styles = readFileSync(join(__dirname, '../../src/components/purpose-categories/purposeStyles.ts'), 'utf8');
   expect(styles).toContain("PURPOSE_ACCENT = '#0d9488'");
   expect(styles.replace(/^\s*\/\/.*$/gm, ''), 'マイフォルダの金色を用途の色に使わない（コメントは除く）').not.toContain('#f59e0b');
+  // R-108: クライアント部品はサーバー専用モジュール（lib/purpose-categories＝neon を含む）から値を import しない（型のみ）
+  for (const f of ['PurposeCategoryBar.tsx', 'PurposePickerPopover.tsx', 'PurposeBadges.tsx', 'usePurposeCategories.ts']) {
+    const src = readFileSync(join(__dirname, '../../src/components/purpose-categories/', f), 'utf8');
+    const valueImports = src.match(/^import (?!type )[^;]*from '@\/lib\/purpose-categories';/gm) ?? [];
+    expect(valueImports, `${f}: lib/purpose-categories からは import type のみ`).toEqual([]);
+    expect(src).not.toMatch(/from '@\/lib\/db'/);
+  }
+  const shared = readFileSync(join(__dirname, '../../src/lib/purpose-categories-shared.ts'), 'utf8').replace(/^\s*\/\/.*$/gm, '').replace(/\/\*[\s\S]*?\*\//g, '');
+  expect(shared, 'shared は DB 非依存（コメントは除く）').not.toMatch(/@\/lib\/db|neon|sanitize|^import /m);
   // 記事削除時に用途の所属も外す（3つの削除API）
   for (const f of ['src/app/api/library/route.ts', 'src/app/api/text-analysis/saves/route.ts', 'src/app/api/context-saves/route.ts']) {
     const src = readFileSync(join(__dirname, '../../', f), 'utf8');

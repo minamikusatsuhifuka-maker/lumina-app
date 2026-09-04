@@ -26,8 +26,9 @@ import { ITEM_SCOPES, isItemScope, type ItemScope } from '@/lib/custom-folders';
 export { ITEM_SCOPES, isItemScope };
 export type { ItemScope };
 
-/** カテゴリ名の上限（バッジ表示が破綻しない長さ・マイフォルダと同じ） */
-export const MAX_PURPOSE_NAME_LENGTH = 30;
+// クライアントでも使う純関数・定数は purpose-categories-shared.ts（DB 非依存）に置き、ここから再エクスポートする
+export { MAX_PURPOSE_NAME_LENGTH, purposeDeleteConfirmMessage } from '@/lib/purpose-categories-shared';
+import { MAX_PURPOSE_NAME_LENGTH } from '@/lib/purpose-categories-shared';
 /** カテゴリ数の上限（一覧性を失わない範囲） */
 export const MAX_PURPOSES = 50;
 
@@ -192,15 +193,4 @@ export async function detachItemsFromPurposes(userId: string, scope: ItemScope, 
   if (keys.length === 0) return;
   await sql`DELETE FROM purpose_category_items
     WHERE user_id = ${userId} AND scope = ${scope} AND item_key = ANY(${keys})`;
-}
-
-/**
- * 削除確認に出す「そのカテゴリに入っている件数」（3画面合計）。削除自体はしない（R-76: 取得成功後に破壊的操作）。
- */
-export function purposeDeleteConfirmMessage(name: string, countTotal: number): string {
-  return (
-    `用途カテゴリ「${name}」を削除します。\n\n` +
-    `このカテゴリには ${countTotal}件 の記事が入っていますが、記事は削除されません（用途の割り当てが外れるだけです）。\n` +
-    `よろしいですか？`
-  );
 }
