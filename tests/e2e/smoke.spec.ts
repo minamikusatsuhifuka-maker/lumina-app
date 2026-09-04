@@ -2987,6 +2987,12 @@ test('C61: ペルソナ別note記事の体裁（264）— タイトル分離・�
   // 266【1】: noteはh2=大見出し。note用コピーは見出しが1段繰り上がり、大見出し(h2)が2本以上立つこと
   expect((richHtml.match(/<h2\b/g) ?? []).length, 'note用コピーは大見出し(h2)が2本以上').toBeGreaterThanOrEqual(2);
   expect(richHtml, '繰り上げ後もh1は作らない').not.toMatch(/<h1\b/);
+  // 294 §3: note用は空段落（<p style="margin:0;"><br></p>）を持ち込まない（note は段落余白を自前で持つ＝二重の空きを作らない）
+  expect(richHtml, 'note用コピーに294の空段落が無い').not.toContain('<p style="margin:0;"><br></p>');
+  // 294 §3-4: text/plain は生MD（変更していない）
+  const plainOfRich = await page.evaluate(() => navigator.clipboard.readText());
+  expect(plainOfRich, 'リッチコピーの text/plain は生MDのまま').toContain('## 保湿の基本を見直す');
+  expect(plainOfRich).not.toContain('<p');
 
   await page.locator('[data-copy-md]').click();
   await expect

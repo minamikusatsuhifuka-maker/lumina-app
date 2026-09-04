@@ -103,7 +103,8 @@ import { parsePersonaArticleOutput } from '../../src/lib/persona-styles';
 import { PLAYBOOK, PLAYBOOK_VERSION, getPlaybook } from '../../src/lib/knowledge/noteXPlaybook';
 import { validateXPost, countHashtags, hasBlankLineRhythm } from '../../src/lib/x-post-rules';
 import { appendStrategyDisclaimer } from '../../src/lib/knowledge/strategyDisclaimer';
-import { promoteHeadingsForNote, markdownToWordHtml } from '../../src/lib/rich-copy';
+import { promoteHeadingsForNote, markdownToWordHtml, richCopyParts, stripRichCopyGaps, RICH_COPY_GAP_HTML, RICH_COPY_P_OPEN } from '../../src/lib/rich-copy';
+import { NO_PREAMBLE_PROMPT_RULE } from '../../src/lib/markdown-renderer';
 import { buildScheduleRows, scheduleToMarkdown } from '../../src/lib/posting-schedule';
 import { buildNotePasteText, buildNoteHtml } from '../../src/lib/note-compat';
 import { estimateTitleLines, estimateSummaryImageHeight } from '../../src/lib/summary-image-templates';
@@ -2699,4 +2700,58 @@ test('U63: 検索とフィルタ（293）— 既定は「すべて」／正規�
   expect((lib.match(/auto-categorize/g) ?? []).length, '📚の auto-categorize 呼び出しは従来の2箇所（一括・未分類再分類）のまま').toBe(2);
   const sal = readFileSync(join(__dirname, '../../src/components/text-analysis/SavedAnalysisList.tsx'), 'utf8');
   expect((sal.match(/fetch\('\/api\/text-analysis\/auto-categorize'/g) ?? []).length, '🗂の auto-categorize 呼び出しは従来の1箇所（🤖ボタン・confirm つき）のまま').toBe(1);
+});
+
+// ───────────────────────────────────────────────────────────────────────────
+// 294: Opus前置きの禁止（プロンプト側）／リッチコピーの text/html に空行を明示（R-104）
+// ───────────────────────────────────────────────────────────────────────────
+test('U64: 294 — 前置き禁止は NO_HTML_PROMPT_RULE に含まれ全経路に効く／表示側は無変更／text/html は空行を明示の空段落で持ち <p> の暗黙余白を切る／text/plain は不変／note用は空段落を外し見出し繰り上げは従来どおり', () => {
+  // §2-2: 同じ定数に追加＝埋め込み先（DR system＋user・auto-revise・compare-models）は無変更で効く
+  expect(NO_HTML_PROMPT_RULE).toContain(NO_PREAMBLE_PROMPT_RULE);
+  expect(NO_PREAMBLE_PROMPT_RULE).toMatch(/前置き/);
+  expect(NO_PREAMBLE_PROMPT_RULE, '締めの言葉も同じ扱い').toMatch(/以上です/);
+  expect(NO_PREAMBLE_PROMPT_RULE, '英語混入を防ぐため日本語出力を明示').toMatch(/日本語で書く/);
+  const dr = readFileSync(join(__dirname, '../../src/app/api/deepresearch/route.ts'), 'utf8');
+  expect((dr.match(/\$\{NO_HTML_PROMPT_RULE\}/g) ?? []).length, 'DR は system と user の両方（292のまま）').toBeGreaterThanOrEqual(2);
+  for (const f of ['src/app/api/clinic/handbook-improve/auto-revise/route.ts', 'src/app/api/clinic/handbook-improve/compare-models/route.ts']) {
+    expect(readFileSync(join(__dirname, '../../', f), 'utf8'), `${f} に NO_HTML_PROMPT_RULE`).toContain('${NO_HTML_PROMPT_RULE}');
+  }
+  // §2-4 / R-102: 表示側で先頭の英文を削らない（MarkdownBody・renderMarkdown に前置き除去の変換が無い）
+  const mb = readFileSync(join(__dirname, '../../src/components/MarkdownBody.tsx'), 'utf8');
+  expect(mb).not.toMatch(/\.replace\(|I'll|前置き/);
+  const renderer = readFileSync(join(__dirname, '../../src/lib/markdown-renderer.ts'), 'utf8');
+  expect(renderer, 'renderMarkdown 側に先頭英文の除去を足していない').not.toMatch(/\/\^\[A-Za-z\]|^\s*\/\/.*前置き.*除去/m);
+
+  // §3: text/html の行構造 = text/plain の行構造
+  const md = '## はじめに\n一文目。\n二文目。\n\n## 表\n| a | b |\n|---|---|\n| 1 | 2 |\n\n出典: 厚労省 https://www.mhlw.go.jp/\n\n## まとめ\n以上。';
+  const { html, plain } = richCopyParts(md);
+  // §3-4 / §4: text/plain は一切変更しない（LaTeX 無しなら原文そのまま）
+  expect(plain).toBe(md);
+  // 空行（MDの空行3つ）が明示の空段落として同数残る／md-gap は残らない
+  expect((html.match(new RegExp(RICH_COPY_GAP_HTML.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g')) ?? []).length).toBe(3);
+  expect(html).not.toContain('md-gap');
+  // <p> は全て余白0（暗黙の余白に頼らない＝二重余白を作らない）。素の <p> は残らない
+  expect(html).not.toMatch(/<p>/);
+  expect(html).toContain(`${RICH_COPY_P_OPEN}一文目。</p>\n${RICH_COPY_P_OPEN}二文目。</p>`);
+  expect(html).toMatch(/<p style="margin:0;font-size:10pt;color:#666666;">出典:/);
+  // 232の体裁は不変: 見出し（##→h3）・表の罫線
+  expect(html).toContain('<h3>はじめに</h3>');
+  expect(html).toContain('<table style="border-collapse:collapse;">');
+  expect(html).toMatch(/<td style="border:1px solid #888;/);
+  // 単独行画像の <img> 復元（232）は <p> の余白付与より前に走る＝壊れない
+  expect(markdownToWordHtml('![図](https://example.com/a.png)')).toContain('<img src="https://example.com/a.png" alt="図"');
+  expect(markdownToWordHtml('![図](https://example.com/a.png)')).not.toContain('![図]');
+
+  // note用（266）: 空段落だけ外れ、見出し繰り上げは従来どおり（h3→h2）
+  const note = promoteHeadingsForNote(stripRichCopyGaps(html));
+  expect(note).not.toContain(RICH_COPY_GAP_HTML);
+  expect((note.match(/<h2\b/g) ?? []).length).toBe(3);
+  expect(note).not.toContain('<h1');
+  // stripRichCopyGaps は空段落以外を触らない
+  expect(stripRichCopyGaps('<h3>x</h3>\n<p style="margin:0;">y</p>')).toBe('<h3>x</h3>\n<p style="margin:0;">y</p>');
+  // copyRichMarkdownForNote が実際にこの2段を通している（ソース固定）
+  const rc = readFileSync(join(__dirname, '../../src/lib/rich-copy.ts'), 'utf8');
+  expect(rc).toContain('promoteHeadingsForNote(stripRichCopyGaps(markdownToWordHtml(markdown)))');
+  // 共有ヘルパー本体（案A）: copyRichMarkdown は richCopyParts を使い plain は sanitizeLatex(markdown) のまま
+  expect(rc).toMatch(/export async function copyRichMarkdown\(markdown: string\)[\s\S]*?const plain = sanitizeLatex\(markdown\);[\s\S]*?richCopyParts\(markdown\)/);
 });
