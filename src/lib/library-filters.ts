@@ -24,6 +24,8 @@ export const SEARCH_SCOPE_LABEL: Record<SearchScope, string> = { all: 'すべて
 export const SEARCH_SCOPE_DEFAULT: SearchScope = 'all';
 export const LIBRARY_SEARCH_SCOPE_KEY = 'lumina_library_search_scope';
 export const TA_SEARCH_SCOPE_KEY = 'lumina_ta_search_scope';
+/** 295: 🧠AI参照素材の検索範囲の保存先（判断・選択肢は📚🗂と共有） */
+export const CL_SEARCH_SCOPE_KEY = 'lumina_cl_search_scope';
 
 export function loadSearchScope(key: string): SearchScope {
   try {
@@ -45,9 +47,11 @@ export function saveSearchScope(scope: SearchScope, key: string): void {
  * 📚: すべて＝タイトル・本文・タグ（従来どおり）／タイトルのみ。
  * 🗂: すべて＝タイトル・ファイル名・本文（/api/text-analysis/saves の ILIKE 対象）／タイトルのみ（タイトル・ファイル名）。
  */
-export const SEARCH_PLACEHOLDER: Record<'library' | 'ta', Record<SearchScope, string>> = {
+export const SEARCH_PLACEHOLDER: Record<'library' | 'ta' | 'cl', Record<SearchScope, string>> = {
   library: { all: '🔍 タイトル・本文・タグで検索...', title: '🔍 タイトルで検索（本文・タグは対象外）...' },
   ta: { all: '🔍 タイトル・ファイル名・本文で検索', title: '🔍 タイトル・ファイル名で検索（本文は対象外）' },
+  // 295: 🧠AI参照素材。/api/context-saves の ILIKE 対象は topic と context_text（タグは対象外）。従来文言「トピック名・内容」を保つ
+  cl: { all: '🔍 トピック名・内容で検索...', title: '🔍 トピック名で検索（内容は対象外）...' },
 };
 
 // ───────────────────────────────────────────────────────────────────────────

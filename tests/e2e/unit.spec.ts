@@ -105,6 +105,10 @@ import { validateXPost, countHashtags, hasBlankLineRhythm } from '../../src/lib/
 import { appendStrategyDisclaimer } from '../../src/lib/knowledge/strategyDisclaimer';
 import { promoteHeadingsForNote, markdownToWordHtml, richCopyParts, stripRichCopyGaps, RICH_COPY_GAP_HTML, RICH_COPY_P_OPEN } from '../../src/lib/rich-copy';
 import { NO_PREAMBLE_PROMPT_RULE } from '../../src/lib/markdown-renderer';
+// 295: 🧠AI参照素材への横展開（保存先キーだけ画面別・判断は共有）
+import { CL_LIST_COLUMN_CHOICE_DEFAULT, CL_LIST_COLUMN_KEY, CL_LIST_DENSITY_KEY } from '../../src/lib/library-view';
+import { CL_SEARCH_SCOPE_KEY, LIBRARY_SEARCH_SCOPE_KEY, TA_SEARCH_SCOPE_KEY } from '../../src/lib/library-filters';
+import { CONTEXT_ORIGIN_LABEL, contextOriginKind, originLabel } from '../../src/lib/context-origin';
 import { buildScheduleRows, scheduleToMarkdown } from '../../src/lib/posting-schedule';
 import { buildNotePasteText, buildNoteHtml } from '../../src/lib/note-compat';
 import { estimateTitleLines, estimateSummaryImageHeight } from '../../src/lib/summary-image-templates';
@@ -2754,4 +2758,56 @@ test('U64: 294 — 前置き禁止は NO_HTML_PROMPT_RULE に含まれ全経路�
   expect(rc).toContain('promoteHeadingsForNote(stripRichCopyGaps(markdownToWordHtml(markdown)))');
   // 共有ヘルパー本体（案A）: copyRichMarkdown は richCopyParts を使い plain は sanitizeLatex(markdown) のまま
   expect(rc).toMatch(/export async function copyRichMarkdown\(markdown: string\)[\s\S]*?const plain = sanitizeLatex\(markdown\);[\s\S]*?richCopyParts\(markdown\)/);
+});
+
+// ───────────────────────────────────────────────────────────────────────────
+// 295: 🧠AI参照素材への横展開（291・292・293 の判断を共有し、別の閾値・別の判定を作らない）
+// ───────────────────────────────────────────────────────────────────────────
+test('U65: AI参照素材の横展開（295）— 保存先キーは画面別で既定は1列/詳細/すべて／文字数の段階・列数判定・比較の判断は同じ関数（別実装なし）／生成元の判定は決定的で一覧のバッジと比較の列ヘッダーが同じ語／検索の説明文は実装と一致／ページングは30件のまま／API は qScope=title で本文を外す', () => {
+  // §2-1/§2-2/§2-6: 画面別キー（📚🗂と混ざらない）・既定は現状維持（1列・詳細・すべて）
+  expect(CL_LIST_COLUMN_CHOICE_DEFAULT).toBe(1);
+  expect(new Set([LIST_COLUMN_KEY, TA_LIST_COLUMN_KEY, CL_LIST_COLUMN_KEY]).size).toBe(3);
+  expect(new Set([LIST_DENSITY_KEY, TA_LIST_DENSITY_KEY, CL_LIST_DENSITY_KEY]).size).toBe(3);
+  expect(new Set([LIBRARY_SEARCH_SCOPE_KEY, TA_SEARCH_SCOPE_KEY, CL_SEARCH_SCOPE_KEY]).size).toBe(3);
+  expect(loadListColumnChoice(CL_LIST_COLUMN_KEY, CL_LIST_COLUMN_CHOICE_DEFAULT), 'window の無い環境では既定').toBe(1);
+  expect(loadListDensity(CL_LIST_DENSITY_KEY)).toBe('detail');
+  expect(loadSearchScope(CL_SEARCH_SCOPE_KEY)).toBe('all');
+  // 説明文は実際の検索対象（/api/context-saves: topic・context_text。タグは対象外）と一致し、従来文言「トピック名・内容」を保つ
+  expect(SEARCH_PLACEHOLDER.cl.all).toContain('トピック名・内容で検索');
+  expect(SEARCH_PLACEHOLDER.cl.title).toContain('内容は対象外');
+  expect(SEARCH_PLACEHOLDER.cl.all).not.toContain('タグ');
+
+  // §2-4: 生成元の判定は決定的（同じ入力→同じ結果・タグ順に依らない）。一覧のバッジと比較の列ヘッダーが同じ表
+  expect(contextOriginKind(null)).toBe('deepresearch');
+  expect(contextOriginKind([])).toBe('deepresearch');
+  expect(contextOriginKind(['group:x', 'batch:12-0'])).toBe('batch');
+  expect(contextOriginKind(['batch:12-0', 'group:x'])).toBe('batch');
+  expect(contextOriginKind(['batchless', 'group:batch:1'])).toBe('deepresearch');
+  expect(originLabel(['batch:1'])).toEqual(CONTEXT_ORIGIN_LABEL.batch);
+  expect(originLabel(['ディープリサーチ'])).toEqual({ icon: '🔭', label: 'ディープリサーチ' });
+  expect(CONTEXT_ORIGIN_LABEL.batch.label).toBe('ディープリサーチ（バッチ）');
+
+  // §1-3/§2-3: パネルは共有部品・共有判断だけを使い、自前の閾値・列クラス・比較判定・生成元判定を持たない
+  const panel = readFileSync(join(__dirname, '../../src/components/context-library/ContextLibraryPanel.tsx'), 'utf8');
+  expect(panel).toContain("from '@/lib/library-view'");
+  expect(panel).toContain("from '@/lib/library-filters'");
+  expect(panel).toContain("from '@/lib/context-origin'");
+  expect(panel).toContain("import { CharCountBadge } from '@/components/LibraryItemRow'");
+  expect(panel).toContain("import LibraryCompareView from '@/components/library/LibraryCompareView'");
+  expect(panel).toContain("import { ActiveConditionChips } from '@/components/ActiveConditionChips'");
+  expect(panel).toContain('libraryCompareState(selectedIds.size)');
+  expect(panel).toContain('listGridClass(resolvedListCols)');
+  expect(panel).toContain('zeroResultMessage(activeConditions.length)');
+  expect(panel).not.toMatch(/CHAR_COUNT_TIERS\s*=|function charCountTier|grid-cols-\$\{|function originLabel/);
+  expect(panel, '新しい選択モードを作らない＝既存の selectedIds（☑選んで削除）を流用').not.toMatch(/compareSelectedIds|compareMode/);
+  // §3-1: ページングは30件のまま（列数を増やしても変えない）
+  expect(panel).toMatch(/const PAGE_SIZE = 30;/);
+  expect(panel).toContain("p.set('limit', String(PAGE_SIZE))");
+  // §2-7: 新規のAI分類は実装しない（既存の自動カテゴライズ呼び出しは従来の1箇所＝🤖ボタン・confirm つき）
+  expect((panel.match(/\/api\/context-library\/auto-categorize|\/api\/context-saves\/auto-categorize/g) ?? []).length).toBeLessThanOrEqual(1);
+  // §2-6: API は qScope=title で本文（context_text）を検索対象から外す。既定は従来どおり両方
+  const api = readFileSync(join(__dirname, '../../src/app/api/context-saves/route.ts'), 'utf8');
+  expect(api).toContain("searchParams.get('qScope') !== 'title'");
+  expect((api.match(/context_text ILIKE \$\{qBody\}/g) ?? []).length, '一覧と件数の両方のクエリに効く').toBe(2);
+  expect(api).not.toMatch(/context_text ILIKE \$\{qLike\}/);
 });

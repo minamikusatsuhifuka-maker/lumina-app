@@ -6780,3 +6780,271 @@ test('C100: テキスト分析の検索とフィルタ（293）— 「タイト�
     await cleanupE2ESaves(request);
   }
 });
+
+// ───────────────────────────────────────────────────────────────────────────
+// 295: 🧠AI参照素材への横展開（291・292・293 の部品と判断をそのまま使う）
+// ───────────────────────────────────────────────────────────────────────────
+test('C101: AI参照素材の一覧の見え方と選択比較（295）— 列数（既定1列・2/自動/横スクロールなし）・密度（既定詳細・コンパクトは操作/📌/活用するを出さない）・文字数の段階は291/292と同じ関数・バッジ行→タイトル行・保持・タッチは1列固定・ページング30件のまま・☑選んで削除の選択から比較（2〜4件・5件目は無効化と理由・列ヘッダーに生成元・289列数/高さ・271同期/sticky・282全画面・生MD露出なし）・274クリック展開/⋯メニュー/活用する/一括削除に退行なし', async ({ page, request, browser }) => {
+  test.setTimeout(180_000);
+  const marker = `CL295${RUN_ID}`;
+  const body = (tag: string, len: number) => `${tag} ${marker}\n\n## 見出し${tag}${marker}\n\n` + 'あ'.repeat(Math.max(0, len));
+  // createContextSave は [E2E] 接頭辞を付ける。d/e は本文の長さを揃える（同じ文字数→同じ段階・同じ色）。b はバッチ由来（生成元の判定）
+  const a = await createContextSave(request, { topic: `CL-A ${marker}`, contextText: body('A', 3500) });
+  const b = await createContextSave(request, { topic: `CL-B ${marker}`, contextText: body('B', 1500), tags: [`batch:9900295-0`, 'group:検証'] });
+  const c = await createContextSave(request, { topic: `CL-C ${marker}`, contextText: body('C', 1500) });
+  const d = await createContextSave(request, { topic: `CL-D ${marker}`, contextText: body('D', 300) });
+  const e = await createContextSave(request, { topic: `CL-E ${marker}`, contextText: body('E', 300) });
+  const card = (id: number) => page.locator(`[data-ctx-card="${id}"]`);
+  const badge = (id: number) => card(id).locator('[data-char-count]');
+  const check = (id: number) => page.locator(`[data-ctx-delete-check="${id}"]`);
+  const grid = page.locator('[data-library-grid]').first();
+  const openBtn = page.locator('[data-ctx-compare-open]');
+  const col = (i: number) => page.locator(`[data-compare-col="${i}"]`);
+  const dialog = page.locator('[role="dialog"][data-kb-scope="reader"]');
+  const tierOf = async (id: number) => Number(await badge(id).getAttribute('data-char-tier'));
+  const bgOf = (id: number) => badge(id).evaluate((el) => getComputedStyle(el).backgroundColor);
+  // §3-1: 一覧APIへの limit は常に 30（列数を増やしても変えない）
+  const limits: string[] = [];
+  page.on('request', (req) => {
+    const u = req.url();
+    if (u.includes('/api/context-saves?') && u.includes('limit=')) limits.push(new URL(u).searchParams.get('limit') ?? '');
+  });
+
+  try {
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto('/dashboard/context-library');
+    await page.evaluate(() => {
+      localStorage.removeItem('lumina_cl_cols');
+      localStorage.removeItem('lumina_cl_density');
+      localStorage.removeItem('lumina_batch_compare_cols');
+      localStorage.removeItem('lumina_batch_compare_height');
+      localStorage.setItem('lumina_text_scale', '100');
+    });
+    await page.reload({ waitUntil: 'domcontentloaded' });
+    await expect(page.locator('[data-library-cols-choice="1"]')).toBeVisible({ timeout: 30000 });
+    await page.locator('[data-kb-search]').fill(marker);
+    await expect(card(a)).toBeVisible({ timeout: 30000 });
+    await expect(page.locator('[data-ctx-card]')).toHaveCount(5);
+
+    // ── ① 既定は 1列／詳細（現状維持）。バッジ行（生成元・日付・文字数）→タイトル行。生成元は lib/context-origin の判定 ──
+    await expect(page.locator('[data-library-cols-choice="1"]')).toHaveAttribute('aria-pressed', 'true');
+    await expect(page.locator('[data-library-density-choice="detail"]')).toHaveAttribute('aria-pressed', 'true');
+    await expect(grid).toHaveAttribute('data-library-cols', '1');
+    await expect(grid).toHaveAttribute('data-library-density', 'detail');
+    await expect(card(b).locator('[data-ctx-origin="batch"]')).toContainText('ディープリサーチ（バッチ）');
+    await expect(card(a).locator('[data-ctx-origin="deepresearch"]')).toHaveText(/生成元: 🔭 ディープリサーチ$/);
+    const badgesBox = await card(d).locator('[data-ctx-badges]').boundingBox();
+    const titleBox = await card(d).locator('[data-ctx-title]').boundingBox();
+    expect(badgesBox && titleBox && titleBox.y > badgesBox.y, 'バッジ行がタイトル行より上').toBe(true);
+    await expect(card(d).locator('[data-ctx-title]')).toContainText(`CL-D ${marker}`);
+    // ── §2-3 文字数の段階は291/292と同じ関数: 同じ文字数は同じ段階・同じ色、数値を併記、長い方が濃い ──
+    await expect(badge(d)).toHaveText(/^[\d,]+文字$/);
+    expect(await badge(d).textContent()).toBe(await badge(e).textContent());
+    expect(await tierOf(d)).toBe(await tierOf(e));
+    expect(await bgOf(d), '同じ文字数なら同じ色').toBe(await bgOf(e));
+    expect(await tierOf(b)).toBeGreaterThan(await tierOf(d));
+    expect(await tierOf(a)).toBeGreaterThan(await tierOf(b));
+    expect(await bgOf(a)).not.toBe(await bgOf(d));
+    await expect(badge(a)).toHaveAttribute('title', /文字（/);
+
+    // ── ② 列数: 2列→2枚が横に並ぶ／自動（1280px＝xl）→4列／1列に戻す。横スクロールなし ──
+    await page.locator('[data-library-cols-choice="2"]').click();
+    await expect(grid).toHaveAttribute('data-library-cols', '2');
+    let y = await stableYs(page, '[data-ctx-card]');
+    expect(y[0]).toBe(y[1]); expect(y[2]).toBeGreaterThan(y[0]);
+    await expectNoPageHScroll(page, 'AI参照素材2列');
+    await page.locator('[data-library-cols-choice="auto"]').click();
+    await expect(grid).toHaveAttribute('data-library-cols', 'auto');
+    y = await stableYs(page, '[data-ctx-card]');
+    expect(new Set(y.slice(0, 4)).size, `自動（xl）は4列（y=${y.join(',')}）`).toBe(1);
+    await expectNoPageHScroll(page, 'AI参照素材4列');
+    await page.locator('[data-library-cols-choice="1"]').click();
+    y = await stableYs(page, '[data-ctx-card]');
+    expect(y[0] < y[1] && y[1] < y[2]).toBe(true);
+
+    // ── ③ 密度: コンパクトは同じカードが低くなり、操作バー・▼活用する・📌を出さない。バッジ・タイトル・クリック展開（274）は残る ──
+    const hDetail = (await card(d).boundingBox())!.height;
+    await page.locator('[data-library-density-choice="compact"]').click();
+    await expect(grid).toHaveAttribute('data-library-density', 'compact');
+    await page.waitForTimeout(200);
+    const hCompact = (await card(d).boundingBox())!.height;
+    expect(hCompact, `コンパクト(${hCompact}) < 詳細(${hDetail})`).toBeLessThan(hDetail);
+    await expect(card(d).locator(`[data-ctx-expand-button="${d}"]`), 'コンパクトでは操作バーを出さない').toHaveCount(0);
+    await expect(card(d).getByRole('button', { name: /活用する/ }), 'コンパクトでは▼活用するを出さない').toHaveCount(0);
+    await expect(badge(d)).toBeVisible();
+    await card(d).locator(`[data-ctx-expand-zone="${d}"]`).click();
+    await expect(card(d).locator(`[data-ctx-expanded-body="${d}"]`), 'コンパクトでもクリック展開（274）で本文が開く').toBeVisible();
+    await expect(card(d).locator(`[data-ctx-expanded-body="${d}"] :is(h1,h2,h3,h4)`).filter({ hasText: `見出しD${marker}` })).toBeVisible();
+    await card(d).locator(`[data-ctx-expand-zone="${d}"]`).click();
+    await expect(card(d).locator(`[data-ctx-expanded-body="${d}"]`)).toHaveCount(0);
+    await page.locator('[data-library-density-choice="detail"]').click();
+    await expect(card(d).locator(`[data-ctx-expand-button="${d}"]`)).toHaveCount(1);
+    await expect(card(d).getByRole('button', { name: '▼ 活用する' })).toBeVisible();
+    await expect(card(d).locator(`[data-favorite-button="${d}"]`), '☆（249の分類パネル）の口は不変').toBeVisible();
+    // 274: ⋯メニュー（全画面・テキスト・MD・Word・編集・削除）は不変
+    await card(d).getByRole('button', { name: 'その他の操作' }).click();
+    await expect(card(d).getByRole('menuitem', { name: '⛶ 全画面' })).toBeVisible();
+    await expect(card(d).getByRole('menuitem', { name: '🗑 削除' })).toBeVisible();
+    await page.keyboard.press('Escape');
+    await page.mouse.click(5, 5);
+
+    // ── ④ 選択して比較: 「☑ 選んで削除」の選択状態を流用。2件から・4件まで・5件目は無効化＋理由。一括削除は同じバーに残る ──
+    await page.locator('[data-ctx-select-mode]').click();
+    await check(a).check();
+    await expect(openBtn, '1件では無効').toBeDisabled();
+    await check(b).check();
+    await expect(openBtn).toBeEnabled();
+    await expect(openBtn).toContainText('選択した2件を比較');
+    await check(c).check();
+    await check(d).check();
+    await expect(openBtn).toContainText('選択した4件を比較');
+    await check(e).check();
+    await expect(openBtn, '5件目を選んでいる間は無効化（先頭4件に黙って切らない・R-101）').toBeDisabled();
+    await expect(openBtn).toHaveAttribute('title', /4件まで/);
+    await expect(openBtn).toHaveAttribute('title', /5件選択中/);
+    await expect(page.locator('[data-bulk-delete]')).toContainText('5件');
+    await check(e).uncheck();
+    await expect(openBtn).toBeEnabled();
+    await openBtn.click();
+    const cmp = page.locator('[data-library-compare]');
+    await expect(cmp).toBeVisible({ timeout: 20000 });
+    await expect(page.locator('[data-compare-col]')).toHaveCount(4);
+    // 列ヘッダーに生成元（§2-4）。列は選んだ順。一覧のバッジと同じ語
+    await expect(col(0)).toHaveAttribute('data-compare-kind', 'deepresearch');
+    await expect(col(0).locator('[data-compare-kind-label]')).toHaveText('🔭 ディープリサーチ');
+    await expect(col(1)).toHaveAttribute('data-compare-kind', 'batch');
+    await expect(col(1).locator('[data-compare-kind-label]')).toHaveText('📚 ディープリサーチ（バッチ）');
+    await expect(col(0)).toHaveAttribute('data-compare-item', String(a));
+    await expect(col(3)).toHaveAttribute('data-compare-item', String(d));
+    // 整形表示（R-97）
+    await expect(col(0).locator('[data-md-view] :is(h1,h2,h3,h4)').filter({ hasText: `見出しA${marker}` })).toBeVisible();
+    for (let i = 0; i < 4; i++) await expectNoRawMarkdown(col(i).locator('[data-md-view]'), `比較列${i}`);
+    // 289: 列数4／高さ低、横スクロールなし
+    await expect(page.locator('[data-compare-cols-choice="auto"]')).toHaveAttribute('aria-pressed', 'true');
+    await page.locator('[data-compare-cols-choice="4"]').click();
+    y = await stableYs(page, '[data-compare-col]');
+    expect(new Set(y).size, `4列に並ぶ（y=${y.join(',')}）`).toBe(1);
+    await expectNoPageHScroll(page, '比較4列');
+    await page.locator('[data-compare-height-choice="low"]').click();
+    expect(Math.round(parseFloat(await col(0).evaluate((el) => getComputedStyle(el).maxHeight)))).toBe(Math.round(900 * 0.34));
+    await page.locator('[data-compare-height-choice="high"]').click();
+    // 271: 同期スクロールと sticky（長文の列 a/b/c で判定。d は短い）
+    for (let i = 1; i < 3; i++) await col(i).evaluate((el) => { el.scrollTop = 0; });
+    await col(0).evaluate((el) => { el.scrollTop = el.scrollHeight; el.dispatchEvent(new Event('scroll')); });
+    for (let i = 1; i < 3; i++) await expect.poll(async () => col(i).evaluate((el) => el.scrollTop), `列${i}が同期`).toBeGreaterThan(0);
+    for (let i = 0; i < 4; i++) {
+      const header = page.locator(`[data-compare-header="${i}"]`);
+      expect(await header.evaluate((el) => getComputedStyle(el).position)).toBe('sticky');
+      const cb = await col(i).boundingBox(); const hb = await header.boundingBox();
+      expect(cb && hb && hb.y - cb.y, `列${i}のヘッダーが上端に固定`).toBeLessThan(4);
+    }
+    // 282: 各列から全画面（共通リーダー＝⋯メニューの全画面と同じ部品）
+    await page.locator('[data-compare-fullscreen="1"]').click();
+    await expect(dialog).toBeVisible();
+    await expect(dialog.locator('.markdown-body :is(h1,h2,h3,h4)').filter({ hasText: `見出しB${marker}` }), 'Bの列からBの全画面').toBeVisible();
+    await dialog.getByRole('button', { name: '✕ 閉じる' }).click();
+    await expect(dialog).toHaveCount(0);
+    await page.locator('[data-library-compare] [data-compare-close]').click();
+    await expect(cmp).toHaveCount(0);
+    await page.evaluate(() => { localStorage.removeItem('lumina_batch_compare_cols'); localStorage.removeItem('lumina_batch_compare_height'); });
+    await page.locator('[data-ctx-select-mode]').click(); // 選択をやめる
+
+    // ── ⑤ 保持: 列数2・コンパクトで再読込しても同じ。最後に既定へ戻す ──
+    await page.locator('[data-library-cols-choice="2"]').click();
+    await page.locator('[data-library-density-choice="compact"]').click();
+    await page.reload({ waitUntil: 'domcontentloaded' });
+    await expect(page.locator('[data-library-cols-choice="2"]')).toHaveAttribute('aria-pressed', 'true', { timeout: 30000 });
+    await page.locator('[data-kb-search]').fill(marker);
+    await expect(card(a)).toBeVisible({ timeout: 30000 });
+    await expect(page.locator('[data-library-density-choice="compact"]')).toHaveAttribute('aria-pressed', 'true');
+    await expect(grid).toHaveAttribute('data-library-cols', '2');
+    await page.locator('[data-library-cols-choice="1"]').click();
+    await page.locator('[data-library-density-choice="detail"]').click();
+
+    // ── §3-1: 一覧APIの limit は全リクエストで 30（列数・密度を変えても変わらない） ──
+    expect(limits.length, '一覧APIが呼ばれている').toBeGreaterThan(0);
+    expect(new Set(limits), `limit は常に 30（実測: ${Array.from(new Set(limits)).join(',')}）`).toEqual(new Set(['30']));
+    await expect(page.getByText(/表示\d+ \/ 全\d+件/)).toBeVisible();
+  } finally {
+    // ── ⑥ タッチ端末: 列数の選択は出さず1列固定・横スクロールなし ──
+    const ctx = await browser.newContext({ storageState: STORAGE_STATE, baseURL: BASE_URL, hasTouch: true, isMobile: true, viewport: { width: 390, height: 844 } });
+    try {
+      const mp = await ctx.newPage();
+      await mp.goto('/dashboard/context-library');
+      await mp.evaluate(() => { localStorage.setItem('lumina_cl_cols', '4'); });
+      await mp.reload({ waitUntil: 'domcontentloaded' });
+      await mp.locator('[data-kb-search]').fill(marker);
+      await expect(mp.locator(`[data-ctx-card="${a}"]`)).toBeVisible({ timeout: 30000 });
+      await expect(mp.locator('[data-library-cols-picker]'), 'タッチ端末では列数の選択を出さない').toHaveCount(0);
+      await expect(mp.locator('[data-library-grid]').first(), '保存値が4でもタッチ端末は1列').toHaveAttribute('data-library-cols', '1');
+      const ys = await stableYs(mp, '[data-ctx-card]');
+      expect(new Set(ys).size, `1列に並ぶ（y=${ys.join(',')}）`).toBe(ys.length);
+      await expectNoPageHScroll(mp, 'タッチ端末');
+      await mp.evaluate(() => { localStorage.removeItem('lumina_cl_cols'); });
+    } finally {
+      await ctx.close();
+    }
+    await cleanupE2EContextSaves(request);
+  }
+});
+
+test('C102: AI参照素材の検索範囲と適用中の条件（295 §2-6）— 「トピック名のみ」は内容にヒットしない・「すべて」はヒット・範囲の保持・適用中の条件チップ（検索/範囲/お気に入り）と個別解除・すべて解除・0件は絞りすぎの案内・タグ絞り込み/お気に入り/カテゴリ概覧は不変', async ({ page, request }) => {
+  test.setTimeout(120_000);
+  const marker = `CLQ${RUN_ID}`;
+  const bodyToken = `BODYONLY${marker}`;
+  // A: トピック名に marker／B: 内容にだけ marker（トピック名には無い）
+  const a = await createContextSave(request, { topic: `CLQ-A ${marker}`, contextText: `A の本文 ${bodyToken}` });
+  const b = await createContextSave(request, { topic: `CLQ-B 内容だけ`, contextText: `B の本文に ${marker} が含まれる` });
+  const card = (id: number) => page.locator(`[data-ctx-card="${id}"]`);
+  const chips = page.locator('[data-active-conditions]');
+  try {
+    await page.goto('/dashboard/context-library');
+    await page.evaluate(() => localStorage.removeItem('lumina_cl_search_scope'));
+    await page.reload({ waitUntil: 'domcontentloaded' });
+    await expect(page.locator('[data-cl-search-range-choice="all"]')).toHaveAttribute('aria-pressed', 'true', { timeout: 30000 });
+    // 条件なし＝チップは出ない
+    await expect(chips).toHaveCount(0);
+
+    // ── ① 「すべて」（既定）: 内容にだけ含む B もヒット。検索の条件チップが出る ──
+    await page.locator('[data-kb-search]').fill(marker);
+    await expect(card(a)).toBeVisible({ timeout: 30000 });
+    await expect(card(b), '内容だけに含む B もヒット（従来どおり）').toBeVisible();
+    await expect(chips).toHaveAttribute('data-active-conditions', '1');
+    await expect(page.locator('[data-active-condition="search"]')).toContainText(marker);
+
+    // ── ② 「トピック名のみ」: B は外れ A だけ。範囲の条件チップが増える。説明文が変わる ──
+    await page.locator('[data-cl-search-range-choice="title"]').click();
+    await expect(card(b), '内容だけに含む B はヒットしない').toHaveCount(0, { timeout: 30000 });
+    await expect(card(a)).toBeVisible();
+    await expect(chips).toHaveAttribute('data-active-conditions', '2');
+    await expect(page.locator('[data-active-condition="range"]')).toContainText('トピック名のみ');
+    await expect(page.locator('[data-kb-search]')).toHaveAttribute('placeholder', /トピック名で検索（内容は対象外）/);
+
+    // ── ③ お気に入りを重ねる→3条件。個別解除（お気に入り✕）で2条件へ ──
+    await page.getByRole('button', { name: '⭐ お気に入り' }).click();
+    await expect(chips).toHaveAttribute('data-active-conditions', '3');
+    await expect(page.locator('[data-active-condition="fav"]')).toBeVisible();
+    // A はお気に入りではないので0件＝絞りすぎの案内（条件数つき）
+    await expect(page.getByText(/3件の条件が絞りすぎている可能性/)).toBeVisible({ timeout: 30000 });
+    await page.locator('[data-active-condition-remove="fav"]').click();
+    await expect(chips).toHaveAttribute('data-active-conditions', '2');
+    await expect(card(a)).toBeVisible({ timeout: 30000 });
+
+    // ── ④ 範囲は保持される（再読込後も「トピック名のみ」） ──
+    await page.reload({ waitUntil: 'domcontentloaded' });
+    await expect(page.locator('[data-cl-search-range-choice="title"]')).toHaveAttribute('aria-pressed', 'true', { timeout: 30000 });
+
+    // ── ⑤ 「すべて解除」で検索・範囲が外れ、チップが消える。既存の口（タグ選択・お気に入り・選んで削除）は残る ──
+    await page.locator('[data-kb-search]').fill(marker);
+    await expect(card(a)).toBeVisible({ timeout: 30000 });
+    await page.locator('[data-active-conditions-clear]').click();
+    await expect(chips).toHaveCount(0);
+    await expect(page.locator('[data-kb-search]')).toHaveValue('');
+    await expect(page.locator('[data-cl-search-range-choice="all"]')).toHaveAttribute('aria-pressed', 'true');
+    await expect(page.getByRole('button', { name: '⭐ お気に入り' })).toBeVisible();
+    await expect(page.locator('[data-ctx-select-mode]')).toBeVisible();
+  } finally {
+    await page.evaluate(() => localStorage.removeItem('lumina_cl_search_scope')).catch(() => {});
+    await cleanupE2EContextSaves(request);
+  }
+});

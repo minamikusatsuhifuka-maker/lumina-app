@@ -39,6 +39,14 @@ export const TA_LIST_COLUMN_KEY = 'lumina_ta_cols';
 export const TA_LIST_COLUMN_CHOICE_DEFAULT: ListColumnChoice = 1;
 export const TA_LIST_DENSITY_KEY = 'lumina_ta_density';
 
+/**
+ * 295: 🧠AI参照素材（ContextLibraryPanel）も従来は縦1列固定なので既定は 1（現状維持）。
+ * 判断関数・選択肢・文字数の段階（CHAR_COUNT_TIERS）は📚🗂と同じものを使い、保存先キーだけ画面別に分ける。
+ */
+export const CL_LIST_COLUMN_KEY = 'lumina_cl_cols';
+export const CL_LIST_COLUMN_CHOICE_DEFAULT: ListColumnChoice = 1;
+export const CL_LIST_DENSITY_KEY = 'lumina_cl_density';
+
 export function loadListColumnChoice(
   key: string = LIST_COLUMN_KEY,
   fallback: ListColumnChoice = LIST_COLUMN_CHOICE_DEFAULT,

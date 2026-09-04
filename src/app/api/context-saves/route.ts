@@ -123,6 +123,8 @@ export async function GET(req: NextRequest) {
     // - total_count: フィルタ条件での総件数 / all_total・categories・all_tags: 全件母数（カテゴリ概要・タグ一覧用）
     const qRaw = searchParams.get('q');
     const qLike = qRaw && qRaw.trim() ? `%${qRaw.trim()}%` : null;
+    // 295 §2-6（293 §3-1 の横展開）: qScope=title で本文（context_text）を検索対象から外す。既定は従来どおり topic＋context_text
+    const qBody = qLike && searchParams.get('qScope') !== 'title' ? qLike : null;
     const tagV = searchParams.get('filterTag')?.trim() || null;
     const favV = searchParams.get('favorite') === '1' ? true : null;
     const catV = searchParams.get('category')?.trim() || null;
@@ -157,7 +159,7 @@ export async function GET(req: NextRequest) {
                LENGTH(context_text) AS char_count
         FROM context_saves
         WHERE user_id = ${userId}
-          AND (${qLike}::text IS NULL OR topic ILIKE ${qLike} OR context_text ILIKE ${qLike})
+          AND (${qLike}::text IS NULL OR topic ILIKE ${qLike} OR (${qBody}::text IS NOT NULL AND context_text ILIKE ${qBody}))
           AND (${tagV}::text IS NULL OR ${tagV} = ANY(tags))
           AND (${tagsAnd}::text[] IS NULL OR tags @> ${tagsAnd})
           AND (${tagsOr}::text[] IS NULL OR tags && ${tagsOr})
@@ -181,7 +183,7 @@ export async function GET(req: NextRequest) {
         SELECT COUNT(*)::int AS n
         FROM context_saves
         WHERE user_id = ${userId}
-          AND (${qLike}::text IS NULL OR topic ILIKE ${qLike} OR context_text ILIKE ${qLike})
+          AND (${qLike}::text IS NULL OR topic ILIKE ${qLike} OR (${qBody}::text IS NOT NULL AND context_text ILIKE ${qBody}))
           AND (${tagV}::text IS NULL OR ${tagV} = ANY(tags))
           AND (${tagsAnd}::text[] IS NULL OR tags @> ${tagsAnd})
           AND (${tagsOr}::text[] IS NULL OR tags && ${tagsOr})

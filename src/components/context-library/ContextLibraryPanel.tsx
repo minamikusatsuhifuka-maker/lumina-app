@@ -19,6 +19,43 @@ import { useNoteBundleSelection } from '@/components/note-bundle/useNoteBundleSe
 import CustomFolderBar from '@/components/custom-folders/CustomFolderBar';
 import FolderBadges from '@/components/custom-folders/FolderBadges';
 import FolderPickerPopover from '@/components/custom-folders/FolderPickerPopover';
+// 295: 291・292・293 の部品と判断をそのまま使う（新規に作らない・R-91）
+import LibraryCompareView from '@/components/library/LibraryCompareView';
+import { CharCountBadge } from '@/components/LibraryItemRow';
+import { ActiveConditionChips } from '@/components/ActiveConditionChips';
+import {
+  CL_LIST_COLUMN_CHOICE_DEFAULT,
+  CL_LIST_COLUMN_KEY,
+  CL_LIST_DENSITY_KEY,
+  LIBRARY_COMPARE_MAX,
+  LIST_COLUMN_CHOICES,
+  LIST_DENSITIES,
+  LIST_DENSITY_DEFAULT,
+  LIST_DENSITY_LABEL,
+  type LibraryCompareEntry,
+  type ListColumnChoice,
+  type ListDensity,
+  libraryCompareState,
+  listGridClass,
+  loadListColumnChoice,
+  loadListDensity,
+  resolveListColumns,
+  saveListColumnChoice,
+  saveListDensity,
+} from '@/lib/library-view';
+import { useFinePointer } from '@/lib/pointer-device';
+import {
+  type ActiveCondition,
+  CL_SEARCH_SCOPE_KEY,
+  SEARCH_PLACEHOLDER,
+  SEARCH_SCOPES,
+  SEARCH_SCOPE_LABEL,
+  type SearchScope,
+  loadSearchScope,
+  saveSearchScope,
+  zeroResultMessage,
+} from '@/lib/library-filters';
+import { CONTEXT_ORIGIN_LABEL, contextOriginKind } from '@/lib/context-origin';
 import {
   useCustomFolders,
   type FolderFilter,
@@ -89,13 +126,11 @@ function categoryCardStyle(active: boolean): CSSProperties {
   };
 }
 
-// 生成元（どのメニューで作られたか）をタグからベストエフォート推定して人間可読ラベルに。
-// context_saves は概ね「ディープリサーチ → コンテキスト最適化 → 保存」由来。batch タグがあればバッチ実行。
-function originLabel(tags: string[] | null): { icon: string; label: string } {
-  const ts = tags ?? [];
-  if (ts.some((t) => t.startsWith('batch:'))) return { icon: '📚', label: 'ディープリサーチ（バッチ）' };
-  return { icon: '🔭', label: 'ディープリサーチ' };
-}
+// 生成元（どのメニューで作られたか）の判定は 295 で lib/context-origin.ts へ移した（判定は不変）。
+// 比較パネルの列ヘッダーにも同じ判定を使う（§2-4）。
+
+// 295 §2-4: 比較の列（LibraryCompareView の行型）。一覧は本文を持たないので比較を開くときに ensureFullText で埋める
+type CompareRow = { id: string; title: string; content: string; char_count: number; created_at: string | null; tags: string[] | null };
 
 export default function ContextLibraryPanel() {
   const [items, setItems] = useState<ContextSave[]>([]);
@@ -201,6 +236,27 @@ export default function ContextLibraryPanel() {
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
   const [bulkDeleting, setBulkDeleting] = useState(false);
 
+  // ── 295: 一覧の見え方（列数・密度）・検索範囲・選択して比較。判断は 291/292/293 の lib と同じ ──
+  const [searchRange, setSearchRange] = useState<SearchScope>('all');
+  const [listColChoice, setListColChoice] = useState<ListColumnChoice>(CL_LIST_COLUMN_CHOICE_DEFAULT);
+  const [listDensity, setListDensity] = useState<ListDensity>(LIST_DENSITY_DEFAULT);
+  const { fine: finePointer, mounted: pointerMounted } = useFinePointer();
+  useEffect(() => {
+    // 保存値は画面別キー（📚🗂と混ざらない）。ハイドレーション後に読む
+    setSearchRange(loadSearchScope(CL_SEARCH_SCOPE_KEY));
+    setListColChoice(loadListColumnChoice(CL_LIST_COLUMN_KEY, CL_LIST_COLUMN_CHOICE_DEFAULT));
+    setListDensity(loadListDensity(CL_LIST_DENSITY_KEY));
+  }, []);
+  const applySearchRange = (s: SearchScope) => { setSearchRange(s); saveSearchScope(s, CL_SEARCH_SCOPE_KEY); };
+  const applyListCols = (c: ListColumnChoice) => { setListColChoice(c); saveListColumnChoice(c, CL_LIST_COLUMN_KEY); };
+  const applyListDensity = (d: ListDensity) => { setListDensity(d); saveListDensity(d, CL_LIST_DENSITY_KEY); };
+  const resolvedListCols = resolveListColumns(pointerMounted ? finePointer : true, listColChoice);
+  const compact = listDensity === 'compact';
+  // 選択して比較（既存の「☑ 選んで削除」の選択状態を流用・新しい選択モードは作らない）
+  const [compareEntries, setCompareEntries] = useState<LibraryCompareEntry<CompareRow>[] | null>(null);
+  const [comparePreparing, setComparePreparing] = useState(false);
+  const compareState = libraryCompareState(selectedIds.size);
+
   // 249: マイフォルダ（自動カテゴリとは別軸の手動分類）。絞り込みは activeCategory と AND
   const customFolders = useCustomFolders('context', (msg) => {
     setToast(`❌ ${msg}`);
@@ -244,6 +300,7 @@ export default function ContextLibraryPanel() {
       p.set('limit', String(PAGE_SIZE));
       p.set('offset', String(offset));
       if (debouncedSearch.trim()) p.set('q', debouncedSearch.trim());
+      if (debouncedSearch.trim() && searchRange === 'title') p.set('qScope', 'title'); // 295: 内容（本文）を対象から外す
       // 192: タグ複数指定はカンマ結合でなく1タグ1パラメータで送る（タグ名にカンマが入っても壊れない）
       for (const t of tagFilters) p.append('filterTags', t);
       if (tagFilters.length > 0) p.set('tagMode', tagMode);
@@ -272,7 +329,7 @@ export default function ContextLibraryPanel() {
   useEffect(() => {
     fetchPage(0, false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [debouncedSearch, tagFilters, tagMode, favoriteOnly, activeCategory, activeCustomFolder]);
+  }, [debouncedSearch, searchRange, tagFilters, tagMode, favoriteOnly, activeCategory, activeCustomFolder]);
 
   // items 取得後、各カードに対する「デフォルト登録機能マップ」を取得（未取得のIDのみ追加取得）
   useEffect(() => {
@@ -628,6 +685,83 @@ export default function ContextLibraryPanel() {
     } finally {
       setBulkDeleting(false);
     }
+  };
+
+  // 295 §2-4: 選択した素材を横並びで比較。一覧APIは本文を返さないので選んだ順に ensureFullText で埋める（取得済みはそのまま）。
+  // 列ヘッダーは生成元（一覧の「生成元」バッジと同じ判定＝lib/context-origin）。
+  const handleCompareSelect = async () => {
+    if (!compareState.enabled || comparePreparing) return;
+    setComparePreparing(true);
+    try {
+      const ids = Array.from(selectedIds).slice(0, LIBRARY_COMPARE_MAX);
+      const entries: LibraryCompareEntry<CompareRow>[] = [];
+      for (const id of ids) {
+        const it = items.find((x) => x.id === id);
+        if (!it) continue; // 一覧から外れた id は落とす（空の列は出さない）
+        let text: string;
+        try {
+          text = await ensureFullText(it);
+        } catch {
+          flashToast('❌ 本文の取得に失敗しました', 4000);
+          return;
+        }
+        const kind = contextOriginKind(it.tags);
+        entries.push({
+          item: { id: String(it.id), title: it.topic, content: text, char_count: text.length, created_at: it.created_at ?? null, tags: it.tags ?? null },
+          kind,
+          label: `${CONTEXT_ORIGIN_LABEL[kind].icon} ${CONTEXT_ORIGIN_LABEL[kind].label}`,
+        });
+      }
+      if (entries.length === 0) { flashToast('❌ 比較できる素材がありません', 4000); return; }
+      hoverPreview.hide();
+      setCompareEntries(entries);
+    } finally {
+      setComparePreparing(false);
+    }
+  };
+  // 比較の列 → 一覧の素材（全画面・MDは一覧と同じハンドラへ。取得済み本文をそのまま持たせる）
+  const compareItemOf = (row: CompareRow): ContextSave => {
+    const it = items.find((x) => String(x.id) === row.id);
+    return { ...(it ?? { id: Number(row.id), topic: row.title, tags: row.tags, created_at: row.created_at ?? '' }), context_text: row.content };
+  };
+
+  // 295 §2-6（293 §6）: 適用中の条件。タグは 192 のチップ（個別✕・AND/OR）がすぐ下に残るので、ここでは1つにまとめて「すべて外す」口だけ持つ
+  const activeConditions: ActiveCondition[] = [];
+  if (debouncedSearch.trim()) {
+    activeConditions.push({ key: 'search', label: `検索: 「${debouncedSearch.trim()}」`, onRemove: () => setSearch('') });
+  }
+  if (searchRange === 'title') {
+    activeConditions.push({ key: 'range', label: '検索範囲: トピック名のみ', onRemove: () => applySearchRange('all') });
+  }
+  if (tagFilters.length > 0) {
+    activeConditions.push({
+      key: 'tags',
+      label: `🏷️ タグ: ${tagFilters.length}件（${tagFilters.length >= 2 ? (tagMode === 'and' ? 'すべて含む' : 'いずれか含む') : tagFilters[0]}）`,
+      onRemove: () => { setTagFilters([]); setBatchFilter(null); },
+    });
+  }
+  if (favoriteOnly) {
+    activeConditions.push({ key: 'fav', label: '⭐ お気に入り', onRemove: () => setFavoriteOnly(false) });
+  }
+  if (activeCategory !== null) {
+    activeConditions.push({ key: 'category', label: `カテゴリ: ${activeCategory}`, onRemove: () => setActiveCategory(null) });
+  }
+  if (activeCustomFolder !== null) {
+    const f = activeCustomFolder === 'unfiled' ? null : customFolders.folders.find((x) => String(x.id) === String(activeCustomFolder));
+    activeConditions.push({
+      key: 'cfolder',
+      label: `マイフォルダ: ${activeCustomFolder === 'unfiled' ? '未分類のお気に入り' : (f?.name ?? activeCustomFolder)}`,
+      onRemove: () => setActiveCustomFolder(null),
+    });
+  }
+  const clearAllConditions = () => {
+    setSearch('');
+    applySearchRange('all');
+    setTagFilters([]);
+    setBatchFilter(null);
+    setFavoriteOnly(false);
+    setActiveCategory(null);
+    setActiveCustomFolder(null);
   };
 
   // 表示中（ロード済み）の全件を選択／解除
@@ -1012,7 +1146,7 @@ export default function ContextLibraryPanel() {
         <input
           type="text"
           data-kb-search
-          placeholder={`🔍 トピック名・内容で検索...${showKbHints ? KEY_HINT.searchSuffix : ''}`}
+          placeholder={`${SEARCH_PLACEHOLDER.cl[searchRange]}${showKbHints ? KEY_HINT.searchSuffix : ''}`}
           value={search}
           onChange={e => setSearch(e.target.value)}
           style={{
@@ -1027,6 +1161,26 @@ export default function ContextLibraryPanel() {
             outline: 'none',
           }}
         />
+        {/* 295 §2-6（293 §3-1）: 検索範囲（トピック名のみ＝内容を対象から外す）。既定は「すべて」・保持 */}
+        <span data-cl-search-range style={{ display: 'inline-flex', borderRadius: 8, overflow: 'hidden', border: '1px solid var(--border)' }} title="検索範囲（トピック名のみ＝内容を見ない）">
+          {SEARCH_SCOPES.map((s) => (
+            <button
+              key={s}
+              type="button"
+              data-cl-search-range-choice={s}
+              aria-pressed={searchRange === s}
+              onClick={() => applySearchRange(s)}
+              style={{
+                padding: '8px 12px', fontSize: 12, fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap',
+                background: searchRange === s ? 'var(--accent)' : 'transparent',
+                color: searchRange === s ? '#fff' : 'var(--text-secondary)',
+                border: 'none',
+              }}
+            >
+              {s === 'title' ? 'トピック名のみ' : SEARCH_SCOPE_LABEL[s]}
+            </button>
+          ))}
+        </span>
         {allTags.length > 0 && (
           <select
             value=""
@@ -1095,6 +1249,42 @@ export default function ContextLibraryPanel() {
         </span>
       </div>
 
+      {/* ── 295 §2-1/§2-2: 一覧の見え方（列数・密度）。291/292 と同じ選択肢・同じ判断・同じ目印属性。タッチ端末は1列固定なので列数の選択は出さない ── */}
+      <div data-library-view-bar style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' as const, fontSize: 11, color: 'var(--text-muted)', marginTop: -8, marginBottom: 16 }}>
+        {(!pointerMounted || finePointer) && (
+          <span data-library-cols-picker style={{ display: 'inline-flex', alignItems: 'center', gap: 2 }} title="一覧の列数（自動＝画面幅で1〜4列）">
+            <span style={{ marginRight: 2 }}>列</span>
+            {LIST_COLUMN_CHOICES.map((c) => (
+              <button
+                key={String(c)}
+                type="button"
+                data-library-cols-choice={String(c)}
+                aria-pressed={listColChoice === c}
+                onClick={() => applyListCols(c)}
+                style={{ padding: '4px 8px', borderRadius: 5, fontSize: 11, fontWeight: listColChoice === c ? 700 : 600, border: `1px solid ${listColChoice === c ? 'var(--accent)' : 'var(--border)'}`, background: listColChoice === c ? 'rgba(108,99,255,0.12)' : 'var(--bg-card)', color: 'var(--text-primary)', cursor: 'pointer' }}
+              >
+                {c === 'auto' ? '自動' : c}
+              </button>
+            ))}
+          </span>
+        )}
+        <span data-library-density-picker style={{ display: 'inline-flex', alignItems: 'center', gap: 2 }} title="表示密度（コンパクト＝バッジとタイトルのみ。操作は本文を開くか詳細に戻して行う）">
+          <span style={{ marginRight: 2 }}>密度</span>
+          {LIST_DENSITIES.map((d) => (
+            <button
+              key={d}
+              type="button"
+              data-library-density-choice={d}
+              aria-pressed={listDensity === d}
+              onClick={() => applyListDensity(d)}
+              style={{ padding: '4px 8px', borderRadius: 5, fontSize: 11, fontWeight: listDensity === d ? 700 : 600, border: `1px solid ${listDensity === d ? 'var(--accent)' : 'var(--border)'}`, background: listDensity === d ? 'rgba(108,99,255,0.12)' : 'var(--bg-card)', color: 'var(--text-primary)', cursor: 'pointer' }}
+            >
+              {LIST_DENSITY_LABEL[d]}
+            </button>
+          ))}
+        </span>
+      </div>
+
       {/* 250: 選択削除モードの操作バー（📚リサーチ保存と同じく、選択中だけ操作を出す） */}
       {deleteMode && (
         <div
@@ -1142,8 +1332,28 @@ export default function ContextLibraryPanel() {
           >
             {bulkDeleting ? '⏳ 削除中...' : `🗑 選択した${selectedIds.size}件を削除`}
           </button>
+          {/* 295 §2-4: 同じ選択状態から横並び比較（2〜4件。5件目を選んでいる間は無効化して理由を出す・R-101） */}
+          <button
+            type="button"
+            data-ctx-compare-open
+            onClick={handleCompareSelect}
+            disabled={!compareState.enabled || comparePreparing}
+            title={compareState.reason ?? '選択した素材を横並びで比較します（列数・高さ・同期スクロール・各列から全画面）'}
+            style={{
+              padding: '6px 16px',
+              borderRadius: 8,
+              border: 'none',
+              background: !compareState.enabled || comparePreparing ? 'var(--border)' : '#6c63ff',
+              color: '#fff',
+              fontSize: 12,
+              fontWeight: 700,
+              cursor: !compareState.enabled || comparePreparing ? 'not-allowed' : 'pointer',
+            }}
+          >
+            {comparePreparing ? '⏳ 本文を取得中...' : compareState.label}
+          </button>
           <span style={{ fontSize: 11, color: 'var(--text-muted)', width: '100%' }}>
-            削除すると元に戻せません。フォルダやカテゴリで絞り込んでから選ぶこともできます。
+            削除すると元に戻せません。フォルダやカテゴリで絞り込んでから選ぶこともできます。比較は2〜{LIBRARY_COMPARE_MAX}件（列ヘッダーに生成元を表示）。
           </span>
         </div>
       )}
@@ -1237,6 +1447,20 @@ export default function ContextLibraryPanel() {
         </div>
       )}
 
+      {/* ── 295 §2-6（293 §6）: 適用中の条件（検索・範囲・タグ・お気に入り・カテゴリ・マイフォルダ）。個別に外せる・すべて解除 ── */}
+      <ActiveConditionChips conditions={activeConditions} onClearAll={clearAllConditions} />
+
+      {/* 295 §2-4: 横並び比較パネル（291の共通部品。全画面は下の FullscreenReader を共用・MDは同じハンドラ） */}
+      {compareEntries && (
+        <LibraryCompareView
+          entries={compareEntries}
+          kindNote="各列の見出しに生成元（🔭 ディープリサーチ／📚 ディープリサーチ（バッチ））を表示しています。一覧の「生成元」バッジと同じ判定です。"
+          onClose={() => setCompareEntries(null)}
+          onFullscreen={(row) => setReaderItem(compareItemOf(row))}
+          onExportMd={(row) => void handleDownloadMd(compareItemOf(row))}
+        />
+      )}
+
       {loading && (
         <div style={{ textAlign: 'center', padding: 48, color: 'var(--text-muted)' }}>
           読み込み中...
@@ -1253,7 +1477,8 @@ export default function ContextLibraryPanel() {
         }}>
           <div style={{ fontSize: 32, marginBottom: 12 }}>🧠</div>
           <div style={{ color: 'var(--text-secondary)', fontWeight: 600, marginBottom: 6 }}>
-            {allTotal === 0 ? 'まだ保存された素材はありません' : '条件に一致する素材がありません'}
+            {/* 295 §2-6（R-103）: 0件は「絞りすぎ」の案内＝適用中の条件の数を示し、上のチップで外す導線へ */}
+            {allTotal === 0 ? 'まだ保存された素材はありません' : zeroResultMessage(activeConditions.length)}
           </div>
           <div style={{ color: 'var(--text-muted)', fontSize: 13 }}>
             ディープリサーチ実行後、「🧠 AI参照用に最適化」→「💾 保存」でこちらに追加されます。
@@ -1280,13 +1505,22 @@ export default function ContextLibraryPanel() {
         </div>
       )}
 
-      <div style={{ display: 'grid', gap: 14 }}>
+      {/* 295 §2-1: 列数は lib/library-view の判断（Tailwind完全リテラル・タッチは1列）。gap は従来の14のまま */}
+      <div
+        className={listGridClass(resolvedListCols)}
+        data-library-grid
+        data-library-cols={String(resolvedListCols)}
+        data-library-density={listDensity}
+        style={{ gap: 14 }}
+      >
         {items.map(item => {
           const expanded = expandedIds.has(item.id);
           const bundleChecked = isBundleSelected('context', item.id);
           return (
             <div
               key={item.id}
+              // 295: E2E/計測用のカード目印（一覧の見え方・比較）
+              data-ctx-card={item.id}
               // 187: 「→次へ」追従ボタンの位置計測用（NoteBundleDock が参照）
               data-bundle-key={`ctx-${item.id}`}
               // 257: プレビューはこの要素の矩形に隣接して出る（位置の基準）
@@ -1350,24 +1584,22 @@ export default function ContextLibraryPanel() {
                   }}
                   style={{ flex: 1, minWidth: 200 }}
                 >
-                  <div style={{ fontSize: 16, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 4 }}>
-                    {item.topic}
-                  </div>
-                  {/* 生成元バッジ（どのメニューから作られたか） */}
-                  <div style={{ marginBottom: 4 }}>
+                  {/* 295 §2-2: 291/292 と同じ「1行目バッジ（生成元・日付・文字数の段階・タグ）→ 2行目タイトル」。
+                      文字数は CharCountBadge（閾値は CHAR_COUNT_TIERS を📚🗂と共有・数値併記）。生成元の判定は lib/context-origin */}
+                  <div data-ctx-badges style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' as const, fontSize: 11, color: 'var(--text-muted)', marginBottom: 4 }}>
                     {(() => {
-                      const o = originLabel(item.tags);
+                      const kind = contextOriginKind(item.tags);
+                      const o = CONTEXT_ORIGIN_LABEL[kind];
                       return (
-                        <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--accent)', background: 'var(--accent-soft)', padding: '2px 10px', borderRadius: 10 }}>
+                        <span data-ctx-origin={kind} style={{ fontSize: 11, fontWeight: 700, color: 'var(--accent)', background: 'var(--accent-soft)', padding: '2px 10px', borderRadius: 10 }}>
                           生成元: {o.icon} {o.label}
                         </span>
                       );
                     })()}
-                  </div>
-                  <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>
-                    📅 {fmtDate(item.created_at)} ・{Number(item.char_count ?? item.context_text?.length ?? 0).toLocaleString()}文字
+                    <span>📅 {fmtDate(item.created_at)}</span>
+                    <CharCountBadge n={Number(item.char_count ?? item.context_text?.length ?? 0)} />
                     {item.tags && item.tags.length > 0 && (
-                      <span style={{ marginLeft: 12 }}>
+                      <span>
                         {item.tags.map(t => (
                           <span key={t} style={{ background: 'var(--accent-soft)', padding: '2px 8px', borderRadius: 10, marginRight: 4, color: 'var(--text-secondary)' }}>
                             #{t}
@@ -1376,8 +1608,11 @@ export default function ContextLibraryPanel() {
                       </span>
                     )}
                   </div>
-                  {/* 249: 所属マイフォルダ（複数可）。どのフォルダに入れたか一目で分かるように */}
-                  {(item.custom_folder_ids?.length ?? 0) > 0 && (
+                  <div data-ctx-title style={{ fontSize: 16, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 4 }}>
+                    {item.topic}
+                  </div>
+                  {/* 249: 所属マイフォルダ（複数可）。どのフォルダに入れたか一目で分かるように（295: コンパクトでは出さない） */}
+                  {!compact && (item.custom_folder_ids?.length ?? 0) > 0 && (
                     <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' as const, marginTop: 6 }}>
                       <FolderBadges folderIds={item.custom_folder_ids} folders={customFolders.folders} />
                     </div>
@@ -1387,8 +1622,8 @@ export default function ContextLibraryPanel() {
 
               {/* 本文プレビューは非表示（A）。閲覧は「▼全文表示」/「⛶全画面」に集約。 */}
 
-              {/* 登録済み機能のバッジ */}
-              {(defaultMap[item.id]?.length ?? 0) > 0 && (
+              {/* 登録済み機能のバッジ（295: コンパクトでは出さない＝バッジ行とタイトル行のみ） */}
+              {!compact && (defaultMap[item.id]?.length ?? 0) > 0 && (
                 <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' as const, marginBottom: 8 }}>
                   <span style={{ fontSize: 10, color: 'var(--text-muted)', alignSelf: 'center' }}>📌 デフォルト登録中:</span>
                   {(defaultMap[item.id] ?? []).map(key => {
@@ -1408,6 +1643,8 @@ export default function ContextLibraryPanel() {
                   使用頻度の低い ⛶全画面 / ⬇テキスト / 📥MD / 📄Word / ✏編集 / 🗑削除 は
                   「⋯ その他」メニューに格納（各操作のハンドラ・挙動は無変更）。
                   モバイル幅でも1行に収まる本数に抑える。 */}
+              {/* 295 §2-2: コンパクトでは操作バーを出さない（292 と同じ判断。本文はカードのクリック展開（274）で開ける） */}
+              {!compact && (
               <div
                 // 274: 領域限定と併せた二重の守り。この中の操作が上へ伝わって展開が走らないようにする
                 onClick={stopCardClick}
@@ -1556,6 +1793,7 @@ export default function ContextLibraryPanel() {
                   )}
                 </div>
               </div>
+              )}
 
               {/* 全文表示（カード内インライン展開）。編集モード時は topic/本文の編集フォーム。 */}
               {expanded && (
@@ -1668,7 +1906,9 @@ export default function ContextLibraryPanel() {
                 </div>
               )}
 
-              {/* ── コンテキスト固有のアクション（活用する）。テキスト分析には無い別枠。── */}
+              {/* ── コンテキスト固有のアクション（活用する・📌デフォルト設定）。テキスト分析には無い別枠。
+                  295 §2-2: 操作要素なのでコンパクトでは出さない（機能・遷移は無変更。詳細に戻せば従来どおり） ── */}
+              {!compact && (
               <div
                 onClick={stopCardClick}
                 style={{ display: 'flex', gap: 6, flexWrap: 'wrap' as const, alignItems: 'center', marginTop: 8 }}
@@ -1694,10 +1934,11 @@ export default function ContextLibraryPanel() {
                   onChange={(keys) => setDefaultMap(prev => ({ ...prev, [item.id]: keys }))}
                 />
               </div>
+              )}
 
               {/* ── 下部アクション（アコーディオン格納・既定折りたたみ）──
                   「活用する」展開時のみ表示。各ボタンの機能・遷移・生成は無変更。 */}
-              {actionsOpen[item.id] && (
+              {!compact && actionsOpen[item.id] && (
                 <div
                   onClick={stopCardClick}
                   style={{
