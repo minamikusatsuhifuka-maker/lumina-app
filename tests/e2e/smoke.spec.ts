@@ -7339,6 +7339,8 @@ test('C105: 用途カテゴリの画面（297）— 3画面とも⭐マイフォ
     await page.keyboard.press('Escape');
     await expect(picker).toHaveCount(0);
     await expect(card.locator('[data-purpose-badge]'), '要約タブにバッジ').toHaveCount(1);
+    // バッジは楽観更新で先に出る。API を読む前に、保存の応答でバーの件数が 1 になる（サーバー反映）まで待つ
+    await expect(page.locator('[data-purpose-bar="library"] [data-purpose-count="1"]'), '保存がサーバーに反映される').toHaveCount(1, { timeout: 15000 });
     const libRows = (await (await request.get('/api/library')).json()) as { id: string; purpose_category_ids?: number[] }[];
     catId = (libRows.find((r) => r.id === p2)?.purpose_category_ids ?? [])[0] ?? 0;
     expect(catId, '要約（p2）に付いている').toBeGreaterThan(0);
