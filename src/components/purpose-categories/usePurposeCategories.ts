@@ -4,7 +4,7 @@
 // マイフォルダの useCustomFolders と同じ形（一覧・作成・リネーム・削除・所属の置き換え）にして
 // 画面側の書き方を揃える。API は /api/purpose-categories（マイフォルダとは別）。
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type { ItemScope, PurposeCategory } from '@/lib/purpose-categories';
 
 export type { PurposeCategory };
@@ -26,22 +26,29 @@ export interface UsePurposeCategoriesResult {
 export function usePurposeCategories(scope: ItemScope, onError?: (message: string) => void): UsePurposeCategoriesResult {
   const [categories, setCategories] = useState<PurposeCategory[]>([]);
   const [loading, setLoading] = useState(true);
+  // 一覧の更新は「最後に投げた要求の応答」だけを採用する。チェック→新規作成→追加チェックのように連続で保存すると、
+  // 先に投げた assign の応答（新しいカテゴリを含まない一覧）が後から届いて新しい一覧を上書きし、バッジが消える（C105 で実測）
+  const seq = useRef(0);
+  const adopt = useCallback((my: number, list: unknown) => {
+    if (my === seq.current && Array.isArray(list)) setCategories(list as PurposeCategory[]);
+  }, []);
 
   const notify = useCallback((message: string) => { if (onError) onError(message); }, [onError]);
 
   const reload = useCallback(async () => {
+    const my = ++seq.current;
     try {
       const res = await fetch(`/api/purpose-categories?scope=${scope}`);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
-      if (Array.isArray(data.categories)) setCategories(data.categories);
+      adopt(my, data.categories);
     } catch {
       // 用途が取れなくても記事一覧は使える（付加情報の失敗で本体を壊さない・R-39）
       setCategories([]);
     } finally {
       setLoading(false);
     }
-  }, [scope]);
+  }, [scope, adopt]);
 
   useEffect(() => { void reload(); }, [reload]);
 
@@ -89,6 +96,7 @@ export function usePurposeCategories(scope: ItemScope, onError?: (message: strin
   }, [reload, notify]);
 
   const assignItem = useCallback(async (itemId: number | string, categoryIds: number[]): Promise<boolean> => {
+    const my = ++seq.current;
     try {
       const res = await fetch('/api/purpose-categories', {
         method: 'PATCH', headers: { 'Content-Type': 'application/json' },
@@ -96,13 +104,13 @@ export function usePurposeCategories(scope: ItemScope, onError?: (message: strin
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data?.error || '用途の保存に失敗しました');
-      if (Array.isArray(data.categories)) setCategories(data.categories);
+      adopt(my, data.categories);
       return true;
     } catch (e) {
       notify(e instanceof Error ? e.message : '用途の保存に失敗しました');
       return false;
     }
-  }, [scope, notify]);
+  }, [scope, notify, adopt]);
 
   return { categories, loading, reload, createCategory, renameCategory, deleteCategory, assignItem };
 }
