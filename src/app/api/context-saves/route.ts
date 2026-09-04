@@ -8,6 +8,8 @@ import {
   ensureCustomFolderTables,
   getFolderIdsForItems,
 } from '@/lib/custom-folders';
+// 297: 🎯用途カテゴリ（マイフォルダとは別テーブル・別体系）
+import { detachItemFromPurposes, detachItemsFromPurposes, ensurePurposeTables, getPurposeIdsForItems } from '@/lib/purpose-categories';
 
 // AI背景情報コンテキストの保存・取得・削除・お気に入りAPI
 
@@ -89,6 +91,7 @@ export async function GET(req: NextRequest) {
     await ensureCategoryColumn();
     // 249: カスタムフォルダ（お気に入りの手動分類）。一覧の絞り込みで参照するため先に用意する
     await ensureCustomFolderTables();
+    await ensurePurposeTables(); // 297: 一覧SQLが purpose_category_items を参照するため先に用意する
     const userId = (session.user as any).id;
 
     // 単一取得
@@ -151,6 +154,9 @@ export async function GET(req: NextRequest) {
       cfolderRaw && cfolderRaw !== 'unfiled' && Number.isFinite(Number(cfolderRaw))
         ? Number(cfolderRaw)
         : null;
+    // 297: 用途カテゴリでの絞り込み（pcat=<id>）。マイフォルダ・カテゴリ・タグ・検索と AND で重なる
+    const pcatRaw = searchParams.get('pcat')?.trim() || '';
+    const pcatId = pcatRaw && Number.isFinite(Number(pcatRaw)) ? Number(pcatRaw) : null;
 
     const [rows, countRows, catRows, tagRows] = await Promise.all([
       sql`
@@ -176,6 +182,12 @@ export async function GET(req: NextRequest) {
                  WHERE i.item_key = context_saves.id::text
                    AND i.user_id = context_saves.user_id
                    AND i.scope = 'context')))
+          AND (${pcatId}::int IS NULL OR EXISTS (
+                SELECT 1 FROM purpose_category_items pc
+                 WHERE pc.item_key = context_saves.id::text
+                   AND pc.user_id = context_saves.user_id
+                   AND pc.scope = 'context'
+                   AND pc.category_id = ${pcatId}))
         ORDER BY created_at DESC
         LIMIT ${limit} OFFSET ${offset}
       `,
@@ -200,6 +212,12 @@ export async function GET(req: NextRequest) {
                  WHERE i.item_key = context_saves.id::text
                    AND i.user_id = context_saves.user_id
                    AND i.scope = 'context')))
+          AND (${pcatId}::int IS NULL OR EXISTS (
+                SELECT 1 FROM purpose_category_items pc
+                 WHERE pc.item_key = context_saves.id::text
+                   AND pc.user_id = context_saves.user_id
+                   AND pc.scope = 'context'
+                   AND pc.category_id = ${pcatId}))
       `,
       sql`
         SELECT COALESCE(category, 'general') AS category, COUNT(*)::int AS count
@@ -228,11 +246,20 @@ export async function GET(req: NextRequest) {
     } catch (e) {
       console.error('[context-saves GET custom folders]', e);
     }
+    // 297: 所属用途カテゴリIDも同じ流儀で付与（失敗しても一覧は出す）
+    let purposeMap: Record<string, number[]> = {};
+    try {
+      await ensurePurposeTables();
+      purposeMap = await getPurposeIdsForItems(userId, 'context', (rows as { id: number }[]).map((r) => Number(r.id)));
+    } catch (e) {
+      console.error('[context-saves GET purposes]', e);
+    }
 
     return NextResponse.json({
       items: (rows as Record<string, unknown>[]).map((r) => ({
         ...r,
         custom_folder_ids: customFolderMap[String(r.id)] ?? [],
+        purpose_category_ids: purposeMap[String(r.id)] ?? [],
       })),
       total_count: countRows[0]?.n ?? 0,
       all_total: catRows.reduce((s: number, r: any) => s + Number(r.count), 0),
@@ -295,6 +322,9 @@ export async function PATCH(req: NextRequest) {
       await detachItemsFromFolders(userId, 'context', idsArray).catch((e: unknown) =>
         console.error('[context-saves bulk_delete detach]', e),
       );
+      await detachItemsFromPurposes(userId, 'context', idsArray).catch((e: unknown) =>
+        console.error('[context-saves bulk_delete detach purposes]', e),
+      );
       return NextResponse.json({ success: true, deleted: deleted.length });
     }
 
@@ -334,6 +364,9 @@ export async function DELETE(req: NextRequest) {
     // 249: 分類（カスタムフォルダ）も外す。掃除の失敗で削除自体を失敗させない
     await detachItemFromFolders(userId, 'context', id).catch((e: unknown) =>
       console.error('[context-saves DELETE detach]', e),
+    );
+    await detachItemFromPurposes(userId, 'context', id).catch((e: unknown) =>
+      console.error('[context-saves DELETE detach purposes]', e),
     );
     return NextResponse.json({ success: true });
   } catch (e: any) {

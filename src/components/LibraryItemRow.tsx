@@ -116,6 +116,11 @@ interface Props {
   variant?: 'default' | 'compact';
   // 252: 所属マイフォルダのバッジ（呼び出し側が組み立てて渡す＝この部品はフォルダ機構に依存しない）
   folderBadges?: React.ReactNode;
+  // 297: 所属用途カテゴリのバッジ（マイフォルダと同じく呼び出し側が組み立てて渡す・見た目は別色）
+  // 関数で渡すと「いま選択中の成果物（cur）」に対して描く＝まとめたカードで成果物ごとの用途を正しく出す
+  purposeBadges?: React.ReactNode | ((cur: any) => React.ReactNode);
+  // 297: 「🎯 用途」から割り当てパネルを開く。渡されたときだけボタンを描画する（成果物単位＝cur に対して）
+  onPurposeClick?: (item: { id: string }, rect: DOMRect) => void;
   // 252: ☆から分類パネルを開く。渡されたときは onFavoriteToggle の代わりにこちらを呼ぶ
   // （このファイルの item は既存コード互換で any だが、新しい口は必要な形だけを受ける）
   onFavoriteClick?: (item: { id: string; is_favorite?: number }, rect: DOMRect) => void;
@@ -149,6 +154,8 @@ export function LibraryItemRow({
   onTagClick,
   variant = 'default',
   folderBadges,
+  purposeBadges,
+  onPurposeClick,
   onFavoriteClick,
   onFullscreen,
   clickToExpand = false,
@@ -380,7 +387,7 @@ export function LibraryItemRow({
         </div>
 
         {/* 252: 所属マイフォルダ。コンパクトカードなので1行に収め、溢れは隠す（291: 密度=コンパクトでは出さない） */}
-        {density === 'detail' && folderBadges && (
+        {density === 'detail' && (folderBadges || (typeof purposeBadges === 'function' ? purposeBadges(cur) : purposeBadges)) && (
           <div
             style={{
               display: 'flex',
@@ -392,6 +399,7 @@ export function LibraryItemRow({
             }}
           >
             {folderBadges}
+            {typeof purposeBadges === 'function' ? purposeBadges(cur) : purposeBadges}
           </div>
         )}
         </div>
@@ -520,6 +528,17 @@ export function LibraryItemRow({
               }}
             >
               {cur.is_favorite ? '⭐' : '☆'}
+            </button>
+          )}
+          {onPurposeClick && (
+            <button
+              type="button"
+              data-purpose-button={cur.id}
+              onClick={(e) => onPurposeClick(cur, e.currentTarget.getBoundingClientRect())}
+              title={'用途カテゴリを割り当て（note用・Kindle用など）' + (hasArtifacts ? `（${kindLabel}）` : '')}
+              style={{ ...compactBtnStyle, color: '#115e59', borderColor: 'rgba(13,148,136,0.45)', background: 'rgba(13,148,136,0.08)' }}
+            >
+              🎯
             </button>
           )}
           {onDelete && (
@@ -858,6 +877,17 @@ export function LibraryItemRow({
                 }}
               >
                 {item.is_favorite ? (onFavoriteClick ? '⭐ 分類' : '⭐ お気に入り') : '☆ お気に入り'}
+              </button>
+            )}
+            {onPurposeClick && (
+              <button
+                type="button"
+                data-purpose-button={item.id}
+                onClick={(e) => onPurposeClick(item, e.currentTarget.getBoundingClientRect())}
+                title="用途カテゴリを割り当て（note用・Kindle用など）"
+                style={{ ...btnStyle, color: '#115e59', borderColor: 'rgba(13,148,136,0.45)', background: 'rgba(13,148,136,0.08)' }}
+              >
+                🎯 用途
               </button>
             )}
             {onDelete && (

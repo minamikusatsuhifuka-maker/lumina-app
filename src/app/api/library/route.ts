@@ -10,6 +10,8 @@ import {
   ensureCustomFolderTables,
   getFolderIdsForItems,
 } from '@/lib/custom-folders';
+// 297: 🎯用途カテゴリ（マイフォルダとは別テーブル・別体系）
+import { detachItemFromPurposes, detachItemsFromPurposes, ensurePurposeTables, getPurposeIdsForItems } from '@/lib/purpose-categories';
 import { hasSavableContent } from '@/lib/merge-report';
 
 // 250: 一括削除の1リクエストあたりの上限（text-analysis / context-saves と同値）。
@@ -72,10 +74,18 @@ async function withCustomFolders(
   try {
     await ensureCustomFolderTables();
     const map = await getFolderIdsForItems(userId, 'library', rows.map((r) => String(r.id)));
-    return rows.map((r) => ({ ...r, custom_folder_ids: map[String(r.id)] ?? [] }));
+    // 297: 所属用途カテゴリIDも同じ流儀で付与（別テーブル。失敗しても一覧は出す）
+    let purposeMap: Record<string, number[]> = {};
+    try {
+      await ensurePurposeTables();
+      purposeMap = await getPurposeIdsForItems(userId, 'library', rows.map((r) => String(r.id)));
+    } catch (e) {
+      console.error('[library GET purposes]', e);
+    }
+    return rows.map((r) => ({ ...r, custom_folder_ids: map[String(r.id)] ?? [], purpose_category_ids: purposeMap[String(r.id)] ?? [] }));
   } catch (e) {
     console.error('[library GET custom folders]', e);
-    return rows.map((r) => ({ ...r, custom_folder_ids: [] }));
+    return rows.map((r) => ({ ...r, custom_folder_ids: [], purpose_category_ids: [] }));
   }
 }
 
@@ -188,6 +198,9 @@ export async function DELETE(req: NextRequest) {
     await detachItemsFromFolders(userId, 'library', idsArray).catch((e) =>
       console.error('[library bulk_delete detach]', e),
     );
+    await detachItemsFromPurposes(userId, 'library', idsArray).catch((e) =>
+      console.error('[library bulk_delete detach purposes]', e),
+    );
     return NextResponse.json({ success: true, deleted: deleted.length });
   }
 
@@ -196,6 +209,9 @@ export async function DELETE(req: NextRequest) {
   // 252: 分類（マイフォルダ）も外す。掃除の失敗で削除自体を失敗させない
   await detachItemFromFolders(userId, 'library', String(id)).catch((e) =>
     console.error('[library DELETE detach]', e),
+  );
+  await detachItemFromPurposes(userId, 'library', String(id)).catch((e) =>
+    console.error('[library DELETE detach purposes]', e),
   );
   return NextResponse.json({ success: true, deleted: 1 });
 }

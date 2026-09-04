@@ -6,6 +6,8 @@ type LibraryRow = {
   id: string;
   is_favorite?: number;
   custom_folder_ids?: number[];
+  // 297: 所属用途カテゴリID（マイフォルダとは別体系）
+  purpose_category_ids?: number[];
   [key: string]: unknown;
 };
 import { useSearchParams, useRouter } from 'next/navigation';
@@ -20,6 +22,11 @@ import { useHoverPreview } from '@/components/HoverPreview';
 import { markdownToReadableText } from '@/lib/markdownToText';
 import FolderPickerPopover from '@/components/custom-folders/FolderPickerPopover';
 import FolderBadges from '@/components/custom-folders/FolderBadges';
+// 297: 🎯用途カテゴリ（マイフォルダとは別の枠・別テーブル・別色）
+import PurposeCategoryBar from '@/components/purpose-categories/PurposeCategoryBar';
+import PurposePickerPopover from '@/components/purpose-categories/PurposePickerPopover';
+import PurposeBadges from '@/components/purpose-categories/PurposeBadges';
+import { usePurposeCategories, type PurposeFilter } from '@/components/purpose-categories/usePurposeCategories';
 import {
   useCustomFolders,
   type FolderFilter,
@@ -168,6 +175,10 @@ function LibraryPageInner() {
   const hoverPreview = useHoverPreview();
   const [activeCustomFolder, setActiveCustomFolder] = useState<FolderFilter>(null);
   const [folderPicker, setFolderPicker] = useState<{ id: string; rect: DOMRect } | null>(null);
+  // 297: 用途カテゴリ（3画面で共有の1体系）。絞り込みはマイフォルダ・タブ・検索と AND。割り当ては成果物（行）単位（283 §4-3 に揃える）
+  const purposes = usePurposeCategories('library', (msg) => alert(msg));
+  const [activePurpose, setActivePurpose] = useState<PurposeFilter>(null);
+  const [purposePicker, setPurposePicker] = useState<{ id: string; rect: DOMRect } | null>(null);
   const [mergeResult, setMergeResult] = useState('');
   // 287: 生成時に選んでいた資料のタイトル（保存名を決定的に導くため。保存時に選択が変わっていても影響しない）
   const [mergeSourceTitles, setMergeSourceTitles] = useState<string[]>([]);
@@ -315,6 +326,16 @@ function LibraryPageInner() {
     if (!ok) {
       setItems(prev => prev.map(i => (i.id === id ? { ...i, custom_folder_ids: before } : i)));
     }
+  };
+
+  // 297: 「🎯 用途」ボタン → 割り当てパネル（お気に入りとは無関係に付けられる）
+  const handlePurposeClick = (item: { id: string }, rect: DOMRect) => setPurposePicker({ id: item.id, rect });
+  /** 所属用途を選択内容に置き換える（チェックした時点で保存・失敗時は戻す） */
+  const handleAssignPurposes = async (id: string, categoryIds: number[]) => {
+    const before = items.find((i) => i.id === id)?.purpose_category_ids ?? [];
+    setItems(prev => prev.map(i => (i.id === id ? { ...i, purpose_category_ids: categoryIds } : i)));
+    const ok = await purposes.assignItem(id, categoryIds);
+    if (!ok) setItems(prev => prev.map(i => (i.id === id ? { ...i, purpose_category_ids: before } : i)));
   };
 
   /** パネルからのお気に入り解除。分類だけ残らないよう先に全解除する */
@@ -531,13 +552,18 @@ function LibraryPageInner() {
     }
     return list.filter((i) => (i.custom_folder_ids ?? []).includes(activeCustomFolder));
   };
+  // 297: 用途カテゴリの絞り込み（マイフォルダ・タブ・検索と AND で重なる）
+  const filterByPurpose = <T extends LibraryRow>(list: T[]): T[] => {
+    if (activePurpose === null) return list;
+    return list.filter((i) => (i.purpose_category_ids ?? []).includes(activePurpose));
+  };
 
   // 293: 種別・AIカテゴリ・分類失敗を除いた「土台」。件数（ファセット）はこの土台から数える＝
   // 各ファセットの件数は「他の条件を通したうえで、その値を選んだら何件になるか」（決定的・R-74）
   const facetBase = useMemo(() => {
     // searchScope='all' で検索クエリ有のときはタブ無視で全体検索
     if (search.trim() && searchScope === 'all') {
-      return filterByCustomFolder(filterBySearch(items));
+      return filterByPurpose(filterByCustomFolder(filterBySearch(items)));
     }
     let list = items;
     if (activeTab === 'favorite') {
@@ -549,9 +575,9 @@ function LibraryPageInner() {
     if (favFilterInTab && activeTab !== 'favorite') {
       list = list.filter(i => i.is_favorite);
     }
-    return filterByCustomFolder(list);
+    return filterByPurpose(filterByCustomFolder(list));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [items, search, searchScope, searchRange, activeTab, favFilterInTab, activeCustomFolder]);
+  }, [items, search, searchScope, searchRange, activeTab, favFilterInTab, activeCustomFolder, activePurpose]);
 
   const filterByCategory = (list: any[]): any[] => {
     let out = list;
@@ -736,7 +762,11 @@ function LibraryPageInner() {
   if (activeCustomFolder === 'unfiled') {
     activeConditions.push({ key: 'cfolder', label: 'マイフォルダ: 未分類のお気に入り', onRemove: () => setActiveCustomFolder(null) });
   }
+  if (activePurpose !== null) {
+    activeConditions.push({ key: 'purpose', label: `🎯 用途: ${purposes.categories.find((c) => c.id === activePurpose)?.name ?? activePurpose}`, onRemove: () => setActivePurpose(null) });
+  }
   const clearAllConditions = () => {
+    setActivePurpose(null);
     setActiveTab('all');
     setSearch('');
     applySearchRange('all');
@@ -825,6 +855,12 @@ function LibraryPageInner() {
             <FolderBadges folderIds={item.custom_folder_ids} folders={customFolders.folders} />
           ) : undefined
         }
+        purposeBadges={(cur: LibraryRow) =>
+          (cur.purpose_category_ids?.length ?? 0) > 0 ? (
+            <PurposeBadges categoryIds={cur.purpose_category_ids} categories={purposes.categories} />
+          ) : null
+        }
+        onPurposeClick={handlePurposeClick}
         onDelete={deleteItem}
         onEdit={(it) => { setEditingId(it.id); setEditTags(it.tags || ''); setEditGroup(it.group_name || '未分類'); }}
         onExportTxt={downloadTxt}
@@ -936,6 +972,21 @@ function LibraryPageInner() {
           onDelete={customFolders.deleteFolder}
           onReorder={customFolders.reorderFolders}
           storageKey="lib_custom_folder_open"
+        />
+      </div>
+
+      {/* 297: 🎯用途カテゴリ（マイフォルダ＝テーマ別とは別の枠・別色・別テーブル。3画面で共有） */}
+      <div style={{ marginBottom: 16 }}>
+        <PurposeCategoryBar
+          scope="library"
+          categories={purposes.categories}
+          totalCount={items.length}
+          value={activePurpose}
+          onChange={setActivePurpose}
+          onCreate={purposes.createCategory}
+          onRename={purposes.renameCategory}
+          onDelete={purposes.deleteCategory}
+          storageKey="lib_purpose_open"
         />
       </div>
 
@@ -1569,6 +1620,23 @@ function LibraryPageInner() {
               onCreate={customFolders.createFolder}
               onUnfavorite={() => void handleUnfavorite(target)}
               onClose={closeFolderPicker}
+            />
+          );
+        })()}
+
+      {/* 297: 用途の割り当てパネル（🎯ボタンから開く。マイフォルダの分類パネルと同じ操作感） */}
+      {purposePicker &&
+        (() => {
+          const target = items.find((i) => i.id === purposePicker.id);
+          if (!target) return null;
+          return (
+            <PurposePickerPopover
+              anchorRect={purposePicker.rect}
+              categories={purposes.categories}
+              selectedIds={target.purpose_category_ids ?? []}
+              onChange={(ids) => void handleAssignPurposes(target.id, ids)}
+              onCreate={purposes.createCategory}
+              onClose={() => setPurposePicker(null)}
             />
           );
         })()}

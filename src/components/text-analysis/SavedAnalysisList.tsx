@@ -73,6 +73,11 @@ import FolderCrossView from '@/components/custom-folders/FolderCrossView';
 import { useHoverPreview } from '@/components/HoverPreview';
 import FolderBadges from '@/components/custom-folders/FolderBadges';
 import FolderPickerPopover from '@/components/custom-folders/FolderPickerPopover';
+// 297: 🎯用途カテゴリ（マイフォルダとは別の枠・別テーブル・別色）
+import PurposeCategoryBar from '@/components/purpose-categories/PurposeCategoryBar';
+import PurposePickerPopover from '@/components/purpose-categories/PurposePickerPopover';
+import PurposeBadges from '@/components/purpose-categories/PurposeBadges';
+import { usePurposeCategories, type PurposeFilter } from '@/components/purpose-categories/usePurposeCategories';
 import {
   useCustomFolders,
   type FolderFilter,
@@ -111,6 +116,8 @@ export interface AnalysisRecord {
   input_char_count?: number;
   // 249: 所属するマイフォルダのID（複数可・自動カテゴリの folder とは別軸）
   custom_folder_ids?: number[];
+  // 297: 所属用途カテゴリID（マイフォルダとは別体系）
+  purpose_category_ids?: number[];
 }
 
 // 203: 任意ワード抽出のガード定数
@@ -196,6 +203,10 @@ export default function SavedAnalysisList({
   const [activeCustomFolder, setActiveCustomFolder] = useState<FolderFilter>(null);
   // 分類パネルを開いている記事（☆ボタンの矩形に合わせてポップオーバーを出す）
   const [folderPicker, setFolderPicker] = useState<{ id: number; rect: DOMRect } | null>(null);
+  // 297: 用途カテゴリ（3画面で共有の1体系）。絞り込みはサーバー側 pcat= で他条件と AND
+  const purposes = usePurposeCategories('text_analysis', (msg) => showToast(msg, 'error'));
+  const [activePurpose, setActivePurpose] = useState<PurposeFilter>(null);
+  const [purposePicker, setPurposePicker] = useState<{ id: number; rect: DOMRect } | null>(null);
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
   // カテゴリ概覧の開閉（デフォルト閉。開閉状態は localStorage で記憶）
   const [showCategoryGrid, setShowCategoryGrid] = useState(false);
@@ -338,6 +349,7 @@ export default function SavedAnalysisList({
       if (inputOnly) p.set('hasInput', '1');
       // 249: マイフォルダでの絞り込み（id指定 / お気に入りの未分類）
       if (activeCustomFolder !== null) p.set('cfolder', String(activeCustomFolder));
+      if (activePurpose !== null) p.set('pcat', String(activePurpose)); // 297: 用途カテゴリ
       const res = await fetch(`/api/text-analysis/saves?${p.toString()}`);
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data?.error || '一覧の取得に失敗しました');
@@ -370,7 +382,7 @@ export default function SavedAnalysisList({
     if (typeof activeCustomFolder === 'number') return;
     fetchPage(0, false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [debouncedSearch, searchRange, typeFilter, activeFolder, favoriteOnly, inputOnly, activeCustomFolder, reloadKey]);
+  }, [debouncedSearch, searchRange, typeFilter, activeFolder, favoriteOnly, inputOnly, activeCustomFolder, activePurpose, reloadKey]);
 
   // ── 194: 本文（content）の遅延取得＋キャッシュ（fetchInputText と同型）。
   // 失敗時は null を返しキャッシュしない（再試行可能。✏編集の空content上書きガードにも使う） ──
@@ -1070,7 +1082,11 @@ export default function SavedAnalysisList({
   if (activeCustomFolder === 'unfiled') {
     activeConditions.push({ key: 'cfolder', label: 'マイフォルダ: 未分類のお気に入り', onRemove: () => setActiveCustomFolder(null) });
   }
+  if (activePurpose !== null) {
+    activeConditions.push({ key: 'purpose', label: `🎯 用途: ${purposes.categories.find((c) => c.id === activePurpose)?.name ?? activePurpose}`, onRemove: () => setActivePurpose(null) });
+  }
   const clearAllConditions = () => {
+    setActivePurpose(null);
     setSearchTerm('');
     applySearchRange('all');
     setActiveFolder(null);
@@ -1227,6 +1243,23 @@ export default function SavedAnalysisList({
         prev.map((r) => (r.id === id ? { ...r, custom_folder_ids: before } : r)),
       );
     }
+  };
+
+  // 297: 「🎯 用途」ボタン → 割り当てパネル。閉じたとき、用途で絞り込み中なら取り直す（条件から外れた記事を残さない）
+  const purposePickerDirtyRef = useRef(false);
+  const handlePurposeButton = (record: AnalysisRecord, rect: DOMRect) => setPurposePicker({ id: record.id, rect });
+  const closePurposePicker = () => {
+    const changed = purposePickerDirtyRef.current;
+    purposePickerDirtyRef.current = false;
+    setPurposePicker(null);
+    if (changed && activePurpose !== null) void fetchPage(0, false);
+  };
+  const handleAssignPurposes = async (id: number, categoryIds: number[]) => {
+    const before = records.find((r) => r.id === id)?.purpose_category_ids ?? [];
+    purposePickerDirtyRef.current = true;
+    setRecords((prev) => prev.map((r) => (r.id === id ? { ...r, purpose_category_ids: categoryIds } : r)));
+    const ok = await purposes.assignItem(id, categoryIds);
+    if (!ok) setRecords((prev) => prev.map((r) => (r.id === id ? { ...r, purpose_category_ids: before } : r)));
   };
 
   /** パネルからのお気に入り解除。分類だけ残らないよう先に全解除する */
@@ -2005,6 +2038,19 @@ export default function SavedAnalysisList({
         storageKey="ta_custom_folder_open"
       />
 
+      {/* 297: 🎯用途カテゴリ（マイフォルダ＝テーマ別とは別の枠・別色・別テーブル。3画面で共有） */}
+      <PurposeCategoryBar
+        scope="text_analysis"
+        categories={purposes.categories}
+        totalCount={allTotal}
+        value={activePurpose}
+        onChange={setActivePurpose}
+        onCreate={purposes.createCategory}
+        onRename={purposes.renameCategory}
+        onDelete={purposes.deleteCategory}
+        storageKey="ta_purpose_open"
+      />
+
       {/* 253: マイフォルダを開いている間は、両画面のアイテムをまとめた横断ビューに差し替える。
           （252では自画面のぶんしか出ず、バッジの件数と表示件数が食い違っていた） */}
       {typeof activeCustomFolder === 'number' ? (
@@ -2703,6 +2749,10 @@ export default function SavedAnalysisList({
                           folders={customFolders.folders}
                         />
                       )}
+                      {/* 297: 所属用途カテゴリ（🎯青緑・📂金色のマイフォルダと区別）。コンパクトでは出さない */}
+                      {listDensity === 'detail' && (
+                        <PurposeBadges categoryIds={record.purpose_category_ids} categories={purposes.categories} />
+                      )}
                       {record.favorite && (
                         <span
                           style={{
@@ -2846,6 +2896,16 @@ export default function SavedAnalysisList({
                         }
                       >
                         {record.favorite ? '⭐ 分類' : '☆ お気に入り'}
+                      </button>
+                      {/* 297: 用途カテゴリの割り当て（お気に入りとは無関係・マイフォルダの☆と同じ操作感） */}
+                      <button
+                        type="button"
+                        data-purpose-button={record.id}
+                        onClick={(e) => handlePurposeButton(record, e.currentTarget.getBoundingClientRect())}
+                        title="用途カテゴリを割り当て（note用・Kindle用など）"
+                        style={{ ...listBtnStyle(), color: '#115e59', border: '1px solid rgba(13,148,136,0.45)', background: 'rgba(13,148,136,0.08)' }}
+                      >
+                        🎯 用途
                       </button>
                       <button
                         type="button"
@@ -3315,6 +3375,23 @@ export default function SavedAnalysisList({
               onCreate={customFolders.createFolder}
               onUnfavorite={() => void handleUnfavorite(target.id)}
               onClose={closeFolderPicker}
+            />
+          );
+        })()}
+
+      {/* 297: 用途の割り当てパネル（🎯ボタンから開く） */}
+      {purposePicker &&
+        (() => {
+          const target = records.find((r) => r.id === purposePicker.id);
+          if (!target) return null;
+          return (
+            <PurposePickerPopover
+              anchorRect={purposePicker.rect}
+              categories={purposes.categories}
+              selectedIds={target.purpose_category_ids ?? []}
+              onChange={(ids) => void handleAssignPurposes(target.id, ids)}
+              onCreate={purposes.createCategory}
+              onClose={closePurposePicker}
             />
           );
         })()}
