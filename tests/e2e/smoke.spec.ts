@@ -7628,3 +7628,92 @@ test('C107: 用途の一括API（298）— 1リクエストで複数件・一部
     await cleanupE2ESaves(request);
   }
 });
+
+// ───────────────────────────────────────────────────────────────────────────
+// 299: クリック展開の横展開（🗂テキスト分析・📕Kindleウィザード素材）と用途バッジのコンパクト表示
+// ───────────────────────────────────────────────────────────────────────────
+test('C108: テキスト分析のクリック展開（299 §2）— タイトル/バッジ行のクリックで本文が開く・チェックでは開かず（R-81）展開してもチェックは変わらない・操作ボタンでは開かない・展開後の本文のクリックで閉じない・複数同時展開（Set）・Enter/Spaceで展開・▼全文表示と同じ状態・生MD露出なし（R-97）', async ({ page, request }) => {
+  test.setTimeout(120_000);
+  const marker = `CLK299${RUN_ID}`;
+  const heading = `見出し${marker}`;
+  const bold = `太字${marker}`;
+  const t1 = await createSave(request, { title: `CLK-T1 ${marker}`, content: `導入 ${marker}。\n\n## ${heading}\n\n**${bold}** の段落です。\n\n- 箇条書き一\n- 箇条書き二`, analysisType: 'summary', analysisLabel: '概要・要約' });
+  const t2 = await createSave(request, { title: `CLK-T2 ${marker}`, content: `T2 ${marker} 本文`, analysisType: 'summary', analysisLabel: '概要・要約' });
+  try {
+    await page.goto('/dashboard/saved');
+    const panel = page.locator('[data-saved-panel="text-analysis"]');
+    await panel.locator('[data-kb-search]').fill(marker);
+    const c1 = panel.locator(`[data-analysis-card="${t1}"]`);
+    const c2 = panel.locator(`[data-analysis-card="${t2}"]`);
+    await expect(c1).toBeVisible({ timeout: 30000 });
+    await expect(c2).toBeVisible({ timeout: 30000 });
+    const body1 = panel.locator(`[data-ta-expanded-body="${t1}"]`);
+    const body2 = panel.locator(`[data-ta-expanded-body="${t2}"]`);
+    const zone1 = c1.locator(`[data-ta-expand-zone="${t1}"]`);
+    await expect(zone1, '展開領域はキーボードで到達できる（role=button）').toHaveAttribute('role', 'button');
+    await expect(zone1).toHaveAttribute('tabindex', '0');
+    await expect(zone1).toHaveAttribute('aria-expanded', 'false');
+    const cursor = await zone1.evaluate((el) => getComputedStyle(el).cursor);
+    expect(cursor, 'ポインタカーソル').toBe('pointer');
+
+    // ① チェックを押しても展開しない（R-81 両方向・その1）
+    await c1.locator(`[data-select-check="${t1}"]`).check();
+    await expect(body1, 'チェックで展開が走らない').toHaveCount(0);
+    // ② タイトルのクリックで開く。開いてもチェックは変わらない（その2）
+    await c1.locator('[data-ta-title]').click();
+    await expect(body1, 'タイトルのクリックで本文が開く').toBeVisible();
+    await expect(zone1).toHaveAttribute('aria-expanded', 'true');
+    await expect(c1.locator(`[data-select-check="${t1}"]`), '展開してもチェックは変わらない').toBeChecked();
+    // 整形表示（R-97: MarkdownBody の data-md-view）・生MD記法の露出なし
+    const md1 = body1.locator('[data-md-view]');
+    await expect(md1).toBeVisible();
+    await expect(md1.locator('h2'), '見出しがh2に整形される').toContainText(heading);
+    await expect(md1.locator('strong')).toContainText(bold);
+    await expectNoRawMarkdown(md1, '🗂 展開本文');
+    // ③ 展開後の本文をクリックしても閉じない（文字を選べる）
+    await md1.click();
+    await expect(body1, '本文のクリックで折りたたまれない').toBeVisible();
+    // ④ 操作ボタン（🎯用途）を押しても展開状態は変わらない（開いたまま／閉じたままのどちらも）
+    await c1.locator(`[data-purpose-button="${t1}"]`).click();
+    await expect(page.locator('[data-purpose-picker]')).toBeVisible();
+    await page.keyboard.press('Escape');
+    await expect(page.locator('[data-purpose-picker]')).toHaveCount(0);
+    await expect(body1, '操作ボタンで展開状態が変わらない（開いたまま）').toBeVisible();
+    // ⑤ バッジ行のクリックで閉じる → もう一度開く（同じ状態）
+    await c1.locator('[data-ta-badges]').click();
+    await expect(body1, 'バッジ行のクリックで閉じる').toHaveCount(0);
+    await expect(zone1).toHaveAttribute('aria-expanded', 'false');
+    await c1.locator(`[data-purpose-button="${t1}"]`).click();
+    await page.keyboard.press('Escape');
+    await expect(body1, '操作ボタンで展開しない（閉じたまま）').toHaveCount(0);
+    await c1.locator('[data-ta-badges]').click();
+    await expect(body1, 'バッジ行のクリックで開く').toBeVisible();
+    // ⑥ 複数同時展開（Set＝排他にしない）: t2 を Enter で開いても t1 は開いたまま
+    await c2.locator(`[data-ta-expand-zone="${t2}"]`).focus();
+    await page.keyboard.press('Enter');
+    await expect(body2, 'Enter で展開する').toBeVisible();
+    await expect(body1, '別のカードを開いても閉じない（複数同時展開）').toBeVisible();
+    // Space で閉じる（画面がスクロールしない）
+    const yBefore = await page.evaluate(() => window.scrollY);
+    await c2.locator(`[data-ta-expand-zone="${t2}"]`).focus();
+    await page.keyboard.press('Space');
+    await expect(body2, 'Space で閉じる').toHaveCount(0);
+    expect(Math.abs((await page.evaluate(() => window.scrollY)) - yBefore), 'Space で画面がスクロールしない').toBeLessThanOrEqual(2);
+    // ⑦ ▼全文表示ボタン（既存）と同じ状態: ボタンで閉じられる／開ける
+    await c1.getByRole('button', { name: /▲ 閉じる/ }).first().click();
+    await expect(body1, '▲ 閉じる（既存ボタン）で閉じる').toHaveCount(0);
+    await c1.getByRole('button', { name: /▼ 全文表示/ }).click();
+    await expect(body1, '▼ 全文表示（既存ボタン）で開く').toBeVisible();
+    await expect(zone1, 'ボタンで開いても領域の aria-expanded が追従する').toHaveAttribute('aria-expanded', 'true');
+    // ⑧ コンパクト密度でもクリック展開で開ける（操作バーは無い）
+    await panel.locator('[data-library-density-choice="compact"]').click();
+    await expect(c2.getByRole('button', { name: /▼ 全文表示/ }), 'コンパクトでは操作バーを出さない（292）').toHaveCount(0);
+    await c2.locator('[data-ta-title]').click();
+    await expect(body2, 'コンパクトでもクリック展開で本文が開く').toBeVisible();
+    await panel.locator('[data-library-density-choice="detail"]').click();
+    await expect(c1.locator(`[data-select-check="${t1}"]`), '最後までチェックは変わらない').toBeChecked();
+  } finally {
+    await cleanupE2ESaves(request);
+    await cleanupE2EPurposes(request);
+  }
+});

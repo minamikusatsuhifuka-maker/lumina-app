@@ -7,7 +7,7 @@ import { MAX_KINDLE_SOURCES, makeAnalysisSourceKey } from '@/lib/kindle-limits';
 import { copyToClipboard } from '@/lib/copyToClipboard';
 import { confirmBulkDelete } from '@/lib/bulk-delete-confirm';
 import { copyRichMarkdown } from '@/lib/rich-copy';
-import { renderMarkdown, sanitizeLatex } from '@/lib/markdown-renderer';
+import { sanitizeLatex } from '@/lib/markdown-renderer';
 import { sanitizeFilename, yyyymmdd } from '@/lib/title-generator';
 import { triggerDownload } from '@/lib/download';
 import { markdownToReadableText } from '@/lib/markdownToText';
@@ -77,6 +77,7 @@ import FolderPickerPopover from '@/components/custom-folders/FolderPickerPopover
 import PurposeCategoryBar from '@/components/purpose-categories/PurposeCategoryBar';
 import PurposePickerPopover from '@/components/purpose-categories/PurposePickerPopover';
 import PurposeBadges from '@/components/purpose-categories/PurposeBadges';
+import { MarkdownBody } from '@/components/MarkdownBody';
 import PurposeBulkPanel from '@/components/purpose-categories/PurposeBulkPanel';
 import { type PurposeBulkMode, purposeBulkState } from '@/lib/purpose-categories-shared';
 import { usePurposeCategories, type PurposeFilter } from '@/components/purpose-categories/usePurposeCategories';
@@ -234,7 +235,9 @@ export default function SavedAnalysisList({
       return next;
     });
   };
-  const [expandedId, setExpandedId] = useState<number | null>(null);
+  // 299 §2-7: 展開は Set で持つ（複数カードを同時に開ける・排他にしない＝R-81）。
+  // 「▼ 全文表示」ボタンとカードのクリック展開（299）で**同じ状態**を切り替える（新しい展開処理は書かない）
+  const [expandedIds, setExpandedIds] = useState<Set<number>>(new Set());
   // 展開ビュー本文枠の高さ（保存一覧全体で共通・localStorage記憶）。デフォルトはMで流用元と統一
   const [heightMode, setHeightMode] = useState<SavedHeightMode>('M');
   useEffect(() => {
@@ -942,12 +945,22 @@ export default function SavedAnalysisList({
 
   // カード本体の全文表示トグル（194: 開く時に本文が未取得なら遅延取得。入力テキストと同方式）
   const handleToggleExpand = (record: AnalysisRecord) => {
-    const opening = expandedId !== record.id;
+    const opening = !expandedIds.has(record.id);
+    // 274と同じ: ホバープレビュー（256/273）が出ていたら閉じる（本文の上にふきだしを残さない）
+    hoverPreview.hide();
     if (opening && loadedContents[record.id] === undefined) {
       void fetchContent(record.id);
     }
-    setExpandedId(opening ? record.id : null);
+    setExpandedIds((prev) => {
+      const next = new Set(prev);
+      if (opening) next.add(record.id);
+      else next.delete(record.id);
+      return next;
+    });
   };
+
+  /** 299/R-81: カード内の操作（チェック・操作バー）がクリック展開へ伝わらないようにする（領域限定と併せた二重の守り） */
+  const stopCardClick = (e: React.MouseEvent) => e.stopPropagation();
 
   // 194: カテゴリ一覧は全件母数のサーバ集計（ロード済みページからの算出をやめる）
   const uniqueFolders = useMemo(() => serverFolders.map((f) => f.folder), [serverFolders]);
@@ -1333,7 +1346,7 @@ export default function SavedAnalysisList({
         showToast('本文の取得に失敗しました（編集を開始できません）', 'error');
         return;
       }
-      setExpandedId(record.id); // 編集UIは展開ビュー内に出るので展開も保証
+      setExpandedIds((prev) => (prev.has(record.id) ? prev : new Set(prev).add(record.id))); // 編集UIは展開ビュー内に出るので展開も保証
       setEditingId(record.id);
       setEditTitle(record.auto_title || record.file_name || '');
       setEditContent(text);
@@ -2623,7 +2636,7 @@ export default function SavedAnalysisList({
             const title =
               record.auto_title || record.file_name || '無題';
             const checked = selectedIds.has(record.id);
-            const expanded = expandedId === record.id;
+            const expanded = expandedIds.has(record.id);
             const folderColor = record.folder
               ? getFolderColor(record.folder, uniqueFolders)
               : null;
@@ -2722,6 +2735,8 @@ export default function SavedAnalysisList({
                       type="checkbox"
                       data-select-check={record.id}
                       checked={checked}
+                      // 299/R-81: 展開領域の外側にあり、クリックは上へ伝えない（チェックしても本文は開かない）
+                      onClick={stopCardClick}
                       onChange={() => {
                         setSelectedIds((prev) => {
                           const next = new Set(prev);
@@ -2734,6 +2749,28 @@ export default function SavedAnalysisList({
                     />
                   )}
                   <div style={{ flex: 1, minWidth: 0 }}>
+                    {/* 299/R-81: ここ（バッジ行・タイトル）が本文の展開領域。チェック・操作バー・展開後の本文は含めない。
+                        274/282/291 と同じ card-expand-zone（ポインタ・ホバー・focus-visible は globals.css）。
+                        二重の守り: 領域限定に加えて、領域の中に後からボタン等が足されても展開が走らないよう
+                        クリック元が操作要素なら無視し、キー操作は領域自身にフォーカスがあるときだけ受ける */}
+                    <div
+                      className="card-expand-zone"
+                      data-ta-expand-zone={record.id}
+                      role="button"
+                      tabIndex={0}
+                      aria-expanded={expanded}
+                      title={expanded ? 'クリックで本文を閉じる' : 'クリックで本文を開く'}
+                      onClick={(e) => {
+                        if ((e.target as HTMLElement).closest('button, a, input, select, textarea, [data-no-expand]')) return;
+                        handleToggleExpand(record);
+                      }}
+                      onKeyDown={(e) => {
+                        if (e.target !== e.currentTarget) return;
+                        if (e.key !== 'Enter' && e.key !== ' ') return;
+                        e.preventDefault(); // Space での画面スクロールを止める
+                        handleToggleExpand(record);
+                      }}
+                    >
                     {/* 292（291 §3-4と同じ構成）: 1行目にバッジ（分析タイプ・文字数・日付・カテゴリ・⭐）、2行目にタイトル。
                         長いタイトルでもバッジの位置が動かない。文字数の濃淡は lib/library-view.ts の段階（数値併記） */}
                     <div
@@ -2813,9 +2850,12 @@ export default function SavedAnalysisList({
                         {title}
                       </span>
                     </div>
+                    </div>
                     {/* ── アクションバー（タイトル直下に配置）。292: 密度=コンパクトでは出さない（高さを抑える） ── */}
                     {listDensity === 'detail' && (
                     <div
+                      // 299/R-81: 展開領域の外側。操作が上へ伝わって展開が走らないようにする（二重の守り）
+                      onClick={stopCardClick}
                       style={{
                         display: 'flex',
                         gap: 6,
@@ -2986,7 +3026,8 @@ export default function SavedAnalysisList({
                     </div>
                     )}
                     {expanded ? (
-                      <>
+                      // 299/R-81: 展開後の本文は展開領域の外側（文字を選べる・クリックで閉じない）。E2Eの目印
+                      <div data-ta-expanded-body={record.id}>
                       {/* 本文表示枠の高さ切替（S/M/L/全）。生成結果カードと同じ仕様・見た目 */}
                       <div
                         style={{
@@ -3060,7 +3101,7 @@ export default function SavedAnalysisList({
                         >
                           <button
                             type="button"
-                            onClick={() => setExpandedId(null)}
+                            onClick={() => handleToggleExpand(record)}
                             style={{
                               padding: '4px 10px',
                               fontSize: 11,
@@ -3171,15 +3212,13 @@ export default function SavedAnalysisList({
                             本文を取得できませんでした。もう一度「▼ 全文表示」を開き直してください。
                           </div>
                         ) : (
-                          <div
-                            className="markdown-body"
+                          // 299 §2-8/R-97: 整形は共通の MarkdownBody（288）＝同じ renderMarkdown 経路。新しい変換は足さない
+                          <MarkdownBody
+                            text={loadedContents[record.id]}
                             style={{
                               lineHeight: 1.75,
                               overflowWrap: 'anywhere',
                               wordBreak: 'break-word',
-                            }}
-                            dangerouslySetInnerHTML={{
-                              __html: renderMarkdown(loadedContents[record.id]),
                             }}
                           />
                         )}
@@ -3262,7 +3301,7 @@ export default function SavedAnalysisList({
                           </div>
                         )}
                       </div>
-                      </>
+                      </div>
                     ) : null /* 本文プレビューは非表示。閲覧は「▼全文表示」/「⛶全画面」に集約 */}
                   </div>
                 </div>
