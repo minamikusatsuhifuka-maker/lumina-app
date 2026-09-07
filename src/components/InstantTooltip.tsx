@@ -62,6 +62,9 @@ export function InstantTooltip() {
     document.body.appendChild(tip);
 
     let anchor: HTMLElement | null = null;
+    // 直近のカーソル位置（スクロール時に「まだ同じ要素の上か」を見るため）
+    let lastX = -1;
+    let lastY = -1;
     // クリックした要素。カーソルがその上に残っている間は再表示しない（押した後に残ると邪魔＝§3-3）
     let suppressed: HTMLElement | null = null;
 
@@ -113,6 +116,8 @@ export function InstantTooltip() {
 
     const onPointerMove = (e: PointerEvent) => {
       if (e.pointerType && e.pointerType !== 'mouse') return;
+      lastX = e.clientX;
+      lastY = e.clientY;
       const target = e.target as Element | null;
       const el = (target && typeof target.closest === 'function' ? target.closest(SELECTOR) : null) as HTMLElement | null;
       const next = el && el.tagName !== 'IFRAME' && !el.hasAttribute('data-no-instant-tip') ? el : null;
@@ -136,7 +141,14 @@ export function InstantTooltip() {
       if (anchor) suppressed = anchor;
       hide();
     };
-    const onScroll = () => hide();
+    // スクロール: カーソルの下がまだ同じ要素なら位置を取り直す（要素を画面内へ寄せてから乗った直後の scroll イベントで
+    // 消えてしまわないように＝scroll は次フレームで遅れて届く）。要素が流れて行ったら消す
+    const onScroll = () => {
+      if (!anchor || tip.hidden) return;
+      const under = lastX >= 0 ? document.elementFromPoint(lastX, lastY) : null;
+      if (under && anchor.contains(under) && suppressed !== anchor) show(anchor);
+      else hide();
+    };
     const onKey = () => hide();
     const onWindowLeave = () => leaveAnchor();
 
