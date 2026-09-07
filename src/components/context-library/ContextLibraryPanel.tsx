@@ -1670,12 +1670,13 @@ export default function ContextLibraryPanel() {
                   <div data-ctx-title style={{ fontSize: 16, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 4 }}>
                     {item.topic}
                   </div>
-                  {/* 249: 所属マイフォルダ（複数可）。どのフォルダに入れたか一目で分かるように（295: コンパクトでは出さない） */}
-                  {!compact && ((item.custom_folder_ids?.length ?? 0) > 0 || (item.purpose_category_ids?.length ?? 0) > 0) && (
-                    <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' as const, marginTop: 6 }}>
-                      <FolderBadges folderIds={item.custom_folder_ids} folders={customFolders.folders} />
-                      {/* 297: 所属用途カテゴリ（🎯青緑。📂金色のマイフォルダと区別）。コンパクトでは出さない */}
-                      <PurposeBadges categoryIds={item.purpose_category_ids} categories={purposes.categories} />
+                  {/* 249: 所属マイフォルダ（複数可）。どのフォルダに入れたか一目で分かるように（295: コンパクトでは出さない）
+                      299 §3: 用途カテゴリはコンパクトでも出す（マイフォルダは隠したまま・3件目以降は +N に畳む） */}
+                  {((!compact && (item.custom_folder_ids?.length ?? 0) > 0) || (item.purpose_category_ids?.length ?? 0) > 0) && (
+                    <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' as const, marginTop: 6, minWidth: 0 }}>
+                      {!compact && <FolderBadges folderIds={item.custom_folder_ids} folders={customFolders.folders} />}
+                      {/* 297: 所属用途カテゴリ（🎯青緑。📂金色のマイフォルダと区別） */}
+                      <PurposeBadges categoryIds={item.purpose_category_ids} categories={purposes.categories} compact={compact} />
                     </div>
                   )}
                 </div>

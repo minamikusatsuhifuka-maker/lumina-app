@@ -7281,7 +7281,7 @@ test('C104: 用途カテゴリの体系（297）— 作成→3画面へ割り当
   }
 });
 
-test('C105: 用途カテゴリの画面（297）— 3画面とも⭐マイフォルダとは別の枠・別色・見出しに用途・「フォルダ」の語なし／🎯用途から付け外し（📚は成果物単位・複数同時）／バッジは📂と別色でコンパクトでは出さない／絞り込みは件数つきで条件チップに載り個別解除・検索とAND／削除の確認は1回で件数と「記事は削除されません」', async ({ page, request }) => {
+test('C105: 用途カテゴリの画面（297）— 3画面とも⭐マイフォルダとは別の枠・別色・見出しに用途・「フォルダ」の語なし／🎯用途から付け外し（📚は成果物単位・複数同時）／バッジは📂と別色でコンパクトでも出す（299で変更・マイフォルダは隠したまま）／絞り込みは件数つきで条件チップに載り個別解除・検索とAND／削除の確認は1回で件数と「記事は削除されません」', async ({ page, request }) => {
   test.setTimeout(150_000);
   const marker = `PURUI${RUN_ID}`;
   const now = new Date().toISOString();
@@ -7373,12 +7373,12 @@ test('C105: 用途カテゴリの画面（297）— 3画面とも⭐マイフォ
     await expect(picker.locator('[data-purpose-option] input:checked')).toHaveCount(2, { timeout: 15000 });
     await page.keyboard.press('Escape');
     await expect(panel.locator(`[data-analysis-card="${t1}"] [data-purpose-badge]`), '1記事が2つの用途に入る').toHaveCount(2);
-    // バッジは📂（マイフォルダ）と別色・コンパクトでは出さない
+    // バッジは📂（マイフォルダ）と別色。299 §3: コンパクトでも出す（297の「出さない」を変更・詳細は C110）
     const badge = panel.locator(`[data-analysis-card="${t1}"] [data-purpose-badge]`).first();
     const purposeBg = await badge.evaluate((el) => getComputedStyle(el).backgroundColor);
     expect(purposeBg).toBe('rgb(204, 251, 241)');
     await panel.locator('[data-library-density-choice="compact"]').click();
-    await expect(panel.locator(`[data-analysis-card="${t1}"] [data-purpose-badge]`), 'コンパクトでは用途バッジを出さない').toHaveCount(0);
+    await expect(panel.locator(`[data-analysis-card="${t1}"] [data-purpose-badge]`), 'コンパクトでも用途バッジを出す（299）').toHaveCount(2);
     await panel.locator('[data-library-density-choice="detail"]').click();
     // 絞り込み（件数つき）→ t1 だけ。検索と AND。チップに載る
     const taBar = page.locator('[data-purpose-bar="text_analysis"]');
@@ -7831,5 +7831,110 @@ test('C109: Kindleウィザード①素材のクリック展開（299 §2）— 
     await cleanupE2ESaves(request);
     await request.delete(`${EPISODES_API}?id=${ep}`).catch(() => {});
     await cleanupE2EEpisodes(request);
+  }
+});
+
+test('C110: 用途バッジのコンパクト表示（299 §3）— 📚🗂🧠の3画面ともコンパクト密度で用途バッジが出る・⭐マイフォルダのバッジはコンパクトで出ない（変更なし）・用途なしの記事には出ない・3件以上は2件＋「+N」に畳まれツールチップに残りの名前・列数4×コンパクトで横スクロールなし・詳細では全部並ぶ', async ({ page, request }) => {
+  test.setTimeout(150_000);
+  const marker = `PBC299${RUN_ID}`;
+  const now = new Date().toISOString();
+  const l1 = await postLibraryRow(request, { type: 'deepresearch', title: withE2EPrefix(`PB-L1 ${marker}`), content: `L1 ${marker} 本文`, metadata: { savedAt: now }, tags: 'ディープリサーチ', group_name: 'ディープリサーチ' });
+  const l2 = await postLibraryRow(request, { type: 'deepresearch', title: withE2EPrefix(`PB-L2 ${marker}`), content: `L2 ${marker} 本文`, metadata: { savedAt: now }, tags: 'ディープリサーチ', group_name: 'ディープリサーチ' });
+  const t1 = await createSave(request, { title: `PB-T1 ${marker}`, content: `T1 ${marker} 本文`, analysisType: 'summary', analysisLabel: '概要・要約' });
+  const t2 = await createSave(request, { title: `PB-T2 ${marker}`, content: `T2 ${marker} 本文`, analysisType: 'summary', analysisLabel: '概要・要約' });
+  const x1 = await createContextSave(request, { topic: `PB-X1 ${marker}`, contextText: `X1 ${marker} 本文` });
+  const x2 = await createContextSave(request, { topic: `PB-X2 ${marker}`, contextText: `X2 ${marker} 本文` });
+  const fL = await createFolder(request, 'library', `PBF-L ${marker}`);
+  const fT = await createFolder(request, 'text_analysis', `PBF-T ${marker}`);
+  const fX = await createFolder(request, 'context', `PBF-X ${marker}`);
+  const cats: number[] = [];
+  try {
+    // 用途3件（畳みの確認用・名前は長め＝列数4での省略記号も兼ねる）
+    for (const n of ['note用', 'Kindle用', 'セミナー資料用にとっておく分']) cats.push(await createPurpose(request, `${n} ${marker}`));
+    const [a, b, c] = cats;
+    // 📚 l1: 用途3件＋マイフォルダ／l2: なし。🗂 t1: 用途3件＋フォルダ／t2: なし。🧠 x1: 用途1件＋フォルダ／x2: なし
+    expect((await assignPurposes(request, 'library', l1, [a, b, c])).status()).toBe(200);
+    expect((await assignFolders(request, 'library', l1, [fL])).status()).toBe(200);
+    expect((await assignPurposes(request, 'text_analysis', t1, [a, b, c])).status()).toBe(200);
+    expect((await assignFolders(request, 'text_analysis', t1, [fT])).status()).toBe(200);
+    expect((await assignPurposes(request, 'context', x1, [a])).status()).toBe(200);
+    expect((await assignFolders(request, 'context', x1, [fX])).status()).toBe(200);
+
+    const checkCompact = async (
+      label: string,
+      root: import('@playwright/test').Locator | import('@playwright/test').Page,
+      withCard: import('@playwright/test').Locator,
+      withoutCard: import('@playwright/test').Locator,
+      folderId: number,
+      nPurposes: number,
+    ) => {
+      // 詳細: 全部並ぶ・マイフォルダも出る
+      await root.locator('[data-library-density-choice="detail"]').click();
+      await expect(withCard.locator('[data-purpose-badge]'), `${label} 詳細: 用途バッジが全部並ぶ`).toHaveCount(nPurposes);
+      await expect(withCard.locator('[data-purpose-badge-more]'), `${label} 詳細: 畳まない`).toHaveCount(0);
+      await expect(withCard.locator(`[data-folder-badge="${folderId}"]`), `${label} 詳細: マイフォルダのバッジ`).toHaveCount(1);
+      // コンパクト: 用途は出る（3件以上は2件＋「+N」）・マイフォルダは出ない・用途なしには出ない
+      await root.locator('[data-library-density-choice="compact"]').click();
+      await expect(root.locator('[data-library-grid]')).toHaveAttribute('data-library-density', 'compact');
+      const shown = Math.min(nPurposes, 2);
+      await expect(withCard.locator('[data-purpose-badge]'), `${label} コンパクト: 用途バッジが出る`).toHaveCount(shown);
+      await expect(withCard.locator('[data-purpose-badge]').first()).toBeVisible();
+      const bg = await withCard.locator('[data-purpose-badge]').first().evaluate((el) => getComputedStyle(el).backgroundColor);
+      expect(bg, `${label}: 青緑（297）を維持`).toBe('rgb(204, 251, 241)');
+      if (nPurposes > 2) {
+        const more = withCard.locator('[data-purpose-badge-more]');
+        await expect(more, `${label} コンパクト: 3件目以降は +N`).toHaveAttribute('data-purpose-badge-more', String(nPurposes - 2));
+        await expect(more).toContainText(`+${nPurposes - 2}`);
+        await expect(more, 'ツールチップに残りの名前').toHaveAttribute('title', /セミナー資料用にとっておく分/);
+      } else {
+        await expect(withCard.locator('[data-purpose-badge-more]')).toHaveCount(0);
+      }
+      await expect(withCard.locator(`[data-folder-badge="${folderId}"]`), `${label} コンパクト: マイフォルダのバッジは出ない（変更なし）`).toHaveCount(0);
+      await expect(withoutCard.locator('[data-purpose-badge], [data-purpose-badge-more]'), `${label}: 用途なしの記事には何も出ない`).toHaveCount(0);
+      // 列数4×コンパクトで崩れない（横スクロールなし・バッジがカードの幅に収まる）
+      await root.locator('[data-library-cols-choice="4"]').click();
+      await expect(root.locator('[data-library-grid]')).toHaveAttribute('data-library-cols', '4');
+      await expectNoPageHScroll(page, `${label} 列数4×コンパクト`);
+      const cardBox = await withCard.boundingBox();
+      for (const bx of await withCard.locator('[data-purpose-badge], [data-purpose-badge-more]').all()) {
+        const b = await bx.boundingBox();
+        expect(b && cardBox && b.x + b.width <= cardBox.x + cardBox.width + 1, `${label}: バッジがカードの右端を越えない`).toBe(true);
+      }
+      // 既定へ戻す
+      await root.locator('[data-library-cols-choice="auto"]').click().catch(() => {});
+      await root.locator('[data-library-density-choice="detail"]').click();
+    };
+
+    // ════ 📚 ════
+    await page.goto('/dashboard/library');
+    await page.locator('[data-library-search]').fill(marker);
+    await expect(page.locator(`[data-library-card="${l1}"]`)).toBeVisible({ timeout: 30000 });
+    await expect(page.locator(`[data-library-card="${l2}"]`)).toBeVisible({ timeout: 30000 });
+    await checkCompact('📚', page, page.locator(`[data-library-card="${l1}"]`), page.locator(`[data-library-card="${l2}"]`), fL, 3);
+
+    // ════ 🗂 ════
+    await page.goto('/dashboard/saved');
+    const panel = page.locator('[data-saved-panel="text-analysis"]');
+    await panel.locator('[data-kb-search]').fill(marker);
+    await expect(panel.locator(`[data-analysis-card="${t1}"]`)).toBeVisible({ timeout: 30000 });
+    await expect(panel.locator(`[data-analysis-card="${t2}"]`)).toBeVisible({ timeout: 30000 });
+    await checkCompact('🗂', panel, panel.locator(`[data-analysis-card="${t1}"]`), panel.locator(`[data-analysis-card="${t2}"]`), fT, 3);
+    // 🗂 の既定は1列（291/292で揃えなかった箇所＝そのまま）
+    await panel.locator('[data-library-cols-choice="1"]').click();
+
+    // ════ 🧠 ════
+    await page.goto('/dashboard/context-library');
+    await page.locator('[data-kb-search]').fill(marker);
+    await expect(page.locator(`[data-ctx-card="${x1}"]`)).toBeVisible({ timeout: 30000 });
+    await expect(page.locator(`[data-ctx-card="${x2}"]`)).toBeVisible({ timeout: 30000 });
+    await checkCompact('🧠', page, page.locator(`[data-ctx-card="${x1}"]`), page.locator(`[data-ctx-card="${x2}"]`), fX, 1);
+    await page.locator('[data-library-cols-choice="1"]').click();
+  } finally {
+    await request.delete(LIBRARY_API, { data: { ids: [l1, l2] } }).catch(() => {});
+    await cleanupE2ELibrary(request);
+    await cleanupE2ESaves(request);
+    await cleanupE2EContextSaves(request);
+    await cleanupE2EPurposes(request);
+    await cleanupE2EFolders(request);
   }
 });

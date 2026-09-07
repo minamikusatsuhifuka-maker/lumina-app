@@ -2821,10 +2821,9 @@ export default function SavedAnalysisList({
                           folders={customFolders.folders}
                         />
                       )}
-                      {/* 297: 所属用途カテゴリ（🎯青緑・📂金色のマイフォルダと区別）。コンパクトでは出さない */}
-                      {listDensity === 'detail' && (
-                        <PurposeBadges categoryIds={record.purpose_category_ids} categories={purposes.categories} />
-                      )}
+                      {/* 297: 所属用途カテゴリ（🎯青緑・📂金色のマイフォルダと区別）。
+                          299 §3: コンパクトでも出す（マイフォルダは隠したまま）。コンパクトでは3件目以降を +N に畳む */}
+                      <PurposeBadges categoryIds={record.purpose_category_ids} categories={purposes.categories} compact={listDensity === 'compact'} />
                       {record.favorite && (
                         <span
                           style={{

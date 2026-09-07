@@ -20,7 +20,15 @@ export const PURPOSE_BADGE_STYLE: CSSProperties = {
   border: `1px solid ${PURPOSE_ACCENT}`,
   fontWeight: 600,
   whiteSpace: 'nowrap',
+  // 299 §3-4: 長い名前（上限30字）でも列数4の狭いカードを押し広げない＝はみ出しは省略記号で切る（横スクロールを出さない）
+  maxWidth: '100%',
+  minWidth: 0,
+  overflow: 'hidden',
+  textOverflow: 'ellipsis',
 };
+
+/** 299 §3-4: コンパクト密度で並べる用途バッジの上限。超えた分は「+N」1つに畳む（名前はツールチップ） */
+export const PURPOSE_COMPACT_MAX_BADGES = 2;
 
 /** 用途の絞り込みチップ（マイフォルダのカードと同じ体裁・色だけ変える） */
 export function purposeChipStyle(active: boolean): CSSProperties {

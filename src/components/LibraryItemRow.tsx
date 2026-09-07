@@ -386,22 +386,28 @@ export function LibraryItemRow({
           </strong>
         </div>
 
-        {/* 252: 所属マイフォルダ。コンパクトカードなので1行に収め、溢れは隠す（291: 密度=コンパクトでは出さない） */}
-        {density === 'detail' && (folderBadges || (typeof purposeBadges === 'function' ? purposeBadges(cur) : purposeBadges)) && (
-          <div
-            style={{
-              display: 'flex',
-              gap: 4,
-              flexWrap: 'nowrap',
-              overflow: 'hidden',
-              maxHeight: 20,
-              minWidth: 0,
-            }}
-          >
-            {folderBadges}
-            {typeof purposeBadges === 'function' ? purposeBadges(cur) : purposeBadges}
-          </div>
-        )}
+        {/* 252: 所属マイフォルダ。コンパクトカードなので1行に収め、溢れは隠す（291: 密度=コンパクトでは出さない）
+            299 §3: 用途カテゴリ（purposeBadges）は密度=コンパクトでも出す（畳み方は呼び出し側の PurposeBadges compact） */}
+        {(() => {
+          const purposeNode = typeof purposeBadges === 'function' ? purposeBadges(cur) : purposeBadges;
+          const folderNode = density === 'detail' ? folderBadges : undefined;
+          if (!folderNode && !purposeNode) return null;
+          return (
+            <div
+              style={{
+                display: 'flex',
+                gap: 4,
+                flexWrap: 'nowrap',
+                overflow: 'hidden',
+                maxHeight: 20,
+                minWidth: 0,
+              }}
+            >
+              {folderNode}
+              {purposeNode}
+            </div>
+          );
+        })()}
         </div>
 
         {/* 283: 成果物タブ（種別＋文字数を併記）。押すとその内容が展開される。選択モードでは成果物ごとにチェック */}

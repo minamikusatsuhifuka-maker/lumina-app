@@ -878,7 +878,8 @@ function LibraryPageInner() {
         }
         purposeBadges={(cur: LibraryRow) =>
           (cur.purpose_category_ids?.length ?? 0) > 0 ? (
-            <PurposeBadges categoryIds={cur.purpose_category_ids} categories={purposes.categories} />
+            // 299 §3: コンパクト密度でも出す（3件目以降は +N に畳む）
+            <PurposeBadges categoryIds={cur.purpose_category_ids} categories={purposes.categories} compact={listDensity === 'compact'} />
           ) : null
         }
         onPurposeClick={handlePurposeClick}
