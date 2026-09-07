@@ -8071,7 +8071,10 @@ test('C111: 即時ツールチップ（300）— ホバーした瞬間に出る�
   }
 });
 
-test('C112: 即時ツールチップはタッチ端末では付けない（300 §3-6）— タップしても出っぱなしにならない・title は外されない', async ({ browser }) => {
+test('C112: 即時ツールチップはタッチ端末では付けない（300 §3-6）— タップしても出っぱなしにならない・title は外されない', async ({ browser, request }) => {
+  // 既存データに依存しない（R-55）: 自前で1件作って検索で絞る
+  const marker = `TIPTOUCH300${RUN_ID}`;
+  const t1 = await createSave(request, { title: `TT ${marker}`, content: `TT ${marker} 本文`, analysisType: 'summary', analysisLabel: '概要・要約' });
   const ctx = await browser.newContext({
     storageState: STORAGE_STATE,
     baseURL: BASE_URL,
@@ -8082,7 +8085,9 @@ test('C112: 即時ツールチップはタッチ端末では付けない（300 �
   const page = await ctx.newPage();
   try {
     await page.goto('/dashboard/saved');
-    const zone = page.locator('[data-ta-expand-zone]').first();
+    const panel = page.locator('[data-saved-panel="text-analysis"]');
+    await panel.locator('[data-kb-search]').fill(marker);
+    const zone = panel.locator(`[data-ta-expand-zone="${t1}"]`);
     await expect(zone).toBeVisible({ timeout: 30000 });
     await expect(page.locator('[data-instant-tip]'), 'タッチ端末では吹き出し要素自体を付けない').toHaveCount(0);
     await zone.tap();
@@ -8092,5 +8097,6 @@ test('C112: 即時ツールチップはタッチ端末では付けない（300 �
     await expect(zone, 'タップの動作（展開）は変わらない').toHaveAttribute('aria-expanded', 'true');
   } finally {
     await ctx.close();
+    await cleanupE2ESaves(request);
   }
 });
