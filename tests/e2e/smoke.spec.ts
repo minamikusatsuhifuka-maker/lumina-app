@@ -7938,3 +7938,157 @@ test('C110: 用途バッジのコンパクト表示（299 §3）— 📚🗂🧠
     await cleanupE2EFolders(request);
   }
 });
+
+// ───────────────────────────────────────────────────────────────────────────
+// 300: 即時ツールチップ（title 属性の説明をカーソルが乗った瞬間に出す・全画面共通）
+// ───────────────────────────────────────────────────────────────────────────
+test('C111: 即時ツールチップ（300）— ホバーした瞬間に出る（待ち無し）・離れると消える・クリックで消えボタンの動作は変わらない・画面の右端/下端で枠外に出ない・文字サイズ最大（zoom1.4）でもボタンの隣に出る（R-80）・ホバー中は標準の title を外し離れたら戻す・257のホバープレビューは既定OFFのまま出ない', async ({ page, request }) => {
+  test.setTimeout(120_000);
+  const marker = `TIP300${RUN_ID}`;
+  const t1 = await createSave(request, { title: `TIP-T1 ${marker}`, content: `T1 ${marker} 本文\n\n## 見出し${marker}\n\n本文。`, analysisType: 'summary', analysisLabel: '概要・要約' });
+  const tip = page.locator('[data-instant-tip]');
+  const tipVisibleNow = () => page.evaluate(() => {
+    const el = document.querySelector('[data-instant-tip]') as HTMLElement | null;
+    return !!el && !el.hidden && el.textContent;
+  });
+  const rectOf = (loc: import('@playwright/test').Locator) => loc.evaluate((el) => { const r = el.getBoundingClientRect(); return { left: r.left, top: r.top, right: r.right, bottom: r.bottom, width: r.width, height: r.height }; });
+  const expectInsideViewport = async (label: string) => {
+    const r = await rectOf(tip);
+    const vp = page.viewportSize()!;
+    expect(r.left >= 0 && r.top >= 0 && r.right <= vp.width && r.bottom <= vp.height, `${label}: 枠外に出ない（${JSON.stringify(r)} / ${vp.width}x${vp.height}）`).toBe(true);
+  };
+  try {
+    await page.goto('/dashboard/saved');
+    await page.evaluate(() => { localStorage.removeItem('lumina_hover_preview'); localStorage.setItem('lumina_text_scale', '100'); });
+    await page.reload({ waitUntil: 'domcontentloaded' });
+    const panel = page.locator('[data-saved-panel="text-analysis"]');
+    await panel.locator('[data-kb-search]').fill(marker);
+    const card = panel.locator(`[data-analysis-card="${t1}"]`);
+    await expect(card).toBeVisible({ timeout: 30000 });
+    const fullBtn = card.getByRole('button', { name: '⛶ 全画面' });
+    const zone = card.locator(`[data-ta-expand-zone="${t1}"]`);
+    // カーソルの退避先: title を持たない検索欄（画面の左上の座標は要素の当たり外れで不安定＝R-105 の趣旨）
+    const park = async () => { await panel.locator('[data-kb-search]').hover(); };
+    await expect(tip, '初期状態では出ていない').toBeHidden();
+
+    // ── ① ホバーした瞬間に出る（hover() が返った直後に同期で見えている＝タイマー無し） ──
+    await fullBtn.hover();
+    const now = await tipVisibleNow();
+    expect(now, 'ホバー直後（待ち無し）に出ている').toBeTruthy();
+    expect(String(now)).toContain('全画面のリーダー表示で読む');
+    await expect(fullBtn, 'ホバー中は標準の title を外す（遅い方を二重に出さない）').not.toHaveAttribute('title', /./);
+    await expect(fullBtn).toHaveAttribute('data-tip', /全画面のリーダー表示で読む/);
+    // 位置: ボタンの下・重ならない・中央付近
+    const b = await rectOf(fullBtn);
+    const r1 = await rectOf(tip);
+    expect(r1.top, 'ボタンの下に出る').toBeGreaterThanOrEqual(b.bottom);
+    expect(r1.top - b.bottom, 'ボタンから離れすぎない').toBeLessThanOrEqual(12);
+    expect(r1.left < b.right && r1.right > b.left, 'ボタンと横位置が重なる').toBe(true);
+    await expectInsideViewport('通常');
+    // 257 のホバープレビュー（既定OFF）は出ない
+    await expect(page.locator('[data-hover-preview]')).toHaveCount(0);
+
+    // ── ② 離れると消え、title が戻る ──
+    await park();
+    await expect(tip).toBeHidden();
+    await expect(fullBtn, '離れると title が戻る').toHaveAttribute('title', /全画面のリーダー表示で読む/);
+    await expect(fullBtn).not.toHaveAttribute('data-tip', /./);
+
+    // ── ③ クリックで消え、ボタンの動作は変わらない（⛶で全画面リーダーが開く） ──
+    await fullBtn.hover();
+    expect(await tipVisibleNow()).toBeTruthy();
+    await fullBtn.click();
+    await expect(tip, 'クリックで消える').toBeHidden();
+    const dialog = page.locator('[role="dialog"][data-kb-scope="reader"]');
+    await expect(dialog, 'ボタンの動作（全画面リーダー）は変わらない').toBeVisible();
+    await dialog.getByRole('button', { name: '✕ 閉じる' }).click();
+    await expect(dialog).toHaveCount(0);
+    // 押した後、同じボタンの上に居続けても再表示しない（画面が変わらないボタン＝文字サイズ「標準」で確かめる）
+    const sizeGroup = page.getByRole('group', { name: '文字サイズ' });
+    const stdBtn = sizeGroup.getByRole('button').first();
+    await park();
+    await stdBtn.hover();
+    expect(await tipVisibleNow()).toBeTruthy();
+    await stdBtn.click();
+    await expect(tip, 'クリックで消える（画面が変わらないボタン）').toBeHidden();
+    const bb = await rectOf(stdBtn);
+    await page.mouse.move(bb.left + bb.width / 2 + 2, bb.top + bb.height / 2);
+    expect(await tipVisibleNow(), '押した直後は同じボタンの上でも出さない').toBeFalsy();
+    // 離れて戻ると再び出る
+    await park();
+    await stdBtn.hover();
+    expect(await tipVisibleNow(), '離れて戻ると再び出る').toBeTruthy();
+
+    // ── ④ クリック展開（R-81・299）の領域も title 持ち: ホバーで出て、クリックで消えつつ展開は動く ──
+    await park();
+    await zone.hover();
+    expect(await tipVisibleNow()).toBeTruthy();
+    await zone.click();
+    await expect(tip).toBeHidden();
+    await expect(panel.locator(`[data-ta-expanded-body="${t1}"]`), '展開は動く').toBeVisible();
+    await zone.click();
+    await expect(panel.locator(`[data-ta-expanded-body="${t1}"]`)).toHaveCount(0);
+
+    // ── ⑤ 画面の右寄り（ヘッダー右端側の文字サイズ「最大」）と下端（ボタンを下端に寄せる）で枠外に出ない ──
+    await park();
+    const maxBtn = sizeGroup.getByRole('button').nth(3);
+    await maxBtn.hover();
+    expect(await tipVisibleNow()).toBeTruthy();
+    await expectInsideViewport('右寄り');
+    await park();
+    await fullBtn.evaluate((el) => el.scrollIntoView({ block: 'end', behavior: 'instant' as ScrollBehavior }));
+    await fullBtn.hover();
+    expect(await tipVisibleNow()).toBeTruthy();
+    await expect(tip).toHaveAttribute('data-instant-tip-side', 'top');
+    const bLow = await rectOf(fullBtn);
+    const rLow = await rectOf(tip);
+    expect(rLow.bottom, '下端では上に出る').toBeLessThanOrEqual(bLow.top);
+    await expectInsideViewport('下端');
+    // スクロールで消える
+    await page.mouse.wheel(0, -40);
+    await expect(tip, 'スクロールで消える').toBeHidden();
+
+    // ── ⑥ 文字サイズ最大（ルート zoom 1.4）でも、ボタンの隣（視覚座標）に出る（R-80） ──
+    await page.evaluate(() => localStorage.setItem('lumina_text_scale', '140'));
+    await page.reload({ waitUntil: 'domcontentloaded' });
+    await expect(page.evaluate(() => document.documentElement.style.zoom)).resolves.toBe('1.4');
+    await panel.locator('[data-kb-search]').fill(marker);
+    await expect(card).toBeVisible({ timeout: 30000 });
+    await park();
+    await fullBtn.hover();
+    expect(await tipVisibleNow()).toBeTruthy();
+    const bz = await rectOf(fullBtn);
+    const rz = await rectOf(tip);
+    expect(rz.top - bz.bottom, `zoom1.4: ボタンの直下に出る（ずれ ${rz.top - bz.bottom}px）`).toBeGreaterThanOrEqual(0);
+    expect(rz.top - bz.bottom).toBeLessThanOrEqual(14);
+    expect(rz.left < bz.right && rz.right > bz.left, 'zoom1.4: ボタンと横位置が重なる').toBe(true);
+    await expectInsideViewport('zoom1.4');
+  } finally {
+    await page.evaluate(() => localStorage.setItem('lumina_text_scale', '100')).catch(() => {});
+    await cleanupE2ESaves(request);
+  }
+});
+
+test('C112: 即時ツールチップはタッチ端末では付けない（300 §3-6）— タップしても出っぱなしにならない・title は外されない', async ({ browser }) => {
+  const ctx = await browser.newContext({
+    storageState: STORAGE_STATE,
+    baseURL: BASE_URL,
+    hasTouch: true,
+    isMobile: true,
+    viewport: { width: 390, height: 844 },
+  });
+  const page = await ctx.newPage();
+  try {
+    await page.goto('/dashboard/saved');
+    const zone = page.locator('[data-ta-expand-zone]').first();
+    await expect(zone).toBeVisible({ timeout: 30000 });
+    await expect(page.locator('[data-instant-tip]'), 'タッチ端末では吹き出し要素自体を付けない').toHaveCount(0);
+    await zone.tap();
+    await page.waitForTimeout(300);
+    await expect(page.locator('[data-instant-tip]'), 'タップしても出ない・出っぱなしにならない').toHaveCount(0);
+    await expect(zone, 'title はそのまま（外さない）').toHaveAttribute('title', /クリックで本文を/);
+    await expect(zone, 'タップの動作（展開）は変わらない').toHaveAttribute('aria-expanded', 'true');
+  } finally {
+    await ctx.close();
+  }
+});

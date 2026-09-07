@@ -3,6 +3,7 @@ import { Outfit, Noto_Sans_JP, Inter, Zen_Kaku_Gothic_New } from 'next/font/goog
 import './globals.css';
 import { ThemeProvider } from '@/components/ThemeProvider';
 import { AIProviderNotice } from '@/components/AIProviderNotice';
+import { InstantTooltip } from '@/components/InstantTooltip';
 
 const outfit = Outfit({ subsets: ['latin'], variable: '--font-outfit' });
 const notoSansJP = Noto_Sans_JP({ subsets: ['latin'], variable: '--font-noto' });
@@ -67,6 +68,8 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           {children}
           {/* 242: Claude→Gemini に切り替わったときだけ「✨Geminiで生成」を出す（通常時は非表示） */}
           <AIProviderNotice />
+          {/* 300: title 属性の説明をカーソルが乗った瞬間に出す（全画面共通・1箇所）。257のホバープレビューとは別物 */}
+          <InstantTooltip />
         </ThemeProvider>
         <script dangerouslySetInnerHTML={{ __html: `if('serviceWorker' in navigator){window.addEventListener('load',()=>{navigator.serviceWorker.register('/sw.js').catch(()=>{});})}` }} />
       </body>

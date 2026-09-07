@@ -2981,3 +2981,60 @@ test('U68: 用途の一括付け外し（298）— 上限は一括削除と同�
   expect(bulkHook).toContain('++seq.current');
   expect(bulkHook).toContain('adopt(my, data.categories)');
 });
+
+// ───────────────────────────────────────────────────────────────────────────
+// 300: 即時ツールチップ（title 属性をカーソルが乗った瞬間に出す共通部品）
+// ───────────────────────────────────────────────────────────────────────────
+test('U69: 即時ツールチップ（300）— 位置は下・入らなければ上・左右は画面端の内側（純関数）／空の title は出さない／部品にタイマー無し（遅延ゼロ）・DOM直更新／R-80: rootZoom/toLayoutPx を再利用し新しい zoom 計算を書かない／タッチ端末は useFinePointer で何も付けない／257のホバープレビューの遅延（280/80ms）は不変', async () => {
+  const tipLib = await import('../../src/lib/instant-tooltip');
+  const { computeTipPlacement, isTipText, INSTANT_TIP_GAP, INSTANT_TIP_MARGIN } = tipLib;
+  const vp = { width: 1280, height: 720 };
+  const tip = { width: 120, height: 28 };
+  // 通常: ボタンの下・中央揃え
+  const p1 = computeTipPlacement({ left: 500, top: 100, width: 80, height: 30 }, vp, tip);
+  expect(p1.side).toBe('bottom');
+  expect(p1.top).toBe(100 + 30 + INSTANT_TIP_GAP);
+  expect(p1.left).toBe(500 + 40 - 60);
+  // 下端: 入らなければ上
+  const p2 = computeTipPlacement({ left: 500, top: 690, width: 80, height: 24 }, vp, tip);
+  expect(p2.side).toBe('top');
+  expect(p2.top).toBe(690 - INSTANT_TIP_GAP - 28);
+  // 右端・左端: 画面の余白の内側に収める
+  const p3 = computeTipPlacement({ left: 1240, top: 100, width: 36, height: 30 }, vp, tip);
+  expect(p3.left).toBe(1280 - INSTANT_TIP_MARGIN - 120);
+  const p4 = computeTipPlacement({ left: 2, top: 100, width: 36, height: 30 }, vp, tip);
+  expect(p4.left).toBe(INSTANT_TIP_MARGIN);
+  // zoom 時は呼び出し側が gap/margin を zoom 倍して渡す（視覚px で統一）
+  const p5 = computeTipPlacement({ left: 500, top: 100, width: 80, height: 30 }, vp, tip, INSTANT_TIP_GAP * 1.4, INSTANT_TIP_MARGIN * 1.4);
+  expect(p5.top).toBeCloseTo(130 + INSTANT_TIP_GAP * 1.4, 5);
+  expect(isTipText('')).toBe(false);
+  expect(isTipText('   ')).toBe(false);
+  expect(isTipText(null)).toBe(false);
+  expect(isTipText('全文表示')).toBe(true);
+
+  // 部品のソース固定: タイマー無し・DOM 直更新・R-80 の再利用・タッチ端末の分岐
+  const comp = readFileSync(join(__dirname, '../../src/components/InstantTooltip.tsx'), 'utf8');
+  expect(comp, 'setTimeout を使わない（遅延ゼロ）').not.toContain('setTimeout');
+  expect(comp, 'requestAnimationFrame を挟まない（イベントと同じタイミングで出す）').not.toContain('requestAnimationFrame');
+  expect(comp, 'React state を介さず DOM を直接更新する').not.toContain('useState');
+  expect(comp).toContain("import { rootZoom, toLayoutPx } from '@/lib/hover-preview'");
+  expect(comp).toContain('toLayoutPx(p.left, zoom)');
+  expect(comp).toContain('toLayoutPx(p.top, zoom)');
+  expect(comp, '独自の zoom 計算を書かない').not.toMatch(/getComputedStyle\([^)]*\)\.zoom/);
+  expect(comp).toContain("import { useFinePointer } from '@/lib/pointer-device'");
+  expect(comp).toContain('if (!mounted || !fine) return;');
+  expect(comp).toContain("e.pointerType !== 'mouse'");
+  // 消えるタイミング: クリック（pointerdown/click）・スクロール・キー・ウィンドウ外
+  for (const ev of ["'pointerdown'", "'click'", "'scroll'", "'keydown'", "'mouseleave'", "'blur'"]) expect(comp).toContain(ev);
+  // title は退避して戻す（React が付け直した title は上書きしない）
+  expect(comp).toContain("el.removeAttribute('title')");
+  expect(comp).toContain("!el.hasAttribute('title')) el.setAttribute('title', t)");
+  // 1箇所マウント（ルートレイアウト）
+  const layout = readFileSync(join(__dirname, '../../src/app/layout.tsx'), 'utf8');
+  expect(layout).toContain('<InstantTooltip />');
+  // 257 のホバープレビューの遅延は不変（本便は別物）
+  const hp = await import('../../src/lib/hover-preview');
+  expect(hp.HOVER_PREVIEW_DELAY_MS).toBe(280);
+  expect(hp.HOVER_PREVIEW_PREFETCH_MS).toBe(80);
+  expect(tipLib, '本便の lib は遅延の定数を持たない').not.toHaveProperty('INSTANT_TIP_DELAY_MS');
+});
