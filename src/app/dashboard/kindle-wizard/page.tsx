@@ -286,7 +286,9 @@ function KindleWizardInner() {
   const [itemsLoading, setItemsLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
-  const [expandedId, setExpandedId] = useState<string | null>(null);
+  // 299 §2-7: 展開は Set で持つ（複数カードを同時に開ける・排他にしない＝R-81）。
+  // ▼（LibraryItemRow の既存ボタン）とカードのクリック展開（clickToExpand・282のオプトイン）で同じ状態を切り替える
+  const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
   const [validating, setValidating] = useState(false);
   // 229A: 素材ソースのタブ（選択はタブ横断で保持＝DR+note混在可・上限は合算）
   const [sourceTab, setSourceTab] = useState<KindleMaterialSource>('deepresearch');
@@ -1764,8 +1766,35 @@ function KindleWizardInner() {
                       });
                     }}
                     onExportMd={item.type === 'analysis' || item.type === 'episode' ? undefined : (it) => triggerDownload(`${(it.title || '無題').slice(0, 30)}.md`, `# ${it.title}\n\n${it.content || ''}`)}
-                    onExpandToggle={(id) => setExpandedId(expandedId === id ? null : id)}
-                    isExpanded={expandedId === item.id}
+                    onExpandToggle={(id) => {
+                      const opening = !expandedIds.has(id);
+                      setExpandedIds((prev) => {
+                        const next = new Set(prev);
+                        if (next.has(id)) next.delete(id);
+                        else next.add(id);
+                        return next;
+                      });
+                      // 299: ana-行（テキスト分析）は一覧v2が本文を返さない（231）ため、開くときだけ既存の ?ids= で本文を埋める
+                      //（230 B-1 の追い取得と同じ経路・R-91）。char_count は一覧の値のまま＝上限の合算は変わらない。
+                      // 取得に失敗しても展開状態は変えない（本文枠が空のまま＝偽の成功を返さない）
+                      if (opening && item.type === 'analysis' && !item.content) {
+                        const m = /^ana-(\d+)$/.exec(String(id));
+                        if (m) {
+                          void fetch(`/api/text-analysis/saves?ids=${m[1]}`)
+                            .then((r) => r.json())
+                            .then((data) => {
+                              const row = Array.isArray(data?.items) ? data.items.find((x: any) => `ana-${x.id}` === id) : null;
+                              if (!row || typeof row.content !== 'string') return;
+                              setItems((prev) => prev.map((i) => (i.id === id && !i.content ? { ...i, content: row.content } : i)));
+                            })
+                            .catch(() => {});
+                        }
+                      }
+                    }}
+                    isExpanded={expandedIds.has(item.id)}
+                    // 299 §2: タイトル・バッジ行のクリックでも展開（282/291/R-81 と同じ共通部品の口。▼は残る）。
+                    // 素材選択のチェックは展開領域の外側＋stopPropagation（LibraryItemRow 側）＝展開で選択は変わらない
+                    clickToExpand
                     variant="compact"
                   />
                 </div>

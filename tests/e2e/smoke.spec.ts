@@ -7717,3 +7717,119 @@ test('C108: テキスト分析のクリック展開（299 §2）— タイトル
     await cleanupE2EPurposes(request);
   }
 });
+
+test('C109: Kindleウィザード①素材のクリック展開（299 §2）— 4タブ（DR/note記事/テキスト分析/エピソード）すべてでタイトル・バッジ行のクリックで本文が開く・既存の▼も動く・チェックでは開かず（R-81）展開しても素材の選択は変わらない・タブをまたいだ混在選択と上限の合算（件数・字数）が壊れない・複数同時展開・テキスト分析は開くときに本文を取得（一覧は本文非返却）', async ({ page, request }) => {
+  test.setTimeout(150_000);
+  const marker = `KWX299${RUN_ID}`;
+  const now = new Date().toISOString();
+  const dr = await postLibraryRow(request, { type: 'deepresearch', title: withE2EPrefix(`KW-DR ${marker}`), content: `DR本文 ${marker}\n\n## 見出しDR${marker}\n\n本文。`, metadata: { savedAt: now }, tags: 'ディープリサーチ', group_name: 'ディープリサーチ' });
+  const na = await postLibraryRow(request, { type: 'note-article', title: withE2EPrefix(`KW-NOTE ${marker}`), content: `note本文 ${marker}\n\n## 見出しNOTE${marker}\n\n本文。`, metadata: { savedAt: now }, tags: 'note記事', group_name: 'note記事' });
+  const ta = await createSave(request, { title: `KW-TA ${marker}`, content: `TA本文 ${marker}\n\n## 見出しTA${marker}\n\n本文。`, analysisType: 'summary', analysisLabel: '概要・要約' });
+  const ep = await createEpisode(request, { title: `KW-EP ${marker}`, situation: `状況 ${marker}`, details: `詳細EP${marker} の本文。` });
+  const keys = {
+    deepresearch: dr,
+    'note-article': na,
+    analysis: `ana-${ta}`,
+    episode: `ep-${ep}`,
+  } as const;
+  const tabName: Record<keyof typeof keys, RegExp> = {
+    deepresearch: /ディープリサーチ/,
+    'note-article': /note記事/,
+    analysis: /テキスト分析/,
+    episode: /エピソード記録/,
+  };
+  const bodyMarker: Record<keyof typeof keys, string> = {
+    deepresearch: `見出しDR${marker}`,
+    'note-article': `見出しNOTE${marker}`,
+    analysis: `見出しTA${marker}`,
+    episode: `詳細EP${marker}`,
+  };
+  const limits = page.locator('[data-kw-limits]');
+  const readTotal = async () => {
+    const t = (await limits.innerText()).replace(/,/g, '');
+    const m = /合計\s*(\d+)字/.exec(t);
+    expect(m, `合計字数が読める（${t}）`).not.toBeNull();
+    return Number(m![1]);
+  };
+  const openTab = async (k: keyof typeof keys) => {
+    await page.getByRole('button', { name: tabName[k] }).first().click();
+    await page.getByPlaceholder(/タイトルで絞り込み/).fill(marker);
+    await expect(page.locator(`[data-library-card="${keys[k]}"]`)).toBeVisible({ timeout: 30000 });
+  };
+  try {
+    await page.goto('/dashboard/kindle-wizard');
+    await expect(limits).toBeVisible({ timeout: 30000 });
+    await expect(limits).toContainText('0/10件');
+
+    // ── 4タブすべて: チェックでは開かず、タイトル/バッジ行のクリックで本文が開き、開いても選択は変わらない ──
+    for (const k of ['deepresearch', 'note-article', 'analysis', 'episode'] as const) {
+      await openTab(k);
+      const key = keys[k];
+      const card = page.locator(`[data-library-card="${key}"]`);
+      const check = card.locator(`[data-library-check="${key}"]`);
+      const body = page.locator(`[data-library-expanded-body="${key}"]`);
+      const zone = card.locator(`[data-library-expand-zone="${key}"]`);
+      await expect(zone, `${k}: 展開領域が role=button`).toHaveAttribute('role', 'button');
+      await expect(check, `${k}: 素材選択のチェックは常時ある`).toBeVisible();
+      await expect(body).toHaveCount(0);
+      // タイトルのクリックで開く（チェックは未選択のまま）
+      await card.locator('[data-library-title]').click();
+      await expect(body, `${k}: タイトルのクリックで本文が開く`).toBeVisible();
+      await expect(body, `${k}: 本文が入っている`).toContainText(bodyMarker[k], { timeout: 15000 });
+      await expect(check, `${k}: 展開しても選択は変わらない（未選択のまま）`).not.toBeChecked();
+      await expectNoRawMarkdown(body.locator('.markdown-body'), `📕 ${k} 展開本文`);
+      // 本文のクリックで閉じない
+      await body.click({ position: { x: 20, y: 40 } });
+      await expect(body).toBeVisible();
+      // バッジ行（種別バッジ）のクリックで閉じる。行の左端はチェック（stopPropagation）なので種別バッジを押す
+      await card.locator('[data-library-category]').click();
+      await expect(body, `${k}: バッジ行のクリックで閉じる`).toHaveCount(0);
+      // 既存の▼（ホバーで出る操作バー）でも開く・閉じる
+      await card.hover();
+      await card.locator('button[title="全文表示"]').click();
+      await expect(body, `${k}: 既存の▼で開く`).toBeVisible();
+      await card.hover();
+      await card.locator('button[title="閉じる"]').click();
+      await expect(body, `${k}: 既存の▲で閉じる`).toHaveCount(0);
+    }
+
+    // ── 混在選択と上限の合算（DR＋テキスト分析）。展開を挟んでも選択と合算が変わらない ──
+    await openTab('deepresearch');
+    await page.locator(`[data-library-check="${dr}"]`).check();
+    await expect(page.locator(`[data-library-expanded-body="${dr}"]`), 'チェックで展開が走らない（R-81）').toHaveCount(0);
+    await expect(limits).toContainText('1/10件');
+    const total1 = await readTotal();
+    expect(total1).toBeGreaterThan(0);
+    await page.locator(`[data-library-card="${dr}"] [data-library-title]`).click();
+    await expect(page.locator(`[data-library-expanded-body="${dr}"]`)).toBeVisible();
+    await expect(page.locator(`[data-library-check="${dr}"]`), '展開してもチェックは変わらない（選択のまま）').toBeChecked();
+    await expect(limits, '展開で件数が変わらない').toContainText('1/10件');
+    expect(await readTotal(), '展開で合計字数が変わらない').toBe(total1);
+    await openTab('analysis');
+    await expect(page.getByRole('button', { name: /ディープリサーチ/ }).first(), 'タブ見出しに他タブの選択数 ☑1 が残る').toContainText('☑1');
+    await page.locator(`[data-library-check="ana-${ta}"]`).check();
+    await expect(limits, 'タブをまたいだ混在選択（合算）').toContainText('2/10件');
+    const total2 = await readTotal();
+    expect(total2, '合計字数は加算される').toBeGreaterThan(total1);
+    // テキスト分析の展開（本文を取得）を挟んでも件数・字数は変わらない
+    await page.locator(`[data-library-card="ana-${ta}"] [data-library-title]`).click();
+    await expect(page.locator(`[data-library-expanded-body="ana-${ta}"]`)).toContainText(`見出しTA${marker}`, { timeout: 15000 });
+    await expect(limits).toContainText('2/10件');
+    expect(await readTotal(), '本文取得後も合計字数は一覧の char_count のまま').toBe(total2);
+    // 複数同時展開: DR タブへ戻ると DR の展開が残っている（Set・排他にしない）
+    await openTab('deepresearch');
+    await expect(page.locator(`[data-library-expanded-body="${dr}"]`), '別タブで開いても先の展開が残る（複数同時展開）').toBeVisible();
+    await expect(page.locator(`[data-library-check="${dr}"]`)).toBeChecked();
+    // 外すと合算が戻る
+    await page.locator(`[data-library-check="${dr}"]`).uncheck();
+    await expect(limits).toContainText('1/10件');
+    expect(await readTotal(), '外すと合計字数が戻る').toBe(total2 - total1);
+    await expect(page.locator(`[data-library-expanded-body="${dr}"]`), 'チェックを外しても展開状態は変わらない').toBeVisible();
+  } finally {
+    await request.delete(LIBRARY_API, { data: { ids: [dr, na] } }).catch(() => {});
+    await cleanupE2ELibrary(request);
+    await cleanupE2ESaves(request);
+    await request.delete(`${EPISODES_API}?id=${ep}`).catch(() => {});
+    await cleanupE2EEpisodes(request);
+  }
+});
