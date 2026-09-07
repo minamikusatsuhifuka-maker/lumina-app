@@ -7978,12 +7978,17 @@ test('C111: 即時ツールチップ（300）— ホバーした瞬間に出る�
     expect(String(now)).toContain('全画面のリーダー表示で読む');
     await expect(fullBtn, 'ホバー中は標準の title を外す（遅い方を二重に出さない）').not.toHaveAttribute('title', /./);
     await expect(fullBtn).toHaveAttribute('data-tip', /全画面のリーダー表示で読む/);
-    // 位置: ボタンの下・重ならない・中央付近
-    const b = await rectOf(fullBtn);
-    const r1 = await rectOf(tip);
-    expect(r1.top, 'ボタンの下に出る').toBeGreaterThanOrEqual(b.bottom);
-    expect(r1.top - b.bottom, 'ボタンから離れすぎない').toBeLessThanOrEqual(12);
-    expect(r1.left < b.right && r1.right > b.left, 'ボタンと横位置が重なる').toBe(true);
+    // 位置: ボタンの隣（下。hover() が要素を画面の下端へ寄せて入らないときは上）・重ならない・中央付近
+    const expectAdjacent = async (btn: import('@playwright/test').Locator, label: string, maxGap = 12) => {
+      const b = await rectOf(btn);
+      const r = await rectOf(tip);
+      const side = await tip.getAttribute('data-instant-tip-side');
+      const gap = side === 'top' ? b.top - r.bottom : r.top - b.bottom;
+      expect(gap, `${label}: ボタンと重ならず（side=${side}）隙間 ${gap}px`).toBeGreaterThanOrEqual(0);
+      expect(gap, `${label}: ボタンから離れすぎない`).toBeLessThanOrEqual(maxGap);
+      expect(r.left < b.right && r.right > b.left, `${label}: ボタンと横位置が重なる`).toBe(true);
+    };
+    await expectAdjacent(fullBtn, '通常');
     await expectInsideViewport('通常');
     // 257 のホバープレビュー（既定OFF）は出ない
     await expect(page.locator('[data-hover-preview]')).toHaveCount(0);
@@ -8057,11 +8062,8 @@ test('C111: 即時ツールチップ（300）— ホバーした瞬間に出る�
     await park();
     await fullBtn.hover();
     expect(await tipVisibleNow()).toBeTruthy();
-    const bz = await rectOf(fullBtn);
-    const rz = await rectOf(tip);
-    expect(rz.top - bz.bottom, `zoom1.4: ボタンの直下に出る（ずれ ${rz.top - bz.bottom}px）`).toBeGreaterThanOrEqual(0);
-    expect(rz.top - bz.bottom).toBeLessThanOrEqual(14);
-    expect(rz.left < bz.right && rz.right > bz.left, 'zoom1.4: ボタンと横位置が重なる').toBe(true);
+    // 視覚座標で隙間 6px×1.4≒8.4px（R-80 に反すると 0.4 倍/1.4 倍ぶん飛ぶ）
+    await expectAdjacent(fullBtn, 'zoom1.4', 14);
     await expectInsideViewport('zoom1.4');
   } finally {
     await page.evaluate(() => localStorage.setItem('lumina_text_scale', '100')).catch(() => {});
