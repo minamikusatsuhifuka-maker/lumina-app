@@ -7667,7 +7667,7 @@ test('C108: テキスト分析のクリック展開（299 §2）— タイトル
     // 整形表示（R-97: MarkdownBody の data-md-view）・生MD記法の露出なし
     const md1 = body1.locator('[data-md-view]');
     await expect(md1).toBeVisible();
-    await expect(md1.locator('h2'), '見出しがh2に整形される').toContainText(heading);
+    await expect(md1.locator('h2, h3'), '見出しが見出し要素に整形される（renderMarkdown は ## を h3 に出す）').toContainText(heading);
     await expect(md1.locator('strong')).toContainText(bold);
     await expectNoRawMarkdown(md1, '🗂 展開本文');
     // ③ 展開後の本文をクリックしても閉じない（文字を選べる）
