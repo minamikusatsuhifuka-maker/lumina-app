@@ -9568,6 +9568,7 @@ test('C122: ホーム編集ページ（306）— サイドバー登録（R-84）
   const leftOrder = () => page.locator('[data-home-list] [data-home-index]').evaluateAll((els) => els.map((el) => el.getAttribute('data-home-row') ?? `div:${el.getAttribute('data-home-divider-row')}`));
   const stored = () => page.evaluate(() => ({ items: JSON.parse(localStorage.getItem('sidebar_home_items') ?? 'null'), removed: JSON.parse(localStorage.getItem('sidebar_home_removed') ?? '[]') }));
   const clear = () => page.evaluate(() => { localStorage.removeItem('sidebar_home_items'); localStorage.removeItem('sidebar_home_removed'); localStorage.removeItem('lumina_nav_labels'); });
+  const settle = async () => { await page.mouse.move(5, 5); await page.waitForTimeout(400); };
   try {
     // ① R-84: サイドバーに登録。「✏️編集」で本ページへ。インラインの編集UIが無い
     await page.goto('/dashboard');
@@ -9604,6 +9605,8 @@ test('C122: ホーム編集ページ（306）— サイドバー登録（R-84）
     await page.mouse.up();
     await expect.poll(leftOrder, { timeout: 10000 }).toEqual(expectedLegacy);
     await expect.poll(homeOrder, { timeout: 15000 }).toEqual(expectedLegacy);
+    // ドラッグ直後は DragOverlay の drop アニメーション（250ms）がポインタ操作を受けるため、離れて落ち着かせてから次の操作へ
+    await settle();
 
     // ③ ✕ で外す → 墓標（定義上のホーム項目）。再読込しても戻らない。右列で「外した」印。再追加（＋）で墓標から消える
     await page.locator('[data-home-row="/dashboard/guide"] [data-home-remove]').click();
@@ -9633,18 +9636,19 @@ test('C122: ホーム編集ページ（306）— サイドバー登録（R-84）
     await page.mouse.move(db.x + 24, db.y + 6, { steps: 4 });
     await page.mouse.up();
     await expect(page.locator('[data-home-row="/dashboard/brainstorm"]'), 'ドラッグで追加される').toBeVisible({ timeout: 10000 });
+    await settle();
     const orderAfterDrag = await leftOrder();
     expect(orderAfterDrag.indexOf('/dashboard/brainstorm'), 'ドロップ位置＝deepresearch の直前').toBe(orderAfterDrag.indexOf('/dashboard/deepresearch') - 1);
     await page.locator('[data-home-search]').fill('');
 
     // ④ 右列の検索は 303 と同じ正規化（改名した項目が元の名前でも見つかる）
-    await page.evaluate(() => localStorage.setItem('lumina_nav_labels', JSON.stringify({ items: { '/dashboard/metaphor': { label: 'たとえ' } }, categories: {} })));
+    await page.evaluate(() => localStorage.setItem('lumina_nav_labels', JSON.stringify({ items: { '/dashboard/text-analysis': { label: 'ぶんせき' } }, categories: {} })));
     await page.reload();
     await expect(page.locator('[data-home-editor]')).toBeVisible({ timeout: 30000 });
-    await page.locator('[data-home-search]').fill('ﾋﾕ'); // 喩え話・比喩（元の名前）を半角カナで
-    await expect(page.locator('[data-all-row="/dashboard/metaphor"]')).toHaveCount(1);
-    await page.locator('[data-home-search]').fill('たとえ');
-    await expect(page.locator('[data-all-row="/dashboard/metaphor"]')).toHaveCount(1);
+    await page.locator('[data-home-search]').fill('ﾃｷｽﾄ'); // 元の名前「テキスト分析」を半角カナで（改名後も元の名前で見つかる）
+    await expect(page.locator('[data-all-row="/dashboard/text-analysis"]')).toHaveCount(1);
+    await page.locator('[data-home-search]').fill('ブンセキ'); // 表示名「ぶんせき」をカタカナで（カナ／かなを同一視）
+    await expect(page.locator('[data-all-row="/dashboard/text-analysis"]')).toHaveCount(1);
     await page.locator('[data-home-search]').fill('zzzz該当なし');
     await expect(page.locator('[data-home-all-empty]')).toBeVisible();
     await page.locator('[data-home-search]').fill('');
@@ -9711,7 +9715,8 @@ test('C122: ホーム編集ページ（306）— サイドバー登録（R-84）
     expect(dialogs[0]).toContain('墓標');
     await expect.poll(leftOrder).toEqual(['/dashboard', '/dashboard/orchestrator', '/dashboard/automation-strategy', '/dashboard/saved', '/dashboard/memo', '/dashboard/guide']);
     expect((await stored()).removed).toEqual([]);
-    await page.locator('[data-home-import-toggle]').click();
+    // 読み込み欄は不正JSONの検証で開いたまま（toggle は開閉なので、閉じていたときだけ開く）
+    if (!(await page.locator('[data-home-import-text]').isVisible())) await page.locator('[data-home-import-toggle]').click();
     await page.locator('[data-home-import-text]').fill(exported);
     await page.locator('[data-home-import-apply]').click();
     await expect.poll(leftOrder, { timeout: 10000 }).toEqual(snapshot);
