@@ -9365,6 +9365,7 @@ test('C121: マンダラ 81マス表示（305）— 9⇄81の切替と再読込�
     await page.reload();
     const grid9 = page.locator('[data-mandala-grid][data-mandala-grid-depth="1"][data-mandala-grid-density="normal"]');
     await expect(grid9.locator('[data-mandala-cell]'), '既定は9マス（301 の描画そのまま）').toHaveCount(9, { timeout: 30000 });
+    await expect(grid9.locator('[data-mandala-cell="4"] [data-mandala-cell-preview]'), '9マスではタイトルだけのマスに「（本文なし）」が出る（不変）').toContainText('本文なし');
     await expect(page.locator('[data-mandala-81]')).toHaveCount(0);
     await expect(page.locator('[data-mandala-expansion]'), '9マス表示では「展開」を出さない').toHaveCount(0);
     const filled9 = await page.locator('[data-mandala-chart-filled]').getAttribute('data-mandala-chart-filled');
@@ -9385,6 +9386,27 @@ test('C121: マンダラ 81マス表示（305）— 9⇄81の切替と再読込�
     await expect(g81.locator('[data-mandala-block="4"]')).toHaveAttribute('data-mandala-block-expanded', '1');
     const centerBlockCell0 = g81.locator('[data-mandala-block="4"] [data-mandala-cell="0"]');
     await expect(centerBlockCell0).toHaveAttribute('data-mandala-cell-id', byPos(0).id);
+    // 305是正②: コンパクト（81）では本文プレビューを出さず「（本文なし）」も出ない（9マスの中央＝タイトルのみのマスには出る）
+    await expect(g81.locator('[data-mandala-cell-preview]')).toHaveCount(0);
+    await expect(g81.getByText('（本文なし）')).toHaveCount(0);
+    // 305是正①: バッジ列がマスの幅内に収まる（boundingBox）。選択モードでも同じ
+    const assertBadgesInside = async (label: string) => {
+      const cellsWithBadges = g81.locator('[data-mandala-cell]:has([data-char-count], [data-mandala-cell-links], [data-mandala-cell-primary])');
+      const n = await cellsWithBadges.count();
+      expect(n, `${label}: バッジのあるマスがある`).toBeGreaterThan(0);
+      for (let i = 0; i < n; i++) {
+        const cellEl = cellsWithBadges.nth(i);
+        const cb = (await cellEl.boundingBox())!;
+        const badges = cellEl.locator('[data-char-count], [data-mandala-cell-links], [data-mandala-cell-primary], [data-mandala-cell-check]');
+        const m = await badges.count();
+        for (let j = 0; j < m; j++) {
+          const bb = (await badges.nth(j).boundingBox())!;
+          expect(bb.x + bb.width, `${label}: マス${i}のバッジ${j}が右端を越えない`).toBeLessThanOrEqual(cb.x + cb.width + 1);
+          expect(bb.x, `${label}: マス${i}のバッジ${j}が左端を越えない`).toBeGreaterThanOrEqual(cb.x - 1);
+        }
+      }
+    };
+    await assertBadgesInside('通常');
     // 集計: n/9・📔 n/m は不変。「展開 0/64」が追加で出る
     await expect(page.locator('[data-mandala-chart-filled]')).toHaveAttribute('data-mandala-chart-filled', filled9!);
     await expect(page.locator('[data-mandala-primary]')).toHaveAttribute('data-mandala-primary', primary9!);
@@ -9470,8 +9492,9 @@ test('C121: マンダラ 81マス表示（305）— 9⇄81の切替と再読込�
     await page.locator('h1').first().hover();
     await expect(pop).toHaveCount(0, { timeout: 5000 });
 
-    // ⑥ 比較に子マスを含める（親と子）。列の見出しは「親 › 子」
+    // ⑥ 比較に子マスを含める（親と子）。列の見出しは「親 › 子」。選択モードでもバッジ列（☑込み）が幅内
     await page.locator('[data-mandala-select-toggle]').click();
+    await assertBadgesInside('選択モード');
     await centerBlockCell0.click();
     await kidCell.click();
     await expect(page.locator('[data-mandala-select-count]')).toHaveAttribute('data-mandala-select-count', '2');

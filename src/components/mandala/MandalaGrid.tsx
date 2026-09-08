@@ -147,29 +147,53 @@ function CellCard({
         (e.currentTarget as HTMLDivElement).style.boxShadow = 'none';
       }}
     >
-      {/* 位置ラベル＋件数バッジ＋文字数（読む領域・操作要素なし）。バッジは nowrap で幅固定（R-109） */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
+      {/* 位置ラベル＋件数バッジ＋文字数（読む領域・操作要素なし）。バッジは nowrap で幅固定（R-109）。
+          305是正①: コンパクト（81）では行を折り返して**マスの幅内に収める**（隣のマスに重ねない）。位置ラベルの
+          チップはテーマ／親マス以外は省き、並びは 文字数 > 🔗n > 📔n の優先で先頭から置く */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: compact ? 3 : 6, minWidth: 0, flexWrap: compact ? 'wrap' : 'nowrap', overflow: 'hidden', rowGap: 2 }}>
         {selectMode && cell && !derived && (
           <span data-mandala-cell-check aria-hidden style={{ fontSize: 14, lineHeight: 1, color: checked ? ACCENT : 'var(--text-muted)', flexShrink: 0 }}>
             {checked ? '☑' : '☐'}
           </span>
         )}
-        <span
-          style={{
-            fontSize: 10,
-            fontWeight: 700,
-            padding: '1px 6px',
-            borderRadius: 999,
-            background: isCenter ? ACCENT : 'var(--bg-primary)',
-            color: isCenter ? '#fff' : 'var(--text-muted)',
-            border: isCenter ? `1px solid ${ACCENT}` : '1px solid var(--border)',
-            whiteSpace: 'nowrap',
-            flexShrink: 0,
-          }}
-        >
-          {isCenter ? (derived ? '親マス' : 'テーマ') : label}
-        </span>
-        <span style={{ flex: 1 }} />
+        {(!compact || isCenter) && (
+          <span
+            data-mandala-cell-chip
+            style={{
+              fontSize: compact ? 9 : 10,
+              fontWeight: 700,
+              padding: compact ? '0 4px' : '1px 6px',
+              borderRadius: 999,
+              background: isCenter ? (derived ? '#B45309' : ACCENT) : 'var(--bg-primary)',
+              color: isCenter ? '#fff' : 'var(--text-muted)',
+              border: isCenter ? `1px solid ${derived ? '#B45309' : ACCENT}` : '1px solid var(--border)',
+              whiteSpace: 'nowrap',
+              flexShrink: 0,
+            }}
+          >
+            {isCenter ? (derived ? '親マス' : 'テーマ') : label}
+          </span>
+        )}
+        {!compact && <span style={{ flex: 1 }} />}
+        {/* 305是正①: コンパクトは優先順（文字数 > 🔗n > 📔n）で先に置く */}
+        {compact && cell && !derived && filled && <CharCountBadge n={cell.body.length} unit="字" compact />}
+        {compact && cell && !derived && (counts?.total ?? 0) > 0 && (() => {
+          const n = counts?.total ?? 0;
+          const b = popoverBind ? popoverBind(cell, 'links') : undefined;
+          const handlers = b ? (selectMode ? { ...b, onClick: undefined } : b) : {};
+          return (
+            <span
+              data-mandala-cell-links={n}
+              aria-label={`リンク${n}件。リンク一覧を表示`}
+              role={b ? 'button' : undefined}
+              tabIndex={b ? 0 : undefined}
+              {...handlers}
+              style={{ fontSize: 10, fontWeight: 700, whiteSpace: 'nowrap', flexShrink: 0, color: ACCENT, cursor: b ? 'pointer' : 'default', padding: '0 2px', borderRadius: 4 }}
+            >
+              🔗{n}
+            </span>
+          );
+        })()}
         {/* 304: 件数のあるバッジはホバーでリンク一覧（HoverPopover）。title は付けない（aria-label で読み上げ・R-110）。
             クリックはピン留めで親（マスの編集）へ伝えない（R-81: バッジは操作要素）。選択モード中はクリックを奪わず
             （バッジ以外と同じく選択の切替へ伝える）ホバーだけ効かせる */}
@@ -190,7 +214,7 @@ function CellCard({
             </span>
           );
         })()}
-        {cell && !derived && (counts?.total ?? 0) > 0 && (() => {
+        {!compact && cell && !derived && (counts?.total ?? 0) > 0 && (() => {
           const n = counts?.total ?? 0;
           const b = popoverBind ? popoverBind(cell, 'links') : undefined;
           const handlers = b ? (selectMode ? { ...b, onClick: undefined } : b) : {};
@@ -207,7 +231,7 @@ function CellCard({
             </span>
           );
         })()}
-        {cell && !derived && filled && <CharCountBadge n={cell.body.length} unit="字" compact />}
+        {!compact && cell && !derived && filled && <CharCountBadge n={cell.body.length} unit="字" compact />}
       </div>
 
       {/* 304: マスの説明（title）は読む領域だけに付ける。バッジ行の祖先に title があると、バッジのホバーで
@@ -229,7 +253,8 @@ function CellCard({
           >
             {title || '（無題）'}
           </div>
-          {!derived && (
+          {/* 305是正②: コンパクトでは本文プレビュー（と「（本文なし）」）を出さない。本文の有無は文字数バッジで分かる */}
+          {!derived && !compact && (
             <div
               data-mandala-cell-preview
               style={{
