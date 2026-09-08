@@ -1374,7 +1374,9 @@
   遅延が必要な吹き出しは HoverPreview（257）側で持ち、HOVER_PREVIEW_DELAY_MS を InstantTooltip から参照しない。
   304追記: **対話要素（押せるリンク・ボタン）を持つポップアップは InstantTooltip と別部品**（`components/HoverPopover.tsx`・
   ホバーで出す／箱へカーソルを移す猶予／ピン留め／Esc・外側クリックで閉じる）。そのアンカーには **`title` を併用しない**
-  （箱と即時ツールチップが同時に出る。読み上げは aria-label）。HoverPreview（257）も pointer-events:none で押せないので流用しない。
+  （箱と即時ツールチップが同時に出る。読み上げは aria-label）。**アンカーの祖先にも `title` を置かない**——InstantTooltip は
+  `closest('[title]')` で祖先を拾うため、マス全体の title がバッジのホバーで出た（C119 で検出）。説明の title は読む領域だけに付ける。
+  HoverPreview（257）も pointer-events:none で押せないので流用しない。
   位置は 273 の computePreviewPlacement＋rootZoom/toLayoutPx を流用し、スクロールでは消さず追従する（300 §3-4 の再発防止）。
   301追記: **`title` を外してよいのは吹き出しを出している間だけ**。`title` はアイコンボタンのアクセシブルネームであり、
   E2E のロケータ（`button[title*=…]`）でもある。300 はクリックで消した後もカーソルが乗っている間 `title` を外したままにしたため、
