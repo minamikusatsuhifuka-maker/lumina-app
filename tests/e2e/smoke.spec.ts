@@ -8759,3 +8759,135 @@ test('C117: マンダラ 未保存本文の退避と復元（302 §6）— 入�
     await deleteMandalaChart(api, chartId);
   }
 });
+
+test('C118: マンダラ ⌘+Enter で保存（302 §6-4）— 本文 textarea で ⌘+Enter／Ctrl+Enter が保存ボタンと同じ経路で保存され成功表示が出る・タイトル入力でも効く・全画面編集でも同じ・Enter 単独は改行のみ・isComposing 中は保存しない・連打で二重保存されない（R-87）・変更が無いときは何もしない（unchanged）・他画面（一覧・ピッカー）では何も起きない・ボタンにキー併記と title・Safari（WebKit）でも同じ（R-64）', async ({ page }) => {
+  test.setTimeout(180_000);
+  const marker = `MKEY${RUN_ID}`;
+  const { id: chartId, cells } = await createMandalaChart(api, `${marker} 骨格`);
+  const cell0 = cells.find((c) => c.position === 0)!;
+  let delayMs = 0;
+  const patches: string[] = [];
+  await page.route('**/api/mandala/cells', async (route) => {
+    patches.push(route.request().postData() ?? '');
+    if (delayMs > 0) await new Promise((r) => setTimeout(r, delayMs));
+    await route.continue();
+  });
+  try {
+    await page.goto(`/dashboard/mandala/${chartId}`);
+    const grid = page.locator('[data-mandala-grid]');
+    await expect(grid.locator('[data-mandala-cell]')).toHaveCount(9, { timeout: 30000 });
+    await grid.locator('[data-mandala-cell="0"]').click();
+    const panel = page.locator(`[data-mandala-panel="${cell0.id}"]`);
+    await expect(panel).toBeVisible();
+    const bodyInput = panel.locator('[data-mandala-body-input="panel"]');
+    const titleInput = panel.locator('[data-mandala-title-input="panel"]');
+    const status = panel.locator('[data-mandala-save-status="ok"]');
+    const saveBtn = page.locator('[data-mandala-save="panel"]');
+    // ボタンのキー併記（R-57・12文字以内）と title（InstantTooltip・R-110）
+    await expect(saveBtn).toHaveText(/💾 保存 (⌘↵|Ctrl\+↵)/);
+    expect((await saveBtn.innerText()).length).toBeLessThanOrEqual(12);
+    await titleInput.fill('x');
+    expect(await saveBtn.getAttribute('title')).toContain('⌘+Enter');
+
+    // Enter 単独は改行のみ（保存されない）
+    await bodyInput.click();
+    await bodyInput.fill('1行目');
+    await page.keyboard.press('Enter');
+    await page.keyboard.type('2行目');
+    await expect(bodyInput).toHaveValue('1行目\n2行目');
+    expect(patches, 'Enter 単独では保存しない').toHaveLength(0);
+
+    // ⌘+Enter で保存（本文 textarea にフォーカス）
+    await page.keyboard.press('Meta+Enter');
+    await expect(status).toContainText('「x」を保存しました', { timeout: 30000 });
+    expect(patches).toHaveLength(1);
+    let row = (await getMandalaChart(api, chartId)).cells.find((c) => c.id === cell0.id)!;
+    expect(row.body).toBe('1行目\n2行目');
+    await expect(panel.locator('[data-mandala-dirty]')).toHaveCount(0);
+
+    // 変更が無いときは何もしない（PATCH が増えない）
+    await page.keyboard.press('Meta+Enter');
+    await page.waitForTimeout(400);
+    expect(patches, '変更なしでは保存経路に入らない').toHaveLength(1);
+
+    // Ctrl+Enter（Windows）でも保存。タイトル入力にフォーカスがあっても効く
+    await titleInput.fill(`タイトル${marker}`);
+    await titleInput.press('Control+Enter');
+    await expect(status).toContainText(`「タイトル${marker}」を保存しました`, { timeout: 30000 });
+    expect(patches).toHaveLength(2);
+
+    // isComposing 中は保存しない（IME変換確定の Enter を保存にしない）
+    await bodyInput.fill('1行目\n2行目\n変換中');
+    await bodyInput.evaluate((el) => {
+      el.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', metaKey: true, bubbles: true, cancelable: true, isComposing: true }));
+    });
+    await page.waitForTimeout(400);
+    expect(patches, 'isComposing 中は保存しない').toHaveLength(2);
+    await expect(panel.locator('[data-mandala-dirty]')).toBeVisible();
+
+    // 連打で二重保存されない（応答を遅らせて2回）
+    delayMs = 800;
+    await bodyInput.evaluate((el) => {
+      for (let i = 0; i < 2; i++) el.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', metaKey: true, bubbles: true, cancelable: true }));
+    });
+    await expect(status).toContainText('（11文字）', { timeout: 30000 });
+    delayMs = 0;
+    expect(patches, '連打でも PATCH は1回').toHaveLength(3);
+    row = (await getMandalaChart(api, chartId)).cells.find((c) => c.id === cell0.id)!;
+    expect(row.body).toBe('1行目\n2行目\n変換中');
+
+    // 全画面編集の textarea でも同じ
+    await panel.locator('[data-mandala-fullscreen]').click();
+    const dialog = page.locator('[role="dialog"][data-kb-scope="reader"]');
+    await dialog.locator('[data-mandala-reader-edit]').click();
+    const readerBody = dialog.locator('[data-mandala-body-input="reader"]');
+    await readerBody.fill('全画面で保存');
+    await readerBody.press('Meta+Enter');
+    await expect(dialog.locator('[data-mandala-save-status="ok"]')).toContainText('（6文字）', { timeout: 30000 });
+    expect(patches).toHaveLength(4);
+    await expect(dialog, '⌘+Enter で全画面が閉じない').toBeVisible();
+    await dialog.getByRole('button', { name: '✕ 閉じる' }).click();
+
+    // 他の入力（ピッカーの検索欄）では何も起きない
+    await bodyInput.fill('ピッカー中の編集');
+    await panel.locator('[data-mandala-link-add]').click();
+    const picker = page.locator('[data-mandala-picker]');
+    await picker.locator('[data-mandala-picker-search]').press('Meta+Enter');
+    await page.waitForTimeout(400);
+    expect(patches, 'ピッカーの入力では保存しない').toHaveLength(4);
+    await picker.locator('[data-mandala-picker-close]').click();
+    // 他画面（一覧）でも何も起きない
+    page.on('dialog', (d) => void d.accept());
+    await page.goto('/dashboard/mandala');
+    await expect(page.locator(`[data-mandala-card="${chartId}"]`)).toBeVisible({ timeout: 30000 });
+    await page.keyboard.press('Meta+Enter');
+    await page.waitForTimeout(400);
+    expect(patches, '他画面では何も起きない').toHaveLength(4);
+
+    // R-64: Safari（WebKit）でも同じ経路で保存される
+    const wk = await webkit.launch();
+    const ctx = await wk.newContext({ storageState: STORAGE_STATE, baseURL: BASE_URL });
+    const p2 = await ctx.newPage();
+    try {
+      await p2.goto(`/dashboard/mandala/${chartId}`);
+      await expect(p2.locator('[data-mandala-grid] [data-mandala-cell]')).toHaveCount(9, { timeout: 30000 });
+      await p2.locator('[data-mandala-cell="0"]').click();
+      const wkBody = p2.locator('[data-mandala-body-input="panel"]');
+      await wkBody.fill(`Safari ${marker}`);
+      await wkBody.press('Meta+Enter');
+      await expect(p2.locator('[data-mandala-save-status="ok"]'), 'WebKit でも ⌘+Enter で保存').toContainText('保存しました', { timeout: 30000 });
+      row = (await getMandalaChart(api, chartId)).cells.find((c) => c.id === cell0.id)!;
+      expect(row.body).toBe(`Safari ${marker}`);
+      // Enter 単独は改行（WebKit でも保存しない）
+      await wkBody.press('End');
+      await wkBody.press('Enter');
+      await expect(wkBody).toHaveValue(`Safari ${marker}\n`);
+      expect((await getMandalaChart(api, chartId)).cells.find((c) => c.id === cell0.id)!.body).toBe(`Safari ${marker}`);
+    } finally {
+      await ctx.close();
+      await wk.close();
+    }
+  } finally {
+    await deleteMandalaChart(api, chartId);
+  }
+});

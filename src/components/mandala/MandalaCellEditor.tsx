@@ -30,6 +30,7 @@ import FullscreenReader from '@/components/text-analysis/FullscreenReader';
 import { CharCountBadge } from '@/components/LibraryItemRow';
 import { useToast } from '@/components/ui/Toast';
 import { formatJst } from '@/lib/jst';
+import { useRunKeyHints } from '@/lib/shortcuts';
 import {
   MANDALA_BODY_MAX,
   MANDALA_CENTER,
@@ -99,6 +100,10 @@ export default function MandalaCellEditor({
   onLinksChanged?: (cellId: string, links: MandalaLinkResolved[]) => void;
 }) {
   const { showToast } = useToast();
+  // 302 §6-4: 保存ボタンのキー併記（⌘↵ / Ctrl+↵）。表記は RUN_KEY_LABELS と同じ値（キーボードの無い端末では出さない）
+  const keyHints = useRunKeyHints();
+  const saveLabel = keyHints ? `💾 保存 ${keyHints.run}` : '💾 保存';
+  const saveTitle = (d: boolean) => (d ? '保存（⌘+Enter／Ctrl+Enter）' : '変更はありません');
   const [mounted, setMounted] = useState(false);
   // 保存済みの値（保存された行から更新する・R-95）と、編集中の下書き
   const [base, setBase] = useState({ title: cell.title, body: cell.body });
@@ -311,15 +316,21 @@ export default function MandalaCellEditor({
   };
   const linkedKeys = new Set(links.map((l) => linkKeyOf(l.scope, l.item_key)));
 
-  // ⌘/Ctrl+S で保存（textarea 内でのブラウザ既定＝ページ保存ダイアログを奪う。編集中の標準操作なので許容）
+  // 302 §6-4: ⌘/Ctrl+Enter で保存。保存ボタンと**同じ save()** を通す（savingRef の二重発火遮断・サーバの unchanged がそのまま効く）。
+  // リスナーはこの編集要素（タイトル入力・本文 textarea・全画面編集の同要素）だけ＝画面全体の keydown は拾わない。
+  // 日本語IMEの変換中（isComposing／keyCode 229）は無視。Enter 単独は触らない（textarea は改行のまま）。
+  // ⌘/Ctrl+S も同じ経路（textarea 内でのブラウザ既定＝ページ保存ダイアログを奪う。編集中の標準操作なので許容）
   const onEditorKeyDown = (e: ReactKeyboardEvent) => {
-    if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 's') {
+    if (e.nativeEvent.isComposing || e.keyCode === 229) {
+      // IME 変換の取り消しの Esc は全画面/パネルの「閉じる」に届かせない
+      if (e.key === 'Escape') e.stopPropagation();
+      return;
+    }
+    if ((e.metaKey || e.ctrlKey) && (e.key === 'Enter' || e.key.toLowerCase() === 's')) {
       e.preventDefault();
       if (dirtyRef.current) void save();
       return;
     }
-    // IME 変換の取り消しの Esc は全画面/パネルの「閉じる」に届かせない
-    if (e.key === 'Escape' && e.nativeEvent.isComposing) e.stopPropagation();
   };
 
   const posLabel = MANDALA_POSITION_LABELS[cell.position] ?? String(cell.position);
@@ -458,10 +469,10 @@ export default function MandalaCellEditor({
               data-mandala-save="panel"
               onClick={() => void save()}
               disabled={!dirty || saving}
-              title={dirty ? '保存（⌘S）' : '変更はありません'}
+              title={saveTitle(dirty)}
               style={{ ...primaryBtn, opacity: !dirty || saving ? 0.5 : 1, cursor: !dirty || saving ? 'default' : 'pointer' }}
             >
-              {saving ? '⏳ 保存中…' : '💾 保存'}
+              {saving ? '⏳ 保存中…' : saveLabel}
             </button>
           </div>
           <style>{`
@@ -506,10 +517,10 @@ export default function MandalaCellEditor({
               data-mandala-save="reader"
               onClick={() => void save()}
               disabled={!dirty || saving}
-              title={dirty ? '保存（⌘S）' : '変更はありません'}
+              title={saveTitle(dirty)}
               style={{ ...primaryBtn, opacity: !dirty || saving ? 0.5 : 1, cursor: !dirty || saving ? 'default' : 'pointer' }}
             >
-              {saving ? '⏳ 保存中…' : '💾 保存'}
+              {saving ? '⏳ 保存中…' : saveLabel}
             </button>
             <CharCountBadge n={draft.body.length} />
             {dirtyBadge}

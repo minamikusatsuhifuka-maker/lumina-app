@@ -3271,3 +3271,32 @@ test('U71: マンダラ 302 — scope の表示・遷移先は MANDALA_LINK_SCOP
   expect(pageSrc).toContain('primaryInfoSummary(chart.cells, links)');
   expect(pageSrc).not.toMatch(/data-mandala-select-all/);
 });
+
+test('U72: マンダラ ⌘+Enter 保存（302 §6-4）— 一覧（小窓）に登録・2キー（R-60）・実行キー（run）の一覧は不変（U15）・編集要素のハンドラは保存ボタンと同じ save() を通し isComposing/keyCode 229 を無視・画面全体の keydown で Enter を拾わない', async () => {
+  const { SHORTCUT_SECTIONS } = await import('../../src/lib/shortcuts');
+  const sec = SHORTCUT_SECTIONS.find((s) => s.scope === 'mandala');
+  expect(sec, 'マンダラのセクションが登録されていること').toBeTruthy();
+  expect(sec!.items.map((i) => i.keys.join('+'))).toEqual(['⌘+Enter']);
+  expect(sec!.items[0].keys.length).toBeLessThanOrEqual(2);
+  expect(sec!.items[0].desc).toContain('保存');
+  expect(sec!.items[0].note).toContain('変換中');
+  // run セクションは不変（実行の ⌘+Enter とは別セクション）
+  expect(SHORTCUT_SECTIONS.find((s) => s.scope === 'run')!.items.map((i) => i.keys.join('+'))).toEqual(['⌘+Enter', '⌘+⌫', '⌘+⇧+V']);
+  const src = readFileSync(join(__dirname, '../../src/components/mandala/MandalaCellEditor.tsx'), 'utf8');
+  // 同じ経路: キー押下は save() を呼ぶだけ（別の保存処理・fetch を書かない）
+  expect(src.match(/fetch\('\/api\/mandala\/cells'/g)?.length, '保存の fetch は1箇所').toBe(1);
+  expect(src).toContain("(e.metaKey || e.ctrlKey) && (e.key === 'Enter'");
+  expect(src).toContain('if (dirtyRef.current) void save();');
+  expect(src).toContain('e.nativeEvent.isComposing || e.keyCode === 229');
+  // リスナーは編集要素だけ: window/document の keydown で Enter を見ない（Esc のパネル閉じだけ）
+  const windowKeyHandlers = src.match(/addEventListener\('keydown'[^\n]*/g) ?? [];
+  expect(windowKeyHandlers.length).toBe(1);
+  // window に付けている唯一の keydown ハンドラ（onKey）は Esc だけを見る（R-111: 構文ごとに当てる）
+  const onKeyBody = src.match(/const onKey = \(e: KeyboardEvent\) => \{[^}]*\}/)?.[0] ?? '';
+  expect(onKeyBody).toContain("e.key !== 'Escape'");
+  expect(onKeyBody).not.toContain('Enter');
+  expect(src).toContain('onKeyDown={onEditorKeyDown}');
+  // 小窓のスコープ判定はパネルの目印で
+  const palette = readFileSync(join(__dirname, '../../src/components/ShortcutPalette.tsx'), 'utf8');
+  expect(palette).toContain("visible('[data-mandala-panel]')");
+});

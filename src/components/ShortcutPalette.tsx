@@ -60,7 +60,8 @@ export default function ShortcutPalette() {
   const [isMobile, setIsMobile] = useState(false);
   const [box, setBox] = useState<Box | null>(null);
   // 現在の画面で有効なスコープ（無効セクションは淡色表示）
-  const [scopes, setScopes] = useState<{ reader: boolean; list: boolean; run: boolean }>({
+  const [scopes, setScopes] = useState<{ reader: boolean; list: boolean; run: boolean; mandala: boolean }>({
+    mandala: false,
     reader: false,
     list: true,
     run: false,
@@ -190,7 +191,9 @@ export default function ShortcutPalette() {
       const list = !reader && visible('[data-kb-search]');
       // 247: 実行ボタン（data-kb-run）が見えている画面＝⌘Enter/⌘⇧Backspaceが効く画面
       const run = !reader && visible('[data-kb-run]');
-      setScopes({ reader, list, run });
+      // 302 §6-4: マンダラの編集パネル（サイドパネル・全画面編集の両方でパネルは開いている）
+      const mandala = visible('[data-mandala-panel]');
+      setScopes({ reader, list, run, mandala });
     };
     update();
     const timer = setInterval(update, 1000);

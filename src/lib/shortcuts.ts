@@ -79,7 +79,7 @@ export function useShortcutHints(): boolean {
 // scope は「現在の画面で有効か」を小窓が淡色表示で区別するための対象画面。
 // 判定は data-kb-scope="reader"（リーダー表示中）・可視の data-kb-search（一覧画面）・
 // 可視の data-kb-run（生成/実行画面の実行ボタン）で行う
-export type ShortcutScope = 'reader' | 'list' | 'run' | 'global';
+export type ShortcutScope = 'reader' | 'list' | 'run' | 'mandala' | 'global';
 export const SHORTCUT_SECTIONS: Array<{
   title: string;
   scope: ShortcutScope;
@@ -128,6 +128,20 @@ export const SHORTCUT_SECTIONS: Array<{
         keys: ['⌘', '⇧', 'V'],
         desc: 'クリアして貼り付け（Windowsは Ctrl+Shift+V）',
         note: 'クリップボードを読めないときは入力をそのままにします（消えません）',
+      },
+    ],
+  },
+  {
+    // 302 §6-4: 🔲マンダラのマス編集（サイドパネル・全画面編集）。リスナーは編集要素（input/textarea）に限定し、
+    // 画面全体の keydown は拾わない（useRunShortcut とは別・他画面やピッカーには効かない）。
+    // 実行の ⌘Enter（run）と同じキーだが、マス編集中は実行ボタン（data-kb-run）が無いので衝突しない
+    title: '🔲 マンダラ（マスの編集中）',
+    scope: 'mandala',
+    items: [
+      {
+        keys: ['⌘', 'Enter'],
+        desc: '保存する（Windowsは Ctrl+Enter）',
+        note: 'タイトル・本文にカーソルがあるままで効きます。日本語変換中は無視・変更が無いときは何もしません',
       },
     ],
   },
