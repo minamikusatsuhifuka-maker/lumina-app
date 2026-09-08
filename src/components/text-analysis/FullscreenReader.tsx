@@ -36,11 +36,16 @@ export default function FullscreenReader({
   actions,
   onPrev,
   onNext,
+  editor,
 }: {
   open: boolean;
   title: string;
   content: string;
   onClose: () => void;
+  // 301: 全画面のまま「閲覧⇄編集」を切り替える呼び出し元（マンダラのマス）向けの差し替え本文。
+  // 渡されたときだけ整形本文の代わりにこれを描く（textarea 等）。省略時は従来どおり renderMarkdown 表示＝
+  // 既存の呼び出し元は1文字も変わらない（オプトイン・R-88）。新しい全画面部品を作らないための口（R-91）。
+  editor?: ReactNode;
   // 191: 呼び出し元のアクションボタン（📋コピー/📄Word等）。省略可＝従来表示のまま。
   // 機能ごとにアクションが違うためハードコードせず ReactNode で受ける
   // （✅コピー済み等のstate連動表示・SaveToLibraryButton のようなコンポーネントも渡せる）。
@@ -285,7 +290,24 @@ export default function FullscreenReader({
       )}
       </div>
 
-      {/* 本文（内スクロール・読み物フォント） */}
+      {/* 本文（内スクロール・読み物フォント）。301: editor が渡されたときだけ差し替え本文（編集用）を描く */}
+      {editor != null ? (
+        <div
+          data-reader-editor
+          onClick={(e) => e.stopPropagation()}
+          style={{
+            flex: 1,
+            minHeight: 0,
+            display: 'flex',
+            flexDirection: 'column',
+            background: 'var(--bg-primary, #fff)',
+            padding: '16px 16px 80px',
+            fontSize: FONT_SIZE[font],
+          }}
+        >
+          {editor}
+        </div>
+      ) : (
       <div
         onClick={(e) => e.stopPropagation()}
         style={{
@@ -310,6 +332,7 @@ export default function FullscreenReader({
           dangerouslySetInnerHTML={{ __html: renderMarkdown(content) }}
         />
       </div>
+      )}
 
       {/* 204 第4層: 初回だけのヒント（5秒で消える・localStorageで以降は出さない・操作は遮らない） */}
       {firstHint && (

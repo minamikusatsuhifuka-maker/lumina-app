@@ -398,3 +398,75 @@ export async function cleanupE2EPurposes(request: APIRequestContext) {
     if (String(c.name).includes(E2E_PREFIX)) await deletePurpose(request, c.id);
   }
 }
+
+// ============================================================================
+// 301: 🔲 マンダラ（mandala_charts / mandala_cells / mandala_cell_links）
+// ============================================================================
+
+export const MANDALA_API = '/api/mandala';
+export const MANDALA_CELLS_API = '/api/mandala/cells';
+
+export type MandalaCellLike = {
+  id: string;
+  chart_id: string;
+  parent_cell_id: string | null;
+  depth: number;
+  position: number;
+  title: string;
+  body: string;
+  updated_at: string;
+};
+
+/** チャート単位API（全マス本文つき）を読む */
+export async function getMandalaChart(
+  request: APIRequestContext,
+  id: string,
+): Promise<{ id: string; updated_at: string; cells: MandalaCellLike[] }> {
+  const res = await request.get(`${MANDALA_API}/${id}`);
+  expect(res.status(), `マンダラ取得API(id=${id})が200であること`).toBe(200);
+  return (await res.json()).chart;
+}
+
+/** マス単位の保存（title/body）。応答は保存された行（R-95） */
+export async function saveMandalaCell(
+  request: APIRequestContext,
+  cellId: string,
+  input: { title?: string; body?: string },
+) {
+  return request.patch(MANDALA_CELLS_API, { data: { cellId, ...input } });
+}
+
+/**
+ * マンダラを作り、**中央マスのタイトルに [E2E] を必ず付ける**（R-55）。
+ * 一覧の名前＝中央マスのタイトルなので、掃除（cleanupE2EMandala）はこれだけを基準に判定する。
+ * 中央を空にする検証をするテストは、finally で自分の id を明示削除すること（無題のチャートは掃除で拾えない）。
+ */
+export async function createMandalaChart(
+  request: APIRequestContext,
+  centerTitle: string,
+): Promise<{ id: string; cells: MandalaCellLike[] }> {
+  const res = await request.post(MANDALA_API);
+  expect(res.status(), 'マンダラ作成APIが200であること').toBe(200);
+  const id = (await res.json()).id as string;
+  expect(typeof id, '作成レスポンスにidが含まれること').toBe('string');
+  const chart = await getMandalaChart(request, id);
+  const center = chart.cells.find((c) => c.depth === 1 && c.position === 4);
+  expect(center, '作成直後に中央マスがあること').toBeTruthy();
+  const saved = await saveMandalaCell(request, center!.id, { title: withE2EPrefix(centerTitle) });
+  expect(saved.status(), '中央マスのタイトル保存が200であること').toBe(200);
+  return { id, cells: (await getMandalaChart(request, id)).cells };
+}
+
+export async function deleteMandalaChart(request: APIRequestContext, id: string) {
+  return request.delete(`${MANDALA_API}?id=${encodeURIComponent(id)}`);
+}
+
+/** 過去実行分を含め、中央タイトルに [E2E] を持つマンダラを全削除する */
+export async function cleanupE2EMandala(request: APIRequestContext) {
+  const res = await request.get(MANDALA_API);
+  expect(res.status(), 'マンダラ一覧APIが200であること').toBe(200);
+  const items = ((await res.json()).items ?? []) as { id: string; title: string }[];
+  for (const it of items) {
+    if (String(it.title ?? '').includes(E2E_PREFIX)) await deleteMandalaChart(request, it.id);
+  }
+}

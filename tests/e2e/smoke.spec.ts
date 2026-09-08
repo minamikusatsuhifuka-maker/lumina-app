@@ -47,6 +47,14 @@ import {
   createMemoCategory,
   createMemo,
   cleanupE2EMemos,
+  // 301: マンダラ
+  MANDALA_API,
+  MANDALA_CELLS_API,
+  getMandalaChart,
+  saveMandalaCell,
+  createMandalaChart,
+  deleteMandalaChart,
+  cleanupE2EMandala,
 } from './helpers';
 
 // ============================================================================
@@ -114,6 +122,8 @@ test.afterAll(async () => {
   await cleanupE2EEpisodes(api);
   // 208: カテゴリメモ（memos / memo_categories）の残骸も掃除する
   await cleanupE2EMemos(api);
+  // 301: マンダラ（中央タイトルに [E2E] があるもの）の残骸も掃除する
+  await cleanupE2EMandala(api);
   await api.dispose();
 });
 
@@ -8098,5 +8108,302 @@ test('C112: 即時ツールチップはタッチ端末では付けない（300 �
   } finally {
     await ctx.close();
     await cleanupE2ESaves(request);
+  }
+});
+
+// ============================================================================
+// 301: 🔲 マンダラ（データモデル＋9マスの作成・編集・長文保存・全画面）
+// ============================================================================
+
+test('C113: マンダラ 一覧・作成・削除（301 §3-2）— サイドバーから到達（R-84）・作成で9マスが同時にできる・一覧に名前（中央マスのタイトル）/JST更新日時（R-86）/埋まっているマス数・中央が空なら（無題）・削除の確認は1回で件数入り（R-56）・削除後にマスが残らない（CASCADE）・一覧APIは本文を返さない（§4-3⑥）・未認証401（R-32）・不正idは400・🎛メニュー名設定の並び一致', async ({
+  page,
+  browser,
+}) => {
+  test.setTimeout(150_000);
+  const marker = `MD${RUN_ID}`;
+  let chartId: string | null = null;
+  let leftCellId = '';
+  try {
+    // R-84: サイドバーから到達できる
+    await page.goto('/dashboard');
+    const navLink = page.locator('a[data-nav-href="/dashboard/mandala"]');
+    await expect(navLink, 'サイドバーに🔲マンダラのリンクがある').toBeVisible({ timeout: 30000 });
+    await navLink.click();
+    await expect(page.getByRole('heading', { name: /マンダラ/ })).toBeVisible({ timeout: 30000 });
+
+    // 作成 → チャート画面へ遷移し、9マスが同時にできている
+    await page.locator('[data-mandala-new]').click();
+    await page.waitForURL(/\/dashboard\/mandala\/[0-9a-f-]{36}$/, { timeout: 30000 });
+    chartId = page.url().split('/').pop()!;
+    await expect(page.locator('[data-mandala-grid] [data-mandala-cell]')).toHaveCount(9, { timeout: 30000 });
+    await expect(page.locator('[data-mandala-cell-empty]'), '作成直後は9マスとも空表示').toHaveCount(9);
+    const chart = await getMandalaChart(api, chartId);
+    expect(chart.cells, 'APIでも第1階層9マス').toHaveLength(9);
+    expect(chart.cells.map((c) => c.position).sort((a, b) => a - b)).toEqual([0, 1, 2, 3, 4, 5, 6, 7, 8]);
+    expect(chart.cells.every((c) => c.depth === 1 && c.parent_cell_id === null)).toBe(true);
+
+    // 中央マスに [E2E] タイトル（掃除の基準・R-55）、左マスに本文
+    const center = chart.cells.find((c) => c.position === 4)!;
+    const left = chart.cells.find((c) => c.position === 3)!;
+    leftCellId = left.id;
+    const centerTitle = withE2EPrefix(`${marker} テーマ`);
+    expect((await saveMandalaCell(api, center.id, { title: centerTitle })).status()).toBe(200);
+    expect((await saveMandalaCell(api, left.id, { body: `${marker} 左の本文` })).status()).toBe(200);
+
+    // §4-3⑥ 一覧APIは本文を含まない軽い形
+    const listRes = await api.get(MANDALA_API);
+    expect(listRes.status()).toBe(200);
+    const row = ((await listRes.json()).items as Record<string, unknown>[]).find((i) => i.id === chartId)!;
+    expect(row, '一覧に自分のチャートがある').toBeTruthy();
+    expect(row.title).toBe(centerTitle);
+    expect(row.filled_count).toBe(2);
+    expect(row.link_count).toBe(0);
+    expect(row).not.toHaveProperty('cells');
+    expect(row).not.toHaveProperty('body');
+    expect(JSON.stringify(row), '一覧の行に本文が載っていない').not.toContain('左の本文');
+
+    // 一覧画面。ブラウザのTZをUTCにしてもJST表示（R-86）
+    const utc = await browser.newContext({ storageState: STORAGE_STATE, baseURL: BASE_URL, timezoneId: 'UTC' });
+    const p2 = await utc.newPage();
+    try {
+      await p2.goto('/dashboard/mandala');
+      const card = p2.locator(`[data-mandala-card="${chartId}"]`);
+      await expect(card).toBeVisible({ timeout: 30000 });
+      await expect(card.locator('[data-mandala-card-title]'), '名前＝中央マスのタイトル').toHaveText(centerTitle);
+      await expect(card.locator('[data-mandala-filled]')).toHaveText('2/9 マス');
+      const shown = (await card.locator('[data-mandala-updated]').innerText()).trim();
+      const expected = new Date(String(row.updated_at)).toLocaleString('ja-JP', { timeZone: 'Asia/Tokyo' });
+      expect(shown, `UTCのブラウザでもJSTの更新日時が出る（${shown} / ${expected}）`).toContain(expected);
+
+      // §3-5 中央が空なら（無題）
+      expect((await saveMandalaCell(api, center.id, { title: '' })).status()).toBe(200);
+      await p2.reload();
+      await expect(card.locator('[data-mandala-card-title]')).toHaveText('（無題）', { timeout: 30000 });
+      expect((await saveMandalaCell(api, center.id, { title: centerTitle })).status()).toBe(200);
+      await p2.reload();
+      await expect(card.locator('[data-mandala-card-title]')).toHaveText(centerTitle, { timeout: 30000 });
+
+      // 削除: 確認は1回・埋まっているマス数とリンク件数が文言にある（R-56）
+      const dialogs: string[] = [];
+      p2.on('dialog', (d) => {
+        dialogs.push(d.message());
+        void d.accept();
+      });
+      await card.locator(`[data-mandala-delete="${chartId}"]`).click();
+      await expect(card, '削除でカードが消える').toHaveCount(0, { timeout: 30000 });
+      await expect.poll(() => dialogs.length, '確認は1回だけ').toBe(1);
+      expect(dialogs[0]).toContain('2/9');
+      expect(dialogs[0]).toContain('リンク済み: 0件');
+      expect(dialogs[0]).toContain(`${marker} テーマ`);
+      expect(dialogs[0]).toContain('元に戻せません');
+    } finally {
+      await utc.close();
+    }
+    // 削除後: チャートもマスも残っていない（CASCADE）
+    expect((await api.get(`${MANDALA_API}/${chartId}`)).status()).toBe(404);
+    expect((await saveMandalaCell(api, left.id, { body: 'x' })).status(), '消えたマスへの保存は404（マスが孤立していない）').toBe(404);
+    chartId = null;
+
+    // R-32: 未認証は401
+    const anon = await pwRequest.newContext({ baseURL: BASE_URL, storageState: { cookies: [], origins: [] } });
+    try {
+      expect((await anon.get(MANDALA_API)).status()).toBe(401);
+      expect((await anon.post(MANDALA_API)).status()).toBe(401);
+      expect((await anon.get(`${MANDALA_API}/${center.id}`)).status()).toBe(401);
+      expect((await anon.patch(MANDALA_CELLS_API, { data: { cellId: leftCellId, title: 'x' } })).status()).toBe(401);
+      expect((await anon.delete(`${MANDALA_API}?id=${center.id}`)).status()).toBe(401);
+    } finally {
+      await anon.dispose();
+    }
+    // 不正な id は 400（DB へ渡す前に弾く）
+    expect((await api.get(`${MANDALA_API}/not-a-uuid`)).status()).toBe(400);
+    expect((await api.delete(`${MANDALA_API}?id=not-a-uuid`)).status()).toBe(400);
+    expect((await api.delete(MANDALA_API)).status()).toBe(400);
+
+    // R-84: 🎛メニュー名設定に行があり、並びがサイドバーの実表示と一致する
+    await page.goto('/dashboard/display-settings');
+    await page.locator('[data-nav-category-toggle="情報収集・調査"]').click();
+    const block = page.locator('[data-nav-category-block="情報収集・調査"]');
+    await expect(block.locator('[data-nav-row="/dashboard/mandala"]'), '301がメニュー名設定に載る').toHaveCount(1);
+    const sidebarSection = page.locator('div:has(> [data-nav-category="情報収集・調査"])');
+    const sidebarOrder = await sidebarSection.locator('a[data-nav-href]').evaluateAll((els) => els.map((el) => el.getAttribute('data-nav-href')));
+    const rows = await block.locator('[data-nav-row]').evaluateAll((els) => els.map((el) => el.getAttribute('data-nav-row')));
+    expect(rows, '🎛設定の並びがサイドバーの実表示と一致する').toEqual(sidebarOrder);
+  } finally {
+    if (chartId) await deleteMandalaChart(api, chartId);
+  }
+});
+
+test('C114: マンダラ 9マスの編集・長文保存・全画面（301 §3-3/§3-4/§4-4）— マスを押すとサイドパネル（枠内に操作要素なし・R-81）・タイトル＋5,000字超を保存し再読込後も残る・保存成功の表示が保存された行と一致（R-95）・二重発火でPATCHは1回（R-87）・未保存で閉じる/別マスへ移る/一覧へ戻ると確認1回（R-56）・空で保存できる（マスを空に戻す）・同一内容の再送は書かない・全画面は共通 FullscreenReader で整形表示（生MDなし・R-97）・全画面内で編集に切り替えて保存・存在しないマスは404', async ({
+  page,
+}) => {
+  test.setTimeout(180_000);
+  const marker = `MC${RUN_ID}`;
+  const { id: chartId, cells } = await createMandalaChart(api, `${marker} 骨格`);
+  const cell0 = cells.find((c) => c.position === 0)!;
+  const cell1 = cells.find((c) => c.position === 1)!;
+  const chartTitle = withE2EPrefix(`${marker} 骨格`);
+  const heading = `見出し${marker}`;
+  const bold = `太字${marker}`;
+  const longBody = `導入の一文です。\n\n## ${heading}\n\n**${bold}** の段落です。\n\n- 箇条書き一\n- 箇条書き二\n\n${'長い本文の行です。'.repeat(560)}`;
+  expect(longBody.length, 'テストの前提: 5,000字超').toBeGreaterThan(5000);
+
+  // PATCH の回数を数える（R-87）。delayMs を立てると応答を遅らせる（二重発火の窓を作る）
+  let delayMs = 0;
+  const patchCalls: string[] = [];
+  await page.route('**/api/mandala/cells', async (route) => {
+    patchCalls.push(route.request().postData() ?? '');
+    if (delayMs > 0) await new Promise((r) => setTimeout(r, delayMs));
+    await route.continue();
+  });
+
+  try {
+    await page.goto(`/dashboard/mandala/${chartId}`);
+    const grid = page.locator('[data-mandala-grid]');
+    await expect(grid.locator('[data-mandala-cell]')).toHaveCount(9, { timeout: 30000 });
+    await expect(page.locator('[data-mandala-chart-title]'), 'チャート名＝中央マスのタイトル（§3-5）').toHaveText(chartTitle);
+    await expect(grid.locator('[data-mandala-cell="4"] [data-mandala-cell-title]')).toHaveText(chartTitle);
+    // R-81: 枠の中に操作要素が無い（当たり判定は読む領域だけ）
+    await expect(grid.locator('[data-mandala-cell] button, [data-mandala-cell] a, [data-mandala-cell] input, [data-mandala-cell] textarea')).toHaveCount(0);
+    await expect(page.locator('[data-mandala-panel]'), '最初はパネルが閉じている').toHaveCount(0);
+
+    // ── ① マス0を押す → サイドパネル ──
+    await grid.locator('[data-mandala-cell="0"]').click();
+    const panel = page.locator(`[data-mandala-panel="${cell0.id}"]`);
+    await expect(panel).toBeVisible();
+    const saveBtn = page.locator('[data-mandala-save="panel"]');
+    await expect(saveBtn, '変更が無いうちは保存できない').toBeDisabled();
+    await expect(panel.locator('[data-mandala-dirty]')).toHaveCount(0);
+    const titleInput = panel.locator('[data-mandala-title-input="panel"]');
+    const bodyInput = panel.locator('[data-mandala-body-input="panel"]');
+    await titleInput.fill(`タイトル${marker}`);
+    await bodyInput.fill(longBody);
+    await expect(panel.locator('[data-mandala-dirty]'), '編集すると未保存バッジ').toBeVisible();
+    await expect(saveBtn).toBeEnabled();
+    await saveBtn.click();
+    const status = panel.locator('[data-mandala-save-status="ok"]');
+    await expect(status).toBeVisible({ timeout: 30000 });
+    // R-95: 表示は保存された行から（API の行と一致）
+    let saved0 = (await getMandalaChart(api, chartId)).cells.find((c) => c.id === cell0.id)!;
+    expect(saved0.title).toBe(`タイトル${marker}`);
+    expect(saved0.body.length).toBe(longBody.length);
+    await expect(status).toContainText(`「${saved0.title}」を保存しました（${saved0.body.length.toLocaleString()}文字）`);
+    await expect(panel.locator('[data-mandala-dirty]'), '保存後は未保存バッジが消える').toHaveCount(0);
+    expect(patchCalls, '保存1回でPATCHは1回').toHaveLength(1);
+    // グリッドへ反映: タイトル（省略記号・R-109）・文字数バッジ（CharCountBadge）・プレビューに生MDが無い
+    const c0 = grid.locator('[data-mandala-cell="0"]');
+    await expect(c0.locator('[data-mandala-cell-title]')).toHaveText(saved0.title);
+    await expect(c0.locator('[data-char-count]')).toHaveAttribute('data-char-count', String(saved0.body.length));
+    await expect(c0).toHaveAttribute('data-mandala-cell-filled', '1');
+    expect(await c0.locator('[data-mandala-cell-title]').evaluate((el) => getComputedStyle(el).textOverflow)).toBe('ellipsis');
+    const preview = await c0.locator('[data-mandala-cell-preview]').innerText();
+    expect(preview).toContain(heading);
+    expect(preview).not.toContain('## ');
+    expect(preview).not.toContain('**');
+    await expect(page.locator('[data-mandala-chart-filled]')).toHaveText('2/9 マス');
+
+    // ── ② R-87: 応答を遅らせて2連打しても PATCH は1回 ──
+    let currentBody = `${longBody}\n追記1`;
+    await bodyInput.fill(currentBody);
+    delayMs = 800;
+    const before = patchCalls.length;
+    await saveBtn.evaluate((el) => {
+      (el as HTMLButtonElement).click();
+      (el as HTMLButtonElement).click();
+    });
+    await expect(status).toContainText(`（${currentBody.length.toLocaleString()}文字）`, { timeout: 30000 });
+    delayMs = 0;
+    expect(patchCalls.length - before, '2連打でもPATCHは1回').toBe(1);
+
+    // ── ③ 未保存の警告: 閉じる／別マスへ移る／一覧へ戻る（各1回・キャンセルで残る）→ OKで破棄 ──
+    await bodyInput.fill(`${currentBody}\n未保存の追記`);
+    let dialogCount = 0;
+    let accept = false;
+    const onDialog = (d: import('@playwright/test').Dialog) => {
+      dialogCount += 1;
+      expect(d.message(), '未保存の確認文').toContain('未保存');
+      void (accept ? d.accept() : d.dismiss());
+    };
+    page.on('dialog', onDialog);
+    await panel.locator('[data-mandala-panel-close]').click();
+    await expect.poll(() => dialogCount).toBe(1);
+    await expect(panel, 'キャンセルでパネルは残る').toBeVisible();
+    await expect(bodyInput).toHaveValue(/未保存の追記/);
+    await grid.locator('[data-mandala-cell="1"]').click();
+    await expect.poll(() => dialogCount).toBe(2);
+    await expect(panel, 'キャンセルで元のマスのまま').toBeVisible();
+    await expect(page.locator(`[data-mandala-panel="${cell1.id}"]`)).toHaveCount(0);
+    await page.locator('[data-mandala-back]').click();
+    await expect.poll(() => dialogCount).toBe(3);
+    await expect(page, 'キャンセルでページを離れない').toHaveURL(new RegExp(`/dashboard/mandala/${chartId}$`));
+    await expect(panel).toBeVisible();
+    accept = true;
+    await panel.locator('[data-mandala-panel-close]').click();
+    await expect.poll(() => dialogCount).toBe(4);
+    await expect(panel, 'OKで閉じる').toHaveCount(0);
+    page.off('dialog', onDialog);
+    // 破棄された（保存済みの値に戻る・DBも変わっていない）
+    await grid.locator('[data-mandala-cell="0"]').click();
+    await expect(panel).toBeVisible();
+    expect(await bodyInput.evaluate((el) => (el as HTMLTextAreaElement).value)).toBe(currentBody);
+    expect((await getMandalaChart(api, chartId)).cells.find((c) => c.id === cell0.id)!.body).toBe(currentBody);
+
+    // ── ④ 再読込後も残る ──
+    await page.reload();
+    await expect(grid.locator('[data-mandala-cell="0"] [data-mandala-cell-title]')).toHaveText(saved0.title, { timeout: 30000 });
+    await grid.locator('[data-mandala-cell="0"]').click();
+    await expect(panel).toBeVisible();
+    expect(await bodyInput.evaluate((el) => (el as HTMLTextAreaElement).value.length), '再読込後も5,000字超が残る').toBe(currentBody.length);
+
+    // ── ⑤ 全画面: 共通 FullscreenReader で整形表示 → 編集に切り替えて保存 → 閲覧で反映 ──
+    await panel.locator('[data-mandala-fullscreen]').click();
+    const dialog = page.locator('[role="dialog"][data-kb-scope="reader"]');
+    await expect(dialog, '共通リーダーが開く').toBeVisible();
+    const readerBody = dialog.locator('.markdown-body');
+    await expect(readerBody.locator(':is(h1,h2,h3,h4)').filter({ hasText: heading }), '見出しがhタグで整形される').toBeVisible();
+    await expect(readerBody.locator('strong').filter({ hasText: bold }), '太字がstrongで整形される').toBeVisible();
+    await expectNoRawMarkdown(readerBody, 'マンダラ全画面（閲覧）');
+    await expect(dialog.locator('[data-reader-editor]'), '閲覧では差し替え本文（editor）を使わない').toHaveCount(0);
+    await dialog.locator('[data-mandala-reader-edit]').click();
+    const readerBodyInput = dialog.locator('[data-mandala-body-input="reader"]');
+    await expect(readerBodyInput, '編集に切り替わる').toBeVisible();
+    await expect(readerBody).toHaveCount(0);
+    currentBody = `${currentBody}\n\n## 全画面で追記${marker}`;
+    await readerBodyInput.fill(currentBody);
+    await expect(dialog.locator('[data-mandala-dirty]')).toBeVisible();
+    await dialog.locator('[data-mandala-save="reader"]').click();
+    await expect(dialog.locator('[data-mandala-save-status="ok"]')).toContainText(`（${currentBody.length.toLocaleString()}文字）`, { timeout: 30000 });
+    await dialog.locator('[data-mandala-reader-view]').click();
+    await expect(readerBody.locator(':is(h1,h2,h3,h4)').filter({ hasText: `全画面で追記${marker}` }), '閲覧へ戻すと追記が整形されている').toBeVisible();
+    await expectNoRawMarkdown(readerBody, 'マンダラ全画面（保存後）');
+    saved0 = (await getMandalaChart(api, chartId)).cells.find((c) => c.id === cell0.id)!;
+    expect(saved0.body, 'APIでも全画面の保存が反映').toBe(currentBody);
+    await dialog.getByRole('button', { name: '✕ 閉じる' }).click();
+    await expect(dialog).toHaveCount(0);
+    await expect(panel, '全画面を閉じてもパネルと下書きは残る').toBeVisible();
+    expect(await bodyInput.evaluate((el) => (el as HTMLTextAreaElement).value)).toBe(currentBody);
+
+    // ── ⑥ 空で保存できる（マスを空に戻す・§4-4） ──
+    await titleInput.fill('');
+    await bodyInput.fill('');
+    await expect(saveBtn).toBeEnabled();
+    await saveBtn.click();
+    await expect(status).toContainText('空にしました', { timeout: 30000 });
+    await expect(c0).toHaveAttribute('data-mandala-cell-filled', '0');
+    await expect(c0.locator('[data-mandala-cell-empty]'), '空のマス表示に戻る').toBeVisible();
+    await expect(page.locator('[data-mandala-chart-filled]')).toHaveText('1/9 マス');
+    const emptied = (await getMandalaChart(api, chartId)).cells.find((c) => c.id === cell0.id)!;
+    expect(emptied.title).toBe('');
+    expect(emptied.body).toBe('');
+
+    // ── ⑦ API: 同一内容の再送は書かない（unchanged）・存在しないマスは404・型不正は400 ──
+    const again = await saveMandalaCell(api, cell0.id, { title: '', body: '' });
+    expect(again.status()).toBe(200);
+    expect((await again.json()).unchanged, '同一内容はサーバ側で遮断（R-87）').toBe(true);
+    expect((await saveMandalaCell(api, '00000000-0000-4000-8000-000000000000', { title: 'x' })).status()).toBe(404);
+    expect((await api.patch(MANDALA_CELLS_API, { data: { cellId: cell0.id, title: 1 } })).status()).toBe(400);
+    expect((await api.patch(MANDALA_CELLS_API, { data: { cellId: 'bad' } })).status()).toBe(400);
+  } finally {
+    await deleteMandalaChart(api, chartId);
   }
 });

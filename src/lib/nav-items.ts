@@ -38,6 +38,8 @@ export const navCategories: NavCategory[] = [
       { href: '/dashboard/research-glossary', label: '専門用語集', icon: '📚' },
       { href: '/dashboard/context-library', label: 'AI参照素材', icon: '🧠' },
       { href: '/dashboard/episodes', label: 'エピソード記録', icon: '📔' },
+      // 301: 思考の骨格（📔一次情報 → 🔲骨格 → 📕Kindle）。絵文字は既存メニューと被らないもの
+      { href: '/dashboard/mandala', label: 'マンダラ', icon: '🔲' },
       { href: '/dashboard/research', label: '文献検索', icon: '🔬' },
       { href: '/dashboard/alerts', label: '定期アラート', icon: '🔔' },
       { href: '/dashboard/fact-check', label: 'ファクトチェック', icon: '✅' },

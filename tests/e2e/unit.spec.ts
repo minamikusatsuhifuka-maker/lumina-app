@@ -3038,3 +3038,149 @@ test('U69: 即時ツールチップ（300）— 位置は下・入らなけれ�
   expect(hp.HOVER_PREVIEW_PREFETCH_MS).toBe(80);
   expect(tipLib, '本便の lib は遅延の定数を持たない').not.toHaveProperty('INSTANT_TIP_DELAY_MS');
 });
+
+test('U70: マンダラ（301）— アウトライン順は定数1箇所（0,1,2,3,5,6,7,8）でグリッドはその関数から中央を差し込む（R-74）・第2階層の中央は導出され保存されない（R-92）・入力順に依存しない・scope の許容値は定数1箇所・チャート名＝中央タイトル・削除確認文に件数（R-56）・保存成功文言は行から（R-95）・プレビューに生MDなし（R-18）・shared は DB 非依存（R-108）・DDLは冪等のみ/CASCADE/中央保存禁止・FullscreenReader の editor は opt-in（R-88）・nav-items 登録（R-84）', async () => {
+  const m = await import('../../src/lib/mandala-shared');
+  type Cell = import('../../src/lib/mandala-shared').MandalaCell;
+  const mk = (position: number, depth: 1 | 2 = 1, parent: string | null = null, title = ''): Cell => ({
+    id: `c${depth}-${parent ?? 'r'}-${position}`,
+    chart_id: 'ch',
+    parent_cell_id: parent,
+    depth,
+    position,
+    title,
+    body: '',
+    meta: {},
+    created_at: '',
+    updated_at: '',
+  });
+
+  // ⑤ 順序の正本は1箇所
+  expect(m.MANDALA_OUTLINE_POSITIONS).toEqual([0, 1, 2, 3, 5, 6, 7, 8]);
+  expect(m.MANDALA_CENTER).toBe(4);
+  expect(m.MANDALA_DEPTH1_COUNT).toBe(9);
+
+  // 第1階層: 入力を逆順で渡してもアウトラインは固定順・中央は含まれない
+  const depth1 = [8, 7, 6, 5, 4, 3, 2, 1, 0].map((p) => mk(p, 1, null, `T${p}`));
+  const outline = m.mandalaOutline(depth1);
+  expect(outline.map((e) => e.position)).toEqual([0, 1, 2, 3, 5, 6, 7, 8]);
+  expect(outline.every((e) => e.depth === 1 && e.parentPosition === null)).toBe(true);
+  expect(outline.some((e) => e.position === 4)).toBe(false);
+  // グリッド: 9枠・index 4 が中央（保存済み行）・周囲はアウトライン順そのもの
+  const slots = m.mandalaGridSlots(depth1);
+  expect(slots.map((s) => s.position)).toEqual([0, 1, 2, 3, 4, 5, 6, 7, 8]);
+  expect(slots[4].cell?.title).toBe('T4');
+  expect(slots[4].derived).toBe(false);
+  expect(slots.filter((s) => s.position !== 4).map((s) => s.cell?.id)).toEqual(outline.map((e) => e.cell.id));
+
+  // ② 第2階層: 親 T1 の子。中央（4）は来ても捨てる・導出枠に親のタイトル
+  const parent = depth1.find((c) => c.position === 1)!;
+  const kids = [5, 0, 4, 8].map((p) => mk(p, 2, parent.id, `K${p}`));
+  const all = [...kids, ...depth1];
+  const o2 = m.mandalaOutline(all);
+  expect(o2.map((e) => `${e.depth}:${e.position}`)).toEqual(['1:0', '1:1', '2:0', '2:5', '2:8', '1:2', '1:3', '1:5', '1:6', '1:7', '1:8']);
+  expect(o2.filter((e) => e.depth === 2).every((e) => e.parentPosition === 1)).toBe(true);
+  const g2 = m.mandalaGridSlots(all, parent.id);
+  expect(g2[4].derived).toBe(true);
+  expect(g2[4].cell).toBeNull();
+  expect(g2[4].derivedTitle).toBe('T1');
+  expect(g2[0].cell?.title).toBe('K0');
+  expect(g2[5].cell?.title).toBe('K5');
+  expect(g2[8].cell?.title).toBe('K8');
+  expect(g2[1].cell).toBeNull();
+  expect(m.mandalaOutline([...all].reverse()), '入力順を変えても同じ').toEqual(o2);
+  expect(m.mandalaGridSlots(all).map((s) => s.cell?.id), '第1階層のグリッドに第2階層が混ざらない').toEqual(m.mandalaGridSlots(depth1).map((s) => s.cell?.id));
+
+  // ① scope の許容値は定数1箇所（文字列・固定列挙にしない）
+  expect(m.MANDALA_LINK_SCOPES).toEqual(['library', 'text_analysis', 'context', 'episode']);
+  expect(m.isMandalaLinkScope('episode')).toBe(true);
+  expect(m.isMandalaLinkScope('mandala')).toBe(false);
+  expect(m.isMandalaLinkScope(null)).toBe(false);
+  // ④ 他画面から参照するときの scope 名
+  expect(m.MANDALA_ITEM_SCOPE).toBe('mandala');
+
+  // §3-5 チャート名＝中央タイトル。空は（無題）
+  expect(m.chartDisplayTitle('')).toBe('（無題）');
+  expect(m.chartDisplayTitle(undefined)).toBe('（無題）');
+  expect(m.chartDisplayTitle('  テーマ ')).toBe('テーマ');
+  expect(m.cellDisplayTitle({ title: '', position: 3 })).toBe('（無題） 左');
+  // 空のマスは正常状態。空白だけは空
+  expect(m.isCellFilled({ title: '', body: '  \n' })).toBe(false);
+  expect(m.isCellFilled({ title: '', body: 'a' })).toBe(true);
+  expect(m.isCellFilled(null)).toBe(false);
+  expect(m.filledCount(all, 1)).toBe(9);
+  // 行数で数える（テストデータの第2階層中央 K4 も1行。実DBでは CHECK 制約で存在しない）
+  expect(m.filledCount(all)).toBe(13);
+
+  // §3-2 削除の確認文（1本・件数入り・元に戻せない）
+  const msg = m.mandalaDeleteConfirmMessage('', 5, 0);
+  expect(msg).toContain('5/9');
+  expect(msg).toContain('リンク済み: 0件');
+  expect(msg).toContain('（無題）');
+  expect(msg).toContain('元に戻せません');
+
+  // R-95 保存成功の文言は行から。空は「空にしました」
+  expect(m.cellSavedMessage({ title: '', body: '', position: 3 })).toBe('マス「左」を空にしました');
+  expect(m.cellSavedMessage({ title: '見出し', body: 'あいう', position: 0 })).toBe('「見出し」を保存しました（3文字）');
+
+  // 入力の整形（タイトル1行・本文は改行保持・上限）
+  expect(m.normalizeCellInput({ title: ' a\nb ', body: 'x\r\ny' })).toEqual({ title: 'a b', body: 'x\ny' });
+  expect(m.normalizeCellInput({ title: 42, body: null })).toEqual({ title: '', body: '' });
+  expect(m.normalizeCellInput({ title: 't'.repeat(300) }).title.length).toBe(m.MANDALA_TITLE_MAX);
+  expect(m.isUuidLike('00000000-0000-4000-8000-000000000000')).toBe(true);
+  expect(m.isUuidLike('bad')).toBe(false);
+
+  // R-18 プレビューは記号を落とす
+  expect(m.cellPreviewText('## 見出し\n\n- **太字**の項目\n---\n本文')).toBe('見出し 太字の項目 本文');
+  expect(m.cellPreviewText('あ'.repeat(200)).length).toBe(m.MANDALA_PREVIEW_MAX + 1);
+  expect(m.cellPreviewText('')).toBe('');
+
+  // R-108: shared は DB 非依存、画面はサーバ専用 lib を import しない
+  // R-111: 判定は import 構文ごと（コメント中の語に当てない）
+  const shared = readFileSync(join(__dirname, '../../src/lib/mandala-shared.ts'), 'utf8');
+  expect(shared).not.toMatch(/from '@\/lib\/(db|sanitize)'/);
+  expect(shared).not.toMatch(/from '@neondatabase/);
+  for (const f of [
+    'src/components/mandala/MandalaGrid.tsx',
+    'src/components/mandala/MandalaCellEditor.tsx',
+    'src/app/dashboard/mandala/page.tsx',
+    'src/app/dashboard/mandala/[id]/page.tsx',
+  ]) {
+    const src = readFileSync(join(__dirname, '../..', f), 'utf8');
+    expect(src, `${f} はサーバ専用 lib を import しない`).not.toMatch(/from '@\/lib\/mandala-server'/);
+    expect(src, `${f} は @/lib/db を import しない`).not.toMatch(/from '@\/lib\/db'/);
+  }
+  // ⑤ グリッドの描画順が実際にアウトライン関数から取られている（将来のためだけの未使用コードにしない）
+  const grid = readFileSync(join(__dirname, '../../src/components/mandala/MandalaGrid.tsx'), 'utf8');
+  expect(grid).toContain('mandalaGridSlots(cells, parentCellId)');
+
+  // §4-2 サーバ DDL: 3テーブル・冪等のみ（ALTER なし）・CASCADE 3本・中央保存禁止・9マス同時（CTE 1文）・同一内容は書かない
+  const server = readFileSync(join(__dirname, '../../src/lib/mandala-server.ts'), 'utf8');
+  expect(server.match(/CREATE TABLE IF NOT EXISTS/g)?.length).toBe(3);
+  expect(server.match(/CREATE (UNIQUE )?INDEX IF NOT EXISTS/g)?.length).toBe(5);
+  expect(server).not.toMatch(/ALTER TABLE/);
+  // DDL の CASCADE は3本（cells→charts・cells→親cell・links→cells）。コメント中の語は数えない
+  expect(server.match(/REFERENCES mandala_[a-z_]+\(id\) ON DELETE CASCADE/g)?.length).toBe(3);
+  expect(server).toContain('position <> 4');
+  expect(server).toContain('generate_series(0, 8)');
+  expect(server).toContain('IS DISTINCT FROM');
+  expect(server, 'scope を CHECK/enum で固定しない（①）').not.toMatch(/scope\s+text\s+NOT NULL\s+CHECK/);
+  expect(server).toContain("meta       jsonb NOT NULL DEFAULT '{}'::jsonb");
+
+  // §3-4 FullscreenReader: editor は opt-in。既定の整形本文（renderMarkdown）は残る
+  const reader = readFileSync(join(__dirname, '../../src/components/text-analysis/FullscreenReader.tsx'), 'utf8');
+  expect(reader).toContain('editor?: ReactNode');
+  expect(reader).toContain('editor != null ?');
+  expect(reader).toContain('dangerouslySetInnerHTML={{ __html: renderMarkdown(content) }}');
+  const editorComp = readFileSync(join(__dirname, '../../src/components/mandala/MandalaCellEditor.tsx'), 'utf8');
+  expect(editorComp, '全画面は共通 FullscreenReader を呼ぶ（R-91）').toContain("import FullscreenReader from '@/components/text-analysis/FullscreenReader'");
+  expect(editorComp, '二重発火は ref で閉じる（R-87）').toContain('if (savingRef.current) return;');
+  expect(editorComp, '保存成功の表示は行から（R-95）').toContain('cellSavedMessage(row)');
+
+  // R-84: nav-items に登録・12文字以内（R-57）・絵文字が他メニューと被らない
+  const nav = await import('../../src/lib/nav-items');
+  const item = nav.ALL_NAV_ITEMS.find((i) => i.href === '/dashboard/mandala');
+  expect(item?.label).toBe('マンダラ');
+  expect(item!.label.length).toBeLessThanOrEqual(12);
+  expect(nav.ALL_NAV_ITEMS.filter((i) => i.icon === item!.icon)).toHaveLength(1);
+});
