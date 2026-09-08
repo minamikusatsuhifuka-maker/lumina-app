@@ -8996,9 +8996,12 @@ test('C119: マンダラ バッジのホバーポップアップ（304）— �
     await page.waitForTimeout(600);
     await expect(anyPop).toHaveCount(0);
 
-    // ⑤ 同時に1つ: cell0 → cell1 のバッジへ移すと箱が差し替わる
+    // ⑤ 同時に1つ: cell0 の箱が出ている状態から cell1 のバッジへ（cell0 の箱は右隣＝cell1 の上に出るので、
+    //    実運用どおり一度離れて閉じてから隣のバッジへ乗る。出ている間は差し替わらず、隣に乗れば箱は1つ）
     await badge0.hover();
     await expect(pop0).toBeVisible({ timeout: 5000 });
+    await park();
+    await expect(pop0).toHaveCount(0, { timeout: 5000 });
     const badge1 = grid.locator('[data-mandala-cell="1"] [data-mandala-cell-links]');
     const pop1 = page.locator(`[data-hover-popover="${popKey(cell1.id)}"]`);
     await badge1.hover();
