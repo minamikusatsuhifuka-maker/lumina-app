@@ -60,6 +60,8 @@ import {
   listMandalaLinks,
   addMandalaLinks,
   removeMandalaLink,
+  // 305: 81マス
+  expandMandalaCell,
 } from './helpers';
 
 // ============================================================================
@@ -9290,5 +9292,194 @@ test('C120: サイドバーのメニュー検索・追加順・新着・合流�
       localStorage.removeItem('sidebar_nav_order');
       localStorage.removeItem('lumina_nav_labels');
     }).catch(() => {});
+  }
+});
+
+// ============================================================================
+// 305: 🔲 マンダラ（81マス表示）
+// ============================================================================
+
+test('C121: マンダラ 81マス表示（305）— 9⇄81の切替と再読込後の保持・9マス表示は不変・外周ブロックの位置＝親の位置・外周中央は親と同一id（別色）で押すと親の編集・親の保存が中央/外周の両方に反映・未展開ブロックの枠を押すと8マス（position 4 なし）が作られ編集が開く・8件が揃うか0件か／二重発火でも8件（R-87）・子マスの見出しは「親 › 子」・子マスに長文保存/再読込/リンクバッジ/ホバー/比較・n/9 と 📔 n/m は不変で「展開 m/64」が別に出る・削除確認に子マス件数・WebKit 狭幅ではブロック単位（R-64）', async ({
+  page,
+}) => {
+  test.setTimeout(240_000);
+  const marker = `M81${RUN_ID}`;
+  const epId = await createEpisode(api, { title: `${marker} 記録`, details: `記録 ${marker}` });
+  const { id: chartId, cells } = await createMandalaChart(api, `${marker} 骨格`);
+  const byPos = (p: number) => cells.find((c) => c.position === p)!;
+  expect((await saveMandalaCell(api, byPos(0).id, { title: `親0 ${marker}`, body: '親の本文' })).status()).toBe(200);
+  let expandPosts = 0;
+  let delayMs = 0;
+  await page.route(`**/api/mandala/${chartId}`, async (route) => {
+    if (route.request().method() === 'POST') {
+      expandPosts += 1;
+      if (delayMs > 0) await new Promise((r) => setTimeout(r, delayMs));
+    }
+    await route.continue();
+  });
+  try {
+    await page.goto(`/dashboard/mandala/${chartId}`);
+    await page.evaluate(() => localStorage.removeItem('mandala_view_mode'));
+    await page.reload();
+    const grid9 = page.locator('[data-mandala-grid][data-mandala-grid-depth="1"][data-mandala-grid-density="normal"]');
+    await expect(grid9.locator('[data-mandala-cell]'), '既定は9マス（301 の描画そのまま）').toHaveCount(9, { timeout: 30000 });
+    await expect(page.locator('[data-mandala-81]')).toHaveCount(0);
+    await expect(page.locator('[data-mandala-expansion]'), '9マス表示では「展開」を出さない').toHaveCount(0);
+    const filled9 = await page.locator('[data-mandala-chart-filled]').getAttribute('data-mandala-chart-filled');
+    const primary9 = await page.locator('[data-mandala-primary]').getAttribute('data-mandala-primary');
+
+    // ① 81へ切替 → 9ブロック。外周ブロックの位置＝親の位置。中央は親と同一 id・導出・別色
+    await page.locator('[data-mandala-view="81"]').click();
+    const g81 = page.locator('[data-mandala-81]');
+    await expect(g81).toBeVisible();
+    await expect(g81.locator('[data-mandala-block]')).toHaveCount(9);
+    await expect(g81.locator('[data-mandala-cell]')).toHaveCount(81);
+    const block0 = g81.locator('[data-mandala-block="0"]');
+    const center0 = block0.locator('[data-mandala-cell="4"]');
+    await expect(center0).toHaveAttribute('data-mandala-cell-derived', '1');
+    await expect(center0).toHaveAttribute('data-mandala-cell-id', byPos(0).id);
+    await expect(center0.locator('[data-mandala-cell-title]')).toHaveText(`親0 ${marker}`);
+    await expect(block0).toHaveAttribute('data-mandala-block-expanded', '0');
+    await expect(g81.locator('[data-mandala-block="4"]')).toHaveAttribute('data-mandala-block-expanded', '1');
+    const centerBlockCell0 = g81.locator('[data-mandala-block="4"] [data-mandala-cell="0"]');
+    await expect(centerBlockCell0).toHaveAttribute('data-mandala-cell-id', byPos(0).id);
+    // 集計: n/9・📔 n/m は不変。「展開 0/64」が追加で出る
+    await expect(page.locator('[data-mandala-chart-filled]')).toHaveAttribute('data-mandala-chart-filled', filled9!);
+    await expect(page.locator('[data-mandala-primary]')).toHaveAttribute('data-mandala-primary', primary9!);
+    await expect(page.locator('[data-mandala-expansion]')).toHaveAttribute('data-mandala-expansion', '0');
+    await expect(page.locator('[data-mandala-expansion]')).toContainText('0/64');
+    // 再読込後も81
+    await page.reload();
+    await expect(page.locator('[data-mandala-81]')).toBeVisible({ timeout: 30000 });
+    await expect(page.locator('[data-mandala-view="81"]')).toHaveAttribute('aria-pressed', 'true');
+
+    // ② 外周中央（導出）を押すと親の編集パネル。親を保存すると中央ブロックと外周中央の両方に反映
+    await center0.click();
+    const panel0 = page.locator(`[data-mandala-panel="${byPos(0).id}"]`);
+    await expect(panel0).toBeVisible();
+    await panel0.locator('[data-mandala-title-input="panel"]').fill(`親0改 ${marker}`);
+    await page.locator('[data-mandala-save="panel"]').click();
+    await expect(panel0.locator('[data-mandala-save-status="ok"]')).toBeVisible({ timeout: 30000 });
+    await expect(centerBlockCell0.locator('[data-mandala-cell-title]')).toHaveText(`親0改 ${marker}`);
+    await expect(center0.locator('[data-mandala-cell-title]'), '外周中央にも同時に反映（同じデータ）').toHaveText(`親0改 ${marker}`);
+    await panel0.locator('[data-mandala-panel-close]').click();
+    await expect(panel0).toHaveCount(0);
+
+    // ③ 未展開ブロックの枠を押す → 8マス作成（position 4 なし）→ その枠の編集パネル（見出し「左上 › 上」）
+    const slot01 = block0.locator('[data-mandala-cell="1"]');
+    await expect(slot01).toHaveAttribute('data-mandala-cell-unexpanded', '1');
+    await slot01.click();
+    await expect(block0, '展開済みになる').toHaveAttribute('data-mandala-block-expanded', '1', { timeout: 30000 });
+    let chart = await getMandalaChart(api, chartId);
+    const kids0 = chart.cells.filter((c) => c.depth === 2 && c.parent_cell_id === byPos(0).id);
+    expect(kids0.map((c) => c.position).sort((a, b) => a - b), '8件・position 4 なし').toEqual([0, 1, 2, 3, 5, 6, 7, 8]);
+    expect(expandPosts).toBe(1);
+    const kid01 = kids0.find((c) => c.position === 1)!;
+    const panelKid = page.locator(`[data-mandala-panel="${kid01.id}"]`);
+    await expect(panelKid, '作成成功後に編集パネルが開く').toBeVisible();
+    await expect(panelKid, '見出しは「親 › 子」').toContainText('左上 › 上');
+    // 子マスに長文を保存 → 再読込後も残る（同じ cell.id 経路）
+    await panelKid.locator('[data-mandala-title-input="panel"]').fill(`子01 ${marker}`);
+    await panelKid.locator('[data-mandala-body-input="panel"]').fill(`## 見出し${marker}\n\n${'子マスの本文。'.repeat(600)}`);
+    await page.locator('[data-mandala-save="panel"]').click();
+    await expect(panelKid.locator('[data-mandala-save-status="ok"]')).toBeVisible({ timeout: 30000 });
+    await page.reload();
+    await expect(page.locator('[data-mandala-81]')).toBeVisible({ timeout: 30000 });
+    const kidCell = page.locator(`[data-mandala-block="0"] [data-mandala-cell="1"]`);
+    await expect(kidCell).toHaveAttribute('data-mandala-cell-id', kid01.id);
+    await expect(kidCell.locator('[data-mandala-cell-title]')).toHaveText(`子01 ${marker}`);
+    expect((await getMandalaChart(api, chartId)).cells.find((c) => c.id === kid01.id)!.body.length).toBeGreaterThan(5000);
+    // 集計: 展開 1/64（埋まった子）。親側の n/9 は不変
+    await expect(page.locator('[data-mandala-expansion]')).toHaveAttribute('data-mandala-expansion', '1');
+    await expect(page.locator('[data-mandala-expansion]')).toHaveAttribute('data-mandala-expansion-blocks', '1');
+    await expect(page.locator('[data-mandala-chart-filled]')).toHaveAttribute('data-mandala-chart-filled', filled9!);
+
+    // ④ 二重発火: 応答を遅らせて別ブロックの枠を2回押しても POST は1回・8件のまま。API で再送しても8件（created:false）
+    delayMs = 800;
+    const before = expandPosts;
+    const block2slot = page.locator('[data-mandala-block="2"] [data-mandala-cell="0"]');
+    await block2slot.evaluate((el) => { (el as HTMLElement).click(); (el as HTMLElement).click(); });
+    await expect(page.locator('[data-mandala-block="2"]')).toHaveAttribute('data-mandala-block-expanded', '1', { timeout: 30000 });
+    delayMs = 0;
+    expect(expandPosts - before, '2連打でも POST は1回').toBe(1);
+    const again = await expandMandalaCell(api, chartId, byPos(2).id);
+    expect(again.status()).toBe(200);
+    expect((await again.json()).created).toBe(false);
+    chart = await getMandalaChart(api, chartId);
+    expect(chart.cells.filter((c) => c.depth === 2 && c.parent_cell_id === byPos(2).id)).toHaveLength(8);
+    expect(chart.cells.filter((c) => c.depth === 2)).toHaveLength(16);
+    await page.locator('[data-mandala-panel-close]').click();
+    // 子マスは展開できない（400）・存在しない親は404
+    const kid20 = chart.cells.find((c) => c.depth === 2 && c.parent_cell_id === byPos(2).id && c.position === 0)!;
+    expect((await expandMandalaCell(api, chartId, kid20.id)).status()).toBe(400);
+    expect((await expandMandalaCell(api, chartId, '00000000-0000-4000-8000-000000000000')).status()).toBe(404);
+
+    // ⑤ 子マスのリンクバッジ・ホバー（302/304 と同じ経路）
+    expect((await addMandalaLinks(api, kid01.id, [{ scope: 'episode', item_key: epId }])).status()).toBe(200);
+    await page.reload();
+    await expect(page.locator('[data-mandala-81]')).toBeVisible({ timeout: 30000 });
+    await expect(kidCell.locator('[data-mandala-cell-links]')).toHaveAttribute('data-mandala-cell-links', '1');
+    await expect(kidCell.locator('[data-mandala-cell-primary]')).toHaveAttribute('data-mandala-cell-primary', '1');
+    await expect(page.locator('[data-mandala-expansion-primary]')).toHaveAttribute('data-mandala-expansion-primary', '1');
+    await kidCell.locator('[data-mandala-cell-links]').hover();
+    const pop = page.locator(`[data-hover-popover="mandala-links:${kid01.id}"]`);
+    await expect(pop).toBeVisible({ timeout: 5000 });
+    await expect(pop.locator('[data-mandala-pop-link]')).toHaveCount(1, { timeout: 15000 });
+    await page.locator('h1').first().hover();
+    await expect(pop).toHaveCount(0, { timeout: 5000 });
+
+    // ⑥ 比較に子マスを含める（親と子）。列の見出しは「親 › 子」
+    await page.locator('[data-mandala-select-toggle]').click();
+    await centerBlockCell0.click();
+    await kidCell.click();
+    await expect(page.locator('[data-mandala-select-count]')).toHaveAttribute('data-mandala-select-count', '2');
+    await expect(center0, '導出枠は選択モードでは選ばせない（中央ブロックで選ぶ）').not.toHaveAttribute('data-mandala-cell-checked', '1');
+    await page.locator('[data-mandala-compare-open]').click();
+    const cmp = page.locator('[data-mandala-compare]');
+    await expect(cmp.locator('[data-compare-col]')).toHaveCount(2);
+    await expect(cmp.locator(`[data-compare-item="${kid01.id}"] [data-compare-position-label]`)).toHaveText('左上 › 上');
+    await page.locator('[data-mandala-select-exit]').click();
+
+    // ⑦ 削除確認に子マス件数（16）。9マス表示に戻して描画が従来どおり
+    await page.locator('[data-mandala-view="9"]').click();
+    await expect(page.locator('[data-mandala-grid][data-mandala-grid-density="normal"] [data-mandala-cell]')).toHaveCount(9);
+    await page.goto('/dashboard/mandala');
+    const card = page.locator(`[data-mandala-card="${chartId}"]`);
+    await expect(card).toBeVisible({ timeout: 30000 });
+    const dialogs: string[] = [];
+    page.on('dialog', (d) => { dialogs.push(d.message()); void d.dismiss(); });
+    await card.locator(`[data-mandala-delete="${chartId}"]`).click();
+    await expect.poll(() => dialogs.length).toBe(1);
+    expect(dialogs[0]).toContain('子マス（81マス）: 16件');
+    await expect(card, 'キャンセルで消えない').toBeVisible();
+
+    // ⑧ R-64: WebKit 狭幅ではブロック単位（1ブロックずつ切り替え）
+    const wk = await webkit.launch();
+    const ctx = await wk.newContext({ storageState: STORAGE_STATE, baseURL: BASE_URL, hasTouch: true, isMobile: true, viewport: { width: 390, height: 844 } });
+    const p2 = await ctx.newPage();
+    try {
+      await p2.goto(`/dashboard/mandala/${chartId}`);
+      await expect(p2.locator('[data-mandala-grid]').first()).toBeVisible({ timeout: 30000 });
+      await p2.locator('[data-mandala-view="81"]').tap();
+      const g = p2.locator('[data-mandala-81]');
+      await expect(g).toHaveAttribute('data-mandala-81-mode', 'block');
+      await expect(g.locator('[data-mandala-block]'), '1ブロックだけ描く').toHaveCount(1);
+      await expect(g.locator('[data-mandala-block="4"]')).toHaveCount(1);
+      await p2.locator('[data-mandala-block-pick="0"]').tap();
+      await expect(g.locator('[data-mandala-block="0"]')).toHaveCount(1);
+      await expect(g.locator('[data-mandala-block="0"] [data-mandala-cell="1"] [data-mandala-cell-title]')).toHaveText(`子01 ${marker}`);
+      await p2.locator('[data-mandala-block-next]').tap();
+      await expect(g.locator('[data-mandala-block="1"]')).toHaveCount(1);
+      const vw = await p2.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+      expect(vw, '横スクロールが出ない').toBeLessThanOrEqual(1);
+      await p2.evaluate(() => localStorage.removeItem('mandala_view_mode'));
+    } finally {
+      await ctx.close();
+      await wk.close();
+    }
+  } finally {
+    await page.evaluate(() => localStorage.removeItem('mandala_view_mode')).catch(() => {});
+    await deleteMandalaChart(api, chartId);
+    await api.delete(`${EPISODES_API}?id=${epId}`);
   }
 });

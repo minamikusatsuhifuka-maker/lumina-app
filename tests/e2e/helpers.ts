@@ -487,3 +487,8 @@ export async function addMandalaLinks(request: APIRequestContext, cellId: string
 export async function removeMandalaLink(request: APIRequestContext, id: number) {
   return request.delete(`${MANDALA_LINKS_API}?id=${id}`);
 }
+
+/** 305: 第2階層（子8マス）の展開。既存ルートの POST アクション */
+export async function expandMandalaCell(request: APIRequestContext, chartId: string, parentCellId: string) {
+  return request.post(`${MANDALA_API}/${chartId}`, { data: { action: 'expand', parentCellId } });
+}

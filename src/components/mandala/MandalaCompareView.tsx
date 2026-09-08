@@ -40,12 +40,15 @@ export default function MandalaCompareView({
   cells,
   onClose,
   onEdit,
+  labelOf,
 }: {
   /** 選んだ順・埋まっている実在マスだけ（compareCellsOf で絞ったもの） */
   cells: MandalaCell[];
   onClose: () => void;
   /** 比較画面から該当マスの編集（301のサイドパネル）を開く導線 */
   onEdit: (cell: MandalaCell) => void;
+  /** 305: 列の位置ラベル（第2階層は「親 › 子」）。省略時は自マスの位置ラベル */
+  labelOf?: (cell: MandalaCell) => string;
 }) {
   const { fine, mounted } = useFinePointer();
   const [syncScroll, setSyncScroll] = useState(true);
@@ -106,7 +109,7 @@ export default function MandalaCompareView({
       ) : (
         <div className={compareGridClass(cols, colChoice)} data-compare-cols={cols} data-compare-cols-mode={colChoice === 'auto' ? 'auto' : 'manual'} data-compare-height={heightPreset}>
           {cells.map((cell, i) => {
-            const pos = MANDALA_POSITION_LABELS[cell.position] ?? String(cell.position);
+            const pos = labelOf ? labelOf(cell) : (MANDALA_POSITION_LABELS[cell.position] ?? String(cell.position));
             return (
               <CompareColumnShell
                 key={cell.id}

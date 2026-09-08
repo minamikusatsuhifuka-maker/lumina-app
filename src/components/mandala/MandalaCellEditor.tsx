@@ -89,9 +89,12 @@ export default function MandalaCellEditor({
   onSaved,
   onDirtyChange,
   onLinksChanged,
+  pathLabel,
 }: {
   cell: MandalaCell;
   onClose: () => void;
+  /** 305: 見出しの位置ラベル（第2階層は「親 › 子」）。省略時は自マスの位置ラベル */
+  pathLabel?: string;
   /** 保存された行（API 応答の cell）を親へ返す。親はこれでグリッドを更新する */
   onSaved: (row: MandalaCell) => void;
   /** 未保存の変更の有無。親が「別マスへ移る」を止めるのに使う */
@@ -333,8 +336,8 @@ export default function MandalaCellEditor({
     }
   };
 
-  const posLabel = MANDALA_POSITION_LABELS[cell.position] ?? String(cell.position);
-  const isCenter = cell.position === MANDALA_CENTER;
+  const posLabel = pathLabel ?? (MANDALA_POSITION_LABELS[cell.position] ?? String(cell.position));
+  const isCenter = cell.depth === 1 && cell.position === MANDALA_CENTER;
   const headTitle = cellDisplayTitle({ title: draft.title, position: cell.position });
 
   const statusLine = status && (

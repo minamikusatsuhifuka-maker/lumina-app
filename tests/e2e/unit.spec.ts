@@ -3447,3 +3447,70 @@ test('U74: サイドバーのメニュー検索・追加順・新着・合流（
   expect(sidebar).toContain("navCategories.filter(cat => cat.category !== 'ホーム').map(cat => (");
   expect(sidebar).not.toContain('data-kb-search');
 });
+
+test('U75: マンダラ 81マス（305）— 入れ子の目次は平坦形と同じ順（親→子（固定順）→次の親）で第1階層だけの結果は不変・展開の集計は決定的（空の子は数えない）・「親 › 子」のラベル・導出枠は親と同一 id・削除確認文に子マス件数・切替の解析・展開は1文で position 4 を除き NOT EXISTS で二重に作らない（ソース固定・R-111）・9マスの描画経路は不変', async () => {
+  const m = await import('../../src/lib/mandala-shared');
+  type Cell = import('../../src/lib/mandala-shared').MandalaCell;
+  const mk = (position: number, depth: 1 | 2 = 1, parent: string | null = null, title = '', body = ''): Cell => ({ id: `c${depth}-${parent ?? 'r'}-${position}`, chart_id: 'ch', parent_cell_id: parent, depth, position, title, body, meta: {}, created_at: '', updated_at: '' });
+  const depth1 = [0, 1, 2, 3, 4, 5, 6, 7, 8].map((p) => mk(p, 1, null, `T${p}`));
+  const p1 = depth1[1];
+  const p5 = depth1[5];
+  const kids1 = [8, 5, 0].map((p) => mk(p, 2, p1.id, `K1-${p}`));
+  const kids5 = [0, 1, 2, 3, 5, 6, 7, 8].map((p) => mk(p, 2, p5.id, p % 2 === 0 ? `K5-${p}` : ''));
+  const all = [...kids5, ...depth1, ...kids1];
+  // 入れ子＝平坦形（301・U70）と同じ順
+  const nested = m.mandalaOutlineNested(all);
+  expect(nested.map((n) => n.position)).toEqual([0, 1, 2, 3, 5, 6, 7, 8]);
+  expect(nested[1].children.map((e) => e.position)).toEqual([0, 5, 8]);
+  expect(nested[4].children.map((e) => e.position), "index 4 = position 5（[0,1,2,3,5,...] の並び）").toEqual([0, 1, 2, 3, 5, 6, 7, 8]);
+  expect(nested[0].children).toEqual([]);
+  const flat = m.mandalaOutline(all).map((e) => e.cell.id);
+  const rebuilt = nested.flatMap((n) => [n.cell.id, ...n.children.map((e) => e.cell.id)]);
+  expect(rebuilt, '入れ子を平坦にすると平坦形と一致').toEqual(flat);
+  // 第1階層だけ: children は全部空・平坦形は不変
+  expect(m.mandalaOutlineNested(depth1).every((n) => n.children.length === 0)).toBe(true);
+  expect(m.mandalaOutline(depth1).map((e) => e.position)).toEqual([0, 1, 2, 3, 5, 6, 7, 8]);
+  // 導出枠は親と同一 id
+  const slots = m.mandalaGridSlots(all, p1.id);
+  expect(slots[4].derived).toBe(true);
+  expect(slots[4].derivedCell?.id).toBe(p1.id);
+  expect(slots[4].derivedTitle).toBe('T1');
+  expect(m.mandalaGridSlots(all)[4].derivedCell).toBeNull();
+  // 集計（決定的・空の子は数えない）
+  const links = [{ id: 1, cell_id: kids5[0].id, scope: 'episode', item_key: 'e', created_at: '' }, { id: 2, cell_id: kids5[1].id, scope: 'episode', item_key: 'e', created_at: '' }];
+  expect(m.expansionSummary(all, links)).toEqual({ expandedBlocks: 2, childFilled: 3 + 4, childWithPrimary: 1 });
+  expect(m.expansionSummary([...all].reverse(), links)).toEqual(m.expansionSummary(all, links));
+  expect(m.expansionSummary(depth1, [])).toEqual({ expandedBlocks: 0, childFilled: 0, childWithPrimary: 0 });
+  expect(m.MANDALA_CHILD_TOTAL).toBe(64);
+  expect(m.isBlockExpanded(all, p1.id)).toBe(true);
+  expect(m.isBlockExpanded(all, depth1[0].id)).toBe(false);
+  // ラベル
+  expect(m.cellPathLabel(kids1[0], all)).toBe('上 › 右下');
+  expect(m.cellPathLabel(depth1[0], all)).toBe('左上');
+  // 削除確認文
+  expect(m.mandalaDeleteConfirmMessage('t', 3, 1, 16)).toContain('子マス（81マス）: 16件');
+  expect(m.mandalaDeleteConfirmMessage('t', 3, 1)).not.toContain('子マス');
+  // 切替
+  expect(m.parseMandalaView('81')).toBe('81');
+  expect(m.parseMandalaView('x')).toBe('9');
+  // ソース固定: 展開は1文・position 4 を除く・NOT EXISTS・23505 は作成済み扱い。新ルートを作らず既存ルートの POST
+  const server = readFileSync(join(__dirname, '../../src/lib/mandala-server.ts'), 'utf8');
+  expect(server).toContain('FROM generate_series(0, 8) AS p');
+  expect(server).toContain('WHERE p <> ${MANDALA_CENTER}');
+  expect(server).toContain('AND NOT EXISTS (SELECT 1 FROM mandala_cells e WHERE e.parent_cell_id = ${parentCellId}::uuid)');
+  expect(server).toContain("?.code !== '23505') throw e");
+  expect(server.match(/CREATE TABLE IF NOT EXISTS/g)?.length, 'スキーマ変更なし').toBe(3);
+  const route = readFileSync(join(__dirname, '../../src/app/api/mandala/[id]/route.ts'), 'utf8');
+  expect(route).toContain("if (body?.action !== 'expand')");
+  // 9マスの描画経路は不変（density 省略＝normal）
+  const pageSrc = readFileSync(join(__dirname, '../../src/app/dashboard/mandala/[id]/page.tsx'), 'utf8');
+  expect(pageSrc).toContain("view === '81' ? (");
+  const nineBlock = pageSrc.slice(pageSrc.indexOf('// 9マス表示は 301 の描画経路そのまま'), pageSrc.indexOf('{popover.layer}'));
+  expect(nineBlock).not.toContain('density=');
+  const grid = readFileSync(join(__dirname, '../../src/components/mandala/MandalaGrid.tsx'), 'utf8');
+  expect(grid).toContain("density = 'normal'");
+  // 81 の描画順はアウトライン関数から（入れ子）
+  const eightyOne = readFileSync(join(__dirname, '../../src/components/mandala/Mandala81.tsx'), 'utf8');
+  expect(eightyOne).toContain('mandalaOutlineNested(cells)');
+  expect(eightyOne).not.toMatch(/\btitle=/);
+});

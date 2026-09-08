@@ -34,6 +34,9 @@ const ACCENT = '#6c63ff';
 /** 304: バッジ（📔n・🔗n）にホバーポップアップを結線する関数。省略時はバッジは読むだけ（302 と同じ） */
 export type PopoverBind = (cell: MandalaCell, from: MandalaPopoverFrom) => HoverPopoverBindings;
 
+/** 305: 81マス表示のときの密度（タイトル1行＋小さなバッジのみ・本文プレビューなし・R-109） */
+export type GridDensity = 'normal' | 'compact';
+
 function CellCard({
   slot,
   selected,
@@ -43,6 +46,8 @@ function CellCard({
   onSelect,
   onToggleSelect,
   popoverBind,
+  density,
+  onExpand,
 }: {
   slot: MandalaGridSlot;
   selected: boolean;
@@ -52,39 +57,55 @@ function CellCard({
   onSelect: (cell: MandalaCell) => void;
   onToggleSelect: (cell: MandalaCell) => void;
   popoverBind?: PopoverBind;
+  density: GridDensity;
+  /** 305: 未展開ブロックの空枠（cell が無い第2階層）を押したとき */
+  onExpand?: (position: number) => void;
 }) {
-  const { cell, position, derived, derivedTitle } = slot;
+  const { cell, position, derived, derivedTitle, derivedCell } = slot;
   const isCenter = position === MANDALA_CENTER;
+  const compact = density === 'compact';
   const label = MANDALA_POSITION_LABELS[position] ?? String(position);
   const filled = isCellFilled(cell);
+  // 305: 導出枠（外周ブロックの中央）は親マスそのもの＝押すと親の編集。選択モードでは選ばせない（中央ブロックで選べる＝重複させない）
   const selectable = selectMode && !!cell && !derived && filled;
-  const clickable = selectMode ? selectable : !!cell && !derived;
+  const canExpand = !cell && !derived && !!onExpand && !selectMode;
+  const clickable = selectMode ? selectable : (!!cell && !derived) || (derived && !!derivedCell) || canExpand;
   const title = derived ? derivedTitle ?? '' : cell?.title.trim() ?? '';
-  const preview = cell && !derived ? cellPreviewText(cell.body) : '';
+  const preview = cell && !derived && !compact ? cellPreviewText(cell.body) : '';
 
   const activate = () => {
-    if (!cell || derived) return;
     if (selectMode) {
-      if (selectable) onToggleSelect(cell);
+      if (cell && !derived && selectable) onToggleSelect(cell);
+      return;
+    }
+    if (derived) {
+      if (derivedCell) onSelect(derivedCell);
+      return;
+    }
+    if (!cell) {
+      if (canExpand) onExpand?.(position);
       return;
     }
     onSelect(cell);
   };
 
-  const hoverTitle = !cell || derived
-    ? undefined
-    : selectMode
-      ? selectable
-        ? checked ? '選択を外す' : '比較するマスとして選ぶ'
-        : '空のマスは比較できません'
-      : filled ? 'このマスを編集' : 'このマスに書く';
+  const hoverTitle = derived
+    ? derivedCell && !selectMode ? '親マスを編集（中央ブロックと同じマス）' : undefined
+    : !cell
+      ? canExpand ? 'このブロックを展開して書く（8マスを作ります）' : undefined
+      : selectMode
+        ? selectable
+          ? checked ? '選択を外す' : '比較するマスとして選ぶ'
+          : '空のマスは比較できません'
+        : filled ? 'このマスを編集' : 'このマスに書く';
 
   return (
     <div
       data-mandala-cell={position}
-      data-mandala-cell-id={cell?.id ?? ''}
+      data-mandala-cell-id={cell?.id ?? derivedCell?.id ?? ''}
       data-mandala-cell-filled={filled ? '1' : '0'}
       data-mandala-cell-derived={derived ? '1' : undefined}
+      data-mandala-cell-unexpanded={!cell && !derived ? '1' : undefined}
       data-mandala-selected={selected ? '1' : undefined}
       data-mandala-cell-checked={selectMode ? (checked ? '1' : '0') : undefined}
       data-mandala-cell-unselectable={selectMode && cell && !selectable ? '1' : undefined}
@@ -102,19 +123,20 @@ function CellCard({
         }
       }}
       style={{
-        minHeight: 150,
+        minHeight: compact ? 54 : 150,
         display: 'flex',
         flexDirection: 'column',
-        gap: 6,
-        padding: '10px 12px',
-        borderRadius: 12,
+        gap: compact ? 3 : 6,
+        padding: compact ? '5px 6px' : '10px 12px',
+        borderRadius: compact ? 8 : 12,
         boxSizing: 'border-box',
         minWidth: 0,
         cursor: clickable ? 'pointer' : selectMode && cell ? 'not-allowed' : 'default',
-        border: filled || derived ? `1px solid ${isCenter ? ACCENT : 'var(--border)'}` : '1px dashed var(--border)',
+        border: filled || derived ? `1px solid ${isCenter ? (derived ? '#B45309' : ACCENT) : 'var(--border)'}` : '1px dashed var(--border)',
         outline: selected || (selectMode && checked) ? `2px solid ${ACCENT}` : 'none',
         outlineOffset: 2,
-        background: selectMode && checked ? `${ACCENT}1f` : isCenter ? `${ACCENT}14` : 'var(--bg-secondary)',
+        // 305: 外周ブロックの中央（導出＝親）はテーマ色に準じた別色（琥珀）で「親」と分かるようにする
+        background: selectMode && checked ? `${ACCENT}1f` : derived ? 'rgba(180,83,9,0.10)' : isCenter ? `${ACCENT}14` : 'var(--bg-secondary)',
         opacity: selectMode && cell && !selectable ? 0.5 : filled || isCenter || derived ? 1 : 0.85,
         transition: 'box-shadow 0.12s, transform 0.12s',
       }}
@@ -196,7 +218,7 @@ function CellCard({
             data-mandala-cell-title
             title={title || undefined}
             style={{
-              fontSize: 14,
+              fontSize: compact ? 11 : 14,
               fontWeight: 700,
               color: 'var(--text-primary)',
               whiteSpace: 'nowrap',
@@ -240,8 +262,8 @@ function CellCard({
             color: 'var(--text-muted)',
           }}
         >
-          <span style={{ fontSize: 28, lineHeight: 1, fontWeight: 300 }}>＋</span>
-          <span style={{ fontSize: 11 }}>{selectMode ? '空のマス（比較不可）' : isCenter ? 'テーマを書く' : '空のマス'}</span>
+          <span style={{ fontSize: compact ? 16 : 28, lineHeight: 1, fontWeight: 300 }}>＋</span>
+          {!compact && <span style={{ fontSize: 11 }}>{selectMode ? '空のマス（比較不可）' : isCenter ? 'テーマを書く' : '空のマス'}</span>}
         </div>
       )}
     </div>
@@ -258,6 +280,9 @@ export default function MandalaGrid({
   checkedIds,
   onToggleSelect,
   popoverBind,
+  density = 'normal',
+  onExpand,
+  blockAttrs,
 }: {
   cells: readonly MandalaCell[];
   /** null＝第1階層。第2階層（303）は親マスの id を渡す（中央は導出・押せない） */
@@ -272,6 +297,12 @@ export default function MandalaGrid({
   onToggleSelect?: (cell: MandalaCell) => void;
   /** 304: バッジのホバーポップアップ（省略時は付けない） */
   popoverBind?: PopoverBind;
+  /** 305: 81マス表示のブロック内は compact（省略時は従来どおり normal＝9マスの描画は不変・R-88） */
+  density?: GridDensity;
+  /** 305: 未展開ブロック（第2階層で cell が無い枠）を押したとき。省略時は押せない */
+  onExpand?: (parentCellId: string, position: number) => void;
+  /** 305: ブロックの目印（data-mandala-block 等）を根の要素に付ける */
+  blockAttrs?: Record<string, string | number | undefined>;
 }) {
   // 描画順はアウトライン関数から（§4-3⑤・R-74）
   const slots = mandalaGridSlots(cells, parentCellId);
@@ -280,11 +311,14 @@ export default function MandalaGrid({
       data-mandala-grid
       data-mandala-grid-depth={parentCellId ? '2' : '1'}
       data-mandala-select-mode={selectMode ? '1' : undefined}
+      data-mandala-grid-density={density}
+      {...blockAttrs}
       style={{
         display: 'grid',
         gridTemplateColumns: 'repeat(3, minmax(0, 1fr))',
-        gap: 10,
-        maxWidth: 960,
+        gap: density === 'compact' ? 4 : 10,
+        maxWidth: density === 'compact' ? undefined : 960,
+        minWidth: 0,
       }}
     >
       {slots.map((slot) => (
@@ -298,6 +332,8 @@ export default function MandalaGrid({
           onSelect={onSelect}
           onToggleSelect={onToggleSelect ?? (() => {})}
           popoverBind={popoverBind}
+          density={density}
+          onExpand={parentCellId && onExpand ? (pos) => onExpand(parentCellId, pos) : undefined}
         />
       ))}
     </div>

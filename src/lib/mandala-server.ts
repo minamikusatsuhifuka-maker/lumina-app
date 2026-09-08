@@ -152,11 +152,13 @@ export async function listCharts(userId: string): Promise<MandalaChartSummary[]>
       (SELECT COUNT(DISTINCT x.id)::int FROM mandala_cells x
          JOIN mandala_cell_links l ON l.cell_id = x.id AND l.scope = 'episode'
         WHERE x.chart_id = ch.id AND x.depth = 1
-          AND (btrim(x.title, E' \\t\\r\\n　') <> '' OR btrim(x.body, E' \\t\\r\\n　') <> '')) AS primary_count
+          AND (btrim(x.title, E' \\t\\r\\n　') <> '' OR btrim(x.body, E' \\t\\r\\n　') <> '')) AS primary_count,
+      -- 305: 子マス（第2階層）の行数。削除の確認文に出す
+      (SELECT COUNT(*)::int FROM mandala_cells x WHERE x.chart_id = ch.id AND x.depth = 2) AS child_count
     FROM mandala_charts ch
     WHERE ch.user_id = ${userId}
     ORDER BY ch.updated_at DESC, ch.id
-  `) as { id: string; title: string; filled_count: number; filled_total: number; link_count: number; primary_count: number; created_at: string; updated_at: string }[];
+  `) as { id: string; title: string; filled_count: number; filled_total: number; link_count: number; primary_count: number; child_count: number; created_at: string; updated_at: string }[];
   return rows.map((r) => ({
     id: String(r.id),
     title: r.title ?? '',
@@ -164,6 +166,7 @@ export async function listCharts(userId: string): Promise<MandalaChartSummary[]>
     filled_total: Number(r.filled_total ?? 0),
     link_count: Number(r.link_count ?? 0),
     primary_count: Number(r.primary_count ?? 0),
+    child_count: Number(r.child_count ?? 0),
     created_at: String(r.created_at),
     updated_at: String(r.updated_at),
   }));
@@ -440,4 +443,52 @@ export async function removeLink(userId: string, linkId: number): Promise<boolea
   await ensureMandalaTables();
   const rows = (await sql`DELETE FROM mandala_cell_links WHERE id = ${linkId} AND user_id = ${userId} RETURNING id`) as { id: number }[];
   return rows.length > 0;
+}
+
+// ============================================================
+// 305: 第2階層（81マス）の展開 — 親マスの子8マス（position 4 を除く）を1文で作る
+// ============================================================
+
+export type ExpandResult =
+  | { ok: true; created: boolean; children: MandalaCell[] }
+  | { ok: false; reason: 'not_found' | 'not_depth1' };
+
+/**
+ * §2-4 未展開ブロックの子8マスを**1文（INSERT ... SELECT generate_series ... WHERE p <> 4）**で作る＝8件が揃うか0件か。
+ * 既に展開済み（子が1行でもある）なら NOT EXISTS で1行も入れず、読み直して返す（二重発火・R-87）。
+ * 万一 NOT EXISTS をすり抜けて一意制約（chart_id, COALESCE(parent,''), position）に当たった場合も
+ * 「作成済み」として読み直す（23505 を握る＝偽の失敗を返さない）。親が空（無題）でも展開できる。
+ * position 4（中央）は作らない（CHECK 制約でも禁止・§4-3②）。
+ */
+export async function expandCell(userId: string, chartId: string, parentCellId: string): Promise<ExpandResult> {
+  await ensureMandalaTables();
+  const [parent] = (await sql`
+    SELECT id, depth FROM mandala_cells WHERE id = ${parentCellId}::uuid AND chart_id = ${chartId}::uuid AND user_id = ${userId}
+  `) as { id: string; depth: number }[];
+  if (!parent) return { ok: false, reason: 'not_found' };
+  if (Number(parent.depth) !== 1) return { ok: false, reason: 'not_depth1' };
+  let created = false;
+  try {
+    const rows = (await sql`
+      INSERT INTO mandala_cells (chart_id, user_id, parent_cell_id, depth, position)
+      SELECT ${chartId}::uuid, ${userId}, ${parentCellId}::uuid, 2, p
+      FROM generate_series(0, 8) AS p
+      WHERE p <> ${MANDALA_CENTER}
+        AND NOT EXISTS (SELECT 1 FROM mandala_cells e WHERE e.parent_cell_id = ${parentCellId}::uuid)
+      RETURNING id
+    `) as { id: string }[];
+    created = rows.length > 0;
+    if (created && rows.length !== MANDALA_DEPTH1_COUNT - 1) {
+      // 1文なので起こり得ないが、偽の成功を返さない（R-05）
+      throw new Error(`展開で子マスが${rows.length}件しか作られませんでした`);
+    }
+  } catch (e) {
+    if ((e as { code?: string } | null)?.code !== '23505') throw e; // 一意制約＝作成済み。それ以外は失敗
+  }
+  const children = (await sql`
+    SELECT id, chart_id, parent_cell_id, depth, position, title, body, meta, created_at, updated_at
+    FROM mandala_cells WHERE parent_cell_id = ${parentCellId}::uuid AND user_id = ${userId}
+    ORDER BY position
+  `) as CellRow[];
+  return { ok: true, created, children: children.map(toCell) };
 }

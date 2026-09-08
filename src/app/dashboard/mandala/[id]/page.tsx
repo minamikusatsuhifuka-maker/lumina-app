@@ -18,16 +18,24 @@ import Link from 'next/link';
 import MandalaGrid from '@/components/mandala/MandalaGrid';
 import MandalaCellEditor from '@/components/mandala/MandalaCellEditor';
 import MandalaCompareView from '@/components/mandala/MandalaCompareView';
+import Mandala81 from '@/components/mandala/Mandala81';
 import { MandalaLinkPopoverContent } from '@/components/mandala/MandalaLinks';
+import { useToast } from '@/components/ui/Toast';
 import { useHoverPopover } from '@/components/HoverPopover';
 import { jstDateTimeString } from '@/lib/jst';
 import {
+  MANDALA_CHILD_TOTAL,
   MANDALA_DEPTH1_COUNT,
   MANDALA_UNSAVED_CONFIRM,
+  MANDALA_VIEW_STORAGE_KEY,
+  type MandalaView,
+  cellPathLabel,
   centerCell,
   chartDisplayTitle,
   compareCellsOf,
+  expansionSummary,
   filledCount,
+  parseMandalaView,
   linkCountsByCell,
   mandalaCompareState,
   popoverKeyOf,
@@ -66,6 +74,12 @@ export default function MandalaChartPage({ params }: { params: Promise<{ id: str
   const [selectMode, setSelectMode] = useState(false);
   const [checkedIds, setCheckedIds] = useState<string[]>([]);
   const [compareOpen, setCompareOpen] = useState(false);
+  // 305: 9マス／81マスの切替（localStorage・303 と同じ仕組み）。狭幅ではブロック単位モード
+  const [view, setView] = useState<MandalaView>('9');
+  const [narrow, setNarrow] = useState(false);
+  const { showToast } = useToast();
+  const expandingRef = useRef(false); // R-87: 展開の二重発火は同期的な ref で閉じる
+  const [expanding, setExpanding] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -99,6 +113,23 @@ export default function MandalaChartPage({ params }: { params: Promise<{ id: str
     mq.addEventListener('change', apply);
     return () => mq.removeEventListener('change', apply);
   }, []);
+  // 305: 表示モードの復元と、狭幅（81をブロック単位に落とす）の判定
+  useEffect(() => {
+    try {
+      setView(parseMandalaView(localStorage.getItem(MANDALA_VIEW_STORAGE_KEY)));
+    } catch {}
+    const mq = window.matchMedia('(max-width: 900px)');
+    const apply = () => setNarrow(mq.matches);
+    apply();
+    mq.addEventListener('change', apply);
+    return () => mq.removeEventListener('change', apply);
+  }, []);
+  const applyView = (v: MandalaView) => {
+    setView(v);
+    try {
+      localStorage.setItem(MANDALA_VIEW_STORAGE_KEY, v);
+    } catch {}
+  };
 
   // 選択中の id は ref にも持つ（confirm を setState の更新関数の中で呼ばない＝StrictMode の二重実行で2回出さない）
   const selectedRef = useRef<string | null>(null);
@@ -181,6 +212,41 @@ export default function MandalaChartPage({ params }: { params: Promise<{ id: str
     [popover],
   );
 
+  // 305 §2-4: 未展開ブロックの空枠を押したら、子8マスを1文で作ってから（成功後に・R-76）その枠の編集を開く。
+  // 二重発火は ref で閉じ（R-87）、サーバー側は NOT EXISTS＋一意制約で二重に作らない。失敗は見せる（1行も作らない）
+  const expandBlock = useCallback(
+    async (parentCellId: string, position: number) => {
+      if (expandingRef.current || !chart) return;
+      if (selectedRef.current && dirtyRef.current && !window.confirm(MANDALA_UNSAVED_CONFIRM)) return;
+      expandingRef.current = true;
+      setExpanding(parentCellId);
+      try {
+        const res = await fetch(`/api/mandala/${encodeURIComponent(chart.id)}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'expand', parentCellId }),
+        });
+        const json = (await res.json().catch(() => ({}))) as { children?: MandalaCell[]; created?: boolean; error?: string };
+        if (!res.ok || !Array.isArray(json.children)) throw new Error(json.error || `子マスの作成に失敗しました（${res.status}）`);
+        const children = json.children;
+        setChart((c) => (c ? { ...c, cells: [...c.cells.filter((x) => x.parent_cell_id !== parentCellId), ...children] } : c));
+        const target = children.find((x) => x.position === position) ?? children[0];
+        if (target) {
+          dirtyRef.current = false;
+          selectedRef.current = target.id;
+          setSelectedId(target.id);
+        }
+        if (json.created) showToast('8マスを作成しました', 'success');
+      } catch (e: unknown) {
+        showToast(e instanceof Error ? e.message : '子マスの作成に失敗しました', 'error');
+      } finally {
+        expandingRef.current = false;
+        setExpanding(null);
+      }
+    },
+    [chart, showToast],
+  );
+
   // 302 §3-1: 選択モードの出入り。入るときは編集パネルを閉じる（未保存なら確認1回）
   const enterSelectMode = () => {
     if (selectedRef.current && dirtyRef.current && !window.confirm(MANDALA_UNSAVED_CONFIRM)) return;
@@ -202,6 +268,8 @@ export default function MandalaChartPage({ params }: { params: Promise<{ id: str
   const linkCounts = useMemo(() => linkCountsByCell(links), [links]);
   const primary = useMemo(() => (chart ? primaryInfoSummary(chart.cells, links) : { withPrimary: 0, filled: 0 }), [chart, links]);
   const compareCells = useMemo(() => (chart ? compareCellsOf(chart.cells, checkedIds) : []), [chart, checkedIds]);
+  const expansion = useMemo(() => (chart ? expansionSummary(chart.cells, links) : { expandedBlocks: 0, childFilled: 0, childWithPrimary: 0 }), [chart, links]);
+  const pathLabelOf = useCallback((cell: MandalaCell) => (chart ? cellPathLabel(cell, chart.cells) : ''), [chart]);
   const compareState = mandalaCompareState(compareCells.length);
   const checkedSet = useMemo(() => new Set(checkedIds), [checkedIds]);
 
@@ -235,7 +303,32 @@ export default function MandalaChartPage({ params }: { params: Promise<{ id: str
             📔 一次情報あり {primary.withPrimary}/{primary.filled}
           </span>
           <span data-mandala-chart-updated title="更新日時（日本時間）">更新 {jstDateTimeString(chart.updated_at)}</span>
+          {/* 305 §2-6: 81表示のときだけ追加で出す（9マス分の n/9・📔 n/m は表示モードに関係なく同じ値） */}
+          {view === '81' && (
+            <span data-mandala-expansion={expansion.childFilled} data-mandala-expansion-blocks={expansion.expandedBlocks} title={`展開済みブロック ${expansion.expandedBlocks}/${MANDALA_DEPTH1_COUNT - 1}・埋まっている子マス ${expansion.childFilled}/${MANDALA_CHILD_TOTAL}`} style={{ fontWeight: 700, color: expansion.childFilled > 0 ? ACCENT : 'var(--text-muted)' }}>
+              展開 {expansion.childFilled}/{MANDALA_CHILD_TOTAL}
+              <span data-mandala-expansion-primary={expansion.childWithPrimary} style={{ marginLeft: 8, color: expansion.childWithPrimary > 0 ? '#B45309' : 'var(--text-muted)' }}>
+                📔 {expansion.childWithPrimary}/{expansion.childFilled}（子マス）
+              </span>
+            </span>
+          )}
           <span style={{ flex: 1 }} />
+          {/* 305 §2-1: 9マス／81マスの切替（幅を取らない2択・保存） */}
+          <span data-mandala-view-toggle style={{ display: 'inline-flex', gap: 2 }}>
+            {(['9', '81'] as MandalaView[]).map((v) => (
+              <button
+                key={v}
+                type="button"
+                data-mandala-view={v}
+                aria-pressed={view === v}
+                onClick={() => applyView(v)}
+                title={v === '9' ? '9マス（3×3）' : '81マス（各マスを3×3に展開）'}
+                style={{ ...btn, padding: '4px 10px', borderColor: view === v ? ACCENT : 'var(--border)', background: view === v ? `${ACCENT}15` : 'transparent', color: view === v ? ACCENT : 'var(--text-muted)', fontWeight: view === v ? 700 : 600 }}
+              >
+                {v}マス
+              </button>
+            ))}
+          </span>
           {!selectMode ? (
             <button type="button" data-mandala-select-toggle onClick={enterSelectMode} title="複数のマスを選んで横並びで比較する" style={{ ...btn, borderColor: ACCENT, color: ACCENT }}>
               ☑ マスを選んで比較
@@ -288,6 +381,7 @@ export default function MandalaChartPage({ params }: { params: Promise<{ id: str
           {selectMode && compareOpen && (
             <MandalaCompareView
               cells={compareCells}
+              labelOf={pathLabelOf}
               onClose={() => setCompareOpen(false)}
               onEdit={(cell) => {
                 setCompareOpen(false);
@@ -297,19 +391,37 @@ export default function MandalaChartPage({ params }: { params: Promise<{ id: str
               }}
             />
           )}
-          <MandalaGrid
-            cells={chart.cells}
-            selectedCellId={selectedId}
-            onSelect={openEditor}
-            linkCounts={linkCounts}
-            selectMode={selectMode}
-            checkedIds={checkedSet}
-            onToggleSelect={toggleChecked}
-            popoverBind={popoverBind}
-          />
+          {view === '81' ? (
+            <div data-mandala-expanding={expanding ?? undefined} style={{ opacity: expanding ? 0.7 : 1 }}>
+              <Mandala81
+                cells={chart.cells}
+                selectedCellId={selectedId}
+                onSelect={openEditor}
+                linkCounts={linkCounts}
+                selectMode={selectMode}
+                checkedIds={checkedSet}
+                onToggleSelect={toggleChecked}
+                popoverBind={popoverBind}
+                onExpand={(parentCellId, position) => void expandBlock(parentCellId, position)}
+                narrow={narrow}
+              />
+            </div>
+          ) : (
+            // 9マス表示は 301 の描画経路そのまま（density 省略＝normal・R-88）
+            <MandalaGrid
+              cells={chart.cells}
+              selectedCellId={selectedId}
+              onSelect={openEditor}
+              linkCounts={linkCounts}
+              selectMode={selectMode}
+              checkedIds={checkedSet}
+              onToggleSelect={toggleChecked}
+              popoverBind={popoverBind}
+            />
+          )}
           {popover.layer}
           {selected && !selectMode && (
-            <MandalaCellEditor key={selected.id} cell={selected} onClose={closePanel} onSaved={onSaved} onDirtyChange={onDirtyChange} onLinksChanged={onLinksChanged} />
+            <MandalaCellEditor key={selected.id} cell={selected} pathLabel={pathLabelOf(selected)} onClose={closePanel} onSaved={onSaved} onDirtyChange={onDirtyChange} onLinksChanged={onLinksChanged} />
           )}
         </>
       ) : null}

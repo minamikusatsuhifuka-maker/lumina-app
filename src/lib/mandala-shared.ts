@@ -89,6 +89,8 @@ export interface MandalaChartSummary {
   link_count: number;
   /** 302 §5: 一次情報（📔エピソードのリンク）が1件以上ある埋まったマス数。分母は filled_count */
   primary_count: number;
+  /** 305: 第2階層（子マス）の行数。削除の確認文に出す */
+  child_count: number;
   created_at: string;
   updated_at: string;
 }
@@ -214,10 +216,12 @@ export function mandalaOutline(cells: readonly MandalaCell[]): MandalaOutlineEnt
 export interface MandalaGridSlot {
   position: number;
   cell: MandalaCell | null;
-  /** 中央を親から導出した枠（第2階層のみ true）。編集できない・保存されない */
+  /** 中央を親から導出した枠（第2階層のみ true）。保存されない（押すと親マスそのものの編集になる・305） */
   derived: boolean;
   /** 導出枠に表示するタイトル（親マスのタイトル）。第1階層の中央は cell.title なので null */
   derivedTitle: string | null;
+  /** 305: 導出枠の実体＝親マス（同じ cell.id）。第1階層は null */
+  derivedCell: MandalaCell | null;
 }
 
 /**
@@ -237,15 +241,18 @@ export function mandalaGridSlots(cells: readonly MandalaCell[], parentCellId: st
     cell: byPosition.get(p) ?? null,
     derived: false,
     derivedTitle: null,
+    derivedCell: null,
   }));
+  const parent = parentCellId === null ? null : (cells.find((c) => c.id === parentCellId) ?? null);
   const center: MandalaGridSlot =
     parentCellId === null
-      ? { position: MANDALA_CENTER, cell: centerCell(cells), derived: false, derivedTitle: null }
+      ? { position: MANDALA_CENTER, cell: centerCell(cells), derived: false, derivedTitle: null, derivedCell: null }
       : {
           position: MANDALA_CENTER,
           cell: null,
           derived: true,
-          derivedTitle: cellDisplayTitle(cells.find((c) => c.id === parentCellId) ?? null),
+          derivedTitle: cellDisplayTitle(parent),
+          derivedCell: parent,
         };
   slots.splice(MANDALA_CENTER, 0, center);
   return slots;
@@ -259,10 +266,11 @@ export function mandalaGridSlots(cells: readonly MandalaCell[], parentCellId: st
  * §3-2 削除の確認文。埋まっているマス数とリンク済み件数を出す。confirm はこの1本だけ（R-56）。
  * 削除は不可逆で Undo を持たないので「元に戻せない」を必ず明記する（250と同じ3点）。
  */
-export function mandalaDeleteConfirmMessage(title: string, filled: number, links: number): string {
+export function mandalaDeleteConfirmMessage(title: string, filled: number, links: number, children: number = 0): string {
   return (
     `マンダラ「${chartDisplayTitle(title)}」を削除します。\n\n` +
     `埋まっているマス: ${filled}/${MANDALA_DEPTH1_COUNT}\n` +
+    (children > 0 ? `子マス（81マス）: ${children}件\n` : '') +
     `リンク済み: ${links}件\n\n` +
     `削除すると全マスとリンクが消え、元に戻せません（取り消しはできません）。\n` +
     `よろしいですか？`
@@ -609,4 +617,87 @@ export function popoverRowsOf(
 /** ポップアップの識別子（マス×どのバッジからでも同じ箱＝同じ key にする） */
 export function popoverKeyOf(cellId: string): string {
   return `mandala-links:${cellId}`;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// 305: 81マス表示（第2階層）— 切替の保存・入れ子の目次・集計（DB 非依存の純関数・定数）
+// ═══════════════════════════════════════════════════════════════════════════
+
+/** 表示モードの保存先（303 の並び順と同じ localStorage） */
+export const MANDALA_VIEW_STORAGE_KEY = 'mandala_view_mode';
+export type MandalaView = '9' | '81';
+export const MANDALA_VIEW_DEFAULT: MandalaView = '9';
+export function parseMandalaView(raw: string | null | undefined): MandalaView {
+  return raw === '81' ? '81' : MANDALA_VIEW_DEFAULT;
+}
+
+/** 第2階層の子マス数（8ブロック×8） */
+export const MANDALA_CHILD_TOTAL = (MANDALA_DEPTH1_COUNT - 1) * (MANDALA_DEPTH1_COUNT - 1);
+/** 1ブロックの子マス数（中央を除く8） */
+export const MANDALA_CHILD_PER_BLOCK = MANDALA_DEPTH1_COUNT - 1;
+
+/** §2-7 入れ子の目次: 親（第1階層）ごとに、その子（第2階層・MANDALA_OUTLINE_POSITIONS 順）を持つ */
+export interface MandalaOutlineNode {
+  cell: MandalaCell;
+  position: number;
+  title: string;
+  /** 展開していない親は空配列 */
+  children: MandalaOutlineEntry[];
+}
+
+/**
+ * mandalaOutline()（平坦・301）を**そのまま**親ごとにまとめた入れ子形。順序は平坦形と同一＝表示と目次を別々に組まない。
+ * 306（マンダラ→Kindle目次）はこれを読む。第1階層だけの入力では children がすべて空配列になる（平坦形の結果は不変・R-88）。
+ */
+export function mandalaOutlineNested(cells: readonly MandalaCell[]): MandalaOutlineNode[] {
+  const out: MandalaOutlineNode[] = [];
+  let cur: MandalaOutlineNode | null = null;
+  for (const e of mandalaOutline(cells)) {
+    if (e.depth === 1) {
+      cur = { cell: e.cell, position: e.position, title: e.title, children: [] };
+      out.push(cur);
+    } else if (cur && e.cell.parent_cell_id === cur.cell.id) {
+      cur.children.push(e);
+    }
+  }
+  return out;
+}
+
+/** 親マス（第1階層）の位置ラベルを含む「親 › 子」（§2-5）。第1階層はそのまま */
+export function cellPathLabel(cell: Pick<MandalaCell, 'depth' | 'position' | 'parent_cell_id'>, cells: readonly MandalaCell[]): string {
+  const own = MANDALA_POSITION_LABELS[cell.position] ?? String(cell.position);
+  if (cell.depth !== 2 || !cell.parent_cell_id) return own;
+  const parent = cells.find((c) => c.id === cell.parent_cell_id);
+  const parentLabel = parent ? (MANDALA_POSITION_LABELS[parent.position] ?? String(parent.position)) : '?';
+  return `${parentLabel} › ${own}`;
+}
+
+/** そのブロック（親）が展開済みか＝子の行が1つでもあるか */
+export function isBlockExpanded(cells: readonly MandalaCell[], parentCellId: string): boolean {
+  return cells.some((c) => c.depth === 2 && c.parent_cell_id === parentCellId);
+}
+
+export interface ExpansionSummary {
+  /** 展開済みブロック数（子の行が1つでもある親の数）／8 */
+  expandedBlocks: number;
+  /** 埋まっている子マス数／64 */
+  childFilled: number;
+  /** 一次情報（📔）が1件以上ある埋まった子マス数 */
+  childWithPrimary: number;
+}
+
+/** §2-6 81表示のときだけ出す集計（9マス分の n/9・📔 n/m とは別。決定的・R-74） */
+export function expansionSummary(cells: readonly MandalaCell[], links: readonly MandalaLinkLite[]): ExpansionSummary {
+  const counts = linkCountsByCell(links);
+  const parents = new Set<string>();
+  let childFilled = 0;
+  let childWithPrimary = 0;
+  for (const c of cells) {
+    if (c.depth !== 2 || !c.parent_cell_id) continue;
+    parents.add(c.parent_cell_id);
+    if (!isCellFilled(c)) continue;
+    childFilled += 1;
+    if ((counts.get(c.id)?.episode ?? 0) > 0) childWithPrimary += 1;
+  }
+  return { expandedBlocks: parents.size, childFilled, childWithPrimary };
 }

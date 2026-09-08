@@ -94,7 +94,7 @@ export default function MandalaListPage() {
 
   const remove = async (item: MandalaChartSummary) => {
     // R-56: 確認はこの1回だけ。件数（埋まっているマス・リンク）を明示する
-    if (!window.confirm(mandalaDeleteConfirmMessage(item.title, item.filled_count, item.link_count))) return;
+    if (!window.confirm(mandalaDeleteConfirmMessage(item.title, item.filled_count, item.link_count, item.child_count))) return;
     setDeletingId(item.id);
     try {
       const res = await fetch(`/api/mandala?id=${encodeURIComponent(item.id)}`, { method: 'DELETE' });
