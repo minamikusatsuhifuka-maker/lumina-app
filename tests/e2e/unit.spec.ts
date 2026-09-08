@@ -3370,7 +3370,13 @@ test('U73: マンダラ バッジのホバーポップアップ（304）— 上�
   expect(lib).toContain('return computePreviewPlacement(anchor, viewport, boxVisual);');
   // グリッドのバッジ: title を書かず aria-label。ポップアップの中身も title 無し
   const grid = readFileSync(join(__dirname, '../../src/components/mandala/MandalaGrid.tsx'), 'utf8');
-  const badgeBlock = grid.slice(grid.indexOf('data-mandala-cell-primary={n}'), grid.indexOf('<CharCountBadge n={cell.body.length}'));
+  // バッジ行（304 の説明コメント〜「マスの説明（title）」の説明コメントまで）に title= が無いこと。
+  // 305是正① で並びが変わっても範囲がずれないよう、境界はコメント文で取る（R-111）
+  const badgeStart = grid.indexOf('304: 件数のあるバッジは');
+  const badgeEnd = grid.indexOf('304: マスの説明（title）');
+  expect(badgeStart).toBeGreaterThan(0);
+  expect(badgeEnd).toBeGreaterThan(badgeStart);
+  const badgeBlock = grid.slice(badgeStart, badgeEnd);
   expect(badgeBlock).not.toMatch(/\btitle=/);
   expect(badgeBlock).toContain('aria-label=');
   const linksComp = readFileSync(join(__dirname, '../../src/components/mandala/MandalaLinks.tsx'), 'utf8');
@@ -3414,7 +3420,9 @@ test('U74: サイドバーのメニュー検索・追加順・新着・合流（
   expect(ns.filterNavCategories(ni.navCategories, 'zzzz該当なし', (i) => i.label, homeHrefs, ni.ITEM_BY_HREF)).toEqual([]);
   // 追加順: 新しい順・同日は定義順・入力は不変
   const sorted = ns.sortByAddedDesc(ni.ALL_NAV_ITEMS);
-  expect(sorted[0].href).toBe('/dashboard/mandala');
+  // 306 で「ホーム編集」（2026-09-09）が最新になった
+  expect(sorted[0].href).toBe('/dashboard/settings/menu');
+  expect(sorted[1].href).toBe('/dashboard/mandala');
   for (let i = 1; i < sorted.length; i++) expect(sorted[i - 1].addedAt >= sorted[i].addedAt).toBe(true);
   const sameDay = sorted.filter((i) => i.addedAt === '2026-03-22').map((i) => i.href);
   expect(sameDay).toEqual(ni.ALL_NAV_ITEMS.filter((i) => i.addedAt === '2026-03-22').map((i) => i.href));
@@ -3513,4 +3521,66 @@ test('U75: マンダラ 81マス（305）— 入れ子の目次は平坦形と�
   const eightyOne = readFileSync(join(__dirname, '../../src/components/mandala/Mandala81.tsx'), 'utf8');
   expect(eightyOne).toContain('mandalaOutlineNested(cells)');
   expect(eightyOne).not.toMatch(/\btitle=/);
+});
+
+test('U76: ホームの保存形式（306）— 旧形式（href配列・書き込み側 JSON.stringify の形）を1つも欠けず順序不変で読む・新形式（区切りオブジェクト）を往復できる・合流は区切りを跨いで既定位置に入り項目だけなら mergeHomeHrefs と一致（R-88）・resolveHomeHrefs は従来と同値・読み込みは不正で何も返さず理由・区切り名は12文字・サイドバーに登録（addedAt）', async () => {
+  const ni = await import('../../src/lib/nav-items');
+  // 旧形式: 書き込み側（旧 EditableHome の save＝JSON.stringify(hrefs)）の形をそのまま写す
+  const legacy = JSON.stringify(['/dashboard/deepresearch', '/dashboard', '/nope', '/dashboard/text-analysis']);
+  const parsed = ni.parseHomeLayout(legacy)!;
+  expect(parsed).toEqual([{ kind: 'item', href: '/dashboard/deepresearch' }, { kind: 'item', href: '/dashboard' }, { kind: 'item', href: '/dashboard/text-analysis' }]);
+  expect(ni.homeHrefsOf(parsed)).toEqual(['/dashboard/deepresearch', '/dashboard', '/dashboard/text-analysis']);
+  // 新形式: 区切りオブジェクト。往復で同じ
+  const withDiv: import('../../src/lib/nav-items').HomeEntry[] = [
+    { kind: 'item', href: '/dashboard' },
+    { kind: 'divider', id: 'div-a', label: '研究' },
+    { kind: 'item', href: '/dashboard/mandala' },
+  ];
+  const serialized = ni.serializeHomeLayout(withDiv);
+  expect(JSON.parse(serialized)).toEqual(['/dashboard', { type: 'divider', id: 'div-a', label: '研究' }, '/dashboard/mandala']);
+  expect(ni.parseHomeLayout(serialized)).toEqual(withDiv);
+  // id 無しの区切りは位置から補う・ラベルは12文字に切る・壊れた値は null
+  expect(ni.parseHomeLayout(JSON.stringify([{ type: 'divider', label: 'あ'.repeat(20) }]))).toEqual([{ kind: 'divider', id: 'div-0', label: 'あ'.repeat(12) }]);
+  expect(ni.parseHomeLayout('broken')).toBeNull();
+  expect(ni.parseHomeLayout('{"a":1}')).toBeNull();
+  // 合流は区切りを跨いで既定位置（定義順で直前にある保存済み項目の行の直後）
+  const merged = ni.mergeHomeLayout(
+    [{ kind: 'item', href: '/dashboard' }, { kind: 'divider', id: 'd', label: 'x' }, { kind: 'item', href: '/dashboard/saved' }, { kind: 'item', href: '/dashboard/text-analysis' }],
+    ['/dashboard/guide'],
+  );
+  expect(merged.map((e) => (e.kind === 'item' ? e.href : `div:${e.id}`))).toEqual([
+    '/dashboard', '/dashboard/orchestrator', '/dashboard/automation-strategy', 'div:d', '/dashboard/saved', '/dashboard/memo', '/dashboard/text-analysis',
+  ]);
+  // 項目だけなら 303 の mergeHomeHrefs と一致（第1階層の結果は不変・R-88）
+  const itemsOnly = ['/dashboard/deepresearch', '/dashboard', '/dashboard/text-analysis'];
+  expect(ni.homeHrefsOf(ni.mergeHomeLayout(itemsOnly.map((href) => ({ kind: 'item', href })), ['/dashboard/guide']))).toEqual(ni.mergeHomeHrefs(itemsOnly, ['/dashboard/guide']));
+  expect(ni.resolveHomeHrefs(JSON.stringify(itemsOnly), JSON.stringify(['/dashboard/guide']))).toEqual(ni.mergeHomeHrefs(itemsOnly, ['/dashboard/guide']));
+  // 項目が無い保存値（区切りだけ）は既定に倒す
+  expect(ni.resolveHomeLayout(JSON.stringify([{ type: 'divider', label: 'x' }]))).toEqual(ni.DEFAULT_HOME_HREFS.map((href) => ({ kind: 'item', href })));
+  // 読み込み: 不正は ok:false＋理由（何も返さない）。実在しない経路は落として件数
+  expect(ni.importHomeLayout('not json')).toMatchObject({ ok: false });
+  expect(ni.importHomeLayout('{"version":1}')).toMatchObject({ ok: false });
+  expect(ni.importHomeLayout(JSON.stringify({ version: 1, items: ['/nope'], removed: [] }))).toMatchObject({ ok: false });
+  const imp = ni.importHomeLayout(ni.exportHomeLayout(withDiv, ['/dashboard/guide']));
+  expect(imp).toMatchObject({ ok: true, removed: ['/dashboard/guide'], dropped: 0 });
+  if (imp.ok) expect(imp.entries).toEqual(withDiv);
+  const imp2 = ni.importHomeLayout(JSON.stringify({ version: 1, items: ['/dashboard', '/nope'], removed: ['/nope'] }));
+  expect(imp2).toMatchObject({ ok: true, dropped: 1, removed: [] });
+  expect(ni.HOME_DIVIDER_LABEL_MAX).toBe(12);
+  expect(ni.normalizeDividerLabel(' a\nb ')).toBe('a b');
+  // R-84: 登録と addedAt
+  const item = ni.ALL_NAV_ITEMS.find((i) => i.href === '/dashboard/settings/menu');
+  expect(item?.label).toBe('ホーム編集');
+  expect(item?.addedAt).toBe('2026-09-09');
+  // サイドバーからインライン編集の DnD が消え、編集は専用ページへのリンク
+  const sidebar = readFileSync(join(__dirname, '../../src/components/DashboardSidebar.tsx'), 'utf8');
+  expect(sidebar).not.toContain("from '@dnd-kit/core'");
+  expect(sidebar).toContain('href="/dashboard/settings/menu"');
+  expect(sidebar).toContain('data-nav-divider={e.id}');
+  // 専用ページは既存の @dnd-kit/core を流用（新依存なし）
+  const pageSrc = readFileSync(join(__dirname, '../../src/app/dashboard/settings/menu/page.tsx'), 'utf8');
+  expect(pageSrc).toContain("from '@dnd-kit/core'");
+  expect(pageSrc).toContain("from '@/lib/nav-search'");
+  const pkg = JSON.parse(readFileSync(join(__dirname, '../../package.json'), 'utf8')) as { dependencies: Record<string, string> };
+  expect(Object.keys(pkg.dependencies).filter((k) => k.startsWith('@dnd-kit/')).sort()).toEqual(['@dnd-kit/core', '@dnd-kit/modifiers']);
 });

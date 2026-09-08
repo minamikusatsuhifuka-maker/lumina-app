@@ -2,18 +2,6 @@
 import { useState, useEffect, type CSSProperties } from 'react';
 import { usePathname } from 'next/navigation';
 import Link from 'next/link';
-import {
-  DndContext,
-  DragOverlay,
-  PointerSensor,
-  TouchSensor,
-  useDraggable,
-  useDroppable,
-  useSensor,
-  useSensors,
-  type DragEndEvent,
-  type DragStartEvent,
-} from '@dnd-kit/core';
 import { SignOutButton } from '@/components/SignOutButton';
 // 251: サイドバーの表示名・アイコンの上書き（ThemeProvider が一元管理・localStorage保存）
 import { useTheme } from './ThemeProvider';
@@ -26,8 +14,10 @@ import {
   DEFAULT_HOME_HREFS,
   HOME_STORAGE_KEY,
   HOME_REMOVED_STORAGE_KEY,
-  parseHrefList,
-  resolveHomeHrefs,
+  HOME_LAYOUT_EVENT,
+  homeHrefsOf,
+  resolveHomeLayout,
+  type HomeEntry,
   type NavItem,
 } from '@/lib/nav-items';
 // 303: メニュー検索・追加順・新着の印（純関数）
@@ -73,102 +63,20 @@ function itemLinkStyle(isActive: boolean): CSSProperties {
   };
 }
 
-// 編集モードのホーム項目（ドラッグハンドル＋×削除）
-function HomeEditRow({
-  item,
-  onRemove,
-  label,
-  icon,
-}: {
-  item: NavItem;
-  onRemove: () => void;
-  label: string;
-  icon: string;
-}) {
-  const { attributes, listeners, setNodeRef: dragRef, isDragging } = useDraggable({ id: item.href });
-  const { setNodeRef: dropRef, isOver } = useDroppable({ id: item.href });
-  const setRef = (el: HTMLElement | null) => {
-    dragRef(el);
-    dropRef(el);
-  };
-  return (
-    <div
-      ref={setRef}
-      style={{
-        display: 'flex',
-        alignItems: 'center',
-        gap: 8,
-        padding: '8px 12px',
-        borderRadius: 8,
-        fontSize: 13,
-        color: 'var(--text-muted)',
-        background: isOver ? 'var(--accent-soft)' : 'transparent',
-        border: isOver ? '1px dashed var(--border)' : '1px solid transparent',
-        opacity: isDragging ? 0.4 : 1,
-      }}
-    >
-      <span {...attributes} {...listeners} style={{ cursor: 'grab', touchAction: 'none', userSelect: 'none' }} aria-label="ドラッグして並び替え">
-        ⠿
-      </span>
-      <span>{icon}</span>
-      <span style={navTextStyle} title={label === item.label ? undefined : `既定名: ${item.label}`}>
-        {label}
-      </span>
-      <button
-        onClick={onRemove}
-        aria-label="ホームから削除"
-        style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#b91c1c', fontSize: 14, padding: 0 }}
-      >
-        ×
-      </button>
-    </div>
-  );
-}
-
-// 「ホーム」カテゴリ（ユーザー編集可：追加／ドラッグ並び替え／削除。保存は localStorage・後方互換）
-// 303: 並び（homeHrefs）と保存は親（DashboardSidebar）が持つ＝検索結果の「非表示」判定と同じ値を見る
-function EditableHome({
+// 「ホーム」カテゴリの描画（306: 編集はサイドバー内で行わず、専用ページ /dashboard/settings/menu に移した。
+// ここは区切り見出し込みの並びを描くだけ。保存形式・合流・墓標は 303/306 の nav-items.ts が正本）
+function HomeSection({
   pathname,
-  homeHrefs,
-  onSave,
+  entries,
   todayYmd,
 }: {
   pathname: string;
-  homeHrefs: string[];
-  onSave: (next: string[], removedHref?: string, addedHref?: string) => void;
+  entries: HomeEntry[];
   todayYmd: string;
 }) {
   const { navLabels } = useTheme();
   const labelOf = (i: NavItem) => navLabelOf(navLabels, i.href, i.label);
   const iconOf = (i: NavItem) => navIconOf(navLabels, i.href, i.icon);
-  const [isEditing, setIsEditing] = useState(false);
-  const [activeId, setActiveId] = useState<string | null>(null);
-  const [showPicker, setShowPicker] = useState(false);
-  const save = (next: string[], removedHref?: string, addedHref?: string) => onSave(next, removedHref, addedHref);
-
-  const sensors = useSensors(
-    useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
-    useSensor(TouchSensor, { activationConstraint: { delay: 200, tolerance: 8 } }),
-  );
-
-  const onDragEnd = (e: DragEndEvent) => {
-    setActiveId(null);
-    const activeHref = String(e.active.id);
-    const overHref = e.over ? String(e.over.id) : null;
-    if (!overHref || activeHref === overHref) return;
-    const from = homeHrefs.indexOf(activeHref);
-    const to = homeHrefs.indexOf(overHref);
-    if (from < 0 || to < 0) return;
-    const next = [...homeHrefs];
-    next.splice(from, 1);
-    next.splice(to, 0, activeHref);
-    save(next);
-  };
-
-  const items = homeHrefs.map((h) => ITEM_BY_HREF.get(h)).filter((x): x is NavItem => !!x);
-  const candidates = ALL_NAV_ITEMS.filter((i) => !homeHrefs.includes(i.href));
-  const activeItem = activeId ? ITEM_BY_HREF.get(activeId) : null;
-
   return (
     <div style={{ marginBottom: 8 }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '6px 12px' }}>
@@ -178,86 +86,45 @@ function EditableHome({
         >
           {navCategoryLabelOf(navLabels, 'ホーム')}
         </span>
-        <button
-          onClick={() => {
-            setIsEditing((v) => !v);
-            setShowPicker(false);
-          }}
-          style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 11, color: 'var(--text-muted)', padding: 0 }}
+        <Link
+          href="/dashboard/settings/menu"
+          data-nav-home-edit
+          title="ホームの並び・区切りを編集するページへ"
+          style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 11, color: 'var(--text-muted)', padding: 0, textDecoration: 'none' }}
         >
-          {isEditing ? '完了' : '✏️編集'}
-        </button>
+          ✏️編集
+        </Link>
       </div>
-
-      {isEditing ? (
-        <>
-          <DndContext
-            sensors={sensors}
-            onDragStart={(e: DragStartEvent) => setActiveId(String(e.active.id))}
-            onDragEnd={onDragEnd}
-            onDragCancel={() => setActiveId(null)}
-          >
-            {items.map((item) => (
-              <HomeEditRow
-                key={item.href}
-                item={item}
-                label={labelOf(item)}
-                icon={iconOf(item)}
-                onRemove={() => save(homeHrefs.filter((h) => h !== item.href), item.href)}
-              />
-            ))}
-            <DragOverlay>
-              {activeItem ? (
-                <div style={{ ...itemLinkStyle(false), background: 'var(--bg-secondary)', boxShadow: '0 4px 12px rgba(0,0,0,0.15)' }}>
-                  <span>{iconOf(activeItem)}</span>
-                  <span style={navTextStyle}>{labelOf(activeItem)}</span>
-                </div>
-              ) : null}
-            </DragOverlay>
-          </DndContext>
-
-          <button
-            onClick={() => setShowPicker((v) => !v)}
-            style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%', padding: '8px 12px', borderRadius: 8, border: '1px dashed var(--border)', background: 'transparent', color: 'var(--text-muted)', fontSize: 13, cursor: 'pointer', marginTop: 4 }}
-          >
-            ＋ メニューを追加
-          </button>
-          {showPicker && (
-            <div style={{ marginTop: 4, maxHeight: 240, overflowY: 'auto', border: '1px solid var(--border)', borderRadius: 8, padding: 4 }}>
-              {candidates.length === 0 && (
-                <div style={{ padding: '8px 12px', fontSize: 12, color: 'var(--text-muted)' }}>追加できるメニューはありません</div>
-              )}
-              {candidates.map((c) => (
-                <button
-                  key={c.href}
-                  onClick={() => save([...homeHrefs, c.href], undefined, c.href)}
-                  style={{ display: 'flex', alignItems: 'center', gap: 10, width: '100%', padding: '7px 12px', borderRadius: 6, border: 'none', background: 'transparent', color: 'var(--text-muted)', fontSize: 13, cursor: 'pointer', textAlign: 'left' as const }}
-                >
-                  <span>{iconOf(c)}</span>
-                  <span style={navTextStyle}>{labelOf(c)}</span>
-                </button>
-              ))}
-            </div>
-          )}
-        </>
-      ) : (
-        items.map((item) => {
-          const isActive = pathname === item.href;
+      {entries.map((e) => {
+        if (e.kind === 'divider') {
+          // 306 §2-3: 区切り見出し。グループ見出しと同じ見た目・押せない
           return (
-            <Link
-              key={item.href}
-              href={item.href}
-              data-nav-href={item.href}
-              style={itemLinkStyle(isActive)}
-              title={labelOf(item) === item.label ? undefined : `既定名: ${item.label}`}
+            <div
+              key={`div:${e.id}`}
+              data-nav-divider={e.id}
+              style={{ padding: '8px 12px 2px', fontSize: 10, fontWeight: 700, color: 'var(--text-muted)', letterSpacing: '0.05em', opacity: 0.7, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
             >
-              <span>{iconOf(item)}</span>
-              <span style={navTextStyle}>{labelOf(item)}</span>
-              <NewBadge item={item} todayYmd={todayYmd} />
-            </Link>
+              {e.label || '（区切り）'}
+            </div>
           );
-        })
-      )}
+        }
+        const item = ITEM_BY_HREF.get(e.href);
+        if (!item) return null;
+        const isActive = pathname === item.href;
+        return (
+          <Link
+            key={item.href}
+            href={item.href}
+            data-nav-href={item.href}
+            style={itemLinkStyle(isActive)}
+            title={labelOf(item) === item.label ? undefined : `既定名: ${item.label}`}
+          >
+            <span>{iconOf(item)}</span>
+            <span style={navTextStyle}>{labelOf(item)}</span>
+            <NewBadge item={item} todayYmd={todayYmd} />
+          </Link>
+        );
+      })}
     </div>
   );
 }
@@ -296,34 +163,32 @@ export function DashboardSidebar({ userName }: { userName: string }) {
   const iconOf = (i: NavItem) => navIconOf(navLabels, i.href, i.icon);
 
   // 303: ホームの並び（localStorage・262の resolveHomeHrefs で解決＋§5 の合流）、検索語、並び順、JST の今日
-  const [homeHrefs, setHomeHrefs] = useState<string[]>(DEFAULT_HOME_HREFS);
+  const [homeEntries, setHomeEntries] = useState<HomeEntry[]>(() => DEFAULT_HOME_HREFS.map((href) => ({ kind: 'item', href })));
+  const homeHrefs = homeHrefsOf(homeEntries);
   const [query, setQuery] = useState('');
   const [order, setOrder] = useState<NavOrder>('standard');
   const [todayYmd, setTodayYmd] = useState('');
   useEffect(() => {
-    // localStorage・現在日はクライアントでしか読めない（レンダー中に読むとSSRとズレる）＝マウント後に1回だけ反映する
+    // localStorage・現在日はクライアントでしか読めない（レンダー中に読むとSSRとズレる）＝マウント後に1回だけ反映する。
+    // 306: ホーム編集ページ（同じ文書内）が保存したら HOME_LAYOUT_EVENT で即時に追従する（サイドバーが確認画面を兼ねる）
+    const readHome = () => {
+      try {
+        setHomeEntries(resolveHomeLayout(localStorage.getItem(HOME_STORAGE_KEY), localStorage.getItem(HOME_REMOVED_STORAGE_KEY)));
+      } catch {
+        /* localStorage 自体が使えない環境は既定のまま */
+      }
+    };
     try {
+      readHome();
       // eslint-disable-next-line react-hooks/set-state-in-effect
-      setHomeHrefs(resolveHomeHrefs(localStorage.getItem(HOME_STORAGE_KEY), localStorage.getItem(HOME_REMOVED_STORAGE_KEY)));
       setOrder(parseNavOrder(localStorage.getItem(NAV_ORDER_STORAGE_KEY)));
     } catch {
       /* localStorage 自体が使えない環境は既定のまま */
     }
     setTodayYmd(jstDateString());
+    window.addEventListener(HOME_LAYOUT_EVENT, readHome);
+    return () => window.removeEventListener(HOME_LAYOUT_EVENT, readHome);
   }, []);
-  // ホームの保存。外した定義上のホーム項目は墓標（sidebar_home_removed）に、戻したら墓標から消す（§5 合流の対象外にする）
-  const saveHome = (next: string[], removedHref?: string, addedHref?: string) => {
-    setHomeHrefs(next);
-    try {
-      localStorage.setItem(HOME_STORAGE_KEY, JSON.stringify(next));
-      const removed = new Set(parseHrefList(localStorage.getItem(HOME_REMOVED_STORAGE_KEY)) ?? []);
-      if (removedHref && DEFAULT_HOME_HREFS.includes(removedHref)) removed.add(removedHref);
-      if (addedHref) removed.delete(addedHref);
-      localStorage.setItem(HOME_REMOVED_STORAGE_KEY, JSON.stringify([...removed]));
-    } catch {
-      /* skip */
-    }
-  };
   const applyOrder = (o: NavOrder) => {
     setOrder(o);
     try {
@@ -447,7 +312,7 @@ export function DashboardSidebar({ userName }: { userName: string }) {
       ) : (
         <>
       {/* ホームはユーザー編集可（追加/並び替え/削除）。他カテゴリは固定。 */}
-      <EditableHome pathname={pathname} homeHrefs={homeHrefs} onSave={saveHome} todayYmd={todayYmd} />
+      <HomeSection pathname={pathname} entries={homeEntries} todayYmd={todayYmd} />
       {navCategories.filter(cat => cat.category !== 'ホーム').map(cat => (
         <div key={cat.category} style={{ marginBottom: 8 }}>
           <div

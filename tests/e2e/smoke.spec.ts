@@ -9276,21 +9276,27 @@ test('C120: サイドバーのメニュー検索・追加順・新着・合流�
     expect(await hiddenHit.locator('[data-nav-hidden-mark]').evaluate((el) => getComputedStyle(el).textOverflow)).toBe('ellipsis');
     await hiddenHit.click();
     await expect(page).toHaveURL(/\/dashboard\/guide/);
-    // ✏️編集で外すと墓標に入り、戻すと墓標から消える
+    // 306: 「✏️編集」はホーム編集ページへの遷移。そこで外すと墓標に入る（定義上のホーム項目でなければ墓標に入らない）
     await page.goto('/dashboard');
     await expect(search).toBeVisible({ timeout: 30000 });
-    await sidebar.getByRole('button', { name: '✏️編集' }).click();
-    await sidebar.locator('[aria-label="ホームから削除"]').first().click(); // 先頭＝deepresearch（定義上のホーム項目ではない→墓標に入らない）
-    await sidebar.getByRole('button', { name: '完了' }).click();
+    await sidebar.locator('[data-nav-home-edit]').click();
+    await expect(page).toHaveURL(/\/dashboard\/settings\/menu/);
+    await expect(page.locator('[data-home-row="/dashboard/deepresearch"]')).toBeVisible({ timeout: 30000 });
+    await page.locator('[data-home-row="/dashboard/deepresearch"] [data-home-remove]').click(); // 先頭＝deepresearch（定義上のホーム項目ではない→墓標に入らない）
+    await expect(page.locator('[data-home-row="/dashboard/deepresearch"]')).toHaveCount(0);
     expect(await page.evaluate(() => JSON.parse(localStorage.getItem('sidebar_home_removed') ?? '[]'))).toEqual(['/dashboard/guide']);
+    await page.goto('/dashboard');
+    await expect(search).toBeVisible({ timeout: 30000 });
 
     // ⑤ 追加順: 新しい順・平坦（見出しなし）・日付・再読込後も保持
     await sidebar.locator('[data-nav-order="added"]').click();
     const added = sidebar.locator('[data-nav-added-list]');
     await expect(added).toBeVisible();
     const addedOrder = await hrefsIn(added);
-    expect(addedOrder[0]).toBe('/dashboard/mandala');
-    expect(addedOrder[1]).toBe('/dashboard/episodes');
+    // 306 で「ホーム編集」（2026-09-09）が最新
+    expect(addedOrder[0]).toBe('/dashboard/settings/menu');
+    expect(addedOrder[1]).toBe('/dashboard/mandala');
+    expect(addedOrder[2]).toBe('/dashboard/episodes');
     expect(addedOrder.length).toBe(standardOrder.length);
     await expect(sidebar.locator('[data-nav-category]'), '追加順ではグループ見出しを出さない').toHaveCount(0);
     await expect(added.locator('a[data-nav-href="/dashboard/mandala"] [data-nav-added-date]')).toHaveText('9/8');
@@ -9319,7 +9325,7 @@ test('C120: サイドバーのメニュー検索・追加順・新着・合流�
       await drawer.locator('[data-nav-search-clear]').tap();
       await expect(s2).toHaveValue('');
       await drawer.locator('[data-nav-order="added"]').tap();
-      await expect(drawer.locator('[data-nav-added-list] a[data-nav-href]').first()).toHaveAttribute('data-nav-href', '/dashboard/mandala');
+      await expect(drawer.locator('[data-nav-added-list] a[data-nav-href]').first()).toHaveAttribute('data-nav-href', '/dashboard/settings/menu');
       await drawer.locator('[data-nav-order="standard"]').tap();
       await expect(drawer.locator('[data-nav-category="ホーム"]')).toHaveCount(1);
       await p2.evaluate(() => localStorage.removeItem('sidebar_nav_order'));
@@ -9546,5 +9552,198 @@ test('C121: マンダラ 81マス表示（305）— 9⇄81の切替と再読込�
     await page.evaluate(() => localStorage.removeItem('mandala_view_mode')).catch(() => {});
     await deleteMandalaChart(api, chartId);
     await api.delete(`${EPISODES_API}?id=${epId}`);
+  }
+});
+
+// ============================================================================
+// 306: サイドバーのホーム編集ページ（ドラッグ＆ドロップ）
+// ============================================================================
+
+test('C122: ホーム編集ページ（306）— サイドバー登録（R-84）・「✏️編集」で遷移しインライン編集UIが無い・↑↓✕＋の各ボタンで並べ替え/追加/削除が完結しサイドバーが即時追従・ドラッグでも同じ結果（並べ替え・右→左の追加）・✕は墓標に入り再読込でも戻らず、再追加で墓標から消える・追加済みは右列で淡色で押すと左の行へ・区切りの追加/改名/並べ替え/削除（配下は残る）とサイドバーの見出し描画（押せない）・元に戻す・既定に戻す（確認1回・区切りと墓標の文言）・書き出し→読み込み往復・不正JSONは何も変えず理由・旧形式（href配列）が欠けず順序不変・区切りを跨いだ合流・右列の検索（元の名前）・WebKit 狭幅で上下積み＋ボタン完結', async ({
+  page,
+}) => {
+  test.setTimeout(240_000);
+  const sidebar = page.locator('nav.sidebar-nav');
+  const homeOrder = () => page.locator('nav.sidebar-nav [data-nav-category="ホーム"]').locator('xpath=../..').locator('a[data-nav-href], [data-nav-divider]').evaluateAll((els) => els.map((el) => el.getAttribute('data-nav-href') ?? `div:${el.getAttribute('data-nav-divider')}`));
+  const leftOrder = () => page.locator('[data-home-list] [data-home-index]').evaluateAll((els) => els.map((el) => el.getAttribute('data-home-row') ?? `div:${el.getAttribute('data-home-divider-row')}`));
+  const stored = () => page.evaluate(() => ({ items: JSON.parse(localStorage.getItem('sidebar_home_items') ?? 'null'), removed: JSON.parse(localStorage.getItem('sidebar_home_removed') ?? '[]') }));
+  const clear = () => page.evaluate(() => { localStorage.removeItem('sidebar_home_items'); localStorage.removeItem('sidebar_home_removed'); localStorage.removeItem('lumina_nav_labels'); });
+  try {
+    // ① R-84: サイドバーに登録。「✏️編集」で本ページへ。インラインの編集UIが無い
+    await page.goto('/dashboard');
+    await clear();
+    // §5: 旧形式（href配列・書き込み側 JSON.stringify(hrefs) の形をそのまま）。院長の環境を模す＝定義外の項目を含む長い並び
+    const legacy = ['/dashboard', '/dashboard/deepresearch', '/dashboard/mandala', '/dashboard/episodes', '/dashboard/dr-hub', '/dashboard/saved', '/dashboard/text-analysis', '/dashboard/library'];
+    await page.evaluate((o) => localStorage.setItem('sidebar_home_items', JSON.stringify(o)), legacy);
+    await page.reload();
+    await expect(sidebar.locator('a[data-nav-href="/dashboard/settings/menu"]'), 'サイドバーに📌ホーム編集がある').toBeVisible({ timeout: 30000 });
+    await expect(sidebar.getByRole('button', { name: '✏️編集' }), 'インラインの編集ボタンが無い').toHaveCount(0);
+    await expect(sidebar.locator('[aria-label="ホームから削除"]')).toHaveCount(0);
+    // 旧形式の読み取り: 1つも欠けず順序不変（合流で既定項目が既定位置に入る分は末尾側に足されるのではなく定義位置）
+    const expectedLegacy = ['/dashboard', '/dashboard/orchestrator', '/dashboard/automation-strategy', '/dashboard/deepresearch', '/dashboard/mandala', '/dashboard/episodes', '/dashboard/dr-hub', '/dashboard/saved', '/dashboard/memo', '/dashboard/guide', '/dashboard/text-analysis', '/dashboard/library'];
+    await expect.poll(homeOrder, { timeout: 15000 }).toEqual(expectedLegacy);
+    await sidebar.locator('[data-nav-home-edit]').click();
+    await expect(page).toHaveURL(/\/dashboard\/settings\/menu/);
+    await expect(page.locator('[data-home-editor]')).toBeVisible({ timeout: 30000 });
+    await expect.poll(leftOrder, { timeout: 15000 }).toEqual(expectedLegacy);
+    expect((await stored()).items, 'ページを開いただけでは保存値を書き換えない').toEqual(legacy);
+
+    // ② ↑↓ ボタンで並べ替え → 保存（旧形式のまま＝文字列配列）・サイドバー即時追従
+    await page.locator('[data-home-row="/dashboard/mandala"] [data-home-up]').click();
+    await expect.poll(leftOrder).toEqual(['/dashboard', '/dashboard/orchestrator', '/dashboard/automation-strategy', '/dashboard/mandala', '/dashboard/deepresearch', '/dashboard/episodes', '/dashboard/dr-hub', '/dashboard/saved', '/dashboard/memo', '/dashboard/guide', '/dashboard/text-analysis', '/dashboard/library']);
+    await expect.poll(homeOrder, { timeout: 15000 }).toEqual(await leftOrder());
+    expect((await stored()).items).toEqual(await leftOrder());
+    // ドラッグでも同じ結果（mandala を deepresearch の下＝元の位置へ戻す）
+    const mandalaHandle = page.locator('[data-home-row="/dashboard/mandala"] [data-home-handle]');
+    const episodesRow = page.locator('[data-home-row="/dashboard/episodes"]');
+    await mandalaHandle.hover();
+    await page.mouse.down();
+    const eb = (await episodesRow.boundingBox())!;
+    await page.mouse.move(eb.x + 20, eb.y + 4, { steps: 8 });
+    await page.mouse.move(eb.x + 24, eb.y + 6, { steps: 4 });
+    await page.mouse.up();
+    await expect.poll(leftOrder, { timeout: 10000 }).toEqual(expectedLegacy);
+    await expect.poll(homeOrder, { timeout: 15000 }).toEqual(expectedLegacy);
+
+    // ③ ✕ で外す → 墓標（定義上のホーム項目）。再読込しても戻らない。右列で「外した」印。再追加（＋）で墓標から消える
+    await page.locator('[data-home-row="/dashboard/guide"] [data-home-remove]').click();
+    await expect(page.locator('[data-home-row="/dashboard/guide"]')).toHaveCount(0);
+    expect((await stored()).removed).toEqual(['/dashboard/guide']);
+    await page.reload();
+    await expect(page.locator('[data-home-editor]')).toBeVisible({ timeout: 30000 });
+    await expect(page.locator('[data-home-row="/dashboard/guide"]'), '合流で戻らない').toHaveCount(0);
+    await expect(page.locator('[data-all-row="/dashboard/guide"]')).toHaveAttribute('data-all-removed', '1');
+    await page.locator('[data-all-add="/dashboard/guide"]').click();
+    await expect(page.locator('[data-home-row="/dashboard/guide"]')).toBeVisible();
+    expect((await stored()).removed).toEqual([]);
+    expect((await leftOrder()).at(-1), '＋は末尾に追加').toBe('/dashboard/guide');
+    // 追加済みは右列で淡色・ドラッグ不可・押すと左の行へ
+    await expect(page.locator('[data-all-row="/dashboard/guide"]')).toHaveAttribute('data-all-in-home', '1');
+    await expect(page.locator('[data-all-handle="/dashboard/guide"]')).toHaveCount(0);
+    await page.locator('[data-all-locate="/dashboard/guide"]').click();
+    await expect(page.locator('[data-home-row="/dashboard/guide"]')).toBeInViewport();
+    // 右→左のドラッグ追加（未追加の項目を deepresearch の行へ）
+    await page.locator('[data-home-search]').fill('ブレスト');
+    const allHandle = page.locator('[data-all-handle="/dashboard/brainstorm"]');
+    await expect(allHandle).toBeVisible();
+    await allHandle.hover();
+    await page.mouse.down();
+    const db = (await page.locator('[data-home-row="/dashboard/deepresearch"]').boundingBox())!;
+    await page.mouse.move(db.x + 20, db.y + 4, { steps: 8 });
+    await page.mouse.move(db.x + 24, db.y + 6, { steps: 4 });
+    await page.mouse.up();
+    await expect(page.locator('[data-home-row="/dashboard/brainstorm"]'), 'ドラッグで追加される').toBeVisible({ timeout: 10000 });
+    const orderAfterDrag = await leftOrder();
+    expect(orderAfterDrag.indexOf('/dashboard/brainstorm'), 'ドロップ位置＝deepresearch の直前').toBe(orderAfterDrag.indexOf('/dashboard/deepresearch') - 1);
+    await page.locator('[data-home-search]').fill('');
+
+    // ④ 右列の検索は 303 と同じ正規化（改名した項目が元の名前でも見つかる）
+    await page.evaluate(() => localStorage.setItem('lumina_nav_labels', JSON.stringify({ items: { '/dashboard/metaphor': { label: 'たとえ' } }, categories: {} })));
+    await page.reload();
+    await expect(page.locator('[data-home-editor]')).toBeVisible({ timeout: 30000 });
+    await page.locator('[data-home-search]').fill('ﾋﾕ'); // 喩え話・比喩（元の名前）を半角カナで
+    await expect(page.locator('[data-all-row="/dashboard/metaphor"]')).toHaveCount(1);
+    await page.locator('[data-home-search]').fill('たとえ');
+    await expect(page.locator('[data-all-row="/dashboard/metaphor"]')).toHaveCount(1);
+    await page.locator('[data-home-search]').fill('zzzz該当なし');
+    await expect(page.locator('[data-home-all-empty]')).toBeVisible();
+    await page.locator('[data-home-search]').fill('');
+    await page.evaluate(() => localStorage.removeItem('lumina_nav_labels'));
+
+    // ⑤ 区切り: 追加→改名→上へ移動→サイドバーに見出し（押せない）→区切りだけ削除しても配下は残る
+    await page.locator('[data-home-add-divider]').click();
+    const divRow = page.locator('[data-home-divider-row]').first();
+    await expect(divRow).toBeVisible();
+    const divId = (await divRow.getAttribute('data-home-divider-row'))!;
+    await page.locator(`[data-home-divider-input="${divId}"]`).fill('研究まとめ');
+    const idxDiv = Number(await divRow.getAttribute('data-home-index'));
+    for (let i = 0; i < idxDiv - 3; i++) await page.locator(`[data-home-divider-row="${divId}"] [data-home-up]`).click();
+    await expect.poll(async () => (await leftOrder())[3]).toBe(`div:${divId}`);
+    const st = await stored();
+    expect(st.items[3], '保存形式: 区切りはオブジェクト、項目は文字列のまま（後方互換）').toEqual({ type: 'divider', id: divId, label: '研究まとめ' });
+    expect(typeof st.items[0]).toBe('string');
+    await expect(sidebar.locator(`[data-nav-divider="${divId}"]`)).toHaveText('研究まとめ');
+    expect(await sidebar.locator(`[data-nav-divider="${divId}"]`).evaluate((el) => el.tagName)).toBe('DIV');
+    await expect.poll(homeOrder).toContain(`div:${divId}`);
+    // 区切りを跨いだ合流: memo を外し墓標を消して再読込 → 既定位置（saved の直後）に区切りを跨いで入る
+    await page.locator('[data-home-row="/dashboard/memo"] [data-home-remove]').click();
+    await page.evaluate(() => localStorage.setItem('sidebar_home_removed', '[]'));
+    await page.reload();
+    await expect(page.locator('[data-home-editor]')).toBeVisible({ timeout: 30000 });
+    const merged = await leftOrder();
+    expect(merged.indexOf('/dashboard/memo'), '合流は saved の直後（区切りがあっても定義位置）').toBe(merged.indexOf('/dashboard/saved') + 1);
+    expect(merged).toContain(`div:${divId}`);
+    // 区切りだけ削除 → 配下の項目は残る
+    const before = await leftOrder();
+    await page.locator(`[data-home-divider-row="${divId}"] [data-home-remove]`).click();
+    await expect(page.locator(`[data-home-divider-row="${divId}"]`)).toHaveCount(0);
+    expect(await leftOrder()).toEqual(before.filter((k) => k !== `div:${divId}`));
+    await expect(sidebar.locator(`[data-nav-divider="${divId}"]`)).toHaveCount(0);
+
+    // ⑥ 元に戻す（直前1操作＝区切り削除が戻る）
+    await page.locator('[data-home-undo]').click();
+    await expect(page.locator(`[data-home-divider-row="${divId}"]`)).toBeVisible();
+    expect(await leftOrder()).toEqual(before);
+    await expect(page.locator('[data-home-undo]'), '履歴は1段').toBeDisabled();
+
+    // ⑦ 書き出し → 読み込み往復（同じ並び）。不正JSONは何も変えず理由
+    const snapshot = await leftOrder();
+    const exported = await page.evaluate(() => {
+      const items = JSON.parse(localStorage.getItem('sidebar_home_items') ?? '[]');
+      const removed = JSON.parse(localStorage.getItem('sidebar_home_removed') ?? '[]');
+      return JSON.stringify({ version: 1, items, removed });
+    });
+    await page.locator('[data-home-import-toggle]').click();
+    await page.locator('[data-home-import-text]').fill('{ これは不正 ');
+    await page.locator('[data-home-import-apply]').click();
+    await expect(page.locator('[data-home-import-error]')).toBeVisible();
+    expect(await leftOrder(), '不正JSONでは何も変わらない').toEqual(snapshot);
+    await page.locator('[data-home-import-text]').fill(JSON.stringify({ version: 1, items: ['/nope-only'], removed: [] }));
+    await page.locator('[data-home-import-apply]').click();
+    await expect(page.locator('[data-home-import-error]')).toContainText('有効なメニュー');
+    expect(await leftOrder()).toEqual(snapshot);
+    // 一度既定に戻してから読み込みで復元（往復）
+    const dialogs: string[] = [];
+    page.on('dialog', (d) => { dialogs.push(d.message()); void d.accept(); });
+    await page.locator('[data-home-reset]').click();
+    await expect.poll(() => dialogs.length).toBe(1);
+    expect(dialogs[0]).toContain('区切り');
+    expect(dialogs[0]).toContain('墓標');
+    await expect.poll(leftOrder).toEqual(['/dashboard', '/dashboard/orchestrator', '/dashboard/automation-strategy', '/dashboard/saved', '/dashboard/memo', '/dashboard/guide']);
+    expect((await stored()).removed).toEqual([]);
+    await page.locator('[data-home-import-toggle]').click();
+    await page.locator('[data-home-import-text]').fill(exported);
+    await page.locator('[data-home-import-apply]').click();
+    await expect.poll(leftOrder, { timeout: 10000 }).toEqual(snapshot);
+    await expect.poll(homeOrder, { timeout: 15000 }).toEqual(snapshot);
+
+    // ⑧ R-64: WebKit（iPhone幅・hasTouch）で上下積み・ボタンだけで追加/並べ替え/削除
+    const wk = await webkit.launch();
+    const ctx = await wk.newContext({ storageState: STORAGE_STATE, baseURL: BASE_URL, hasTouch: true, isMobile: true, viewport: { width: 390, height: 844 } });
+    const p2 = await ctx.newPage();
+    try {
+      await p2.goto('/dashboard/settings/menu');
+      await p2.evaluate(() => { localStorage.removeItem('sidebar_home_items'); localStorage.removeItem('sidebar_home_removed'); });
+      await p2.reload();
+      await expect(p2.locator('[data-home-editor]')).toBeVisible({ timeout: 30000 });
+      await expect(p2.locator('[data-home-columns]')).toHaveAttribute('data-home-columns', 'stack');
+      await p2.locator('[data-home-all] summary').tap();
+      await p2.locator('[data-home-search]').fill('マンダラ');
+      await p2.locator('[data-all-add="/dashboard/mandala"]').tap();
+      await expect(p2.locator('[data-home-row="/dashboard/mandala"]')).toBeVisible();
+      await p2.locator('[data-home-row="/dashboard/mandala"] [data-home-up]').tap();
+      const o2 = await p2.locator('[data-home-list] [data-home-index]').evaluateAll((els) => els.map((el) => el.getAttribute('data-home-row')));
+      expect(o2.indexOf('/dashboard/mandala')).toBe(o2.length - 2);
+      await p2.locator('[data-home-row="/dashboard/mandala"] [data-home-remove]').tap();
+      await expect(p2.locator('[data-home-row="/dashboard/mandala"]')).toHaveCount(0);
+      const sw = await p2.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+      expect(sw, '横スクロールなし').toBeLessThanOrEqual(1);
+      await p2.evaluate(() => { localStorage.removeItem('sidebar_home_items'); localStorage.removeItem('sidebar_home_removed'); });
+    } finally {
+      await ctx.close();
+      await wk.close();
+    }
+  } finally {
+    await clear().catch(() => {});
   }
 });

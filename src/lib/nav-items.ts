@@ -123,6 +123,8 @@ export const navCategories: NavCategory[] = [
       { href: '/dashboard/api-usage', label: 'API使用量', icon: '💴', addedAt: '2026-05-12' },
       { href: '/dashboard/integrations', label: '外部連携（SaaS）', icon: '🔗', addedAt: '2026-05-12' },
       { href: '/dashboard/display-settings', label: '表示設定', icon: '🎛', addedAt: '2026-08-15' },
+      // 306: サイドバーのホーム（並び・所属・区切り）を広い画面で編集する専用ページ。改名・アイコンは🎛のまま
+      { href: '/dashboard/settings/menu', label: 'ホーム編集', icon: '📌', addedAt: '2026-09-09' },
     ],
   },
 ];
@@ -183,7 +185,120 @@ export function mergeHomeHrefs(saved: readonly string[], removed: readonly strin
 // 303: 採用した並びに、定義上のホーム項目で保存に無いもの（＝保存後に足された新規）を既定位置へ合流させる（R-77）。
 //      removed（明示的に外した項目）は合流しない。
 export function resolveHomeHrefs(saved: string | null | undefined, removed?: string | null | undefined): string[] {
-  const valid = parseHrefList(saved);
-  if (!valid || valid.length === 0) return DEFAULT_HOME_HREFS;
-  return mergeHomeHrefs(valid, parseHrefList(removed) ?? []);
+  // 306: 区切り込みの正本（resolveHomeLayout）から href だけを取り出す。項目だけの保存値では従来と同じ結果（U29）
+  return homeHrefsOf(resolveHomeLayout(saved, removed));
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// 306: ホームの並び（区切り見出し込み）の保存形式と解決（DB 非依存の純関数）
+//
+// 保存形式（sidebar_home_items・後方互換）: JSON 配列。要素が**文字列なら href**（旧形式そのまま）、
+// オブジェクト { type: 'divider', id, label } なら区切り見出し。読み取りは新旧どちらも parseHomeLayout 1本で受ける。
+// 墓標 sidebar_home_removed の意味（明示的に外した定義上のホーム項目＝合流しない）は変えない。
+// ═══════════════════════════════════════════════════════════════════════════
+
+export type HomeEntry = { kind: 'item'; href: string } | { kind: 'divider'; id: string; label: string };
+
+/** 区切り見出しの名前の上限（R-57: サイドバー幅で折り返さない） */
+export const HOME_DIVIDER_LABEL_MAX = 12;
+/** 保存したことを同一タブ内のサイドバーへ知らせるイベント（テーマ設定と同方式） */
+export const HOME_LAYOUT_EVENT = 'home-layout-change';
+
+export function normalizeDividerLabel(raw: unknown): string {
+  if (typeof raw !== 'string') return '';
+  const t = raw.replace(/[\r\n\t]+/g, ' ').replace(/\s+/g, ' ').trim();
+  return [...t].slice(0, HOME_DIVIDER_LABEL_MAX).join('');
+}
+
+/**
+ * 保存値（新旧）を HomeEntry[] に。壊れた JSON・配列でない値は null。実在しない href・不正な要素は落とす。
+ * 旧形式（href の配列）はそのまま item 列になる＝並びも欠けも起きない（§5・R-79）。
+ * 区切りの id が無ければ位置から決定的に補う（'div-<index>'）。
+ */
+export function parseHomeLayout(saved: string | null | undefined): HomeEntry[] | null {
+  try {
+    if (!saved) return null;
+    const parsed = JSON.parse(saved);
+    if (!Array.isArray(parsed)) return null;
+    const out: HomeEntry[] = [];
+    parsed.forEach((v, i) => {
+      if (typeof v === 'string') {
+        if (ITEM_BY_HREF.has(v) && !out.some((e) => e.kind === 'item' && e.href === v)) out.push({ kind: 'item', href: v });
+        return;
+      }
+      if (v && typeof v === 'object' && (v as { type?: unknown }).type === 'divider') {
+        const o = v as { id?: unknown; label?: unknown };
+        const id = typeof o.id === 'string' && o.id ? o.id : `div-${i}`;
+        out.push({ kind: 'divider', id, label: normalizeDividerLabel(o.label) });
+      }
+    });
+    return out;
+  } catch {
+    return null;
+  }
+}
+
+/** 保存する形（書き込み側＝この1箇所。テストの旧形式入力はここと parseHrefList の形から写す・R-79） */
+export function serializeHomeLayout(entries: readonly HomeEntry[]): string {
+  return JSON.stringify(entries.map((e) => (e.kind === 'item' ? e.href : { type: 'divider', id: e.id, label: e.label })));
+}
+
+export function homeHrefsOf(entries: readonly HomeEntry[]): string[] {
+  return entries.filter((e): e is Extract<HomeEntry, { kind: 'item' }> => e.kind === 'item').map((e) => e.href);
+}
+
+/**
+ * 303 §5 の合流を区切り込みの並びに拡張。挿入位置は「定義順で直前にある保存済み項目の**行**の直後」＝区切りを跨いでも
+ * 既定位置に入る。項目だけの入力では homeHrefsOf(結果) が mergeHomeHrefs と一致する（第1階層の結果は不変・R-88）。
+ */
+export function mergeHomeLayout(entries: readonly HomeEntry[], removed: readonly string[], defaults: readonly string[] = DEFAULT_HOME_HREFS): HomeEntry[] {
+  const out = [...entries];
+  const indexOfHref = (h: string) => out.findIndex((e) => e.kind === 'item' && e.href === h);
+  for (let i = 0; i < defaults.length; i++) {
+    const h = defaults[i];
+    if (indexOfHref(h) >= 0 || removed.includes(h)) continue;
+    let at = 0;
+    for (let j = i - 1; j >= 0; j--) {
+      const idx = indexOfHref(defaults[j]);
+      if (idx >= 0) { at = idx + 1; break; }
+    }
+    out.splice(at, 0, { kind: 'item', href: h });
+  }
+  return out;
+}
+
+/**
+ * ホームの実並び（区切り込み）の**唯一の正本**。項目が1つも無い保存値は既定に倒す（旧 resolveHomeHrefs と同じ規則）。
+ * サイドバー・🎛・ホーム編集ページはこれ（または homeHrefsOf 経由の resolveHomeHrefs）を使う。
+ */
+export function resolveHomeLayout(saved: string | null | undefined, removed?: string | null | undefined): HomeEntry[] {
+  const parsed = parseHomeLayout(saved);
+  if (!parsed || homeHrefsOf(parsed).length === 0) return DEFAULT_HOME_HREFS.map((href) => ({ kind: 'item', href }));
+  return mergeHomeLayout(parsed, parseHrefList(removed) ?? []);
+}
+
+/** 書き出し（クリップボードへ）: 並び（区切り込み）と墓標。端末をまたいで持ち運ぶ */
+export const HOME_EXPORT_VERSION = 1;
+export function exportHomeLayout(entries: readonly HomeEntry[], removed: readonly string[]): string {
+  return JSON.stringify({ version: HOME_EXPORT_VERSION, items: JSON.parse(serializeHomeLayout(entries)), removed: [...removed] }, null, 2);
+}
+
+export type HomeImportResult = { ok: true; entries: HomeEntry[]; removed: string[]; dropped: number } | { ok: false; reason: string };
+
+/** 読み込み: 形式が不正なら何も変えずに理由を返す（fail-closed）。実在しない href は落とし件数を返す */
+export function importHomeLayout(text: string): HomeImportResult {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    return { ok: false, reason: 'JSON として読めません（書き出した文字列をそのまま貼り付けてください）' };
+  }
+  const obj = parsed as { version?: unknown; items?: unknown; removed?: unknown } | null;
+  const rawItems = Array.isArray(parsed) ? parsed : obj && typeof obj === 'object' && Array.isArray(obj.items) ? obj.items : null;
+  if (!rawItems) return { ok: false, reason: '形式が違います（items の配列がありません）' };
+  const entries = parseHomeLayout(JSON.stringify(rawItems)) ?? [];
+  if (homeHrefsOf(entries).length === 0) return { ok: false, reason: '有効なメニューが1つもありません（このアプリに無い経路ばかりです）' };
+  const validCount = rawItems.filter((v: unknown) => typeof v === 'string' || (v && typeof v === 'object' && (v as { type?: unknown }).type === 'divider')).length;
+  const removed = Array.isArray(obj?.removed) ? (parseHrefList(JSON.stringify(obj!.removed)) ?? []) : [];
+  return { ok: true, entries, removed, dropped: Math.max(0, validCount - entries.length) };
 }
