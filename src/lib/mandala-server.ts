@@ -16,13 +16,17 @@
 
 import { sql } from '@/lib/db';
 import { sanitizeForDb } from '@/lib/sanitize';
+import { episodeDisplayTitle } from '@/lib/episodes';
 import {
   MANDALA_CENTER,
   MANDALA_DEPTH1_COUNT,
+  isMandalaLinkScope,
   normalizeCellInput,
   type MandalaCell,
   type MandalaChartDetail,
   type MandalaChartSummary,
+  type MandalaLinkLite,
+  type MandalaLinkResolved,
 } from '@/lib/mandala-shared';
 
 // ============================================================
@@ -127,7 +131,7 @@ function toCell(r: CellRow): MandalaCell {
 /**
  * §4-3⑥ 一覧＝本文を含まない軽い形。title は中央マス（depth=1, position=4）のタイトル。
  * 「埋まっている」の判定は mandala-shared.isCellFilled（trim で空白以外があるか）と同じ意味を SQL で書く。
- * link_count は 302 以降で増える（本便は常に 0）。
+ * link_count・primary_count（302 §5 一次情報ありのマス数）はリンク表から数える。
  */
 export async function listCharts(userId: string): Promise<MandalaChartSummary[]> {
   await ensureMandalaTables();
@@ -143,17 +147,23 @@ export async function listCharts(userId: string): Promise<MandalaChartSummary[]>
           AND (btrim(x.title, E' \\t\\r\\n　') <> '' OR btrim(x.body, E' \\t\\r\\n　') <> '')) AS filled_total,
       (SELECT COUNT(*)::int FROM mandala_cell_links l
          JOIN mandala_cells x ON x.id = l.cell_id
-        WHERE x.chart_id = ch.id) AS link_count
+        WHERE x.chart_id = ch.id) AS link_count,
+      -- 302 §5: 一次情報（📔エピソードのリンク）が1件以上ある埋まったマス数。一覧は軽い形のまま（本文を返さない）
+      (SELECT COUNT(DISTINCT x.id)::int FROM mandala_cells x
+         JOIN mandala_cell_links l ON l.cell_id = x.id AND l.scope = 'episode'
+        WHERE x.chart_id = ch.id AND x.depth = 1
+          AND (btrim(x.title, E' \\t\\r\\n　') <> '' OR btrim(x.body, E' \\t\\r\\n　') <> '')) AS primary_count
     FROM mandala_charts ch
     WHERE ch.user_id = ${userId}
     ORDER BY ch.updated_at DESC, ch.id
-  `) as { id: string; title: string; filled_count: number; filled_total: number; link_count: number; created_at: string; updated_at: string }[];
+  `) as { id: string; title: string; filled_count: number; filled_total: number; link_count: number; primary_count: number; created_at: string; updated_at: string }[];
   return rows.map((r) => ({
     id: String(r.id),
     title: r.title ?? '',
     filled_count: Number(r.filled_count ?? 0),
     filled_total: Number(r.filled_total ?? 0),
     link_count: Number(r.link_count ?? 0),
+    primary_count: Number(r.primary_count ?? 0),
     created_at: String(r.created_at),
     updated_at: String(r.updated_at),
   }));
@@ -270,4 +280,164 @@ export async function deleteChart(userId: string, chartId: string): Promise<{ ce
   `) as { id: string }[];
   if (rows.length === 0) return null;
   return { cells: Number(counts.cells ?? 0), links: Number(counts.links ?? 0) };
+}
+
+// ============================================================
+// 302: リンク（mandala_cell_links）— 読み出し時に scope ごとにリンク先を解決する（R-92: 鍵と解決結果を分ける）
+// ============================================================
+
+type LinkRow = { id: number; cell_id: string; scope: string; item_key: string; note: string | null; created_at: string };
+
+function toLinkLite(r: LinkRow): MandalaLinkLite {
+  return { id: Number(r.id), cell_id: String(r.cell_id), scope: String(r.scope), item_key: String(r.item_key), created_at: String(r.created_at) };
+}
+
+/** チャート全体のリンク（軽い形。グリッドの件数・一次情報の導出用） */
+export async function listLinksForChart(userId: string, chartId: string): Promise<MandalaLinkLite[]> {
+  await ensureMandalaTables();
+  const rows = (await sql`
+    SELECT l.id, l.cell_id, l.scope, l.item_key, l.note, l.created_at
+    FROM mandala_cell_links l
+    JOIN mandala_cells c ON c.id = l.cell_id
+    WHERE c.chart_id = ${chartId}::uuid AND l.user_id = ${userId}
+    ORDER BY l.created_at ASC, l.id ASC
+  `) as LinkRow[];
+  return rows.map(toLinkLite);
+}
+
+type Resolved = { title: string; char_count: number; created_at: string };
+
+/**
+ * scope ごとにリンク先を引く（4テーブル・自分の行だけ）。無い鍵は Map に載らない＝exists=false。
+ * タイトルは保存していない（読み出し時に解決＝リンク先で改題されても追随する）。
+ */
+async function resolveTargets(userId: string, scope: string, keys: string[]): Promise<Map<string, Resolved>> {
+  const map = new Map<string, Resolved>();
+  if (keys.length === 0) return map;
+  if (scope === 'library') {
+    const rows = (await sql`SELECT id::text AS k, title, LENGTH(content) AS n, created_at FROM library WHERE user_id = ${userId} AND id::text = ANY(${keys})`) as { k: string; title: string | null; n: number; created_at: string }[];
+    for (const r of rows) map.set(String(r.k), { title: r.title ?? '', char_count: Number(r.n ?? 0), created_at: String(r.created_at) });
+  } else if (scope === 'text_analysis') {
+    const rows = (await sql`SELECT id::text AS k, auto_title, file_name, char_count AS n, created_at FROM text_analysis_saves WHERE user_id = ${userId} AND id::text = ANY(${keys})`) as { k: string; auto_title: string | null; file_name: string | null; n: number; created_at: string }[];
+    for (const r of rows) map.set(String(r.k), { title: r.auto_title || r.file_name || '', char_count: Number(r.n ?? 0), created_at: String(r.created_at) });
+  } else if (scope === 'context') {
+    const rows = (await sql`SELECT id::text AS k, topic, LENGTH(context_text) AS n, created_at FROM context_saves WHERE user_id = ${userId} AND id::text = ANY(${keys})`) as { k: string; topic: string | null; n: number; created_at: string }[];
+    for (const r of rows) map.set(String(r.k), { title: r.topic ?? '', char_count: Number(r.n ?? 0), created_at: String(r.created_at) });
+  } else if (scope === 'episode') {
+    const rows = (await sql`SELECT id::text AS k, title, period, situation, details,
+        (LENGTH(title)+LENGTH(period)+LENGTH(situation)+LENGTH(feelings)+LENGTH(details)+LENGTH(thoughts)+LENGTH(reflection)) AS n, created_at
+      FROM episode_records WHERE user_id = ${userId} AND id::text = ANY(${keys})`) as { k: string; title: string; period: string; situation: string; details: string; n: number; created_at: string }[];
+    for (const r of rows) {
+      map.set(String(r.k), {
+        title: episodeDisplayTitle({ title: r.title ?? '', period: r.period ?? '', situation: r.situation ?? '', details: r.details ?? '' }),
+        char_count: Number(r.n ?? 0),
+        created_at: String(r.created_at),
+      });
+    }
+  }
+  return map;
+}
+
+/** マス1つのリンク一覧（解決済み）。他人／存在しないマスは null */
+export async function listLinksForCellResolved(userId: string, cellId: string): Promise<MandalaLinkResolved[] | null> {
+  await ensureMandalaTables();
+  const [cell] = (await sql`SELECT id FROM mandala_cells WHERE id = ${cellId}::uuid AND user_id = ${userId}`) as { id: string }[];
+  if (!cell) return null;
+  const rows = (await sql`
+    SELECT id, cell_id, scope, item_key, note, created_at FROM mandala_cell_links
+    WHERE cell_id = ${cellId}::uuid AND user_id = ${userId}
+    ORDER BY created_at ASC, id ASC
+  `) as LinkRow[];
+  const byScope = new Map<string, string[]>();
+  for (const r of rows) (byScope.get(r.scope) ?? byScope.set(r.scope, []).get(r.scope)!).push(String(r.item_key));
+  const resolved = new Map<string, Map<string, Resolved>>();
+  for (const [scope, keys] of byScope) {
+    // 解決は付加情報。1種別の失敗で一覧全体を落とさない（R-39）＝失敗した種別は exists=false で返す
+    try {
+      resolved.set(scope, await resolveTargets(userId, scope, keys));
+    } catch (e) {
+      console.error('[mandala links] 解決に失敗:', scope, e instanceof Error ? e.message : 'unknown');
+      resolved.set(scope, new Map());
+    }
+  }
+  return rows.map((r) => {
+    const hit = resolved.get(r.scope)?.get(String(r.item_key));
+    return {
+      ...toLinkLite(r),
+      note: r.note ?? '',
+      title: hit ? hit.title : null,
+      exists: !!hit,
+      char_count: hit ? hit.char_count : null,
+      item_created_at: hit ? hit.created_at : null,
+    };
+  });
+}
+
+export interface AddLinksResult {
+  added: string[];
+  unchanged: string[];
+  failed: string[];
+}
+
+/**
+ * §4-2 複数を1リクエストで付ける。項目ごとに独立して実行し、1件の失敗で他を巻き戻さない（R-39）。
+ * - scope が許容値外／リンク先が自分の行として存在しない → failed
+ * - 既にリンク済み → ON CONFLICT DO NOTHING で unchanged（一意制約にぶつけて失敗させない）
+ * - 二重発火の再送は同じ理由で unchanged になる（サーバー側の遮断・R-87）
+ * 他人／存在しないマスは null
+ */
+export async function addLinks(
+  userId: string,
+  cellId: string,
+  items: { scope: unknown; item_key: unknown }[],
+): Promise<AddLinksResult | null> {
+  await ensureMandalaTables();
+  const [cell] = (await sql`SELECT id FROM mandala_cells WHERE id = ${cellId}::uuid AND user_id = ${userId}`) as { id: string }[];
+  if (!cell) return null;
+  const result: AddLinksResult = { added: [], unchanged: [], failed: [] };
+  // scope ごとに存在確認をまとめて1回
+  const byScope = new Map<string, string[]>();
+  const wanted: { scope: string; key: string; tag: string }[] = [];
+  const seen = new Set<string>();
+  for (const it of items) {
+    const key = typeof it.item_key === 'string' || typeof it.item_key === 'number' ? String(it.item_key).trim() : '';
+    const tag = `${String(it.scope)}:${key}`;
+    if (!isMandalaLinkScope(it.scope) || !key) { result.failed.push(tag); continue; }
+    if (seen.has(tag)) continue;
+    seen.add(tag);
+    wanted.push({ scope: it.scope, key, tag });
+    (byScope.get(it.scope) ?? byScope.set(it.scope, []).get(it.scope)!).push(key);
+  }
+  const exists = new Map<string, Map<string, Resolved>>();
+  for (const [scope, keys] of byScope) {
+    try {
+      exists.set(scope, await resolveTargets(userId, scope, keys));
+    } catch (e) {
+      console.error('[mandala links] 存在確認に失敗:', scope, e instanceof Error ? e.message : 'unknown');
+      exists.set(scope, new Map());
+    }
+  }
+  for (const w of wanted) {
+    if (!exists.get(w.scope)?.has(w.key)) { result.failed.push(w.tag); continue; }
+    try {
+      const rows = (await sql`
+        INSERT INTO mandala_cell_links (cell_id, user_id, scope, item_key)
+        VALUES (${cellId}::uuid, ${userId}, ${w.scope}, ${w.key})
+        ON CONFLICT DO NOTHING
+        RETURNING id
+      `) as { id: number }[];
+      (rows.length > 0 ? result.added : result.unchanged).push(w.tag);
+    } catch (e) {
+      console.error('[mandala links] 追加に失敗:', w.tag, e instanceof Error ? e.message : 'unknown');
+      result.failed.push(w.tag);
+    }
+  }
+  return result;
+}
+
+/** リンクを外す（非破壊: 記事は消えない）。他人／存在しない id は false */
+export async function removeLink(userId: string, linkId: number): Promise<boolean> {
+  await ensureMandalaTables();
+  const rows = (await sql`DELETE FROM mandala_cell_links WHERE id = ${linkId} AND user_id = ${userId} RETURNING id`) as { id: number }[];
+  return rows.length > 0;
 }

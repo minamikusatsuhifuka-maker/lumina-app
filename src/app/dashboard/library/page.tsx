@@ -226,7 +226,19 @@ function LibraryPageInner() {
   useEffect(() => {
     fetch('/api/library')
       .then(r => r.json())
-      .then(data => { if (Array.isArray(data)) setItems(data); setLoading(false); });
+      .then(data => {
+        if (Array.isArray(data)) {
+          setItems(data);
+          // 302 §4-4: ?open=<id> で来たとき（マンダラのリンク「開く」）はその資料を共通リーダーで開いた状態にする。
+          // パラメータが無ければ何もしない（既存の挙動は不変・R-88）
+          try {
+            const openId = new URLSearchParams(window.location.search).get('open');
+            const target = openId ? data.find((it: { id?: unknown }) => String(it.id) === openId) : null;
+            if (target) setReaderItem(target);
+          } catch {}
+        }
+        setLoading(false);
+      });
   }, []);
 
   // サイドバーから ?tab=... 付きで再訪したときにも追従させる

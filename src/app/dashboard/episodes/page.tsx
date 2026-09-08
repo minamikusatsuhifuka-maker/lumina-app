@@ -182,6 +182,33 @@ export default function EpisodesPage() {
     void loadList('', '');
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+  // 302 §4-4: ?open=<id> で来たとき（マンダラのリンク「開く」）はその記録を ?id= で単体取得し、一覧の先頭に
+  // 無ければ足したうえで展開・スクロールする。パラメータが無ければ何もしない（R-88）。記録欄には触れない（R-90）
+  const openParamDone = useRef(false);
+  useEffect(() => {
+    if (openParamDone.current) return;
+    openParamDone.current = true;
+    let openId = '';
+    try {
+      openId = new URLSearchParams(window.location.search).get('open') ?? '';
+    } catch {}
+    if (!/^\d+$/.test(openId)) return;
+    const id = Number(openId);
+    (async () => {
+      try {
+        const res = await fetch(`/api/episodes?id=${id}`);
+        if (!res.ok) return;
+        const data = (await res.json()) as { item?: EpisodeRecord };
+        if (!data.item) return;
+        const item = data.item;
+        setItems((prev) => (prev.some((x) => x.id === item.id) ? prev : [item, ...prev]));
+        setExpandedIds((prev) => new Set(prev).add(item.id));
+        window.setTimeout(() => {
+          document.querySelector(`[data-ep-card="${item.id}"]`)?.scrollIntoView({ block: 'start' });
+        }, 50);
+      } catch {}
+    })();
+  }, []);
   // 検索は少し待ってから（打鍵ごとに叩かない）
   const searchTimer = useRef<number | null>(null);
   const onQueryChange = (v: string) => {

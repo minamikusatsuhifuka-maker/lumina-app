@@ -965,6 +965,30 @@ export default function SavedAnalysisList({
   // 194: カテゴリ一覧は全件母数のサーバ集計（ロード済みページからの算出をやめる）
   const uniqueFolders = useMemo(() => serverFolders.map((f) => f.folder), [serverFolders]);
 
+  // 302 §4-4: ?open=<id> で来たとき（マンダラのリンク「開く」）は、その保存を ?id= で単体取得して共通リーダーで開く
+  // （一覧v2は本文を返さず・ページングもあるため、一覧に載っているかに依存しない）。パラメータが無ければ何もしない（R-88）
+  const openParamDone = useRef(false);
+  useEffect(() => {
+    if (openParamDone.current) return;
+    openParamDone.current = true;
+    let openId = '';
+    try {
+      openId = new URLSearchParams(window.location.search).get('open') ?? '';
+    } catch {}
+    if (!/^\d+$/.test(openId)) return;
+    (async () => {
+      try {
+        const res = await fetch(`/api/text-analysis/saves?id=${openId}`);
+        if (!res.ok) return;
+        const data = (await res.json()) as AnalysisRecord;
+        if (typeof data?.content !== 'string') return;
+        setLoadedContents((prev) => ({ ...prev, [data.id]: data.content }));
+        setReaderRecord({ record: data, title: data.auto_title || data.file_name || '無題', content: data.content });
+      } catch {}
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   // ⛶全画面リーダー（194: 本文を取得してから開く）
   const openReader = async (record: AnalysisRecord) => {
     const text = await fetchContent(record.id);

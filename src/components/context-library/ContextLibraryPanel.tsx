@@ -386,6 +386,28 @@ export default function ContextLibraryPanel() {
     return [...allTags].sort((a, b) => rank(a) - rank(b) || a.localeCompare(b, 'ja'));
   }, [allTags]);
 
+  // 302 §4-4: ?open=<id> で来たとき（マンダラのリンク「開く」）は ?id= で単体取得して共通リーダーで開く。
+  // 一覧に載っているかに依存しない。パラメータが無ければ何もしない（R-88）
+  const openParamDone = useRef(false);
+  useEffect(() => {
+    if (openParamDone.current) return;
+    openParamDone.current = true;
+    let openId = '';
+    try {
+      openId = new URLSearchParams(window.location.search).get('open') ?? '';
+    } catch {}
+    if (!/^\d+$/.test(openId)) return;
+    (async () => {
+      try {
+        const res = await fetch(`/api/context-saves?id=${openId}`);
+        if (!res.ok) return;
+        const data = (await res.json()) as ContextSave;
+        if (typeof data?.id !== 'number') return;
+        setReaderItem({ ...data, context_text: data.context_text ?? '' });
+      } catch {}
+    })();
+  }, []);
+
   // 本文の遅延取得（一覧APIは本文を返さないため、必要時に ?id= で単体取得して items にマージ）
   const ensureFullText = async (item: ContextSave): Promise<string> => {
     if (typeof item.context_text === 'string') return item.context_text;

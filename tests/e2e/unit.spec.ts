@@ -3184,3 +3184,90 @@ test('U70: マンダラ（301）— アウトライン順は定数1箇所（0,1,
   expect(item!.label.length).toBeLessThanOrEqual(12);
   expect(nav.ALL_NAV_ITEMS.filter((i) => i.icon === item!.icon)).toHaveLength(1);
 });
+
+test('U71: マンダラ 302 — scope の表示・遷移先は MANDALA_LINK_SCOPES と1対1（別の列挙なし）・件数と一次情報は純関数で決定的（R-74・空のマスは分母に入れない）・比較の上限9と列数は別（R-94）・1件は無効化と理由（R-101）・空のマスは比較に出ない・退避の復元条件（同じなら出さない）・ピッカーの4種の応答を1つに揃える・軽い一覧API（light=1／qScope=title）・比較部品は CompareGrid/batch-compare を流用（R-91）・4画面の ?open= はオプトイン', async () => {
+  const m = await import('../../src/lib/mandala-shared');
+  type Cell = import('../../src/lib/mandala-shared').MandalaCell;
+  const mk = (position: number, title = '', body = ''): Cell => ({ id: `c${position}`, chart_id: 'ch', parent_cell_id: null, depth: 1, position, title, body, meta: {}, created_at: '', updated_at: '' });
+  const lk = (id: number, cell_id: string, scope: string, item_key = 'k'): import('../../src/lib/mandala-shared').MandalaLinkLite => ({ id, cell_id, scope, item_key, created_at: '' });
+
+  // ① scope: 表示・遷移先は許容値と1対1。遷移先は既存画面＋?open=
+  expect(Object.keys(m.MANDALA_SCOPE_META).sort()).toEqual([...m.MANDALA_LINK_SCOPES].sort());
+  expect(m.scopeMetaOf('library').openHref('abc')).toBe('/dashboard/library?open=abc');
+  expect(m.scopeMetaOf('text_analysis').openHref('12')).toBe('/dashboard/saved?open=12');
+  expect(m.scopeMetaOf('context').openHref('34')).toBe('/dashboard/context-library?open=34');
+  expect(m.scopeMetaOf('episode').openHref('56')).toBe('/dashboard/episodes?open=56');
+  expect(m.scopeMetaOf('unknown').icon).toBe('🔗');
+  expect(m.linkDisplayTitle({ title: null, exists: false })).toBe(m.MANDALA_LINK_MISSING_LABEL);
+  expect(m.linkDisplayTitle({ title: '  ', exists: true })).toBe('（無題）');
+
+  // ② 件数・一次情報（入力順に依存しない・空のマスは分母に入れない）
+  const cells = [mk(0, 'A', 'a'), mk(1, '', ''), mk(2, 'C', ''), mk(4, 'テーマ', '')];
+  const links = [lk(1, 'c0', 'episode'), lk(2, 'c0', 'library'), lk(3, 'c1', 'episode'), lk(4, 'c2', 'context')];
+  const counts = m.linkCountsByCell(links);
+  expect(counts.get('c0')).toEqual({ total: 2, episode: 1 });
+  expect(counts.get('c2')).toEqual({ total: 1, episode: 0 });
+  expect(m.linkCountsByCell([...links].reverse())).toEqual(counts);
+  // c1 は空（リンクがあっても分母に入れない）。埋まっている c0/c2/c4 のうち📔があるのは c0 だけ
+  expect(m.primaryInfoSummary(cells, links)).toEqual({ withPrimary: 1, filled: 3 });
+  expect(m.primaryInfoSummary(cells, [])).toEqual({ withPrimary: 0, filled: 3 });
+  expect(m.linkBulkResultMessage({ added: 3, unchanged: 1, failed: 0 })).toBe('✅ 3件をリンクしました・1件は既にリンク済み');
+  expect(m.linkBulkResultMessage({ added: 1, unchanged: 0, failed: 2 })).toContain('❌ 2件は失敗しました');
+
+  // ③ 比較: 上限は全9マス、列数は別（batch-compare の 4 で折り返す）。1件は無効化＋理由、空は出ない、選んだ順
+  expect(m.MANDALA_COMPARE_MAX).toBe(9);
+  expect(m.mandalaCompareState(1)).toMatchObject({ enabled: false });
+  expect(m.mandalaCompareState(1).reason).toContain('2件以上');
+  expect(m.mandalaCompareState(2).enabled).toBe(true);
+  expect(m.mandalaCompareState(10)).toMatchObject({ enabled: false });
+  expect(m.toggleCellSelection(['a'], 'b')).toEqual(['a', 'b']);
+  expect(m.toggleCellSelection(['a', 'b'], 'a')).toEqual(['b']);
+  expect(m.toggleCellSelection(['1', '2', '3'], '4', 3)).toEqual(['1', '2', '3']);
+  expect(m.compareCellsOf(cells, ['c2', 'c1', 'c0', 'zz']).map((c) => c.id)).toEqual(['c2', 'c0']);
+  const bc = await import('../../src/lib/batch-compare');
+  expect(bc.resolveCompareColumns(9, true, 'auto'), '9件でも列数は4で頭打ち（幅で折り返す）').toBe(4);
+
+  // ④ 退避: 同じなら提案しない・鍵はマスの id
+  expect(m.mandalaStashKey('x')).toBe('mandala_draft:x');
+  expect(m.shouldOfferRestore(null, { title: '', body: '' })).toBe(false);
+  expect(m.shouldOfferRestore({ title: '', body: 'a', at: '' }, { title: '', body: 'a' })).toBe(false);
+  expect(m.shouldOfferRestore({ title: '', body: 'b', at: '' }, { title: '', body: 'a' })).toBe(true);
+  expect(m.isStashSameAsSaved({ title: 't', body: 'b' }, { title: 't', body: 'b' })).toBe(true);
+
+  // ⑤ ピッカー: 4種の応答を1つの形に。検索元は軽い一覧API
+  expect(m.pickerItemsOf('library', [{ id: 'u1', title: 'L', type: 'research', created_at: 'd', char_count: 10 }])).toEqual([{ scope: 'library', key: 'u1', title: 'L', sub: 'research', charCount: 10, createdAt: 'd' }]);
+  expect(m.pickerItemsOf('text_analysis', { items: [{ id: 7, auto_title: '', file_name: 'f.txt', analysis_label: '要約', char_count: '5', created_at: 'd' }] })[0]).toMatchObject({ key: '7', title: 'f.txt', sub: '要約', charCount: 5 });
+  expect(m.pickerItemsOf('context', { items: [{ id: 3, topic: 'T', category: 'general', char_count: 2, created_at: 'd' }] })[0]).toMatchObject({ key: '3', title: 'T' });
+  expect(m.pickerItemsOf('episode', { items: [{ id: 9, title: '', situation: '状況の文', details: 'xx', created_at: 'd' }] })[0]).toMatchObject({ key: '9', title: '状況の文', charCount: 6 });
+  expect(m.pickerItemsOf('library', { nope: 1 })).toEqual([]);
+  expect(m.pickerSearchUrl('library', 'a b')).toContain('light=1');
+  expect(m.pickerSearchUrl('text_analysis', '')).toContain('qScope=title');
+  expect(m.pickerSearchUrl('context', 'x')).toContain('qScope=title');
+  expect(m.pickerSearchUrl('episode', 'x')).toMatch(/^\/api\/episodes\?/);
+  expect(m.pickerSearchUrl('mandala', 'x')).toBe('');
+
+  // ⑥ ソース固定（R-111: 構文ごと）: 比較部品は共通部品と判断を流用し、独自の列クラスを書かない
+  const cmp = readFileSync(join(__dirname, '../../src/components/mandala/MandalaCompareView.tsx'), 'utf8');
+  expect(cmp).toContain("from '@/components/deepresearch/CompareGrid'");
+  expect(cmp).toContain("from '@/lib/batch-compare'");
+  expect(cmp).toContain('compareGridClass(cols, colChoice)');
+  expect(cmp).not.toMatch(/grid-cols-\d/);
+  expect(cmp).toContain("from '@/components/MarkdownBody'");
+  // scope の列挙を画面側に作らない
+  const linksComp = readFileSync(join(__dirname, '../../src/components/mandala/MandalaLinks.tsx'), 'utf8');
+  expect(linksComp).toContain('MANDALA_LINK_SCOPES.map(');
+  expect(linksComp).not.toMatch(/\[\s*'library'\s*,/);
+  // ?open= はオプトイン（4画面）・📚の light=1 もオプトイン
+  for (const f of ['src/app/dashboard/library/page.tsx', 'src/components/text-analysis/SavedAnalysisList.tsx', 'src/components/context-library/ContextLibraryPanel.tsx', 'src/app/dashboard/episodes/page.tsx']) {
+    expect(readFileSync(join(__dirname, '../..', f), 'utf8'), `${f} は ?open= を読む`).toContain(".get('open')");
+  }
+  const libRoute = readFileSync(join(__dirname, '../../src/app/api/library/route.ts'), 'utf8');
+  expect(libRoute).toContain("searchParams.get('light') === '1'");
+  // shared は DB 非依存のまま・チャート画面は純関数で件数を導出
+  const shared = readFileSync(join(__dirname, '../../src/lib/mandala-shared.ts'), 'utf8');
+  expect(shared).not.toMatch(/from '@\/lib\/(db|sanitize)'/);
+  const pageSrc = readFileSync(join(__dirname, '../../src/app/dashboard/mandala/[id]/page.tsx'), 'utf8');
+  expect(pageSrc).toContain('linkCountsByCell(links)');
+  expect(pageSrc).toContain('primaryInfoSummary(chart.cells, links)');
+  expect(pageSrc).not.toMatch(/data-mandala-select-all/);
+});

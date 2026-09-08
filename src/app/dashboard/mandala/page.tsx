@@ -173,8 +173,17 @@ export default function MandalaListPage() {
                     >
                       {item.filled_count}/{MANDALA_DEPTH1_COUNT} マス
                     </span>
-                    <span data-mandala-links={item.link_count} title="関連記事のリンク（302以降）">
+                    <span data-mandala-links={item.link_count} title="関連記事・エピソードのリンク件数">
                       🔗 {item.link_count}件
+                    </span>
+                    {/* 302 §5: 一次情報あり n/m（一覧APIが軽い形のまま数えて返す） */}
+                    <span
+                      data-mandala-primary={item.primary_count}
+                      data-mandala-primary-total={item.filled_count}
+                      title="一次情報（📔エピソード記録）のリンクが1件以上あるマス数／埋まっているマス数"
+                      style={{ color: item.primary_count > 0 ? '#B45309' : 'var(--text-muted)' }}
+                    >
+                      📔 {item.primary_count}/{item.filled_count}
                     </span>
                   </div>
                   <div data-mandala-updated style={{ fontSize: 11, color: 'var(--text-muted)' }} title="更新日時（日本時間）">

@@ -55,6 +55,11 @@ import {
   createMandalaChart,
   deleteMandalaChart,
   cleanupE2EMandala,
+  // 302: マスのリンク
+  MANDALA_LINKS_API,
+  listMandalaLinks,
+  addMandalaLinks,
+  removeMandalaLink,
 } from './helpers';
 
 // ============================================================================
@@ -8413,6 +8418,344 @@ test('C114: マンダラ 9マスの編集・長文保存・全画面（301 §3-3
     expect((await api.patch(MANDALA_CELLS_API, { data: { cellId: cell0.id, title: 1 } })).status()).toBe(400);
     expect((await api.patch(MANDALA_CELLS_API, { data: { cellId: 'bad' } })).status()).toBe(400);
   } finally {
+    await deleteMandalaChart(api, chartId);
+  }
+});
+
+// ============================================================================
+// 302: 🔲 マンダラ（複数マスの比較・記事リンク・一次情報・未保存本文の退避）
+// ============================================================================
+
+test('C115: マンダラ 複数マスの比較（302 §3）— 選択モードで埋まったマスだけ選べる（空は選べず比較に出ない）・全選択なし（R-106）・1件では無効化と理由（R-101）・6件を4列で折り返す・列数1〜4を変えられる・同期スクロールと見出し固定（R-78）・本文は整形（R-97）・✏️で編集パネルへ', async ({
+  page,
+}) => {
+  test.setTimeout(150_000);
+  const marker = `MCMP${RUN_ID}`;
+  const { id: chartId, cells } = await createMandalaChart(api, `${marker} 骨格`);
+  const byPos = (p: number) => cells.find((c) => c.position === p)!;
+  const longBody = (p: number) => `## 見出し${marker}P${p}\n\n**太字${marker}** の段落。\n\n${`位置${p}の本文です。`.repeat(400)}`;
+  for (const p of [0, 1, 2, 3, 5]) {
+    expect((await saveMandalaCell(api, byPos(p).id, { title: `T${p} ${marker}`, body: longBody(p) })).status()).toBe(200);
+  }
+  try {
+    await page.goto(`/dashboard/mandala/${chartId}`);
+    const grid = page.locator('[data-mandala-grid]');
+    await expect(grid.locator('[data-mandala-cell]')).toHaveCount(9, { timeout: 30000 });
+
+    // 選択モードへ。全選択のボタンは存在しない（R-106）
+    await page.locator('[data-mandala-select-toggle]').click();
+    await expect(grid).toHaveAttribute('data-mandala-select-mode', '1');
+    await expect(page.locator('[data-mandala-select-all], button:has-text("全選択"), button:has-text("すべて選択")')).toHaveCount(0);
+    await expect(page.locator('[data-mandala-panel]'), '選択モードでは編集パネルを開かない').toHaveCount(0);
+
+    // 空のマスは選べない（押しても件数が変わらない）
+    await expect(grid.locator('[data-mandala-cell="6"]')).toHaveAttribute('data-mandala-cell-unselectable', '1');
+    await grid.locator('[data-mandala-cell="6"]').click();
+    await expect(page.locator('[data-mandala-select-count]')).toHaveAttribute('data-mandala-select-count', '0');
+
+    // 1件だけでは比較できず理由が出る（R-101）
+    await grid.locator('[data-mandala-cell="0"]').click();
+    await expect(grid.locator('[data-mandala-cell="0"]')).toHaveAttribute('data-mandala-cell-checked', '1');
+    const compareBtn = page.locator('[data-mandala-compare-open]');
+    await expect(compareBtn).toBeDisabled();
+    expect(await compareBtn.getAttribute('title')).toContain('2件以上');
+    // 6件（中央はタイトルのみ＝埋まっている）
+    for (const p of [1, 2, 3, 4, 5]) await grid.locator(`[data-mandala-cell="${p}"]`).click();
+    await expect(page.locator('[data-mandala-select-count]')).toHaveAttribute('data-mandala-select-count', '6');
+    await expect(compareBtn).toBeEnabled();
+    await compareBtn.click();
+
+    const cmp = page.locator('[data-mandala-compare]');
+    await expect(cmp).toBeVisible();
+    await expect(cmp.locator('[data-compare-col]')).toHaveCount(6);
+    await expect(cmp.locator(`[data-compare-item="${byPos(6).id}"]`), '空のマスは比較に出ない').toHaveCount(0);
+    await expect(cmp.locator('[data-compare-position-label]').first()).toHaveText('左上');
+    // 4列固定 → 6件は 4＋2 に折り返す（1行最大4列）
+    await cmp.locator('[data-compare-cols-choice="4"]').click();
+    const gridEl = cmp.locator('[data-compare-cols]');
+    await expect(gridEl).toHaveAttribute('data-compare-cols', '4');
+    const tops = await cmp.locator('[data-compare-col]').evaluateAll((els) => els.map((el) => Math.round(el.getBoundingClientRect().top)));
+    expect(tops[0]).toBe(tops[3]);
+    expect(tops[4], '5列目は折り返して下の行').toBeGreaterThan(tops[0]);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth), 'ページに横スクロールが出ない').toBeLessThanOrEqual(1);
+    // 2列に変えられる
+    await cmp.locator('[data-compare-cols-choice="2"]').click();
+    await expect(gridEl).toHaveAttribute('data-compare-cols', '2');
+    await cmp.locator('[data-compare-cols-choice="4"]').click();
+
+    // R-78: 同期スクロール（割合）と sticky ヘッダー
+    const col0 = cmp.locator('[data-compare-col="0"]');
+    const col1 = cmp.locator('[data-compare-col="1"]');
+    await col0.evaluate((el) => { el.scrollTop = 600; el.dispatchEvent(new Event('scroll')); });
+    await expect.poll(async () => col1.evaluate((el) => el.scrollTop), '1列を送ると他列も動く').toBeGreaterThan(0);
+    expect(await cmp.locator('[data-compare-header="0"]').evaluate((el) => getComputedStyle(el).position)).toBe('sticky');
+    await cmp.locator('[data-compare-sync]').uncheck();
+    const before1 = await col1.evaluate((el) => el.scrollTop);
+    await col0.evaluate((el) => { el.scrollTop = 1200; el.dispatchEvent(new Event('scroll')); });
+    await page.waitForTimeout(200);
+    expect(await col1.evaluate((el) => el.scrollTop), 'OFFにすると動かない').toBe(before1);
+    // 本文は整形（R-97）
+    await expect(col0.locator(':is(h1,h2,h3,h4)').filter({ hasText: `見出し${marker}P0` })).toBeVisible();
+    await expectNoRawMarkdown(col0.locator('[data-md-view]'), 'マンダラ比較の列');
+
+    // ✏️ で編集パネルへ（選択モードは終わる）
+    await cmp.locator(`[data-mandala-compare-edit="${byPos(1).id}"]`).click();
+    await expect(page.locator(`[data-mandala-panel="${byPos(1).id}"]`)).toBeVisible();
+    await expect(cmp).toHaveCount(0);
+    await expect(grid).not.toHaveAttribute('data-mandala-select-mode', '1');
+  } finally {
+    await deleteMandalaChart(api, chartId);
+  }
+});
+
+test('C116: マンダラ 記事・エピソードのリンクと一次情報（302 §4/§5）— 4種すべて付けられる・複数選んで1リクエスト（R-39・件数表示）・リンク済みはピッカーで無効化・二重発火で二重に付かない（R-87）・同じ項目を2回付けても2件にならない・各scopeの「開く」が新しいタブで該当項目を開いた状態に遷移する・外すのに確認なし（R-56）・リンク先削除で「リンク先なし」でも外せる（R-92）・グリッドの🔗n/📔nと見出しの n/m（R-74）・一覧にも n/m・未認証401', async ({
+  page,
+}) => {
+  test.setTimeout(240_000);
+  const marker = `MLNK${RUN_ID}`;
+  // リンク先（4種・すべて [E2E] 付き）
+  const libId = await createLibraryItem(api, { title: `${marker} 資料`, content: `## 見出し${marker}\n\n本文 ${marker}` });
+  const taId = await createSave(api, { title: `${marker} 分析`, content: `## 見出し${marker}\n\n分析本文 ${marker}` });
+  const ctxId = await createContextSave(api, { topic: `${marker} 素材`, contextText: `素材本文 ${marker}` });
+  const epId = await createEpisode(api, { title: `${marker} 記録`, details: `朝5時起床 ${marker}` });
+  const { id: chartId, cells } = await createMandalaChart(api, `${marker} 骨格`);
+  const cell0 = cells.find((c) => c.position === 0)!;
+  expect((await saveMandalaCell(api, cell0.id, { title: `左上 ${marker}`, body: '本文' })).status()).toBe(200);
+  const targets: { scope: string; key: string; hrefRe: RegExp }[] = [
+    { scope: 'library', key: libId, hrefRe: new RegExp(`/dashboard/library\\?open=${libId}$`) },
+    { scope: 'text_analysis', key: String(taId), hrefRe: new RegExp(`/dashboard/saved\\?open=${taId}$`) },
+    { scope: 'context', key: String(ctxId), hrefRe: new RegExp(`/dashboard/context-library\\?open=${ctxId}$`) },
+    { scope: 'episode', key: String(epId), hrefRe: new RegExp(`/dashboard/episodes\\?open=${epId}$`) },
+  ];
+  let delayMs = 0;
+  let postCount = 0;
+  await page.route('**/api/mandala/links', async (route) => {
+    if (route.request().method() === 'POST') {
+      postCount += 1;
+      if (delayMs > 0) await new Promise((r) => setTimeout(r, delayMs));
+    }
+    await route.continue();
+  });
+  const dialogs: string[] = [];
+  page.on('dialog', (d) => { dialogs.push(d.message()); void d.dismiss(); });
+
+  try {
+    await page.goto(`/dashboard/mandala/${chartId}`);
+    const grid = page.locator('[data-mandala-grid]');
+    await expect(grid.locator('[data-mandala-cell]')).toHaveCount(9, { timeout: 30000 });
+    // §5: 埋まって0件は 📔0（淡色）、空のマスには出ない、見出しは 0/2（中央＋左上が埋まっている）
+    await expect(grid.locator('[data-mandala-cell="0"] [data-mandala-cell-primary]')).toHaveAttribute('data-mandala-cell-primary', '0');
+    await expect(grid.locator('[data-mandala-cell="2"] [data-mandala-cell-primary]')).toHaveCount(0);
+    await expect(grid.locator('[data-mandala-cell="0"] [data-mandala-cell-links]'), '0件は🔗を出さない').toHaveCount(0);
+    await expect(page.locator('[data-mandala-primary]')).toHaveAttribute('data-mandala-primary', '0');
+    await expect(page.locator('[data-mandala-primary]')).toHaveAttribute('data-mandala-primary-total', '2');
+
+    // パネル → リンク欄（0件）→ ピッカーで4種を選んで1リクエスト
+    await grid.locator('[data-mandala-cell="0"]').click();
+    const panel = page.locator(`[data-mandala-panel="${cell0.id}"]`);
+    await expect(panel).toBeVisible();
+    await expect(panel.locator('[data-mandala-links-count]')).toHaveAttribute('data-mandala-links-count', '0', { timeout: 15000 });
+    await panel.locator('[data-mandala-link-add]').click();
+    const picker = page.locator('[data-mandala-picker]');
+    await expect(picker).toBeVisible();
+    for (const t of targets) {
+      await picker.locator(`[data-mandala-picker-scope="${t.scope}"]`).click();
+      await picker.locator('[data-mandala-picker-search]').fill(marker);
+      const item = picker.locator(`[data-mandala-picker-item="${t.scope}:${t.key}"]`);
+      await expect(item, `${t.scope} の項目がタイトル検索で出る`).toBeVisible({ timeout: 20000 });
+      await expect(item.locator('[data-char-count]'), 'ピッカーに文字数が出る').toHaveCount(1);
+      await item.locator('input[type=checkbox]').check();
+    }
+    await expect(picker.locator('[data-mandala-picker-selected]')).toHaveAttribute('data-mandala-picker-selected', '4');
+    // R-87: 応答を遅らせて2連打しても POST は1回
+    delayMs = 800;
+    await picker.locator('[data-mandala-picker-submit]').evaluate((el) => { (el as HTMLButtonElement).click(); (el as HTMLButtonElement).click(); });
+    await expect(picker).toHaveCount(0, { timeout: 30000 });
+    delayMs = 0;
+    expect(postCount, '2連打でもPOSTは1回').toBe(1);
+    await expect(panel.locator('[data-mandala-links-count]')).toHaveAttribute('data-mandala-links-count', '4');
+    await expect(panel.locator('[data-mandala-save-status]')).toContainText('4件をリンクしました');
+    // グリッド: 🔗4・📔1、見出し 1/2
+    await expect(grid.locator('[data-mandala-cell="0"] [data-mandala-cell-links]')).toHaveAttribute('data-mandala-cell-links', '4');
+    await expect(grid.locator('[data-mandala-cell="0"] [data-mandala-cell-primary]')).toHaveAttribute('data-mandala-cell-primary', '1');
+    await expect(page.locator('[data-mandala-primary]')).toHaveAttribute('data-mandala-primary', '1');
+    // R-109: 件数バッジが枠の右端を越えない・折り返さない
+    const cellBox = (await grid.locator('[data-mandala-cell="0"]').boundingBox())!;
+    const badgeBox = (await grid.locator('[data-mandala-cell="0"] [data-mandala-cell-links]').boundingBox())!;
+    expect(badgeBox.x + badgeBox.width).toBeLessThanOrEqual(cellBox.x + cellBox.width + 1);
+    expect(await grid.locator('[data-mandala-cell="0"] [data-mandala-cell-links]').evaluate((el) => getComputedStyle(el).whiteSpace)).toBe('nowrap');
+
+    // リンク済みはピッカーで無効化して「リンク済み」
+    await panel.locator('[data-mandala-link-add]').click();
+    await expect(picker).toBeVisible();
+    await picker.locator('[data-mandala-picker-scope="library"]').click();
+    await picker.locator('[data-mandala-picker-search]').fill(marker);
+    const linkedItem = picker.locator(`[data-mandala-picker-item="library:${libId}"]`);
+    await expect(linkedItem).toHaveAttribute('data-mandala-picker-linked', '1', { timeout: 20000 });
+    await expect(linkedItem.locator('input[type=checkbox]')).toBeDisabled();
+    await expect(linkedItem.locator('[data-mandala-picker-linked-label]')).toHaveText('リンク済み');
+    await picker.locator('[data-mandala-picker-close]').click();
+    await expect(picker).toHaveCount(0);
+    // 同じ項目を2回付けても2件にならない（unchanged・一意制約に到達しない）
+    const again = await addMandalaLinks(api, cell0.id, targets.map((t) => ({ scope: t.scope, item_key: t.key })));
+    expect(again.status()).toBe(200);
+    const againJson = await again.json();
+    expect(againJson.added).toHaveLength(0);
+    expect(againJson.unchanged).toHaveLength(4);
+    expect((await listMandalaLinks(api, cell0.id)).length).toBe(4);
+    // 不正 scope は failed 扱い・空は400
+    const bad = await addMandalaLinks(api, cell0.id, [{ scope: 'mandala', item_key: 'x' }]);
+    expect(bad.status()).toBe(200);
+    expect((await bad.json()).failed).toHaveLength(1);
+    expect((await api.post(MANDALA_LINKS_API, { data: { cellId: cell0.id, items: [] } })).status()).toBe(400);
+
+    // §4-4 「開く」: 新しいタブ・遷移先の種類が title で分かる・href が scope ごとの既存画面＋?open=
+    const rows = panel.locator('[data-mandala-link]');
+    await expect(rows).toHaveCount(4);
+    const hrefs: Record<string, string> = {};
+    for (const t of targets) {
+      const row = panel.locator(`[data-mandala-link][data-mandala-link-scope="${t.scope}"]`);
+      await expect(row).toHaveAttribute('data-mandala-link-exists', '1');
+      const a = row.locator('[data-mandala-link-open]');
+      await expect(a).toHaveAttribute('target', '_blank');
+      expect(await a.getAttribute('title')).toContain('新しいタブ');
+      const href = (await a.getAttribute('href')) ?? '';
+      expect(href, `${t.scope} の遷移先`).toMatch(t.hrefRe);
+      hrefs[t.scope] = href;
+    }
+    // 外す: 確認ダイアログなし（非破壊・R-56）
+    const taRow = panel.locator('[data-mandala-link][data-mandala-link-scope="text_analysis"]');
+    const taLinkId = await taRow.getAttribute('data-mandala-link');
+    await taRow.locator('[data-mandala-link-remove]').click();
+    await expect(panel.locator('[data-mandala-links-count]')).toHaveAttribute('data-mandala-links-count', '3');
+    expect(dialogs, '外すのに確認を増やさない').toHaveLength(0);
+    await expect(grid.locator('[data-mandala-cell="0"] [data-mandala-cell-links]')).toHaveAttribute('data-mandala-cell-links', '3');
+    expect((await removeMandalaLink(api, Number(taLinkId))).status(), '消えたリンクは404').toBe(404);
+
+    // 各 scope を実際に開く（同じページで遷移して「開いた状態」を判定する。実運用は新しいタブ）
+    const reader = page.locator('[role="dialog"][data-kb-scope="reader"]');
+    await page.goto(hrefs.library);
+    await expect(reader, '📚は共通リーダーが開いた状態').toBeVisible({ timeout: 30000 });
+    await expect(reader.getByText(`${marker} 資料`).first()).toBeVisible();
+    await page.goto(hrefs.context);
+    await expect(reader, '🧠は共通リーダーが開いた状態').toBeVisible({ timeout: 30000 });
+    await expect(reader.getByText(`${marker} 素材`).first()).toBeVisible();
+    await page.goto(hrefs.episode);
+    await expect(page.locator(`[data-ep-expanded-body="${epId}"]`), '📔は該当カードが展開された状態').toBeVisible({ timeout: 30000 });
+    // 🗂 はリンクを外したので href を組み立てて確かめる（遷移先の規則は同じ）
+    await page.goto(`/dashboard/saved?open=${taId}`);
+    await expect(reader, '🗂は共通リーダーが開いた状態').toBeVisible({ timeout: 30000 });
+    await expect(reader.getByText(`${marker} 分析`).first()).toBeVisible();
+
+    // §4-3 リンク先を削除しても壊れない: 「リンク先なし」で外せる
+    expect((await api.delete(LIBRARY_API, { data: { ids: [libId] } })).status()).toBe(200);
+    await page.goto(`/dashboard/mandala/${chartId}`);
+    await expect(grid.locator('[data-mandala-cell]')).toHaveCount(9, { timeout: 30000 });
+    await grid.locator('[data-mandala-cell="0"]').click();
+    await expect(panel).toBeVisible();
+    const missing = panel.locator('[data-mandala-link][data-mandala-link-scope="library"]');
+    await expect(missing).toHaveAttribute('data-mandala-link-exists', '0', { timeout: 15000 });
+    await expect(missing.locator('[data-mandala-link-title]')).toContainText('リンク先なし');
+    await expect(missing.locator('[data-mandala-link-open]')).toHaveCount(0);
+    await expect(missing.locator('[data-mandala-link-missing]')).toHaveCount(1);
+    await missing.locator('[data-mandala-link-remove]').click();
+    await expect(panel.locator('[data-mandala-links-count]')).toHaveAttribute('data-mandala-links-count', '2');
+
+    // 一覧にも n/m（一覧APIは軽い形のまま）
+    await page.goto('/dashboard/mandala');
+    const card = page.locator(`[data-mandala-card="${chartId}"]`);
+    await expect(card).toBeVisible({ timeout: 30000 });
+    await expect(card.locator('[data-mandala-primary]')).toHaveAttribute('data-mandala-primary', '1');
+    await expect(card.locator('[data-mandala-primary]')).toHaveAttribute('data-mandala-primary-total', '2');
+    await expect(card.locator('[data-mandala-links]')).toHaveAttribute('data-mandala-links', '2');
+
+    // R-32: 未認証
+    const anon = await pwRequest.newContext({ baseURL: BASE_URL, storageState: { cookies: [], origins: [] } });
+    try {
+      expect((await anon.get(`${MANDALA_LINKS_API}?cellId=${cell0.id}`)).status()).toBe(401);
+      expect((await anon.post(MANDALA_LINKS_API, { data: { cellId: cell0.id, items: [{ scope: 'episode', item_key: String(epId) }] } })).status()).toBe(401);
+      expect((await anon.delete(`${MANDALA_LINKS_API}?id=1`)).status()).toBe(401);
+    } finally {
+      await anon.dispose();
+    }
+  } finally {
+    await deleteMandalaChart(api, chartId);
+    await api.delete(`${EPISODES_API}?id=${epId}`);
+    await api.delete(`${CONTEXT_API}?id=${ctxId}`);
+    await deleteSave(api, taId);
+  }
+});
+
+test('C117: マンダラ 未保存本文の退避と復元（302 §6）— 入力→保存せず再読込→開き直すと復元提案（HH:MM・JST）・復元で本文が一致し未保存のまま・保存成功で退避が消え提案が出ない・破棄で退避が消える・退避と保存済みが同一なら提案が出ず退避が消える・鍵はマスの id', async ({
+  page,
+}) => {
+  test.setTimeout(150_000);
+  const marker = `MSTS${RUN_ID}`;
+  const { id: chartId, cells } = await createMandalaChart(api, `${marker} 骨格`);
+  const cell0 = cells.find((c) => c.position === 0)!;
+  const stashKey = `mandala_draft:${cell0.id}`;
+  const readStash = () => page.evaluate((k) => { const v = localStorage.getItem(k); return v ? (JSON.parse(v) as { title: string; body: string; at: string }) : null; }, stashKey);
+  try {
+    await page.goto(`/dashboard/mandala/${chartId}`);
+    const grid = page.locator('[data-mandala-grid]');
+    await expect(grid.locator('[data-mandala-cell]')).toHaveCount(9, { timeout: 30000 });
+    const panel = page.locator(`[data-mandala-panel="${cell0.id}"]`);
+    const bodyInput = panel.locator('[data-mandala-body-input="panel"]');
+    const banner = panel.locator('[data-mandala-restore]');
+
+    // ① 入力（保存しない）→ デバウンス後に退避される
+    await grid.locator('[data-mandala-cell="0"]').click();
+    await expect(panel).toBeVisible();
+    await expect(banner, '退避が無ければ提案は出ない').toHaveCount(0);
+    await bodyInput.fill(`退避される本文 ${marker}`);
+    await expect.poll(async () => (await readStash())?.body ?? null, '入力のたびに退避される').toBe(`退避される本文 ${marker}`);
+    expect((await readStash())?.at, '退避時刻を持つ').toMatch(/^\d{4}-\d{2}-\d{2}T/);
+
+    // ② 再読込→開き直すと復元提案。復元を選ぶまで編集欄は保存済み（空）のまま
+    await page.reload();
+    await expect(grid.locator('[data-mandala-cell]')).toHaveCount(9, { timeout: 30000 });
+    await grid.locator('[data-mandala-cell="0"]').click();
+    await expect(panel).toBeVisible();
+    await expect(banner).toBeVisible();
+    await expect(banner).toContainText(/\d{2}:\d{2}/);
+    await expect(bodyInput, '黙って上書きしない').toHaveValue('');
+    await banner.locator('[data-mandala-restore-apply]').click();
+    await expect(bodyInput, '復元で本文が一致').toHaveValue(`退避される本文 ${marker}`);
+    await expect(panel.locator('[data-mandala-dirty]'), '復元後はまだ未保存').toBeVisible();
+    await expect(banner).toHaveCount(0);
+    // ③ 保存成功で退避が消え、開き直しても提案が出ない
+    await page.locator('[data-mandala-save="panel"]').click();
+    await expect(panel.locator('[data-mandala-save-status="ok"]')).toBeVisible({ timeout: 30000 });
+    await expect.poll(readStash, '保存された行と一致した時点で退避が消える').toBeNull();
+    await page.reload();
+    await expect(grid.locator('[data-mandala-cell]')).toHaveCount(9, { timeout: 30000 });
+    await grid.locator('[data-mandala-cell="0"]').click();
+    await expect(panel).toBeVisible();
+    await expect(bodyInput).toHaveValue(`退避される本文 ${marker}`);
+    await expect(banner, '保存済みなら提案は出ない').toHaveCount(0);
+
+    // ④ 破棄で退避が消える
+    await bodyInput.fill(`退避される本文 ${marker}\n破棄される追記`);
+    await expect.poll(async () => (await readStash())?.body ?? null).toContain('破棄される追記');
+    await page.reload();
+    await expect(grid.locator('[data-mandala-cell]')).toHaveCount(9, { timeout: 30000 });
+    await grid.locator('[data-mandala-cell="0"]').click();
+    await expect(banner).toBeVisible();
+    await banner.locator('[data-mandala-restore-discard]').click();
+    await expect(banner).toHaveCount(0);
+    expect(await readStash(), '破棄で退避が消える').toBeNull();
+    await expect(bodyInput).toHaveValue(`退避される本文 ${marker}`);
+
+    // ⑤ 退避と保存済みが同一なら提案を出さず退避を消す
+    await page.evaluate(({ k, body }) => localStorage.setItem(k, JSON.stringify({ title: '', body, at: new Date().toISOString() })), { k: stashKey, body: `退避される本文 ${marker}` });
+    await page.reload();
+    await expect(grid.locator('[data-mandala-cell]')).toHaveCount(9, { timeout: 30000 });
+    await grid.locator('[data-mandala-cell="0"]').click();
+    await expect(panel).toBeVisible();
+    await expect(banner).toHaveCount(0);
+    await expect.poll(readStash, '同一なら退避を消す').toBeNull();
+  } finally {
+    await page.evaluate((k) => localStorage.removeItem(k), stashKey).catch(() => {});
     await deleteMandalaChart(api, chartId);
   }
 });

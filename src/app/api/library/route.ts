@@ -26,6 +26,23 @@ export async function GET(req: NextRequest) {
   // type フィルタ（任意）。指定があれば type=xxx で絞り込み、なければ従来通り全件
   const typeFilter = req.nextUrl.searchParams.get('type')?.trim();
 
+  // 302: light=1 のときだけ本文を含まない軽い形（id/title/type/created_at/char_count・タイトル検索のみ・上限付き）を返す。
+  // マンダラのリンクピッカー（301 §4-3⑥「一覧は本文を返さない」）用のオプトイン。未指定は従来どおり1文字も変えない（R-88）
+  if (req.nextUrl.searchParams.get('light') === '1') {
+    const limit = Math.min(Math.max(parseInt(req.nextUrl.searchParams.get('limit') || '50', 10) || 50, 1), 100);
+    const like = q ? `%${q}%` : null;
+    const rows = await sql`
+      SELECT id, title, type, created_at, LENGTH(content) AS char_count
+      FROM library
+      WHERE user_id = ${userId}
+        AND (${like}::text IS NULL OR title ILIKE ${like})
+        AND (${typeFilter || null}::text IS NULL OR type = ${typeFilter || null}::text)
+      ORDER BY created_at DESC
+      LIMIT ${limit}
+    `;
+    return NextResponse.json(rows);
+  }
+
   if (q) {
     const rows = typeFilter
       ? await sql`

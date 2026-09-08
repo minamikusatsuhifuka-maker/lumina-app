@@ -470,3 +470,20 @@ export async function cleanupE2EMandala(request: APIRequestContext) {
     if (String(it.title ?? '').includes(E2E_PREFIX)) await deleteMandalaChart(request, it.id);
   }
 }
+
+// ── 302: マスのリンク（mandala_cell_links）。リンクはチャート削除で CASCADE するため専用の掃除は不要 ──
+export const MANDALA_LINKS_API = '/api/mandala/links';
+
+export async function listMandalaLinks(request: APIRequestContext, cellId: string) {
+  const res = await request.get(`${MANDALA_LINKS_API}?cellId=${cellId}`);
+  expect(res.status(), `リンク一覧API(cellId=${cellId})が200であること`).toBe(200);
+  return (await res.json()).links as { id: number; scope: string; item_key: string; title: string | null; exists: boolean }[];
+}
+
+export async function addMandalaLinks(request: APIRequestContext, cellId: string, items: { scope: string; item_key: string | number }[]) {
+  return request.post(MANDALA_LINKS_API, { data: { cellId, items: items.map((i) => ({ scope: i.scope, item_key: String(i.item_key) })) } });
+}
+
+export async function removeMandalaLink(request: APIRequestContext, id: number) {
+  return request.delete(`${MANDALA_LINKS_API}?id=${id}`);
+}

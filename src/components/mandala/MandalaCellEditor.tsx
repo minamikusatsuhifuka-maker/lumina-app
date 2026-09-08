@@ -2,6 +2,7 @@
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // 301: 🔲 マンダラ マスの編集パネル（§3-3）＋全画面（§3-4）
+// 302: リンク欄（§4）＋未保存本文の退避と復元（§6）
 //
 // 形式は**サイドパネル**（右側・固定）: マンダラは「隣のマスとの関係」を見ながら書くものなので、
 // 編集中も 3×3 が見えている必要がある（モーダルだと隠れる）。狭い画面では全幅になる。
@@ -15,6 +16,12 @@
 //
 // 保存: 二重発火は同期的な ref で閉じる（R-87）。保存成功の表示は**保存された行**から作る（R-95・cellSavedMessage）。
 // 空で保存できる（マスを空に戻す・§4-4）。失敗は必ず見せる（トースト＋パネル内の状態行）。
+//
+// 302 §6 退避: 入力のたび（デバウンス）に localStorage へ {title, body, at} を鍵＝マス id で退避。
+//   保存成功で「保存された行と退避が一致」したら消す。開いたとき、退避があり保存済みと**異なる**場合だけ
+//   復元／破棄を提案する（黙って上書きしない）。同じなら何も出さず消す。popstate は捕まえない（§6-3）。
+// 302 §4 リンク: 状態はこの部品が1つ持ち、パネルと全画面編集の両方に MandalaLinkSection を描く。
+//   付け外しの結果は親へ返し、グリッドの件数（🔗n・📔n）を更新する。
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 import { useCallback, useEffect, useRef, useState, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent } from 'react';
@@ -27,12 +34,22 @@ import {
   MANDALA_BODY_MAX,
   MANDALA_CENTER,
   MANDALA_POSITION_LABELS,
+  MANDALA_STASH_DEBOUNCE_MS,
   MANDALA_TITLE_MAX,
   MANDALA_UNSAVED_CONFIRM,
   cellDisplayTitle,
   cellSavedMessage,
+  clearStash,
+  isStashSameAsSaved,
+  linkBulkResultMessage,
+  loadStash,
+  saveStash,
+  shouldOfferRestore,
   type MandalaCell,
+  type MandalaLinkResolved,
+  type MandalaStash,
 } from '@/lib/mandala-shared';
+import { MandalaLinkPicker, MandalaLinkSection, linkKeyOf, type AddLinksResponse } from '@/components/mandala/MandalaLinks';
 
 const ACCENT = '#6c63ff';
 const PANEL_Z = 9000; // FullscreenReader（10000）より下・AIアシスタント（9999）より下
@@ -70,6 +87,7 @@ export default function MandalaCellEditor({
   onClose,
   onSaved,
   onDirtyChange,
+  onLinksChanged,
 }: {
   cell: MandalaCell;
   onClose: () => void;
@@ -77,11 +95,15 @@ export default function MandalaCellEditor({
   onSaved: (row: MandalaCell) => void;
   /** 未保存の変更の有無。親が「別マスへ移る」を止めるのに使う */
   onDirtyChange?: (dirty: boolean) => void;
+  /** 302: リンクの付け外し後の一覧（解決済み）を親へ返す。親はグリッドの件数を更新する */
+  onLinksChanged?: (cellId: string, links: MandalaLinkResolved[]) => void;
 }) {
   const { showToast } = useToast();
   const [mounted, setMounted] = useState(false);
   // 保存済みの値（保存された行から更新する・R-95）と、編集中の下書き
   const [base, setBase] = useState({ title: cell.title, body: cell.body });
+  const baseRef = useRef(base);
+  baseRef.current = base;
   const [draft, setDraft] = useState({ title: cell.title, body: cell.body });
   const draftRef = useRef(draft);
   draftRef.current = draft;
@@ -93,6 +115,15 @@ export default function MandalaCellEditor({
   fsRef.current = fs;
   const [fsEdit, setFsEdit] = useState(false);
   const bodyRef = useRef<HTMLTextAreaElement>(null);
+  // 302 §6: 退避の復元提案（開いたときに退避があり保存済みと異なるときだけ）
+  const [restoreOffer, setRestoreOffer] = useState<MandalaStash | null>(null);
+  // 302 §4: リンク
+  const [links, setLinks] = useState<MandalaLinkResolved[]>([]);
+  const [linksStatus, setLinksStatus] = useState<'loading' | 'ready' | 'failed'>('loading');
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const pickerOpenRef = useRef(false);
+  pickerOpenRef.current = pickerOpen;
+  const [removingId, setRemovingId] = useState<number | null>(null);
 
   const dirty = draft.title !== base.title || draft.body !== base.body;
   const dirtyRef = useRef(dirty);
@@ -109,7 +140,53 @@ export default function MandalaCellEditor({
     return () => window.clearTimeout(t);
   }, []);
 
-  // §3-3 ページを離れるときの警告: リロード/タブを閉じる（beforeunload）と、アプリ内リンク（サイドバー・一覧へ戻る）
+  // 302 §6-2: 退避の確認（マウント時1回）。同じ内容なら黙って消す。異なるときだけ提案（黙って上書きしない）
+  useEffect(() => {
+    const stash = loadStash(cell.id);
+    if (!stash) return;
+    if (shouldOfferRestore(stash, { title: cell.title, body: cell.body })) {
+      setRestoreOffer(stash);
+    } else {
+      clearStash(cell.id);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cell.id]);
+
+  // 302 §6-1: 入力のたびに（デバウンス）退避。保存済みと同じ内容に戻ったら退避も消す
+  useEffect(() => {
+    if (!dirty) {
+      const stash = loadStash(cell.id);
+      if (stash && isStashSameAsSaved(stash, baseRef.current)) clearStash(cell.id);
+      return;
+    }
+    const t = window.setTimeout(() => {
+      saveStash(cell.id, { title: draftRef.current.title, body: draftRef.current.body, at: new Date().toISOString() });
+    }, MANDALA_STASH_DEBOUNCE_MS);
+    return () => window.clearTimeout(t);
+  }, [draft, dirty, cell.id]);
+
+  // 302 §4: リンク一覧（解決済み）を読む
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch(`/api/mandala/links?cellId=${encodeURIComponent(cell.id)}`, { cache: 'no-store' });
+        const json = (await res.json().catch(() => ({}))) as { links?: MandalaLinkResolved[] };
+        if (cancelled) return;
+        if (!res.ok || !Array.isArray(json.links)) throw new Error(String(res.status));
+        setLinks(json.links);
+        setLinksStatus('ready');
+      } catch {
+        if (!cancelled) setLinksStatus('failed');
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [cell.id]);
+
+  // §3-3 ページを離れるときの警告: リロード/タブを閉じる（beforeunload）と、アプリ内リンク（サイドバー・一覧へ戻る）。
+  // 302: リンクの「開く」（新しいタブ）は対象外＝編集中の内容は残る
   useEffect(() => {
     if (!dirty) return;
     const onBeforeUnload = (e: BeforeUnloadEvent) => {
@@ -134,7 +211,7 @@ export default function MandalaCellEditor({
     };
   }, [dirty]);
 
-  // パネルを閉じる（未保存なら確認1回・R-56）。全画面が開いている間は全画面側の Esc に譲る
+  // パネルを閉じる（未保存なら確認1回・R-56）。全画面・ピッカーが開いている間はそちらの Esc に譲る
   const requestClose = useCallback(() => {
     if (dirtyRef.current && !window.confirm(MANDALA_UNSAVED_CONFIRM)) return;
     onClose();
@@ -142,7 +219,7 @@ export default function MandalaCellEditor({
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key !== 'Escape' || fsRef.current || e.isComposing) return;
+      if (e.key !== 'Escape' || fsRef.current || pickerOpenRef.current || e.isComposing) return;
       requestClose();
     };
     window.addEventListener('keydown', onKey);
@@ -171,6 +248,10 @@ export default function MandalaCellEditor({
       // R-95: 表示も base も**保存された行**から作る。送信後に編集が進んでいれば draft は触らない（dirty のまま残る）
       setBase({ title: row.title, body: row.body });
       if (draftRef.current === sent) setDraft({ title: row.title, body: row.body });
+      // 302 §6-1: 退避と保存された行が一致した時点で退避を消す（送信後に進んだ編集は退避のまま残す）
+      const stash = loadStash(cell.id);
+      if (stash && isStashSameAsSaved(stash, { title: row.title, body: row.body })) clearStash(cell.id);
+      setRestoreOffer(null);
       const text = cellSavedMessage(row);
       setStatus({ kind: 'ok', text, at: row.updated_at });
       showToast(text, 'success');
@@ -184,6 +265,51 @@ export default function MandalaCellEditor({
       setSaving(false);
     }
   }, [cell.id, onSaved, showToast]);
+
+  // 302 §6-2: 復元／破棄
+  const restore = () => {
+    if (!restoreOffer) return;
+    setDraft({ title: restoreOffer.title, body: restoreOffer.body });
+    setRestoreOffer(null);
+    showToast('未保存の内容を復元しました（まだ保存されていません）', 'info');
+  };
+  const discardStash = () => {
+    clearStash(cell.id);
+    setRestoreOffer(null);
+  };
+
+  // 302 §4: リンクの付け外し
+  const applyLinks = useCallback(
+    (next: MandalaLinkResolved[]) => {
+      setLinks(next);
+      setLinksStatus('ready');
+      onLinksChanged?.(cell.id, next);
+    },
+    [cell.id, onLinksChanged],
+  );
+  const onPickerAdded = (res: AddLinksResponse) => {
+    applyLinks(res.links);
+    setPickerOpen(false);
+    const msg = linkBulkResultMessage({ added: res.added.length, unchanged: res.unchanged.length, failed: res.failed.length });
+    setStatus({ kind: res.failed.length > 0 ? 'error' : 'ok', text: msg, at: new Date().toISOString() });
+    showToast(msg, res.failed.length > 0 ? 'warning' : 'success');
+  };
+  const removeLink = async (link: MandalaLinkResolved) => {
+    if (removingId !== null) return;
+    setRemovingId(link.id);
+    try {
+      const res = await fetch(`/api/mandala/links?id=${link.id}`, { method: 'DELETE' });
+      const json = (await res.json().catch(() => ({}))) as { error?: string };
+      if (!res.ok && res.status !== 404) throw new Error(json.error || `リンクを外せませんでした（${res.status}）`);
+      applyLinks(links.filter((l) => l.id !== link.id));
+      showToast('リンクを外しました（記事は消えていません）', 'success');
+    } catch (e: unknown) {
+      showToast(e instanceof Error ? e.message : 'リンクを外せませんでした', 'error');
+    } finally {
+      setRemovingId(null);
+    }
+  };
+  const linkedKeys = new Set(links.map((l) => linkKeyOf(l.scope, l.item_key)));
 
   // ⌘/Ctrl+S で保存（textarea 内でのブラウザ既定＝ページ保存ダイアログを奪う。編集中の標準操作なので許容）
   const onEditorKeyDown = (e: ReactKeyboardEvent) => {
@@ -214,6 +340,23 @@ export default function MandalaCellEditor({
       ● 未保存
     </span>
   );
+  // 302 §6-2: 復元提案（時刻は JST・R-86）。復元を選ぶまで編集欄は保存済みの値のまま
+  const restoreBanner = restoreOffer && (
+    <div
+      data-mandala-restore
+      style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', padding: '8px 10px', borderRadius: 8, border: '1px solid #B45309', background: 'rgba(180,83,9,0.08)', fontSize: 12, color: 'var(--text-primary)' }}
+    >
+      <span style={{ flex: 1, minWidth: 0 }}>
+        💾 未保存の内容があります（{restoreOffer.at ? formatJst(restoreOffer.at, { hour: '2-digit', minute: '2-digit' }) : '時刻不明'}）。復元しますか？
+      </span>
+      <button type="button" data-mandala-restore-apply onClick={restore} style={{ ...btn, borderColor: ACCENT, color: ACCENT }}>
+        ↩ 復元
+      </button>
+      <button type="button" data-mandala-restore-discard onClick={discardStash} style={btn}>
+        破棄
+      </button>
+    </div>
+  );
 
   const titleInput = (testId: string) => (
     <input
@@ -238,6 +381,9 @@ export default function MandalaCellEditor({
       onKeyDown={onEditorKeyDown}
       style={{ ...inputStyle, resize: 'none', ...extra }}
     />
+  );
+  const linkSection = (compact: boolean) => (
+    <MandalaLinkSection links={links} status={linksStatus} onAddClick={() => setPickerOpen(true)} onRemove={(l) => void removeLink(l)} removingId={removingId} compact={compact} />
   );
 
   if (!mounted) return null;
@@ -293,8 +439,10 @@ export default function MandalaCellEditor({
 
           {/* 本体 */}
           <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', gap: 8, padding: 14 }}>
+            {restoreBanner}
             {titleInput('panel')}
-            {bodyInput('panel', { flex: 1, minHeight: 160 })}
+            {bodyInput('panel', { flex: 1, minHeight: 120 })}
+            {linkSection(false)}
           </div>
 
           {/* フッター */}
@@ -371,12 +519,24 @@ export default function MandalaCellEditor({
         editor={
           fsEdit ? (
             <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', gap: 8, width: '100%', maxWidth: 960, margin: '0 auto' }}>
+              {restoreBanner}
               {titleInput('reader')}
               {bodyInput('reader', { flex: 1, minHeight: 0, fontSize: 'inherit', lineHeight: 1.85 })}
+              {linkSection(true)}
             </div>
           ) : undefined
         }
       />
+
+      {pickerOpen && (
+        <MandalaLinkPicker
+          cellId={cell.id}
+          linkedKeys={linkedKeys}
+          onClose={() => setPickerOpen(false)}
+          onAdded={onPickerAdded}
+          onError={(m) => showToast(m, 'error')}
+        />
+      )}
     </>
   );
 }

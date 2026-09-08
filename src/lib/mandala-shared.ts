@@ -85,8 +85,10 @@ export interface MandalaChartSummary {
   filled_count: number;
   /** 全階層で埋まっているマス数（303以降） */
   filled_total: number;
-  /** リンク済み件数（302以降で増える。本便では 0） */
+  /** リンク済み件数（302〜） */
   link_count: number;
+  /** 302 §5: 一次情報（📔エピソードのリンク）が1件以上ある埋まったマス数。分母は filled_count */
+  primary_count: number;
   created_at: string;
   updated_at: string;
 }
@@ -286,4 +288,295 @@ export function normalizeCellInput(input: { title?: unknown; body?: unknown }): 
 /** uuid 風か（API の id 検証。DB へ渡す前の形式チェックのみ） */
 export function isUuidLike(v: unknown): v is string {
   return typeof v === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(v);
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// 302: A 比較／B リンク／C 一次情報／D 未保存本文の退避 — すべて DB 非依存の純関数・定数
+// ═══════════════════════════════════════════════════════════════════════════
+
+// ───────────────────────────────────────────────────────────────────────────
+// B. リンク（302 §4）。scope の許容値は MANDALA_LINK_SCOPES（301）が正本＝ここに別の列挙を作らない
+// ───────────────────────────────────────────────────────────────────────────
+
+/** 他画面で「1件を開いた状態」にする URL パラメータ名（📚🗂🧠📔の4画面が読む） */
+export const MANDALA_OPEN_PARAM = 'open';
+
+export interface MandalaScopeMeta {
+  icon: string;
+  label: string;
+  /** §4-4 リンク先を直接開く遷移先（既存画面＋?open=。新しい詳細ページは作らない） */
+  openHref: (itemKey: string) => string;
+}
+
+/** scope ごとの表示と遷移先。キーは MANDALA_LINK_SCOPES の値と一致させる（U71 で固定） */
+export const MANDALA_SCOPE_META: Record<string, MandalaScopeMeta> = {
+  library: { icon: '📚', label: 'リサーチ保存', openHref: (k) => `/dashboard/library?${MANDALA_OPEN_PARAM}=${encodeURIComponent(k)}` },
+  text_analysis: { icon: '🗂', label: 'テキスト分析', openHref: (k) => `/dashboard/saved?${MANDALA_OPEN_PARAM}=${encodeURIComponent(k)}` },
+  context: { icon: '🧠', label: 'AI参照素材', openHref: (k) => `/dashboard/context-library?${MANDALA_OPEN_PARAM}=${encodeURIComponent(k)}` },
+  episode: { icon: '📔', label: 'エピソード記録', openHref: (k) => `/dashboard/episodes?${MANDALA_OPEN_PARAM}=${encodeURIComponent(k)}` },
+};
+
+export function scopeMetaOf(scope: string): MandalaScopeMeta {
+  return MANDALA_SCOPE_META[scope] ?? { icon: '🔗', label: scope, openHref: () => '' };
+}
+
+/** チャート単位APIが返す軽いリンク行（グリッドの件数・一次情報の導出に使う） */
+export interface MandalaLinkLite {
+  id: number;
+  cell_id: string;
+  scope: string;
+  item_key: string;
+  created_at: string;
+}
+
+/**
+ * パネルのリンク欄に出す解決済みの行。**確実な鍵（scope/item_key）と解決結果（title/exists）を分ける**（R-92）。
+ * タイトルは保存せず読み出し時に scope ごとに解決する＝リンク先が消えていれば exists=false・title=null
+ */
+export interface MandalaLinkResolved extends MandalaLinkLite {
+  note: string;
+  title: string | null;
+  exists: boolean;
+  char_count: number | null;
+  item_created_at: string | null;
+}
+
+/** リンク先が消えているときの表示（§4-3。外せることはそのまま） */
+export const MANDALA_LINK_MISSING_LABEL = 'リンク先なし（削除済み）';
+
+export function linkDisplayTitle(link: Pick<MandalaLinkResolved, 'title' | 'exists'>): string {
+  if (!link.exists) return MANDALA_LINK_MISSING_LABEL;
+  const t = (link.title ?? '').trim();
+  return t || MANDALA_UNTITLED;
+}
+
+/** 1リクエストで付けられる件数の上限（298 の一括付け外しと同じ考え方・R-101） */
+export const MANDALA_LINK_BULK_LIMIT = 100;
+
+export interface MandalaLinkCounts {
+  total: number;
+  episode: number;
+}
+
+/** マスごとのリンク件数（🔗n）とエピソード件数（📔n・C の一次情報）。入力順に依存しない */
+export function linkCountsByCell(links: readonly MandalaLinkLite[]): Map<string, MandalaLinkCounts> {
+  const map = new Map<string, MandalaLinkCounts>();
+  for (const l of links) {
+    const cur = map.get(l.cell_id) ?? { total: 0, episode: 0 };
+    cur.total += 1;
+    if (l.scope === 'episode') cur.episode += 1;
+    map.set(l.cell_id, cur);
+  }
+  return map;
+}
+
+/**
+ * 一括で付けた結果の文言（決定的・R-74）。一部失敗でも成功分は反映済み（R-39）なので成功数と失敗数を両方出す。
+ * unchanged＝既にリンク済みだった件数（一意制約に到達しない・ON CONFLICT DO NOTHING）
+ */
+export function linkBulkResultMessage(r: { added: number; unchanged: number; failed: number }): string {
+  const parts: string[] = [`${r.added}件をリンクしました`];
+  if (r.unchanged > 0) parts.push(`${r.unchanged}件は既にリンク済み`);
+  const head = r.failed > 0 ? '⚠️' : '✅';
+  const tail = r.failed > 0 ? `／❌ ${r.failed}件は失敗しました（成功した分は反映されています）` : '';
+  return `${head} ${parts.join('・')}${tail}`;
+}
+
+/** ピッカーに出す1件（4種のAPIの形をここで1つに揃える） */
+export interface MandalaPickerItem {
+  scope: string;
+  key: string;
+  title: string;
+  /** 種別ラベルなど補助の1行（無ければ空） */
+  sub: string;
+  charCount: number;
+  createdAt: string;
+}
+
+/** ピッカーの検索件数の上限（軽い一覧APIの limit） */
+export const MANDALA_PICKER_LIMIT = 50;
+
+/**
+ * §4-2 検索元は既存の軽い一覧API（本文を含まない経路）。scope ごとの URL をここ1箇所で決める:
+ *   📚 /api/library?light=1（302で足したオプトイン・title 検索のみ）／🗂 /api/text-analysis/saves（194 一覧v2・qScope=title）
+ *   🧠 /api/context-saves（175 一覧・qScope=title）／📔 /api/episodes（281。記録は短いので全欄でよい）
+ */
+export function pickerSearchUrl(scope: string, q: string): string {
+  const qs = q.trim();
+  const enc = encodeURIComponent(qs);
+  switch (scope) {
+    case 'library':
+      return `/api/library?light=1&limit=${MANDALA_PICKER_LIMIT}${qs ? `&q=${enc}` : ''}`;
+    case 'text_analysis':
+      return `/api/text-analysis/saves?limit=${MANDALA_PICKER_LIMIT}&qScope=title${qs ? `&q=${enc}` : ''}`;
+    case 'context':
+      return `/api/context-saves?limit=${MANDALA_PICKER_LIMIT}&qScope=title${qs ? `&q=${enc}` : ''}`;
+    case 'episode':
+      return `/api/episodes?limit=${MANDALA_PICKER_LIMIT}${qs ? `&q=${enc}` : ''}`;
+    default:
+      return '';
+  }
+}
+
+type AnyRow = Record<string, unknown>;
+const str = (v: unknown): string => (typeof v === 'string' ? v : v == null ? '' : String(v));
+const num = (v: unknown): number => (typeof v === 'number' && Number.isFinite(v) ? v : Number(v) || 0);
+
+/** 4種のAPI応答を MandalaPickerItem[] に揃える（決定的・応答の形に依存する箇所はここだけ） */
+export function pickerItemsOf(scope: string, json: unknown): MandalaPickerItem[] {
+  const rows: AnyRow[] = Array.isArray(json)
+    ? (json as AnyRow[])
+    : json && typeof json === 'object' && Array.isArray((json as AnyRow).items)
+      ? ((json as AnyRow).items as AnyRow[])
+      : [];
+  const out: MandalaPickerItem[] = [];
+  for (const r of rows) {
+    const key = str(r.id);
+    if (!key) continue;
+    if (scope === 'library') {
+      out.push({ scope, key, title: str(r.title), sub: str(r.type), charCount: num(r.char_count), createdAt: str(r.created_at) });
+    } else if (scope === 'text_analysis') {
+      out.push({
+        scope,
+        key,
+        title: str(r.auto_title) || str(r.file_name),
+        sub: str(r.analysis_label),
+        charCount: num(r.char_count),
+        createdAt: str(r.created_at),
+      });
+    } else if (scope === 'context') {
+      out.push({ scope, key, title: str(r.topic), sub: str(r.category), charCount: num(r.char_count), createdAt: str(r.created_at) });
+    } else if (scope === 'episode') {
+      const fields = ['period', 'situation', 'feelings', 'details', 'thoughts', 'reflection'];
+      const fallback = (str(r.situation) || str(r.details)).trim().replace(/\s+/g, ' ');
+      const title = str(r.title).trim() || (fallback ? fallback.slice(0, 30) + (fallback.length > 30 ? '…' : '') : MANDALA_UNTITLED);
+      out.push({
+        scope,
+        key,
+        title,
+        sub: str(r.period),
+        charCount: fields.reduce((s, f) => s + str(r[f]).length, 0) + str(r.title).length,
+        createdAt: str(r.created_at),
+      });
+    }
+  }
+  return out;
+}
+
+// ───────────────────────────────────────────────────────────────────────────
+// C. 一次情報あり／なし（302 §5）— scope='episode' のリンク件数から決定的に導出（R-74）。別の状態を保存しない
+// ───────────────────────────────────────────────────────────────────────────
+
+export interface PrimaryInfoSummary {
+  /** 一次情報（📔リンク）が1件以上あるマス数（分子） */
+  withPrimary: number;
+  /** 埋まっているマス数（分母。第1階層） */
+  filled: number;
+}
+
+/** 見出しの「一次情報あり n/m」。空のマスは分母にも分子にも入れない（§5） */
+export function primaryInfoSummary(cells: readonly MandalaCell[], links: readonly MandalaLinkLite[]): PrimaryInfoSummary {
+  const counts = linkCountsByCell(links);
+  let filled = 0;
+  let withPrimary = 0;
+  for (const c of cells) {
+    if (c.depth !== 1 || !isCellFilled(c)) continue;
+    filled += 1;
+    if ((counts.get(c.id)?.episode ?? 0) > 0) withPrimary += 1;
+  }
+  return { withPrimary, filled };
+}
+
+// ───────────────────────────────────────────────────────────────────────────
+// A. 複数マスの比較（302 §3）
+// ───────────────────────────────────────────────────────────────────────────
+
+/** 選べる件数の上限＝第1階層の全マス（9）。列数（1〜4・幅で折り返し）とは別に決める（R-94） */
+export const MANDALA_COMPARE_MAX = MANDALA_DEPTH1_COUNT;
+export const MANDALA_COMPARE_MIN = 2;
+
+/** 比較ボタンの状態。下限未満・上限超えは無効化して理由を出す（R-101。上限は全マス数なので通常は超えない） */
+export function mandalaCompareState(selectedCount: number): { enabled: boolean; label: string; reason: string | null } {
+  if (selectedCount < MANDALA_COMPARE_MIN) {
+    return { enabled: false, label: `⇔ 選択した${selectedCount}件を比較`, reason: `比較は${MANDALA_COMPARE_MIN}件以上のマスを選んでください` };
+  }
+  if (selectedCount > MANDALA_COMPARE_MAX) {
+    return { enabled: false, label: `⇔ 比較（最大${MANDALA_COMPARE_MAX}件）`, reason: `比較できるのは${MANDALA_COMPARE_MAX}件までです（${selectedCount}件選択中）` };
+  }
+  return { enabled: true, label: `⇔ 選択した${selectedCount}件を比較`, reason: null };
+}
+
+/** 選択のトグル（選んだ順を保つ）。上限を超える追加は受け付けない（271 と同じ・黙って押し出さない） */
+export function toggleCellSelection(ids: readonly string[], id: string, max: number = MANDALA_COMPARE_MAX): string[] {
+  if (ids.includes(id)) return ids.filter((x) => x !== id);
+  if (ids.length >= max) return [...ids];
+  return [...ids, id];
+}
+
+/** 比較の列＝選んだ順の、埋まっている実在マスだけ（空のマスは比較に出ない・§3-1） */
+export function compareCellsOf(cells: readonly MandalaCell[], selectedIds: readonly string[]): MandalaCell[] {
+  const byId = new Map(cells.map((c) => [c.id, c]));
+  const out: MandalaCell[] = [];
+  for (const id of selectedIds) {
+    const c = byId.get(id);
+    if (!c || !isCellFilled(c)) continue;
+    out.push(c);
+    if (out.length >= MANDALA_COMPARE_MAX) break;
+  }
+  return out;
+}
+
+// ───────────────────────────────────────────────────────────────────────────
+// D. 未保存本文の退避と復元（302 §6）— ブラウザのローカル保存。鍵はマスの id。サーバーには書かない
+// ───────────────────────────────────────────────────────────────────────────
+
+export const MANDALA_STASH_PREFIX = 'mandala_draft:';
+/** 入力のたびに退避するデバウンス（ms） */
+export const MANDALA_STASH_DEBOUNCE_MS = 500;
+
+export interface MandalaStash {
+  title: string;
+  body: string;
+  /** 退避時刻（ISO） */
+  at: string;
+}
+
+export function mandalaStashKey(cellId: string): string {
+  return `${MANDALA_STASH_PREFIX}${cellId}`;
+}
+
+/** 退避と保存済みが同じ内容か（同じなら提案を出さず退避を消す・§6-2） */
+export function isStashSameAsSaved(stash: Pick<MandalaStash, 'title' | 'body'>, saved: { title: string; body: string }): boolean {
+  return stash.title === saved.title && stash.body === saved.body;
+}
+
+/** §6-2 復元を提案する条件: 退避があり、かつ保存済みの本文と異なる（黙って上書きしない） */
+export function shouldOfferRestore(stash: MandalaStash | null, saved: { title: string; body: string }): boolean {
+  if (!stash) return false;
+  return !isStashSameAsSaved(stash, saved);
+}
+
+export function loadStash(cellId: string): MandalaStash | null {
+  try {
+    if (typeof window === 'undefined') return null;
+    const raw = window.localStorage.getItem(mandalaStashKey(cellId));
+    if (!raw) return null;
+    const v = JSON.parse(raw) as Partial<MandalaStash>;
+    if (typeof v?.title !== 'string' || typeof v?.body !== 'string') return null;
+    return { title: v.title, body: v.body, at: typeof v.at === 'string' ? v.at : '' };
+  } catch {
+    return null;
+  }
+}
+
+export function saveStash(cellId: string, stash: MandalaStash): void {
+  try {
+    window.localStorage.setItem(mandalaStashKey(cellId), JSON.stringify(stash));
+  } catch {}
+}
+
+export function clearStash(cellId: string): void {
+  try {
+    window.localStorage.removeItem(mandalaStashKey(cellId));
+  } catch {}
 }
