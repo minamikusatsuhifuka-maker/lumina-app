@@ -2853,12 +2853,16 @@ test('C59: 🎛メニュー名設定の並びがサイドバーの実表示と�
   }, { o: order, r: removed });
   await page.goto('/dashboard/display-settings');
 
-  // 1) サイドバーのホーム（先頭N件のリンク）が注入した並びで出ている
-  const sidebarHrefs = await page
-    .locator('a[data-nav-href]')
-    .evaluateAll((els) =>
-      els.filter((el) => (el as HTMLElement).checkVisibility()).map((el) => el.getAttribute('data-nav-href')),
-    );
+  // 1) サイドバーのホーム（先頭N件のリンク）が注入した並びで出ている。
+  //    303: 並びは localStorage をマウント後の effect で反映するため、読込直後の一発読みではなく反映を待って判定する（R-12）
+  const readSidebarHrefs = () =>
+    page
+      .locator('a[data-nav-href]')
+      .evaluateAll((els) =>
+        els.filter((el) => (el as HTMLElement).checkVisibility()).map((el) => el.getAttribute('data-nav-href')),
+      );
+  await expect.poll(async () => (await readSidebarHrefs()).slice(0, order.length), { message: 'サイドバー側の実並び', timeout: 15000 }).toEqual(order);
+  const sidebarHrefs = await readSidebarHrefs();
   expect(sidebarHrefs.slice(0, order.length), 'サイドバー側の実並び').toEqual(order);
 
   // 2) 設定画面のホームカテゴリを開くと、同じ並びで行が出る（＝ラベル配列が同一）
@@ -9202,9 +9206,9 @@ test('C120: サイドバーのメニュー検索・追加順・新着・合流�
     });
     await page.reload();
     await expect(search).toBeVisible({ timeout: 30000 });
-    // ホームは先頭N件（C59 と同じ取り方。ホームの見出しは EditableHome の内側にあるので親 div から辿らない）
-    const visibleHrefs = async () => (await hrefsIn(sidebar));
-    expect((await visibleHrefs()).slice(0, 7)).toEqual([
+    // ホームは先頭N件（C59 と同じ取り方。ホームの見出しは EditableHome の内側にあるので親 div から辿らない）。
+    // localStorage の反映は effect なので、反映を待って判定する（R-12）
+    await expect.poll(async () => (await hrefsIn(sidebar)).slice(0, 7), { timeout: 15000 }).toEqual([
       '/dashboard/deepresearch',
       '/dashboard',
       '/dashboard/orchestrator',
