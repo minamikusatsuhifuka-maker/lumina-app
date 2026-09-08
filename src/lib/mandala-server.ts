@@ -492,3 +492,75 @@ export async function expandCell(userId: string, chartId: string, parentCellId: 
   `) as CellRow[];
   return { ok: true, created, children: children.map(toCell) };
 }
+
+// ============================================================
+// 307: Kindle 目次の材料（チャート全体のリンクを解決済みで返す／起こした本の一覧）
+// ============================================================
+
+/**
+ * チャート全体のリンクを解決済み（title/exists/char_count）で返す。scope ごとに1クエリ（マスごとに引かない）。
+ * 解決は付加情報＝1種別の失敗で全体を落とさない（R-39: 失敗した種別は exists=false）
+ */
+export async function listLinksForChartResolved(userId: string, chartId: string): Promise<MandalaLinkResolved[]> {
+  await ensureMandalaTables();
+  const rows = (await sql`
+    SELECT l.id, l.cell_id, l.scope, l.item_key, l.note, l.created_at
+    FROM mandala_cell_links l
+    JOIN mandala_cells c ON c.id = l.cell_id
+    WHERE c.chart_id = ${chartId}::uuid AND l.user_id = ${userId}
+    ORDER BY l.created_at ASC, l.id ASC
+  `) as LinkRow[];
+  const byScope = new Map<string, string[]>();
+  for (const r of rows) (byScope.get(r.scope) ?? byScope.set(r.scope, []).get(r.scope)!).push(String(r.item_key));
+  const resolved = new Map<string, Map<string, Resolved>>();
+  for (const [scope, keys] of byScope) {
+    try {
+      resolved.set(scope, await resolveTargets(userId, scope, [...new Set(keys)]));
+    } catch (e) {
+      console.error('[mandala links] 解決に失敗:', scope, e instanceof Error ? e.message : 'unknown');
+      resolved.set(scope, new Map());
+    }
+  }
+  return rows.map((r) => {
+    const hit = resolved.get(r.scope)?.get(String(r.item_key));
+    return {
+      ...toLinkLite(r),
+      note: r.note ?? '',
+      title: hit ? hit.title : null,
+      exists: !!hit,
+      char_count: hit ? hit.char_count : null,
+      item_created_at: hit ? hit.created_at : null,
+    };
+  });
+}
+
+export interface MandalaBookRef {
+  id: number;
+  title: string;
+  status: string;
+  importedAt: string;
+  created_at: string;
+}
+
+/**
+ * §3-4 「📕 起こした本: n件」の導出。本の側の記録（kindle_books.book_meta.mandala.chartId）から読み出す
+ * （mandala_charts.meta には書かない・R-107）。所有者の本だけ・新しい順
+ */
+export async function listBooksFromChart(userId: string, chartId: string): Promise<MandalaBookRef[]> {
+  const rows = (await sql`
+    SELECT id, title, status, book_meta->'mandala'->>'importedAt' AS imported_at, created_at
+    FROM kindle_books
+    WHERE user_id = ${userId}
+      AND book_meta->'mandala'->>'source' = 'mandala'
+      AND book_meta->'mandala'->>'chartId' = ${chartId}
+    ORDER BY created_at DESC
+    LIMIT 100
+  `) as { id: number; title: string | null; status: string | null; imported_at: string | null; created_at: string }[];
+  return rows.map((r) => ({
+    id: Number(r.id),
+    title: r.title ?? '',
+    status: r.status ?? '',
+    importedAt: r.imported_at ?? String(r.created_at),
+    created_at: String(r.created_at),
+  }));
+}

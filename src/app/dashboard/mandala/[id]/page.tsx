@@ -11,6 +11,8 @@
 //   全選択は置かない・R-106）。上限は全9マス（MANDALA_COMPARE_MAX）、列数は幅で折り返す（R-94）。空のマスは選べない
 // - 302 §5 一次情報あり n/m は primaryInfoSummary（純関数・R-74）で導出。別の状態を保存しない
 // - チャート名は中央マスのタイトル（§3-5）。更新日時は JST（R-86）。AI 不使用
+// 307: 「📕 Kindleの目次にする」（ウィザードを ?mandala=<chartId> で開く）と「📕 起こした本: n件」（本の側の記録から導出・
+//   API の books。mandala_charts.meta には書かない・R-107）。マンダラ本体（301〜305）の挙動は変えない
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 import { use, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
@@ -23,6 +25,7 @@ import { MandalaLinkPopoverContent } from '@/components/mandala/MandalaLinks';
 import { useToast } from '@/components/ui/Toast';
 import { useHoverPopover } from '@/components/HoverPopover';
 import { jstDateTimeString } from '@/lib/jst';
+import { mandalaBooksLabel } from '@/lib/mandala-kindle';
 import {
   MANDALA_CHILD_TOTAL,
   MANDALA_DEPTH1_COUNT,
@@ -65,6 +68,9 @@ export default function MandalaChartPage({ params }: { params: Promise<{ id: str
   const { id } = use(params);
   const [chart, setChart] = useState<MandalaChartDetail | null>(null);
   const [links, setLinks] = useState<MandalaLinkLite[]>([]);
+  // 307: このチャートから起こした Kindle 案件（本の側の記録から導出）
+  const [books, setBooks] = useState<{ id: number; title: string; status: string; importedAt: string }[]>([]);
+  const [booksOpen, setBooksOpen] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<{ status: number; text: string } | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -86,7 +92,12 @@ export default function MandalaChartPage({ params }: { params: Promise<{ id: str
     setError(null);
     try {
       const res = await fetch(`/api/mandala/${encodeURIComponent(id)}`, { cache: 'no-store' });
-      const json = (await res.json().catch(() => ({}))) as { chart?: MandalaChartDetail; links?: MandalaLinkLite[]; error?: string };
+      const json = (await res.json().catch(() => ({}))) as {
+        chart?: MandalaChartDetail;
+        links?: MandalaLinkLite[];
+        books?: { id: number; title: string; status: string; importedAt: string }[];
+        error?: string;
+      };
       if (!res.ok || !json.chart) {
         setError({ status: res.status, text: json.error || `読み込みに失敗しました（${res.status}）` });
         setChart(null);
@@ -94,6 +105,7 @@ export default function MandalaChartPage({ params }: { params: Promise<{ id: str
       }
       setChart(json.chart);
       setLinks(Array.isArray(json.links) ? json.links : []);
+      setBooks(Array.isArray(json.books) ? json.books : []);
     } catch (e: unknown) {
       setError({ status: 0, text: e instanceof Error ? e.message : '読み込みに失敗しました' });
     } finally {
@@ -312,7 +324,46 @@ export default function MandalaChartPage({ params }: { params: Promise<{ id: str
               </span>
             </span>
           )}
+          {/* 307 §3-4: 起こした本 n件（0件は出さない）。押すと案件の一覧を開き、案件へ飛ぶ */}
+          {books.length > 0 && (
+            <span style={{ position: 'relative', display: 'inline-block' }}>
+              <button
+                type="button"
+                data-mandala-books={books.length}
+                aria-expanded={booksOpen}
+                onClick={() => setBooksOpen((v) => !v)}
+                title="このマンダラから起こした Kindle の案件"
+                style={{ ...btn, padding: '4px 10px', fontWeight: 700, color: '#B45309', borderColor: 'rgba(180,83,9,0.4)' }}
+              >
+                {mandalaBooksLabel(books.length)}
+              </button>
+              {booksOpen && (
+                <div data-mandala-books-list style={{ position: 'absolute', top: '100%', left: 0, marginTop: 4, zIndex: 50, minWidth: 260, maxWidth: 360, padding: 8, background: 'var(--bg-primary)', border: '1px solid var(--border)', borderRadius: 10, boxShadow: '0 8px 24px rgba(0,0,0,0.12)', display: 'flex', flexDirection: 'column', gap: 4 }}>
+                  {books.map((b) => (
+                    <Link
+                      key={b.id}
+                      data-mandala-book={b.id}
+                      href={`/dashboard/kindle-wizard?bookId=${b.id}`}
+                      style={{ display: 'flex', justifyContent: 'space-between', gap: 8, padding: '6px 8px', borderRadius: 6, textDecoration: 'none', color: 'var(--text-primary)', fontSize: 12 }}
+                    >
+                      <span style={{ fontWeight: 600, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>📕 {b.title || '無題'}</span>
+                      <span style={{ color: 'var(--text-muted)', flexShrink: 0 }}>{jstDateTimeString(b.importedAt)}</span>
+                    </Link>
+                  ))}
+                </div>
+              )}
+            </span>
+          )}
           <span style={{ flex: 1 }} />
+          {/* 307 §3-1: ウィザードをこのチャートを選んだ状態で開く（入口はボタン1つ） */}
+          <Link
+            data-mandala-kindle
+            href={`/dashboard/kindle-wizard?mandala=${encodeURIComponent(id)}`}
+            title="このマンダラの章・節・著者メモ・素材から Kindle の目次を起こす（ウィザードが開きます）"
+            style={{ ...btn, textDecoration: 'none', display: 'inline-flex', alignItems: 'center' }}
+          >
+            📕 Kindleの目次にする
+          </Link>
           {/* 305 §2-1: 9マス／81マスの切替（幅を取らない2択・保存） */}
           <span data-mandala-view-toggle style={{ display: 'inline-flex', gap: 2 }}>
             {(['9', '81'] as MandalaView[]).map((v) => (

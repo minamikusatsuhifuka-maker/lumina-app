@@ -492,3 +492,37 @@ export async function removeMandalaLink(request: APIRequestContext, id: number) 
 export async function expandMandalaCell(request: APIRequestContext, chartId: string, parentCellId: string) {
   return request.post(`${MANDALA_API}/${chartId}`, { data: { action: 'expand', parentCellId } });
 }
+
+// ============================================================================
+// 307: 📕 Kindle 案件（kindle_books）— マンダラから起こした本の掃除
+// ============================================================================
+
+export const KINDLE_API = '/api/kindle';
+
+export async function listKindleBooks(request: APIRequestContext): Promise<{ id: number; title: string; bookMeta: Record<string, unknown> | null }[]> {
+  const res = await request.get(KINDLE_API);
+  expect(res.status(), 'Kindle 案件の一覧APIが200であること').toBe(200);
+  const books = (await res.json()).books;
+  return Array.isArray(books) ? books : [];
+}
+
+export async function getKindleBook(request: APIRequestContext, id: number) {
+  const res = await request.get(`${KINDLE_API}?id=${id}`);
+  expect(res.status(), `Kindle 案件API(id=${id})が200であること`).toBe(200);
+  return (await res.json()) as {
+    book: { id: number; title: string; bookMeta: Record<string, any> | null };
+    chapters: { id: number; chapterNumber: number; title: string; summary: string; status: string }[];
+  };
+}
+
+export async function deleteKindleBook(request: APIRequestContext, id: number) {
+  return request.delete(`${KINDLE_API}?id=${id}`);
+}
+
+/** 過去実行分を含め、[E2E] 印のタイトルを持つ Kindle 案件を全削除する（章は CASCADE） */
+export async function cleanupE2EKindleBooks(request: APIRequestContext) {
+  const books = await listKindleBooks(request);
+  for (const b of books) {
+    if (String(b.title ?? '').includes(E2E_PREFIX)) await deleteKindleBook(request, b.id);
+  }
+}

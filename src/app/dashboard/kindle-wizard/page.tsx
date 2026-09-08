@@ -6,7 +6,18 @@ import { episodeDisplayTitle, episodeToText } from '@/lib/episodes';
 import { useState, useEffect, useMemo, useRef, useCallback, Suspense } from 'react';
 import { createPortal } from 'react-dom';
 import { useSearchParams, useRouter } from 'next/navigation';
-import { LibraryItemRow } from '@/components/LibraryItemRow';
+import { LibraryItemRow, CharCountBadge } from '@/components/LibraryItemRow';
+// 307: マンダラから目次を起こす（入口①）。変換は lib/mandala-kindle.ts の純関数、プレビューは /api/mandala/[id]/kindle
+import { MarkdownBody } from '@/components/MarkdownBody';
+import { jstDateTimeString } from '@/lib/jst';
+import { chartDisplayTitle, isUuidLike, type MandalaChartSummary } from '@/lib/mandala-shared';
+import {
+  mandalaKindleCountLines,
+  mandalaOriginLabel,
+  parseMandalaBookSource,
+  rebuildMandalaCellIds,
+  type MandalaKindleResult,
+} from '@/lib/mandala-kindle';
 import { KINDLE_PURPOSES, KINDLE_PURPOSE_KEYS, type KindlePurposeKey } from '@/lib/kindle-purposes';
 import {
   KINDLE_STYLES,
@@ -112,6 +123,33 @@ interface OutlineChapter {
   key_points?: string[];
   target_chars?: number;
   source_ids?: string[];
+  /** 307: マンダラから起こした章の出どころ（④の並べ替え・削除に追随して create へ渡す） */
+  mandala_cell_id?: string;
+  mandala_section_cell_ids?: string[];
+}
+
+/* 307: プレビューAPIの応答（result は純関数の出力そのまま＝保存にもこの chapters を使う・R-74） */
+interface MandalaPreviewResponse {
+  chartId: string;
+  updated_at: string;
+  includeEmpty: boolean;
+  result: MandalaKindleResult;
+  materials: { id: string; title: string; char_count: number; created_at: string | null; source: KindleMaterialSource }[];
+}
+type KindleInputMode = 'materials' | 'mandala';
+
+/* 307 §3-4: 起こした案件の見出し付近に出す出どころ（book_meta.mandala から導出・JST・戻りリンクは新しいタブ） */
+function MandalaOriginNote({ bookMeta }: { bookMeta: unknown }) {
+  const src = parseMandalaBookSource(bookMeta);
+  if (!src) return null;
+  return (
+    <div data-kw-mandala-origin={src.chartId} style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 4, display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
+      <span data-kw-mandala-origin-label>🔲 {mandalaOriginLabel(src, jstDateTimeString(src.importedAt))}</span>
+      <a data-kw-mandala-origin-link href={`/dashboard/mandala/${src.chartId}`} target="_blank" rel="noopener noreferrer" style={{ color: '#6c63ff', textDecoration: 'none', fontWeight: 600 }}>
+        チャートを開く ↗
+      </a>
+    </div>
+  );
 }
 interface Outline {
   book_title: string;
@@ -292,6 +330,19 @@ function KindleWizardInner() {
   const [validating, setValidating] = useState(false);
   // 229A: 素材ソースのタブ（選択はタブ横断で保持＝DR+note混在可・上限は合算）
   const [sourceTab, setSourceTab] = useState<KindleMaterialSource>('deepresearch');
+
+  /* 307: ①の入力方法。既定は「素材から」（既存のまま・R-88）。'mandala' はマンダラから目次を起こす */
+  const [inputMode, setInputMode] = useState<KindleInputMode>('materials');
+  const [mandalaCharts, setMandalaCharts] = useState<MandalaChartSummary[] | null>(null);
+  const [mandalaChartId, setMandalaChartId] = useState('');
+  const [mandalaIncludeEmpty, setMandalaIncludeEmpty] = useState(false);
+  const [mandalaPreview, setMandalaPreview] = useState<MandalaPreviewResponse | null>(null);
+  const [mandalaLoading, setMandalaLoading] = useState(false);
+  const [mandalaError, setMandalaError] = useState('');
+  const [mandalaOpen, setMandalaOpen] = useState<Set<number>>(new Set());
+  const mandalaReqRef = useRef(0);
+  // 「この目次で進む」で確定した材料。②〜④はこれを使い、④は AI 生成せずこの目次を出す。素材モードへ戻せば捨てる
+  const [mandalaSource, setMandalaSource] = useState<{ chartId: string; chartTitle: string; nonce: string; outline: Outline } | null>(null);
 
   /* ②③ 設定 */
   // 225a: 複数目的（221案ii）。選択順を保持する配列＋④で表示中の目的（タブ）。
@@ -518,6 +569,65 @@ function KindleWizardInner() {
     return chs;
   }, []);
 
+  /* 307 §3-1: チャート画面の「📕 Kindleの目次にする」→ ?mandala=<chartId> でそのチャートを選んだ状態で開く */
+  useEffect(() => {
+    const m = searchParams.get('mandala');
+    if (!m || !isUuidLike(m)) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setInputMode('mandala');
+    setMandalaChartId(m);
+  }, [searchParams]);
+
+  /* 307: チャート一覧（軽いAPI・301 §4-3⑥）はマンダラ入力を選んだときだけ読む */
+  useEffect(() => {
+    if (inputMode !== 'mandala' || mandalaCharts !== null) return;
+    let alive = true;
+    fetch('/api/mandala', { cache: 'no-store' })
+      .then((r) => r.json())
+      .then((data) => {
+        if (!alive) return;
+        setMandalaCharts(Array.isArray(data?.items) ? (data.items as MandalaChartSummary[]) : []);
+      })
+      .catch(() => {
+        if (alive) setMandalaCharts([]);
+      });
+    return () => {
+      alive = false;
+    };
+  }, [inputMode, mandalaCharts]);
+
+  /* 307 §3-2: チャート・含めない条件が変わるたびにプレビュー（純関数の出力）を取り直す。古い応答は捨てる */
+  useEffect(() => {
+    if (inputMode !== 'mandala' || !mandalaChartId) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setMandalaPreview(null);
+      return;
+    }
+    const seq = ++mandalaReqRef.current;
+    setMandalaLoading(true);
+    setMandalaError('');
+    fetch(`/api/mandala/${encodeURIComponent(mandalaChartId)}/kindle?includeEmpty=${mandalaIncludeEmpty ? '1' : '0'}`, { cache: 'no-store' })
+      .then(async (r) => {
+        const data = await r.json().catch(() => ({}));
+        if (seq !== mandalaReqRef.current) return;
+        if (!r.ok || !data?.result) {
+          setMandalaPreview(null);
+          setMandalaError(data?.error || `プレビューに失敗しました (${r.status})`);
+          return;
+        }
+        setMandalaPreview(data as MandalaPreviewResponse);
+        setMandalaOpen(new Set());
+      })
+      .catch((e: unknown) => {
+        if (seq !== mandalaReqRef.current) return;
+        setMandalaPreview(null);
+        setMandalaError(e instanceof Error ? e.message : 'プレビューに失敗しました');
+      })
+      .finally(() => {
+        if (seq === mandalaReqRef.current) setMandalaLoading(false);
+      });
+  }, [inputMode, mandalaChartId, mandalaIncludeEmpty]);
+
   useEffect(() => {
     const q = searchParams.get('bookId');
     if (!q) return;
@@ -647,12 +757,68 @@ function KindleWizardInner() {
 
   // 未生成の目的ぶんを直列生成（③→④遷移時・部分成功=失敗した目的は④タブから個別再生成）
   const generateMissingOutlines = async () => {
+    // 307: マンダラから起こした目次があるときは AI 生成せず、目的ごとに同じ目次を置く（同じ入力→同じ出力・R-74）
+    if (mandalaSource) {
+      setOutlines((prev) => {
+        const next = { ...prev };
+        for (const p of purposeKeys) {
+          if (!next[p]) next[p] = { ...mandalaSource.outline, chapters: mandalaSource.outline.chapters.map((c) => ({ ...c })) };
+        }
+        return next;
+      });
+      return;
+    }
     for (const p of purposeKeys) {
       if (!outlines[p]) {
         // eslint-disable-next-line no-await-in-loop
         await generateOutline(p);
       }
     }
+  };
+
+  /* 307: ①の入力方法の切替。素材モードへ戻したらマンダラ由来の材料は捨てる（既存経路は既定のまま） */
+  const switchInputMode = (mode: KindleInputMode) => {
+    setInputMode(mode);
+    setError('');
+    if (mode === 'materials' && mandalaSource) {
+      setMandalaSource(null);
+      setOutlines({});
+    }
+  };
+
+  /* 307 §3-3: プレビューの結果（純関数の出力）をそのままウィザードの目次・素材にして②へ。DB にはまだ書かない（④確定で既存経路） */
+  const proceedFromMandala = () => {
+    const res = mandalaPreview?.result;
+    if (!mandalaPreview || !res || !res.ok) return;
+    const outline: Outline = {
+      book_title: res.bookTitle,
+      chapters: res.chapters.map((c) => ({
+        chapter_num: c.chapter_num,
+        title: c.title,
+        summary: c.summary,
+        source_ids: [...c.source_ids],
+        mandala_cell_id: c.cellId,
+        mandala_section_cell_ids: c.sections.map((s) => s.cellId),
+      })),
+    };
+    // 素材＝リンク先の成果物（行）。①の一覧に無い行（古いもの・別typeで一覧外）はプレビューの行を混載する（230 B-1 と同じ流儀）
+    setItems((prev) => {
+      const have = new Set(prev.map((i) => String(i.id)));
+      const extra = mandalaPreview.materials
+        .filter((m) => !have.has(String(m.id)))
+        .map((m) => ({ id: m.id, title: m.title, content: '', char_count: m.char_count, created_at: m.created_at, type: m.source, is_favorite: 0, tags: '' }));
+      return extra.length > 0 ? [...prev, ...extra] : prev;
+    });
+    setSelectedIds(new Set(res.sourceIds));
+    setOutlines({});
+    setMandalaSource({
+      chartId: mandalaPreview.chartId,
+      chartTitle: res.untitledTheme ? '' : res.bookTitle,
+      nonce: `mk-${crypto.randomUUID()}`,
+      outline,
+    });
+    setError('');
+    setStep(2);
   };
 
   const patchOutline = (purpose: KindlePurposeKey, updater: (prev: Outline) => Outline) => {
@@ -684,8 +850,10 @@ function KindleWizardInner() {
 
   // 225a: 目的ごとに1冊ずつ作成（直列）。複数目的時のみ共通seriesKeyで束ねる（単一時はnull=従来互換）。
   // 先頭の1冊で⑤へ入り、残りは「作成中の本」（シリーズ束ね表示）から1冊ずつ進める
+  const creatingRef = useRef(false); // R-87: 確定の二重発火は同期的な ref で閉じる（state の disabled では往復中に通る）
   const confirmOutline = async () => {
     if (purposeKeys.length === 0) return;
+    if (creatingRef.current) return;
     for (const p of purposeKeys) {
       const o = outlines[p];
       if (!o) {
@@ -698,9 +866,12 @@ function KindleWizardInner() {
       }
     }
     setError('');
+    creatingRef.current = true;
     setCreating(true);
     try {
       const seriesKey = purposeKeys.length > 1 ? `wz-${crypto.randomUUID()}` : null;
+      // 307 §4-3: 出どころの記録（方式1・book_meta.mandala）。importedAt は複数目的でも同じ時刻
+      const importedAt = new Date().toISOString();
       const createdIds: number[] = [];
       for (const p of purposeKeys) {
         const o = outlines[p]!;
@@ -720,6 +891,18 @@ function KindleWizardInner() {
             styleKey,
             preset,
             seriesKey,
+            ...(mandalaSource
+              ? {
+                  mandala: {
+                    source: 'mandala',
+                    chartId: mandalaSource.chartId,
+                    chartTitle: mandalaSource.chartTitle,
+                    cellIds: rebuildMandalaCellIds(normalized.chapters),
+                    importedAt,
+                    nonce: mandalaSource.nonce,
+                  },
+                }
+              : {}),
           }),
         });
         // eslint-disable-next-line no-await-in-loop
@@ -738,6 +921,7 @@ function KindleWizardInner() {
     } catch (e: any) {
       setError(e.message);
     } finally {
+      creatingRef.current = false;
       setCreating(false);
     }
   };
@@ -1682,6 +1866,161 @@ function KindleWizardInner() {
       {/* ── ① 素材を選ぶ ── */}
       {step === 1 && (
         <div>
+          {/* 307 §3-1: 入力方法（既定は素材から・既存のまま）。「マンダラから目次を起こす」を並べる */}
+          <div data-kw-input-modes role="group" aria-label="入力方法" style={{ display: 'flex', gap: 6, marginBottom: 12, flexWrap: 'wrap', alignItems: 'center' }}>
+            {([
+              { key: 'materials', label: '📚 素材から目次を起こす（既定）' },
+              { key: 'mandala', label: '🔲 マンダラから目次を起こす' },
+            ] as { key: KindleInputMode; label: string }[]).map((m) => {
+              const active = inputMode === m.key;
+              return (
+                <button
+                  key={m.key}
+                  type="button"
+                  data-kw-input-mode={m.key}
+                  aria-pressed={active}
+                  onClick={() => switchInputMode(m.key)}
+                  style={{ padding: '6px 14px', borderRadius: 8, fontSize: 12, fontWeight: active ? 700 : 500, background: active ? 'rgba(108,99,255,0.12)' : 'transparent', border: `1px solid ${active ? '#6c63ff' : 'var(--border)'}`, color: active ? 'var(--text-primary)' : 'var(--text-muted)', cursor: 'pointer' }}
+                >
+                  {m.label}
+                </button>
+              );
+            })}
+            <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>マンダラの骨格（章・節・著者メモ・素材）を先に決めてから書く「考えてから集める」向き</span>
+          </div>
+
+          {inputMode === 'mandala' && (
+            <div data-kw-mandala-panel style={{ padding: 14, background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 12 }}>
+              <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap', marginBottom: 10 }}>
+                <label style={{ fontSize: 12, color: 'var(--text-secondary)', display: 'inline-flex', gap: 6, alignItems: 'center' }}>
+                  チャート
+                  <select
+                    data-kw-mandala-chart
+                    value={mandalaChartId}
+                    onChange={(e) => setMandalaChartId(e.target.value)}
+                    style={{ padding: '6px 10px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--bg-primary)', color: 'var(--text-primary)', fontSize: 12, maxWidth: 360 }}
+                  >
+                    <option value="">{mandalaCharts === null ? '読み込み中…' : mandalaCharts.length === 0 ? 'マンダラがありません' : '— 選んでください —'}</option>
+                    {(mandalaCharts ?? []).map((c) => (
+                      <option key={c.id} value={c.id}>
+                        {chartDisplayTitle(c.title)}（{c.filled_total}マス・🔗{c.link_count}）
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label style={{ fontSize: 12, color: 'var(--text-secondary)', display: 'inline-flex', gap: 4, alignItems: 'center', cursor: 'pointer' }}>
+                  <input type="checkbox" data-kw-mandala-include-empty checked={mandalaIncludeEmpty} onChange={(e) => setMandalaIncludeEmpty(e.target.checked)} />
+                  空のマスも含める
+                </label>
+                <a
+                  data-kw-mandala-open
+                  href={mandalaChartId ? `/dashboard/mandala/${mandalaChartId}` : '/dashboard/mandala'}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  style={{ fontSize: 12, color: '#6c63ff', textDecoration: 'none', fontWeight: 600 }}
+                >
+                  🔲 マンダラを開く ↗
+                </a>
+                {mandalaLoading && <span data-kw-mandala-loading style={{ fontSize: 11, color: 'var(--text-muted)' }}>読み込み中…</span>}
+              </div>
+              {mandalaError && (
+                <div data-kw-mandala-error style={{ padding: '8px 12px', background: 'rgba(239,68,68,0.06)', border: '1px solid rgba(239,68,68,0.3)', borderRadius: 8, fontSize: 12, color: '#dc2626', marginBottom: 10 }}>
+                  ❌ {mandalaError}
+                </div>
+              )}
+              {!mandalaChartId && !mandalaLoading && (
+                <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>チャートを選ぶと、起こした結果の目次（章・節・著者メモの字数・素材件数・📔件数）を先に見られます。</div>
+              )}
+              {mandalaPreview && (() => {
+                const res = mandalaPreview.result;
+                const lines = mandalaKindleCountLines(res.counts);
+                return (
+                  <div data-kw-mandala-preview data-kw-mandala-ok={res.ok ? '1' : '0'}>
+                    <div style={{ display: 'flex', gap: 8, alignItems: 'baseline', flexWrap: 'wrap', marginBottom: 6 }}>
+                      <span data-kw-mandala-book-title style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-primary)' }}>📕 {res.bookTitle}</span>
+                      {res.untitledTheme && (
+                        <span data-kw-mandala-untitled style={{ fontSize: 11, color: '#B45309' }}>中央（テーマ）が空のため「（無題）」で進みます。書籍タイトルは④で付けられます</span>
+                      )}
+                    </div>
+                    <div data-kw-mandala-counts style={{ display: 'flex', gap: 10, flexWrap: 'wrap', fontSize: 12, color: 'var(--text-secondary)', marginBottom: 10 }}>
+                      {lines.map((l) => (
+                        <span key={l.key} data-kw-mandala-count={l.key} style={{ fontWeight: l.key === 'excludedEmpty' || l.key === 'missingLinks' || l.key === 'referenceOnly' ? 600 : 400, color: l.key === 'missingLinks' ? '#B45309' : undefined }}>
+                          {l.text}
+                        </span>
+                      ))}
+                    </div>
+                    {!res.ok ? (
+                      <div data-kw-mandala-reject style={{ padding: '10px 12px', background: 'rgba(239,68,68,0.06)', border: '1px solid rgba(239,68,68,0.3)', borderRadius: 8, fontSize: 12, color: '#dc2626' }}>
+                        起こせません: {res.reason}
+                      </div>
+                    ) : (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                        {res.chapters.map((c) => {
+                          const open = mandalaOpen.has(c.chapter_num);
+                          const matN = c.source_ids.length;
+                          const epN = [...c.refs, ...c.sections.flatMap((s) => s.refs)].filter((r) => r.kind === 'material' && r.scope === 'episode').length;
+                          const refOnly = [...c.refs, ...c.sections.flatMap((s) => s.refs)].filter((r) => r.kind === 'reference').length;
+                          return (
+                            <div key={c.cellId} data-kw-mandala-chapter={c.chapter_num} data-kw-mandala-cell={c.cellId} style={{ background: 'var(--bg-primary)', border: '1px solid var(--border)', borderRadius: 8, padding: '8px 10px' }}>
+                              <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                                <button
+                                  type="button"
+                                  data-kw-mandala-chapter-toggle
+                                  aria-expanded={open}
+                                  onClick={() => setMandalaOpen((prev) => { const next = new Set(prev); if (next.has(c.chapter_num)) next.delete(c.chapter_num); else next.add(c.chapter_num); return next; })}
+                                  style={{ background: 'transparent', border: 'none', padding: 0, cursor: 'pointer', color: 'var(--text-primary)', fontSize: 13, fontWeight: 700, textAlign: 'left', minWidth: 0 }}
+                                >
+                                  {open ? '▼' : '▶'} 第{c.chapter_num}章 <span data-kw-mandala-chapter-title>{c.title}</span>
+                                </button>
+                                <span style={{ display: 'inline-flex', gap: 6, alignItems: 'center', flexWrap: 'wrap', fontSize: 11, color: 'var(--text-muted)' }}>
+                                  <CharCountBadge n={c.memo.length} unit="字" compact />
+                                  <span data-kw-mandala-chapter-sections={c.sections.length}>節 {c.sections.length}</span>
+                                  <span data-kw-mandala-chapter-materials={matN}>素材 {matN}</span>
+                                  <span data-kw-mandala-chapter-episodes={epN}>📔 {epN}</span>
+                                  {refOnly > 0 && <span data-kw-mandala-chapter-refonly={refOnly}>参照のみ {refOnly}</span>}
+                                </span>
+                              </div>
+                              {open && (
+                                <div data-kw-mandala-chapter-body style={{ marginTop: 8, display: 'flex', flexDirection: 'column', gap: 8 }}>
+                                  {c.memo.trim() ? (
+                                    <MarkdownBody text={c.memo} data-kw-mandala-memo={c.cellId} style={{ fontSize: 12, lineHeight: 1.7, color: 'var(--text-primary)' }} />
+                                  ) : (
+                                    <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>（著者メモなし・タイトルのみ）</div>
+                                  )}
+                                  {c.sections.map((sct) => (
+                                    <div key={sct.cellId} data-kw-mandala-section={sct.cellId} style={{ paddingLeft: 10, borderLeft: '2px solid rgba(108,99,255,0.35)' }}>
+                                      <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap', fontSize: 12, fontWeight: 600, color: 'var(--text-primary)' }}>
+                                        § <span data-kw-mandala-section-title>{sct.title}</span>
+                                        <CharCountBadge n={sct.memo.length} unit="字" compact />
+                                        {sct.refs.filter((r) => r.kind !== 'missing').length > 0 && <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>素材 {sct.refs.filter((r) => r.kind === 'material').length}</span>}
+                                      </div>
+                                      {sct.memo.trim() && <MarkdownBody text={sct.memo} data-kw-mandala-memo={sct.cellId} style={{ fontSize: 12, lineHeight: 1.7, color: 'var(--text-primary)', marginTop: 4 }} />}
+                                    </div>
+                                  ))}
+                                  {[...c.refs, ...c.sections.flatMap((sct) => sct.refs)].filter((r) => r.kind !== 'missing').length > 0 && (
+                                    <div data-kw-mandala-chapter-refs style={{ fontSize: 11, color: 'var(--text-secondary)', display: 'flex', flexDirection: 'column', gap: 2 }}>
+                                      {[...c.refs, ...c.sections.flatMap((sct) => sct.refs)].filter((r) => r.kind !== 'missing').map((r) => (
+                                        <span key={`${r.scope}:${r.item_key}`} data-kw-mandala-ref={`${r.scope}:${r.item_key}`} data-kw-mandala-ref-kind={r.kind}>
+                                          {KINDLE_MATERIAL_SOURCE_META[(r.scope === 'episode' ? 'episode' : r.scope === 'text_analysis' ? 'analysis' : 'deepresearch') as KindleMaterialSource]?.emoji ?? '🔗'} {r.title || '（無題）'}
+                                          {r.kind === 'reference' ? '（参照のみ・メモ末尾に一覧）' : ''}
+                                        </span>
+                                      ))}
+                                    </div>
+                                  )}
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
+            </div>
+          )}
+
+          {inputMode === 'materials' && (<>
           {/* 229A: 素材ソースのタブ（🗂DR／📝note記事・混在選択可） */}
           <div style={{ display: 'flex', gap: 6, marginBottom: 10, flexWrap: 'wrap' }}>
             {KINDLE_SOURCE_TABS.map((k) => {
@@ -1801,6 +2140,7 @@ function KindleWizardInner() {
               ))}
             </div>
           )}
+          </>)}
 
         </div>
       )}
@@ -1937,6 +2277,11 @@ function KindleWizardInner() {
             }
             return (
               <div>
+                {mandalaSource && outline.chapters.some((c) => c.mandala_cell_id) && (
+                  <div data-kw-mandala-outline-note={mandalaSource.chartId} style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 10, padding: '6px 10px', background: 'rgba(108,99,255,0.08)', borderRadius: 8 }}>
+                    🔲 マンダラ『{chartDisplayTitle(mandalaSource.chartTitle)}』から起こした目次です（AI生成なし・章の順は骨格のまま）。章タイトルの編集・並べ替え・削除はここで行えます。
+                  </div>
+                )}
                 <div style={{ marginBottom: 16 }}>
                   <p style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 4 }}>
                     書籍タイトル（編集可）{purposeKeys.length > 1 && ` — ${KINDLE_PURPOSES[p].emoji} ${KINDLE_PURPOSES[p].label}の1冊`}
@@ -1987,6 +2332,7 @@ function KindleWizardInner() {
         <div>
           <div style={{ marginBottom: 14 }}>
             <div style={{ fontSize: 16, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 6 }}>{bookTitle}</div>
+            <MandalaOriginNote bookMeta={book?.bookMeta} />
             <div style={{ height: 8, background: 'var(--bg-secondary)', borderRadius: 99, overflow: 'hidden', maxWidth: 480 }}>
               <div style={{ height: '100%', width: `${chapters.length ? (completedCount / chapters.length) * 100 : 0}%`, background: 'linear-gradient(135deg, #6c63ff, #8b5cf6)', transition: 'width 0.3s' }} />
             </div>
@@ -2510,6 +2856,7 @@ function KindleWizardInner() {
         <div>
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 10, alignItems: 'center' }}>
             <span style={{ fontSize: 16, fontWeight: 700, color: 'var(--text-primary)', marginRight: 'auto' }}>✅ {bookTitle}（全{chapters.length}章・{(book?.currentWordCount ?? 0).toLocaleString()}字）</span>
+            <MandalaOriginNote bookMeta={book?.bookMeta} />
             {/* 232: 本全体のリッチコピー（MDダウンロードと同一内容。Word等には体裁付きで貼れる） */}
             <button
               onClick={async () => {
@@ -3049,7 +3396,26 @@ function KindleWizardInner() {
 
       {/* ── 右下固定フッター（全ステップ共通・スクロール位置に依存しない主操作） ── */}
       <WizardFooterBar>
-        {step === 1 && (
+        {step === 1 && inputMode === 'mandala' && (
+          <>
+            <span data-kw-mandala-footer style={{ fontSize: 13, color: mandalaPreview?.result.ok ? 'var(--text-primary)' : 'var(--text-muted)', fontWeight: 600 }}>
+              {mandalaPreview?.result.ok
+                ? `章 ${mandalaPreview.result.counts.chapters}・節 ${mandalaPreview.result.counts.sections}・素材 ${mandalaPreview.result.counts.materials}/${MAX_KINDLE_SOURCES}件`
+                : 'チャートを選んでください'}
+            </span>
+            <button
+              type="button"
+              data-kw-mandala-proceed
+              onClick={proceedFromMandala}
+              disabled={!mandalaPreview?.result.ok || mandalaLoading}
+              title={mandalaPreview && !mandalaPreview.result.ok ? mandalaPreview.result.reason : undefined}
+              style={{ ...primaryBtn, opacity: mandalaPreview?.result.ok && !mandalaLoading ? 1 : 0.5, cursor: mandalaPreview?.result.ok && !mandalaLoading ? 'pointer' : 'not-allowed' }}
+            >
+              この目次で進む →
+            </button>
+          </>
+        )}
+        {step === 1 && inputMode === 'materials' && (
           <>
             <span data-kw-limits style={{ fontSize: 13, color: selectedIds.size > 0 ? 'var(--text-primary)' : 'var(--text-muted)', fontWeight: 600 }}>
               選択 {selectedIds.size}/{MAX_KINDLE_SOURCES}件 ・ 合計 {totalChars.toLocaleString()}字（上限{MAX_KINDLE_TOTAL_CHARS.toLocaleString()}字）
@@ -3086,7 +3452,7 @@ function KindleWizardInner() {
               }}
               style={primaryBtn}
             >
-              目次を生成する →
+              {mandalaSource ? 'マンダラの目次で進む →' : '目次を生成する →'}
             </button>
           </>
         )}

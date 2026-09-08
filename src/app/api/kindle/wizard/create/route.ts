@@ -4,6 +4,7 @@ import { neon } from '@neondatabase/serverless';
 import { fetchKindleMaterials, validateKindleMaterialLimits } from '@/lib/kindle-materials';
 import { getKindlePurpose, KINDLE_PURPOSE_KEYS } from '@/lib/kindle-purposes';
 import { getKindleStyle, KINDLE_STYLE_KEYS } from '@/lib/kindle-styles';
+import { validateMandalaBookSource, type MandalaBookSource } from '@/lib/mandala-kindle';
 
 export const runtime = 'nodejs';
 export const maxDuration = 60;
@@ -15,6 +16,8 @@ interface WizardOutlineChapter {
   target_chars?: number;
   source_ids?: string[];
 }
+
+// 307: 出どころの記録（§4-3 方式1）。オプトイン＝渡されたときだけ book_meta.mandala に載る。既存経路の挙動は不変（R-88）
 
 // ウィザード④目次確定 → kindle_books + kindle_chapters を一括作成。AI不使用。
 // 素材ID・目的・文体・プリセットは book_meta JSON に格納（スキーマ変更なし）。
@@ -32,6 +35,12 @@ export async function POST(req: NextRequest) {
   }
 
   const { outline, sourceIds, purposeKey, styleKey, preset, seriesKey } = body ?? {};
+  // 307: mandala が渡されたときは形を検証し、不正なら作らない（黙って記録を落とさない＝fail-closed）
+  let mandala: MandalaBookSource | null = null;
+  if (body?.mandala !== undefined && body?.mandala !== null) {
+    mandala = validateMandalaBookSource(body.mandala);
+    if (!mandala) return NextResponse.json({ error: 'mandala（出どころの記録）の形が不正です' }, { status: 400 });
+  }
 
   // ── 入力検証（fail-closed: 不正な状態をDBに書かない） ──
   if (!outline || typeof outline.book_title !== 'string' || !outline.book_title.trim()) {
@@ -67,9 +76,13 @@ export async function POST(req: NextRequest) {
         { status: 400 },
       );
     }
-    const check = validateKindleMaterialLimits(materials);
-    if (!check.ok) {
-      return NextResponse.json({ error: check.error }, { status: 400 });
+    // 307: マンダラから起こす本は素材0件でも作れる（骨子＝章の summary が本文生成の土台。generate-chapter は
+    // 「割当素材なし」を扱える）。上限（件数・字数）の検証は素材があるときは従来どおり
+    if (materials.length > 0 || !mandala) {
+      const check = validateKindleMaterialLimits(materials);
+      if (!check.ok) {
+        return NextResponse.json({ error: check.error }, { status: 400 });
+      }
     }
 
     // 章ごとの素材割当は実在IDのみ通す（AI出力のハルシネーションIDを捨てる）
@@ -82,6 +95,22 @@ export async function POST(req: NextRequest) {
       chapterSourceRefs[String(c.chapter_num)] = assigned;
     }
 
+    const sql = neon(process.env.DATABASE_URL!);
+
+    // 307 R-87: 同じプレビュー（nonce）×同じ目的の本が既にあれば作らず、その本を返す（クライアントの ref と二重の遮断）
+    if (mandala) {
+      const [dup] = await sql`
+        SELECT id FROM kindle_books
+        WHERE user_id = ${userId}
+          AND book_meta->'mandala'->>'nonce' = ${mandala.nonce}
+          AND book_meta->>'purposeKey' = ${getKindlePurpose(purposeKey).key}
+        ORDER BY id ASC LIMIT 1
+      `;
+      if (dup) {
+        return NextResponse.json({ bookId: (dup as any).id as number, chapterCount: chapters.length, duplicate: true });
+      }
+    }
+
     const bookMeta = {
       origin: 'wizard',
       preset,
@@ -91,37 +120,40 @@ export async function POST(req: NextRequest) {
       seriesKey: typeof seriesKey === 'string' && /^[\w-]{1,64}$/.test(seriesKey) ? seriesKey : null,
       sourceIds,
       chapterSourceRefs,
+      // 307: 出どころ（マンダラから起こした本だけ）。再取込・反応記録の土台（本の情報は本の側に・R-107）
+      ...(mandala ? { mandala } : {}),
     };
     const targetWordCount = chapters.reduce(
       (sum, c) => sum + (typeof c.target_chars === 'number' && c.target_chars > 0 ? c.target_chars : 3500),
       0,
     );
 
-    const sql = neon(process.env.DATABASE_URL!);
-    const [book] = await sql`
-      INSERT INTO kindle_books
-        (user_id, title, subtitle, language, target_reader, target_word_count, status, phase, book_meta)
-      VALUES
-        (${userId}, ${outline.book_title.trim()}, ${outline.subtitle ?? null}, 'ja',
-         ${outline.target_reader ?? null}, ${targetWordCount}, 'writing', 5, ${JSON.stringify(bookMeta)}::jsonb)
-      RETURNING id
+    // 307: 本＋章を CTE 1文で書く＝章の INSERT が1つでも失敗すれば本も残らない（1トランザクション・fail-closed）。
+    // 以前は本→章の順に別文で書き、章の失敗時に本を削除して補償していた（クラッシュ時に本だけ残り得た）
+    const nums = chapters.map((c) => c.chapter_num);
+    const titles = chapters.map((c) => c.title.trim());
+    const summaries = chapters.map((c) => c.summary ?? '');
+    const words = chapters.map((c) => (typeof c.target_chars === 'number' && c.target_chars > 0 ? c.target_chars : 3500));
+    const [created] = await sql`
+      WITH b AS (
+        INSERT INTO kindle_books
+          (user_id, title, subtitle, language, target_reader, target_word_count, status, phase, book_meta)
+        VALUES
+          (${userId}, ${outline.book_title.trim()}, ${outline.subtitle ?? null}, 'ja',
+           ${outline.target_reader ?? null}, ${targetWordCount}, 'writing', 5, ${JSON.stringify(bookMeta)}::jsonb)
+        RETURNING id
+      ), c AS (
+        INSERT INTO kindle_chapters (book_id, chapter_number, title, summary, target_word_count, status)
+        SELECT b.id, x.n, x.t, x.s, x.w, 'pending'
+        FROM b, unnest(${nums}::int[], ${titles}::text[], ${summaries}::text[], ${words}::int[]) AS x(n, t, s, w)
+        RETURNING id
+      )
+      SELECT b.id AS id, (SELECT COUNT(*) FROM c) AS chapter_count FROM b
     `;
-    const bookId = (book as any).id as number;
-
-    try {
-      for (const c of chapters) {
-        await sql`
-          INSERT INTO kindle_chapters
-            (book_id, chapter_number, title, summary, target_word_count, status)
-          VALUES
-            (${bookId}, ${c.chapter_num}, ${c.title.trim()}, ${c.summary ?? ''},
-             ${typeof c.target_chars === 'number' && c.target_chars > 0 ? c.target_chars : 3500}, 'pending')
-        `;
-      }
-    } catch (chapterErr) {
-      // 章の作成に失敗したら書籍ごと削除（CASCADE）して部分状態を残さない
-      await sql`DELETE FROM kindle_books WHERE id = ${bookId} AND user_id = ${userId}`;
-      throw chapterErr;
+    const bookId = (created as any)?.id as number;
+    if (!bookId || Number((created as any)?.chapter_count) !== chapters.length) {
+      // 行数が合わなければ偽の成功を返さない（R-05）。CTE は同一文なので、ここに来るときは書かれていないか全て書かれている
+      throw new Error(`章の作成件数が一致しません（期待 ${chapters.length} / 実際 ${(created as any)?.chapter_count ?? 0}）`);
     }
 
     // 229B: 方向Aの関連付け＝素材にしたnote記事（library）のmetadataへ usedInBookIds を追記。

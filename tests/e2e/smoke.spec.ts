@@ -62,7 +62,13 @@ import {
   removeMandalaLink,
   // 305: 81マス
   expandMandalaCell,
+  // 307: マンダラ→Kindle目次
+  KINDLE_API,
+  getKindleBook,
+  deleteKindleBook,
+  cleanupE2EKindleBooks,
 } from './helpers';
+import { KINDLE_PURPOSES } from '../../src/lib/kindle-purposes';
 
 // ============================================================================
 // スモークテスト（残E2Eチェックリスト C系＋B表示系）
@@ -131,6 +137,8 @@ test.afterAll(async () => {
   await cleanupE2EMemos(api);
   // 301: マンダラ（中央タイトルに [E2E] があるもの）の残骸も掃除する
   await cleanupE2EMandala(api);
+  // 307: マンダラから起こした Kindle 案件（タイトルに [E2E]）の残骸も掃除する
+  await cleanupE2EKindleBooks(api);
   await api.dispose();
 });
 
@@ -9750,5 +9758,189 @@ test('C122: ホーム編集ページ（306）— サイドバー登録（R-84）
     }
   } finally {
     await clear().catch(() => {});
+  }
+});
+
+test('C123: マンダラ→Kindle目次（307）— チャート画面の「📕 Kindleの目次にする」でウィザードがそのチャートを選んだ状態で開く・プレビューに章/節・除外件数・リンク先なし件数・参照のみ件数が出て著者メモは整形表示（R-97）・「この目次で進む」で②→③（AI生成なし）→④にマンダラの目次・確定で新しい案件（章タイトル・メモ＝マス本文と完全一致・節はメモ内・素材は章に紐づき🧠は参照一覧）・二重発火で案件が2つできない（R-87・クライアント ref＋サーバ nonce）・途中失敗で章だけ残らない（CTE 1文）・案件に「マンダラ『○○』から起こした」と戻りリンク（新しいタブ）・チャート画面に「起こした本: 1件」から案件へ・章0のチャートは起こせず理由・既定の入力方法は素材のまま（R-88・C23 の表示が不変）', async ({
+  page,
+}) => {
+  test.setTimeout(300_000);
+  const marker = `MKD${RUN_ID}`;
+  // リンク先: 📚DR（素材可）・📚research（type 不適合＝参照のみ）・🧠（参照のみ）・📔（素材可）・削除済み（リンク先なし）
+  const libDr = await createLibraryItem(api, { title: `${marker} DR資料`, content: `## 資料 ${marker}\n\n本文`, type: 'deepresearch' });
+  const libOther = await createLibraryItem(api, { title: `${marker} 分類外資料`, content: `本文 ${marker}`, type: 'research' });
+  const libGone = await createLibraryItem(api, { title: `${marker} 消える資料`, content: `本文 ${marker}`, type: 'deepresearch' });
+  const ctxId = await createContextSave(api, { topic: `${marker} 参照`, contextText: `参照本文 ${marker}` });
+  const epId = await createEpisode(api, { title: `${marker} 記録`, details: `朝5時起床 ${marker}` });
+  const { id: chartId, cells } = await createMandalaChart(api, `${marker} テーマ`);
+  const byPos = (p: number) => cells.find((c) => c.position === p)!;
+  const body0 = `骨子 ${marker}\n\n- 要点1\n- 要点2 **強調**`;
+  expect((await saveMandalaCell(api, byPos(0).id, { title: `第一章 ${marker}`, body: body0 })).status()).toBe(200);
+  expect((await saveMandalaCell(api, byPos(1).id, { title: `第二章 ${marker}`, body: '' })).status()).toBe(200);
+  // 親0を展開して子2つを埋める（節）。他の子6つは空＝除外
+  const exp = await expandMandalaCell(api, chartId, byPos(0).id);
+  expect(exp.status()).toBe(200);
+  const kids = (await exp.json()).children as { id: string; position: number }[];
+  const kid = (p: number) => kids.find((c) => c.position === p)!;
+  expect((await saveMandalaCell(api, kid(0).id, { title: `節A ${marker}`, body: `節Aの本文 ${marker}` })).status()).toBe(200);
+  expect((await saveMandalaCell(api, kid(1).id, { title: `節B ${marker}`, body: '' })).status()).toBe(200);
+  expect((await addMandalaLinks(api, byPos(0).id, [{ scope: 'library', item_key: libDr }, { scope: 'context', item_key: ctxId }, { scope: 'episode', item_key: epId }])).status()).toBe(200);
+  expect((await addMandalaLinks(api, byPos(1).id, [{ scope: 'library', item_key: libOther }, { scope: 'library', item_key: libGone }])).status()).toBe(200);
+  expect((await api.delete(LIBRARY_API, { data: { ids: [libGone] } })).status(), 'リンク先を消してリンク先なしを作る').toBe(200);
+  // 章0のチャート（中央だけ）
+  const { id: emptyChartId } = await createMandalaChart(api, `${marker} 空`);
+  const createdBooks: number[] = [];
+  let createPosts = 0;
+  let delayMs = 0;
+  await page.route('**/api/kindle/wizard/create', async (route) => {
+    createPosts += 1;
+    if (delayMs > 0) await new Promise((r) => setTimeout(r, delayMs));
+    await route.continue();
+  });
+
+  try {
+    // ① 入口（チャート画面）→ ウィザードがそのチャートを選んだ状態で開く
+    await page.goto(`/dashboard/mandala/${chartId}`);
+    const entry = page.locator('[data-mandala-kindle]');
+    await expect(entry).toBeVisible({ timeout: 30000 });
+    await expect(entry).toHaveAttribute('href', `/dashboard/kindle-wizard?mandala=${chartId}`);
+    await expect(page.locator('[data-mandala-books]'), '起こす前は「起こした本」を出さない').toHaveCount(0);
+    await entry.click();
+    await expect(page).toHaveURL(new RegExp(`/dashboard/kindle-wizard\\?mandala=${chartId}`));
+    await expect(page.locator('[data-kw-input-mode="mandala"]')).toHaveAttribute('aria-pressed', 'true', { timeout: 30000 });
+    await expect(page.locator('[data-kw-mandala-chart]')).toHaveValue(chartId, { timeout: 30000 });
+    // ② プレビュー: 章2（節2）・除外・リンク先なし・参照のみ
+    const preview = page.locator('[data-kw-mandala-preview]');
+    await expect(preview).toHaveAttribute('data-kw-mandala-ok', '1', { timeout: 30000 });
+    await expect(preview.locator('[data-kw-mandala-book-title]')).toContainText(`${marker} テーマ`);
+    await expect(preview.locator('[data-kw-mandala-chapter]')).toHaveCount(2);
+    await expect(preview.locator('[data-kw-mandala-count="chapters"]')).toContainText('章 2件・節 2件');
+    await expect(preview.locator('[data-kw-mandala-count="excludedEmpty"]'), '空の親6＋空の子6').toContainText('空のため除外: 12件');
+    await expect(preview.locator('[data-kw-mandala-count="missingLinks"]')).toContainText('リンク先なし（紐づけない）: 1件');
+    await expect(preview.locator('[data-kw-mandala-count="materials"]')).toContainText('素材: 2件（うち📔 1件）');
+    await expect(preview.locator('[data-kw-mandala-count="referenceOnly"]'), '🧠1＋type不適合1').toContainText('参照のみ（メモ末尾に一覧）: 2件');
+    const ch1 = preview.locator('[data-kw-mandala-chapter="1"]');
+    await expect(ch1).toHaveAttribute('data-kw-mandala-cell', byPos(0).id);
+    await expect(ch1.locator('[data-kw-mandala-chapter-sections]')).toHaveAttribute('data-kw-mandala-chapter-sections', '2');
+    await expect(ch1.locator('[data-kw-mandala-chapter-materials]')).toHaveAttribute('data-kw-mandala-chapter-materials', '2');
+    await expect(ch1.locator('[data-kw-mandala-chapter-episodes]')).toHaveAttribute('data-kw-mandala-chapter-episodes', '1');
+    await ch1.locator('[data-kw-mandala-chapter-toggle]').click();
+    const memo = ch1.locator(`[data-kw-mandala-memo="${byPos(0).id}"]`);
+    await expect(memo).toBeVisible();
+    await expect(memo).toContainText('要点2');
+    await expectNoRawMarkdown(memo, '著者メモの整形表示');
+    await expect(ch1.locator('[data-kw-mandala-section]')).toHaveCount(2);
+    await expect(ch1.locator(`[data-kw-mandala-ref="context:${ctxId}"]`)).toHaveAttribute('data-kw-mandala-ref-kind', 'reference');
+    await expect(ch1.locator(`[data-kw-mandala-ref="library:${libDr}"]`)).toHaveAttribute('data-kw-mandala-ref-kind', 'material');
+    // 含めない条件を変えると同じ関数で出し直す（空も含める→8章）
+    await page.locator('[data-kw-mandala-include-empty]').check();
+    await expect(preview.locator('[data-kw-mandala-chapter]')).toHaveCount(8, { timeout: 30000 });
+    await expect(preview.locator('[data-kw-mandala-count="excludedEmpty"]')).toHaveCount(0);
+    await page.locator('[data-kw-mandala-include-empty]').uncheck();
+    await expect(preview.locator('[data-kw-mandala-chapter]')).toHaveCount(2, { timeout: 30000 });
+
+    // ③ 進む → ②目的 → ③（AI生成なしの文言）→ ④にマンダラの目次
+    await page.locator('[data-kw-mandala-proceed]').click();
+    await page.getByRole('button', { name: new RegExp(KINDLE_PURPOSES.monetize.label) }).first().click();
+    await page.getByRole('button', { name: /で次へ →/ }).click();
+    const step3Next = page.getByRole('button', { name: /マンダラの目次で進む →/ });
+    await expect(step3Next, '③の次はAI生成ではなくマンダラの目次').toBeVisible();
+    await step3Next.click();
+    await expect(page.locator('[data-kw-mandala-outline-note]')).toHaveAttribute('data-kw-mandala-outline-note', chartId, { timeout: 15000 });
+    // ④の入力欄（書籍タイトル→章タイトルの順）。React の制御下では value 属性に頼らず値で判定する
+    const step4Inputs = page.locator('[data-kw-mandala-outline-note]').locator('xpath=..').locator('input:not([type=checkbox])');
+    await expect(step4Inputs.nth(0)).toHaveValue(new RegExp(`${marker} テーマ$`));
+    await expect(step4Inputs.nth(1)).toHaveValue(`第一章 ${marker}`);
+    await expect(step4Inputs.nth(2)).toHaveValue(`第二章 ${marker}`);
+    // ④ 確定（R-87: 応答を遅らせて2連打しても POST は1回）
+    delayMs = 1500;
+    const confirmBtn = page.getByRole('button', { name: /この目次で確定/ });
+    await expect(confirmBtn).toBeVisible();
+    // 同一タスク内で2回 click（React の再描画＝disabled 反映より前）＝state では止まらない窓を突く
+    await confirmBtn.evaluate((el) => { (el as HTMLButtonElement).click(); (el as HTMLButtonElement).click(); });
+    await expect(page).toHaveURL(/bookId=\d+/, { timeout: 60000 });
+    expect(createPosts, '二重発火は ref で遮断（POST 1回）').toBe(1);
+    delayMs = 0;
+    const bookId = Number(new URL(page.url()).searchParams.get('bookId'));
+    createdBooks.push(bookId);
+    // ⑤ 案件の見出し付近に出どころと戻りリンク（新しいタブ）
+    const origin = page.locator(`[data-kw-mandala-origin="${chartId}"]`);
+    await expect(origin).toBeVisible({ timeout: 30000 });
+    await expect(origin.locator('[data-kw-mandala-origin-label]')).toContainText(`マンダラ『${marker} テーマ』から起こした（`);
+    await expect(origin.locator('[data-kw-mandala-origin-link]')).toHaveAttribute('href', `/dashboard/mandala/${chartId}`);
+    await expect(origin.locator('[data-kw-mandala-origin-link]')).toHaveAttribute('target', '_blank');
+    // ⑥ DB の案件: 章2・タイトル/メモがマスと一致・節はメモ内・素材は章に紐づく・🧠と type 不適合は参照一覧・出どころ記録
+    const book = await getKindleBook(api, bookId);
+    expect(book.book.title, '本のタイトル＝中央マス（[E2E] 印つき）').toContain(`${marker} テーマ`);
+    expect(book.chapters.map((c) => c.title)).toEqual([`第一章 ${marker}`, `第二章 ${marker}`]);
+    expect(book.chapters[0].summary.startsWith(body0), '著者メモ＝マスの本文と完全一致（先頭）').toBe(true);
+    expect(book.chapters[0].summary).toContain(`### 節A ${marker}\n\n節Aの本文 ${marker}`);
+    expect(book.chapters[0].summary).toContain(`### 節B ${marker}`);
+    expect(book.chapters[0].summary).toContain(`- 素材: [E2E] ${marker} 参照（🧠 AI参照素材）（参照のみ）`);
+    expect(book.chapters[1].summary).toContain(`（参照のみ）`);
+    expect(book.chapters[1].summary).not.toContain('消える資料');
+    const meta = book.book.bookMeta ?? {};
+    expect(meta.mandala?.chartId).toBe(chartId);
+    expect(meta.mandala?.cellIds?.chapter?.['1']).toBe(byPos(0).id);
+    expect(meta.mandala?.cellIds?.section?.['1']).toEqual([kid(0).id, kid(1).id]);
+    expect(meta.chapterSourceRefs?.['1']).toEqual([libDr, `ep-${epId}`]);
+    expect(meta.chapterSourceRefs?.['2']).toEqual([]);
+    expect(meta.sourceIds).toEqual([libDr, `ep-${epId}`]);
+    // サーバ側の遮断: 同じ nonce×目的で再送しても2つ目を作らない
+    const dup = await api.post('/api/kindle/wizard/create', {
+      data: { outline: { book_title: 'x', chapters: [{ chapter_num: 1, title: 't' }] }, sourceIds: [], purposeKey: 'monetize', styleKey: meta.styleKey, preset: meta.preset, mandala: meta.mandala },
+    });
+    expect(dup.status()).toBe(200);
+    expect((await dup.json()).bookId, 'nonce が同じなら既存の案件を返す').toBe(bookId);
+    // 途中失敗で章だけ・本だけが残らない（CTE 1文）: 章の目標字数を int 範囲外にして文ごと失敗させる
+    const bad = await api.post('/api/kindle/wizard/create', {
+      data: { outline: { book_title: `${marker} 失敗`, chapters: [{ chapter_num: 1, title: 'a' }, { chapter_num: 2, title: 'b', target_chars: 3_000_000_000 }] }, sourceIds: [], purposeKey: 'monetize', styleKey: meta.styleKey, preset: meta.preset, mandala: { ...meta.mandala, nonce: `mk-${RUN_ID}-bad` } },
+    });
+    expect(bad.status()).toBe(500);
+    const after = await api.get(KINDLE_API);
+    expect(((await after.json()).books as { title: string }[]).some((b) => b.title === `${marker} 失敗`), '本だけが残らない').toBe(false);
+
+    // ⑦ チャート画面に「起こした本: 1件」→ 案件へ
+    await page.goto(`/dashboard/mandala/${chartId}`);
+    const booksBtn = page.locator('[data-mandala-books]');
+    await expect(booksBtn).toHaveAttribute('data-mandala-books', '1', { timeout: 30000 });
+    await expect(booksBtn).toContainText('起こした本: 1件');
+    await booksBtn.click();
+    const bookLink = page.locator(`[data-mandala-book="${bookId}"]`);
+    await expect(bookLink).toBeVisible();
+    await expect(bookLink).toHaveAttribute('href', `/dashboard/kindle-wizard?bookId=${bookId}`);
+    await expect(bookLink).toContainText(`${marker} テーマ`);
+    await bookLink.click();
+    await expect(page).toHaveURL(new RegExp(`bookId=${bookId}`));
+    await expect(page.locator(`[data-kw-mandala-origin="${chartId}"]`)).toBeVisible({ timeout: 30000 });
+
+    // ⑧ 章0のチャートは起こせず理由（R-101/R-103）
+    await page.goto(`/dashboard/kindle-wizard?mandala=${emptyChartId}`);
+    const p2 = page.locator('[data-kw-mandala-preview]');
+    await expect(p2).toHaveAttribute('data-kw-mandala-ok', '0', { timeout: 30000 });
+    await expect(p2.locator('[data-kw-mandala-reject]')).toContainText('起こせません');
+    await expect(page.locator('[data-kw-mandala-proceed]')).toBeDisabled();
+
+    // ⑨ 退行: 素の遷移では既定＝素材から（C23 の表示が不変・マンダラの枠は出ない）
+    await page.goto('/dashboard/kindle-wizard');
+    await expect(page.locator('[data-kw-input-mode="materials"]')).toHaveAttribute('aria-pressed', 'true', { timeout: 30000 });
+    await expect(page.locator('[data-kw-mandala-panel]')).toHaveCount(0);
+    await expect(page.locator('[data-kw-limits]')).toBeVisible();
+    await expect(page.locator('[data-kw-limits]')).toContainText('0/10件');
+    await expect(page.getByRole('button', { name: /📊 テキスト分析（\d+）/ })).toBeVisible();
+    // 切替→戻すとマンダラ由来は捨てられ、素材の枠に戻る
+    await page.locator('[data-kw-input-mode="mandala"]').click();
+    await expect(page.locator('[data-kw-mandala-panel]')).toBeVisible();
+    await expect(page.locator('[data-kw-mandala-proceed]')).toBeDisabled();
+    await page.locator('[data-kw-input-mode="materials"]').click();
+    await expect(page.locator('[data-kw-mandala-panel]')).toHaveCount(0);
+    await expect(page.locator('[data-kw-limits]')).toBeVisible();
+  } finally {
+    for (const id of createdBooks) await deleteKindleBook(api, id);
+    await deleteMandalaChart(api, chartId);
+    await deleteMandalaChart(api, emptyChartId);
+    await api.delete(LIBRARY_API, { data: { ids: [libDr, libOther] } });
+    await api.delete(`${CONTEXT_API}?id=${ctxId}`).catch(() => {});
+    await api.delete(`${EPISODES_API}?id=${epId}`).catch(() => {});
   }
 });

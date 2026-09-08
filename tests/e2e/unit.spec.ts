@@ -40,6 +40,8 @@ import { buildDiffRows, describeDiffStats } from '../../src/lib/text-diff';
 import { sanitizeForDb } from '../../src/lib/sanitize';
 import { guardImagePrompt, IMAGE_GUARD_SUFFIX } from '../../src/lib/image-guards';
 import { cleanChapterBody } from '../../src/lib/kindle-text';
+// 307: 動的 import() では '@/lib/…' のパス解決が効かない（transitive な alias import が Cannot find module）ため静的に読む
+import * as mandalaKindle from '../../src/lib/mandala-kindle';
 import { KINDLE_TASTES, KINDLE_TASTE_KEYS, KINDLE_TASTE_GUARD, KINDLE_SCORE_AXES } from '../../src/lib/kindle-taste';
 import {
   AUTO_STOCK_KEY,
@@ -3583,4 +3585,156 @@ test('U76: ホームの保存形式（306）— 旧形式（href配列・書き�
   expect(pageSrc).toContain("from '@/lib/nav-search'");
   const pkg = JSON.parse(readFileSync(join(__dirname, '../../package.json'), 'utf8')) as { dependencies: Record<string, string> };
   expect(Object.keys(pkg.dependencies).filter((k) => k.startsWith('@dnd-kit/')).sort()).toEqual(['@dnd-kit/core', '@dnd-kit/modifiers']);
+});
+
+test('U77: マンダラ→Kindle目次（307）— 8マス＋子ありが章8・節（親ごと最大8）に mandalaOutlineNested と同順で変換される・空のマスは除外され件数が返る・未展開の親は章のみ・章0は拒否理由・著者メモはマスの本文と完全一致（整形なし）・削除済みリンクは紐づかず件数・🧠と type 不適合は参照のみ・上限超過は参照のみに回し件数・同じ入力→同じ出力（プレビュー＝保存・R-74）・出どころ記録の検証は fail-closed・並べ替え後の cellIds 再構築・純関数は DB 非依存（R-108／R-111）・create は CTE 1文と nonce 遮断（R-87）・ウィザードの既定は素材（R-88）', async () => {
+  const m = await import('../../src/lib/mandala-shared');
+  const k = mandalaKindle;
+  type Cell = import('../../src/lib/mandala-shared').MandalaCell;
+  type Link = import('../../src/lib/mandala-shared').MandalaLinkResolved;
+  const mk = (position: number, depth: 1 | 2 = 1, parent: string | null = null, title = '', body = ''): Cell => ({ id: `c${depth}-${parent ?? 'r'}-${position}`, chart_id: 'ch', parent_cell_id: parent, depth, position, title, body, meta: {}, created_at: '', updated_at: '' });
+  const link = (id: number, cell: Cell, scope: string, item_key: string, exists = true, title = `L${id}`, char_count = 100): Link => ({ id, cell_id: cell.id, scope, item_key, created_at: '', note: '', title: exists ? title : null, exists, char_count: exists ? char_count : null, item_created_at: null });
+
+  // ① フル構成: 中央＋周囲8（すべて埋まる）＋親1に子8・親5に子3（1つ空）。順序はアウトライン関数のまま
+  const center = mk(4, 1, null, 'テーマ', '');
+  const depth1 = [0, 1, 2, 3, 5, 6, 7, 8].map((p) => mk(p, 1, null, `章${p}`, `本文${p}\n\n- 箇条書き **強調**`));
+  const p1 = depth1[1];
+  const p5 = depth1[4];
+  const kids1 = [0, 1, 2, 3, 5, 6, 7, 8].map((p) => mk(p, 2, p1.id, `節1-${p}`, `節本文1-${p}`));
+  const kids5 = [mk(0, 2, p5.id, '節5-0', ''), mk(1, 2, p5.id, '', ''), mk(8, 2, p5.id, '', '節本文5-8')];
+  const all = [...kids5, ...depth1, center, ...kids1].reverse();
+  const nested = m.mandalaOutlineNested(all);
+  const r = k.mandalaToKindleOutline(center, nested, []);
+  expect(r.ok).toBe(true);
+  if (!r.ok) throw new Error('unreachable');
+  expect(r.bookTitle).toBe('テーマ');
+  expect(r.untitledTheme).toBe(false);
+  expect(r.chapters.map((c) => c.position), '章の順＝アウトライン順').toEqual([0, 1, 2, 3, 5, 6, 7, 8]);
+  expect(r.chapters.map((c) => c.chapter_num)).toEqual([1, 2, 3, 4, 5, 6, 7, 8]);
+  expect(r.chapters[1].sections.map((s) => s.position), '節の順＝子の固定順').toEqual([0, 1, 2, 3, 5, 6, 7, 8]);
+  expect(r.chapters[1].sections.length).toBe(k.MANDALA_KINDLE_SECTION_MAX);
+  expect(r.chapters[4].sections.map((s) => s.position), '空の子（1）は除外').toEqual([0, 8]);
+  expect(r.chapters[0].sections, '未展開の親は章のみ・節なし').toEqual([]);
+  expect(r.counts).toMatchObject({ chapters: 8, sections: 10, excludedEmpty: 1, missingLinks: 0, materials: 0, referenceOnly: 0 });
+  // 著者メモ＝本文と完全一致（Markdown のまま）。節も参照も無い章は summary も本文と完全一致
+  for (const c of r.chapters) expect(c.memo).toBe(all.find((x) => x.id === c.cellId)!.body);
+  expect(r.chapters[0].summary).toBe(depth1[0].body);
+  // 節のある章は memo が先頭にそのまま・節は「### 」＋本文
+  expect(r.chapters[1].summary.startsWith(p1.body)).toBe(true);
+  expect(r.chapters[1].summary).toContain('### 節1-0\n\n節本文1-0');
+  expect(r.chapters[1].sections[0].memo).toBe('節本文1-0');
+  expect(r.cellIds.chapter['2']).toBe(p1.id);
+  expect(r.cellIds.section['2']).toEqual(kids1.map((c) => c.id));
+  expect(r.cellIds.section['1']).toEqual([]);
+
+  // ② 空のマスの除外と件数・未展開・章0の拒否・中央が空
+  const sparse = [mk(4), mk(0, 1, null, '', ''), mk(1, 1, null, '', ''), mk(2, 1, null, 'だけ'), mk(3, 1, null, '', '本文だけ'), mk(5), mk(6), mk(7), mk(8), mk(0, 2, 'c1-r-0', '', '')];
+  const r2 = k.mandalaToKindleOutline(m.centerCell(sparse), m.mandalaOutlineNested(sparse), []);
+  expect(r2.ok).toBe(true);
+  if (!r2.ok) throw new Error('unreachable');
+  expect(r2.untitledTheme, '中央が空なら（無題）で進みその旨を返す').toBe(true);
+  expect(r2.bookTitle).toBe(m.MANDALA_UNTITLED);
+  expect(r2.chapters.map((c) => c.position)).toEqual([2, 3]);
+  expect(r2.counts.excludedEmpty, '空の親6＋空の親の子1').toBe(7);
+  // includeEmpty: 空も含める（8章・空の親の子も節に）
+  const r2b = k.mandalaToKindleOutline(m.centerCell(sparse), m.mandalaOutlineNested(sparse), [], { includeEmpty: true });
+  expect(r2b.ok && r2b.chapters.length).toBe(8);
+  expect(r2b.ok && r2b.chapters[0].sections.length).toBe(1);
+  expect(r2b.ok && r2b.counts.excludedEmpty).toBe(0);
+  const empty = [0, 1, 2, 3, 4, 5, 6, 7, 8].map((p) => mk(p));
+  const r3 = k.mandalaToKindleOutline(m.centerCell(empty), m.mandalaOutlineNested(empty), []);
+  expect(r3.ok).toBe(false);
+  expect(!r3.ok && r3.reason).toBe(k.MANDALA_KINDLE_REJECT_NO_CHAPTERS);
+  expect(r3.counts.chapters).toBe(0);
+
+  // ③ リンク: 4種＋削除済み。既定の判定は scope だけ（context は参照のみ）。削除済みは紐づかず件数
+  const links: Link[] = [
+    link(1, depth1[0], 'library', 'aaaaaaaa-0000-4000-8000-000000000001', true, '資料A', 1000),
+    link(2, depth1[0], 'text_analysis', '12', true, '分析B', 2000),
+    link(3, depth1[0], 'context', '7', true, '参照C', 300),
+    link(4, depth1[0], 'episode', '5', true, '記録D', 400),
+    link(5, depth1[0], 'library', 'aaaaaaaa-0000-4000-8000-000000000002', false),
+    link(6, kids1[0], 'episode', '9', true, '記録E', 50),
+    link(7, depth1[2], 'episode', '5', true, '記録D', 400), // 別の章で同じ素材＝重複させない
+  ];
+  const r4 = k.mandalaToKindleOutline(center, nested, links);
+  expect(r4.ok).toBe(true);
+  if (!r4.ok) throw new Error('unreachable');
+  expect(r4.chapters[0].refs.map((x) => x.kind)).toEqual(['material', 'material', 'reference', 'material', 'missing']);
+  expect(r4.chapters[0].source_ids, 'scope+item_key をそのまま素材キーへ（ana-N／ep-N）').toEqual(['aaaaaaaa-0000-4000-8000-000000000001', 'ana-12', 'ep-5']);
+  expect(r4.chapters[1].source_ids, '節の素材は章に集まる').toEqual(['ep-9']);
+  expect(r4.chapters[2].source_ids).toEqual(['ep-5']);
+  expect(r4.sourceIds).toEqual(['aaaaaaaa-0000-4000-8000-000000000001', 'ana-12', 'ep-5', 'ep-9']);
+  expect(r4.counts).toMatchObject({ missingLinks: 1, materials: 4, materialEpisodes: 2, referenceOnly: 1, materialOverflow: 0 });
+  expect(r4.chapters[0].summary, '参照一覧は末尾・削除済みは載せない').toContain('- 素材: 参照C（🧠 AI参照素材）（参照のみ）');
+  expect(r4.chapters[0].summary).toContain('- 体験: 記録D（📔 エピソード記録）');
+  expect(r4.chapters[0].summary).not.toContain('000000000002');
+  expect(r4.chapters[0].summary.startsWith(depth1[0].body)).toBe(true);
+  // サーバの判定（type 不適合）を差し込める: library を不適合にすると参照のみ
+  const r4b = k.mandalaToKindleOutline(center, nested, links, { materialKeyOf: (l) => (l.scope === 'library' ? null : k.defaultMaterialKeyOf(l)) });
+  expect(r4b.ok && r4b.counts.referenceOnly).toBe(2);
+  expect(r4b.ok && r4b.sourceIds).toEqual(['ana-12', 'ep-5', 'ep-9']);
+  // 上限（件数・字数）を超えた分は参照のみに回し件数で出す（黙って落とさない・R-101）
+  const r4c = k.mandalaToKindleOutline(center, nested, links, { materialLimit: 2 });
+  expect(r4c.ok && r4c.sourceIds).toEqual(['aaaaaaaa-0000-4000-8000-000000000001', 'ana-12']);
+  // 参照のみはリンクごとに数える（同じ ep-5 が2章で溢れれば2件）。素材は本全体で重複なし
+  expect(r4c.ok && r4c.counts).toMatchObject({ materials: 2, referenceOnly: 4, materialOverflow: 3 });
+  const r4d = k.mandalaToKindleOutline(center, nested, links, { materialCharLimit: 3000 });
+  expect(r4d.ok && r4d.sourceIds).toEqual(['aaaaaaaa-0000-4000-8000-000000000001', 'ana-12']);
+  // ④ 同じ入力→同じ出力（プレビューと保存が同じ関数を通る前提）
+  expect(JSON.stringify(k.mandalaToKindleOutline(center, nested, links))).toBe(JSON.stringify(r4));
+  expect(JSON.stringify(k.mandalaToKindleOutline(center, m.mandalaOutlineNested([...all].reverse()), [...links].reverse()))).toBe(JSON.stringify(r4));
+  // 件数行: 0件の行は出さない
+  expect(k.mandalaKindleCountLines(r.counts).map((l) => l.key)).toEqual(['chapters', 'excludedEmpty', 'materials']);
+  expect(k.mandalaKindleCountLines(r4.counts).map((l) => l.key)).toEqual(['chapters', 'excludedEmpty', 'missingLinks', 'materials', 'referenceOnly']);
+
+  // ⑤ 出どころ記録（方式1）: 検証は fail-closed・並べ替え後の再構築・文言
+  const u = (n: number) => `aaaaaaaa-0000-4000-8000-${String(n).padStart(12, '0')}`;
+  const rec = { source: 'mandala', chartId: u(170), chartTitle: 'テーマ', cellIds: { chapter: { '1': u(1), '2': u(2) }, section: { '1': [], '2': [u(21), u(22)] } }, importedAt: '2026-09-09T01:02:03.000Z', nonce: 'mk-abcdef12' };
+  expect(k.validateMandalaBookSource(rec)?.chartId).toBe(rec.chartId);
+  expect(k.validateMandalaBookSource({ ...rec, nonce: '' })).toBeNull();
+  expect(k.validateMandalaBookSource({ ...rec, chartId: 'x' })).toBeNull();
+  expect(k.validateMandalaBookSource({ ...rec, importedAt: 'not-a-date' })).toBeNull();
+  expect(k.validateMandalaBookSource({ ...rec, source: 'other' })).toBeNull();
+  expect(k.parseMandalaBookSource({ mandala: rec })?.cellIds).toEqual(rec.cellIds);
+  expect(k.parseMandalaBookSource({ mandala: { ...rec, cellIds: { chapter: { '1': 'bad' } } } })?.cellIds.chapter, '不正な id は落とす').toEqual({});
+  expect(k.parseMandalaBookSource({})).toBeNull();
+  expect(k.parseMandalaBookSource(null)).toBeNull();
+  const rebuilt = k.rebuildMandalaCellIds([
+    { chapter_num: 1, mandala_cell_id: p1.id, mandala_section_cell_ids: kids1.map((c) => c.id) },
+    { chapter_num: 2, mandala_cell_id: depth1[0].id, mandala_section_cell_ids: [] },
+    { chapter_num: 3 },
+  ]);
+  expect(rebuilt.chapter).toEqual({ '1': p1.id, '2': depth1[0].id });
+  expect(rebuilt.section['1'].length).toBe(8);
+  expect(k.mandalaOriginLabel({ chartTitle: '' }, '2026/09/09 10:02')).toBe('マンダラ『（無題）』から起こした（2026/09/09 10:02）');
+  expect(k.mandalaBooksLabel(2)).toBe('📕 起こした本: 2件');
+
+  // ⑥ ソース固定（構文ごと・R-111）: 純関数は DB 非依存／create は CTE 1文＋nonce 遮断／ウィザードの既定は素材／入口2箇所
+  const lib = readFileSync(join(__dirname, '../../src/lib/mandala-kindle.ts'), 'utf8');
+  expect(lib).not.toMatch(/from '@\/lib\/db'/);
+  expect(lib).not.toMatch(/from '@neondatabase\/serverless'/);
+  expect(lib).not.toMatch(/from '@\/lib\/mandala-server'/);
+  expect(lib).not.toMatch(/from '@\/lib\/kindle-materials'/);
+  const create = readFileSync(join(__dirname, '../../src/app/api/kindle/wizard/create/route.ts'), 'utf8');
+  expect(create).toMatch(/WITH b AS \(\s*INSERT INTO kindle_books/);
+  expect(create).toMatch(/INSERT INTO kindle_chapters \(book_id, chapter_number, title, summary, target_word_count, status\)\s*SELECT b\.id/);
+  expect(create).toMatch(/book_meta->'mandala'->>'nonce' = \$\{mandala\.nonce\}/);
+  expect(create).toMatch(/validateMandalaBookSource\(body\.mandala\)/);
+  expect(create).not.toMatch(/DELETE FROM kindle_books WHERE id = \$\{bookId\}/);
+  const preview = readFileSync(join(__dirname, '../../src/app/api/mandala/[id]/kindle/route.ts'), 'utf8');
+  expect(preview).toMatch(/mandalaToKindleOutline\(centerCell\(chart\.cells\), mandalaOutlineNested\(chart\.cells\), links/);
+  expect(preview).toMatch(/fetchKindleMaterials\(guard\.userId/);
+  const wizard = readFileSync(join(__dirname, '../../src/app/dashboard/kindle-wizard/page.tsx'), 'utf8');
+  expect(wizard).toMatch(/useState<KindleInputMode>\('materials'\)/);
+  expect(wizard).toMatch(/data-kw-input-mode=\{m\.key\}/);
+  expect(wizard).toMatch(/proceedFromMandala/);
+  expect(wizard, '保存はプレビューの chapters をそのまま（別の変換を持たない）').toMatch(/chapters: res\.chapters\.map\(\(c\) => \(\{\s*chapter_num: c\.chapter_num,\s*title: c\.title,\s*summary: c\.summary,/);
+  expect(wizard).toMatch(/const creatingRef = useRef\(false\)/);
+  const chartPage = readFileSync(join(__dirname, '../../src/app/dashboard/mandala/[id]/page.tsx'), 'utf8');
+  expect(chartPage).toMatch(/href=\{`\/dashboard\/kindle-wizard\?mandala=\$\{encodeURIComponent\(id\)\}`\}/);
+  expect(chartPage).toMatch(/data-mandala-books=\{books\.length\}/);
+  const server = readFileSync(join(__dirname, '../../src/lib/mandala-server.ts'), 'utf8');
+  expect(server, '起こした本は本の側の記録から導出（mandala_charts.meta に書かない・R-107）').toMatch(/FROM kindle_books\s*WHERE user_id = \$\{userId\}\s*AND book_meta->'mandala'->>'source' = 'mandala'/);
+  expect(server).not.toMatch(/UPDATE mandala_charts SET meta/);
 });
