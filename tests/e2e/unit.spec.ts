@@ -1032,13 +1032,40 @@ test('U29: ホーム並びの解決 resolveHomeHrefs（262）— 保存値を採
   expect(resolveHomeHrefs('[]')).toEqual(DEFAULT_HOME_HREFS);
   expect(resolveHomeHrefs('{"a":1}')).toEqual(DEFAULT_HOME_HREFS);
 
-  // 保存された並びをそのまま採用（カスタマイズが反映される）
+  // 保存された並びを採用（カスタマイズが反映される）。
+  // 303 §5（R-77）: 保存に無い定義上のホーム項目は既定位置へ**合流**する（末尾に回さない・非表示にしない）。
+  // 保存 [DR, dashboard, TA] に対し、定義順 [dashboard, orchestrator, automation, saved, memo, guide] の未収載分は
+  // 「定義順で直前にある保存済み項目の直後」へ入る＝dashboard の直後に orchestrator…guide が定義順で並ぶ
   const order = ['/dashboard/deepresearch', '/dashboard', '/dashboard/text-analysis'];
-  expect(resolveHomeHrefs(JSON.stringify(order))).toEqual(order);
+  expect(resolveHomeHrefs(JSON.stringify(order))).toEqual([
+    '/dashboard/deepresearch',
+    '/dashboard',
+    '/dashboard/orchestrator',
+    '/dashboard/automation-strategy',
+    '/dashboard/saved',
+    '/dashboard/memo',
+    '/dashboard/guide',
+    '/dashboard/text-analysis',
+  ]);
+  // 明示的に外した項目（墓標）は合流しない。保存側の形（JSON 配列）をそのまま渡す（R-79）
+  expect(resolveHomeHrefs(JSON.stringify(order), JSON.stringify(['/dashboard/guide', '/dashboard/memo']))).toEqual([
+    '/dashboard/deepresearch',
+    '/dashboard',
+    '/dashboard/orchestrator',
+    '/dashboard/automation-strategy',
+    '/dashboard/saved',
+    '/dashboard/text-analysis',
+  ]);
+  // 保存に全部入っていれば並びはそのまま（合流するものが無い）
+  const full = ['/dashboard/guide', '/dashboard/memo', '/dashboard/saved', '/dashboard/automation-strategy', '/dashboard/orchestrator', '/dashboard'];
+  expect(resolveHomeHrefs(JSON.stringify(full))).toEqual(full);
 
-  // 実在しない href・文字列以外の要素は落とす。有効分が残ればそれを、全滅なら既定を返す
-  expect(resolveHomeHrefs(JSON.stringify(['/nope', 42, '/dashboard']))).toEqual(['/dashboard']);
+  // 実在しない href・文字列以外の要素は落とす（定義から消えた項目が保存に残っていても壊れない）。
+  // 有効分が残ればそれ＋合流、全滅なら既定を返す
+  expect(resolveHomeHrefs(JSON.stringify(['/nope', 42, '/dashboard']))).toEqual(DEFAULT_HOME_HREFS);
   expect(resolveHomeHrefs(JSON.stringify(['/nope']))).toEqual(DEFAULT_HOME_HREFS);
+  // 壊れた墓標は無視（合流は通常どおり）
+  expect(resolveHomeHrefs(JSON.stringify(full), 'broken')).toEqual(full);
 });
 
 test('U30: ペルソナ記事のタイトル案/本文分離（264）— マーカー欠落は全文を本文に倒す', () => {
@@ -3359,4 +3386,64 @@ test('U73: マンダラ バッジのホバーポップアップ（304）— 上�
   const pageSrc = readFileSync(join(__dirname, '../../src/app/dashboard/mandala/[id]/page.tsx'), 'utf8');
   expect(pageSrc).toContain("fetch(`/api/mandala/links?cellId=${encodeURIComponent(cellId)}`");
   expect(pageSrc).toContain('onOpen: (_key, { cell }) => void fetchResolved(cell.id)');
+});
+
+test('U74: サイドバーのメニュー検索・追加順・新着・合流（303）— 正規化（大小・全半角・カナ/かな・空白）・表示名と元の名前の両方に一致・見出しは一致項目のあるカテゴリだけ・非表示の印・追加順は新しい順で同日は定義順・全項目に実在する addedAt（書き忘れは型とここで止まる）・新着は14日以内で15日目に消える（JST日付差）・合流は純関数で決定的', async () => {
+  const ns = await import('../../src/lib/nav-search');
+  const ni = await import('../../src/lib/nav-items');
+  // 正規化
+  expect(ns.normalizeNavQuery('ﾏﾝﾀﾞﾗ')).toBe('まんだら');
+  expect(ns.normalizeNavQuery('マンダラ')).toBe('まんだら');
+  expect(ns.normalizeNavQuery('Ａｉ メモ')).toBe('aiめも');
+  expect(ns.normalizeNavQuery('AI Memo')).toBe('aimemo');
+  expect(ns.normalizeNavQuery('')).toBe('');
+  // 一致: 表示名でも元の名前でも
+  const item = { href: '/x', label: 'マンダラ', icon: '🔲', addedAt: '2026-09-08' };
+  expect(ns.matchesNavItem(item, '思考の骨格', 'まんだら')).toBe(true);
+  expect(ns.matchesNavItem(item, '思考の骨格', '骨格')).toBe(true);
+  expect(ns.matchesNavItem(item, '思考の骨格', 'ﾏﾝ')).toBe(true);
+  expect(ns.matchesNavItem(item, '思考の骨格', 'dashboard')).toBe(false);
+  expect(ns.matchesNavItem(item, '思考の骨格', '')).toBe(true);
+  // カテゴリの絞り込み: 一致項目のある見出しだけ。ホームは実並び＋外した定義上の項目は hidden
+  const homeHrefs = ['/dashboard', '/dashboard/mandala'];
+  const hits = ns.filterNavCategories(ni.navCategories, 'まんだら', (i) => i.label, homeHrefs, ni.ITEM_BY_HREF);
+  expect(hits.map((h) => h.category)).toEqual(['ホーム', '情報収集・調査']);
+  expect(hits[0].hits.map((h) => h.item.href)).toEqual(['/dashboard/mandala']);
+  const guideHits = ns.filterNavCategories(ni.navCategories, '使い方', (i) => i.label, homeHrefs, ni.ITEM_BY_HREF);
+  expect(guideHits[0].hits).toEqual([{ item: ni.ITEM_BY_HREF.get('/dashboard/guide'), hidden: true }]);
+  expect(ns.filterNavCategories(ni.navCategories, 'zzzz該当なし', (i) => i.label, homeHrefs, ni.ITEM_BY_HREF)).toEqual([]);
+  // 追加順: 新しい順・同日は定義順・入力は不変
+  const sorted = ns.sortByAddedDesc(ni.ALL_NAV_ITEMS);
+  expect(sorted[0].href).toBe('/dashboard/mandala');
+  for (let i = 1; i < sorted.length; i++) expect(sorted[i - 1].addedAt >= sorted[i].addedAt).toBe(true);
+  const sameDay = sorted.filter((i) => i.addedAt === '2026-03-22').map((i) => i.href);
+  expect(sameDay).toEqual(ni.ALL_NAV_ITEMS.filter((i) => i.addedAt === '2026-03-22').map((i) => i.href));
+  expect(ni.ALL_NAV_ITEMS[0].href).toBe('/dashboard');
+  // 全項目に実在する addedAt（書き忘れは型で止まるが、形式の誤りはここで止める）
+  for (const it of ni.ALL_NAV_ITEMS) expect(ns.isValidAddedAt(it.addedAt), `${it.href} の addedAt が YYYY-MM-DD の実在日付`).toBe(true);
+  expect(ns.isValidAddedAt('2026-02-30')).toBe(false);
+  expect(ns.isValidAddedAt('2026/09/08')).toBe(false);
+  // 新着: 追加当日0日〜14日目は付き、15日目に消える（JST 日付差）。未来は新着扱い
+  expect(ns.isNewMenu('2026-09-08', '2026-09-08')).toBe(true);
+  expect(ns.isNewMenu('2026-09-08', '2026-09-22')).toBe(true);
+  expect(ns.isNewMenu('2026-09-08', '2026-09-23')).toBe(false);
+  expect(ns.isNewMenu('2026-09-08', '2026-09-07')).toBe(true);
+  expect(ns.isNewMenu('bad', '2026-09-08')).toBe(false);
+  expect(ns.NAV_NEW_LABEL.length).toBeLessThanOrEqual(12);
+  expect(ns.formatAddedShort('2026-09-08')).toBe('9/8');
+  expect(ns.formatAddedTitle('2026-09-08')).toBe('追加: 2026/9/8');
+  expect(ns.parseNavOrder('added')).toBe('added');
+  expect(ns.parseNavOrder('junk')).toBe('standard');
+  // 合流（純関数）: 保存に無い項目を既定位置へ。墓標は除外。決定的
+  const merged = ni.mergeHomeHrefs(['b', 'x', 'd'], ['c'], ['a', 'b', 'c', 'd', 'e']);
+  expect(merged).toEqual(['a', 'b', 'x', 'd', 'e']);
+  expect(ni.mergeHomeHrefs(['b', 'x', 'd'], ['c'], ['a', 'b', 'c', 'd', 'e'])).toEqual(merged);
+  expect(ni.mergeHomeHrefs([], [], ['a', 'b'])).toEqual(['a', 'b']);
+  // 型で止まる: NavItem に addedAt が必須（ソース固定・R-111）
+  const src = readFileSync(join(__dirname, '../../src/lib/nav-items.ts'), 'utf8');
+  expect(src).toContain('export type NavItem = { href: string; label: string; icon: string; addedAt: string };');
+  // 標準の順序は変えていない（サイドバーは navCategories をそのまま描く）
+  const sidebar = readFileSync(join(__dirname, '../../src/components/DashboardSidebar.tsx'), 'utf8');
+  expect(sidebar).toContain("navCategories.filter(cat => cat.category !== 'ホーム').map(cat => (");
+  expect(sidebar).not.toContain('data-kb-search');
 });

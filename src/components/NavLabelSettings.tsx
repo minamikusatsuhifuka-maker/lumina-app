@@ -19,6 +19,7 @@ import {
   navCategories,
   DEFAULT_HOME_HREFS,
   HOME_STORAGE_KEY,
+  HOME_REMOVED_STORAGE_KEY,
   ITEM_BY_HREF,
   resolveHomeHrefs,
   type NavItem,
@@ -47,7 +48,8 @@ export default function NavLabelSettings() {
   const [homeHrefs, setHomeHrefs] = useState<string[]>(DEFAULT_HOME_HREFS);
   useEffect(() => {
     try {
-      setHomeHrefs(resolveHomeHrefs(localStorage.getItem(HOME_STORAGE_KEY)));
+      // 303: サイドバーと同じく、外した項目の墓標も渡して §5 の合流後の並びを出す（実表示と一致・R-66）
+      setHomeHrefs(resolveHomeHrefs(localStorage.getItem(HOME_STORAGE_KEY), localStorage.getItem(HOME_REMOVED_STORAGE_KEY)));
     } catch {
       /* localStorage が使えない環境は既定のまま */
     }

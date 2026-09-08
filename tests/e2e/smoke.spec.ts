@@ -9121,3 +9121,165 @@ test('C119: マンダラ バッジのホバーポップアップ（304）— �
     await deleteSave(api, taId);
   }
 });
+
+// ============================================================================
+// 303: サイドバーのメニュー検索と追加順表示
+// ============================================================================
+
+test('C120: サイドバーのメニュー検索・追加順・新着・合流（303）— 部分一致で絞り込み（見出しも一致分だけ）・改名した項目が元の名前でも表示名でも見つかる・0件で「該当なし」と消す導線・Escと消すで元の表示と順序に戻る（保存済みの並びは不変）・ホームから外した項目が「非表示」印付きで出て開ける・追加順は新しい順で日付付き・再読込後も保持・14日以内に「新」（title に追加日・InstantTooltip）・保存済みの並びに無いホーム項目が既定位置に合流し墓標は合流しない・定義に無い保存値で壊れない・本番で🔲マンダラが📔エピソード記録の直下・🎛の並びと一致（退行なし）・WebKit のドロワーでも検索と切替が動く（R-64）', async ({
+  page,
+}) => {
+  test.setTimeout(180_000);
+  const sidebar = page.locator('nav.sidebar-nav');
+  const search = sidebar.locator('[data-nav-search]');
+  const hrefsIn = (loc: import('@playwright/test').Locator) => loc.locator('a[data-nav-href]').evaluateAll((els) => els.map((el) => el.getAttribute('data-nav-href')));
+  try {
+    // ① 既定の表示（保存値なし）。マンダラは 情報収集・調査 でエピソード記録の直下（本番）
+    await page.goto('/dashboard');
+    await page.evaluate(() => {
+      localStorage.removeItem('sidebar_home_items');
+      localStorage.removeItem('sidebar_home_removed');
+      localStorage.removeItem('sidebar_nav_order');
+      localStorage.removeItem('lumina_nav_labels');
+    });
+    await page.reload();
+    await expect(search).toBeVisible({ timeout: 30000 });
+    const infoSection = sidebar.locator('div:has(> [data-nav-category="情報収集・調査"])');
+    const infoOrder = await hrefsIn(infoSection);
+    expect(infoOrder.indexOf('/dashboard/mandala'), '🔲マンダラは📔エピソード記録の直下').toBe(infoOrder.indexOf('/dashboard/episodes') + 1);
+    const standardOrder = await hrefsIn(sidebar);
+    // 新着: 追加から14日以内（マンダラ 2026-09-08）に「新」が付き、title に追加日
+    const newMark = sidebar.locator('[data-nav-new="/dashboard/mandala"]');
+    await expect(newMark).toHaveText('新');
+    expect(await newMark.getAttribute('title')).toMatch(/^追加: 2026\/9\/8$/);
+    await expect(sidebar.locator('[data-nav-new="/dashboard/deepresearch"]'), '古い項目には付かない').toHaveCount(0);
+
+    // ② 検索: 部分一致・見出しは一致分だけ・全角半角/カナかな
+    await search.fill('ﾏﾝﾀﾞﾗ');
+    const results = sidebar.locator('[data-nav-search-results]');
+    await expect(results.locator('a[data-nav-href="/dashboard/mandala"]')).toHaveCount(1);
+    await expect(results.locator('[data-nav-search-category]')).toHaveCount(1);
+    await expect(results.locator('[data-nav-search-category="情報収集・調査"]')).toHaveCount(1);
+    await search.fill('まんだら');
+    await expect(results.locator('a[data-nav-href="/dashboard/mandala"]')).toHaveCount(1);
+    await search.fill('AI');
+    expect((await hrefsIn(results)).length).toBeGreaterThan(3);
+    // 0件 → 該当なし＋入力を消す
+    await search.fill('zzzz該当なし');
+    await expect(sidebar.locator('[data-nav-search-empty]')).toBeVisible();
+    await sidebar.locator('[data-nav-search-reset]').click();
+    await expect(search).toHaveValue('');
+    await expect(sidebar.locator('[data-nav-search-results]')).toHaveCount(0);
+    expect(await hrefsIn(sidebar), '消すと元の表示と順序に戻る').toEqual(standardOrder);
+    // Esc で消える
+    await search.fill('メモ');
+    await expect(results).toBeVisible();
+    await search.press('Escape');
+    await expect(search).toHaveValue('');
+    expect(await page.evaluate(() => localStorage.getItem('sidebar_home_items')), '検索しても保存済みの並びを作らない/変えない').toBeNull();
+
+    // ③ 改名した項目は元の名前でも表示名でも
+    await page.goto('/dashboard/display-settings');
+    await page.locator('[data-nav-category-toggle="情報収集・調査"]').click();
+    await page.locator('[data-nav-label-input="/dashboard/mandala"]').fill('思考の骨格');
+    await page.goto('/dashboard');
+    await expect(search).toBeVisible({ timeout: 30000 });
+    await search.fill('骨格');
+    await expect(results.locator('a[data-nav-href="/dashboard/mandala"]')).toHaveCount(1);
+    await search.fill('マンダラ');
+    await expect(results.locator('a[data-nav-href="/dashboard/mandala"]'), '元の名前でも見つかる').toHaveCount(1);
+    await search.fill('');
+    await page.evaluate(() => localStorage.removeItem('lumina_nav_labels'));
+
+    // ④ 合流（R-77）: 保存済みの並びに無いホーム項目は既定位置へ。墓標は合流しない。定義に無い値は無視
+    await page.evaluate(() => {
+      localStorage.setItem('sidebar_home_items', JSON.stringify(['/dashboard/deepresearch', '/dashboard', '/nope-removed-page', '/dashboard/text-analysis']));
+      localStorage.setItem('sidebar_home_removed', JSON.stringify(['/dashboard/guide']));
+    });
+    await page.reload();
+    await expect(search).toBeVisible({ timeout: 30000 });
+    const homeSection = sidebar.locator('div:has(> [data-nav-category="ホーム"])');
+    expect(await hrefsIn(homeSection)).toEqual([
+      '/dashboard/deepresearch',
+      '/dashboard',
+      '/dashboard/orchestrator',
+      '/dashboard/automation-strategy',
+      '/dashboard/saved',
+      '/dashboard/memo',
+      '/dashboard/text-analysis',
+    ]);
+    // 🎛の並びと一致（R-66・C59 の判定）
+    await page.goto('/dashboard/display-settings');
+    await page.locator('[data-nav-category-toggle="ホーム"]').click();
+    const rows = await page.locator('[data-nav-category-block="ホーム"] [data-nav-row]:not([data-nav-hidden-row])').evaluateAll((els) => els.map((el) => el.getAttribute('data-nav-row')));
+    expect(rows).toEqual(['/dashboard/deepresearch', '/dashboard', '/dashboard/orchestrator', '/dashboard/automation-strategy', '/dashboard/saved', '/dashboard/memo', '/dashboard/text-analysis']);
+    // 外した項目（使い方ガイド）は検索で「非表示」印付きで出て、開ける
+    await page.goto('/dashboard');
+    await expect(search).toBeVisible({ timeout: 30000 });
+    await search.fill('使い方');
+    const hiddenHit = results.locator('a[data-nav-href="/dashboard/guide"]');
+    await expect(hiddenHit).toHaveCount(1);
+    await expect(hiddenHit.locator('[data-nav-hidden-mark]')).toHaveText('非表示');
+    expect(await hiddenHit.locator('[data-nav-hidden-mark]').evaluate((el) => getComputedStyle(el).textOverflow)).toBe('ellipsis');
+    await hiddenHit.click();
+    await expect(page).toHaveURL(/\/dashboard\/guide/);
+    // ✏️編集で外すと墓標に入り、戻すと墓標から消える
+    await page.goto('/dashboard');
+    await expect(search).toBeVisible({ timeout: 30000 });
+    await homeSection.getByRole('button', { name: '✏️編集' }).click();
+    await homeSection.locator('[aria-label="ホームから削除"]').first().click(); // 先頭＝deepresearch（定義上のホーム項目ではない→墓標に入らない）
+    await homeSection.getByRole('button', { name: '完了' }).click();
+    expect(await page.evaluate(() => JSON.parse(localStorage.getItem('sidebar_home_removed') ?? '[]'))).toEqual(['/dashboard/guide']);
+
+    // ⑤ 追加順: 新しい順・平坦（見出しなし）・日付・再読込後も保持
+    await sidebar.locator('[data-nav-order="added"]').click();
+    const added = sidebar.locator('[data-nav-added-list]');
+    await expect(added).toBeVisible();
+    const addedOrder = await hrefsIn(added);
+    expect(addedOrder[0]).toBe('/dashboard/mandala');
+    expect(addedOrder[1]).toBe('/dashboard/episodes');
+    expect(addedOrder.length).toBe(standardOrder.length);
+    await expect(sidebar.locator('[data-nav-category]'), '追加順ではグループ見出しを出さない').toHaveCount(0);
+    await expect(added.locator('a[data-nav-href="/dashboard/mandala"] [data-nav-added-date]')).toHaveText('9/8');
+    await page.reload();
+    await expect(sidebar.locator('[data-nav-added-list]'), '再読込後も追加順が保持される').toBeVisible({ timeout: 30000 });
+    await expect(sidebar.locator('[data-nav-order="added"]')).toHaveAttribute('aria-pressed', 'true');
+    await sidebar.locator('[data-nav-order="standard"]').click();
+    await expect(sidebar.locator('[data-nav-added-list]')).toHaveCount(0);
+    await expect(sidebar.locator('[data-nav-category="情報収集・調査"]')).toHaveCount(1);
+    // 検索欄は sticky（スクロールしても見える）
+    expect(await sidebar.locator('[data-nav-search-bar]').evaluate((el) => getComputedStyle(el).position)).toBe('sticky');
+    await page.evaluate(() => { localStorage.removeItem('sidebar_home_items'); localStorage.removeItem('sidebar_home_removed'); localStorage.removeItem('sidebar_nav_order'); });
+
+    // ⑥ R-64: WebKit（iPhone 幅）のドロワーでも検索と切替が動く
+    const wk = await webkit.launch();
+    const ctx = await wk.newContext({ storageState: STORAGE_STATE, baseURL: BASE_URL, hasTouch: true, isMobile: true, viewport: { width: 390, height: 844 } });
+    const p2 = await ctx.newPage();
+    try {
+      await p2.goto('/dashboard');
+      await p2.locator('.mobile-hamburger').tap();
+      const drawer = p2.locator('nav.sidebar-nav.sidebar-open');
+      await expect(drawer).toBeVisible({ timeout: 15000 });
+      const s2 = drawer.locator('[data-nav-search]');
+      await s2.fill('マンダラ');
+      await expect(drawer.locator('[data-nav-search-results] a[data-nav-href="/dashboard/mandala"]')).toHaveCount(1);
+      await drawer.locator('[data-nav-search-clear]').tap();
+      await expect(s2).toHaveValue('');
+      await drawer.locator('[data-nav-order="added"]').tap();
+      await expect(drawer.locator('[data-nav-added-list] a[data-nav-href]').first()).toHaveAttribute('data-nav-href', '/dashboard/mandala');
+      await drawer.locator('[data-nav-order="standard"]').tap();
+      await expect(drawer.locator('[data-nav-category="ホーム"]')).toHaveCount(1);
+      await p2.evaluate(() => localStorage.removeItem('sidebar_nav_order'));
+    } finally {
+      await ctx.close();
+      await wk.close();
+    }
+  } finally {
+    await page.evaluate(() => {
+      localStorage.removeItem('sidebar_home_items');
+      localStorage.removeItem('sidebar_home_removed');
+      localStorage.removeItem('sidebar_nav_order');
+      localStorage.removeItem('lumina_nav_labels');
+    }).catch(() => {});
+  }
+});
