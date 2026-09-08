@@ -401,12 +401,26 @@ async function selectTwoCrossCards(page: import('@playwright/test').Page) {
   // 「<div> intercepts pointer events」の恒常タイムアウトになることがある（repeat-each 3で再現）。
   // 実input[type=checkbox]のため focus＋Space のキーボード操作で決定的にトグルする
   // （onChange発火・実ユーザーのキーボード操作と同経路）。
+  // 305追記（C19 の flaky 是正）: 検索直後はデバウンス後の再描画でカードが差し替わり、focus した要素が
+  // 入れ替わって Space が空振りすることがある（302/305 の全件で初回失敗→再試行通過）。
+  // 2枚が揃うのを先に待ち、チェックは「focus＋Space → 結果を見て未チェックなら再試行」を expect.poll で行う（R-12）
+  for (const id of crossIds) {
+    await expect(page.locator(`[data-bundle-key="ana-${id}"]`).getByRole('checkbox').first()).toBeVisible();
+  }
   for (const id of crossIds) {
     const cb = page.locator(`[data-bundle-key="ana-${id}"]`).getByRole('checkbox').first();
-    await expect(cb).toBeVisible();
-    await cb.focus();
-    await page.keyboard.press(' ');
-    await expect(cb).toBeChecked();
+    await expect
+      .poll(
+        async () => {
+          if (await cb.isChecked()) return true;
+          await cb.focus();
+          await page.keyboard.press(' ');
+          await page.waitForTimeout(150);
+          return cb.isChecked();
+        },
+        { timeout: 15000, message: `ana-${id} のチェックが入ること（再描画後の要素で再試行）` },
+      )
+      .toBe(true);
   }
   await page.getByRole('button', { name: '🔀 選択した2件を横断分析する' }).click();
 }
@@ -476,12 +490,26 @@ test('C20: note素材選択（180）でプラン画面に到達し、選択し�
     .click();
   // 187の「→次へ」追従ボタン等の浮遊要素がチェックボックスを覆うことがある（flaky要因）。
   // selectTwoCrossCards と同じく focus＋Space のキーボード操作で決定的にトグルする
+  // 305追記（C19 の flaky 是正）: 検索直後はデバウンス後の再描画でカードが差し替わり、focus した要素が
+  // 入れ替わって Space が空振りすることがある（302/305 の全件で初回失敗→再試行通過）。
+  // 2枚が揃うのを先に待ち、チェックは「focus＋Space → 結果を見て未チェックなら再試行」を expect.poll で行う（R-12）
+  for (const id of crossIds) {
+    await expect(page.locator(`[data-bundle-key="ana-${id}"]`).getByRole('checkbox').first()).toBeVisible();
+  }
   for (const id of crossIds) {
     const cb = page.locator(`[data-bundle-key="ana-${id}"]`).getByRole('checkbox').first();
-    await expect(cb).toBeVisible();
-    await cb.focus();
-    await page.keyboard.press(' ');
-    await expect(cb).toBeChecked();
+    await expect
+      .poll(
+        async () => {
+          if (await cb.isChecked()) return true;
+          await cb.focus();
+          await page.keyboard.press(' ');
+          await page.waitForTimeout(150);
+          return cb.isChecked();
+        },
+        { timeout: 15000, message: `ana-${id} のチェックが入ること（再描画後の要素で再試行）` },
+      )
+      .toBe(true);
   }
 
   // 追従ボタン → 確認モーダル → 生成モーダル（プラン画面）
@@ -605,12 +633,26 @@ test('C22: note選択モード中の干渉（214）— 案内表示＋カート�
   ).toBeVisible();
 
   // 2件をカートに入れる（浮遊要素の遮蔽を避けるためC18〜C20と同じ focus＋Space 方式）
+  // 305追記（C19 の flaky 是正）: 検索直後はデバウンス後の再描画でカードが差し替わり、focus した要素が
+  // 入れ替わって Space が空振りすることがある（302/305 の全件で初回失敗→再試行通過）。
+  // 2枚が揃うのを先に待ち、チェックは「focus＋Space → 結果を見て未チェックなら再試行」を expect.poll で行う（R-12）
+  for (const id of crossIds) {
+    await expect(page.locator(`[data-bundle-key="ana-${id}"]`).getByRole('checkbox').first()).toBeVisible();
+  }
   for (const id of crossIds) {
     const cb = page.locator(`[data-bundle-key="ana-${id}"]`).getByRole('checkbox').first();
-    await expect(cb).toBeVisible();
-    await cb.focus();
-    await page.keyboard.press(' ');
-    await expect(cb).toBeChecked();
+    await expect
+      .poll(
+        async () => {
+          if (await cb.isChecked()) return true;
+          await cb.focus();
+          await page.keyboard.press(' ');
+          await page.waitForTimeout(150);
+          return cb.isChecked();
+        },
+        { timeout: 15000, message: `ana-${id} のチェックが入ること（再描画後の要素で再試行）` },
+      )
+      .toBe(true);
   }
 
   // 確認モーダルに案④の「🔀 この選択で横断分析する」が出る → 押すと横断分析タブへ本文が渡る
