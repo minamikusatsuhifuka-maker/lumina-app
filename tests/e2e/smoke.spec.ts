@@ -2844,9 +2844,13 @@ test('C59: 🎛メニュー名設定の並びがサイドバーの実表示と�
   // 262: 設定UIが定義順で表示していて、ホームのカスタマイズ（並び替え・追加・削除）と
   // 食い違っていた。「設定画面を上から見ていけばサイドバーと同じ景色」を機械判定で固定する。
   const order = ['/dashboard/deepresearch', '/dashboard', '/dashboard/text-analysis'];
-  await page.addInitScript((o) => {
+  // 303 §5（R-77）: 保存に無い定義上のホーム項目は既定位置へ合流するようになった。この検証は「外した項目は
+  // 非表示中に出る」ことも見るので、残していない5件を墓標（sidebar_home_removed・保存側と同じ JSON 配列）に入れておく
+  const removed = ['/dashboard/orchestrator', '/dashboard/automation-strategy', '/dashboard/saved', '/dashboard/memo', '/dashboard/guide'];
+  await page.addInitScript(({ o, r }) => {
     localStorage.setItem('sidebar_home_items', JSON.stringify(o));
-  }, order);
+    localStorage.setItem('sidebar_home_removed', JSON.stringify(r));
+  }, { o: order, r: removed });
   await page.goto('/dashboard/display-settings');
 
   // 1) サイドバーのホーム（先頭N件のリンク）が注入した並びで出ている
@@ -9198,8 +9202,9 @@ test('C120: サイドバーのメニュー検索・追加順・新着・合流�
     });
     await page.reload();
     await expect(search).toBeVisible({ timeout: 30000 });
-    const homeSection = sidebar.locator('div:has(> [data-nav-category="ホーム"])');
-    expect(await hrefsIn(homeSection)).toEqual([
+    // ホームは先頭N件（C59 と同じ取り方。ホームの見出しは EditableHome の内側にあるので親 div から辿らない）
+    const visibleHrefs = async () => (await hrefsIn(sidebar));
+    expect((await visibleHrefs()).slice(0, 7)).toEqual([
       '/dashboard/deepresearch',
       '/dashboard',
       '/dashboard/orchestrator',
@@ -9226,9 +9231,9 @@ test('C120: サイドバーのメニュー検索・追加順・新着・合流�
     // ✏️編集で外すと墓標に入り、戻すと墓標から消える
     await page.goto('/dashboard');
     await expect(search).toBeVisible({ timeout: 30000 });
-    await homeSection.getByRole('button', { name: '✏️編集' }).click();
-    await homeSection.locator('[aria-label="ホームから削除"]').first().click(); // 先頭＝deepresearch（定義上のホーム項目ではない→墓標に入らない）
-    await homeSection.getByRole('button', { name: '完了' }).click();
+    await sidebar.getByRole('button', { name: '✏️編集' }).click();
+    await sidebar.locator('[aria-label="ホームから削除"]').first().click(); // 先頭＝deepresearch（定義上のホーム項目ではない→墓標に入らない）
+    await sidebar.getByRole('button', { name: '完了' }).click();
     expect(await page.evaluate(() => JSON.parse(localStorage.getItem('sidebar_home_removed') ?? '[]'))).toEqual(['/dashboard/guide']);
 
     // ⑤ 追加順: 新しい順・平坦（見出しなし）・日付・再読込後も保持
