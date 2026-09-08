@@ -10,6 +10,10 @@
 //   離れたら戻す。React が再描画で `title` を付け直していたら（例: ▼→▲で文言が変わる）そちらを尊重して上書きしない。
 // - 消える: カーソルが離れた／クリックした（押した後は同じ要素の上にいる間は再表示しない）／スクロール／キー入力／
 //   ウィンドウから出た。
+// - 301追記: **クリックで消すときは `title` をその場で戻し、押した後の要素は退避しない**。`title` はアイコンボタンの
+//   アクセシブルネームであり E2E のロケータ（`button[title*=…]`・13箇所）でもある。外したままにすると、同じボタンを
+//   続けて2回押す操作（⌨小窓の開→閉など）で2回目の要素が見つからず、C21/C29 が本番で恒常失敗した。
+//   吹き出しが出ていない間に title を外しておく理由は無い（外すのは「出している間の二重表示を防ぐ」ためだけ）。
 // - 位置: lib/instant-tooltip.ts の純関数（下・入らなければ上・左右は画面端の内側）。
 //   R-80: 視覚pxで決めて style に渡すときだけ toLayoutPx（273 の rootZoom/toLayoutPx を再利用）。
 // - タッチ端末: useFinePointer が false なら何も付けない（タップで出っぱなしにしない）。pointerType も mouse 限定。
@@ -126,19 +130,24 @@ export function InstantTooltip() {
         anchor = next;
         if (suppressed && suppressed !== next) suppressed = null;
         if (!next) { hide(); return; }
-        stash(next);
+        // 押した後の要素は退避しない（title を持ったままにする＝アクセシブルネーム／ロケータを壊さない・301）
         if (suppressed === next) { hide(); return; }
+        stash(next);
         show(next);
         return;
       }
-      // 同じ要素の上: React が title を付け直していたら（文言更新）退避し直す。押した後は出さない
-      if (next && next.hasAttribute('title')) {
+      // 同じ要素の上: React が title を付け直していたら（文言更新）退避し直す。押した後は退避も表示もしない
+      if (next && suppressed !== next && next.hasAttribute('title')) {
         stash(next);
-        if (suppressed !== next) show(next);
+        show(next);
       }
     };
     const onPress = () => {
-      if (anchor) suppressed = anchor;
+      if (anchor) {
+        suppressed = anchor;
+        // 吹き出しを消すと同時に title を戻す（消えている間は外しておく理由が無い・301）
+        restore(anchor);
+      }
       hide();
     };
     // スクロール: カーソルの下がまだ同じ要素なら位置を取り直す（要素を画面内へ寄せてから乗った直後の scroll イベントで

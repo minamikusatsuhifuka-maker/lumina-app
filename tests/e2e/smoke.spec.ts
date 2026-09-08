@@ -8026,9 +8026,18 @@ test('C111: 即時ツールチップ（300）— ホバーした瞬間に出る�
     expect(await tipVisibleNow()).toBeTruthy();
     await stdBtn.click();
     await expect(tip, 'クリックで消える（画面が変わらないボタン）').toBeHidden();
+    // 301: クリックで消したときは title を戻す（title はアクセシブルネーム／ロケータ。外したままだと C21/C29 のように
+    // 同じボタンを続けて2回押す操作で2回目が見つからない）
+    await expect(stdBtn, 'クリック直後に title が戻っている').toHaveAttribute('title', /./);
+    await expect(stdBtn).not.toHaveAttribute('data-tip', /./);
     const bb = await rectOf(stdBtn);
     await page.mouse.move(bb.left + bb.width / 2 + 2, bb.top + bb.height / 2);
     expect(await tipVisibleNow(), '押した直後は同じボタンの上でも出さない').toBeFalsy();
+    await expect(stdBtn, '押した後に同じボタンの上で動いても title を外さない').toHaveAttribute('title', /./);
+    // 同じボタンを title ロケータで続けて押せる（カーソルを動かさずに2回目）
+    const stdTitle = (await stdBtn.getAttribute('title')) ?? '';
+    await page.locator(`button[title="${stdTitle}"]`).first().click({ timeout: 5000 });
+    await expect(tip).toBeHidden();
     // 離れて戻ると再び出る
     await park();
     await stdBtn.hover();
