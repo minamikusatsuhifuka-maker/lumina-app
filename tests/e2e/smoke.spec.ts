@@ -9380,7 +9380,7 @@ test('C121: マンダラ 81マス表示（305）— 9⇄81の切替と再読込�
     await expect(panelKid, '見出しは「親 › 子」').toContainText('左上 › 上');
     // 子マスに長文を保存 → 再読込後も残る（同じ cell.id 経路）
     await panelKid.locator('[data-mandala-title-input="panel"]').fill(`子01 ${marker}`);
-    await panelKid.locator('[data-mandala-body-input="panel"]').fill(`## 見出し${marker}\n\n${'子マスの本文。'.repeat(600)}`);
+    await panelKid.locator('[data-mandala-body-input="panel"]').fill(`## 見出し${marker}\n\n${'子マスの本文。'.repeat(800)}`);
     await page.locator('[data-mandala-save="panel"]').click();
     await expect(panelKid.locator('[data-mandala-save-status="ok"]')).toBeVisible({ timeout: 30000 });
     await page.reload();
