@@ -3300,3 +3300,63 @@ test('U72: マンダラ ⌘+Enter 保存（302 §6-4）— 一覧（小窓）に
   const palette = readFileSync(join(__dirname, '../../src/components/ShortcutPalette.tsx'), 'utf8');
   expect(palette).toContain("visible('[data-mandala-panel]')");
 });
+
+test('U73: マンダラ バッジのホバーポップアップ（304）— 上限8件と畳み・📔からは episode が先頭（安定）・遅延150〜250ms・猶予あり・z は既存体系（サイドパネルとリーダーの間）・位置は273の関数を流用（新しい位置計算なし）・箱は押せる（pointer-events:none にしない）・アンカーに title を書かない・InstantTooltip のソースは301のまま（R-110/R-111）', async () => {
+  const m = await import('../../src/lib/mandala-shared');
+  const hp = await import('../../src/lib/hover-popover');
+  type L = import('../../src/lib/mandala-shared').MandalaLinkResolved;
+  const lk = (id: number, scope: string): L => ({ id, cell_id: 'c', scope, item_key: String(id), created_at: '', note: '', title: `t${id}`, exists: true, char_count: 1, item_created_at: null });
+  const links = [lk(1, 'library'), lk(2, 'episode'), lk(3, 'context'), lk(4, 'episode'), ...Array.from({ length: 7 }, (_, i) => lk(10 + i, 'text_analysis'))];
+  expect(m.MANDALA_POPOVER_MAX).toBe(8);
+  const r1 = m.popoverRowsOf(links, 'links');
+  expect(r1.rows.map((l) => l.id)).toEqual([1, 2, 3, 4, 10, 11, 12, 13]);
+  expect(r1.rest).toBe(3);
+  const r2 = m.popoverRowsOf(links, 'episode');
+  expect(r2.rows.map((l) => l.id).slice(0, 2), '📔からは episode が先頭・同種内は元の順').toEqual([2, 4]);
+  expect(r2.rows.map((l) => l.id)).toEqual([2, 4, 1, 3, 10, 11, 12, 13]);
+  expect(m.popoverRowsOf(links.slice(0, 3), 'links').rest).toBe(0);
+  expect(m.popoverKeyOf('abc')).toBe('mandala-links:abc');
+  // 遅延・猶予・レイヤー
+  expect(hp.HOVER_POPOVER_DELAY_MS).toBeGreaterThanOrEqual(150);
+  expect(hp.HOVER_POPOVER_DELAY_MS).toBeLessThanOrEqual(250);
+  expect(hp.HOVER_POPOVER_CLOSE_GRACE_MS).toBeGreaterThanOrEqual(100);
+  expect(hp.HOVER_POPOVER_Z).toBeGreaterThan(9000);
+  expect(hp.HOVER_POPOVER_Z).toBeLessThan(10000);
+  // 位置は 273 の関数そのもの（同じ入力→同じ出力）
+  const hv = await import('../../src/lib/hover-preview');
+  const anchor = { left: 900, top: 100, width: 40, height: 16 };
+  const vp = { width: 1280, height: 720 };
+  const box = { width: 340, height: 200 };
+  expect(hp.computePopoverPlacement(anchor, vp, box)).toEqual(hv.computePreviewPlacement(anchor, vp, box));
+  // 257 の遅延は不変（設定を混ぜない・R-110）
+  expect(hv.HOVER_PREVIEW_DELAY_MS).toBe(280);
+  // ソース固定（R-111: 構文ごと）
+  const comp = readFileSync(join(__dirname, '../../src/components/HoverPopover.tsx'), 'utf8');
+  expect(comp).toContain("import { rootZoom, toLayoutPx, type PreviewRect } from '@/lib/hover-preview'");
+  expect(comp).toContain('toLayoutPx(placement.left, zoom)');
+  expect(comp).toContain('toLayoutPx(placement.top, zoom)');
+  expect(comp).not.toMatch(/pointerEvents:\s*'none'/);
+  expect(comp).not.toMatch(/\btitle=/);
+  expect(comp).toContain("window.addEventListener('scroll', onScroll, true)");
+  expect(comp).not.toContain('HOVER_PREVIEW_DELAY_MS');
+  const lib = readFileSync(join(__dirname, '../../src/lib/hover-popover.ts'), 'utf8');
+  expect(lib).toContain('return computePreviewPlacement(anchor, viewport, boxVisual);');
+  // グリッドのバッジ: title を書かず aria-label。ポップアップの中身も title 無し
+  const grid = readFileSync(join(__dirname, '../../src/components/mandala/MandalaGrid.tsx'), 'utf8');
+  const badgeBlock = grid.slice(grid.indexOf('data-mandala-cell-primary={n}'), grid.indexOf('<CharCountBadge n={cell.body.length}'));
+  expect(badgeBlock).not.toMatch(/\btitle=/);
+  expect(badgeBlock).toContain('aria-label=');
+  const linksComp = readFileSync(join(__dirname, '../../src/components/mandala/MandalaLinks.tsx'), 'utf8');
+  const popBlock = linksComp.slice(linksComp.indexOf('export function MandalaLinkPopoverContent'));
+  expect(popBlock).not.toMatch(/\btitle=/);
+  expect(popBlock).toContain('<ScopeBadge scope={l.scope} compact noTitle />');
+  // InstantTooltip は本便で無変更（301 の状態のまま）
+  const tip = readFileSync(join(__dirname, '../../src/components/InstantTooltip.tsx'), 'utf8');
+  expect(tip).not.toMatch(/popover/i);
+  expect(tip).toContain('restore(anchor);');
+  expect(tip).toContain('if (suppressed === next) { hide(); return; }');
+  // チャート画面はホバー時取得＋キャッシュ（先読みしない）で、パネルと同じ GET を使う
+  const pageSrc = readFileSync(join(__dirname, '../../src/app/dashboard/mandala/[id]/page.tsx'), 'utf8');
+  expect(pageSrc).toContain("fetch(`/api/mandala/links?cellId=${encodeURIComponent(cellId)}`");
+  expect(pageSrc).toContain('onOpen: (_key, { cell }) => void fetchResolved(cell.id)');
+});

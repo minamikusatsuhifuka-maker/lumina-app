@@ -580,3 +580,33 @@ export function clearStash(cellId: string): void {
     window.localStorage.removeItem(mandalaStashKey(cellId));
   } catch {}
 }
+
+// ───────────────────────────────────────────────────────────────────────────
+// 304: バッジのホバーポップアップ（リンク一覧）の判断（純関数）
+// ───────────────────────────────────────────────────────────────────────────
+
+/** ポップアップに出す上限（§2-1）。超えた分は「他 n件 → パネルで見る」の1行に畳む（R-101/R-109） */
+export const MANDALA_POPOVER_MAX = 8;
+
+export type MandalaPopoverFrom = 'links' | 'episode';
+
+/**
+ * ポップアップの行を決める。📔 から開いたときは episode を先頭に並べる（安定ソート＝同種内は元の順）。
+ * 返り値: 表示する行と、畳んだ残り件数
+ */
+export function popoverRowsOf(
+  links: readonly MandalaLinkResolved[],
+  from: MandalaPopoverFrom,
+  max: number = MANDALA_POPOVER_MAX,
+): { rows: MandalaLinkResolved[]; rest: number } {
+  const ordered =
+    from === 'episode'
+      ? [...links.filter((l) => l.scope === 'episode'), ...links.filter((l) => l.scope !== 'episode')]
+      : [...links];
+  return { rows: ordered.slice(0, max), rest: Math.max(0, ordered.length - max) };
+}
+
+/** ポップアップの識別子（マス×どのバッジからでも同じ箱＝同じ key にする） */
+export function popoverKeyOf(cellId: string): string {
+  return `mandala-links:${cellId}`;
+}

@@ -16,6 +16,7 @@
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 import { CharCountBadge } from '@/components/LibraryItemRow';
+import type { HoverPopoverBindings } from '@/components/HoverPopover';
 import {
   MANDALA_CENTER,
   MANDALA_POSITION_LABELS,
@@ -25,9 +26,13 @@ import {
   type MandalaCell,
   type MandalaGridSlot,
   type MandalaLinkCounts,
+  type MandalaPopoverFrom,
 } from '@/lib/mandala-shared';
 
 const ACCENT = '#6c63ff';
+
+/** 304: バッジ（📔n・🔗n）にホバーポップアップを結線する関数。省略時はバッジは読むだけ（302 と同じ） */
+export type PopoverBind = (cell: MandalaCell, from: MandalaPopoverFrom) => HoverPopoverBindings;
 
 function CellCard({
   slot,
@@ -37,6 +42,7 @@ function CellCard({
   checked,
   onSelect,
   onToggleSelect,
+  popoverBind,
 }: {
   slot: MandalaGridSlot;
   selected: boolean;
@@ -45,6 +51,7 @@ function CellCard({
   checked: boolean;
   onSelect: (cell: MandalaCell) => void;
   onToggleSelect: (cell: MandalaCell) => void;
+  popoverBind?: PopoverBind;
 }) {
   const { cell, position, derived, derivedTitle } = slot;
   const isCenter = position === MANDALA_CENTER;
@@ -142,20 +149,43 @@ function CellCard({
           {isCenter ? (derived ? '親マス' : 'テーマ') : label}
         </span>
         <span style={{ flex: 1 }} />
-        {cell && !derived && filled && (
-          <span
-            data-mandala-cell-primary={counts?.episode ?? 0}
-            title={(counts?.episode ?? 0) > 0 ? `一次情報（📔エピソード記録）${counts?.episode}件` : '一次情報（📔エピソード記録）のリンクがありません'}
-            style={{ fontSize: 10, fontWeight: 700, whiteSpace: 'nowrap', flexShrink: 0, color: (counts?.episode ?? 0) > 0 ? '#B45309' : 'var(--text-muted)', opacity: (counts?.episode ?? 0) > 0 ? 1 : 0.55 }}
-          >
-            📔{counts?.episode ?? 0}
-          </span>
-        )}
-        {cell && !derived && (counts?.total ?? 0) > 0 && (
-          <span data-mandala-cell-links={counts?.total} title={`リンク ${counts?.total}件`} style={{ fontSize: 10, fontWeight: 700, whiteSpace: 'nowrap', flexShrink: 0, color: ACCENT }}>
-            🔗{counts?.total}
-          </span>
-        )}
+        {/* 304: 件数のあるバッジはホバーでリンク一覧（HoverPopover）。title は付けない（aria-label で読み上げ・R-110）。
+            クリックはピン留めで親（マスの編集）へ伝えない（R-81: バッジは操作要素）。選択モード中はクリックを奪わず
+            （バッジ以外と同じく選択の切替へ伝える）ホバーだけ効かせる */}
+        {cell && !derived && filled && (() => {
+          const n = counts?.episode ?? 0;
+          const b = n > 0 && popoverBind ? popoverBind(cell, 'episode') : undefined;
+          const handlers = b ? (selectMode ? { ...b, onClick: undefined } : b) : {};
+          return (
+            <span
+              data-mandala-cell-primary={n}
+              aria-label={n > 0 ? `一次情報（エピソード記録）${n}件。リンク一覧を表示` : '一次情報（エピソード記録）のリンクがありません'}
+              role={b ? 'button' : undefined}
+              tabIndex={b ? 0 : undefined}
+              {...handlers}
+              style={{ fontSize: 10, fontWeight: 700, whiteSpace: 'nowrap', flexShrink: 0, color: n > 0 ? '#B45309' : 'var(--text-muted)', opacity: n > 0 ? 1 : 0.55, cursor: b ? 'pointer' : 'default', padding: '0 2px', borderRadius: 4 }}
+            >
+              📔{n}
+            </span>
+          );
+        })()}
+        {cell && !derived && (counts?.total ?? 0) > 0 && (() => {
+          const n = counts?.total ?? 0;
+          const b = popoverBind ? popoverBind(cell, 'links') : undefined;
+          const handlers = b ? (selectMode ? { ...b, onClick: undefined } : b) : {};
+          return (
+            <span
+              data-mandala-cell-links={n}
+              aria-label={`リンク${n}件。リンク一覧を表示`}
+              role={b ? 'button' : undefined}
+              tabIndex={b ? 0 : undefined}
+              {...handlers}
+              style={{ fontSize: 10, fontWeight: 700, whiteSpace: 'nowrap', flexShrink: 0, color: ACCENT, cursor: b ? 'pointer' : 'default', padding: '0 2px', borderRadius: 4 }}
+            >
+              🔗{n}
+            </span>
+          );
+        })()}
         {cell && !derived && filled && <CharCountBadge n={cell.body.length} unit="字" compact />}
       </div>
 
@@ -225,6 +255,7 @@ export default function MandalaGrid({
   selectMode = false,
   checkedIds,
   onToggleSelect,
+  popoverBind,
 }: {
   cells: readonly MandalaCell[];
   /** null＝第1階層。第2階層（303）は親マスの id を渡す（中央は導出・押せない） */
@@ -237,6 +268,8 @@ export default function MandalaGrid({
   selectMode?: boolean;
   checkedIds?: ReadonlySet<string>;
   onToggleSelect?: (cell: MandalaCell) => void;
+  /** 304: バッジのホバーポップアップ（省略時は付けない） */
+  popoverBind?: PopoverBind;
 }) {
   // 描画順はアウトライン関数から（§4-3⑤・R-74）
   const slots = mandalaGridSlots(cells, parentCellId);
@@ -262,6 +295,7 @@ export default function MandalaGrid({
           checked={!!slot.cell && !!checkedIds?.has(slot.cell.id)}
           onSelect={onSelect}
           onToggleSelect={onToggleSelect ?? (() => {})}
+          popoverBind={popoverBind}
         />
       ))}
     </div>

@@ -18,6 +18,8 @@ import Link from 'next/link';
 import MandalaGrid from '@/components/mandala/MandalaGrid';
 import MandalaCellEditor from '@/components/mandala/MandalaCellEditor';
 import MandalaCompareView from '@/components/mandala/MandalaCompareView';
+import { MandalaLinkPopoverContent } from '@/components/mandala/MandalaLinks';
+import { useHoverPopover } from '@/components/HoverPopover';
 import { jstDateTimeString } from '@/lib/jst';
 import {
   MANDALA_DEPTH1_COUNT,
@@ -28,12 +30,14 @@ import {
   filledCount,
   linkCountsByCell,
   mandalaCompareState,
+  popoverKeyOf,
   primaryInfoSummary,
   toggleCellSelection,
   type MandalaCell,
   type MandalaChartDetail,
   type MandalaLinkLite,
   type MandalaLinkResolved,
+  type MandalaPopoverFrom,
 } from '@/lib/mandala-shared';
 
 const ACCENT = '#6c63ff';
@@ -123,13 +127,59 @@ export default function MandalaChartPage({ params }: { params: Promise<{ id: str
     dirtyRef.current = d;
   }, []);
 
-  // 302: パネルでリンクを付け外ししたら、そのマスの分だけ軽い一覧を差し替える（件数は純関数で導出）
+  // 302: パネルでリンクを付け外ししたら、そのマスの分だけ軽い一覧を差し替える（件数は純関数で導出）。
+  // 304: 解決済み（タイトル付き）はポップアップのキャッシュにも同じ値を入れる＝同じデータ源から描く（§3-2・R-95）
+  const [resolvedByCell, setResolvedByCell] = useState<Map<string, { links: MandalaLinkResolved[] | null; status: 'loading' | 'ready' | 'failed' }>>(new Map());
   const onLinksChanged = useCallback((cellId: string, resolved: MandalaLinkResolved[]) => {
     setLinks((prev) => [
       ...prev.filter((l) => l.cell_id !== cellId),
       ...resolved.map((l) => ({ id: l.id, cell_id: l.cell_id, scope: l.scope, item_key: l.item_key, created_at: l.created_at })),
     ]);
+    setResolvedByCell((prev) => new Map(prev).set(cellId, { links: resolved, status: 'ready' }));
   }, []);
+
+  // 304 §3-1: チャート取得は軽いリンク（タイトル無し）なので、最初のホバー時にそのマス分だけ解決済みを取ってキャッシュする
+  // （9マス分の先読みはしない＝N+1にしない）。取得はパネルのリンク欄と同じ GET /api/mandala/links?cellId=（別の解決処理を書かない）
+  const fetchResolved = useCallback(async (cellId: string) => {
+    let need = true;
+    setResolvedByCell((prev) => {
+      const cur = prev.get(cellId);
+      if (cur && cur.status !== 'failed') { need = false; return prev; }
+      return new Map(prev).set(cellId, { links: cur?.links ?? null, status: 'loading' });
+    });
+    if (!need) return;
+    try {
+      const res = await fetch(`/api/mandala/links?cellId=${encodeURIComponent(cellId)}`, { cache: 'no-store' });
+      const json = (await res.json().catch(() => ({}))) as { links?: MandalaLinkResolved[] };
+      if (!res.ok || !Array.isArray(json.links)) throw new Error(String(res.status));
+      setResolvedByCell((prev) => new Map(prev).set(cellId, { links: json.links!, status: 'ready' }));
+    } catch {
+      setResolvedByCell((prev) => new Map(prev).set(cellId, { links: prev.get(cellId)?.links ?? null, status: 'failed' }));
+    }
+  }, []);
+
+  // 304: バッジのホバーポップアップ（共通部品 HoverPopover）。中身は同じキャッシュから描く
+  const popover = useHoverPopover<{ cell: MandalaCell; from: MandalaPopoverFrom }>(
+    ({ cell, from }, api) => {
+      const entry = resolvedByCell.get(cell.id);
+      return (
+        <MandalaLinkPopoverContent
+          links={entry?.links ?? null}
+          status={entry?.status ?? 'loading'}
+          from={from}
+          onOpenPanel={() => {
+            api.close();
+            openEditor(cell);
+          }}
+        />
+      );
+    },
+    { onOpen: (_key, { cell }) => void fetchResolved(cell.id) },
+  );
+  const popoverBind = useCallback(
+    (cell: MandalaCell, from: MandalaPopoverFrom) => popover.bind(popoverKeyOf(cell.id), { cell, from }),
+    [popover],
+  );
 
   // 302 §3-1: 選択モードの出入り。入るときは編集パネルを閉じる（未保存なら確認1回）
   const enterSelectMode = () => {
@@ -255,7 +305,9 @@ export default function MandalaChartPage({ params }: { params: Promise<{ id: str
             selectMode={selectMode}
             checkedIds={checkedSet}
             onToggleSelect={toggleChecked}
+            popoverBind={popoverBind}
           />
+          {popover.layer}
           {selected && !selectMode && (
             <MandalaCellEditor key={selected.id} cell={selected} onClose={closePanel} onSaved={onSaved} onDirtyChange={onDirtyChange} onLinksChanged={onLinksChanged} />
           )}

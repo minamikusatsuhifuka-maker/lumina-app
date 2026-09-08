@@ -8891,3 +8891,230 @@ test('C118: マンダラ ⌘+Enter で保存（302 §6-4）— 本文 textarea �
     await deleteMandalaChart(api, chartId);
   }
 });
+
+// ============================================================================
+// 304: 🔲 マンダラ（リンクバッジのホバーポップアップ）
+// ============================================================================
+
+test('C119: マンダラ バッジのホバーポップアップ（304）— 🔗n/📔n にホバーでリンク一覧（📔からは📔が先頭）・件数0では出ない・各行が302の4経路を新しいタブで開く・削除済みは押せない行・9件以上は8件＋「他 n件」でパネルへ・バッジ→箱へ移しても消えない／両方から外れる・Esc・外側クリックで消える・同時に1つ・バッジのクリックはピン留めでパネルを開かない（R-81）・バッジ以外のクリックでパネル・選択モード中はバッジ以外のクリックで選択・バッジに title が無く InstantTooltip と同時に出ない（R-110）・zoom1.4 と右下のマスでもバッジの隣で画面内（R-80）・パネルで外した直後に行数と件数が一致・タッチ（WebKit）ではタップで出て外側タップで消えパネルは開かない（R-64）', async ({
+  page,
+}) => {
+  test.setTimeout(240_000);
+  const marker = `MPOP${RUN_ID}`;
+  const libId = await createLibraryItem(api, { title: `${marker} 資料`, content: `本文 ${marker}` });
+  const taId = await createSave(api, { title: `${marker} 分析`, content: `分析本文 ${marker}` });
+  const ctxId = await createContextSave(api, { topic: `${marker} 素材`, contextText: `素材本文 ${marker}` });
+  const epIds: number[] = [];
+  for (let i = 0; i < 9; i++) epIds.push(await createEpisode(api, { title: `${marker} 記録${i}`, details: `記録 ${i}` }));
+  const { id: chartId, cells } = await createMandalaChart(api, `${marker} 骨格`);
+  const cell0 = cells.find((c) => c.position === 0)!;
+  const cell1 = cells.find((c) => c.position === 1)!;
+  const cell8 = cells.find((c) => c.position === 8)!;
+  for (const c of [cell0, cell1, cell8]) expect((await saveMandalaCell(api, c.id, { title: `T${c.position} ${marker}`, body: '本文' })).status()).toBe(200);
+  // cell0: 4種（📚🗂🧠📔）。cell1: 📔9件。cell8: 📚1件（右下）
+  expect((await addMandalaLinks(api, cell0.id, [
+    { scope: 'library', item_key: libId },
+    { scope: 'text_analysis', item_key: taId },
+    { scope: 'context', item_key: ctxId },
+    { scope: 'episode', item_key: epIds[0] },
+  ])).status()).toBe(200);
+  expect((await addMandalaLinks(api, cell1.id, epIds.map((id) => ({ scope: 'episode', item_key: id })))).status()).toBe(200);
+  expect((await addMandalaLinks(api, cell8.id, [{ scope: 'library', item_key: libId }])).status()).toBe(200);
+  const popKey = (id: string) => `mandala-links:${id}`;
+  const dialogs: string[] = [];
+  page.on('dialog', (d) => { dialogs.push(d.message()); void d.accept(); });
+
+  try {
+    await page.goto(`/dashboard/mandala/${chartId}`);
+    const grid = page.locator('[data-mandala-grid]');
+    await expect(grid.locator('[data-mandala-cell]')).toHaveCount(9, { timeout: 30000 });
+    const badge0 = grid.locator('[data-mandala-cell="0"] [data-mandala-cell-links]');
+    const primary0 = grid.locator('[data-mandala-cell="0"] [data-mandala-cell-primary]');
+    const pop0 = page.locator(`[data-hover-popover="${popKey(cell0.id)}"]`);
+    const anyPop = page.locator('[data-hover-popover]');
+    const park = async () => { await page.locator('h1').first().hover(); };
+
+    // R-110: バッジに title が無い（aria-label のみ）
+    await expect(badge0).not.toHaveAttribute('title', /./);
+    await expect(primary0).not.toHaveAttribute('title', /./);
+    await expect(badge0).toHaveAttribute('aria-label', /リンク4件/);
+
+    // ① 🔗 にホバー → 4行。各行は 302 の4経路・新しいタブ。InstantTooltip は出ていない
+    await badge0.hover();
+    await expect(pop0).toBeVisible({ timeout: 5000 });
+    await expect(pop0.locator('[data-mandala-pop-link]')).toHaveCount(4, { timeout: 15000 });
+    expect(await page.locator('[data-instant-tip]').evaluate((el) => (el as HTMLElement).hidden), 'InstantTooltip とポップアップが同時に出ない').toBe(true);
+    const expectHref = async (scope: string, re: RegExp) => {
+      const a = pop0.locator(`[data-mandala-pop-link][data-mandala-pop-scope="${scope}"]`);
+      await expect(a).toHaveAttribute('target', '_blank');
+      expect(await a.getAttribute('href'), scope).toMatch(re);
+    };
+    await expectHref('library', new RegExp(`/dashboard/library\\?open=${libId}$`));
+    await expectHref('text_analysis', new RegExp(`/dashboard/saved\\?open=${taId}$`));
+    await expectHref('context', new RegExp(`/dashboard/context-library\\?open=${ctxId}$`));
+    await expectHref('episode', new RegExp(`/dashboard/episodes\\?open=${epIds[0]}$`));
+    // 箱の位置: バッジの隣（画面内）
+    const near = async (anchor: import('@playwright/test').Locator, box: import('@playwright/test').Locator, label: string, tol = 24) => {
+      const a = (await anchor.boundingBox())!;
+      const b = (await box.boundingBox())!;
+      const dx = Math.max(0, a.x - (b.x + b.width), b.x - (a.x + a.width));
+      const dy = Math.max(0, a.y - (b.y + b.height), b.y - (a.y + a.height));
+      expect(Math.max(dx, dy), `${label}: バッジの隣に出る（隙間 ${Math.max(dx, dy).toFixed(1)}px）`).toBeLessThanOrEqual(tol);
+      const vw = await page.evaluate(() => window.innerWidth);
+      const vh = await page.evaluate(() => window.innerHeight);
+      expect(b.x, `${label}: 左端`).toBeGreaterThanOrEqual(0);
+      expect(b.y, `${label}: 上端`).toBeGreaterThanOrEqual(0);
+      expect(b.x + b.width, `${label}: 右端`).toBeLessThanOrEqual(vw + 1);
+      expect(b.y + b.height, `${label}: 下端`).toBeLessThanOrEqual(vh + 1);
+    };
+    await near(badge0, pop0, '🔗（zoom1）');
+
+    // ② バッジ→箱へカーソルを移しても消えない。行の上でも残る
+    await pop0.hover();
+    await page.waitForTimeout(400);
+    await expect(pop0).toBeVisible();
+    await pop0.locator('[data-mandala-pop-link]').first().hover();
+    await page.waitForTimeout(300);
+    await expect(pop0).toBeVisible();
+    // 両方から外れると消える
+    await park();
+    await expect(pop0).toHaveCount(0, { timeout: 5000 });
+
+    // ③ 📔 にホバー → 同じ箱・📔 が先頭
+    await primary0.hover();
+    await expect(pop0).toBeVisible({ timeout: 5000 });
+    await expect(pop0.locator('[data-mandala-pop-link], [data-mandala-pop-link-missing]').first()).toHaveAttribute('data-mandala-pop-scope', 'episode');
+    // Esc で消える
+    await page.keyboard.press('Escape');
+    await expect(pop0).toHaveCount(0);
+    await expect(page.locator('[data-mandala-panel]'), 'Esc でパネルは開かない/閉じるだけ').toHaveCount(0);
+
+    // ④ 件数0（中央＝📔0・🔗無し）では出ない
+    const primary4 = grid.locator('[data-mandala-cell="4"] [data-mandala-cell-primary]');
+    await expect(primary4).toHaveAttribute('data-mandala-cell-primary', '0');
+    await primary4.hover();
+    await page.waitForTimeout(600);
+    await expect(anyPop).toHaveCount(0);
+
+    // ⑤ 同時に1つ: cell0 → cell1 のバッジへ移すと箱が差し替わる
+    await badge0.hover();
+    await expect(pop0).toBeVisible({ timeout: 5000 });
+    const badge1 = grid.locator('[data-mandala-cell="1"] [data-mandala-cell-links]');
+    const pop1 = page.locator(`[data-hover-popover="${popKey(cell1.id)}"]`);
+    await badge1.hover();
+    await expect(pop1).toBeVisible({ timeout: 5000 });
+    await expect(anyPop).toHaveCount(1);
+    // 9件 → 8行＋「他 1件」→ 押すとサイドパネル
+    await expect(pop1.locator('[data-mandala-pop-link]')).toHaveCount(8, { timeout: 15000 });
+    const more = pop1.locator('[data-mandala-pop-more]');
+    await expect(more).toHaveAttribute('data-mandala-pop-more', '1');
+    await more.click();
+    await expect(page.locator(`[data-mandala-panel="${cell1.id}"]`)).toBeVisible();
+    await expect(anyPop).toHaveCount(0);
+    await page.locator('[data-mandala-panel-close]').click();
+    await expect(page.locator('[data-mandala-panel]')).toHaveCount(0);
+
+    // ⑥ R-81: バッジのクリック＝ピン留め（パネルは開かない）。離れても残る。外側クリックで消える
+    await badge0.click();
+    await expect(pop0).toBeVisible();
+    await expect(pop0).toHaveAttribute('data-hover-popover-pinned', '1');
+    await expect(page.locator('[data-mandala-panel]'), 'バッジのクリックでパネルが開かない').toHaveCount(0);
+    await park();
+    await page.waitForTimeout(400);
+    await expect(pop0, 'ピン留め中は離れても残る').toBeVisible();
+    await page.locator('h1').first().click();
+    await expect(pop0, '外側クリックで消える').toHaveCount(0);
+    // バッジ以外のクリックで従来どおりパネル。「パネルで編集」からもパネル
+    await grid.locator('[data-mandala-cell="0"] [data-mandala-cell-title]').click();
+    await expect(page.locator(`[data-mandala-panel="${cell0.id}"]`)).toBeVisible();
+    // ⑦ 整合: パネルでリンクを外した直後、ポップアップの行数とバッジの件数が一致
+    const panel = page.locator(`[data-mandala-panel="${cell0.id}"]`);
+    await expect(panel.locator('[data-mandala-links-count]')).toHaveAttribute('data-mandala-links-count', '4', { timeout: 15000 });
+    await panel.locator('[data-mandala-link][data-mandala-link-scope="context"] [data-mandala-link-remove]').click();
+    await expect(panel.locator('[data-mandala-links-count]')).toHaveAttribute('data-mandala-links-count', '3');
+    await expect(badge0).toHaveAttribute('data-mandala-cell-links', '3');
+    await badge0.hover();
+    await expect(pop0).toBeVisible({ timeout: 5000 });
+    await expect(pop0.locator('[data-mandala-pop-link]')).toHaveCount(3);
+    await pop0.locator('[data-mandala-pop-edit]').click();
+    await expect(panel).toBeVisible();
+    await page.locator('[data-mandala-panel-close]').click();
+    await expect(page.locator('[data-mandala-panel]')).toHaveCount(0);
+    expect(dialogs, 'この区間に確認ダイアログは出ない').toHaveLength(0);
+
+    // ⑧ 選択モード中: ホバーで一覧・バッジのクリックは選択の切替（ピン留めしない）
+    await page.locator('[data-mandala-select-toggle]').click();
+    await expect(grid).toHaveAttribute('data-mandala-select-mode', '1');
+    await badge0.hover();
+    await expect(pop0).toBeVisible({ timeout: 5000 });
+    await badge0.click();
+    await expect(grid.locator('[data-mandala-cell="0"]'), 'バッジのクリックで選択が切り替わる').toHaveAttribute('data-mandala-cell-checked', '1');
+    await grid.locator('[data-mandala-cell="0"] [data-mandala-cell-title]').click();
+    await expect(grid.locator('[data-mandala-cell="0"]')).toHaveAttribute('data-mandala-cell-checked', '0');
+    await page.locator('[data-mandala-select-exit]').click();
+    await park();
+    await expect(anyPop).toHaveCount(0, { timeout: 5000 });
+
+    // ⑨ R-80: zoom1.4 でもバッジの隣。右下のマスでも画面内
+    await page.evaluate(() => { document.documentElement.style.zoom = '1.4'; });
+    await badge0.hover();
+    await expect(pop0).toBeVisible({ timeout: 5000 });
+    await near(badge0, pop0, '🔗（zoom1.4）', 24 * 1.4);
+    await park();
+    await expect(anyPop).toHaveCount(0, { timeout: 5000 });
+    await page.evaluate(() => { document.documentElement.style.zoom = ''; });
+    const badge8 = grid.locator('[data-mandala-cell="8"] [data-mandala-cell-links]');
+    await badge8.evaluate((el) => el.scrollIntoView({ block: 'end' }));
+    await badge8.hover();
+    const pop8 = page.locator(`[data-hover-popover="${popKey(cell8.id)}"]`);
+    await expect(pop8).toBeVisible({ timeout: 5000 });
+    await near(badge8, pop8, '右下のマス');
+    await park();
+    await expect(anyPop).toHaveCount(0, { timeout: 5000 });
+
+    // ⑩ 削除済みのリンク先は押せない行
+    expect((await api.delete(LIBRARY_API, { data: { ids: [libId] } })).status()).toBe(200);
+    await page.reload();
+    await expect(grid.locator('[data-mandala-cell]')).toHaveCount(9, { timeout: 30000 });
+    await badge0.hover();
+    await expect(pop0).toBeVisible({ timeout: 5000 });
+    await expect(pop0.locator('[data-mandala-pop-link-missing]')).toHaveCount(1, { timeout: 15000 });
+    await expect(pop0.locator('[data-mandala-pop-link-missing] [data-mandala-pop-title]')).toContainText('リンク先なし');
+    await expect(pop0.locator('a[data-mandala-pop-link]')).toHaveCount(2);
+    await park();
+
+    // ⑪ R-64: タッチ（WebKit・hasTouch）ではタップで出て、外側タップで消え、パネルは開かない
+    const wk = await webkit.launch();
+    const ctx = await wk.newContext({ storageState: STORAGE_STATE, baseURL: BASE_URL, hasTouch: true, isMobile: true, viewport: { width: 390, height: 844 } });
+    const p2 = await ctx.newPage();
+    try {
+      await p2.goto(`/dashboard/mandala/${chartId}`);
+      const g2 = p2.locator('[data-mandala-grid]');
+      await expect(g2.locator('[data-mandala-cell]')).toHaveCount(9, { timeout: 30000 });
+      const b2 = g2.locator('[data-mandala-cell="1"] [data-mandala-cell-links]');
+      await b2.tap();
+      const wkPop = p2.locator(`[data-hover-popover="${popKey(cell1.id)}"]`);
+      await expect(wkPop, 'タップで出る').toBeVisible({ timeout: 5000 });
+      await expect(wkPop.locator('[data-mandala-pop-link]')).toHaveCount(8, { timeout: 15000 });
+      await expect(p2.locator('[data-mandala-panel]'), 'タップでパネルは開かない').toHaveCount(0);
+      const vw2 = await p2.evaluate(() => window.innerWidth);
+      const wb = (await wkPop.boundingBox())!;
+      expect(wb.x).toBeGreaterThanOrEqual(0);
+      expect(wb.x + wb.width).toBeLessThanOrEqual(vw2 + 1);
+      await p2.locator('h1').first().tap();
+      await expect(wkPop, '外側タップで消える').toHaveCount(0, { timeout: 5000 });
+      await expect(p2.locator('[data-mandala-panel]')).toHaveCount(0);
+      // マス本体のタップは従来どおりパネル
+      await g2.locator('[data-mandala-cell="1"] [data-mandala-cell-title]').tap();
+      await expect(p2.locator(`[data-mandala-panel="${cell1.id}"]`)).toBeVisible({ timeout: 10000 });
+    } finally {
+      await ctx.close();
+      await wk.close();
+    }
+  } finally {
+    await deleteMandalaChart(api, chartId);
+    for (const id of epIds) await api.delete(`${EPISODES_API}?id=${id}`);
+    await api.delete(`${CONTEXT_API}?id=${ctxId}`);
+    await deleteSave(api, taId);
+  }
+});

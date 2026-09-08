@@ -24,6 +24,7 @@ import {
   linkDisplayTitle,
   pickerItemsOf,
   pickerSearchUrl,
+  popoverRowsOf,
   scopeMetaOf,
   type MandalaLinkResolved,
   type MandalaPickerItem,
@@ -48,12 +49,14 @@ const smallBtn: CSSProperties = {
   gap: 3,
 };
 
-export function ScopeBadge({ scope, compact = false }: { scope: string; compact?: boolean }) {
+export function ScopeBadge({ scope, compact = false, noTitle = false }: { scope: string; compact?: boolean; noTitle?: boolean }) {
   const meta = scopeMetaOf(scope);
   return (
     <span
       data-mandala-scope-badge={scope}
-      title={meta.label}
+      // 304: ホバーポップアップの中では title を付けない（InstantTooltip と箱を同時に出さない・R-110）
+      title={noTitle ? undefined : meta.label}
+      aria-label={noTitle ? meta.label : undefined}
       style={{ fontSize: compact ? 11 : 12, flexShrink: 0, whiteSpace: 'nowrap' }}
     >
       {meta.icon}
@@ -378,5 +381,73 @@ export function MandalaLinkPicker({
       </div>
     </div>,
     document.body,
+  );
+}
+
+// ── 304: バッジのホバーポップアップの中身（HoverPopover に載せる。外す・追加はしない＝パネルへ誘導） ──
+
+export function MandalaLinkPopoverContent({
+  links,
+  status,
+  from,
+  onOpenPanel,
+}: {
+  links: MandalaLinkResolved[] | null;
+  status: 'loading' | 'ready' | 'failed';
+  from: 'links' | 'episode';
+  /** 「他 n件 → パネルで見る」「パネルで編集」（サイドパネルを開く） */
+  onOpenPanel: () => void;
+}) {
+  const { rows, rest } = popoverRowsOf(links ?? [], from);
+  return (
+    <div data-mandala-popover style={{ display: 'flex', flexDirection: 'column', gap: 4, minWidth: 0 }}>
+      <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-muted)', padding: '2px 4px' }}>🔗 リンク（{links?.length ?? 0}）</div>
+      {status === 'loading' && !links && <div style={{ fontSize: 11, color: 'var(--text-muted)', padding: '2px 4px' }}>読み込み中…</div>}
+      {status === 'failed' && !links && <div data-mandala-popover-error style={{ fontSize: 11, color: '#B91C1C', padding: '2px 4px' }}>⚠️ リンクの取得に失敗しました</div>}
+      {rows.map((l) => {
+        const meta = scopeMetaOf(l.scope);
+        const title = linkDisplayTitle(l);
+        const rowStyle: CSSProperties = { display: 'flex', alignItems: 'center', gap: 6, minWidth: 0, padding: '5px 6px', borderRadius: 6, textDecoration: 'none', color: 'inherit' };
+        const inner = (
+          <>
+            <ScopeBadge scope={l.scope} compact noTitle />
+            <span
+              data-mandala-pop-title
+              style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: l.exists ? 'var(--text-primary)' : 'var(--text-muted)', fontStyle: l.exists ? 'normal' : 'italic' }}
+            >
+              {title}
+            </span>
+            {l.exists && l.char_count != null && <CharCountBadge n={l.char_count} unit="字" compact />}
+            {l.exists && <span style={{ fontSize: 10, color: 'var(--text-muted)', flexShrink: 0 }}>↗</span>}
+          </>
+        );
+        return l.exists ? (
+          <a
+            key={l.id}
+            href={meta.openHref(l.item_key)}
+            target="_blank"
+            rel="noopener noreferrer"
+            data-mandala-pop-link={l.id}
+            data-mandala-pop-scope={l.scope}
+            aria-label={`${meta.label}で開く（新しいタブ）: ${title}`}
+            style={{ ...rowStyle, cursor: 'pointer', background: 'var(--bg-primary)' }}
+          >
+            {inner}
+          </a>
+        ) : (
+          <span key={l.id} data-mandala-pop-link-missing={l.id} data-mandala-pop-scope={l.scope} aria-disabled style={{ ...rowStyle, opacity: 0.6, cursor: 'default' }}>
+            {inner}
+          </span>
+        );
+      })}
+      {rest > 0 && (
+        <button type="button" data-mandala-pop-more={rest} onClick={onOpenPanel} style={{ ...smallBtn, justifyContent: 'center', borderStyle: 'dashed' }}>
+          他 {rest}件 → パネルで見る
+        </button>
+      )}
+      <button type="button" data-mandala-pop-edit onClick={onOpenPanel} style={{ ...smallBtn, justifyContent: 'center', borderColor: ACCENT, color: ACCENT, marginTop: 2 }}>
+        ✏️ パネルで編集
+      </button>
+    </div>
   );
 }
