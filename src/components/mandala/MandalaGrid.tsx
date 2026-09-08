@@ -93,7 +93,6 @@ function CellCard({
       aria-label={`${label}: ${title || '空のマス'}`}
       aria-pressed={clickable ? (selectMode ? checked : selected) : undefined}
       aria-disabled={selectMode && cell && !selectable ? true : undefined}
-      title={hoverTitle}
       onClick={activate}
       onKeyDown={(e) => {
         if (!clickable) return;
@@ -189,8 +188,10 @@ function CellCard({
         {cell && !derived && filled && <CharCountBadge n={cell.body.length} unit="字" compact />}
       </div>
 
+      {/* 304: マスの説明（title）は読む領域だけに付ける。バッジ行の祖先に title があると、バッジのホバーで
+          InstantTooltip とポップアップが同時に出るため（R-110: title 併用禁止） */}
       {filled || derived ? (
-        <>
+        <div title={hoverTitle} style={{ display: 'flex', flexDirection: 'column', gap: 6, minWidth: 0, flex: 1 }}>
           <div
             data-mandala-cell-title
             title={title || undefined}
@@ -224,10 +225,11 @@ function CellCard({
               {preview || <span style={{ color: 'var(--text-muted)' }}>（本文なし）</span>}
             </div>
           )}
-        </>
+        </div>
       ) : (
         <div
           data-mandala-cell-empty
+          title={hoverTitle}
           style={{
             flex: 1,
             display: 'flex',
