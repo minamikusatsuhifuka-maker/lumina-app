@@ -9866,7 +9866,7 @@ test('C123: マンダラ→Kindle目次（307）— チャート画面の「📕
     // ⑤ 案件の見出し付近に出どころと戻りリンク（新しいタブ）
     const origin = page.locator(`[data-kw-mandala-origin="${chartId}"]`);
     await expect(origin).toBeVisible({ timeout: 30000 });
-    await expect(origin.locator('[data-kw-mandala-origin-label]')).toContainText(`マンダラ『${marker} テーマ』から起こした（`);
+    await expect(origin.locator('[data-kw-mandala-origin-label]')).toContainText(`マンダラ『[E2E] ${marker} テーマ』から起こした（`);
     await expect(origin.locator('[data-kw-mandala-origin-link]')).toHaveAttribute('href', `/dashboard/mandala/${chartId}`);
     await expect(origin.locator('[data-kw-mandala-origin-link]')).toHaveAttribute('target', '_blank');
     // ⑥ DB の案件: 章2・タイトル/メモがマスと一致・節はメモ内・素材は章に紐づく・🧠と type 不適合は参照一覧・出どころ記録
