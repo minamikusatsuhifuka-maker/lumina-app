@@ -2309,7 +2309,12 @@ function KindleWizardInner() {
                         <button onClick={() => moveChapter(p, idx, 1)} disabled={idx === outline.chapters.length - 1} style={{ ...smallBtn, opacity: idx === outline.chapters.length - 1 ? 0.4 : 1 }} title="下へ">↓</button>
                         <button onClick={() => deleteChapter(p, idx)} disabled={outline.chapters.length <= 1} style={{ ...smallBtn, color: '#ef4444', borderColor: 'rgba(239,68,68,0.3)' }} title="この章を削除">🗑</button>
                       </div>
-                      <div style={{ fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.6, marginBottom: 6 }}>{c.summary}</div>
+                      {/* 307是正: 章の概要（著者メモ）は Markdown（マンダラ由来は「### 節」を含む）なので整形して出す（R-97・### の UI 露出禁止） */}
+                      {c.summary ? (
+                        <MarkdownBody text={c.summary} data-kw-chapter-summary={idx + 1} style={{ fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.6, marginBottom: 6 }} />
+                      ) : (
+                        <div data-kw-chapter-summary={idx + 1} style={{ fontSize: 12, color: 'var(--text-muted)', lineHeight: 1.6, marginBottom: 6 }}>（概要なし）</div>
+                      )}
                       <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
                         <span style={{ fontSize: 10, color: 'var(--text-muted)' }}>目標{(c.target_chars ?? 3500).toLocaleString()}字</span>
                         {(c.source_ids ?? []).map((sid) => (

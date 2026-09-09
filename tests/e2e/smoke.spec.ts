@@ -9852,6 +9852,10 @@ test('C123: マンダラ→Kindle目次（307）— チャート画面の「📕
     await expect(step4Inputs.nth(0)).toHaveValue(new RegExp(`${marker} テーマ$`));
     await expect(step4Inputs.nth(1)).toHaveValue(`第一章 ${marker}`);
     await expect(step4Inputs.nth(2)).toHaveValue(`第二章 ${marker}`);
+    // 307是正: ④の章概要（著者メモ）は整形表示＝節の「### 」が文字として出ない（R-97）
+    const summary1 = page.locator('[data-kw-chapter-summary="1"]');
+    await expect(summary1).toContainText(`節A ${marker}`);
+    await expectNoRawMarkdown(summary1, '④の章概要');
     // ④ 確定（R-87: 応答を遅らせて2連打しても POST は1回）
     delayMs = 1500;
     const confirmBtn = page.getByRole('button', { name: /この目次で確定/ });
