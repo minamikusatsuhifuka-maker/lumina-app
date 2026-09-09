@@ -5435,7 +5435,7 @@ test('C87: AI統合サマリー（287）— 生MDが露出しない・見出し/
     await expect(modal, '閉じるで消える').toHaveCount(0);
     // 保存名は「統合サマリー: <選択の1件目> 他1件」。一覧は新しい順なので1件目は統合B（後に作った方）になる
     const titleRe = new RegExp(`^統合サマリー: \\[E2E\\] 統合[AB] ${marker} 他1件$`);
-    await expect.poll(() => dialogs.some((m) => m.includes('リサーチ保存に追加しました') && titleRe.test(m.replace(/^.*（/, '').replace(/）$/, ''))), '保存完了と保存名が知らされること').toBe(true);
+    await expect.poll(() => dialogs.some((m) => m.includes('リサーチ保存に追加しました') && titleRe.test(m.match(/（([^）]*)）/)?.[1] ?? '')), '保存完了と保存名が知らされること').toBe(true);
     const rows = (await (await request.get(`${LIBRARY_API}?q=${encodeURIComponent(marker)}`)).json()) as { id: string; title: string; content: string; type: string; tags?: string }[];
     const mergeRows = rows.filter((r) => r.type === 'merge');
     expect(mergeRows.length, '317: 要約＋詳細の2行').toBe(2);
@@ -11274,7 +11274,7 @@ test('C133: AIでまとめるの二段出力とプレゼン素材パック（317
   const b = await createLibraryItem(request, { title: `素材B ${marker}`, content: `夜の保湿 ${marker}。クレンジングのあと5分以内に保湿する。週に1回は角質ケアを足す。` });
   const created: string[] = [a, b];
   const summaryText = `## 🎯 エグゼクティブサマリー ${marker}\n\n**要点** は保湿の継続です。\n\n- 角層は水分を保つ\n- 加湿器で湿度を40%以上に保つ\n\n## 💡 主要インサイト\n\n短い要約 ${marker}。`;
-  const detailText = `## 🎯 エグゼクティブサマリー ${marker}\n\n詳細版 ${marker}。\n\n## 📚 各資料の要点\n\n### 素材A\n\n${'角層は水分を保つバリアの役割を持つ。加湿器で湿度を40%以上に保つ。'.repeat(60)}\n\n### 素材B\n\n${'クレンジングのあと5分以内に保湿する。週に1回は角質ケアを足す。'.repeat(60)}\n\n## ✅ アクション推奨事項\n\n- 続ける`;
+  const detailText = `## 🎯 エグゼクティブサマリー ${marker}\n\n詳細版 ${marker}。\n\n## 📚 各資料の要点\n\n### 素材A\n\n${'角層は水分を保つバリアの役割を持つ。加湿器で湿度を40%以上に保つ。'.repeat(90)}\n\n### 素材B\n\n${'クレンジングのあと5分以内に保湿する。週に1回は角質ケアを足す。'.repeat(90)}\n\n## ✅ アクション推奨事項\n\n- 続ける`;
   const mergePosts: string[] = [];
   let detailCalls = 0;
   await page.route((url) => url.pathname === '/api/merge', async (route) => {

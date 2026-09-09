@@ -2,7 +2,8 @@
 
 // 317 §3-2: 統合サマリー（保存後）からプレゼン素材パックを**選択式**で作る。1件ずつ独立に実行（R-39）・失敗分だけ再実行。
 // 画像系は 315 の流れ（/dashboard/visuals?scope=library&ids=&types=）へ新しいタブで渡す＝プラン→編集→描画（赤い印の規則はそのまま）。
-// テキスト系は /api/pack（kind ごとに1リクエスト）。プレゼン原稿は 275 へ sessionStorage の handoff
+// テキスト系は /api/pack（kind ごとに1リクエスト）。プレゼン原稿は 275 へ localStorage の一回限り handoff
+// （noopener で開く新しいタブには sessionStorage が引き継がれないため localStorage。読んだ側が消す）
 import { useMemo, useRef, useState } from 'react';
 import { formatUsd, pricingNote } from '@/lib/model-pricing';
 import {
@@ -60,7 +61,7 @@ export default function PresentationPackPanel({
       if (kind === 'script') {
         const pages = splitIntoSlidePages(detailText || summaryText);
         if (pages.length === 0) throw new Error('まとめに見出しが無いためページに分けられません');
-        window.sessionStorage.setItem(PRESENTATION_HANDOFF_KEY, JSON.stringify({ title: baseTitle, pages, from: 'pack' }));
+        window.localStorage.setItem(PRESENTATION_HANDOFF_KEY, JSON.stringify({ title: baseTitle, pages, from: 'pack' }));
         window.open('/dashboard/presentation?from=pack', '_blank', 'noopener');
         setStatus((m) => ({ ...m, [kind]: { state: 'opened', message: `プレゼン原稿（新しいタブ）にまとめを ${pages.length} ページとして渡しました` } }));
         return;

@@ -187,7 +187,7 @@ export function packCountsOf(items: readonly { id: string | number; metadata?: u
   }
   return out;
 }
-/** 🎤プレゼン原稿への handoff（sessionStorage）。まとめを「## 見出し」ごとにページ分割（最大12） */
+/** 🎤プレゼン原稿への handoff（localStorage の一回限りキー。noopener の新タブに sessionStorage は渡らない）。まとめを「## 見出し」ごとにページ分割（最大12） */
 export const PRESENTATION_HANDOFF_KEY = 'presentation-handoff';
 export function splitIntoSlidePages(markdown: string, max = 12): { title: string; text: string }[] {
   const parts = markdown.replace(/\r\n?/g, '\n').split(/\n(?=## )/).map((p) => p.trim()).filter(Boolean);

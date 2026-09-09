@@ -100,6 +100,30 @@ export default function PresentationPage() {
   // 既に読み込み・生成が始まっていたら復元しない
   const draftGuardRef = useRef(false);
   draftGuardRef.current = running || items.length > 0;
+  // 317: まとめ→素材パック「プレゼン原稿」の handoff（localStorage の一回限りキー）。
+  // 見出しごとのテキストページとして読み込む（画像なし＝imageDataUrl は null、本文は text）。読んだら消す
+  useEffect(() => {
+    try {
+      const raw = window.localStorage.getItem(PRESENTATION_HANDOFF_KEY);
+      if (!raw) return;
+      window.localStorage.removeItem(PRESENTATION_HANDOFF_KEY);
+      const h = JSON.parse(raw) as { title?: string; pages?: { title: string; text: string }[] };
+      const pages = Array.isArray(h.pages) ? h.pages.filter((p) => typeof p?.text === 'string' && p.text.trim()) : [];
+      if (pages.length === 0) return;
+      const fileName = String(h.title ?? 'まとめ').slice(0, 80);
+      draftGuardRef.current = true;
+      setTheme(fileName);
+      setView('pages');
+      setItems(
+        pages.map((p, i) => blankState({
+          id: `p${pageIdSeq++}`, kind: 'text', fileName: `${fileName}／${p.title}`,
+          indexInFile: i + 1, imageDataUrl: null, text: p.text,
+        })),
+      );
+    } catch {
+      /* 壊れた handoff は無視（通常の空の画面） */
+    }
+  }, []);
   useEffect(() => {
     let cancelled = false;
     (async () => {
