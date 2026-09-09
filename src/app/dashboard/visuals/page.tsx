@@ -335,7 +335,7 @@ function VisualsInner() {
                     ⚠️ {reason}
                     {check.foreign.length > 0 && (
                       <div>
-                        元テキストに無い語句: {check.foreign.map((f) => <span key={f} data-vis-foreign={plan.id} style={{ display: 'inline-block', margin: '2px 4px', padding: '1px 6px', borderRadius: 6, background: 'rgba(185,28,28,0.1)', color: '#B91C1C', fontWeight: 700 }}>{f}</span>)}
+                        元テキストに無い語句: {check.foreign.map((f) => <span key={f} data-vis-foreign={plan.id} data-vis-foreign-tokens={(check.foreignTokens[f] ?? []).join('／')} title={`無い語: ${(check.foreignTokens[f] ?? []).join('／')}`} style={{ display: 'inline-block', margin: '2px 4px', padding: '1px 6px', borderRadius: 6, background: 'rgba(185,28,28,0.1)', color: '#B91C1C', fontWeight: 700 }}>{f}<span style={{ fontWeight: 400, marginLeft: 4, fontSize: 11 }}>（{(check.foreignTokens[f] ?? []).join('／')}）</span></span>)}
                       </div>
                     )}
                     {check.banned.length > 0 && (

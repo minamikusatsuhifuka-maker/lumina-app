@@ -90,17 +90,56 @@ export function collectPlanStrings(plan: Pick<VisualPlan, 'title' | 'groups'>): 
 }
 
 /**
- * 元テキストに実在しない語句。正規化した元テキストに、正規化した文字列が**部分文字列として**含まれなければ「実在しない」。
- * 数値だけ（例 "3"）や1文字は元テキストに偶然含まれやすいため、2文字以上を要求する（1文字は実在扱い）
+ * 315是正①: 実在チェックは**語句単位**。文字列を句読点・空白・記号と付属語（助詞・助動詞・形式名詞・接続詞）で分割し、
+ * 残った内容語（2文字以上）が正規化した元テキストに部分文字列として含まれなければ「実在しない語句」。
+ * 「朝と夜」のように元テキストの語句を付属語でつないだ見出しは通り、「スキンケア」のような言い換えは落ちる。
+ * 1文字の語（例 "朝"・"3"）は元テキストに偶然含まれやすいので実在扱い（判定に使わない）
  */
+export const VISUAL_FUNCTION_WORDS: readonly string[] = [
+  'について', 'における', 'によって', 'として', 'に対して', 'のための', 'ための', 'ところ', 'こと', 'もの', 'ため', 'など', 'ながら',
+  'ません', 'でした', 'ました', 'ます', 'です', 'だった', 'である', 'ない', 'たい', 'れる', 'られる', 'せる', 'させる', 'すべき', 'べき',
+  'される', 'できる', 'する', 'なる', 'ある', 'いる',
+  'から', 'まで', 'より', 'ほど', 'だけ', 'しか', 'でも', 'とは', 'には', 'では', 'への', 'との', 'での', 'ので', 'のに', 'けれど', 'また', 'および', 'または', 'そして', 'しかし',
+];
+/** 1文字の助詞等。内容語（ひらがな語）の内部で割らないよう、**両側が非ひらがな**（漢字・カナ・数字・端）のときだけ区切りにする */
+export const VISUAL_SINGLE_PARTICLES = 'のにをはがとでもへやかしてただねよな';
+const FUNCTION_WORD_RE = new RegExp([...VISUAL_FUNCTION_WORDS].sort((a, b) => b.length - a.length).map((w) => w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|'), 'g');
+const SINGLE_PARTICLE_RE = new RegExp(`(?<![ぁ-ん])[${VISUAL_SINGLE_PARTICLES}](?![ぁ-ん])`, 'g');
+const SEPARATOR_RE = /[\s　、。，．,.:：;；!！?？・･「」『』（）()［］\[\]【】"'“”‘’〜～\-–—/／|｜→←↔＋+＝=%％&＆]+/g;
+
+/** 文字列を内容語に分ける（決定的）。付属語は落とし、2文字未満は捨てる */
+export function tokenizeContentWords(s: string): string[] {
+  const parts = (s ?? '')
+    .normalize('NFKC')
+    .split(SEPARATOR_RE)
+    .flatMap((p) => p.split(FUNCTION_WORD_RE))
+    .flatMap((p) => p.split(SINGLE_PARTICLE_RE));
+  return parts.map((p) => normalizeForMatch(p)).filter((p) => p.length >= 2);
+}
+
+/** 文字列ごとに、元テキストに無い内容語 */
+export function foreignTokensOf(s: string, normalizedSource: string): string[] {
+  const out: string[] = [];
+  for (const t of tokenizeContentWords(s)) if (!normalizedSource.includes(t) && !out.includes(t)) out.push(t);
+  return out;
+}
+
 export function findForeignPhrases(plan: Pick<VisualPlan, 'title' | 'groups'>, sourceText: string): string[] {
   const src = normalizeForMatch(sourceText);
   const out: string[] = [];
   for (const s of collectPlanStrings(plan)) {
-    const n = normalizeForMatch(s);
-    if (n.length === 0) continue;
-    if (n.length === 1) continue;
-    if (!src.includes(n) && !out.includes(s)) out.push(s);
+    if (foreignTokensOf(s, src).length > 0 && !out.includes(s)) out.push(s);
+  }
+  return out;
+}
+
+/** 文字列→無い内容語（画面で「どの語が無いか」を示す） */
+export function findForeignTokens(plan: Pick<VisualPlan, 'title' | 'groups'>, sourceText: string): Record<string, string[]> {
+  const src = normalizeForMatch(sourceText);
+  const out: Record<string, string[]> = {};
+  for (const s of collectPlanStrings(plan)) {
+    const t = foreignTokensOf(s, src);
+    if (t.length > 0) out[s] = t;
   }
   return out;
 }
@@ -117,6 +156,8 @@ export function findBannedLabels(plan: Pick<VisualPlan, 'title' | 'groups'>): { 
 
 export interface PlanCheck {
   foreign: string[];
+  /** 315是正①: 文字列ごとの「元テキストに無い内容語」 */
+  foreignTokens: Record<string, string[]>;
   banned: { text: string; matched: string; reason: string }[];
   empty: boolean;
   /** 描ける（実在しない語句なし・NG表現なし・要素あり） */
@@ -124,9 +165,10 @@ export interface PlanCheck {
 }
 export function checkPlan(plan: VisualPlan, sourceText: string): PlanCheck {
   const foreign = findForeignPhrases(plan, sourceText);
+  const foreignTokens = findForeignTokens(plan, sourceText);
   const banned = findBannedLabels(plan);
   const empty = !plan.title.trim() || plan.groups.every((g) => g.points.length === 0 && !g.heading?.trim());
-  return { foreign, banned, empty, ok: foreign.length === 0 && banned.length === 0 && !empty };
+  return { foreign, foreignTokens, banned, empty, ok: foreign.length === 0 && banned.length === 0 && !empty };
 }
 
 export const VISUAL_BLOCK_REASON_FOREIGN = '元テキストに無い語句があります（赤い印の文字を元テキストの表現に直すと描けます）';

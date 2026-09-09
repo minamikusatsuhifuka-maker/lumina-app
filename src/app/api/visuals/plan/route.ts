@@ -5,7 +5,7 @@ import { requireAuth } from '@/lib/require-auth';
 import { generateWithModel } from '@/lib/ai-client';
 import { GEMINI_TEXT_THINKING_LOW } from '@/lib/ai-models';
 import { robustJsonParse } from '@/lib/ai-json-parser';
-import { VISUAL_SOURCE_MAX_CHARS, buildVisualPlanPrompt, findBannedLabels, findForeignPhrases, parseVisualPlans } from '@/lib/visuals';
+import { VISUAL_SOURCE_MAX_CHARS, buildVisualPlanPrompt, findBannedLabels, findForeignPhrases, findForeignTokens, parseVisualPlans } from '@/lib/visuals';
 
 export const runtime = 'nodejs';
 export const maxDuration = 120;
@@ -29,7 +29,7 @@ export async function POST(req: Request) {
     return NextResponse.json({
       plans,
       rejected: rejected.map((r) => r.reason),
-      checks: Object.fromEntries(plans.map((p) => [p.id, { foreign: findForeignPhrases(p, text), banned: findBannedLabels(p) }])),
+      checks: Object.fromEntries(plans.map((p) => [p.id, { foreign: findForeignPhrases(p, text), foreignTokens: findForeignTokens(p, text), banned: findBannedLabels(p) }])),
       ranAt: new Date().toISOString(),
     });
   } catch (e) {

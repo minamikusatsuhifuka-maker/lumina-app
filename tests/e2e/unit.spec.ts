@@ -4568,6 +4568,45 @@ test('U86: 記事→図解（315）— 元テキストに無い語句の検出�
   expect(v.findForeignPhrases({ ...plan, title: '朝のスキンケア' }, src), '言い換えは検出').toEqual(['朝のスキンケア']);
   expect(v.findForeignPhrases({ ...plan, groups: [{ heading: '効果', points: ['必ず治る'] }] }, src)).toEqual(['効果', '必ず治る']);
   expect(v.findForeignPhrases({ ...plan, groups: [{ points: ['5'] }] }, src), '1文字は実在扱い').toEqual([]);
+  // 315是正①: 語句単位（付属語を落とす）。元テキストの語句を付属語でつないだ見出しは通り、言い換えの語だけ落ちる
+  expect(v.tokenizeContentWords('朝と夜の保湿について')).toEqual(['保湿']);
+  expect(v.tokenizeContentWords('化粧水をなじませてから乳液で蓋をする'), '多字の付属語（から・する）と、両側が非ひらがなの1字助詞（で・を）で割る。ひらがな語の内部（なじませて）は割らない・1文字（蓋）は捨てる').toEqual(['化粧水をなじませて', '乳液']);
+  expect(v.tokenizeContentWords('こすらないでぬるめの湯温にする'), 'ひらがな語の内部は割らない（粒度より「語が元文字列の部分文字列であること」を優先）').toEqual(['こすら', 'でぬるめの湯温']);
+  for (const s0 of ['化粧水をなじませてから乳液で蓋をする', '朝と夜の保湿について', 'こすらないでぬるめの湯温にする']) for (const tk of v.tokenizeContentWords(s0)) expect(v.normalizeForMatch(s0).includes(tk), `語は元文字列の部分文字列: ${tk}`).toBe(true);
+  expect(v.findForeignPhrases({ ...plan, title: '朝と夜' }, src), '「朝と夜」は通る（朝・夜は1文字・「と」は付属語）').toEqual([]);
+  expect(v.findForeignPhrases({ ...plan, title: '洗顔のあとの保湿と角質ケア' }, src), '元テキストの語句をつないだ見出しは通る').toEqual([]);
+  expect(v.findForeignTokens({ ...plan, title: '朝のスキンケアと保湿' }, src), '無い内容語だけを示す').toEqual({ '朝のスキンケアと保湿': ['スキンケア'] });
+  expect(v.checkPlan({ ...plan, title: '朝のスキンケア' }, src).foreignTokens).toEqual({ '朝のスキンケア': ['スキンケア'] });
+  expect(JSON.stringify(v.findForeignTokens(plan, src)), '同じ入力→同じ結果').toBe(JSON.stringify(v.findForeignTokens(plan, src)));
+  // 315是正②: cmap（format 4）の最小パーサで欠字を検出（合成フォント: 'A'〜'C' と '₃' だけを持つ）
+  const fc = await import('../../src/lib/font-coverage');
+  const mkFont = (ranges: [number, number][]) => {
+    const segs = [...ranges, [0xffff, 0xffff] as [number, number]];
+    const segX2 = segs.length * 2;
+    const cmapLen = 4 + 8 + 14 + segX2 * 4 + 2;
+    const buf = new ArrayBuffer(12 + 16 + cmapLen);
+    const dv = new DataView(buf);
+    dv.setUint32(0, 0x00010000); dv.setUint16(4, 1);
+    const tag = 'cmap'; for (let i = 0; i < 4; i++) dv.setUint8(12 + i, tag.charCodeAt(i));
+    dv.setUint32(12 + 8, 28); dv.setUint32(12 + 12, cmapLen);
+    const c = 28; dv.setUint16(c, 0); dv.setUint16(c + 2, 1); dv.setUint16(c + 4, 3); dv.setUint16(c + 6, 1); dv.setUint32(c + 8, 12);
+    const sub = c + 12; dv.setUint16(sub, 4); dv.setUint16(sub + 2, 14 + segX2 * 4 + 2); dv.setUint16(sub + 6, segX2);
+    const endP = sub + 14, startP = endP + segX2 + 2, deltaP = startP + segX2, rangeP = deltaP + segX2;
+    segs.forEach(([s, e], i) => { dv.setUint16(endP + i * 2, e); dv.setUint16(startP + i * 2, s); dv.setInt16(deltaP + i * 2, s === 0xffff ? 1 : 1); dv.setUint16(rangeP + i * 2, 0); });
+    return buf;
+  };
+  const font = mkFont([[0x41, 0x43], [0x2083, 0x2083]]);
+  expect([...fc.fontCodepoints(font)].sort((a, b) => a - b)).toEqual([0x41, 0x42, 0x43, 0x2083]);
+  expect(fc.uncoveredChars('A B₃ Dα', [font]), '無い文字だけ（空白は数えない・重複なし）').toEqual(['D', 'α']);
+  expect(fc.uncoveredChars('ABC₃', [font])).toEqual([]);
+  expect(fc.fontCodepoints(new ArrayBuffer(3)).size, '読めない構造は空集合（fail-closed）').toBe(0);
+  expect(fc.missingGlyphMessage(['α'])).toContain('U+03B1');
+  const og = readFileSync(join(__dirname, '../../src/lib/og-fonts.ts'), 'utf8');
+  expect(og, 'フォールバックの順は Math → Symbols 2 → Sans').toContain("['Noto Sans Math', 'Noto Sans Symbols 2', 'Noto Sans']");
+  const renderRoute = readFileSync(join(__dirname, '../../src/app/api/visuals/render/route.ts'), 'utf8');
+  expect(renderRoute, '欠字が残れば描かない（400）').toMatch(/if \(missing\.length > 0\) return NextResponse\.json\(\{ error: missingGlyphMessage\(missing\)/);
+  const imageRouteSrc = readFileSync(join(__dirname, '../../src/app/api/visuals/image/route.ts'), 'utf8');
+  expect(imageRouteSrc, '文字を重ねる方式は生成前に欠字を止める（課金してから失敗にしない）').toMatch(/if \(!settings\.aiText\) \{\s*const cov = await fetchJpFontsWithFallback/);
   const c1 = v.checkPlan({ ...plan, title: '朝のスキンケア' }, src);
   expect(c1.ok).toBe(false);
   expect(v.planBlockReason(c1)).toBe(v.VISUAL_BLOCK_REASON_FOREIGN);

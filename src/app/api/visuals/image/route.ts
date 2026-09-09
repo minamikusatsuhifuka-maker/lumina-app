@@ -6,7 +6,8 @@
 import { NextResponse } from 'next/server';
 import { ImageResponse } from 'next/og';
 import { requireAuth } from '@/lib/require-auth';
-import { fetchJpFonts } from '@/lib/og-fonts';
+import { fetchJpFontsWithFallback } from '@/lib/og-fonts';
+import { missingGlyphMessage } from '@/lib/font-coverage';
 import { guardImagePrompt, guardImagePromptWithText } from '@/lib/image-guards';
 import { generateGptImage25 } from '@/lib/openai-image';
 import { hasOpenAIKey } from '@/lib/openai-research';
@@ -61,6 +62,11 @@ export async function POST(req: Request) {
   if (reason) return NextResponse.json({ error: reason, check }, { status: 400 });
 
   // R-69: 定型＋院長の追記 → ガード（後勝ち・サーバで常時連結）。aiText のときだけ文字条項の違う専用ガード（医療部分は同文）
+  // 315是正②: 文字を重ねる方式では、描けない文字があれば生成前に止める（画像の課金をしてから失敗にしない）
+  if (!settings.aiText) {
+    const cov = await fetchJpFontsWithFallback(collectVisualText(plan));
+    if (cov.missing.length > 0) return NextResponse.json({ error: missingGlyphMessage(cov.missing), missingGlyphs: cov.missing }, { status: 400 });
+  }
   const prompt = settings.aiText ? guardImagePromptWithText(buildVisualImagePrompt(plan, settings)) : guardImagePrompt(buildVisualImagePrompt(plan, settings));
   const key = `${guard.userId}:${visualImageIdempotencyKey(plan, settings)}`;
   const now = Date.now();
@@ -84,7 +90,8 @@ export async function POST(req: Request) {
       const { width, height } = sizeOf(size);
       let finalBase64 = gen.base64;
       if (!settings.aiText) {
-        const fonts = await fetchJpFonts(collectVisualText(plan));
+        const { fonts, missing } = await fetchJpFontsWithFallback(collectVisualText(plan));
+        if (missing.length > 0) throw new Error(missingGlyphMessage(missing));
         const element = buildOverlayElement(plan, `data:image/png;base64,${gen.base64}`, { width, height });
         const img = new ImageResponse(element as never, { width, height, fonts });
         const buffer = Buffer.from(await img.arrayBuffer());

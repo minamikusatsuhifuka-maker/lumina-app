@@ -10959,7 +10959,7 @@ test('C130: 並列比較の確認ダイアログ・独立実行・GPT-6 Astra（
 test('C131: 記事→図解（315）— 📚🗂の行の「🖼 図解にする」で元テキストを受けて開く・貼り付けでも使える・プラン（モック）の「元テキストに無い語句」に赤い印が付き直すまで描けない（編集で再判定）・決定的描画（AIなし・実描画）が PNG を出し文字一致の機械判定と保存（source=visuals・settings.visual）・元テキストの行に「🖼 n」・画像生成の確認ダイアログに費用の目安/枚数/確認日が出て「やめる」でリクエスト0・二重発火で1回・キーの有無で GPT Image 2.5 の無効化（環境で分岐）・未提供（モック）はその枚だけ失敗・「AIに文字も描かせる」で並べて表示と目視確認の1文・まとめて図解は3件まで（R-101）', async ({ page }) => {
   test.setTimeout(240_000);
   const marker = `VIS${RUN_ID}`;
-  const body = `朝の保湿は洗顔のあと5分以内に行う。化粧水をなじませてから乳液で蓋をする。夜はクレンジングのあとに同じ手順。週に1回は角質ケアを足す。冬は加湿器で室内の湿度を保つ。識別子 ${marker}`;
+  const body = `朝の保湿は洗顔のあと5分以内に行う。化粧水をなじませてから乳液で蓋をする。夜はクレンジングのあとに同じ手順。週に1回は角質ケアを足す。冬は加湿器で室内の湿度を保つ。濃度はCO₂で確認する。記号\uE000は使わない。識別子 ${marker}`;
   const libId = await createLibraryItem(api, { title: `${marker} 図解元`, content: body, type: 'deepresearch' });
   const saveId = await createSave(api, { title: `${marker} 分析元`, content: body });
   const galleryIds: string[] = [];
@@ -11023,9 +11023,26 @@ test('C131: 記事→図解（315）— 📚🗂の行の「🖼 図解にする
     expect(row.settings.visual?.kind).toBe('render');
     expect(row.settings.visual?.plan?.title).toBe('朝の保湿');
     expect(row.width).toBe(1600);
-    // compare 型も描ける（別テンプレート）
+    // 315是正①: 語句単位の実在判定＝元テキストの語句を付属語でつないだ見出し（「朝と夜」）は通り、無い語だけ印に出る
+    const p2 = page.locator('[data-vis-plan="v2"]');
+    await p2.locator('[data-vis-title="v2"]').fill('朝と夜');
+    await expect(p2, '「朝と夜」は元テキストの語句のつなぎ＝通る').toHaveAttribute('data-vis-plan-ok', '1');
+    await p2.locator('[data-vis-title="v2"]').fill('朝のスキンケアと夜');
+    await expect(p2.locator('[data-vis-foreign="v2"]')).toHaveAttribute('data-vis-foreign-tokens', 'スキンケア');
+    await p2.locator('[data-vis-title="v2"]').fill('同じ手順');
+    await expect(p2).toHaveAttribute('data-vis-plan-ok', '1');
+    // 315是正②: 描画フォントに無い文字（私用領域 U+E000）は描かず理由（欠字検出）。下付き ₂ はフォールバックで描ける
+    await p2.locator('[data-vis-heading="v2-0"]').fill('記号\uE000');
+    await expect(p2).toHaveAttribute('data-vis-plan-ok', '1');
+    await p2.locator('[data-vis-render="v2"]').click();
+    await expect(p2.locator('[data-vis-error="v2"]'), '欠字は描かずに理由を出す').toContainText('描画フォントに無い文字', { timeout: 60000 });
+    await expect(p2.locator('[data-vis-error="v2"]')).toContainText('U+E000');
+    await expect(page.locator('[data-vis-result="v2"]')).toHaveCount(0);
+    await p2.locator('[data-vis-heading="v2-0"]').fill('CO₂');
+    // compare 型も描ける（別テンプレート・下付き文字はフォールバックのフォントで描く）
     await page.locator('[data-vis-render="v2"]').click();
     await expect(page.locator('[data-vis-result="v2"]')).toHaveAttribute('data-vis-saved', '1', { timeout: 60000 });
+    await expect(page.locator('[data-vis-result="v2"]')).toHaveAttribute('data-vis-verified', '1');
     galleryIds.push((await page.locator('[data-vis-result="v2"]').getAttribute('data-vis-gallery-id'))!);
     // ── ④ 元テキストの行に「🖼 n」（出どころから導出） ──
     await page.goto('/dashboard/library');
