@@ -11,6 +11,8 @@
 //   全選択は置かない・R-106）。上限は全9マス（MANDALA_COMPARE_MAX）、列数は幅で折り返す（R-94）。空のマスは選べない
 // - 302 §5 一次情報あり n/m は primaryInfoSummary（純関数・R-74）で導出。別の状態を保存しない
 // - チャート名は中央マスのタイトル（§3-5）。更新日時は JST（R-86）。AI 不使用
+// 308: 見出しに「📈 反応記録 n/m」（reactionSummary）と、型のチャートに「無料 xx%」（freeRatio・子マスは親の区分）。
+//   どちらも純関数で導出（R-74）。meta が空の既存チャートでは何も増えない（§7）。📈 バッジのポップアップは 304 の HoverPopover
 // 307: 「📕 Kindleの目次にする」（ウィザードを ?mandala=<chartId> で開く）と「📕 起こした本: n件」（本の側の記録から導出・
 //   API の books。mandala_charts.meta には書かない・R-107）。マンダラ本体（301〜305）の挙動は変えない
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -21,12 +23,14 @@ import MandalaGrid from '@/components/mandala/MandalaGrid';
 import MandalaCellEditor from '@/components/mandala/MandalaCellEditor';
 import MandalaCompareView from '@/components/mandala/MandalaCompareView';
 import Mandala81 from '@/components/mandala/Mandala81';
-import { MandalaLinkPopoverContent } from '@/components/mandala/MandalaLinks';
+import { MandalaLinkPopoverContent, MandalaReactionPopoverContent } from '@/components/mandala/MandalaLinks';
 import { useToast } from '@/components/ui/Toast';
 import { useHoverPopover } from '@/components/HoverPopover';
 import { jstDateTimeString } from '@/lib/jst';
 import { mandalaBooksLabel } from '@/lib/mandala-kindle';
+import { MANDALA_PRESETS, isMandalaPresetKey } from '@/lib/mandala-presets';
 import {
+  MANDALA_CENTER,
   MANDALA_CHILD_TOTAL,
   MANDALA_DEPTH1_COUNT,
   MANDALA_UNSAVED_CONFIRM,
@@ -35,9 +39,14 @@ import {
   cellPathLabel,
   centerCell,
   chartDisplayTitle,
+  chartPreset,
   compareCellsOf,
   expansionSummary,
   filledCount,
+  freeRatio,
+  freeRatioLabel,
+  reactionSummary,
+  shouldShowFreeRatio,
   parseMandalaView,
   linkCountsByCell,
   mandalaCompareState,
@@ -204,6 +213,19 @@ export default function MandalaChartPage({ params }: { params: Promise<{ id: str
   // 304: バッジのホバーポップアップ（共通部品 HoverPopover）。中身は同じキャッシュから描く
   const popover = useHoverPopover<{ cell: MandalaCell; from: MandalaPopoverFrom }>(
     ({ cell, from }, api) => {
+      // 308: 📈 はマスの meta から描く（取得なし）。押せる要素は「パネルで記録する」だけ
+      if (from === 'reaction') {
+        const latest = chart?.cells.find((c) => c.id === cell.id) ?? cell;
+        return (
+          <MandalaReactionPopoverContent
+            cell={latest}
+            onOpenPanel={() => {
+              api.close();
+              openEditor(latest);
+            }}
+          />
+        );
+      }
       const entry = resolvedByCell.get(cell.id);
       return (
         <MandalaLinkPopoverContent
@@ -217,7 +239,7 @@ export default function MandalaChartPage({ params }: { params: Promise<{ id: str
         />
       );
     },
-    { onOpen: (_key, { cell }) => void fetchResolved(cell.id) },
+    { onOpen: (_key, { cell, from }) => { if (from !== 'reaction') void fetchResolved(cell.id); } },
   );
   const popoverBind = useCallback(
     (cell: MandalaCell, from: MandalaPopoverFrom) => popover.bind(popoverKeyOf(cell.id), { cell, from }),
@@ -283,6 +305,11 @@ export default function MandalaChartPage({ params }: { params: Promise<{ id: str
   const expansion = useMemo(() => (chart ? expansionSummary(chart.cells, links) : { expandedBlocks: 0, childFilled: 0, childWithPrimary: 0 }), [chart, links]);
   const pathLabelOf = useCallback((cell: MandalaCell) => (chart ? cellPathLabel(cell, chart.cells) : ''), [chart]);
   const compareState = mandalaCompareState(compareCells.length);
+  // 308: 反応記録 n/m と無料比率（純関数・R-74）
+  const reaction = useMemo(() => (chart ? reactionSummary(chart.cells) : { withReaction: 0, filled: 0 }), [chart]);
+  const presetKey = chart ? chartPreset(chart.meta) : null;
+  const presetDef = isMandalaPresetKey(presetKey) ? MANDALA_PRESETS[presetKey] : null;
+  const ratio = useMemo(() => (chart && shouldShowFreeRatio(chart.meta, chart.cells) ? freeRatio(chart.cells) : null), [chart]);
   const checkedSet = useMemo(() => new Set(checkedIds), [checkedIds]);
 
   return (
@@ -314,6 +341,29 @@ export default function MandalaChartPage({ params }: { params: Promise<{ id: str
           >
             📔 一次情報あり {primary.withPrimary}/{primary.filled}
           </span>
+          {/* 308 §3-3: 反応記録 n/m（m＝埋まっているマス数）。0件なら出さない（既存チャートで増えない・§7） */}
+          {reaction.withReaction > 0 && (
+            <span
+              data-mandala-reaction-count={reaction.withReaction}
+              data-mandala-reaction-total={reaction.filled}
+              title="反応記録（アクセス・スキ・共有・購入）があるマス数／埋まっているマス数"
+              style={{ fontWeight: 700, color: '#1D9E75' }}
+            >
+              📈 反応記録 {reaction.withReaction}/{reaction.filled}
+            </span>
+          )}
+          {/* 308 §4: 無料比率（型のチャート、または区分のあるマスがあるとき。両方0なら出さない） */}
+          {ratio && ratio.ratio !== null && (
+            <span
+              data-mandala-free-ratio={String(ratio.ratio)}
+              data-mandala-free-chars={ratio.freeChars}
+              data-mandala-paid-chars={ratio.paidChars}
+              title={`無料側の本文文字数 ${ratio.freeChars.toLocaleString()}字 ÷ 全体 ${(ratio.freeChars + ratio.paidChars).toLocaleString()}字（中央を除く・子マスは親の区分）。目安は仮説（N-08）`}
+              style={{ fontWeight: 700, color: '#B45309' }}
+            >
+              {freeRatioLabel(ratio.ratio)}
+            </span>
+          )}
           <span data-mandala-chart-updated title="更新日時（日本時間）">更新 {jstDateTimeString(chart.updated_at)}</span>
           {/* 305 §2-6: 81表示のときだけ追加で出す（9マス分の n/9・📔 n/m は表示モードに関係なく同じ値） */}
           {view === '81' && (
@@ -472,7 +522,17 @@ export default function MandalaChartPage({ params }: { params: Promise<{ id: str
           )}
           {popover.layer}
           {selected && !selectMode && (
-            <MandalaCellEditor key={selected.id} cell={selected} pathLabel={pathLabelOf(selected)} onClose={closePanel} onSaved={onSaved} onDirtyChange={onDirtyChange} onLinksChanged={onLinksChanged} />
+            <MandalaCellEditor
+              key={selected.id}
+              cell={selected}
+              pathLabel={pathLabelOf(selected)}
+              // 308 §2-1: 型のチャートの中央は空のまま＝プレースホルダで「読者の着地点（After）を1行で」
+              titlePlaceholder={selected.depth === 1 && selected.position === MANDALA_CENTER && presetDef ? presetDef.centerPlaceholder : undefined}
+              onClose={closePanel}
+              onSaved={onSaved}
+              onDirtyChange={onDirtyChange}
+              onLinksChanged={onLinksChanged}
+            />
           )}
         </>
       ) : null}

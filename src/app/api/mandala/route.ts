@@ -10,6 +10,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { requireAuth } from '@/lib/require-auth';
 import { createChart, deleteChart, listCharts } from '@/lib/mandala-server';
 import { isUuidLike } from '@/lib/mandala-shared';
+import { isMandalaPresetKey, type MandalaPresetKey } from '@/lib/mandala-presets';
 
 export const runtime = 'nodejs';
 
@@ -29,11 +30,26 @@ export async function GET() {
   }
 }
 
-export async function POST() {
+// 308 §2-2: body は任意。{ preset: 'paid_note' } のときだけ型を適用（既定＝空のマンダラは不変・R-88）。不正な preset は 400
+export async function POST(req: NextRequest) {
   const guard = await requireAuth();
   if (!guard.ok) return guard.response;
+  let preset: MandalaPresetKey | null = null;
+  const raw = await req.text().catch(() => '');
+  if (raw.trim()) {
+    let body: { preset?: unknown };
+    try {
+      body = JSON.parse(raw) as { preset?: unknown };
+    } catch {
+      return fail(400, 'リクエストの形式が不正です');
+    }
+    if (body?.preset !== undefined && body?.preset !== null && body?.preset !== '') {
+      if (!isMandalaPresetKey(body.preset)) return fail(400, 'preset が不正です');
+      preset = body.preset;
+    }
+  }
   try {
-    const chart = await createChart(guard.userId);
+    const chart = await createChart(guard.userId, preset);
     return NextResponse.json({ success: true, id: chart.id, chart });
   } catch (e: unknown) {
     console.error('[mandala] 作成に失敗:', e instanceof Error ? e.message : 'unknown');

@@ -22,6 +22,9 @@
 //   復元／破棄を提案する（黙って上書きしない）。同じなら何も出さず消す。popstate は捕まえない（§6-3）。
 // 302 §4 リンク: 状態はこの部品が1つ持ち、パネルと全画面編集の両方に MandalaLinkSection を描く。
 //   付け外しの結果は親へ返し、グリッドの件数（🔗n・📔n）を更新する。
+// 308: 区分（meta.tier があるマスだけ）の無料⇄有料切替と、反応記録の欄（折りたたみ・既定は閉じる）。
+//   どちらも同じ保存API（PATCH /api/mandala/cells）に tier／reaction を送る＝サーバがキー単位でマージ。
+//   ⌘+Enter は本文の保存のまま（反応欄の入力には付けない）。保存成功の表示は保存された行から（R-95）
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 import { useCallback, useEffect, useRef, useState, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent } from 'react';
@@ -29,24 +32,36 @@ import { createPortal } from 'react-dom';
 import FullscreenReader from '@/components/text-analysis/FullscreenReader';
 import { CharCountBadge } from '@/components/LibraryItemRow';
 import { useToast } from '@/components/ui/Toast';
-import { formatJst } from '@/lib/jst';
+import { formatJst, jstDateTimeString } from '@/lib/jst';
 import { useRunKeyHints } from '@/lib/shortcuts';
 import {
   MANDALA_BODY_MAX,
   MANDALA_CENTER,
   MANDALA_POSITION_LABELS,
+  MANDALA_REACTION_KEYS,
+  MANDALA_REACTION_LABELS,
+  MANDALA_REACTION_MEMO_MAX,
   MANDALA_STASH_DEBOUNCE_MS,
+  MANDALA_TIERS,
+  MANDALA_TIER_LABELS,
   MANDALA_TITLE_MAX,
   MANDALA_UNSAVED_CONFIRM,
   cellDisplayTitle,
   cellSavedMessage,
+  cellTier,
   clearStash,
+  formatRate,
   isStashSameAsSaved,
   linkBulkResultMessage,
   loadStash,
+  normalizeReactionInput,
+  parseReaction,
+  purchaseRate,
   saveStash,
   shouldOfferRestore,
   type MandalaCell,
+  type MandalaReactionKey,
+  type MandalaTier,
   type MandalaLinkResolved,
   type MandalaStash,
 } from '@/lib/mandala-shared';
@@ -90,8 +105,11 @@ export default function MandalaCellEditor({
   onDirtyChange,
   onLinksChanged,
   pathLabel,
+  titlePlaceholder,
 }: {
   cell: MandalaCell;
+  /** 308: 型のチャートの中央に出すプレースホルダ（例: 読者の着地点を1行で）。省略時は従来どおり */
+  titlePlaceholder?: string;
   onClose: () => void;
   /** 305: 見出しの位置ラベル（第2階層は「親 › 子」）。省略時は自マスの位置ラベル */
   pathLabel?: string;
@@ -132,6 +150,22 @@ export default function MandalaCellEditor({
   const pickerOpenRef = useRef(false);
   pickerOpenRef.current = pickerOpen;
   const [removingId, setRemovingId] = useState<number | null>(null);
+  // 308: 区分と反応記録（保存された行から・R-95）。cell は親が onSaved で差し替えるので、その meta を読む
+  const tier = cellTier(cell);
+  const savedReaction = parseReaction(cell.meta);
+  const [tierSaving, setTierSaving] = useState(false);
+  const tierSavingRef = useRef(false);
+  const [reactionOpen, setReactionOpen] = useState(false);
+  const [reactionDraft, setReactionDraft] = useState<Record<MandalaReactionKey, string> & { memo: string }>(() => ({
+    views: savedReaction?.views != null ? String(savedReaction.views) : '',
+    likes: savedReaction?.likes != null ? String(savedReaction.likes) : '',
+    shares: savedReaction?.shares != null ? String(savedReaction.shares) : '',
+    purchases: savedReaction?.purchases != null ? String(savedReaction.purchases) : '',
+    memo: savedReaction?.memo ?? '',
+  }));
+  const [reactionSaving, setReactionSaving] = useState(false);
+  const reactionSavingRef = useRef(false);
+  const [reactionError, setReactionError] = useState('');
 
   const dirty = draft.title !== base.title || draft.body !== base.body;
   const dirtyRef = useRef(dirty);
@@ -319,6 +353,64 @@ export default function MandalaCellEditor({
   };
   const linkedKeys = new Set(links.map((l) => linkKeyOf(l.scope, l.item_key)));
 
+  // 308 §2-1: 区分の切替（tier のあるマスだけ）。同じ PATCH に tier だけ送る＝サーバがキー単位でマージ（reaction 等は残る）
+  const setTier = async (next: MandalaTier) => {
+    if (tierSavingRef.current || next === tier) return;
+    tierSavingRef.current = true;
+    setTierSaving(true);
+    try {
+      const res = await fetch('/api/mandala/cells', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ cellId: cell.id, tier: next }),
+      });
+      const json = (await res.json().catch(() => ({}))) as { cell?: MandalaCell; error?: string };
+      if (!res.ok || !json.cell) throw new Error(json.error || `区分の変更に失敗しました（${res.status}）`);
+      onSaved(json.cell);
+      showToast(`区分を「${MANDALA_TIER_LABELS[next]}」にしました`, 'success');
+    } catch (e: unknown) {
+      showToast(e instanceof Error ? e.message : '区分の変更に失敗しました', 'error');
+    } finally {
+      tierSavingRef.current = false;
+      setTierSaving(false);
+    }
+  };
+
+  // 308 §3-2: 反応の記録。検証は画面とサーバで同じ純関数（normalizeReactionInput）。全部空＝記録を消す。二重発火は ref（R-87）
+  const saveReaction = async () => {
+    if (reactionSavingRef.current) return;
+    const check = normalizeReactionInput(reactionDraft);
+    if (!check.ok) {
+      setReactionError(check.error);
+      return;
+    }
+    reactionSavingRef.current = true;
+    setReactionSaving(true);
+    setReactionError('');
+    try {
+      const res = await fetch('/api/mandala/cells', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ cellId: cell.id, reaction: check.reaction }),
+      });
+      const json = (await res.json().catch(() => ({}))) as { cell?: MandalaCell; error?: string; unchanged?: boolean };
+      if (!res.ok || !json.cell) throw new Error(json.error || `記録に失敗しました（${res.status}）`);
+      const saved = parseReaction(json.cell.meta);
+      onSaved(json.cell);
+      const text = saved ? `反応を記録しました（${jstDateTimeString(saved.recordedAt)}）` : '反応の記録を消しました';
+      setStatus({ kind: 'ok', text, at: saved?.recordedAt ?? new Date().toISOString() });
+      showToast(text, 'success');
+    } catch (e: unknown) {
+      const text = e instanceof Error ? e.message : '記録に失敗しました';
+      setReactionError(text);
+      showToast(text, 'error');
+    } finally {
+      reactionSavingRef.current = false;
+      setReactionSaving(false);
+    }
+  };
+  const savedRate = purchaseRate(savedReaction);
+
   // 302 §6-4: ⌘/Ctrl+Enter で保存。保存ボタンと**同じ save()** を通す（savingRef の二重発火遮断・サーバの unchanged がそのまま効く）。
   // リスナーはこの編集要素（タイトル入力・本文 textarea・全画面編集の同要素）だけ＝画面全体の keydown は拾わない。
   // 日本語IMEの変換中（isComposing／keyCode 229）は無視。Enter 単独は触らない（textarea は改行のまま）。
@@ -378,7 +470,7 @@ export default function MandalaCellEditor({
       type="text"
       value={draft.title}
       maxLength={MANDALA_TITLE_MAX}
-      placeholder={isCenter ? 'テーマ（＝このチャートの名前）' : `${posLabel}のタイトル`}
+      placeholder={titlePlaceholder ?? (isCenter ? 'テーマ（＝このチャートの名前）' : `${posLabel}のタイトル`)}
       onChange={(e) => setDraft((d) => ({ ...d, title: e.target.value }))}
       onKeyDown={onEditorKeyDown}
       style={{ ...inputStyle, fontWeight: 700 }}
@@ -445,6 +537,29 @@ export default function MandalaCellEditor({
             <span data-mandala-panel-title style={{ flex: 1, minWidth: 0, fontSize: 14, fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={headTitle}>
               {headTitle}
             </span>
+            {/* 308 §2-1: 区分の切替（tier のあるマスだけ出す＝既存チャートでは増えない） */}
+            {tier && (
+              <span data-mandala-tier-toggle={tier} role="group" aria-label="区分（無料／有料）" style={{ display: 'inline-flex', gap: 2, flexShrink: 0 }}>
+                {MANDALA_TIERS.map((t) => {
+                  const active = t === tier;
+                  const color = t === 'paid' ? '#B45309' : '#1D9E75';
+                  return (
+                    <button
+                      key={t}
+                      type="button"
+                      data-mandala-tier={t}
+                      aria-pressed={active}
+                      disabled={tierSaving}
+                      onClick={() => void setTier(t)}
+                      title={active ? `区分は「${MANDALA_TIER_LABELS[t]}」です` : `区分を「${MANDALA_TIER_LABELS[t]}」にする`}
+                      style={{ ...btn, padding: '2px 8px', fontSize: 11, borderColor: active ? color : 'var(--border)', background: active ? `${color}22` : 'transparent', color: active ? color : 'var(--text-muted)', fontWeight: active ? 700 : 600, opacity: tierSaving ? 0.6 : 1 }}
+                    >
+                      {MANDALA_TIER_LABELS[t]}
+                    </button>
+                  );
+                })}
+              </span>
+            )}
             {dirtyBadge}
             <button type="button" data-mandala-panel-close onClick={requestClose} title="閉じる（Esc）" style={{ ...btn, padding: '4px 8px' }}>
               ✕
@@ -457,6 +572,74 @@ export default function MandalaCellEditor({
             {titleInput('panel')}
             {bodyInput('panel', { flex: 1, minHeight: 120 })}
             {linkSection(false)}
+            {/* 308 §3-2: 反応記録（折りたたみ・既定は閉じる）。⌘+Enter は付けない（本文の保存のまま） */}
+            <details
+              data-mandala-reaction
+              data-mandala-reaction-saved={savedReaction ? '1' : '0'}
+              open={reactionOpen}
+              onToggle={(e) => setReactionOpen((e.currentTarget as HTMLDetailsElement).open)}
+              style={{ border: '1px solid var(--border)', borderRadius: 8, padding: '6px 10px', fontSize: 12 }}
+            >
+              <summary data-mandala-reaction-summary style={{ cursor: 'pointer', fontWeight: 700, color: 'var(--text-secondary)', display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                📈 反応
+                {savedReaction ? (
+                  <span data-mandala-reaction-brief style={{ fontWeight: 400, color: 'var(--text-muted)', fontSize: 11 }}>
+                    {MANDALA_REACTION_KEYS.filter((k) => typeof savedReaction[k] === 'number').map((k) => `${MANDALA_REACTION_LABELS[k]} ${savedReaction[k]!.toLocaleString()}`).join('・')}
+                    {savedRate !== null ? `・購入率 ${formatRate(savedRate)}` : ''}
+                    {` — ${jstDateTimeString(savedReaction.recordedAt)}`}
+                  </span>
+                ) : (
+                  <span style={{ fontWeight: 400, color: 'var(--text-muted)', fontSize: 11 }}>記録なし（アクセス・スキ・共有・購入＋一言）</span>
+                )}
+              </summary>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 8 }}>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0, 1fr))', gap: 6 }}>
+                  {MANDALA_REACTION_KEYS.map((k) => (
+                    <label key={k} style={{ display: 'flex', flexDirection: 'column', gap: 2, fontSize: 11, color: 'var(--text-muted)', minWidth: 0 }}>
+                      {MANDALA_REACTION_LABELS[k]}
+                      <input
+                        data-mandala-reaction-input={k}
+                        type="number"
+                        inputMode="numeric"
+                        min={0}
+                        step={1}
+                        value={reactionDraft[k]}
+                        onChange={(e) => setReactionDraft((d) => ({ ...d, [k]: e.target.value }))}
+                        style={{ ...inputStyle, padding: '6px 8px', fontSize: 13 }}
+                      />
+                    </label>
+                  ))}
+                </div>
+                <input
+                  data-mandala-reaction-memo
+                  type="text"
+                  value={reactionDraft.memo}
+                  maxLength={MANDALA_REACTION_MEMO_MAX}
+                  placeholder={`一言（何を出したか・気づき・${MANDALA_REACTION_MEMO_MAX}字まで）`}
+                  onChange={(e) => setReactionDraft((d) => ({ ...d, memo: e.target.value }))}
+                  style={{ ...inputStyle, padding: '6px 8px', fontSize: 13 }}
+                />
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                  <span data-mandala-reaction-rate={savedRate === null ? '' : String(savedRate)} style={{ fontSize: 11, color: 'var(--text-muted)' }}>
+                    購入率（購入÷アクセス）: {savedRate === null ? '—' : formatRate(savedRate)}
+                  </span>
+                  {reactionError && (
+                    <span data-mandala-reaction-error style={{ fontSize: 11, color: '#B91C1C' }}>⚠️ {reactionError}</span>
+                  )}
+                  <span style={{ flex: 1 }} />
+                  <button
+                    type="button"
+                    data-mandala-reaction-save
+                    onClick={() => void saveReaction()}
+                    disabled={reactionSaving}
+                    title="この内容で反応を記録する（全部空なら記録を消す）"
+                    style={{ ...btn, borderColor: '#1D9E75', color: '#1D9E75', opacity: reactionSaving ? 0.6 : 1 }}
+                  >
+                    {reactionSaving ? '⏳ 記録中…' : '📈 記録する'}
+                  </button>
+                </div>
+              </div>
+            </details>
           </div>
 
           {/* フッター */}

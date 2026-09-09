@@ -9944,3 +9944,216 @@ test('C123: マンダラ→Kindle目次（307）— チャート画面の「📕
     await api.delete(`${EPISODES_API}?id=${epId}`).catch(() => {});
   }
 });
+
+test('C124: マンダラ 有料note記事の型・反応記録・無料比率（308）— 型で作ると周囲8のタイトルと tier が定義どおりで中央は空・一覧の選択は既定が空のマンダラ・区分の帯（有料は縁）・パネルで無料⇄有料に変えても reaction が残りその逆も（キー単位マージ）・反応の4項目＋一言を記録し再読込後も残る・購入率＝購入÷アクセスで views 未記録なら出ない・全部空で reaction キーが消える・不正値は400で何も書かれない・同一内容の再送は unchanged・📈バッジのホバーで4項目＋購入率＋一言＋日時（HoverPopover）・見出し「反応記録 n/m」と一覧の「📈 n」・二重発火で PATCH 1回（R-87）・無料比率は中央を除き子マスは親の区分（60%）で両方0なら出ない・meta={} の既存チャートでは区分/反応/比率が何も出ない（§7）', async ({
+  page,
+}) => {
+  test.setTimeout(300_000);
+  const marker = `MPR${RUN_ID}`;
+  const { id: chartId, cells } = await createMandalaChart(api, `${marker} 型`, 'paid_note');
+  const { id: plainId, cells: plainCells } = await createMandalaChart(api, `${marker} 素`);
+  const byPos = (p: number) => cells.find((c) => c.position === p)!;
+  const cellMeta = async (cid: string, id: string) => ((await getMandalaChart(api, cid)).cells.find((c) => c.id === id)!.meta ?? {}) as Record<string, any>;
+  let uiChartId: string | null = null;
+  let reactionPatches = 0;
+  let delayMs = 0;
+  await page.route('**/api/mandala/cells', async (route) => {
+    if (route.request().method() === 'PATCH' && String(route.request().postData() ?? '').includes('"reaction"')) {
+      reactionPatches += 1;
+      if (delayMs > 0) await new Promise((r) => setTimeout(r, delayMs));
+    }
+    await route.continue();
+  });
+  try {
+    // ① API: 型の定義どおり（周囲8のタイトル・tier、中央は空、chart.meta.preset）。空のマンダラは meta={}
+    const detailRes = await api.get(`${MANDALA_API}/${chartId}`);
+    expect(detailRes.status()).toBe(200);
+    expect(((await detailRes.json()).chart.meta ?? {}).preset).toBe('paid_note');
+    for (const p of [0, 1, 2, 3, 5]) expect((byPos(p).meta ?? {}).tier, `position ${p} は無料`).toBe('free');
+    for (const p of [6, 7, 8]) expect((byPos(p).meta ?? {}).tier, `position ${p} は有料`).toBe('paid');
+    expect(byPos(0).title).toContain('導入');
+    expect(byPos(8).title).toContain('結び');
+    expect(byPos(4).meta ?? {}).toEqual({});
+    expect(plainCells.every((c) => Object.keys(c.meta ?? {}).length === 0), '空のマンダラの meta は {}').toBe(true);
+    // 不正な preset は 400
+    expect((await api.post(MANDALA_API, { data: { preset: 'nope' } })).status()).toBe(400);
+
+    // ② API: 検証（400・何も書かれない）・キー単位マージ・全部空でキーが消える・同一内容は unchanged
+    const c0 = byPos(0);
+    expect((await saveMandalaCell(api, c0.id, { reaction: { views: -1 } })).status()).toBe(400);
+    expect((await saveMandalaCell(api, c0.id, { reaction: { memo: 'あ'.repeat(101) } })).status()).toBe(400);
+    expect((await saveMandalaCell(api, c0.id, { reaction: { likes: 1.5 } })).status()).toBe(400);
+    expect((await saveMandalaCell(api, c0.id, { tier: 'gold' })).status()).toBe(400);
+    expect(await cellMeta(chartId, c0.id), '不正値では何も書かれない').toEqual({ tier: 'free' });
+    const rec = await saveMandalaCell(api, c0.id, { reaction: { views: 200, likes: 8, shares: 3, purchases: 25, memo: `一言 ${marker}` } });
+    expect(rec.status()).toBe(200);
+    const recJson = await rec.json();
+    expect(recJson.unchanged).toBe(false);
+    expect(recJson.cell.meta.tier, 'reaction を書いても tier が残る').toBe('free');
+    expect(recJson.cell.meta.reaction).toMatchObject({ views: 200, likes: 8, shares: 3, purchases: 25, memo: `一言 ${marker}` });
+    expect(typeof recJson.cell.meta.reaction.recordedAt).toBe('string');
+    const again = await saveMandalaCell(api, c0.id, { reaction: { views: 200, likes: 8, shares: 3, purchases: 25, memo: `一言 ${marker}` } });
+    expect((await again.json()).unchanged, '同一内容の再送は書かない（R-87）').toBe(true);
+    expect((await (await saveMandalaCell(api, c0.id, { tier: 'paid' })).json()).cell.meta.reaction, 'tier を変えても reaction が残る').toMatchObject({ views: 200 });
+    const cleared = await (await saveMandalaCell(api, c0.id, { reaction: { views: '', memo: '' } })).json();
+    expect(cleared.cell.meta, '全部空＝reaction キーが消え tier は残る').toEqual({ tier: 'paid' });
+    expect((await (await saveMandalaCell(api, c0.id, { tier: 'free' })).json()).cell.meta).toEqual({ tier: 'free' });
+
+    // ③ 一覧: 型の選択は既定が空のマンダラ。型を選んで作ると9マスに区分の帯・中央は空
+    await page.goto('/dashboard/mandala');
+    const presetSelect = page.locator('[data-mandala-new-preset]');
+    await expect(presetSelect).toBeVisible({ timeout: 30000 });
+    await expect(presetSelect, '既定は空のマンダラ').toHaveValue('');
+    await presetSelect.selectOption('paid_note');
+    await page.locator('[data-mandala-new]').click();
+    await page.waitForURL(/\/dashboard\/mandala\/[0-9a-f-]{36}$/, { timeout: 30000 });
+    uiChartId = page.url().split('/').pop()!;
+    const grid = page.locator('[data-mandala-grid][data-mandala-grid-depth="1"]');
+    await expect(grid.locator('[data-mandala-cell]')).toHaveCount(9, { timeout: 30000 });
+    await expect(grid.locator('[data-mandala-cell-tier="free"]')).toHaveCount(5);
+    await expect(grid.locator('[data-mandala-cell-tier="paid"]')).toHaveCount(3);
+    await expect(grid.locator('[data-mandala-cell="6"] [data-mandala-cell-tier]')).toHaveAttribute('data-mandala-cell-tier', 'paid');
+    await expect(grid.locator('[data-mandala-cell="4"] [data-mandala-cell-empty]'), '中央は空').toHaveCount(1);
+    await expect(grid.locator('[data-mandala-cell="0"] [data-mandala-cell-title]')).toContainText('導入');
+    await expect(page.locator('[data-mandala-free-ratio]'), '本文が無いうちは比率を出さない').toHaveCount(0);
+    await expect(page.locator('[data-mandala-reaction-count]')).toHaveCount(0);
+    // 中央のプレースホルダ（型）
+    await grid.locator('[data-mandala-cell="4"]').click();
+    await expect(page.locator('[data-mandala-title-input="panel"]')).toHaveAttribute('placeholder', /着地点/);
+    await page.locator('[data-mandala-panel-close]').click();
+
+    // ④ パネル: 区分の切替（無料⇄有料）→ 帯が変わる・reaction が残る
+    await page.goto(`/dashboard/mandala/${chartId}`);
+    await expect(grid.locator('[data-mandala-cell]')).toHaveCount(9, { timeout: 30000 });
+    await grid.locator('[data-mandala-cell="0"]').click();
+    const panel = page.locator(`[data-mandala-panel="${c0.id}"]`);
+    await expect(panel).toBeVisible();
+    await expect(panel.locator('[data-mandala-tier-toggle]')).toHaveAttribute('data-mandala-tier-toggle', 'free');
+    await expect(panel.locator('[data-mandala-tier="free"]')).toHaveAttribute('aria-pressed', 'true');
+    await panel.locator('[data-mandala-tier="paid"]').click();
+    await expect(panel.locator('[data-mandala-tier-toggle]')).toHaveAttribute('data-mandala-tier-toggle', 'paid', { timeout: 15000 });
+    await expect(grid.locator('[data-mandala-cell="0"] [data-mandala-cell-tier]')).toHaveAttribute('data-mandala-cell-tier', 'paid');
+    await panel.locator('[data-mandala-tier="free"]').click();
+    await expect(grid.locator('[data-mandala-cell="0"] [data-mandala-cell-tier]')).toHaveAttribute('data-mandala-cell-tier', 'free', { timeout: 15000 });
+
+    // ⑤ 反応の記録（折りたたみ・既定は閉じる）→ 二重発火で PATCH 1回 → 保存行から表示 → 再読込後も残る
+    const details = panel.locator('[data-mandala-reaction]');
+    await expect(details).toHaveAttribute('data-mandala-reaction-saved', '0');
+    await expect(details.locator('[data-mandala-reaction-save]'), '既定は閉じている').toBeHidden();
+    await details.locator('[data-mandala-reaction-summary]').click();
+    await expect(details.locator('[data-mandala-reaction-save]')).toBeVisible();
+    await details.locator('[data-mandala-reaction-input="views"]').fill('200');
+    await details.locator('[data-mandala-reaction-input="likes"]').fill('8');
+    await details.locator('[data-mandala-reaction-input="shares"]').fill('3');
+    await details.locator('[data-mandala-reaction-input="purchases"]').fill('25');
+    await details.locator('[data-mandala-reaction-memo]').fill(`気づき ${marker}`);
+    delayMs = 1200;
+    reactionPatches = 0;
+    await details.locator('[data-mandala-reaction-save]').evaluate((el) => { (el as HTMLButtonElement).click(); (el as HTMLButtonElement).click(); });
+    await expect(details).toHaveAttribute('data-mandala-reaction-saved', '1', { timeout: 20000 });
+    expect(reactionPatches, '二重発火は ref で1回（R-87）').toBe(1);
+    delayMs = 0;
+    await expect(details.locator('[data-mandala-reaction-rate]')).toHaveAttribute('data-mandala-reaction-rate', '0.125');
+    await expect(details.locator('[data-mandala-reaction-rate]')).toContainText('12.5%');
+    await expect(details.locator('[data-mandala-reaction-brief]')).toContainText('アクセス 200');
+    await expect(grid.locator('[data-mandala-cell="0"] [data-mandala-cell-reaction]')).toHaveCount(1);
+    await expect(page.locator('[data-mandala-reaction-count]')).toHaveAttribute('data-mandala-reaction-count', '1');
+    await expect(page.locator('[data-mandala-reaction-count]'), 'm＝埋まっているマス数（型は9マスとも埋まる）').toHaveAttribute('data-mandala-reaction-total', '9');
+    const savedMeta = await cellMeta(chartId, c0.id);
+    expect(savedMeta.reaction).toMatchObject({ views: 200, likes: 8, shares: 3, purchases: 25, memo: `気づき ${marker}` });
+    expect(savedMeta.tier).toBe('free');
+    await page.reload();
+    await expect(grid.locator('[data-mandala-cell="0"] [data-mandala-cell-reaction]'), '再読込後も残る').toHaveCount(1, { timeout: 30000 });
+    // 📈 のホバー（HoverPopover）: 4項目＋購入率＋一言＋日時。title は併用しない（R-110）
+    const badge = grid.locator('[data-mandala-cell="0"] [data-mandala-cell-reaction]');
+    await expect(badge).not.toHaveAttribute('title', /.+/);
+    await badge.hover();
+    const pop = page.locator('[data-mandala-reaction-popover]');
+    await expect(pop).toBeVisible({ timeout: 5000 });
+    await expect(pop.locator('[data-mandala-reaction-pop="views"]')).toContainText('200');
+    await expect(pop.locator('[data-mandala-reaction-pop="purchases"]')).toContainText('25');
+    await expect(pop.locator('[data-mandala-reaction-pop-rate]')).toContainText('12.5%');
+    await expect(pop.locator('[data-mandala-reaction-pop-memo]')).toContainText(`気づき ${marker}`);
+    await expect(pop.locator('[data-mandala-reaction-pop-at]')).toContainText(/\d{4}\/\d{1,2}\/\d{1,2}/);
+    await page.mouse.move(5, 5);
+    await expect(pop).toBeHidden({ timeout: 5000 });
+    // views 未記録なら購入率が出ない → 全部空で reaction キーが消える（バッジ・見出しも消える）
+    await grid.locator('[data-mandala-cell="0"]').click();
+    const panel2 = page.locator(`[data-mandala-panel="${c0.id}"]`);
+    await expect(panel2).toBeVisible();
+    const details2 = panel2.locator('[data-mandala-reaction]');
+    await details2.locator('[data-mandala-reaction-summary]').click();
+    await details2.locator('[data-mandala-reaction-input="views"]').fill('');
+    await details2.locator('[data-mandala-reaction-save]').click();
+    await expect(details2.locator('[data-mandala-reaction-rate]')).toHaveAttribute('data-mandala-reaction-rate', '', { timeout: 15000 });
+    await expect(details2.locator('[data-mandala-reaction-rate]')).toContainText('—');
+    expect(((await cellMeta(chartId, c0.id)).reaction ?? {}).views).toBeUndefined();
+    // 不正値は画面でも理由（サーバへは行かない）
+    await details2.locator('[data-mandala-reaction-input="likes"]').fill('-3');
+    await details2.locator('[data-mandala-reaction-save]').click();
+    await expect(details2.locator('[data-mandala-reaction-error]')).toBeVisible();
+    for (const k of ['likes', 'shares', 'purchases']) await details2.locator(`[data-mandala-reaction-input="${k}"]`).fill('');
+    await details2.locator('[data-mandala-reaction-memo]').fill('');
+    await details2.locator('[data-mandala-reaction-save]').click();
+    await expect(details2).toHaveAttribute('data-mandala-reaction-saved', '0', { timeout: 15000 });
+    await expect(grid.locator('[data-mandala-cell="0"] [data-mandala-cell-reaction]')).toHaveCount(0);
+    await expect(page.locator('[data-mandala-reaction-count]')).toHaveCount(0);
+    expect(await cellMeta(chartId, c0.id), 'reaction キーが消え tier は残る').toEqual({ tier: 'free' });
+    await panel2.locator('[data-mandala-panel-close]').click();
+
+    // ⑥ 無料比率: free 300+100（＋子200）／paid 300（＋子100）＝ 60%（中央 999 字は含めない）
+    expect((await saveMandalaCell(api, byPos(4).id, { title: `${marker} 型`, body: 'x'.repeat(999) })).status()).toBe(200);
+    expect((await saveMandalaCell(api, c0.id, { body: 'x'.repeat(300) })).status()).toBe(200);
+    expect((await saveMandalaCell(api, byPos(1).id, { body: 'x'.repeat(100) })).status()).toBe(200);
+    expect((await saveMandalaCell(api, byPos(6).id, { body: 'x'.repeat(300) })).status()).toBe(200);
+    const exp0 = await expandMandalaCell(api, chartId, c0.id);
+    expect(exp0.status()).toBe(200);
+    const kid0 = ((await exp0.json()).children as { id: string; position: number }[]).find((c) => c.position === 0)!;
+    expect((await saveMandalaCell(api, kid0.id, { title: '子', body: 'x'.repeat(200) })).status()).toBe(200);
+    const exp6 = await expandMandalaCell(api, chartId, byPos(6).id);
+    const kid6 = ((await exp6.json()).children as { id: string; position: number }[]).find((c) => c.position === 0)!;
+    expect((await saveMandalaCell(api, kid6.id, { title: '子', body: 'x'.repeat(100) })).status()).toBe(200);
+    await page.reload();
+    const ratio = page.locator('[data-mandala-free-ratio]');
+    await expect(ratio).toHaveAttribute('data-mandala-free-ratio', '0.6', { timeout: 30000 });
+    await expect(ratio).toHaveAttribute('data-mandala-free-chars', '600');
+    await expect(ratio).toHaveAttribute('data-mandala-paid-chars', '400');
+    await expect(ratio).toContainText('無料 60%');
+    await expect(ratio).toContainText('目安 60〜70%');
+    // 81マス表示でも同じ値（子マスは親の区分に含まれる）・外周ブロックの中央（親）にも区分の帯
+    await page.locator('[data-mandala-view="81"]').click();
+    await expect(page.locator('[data-mandala-81]')).toBeVisible();
+    await expect(ratio).toHaveAttribute('data-mandala-free-ratio', '0.6');
+    await expect(page.locator('[data-mandala-block="6"] [data-mandala-cell="4"] [data-mandala-cell-tier]')).toHaveAttribute('data-mandala-cell-tier', 'paid');
+    await page.locator('[data-mandala-view="9"]').click();
+
+    // ⑦ 一覧: 📈 n（反応のあるマス数）と型のラベル。空のマンダラには出ない
+    expect((await saveMandalaCell(api, byPos(1).id, { reaction: { views: 10 } })).status()).toBe(200);
+    await page.goto('/dashboard/mandala');
+    const card = page.locator(`[data-mandala-card="${chartId}"]`);
+    await expect(card).toBeVisible({ timeout: 30000 });
+    await expect(card.locator('[data-mandala-reactions]')).toHaveAttribute('data-mandala-reactions', '1');
+    await expect(card.locator('[data-mandala-card-preset]')).toHaveAttribute('data-mandala-card-preset', 'paid_note');
+    const plainCard = page.locator(`[data-mandala-card="${plainId}"]`);
+    await expect(plainCard).toBeVisible();
+    await expect(plainCard.locator('[data-mandala-reactions]')).toHaveCount(0);
+    await expect(plainCard.locator('[data-mandala-card-preset]')).toHaveCount(0);
+
+    // ⑧ §7: meta={} の既存チャートでは区分・反応・比率が何も出ない（パネルにも区分の切替が無い）
+    await page.goto(`/dashboard/mandala/${plainId}`);
+    await expect(grid.locator('[data-mandala-cell]')).toHaveCount(9, { timeout: 30000 });
+    await expect(page.locator('[data-mandala-cell-tier]')).toHaveCount(0);
+    await expect(page.locator('[data-mandala-cell-reaction]')).toHaveCount(0);
+    await expect(page.locator('[data-mandala-free-ratio]')).toHaveCount(0);
+    await expect(page.locator('[data-mandala-reaction-count]')).toHaveCount(0);
+    await grid.locator('[data-mandala-cell="4"]').click();
+    const plainPanel = page.locator(`[data-mandala-panel="${plainCells.find((c) => c.position === 4)!.id}"]`);
+    await expect(plainPanel).toBeVisible();
+    await expect(plainPanel.locator('[data-mandala-tier-toggle]')).toHaveCount(0);
+    await expect(plainPanel.locator('[data-mandala-title-input="panel"]')).toHaveAttribute('placeholder', /テーマ/);
+  } finally {
+    await deleteMandalaChart(api, chartId);
+    await deleteMandalaChart(api, plainId);
+    if (uiChartId) await deleteMandalaChart(api, uiChartId);
+  }
+});

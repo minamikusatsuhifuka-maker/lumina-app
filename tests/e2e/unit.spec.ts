@@ -42,6 +42,7 @@ import { guardImagePrompt, IMAGE_GUARD_SUFFIX } from '../../src/lib/image-guards
 import { cleanChapterBody } from '../../src/lib/kindle-text';
 // 307: 動的 import() では '@/lib/…' のパス解決が効かない（transitive な alias import が Cannot find module）ため静的に読む
 import * as mandalaKindle from '../../src/lib/mandala-kindle';
+import * as mandalaPresets from '../../src/lib/mandala-presets';
 import { KINDLE_TASTES, KINDLE_TASTE_KEYS, KINDLE_TASTE_GUARD, KINDLE_SCORE_AXES } from '../../src/lib/kindle-taste';
 import {
   AUTO_STOCK_KEY,
@@ -3737,4 +3738,118 @@ test('U77: マンダラ→Kindle目次（307）— 8マス＋子ありが章8・
   const server = readFileSync(join(__dirname, '../../src/lib/mandala-server.ts'), 'utf8');
   expect(server, '起こした本は本の側の記録から導出（mandala_charts.meta に書かない・R-107）').toMatch(/FROM kindle_books\s*WHERE user_id = \$\{userId\}\s*AND book_meta->'mandala'->>'source' = 'mandala'/);
   expect(server).not.toMatch(/UPDATE mandala_charts SET meta/);
+});
+
+test('U78: マンダラ 有料note記事の型・反応記録・無料比率（308）— プリセット定義は1箇所で周囲8のタイトルと tier が定義どおり・中央は空・KB ID のコメント・反応の入力検証（非負整数・100字・全部空＝null・不正は理由）・購入率は purchases÷views で views 未記録なら null（保存しない・R-74）・同一内容の判定（R-87）・反応記録 n/m は埋まったマスだけ・無料比率は中央を除き子マスは親の区分・両方0なら null・meta が空なら区分/反応/比率が何も出ない（§7）・meta はキー単位マージ（`meta - keys || patch`・丸ごと置換なし）・作成の既定は body なし・Kindle 目次は meta を読まない（U77 不変）', async () => {
+  const m = await import('../../src/lib/mandala-shared');
+  const pr = mandalaPresets;
+  type Cell = import('../../src/lib/mandala-shared').MandalaCell;
+  const mk = (position: number, depth: 1 | 2 = 1, parent: string | null = null, title = '', body = '', meta: Record<string, unknown> = {}): Cell => ({ id: `c${depth}-${parent ?? 'r'}-${position}`, chart_id: 'ch', parent_cell_id: parent, depth, position, title, body, meta, created_at: '', updated_at: '' });
+
+  // ① プリセット定義（§2-1）
+  expect(pr.MANDALA_PRESET_KEYS).toEqual(['paid_note']);
+  expect(pr.isMandalaPresetKey('paid_note')).toBe(true);
+  expect(pr.isMandalaPresetKey('other')).toBe(false);
+  const rows = pr.presetCellRows('paid_note');
+  expect(rows.map((r) => r.position)).toEqual([0, 1, 2, 3, 4, 5, 6, 7, 8]);
+  expect(rows[4], '中央は空・meta なし').toEqual({ position: 4, title: '', meta: {} });
+  expect(rows.filter((r) => r.meta.tier === 'free').map((r) => r.position)).toEqual([0, 1, 2, 3, 5]);
+  expect(rows.filter((r) => r.meta.tier === 'paid').map((r) => r.position)).toEqual([6, 7, 8]);
+  expect(rows[0].title).toContain('導入');
+  expect(rows[5].title).toContain('CTA');
+  expect(rows[6].title).toContain('手順');
+  expect(rows[7].title).toContain('テンプレート');
+  expect(rows[8].title).toContain('結び');
+  expect(rows.every((r) => r.position === 4 || r.title.trim() !== '')).toBe(true);
+  const presetSrc = readFileSync(join(__dirname, '../../src/lib/mandala-presets.ts'), 'utf8');
+  for (const id of ['N-06', 'N-07', 'N-08', 'N-09']) expect(presetSrc, `KB ${id} のコメント`).toContain(id);
+  expect(presetSrc).not.toMatch(/from '@\/lib\/db'/);
+  expect(presetSrc).not.toMatch(/from '@\/lib\/mandala-server'/);
+  expect(m.MANDALA_TIER_LABELS).toEqual({ free: '無料', paid: '有料' });
+  expect(m.cellTier(mk(0, 1, null, '', '', { tier: 'paid' }))).toBe('paid');
+  expect(m.cellTier(mk(0, 1, null, '', '', { tier: 'x' }))).toBeNull();
+  expect(m.cellTier(mk(0))).toBeNull();
+  expect(m.chartPreset({ preset: 'paid_note' })).toBe('paid_note');
+  expect(m.chartPreset({})).toBeNull();
+
+  // ② 反応の入力検証（§3-1・§3-2）
+  expect(m.normalizeReactionInput({ views: 120, likes: '8', shares: '', purchases: 3, memo: ' 一言 ' })).toEqual({ ok: true, reaction: { views: 120, likes: 8, purchases: 3, memo: '一言' } });
+  expect(m.normalizeReactionInput({ views: '', likes: null, memo: '' })).toEqual({ ok: true, reaction: null });
+  expect(m.normalizeReactionInput({})).toEqual({ ok: true, reaction: null });
+  expect(m.normalizeReactionInput(null)).toEqual({ ok: true, reaction: null });
+  expect(m.normalizeReactionInput({ views: -1 })).toMatchObject({ ok: false });
+  expect(m.normalizeReactionInput({ views: 1.5 })).toMatchObject({ ok: false });
+  expect(m.normalizeReactionInput({ likes: 'abc' })).toMatchObject({ ok: false });
+  expect(m.normalizeReactionInput({ memo: 'あ'.repeat(101) })).toMatchObject({ ok: false });
+  expect(m.normalizeReactionInput({ memo: 'あ'.repeat(100) })).toMatchObject({ ok: true, reaction: { memo: 'あ'.repeat(100) } });
+  expect(m.normalizeReactionInput({ memo: 5 })).toMatchObject({ ok: false });
+  // 読み出しは fail-closed（形が崩れていれば null・非負整数だけ拾う）
+  expect(m.parseReaction({ reaction: { views: 10, likes: -2, memo: '', recordedAt: '2026-09-09T00:00:00.000Z' } })).toEqual({ views: 10, recordedAt: '2026-09-09T00:00:00.000Z' });
+  expect(m.parseReaction({ reaction: { recordedAt: 'x' } })).toBeNull();
+  expect(m.parseReaction({})).toBeNull();
+  expect(m.parseReaction({ reaction: 'x' })).toBeNull();
+  // 購入率（導出のみ）
+  expect(m.purchaseRate({ views: 200, purchases: 25 })).toBe(0.125);
+  expect(m.purchaseRate({ views: 0, purchases: 1 })).toBeNull();
+  expect(m.purchaseRate({ purchases: 1 })).toBeNull();
+  expect(m.purchaseRate({ views: 10 })).toBeNull();
+  expect(m.formatRate(0.125)).toBe('12.5%');
+  expect(m.formatRate(2 / 3)).toBe('66.7%');
+  // 同一内容（記録日時を除く）
+  expect(m.isSameReaction({ views: 1, memo: 'a' }, { views: 1, memo: 'a' })).toBe(true);
+  expect(m.isSameReaction({ views: 1 }, { views: 2 })).toBe(false);
+  expect(m.isSameReaction(null, null)).toBe(true);
+  expect(m.isSameReaction(null, { views: 1 })).toBe(false);
+
+  // ③ 反応記録 n/m（埋まった第1階層だけ・決定的）
+  const filledWith = mk(0, 1, null, 'a', '', { reaction: { views: 1, recordedAt: 'z' } });
+  const emptyWith = mk(1, 1, null, '', '', { reaction: { views: 1, recordedAt: 'z' } });
+  const filledNo = mk(2, 1, null, 'b');
+  const childWith = mk(0, 2, filledWith.id, 'k', '', { reaction: { views: 1, recordedAt: 'z' } });
+  expect(m.reactionSummary([childWith, filledNo, emptyWith, filledWith])).toEqual({ withReaction: 1, filled: 2 });
+  expect(m.reactionSummary([filledWith, emptyWith, filledNo, childWith])).toEqual({ withReaction: 1, filled: 2 });
+  expect(m.hasReaction(emptyWith)).toBe(true);
+  expect(m.hasReaction(filledNo)).toBe(false);
+
+  // ④ 無料比率（中央を除く・子マスは親の区分・両方0なら null）
+  const center = mk(4, 1, null, 'T', 'x'.repeat(999));
+  const f0 = mk(0, 1, null, 'a', 'x'.repeat(300), { tier: 'free' });
+  const f1 = mk(1, 1, null, 'b', 'x'.repeat(100), { tier: 'free' });
+  const p6 = mk(6, 1, null, 'c', 'x'.repeat(300), { tier: 'paid' });
+  const none = mk(2, 1, null, 'd', 'x'.repeat(5000));
+  const kidF = mk(0, 2, f0.id, 'k', 'x'.repeat(200));
+  const kidP = mk(0, 2, p6.id, 'k', 'x'.repeat(100));
+  const r = m.freeRatio([kidP, center, none, p6, f1, f0, kidF]);
+  expect(r).toEqual({ freeChars: 600, paidChars: 400, ratio: 0.6 });
+  expect(m.freeRatio([center, f0, f1, p6, none, kidF, kidP])).toEqual(r);
+  expect(m.freeRatio([mk(0, 1, null, 'a', '', { tier: 'free' }), mk(6, 1, null, 'b', '', { tier: 'paid' })]).ratio).toBeNull();
+  expect(m.freeRatioLabel(0.6)).toBe('無料 60%（目安 60〜70%）');
+  expect(m.shouldShowFreeRatio({ preset: 'paid_note' }, [])).toBe(true);
+  expect(m.shouldShowFreeRatio({}, [f0])).toBe(true);
+  // §7: meta が空の既存チャートでは何も増えない
+  const plain = [0, 1, 2, 3, 4, 5, 6, 7, 8].map((p) => mk(p, 1, null, `t${p}`, 'body'));
+  expect(m.shouldShowFreeRatio({}, plain)).toBe(false);
+  expect(m.reactionSummary(plain)).toEqual({ withReaction: 0, filled: 9 });
+  expect(plain.every((c) => m.cellTier(c) === null && !m.hasReaction(c))).toBe(true);
+
+  // ⑤ ソース固定（構文ごと・R-111）: meta はキー単位マージ・丸ごと置換なし・作成は preset のときだけ別文・既定は不変
+  const server = readFileSync(join(__dirname, '../../src/lib/mandala-server.ts'), 'utf8');
+  expect(server).toMatch(/SET meta = \(meta - \$\{remove\}::text\[\]\) \|\| \$\{JSON\.stringify\(set\)\}::jsonb/);
+  expect(server).not.toMatch(/SET meta = \$\{JSON\.stringify\([a-zA-Z.]+\)\}::jsonb/);
+  expect(server).toMatch(/INSERT INTO mandala_cells \(chart_id, user_id, depth, position\)\s*SELECT c\.id, \$\{userId\}, 1, p FROM c, generate_series\(0, 8\) AS p/);
+  expect(server).toMatch(/INSERT INTO mandala_cells \(chart_id, user_id, depth, position, title, meta\)/);
+  expect(server.match(/CREATE TABLE IF NOT EXISTS/g)?.length, 'スキーマ変更なし').toBe(3);
+  expect(server).not.toMatch(/ALTER TABLE/);
+  const route = readFileSync(join(__dirname, '../../src/app/api/mandala/cells/route.ts'), 'utf8');
+  expect(route).toMatch(/normalizeReactionInput\(body\.reaction/);
+  expect(route).toMatch(/isMandalaTier\(body\.tier\)/);
+  const listPage = readFileSync(join(__dirname, '../../src/app/dashboard/mandala/page.tsx'), 'utf8');
+  expect(listPage).toMatch(/useState<'' \| MandalaPresetKey>\(''\)/);
+  expect(listPage).toMatch(/: \{ method: 'POST' \}/);
+  const editor = readFileSync(join(__dirname, '../../src/components/mandala/MandalaCellEditor.tsx'), 'utf8');
+  const reactionBlock = editor.slice(editor.indexOf('<details'), editor.indexOf('</details>'));
+  expect(reactionBlock, '反応欄の入力に ⌘+Enter（onEditorKeyDown）を付けない').not.toContain('onEditorKeyDown');
+  // Kindle 目次は meta を読まない（U77 の入力形＝MandalaOutlineNode/リンク。meta の語が変換関数に無い）
+  const kindle = readFileSync(join(__dirname, '../../src/lib/mandala-kindle.ts'), 'utf8');
+  expect(kindle).not.toMatch(/\.meta\b/);
 });

@@ -91,6 +91,10 @@ export interface MandalaChartSummary {
   primary_count: number;
   /** 305: 第2階層（子マス）の行数。削除の確認文に出す */
   child_count: number;
+  /** 308: 反応記録のある埋まったマス数（第1階層）。0 なら一覧に出さない */
+  reaction_count: number;
+  /** 308: 型（meta.preset）。無ければ null */
+  preset: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -596,7 +600,7 @@ export function clearStash(cellId: string): void {
 /** ポップアップに出す上限（§2-1）。超えた分は「他 n件 → パネルで見る」の1行に畳む（R-101/R-109） */
 export const MANDALA_POPOVER_MAX = 8;
 
-export type MandalaPopoverFrom = 'links' | 'episode';
+export type MandalaPopoverFrom = 'links' | 'episode' | 'reaction';
 
 /**
  * ポップアップの行を決める。📔 から開いたときは episode を先頭に並べる（安定ソート＝同種内は元の順）。
@@ -700,4 +704,198 @@ export function expansionSummary(cells: readonly MandalaCell[], links: readonly 
     if ((counts.get(c.id)?.episode ?? 0) > 0) childWithPrimary += 1;
   }
   return { expandedBlocks: parents.size, childFilled, childWithPrimary };
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// 308: 有料note記事の型（区分 meta.tier）／マス単位の反応記録（meta.reaction）／無料比率 — DB 非依存の純関数・定数
+//   meta は**キー単位でマージ**する（tier・reaction・chart.preset）。丸ごと置き換える経路を作らない（§5）
+// ═══════════════════════════════════════════════════════════════════════════
+
+// ───────────────────────────────────────────────────────────────────────────
+// 区分（無料／有料）。定義（どの位置がどちらか）は lib/mandala-presets.ts、判定と表示語はここ
+// ───────────────────────────────────────────────────────────────────────────
+
+export type MandalaTier = 'free' | 'paid';
+export const MANDALA_TIERS: readonly MandalaTier[] = ['free', 'paid'];
+/** 表示語は短く（R-57）。「有料ラインの下」であることが一目で分かる色は表示側 */
+export const MANDALA_TIER_LABELS: Record<MandalaTier, string> = { free: '無料', paid: '有料' };
+export function isMandalaTier(v: unknown): v is MandalaTier {
+  return v === 'free' || v === 'paid';
+}
+/** マスの区分（meta.tier）。無ければ null＝区分の表示は何も増えない（既存チャート・§7） */
+export function cellTier(cell: Pick<MandalaCell, 'meta'> | null | undefined): MandalaTier | null {
+  const t = cell?.meta?.tier;
+  return isMandalaTier(t) ? t : null;
+}
+/** チャートの型（meta.preset）。無ければ null */
+export function chartPreset(meta: Record<string, unknown> | null | undefined): string | null {
+  const p = meta?.preset;
+  return typeof p === 'string' && p ? p : null;
+}
+
+// ───────────────────────────────────────────────────────────────────────────
+// 反応記録（§3-1）。単一のスナップショット。購入率は保存せず表示側で導出（R-74）
+// ───────────────────────────────────────────────────────────────────────────
+
+export const MANDALA_REACTION_KEYS = ['views', 'likes', 'shares', 'purchases'] as const;
+export type MandalaReactionKey = (typeof MANDALA_REACTION_KEYS)[number];
+export const MANDALA_REACTION_LABELS: Record<MandalaReactionKey, string> = {
+  views: 'アクセス',
+  likes: 'スキ',
+  shares: '共有',
+  purchases: '購入',
+};
+export const MANDALA_REACTION_MEMO_MAX = 100;
+/** 上限（整数の保護のみ。桁あふれで壊れないため） */
+export const MANDALA_REACTION_VALUE_MAX = 1_000_000_000;
+
+export interface MandalaReaction {
+  views?: number;
+  likes?: number;
+  shares?: number;
+  purchases?: number;
+  memo?: string;
+  /** 記録日時（ISO・UTC）。表示は JST（R-86） */
+  recordedAt: string;
+}
+
+/** meta.reaction の読み出し。形が崩れていれば null（fail-closed）。数値は非負整数だけ拾う */
+export function parseReaction(meta: Record<string, unknown> | null | undefined): MandalaReaction | null {
+  const r = meta?.reaction;
+  if (!r || typeof r !== 'object') return null;
+  const o = r as Record<string, unknown>;
+  const out: MandalaReaction = { recordedAt: typeof o.recordedAt === 'string' ? o.recordedAt : '' };
+  let any = false;
+  for (const k of MANDALA_REACTION_KEYS) {
+    const v = o[k];
+    if (typeof v === 'number' && Number.isInteger(v) && v >= 0) {
+      out[k] = v;
+      any = true;
+    }
+  }
+  if (typeof o.memo === 'string' && o.memo.trim()) {
+    out.memo = o.memo.slice(0, MANDALA_REACTION_MEMO_MAX);
+    any = true;
+  }
+  return any ? out : null;
+}
+
+export function hasReaction(cell: Pick<MandalaCell, 'meta'> | null | undefined): boolean {
+  return parseReaction(cell?.meta) !== null;
+}
+
+export type ReactionInputResult =
+  | { ok: true; reaction: Omit<MandalaReaction, 'recordedAt'> | null }
+  | { ok: false; error: string };
+
+/**
+ * 記録の入力検証（画面・API 共用・fail-closed）。空欄（undefined / null / ''）は「未記録」、数値は非負整数のみ。
+ * 全部空なら reaction=null＝キーごと消す（§3-1）。不正は理由つきで拒否（API は 400・何も書かない）
+ */
+export function normalizeReactionInput(input: Record<string, unknown> | null | undefined): ReactionInputResult {
+  const src = input && typeof input === 'object' ? input : {};
+  const out: Omit<MandalaReaction, 'recordedAt'> = {};
+  let any = false;
+  for (const k of MANDALA_REACTION_KEYS) {
+    const raw = src[k];
+    if (raw === undefined || raw === null || raw === '') continue;
+    const n = typeof raw === 'number' ? raw : typeof raw === 'string' && /^\d+$/.test(raw.trim()) ? Number(raw.trim()) : NaN;
+    if (!Number.isInteger(n) || n < 0 || n > MANDALA_REACTION_VALUE_MAX) {
+      return { ok: false, error: `${MANDALA_REACTION_LABELS[k]}は0以上の整数で入力してください` };
+    }
+    out[k] = n;
+    any = true;
+  }
+  const memoRaw = src.memo;
+  if (memoRaw !== undefined && memoRaw !== null) {
+    if (typeof memoRaw !== 'string') return { ok: false, error: '一言は文字列で入力してください' };
+    const memo = memoRaw.replace(/\r\n?/g, '\n').trim();
+    if (memo.length > MANDALA_REACTION_MEMO_MAX) {
+      return { ok: false, error: `一言は${MANDALA_REACTION_MEMO_MAX}字以内で入力してください（${memo.length}字）` };
+    }
+    if (memo) {
+      out.memo = memo;
+      any = true;
+    }
+  }
+  return { ok: true, reaction: any ? out : null };
+}
+
+/** 2つの記録が（記録日時を除いて）同じか。同一内容の再送は書かない（R-87 のサーバ側） */
+export function isSameReaction(a: Omit<MandalaReaction, 'recordedAt'> | null, b: Omit<MandalaReaction, 'recordedAt'> | null): boolean {
+  if (!a || !b) return a === b;
+  return MANDALA_REACTION_KEYS.every((k) => (a[k] ?? null) === (b[k] ?? null)) && (a.memo ?? '') === (b.memo ?? '');
+}
+
+/** 購入率＝purchases ÷ views。views が 0 か未記録なら null（出さない・§3-1）。保存しない（R-74） */
+export function purchaseRate(r: Pick<MandalaReaction, 'views' | 'purchases'> | null | undefined): number | null {
+  if (!r || typeof r.views !== 'number' || r.views <= 0 || typeof r.purchases !== 'number') return null;
+  return r.purchases / r.views;
+}
+
+/** 表示用（小数1桁）。0.125 → 12.5% */
+export function formatRate(rate: number): string {
+  return `${(Math.round(rate * 1000) / 10).toLocaleString()}%`;
+}
+
+export interface ReactionSummary {
+  /** 記録のある埋まったマス数（第1階層） */
+  withReaction: number;
+  /** 埋まっているマス数（第1階層）。302 の一次情報と同じ分母 */
+  filled: number;
+}
+
+/** 見出しの「📈 反応記録 n/m」（§3-3）。302 primaryInfoSummary と同じ形。0件なら表示側で出さない（§7） */
+export function reactionSummary(cells: readonly MandalaCell[]): ReactionSummary {
+  let filled = 0;
+  let withReaction = 0;
+  for (const c of cells) {
+    if (c.depth !== 1 || !isCellFilled(c)) continue;
+    filled += 1;
+    if (hasReaction(c)) withReaction += 1;
+  }
+  return { withReaction, filled };
+}
+
+// ───────────────────────────────────────────────────────────────────────────
+// 無料比率（§4）。free の本文文字数 ÷（free＋paid）。中央は含めない。子マスの本文は親の区分に含める（節は章の区分）
+// ───────────────────────────────────────────────────────────────────────────
+
+/** 目安（N-08: 無料60〜70%は検証すべき仮説）。数値と並べるだけ＝煽らない */
+export const MANDALA_FREE_RATIO_GUIDE = { min: 0.6, max: 0.7 } as const;
+
+export interface FreeRatio {
+  freeChars: number;
+  paidChars: number;
+  /** 両方0なら null（出さない） */
+  ratio: number | null;
+}
+
+export function freeRatio(cells: readonly MandalaCell[]): FreeRatio {
+  const tierById = new Map<string, MandalaTier>();
+  for (const c of cells) {
+    if (c.depth !== 1 || c.position === MANDALA_CENTER) continue;
+    const t = cellTier(c);
+    if (t) tierById.set(c.id, t);
+  }
+  let freeChars = 0;
+  let paidChars = 0;
+  for (const c of cells) {
+    const t = c.depth === 1 ? tierById.get(c.id) : c.parent_cell_id ? tierById.get(c.parent_cell_id) : undefined;
+    if (!t) continue;
+    if (t === 'free') freeChars += c.body.length;
+    else paidChars += c.body.length;
+  }
+  const total = freeChars + paidChars;
+  return { freeChars, paidChars, ratio: total > 0 ? freeChars / total : null };
+}
+
+/** 比率を出す条件: 型のチャート、または区分を持つマスが1つ以上（§4）。既存チャート（meta={}）では出ない（§7） */
+export function shouldShowFreeRatio(chartMeta: Record<string, unknown> | null | undefined, cells: readonly MandalaCell[]): boolean {
+  return chartPreset(chartMeta) !== null || cells.some((c) => cellTier(c) !== null);
+}
+
+/** 見出しの文言（§4）。目安は並記のみ */
+export function freeRatioLabel(ratio: number): string {
+  return `無料 ${formatRate(ratio)}（目安 ${Math.round(MANDALA_FREE_RATIO_GUIDE.min * 100)}〜${Math.round(MANDALA_FREE_RATIO_GUIDE.max * 100)}%）`;
 }

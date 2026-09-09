@@ -13,6 +13,9 @@
 // - 302 §3-1 選択モード: 押すと編集ではなく選択がトグルする（チェックの見た目は枠内の印。操作要素ではない）。
 //   空のマスは選べない（比較に出ない）。全選択は置かない（R-106）
 // - 第2階層の中央（導出枠・§4-3②）は押せない（保存されない）。本便では第1階層のみ描く
+// - 308: 区分（meta.tier）があるマスは「無料」「有料」の小さな帯（有料は琥珀の縁＝有料ラインの下と分かる）。
+//   反応記録（meta.reaction）があるマスは 📈 バッジ（HoverPopover で4項目＋購入率＋一言＋日時）。
+//   どちらも meta に無ければ何も増えない（既存チャート・§7）
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 import { CharCountBadge } from '@/components/LibraryItemRow';
@@ -20,7 +23,10 @@ import type { HoverPopoverBindings } from '@/components/HoverPopover';
 import {
   MANDALA_CENTER,
   MANDALA_POSITION_LABELS,
+  MANDALA_TIER_LABELS,
   cellPreviewText,
+  cellTier,
+  hasReaction,
   isCellFilled,
   mandalaGridSlots,
   type MandalaCell,
@@ -30,6 +36,8 @@ import {
 } from '@/lib/mandala-shared';
 
 const ACCENT = '#6c63ff';
+/** 308: 有料側の色（琥珀）。「有料ラインの下」を一目で */
+const PAID = '#B45309';
 
 /** 304: バッジ（📔n・🔗n）にホバーポップアップを結線する関数。省略時はバッジは読むだけ（302 と同じ） */
 export type PopoverBind = (cell: MandalaCell, from: MandalaPopoverFrom) => HoverPopoverBindings;
@@ -72,6 +80,10 @@ function CellCard({
   const clickable = selectMode ? selectable : (!!cell && !derived) || (derived && !!derivedCell) || canExpand;
   const title = derived ? derivedTitle ?? '' : cell?.title.trim() ?? '';
   const preview = cell && !derived && !compact ? cellPreviewText(cell.body) : '';
+  // 308: 区分と反応記録。導出枠（外周ブロックの中央＝親）も親の区分を出す
+  const tierCell = cell ?? derivedCell ?? null;
+  const tier = cellTier(tierCell);
+  const reacted = !!cell && !derived && hasReaction(cell);
 
   const activate = () => {
     if (selectMode) {
@@ -132,7 +144,9 @@ function CellCard({
         boxSizing: 'border-box',
         minWidth: 0,
         cursor: clickable ? 'pointer' : selectMode && cell ? 'not-allowed' : 'default',
-        border: filled || derived ? `1px solid ${isCenter ? (derived ? '#B45309' : ACCENT) : 'var(--border)'}` : '1px dashed var(--border)',
+        border: filled || derived ? `1px solid ${isCenter ? (derived ? PAID : ACCENT) : tier === 'paid' ? 'rgba(180,83,9,0.55)' : 'var(--border)'}` : tier === 'paid' ? '1px dashed rgba(180,83,9,0.55)' : '1px dashed var(--border)',
+        // 308: 有料側は左の縁を太くして「有料ラインの下」を一目で（区分の無いマスは従来どおり）
+        borderLeftWidth: tier === 'paid' ? 4 : undefined,
         outline: selected || (selectMode && checked) ? `2px solid ${ACCENT}` : 'none',
         outlineOffset: 2,
         // 305: 外周ブロックの中央（導出＝親）はテーマ色に準じた別色（琥珀）で「親」と分かるようにする
@@ -174,7 +188,33 @@ function CellCard({
             {isCenter ? (derived ? '親マス' : 'テーマ') : label}
           </span>
         )}
+        {/* 308 §2-3: 区分の帯（短い表示語・R-57）。有料は琥珀。title は付けない（R-110） */}
+        {tier && (
+          <span
+            data-mandala-cell-tier={tier}
+            style={{ fontSize: compact ? 9 : 10, fontWeight: 700, padding: compact ? '0 4px' : '1px 6px', borderRadius: 4, whiteSpace: 'nowrap', flexShrink: 0, background: tier === 'paid' ? 'rgba(180,83,9,0.14)' : 'rgba(29,158,117,0.12)', color: tier === 'paid' ? PAID : '#1D9E75', border: `1px solid ${tier === 'paid' ? 'rgba(180,83,9,0.45)' : 'rgba(29,158,117,0.35)'}` }}
+          >
+            {MANDALA_TIER_LABELS[tier]}
+          </span>
+        )}
         {!compact && <span style={{ flex: 1 }} />}
+        {/* 308 §3-3: 反応記録がある埋まったマスに 📈（ホバーで4項目＋購入率＋一言＋日時）。304 のリンク一覧とは別のバッジ */}
+        {reacted && cell && (() => {
+          const b = popoverBind ? popoverBind(cell, 'reaction') : undefined;
+          const handlers = b ? (selectMode ? { ...b, onClick: undefined } : b) : {};
+          return (
+            <span
+              data-mandala-cell-reaction
+              aria-label="反応記録あり。記録を表示"
+              role={b ? 'button' : undefined}
+              tabIndex={b ? 0 : undefined}
+              {...handlers}
+              style={{ fontSize: 10, fontWeight: 700, whiteSpace: 'nowrap', flexShrink: 0, color: '#1D9E75', cursor: b ? 'pointer' : 'default', padding: '0 2px', borderRadius: 4 }}
+            >
+              📈
+            </span>
+          );
+        })()}
         {/* 305是正①: コンパクトは優先順（文字数 > 🔗n > 📔n）で先に置く */}
         {compact && cell && !derived && filled && <CharCountBadge n={cell.body.length} unit="字" compact />}
         {compact && cell && !derived && (counts?.total ?? 0) > 0 && (() => {

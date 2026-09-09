@@ -407,6 +407,7 @@ export const MANDALA_API = '/api/mandala';
 export const MANDALA_CELLS_API = '/api/mandala/cells';
 
 export type MandalaCellLike = {
+  meta?: Record<string, unknown>;
   id: string;
   chart_id: string;
   parent_cell_id: string | null;
@@ -431,7 +432,8 @@ export async function getMandalaChart(
 export async function saveMandalaCell(
   request: APIRequestContext,
   cellId: string,
-  input: { title?: string; body?: string },
+  // 308: tier（'free'|'paid'）・reaction（4項目＋memo・null＝消す）も同じ PATCH
+  input: { title?: string; body?: string; tier?: string; reaction?: Record<string, unknown> | null },
 ) {
   return request.patch(MANDALA_CELLS_API, { data: { cellId, ...input } });
 }
@@ -444,8 +446,10 @@ export async function saveMandalaCell(
 export async function createMandalaChart(
   request: APIRequestContext,
   centerTitle: string,
+  /** 308: 型プリセット（省略＝空のマンダラ・従来どおり） */
+  preset?: string,
 ): Promise<{ id: string; cells: MandalaCellLike[] }> {
-  const res = await request.post(MANDALA_API);
+  const res = preset ? await request.post(MANDALA_API, { data: { preset } }) : await request.post(MANDALA_API);
   expect(res.status(), 'マンダラ作成APIが200であること').toBe(200);
   const id = (await res.json()).id as string;
   expect(typeof id, '作成レスポンスにidが含まれること').toBe('string');

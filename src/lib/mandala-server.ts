@@ -21,13 +21,18 @@ import {
   MANDALA_CENTER,
   MANDALA_DEPTH1_COUNT,
   isMandalaLinkScope,
+  isSameReaction,
   normalizeCellInput,
+  parseReaction,
   type MandalaCell,
+  type MandalaReaction,
+  type MandalaTier,
   type MandalaChartDetail,
   type MandalaChartSummary,
   type MandalaLinkLite,
   type MandalaLinkResolved,
 } from '@/lib/mandala-shared';
+import { presetCellRows, type MandalaPresetKey } from '@/lib/mandala-presets';
 
 // ============================================================
 // スキーマ（冪等DDL・プロセス内で1回だけ）
@@ -154,11 +159,17 @@ export async function listCharts(userId: string): Promise<MandalaChartSummary[]>
         WHERE x.chart_id = ch.id AND x.depth = 1
           AND (btrim(x.title, E' \\t\\r\\n　') <> '' OR btrim(x.body, E' \\t\\r\\n　') <> '')) AS primary_count,
       -- 305: 子マス（第2階層）の行数。削除の確認文に出す
-      (SELECT COUNT(*)::int FROM mandala_cells x WHERE x.chart_id = ch.id AND x.depth = 2) AS child_count
+      (SELECT COUNT(*)::int FROM mandala_cells x WHERE x.chart_id = ch.id AND x.depth = 2) AS child_count,
+      -- 308: 反応記録のある埋まったマス数（第1階層）。一覧は軽い形のまま（本文を返さない）
+      (SELECT COUNT(*)::int FROM mandala_cells x
+        WHERE x.chart_id = ch.id AND x.depth = 1 AND x.meta ? 'reaction'
+          AND (btrim(x.title, E' \\t\\r\\n　') <> '' OR btrim(x.body, E' \\t\\r\\n　') <> '')) AS reaction_count,
+      -- 308: 型（meta.preset）。無ければ null
+      ch.meta->>'preset' AS preset
     FROM mandala_charts ch
     WHERE ch.user_id = ${userId}
     ORDER BY ch.updated_at DESC, ch.id
-  `) as { id: string; title: string; filled_count: number; filled_total: number; link_count: number; primary_count: number; child_count: number; created_at: string; updated_at: string }[];
+  `) as { id: string; title: string; filled_count: number; filled_total: number; link_count: number; primary_count: number; child_count: number; reaction_count: number; preset: string | null; created_at: string; updated_at: string }[];
   return rows.map((r) => ({
     id: String(r.id),
     title: r.title ?? '',
@@ -167,6 +178,8 @@ export async function listCharts(userId: string): Promise<MandalaChartSummary[]>
     link_count: Number(r.link_count ?? 0),
     primary_count: Number(r.primary_count ?? 0),
     child_count: Number(r.child_count ?? 0),
+    reaction_count: Number(r.reaction_count ?? 0),
+    preset: r.preset ? String(r.preset) : null,
     created_at: String(r.created_at),
     updated_at: String(r.updated_at),
   }));
@@ -203,9 +216,27 @@ export async function getChart(userId: string, chartId: string): Promise<Mandala
  * §4-2 チャート作成＝第1階層の9マスを**同時に**作る。CTE 1文なので、マスの INSERT が失敗すればチャートも残らない
  * （fail-closed・R-07）。返す行数が 9 でなければ例外（偽の成功を返さない・R-05）。
  */
-export async function createChart(userId: string): Promise<MandalaChartDetail> {
+export async function createChart(userId: string, preset: MandalaPresetKey | null = null): Promise<MandalaChartDetail> {
   await ensureMandalaTables();
-  const rows = (await sql`
+  // 308 §2-2: 型プリセットは作成時にだけ適用。既定（preset なし）の文は 301 のまま（R-88）。
+  // 型のときも同じ CTE 1文（本＋9マスが揃うか0か）。周囲8のタイトルと meta.tier は lib/mandala-presets.ts の定義そのまま
+  const rows = (preset
+    ? await (() => {
+        const cellsDef = presetCellRows(preset);
+        const positions = cellsDef.map((c) => c.position);
+        const titles = cellsDef.map((c) => c.title);
+        const metas = cellsDef.map((c) => JSON.stringify(c.meta));
+        return sql`
+          WITH c AS (
+            INSERT INTO mandala_charts (user_id, meta) VALUES (${userId}, ${JSON.stringify({ preset })}::jsonb) RETURNING id
+          )
+          INSERT INTO mandala_cells (chart_id, user_id, depth, position, title, meta)
+          SELECT c.id, ${userId}, 1, x.p, x.t, x.m::jsonb
+          FROM c, unnest(${positions}::int[], ${titles}::text[], ${metas}::text[]) AS x(p, t, m)
+          RETURNING id, chart_id, parent_cell_id, depth, position, title, body, meta, created_at, updated_at
+        `;
+      })()
+    : await sql`
     WITH c AS (
       INSERT INTO mandala_charts (user_id) VALUES (${userId}) RETURNING id
     )
@@ -262,6 +293,54 @@ export async function saveCell(
   `) as CellRow[];
   if (!current) return { ok: false, reason: 'not_found' };
   return { ok: true, cell: toCell(current), unchanged: true };
+}
+
+export type UpdateCellMetaResult =
+  | { ok: true; cell: MandalaCell; unchanged: boolean }
+  | { ok: false; reason: 'not_found' };
+
+/**
+ * 308 §3-2／§5: meta の**キー単位マージ**（`jsonb - keys || patch`）。tier／reaction 以外のキーは潰さない。
+ * reaction=null はキーを消す（全部空＝記録なし）。同一内容の再送は書かずに現在行を返す（R-87 のサーバ側）。
+ * meta を丸ごと置き換える経路はここにも他にも作らない
+ */
+export async function updateCellMeta(
+  userId: string,
+  cellId: string,
+  patch: { tier?: MandalaTier; reaction?: Omit<MandalaReaction, 'recordedAt'> | null },
+): Promise<UpdateCellMetaResult> {
+  await ensureMandalaTables();
+  const [current] = (await sql`
+    SELECT id, chart_id, parent_cell_id, depth, position, title, body, meta, created_at, updated_at
+    FROM mandala_cells WHERE id = ${cellId}::uuid AND user_id = ${userId}
+  `) as CellRow[];
+  if (!current) return { ok: false, reason: 'not_found' };
+  const cur = toCell(current);
+  const set: Record<string, unknown> = {};
+  const remove: string[] = [];
+  if (patch.tier !== undefined && patch.tier !== cur.meta.tier) set.tier = patch.tier;
+  if (patch.reaction !== undefined) {
+    const existing = parseReaction(cur.meta);
+    const existingLite = existing ? { ...existing, recordedAt: undefined } : null;
+    if (!isSameReaction(existingLite, patch.reaction)) {
+      if (patch.reaction === null) remove.push('reaction');
+      else set.reaction = { ...patch.reaction, recordedAt: new Date().toISOString() };
+    }
+  }
+  if (Object.keys(set).length === 0 && remove.length === 0) return { ok: true, cell: cur, unchanged: true };
+  const updated = (await sql`
+    WITH u AS (
+      UPDATE mandala_cells
+      SET meta = (meta - ${remove}::text[]) || ${JSON.stringify(set)}::jsonb, updated_at = now()
+      WHERE id = ${cellId}::uuid AND user_id = ${userId}
+      RETURNING id, chart_id, parent_cell_id, depth, position, title, body, meta, created_at, updated_at
+    ), bump AS (
+      UPDATE mandala_charts SET updated_at = now() WHERE id IN (SELECT chart_id FROM u)
+    )
+    SELECT * FROM u
+  `) as CellRow[];
+  if (updated.length === 0) return { ok: false, reason: 'not_found' };
+  return { ok: true, cell: toCell(updated[0]), unchanged: false };
 }
 
 /**

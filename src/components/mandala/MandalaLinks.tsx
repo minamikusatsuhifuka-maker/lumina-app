@@ -17,7 +17,7 @@
 import { useEffect, useRef, useState, type CSSProperties } from 'react';
 import { createPortal } from 'react-dom';
 import { CharCountBadge } from '@/components/LibraryItemRow';
-import { jstShortDate } from '@/lib/jst';
+import { jstDateTimeString, jstShortDate } from '@/lib/jst';
 import {
   MANDALA_LINK_BULK_LIMIT,
   MANDALA_LINK_SCOPES,
@@ -28,6 +28,12 @@ import {
   scopeMetaOf,
   type MandalaLinkResolved,
   type MandalaPickerItem,
+  MANDALA_REACTION_KEYS,
+  MANDALA_REACTION_LABELS,
+  formatRate,
+  parseReaction,
+  purchaseRate,
+  type MandalaCell,
 } from '@/lib/mandala-shared';
 
 const ACCENT = '#6c63ff';
@@ -447,6 +453,51 @@ export function MandalaLinkPopoverContent({
       )}
       <button type="button" data-mandala-pop-edit onClick={onOpenPanel} style={{ ...smallBtn, justifyContent: 'center', borderColor: ACCENT, color: ACCENT, marginTop: 2 }}>
         ✏️ パネルで編集
+      </button>
+    </div>
+  );
+}
+
+/**
+ * 308 §3-3: 📈 バッジのポップアップ（HoverPopover の中身）。4項目＋購入率（導出・R-74）＋一言＋記録日時（JST）。
+ * データ源はマスの meta（取得なし）。押せる要素は「パネルで記録する」だけ
+ */
+export function MandalaReactionPopoverContent({ cell, onOpenPanel }: { cell: MandalaCell; onOpenPanel: () => void }) {
+  const r = parseReaction(cell.meta);
+  const rate = purchaseRate(r);
+  return (
+    <div data-mandala-reaction-popover style={{ display: 'flex', flexDirection: 'column', gap: 4, minWidth: 0 }}>
+      <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-muted)', padding: '2px 4px' }}>📈 反応記録</div>
+      {!r ? (
+        <div style={{ fontSize: 11, color: 'var(--text-muted)', padding: '2px 4px' }}>記録がありません</div>
+      ) : (
+        <>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0, 1fr))', gap: 4, padding: '2px 4px' }}>
+            {MANDALA_REACTION_KEYS.map((k) => (
+              <div key={k} data-mandala-reaction-pop={k} style={{ fontSize: 11, textAlign: 'center' }}>
+                <div style={{ color: 'var(--text-muted)', fontSize: 10 }}>{MANDALA_REACTION_LABELS[k]}</div>
+                <div style={{ fontWeight: 700, color: 'var(--text-primary)' }}>{typeof r[k] === 'number' ? r[k]!.toLocaleString() : '—'}</div>
+              </div>
+            ))}
+          </div>
+          <div style={{ fontSize: 11, padding: '2px 4px', color: 'var(--text-secondary)' }}>
+            購入率:{' '}
+            <span data-mandala-reaction-pop-rate={rate === null ? '' : String(rate)} style={{ fontWeight: 700, color: 'var(--text-primary)' }}>
+              {rate === null ? '—（アクセス数が未記録）' : formatRate(rate)}
+            </span>
+          </div>
+          {r.memo && (
+            <div data-mandala-reaction-pop-memo style={{ fontSize: 11, padding: '2px 4px', color: 'var(--text-primary)', overflowWrap: 'anywhere' }}>
+              💬 {r.memo}
+            </div>
+          )}
+          <div data-mandala-reaction-pop-at style={{ fontSize: 10, padding: '2px 4px', color: 'var(--text-muted)' }}>
+            記録 {r.recordedAt ? jstDateTimeString(r.recordedAt) : '（日時不明）'}
+          </div>
+        </>
+      )}
+      <button type="button" data-mandala-reaction-pop-edit onClick={onOpenPanel} style={{ marginTop: 2, padding: '4px 8px', fontSize: 11, borderRadius: 6, border: '1px solid var(--border)', background: 'transparent', color: 'var(--text-secondary)', cursor: 'pointer', textAlign: 'left' }}>
+        パネルで記録する →
       </button>
     </div>
   );

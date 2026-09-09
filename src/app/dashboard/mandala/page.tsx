@@ -7,6 +7,8 @@
 // - 更新日時は JST（R-86・lib/jst.ts）。埋まっているマス数は「5/9」
 // - 削除は確認1回（R-56・mandalaDeleteConfirmMessage）。文言に埋まっているマス数とリンク済み件数を出す
 // - 新規作成の二重発火は ref で閉じる（R-87）。作成できたらそのチャートへ移動する
+// - 308: 「＋ 新しいマンダラ」の隣に型の選択（既定＝空のマンダラ・不変）。「有料note記事の型」は作成時にだけ適用。
+//   カードに「📈 n」（反応記録のあるマス数・一覧APIの軽い形）。0件なら出さない（§7）
 // - AI 不使用
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
@@ -21,6 +23,7 @@ import {
   mandalaDeleteConfirmMessage,
   type MandalaChartSummary,
 } from '@/lib/mandala-shared';
+import { MANDALA_PRESETS, MANDALA_PRESET_KEYS, isMandalaPresetKey, type MandalaPresetKey } from '@/lib/mandala-presets';
 
 const ACCENT = '#6c63ff';
 
@@ -55,6 +58,8 @@ export default function MandalaListPage() {
   const [creating, setCreating] = useState(false);
   const creatingRef = useRef(false); // R-87
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  // 308 §2-2: 作成時の型。'' ＝空のマンダラ（既定・不変）
+  const [newPreset, setNewPreset] = useState<'' | MandalaPresetKey>('');
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -80,7 +85,11 @@ export default function MandalaListPage() {
     creatingRef.current = true;
     setCreating(true);
     try {
-      const res = await fetch('/api/mandala', { method: 'POST' });
+      // 308: 型を選んだときだけ body を送る（既定は従来どおり body なし＝空のマンダラ・R-88）
+      const res = await fetch(
+        '/api/mandala',
+        newPreset ? { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ preset: newPreset }) } : { method: 'POST' },
+      );
       const json = (await res.json().catch(() => ({}))) as { id?: string; error?: string };
       if (!res.ok || !json.id) throw new Error(json.error || `作成に失敗しました（${res.status}）`);
       router.push(`/dashboard/mandala/${json.id}`);
@@ -114,6 +123,21 @@ export default function MandalaListPage() {
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', marginBottom: 6 }}>
         <h1 style={{ fontSize: 22, fontWeight: 700, margin: 0 }}>🔲 マンダラ</h1>
         <span style={{ flex: 1 }} />
+        {/* 308 §2-2: 型の選択（既定＝空のマンダラ）。ボタンの挙動は選択に従う */}
+        <select
+          data-mandala-new-preset
+          value={newPreset}
+          onChange={(e) => setNewPreset(isMandalaPresetKey(e.target.value) ? e.target.value : '')}
+          title={newPreset ? MANDALA_PRESETS[newPreset].description : '空の9マスで作成します'}
+          style={{ ...btn, padding: '6px 8px', background: 'var(--bg-primary)', color: 'var(--text-primary)' }}
+        >
+          <option value="">空のマンダラ（既定）</option>
+          {MANDALA_PRESET_KEYS.map((k) => (
+            <option key={k} value={k}>
+              {MANDALA_PRESETS[k].label}
+            </option>
+          ))}
+        </select>
         <button
           type="button"
           data-mandala-new
@@ -177,6 +201,17 @@ export default function MandalaListPage() {
                       🔗 {item.link_count}件
                     </span>
                     {/* 302 §5: 一次情報あり n/m（一覧APIが軽い形のまま数えて返す） */}
+                    {/* 308 §3-3: 反応記録のあるマス数（0件なら出さない） */}
+                    {item.reaction_count > 0 && (
+                      <span data-mandala-reactions={item.reaction_count} title="反応記録（アクセス・スキ・共有・購入）があるマス数" style={{ color: '#1D9E75', fontWeight: 700 }}>
+                        📈 {item.reaction_count}
+                      </span>
+                    )}
+                    {item.preset && (
+                      <span data-mandala-card-preset={item.preset} title="作成時の型" style={{ color: 'var(--text-muted)' }}>
+                        {isMandalaPresetKey(item.preset) ? MANDALA_PRESETS[item.preset].label : item.preset}
+                      </span>
+                    )}
                     <span
                       data-mandala-primary={item.primary_count}
                       data-mandala-primary-total={item.filled_count}
