@@ -25,6 +25,10 @@ export const CLAUDE_TEXT_MODEL_LABEL = 'Claude Sonnet 5';
 // 直書きせずここを参照すること（比較枠を入れ替えるときも編集はこの1箇所）。
 export const CLAUDE_OPUS_MODEL = 'claude-opus-5';
 export const CLAUDE_OPUS_MODEL_LABEL = 'Opus 5';
+// ── 314: OpenAI GPT-6 Astra（ディープリサーチの並列比較の3列目専用）。2026/9/3 リリース・API提供はアカウントごとに順次。
+// キー（OPENAI_API_KEY）は環境変数から読むだけ（未設定なら比較ダイアログで無効化）。通常DR・バッチ・311の発注には使わない
+export const OPENAI_GPT_MODEL = 'gpt-6-astra';
+export const OPENAI_GPT_MODEL_LABEL = 'GPT-6 Astra';
 /** 1世代前のOpus。比較枠に残して「上位モデルの世代差」も見えるようにする */
 export const CLAUDE_OPUS_PREV_MODEL = 'claude-opus-4-8';
 export const CLAUDE_OPUS_PREV_MODEL_LABEL = 'Opus 4.8';

@@ -5827,15 +5827,21 @@ test('C92: Gemini と Claude Opus 5 の並列比較（290）— 2本のリクエ
   const col = (i: number) => page.locator(`[data-compare-col="${i}"]`);
   const sideCol = (s: string) => page.locator(`[data-compare-model="${s}"]`);
 
-  await expect(compareBtn, 'ボタンにモデル名が分かる表記（§5-1）').toContainText(/Gemini 3\.7 Flash と Claude Opus 5/);
+  await expect(compareBtn, 'ボタンにモデル名が分かる表記（§5-1・314で3モデル）').toContainText(/Gemini 3\.7 Flash／Claude Opus 5／GPT-6 Astra/);
   await expect(compareBtn, '未入力では押せない').toBeDisabled();
   await topic.fill('[E2E] 比較の検証');
   await expect(topic, '入力がstateに入っている前提').toHaveValue('[E2E] 比較の検証');
   await expect(compareBtn).toBeEnabled();
 
   // ── ① 両方成功: 2本のリクエスト（1本にまとまっていない・§4-1）。二重押しで増えない（R-87） ──
+  // 314: 比較ボタン→確認ダイアログ（既定 Gemini＋Opus）→「比較を開始」。開始ボタンの二重押しで増えない
   await compareBtn.click();
-  await compareBtn.click({ force: true, noWaitAfter: true }).catch(() => {});
+  const dlg = page.locator('[data-compare-dialog]');
+  await expect(dlg).toBeVisible();
+  const startBtn = dlg.locator('[data-compare-dialog-start]');
+  await expect(startBtn).toBeEnabled({ timeout: 15000 });
+  await startBtn.click();
+  await startBtn.click({ force: true, noWaitAfter: true }).catch(() => {});
   await expect(panel).toBeVisible();
   await expect(sideCol('gemini'), '実行中→完了の状態が列に出る').toHaveAttribute('data-compare-status', 'done', { timeout: 20000 });
   await expect(sideCol('opus')).toHaveAttribute('data-compare-status', 'done', { timeout: 20000 });
@@ -5912,6 +5918,9 @@ test('C92: Gemini と Claude Opus 5 の並列比較（290）— 2本のリクエ
   await expect(panel).toHaveCount(0);
   await topic.fill('[E2E] 比較の失敗ケース');
   await compareBtn.click();
+  await expect(dlg).toBeVisible();
+  await expect(startBtn).toBeEnabled({ timeout: 15000 });
+  await startBtn.click();
   await expect(sideCol('opus')).toHaveAttribute('data-compare-status', 'error', { timeout: 20000 });
   await expect(sideCol('gemini')).toHaveAttribute('data-compare-status', 'done', { timeout: 20000 });
   await expect(page.locator('[data-compare-error="opus"]'), '失敗の理由が表示される（空欄にしない）').toContainText('AIの利用上限に達しています');
@@ -5936,7 +5945,7 @@ test('C92: Gemini と Claude Opus 5 の並列比較（290）— 2本のリクエ
   await expect(panel, '通常開始で比較パネルは出ない').toHaveCount(0);
 });
 
-test('C93: /api/deepresearch の compare は gemini／opus 以外なら 400（290）— 黙って従来経路に倒さない', async ({ request }) => {
+test('C93: /api/deepresearch の compare は gemini／opus／gpt 以外なら 400（290・314）— 黙って従来経路に倒さない', async ({ request }) => {
   const res = await request.post('/api/deepresearch', { data: { topic: '[E2E] compare検証', depth: 'quick', compare: 'claude' } });
   expect(res.status()).toBe(400);
   expect((await res.json()).error).toContain('compare');
@@ -10840,4 +10849,180 @@ test('C129: テキスト分析の実行ボタン配置（313）— 広幅: 🚀 
     await ctx.close();
     await browser.close();
   }
+});
+
+test('C130: 並列比較の確認ダイアログ・独立実行・GPT-6 Astra（314）— 比較ボタンでダイアログが出て「やめる」「Esc」でリクエストが1本も飛ばない・既定は Gemini＋Opus・1つにすると開始が無効＋理由（R-101）・GPT はキーの有無で選べる/未設定（環境で分岐）・費用（確認日つき）と所要時間（GPT は未計測）と保存件数が出る・開始の二重発火で2回走らない（R-87）・3列（Gemini/Opus/GPT）が並ぶ・1列が時間切れでも他の列は完了して保存でき、中断の列に「中断」と「再実行」が出て保存ボタンが無い・再実行はその列だけ1本・未提供（403相当）はその列だけ失敗・通常の「開始」にダイアログは出ない（§3-5）', async ({ page }) => {
+  test.setTimeout(180_000);
+  await stubFeatureDrafts(page);
+  for (const pattern of ['**/api/knowledge/**', '**/api/glossary/research-extract', '**/api/deepresearch/insights', '**/api/deepresearch/query-history', '**/api/library/auto-categorize']) {
+    await page.route(pattern, (route) => route.fulfill({ status: 200, contentType: 'application/json', body: '{}' }));
+  }
+  const libraryPosts: { title?: string; metadata?: Record<string, unknown> }[] = [];
+  await page.route('**/api/library', async (route) => {
+    if (route.request().method() === 'POST') {
+      libraryPosts.push(route.request().postDataJSON());
+      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ id: 'e2e-mock' }) });
+      return;
+    }
+    await route.fallback();
+  });
+  // 使えるモデルは本番の GET（キーの有無・値は返らない）をそのまま使い、期待値を環境で分岐する
+  const avail = (await (await api.get('/api/deepresearch/compare')).json()) as { availability: { gemini: boolean; opus: boolean; gpt: boolean }; maxDurationS: number };
+  expect(avail.availability.gemini).toBe(true);
+  expect(avail.maxDurationS).toBe(600);
+  const posts: { compare?: string; runId?: string; topic?: string }[] = [];
+  const sse = (events: object[]) => events.map((e) => `data: ${JSON.stringify(e)}\n\n`).join('');
+  const body = (name: string) => `## ${name}の見出し\n\n${`${name}の本文です。`.repeat(40)}`;
+  await page.route('**/api/deepresearch', async (route) => {
+    const b = route.request().postDataJSON() as { compare?: string; runId?: string; topic?: string };
+    posts.push({ compare: b.compare, runId: b.runId, topic: b.topic });
+    await new Promise((r) => setTimeout(r, 300));
+    const side = b.compare;
+    if (!side) {
+      await route.fulfill({ status: 200, contentType: 'text/event-stream', body: sse([{ type: 'start' }, { type: 'text', content: '## 通常\n\n通常経路の本文です。' }, { type: 'done', usage: { input_tokens: 1, output_tokens: 1 } }]) });
+      return;
+    }
+    const modelId = side === 'gemini' ? 'gemini-3.7-flash' : side === 'opus' ? 'claude-opus-5' : 'gpt-6-astra';
+    if (side === 'opus' && /時間切れ/.test(b.topic ?? '') && posts.filter((p) => p.compare === 'opus').length === 1) {
+      // 1回目の Opus は時間切れ（サーバの個別タイムアウト）。再実行（2回目）は完走する
+      await route.fulfill({ status: 200, contentType: 'text/event-stream', body: sse([{ type: 'start' }, { side, type: 'meta', model: modelId }, { side, type: 'text', content: '途中まで。' }, { side, type: 'timeout', message: '時間切れです（上限 600秒）。この列は保存されていません。「再実行」でこの列だけやり直せます。', elapsedMs: 580000 }]) });
+      return;
+    }
+    if (side === 'gpt' && /未提供/.test(b.topic ?? '')) {
+      await route.fulfill({ status: 200, contentType: 'text/event-stream', body: sse([{ type: 'start' }, { side, type: 'meta', model: modelId }, { side, type: 'error', message: 'GPT-6 Astra（gpt-6-astra）はこのアカウントではまだ提供されていません（API 提供は順次）。他の列には影響しません。', unavailable: true }]) });
+      return;
+    }
+    const text = body(side);
+    await route.fulfill({ status: 200, contentType: 'text/event-stream', body: sse([{ type: 'start' }, { side, type: 'meta', model: modelId }, { side, type: 'text', content: text }, { side, type: 'done', model: modelId, elapsedMs: 4000, finishedAt: '2026-09-09T03:00:00.000Z', usage: { input_tokens: 1000, output_tokens: 2000 } }]) });
+  });
+
+  await page.setViewportSize({ width: 1400, height: 900 });
+  await page.goto('/dashboard/deepresearch');
+  await page.evaluate(() => { localStorage.setItem('lumina_auto_stock_save', '0'); localStorage.setItem('lumina_text_scale', '100'); });
+  await page.reload({ waitUntil: 'domcontentloaded' });
+  await waitForRunReady(page);
+  const topic = page.getByPlaceholder(/調査したいテーマを詳しく入力してください/);
+  const compareBtn = page.locator('button[data-compare-run]');
+  const dlg = page.locator('[data-compare-dialog]');
+  const check = (s: string) => dlg.locator(`[data-compare-dialog-check="${s}"]`);
+  const startBtn = dlg.locator('[data-compare-dialog-start]');
+  const sideCol = (s: string) => page.locator(`[data-compare-model="${s}"]`);
+  await topic.fill('[E2E] 314 ダイアログ');
+
+  // ── ① ダイアログ: 既定・費用・所要時間・保存件数。「やめる」「Esc」でリクエスト0 ──
+  await compareBtn.click();
+  await expect(dlg).toBeVisible();
+  await expect(check('gemini')).toBeChecked({ timeout: 15000 });
+  await expect(check('opus'), '既定は Gemini＋Opus').toBeChecked();
+  await expect(check('gpt'), 'GPT は既定で外れている').not.toBeChecked();
+  if (avail.availability.gpt) {
+    await expect(check('gpt'), 'キーがあれば選べる').toBeEnabled();
+    await expect(dlg.locator('[data-compare-dialog-unavailable-reason="gpt"]')).toHaveCount(0);
+  } else {
+    await expect(check('gpt'), 'キー未設定なら無効').toBeDisabled();
+    await expect(dlg.locator('[data-compare-dialog-unavailable-reason="gpt"]')).toContainText('未設定');
+  }
+  await expect(dlg.locator('[data-compare-dialog-cost="gemini"]')).toContainText(/約 \$\d+\.\d{2}|\$0\.01 未満/);
+  await expect(dlg.locator('[data-compare-dialog-cost="opus"]')).toContainText(/約 \$\d+\.\d{2}/);
+  await expect(dlg.locator('[data-compare-dialog-total]')).toContainText(/約 \$\d+\.\d{2}/);
+  await expect(dlg, '確認日を添える').toContainText('2026-09-09 確認');
+  await expect(dlg.locator('[data-compare-dialog-time="gemini"]')).toContainText(/約\d+秒/);
+  await expect(dlg.locator('[data-compare-dialog-time="gpt"]')).toHaveText('未計測');
+  await expect(dlg.locator('[data-compare-dialog-saves]')).toHaveAttribute('data-compare-dialog-saves', '2');
+  await expect(dlg.locator('[data-compare-dialog-depth]')).toHaveAttribute('data-compare-dialog-depth', 'standard');
+  await expect(dlg.locator('[data-compare-dialog-warn]'), '600秒では見込み超えの警告は出ない（判定は U85）').toHaveCount(0);
+  // 1つにすると無効＋理由（R-101）
+  await check('opus').uncheck();
+  await expect(startBtn).toBeDisabled();
+  await expect(dlg.locator('[data-compare-dialog-reason]')).toContainText('比較になりません');
+  await check('opus').check();
+  await expect(startBtn).toBeEnabled();
+  await dlg.locator('[data-compare-dialog-cancel]').click();
+  await expect(dlg).toHaveCount(0);
+  await compareBtn.click();
+  await expect(dlg).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(dlg).toHaveCount(0);
+  expect(posts.length, 'やめる／Esc ではリクエストが1本も飛ばない').toBe(0);
+
+  // ── ② 3列（GPT を足す）・開始の二重発火で増えない・同じ runId が全列に載る ──
+  const useGpt = avail.availability.gpt;
+  await compareBtn.click();
+  await expect(check('gemini')).toBeChecked({ timeout: 15000 });
+  if (useGpt) await check('gpt').check();
+  await expect(dlg.locator('[data-compare-dialog-saves]')).toHaveAttribute('data-compare-dialog-saves', useGpt ? '3' : '2');
+  await startBtn.click();
+  await startBtn.click({ force: true, noWaitAfter: true }).catch(() => {});
+  await expect(dlg).toHaveCount(0);
+  const panel = page.locator('[data-model-compare]');
+  await expect(panel).toBeVisible();
+  for (const s of useGpt ? ['gemini', 'opus', 'gpt'] : ['gemini', 'opus']) await expect(sideCol(s)).toHaveAttribute('data-compare-status', 'done', { timeout: 20000 });
+  expect(posts.filter((p) => p.compare).length, '選んだモデル数だけ（二重発火で増えない）').toBe(useGpt ? 3 : 2);
+  expect(new Set(posts.map((p) => p.runId)).size, '同じ開始は同じ runId').toBe(1);
+  expect(posts.every((p) => typeof p.runId === 'string' && p.runId.length > 0)).toBe(true);
+  await expect(panel.locator('[data-compare-cols]')).toHaveAttribute('data-compare-cols', useGpt ? '3' : '2');
+  if (useGpt) {
+    await expect(page.locator('[data-compare-model-label="gpt"]')).toContainText('GPT-6 Astra');
+    await expect(page.locator('[data-compare-model-label="gpt"]')).toContainText('gpt-6-astra');
+    await expect(page.locator('[data-compare-save="gpt"]')).toHaveCount(1);
+  }
+  // 列ヘッダー: 完了時刻（JST）と usage からの費用の実績
+  await expect(page.locator('[data-compare-finished="gemini"]'), '完了時刻は JST（03:00Z＝12:00）').toContainText('12:00:00');
+  await expect(page.locator('[data-compare-cost="opus"]')).toContainText(/約 \$\d+\.\d{2}/);
+  await expect(page.locator('[data-compare-cost="opus"]'), '入力1,000×$5/1M＋出力2,000×$25/1M＝$0.055').toHaveAttribute('data-compare-cost-usd', '0.0550');
+
+  // ── ③ 1列が時間切れ: 他の列は完了して保存できる・中断の列に「中断」「再実行」・保存ボタンなし。再実行はその列だけ1本 ──
+  await panel.locator('[data-compare-close]').click();
+  await expect(panel).toHaveCount(0);
+  await topic.fill('[E2E] 314 時間切れ');
+  await compareBtn.click();
+  await expect(check('gemini')).toBeChecked({ timeout: 15000 });
+  if (useGpt) await check('gpt').uncheck();
+  await startBtn.click();
+  await expect(sideCol('opus')).toHaveAttribute('data-compare-status', 'timeout', { timeout: 20000 });
+  await expect(sideCol('gemini')).toHaveAttribute('data-compare-status', 'done', { timeout: 20000 });
+  await expect(page.locator('[data-compare-status-label="opus"]')).toContainText('中断');
+  await expect(page.locator('[data-compare-error="opus"]')).toHaveAttribute('data-compare-timeout', '1');
+  await expect(page.locator('[data-compare-error="opus"]')).toContainText('時間切れ');
+  await expect(page.locator('[data-compare-save="opus"]'), '中断の列に保存ボタンは無い').toHaveCount(0);
+  await expect(page.locator('[data-compare-save="gemini"]')).toHaveCount(1);
+  await page.locator('[data-compare-save="gemini"]').getByRole('button', { name: '📚 リサーチ保存に追加' }).click();
+  await expect.poll(() => libraryPosts.length).toBe(1);
+  expect(libraryPosts[0].title).toBe('[E2E] 314 時間切れ［Gemini 3.7 Flash］');
+  const before = posts.length;
+  const rerun = page.locator('[data-compare-rerun="opus"]');
+  await expect(rerun).toBeVisible();
+  await rerun.click();
+  await rerun.click({ force: true, noWaitAfter: true }).catch(() => {});
+  await expect(sideCol('opus')).toHaveAttribute('data-compare-status', 'done', { timeout: 20000 });
+  expect(posts.length - before, '再実行はその列だけ1本').toBe(1);
+  expect(posts[posts.length - 1].compare).toBe('opus');
+  await expect(sideCol('gemini'), '他の列は触らない').toHaveAttribute('data-compare-status', 'done');
+  await expect(page.locator('[data-compare-save="opus"]'), '再実行で完了したら保存できる').toHaveCount(1);
+
+  // ── ④ GPT 未提供（403/404 相当の応答）はその列だけ失敗。他の列は進む ──
+  if (useGpt) {
+    await panel.locator('[data-compare-close]').click();
+    await topic.fill('[E2E] 314 未提供');
+    await compareBtn.click();
+    await expect(check('gemini')).toBeChecked({ timeout: 15000 });
+    await check('gpt').check();
+    await startBtn.click();
+    await expect(sideCol('gpt')).toHaveAttribute('data-compare-status', 'error', { timeout: 20000 });
+    await expect(page.locator('[data-compare-error="gpt"]')).toContainText('まだ提供されていません');
+    await expect(sideCol('gemini')).toHaveAttribute('data-compare-status', 'done', { timeout: 20000 });
+    await expect(sideCol('opus')).toHaveAttribute('data-compare-status', 'done', { timeout: 20000 });
+    await expect(page.locator('[data-compare-save="gpt"]')).toHaveCount(0);
+    await expect(page.locator('[data-compare-rerun="gpt"]')).toBeVisible();
+  }
+
+  // ── ⑤ 通常の「開始」は不変（ダイアログなし・1本・compare なし） ──
+  await panel.locator('[data-compare-close]').click();
+  await topic.fill('[E2E] 314 通常');
+  const n0 = posts.length;
+  await page.locator('button[data-kb-run]').click();
+  await expect(dlg, '通常の開始にダイアログは出ない').toHaveCount(0);
+  await expect(page.getByText('通常経路の本文です。')).toBeVisible({ timeout: 20000 });
+  expect(posts.length - n0).toBe(1);
+  expect(posts[posts.length - 1].compare).toBeUndefined();
 });

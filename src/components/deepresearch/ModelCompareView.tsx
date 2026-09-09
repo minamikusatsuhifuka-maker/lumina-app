@@ -22,19 +22,24 @@ import {
   saveHeightPreset,
 } from '@/lib/batch-compare';
 import {
-  COMPARE_SIDES,
   COMPARE_SIDE_ICON,
   COMPARE_SIDE_LABEL,
   COMPARE_SIDE_MODEL_ID,
   COMPARE_STATUS_LABEL,
   type CompareRun,
+  type CompareRuns,
   type CompareSide,
+  compareRunSides,
   compareSaveMetadata,
   compareSaveTags,
   compareSaveTitle,
   compareUsageLabel,
   formatElapsed,
+  isCompareRerunnable,
 } from '@/lib/model-compare';
+// 314 §3-4: 実際のトークン数から費用の実績（usage が取れた列だけ）・完了時刻は JST（R-86）
+import { costOf, formatUsd } from '@/lib/model-pricing';
+import { formatJst, jstDateString } from '@/lib/jst';
 import { copyRichMarkdown } from '@/lib/rich-copy';
 import { triggerDownload } from '@/lib/download';
 import { useFinePointer } from '@/lib/pointer-device';
@@ -49,15 +54,19 @@ import {
 
 type Props = {
   topic: string;
-  runs: Record<CompareSide, CompareRun>;
+  /** 314: 選んだ列だけ（2〜3列） */
+  runs: CompareRuns;
   /** 実行開始時刻（実行中の経過秒表示に使う） */
   startedAt: number | null;
   /** 自動下書きから復元したとき（R-20）はその日時。新規実行は null */
   restoredAt?: string | null;
   onClose: () => void;
+  /** 314 §3-2: 失敗・中断した列だけをやり直す（そのモデルだけ）。省略時はボタンを出さない */
+  onRerun?: (side: CompareSide) => void;
 };
 
-export default function ModelCompareView({ topic, runs, startedAt, restoredAt = null, onClose }: Props) {
+export default function ModelCompareView({ topic, runs, startedAt, restoredAt = null, onClose, onRerun }: Props) {
+  const sides = compareRunSides(runs);
   const { fine, mounted } = useFinePointer();
   const [syncScroll, setSyncScroll] = useState(true);
   const [heightPreset, setHeightPreset] = useState<CompareHeightPreset>('high');
@@ -76,15 +85,15 @@ export default function ModelCompareView({ topic, runs, startedAt, restoredAt = 
     rootRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   }, []);
 
-  // 実行中の列だけ経過秒を進める（両方終わったら止める）
-  const anyRunning = COMPARE_SIDES.some((s) => runs[s].status === 'running');
+  // 実行中の列だけ経過秒を進める（全部終わったら止める）
+  const anyRunning = sides.some((s) => runs[s]!.status === 'running');
   useEffect(() => {
     if (!anyRunning) return;
     const t = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(t);
   }, [anyRunning]);
 
-  const cols = resolveCompareColumns(COMPARE_SIDES.length, mounted ? fine : true);
+  const cols = resolveCompareColumns(sides.length, mounted ? fine : true);
   const applyHeight = (h: CompareHeightPreset) => {
     setHeightPreset(h);
     saveHeightPreset(h);
@@ -109,6 +118,7 @@ export default function ModelCompareView({ topic, runs, startedAt, restoredAt = 
     done: '#0d9973',
     // R-43: 警告色はコントラスト 4.5:1 以上（#B45309）
     error: '#B45309',
+    timeout: '#B45309',
   };
 
   return (
@@ -119,7 +129,7 @@ export default function ModelCompareView({ topic, runs, startedAt, restoredAt = 
     >
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8, marginBottom: 10 }}>
         <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-primary)' }}>
-          ⚖ {COMPARE_SIDE_LABEL.gemini} と {COMPARE_SIDE_LABEL.opus} の結果を横並びで比較
+          ⚖ {sides.map((s) => COMPARE_SIDE_LABEL[s]).join('／')} の結果を横並びで比較
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
           <CompareHeightPicker value={heightPreset} onChange={applyHeight} />
@@ -144,11 +154,17 @@ export default function ModelCompareView({ topic, runs, startedAt, restoredAt = 
       </div>
 
       <div className={compareGridClass(cols)} data-compare-cols={cols} data-compare-cols-mode="auto" data-compare-height={heightPreset}>
-        {COMPARE_SIDES.map((side, i) => {
-          const run = runs[side];
+        {sides.map((side, i) => {
+          const run = runs[side]!;
           const label = COMPARE_SIDE_LABEL[side];
-          const elapsedLive = run.status === 'running' && startedAt ? formatElapsed(now - startedAt) : null;
+          const runStart = run.startedAt ?? startedAt;
+          const elapsedLive = run.status === 'running' && runStart ? formatElapsed(now - runStart) : null;
           const savable = run.status === 'done' && hasSavableContent(run.text);
+          // 314 §3-4: usage が取れた列だけ費用の実績（推定値を実績として出さない）。単価は完了日（JST）のもの
+          const actualUsd = run.status === 'done' && run.stats && run.stats.inputTokens !== undefined && run.stats.outputTokens !== undefined
+            ? costOf(COMPARE_SIDE_MODEL_ID[side], run.stats.inputTokens, run.stats.outputTokens, run.stats.finishedAt ? jstDateString(run.stats.finishedAt) : undefined)
+            : null;
+          const finishedLabel = run.stats?.finishedAt ? formatJst(run.stats.finishedAt, { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : null;
           return (
             <CompareColumnShell
               key={side}
@@ -175,6 +191,8 @@ export default function ModelCompareView({ topic, runs, startedAt, restoredAt = 
                     {run.status === 'running'
                       ? `${run.text.length.toLocaleString()}字（生成中）`
                       : compareUsageLabel(run.stats) || `${run.text.length.toLocaleString()}字`}
+                    {finishedLabel && <span data-compare-finished={side}>{` ／ 完了 ${finishedLabel}`}</span>}
+                    {actualUsd !== null && <span data-compare-cost={side} data-compare-cost-usd={actualUsd.toFixed(4)} title="実際のトークン数×単価（目安・上限ではありません）">{` ／ 費用 ${formatUsd(actualUsd)}`}</span>}
                   </span>
                   {run.status === 'done' && run.text && (
                     <span style={{ display: 'flex', gap: 6 }}>
@@ -202,12 +220,23 @@ export default function ModelCompareView({ topic, runs, startedAt, restoredAt = 
                 )}
               </>}
             >
-              {run.status === 'error' ? (
-                // §3-2: 失敗は空欄にせず理由を出す。Gemini で代替しない
-                <div data-compare-error={side} style={{ margin: 12, padding: 12, background: 'rgba(180,83,9,0.08)', border: '1px solid rgba(180,83,9,0.35)', borderRadius: 8, fontSize: 13, lineHeight: 1.7, color: '#B45309' }}>
-                  <div style={{ fontWeight: 700, marginBottom: 4 }}>❌ {label} の生成に失敗しました</div>
+              {run.status === 'error' || run.status === 'timeout' ? (
+                // §3-2: 失敗・中断は空欄にせず理由を出す。Gemini で代替しない。314: その列だけ再実行できる
+                <div data-compare-error={side} data-compare-timeout={run.status === 'timeout' ? '1' : undefined} style={{ margin: 12, padding: 12, background: 'rgba(180,83,9,0.08)', border: '1px solid rgba(180,83,9,0.35)', borderRadius: 8, fontSize: 13, lineHeight: 1.7, color: '#B45309' }}>
+                  <div style={{ fontWeight: 700, marginBottom: 4 }}>{run.status === 'timeout' ? `⏸ ${label} は時間切れで中断しました` : `❌ ${label} の生成に失敗しました`}</div>
                   <div style={{ color: 'var(--text-secondary)', fontSize: 12, whiteSpace: 'pre-wrap' }}>{run.error || '理由不明のエラーです'}</div>
-                  <div style={{ color: 'var(--text-muted)', fontSize: 11, marginTop: 6 }}>この列は保存されていません。もう一方の結果には影響しません。</div>
+                  <div style={{ color: 'var(--text-muted)', fontSize: 11, marginTop: 6 }}>この列は保存されていません。他の列の結果には影響しません。</div>
+                  {onRerun && isCompareRerunnable(run) && (
+                    <button type="button" data-compare-rerun={side} onClick={() => onRerun(side)} style={{ ...compareCompactBtnStyle, marginTop: 8, padding: '6px 12px', fontSize: 12, fontWeight: 700 }}>
+                      🔁 {label} だけ再実行
+                    </button>
+                  )}
+                  {run.text && (
+                    <details style={{ marginTop: 8 }}>
+                      <summary style={{ cursor: 'pointer', fontSize: 11, color: 'var(--text-muted)' }}>途中までの出力（{run.text.length.toLocaleString()}字・保存されません）</summary>
+                      <MarkdownBody text={run.text} raw style={{ fontSize: 12, lineHeight: 1.7, color: 'var(--text-secondary)' }} />
+                    </details>
+                  )}
                 </div>
               ) : run.status === 'running' ? (
                 <div style={{ padding: 12 }}>

@@ -883,3 +883,44 @@ test('B34: マンダラ→X投稿（312）— マス1つから投稿群（本数
     await deleteMandalaChart(request, chartId);
   }
 });
+
+test('B35: モデル比較の GPT-6 Astra 側（314）— compare:"gpt" で実生成が完走し、meta が gpt-6-astra・done に使用量・error なし・前置き禁止（294）が効く。キーが無い環境では未設定の失敗がその列に出る @gen', async ({ request }) => {
+  test.setTimeout(GEN_TIMEOUT);
+  const avail = (await (await request.get('/api/deepresearch/compare')).json()) as { availability: { gpt: boolean } };
+  const t0 = Date.now();
+  const res = await request.post('/api/deepresearch', {
+    data: { topic: '[E2E] 保湿剤の基礎', depth: 'quick', model: 'claude', compare: 'gpt', runId: `e2e-b35-${Date.now()}` },
+    timeout: REQ_TIMEOUT,
+  });
+  const elapsedMs = Date.now() - t0;
+  expect(res.status()).toBe(200);
+  expect(res.headers()['x-ai-provider'], 'フォールバック無効＝Gemini のヘッダが付かない（R-99）').toBeUndefined();
+  const body = await res.text();
+  const events = body.split('\n').filter((l) => l.startsWith('data: ')).map((l) => JSON.parse(l.slice(6)) as Record<string, unknown>);
+  const meta = events.find((e) => e.type === 'meta');
+  expect(meta?.model, '実際に呼んだモデルが GPT-6 Astra').toBe('gpt-6-astra');
+  const err = events.find((e) => e.type === 'error') as { message?: string; unavailable?: boolean } | undefined;
+  if (!avail.availability.gpt) {
+    expect(err?.unavailable, 'キー未設定なら未設定の失敗（他の列には影響しない）').toBe(true);
+    return;
+  }
+  if (err?.unavailable) {
+    // API 提供がまだのアカウント（403/404）: その列だけ失敗として出る設計（fail-closed）。報告に載せる
+    console.log(`[B35] GPT-6 Astra は未提供: ${err.message}`);
+    expect(err.message).toContain('まだ提供されていません');
+    return;
+  }
+  expect(err, `error が無いこと: ${JSON.stringify(err)}`).toBeUndefined();
+  expect(events.some((e) => e.type === 'timeout'), '時間切れでない').toBe(false);
+  const done = events.find((e) => e.type === 'done') as { usage?: { input_tokens?: number; output_tokens?: number }; elapsedMs?: number; finishedAt?: string } | undefined;
+  expect(done, 'done で終わる').toBeTruthy();
+  expect(done?.usage?.output_tokens ?? 0).toBeGreaterThan(0);
+  expect(typeof done?.finishedAt).toBe('string');
+  const text = events.filter((e) => e.type === 'text').map((e) => String(e.content ?? '')).join('');
+  expect(text.length, '本文が返る').toBeGreaterThan(200);
+  console.log(`[B35] GPT-6 Astra quick: client ${elapsedMs}ms / server ${done?.elapsedMs}ms / ${text.length}字 / usage ${JSON.stringify(done?.usage)}`);
+  expect(elapsedMs, 'maxDuration の内側で終わる').toBeLessThan(600_000);
+  const tag = text.match(HTML_TAG_RE);
+  expect(tag, `HTMLタグが本文に出ないこと（検出: ${tag?.[0] ?? '無し'}）`).toBeNull();
+  expectNoPreamble(text, 'B35');
+});

@@ -8,31 +8,50 @@ import { NO_HTML_PROMPT_RULE, NO_LATEX_PROMPT_RULE } from '@/lib/markdown-render
 import { fetchAnthropic, iterateSSE } from '@/lib/anthropic-compat';
 import { describeAnthropicError } from '@/lib/anthropic-error';
 // 290: Gemini／Claude Opus 5 の並列比較（オプトイン・R-88）。ラベル・モデルIDは lib/model-compare.ts が正本
-import { COMPARE_SIDE_LABEL, COMPARE_SIDE_MODEL_ID, parseCompareSide } from '@/lib/model-compare';
+// 314: 3列目 GPT-6 Astra（lib/openai-research）・モデルごとの個別タイムアウト（「中断」）・runId による二重開始の遮断（R-87）
+import { COMPARE_RUN_DEDUPE_TTL_MS, COMPARE_SERVER_TIMEOUT_MS, COMPARE_SIDE_LABEL, COMPARE_SIDE_MODEL_ID, COMPARE_TIMEOUT_MESSAGE, parseCompareSide } from '@/lib/model-compare';
+import { streamOpenAIResearch } from '@/lib/openai-research';
 
 // R-83: リテラル必須。正本は lib/model-compare.ts の DEEPRESEARCH_MAX_DURATION_S（U59で一致を固定）
-export const maxDuration = 300;
+// 314: Vercel Pro（Fluid compute・上限 800 秒）の範囲内で 300→600（実測: Opus は最長 286 秒で完走＝300 では上限直前）
+export const maxDuration = 600;
+
+/** 314 R-87: 同じ runId・同じ列の二重開始をインスタンス内で遮断（ベストエフォート。TTL 内は 409） */
+const recentCompareRuns = new Map<string, number>();
+function isDuplicateCompareRun(key: string, nowMs: number): boolean {
+  for (const [k, t] of recentCompareRuns) if (nowMs - t > COMPARE_RUN_DEDUPE_TTL_MS) recentCompareRuns.delete(k);
+  if (recentCompareRuns.has(key)) return true;
+  recentCompareRuns.set(key, nowMs);
+  return false;
+}
 
 export async function POST(req: NextRequest) {
   const session = await auth();
   // 認証必須（未ログインは401。AI利用コストの無断消費を防ぐ）
   if (!session) return new Response('Unauthorized', { status: 401 });
   const userId = session ? (session.user as any).id : '';
-  const { topic, depth, periodStart, periodEnd, model = DEFAULT_AI_MODEL, compare } = (await req.json()) as {
+  const { topic, depth, periodStart, periodEnd, model = DEFAULT_AI_MODEL, compare, runId } = (await req.json()) as {
     topic: string;
     depth?: string;
     periodStart?: string;
     periodEnd?: string;
     model?: AIModel;
-    /** 290: 'gemini' | 'opus' のときだけ比較経路（フォールバック無効・1リクエスト1モデル）。未指定＝従来どおり */
+    /** 290: 'gemini' | 'opus' | 'gpt'（314）のときだけ比較経路（フォールバック無効・1リクエスト1モデル）。未指定＝従来どおり */
     compare?: unknown;
+    /** 314 R-87: 比較の開始ごとにクライアントが付ける識別子。同じ runId・同じ列の再送は 409 */
+    runId?: unknown;
   };
 
   // 290: 比較フラグの検証。未指定は従来経路（null）。不正値は 400（黙って従来経路に倒さない）
   const compareSide = parseCompareSide(compare);
   if (compareSide === undefined) {
-    return new Response(JSON.stringify({ error: 'compare は gemini または opus を指定してください' }), {
+    return new Response(JSON.stringify({ error: 'compare は gemini・opus・gpt のいずれかを指定してください' }), {
       status: 400, headers: { 'Content-Type': 'application/json' },
+    });
+  }
+  if (compareSide && typeof runId === 'string' && runId && isDuplicateCompareRun(`${userId}:${runId}:${compareSide}`, Date.now())) {
+    return new Response(JSON.stringify({ error: '同じ比較がすでに開始されています（二重送信）' }), {
+      status: 409, headers: { 'Content-Type': 'application/json' },
     });
   }
 
@@ -146,6 +165,14 @@ ${outline}
           let inputTokens = 0;
           let outputTokens = 0;
           let chars = 0;
+          // 314 §3-2: モデルごとの個別タイムアウト（リトライ 0・R-73）。maxDuration より手前で必ず「中断」に落とし、無音で閉じない
+          const abort = new AbortController();
+          let timedOut = false;
+          const timeoutTimer = setTimeout(() => {
+            timedOut = true;
+            abort.abort();
+          }, COMPARE_SERVER_TIMEOUT_MS);
+          const timeoutGate = new Promise<never>((_, reject) => abort.signal.addEventListener('abort', () => reject(new Error('compare-timeout')), { once: true }));
           try {
             if (compareSide === 'gemini') {
               // 通常経路の Gemini と同じ関数・同じ引数（検索グラウンディング有効）。
@@ -156,9 +183,29 @@ ${outline}
                   controller.enqueue(chunk);
                 },
               } as unknown as ReadableStreamDefaultController;
-              const usage = await streamWithModel('gemini', userPrompt, systemPrompt, counting, encoder, maxTokens, 'delta', true);
+              // Gemini の呼び出しは signal を受けないため、時間切れは race で打ち切る（以降の出力は捨てる）
+              const usage = await Promise.race([streamWithModel('gemini', userPrompt, systemPrompt, counting, encoder, maxTokens, 'delta', true), timeoutGate]);
               inputTokens = usage.inputTokens;
               outputTokens = usage.outputTokens;
+            } else if (compareSide === 'gpt') {
+              // 314 §3-3: GPT-6 Astra（OpenAI・fetch 直叩き・web_search・ストリーミング）。同じ system/user プロンプト＝
+              // 医療広告ガード等の既存規約と 294 の前置き禁止が同じ順で効く（R-69）。未提供（403/404）はこの列だけ失敗
+              const r = await streamOpenAIResearch({
+                systemPrompt,
+                userPrompt,
+                maxTokens,
+                signal: abort.signal,
+                onText: (t) => {
+                  chars += t.length;
+                  send({ type: 'text', content: t });
+                },
+              });
+              if (!r.ok) {
+                send({ type: 'error', message: r.message, unavailable: r.unavailable });
+                return;
+              }
+              inputTokens = r.inputTokens;
+              outputTokens = r.outputTokens;
             } else {
               // Claude Opus 5（CLAUDE_OPUS_MODEL・244で実在確認・290で疎通再確認）。ストリーミングで本文を逐次流す。
               // web_search は Opus 5 で受理を確認した新版（web_search_20260209）を使う（R-47: パラメータ受理確認済み）
@@ -171,7 +218,7 @@ ${outline}
                   system: systemPrompt,
                   messages: [{ role: 'user', content: userPrompt }],
                 },
-                { fallback: false },
+                { fallback: false, signal: abort.signal },
               );
               if (!res.ok) {
                 const errBody = await res.json().catch(() => null);
@@ -210,11 +257,19 @@ ${outline}
               type: 'done',
               model: modelId,
               elapsedMs: Date.now() - t0,
+              finishedAt: new Date().toISOString(),
               usage: { input_tokens: inputTokens, output_tokens: outputTokens },
             });
           } catch (e) {
-            // ネットワーク断・Gemini 側の例外など。理由を列に出す（空欄にしない）
-            send({ type: 'error', message: e instanceof Error ? e.message : String(e) });
+            if (timedOut || (e instanceof Error && (e.name === 'AbortError' || e.message === 'compare-timeout'))) {
+              // 314: 時間切れは「中断」（失敗とは別の状態・保存しない・再実行できる）
+              send({ type: 'timeout', message: COMPARE_TIMEOUT_MESSAGE, elapsedMs: Date.now() - t0 });
+            } else {
+              // ネットワーク断・Gemini 側の例外など。理由を列に出す（空欄にしない）
+              send({ type: 'error', message: e instanceof Error ? e.message : String(e) });
+            }
+          } finally {
+            clearTimeout(timeoutTimer);
           }
           return;
         }

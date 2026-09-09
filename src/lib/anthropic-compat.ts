@@ -147,6 +147,8 @@ function eventsToSSE(events: Record<string, unknown>[]): string {
  *   → const res = await fetchAnthropic(body);
  */
 export interface FetchAnthropicOptions {
+  /** 314: モデルごとの個別タイムアウト（比較経路）。fetch にそのまま渡す。未指定なら従来どおり（R-88） */
+  signal?: AbortSignal;
   /**
    * 290: false にすると Gemini へのフォールバックを行わず、Anthropic の失敗をそのまま返す
    * （エラー応答は Response のまま・ネットワーク断は throw）。
@@ -186,6 +188,7 @@ export async function fetchAnthropic(body: AnthropicBody, options?: FetchAnthrop
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' },
         body: JSON.stringify(body),
+        ...(options?.signal ? { signal: options.signal } : {}),
       });
       // 成功時はそのまま返す（ストリーミングの body もここで素通しされる）
       if (res.ok) return res;

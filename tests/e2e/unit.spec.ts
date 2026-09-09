@@ -35,6 +35,9 @@ import {
   initialCompareRuns,
   parseCompareSide,
 } from '../../src/lib/model-compare';
+import * as modelCompare from '../../src/lib/model-compare';
+import * as modelPricing from '../../src/lib/model-pricing';
+import * as openaiResearch from '../../src/lib/openai-research';
 import { findUngroundedTerms, findBannedExpressions, splitByPriority } from '../../src/lib/content-verify';
 import { buildDiffRows, describeDiffStats } from '../../src/lib/text-diff';
 import { sanitizeForDb } from '../../src/lib/sanitize';
@@ -2387,6 +2390,7 @@ test('U59: モデル比較（290）— compare の検証・保存名にモデル
   expect(parseCompareSide('')).toBe(null);
   expect(parseCompareSide('gemini')).toBe('gemini');
   expect(parseCompareSide('opus')).toBe('opus');
+  expect(parseCompareSide('gpt'), '314: 3列目').toBe('gpt');
   expect(parseCompareSide('claude')).toBe(undefined);
   expect(parseCompareSide(1)).toBe(undefined);
   expect(parseCompareSide(true)).toBe(undefined);
@@ -2478,7 +2482,7 @@ test('U59: モデル比較（290）— compare の検証・保存名にモデル
   expect(DEEPRESEARCH_MAX_DURATION_S * (1 + COMPARE_RETRIES)).toBeLessThanOrEqual(DEEPRESEARCH_MAX_DURATION_S);
   expect(COMPARE_CLIENT_TIMEOUT_MS).toBeGreaterThan(DEEPRESEARCH_MAX_DURATION_S * 1000);
   // 比較経路の Claude 呼び出しは fallback:false を渡し、通常経路（CLAUDE_TEXT_MODEL）の呼び出しは options なし＝235維持（§3-3）
-  expect(route).toMatch(/fetchAnthropic\(\s*\{[\s\S]*?model: modelId,[\s\S]*?\},\s*\{ fallback: false \},?\s*\)/);
+  expect(route).toMatch(/fetchAnthropic\(\s*\{[\s\S]*?model: modelId,[\s\S]*?\},\s*\{ fallback: false, signal: abort\.signal \},?\s*\)/);
   expect(route).toMatch(/fetchAnthropic\(\{\s*model: CLAUDE_TEXT_MODEL,[\s\S]*?messages: \[\{ role: 'user', content: userPrompt \}\],\s*\}\);/);
 });
 
@@ -4440,4 +4444,96 @@ test('U84: テキスト分析の実行ボタン配置（313）— 狭幅は容�
   const theme = readFileSync(join(__dirname, '../../src/components/ThemeProvider.tsx'), 'utf8');
   expect(theme, '追従ボタン（↑ 等）はバーの高さ分だけ上へ逃げる').toMatch(/floatingBottom\(slot: number\): string \{[^]*?var\(--lumina-sticky-bar-h, 0px\)/);
   expect(b.STICKY_BAR_HEIGHT_VAR).toBe('--lumina-sticky-bar-h');
+});
+
+test('U85: 並列比較の確認ダイアログ・費用/所要時間の目安・GPT-6 Astra・独立実行（314）— 費用は同じ入力で同じ金額・Gemini の単価は 2026/12/31 と 2027/1/1（JST）で切り替わる・Opus/GPT は出力2倍・確認日が添え書きに入る・所要時間の目安（GPT は未計測）と「完了しない見込み」（90%）・既定の選択は Gemini＋Opus で使えない/見込み超えは外す・最少2つ（R-101）・タイムアウトの積算（R-73: サーバ個別＜maxDuration＜クライアント・リトライ0）・maxDuration 600 が route/vercel.json と一致（R-83）・未提供（403/404/model不明）とツール拒否の判定・ソース固定（モデルごとに別リクエスト・timeout イベント・GPT は fetch 直叩きで SDK なし）', () => {
+  const m = modelCompare;
+  const p = modelPricing;
+  const o = openaiResearch;
+  // ① 単価の有効期日（JST）と確認日
+  expect(p.PRICING_CHECKED_ON).toBe('2026-09-09');
+  expect(p.unitPriceOn('gemini-3.7-flash', '2026-12-31')).toMatchObject({ inputPerM: 0.75, outputPerM: 3.75 });
+  expect(p.unitPriceOn('gemini-3.7-flash', '2027-01-01')).toMatchObject({ inputPerM: 1.5, outputPerM: 7.5 });
+  expect(p.unitPriceOn('claude-opus-5', '2026-09-09')).toMatchObject({ inputPerM: 5, outputPerM: 25, reasoningInOutput: true });
+  expect(p.unitPriceOn('gpt-6-astra', '2026-09-09')).toMatchObject({ inputPerM: 10, outputPerM: 50, reasoningInOutput: true });
+  expect(p.unitPriceOn('nope', '2026-09-09')).toBeNull();
+  expect(p.pricingNote('2026-09-09')).toContain('2026-09-09');
+  expect(p.pricingNote('2026-09-09')).toContain('上限ではありません');
+  // ② 推定: 入力＝お題＋定型、出力＝分量の目標。Opus/GPT は出力2倍。同じ入力→同じ金額（決定的）
+  const g = p.estimateCost('gemini-3.7-flash', 'standard', 100, '2026-09-09')!;
+  expect(g.inputTokens).toBe(100 + p.COMPARE_PROMPT_OVERHEAD_CHARS);
+  expect(g.outputTokens).toBe(3000);
+  expect(g.usd).toBeCloseTo((1600 / 1e6) * 0.75 + (3000 / 1e6) * 3.75, 8);
+  const op = p.estimateCost('claude-opus-5', 'standard', 100, '2026-09-09')!;
+  expect(op.outputTokens, '思考分を2倍').toBe(6000);
+  expect(p.estimateCost('gpt-6-astra', 'deep', 0, '2026-09-09')!.outputTokens).toBe(10000);
+  expect(p.estimateCost('claude-opus-5', 'quick', 100, '2026-09-09')!.usd).toBe(p.estimateCost('claude-opus-5', 'quick', 100, '2026-09-09')!.usd);
+  expect(p.estimateCost('gemini-3.7-flash', 'standard', 100, '2027-01-01')!.usd, '単価の切り替えで金額が変わる').toBeCloseTo(g.usd * 2, 8);
+  expect(p.costOf('claude-opus-5', 6755, 3692, '2026-09-09')).toBeCloseTo(0.033775 + 0.0923, 6);
+  expect(p.formatUsd(0.004)).toBe('$0.01 未満');
+  expect(p.formatUsd(0.126)).toBe('約 $0.13');
+  // ③ 所要時間の目安と「完了しない見込み」
+  expect(p.estimatedSeconds('gpt-6-astra', 'standard')).toBeNull();
+  expect(p.estimatedSecondsLabel('gpt-6-astra', 'standard')).toBe('未計測');
+  expect(p.estimatedSecondsLabel('gemini-3.7-flash', 'standard')).toBe('約25秒');
+  expect(p.estimatedSecondsLabel('claude-opus-5', 'deep')).toBe('約5分');
+  expect(p.isLikelyToTimeout('claude-opus-5', 'deep', 300), '300秒なら deep の目安（300）は 90%（270）超＝見込み超え').toBe(true);
+  expect(p.isLikelyToTimeout('claude-opus-5', 'deep', m.DEEPRESEARCH_MAX_DURATION_S), '600秒なら内側').toBe(false);
+  expect(p.isLikelyToTimeout('gpt-6-astra', 'deep', 300), '未計測は警告しない').toBe(false);
+  // ④ 既定の選択・最少2つ（R-101）
+  const all = { gemini: true, opus: true, gpt: true };
+  expect(m.defaultCompareSelection('standard', all)).toEqual(['gemini', 'opus']);
+  expect(m.defaultCompareSelection('standard', { gemini: true, opus: false, gpt: true }), '使えないモデルは外す').toEqual(['gemini']);
+  expect(m.defaultCompareSelection('deep', all, 300), '見込み超えは既定で外す').toEqual(['gemini']);
+  expect(m.compareStartState(['gemini'])).toEqual({ enabled: false, reason: m.COMPARE_MIN_SIDES_REASON });
+  expect(m.compareStartState(['gemini', 'opus']).enabled).toBe(true);
+  expect(m.compareStartState(['gemini', 'opus', 'gpt']).enabled).toBe(true);
+  expect(m.normalizeCompareSides(['gpt', 'gemini', 'gpt', 'x'])).toEqual(['gemini', 'gpt']);
+  expect(m.compareSaveCountLabel(3)).toContain('3 件');
+  expect(m.COMPARE_SIDE_MODEL_ID.gpt).toBe('gpt-6-astra');
+  expect(m.COMPARE_SIDE_LABEL.gpt).toBe('GPT-6 Astra');
+  expect(m.COMPARE_BUTTON_LABEL).toContain('GPT-6 Astra');
+  expect(m.COMPARE_STATUS_LABEL.timeout).toContain('中断');
+  expect(m.isCompareRerunnable({ status: 'timeout', text: '' })).toBe(true);
+  expect(m.isCompareRerunnable({ status: 'done', text: 'x' })).toBe(false);
+  const runs = m.initialCompareRuns(['gpt', 'gemini']);
+  expect(m.compareRunSides(runs), '列の順は固定').toEqual(['gemini', 'gpt']);
+  expect(m.allCompareSettled(runs)).toBe(false);
+  runs.gemini!.status = 'timeout';
+  runs.gpt!.status = 'done';
+  expect(m.allCompareSettled(runs), '中断も「終わった」に含める').toBe(true);
+  // ⑤ タイムアウトの積算（R-73）と maxDuration の一致（R-83）
+  expect(m.DEEPRESEARCH_MAX_DURATION_S).toBe(600);
+  expect(m.COMPARE_RETRIES).toBe(0);
+  expect(m.COMPARE_SERVER_TIMEOUT_MS * (1 + m.COMPARE_RETRIES), 'サーバ個別タイムアウト（リトライ込み）は maxDuration の内側').toBeLessThan(m.DEEPRESEARCH_MAX_DURATION_S * 1000);
+  expect(m.COMPARE_CLIENT_TIMEOUT_MS, 'クライアントの打ち切りはサーバより後').toBeGreaterThan(m.DEEPRESEARCH_MAX_DURATION_S * 1000);
+  const route = readFileSync(join(__dirname, '../../src/app/api/deepresearch/route.ts'), 'utf8');
+  expect(route).toContain('export const maxDuration = 600;');
+  const vercel = JSON.parse(readFileSync(join(__dirname, '../../vercel.json'), 'utf8'));
+  expect(vercel.functions['src/app/api/deepresearch/route.ts'].maxDuration).toBe(600);
+  // ⑥ OpenAI: 未提供とツール拒否の判定（純関数）
+  expect(o.isOpenAIUnavailable(404, null)).toBe(true);
+  expect(o.isOpenAIUnavailable(403, { error: { message: 'no access' } })).toBe(true);
+  expect(o.isOpenAIUnavailable(400, { error: { code: 'model_not_found', message: 'The model `gpt-6-astra` does not exist' } })).toBe(true);
+  expect(o.isOpenAIUnavailable(400, { error: { param: 'tools[0]', message: 'Unsupported tool web_search' } })).toBe(false);
+  expect(o.isOpenAIToolRejected(400, { error: { param: 'tools[0]', message: 'Unsupported tool' } })).toBe(true);
+  expect(o.isOpenAIToolRejected(429, { error: { message: 'rate' } })).toBe(false);
+  expect(o.describeOpenAIError(404, null)).toBe(o.OPENAI_UNAVAILABLE_MESSAGE);
+  expect(o.describeOpenAIError(429, { error: { message: 'slow down' } })).toContain('slow down');
+  // ⑦ ソース固定（R-111）: モデルごとに別リクエスト・timeout イベント・fetch 直叩き（SDK なし）・比較経路は fallback:false のまま
+  expect(route).toMatch(/const timeoutTimer = setTimeout\(\(\) => \{\s*timedOut = true;\s*abort\.abort\(\);\s*\}, COMPARE_SERVER_TIMEOUT_MS\);/);
+  expect(route).toMatch(/send\(\{ type: 'timeout', message: COMPARE_TIMEOUT_MESSAGE/);
+  expect(route).toMatch(/\} else if \(compareSide === 'gpt'\) \{[^]*?streamOpenAIResearch\(\{/);
+  expect(route).toMatch(/\{ fallback: false, signal: abort\.signal \}/);
+  const openai = readFileSync(join(__dirname, '../../src/lib/openai-research.ts'), 'utf8');
+  expect(openai).toContain("fetch(OPENAI_RESPONSES_URL");
+  expect(openai).not.toMatch(/from 'openai'/);
+  expect(openai, 'キーの値をログに出さない').not.toMatch(/console\.[a-z]+\([^)]*apiKey/);
+  const pkg = JSON.parse(readFileSync(join(__dirname, '../../package.json'), 'utf8'));
+  expect(pkg.dependencies?.openai, 'SDK を足していない').toBeUndefined();
+  const page = readFileSync(join(__dirname, '../../src/app/dashboard/deepresearch/page.tsx'), 'utf8');
+  expect(page, '比較ボタンはダイアログを開くだけ（通常の開始は不変）').toMatch(/data-compare-run\s+onClick=\{\(\) => setCompareDialogOpen\(true\)\}/);
+  expect(page).toMatch(/data-kb-run\s+onClick=\{\(\) => research\(\)\}/);
+  expect(page, '列ごとに1本の fetch（モデルをまとめない）').toMatch(/sides\.map\(\(side\) => runCompareSide\(side, q, runId\)\)/);
+  expect((page.match(/fetch\('\/api\/deepresearch',/g) ?? []).length, '比較の fetch は runCompareSide の1箇所').toBe(1);
 });

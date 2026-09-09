@@ -50,18 +50,22 @@ import { jstDateTimeString } from '@/lib/jst';
 import { setDrMemoContext } from '@/lib/dr-memo-context';
 // 290: Gemini と Claude Opus 5 の並列実行・横並び比較（ボタンを押したときだけ。既定経路は不変・R-88）
 import ModelCompareView from '@/components/deepresearch/ModelCompareView';
+// 314: 開始前の確認ダイアログ（モデル選択・費用/所要時間の目安）。通常の「開始」には出さない（§3-5）
+import CompareStartDialog from '@/components/deepresearch/CompareStartDialog';
 import {
   COMPARE_BUTTON_LABEL,
   COMPARE_CLIENT_TIMEOUT_MS,
   COMPARE_DRAFT_FEATURE,
   COMPARE_INCOMPLETE_MESSAGE,
-  COMPARE_SIDES,
   COMPARE_TIMEOUT_MESSAGE,
   type CompareDraftPayload,
   type CompareRun,
+  type CompareRuns,
   type CompareSide,
   allCompareSettled,
+  compareRunSides,
   initialCompareRuns,
+  normalizeCompareSides,
 } from '@/lib/model-compare';
 
 // 自動下書き（feature_result_drafts feature_key='deepresearch'）のpayload
@@ -977,7 +981,11 @@ export default function DeepResearchPage() {
   const [autoStockSignal, setAutoStockSignal] = useState(0);
 
   // 290: モデル比較（Gemini／Claude Opus 5 の並列実行）。null＝比較パネル非表示（既定）
-  const [compareRuns, setCompareRuns] = useState<Record<CompareSide, CompareRun> | null>(null);
+  const [compareRuns, setCompareRuns] = useState<CompareRuns | null>(null);
+  // 314: 確認ダイアログ（比較ボタン→ダイアログ→開始）。実行中の列（再実行の二重発火も ref で止める・R-87）
+  const [compareDialogOpen, setCompareDialogOpen] = useState(false);
+  const compareLocalRef = useRef<CompareRuns>({});
+  const compareRunningSidesRef = useRef<Set<CompareSide>>(new Set());
   const [compareTopic, setCompareTopic] = useState('');
   const [compareStartedAt, setCompareStartedAt] = useState<number | null>(null);
   const [compareRestoredAt, setCompareRestoredAt] = useState<string | null>(null);
@@ -998,14 +1006,17 @@ export default function DeepResearchPage() {
       const draft = await loadFeatureDraft<CompareDraftPayload>(COMPARE_DRAFT_FEATURE);
       if (cancelled || !draft?.payload?.runs) return;
       if (compareLockRef.current) return; // 既に新しい比較が走っていれば復元しない
-      const runs = draft.payload.runs;
-      // 実行中のまま保存されることは無いが、万一あれば「途中で終わった」失敗として見せる（偽の完了にしない）
-      const fixed = Object.fromEntries(
-        COMPARE_SIDES.map((s) => {
-          const r = runs[s] ?? { status: 'error', text: '', error: COMPARE_INCOMPLETE_MESSAGE };
-          return [s, r.status === 'running' ? { ...r, status: 'error', error: COMPARE_INCOMPLETE_MESSAGE } : r];
-        }),
-      ) as Record<CompareSide, CompareRun>;
+      const runs = draft.payload.runs as CompareRuns;
+      // 実行中のまま保存されることは無いが、万一あれば「途中で終わった」失敗として見せる（偽の完了にしない）。
+      // 314: 下書きに含まれる列だけ復元（2〜3列）。列が1つも無ければ復元しない
+      const sides = compareRunSides(runs);
+      if (sides.length === 0) return;
+      const fixed: CompareRuns = {};
+      for (const s of sides) {
+        const r = runs[s]!;
+        fixed[s] = r.status === 'running' ? { ...r, status: 'error', error: COMPARE_INCOMPLETE_MESSAGE } : r;
+      }
+      compareLocalRef.current = fixed;
       setCompareTopic(draft.payload.topic || '');
       setCompareRuns(fixed);
       setCompareRestoredAt(draft.updated_at);
@@ -1505,104 +1516,140 @@ ${contextText}
   // 290: Gemini と Claude Opus 5 を**2本のリクエストで並列に**走らせる（§4-1/§4-2）。
   // 通常の research() には触れない（R-88）。片方の失敗は他方を巻き添えにしない（R-39・Promise.allSettled）。
   // リトライは行わない（R-73: 1本 = maxDuration 300秒。429の再試行を挟むと積算が上限を超える）。
-  const runCompare = async () => {
+  // 314 §3-2: 1列（1モデル）の実行。モデルごとに独立（他の列を待たない・巻き添えにしない・R-39）。
+  // runId は開始ごとに1つ（サーバ側の二重開始の遮断・R-87）。時間切れは 'timeout'（中断）、その他は 'error'
+  const runCompareSide = async (side: CompareSide, q: string, runId: string) => {
+    const local = compareLocalRef.current;
+    const update = (patch: (prev: CompareRun) => CompareRun) => {
+      local[side] = patch(local[side] ?? { status: 'running', text: '' });
+      setCompareRuns((prev) => (prev ? { ...prev, [side]: local[side] } : prev));
+    };
+    const sideStartedAt = Date.now();
+    update(() => ({ status: 'running', text: '', startedAt: sideStartedAt }));
+    const stats = (text: string) => ({ elapsedMs: Date.now() - sideStartedAt, chars: text.length });
+    let text = '';
+    let settled = false;
+    const ctl = new AbortController();
+    const timer = setTimeout(() => ctl.abort(), COMPARE_CLIENT_TIMEOUT_MS);
+    compareRunningSidesRef.current.add(side);
+    try {
+      const res = await fetch('/api/deepresearch', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          topic: q,
+          depth,
+          periodStart: periodStart || undefined,
+          periodEnd: periodEnd || undefined,
+          model: side === 'gemini' ? 'gemini' : 'claude',
+          compare: side, // オプトインのフラグ（R-88）
+          runId,
+        }),
+        signal: ctl.signal,
+      });
+      if (!res.ok || !res.body) {
+        const body = await res.text().catch(() => '');
+        update((r) => ({ ...r, status: 'error', error: `HTTP ${res.status}${body ? `: ${body.slice(0, 200)}` : ''}`, stats: stats(text) }));
+        return;
+      }
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() ?? '';
+        for (const line of lines) {
+          if (!line.startsWith('data: ')) continue;
+          let json: { type?: string; content?: string; text?: string; message?: string; elapsedMs?: number; finishedAt?: string; usage?: { input_tokens?: number; output_tokens?: number } };
+          try {
+            json = JSON.parse(line.slice(6));
+          } catch {
+            continue; // SSEの断片行（次チャンクで揃う）
+          }
+          if (json.type === 'text' || json.type === 'delta') {
+            text += json.content ?? json.text ?? '';
+            update((r) => ({ ...r, text }));
+          } else if (json.type === 'error') {
+            settled = true;
+            update((r) => ({ ...r, status: 'error', text, error: json.message || '理由不明のエラーです', stats: stats(text) }));
+          } else if (json.type === 'timeout') {
+            // 314: サーバ側の個別タイムアウト＝中断（失敗とは別の状態・保存しない・再実行できる）
+            settled = true;
+            update((r) => ({ ...r, status: 'timeout', text, error: json.message || COMPARE_TIMEOUT_MESSAGE, stats: stats(text) }));
+          } else if (json.type === 'done') {
+            settled = true;
+            update((r) => ({
+              ...r,
+              status: 'done',
+              text,
+              stats: {
+                elapsedMs: json.elapsedMs ?? Date.now() - sideStartedAt,
+                chars: text.length,
+                inputTokens: json.usage?.input_tokens,
+                outputTokens: json.usage?.output_tokens,
+                finishedAt: json.finishedAt ?? new Date().toISOString(),
+              },
+            }));
+          }
+        }
+      }
+      // done も error も来ずに閉じた（Vercel の時間切れで関数が落ちた等）＝中断として見せる（偽の完了にしない・R-93）
+      if (!settled) update((r) => ({ ...r, status: 'timeout', text, error: COMPARE_INCOMPLETE_MESSAGE, stats: stats(text) }));
+    } catch (e) {
+      const aborted = e instanceof Error && e.name === 'AbortError';
+      const msg = e instanceof Error ? e.message : String(e);
+      update((r) => (aborted
+        ? { ...r, status: 'timeout', text, error: COMPARE_TIMEOUT_MESSAGE, stats: stats(text) }
+        : { ...r, status: 'error', text, error: `通信エラー: ${msg}`, stats: stats(text) }));
+    } finally {
+      clearTimeout(timer);
+      compareRunningSidesRef.current.delete(side);
+    }
+  };
+
+  const newCompareRunId = () => `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+
+  // 314: ダイアログで選んだモデル（2〜3）だけを並列に走らせる。確認はダイアログの1回だけ（R-56）
+  const runCompare = async (sidesInput: readonly CompareSide[]) => {
     if (compareLockRef.current) return; // R-87
     const q = topic.trim();
-    if (!q) return;
+    const sides = normalizeCompareSides([...sidesInput]);
+    if (!q || sides.length < 2) return;
     compareLockRef.current = true;
+    setCompareDialogOpen(false);
     const startedAt = Date.now();
-    const local = initialCompareRuns(); // 下書き保存用（state の closure に頼らない最終値）
+    const local = initialCompareRuns(sides); // 下書き保存用（state の closure に頼らない最終値）
+    compareLocalRef.current = local;
     setCompareTopic(q);
     setCompareStartedAt(startedAt);
     setCompareRestoredAt(null);
     setCompareRuns(local);
-    const update = (side: CompareSide, patch: (prev: CompareRun) => CompareRun) => {
-      local[side] = patch(local[side]);
-      setCompareRuns((prev) => (prev ? { ...prev, [side]: local[side] } : prev));
-    };
-    const stats = (text: string) => ({ elapsedMs: Date.now() - startedAt, chars: text.length });
-
-    const runSide = async (side: CompareSide) => {
-      let text = '';
-      let settled = false;
-      const ctl = new AbortController();
-      const timer = setTimeout(() => ctl.abort(), COMPARE_CLIENT_TIMEOUT_MS);
-      try {
-        const res = await fetch('/api/deepresearch', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            topic: q,
-            depth,
-            periodStart: periodStart || undefined,
-            periodEnd: periodEnd || undefined,
-            model: side === 'gemini' ? 'gemini' : 'claude',
-            compare: side, // オプトインのフラグ（R-88）
-          }),
-          signal: ctl.signal,
-        });
-        if (!res.ok || !res.body) {
-          const body = await res.text().catch(() => '');
-          update(side, (r) => ({ ...r, status: 'error', error: `HTTP ${res.status}${body ? `: ${body.slice(0, 200)}` : ''}`, stats: stats(text) }));
-          return;
-        }
-        const reader = res.body.getReader();
-        const decoder = new TextDecoder();
-        let buffer = '';
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
-          buffer += decoder.decode(value, { stream: true });
-          const lines = buffer.split('\n');
-          buffer = lines.pop() ?? '';
-          for (const line of lines) {
-            if (!line.startsWith('data: ')) continue;
-            let json: { type?: string; content?: string; text?: string; message?: string; elapsedMs?: number; usage?: { input_tokens?: number; output_tokens?: number } };
-            try {
-              json = JSON.parse(line.slice(6));
-            } catch {
-              continue; // SSEの断片行（次チャンクで揃う）
-            }
-            if (json.type === 'text' || json.type === 'delta') {
-              text += json.content ?? json.text ?? '';
-              update(side, (r) => ({ ...r, text }));
-            } else if (json.type === 'error') {
-              settled = true;
-              update(side, (r) => ({ ...r, status: 'error', text, error: json.message || '理由不明のエラーです', stats: stats(text) }));
-            } else if (json.type === 'done') {
-              settled = true;
-              update(side, (r) => ({
-                ...r,
-                status: 'done',
-                text,
-                stats: {
-                  elapsedMs: json.elapsedMs ?? Date.now() - startedAt,
-                  chars: text.length,
-                  inputTokens: json.usage?.input_tokens,
-                  outputTokens: json.usage?.output_tokens,
-                },
-              }));
-            }
-          }
-        }
-        // done も error も来ずに閉じた（Vercel の時間切れで関数が落ちた等）＝失敗として見せる（偽の完了にしない）
-        if (!settled) update(side, (r) => ({ ...r, status: 'error', text, error: COMPARE_INCOMPLETE_MESSAGE, stats: stats(text) }));
-      } catch (e) {
-        const aborted = e instanceof Error && e.name === 'AbortError';
-        const msg = e instanceof Error ? e.message : String(e);
-        update(side, (r) => ({ ...r, status: 'error', text, error: aborted ? COMPARE_TIMEOUT_MESSAGE : `通信エラー: ${msg}`, stats: stats(text) }));
-      } finally {
-        clearTimeout(timer);
-      }
-    };
-
+    const runId = newCompareRunId();
     try {
-      await Promise.allSettled(COMPARE_SIDES.map(runSide));
+      await Promise.allSettled(sides.map((side) => runCompareSide(side, q, runId)));
       saveQueryHistory(q);
       // R-20: 比較結果も自動下書き（専用キー）。保存に失敗しても画面の結果には触れない
-      saveFeatureDraft(COMPARE_DRAFT_FEATURE, { topic: q, depth, runs: local } satisfies CompareDraftPayload);
+      saveFeatureDraft(COMPARE_DRAFT_FEATURE, { topic: q, depth, runs: compareLocalRef.current } satisfies CompareDraftPayload);
     } finally {
       compareLockRef.current = false;
+    }
+  };
+
+  // 314 §3-2: 失敗・中断した列だけをやり直す（そのモデルだけ・他の列は触らない）
+  const rerunCompareSide = async (side: CompareSide) => {
+    if (compareRunningSidesRef.current.has(side)) return; // R-87
+    const cur = compareLocalRef.current[side];
+    if (!cur || cur.status === 'running') return;
+    const q = compareTopic.trim();
+    if (!q) return;
+    try {
+      await runCompareSide(side, q, newCompareRunId());
+      saveFeatureDraft(COMPARE_DRAFT_FEATURE, { topic: q, depth, runs: compareLocalRef.current } satisfies CompareDraftPayload);
+    } catch {
+      /* 列の状態は runCompareSide が書く */
     }
   };
 
@@ -2215,9 +2262,9 @@ ${contextText}
           <button
             type="button"
             data-compare-run
-            onClick={() => void runCompare()}
+            onClick={() => setCompareDialogOpen(true)}
             disabled={loading || compareRunning || !topic.trim()}
-            title="同じお題を Gemini 3.7 Flash と Claude Opus 5 で同時に調べ、横並びで見比べます（2本のリクエスト・Claude側が失敗しても Gemini へ切り替えません・2モデル分の利用料がかかります）"
+            title="同じお題を複数のAI（Gemini 3.7 Flash／Claude Opus 5／GPT-6 Astra）で同時に調べ、横並びで見比べます。押すと確認ダイアログでモデルの選択と費用・所要時間の目安を表示します（モデルごとに1本のリクエスト・失敗しても Gemini へ切り替えません・選んだモデル分の利用料がかかります）"
             style={{ padding: '10px 16px', background: 'var(--bg-primary)', color: 'var(--text-secondary)', border: '1px solid var(--border-accent)', borderRadius: 8, fontWeight: 700, fontSize: 13, cursor: loading || compareRunning || !topic.trim() ? 'not-allowed' : 'pointer', opacity: loading || compareRunning || !topic.trim() ? 0.6 : 1 }}
           >
             {compareRunning ? '⚖ 比較中...' : COMPARE_BUTTON_LABEL}
@@ -2250,6 +2297,9 @@ ${contextText}
       </div>
 
       {/* 290: モデル比較パネル（比較ボタンを押したとき／前回の比較を復元したときだけ出る） */}
+      {compareDialogOpen && (
+        <CompareStartDialog topic={topic.trim()} depth={depth} onClose={() => setCompareDialogOpen(false)} onStart={(sides) => void runCompare(sides)} />
+      )}
       {compareRuns && (
         <ModelCompareView
           topic={compareTopic}
@@ -2257,6 +2307,7 @@ ${contextText}
           startedAt={compareStartedAt}
           restoredAt={compareRestoredAt}
           onClose={closeCompare}
+          onRerun={(side) => void rerunCompareSide(side)}
         />
       )}
 
