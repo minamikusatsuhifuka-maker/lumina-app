@@ -110,8 +110,10 @@ export default function MandalaChartPage({ params }: { params: Promise<{ id: str
   const expandingRef = useRef(false); // R-87: 展開の二重発火は同期的な ref で閉じる
   const [expanding, setExpanding] = useState<string | null>(null);
 
+  // 311: 再取得（発注完了後など）では「読み込み中…」に戻さない＝グリッドやダイアログをアンマウントしない（初回だけ loading）
+  const hasChartRef = useRef(false);
   const load = useCallback(async () => {
-    setLoading(true);
+    if (!hasChartRef.current) setLoading(true);
     setError(null);
     try {
       const res = await fetch(`/api/mandala/${encodeURIComponent(id)}`, { cache: 'no-store' });
@@ -128,6 +130,7 @@ export default function MandalaChartPage({ params }: { params: Promise<{ id: str
         return;
       }
       setChart(json.chart);
+      hasChartRef.current = true;
       setLinks(Array.isArray(json.links) ? json.links : []);
       setBooks(Array.isArray(json.books) ? json.books : []);
       setArticles(Array.isArray(json.articles) ? json.articles : []);
