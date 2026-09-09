@@ -5840,8 +5840,8 @@ test('C92: Gemini と Claude Opus 5 の並列比較（290）— 2本のリクエ
   await expect(dlg).toBeVisible();
   const startBtn = dlg.locator('[data-compare-dialog-start]');
   await expect(startBtn).toBeEnabled({ timeout: 15000 });
-  await startBtn.click();
-  await startBtn.click({ force: true, noWaitAfter: true }).catch(() => {});
+  // 開始ボタンは押した瞬間にダイアログごと消えるため、2回目の click() は要素の出現待ちで固まる（R-12 実測）。同期で2回押す
+  await startBtn.evaluate((el) => { (el as HTMLButtonElement).click(); (el as HTMLButtonElement).click(); });
   await expect(panel).toBeVisible();
   await expect(sideCol('gemini'), '実行中→完了の状態が列に出る').toHaveAttribute('data-compare-status', 'done', { timeout: 20000 });
   await expect(sideCol('opus')).toHaveAttribute('data-compare-status', 'done', { timeout: 20000 });
@@ -10883,7 +10883,7 @@ test('C130: 並列比較の確認ダイアログ・独立実行・GPT-6 Astra（
       return;
     }
     const modelId = side === 'gemini' ? 'gemini-3.7-flash' : side === 'opus' ? 'claude-opus-5' : 'gpt-6-astra';
-    if (side === 'opus' && /時間切れ/.test(b.topic ?? '') && posts.filter((p) => p.compare === 'opus').length === 1) {
+    if (side === 'opus' && /時間切れ/.test(b.topic ?? '') && posts.filter((p) => p.compare === 'opus' && /時間切れ/.test(p.topic ?? '')).length === 1) {
       // 1回目の Opus は時間切れ（サーバの個別タイムアウト）。再実行（2回目）は完走する
       await route.fulfill({ status: 200, contentType: 'text/event-stream', body: sse([{ type: 'start' }, { side, type: 'meta', model: modelId }, { side, type: 'text', content: '途中まで。' }, { side, type: 'timeout', message: '時間切れです（上限 600秒）。この列は保存されていません。「再実行」でこの列だけやり直せます。', elapsedMs: 580000 }]) });
       return;
@@ -10951,8 +10951,8 @@ test('C130: 並列比較の確認ダイアログ・独立実行・GPT-6 Astra（
   await expect(check('gemini')).toBeChecked({ timeout: 15000 });
   if (useGpt) await check('gpt').check();
   await expect(dlg.locator('[data-compare-dialog-saves]')).toHaveAttribute('data-compare-dialog-saves', useGpt ? '3' : '2');
-  await startBtn.click();
-  await startBtn.click({ force: true, noWaitAfter: true }).catch(() => {});
+  // 開始ボタンは押した瞬間にダイアログごと消えるため、2回目の click() は要素の出現待ちで固まる（R-12 実測）。同期で2回押す
+  await startBtn.evaluate((el) => { (el as HTMLButtonElement).click(); (el as HTMLButtonElement).click(); });
   await expect(dlg).toHaveCount(0);
   const panel = page.locator('[data-model-compare]');
   await expect(panel).toBeVisible();
@@ -10992,8 +10992,7 @@ test('C130: 並列比較の確認ダイアログ・独立実行・GPT-6 Astra（
   const before = posts.length;
   const rerun = page.locator('[data-compare-rerun="opus"]');
   await expect(rerun).toBeVisible();
-  await rerun.click();
-  await rerun.click({ force: true, noWaitAfter: true }).catch(() => {});
+  await rerun.evaluate((el) => { (el as HTMLButtonElement).click(); (el as HTMLButtonElement).click(); });
   await expect(sideCol('opus')).toHaveAttribute('data-compare-status', 'done', { timeout: 20000 });
   expect(posts.length - before, '再実行はその列だけ1本').toBe(1);
   expect(posts[posts.length - 1].compare).toBe('opus');

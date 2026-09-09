@@ -4461,7 +4461,8 @@ test('U85: 並列比較の確認ダイアログ・費用/所要時間の目安�
   expect(p.pricingNote('2026-09-09')).toContain('上限ではありません');
   // ② 推定: 入力＝お題＋定型、出力＝分量の目標。Opus/GPT は出力2倍。同じ入力→同じ金額（決定的）
   const g = p.estimateCost('gemini-3.7-flash', 'standard', 100, '2026-09-09')!;
-  expect(g.inputTokens).toBe(100 + p.COMPARE_PROMPT_OVERHEAD_CHARS);
+  expect(g.inputTokens).toBe(100 + p.COMPARE_INPUT_OVERHEAD_TOKENS['gemini-3.7-flash']);
+  expect(p.estimateCost('gpt-6-astra', 'quick', 100, '2026-09-09')!.inputTokens, 'Web 検索の結果が入力に数えられる（B35 実測 22,963 tok）').toBe(100 + 23000);
   expect(g.outputTokens).toBe(3000);
   expect(g.usd).toBeCloseTo((1600 / 1e6) * 0.75 + (3000 / 1e6) * 3.75, 8);
   const op = p.estimateCost('claude-opus-5', 'standard', 100, '2026-09-09')!;
@@ -4474,6 +4475,7 @@ test('U85: 並列比較の確認ダイアログ・費用/所要時間の目安�
   expect(p.formatUsd(0.126)).toBe('約 $0.13');
   // ③ 所要時間の目安と「完了しない見込み」
   expect(p.estimatedSeconds('gpt-6-astra', 'standard')).toBeNull();
+  expect(p.estimatedSecondsLabel('gpt-6-astra', 'quick'), 'quick は B35 の実測').toBe('約40秒');
   expect(p.estimatedSecondsLabel('gpt-6-astra', 'standard')).toBe('未計測');
   expect(p.estimatedSecondsLabel('gemini-3.7-flash', 'standard')).toBe('約25秒');
   expect(p.estimatedSecondsLabel('claude-opus-5', 'deep')).toBe('約5分');

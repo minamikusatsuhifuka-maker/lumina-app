@@ -50,7 +50,16 @@ export function unitPriceOn(modelId: string, jstDate: string = jstDateString()):
 
 /** 分量ごとの出力の目標文字数（ルートの depthPrompts と同じ数字） */
 export const DEPTH_TARGET_CHARS: Record<string, number> = { quick: 1500, standard: 3000, deep: 5000 };
-/** お題以外に送る定型（system＋user の指示・クリニック背景）の概算文字数（保守的） */
+/**
+ * お題以外に入力として課金されるトークンの概算（モデルごと・保守的）。定型プロンプト（system＋user・クリニック背景）に加え、
+ * Web 検索の結果がモデルへの入力として数えられる（実測: Opus quick 6,755 tok（290）／GPT-6 Astra quick 22,963 tok（314 B35））
+ */
+export const COMPARE_INPUT_OVERHEAD_TOKENS: Record<string, number> = {
+  [GEMINI_TEXT_MODEL]: 1500,
+  [CLAUDE_OPUS_MODEL]: 7000,
+  [OPENAI_GPT_MODEL]: 23000,
+};
+/** 単価表に無いモデルの定型ぶん */
 export const COMPARE_PROMPT_OVERHEAD_CHARS = 1500;
 /** 思考／推論トークンが出力扱いのモデルの出力倍率 */
 export const REASONING_OUTPUT_MULTIPLIER = 2;
@@ -67,7 +76,7 @@ export interface CostEstimate {
 export function estimateTokens(modelId: string, depth: string, topicChars: number, jstDate: string = jstDateString()): { input: number; output: number } | null {
   const unit = unitPriceOn(modelId, jstDate);
   if (!unit) return null;
-  const input = Math.max(0, Math.floor(topicChars)) + COMPARE_PROMPT_OVERHEAD_CHARS;
+  const input = Math.max(0, Math.floor(topicChars)) + (COMPARE_INPUT_OVERHEAD_TOKENS[modelId] ?? COMPARE_PROMPT_OVERHEAD_CHARS);
   const base = DEPTH_TARGET_CHARS[depth] ?? DEPTH_TARGET_CHARS.standard;
   const output = unit.reasoningInOutput ? base * REASONING_OUTPUT_MULTIPLIER : base;
   return { input, output };
@@ -105,11 +114,11 @@ export function pricingNote(jstDate: string = jstDateString()): string {
 // 所要時間の目安（実測ベース・定数1箇所）と「完了しない見込み」の事前判定
 // ───────────────────────────────────────────────────────────────────────────
 
-/** モデル×分量の所要時間の目安（秒）。null＝未計測 */
+/** モデル×分量の所要時間の目安（秒）。null＝未計測（GPT は quick だけ 314 B35 で実測 40 秒） */
 export const COMPARE_ESTIMATED_SECONDS: Record<string, Record<string, number | null>> = {
   [GEMINI_TEXT_MODEL]: { quick: 20, standard: 25, deep: 35 },
   [CLAUDE_OPUS_MODEL]: { quick: 80, standard: 180, deep: 300 },
-  [OPENAI_GPT_MODEL]: { quick: null, standard: null, deep: null },
+  [OPENAI_GPT_MODEL]: { quick: 40, standard: null, deep: null },
 };
 
 export function estimatedSeconds(modelId: string, depth: string): number | null {
