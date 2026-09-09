@@ -20,7 +20,9 @@ import { episodeDisplayTitle } from '@/lib/episodes';
 import {
   MANDALA_CENTER,
   MANDALA_DEPTH1_COUNT,
+  isCellFilled,
   isMandalaLinkScope,
+  isPresetPlaceholder,
   isSameReaction,
   mergeReaction,
   normalizeCellInput,
@@ -34,8 +36,21 @@ import {
   type MandalaLinkLite,
   type MandalaLinkResolved,
 } from '@/lib/mandala-shared';
-import { presetCellRows, type MandalaPresetKey } from '@/lib/mandala-presets';
-import { MANDALA_RESEARCH_REJECT_RUNNING, canOrderResearch, parseResearchMeta, type MandalaResearchKind, type MandalaResearchRef } from '@/lib/mandala-research';
+import { MANDALA_PRESET_KEYS, MANDALA_PRESETS, presetCellRows, type MandalaPresetKey } from '@/lib/mandala-presets';
+import { MANDALA_RESEARCH_REJECT_NO_THEME, MANDALA_RESEARCH_REJECT_PLACEHOLDER, MANDALA_RESEARCH_REJECT_RUNNING, canOrderResearch, parseResearchMeta, type MandalaResearchKind, type MandalaResearchRef } from '@/lib/mandala-research';
+
+/** 311是正: 型の初期タイトル（position, title）の平坦な配列。一覧 SQL の「未記入」判定（isPresetPlaceholder と同じ意味）に渡す */
+function presetInitialPairs(): { positions: number[]; titles: string[] } {
+  const positions: number[] = [];
+  const titles: string[] = [];
+  for (const key of MANDALA_PRESET_KEYS) {
+    for (const c of MANDALA_PRESETS[key].cells) {
+      positions.push(c.position);
+      titles.push(c.title.trim());
+    }
+  }
+  return { positions, titles };
+}
 
 // ============================================================
 // スキーマ（冪等DDL・プロセス内で1回だけ）
@@ -138,35 +153,43 @@ function toCell(r: CellRow): MandalaCell {
 
 /**
  * §4-3⑥ 一覧＝本文を含まない軽い形。title は中央マス（depth=1, position=4）のタイトル。
- * 「埋まっている」の判定は mandala-shared.isCellFilled（trim で空白以外があるか）と同じ意味を SQL で書く。
+ * 「記述あり」の判定は mandala-shared.isCellWritten と同じ意味を SQL で書く（CTE written）:
+ *   埋まっている（trim で空白以外がある）かつ、未記入（meta.tier あり・本文空・タイトルが型の初期値のまま）でない（311是正）。
  * link_count・primary_count（302 §5 一次情報ありのマス数）はリンク表から数える。
  */
 export async function listCharts(userId: string): Promise<MandalaChartSummary[]> {
   await ensureMandalaTables();
+  const preset = presetInitialPairs();
   const rows = (await sql`
+    WITH written AS (
+      SELECT x.id, x.chart_id, x.depth, x.meta
+      FROM mandala_cells x
+      WHERE x.user_id = ${userId}
+        AND (btrim(x.title, E' \\t\\r\\n　') <> '' OR btrim(x.body, E' \\t\\r\\n　') <> '')
+        AND NOT (
+          x.meta ? 'tier'
+          AND btrim(x.body, E' \\t\\r\\n　') = ''
+          AND EXISTS (SELECT 1 FROM unnest(${preset.positions}::int[], ${preset.titles}::text[]) AS p(pos, t)
+                       WHERE p.pos = x.position AND p.t = btrim(x.title, E' \\t\\r\\n　'))
+        )
+    )
     SELECT ch.id, ch.created_at, ch.updated_at,
       COALESCE((SELECT x.title FROM mandala_cells x
                  WHERE x.chart_id = ch.id AND x.depth = 1 AND x.position = ${MANDALA_CENTER}), '') AS title,
-      (SELECT COUNT(*)::int FROM mandala_cells x
-        WHERE x.chart_id = ch.id AND x.depth = 1
-          AND (btrim(x.title, E' \\t\\r\\n　') <> '' OR btrim(x.body, E' \\t\\r\\n　') <> '')) AS filled_count,
-      (SELECT COUNT(*)::int FROM mandala_cells x
-        WHERE x.chart_id = ch.id
-          AND (btrim(x.title, E' \\t\\r\\n　') <> '' OR btrim(x.body, E' \\t\\r\\n　') <> '')) AS filled_total,
+      (SELECT COUNT(*)::int FROM written w WHERE w.chart_id = ch.id AND w.depth = 1) AS filled_count,
+      (SELECT COUNT(*)::int FROM written w WHERE w.chart_id = ch.id) AS filled_total,
       (SELECT COUNT(*)::int FROM mandala_cell_links l
          JOIN mandala_cells x ON x.id = l.cell_id
         WHERE x.chart_id = ch.id) AS link_count,
-      -- 302 §5: 一次情報（📔エピソードのリンク）が1件以上ある埋まったマス数。一覧は軽い形のまま（本文を返さない）
-      (SELECT COUNT(DISTINCT x.id)::int FROM mandala_cells x
-         JOIN mandala_cell_links l ON l.cell_id = x.id AND l.scope = 'episode'
-        WHERE x.chart_id = ch.id AND x.depth = 1
-          AND (btrim(x.title, E' \\t\\r\\n　') <> '' OR btrim(x.body, E' \\t\\r\\n　') <> '')) AS primary_count,
+      -- 302 §5: 一次情報（📔エピソードのリンク）が1件以上ある記述ありのマス数。一覧は軽い形のまま（本文を返さない）
+      (SELECT COUNT(DISTINCT w.id)::int FROM written w
+         JOIN mandala_cell_links l ON l.cell_id = w.id AND l.scope = 'episode'
+        WHERE w.chart_id = ch.id AND w.depth = 1) AS primary_count,
       -- 305: 子マス（第2階層）の行数。削除の確認文に出す
       (SELECT COUNT(*)::int FROM mandala_cells x WHERE x.chart_id = ch.id AND x.depth = 2) AS child_count,
-      -- 308: 反応記録のある埋まったマス数（第1階層）。一覧は軽い形のまま（本文を返さない）
-      (SELECT COUNT(*)::int FROM mandala_cells x
-        WHERE x.chart_id = ch.id AND x.depth = 1 AND x.meta ? 'reaction'
-          AND (btrim(x.title, E' \\t\\r\\n　') <> '' OR btrim(x.body, E' \\t\\r\\n　') <> '')) AS reaction_count,
+      -- 308: 反応記録のある記述ありのマス数（第1階層）。一覧は軽い形のまま（本文を返さない）
+      (SELECT COUNT(*)::int FROM written w
+        WHERE w.chart_id = ch.id AND w.depth = 1 AND w.meta ? 'reaction') AS reaction_count,
       -- 308: 型（meta.preset）。無ければ null
       ch.meta->>'preset' AS preset
     FROM mandala_charts ch
@@ -753,7 +776,7 @@ export async function listArticlesFromChart(userId: string, chartId: string, typ
 // 311: リサーチ発注の進行中の印（meta.research）と、完了時の自動紐づけ
 // ============================================================
 
-export type StartResearchResult = { ok: true; cell: MandalaCell } | { ok: false; reason: 'not_found' | 'running' | 'empty'; message: string };
+export type StartResearchResult = { ok: true; cell: MandalaCell } | { ok: false; reason: 'not_found' | 'running' | 'empty' | 'no_theme'; message: string };
 
 /**
  * §3-2 発注直後の印。同じマス・同じ経路の進行中があれば拒否（R-87 のサーバ側）。失敗・中断（閾値超過）は再発注できる。
@@ -772,7 +795,13 @@ export async function startResearch(
   `) as CellRow[];
   if (!row) return { ok: false, reason: 'not_found', message: 'マスが見つかりません' };
   const cur = toCell(row);
-  if (!cur.title.trim() && !cur.body.trim()) return { ok: false, reason: 'empty', message: 'タイトルも本文も空のマスは発注できません' };
+  // 311是正: 未記入（型の初期タイトルのまま・本文なし）と、テーマ（中央）の無いチャートは発注できない（画面と同じ判定・fail-closed）
+  if (isPresetPlaceholder(cur)) return { ok: false, reason: 'empty', message: MANDALA_RESEARCH_REJECT_PLACEHOLDER };
+  if (!isCellFilled(cur)) return { ok: false, reason: 'empty', message: 'タイトルも本文も空のマスは発注できません' };
+  const [center] = (await sql`
+    SELECT title FROM mandala_cells WHERE chart_id = ${cur.chart_id}::uuid AND depth = 1 AND position = ${MANDALA_CENTER}
+  `) as { title: string }[];
+  if (!(center?.title ?? '').trim()) return { ok: false, reason: 'no_theme', message: MANDALA_RESEARCH_REJECT_NO_THEME };
   const existing = parseResearchMeta(cur.meta);
   if (existing && existing.kind === kind && !canOrderResearch(cur.meta, Date.now())) {
     return { ok: false, reason: 'running', message: MANDALA_RESEARCH_REJECT_RUNNING };

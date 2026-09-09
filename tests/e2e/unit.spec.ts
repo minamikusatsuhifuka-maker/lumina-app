@@ -46,6 +46,8 @@ import * as mandalaPresets from '../../src/lib/mandala-presets';
 import * as mandalaNote from '../../src/lib/mandala-note';
 import * as noteFormat from '../../src/lib/note-format';
 import * as mandalaResearch from '../../src/lib/mandala-research';
+// 311是正: mandala-shared は mandala-presets（@/ alias）を読むようになった＝動的 import() では解決できない（R-112）
+import * as mandalaShared from '../../src/lib/mandala-shared';
 import * as mandalaX from '../../src/lib/mandala-x';
 import { KINDLE_TASTES, KINDLE_TASTE_KEYS, KINDLE_TASTE_GUARD, KINDLE_SCORE_AXES } from '../../src/lib/kindle-taste';
 import {
@@ -3074,7 +3076,7 @@ test('U69: 即時ツールチップ（300）— 位置は下・入らなけれ�
 });
 
 test('U70: マンダラ（301）— アウトライン順は定数1箇所（0,1,2,3,5,6,7,8）でグリッドはその関数から中央を差し込む（R-74）・第2階層の中央は導出され保存されない（R-92）・入力順に依存しない・scope の許容値は定数1箇所・チャート名＝中央タイトル・削除確認文に件数（R-56）・保存成功文言は行から（R-95）・プレビューに生MDなし（R-18）・shared は DB 非依存（R-108）・DDLは冪等のみ/CASCADE/中央保存禁止・FullscreenReader の editor は opt-in（R-88）・nav-items 登録（R-84）', async () => {
-  const m = await import('../../src/lib/mandala-shared');
+  const m = mandalaShared;
   type Cell = import('../../src/lib/mandala-shared').MandalaCell;
   const mk = (position: number, depth: 1 | 2 = 1, parent: string | null = null, title = ''): Cell => ({
     id: `c${depth}-${parent ?? 'r'}-${position}`,
@@ -3220,7 +3222,7 @@ test('U70: マンダラ（301）— アウトライン順は定数1箇所（0,1,
 });
 
 test('U71: マンダラ 302 — scope の表示・遷移先は MANDALA_LINK_SCOPES と1対1（別の列挙なし）・件数と一次情報は純関数で決定的（R-74・空のマスは分母に入れない）・比較の上限9と列数は別（R-94）・1件は無効化と理由（R-101）・空のマスは比較に出ない・退避の復元条件（同じなら出さない）・ピッカーの4種の応答を1つに揃える・軽い一覧API（light=1／qScope=title）・比較部品は CompareGrid/batch-compare を流用（R-91）・4画面の ?open= はオプトイン', async () => {
-  const m = await import('../../src/lib/mandala-shared');
+  const m = mandalaShared;
   type Cell = import('../../src/lib/mandala-shared').MandalaCell;
   const mk = (position: number, title = '', body = ''): Cell => ({ id: `c${position}`, chart_id: 'ch', parent_cell_id: null, depth: 1, position, title, body, meta: {}, created_at: '', updated_at: '' });
   const lk = (id: number, cell_id: string, scope: string, item_key = 'k'): import('../../src/lib/mandala-shared').MandalaLinkLite => ({ id, cell_id, scope, item_key, created_at: '' });
@@ -3336,7 +3338,7 @@ test('U72: マンダラ ⌘+Enter 保存（302 §6-4）— 一覧（小窓）に
 });
 
 test('U73: マンダラ バッジのホバーポップアップ（304）— 上限8件と畳み・📔からは episode が先頭（安定）・遅延150〜250ms・猶予あり・z は既存体系（サイドパネルとリーダーの間）・位置は273の関数を流用（新しい位置計算なし）・箱は押せる（pointer-events:none にしない）・アンカーに title を書かない・InstantTooltip のソースは301のまま（R-110/R-111）', async () => {
-  const m = await import('../../src/lib/mandala-shared');
+  const m = mandalaShared;
   const hp = await import('../../src/lib/hover-popover');
   type L = import('../../src/lib/mandala-shared').MandalaLinkResolved;
   const lk = (id: number, scope: string): L => ({ id, cell_id: 'c', scope, item_key: String(id), created_at: '', note: '', title: `t${id}`, exists: true, char_count: 1, item_created_at: null });
@@ -3466,7 +3468,7 @@ test('U74: サイドバーのメニュー検索・追加順・新着・合流（
 });
 
 test('U75: マンダラ 81マス（305）— 入れ子の目次は平坦形と同じ順（親→子（固定順）→次の親）で第1階層だけの結果は不変・展開の集計は決定的（空の子は数えない）・「親 › 子」のラベル・導出枠は親と同一 id・削除確認文に子マス件数・切替の解析・展開は1文で position 4 を除き NOT EXISTS で二重に作らない（ソース固定・R-111）・9マスの描画経路は不変', async () => {
-  const m = await import('../../src/lib/mandala-shared');
+  const m = mandalaShared;
   type Cell = import('../../src/lib/mandala-shared').MandalaCell;
   const mk = (position: number, depth: 1 | 2 = 1, parent: string | null = null, title = '', body = ''): Cell => ({ id: `c${depth}-${parent ?? 'r'}-${position}`, chart_id: 'ch', parent_cell_id: parent, depth, position, title, body, meta: {}, created_at: '', updated_at: '' });
   const depth1 = [0, 1, 2, 3, 4, 5, 6, 7, 8].map((p) => mk(p, 1, null, `T${p}`));
@@ -3595,7 +3597,7 @@ test('U76: ホームの保存形式（306）— 旧形式（href配列・書き�
 });
 
 test('U77: マンダラ→Kindle目次（307）— 8マス＋子ありが章8・節（親ごと最大8）に mandalaOutlineNested と同順で変換される・空のマスは除外され件数が返る・未展開の親は章のみ・章0は拒否理由・著者メモはマスの本文と完全一致（整形なし）・削除済みリンクは紐づかず件数・🧠と type 不適合は参照のみ・上限超過は参照のみに回し件数・同じ入力→同じ出力（プレビュー＝保存・R-74）・出どころ記録の検証は fail-closed・並べ替え後の cellIds 再構築・純関数は DB 非依存（R-108／R-111）・create は CTE 1文と nonce 遮断（R-87）・ウィザードの既定は素材（R-88）', async () => {
-  const m = await import('../../src/lib/mandala-shared');
+  const m = mandalaShared;
   const k = mandalaKindle;
   type Cell = import('../../src/lib/mandala-shared').MandalaCell;
   type Link = import('../../src/lib/mandala-shared').MandalaLinkResolved;
@@ -3747,7 +3749,7 @@ test('U77: マンダラ→Kindle目次（307）— 8マス＋子ありが章8・
 });
 
 test('U78: マンダラ 有料note記事の型・反応記録・無料比率（308）— プリセット定義は1箇所で周囲8のタイトルと tier が定義どおり・中央は空・KB ID のコメント・反応の入力検証（非負整数・100字・全部空＝null・不正は理由）・購入率は purchases÷views で views 未記録なら null（保存しない・R-74）・同一内容の判定（R-87）・反応記録 n/m は埋まったマスだけ・無料比率は中央を除き子マスは親の区分・両方0なら null・meta が空なら区分/反応/比率が何も出ない（§7）・meta はキー単位マージ（`meta - keys || patch`・丸ごと置換なし）・作成の既定は body なし・Kindle 目次は meta を読まない（U77 不変）', async () => {
-  const m = await import('../../src/lib/mandala-shared');
+  const m = mandalaShared;
   const pr = mandalaPresets;
   type Cell = import('../../src/lib/mandala-shared').MandalaCell;
   const mk = (position: number, depth: 1 | 2 = 1, parent: string | null = null, title = '', body = '', meta: Record<string, unknown> = {}): Cell => ({ id: `c${depth}-${parent ?? 'r'}-${position}`, chart_id: 'ch', parent_cell_id: parent, depth, position, title, body, meta, created_at: '', updated_at: '' });
@@ -3865,7 +3867,7 @@ test('U78: マンダラ 有料note記事の型・反応記録・無料比率（3
 test('U79: マンダラ→note記事（309）— 1文1行の整形は句点「。」「！」「？」の直後で改行し、見出し・箇条書き・引用・括弧内・URL・コードは分割せず、段落の空行を保ち、冪等（整形済みを通しても不変）・検査関数が同じ規則・無料（1マス）はタイトル・本文・素材・子マスが目次順で本文空なら拒否理由・有料（全体）は tier で無料／有料に分かれ有料ラインは最初の paid の直前で tier 無しは無料扱い・空マスの除外と削除済みリンクの件数・出どころに chartId/cellIds/mode・プレビューと投入が同じ出力・有料ラインの目印の補正・出どころの読み出しは fail-closed・①の構造規約に1文1行が入り samples/full の両方を整形する（ソース固定・R-111）', async () => {
   const nf = noteFormat;
   const mn = mandalaNote;
-  const m = await import('../../src/lib/mandala-shared');
+  const m = mandalaShared;
   // ① 整形
   const src = '## 見出し。ここは分割しない\n\n朝は乾燥します。だから保湿します！本当ですか？はい。\n「そうですか。なるほど」と答えた。次の文。\n- 箇条書き。分割しない。\n> 引用。分割しない。\nhttps://example.com/a.b?c=d。分割しない。\n\n```\nコード。分割しない。\n```\n最後の文（補足。ここも）です。';
   const out = nf.formatOneSentencePerLine(src);
@@ -4105,7 +4107,7 @@ test('U80: 「1文1行」整形の横展開（310・R-114）— ②分割・275 
 
 test('U81: マンダラ 未調査マスからのリサーチ発注（311）— 発注文はテーマ・このマス・隣接・親・経路の定型1文を決定的に組み立て逆順入力で一致・空マスは拒否理由・テキスト分析は本文があるマスだけ・付帯情報の検証は fail-closed・バッチ行と handoff への写しは薄い・進行状況は meta.research から running/failed/stale（6時間）を導出・未調査＝埋まっていてリンク0件で進行中でない（子マス含む・中央除外）・まとめて発注は上限8で超過は理由（R-101）・完了フックは302の addLinks を通し付帯情報が無ければ何もしない（ソース固定・R-111）・純関数は DB 非依存', async () => {
   const r = mandalaResearch;
-  const m = await import('../../src/lib/mandala-shared');
+  const m = mandalaShared;
   type Cell = import('../../src/lib/mandala-shared').MandalaCell;
   const u = (n: number) => `aaaaaaaa-0000-4000-8000-${String(n).padStart(12, '0')}`;
   const mk = (n: number, position: number, depth: 1 | 2 = 1, parent: string | null = null, title = '', body = '', meta: Record<string, unknown> = {}): Cell => ({ id: u(n), chart_id: u(900), parent_cell_id: parent, depth, position, title, body, meta, created_at: '', updated_at: '' });
@@ -4204,7 +4206,7 @@ test('U81: マンダラ 未調査マスからのリサーチ発注（311）— �
 
 test('U82: マンダラ→X投稿と反応の書き戻し（312）— マス1つ→投稿群（気づき・素材・体験メモ・本数の既定3・1〜5）・チャート→シリーズ（周囲マスが目次順に1マス1投稿・最大8・子マスなし・空は除外・2未満は拒否）・出どころに chartId/cellIds/mode・逆順入力で一致・③への写しは薄い1関数・URL を本文からセルフリプライ欄へ移す（冪等・コード側）・reaction.x はキー単位マージで note 側が消えない（両方空でキー削除）・出どころの検証は fail-closed・ソース固定（③のプロンプト追記はガード優先の後ろ・保存側の URL/上限検査はマンダラ経由だけ・R-111）', async () => {
   const x = mandalaX;
-  const m = await import('../../src/lib/mandala-shared');
+  const m = mandalaShared;
   type Cell = import('../../src/lib/mandala-shared').MandalaCell;
   type Link = import('../../src/lib/mandala-shared').MandalaLinkResolved;
   const u = (n: number) => `aaaaaaaa-0000-4000-8000-${String(n).padStart(12, '0')}`;
@@ -4312,4 +4314,84 @@ test('U82: マンダラ→X投稿と反応の書き戻し（312）— マス1つ
   const server = readFileSync(join(__dirname, '../../src/lib/mandala-server.ts'), 'utf8');
   expect(server).toMatch(/const merged = mergeReaction\(existing, \{ note: patch\.reaction, x: patch\.reactionX \}/);
   expect(server).not.toMatch(/set\.reaction = \{ \.\.\.patch\.reaction, recordedAt/);
+});
+
+test('U83: マンダラ 311是正 — 未記入＝型由来（meta.tier）でタイトルが型の初期値のまま（presetCellRows と一致）かつ本文空（純関数）・タイトル変更／本文追加で解除・tier の無い同名マスと子マスは未記入にならない・記述あり（isCellWritten）は n/9・📔と📈の分母・未調査・隣接の文脈から未記入を除く・「埋まっている」（isCellFilled＝Kindle/記事化/X）は不変・発注は未記入→テーマ無しの順で理由を返し中央が空なら単発・まとめとも無効（R-101）・presets は shared を型だけ読む（循環参照なし）', async () => {
+  const m = mandalaShared;
+  const r = mandalaResearch;
+  const p = mandalaPresets;
+  type Cell = import('../../src/lib/mandala-shared').MandalaCell;
+  const u = (n: number) => `bbbbbbbb-0000-4000-8000-${String(n).padStart(12, '0')}`;
+  const mk = (n: number, position: number, depth: 1 | 2 = 1, parent: string | null = null, title = '', body = '', meta: Record<string, unknown> = {}): Cell => ({ id: u(n), chart_id: u(900), parent_cell_id: parent, depth, position, title, body, meta, created_at: '2026-09-09T00:00:00.000Z', updated_at: '2026-09-09T00:00:00.000Z' });
+  const rows = p.presetCellRows('paid_note');
+  expect(rows.map((x) => x.position), '作成時の9マス分（中央は型に無い位置＝空）').toEqual([0, 1, 2, 3, 4, 5, 6, 7, 8]);
+  expect(rows[4]).toEqual({ position: 4, title: '', meta: {} });
+  expect(p.presetInitialTitlesAt(0)).toEqual([rows[0].title]);
+  expect(p.presetInitialTitlesAt(4)).toEqual([]);
+  // ① 未記入の純関数
+  const ph0 = mk(10, 0, 1, null, rows[0].title, '', { tier: 'free' });
+  const ph6 = mk(16, 6, 1, null, rows[6].title, '', { tier: 'paid' });
+  expect(m.isPresetPlaceholder(ph0), '型の初期タイトルのまま＋本文空＝未記入').toBe(true);
+  expect(m.isPresetPlaceholder(ph6)).toBe(true);
+  expect(m.isPresetPlaceholder({ ...ph0, title: `  ${rows[0].title}  ` }), '前後の空白は無視').toBe(true);
+  expect(m.isPresetPlaceholder({ ...ph0, title: '導入（書き換えた）' }), 'タイトルを書き換えたら解除').toBe(false);
+  expect(m.isPresetPlaceholder({ ...ph0, body: '骨子。' }), '本文を書いたら解除').toBe(false);
+  expect(m.isPresetPlaceholder({ ...ph0, meta: {} }), 'tier の無い（型由来でない）同名マスは未記入ではない').toBe(false);
+  expect(m.isPresetPlaceholder({ ...ph0, position: 1 }), '別の位置の初期タイトルとは一致しない').toBe(false);
+  expect(m.isPresetPlaceholder(mk(20, 0, 2, ph0.id, rows[0].title, '')), '子マス（meta に tier 無し）は未記入にならない').toBe(false);
+  expect(m.isPresetPlaceholder(null)).toBe(false);
+  expect(m.isCellFilled(ph0), '「埋まっている」は不変（Kindle目次・記事化・X の対象判定）').toBe(true);
+  expect(m.isCellWritten(ph0), '記述あり＝埋まっていて未記入でない').toBe(false);
+  expect(m.isCellWritten({ ...ph0, body: '骨子。' })).toBe(true);
+  expect(m.isCellWritten(mk(12, 2, 1, null, '', ''))).toBe(false);
+  // ② 件数: n/9・📔 n/m・📈 n/m の分母から未記入を除く。中央空
+  const center = mk(4, 4);
+  const w0 = { ...ph0, body: '骨子0。' };
+  const w1 = { ...mk(11, 1, 1, null, '着地点（書いた）', '', { tier: 'free' }), meta: { tier: 'free', reaction: { views: 1, recordedAt: '2026-09-09T00:00:00.000Z' } } };
+  const phR = { ...mk(12, 2, 1, null, rows[2].title, '', { tier: 'free' }), meta: { tier: 'free', reaction: { views: 5, recordedAt: '2026-09-09T00:00:00.000Z' } } };
+  const cells: Cell[] = [ph6, phR, w1, center, w0];
+  expect(m.filledCount(cells, 1), '記述あり 2（w0・w1）。未記入 2 と中央空は数えない').toBe(2);
+  const links = [{ id: 1, cell_id: phR.id, scope: 'episode', item_key: 'e1', created_at: '' }, { id: 2, cell_id: w0.id, scope: 'episode', item_key: 'e2', created_at: '' }] as import('../../src/lib/mandala-shared').MandalaLinkLite[];
+  expect(m.primaryInfoSummary(cells, links), '📔 の分母・分子とも未記入を除く').toEqual({ withPrimary: 1, filled: 2 });
+  expect(m.reactionSummary(cells), '📈 の分母・分子とも未記入を除く（未記入に付いた反応は数えない）').toEqual({ withReaction: 1, filled: 2 });
+  expect(m.freeRatio(cells).ratio, '比率は本文の文字数＝未記入は 0 字で影響なし（表示は不変）').toBe(1);
+  // ③ 未調査・隣接の文脈から未記入を除く
+  const counts = m.linkCountsByCell(links);
+  const now = Date.parse('2026-09-09T12:00:00.000Z');
+  expect(r.uncoveredCells(cells, counts, now).map((c) => c.id), '未調査＝記述あり・リンク0（w1 だけ。未記入 ph6 は除く）').toEqual([w1.id]);
+  // ④ 発注の理由: 未記入 → テーマ無し の順。中央が空なら記述のあるマスでも無効（単発・まとめ）
+  const chartNoTheme = { id: u(900), cells };
+  expect(r.buildResearchOrder(chartNoTheme, ph6.id, 'deepresearch')).toMatchObject({ ok: false, reason: r.MANDALA_RESEARCH_REJECT_PLACEHOLDER });
+  expect(r.MANDALA_RESEARCH_REJECT_PLACEHOLDER.startsWith('まだ記述がありません')).toBe(true);
+  expect(r.buildResearchOrder(chartNoTheme, w0.id, 'deepresearch')).toMatchObject({ ok: false, reason: r.MANDALA_RESEARCH_REJECT_NO_THEME });
+  expect(r.MANDALA_RESEARCH_REJECT_NO_THEME.startsWith('中央にテーマを書いてください')).toBe(true);
+  expect(r.hasResearchTheme(cells)).toBe(false);
+  expect(r.cellOrderState(cells, ph6)).toEqual({ enabled: false, reason: r.MANDALA_RESEARCH_REJECT_PLACEHOLDER });
+  expect(r.cellOrderState(cells, w0)).toEqual({ enabled: false, reason: r.MANDALA_RESEARCH_REJECT_NO_THEME });
+  expect(r.cellOrderState(cells, mk(13, 3))).toEqual({ enabled: false, reason: r.MANDALA_RESEARCH_REJECT_EMPTY });
+  expect(r.bulkOrderState(3, false), 'まとめて発注はテーマ無しで件数に関わらず無効').toEqual({ enabled: false, reason: r.MANDALA_RESEARCH_REJECT_NO_THEME });
+  expect(r.bulkOrderState(0, false).reason).toBe(r.MANDALA_RESEARCH_REJECT_NO_THEME);
+  expect(r.bulkOrderState(3).enabled, '既定はテーマあり（既存の呼び出しは不変）').toBe(true);
+  // テーマを書くと通る。隣接の文脈に未記入（ph6・phR）は載らない
+  const themed = { id: u(900), cells: cells.map((c) => (c.id === center.id ? { ...c, title: '保湿を続ける' } : c)) };
+  expect(r.hasResearchTheme(themed.cells)).toBe(true);
+  const o = r.buildResearchOrder(themed, w0.id, 'deepresearch');
+  expect(o.ok).toBe(true);
+  if (!o.ok) throw new Error('unreachable');
+  expect(o.adjacentTitles, '隣接＝記述のあるマスだけ').toEqual(['着地点（書いた）']);
+  expect(r.buildResearchOrder(themed, ph6.id, 'deepresearch'), 'テーマがあっても未記入は拒否').toMatchObject({ ok: false, reason: r.MANDALA_RESEARCH_REJECT_PLACEHOLDER });
+  expect(r.cellOrderState(themed.cells, w0)).toEqual({ enabled: true, reason: null });
+  expect(JSON.stringify(r.buildResearchOrder({ id: u(900), cells: [...themed.cells].reverse() }, w0.id, 'deepresearch')), '逆順入力で一致').toBe(JSON.stringify(o));
+  // ⑤ ソース固定: presets → shared は型だけ（実行時の循環参照なし）。shared → presets は値。一覧 SQL は written CTE で同じ判定
+  const presetSrc = readFileSync(join(__dirname, '../../src/lib/mandala-presets.ts'), 'utf8');
+  expect(presetSrc).toMatch(/^import type \{[^}]*\} from '@\/lib\/mandala-shared';/m);
+  expect(presetSrc).not.toMatch(/^import \{[^}]*\} from '@\/lib\/mandala-shared';/m);
+  const sharedSrc = readFileSync(join(__dirname, '../../src/lib/mandala-shared.ts'), 'utf8');
+  expect(sharedSrc).toMatch(/^import \{ presetInitialTitlesAt \} from '@\/lib\/mandala-presets';/m);
+  const serverSrc = readFileSync(join(__dirname, '../../src/lib/mandala-server.ts'), 'utf8');
+  expect(serverSrc, '一覧の件数は written CTE（未記入を除く）から数える').toMatch(/WITH written AS \([^]*?x\.meta \? 'tier'[^]*?FROM written w WHERE w\.chart_id = ch\.id AND w\.depth = 1\) AS filled_count/);
+  expect(serverSrc, '発注の印はサーバでも未記入とテーマ無しを拒否').toMatch(/if \(isPresetPlaceholder\(cur\)\) return \{ ok: false, reason: 'empty', message: MANDALA_RESEARCH_REJECT_PLACEHOLDER \};/);
+  expect(serverSrc).toMatch(/reason: 'no_theme', message: MANDALA_RESEARCH_REJECT_NO_THEME/);
+  const batchSrc = readFileSync(join(__dirname, '../../src/app/api/batch-research/route.ts'), 'utf8');
+  expect(batchSrc, 'バッチ登録は INSERT の前に未記入・テーマ無しを 400').toMatch(/placeholders\.length > 0\) return NextResponse\.json\([^]*?status: 400[^]*?INSERT INTO batch_research_jobs/);
 });

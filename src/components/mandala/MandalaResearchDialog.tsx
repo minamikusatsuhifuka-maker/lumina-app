@@ -84,7 +84,9 @@ export default function MandalaResearchDialog({
 
   const okOrders = orders.filter((o): o is MandalaResearchOrder => o.ok);
   const selected = okOrders.filter((o) => checked.has(o.cellId));
-  const bulkState = bulk ? bulkOrderState(selected.length) : { enabled: selected.length === 1, reason: selected.length === 1 ? null : '発注するマスがありません' };
+  // 311是正: 単発で発注文が組めなかった（未記入・テーマ無し等）ときは、その理由をそのまま出す
+  const firstReject = orders.find((o): o is { ok: false; cellId: string; reason: string } => !o.ok) ?? null;
+  const bulkState = bulk ? bulkOrderState(selected.length) : { enabled: selected.length === 1, reason: selected.length === 1 ? null : firstReject?.reason ?? '発注するマスがありません' };
   const singleHasBody = single ? (bodyByCell.get(single.cellId) ?? '').trim().length > 0 : false;
   const textOf = (o: MandalaResearchOrder) => texts[o.cellId] ?? o.text;
 

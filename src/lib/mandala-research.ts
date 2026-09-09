@@ -8,7 +8,9 @@
 // 進行状況は mandala_cells.meta.research（R-113 キー単位）から導出する:
 //   { kind, startedAt(ISO), jobId?, index?, failedAt?, reason? }
 //   running＝failedAt が無く閾値内／failed＝failedAt あり／stale（中断）＝failedAt が無く閾値超過（284 と同じ 6 時間）
-// 未調査＝埋まっていて、リンク0件で、進行中でないマス（子マス含む）。まとめて発注は上限 8 件（R-101）。
+// 未調査＝記述があり（isCellWritten・型の未記入マスは除く・311是正）、リンク0件で、進行中でないマス（子マス含む）。まとめて発注は上限 8 件（R-101）。
+// 311是正: 発注文の「テーマ」は中央マス。中央が空のチャートは単発・まとめとも発注を無効化して理由を出す（R-101）。
+//   Kindle目次（307）・記事化（309）は現状どおり（無題）で進める＝この判定は発注だけに掛ける。
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 import {
@@ -16,8 +18,11 @@ import {
   MANDALA_POSITION_LABELS,
   MANDALA_UNTITLED,
   cellDisplayTitle,
+  centerCell,
   chartDisplayTitle,
   isCellFilled,
+  isCellWritten,
+  isPresetPlaceholder,
   type MandalaCell,
   type MandalaLinkCounts,
 } from '@/lib/mandala-shared';
@@ -47,6 +52,23 @@ export const MANDALA_RESEARCH_DR_MODE_DEFAULT: MandalaResearchDrMode = 'standard
 export const MANDALA_RESEARCH_REJECT_EMPTY = 'タイトルも本文も空のマスは発注できません';
 export const MANDALA_RESEARCH_REJECT_NO_BODY = 'テキスト分析は本文があるマスだけ発注できます';
 export const MANDALA_RESEARCH_REJECT_RUNNING = 'このマスは同じ経路で調査中です（完了か中断を待ってから再発注してください）';
+/** 311是正: 型の未記入マス（初期タイトルのまま・本文なし）は発注できない */
+export const MANDALA_RESEARCH_REJECT_PLACEHOLDER = 'まだ記述がありません（型の見出しのままで本文が空のマスは発注できません。タイトルを書き換えるか本文を書いてください）';
+/** 311是正: 中央（テーマ）が空だと発注文のテーマが無い＝単発・まとめとも無効化（R-101） */
+export const MANDALA_RESEARCH_REJECT_NO_THEME = '中央にテーマを書いてください（発注文の「テーマ」になります）';
+
+/** 311是正: 発注の前提＝中央（テーマ）にタイトルがある */
+export function hasResearchTheme(cells: readonly MandalaCell[]): boolean {
+  return (centerCell(cells)?.title ?? '').trim() !== '';
+}
+
+/** 311是正: 単発の発注ボタンの可否（パネル）。未記入→理由、テーマ無し→理由。順序は固定（決定的・R-74） */
+export function cellOrderState(cells: readonly MandalaCell[], cell: MandalaCell): { enabled: boolean; reason: string | null } {
+  if (isPresetPlaceholder(cell)) return { enabled: false, reason: MANDALA_RESEARCH_REJECT_PLACEHOLDER };
+  if (!isCellFilled(cell)) return { enabled: false, reason: MANDALA_RESEARCH_REJECT_EMPTY };
+  if (!hasResearchTheme(cells)) return { enabled: false, reason: MANDALA_RESEARCH_REJECT_NO_THEME };
+  return { enabled: true, reason: null };
+}
 export const MANDALA_RESEARCH_INSTRUCTION: Record<MandalaResearchKind, string> = {
   deepresearch: '上記のマスの内容を深く調べる（テーマと隣接マスの文脈を踏まえ、このマスの論点に絞る）',
   text_analysis: '上記の本文を分析する（テーマと隣接マスの文脈を踏まえる）',
@@ -84,14 +106,17 @@ export function buildResearchOrder(
 ): MandalaResearchOrderResult {
   const cell = chart.cells.find((c) => c.id === cellId);
   if (!cell) return { ok: false, cellId, reason: 'マスが見つかりません' };
+  // 311是正: 未記入（型の初期タイトルのまま・本文なし）→ テーマ無し → 経路ごとの条件、の順（cellOrderState と同じ）
+  if (isPresetPlaceholder(cell)) return { ok: false, cellId, reason: MANDALA_RESEARCH_REJECT_PLACEHOLDER };
   if (!isCellFilled(cell)) return { ok: false, cellId, reason: MANDALA_RESEARCH_REJECT_EMPTY };
+  if (!hasResearchTheme(chart.cells)) return { ok: false, cellId, reason: MANDALA_RESEARCH_REJECT_NO_THEME };
   if (kind === 'text_analysis' && !cell.body.trim()) return { ok: false, cellId, reason: MANDALA_RESEARCH_REJECT_NO_BODY };
   const center = chart.cells.find((c) => c.depth === 1 && c.position === MANDALA_CENTER) ?? null;
   const theme = chartDisplayTitle(center?.title);
   const themeBody = center ? clip(center.body, MANDALA_RESEARCH_THEME_BODY_MAX) : '';
   const parent = cell.depth === 2 && cell.parent_cell_id ? chart.cells.find((c) => c.id === cell.parent_cell_id) ?? null : null;
   const siblings = chart.cells
-    .filter((c) => c.id !== cell.id && c.depth === cell.depth && (c.parent_cell_id ?? null) === (cell.parent_cell_id ?? null) && c.position !== MANDALA_CENTER && isCellFilled(c))
+    .filter((c) => c.id !== cell.id && c.depth === cell.depth && (c.parent_cell_id ?? null) === (cell.parent_cell_id ?? null) && c.position !== MANDALA_CENTER && isCellWritten(c))
     .sort((a, b) => a.position - b.position);
   const adjacentTitles = siblings.map((c) => cellDisplayTitle(c));
   const label = parent
@@ -212,11 +237,11 @@ export function canOrderResearch(meta: Record<string, unknown> | null | undefine
   return researchState(meta, nowMs) !== 'running';
 }
 
-/** 未調査＝埋まっていて、リンク0件で、進行中でない（子マス含む）。順序は depth→position（決定的） */
+/** 未調査＝記述があり（型の未記入マスは除く・311是正）、リンク0件で、進行中でない（子マス含む）。順序は depth→position（決定的） */
 export function uncoveredCells(cells: readonly MandalaCell[], linkCounts: ReadonlyMap<string, MandalaLinkCounts>, nowMs: number): MandalaCell[] {
   return [...cells]
     .filter((c) => !(c.depth === 1 && c.position === MANDALA_CENTER))
-    .filter((c) => isCellFilled(c) && (linkCounts.get(c.id)?.total ?? 0) === 0 && researchState(c.meta, nowMs) !== 'running')
+    .filter((c) => isCellWritten(c) && (linkCounts.get(c.id)?.total ?? 0) === 0 && researchState(c.meta, nowMs) !== 'running')
     .sort((a, b) => (a.depth - b.depth) || (a.position - b.position) || (a.parent_cell_id ?? '').localeCompare(b.parent_cell_id ?? ''));
 }
 
@@ -241,9 +266,10 @@ export function researchSummary(cells: readonly MandalaCell[], linkCounts: Reado
   return { uncovered: uncoveredCells(cells, linkCounts, nowMs).length, inProgress, failed, stale };
 }
 
-/** まとめて発注の対象（上限で切らず、超過は理由で止める・R-101） */
-export function bulkOrderState(count: number): { enabled: boolean; reason: string | null } {
-  if (count === 0) return { enabled: false, reason: '未調査のマスがありません（埋まっていてリンク0件・進行中でないマスが対象）' };
+/** まとめて発注の対象（上限で切らず、超過は理由で止める・R-101）。311是正: テーマ（中央）が無ければ件数に関わらず無効化＋理由 */
+export function bulkOrderState(count: number, hasTheme: boolean = true): { enabled: boolean; reason: string | null } {
+  if (!hasTheme) return { enabled: false, reason: MANDALA_RESEARCH_REJECT_NO_THEME };
+  if (count === 0) return { enabled: false, reason: '未調査のマスがありません（記述があってリンク0件・進行中でないマスが対象。型の見出しのままのマスは含みません）' };
   if (count > MANDALA_RESEARCH_BULK_MAX) return { enabled: false, reason: `1回の発注は${MANDALA_RESEARCH_BULK_MAX}件までです（${count}件選択中。チェックを外して減らしてください）` };
   return { enabled: true, reason: null };
 }

@@ -28,7 +28,7 @@ import { MandalaArticlesPopoverContent, MandalaLinkPopoverContent, MandalaReacti
 import { MANDALA_X_SERIES_DISABLED_REASON, canMakeXSeries, mandalaXPostsLabel, xPostCountsByCell, type MandalaXPostRow } from '@/lib/mandala-x';
 // 311: 未調査マスからのリサーチ発注（1件／まとめ）。発注文は純関数、経路は既存のバッチ／テキスト分析、印は meta.research
 import MandalaResearchDialog from '@/components/mandala/MandalaResearchDialog';
-import { MANDALA_RESEARCH_BULK_MAX, buildResearchOrder, bulkOrderState, researchSummary, uncoveredCells, type MandalaResearchOrderResult } from '@/lib/mandala-research';
+import { MANDALA_RESEARCH_BULK_MAX, buildResearchOrder, bulkOrderState, cellOrderState, hasResearchTheme, researchSummary, uncoveredCells, type MandalaResearchOrderResult } from '@/lib/mandala-research';
 // 309: マンダラ→note記事（入口＝見出しの「有料記事にする」・パネルの「無料記事にする」）。「📝 記事: n件」は記事の側の記録から導出
 import { MANDALA_NOTE_PAID_DISABLED_REASON, articleCountsByCell, canMakePaidNote, mandalaArticlesLabel, type MandalaArticleRef } from '@/lib/mandala-note';
 import { useToast } from '@/components/ui/Toast';
@@ -372,7 +372,10 @@ export default function MandalaChartPage({ params }: { params: Promise<{ id: str
   // 311 §3-5: 「🔍 未調査 n／調査中 m」と、まとめて発注の対象（埋まっていてリンク0件で進行中でない・子マス含む）
   const research = useMemo(() => (chart ? researchSummary(chart.cells, linkCounts, nowMs) : { uncovered: 0, inProgress: 0, failed: 0, stale: 0 }), [chart, linkCounts, nowMs]);
   const uncovered = useMemo(() => (chart ? uncoveredCells(chart.cells, linkCounts, nowMs) : []), [chart, linkCounts, nowMs]);
-  const bulkState = bulkOrderState(Math.min(uncovered.length, MANDALA_RESEARCH_BULK_MAX));
+  // 311是正: 中央（テーマ）が空なら単発・まとめとも発注を無効化＋理由（R-101）。未記入の型マスは uncovered に入らない（isCellWritten）
+  const researchTheme = !!chart && hasResearchTheme(chart.cells);
+  const bulkState = bulkOrderState(Math.min(uncovered.length, MANDALA_RESEARCH_BULK_MAX), researchTheme);
+  const selectedOrderState = chart && selected ? cellOrderState(chart.cells, selected) : null;
   const researchOrders: MandalaResearchOrderResult[] = useMemo(() => {
     if (!chart || !researchDialog) return [];
     return researchDialog.cellIds.map((id) => buildResearchOrder(chart, id, 'deepresearch'));
@@ -532,10 +535,11 @@ export default function MandalaChartPage({ params }: { params: Promise<{ id: str
             <button
               type="button"
               data-mandala-research-bulk
-              disabled={uncovered.length === 0}
+              data-mandala-research-bulk-reason={bulkState.reason ?? undefined}
+              disabled={!bulkState.enabled}
               onClick={() => setResearchDialog({ cellIds: uncovered.slice(0, MANDALA_RESEARCH_BULK_MAX).map((c) => c.id), bulk: true })}
-              title={uncovered.length === 0 ? bulkState.reason ?? '' : `未調査 ${uncovered.length}件のうち先頭${Math.min(uncovered.length, MANDALA_RESEARCH_BULK_MAX)}件を対象にダイアログを開きます（チェックで外せます）`}
-              style={{ ...btn, borderColor: '#0E7490', color: '#0E7490', opacity: uncovered.length === 0 ? 0.5 : 1, cursor: uncovered.length === 0 ? 'default' : 'pointer' }}
+              title={!bulkState.enabled ? bulkState.reason ?? '' : `未調査 ${uncovered.length}件のうち先頭${Math.min(uncovered.length, MANDALA_RESEARCH_BULK_MAX)}件を対象にダイアログを開きます（チェックで外せます）`}
+              style={{ ...btn, borderColor: '#0E7490', color: '#0E7490', opacity: !bulkState.enabled ? 0.5 : 1, cursor: !bulkState.enabled ? 'default' : 'pointer' }}
             >
               🔍 未調査マスをまとめて発注
             </button>
@@ -710,6 +714,7 @@ export default function MandalaChartPage({ params }: { params: Promise<{ id: str
               onDirtyChange={onDirtyChange}
               onLinksChanged={onLinksChanged}
               onResearchRequest={openResearch}
+              researchOrderState={selectedOrderState ?? undefined}
             />
           )}
           {researchDialog && chart && (

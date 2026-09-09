@@ -112,10 +112,13 @@ export default function MandalaCellEditor({
   pathLabel,
   titlePlaceholder,
   onResearchRequest,
+  researchOrderState,
 }: {
   cell: MandalaCell;
   /** 311: 「🔍 リサーチを発注」（親が発注ダイアログを開く）。省略時はボタンを出さない */
   onResearchRequest?: (cell: MandalaCell) => void;
+  /** 311是正: 発注の可否（純関数 cellOrderState）。未記入の型マス／中央テーマ無しは無効化＋理由（R-101）。省略時は従来どおり */
+  researchOrderState?: { enabled: boolean; reason: string | null };
   /** 308: 型のチャートの中央に出すプレースホルダ（例: 読者の着地点を1行で）。省略時は従来どおり */
   titlePlaceholder?: string;
   onClose: () => void;
@@ -717,15 +720,18 @@ export default function MandalaCellEditor({
             <span style={{ flex: 1 }} />
             {/* 311 §3-2: リサーチを発注（リンク0件のマスで目立たせる。リンクがあっても追加調査できる） */}
             {onResearchRequest && (cell.title.trim() || cell.body.trim()) && (() => {
-              const uncovered = linksStatus === 'ready' && links.length === 0;
+              const orderable = researchOrderState?.enabled ?? true;
+              const uncovered = orderable && linksStatus === 'ready' && links.length === 0;
               return (
                 <button
                   type="button"
                   data-mandala-research-order={cell.id}
                   data-mandala-research-order-uncovered={uncovered ? '1' : '0'}
+                  data-mandala-research-order-reason={orderable ? undefined : researchOrderState?.reason ?? ''}
+                  disabled={!orderable}
                   onClick={() => onResearchRequest(cell)}
-                  title={uncovered ? 'このマスはまだ調べていません（リンク0件）。ディープリサーチ／テキスト分析を発注し、結果をこのマスに紐づけます' : '追加で調査を発注し、結果をこのマスに紐づけます'}
-                  style={{ ...btn, ...(uncovered ? { background: '#0E7490', borderColor: '#0E7490', color: '#fff' } : { borderColor: '#0E7490', color: '#0E7490' }) }}
+                  title={!orderable ? researchOrderState?.reason ?? '' : uncovered ? 'このマスはまだ調べていません（リンク0件）。ディープリサーチ／テキスト分析を発注し、結果をこのマスに紐づけます' : '追加で調査を発注し、結果をこのマスに紐づけます'}
+                  style={{ ...btn, ...(uncovered ? { background: '#0E7490', borderColor: '#0E7490', color: '#fff' } : { borderColor: '#0E7490', color: '#0E7490' }), ...(orderable ? {} : { opacity: 0.5, cursor: 'not-allowed' }) }}
                 >
                   🔍 リサーチを発注
                 </button>

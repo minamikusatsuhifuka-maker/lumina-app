@@ -29,6 +29,7 @@ import {
   cellTier,
   hasReaction,
   isCellFilled,
+  isPresetPlaceholder,
   mandalaGridSlots,
   type MandalaCell,
   type MandalaGridSlot,
@@ -128,6 +129,7 @@ function CellCard({
       data-mandala-cell={position}
       data-mandala-cell-id={cell?.id ?? derivedCell?.id ?? ''}
       data-mandala-cell-filled={filled ? '1' : '0'}
+      data-mandala-cell-unwritten={cell && !derived && isPresetPlaceholder(cell) ? '1' : undefined}
       data-mandala-cell-derived={derived ? '1' : undefined}
       data-mandala-cell-unexpanded={!cell && !derived ? '1' : undefined}
       data-mandala-selected={selected ? '1' : undefined}

@@ -15,6 +15,9 @@
 // サーバ専用（DB）は mandala-server.ts。
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
+// 311是正: 未記入の判定に型の初期タイトルを読む（presets 側は型だけを読む＝実行時の循環参照なし）
+import { presetInitialTitlesAt } from '@/lib/mandala-presets';
+
 // ───────────────────────────────────────────────────────────────────────────
 // 定数
 // ───────────────────────────────────────────────────────────────────────────
@@ -118,8 +121,25 @@ export function isCellFilled(cell: Pick<MandalaCell, 'title' | 'body'> | null | 
   return cell.title.trim() !== '' || cell.body.trim() !== '';
 }
 
+/**
+ * 311是正: 型プリセットの「未記入」＝プリセット由来のマス（meta.tier あり）で、タイトルが型の初期値のまま（presetCellRows と一致）かつ本文が空。
+ * 「埋まっている」（isCellFilled＝Kindle目次・記事化・X の対象判定）には残すが、**件数と発注の対象には数えない**（isCellWritten）。
+ * 院長がタイトルを書き換えるか本文を書けば通常のマスになる。子マス（tier は親から導出・meta に無い）は未記入にならない
+ */
+export function isPresetPlaceholder(cell: Pick<MandalaCell, 'title' | 'body' | 'position' | 'meta'> | null | undefined): boolean {
+  if (!cell || cellTier(cell) === null) return false;
+  if (cell.body.trim() !== '') return false;
+  return presetInitialTitlesAt(cell.position).includes(cell.title.trim());
+}
+
+/** 記述あり＝埋まっていて未記入でない。n/9・📔と📈の分母・未調査・発注の対象はこちら（311是正） */
+export function isCellWritten(cell: Pick<MandalaCell, 'title' | 'body' | 'position' | 'meta'> | null | undefined): boolean {
+  return isCellFilled(cell) && !isPresetPlaceholder(cell);
+}
+
+/** 記述のあるマス数（未記入の型マスは数えない・311是正） */
 export function filledCount(cells: readonly MandalaCell[], depth?: 1 | 2): number {
-  return cells.filter((c) => (depth === undefined || c.depth === depth) && isCellFilled(c)).length;
+  return cells.filter((c) => (depth === undefined || c.depth === depth) && isCellWritten(c)).length;
 }
 
 /** 第1階層の中央マス */
@@ -492,7 +512,7 @@ export function primaryInfoSummary(cells: readonly MandalaCell[], links: readonl
   let filled = 0;
   let withPrimary = 0;
   for (const c of cells) {
-    if (c.depth !== 1 || !isCellFilled(c)) continue;
+    if (c.depth !== 1 || !isCellWritten(c)) continue;
     filled += 1;
     if ((counts.get(c.id)?.episode ?? 0) > 0) withPrimary += 1;
   }
@@ -963,7 +983,7 @@ export function reactionSummary(cells: readonly MandalaCell[]): ReactionSummary 
   let filled = 0;
   let withReaction = 0;
   for (const c of cells) {
-    if (c.depth !== 1 || !isCellFilled(c)) continue;
+    if (c.depth !== 1 || !isCellWritten(c)) continue;
     filled += 1;
     if (hasReaction(c)) withReaction += 1;
   }

@@ -10056,12 +10056,17 @@ test('C124: マンダラ 有料note記事の型・反応記録・無料比率（
     await expect(grid.locator('[data-mandala-cell="0"] [data-mandala-cell-title]')).toContainText('導入');
     await expect(page.locator('[data-mandala-free-ratio]'), '本文が無いうちは比率を出さない').toHaveCount(0);
     await expect(page.locator('[data-mandala-reaction-count]')).toHaveCount(0);
+    // 311是正: 型の初期タイトルのまま本文が空＝「未記入」。帯は出るが n/9 には数えない
+    await expect(grid.locator('[data-mandala-cell-unwritten="1"]'), '周囲8は未記入').toHaveCount(8);
+    await expect(page.locator('[data-mandala-chart-filled]'), '未記入は n/9 に数えない').toHaveAttribute('data-mandala-chart-filled', '0');
     // 中央のプレースホルダ（型）
     await grid.locator('[data-mandala-cell="4"]').click();
     await expect(page.locator('[data-mandala-title-input="panel"]')).toHaveAttribute('placeholder', /着地点/);
     await page.locator('[data-mandala-panel-close]').click();
 
     // ④ パネル: 区分の切替（無料⇄有料）→ 帯が変わる・reaction が残る
+    // 311是正: 型の初期タイトルのまま本文が空のマスは「未記入」＝反応記録の分母（記述あり）に数えない。タイトルを書き換えて通常のマスにしてから記録する
+    expect((await saveMandalaCell(api, c0.id, { title: `導入 ${marker}` })).status()).toBe(200);
     await page.goto(`/dashboard/mandala/${chartId}`);
     await expect(grid.locator('[data-mandala-cell]')).toHaveCount(9, { timeout: 30000 });
     await grid.locator('[data-mandala-cell="0"]').click();
@@ -10097,7 +10102,7 @@ test('C124: マンダラ 有料note記事の型・反応記録・無料比率（
     await expect(details.locator('[data-mandala-reaction-brief]')).toContainText('アクセス 200');
     await expect(grid.locator('[data-mandala-cell="0"] [data-mandala-cell-reaction]')).toHaveCount(1);
     await expect(page.locator('[data-mandala-reaction-count]')).toHaveAttribute('data-mandala-reaction-count', '1');
-    await expect(page.locator('[data-mandala-reaction-count]'), 'm＝埋まっているマス数（型は9マスとも埋まる）').toHaveAttribute('data-mandala-reaction-total', '9');
+    await expect(page.locator('[data-mandala-reaction-count]'), 'm＝記述のあるマス数（中央＋書き換えた左上。型の初期タイトルのままの7マスは数えない・311是正）').toHaveAttribute('data-mandala-reaction-total', '2');
     const savedMeta = await cellMeta(chartId, c0.id);
     expect(savedMeta.reaction).toMatchObject({ views: 200, likes: 8, shares: 3, purchases: 25, memo: `気づき ${marker}` });
     expect(savedMeta.tier).toBe('free');
@@ -10651,5 +10656,101 @@ test('C127: マンダラ→X投稿と反応の書き戻し（312）— パネル
     if (savedIds.length > 0) await api.delete(LIBRARY_API, { data: { ids: savedIds } }).catch(() => {});
     await deleteMandalaChart(api, chartId);
     await deleteMandalaChart(api, thinId);
+  }
+});
+
+test('C128: マンダラ 311是正 — 型プリセットの未記入マス（初期タイトルのまま・本文空）は n/9・一覧の件数・未調査に数えず発注対象にしない（理由「まだ記述がありません」）・中央（テーマ）が空なら単発・まとめとも発注を無効化＋理由「中央にテーマを書いてください」（R-101）・タイトルの書き換えか本文で通常のマスになる・まとめ発注の一覧と隣接の文脈に未記入が出ない・API（PATCH research／バッチ登録）も同じ判定で 400・型の帯（308）と記事化の項目（309）は不変', async ({
+  page,
+}) => {
+  test.setTimeout(240_000);
+  const marker = `MPH${RUN_ID}`;
+  // 中央を空にしたまま検証するので helper を使わず作る（無題のチャートは掃除で拾えない＝finally で明示削除）
+  const created = await api.post(MANDALA_API, { data: { preset: 'paid_note' } });
+  expect(created.status()).toBe(200);
+  const chartId = (await created.json()).id as string;
+  const cells = (await getMandalaChart(api, chartId)).cells;
+  const byPos = (p: number) => cells.find((c) => c.depth === 1 && c.position === p)!;
+  const listRow = async () => ((await (await api.get(MANDALA_API)).json()).items as { id: string; filled_count: number; filled_total: number; primary_count: number; reaction_count: number }[]).find((it) => it.id === chartId)!;
+  const topicOf = (name: string) => ({ groupName: `[E2E] ${marker} ${name}`, topics: [{ topic: `[E2E] ${marker} ${name}`, mode: 'quick', mandala: { source: 'research', chartId, cellId: byPos(0).id, kind: 'deepresearch' } }], scheduleType: 'browser', autoSave: true });
+  try {
+    // ① 作成直後（中央空・周囲8は型の初期タイトルだけ）: 一覧の件数 0・n/9 は 0・未調査 0・まとめて発注は無効＋理由（テーマ）。型の帯は不変
+    expect(await listRow(), '一覧の件数に未記入を数えない').toMatchObject({ filled_count: 0, filled_total: 0, primary_count: 0, reaction_count: 0 });
+    await page.goto(`/dashboard/mandala/${chartId}`);
+    const grid = page.locator('[data-mandala-grid][data-mandala-grid-depth="1"]');
+    await expect(grid.locator('[data-mandala-cell]')).toHaveCount(9, { timeout: 30000 });
+    await expect(grid.locator('[data-mandala-cell-unwritten="1"]'), '周囲8が未記入').toHaveCount(8);
+    await expect(grid.locator('[data-mandala-cell-tier="free"]'), '型の帯は不変').toHaveCount(5);
+    await expect(grid.locator('[data-mandala-cell-tier="paid"]')).toHaveCount(3);
+    await expect(page.locator('[data-mandala-chart-filled]')).toHaveAttribute('data-mandala-chart-filled', '0');
+    await expect(page.locator('[data-mandala-research-uncovered]')).toHaveAttribute('data-mandala-research-uncovered', '0');
+    const bulkBtn = page.locator('[data-mandala-research-bulk]');
+    await expect(bulkBtn).toBeDisabled();
+    await expect(bulkBtn).toHaveAttribute('data-mandala-research-bulk-reason', /中央にテーマを書いてください/);
+    // ② パネル: 未記入マスの発注は無効＋理由「まだ記述がありません」
+    await grid.locator('[data-mandala-cell="0"]').click();
+    const panel0 = page.locator(`[data-mandala-panel="${byPos(0).id}"]`);
+    await expect(panel0).toBeVisible();
+    const order0 = panel0.locator('[data-mandala-research-order]');
+    await expect(order0).toBeDisabled();
+    await expect(order0).toHaveAttribute('data-mandala-research-order-reason', /まだ記述がありません/);
+    await panel0.locator('[data-mandala-panel-close]').click();
+    // ③ API も同じ判定（fail-closed）: 未記入は PATCH research もバッチ登録も 400
+    const r1 = await saveMandalaCell(api, byPos(0).id, { research: { kind: 'deepresearch' } });
+    expect(r1.status()).toBe(400);
+    expect((await r1.json()).error).toContain('まだ記述がありません');
+    const b1 = await api.post('/api/batch-research', { data: topicOf('未記入') });
+    expect(b1.status(), 'バッチ登録も未記入は 400（ジョブを作らない）').toBe(400);
+    expect((await b1.json()).error).toContain('まだ記述がありません');
+    expect((await getMandalaChart(api, chartId)).cells.find((c) => c.id === byPos(0).id)!.meta, '印は付かない').not.toHaveProperty('research');
+    // ④ 本文を書くと通常のマスに（n/9=1・未調査 1）。中央が空なので発注はまだ無効＋理由（テーマ）
+    expect((await saveMandalaCell(api, byPos(0).id, { body: `骨子0 ${marker}` })).status()).toBe(200);
+    const r2 = await saveMandalaCell(api, byPos(0).id, { research: { kind: 'deepresearch' } });
+    expect(r2.status()).toBe(400);
+    expect((await r2.json()).error).toContain('中央にテーマ');
+    const b2 = await api.post('/api/batch-research', { data: topicOf('テーマ無し') });
+    expect(b2.status()).toBe(400);
+    expect((await b2.json()).error).toContain('中央にテーマ');
+    await page.reload();
+    await expect(grid.locator('[data-mandala-cell]')).toHaveCount(9, { timeout: 30000 });
+    await expect(page.locator('[data-mandala-chart-filled]')).toHaveAttribute('data-mandala-chart-filled', '1');
+    await expect(grid.locator('[data-mandala-cell-unwritten="1"]')).toHaveCount(7);
+    await expect(page.locator('[data-mandala-research-uncovered]')).toHaveAttribute('data-mandala-research-uncovered', '1');
+    await expect(bulkBtn).toBeDisabled();
+    await expect(bulkBtn).toHaveAttribute('data-mandala-research-bulk-reason', /中央にテーマを書いてください/);
+    await grid.locator('[data-mandala-cell="0"]').click();
+    await expect(panel0).toBeVisible();
+    await expect(order0).toBeDisabled();
+    await expect(order0).toHaveAttribute('data-mandala-research-order-reason', /中央にテーマを書いてください/);
+    await panel0.locator('[data-mandala-panel-close]').click();
+    // ⑤ 中央にテーマ＋タイトルの書き換えでも未記入が解除: n/9=3・未記入 6・未調査 2・まとめ発注の一覧と隣接の文脈に未記入が出ない
+    expect((await saveMandalaCell(api, byPos(4).id, { title: withE2EPrefix(`${marker} テーマ`) })).status()).toBe(200);
+    expect((await saveMandalaCell(api, byPos(1).id, { title: `着地点 ${marker}` })).status()).toBe(200);
+    await page.reload();
+    await expect(grid.locator('[data-mandala-cell]')).toHaveCount(9, { timeout: 30000 });
+    await expect(page.locator('[data-mandala-chart-filled]')).toHaveAttribute('data-mandala-chart-filled', '3');
+    await expect(grid.locator('[data-mandala-cell-unwritten="1"]')).toHaveCount(6);
+    await expect(page.locator('[data-mandala-research-uncovered]')).toHaveAttribute('data-mandala-research-uncovered', '2');
+    await expect(bulkBtn).toBeEnabled();
+    await bulkBtn.click();
+    const dlg = page.locator('[data-mandala-research-dialog][data-mandala-research-bulk="1"]');
+    await expect(dlg).toBeVisible();
+    await expect(dlg.locator('[data-mandala-research-row]'), '一覧に未記入が出ない（2件だけ）').toHaveCount(2);
+    await expect(dlg.locator(`[data-mandala-research-row="${byPos(0).id}"]`)).toHaveAttribute('data-mandala-research-row-ok', '1');
+    await expect(dlg.locator(`[data-mandala-research-row="${byPos(1).id}"]`)).toHaveAttribute('data-mandala-research-row-ok', '1');
+    await dlg.locator(`[data-mandala-research-edit="${byPos(0).id}"]`).click();
+    await expect(dlg.locator(`[data-mandala-research-text="${byPos(0).id}"]`), '隣接の文脈にも未記入の見出しは載らない').toHaveValue(new RegExp(`\\n- 隣接: 着地点 ${marker}\\n`));
+    await dlg.locator('[data-mandala-research-close]').click();
+    await grid.locator('[data-mandala-cell="0"]').click();
+    await expect(panel0).toBeVisible();
+    await expect(order0, 'テーマがあり記述もある→発注できる').toBeEnabled();
+    await expect(order0).toHaveAttribute('data-mandala-research-order-uncovered', '1', { timeout: 15000 });
+    await panel0.locator('[data-mandala-panel-close]').click();
+    // ⑥ 一覧の件数も同じ（3/9）・記事化（309）の項目は不変（型の初期タイトルは項目として残る＝8）
+    expect(await listRow()).toMatchObject({ filled_count: 3, filled_total: 3 });
+    const paid = await (await api.get(`${MANDALA_API}/${chartId}/note?mode=paid_chart`)).json();
+    expect(paid.result.ok).toBe(true);
+    expect(paid.result.entries.length, '記事化の項目は不変（8）').toBe(8);
+  } finally {
+    await deleteMandalaChart(api, chartId);
   }
 });

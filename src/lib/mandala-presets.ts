@@ -7,7 +7,8 @@
 //          N-08 有料ライン（無料60〜70%は仮説）／N-09 有料エリアの中身（手順・テンプレ・生データ）
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-import { MANDALA_CENTER, type MandalaTier } from '@/lib/mandala-shared';
+// 311是正: mandala-shared が「未記入」判定のためにここを読むので、こちらは型だけ読む（実行時の循環参照を作らない）
+import type { MandalaTier } from '@/lib/mandala-shared';
 
 export const MANDALA_PRESET_PAID_NOTE = 'paid_note';
 export type MandalaPresetKey = typeof MANDALA_PRESET_PAID_NOTE;
@@ -57,13 +58,21 @@ export function getMandalaPreset(key: MandalaPresetKey): MandalaPreset {
   return MANDALA_PRESETS[key];
 }
 
-/** 作成時の9マス分（position 0〜8・中央は空タイトル・meta なし）。作成 API はこの配列をそのまま行にする（R-74） */
+/** 作成時の9マス分（position 0〜8・中央（型に無い位置）は空タイトル・meta なし）。作成 API はこの配列をそのまま行にする（R-74） */
 export function presetCellRows(key: MandalaPresetKey): { position: number; title: string; meta: Record<string, unknown> }[] {
   const preset = getMandalaPreset(key);
   const byPos = new Map(preset.cells.map((c) => [c.position, c]));
   return Array.from({ length: 9 }, (_, position) => {
-    if (position === MANDALA_CENTER) return { position, title: '', meta: {} };
     const c = byPos.get(position);
     return c ? { position, title: c.title, meta: { tier: c.tier } } : { position, title: '', meta: {} };
   });
+}
+
+/** 311是正: 位置ごとの「型の初期タイトル」（全プリセット分）。未記入の判定（mandala-shared.isPresetPlaceholder）が読む */
+export function presetInitialTitlesAt(position: number): string[] {
+  const out: string[] = [];
+  for (const key of MANDALA_PRESET_KEYS) {
+    for (const c of MANDALA_PRESETS[key].cells) if (c.position === position) out.push(c.title.trim());
+  }
+  return out;
 }

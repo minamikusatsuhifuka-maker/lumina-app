@@ -147,12 +147,20 @@ export async function POST(req: NextRequest) {
     // 311 §3-2: マンダラ経由のトピックは、同じマス・同じ経路の進行中があれば登録前に拒否（R-87 のサーバ側・二重発注）
     const mandalaTopics = topicsWithStatus.map((t: { mandala?: MandalaResearchRef }, i: number) => ({ i, ref: t.mandala })).filter((x): x is { i: number; ref: MandalaResearchRef } => !!x.ref);
     if (mandalaTopics.length > 0) {
-      const { canOrderResearch, parseResearchMeta } = await import('@/lib/mandala-research');
+      const { MANDALA_RESEARCH_REJECT_NO_THEME, MANDALA_RESEARCH_REJECT_PLACEHOLDER, canOrderResearch, parseResearchMeta } = await import('@/lib/mandala-research');
+      const { isPresetPlaceholder } = await import('@/lib/mandala-shared');
       const ids = mandalaTopics.map((x) => x.ref.cellId);
-      const cells = (await sql`SELECT id::text AS id, meta FROM mandala_cells WHERE user_id = ${userId} AND id = ANY(${ids}::uuid[])`) as { id: string; meta: Record<string, unknown> | null }[];
+      const cells = (await sql`SELECT id::text AS id, chart_id::text AS chart_id, position, title, body, meta FROM mandala_cells WHERE user_id = ${userId} AND id = ANY(${ids}::uuid[])`) as { id: string; chart_id: string; position: number; title: string; body: string; meta: Record<string, unknown> | null }[];
       const byId = new Map(cells.map((c) => [c.id, c.meta ?? {}]));
       const missing = ids.filter((id) => !byId.has(id));
       if (missing.length > 0) return NextResponse.json({ error: `マンダラのマスが見つかりません（${missing.length}件）` }, { status: 404 });
+      // 311是正: 型の未記入マス（初期タイトルのまま・本文なし）と、中央（テーマ）が空のチャートは登録前に拒否（画面と同じ判定・fail-closed）
+      const placeholders = cells.filter((c) => isPresetPlaceholder({ title: c.title ?? '', body: c.body ?? '', position: Number(c.position), meta: c.meta ?? {} }));
+      if (placeholders.length > 0) return NextResponse.json({ error: `${MANDALA_RESEARCH_REJECT_PLACEHOLDER}（${placeholders.length}件）`, placeholderCellIds: placeholders.map((c) => c.id) }, { status: 400 });
+      const chartIds = Array.from(new Set(cells.map((c) => c.chart_id)));
+      const centers = (await sql`SELECT chart_id::text AS chart_id, title FROM mandala_cells WHERE user_id = ${userId} AND depth = 1 AND position = 4 AND chart_id = ANY(${chartIds}::uuid[])`) as { chart_id: string; title: string }[];
+      const themed = new Set(centers.filter((c) => (c.title ?? '').trim() !== '').map((c) => c.chart_id));
+      if (chartIds.some((id) => !themed.has(id))) return NextResponse.json({ error: MANDALA_RESEARCH_REJECT_NO_THEME }, { status: 400 });
       const running = ids.filter((id) => { const m = parseResearchMeta(byId.get(id)); return m?.kind === 'deepresearch' && !canOrderResearch(byId.get(id), Date.now()); });
       if (running.length > 0) return NextResponse.json({ error: `調査中のマスがあります（${running.length}件）。完了か中断を待ってから再発注してください`, runningCellIds: running }, { status: 409 });
     }
