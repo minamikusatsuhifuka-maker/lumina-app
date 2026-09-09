@@ -1990,7 +1990,7 @@ test('C45: 横断表示のUI — 両画面から同じフォルダを開くと�
 // - 通常の ⌘V を壊していないこと・Undoで戻せることも判定する
 // ============================================================================
 
-test('C46: 🗂テキスト分析の「クリアして貼付」廃止（313改訂・院長の実機判断）— ボタンが無い・⌘⇧Vは何もしない・✕クリアと📋ペーストは残り、ペーストは末尾追記（R-76: 読み取り成功→貼付）・クリア→ペーストの2操作で置き換わる・🔭DR側の「クリアして貼付」と一覧の表記は不変', async ({ page, context }) => {
+test('C46: 🗂テキスト分析の「📋 クリアして貼付」（313再改訂で復元・254/270）— ボタンと⌘⇧Vが同じ経路で置き換える（R-76: 読み取り成功→クリア→貼付）・直後にUndoで戻る・通常の⌘Vは壊れない・「📋 ペースト」は🗂に無い・🔭DR側は不変', async ({ page, context }) => {
   await stubFeatureDrafts(page);
   await context.grantPermissions(['clipboard-read', 'clipboard-write'], { origin: BASE_URL });
   await page.goto('/dashboard/text-analysis');
@@ -1998,35 +1998,38 @@ test('C46: 🗂テキスト分析の「クリアして貼付」廃止（313改�
   await page.reload({ waitUntil: 'domcontentloaded' });
   await waitForRunReady(page);
   const textarea = page.getByPlaceholder('ここに分析したいテキストを貼り付けてください...');
-  await expect(page.locator('[data-clear-paste]'), '🗂 に「クリアして貼付」は無い').toHaveCount(0);
+  const clearPasteBtn = page.locator('[data-clear-paste]').filter({ visible: true }).first();
+  await expect(clearPasteBtn, '🗂 に「📋 クリアして貼付」がある').toBeVisible();
+  await expect(clearPasteBtn).toHaveText(/^📋 クリアして貼付( ⌘⇧V| Ctrl\+⇧V)?$/);
+  await expect(page.locator('[data-paste-button]'), '「📋 ペースト」（末尾追記）は🗂に無い').toHaveCount(0);
   await expect(page.getByRole('button', { name: /✕ クリア/ }).filter({ visible: true }).first()).toBeVisible();
-  const pasteBtn = page.locator('[data-paste-button]').filter({ visible: true }).first();
-  await expect(pasteBtn).toBeVisible();
   const OLD = `[E2E] ${KB_TOKEN} もとの入力`;
   const CLIP = `[E2E] ${KB_TOKEN} クリップボードの内容`;
   await page.evaluate((t) => navigator.clipboard.writeText(t), CLIP);
-  // ⌘⇧V は何もしない（割り当てを外した）
+  // ① ボタン: 置き換え → Undo で戻る
   await textarea.fill(OLD);
+  await clearPasteBtn.click();
+  await expect(textarea, 'クリアして貼付＝クリップボードの内容だけになる').toHaveValue(CLIP);
+  await expect(page.getByText('クリアして貼り付けました').first()).toBeVisible();
+  const undo = page.getByRole('button', { name: '↩ 元に戻す' });
+  await expect(undo, '置き換えた直後は Undo が出る').toBeVisible();
+  await undo.click();
+  await expect(textarea, 'Undo で元の入力に戻る').toHaveValue(OLD);
+  // ② ⌘⇧V も同じ経路（同じ関数）
   await textarea.click();
   await page.keyboard.press('ControlOrMeta+Shift+v');
-  await page.waitForTimeout(300);
-  await expect(textarea, '⌘⇧V で入力が変わらない').toHaveValue(OLD);
-  // 📋 ペーストは末尾追記
+  await expect(textarea, '⌘⇧V で置き換わる').toHaveValue(CLIP);
+  // ③ 通常の ⌘V は壊していない（追記）
   await textarea.click();
   await page.keyboard.press('End');
-  await pasteBtn.click();
-  await expect(textarea, 'ペーストは追記（消さない）').toHaveValue(`${OLD}${CLIP}`);
-  // クリア → ペーストの2操作で置き換わる（機能は失われない）
-  await page.getByRole('button', { name: /✕ クリア/ }).filter({ visible: true }).first().click();
-  await expect(textarea).toHaveValue('');
-  await pasteBtn.click();
-  await expect(textarea, '2操作で置き換わる').toHaveValue(CLIP);
+  await page.keyboard.press('ControlOrMeta+v');
+  await expect(textarea, '⌘V は末尾に追記').toHaveValue(`${CLIP}${CLIP}`);
   // 🔭DR 側は不変（クリアして貼付が残る）
   await page.goto('/dashboard/deepresearch');
   await expect(page.locator('[data-clear-paste]').first()).toBeVisible({ timeout: 30000 });
 });
 
-test('C47: クリップボードを読めないときは入力を一切変更しない（270／313改訂・📋ペースト・権限拒否／iOSのキャンセル相当）', async ({
+test('C47: クリップボードを読めないときは入力を一切変更しない（270／313再改訂・📋クリアして貼付・権限拒否／iOSのキャンセル相当・R-76）', async ({
   browser,
 }) => {
   // 権限を与えないコンテキスト＝院長が読み取りを許可していない状態。
@@ -2046,12 +2049,12 @@ test('C47: クリップボードを読めないときは入力を一切変更し
     const OLD = `[E2E] ${KB_TOKEN} 権限なしのときの入力`;
     await textarea.fill(OLD);
     await expect(textarea, '「入力がある」という前提が成立していること').toHaveValue(OLD);
-    // 313改訂: 🗂 の「クリアして貼付」は廃止＝「📋 ペースト」で同じ経路（読めなければ何もしない・R-76）
-    await page.locator('[data-paste-button]').filter({ visible: true }).first().click();
+    // 313再改訂: 「📋 クリアして貼付」（読めなければ何もしない・R-76）
+    await page.locator('[data-clear-paste]').filter({ visible: true }).first().click();
 
     // 270の最重要要件: 読めなかったら**何もしない**（254はここでクリアまで実行していた）
     await expect(
-      page.getByText('クリップボードを読めませんでした').first(),
+      page.getByText('クリップボードを読み取れませんでした').first(),
       '読めなかったことを知らせ、代わりの操作を案内すること（黙って終わらせない）',
     ).toBeVisible();
     await expect(textarea, '読めなくても入力が消えないこと').toHaveValue(OLD);
@@ -2060,7 +2063,7 @@ test('C47: クリップボードを読めないときは入力を一切変更し
       '何も消していないのでUndoは出ないこと',
     ).toHaveCount(0);
 
-    // 313改訂: ⌘⇧V はこの画面に割り当てない＝何も起きない
+    // ⌘⇧V も同じ関数＝読めなければ何もしない
     await textarea.click();
     await page.keyboard.press('ControlOrMeta+Shift+v');
     await expect(textarea, 'キーでも入力が消えないこと').toHaveValue(OLD);
@@ -2156,18 +2159,16 @@ test('C48: 貼り付けで置き換える — DRだけが対象。テキスト�
     '置き換えていないのでUndoは出ないこと',
   ).toHaveCount(0);
 
-  // ── ⑦ テキスト分析は設定に関係なく「📋 ペースト」＝末尾追記のまま（313改訂で「クリアして貼付」は廃止） ──
+  // ── ⑦ テキスト分析は設定に関係なく「📋 クリアして貼付」＝置き換え（313再改訂で復元。「📋 ペースト」は無い） ──
   await page.goto('/dashboard/text-analysis');
   await waitForRunReady(page);
   const ta3 = page.getByPlaceholder('ここに分析したいテキストを貼り付けてください...');
   const OLD = `[E2E] ${KB_TOKEN} ボタン検証`;
   await ta3.fill(OLD);
   await expect(ta3).toHaveValue(OLD);
-  await expect(page.locator('[data-clear-paste]'), '🗂 に「クリアして貼付」は無い').toHaveCount(0);
-  await ta3.click();
-  await page.keyboard.press('End');
-  await page.locator('[data-paste-button]').filter({ visible: true }).first().click();
-  await expect(ta3, '「📋 ペースト」は末尾追記（設定の影響を受けない）').toHaveValue(`${OLD}${CLIP}`);
+  await expect(page.locator('[data-paste-button]'), '🗂 に「📋 ペースト」は無い').toHaveCount(0);
+  await page.locator('[data-clear-paste]').filter({ visible: true }).first().click();
+  await expect(ta3, '「📋 クリアして貼付」は置き換え（設定の影響を受けない）').toHaveValue(CLIP);
 
   // 後片付け（このブラウザコンテキストは使い捨てだが、設定を戻して終わる）
   await page.goto('/dashboard/display-settings');
@@ -2433,7 +2434,7 @@ test('C51: 分析タイプの折りたたみ — 既定は閉じ、畳んだ側�
 // hasTouch/isMobile の WebKit コンテキストで実機と同じ分岐に入る。
 // ============================================================================
 
-test('C52: iPhone相当（WebKit）— 🚀分析／✕クリア／📋ペーストが並び（313改訂・クリアして貼付は廃止）、読めないときも本文を壊さない（260/270）', async () => {
+test('C52: iPhone相当（WebKit）— 🚀分析／✕クリア／📋クリアして貼付が並び（313再改訂）、読めないときも本文を壊さない（260/270・R-76）', async () => {
   const browser = await webkit.launch();
   const ctx = await browser.newContext({
     storageState: STORAGE_STATE,
@@ -2455,11 +2456,12 @@ test('C52: iPhone相当（WebKit）— 🚀分析／✕クリア／📋ペース
     // ハイドレーション完了の合図。このボタンはクライアントの effect（端末判定）が済んで
     // 初めて出るため、キー併記の代わりに使える
     // （モバイルではキー併記を出さない仕様なので waitForRunReady は使えない・R-12）
-    const pasteButton = page.locator('[data-paste-button]');
-    await expect(pasteButton, '📋 ペーストが出ていること').toBeVisible({ timeout: 30000 });
+    const pasteButton = page.locator('[data-clear-paste]');
+    await expect(pasteButton, '📋 クリアして貼付が出ていること').toBeVisible({ timeout: 30000 });
 
-    // ── ① 313改訂: 「📋 クリアして貼付」は廃止（院長の実機判断）。実行ボタンが同じ行の先頭にある ──
-    await expect(page.locator('[data-clear-paste]'), '「📋 クリアして貼付」を出さないこと').toHaveCount(0);
+    // ── ① 313再改訂: 「📋 ペースト」（末尾追記）は🗂に無い。実行ボタンが同じ行の先頭にある ──
+    await expect(page.locator('[data-paste-button]'), '「📋 ペースト」を出さないこと').toHaveCount(0);
+    await expect(pasteButton, 'iPhoneではキー併記を出さないこと').toHaveText(/^📋 クリアして貼付$/);
     const runBtn = page.locator('[data-ta-actions] button[data-kb-run]');
     await expect(runBtn, '実行ボタンが操作行の中にある').toBeVisible();
     await expect(runBtn, 'iPhoneではキー併記を出さないこと').toHaveText(/^🚀 \d+件を分析$/);
@@ -2487,7 +2489,7 @@ test('C52: iPhone相当（WebKit）— 🚀分析／✕クリア／📋ペース
     );
     expect(pasteFields, '長押しを促す編集可能な欄が復活していないこと').toBe(0);
 
-    // ── ③ 313改訂: 「🚀 分析 → ✕ クリア → 📋 ペースト」の順に並ぶ。分析ボタンは他より大きい ──
+    // ── ③ 313再改訂: 「🚀 分析 → ✕ クリア → 📋 クリアして貼付」の順に並ぶ。分析ボタンは他より大きい ──
     const clearBtn = page.getByRole('button', { name: /✕ クリア/ });
     await expect(clearBtn, '✕ クリアが出ていること').toBeVisible();
     const xs = await Promise.all(
@@ -2499,7 +2501,7 @@ test('C52: iPhone相当（WebKit）— 🚀分析／✕クリア／📋ペース
     // 折り返した場合は行（y）で、同じ行なら x で並び順を見る（375px級では2行になり得る）
     const orderKey = (b: { x: number; y: number }) => b.y * 10000 + b.x;
     expect(orderKey(xs[0]), '🚀 分析が✕ クリアより前にあること').toBeLessThan(orderKey(xs[1]));
-    expect(orderKey(xs[1]), '✕ クリアが📋 ペーストより前にあること').toBeLessThan(orderKey(xs[2]));
+    expect(orderKey(xs[1]), '✕ クリアが📋 クリアして貼付より前にあること').toBeLessThan(orderKey(xs[2]));
     expect(xs[0].height, '分析ボタンは他より大きい').toBeGreaterThan(xs[1].height);
     // 3つとも画面幅に収まっていること（押せない位置に押し出されていない）
     const width = page.viewportSize()!.width;
@@ -2520,12 +2522,12 @@ test('C52: iPhone相当（WebKit）— 🚀分析／✕クリア／📋ペース
     await textarea.fill(OLD);
     await pasteButton.click();
     await expect(
-      page.getByText('クリップボードを読めませんでした').first(),
+      page.getByText('クリップボードを読み取れませんでした').first(),
       '読めなかったことを知らせ、代わりの操作を案内すること',
     ).toBeVisible({ timeout: 10000 });
-    await expect(textarea, '読めなくても本文は無傷であること').toHaveValue(OLD);
+    await expect(textarea, '読めなくても本文は無傷であること（R-76: 取得成功→クリア）').toHaveValue(OLD);
 
-    // ── ⑤-2 313改訂: 読めなかったときに何も消していないので Undo は出ない ──
+    // ── ⑤-2 読めなかったときに何も消していないので Undo は出ない ──
     await expect(
       page.getByRole('button', { name: '↩ 元に戻す' }),
       '何も消していないのでUndoは出ないこと',
@@ -2548,7 +2550,7 @@ test('C52: iPhone相当（WebKit）— 🚀分析／✕クリア／📋ペース
 // WebKit は clipboard-read の権限付与に対応していない（Playwrightの制約）ため、
 // **貼り付けが成功する側**はタッチ端末として扱った Chromium で確かめる。
 // 端末の出し分けは C52（WebKit）で押さえてあるので、ここは貼り付けの中身だけを見る。
-test('C54: タッチ端末で「✕ クリア」→「📋 ペースト」の2操作で置き換わる（259/260）', async ({
+test('C54: タッチ端末で「📋 クリアして貼付」の1操作で置き換わり Undo で戻る（259/260/313再改訂）', async ({
   browser,
 }) => {
   const ctx = await browser.newContext({
@@ -2567,25 +2569,24 @@ test('C54: タッチ端末で「✕ クリア」→「📋 ペースト」の2�
     await page.goto('/dashboard/text-analysis');
     const textarea = page.getByPlaceholder('ここに分析したいテキストを貼り付けてください...');
     await expect(textarea).toBeVisible({ timeout: 30000 });
-    const pasteButton = page.locator('[data-paste-button]');
-    await expect(pasteButton, 'タッチ端末では📋 ペーストが出ること').toBeVisible({ timeout: 30000 });
+    const clearPaste = page.locator('[data-clear-paste]');
+    await expect(clearPaste, 'タッチ端末でも📋 クリアして貼付が出ること').toBeVisible({ timeout: 30000 });
+    await expect(page.locator('[data-paste-button]'), '「📋 ペースト」は無い').toHaveCount(0);
 
     const OLD = `[E2E] ${RUN_ID} 前からあった本文`;
     const CLIP = `[E2E] ${RUN_ID} 貼り付ける内容`;
     await page.evaluate((t) => navigator.clipboard.writeText(t), CLIP);
 
-    // ── ① 「📋 ペースト」は**入れるだけ**（消さない）＝カーソル位置に足される ──
+    // ── ① 「📋 クリアして貼付」の1操作で置き換わる（読み取り成功→クリア→貼付・R-76）──
     await textarea.fill(OLD);
-    await textarea.click();
-    await page.keyboard.press('End');
-    await pasteButton.click();
-    await expect(textarea, '貼り付けは追記であること（黙って消さない）').toHaveValue(`${OLD}${CLIP}`);
+    await clearPaste.click();
+    await expect(textarea, '1操作で置き換わること').toHaveValue(CLIP);
 
-    // ── ② 「✕ クリア」→「📋 ペースト」の2操作で置き換えが完了する（259/260の主目的）──
-    await page.getByRole('button', { name: /✕ クリア/ }).click();
-    await expect(textarea, 'クリアで空になること').toHaveValue('');
-    await pasteButton.click();
-    await expect(textarea, '2操作で置き換わること').toHaveValue(CLIP);
+    // ── ② 直後の Undo で元に戻る ──
+    const undo = page.getByRole('button', { name: '↩ 元に戻す' });
+    await expect(undo, '置き換えた直後は Undo が出ること').toBeVisible();
+    await undo.click();
+    await expect(textarea, 'Undo で元の本文に戻ること').toHaveValue(OLD);
   } finally {
     await ctx.close();
   }
@@ -2593,7 +2594,7 @@ test('C54: タッチ端末で「✕ クリア」→「📋 ペースト」の2�
 
 // 270: デスクトップの📝テキスト分析も3ボタンにする（iOSと操作を揃える＝環境で出し分けない）。
 // 🔭ディープリサーチは対象外＝従来どおり（デスクトップに📋ペーストを出さない）。
-test('C53: デスクトップ — テキスト分析は🚀分析／✕クリア／📋ペースト（313改訂・クリアして貼付なし）、DRは従来どおり（259/270）', async ({ page }) => {
+test('C53: デスクトップ — テキスト分析は🚀分析／✕クリア／📋クリアして貼付（313再改訂・📋ペーストなし）、DRは従来どおり（259/270）', async ({ page }) => {
   await stubFeatureDrafts(page);
   await page.goto('/dashboard/text-analysis');
   await waitForRunReady(page);
@@ -2603,10 +2604,10 @@ test('C53: デスクトップ — テキスト分析は🚀分析／✕クリア
     '260で撤去した編集可能な貼り付け欄が復活していないこと',
   ).toHaveCount(0);
   await expect(
-    page.locator('[data-paste-button]').filter({ visible: true }).first(),
-    '270: デスクトップにも「📋 ペースト」を出すこと（iOSと同じ3ボタン）',
+    page.locator('[data-clear-paste]').filter({ visible: true }).first(),
+    '313再改訂: デスクトップにも「📋 クリアして貼付」を出すこと（iOSと同じ3ボタン）',
   ).toBeVisible();
-  await expect(page.locator('[data-clear-paste]'), '313改訂: テキスト分析に「📋 クリアして貼付」は無い').toHaveCount(0);
+  await expect(page.locator('[data-paste-button]'), '313再改訂: テキスト分析に「📋 ペースト」は無い').toHaveCount(0);
   await expect(page.locator('[data-ta-actions] button[data-kb-run]'), '実行ボタンが操作行の先頭').toBeVisible();
 
   // ディープリサーチ側は270の対象外＝259/260のまま（デスクトップに📋ペーストは出さない）
@@ -2624,7 +2625,7 @@ test('C53: デスクトップ — テキスト分析は🚀分析／✕クリア
 // ※ 実際に貼り付くか／iOSの確認をキャンセルしたときの挙動は C52（WebKit）と実機確認で見る
 // ============================================================================
 
-test('C67: テキスト分析の操作行 — 🚀分析→✕クリア→📋ペーストの順序・ラベル・⌘⌫クリア・「貼り付けで置き換える」を出さない（270・313改訂）', async ({
+test('C67: テキスト分析の操作行 — 🚀分析→✕クリア→📋クリアして貼付の順序・ラベル・⌘⌫クリア・「貼り付けで置き換える」を出さない（270・313再改訂）', async ({
   page,
 }) => {
   await stubFeatureDrafts(page);
@@ -2635,17 +2636,17 @@ test('C67: テキスト分析の操作行 — 🚀分析→✕クリア→📋�
 
   const textarea = page.getByPlaceholder('ここに分析したいテキストを貼り付けてください...');
   const clearBtn = page.getByRole('button', { name: /✕ クリア/ }).filter({ visible: true }).first();
-  const pasteBtn = page.locator('[data-paste-button]').filter({ visible: true }).first();
+  const pasteBtn = page.locator('[data-clear-paste]').filter({ visible: true }).first();
   const runBtn = page.locator('[data-ta-actions] button[data-kb-run]');
 
-  // ── ① 313改訂: 3つ（🚀分析・✕クリア・📋ペースト）が出ていて、「クリアして貼付」は無い ──
+  // ── ① 313再改訂: 3つ（🚀分析・✕クリア・📋クリアして貼付）が出ていて、「📋 ペースト」は無い ──
   await expect(runBtn).toBeVisible();
   await expect(clearBtn).toBeVisible();
   await expect(pasteBtn).toBeVisible();
-  await expect(page.locator('[data-clear-paste]')).toHaveCount(0);
-  await expect(pasteBtn).toHaveText(/^📋 ペースト$/);
+  await expect(page.locator('[data-paste-button]')).toHaveCount(0);
+  await expect(pasteBtn).toHaveText(/^📋 クリアして貼付 (⌘⇧V|Ctrl\+⇧V)$/);
 
-  // ── ② 並び順は 🚀分析 → ✕クリア → 📋ペースト ──
+  // ── ② 並び順は 🚀分析 → ✕クリア → 📋クリアして貼付 ──
   const boxes = await Promise.all([runBtn, clearBtn, pasteBtn].map((b) => b.boundingBox()));
   const orderKey = (b: { x: number; y: number }) => b.y * 10000 + b.x;
   expect(orderKey(boxes[0]!), '🚀 分析が先頭').toBeLessThan(orderKey(boxes[1]!));
@@ -10719,7 +10720,7 @@ test('C128: マンダラ 311是正 — 型プリセットの未記入マス（�
   }
 });
 
-test('C129: テキスト分析の実行ボタン配置（313改訂）— 狭幅（WebKit・iPhone幅・R-64）・広幅とも同じ配置: 🚀 がテキスト欄直下の操作行の先頭にあり（✕クリア→📋ペーストの順）、固定バーは出ず、下端にも無い・ボタンは同じ1要素・「クリアして貼付」が無い・📋ペーストは末尾追記・無効化＋理由（R-101）・件数表示不変', async ({ page }) => {
+test('C129: テキスト分析の実行ボタン配置（313再改訂）— 狭幅（WebKit・iPhone幅・R-64）・広幅とも同じ配置: 🚀 がテキスト欄直下の操作行の先頭にあり（✕クリア→📋クリアして貼付の順）、固定バーは出ず、下端にも無い・ボタンは同じ1要素・「📋 ペースト」が無い・無効化＋理由（R-101）・件数表示不変', async ({ page }) => {
   test.setTimeout(180_000);
   // ── 広幅（Chromium・既定ビューポート） ──
   await stubFeatureDrafts(page);
@@ -10729,7 +10730,8 @@ test('C129: テキスト分析の実行ボタン配置（313改訂）— 狭幅�
   await expect(runBtn, '実行ボタンは1要素').toHaveCount(1);
   await expect(page.locator('[data-sticky-action-bar]'), '固定バーを出さない').toHaveCount(0);
   await expect(page.locator('[data-ta-actions] button[data-kb-run]'), '操作行の中にある').toHaveCount(1);
-  await expect(page.locator('[data-clear-paste]'), '「クリアして貼付」は無い').toHaveCount(0);
+  await expect(page.locator('[data-ta-actions] [data-clear-paste]'), '「📋 クリアして貼付」が操作行にある').toHaveCount(1);
+  await expect(page.locator('[data-paste-button]'), '「📋 ペースト」は無い').toHaveCount(0);
   const textarea = page.getByPlaceholder('ここに分析したいテキストを貼り付けてください...');
   const ta = (await textarea.boundingBox())!;
   const btn = (await runBtn.boundingBox())!;
@@ -10753,18 +10755,19 @@ test('C129: テキスト分析の実行ボタン配置（313改訂）— 狭幅�
     await m.goto('/dashboard/text-analysis');
     const mta = m.getByPlaceholder('ここに分析したいテキストを貼り付けてください...');
     await expect(mta).toBeVisible({ timeout: 30000 });
-    await expect(m.locator('[data-paste-button]'), 'ハイドレーション完了の合図').toBeVisible({ timeout: 30000 });
+    await expect(m.locator('[data-clear-paste]'), 'ハイドレーション完了の合図').toBeVisible({ timeout: 30000 });
     await expect(m.locator('[data-sticky-action-bar]'), '狭幅でも固定バーを出さない').toHaveCount(0);
     await expect(m.locator('button[data-kb-run]'), 'ボタンは1要素だけ').toHaveCount(1);
     const mBtn = m.locator('[data-ta-actions] button[data-kb-run]');
     await expect(mBtn, '狭幅でも操作行の中').toBeVisible();
-    await expect(m.locator('[data-clear-paste]')).toHaveCount(0);
+    await expect(m.locator('[data-paste-button]')).toHaveCount(0);
     const mBox = (await mBtn.boundingBox())!;
     const mClear = (await m.getByRole('button', { name: /✕ クリア/ }).first().boundingBox())!;
-    const mPaste = (await m.locator('[data-paste-button]').first().boundingBox())!;
+    const mPaste = (await m.locator('[data-clear-paste]').first().boundingBox())!;
     const key = (b: { x: number; y: number }) => b.y * 10000 + b.x;
     expect(key(mBox), '🚀 が先頭').toBeLessThan(key(mClear));
-    expect(key(mClear), '✕ クリア → 📋 ペースト').toBeLessThan(key(mPaste));
+    expect(key(mClear), '✕ クリア → 📋 クリアして貼付').toBeLessThan(key(mPaste));
+    expect(mPaste.x + mPaste.width, 'クリアして貼付も画面の右外に出ない').toBeLessThanOrEqual(390);
     expect(mBox.height, '分析ボタンは他より大きい').toBeGreaterThan(mClear.height);
     expect(mBox.x + mBox.width, '画面の右外に出ない').toBeLessThanOrEqual(390);
     await expect(mBtn, '本文が空なら無効').toBeDisabled();

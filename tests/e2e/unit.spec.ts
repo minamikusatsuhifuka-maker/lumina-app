@@ -4449,11 +4449,15 @@ test('U84: テキスト分析の実行ボタン配置（313）— 狭幅は容�
   const panel = readFileSync(join(__dirname, '../../src/components/text-analysis/TextAnalysisPanel.tsx'), 'utf8');
   expect(panel.match(/data-kb-run/g)?.length, '実行ボタンは1要素（313改訂: 操作行の先頭に1つ）').toBe(1);
   expect(panel.match(/onClick=\{handleAnalyze\}/g)?.length, 'ハンドラは1つ（複製しない・R-88）').toBe(1);
-  // 313改訂: 固定バーとクリアして貼付はこの画面から撤去（部品 StickyActionBar と lib/clear-and-paste は残す＝🔭DR・横展開候補用）
+  // 313改訂: 固定バーはこの画面から撤去（部品 StickyActionBar は残す＝🔭DR・横展開候補用）
   expect(panel).not.toContain('StickyActionBar');
-  expect(panel).not.toContain('data-clear-paste');
-  expect(panel).not.toContain('clearAndPaste');
-  expect(panel).not.toContain('onClearPaste');
+  // 313再改訂（院長判断）: 「📋 クリアして貼付」を復元（ボタン＋⌘⇧V は同じ handleClearAndPaste・R-76 の順序は lib）。「📋 ペースト」は🗂から外す
+  expect(panel.match(/data-clear-paste/g)?.length, 'クリアして貼付は1つ').toBe(1);
+  expect(panel).toMatch(/onClick=\{\(\) => void handleClearAndPaste\(\)\}/);
+  expect(panel).toMatch(/onClearPaste: \(\) => void handleClearAndPaste\(\)/);
+  expect(panel).toMatch(/const result = await clearAndPaste\(\{/);
+  expect(panel).not.toContain('PasteButton');
+  expect(panel).not.toContain('data-paste-button');
   expect(panel).toMatch(/<span\s+data-ta-actions[^]*?\{runButton\}/);
   expect(panel).not.toMatch(/\{\/\* 実行ボタン \*\/\}/);
   const bar = readFileSync(join(__dirname, '../../src/components/StickyActionBar.tsx'), 'utf8');

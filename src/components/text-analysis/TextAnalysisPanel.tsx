@@ -44,7 +44,8 @@ import { useRunKeyHints, useRunShortcut } from '@/lib/shortcuts';
 // 270: 「貼り付けで置き換える」設定はこの画面では使わない（3ボタン構成と機能が重複するため）。
 // 設定そのもの・保存値・🔭ディープリサーチでの動作は残す（lib/paste-replace.ts）
 // 259/270: 「📋 ペースト」ボタン（270からは全端末に出す）
-import { PasteButton } from '@/components/TouchPaste';
+// 313再改訂（院長判断 2026/9/9 23:44）: 「📋 クリアして貼付」を復元（254/270・R-76）。「📋 ペースト」（末尾追記）は🗂から外す
+import { clearAndPaste, CLEAR_PASTE_MESSAGE } from '@/lib/clear-and-paste';
 import { isAutoStockSaveEnabled } from '@/lib/auto-stock-save';
 // 313改訂: 実行ボタンは狭幅・広幅とも**テキスト欄直下の行の先頭**（🚀 → ✕ クリア → 📋 ペースト）。固定バー（共通部品）はこの画面では使わない
 // （院長の実機判断: 追従バーは邪魔・フォーカス中の非表示で押せなくなる）。部品は横展開候補用に残す。無効化の理由は lib の純関数
@@ -825,6 +826,32 @@ export default function TextAnalysisPanel({
     stopUndoTimer();
   };
   useEffect(() => stopUndoTimer, []);
+  // 254/270/313再改訂: クリアして貼付（ボタンとキー ⌘⇧V で同じ関数を通す）。
+  // 読み取りに成功してからクリア→貼付（R-76）。読めなければ入力はそのまま・Undo も出さない
+  const [pasting, setPasting] = useState(false);
+  const handleClearAndPaste = async () => {
+    if (pasting || loading) return;
+    setPasting(true);
+    try {
+      const result = await clearAndPaste({
+        current: inputText,
+        setText: (next) => {
+          setInputText(next);
+          setAnalysisDone(false);
+        },
+        textareaRef: inputRef,
+        backup: (text) => {
+          setClearedText(text);
+          stopUndoTimer();
+          undoTimerRef.current = window.setTimeout(() => setClearedText(null), 10000);
+        },
+      });
+      const msg = CLEAR_PASTE_MESSAGE[result];
+      showToast(msg.text, msg.kind === 'success' ? 'success' : 'warning');
+    } finally {
+      setPasting(false);
+    }
+  };
 
   // ── 258【1】: 「その他の分析タイプ」の開閉 ──────────────────
   // 既定は閉じる。開閉は**保存しない**——「すっきりさせたい」が要望の中身なので、
@@ -848,7 +875,7 @@ export default function TextAnalysisPanel({
   // クリア→⌘V の2手を1手に。消えた内容は247と同じ Undo（10秒）で戻せる。
   // ボタンでもキー（⌘⇧V）でもこの関数を通す＝挙動が分かれない。
   const inputRef = useRef<HTMLTextAreaElement>(null);
-  // 313改訂: クリアして貼付の関数（254/270）は撤去。ペーストは PasteButton の末尾追記（R-76: 読み取り成功→貼付）だけ
+  // 313再改訂: クリアして貼付（254/270）を復元＝上の handleClearAndPaste（R-76: 読み取り成功→クリア→貼付）。末尾追記の「📋 ペースト」は🗂に置かない
 
   // 247: ⌘/Ctrl+Enter=分析実行 / ⌘/Ctrl+Backspace=入力クリア（248で2キー化）。
   // panelRef の可視判定で、タブ切替（display:none）中は発火しない。
@@ -863,7 +890,9 @@ export default function TextAnalysisPanel({
     onRun: () => void handleAnalyze(),
     canClear: !!inputText,
     onClear: handleClearInput,
-    // 313改訂: ⌘⇧V（クリアして貼付）はこの画面では割り当てない（機能ごと廃止）
+    // 254/313再改訂: ⌘⇧V＝クリアして貼付。入力が空でも「貼るだけ」に使えるので、クリアとは別条件（実行中だけ止める）
+    canClearPaste: !loading,
+    onClearPaste: () => void handleClearAndPaste(),
   });
   const keyHints = useRunKeyHints();
 
@@ -1177,8 +1206,8 @@ export default function TextAnalysisPanel({
           }}
         >
           <span>{inputText.length.toLocaleString()} 文字</span>
-          {/* 313改訂: 🚀 n件を分析（主ボタン） → ✕ クリア → 📋 ペースト の順（狭幅・広幅とも同じ配置。院長の実機判断）。
-              「📋 クリアして貼付」（254/270）は廃止＝クリア→ペーストの2操作で同じ結果。
+          {/* 313再改訂（院長判断 2026/9/9）: 🚀 n件を分析（主ボタン） → ✕ クリア → 📋 クリアして貼付 の順（狭幅・広幅とも同じ配置）。
+              313改訂で置いた「📋 ペースト」（末尾追記）は🗂から外し、「📋 クリアして貼付」（254/270・R-76）を復元。
               スマホの幅では折り返させる——押せない位置に押し出すより、2行になる方が事故が小さい */}
           <span
             data-ta-actions
@@ -1239,19 +1268,32 @@ export default function TextAnalysisPanel({
             >
               ✕ クリア{keyHints ? ` ${keyHints.clear}` : ''}
             </button>
-            {/* 259/270: 「📋 ペースト」＝入れるだけ（消さない）。
-                270からはカーソルのある端末にも出す（3ボタンを全環境で揃える） */}
-            <PasteButton
-              value={inputText}
-              setValue={(next) => {
-                setInputText(next);
-                setAnalysisDone(false);
+            {/* 254/270/313再改訂: クリア→貼り付けの2手を1手に。全端末に出す。
+                iOSで確認をキャンセルしても本文は消えない（clear-and-paste.ts・R-76） */}
+            <button
+              type="button"
+              data-clear-paste
+              onClick={() => void handleClearAndPaste()}
+              disabled={pasting || loading}
+              title={
+                keyHints
+                  ? `入力をクリアしてクリップボードを貼り付け（${keyHints.clearPaste}）／直後に「↩ 元に戻す」で戻せます`
+                  : '入力をクリアしてクリップボードを貼り付け（読み取れなかったときは入力をそのままにします）'
+              }
+              style={{
+                padding: '4px 10px',
+                fontSize: 12,
+                color: pasting || loading ? 'var(--text-muted)' : 'var(--text-secondary)',
+                background: 'transparent',
+                border: '1px solid var(--border)',
+                borderRadius: 6,
+                opacity: pasting || loading ? 0.5 : 1,
+                cursor: pasting || loading ? 'not-allowed' : 'pointer',
+                whiteSpace: 'nowrap',
               }}
-              targetRef={inputRef}
-              disabled={loading}
-              notify={(text, kind) => showToast(text, kind)}
-              showOnFinePointer
-            />
+            >
+              {pasting ? '⏳ 貼付中...' : `📋 クリアして貼付${keyHints ? ` ${keyHints.clearPaste}` : ''}`}
+            </button>
           </span>
         </div>
       </div>
