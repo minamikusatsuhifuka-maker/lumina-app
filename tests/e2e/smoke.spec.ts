@@ -10820,7 +10820,10 @@ test('C129: テキスト分析の実行ボタン配置（313）— 広幅: 🚀 
       sp.setAttribute('data-e2e-spacer', '1');
       sp.style.height = '2000px';
       main.appendChild(sp);
-      main.scrollTo({ top: 600 });
+      // スクロール要素は画面によって main か window（BackToTopButton は両方を見る）。両方を動かして両方に scroll を送る
+      main.scrollTop = 600;
+      window.scrollTo(0, 600);
+      main.dispatchEvent(new Event('scroll'));
       window.dispatchEvent(new Event('scroll'));
     });
     const up = m.locator('button[aria-label="ページの先頭へ戻る"]');
