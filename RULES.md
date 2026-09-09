@@ -1572,3 +1572,15 @@
 - 検証: 新タブ handoff は localStorage＋一回限りキー。E2E は `context.waitForEvent('page')` で新タブを掴み、渡した内容が
   描画される（`[data-pres-page]` 等）までを assert する。「開いた」だけで緑にしない。
 - 初出: 317 / 2026-09-09
+
+## R-122: dashboard の `<main>` は `overflowY: auto` だが高さが無く**実際にスクロールするのはウィンドウ**。main の中の `position: sticky` は main の scrollport 基準になり、ウィンドウのスクロールに追従しない。画面内に留めたい in-flow の帯は「置き場（anchor）が画面外に出たら fixed に切り替える」方式にし、left/width は anchor の視覚 px を zoom で戻して渡す（R-80）
+- 分類: UI
+- 背景: 318 の選択バーを `position: sticky; top: 0` で置いたところ、ローカルの目視では問題なく見えたが本番 E2E（C134）で
+  スクロール後にバーが流れた。実測: main の `scrollTop` は常に 0、`window.scrollY` だけが動く（main は overflow:auto の
+  「スクロール容器だが動かない箱」＝sticky の基準になるが、その箱ごとウィンドウで流れる）。
+  一方 `fixed` に置くと幅・左端が主カラムに揃わずサイドバーに被る（📚の旧・下部固定の楕円がそうだった）。
+- 検証: in-flow の anchor を残し（固定中は minHeight で高さを保つ＝一覧が跳ねない）、anchor の `getBoundingClientRect().top < 0`
+  で fixed へ、戻ったら sticky/in-flow へ。window と main の両方の scroll と ResizeObserver で更新。
+  E2E は「置き場が画面外に出る」状態を自分で作る（一覧を長くする＋判定中だけ viewport を低くする）。5件程度の一覧では
+  ページが伸びず、判定が一度も走らないまま緑になる。
+- 初出: 318 / 2026-09-09
