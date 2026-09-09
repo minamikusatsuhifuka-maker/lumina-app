@@ -328,6 +328,23 @@ export default function SavedAnalysisList({
 
   // ── 194: 一覧の自律フェッチ（175方式: 本文非返却・サーバ側フィルタ・offsetページング） ──
   const [records, setRecords] = useState<AnalysisRecord[]>([]);
+  // 315: 分析ごとの図解の件数（/api/visuals?mode=counts・失敗しても一覧は出す）
+  const [visualCounts, setVisualCounts] = useState<Record<string, number>>({});
+  useEffect(() => {
+    const ids = records.map((r) => String(r.id));
+    if (ids.length === 0) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const r = await fetch(`/api/visuals?mode=counts&scope=text_analysis&ids=${encodeURIComponent(ids.slice(0, 200).join(','))}`);
+        const j = (await r.json().catch(() => ({}))) as { counts?: Record<string, number> };
+        if (!cancelled && r.ok && j.counts) setVisualCounts(j.counts);
+      } catch {}
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [records]);
   const [listLoading, setListLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   // totalCount=フィルタ条件での総件数 / allTotal=全件母数 / serverFolders=全件のカテゴリ集計
@@ -2552,6 +2569,20 @@ export default function SavedAnalysisList({
               </button>
             )}
 
+            {/* 315 §3-1: 選んだ分析（最大3件）をまとめて1つの図解に（R-101: 超過は無効化＋理由） */}
+            {selectedIds.size >= 1 && (
+              <a
+                data-ta-visual-bulk
+                aria-disabled={selectedIds.size > 3 ? 'true' : undefined}
+                href={selectedIds.size > 3 ? undefined : `/dashboard/visuals?scope=text_analysis&ids=${encodeURIComponent(Array.from(selectedIds).map(String).join(','))}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                title={selectedIds.size > 3 ? `まとめて図解にできるのは3件までです（${selectedIds.size}件選択中。チェックを外して減らしてください）` : '選択した分析の本文をまとめて1つの図解にする（新しいタブ）'}
+                style={{ padding: '8px 14px', borderRadius: 8, border: '1px solid #0E7490', background: 'transparent', color: '#0E7490', fontSize: 12, fontWeight: 700, textDecoration: 'none', cursor: selectedIds.size > 3 ? 'not-allowed' : 'pointer', opacity: selectedIds.size > 3 ? 0.5 : 1 }}
+              >
+                🖼 まとめて図解
+              </a>
+            )}
             {/* 231: テキスト分析→Kindle素材化（ana-N名前空間でウィザード①へ） */}
             {selectedIds.size >= 1 && (
               <button
@@ -2824,6 +2855,18 @@ export default function SavedAnalysisList({
                       </span>
                       <CharCountBadge n={record.char_count ?? 0} />
                       <span>{new Date(record.created_at).toLocaleString('ja-JP')}</span>
+                      {/* 315: 図解生成の入口（?scope=text_analysis&id=）と「🖼 n」 */}
+                      <a
+                        data-ta-visual-open={record.id}
+                        href={`/dashboard/visuals?scope=text_analysis&id=${encodeURIComponent(String(record.id))}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        title="この本文から図解（表・フロー・比較・手順・概念図・イメージ）を作る（新しいタブ）"
+                        style={{ color: '#0E7490', textDecoration: 'none', whiteSpace: 'nowrap' }}
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        🖼 図解にする{(visualCounts[String(record.id)] ?? 0) > 0 ? <span data-ta-visual-count={visualCounts[String(record.id)]} style={{ marginLeft: 4, padding: '0 6px', borderRadius: 8, background: 'rgba(14,116,144,0.12)', fontWeight: 700 }}>🖼 {visualCounts[String(record.id)]}</span> : null}
+                      </a>
                       {record.folder && folderColor && (
                         <span
                           style={{

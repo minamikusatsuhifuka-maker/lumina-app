@@ -52,6 +52,10 @@ import * as mandalaResearch from '../../src/lib/mandala-research';
 // 311是正: mandala-shared は mandala-presets（@/ alias）を読むようになった＝動的 import() では解決できない（R-112）
 import * as mandalaShared from '../../src/lib/mandala-shared';
 import * as stickyBar from '../../src/lib/sticky-action-bar';
+import * as visuals from '../../src/lib/visuals';
+import * as visualTemplates from '../../src/lib/visual-templates';
+import { estimateImageCost, imageCostActual, IMAGE_PRICING_CHECKED_ON, IMAGE_MODEL_IDS } from '../../src/lib/model-pricing';
+import { IMAGE_GUARD_SUFFIX_WITH_TEXT, guardImagePromptWithText } from '../../src/lib/image-guards';
 import * as mandalaX from '../../src/lib/mandala-x';
 import { KINDLE_TASTES, KINDLE_TASTE_KEYS, KINDLE_TASTE_GUARD, KINDLE_SCORE_AXES } from '../../src/lib/kindle-taste';
 import {
@@ -3437,8 +3441,10 @@ test('U74: サイドバーのメニュー検索・追加順・新着・合流（
   // 追加順: 新しい順・同日は定義順・入力は不変
   const sorted = ns.sortByAddedDesc(ni.ALL_NAV_ITEMS);
   // 306 で「ホーム編集」（2026-09-09）が最新になった
-  expect(sorted[0].href).toBe('/dashboard/settings/menu');
-  expect(sorted[1].href).toBe('/dashboard/mandala');
+  // 315: 図解生成（2026-09-09・コンテンツ作成）が同日のホーム編集（管理・設定）より定義順で先
+  expect(sorted[0].href).toBe('/dashboard/visuals');
+  expect(sorted[1].href).toBe('/dashboard/settings/menu');
+  expect(sorted[2].href).toBe('/dashboard/mandala');
   for (let i = 1; i < sorted.length; i++) expect(sorted[i - 1].addedAt >= sorted[i].addedAt).toBe(true);
   const sameDay = sorted.filter((i) => i.addedAt === '2026-03-22').map((i) => i.href);
   expect(sameDay).toEqual(ni.ALL_NAV_ITEMS.filter((i) => i.addedAt === '2026-03-22').map((i) => i.href));
@@ -4538,4 +4544,121 @@ test('U85: 並列比較の確認ダイアログ・費用/所要時間の目安�
   expect(page).toMatch(/data-kb-run\s+onClick=\{\(\) => research\(\)\}/);
   expect(page, '列ごとに1本の fetch（モデルをまとめない）').toMatch(/sides\.map\(\(side\) => runCompareSide\(side, q, runId\)\)/);
   expect((page.match(/fetch\('\/api\/deepresearch',/g) ?? []).length, '比較の fetch は runCompareSide の1箇所').toBe(1);
+});
+
+test('U86: 記事→図解（315）— 元テキストに無い語句の検出（正規化・2文字以上・部分一致）と編集後の再判定・ビフォーアフター型は候補から弾く・NG表現（決定的）で描けない・5種テンプレートの描画文字列がプランと完全一致（固定記号と番号を除く）・同じ入力→同じ要素木（決定的）・折り返しは行数で見積もる（R-72）・向きの最小高さ・イメージのプロンプト（既定は文字なし・aiText はプランの文字列をそのまま）と専用ガード（医療3条項は同文）・GPT Image 2.5 の単価と確認日・費用の目安・冪等キー・保存の出どころ（settings.visual）・サイドバー登録＋addedAt（R-84）', async () => {
+  const v = visuals;
+  const t = visualTemplates;
+  const src = '朝の保湿は洗顔のあと5分以内に行う。化粧水をなじませてから乳液で蓋をする。夜はクレンジングのあとに同じ手順。週に1回は角質ケアを足す。冬は加湿器で室内の湿度を保つ。';
+  const plan: import('../../src/lib/visuals').VisualPlan = { id: 'v1', type: 'steps', title: '朝の保湿', groups: [{ points: ['洗顔のあと5分以内に行う', '化粧水をなじませて', '乳液で蓋をする'] }] };
+  // ① 実在しない語句（正規化＝空白・記号・全半角を無視）
+  expect(v.findForeignPhrases(plan, src)).toEqual([]);
+  expect(v.findForeignPhrases({ ...plan, groups: [{ points: ['洗顔の あと５分以内に行う'] }] }, src), '空白・全角数字の違いは同一視').toEqual([]);
+  expect(v.findForeignPhrases({ ...plan, title: '朝のスキンケア' }, src), '言い換えは検出').toEqual(['朝のスキンケア']);
+  expect(v.findForeignPhrases({ ...plan, groups: [{ heading: '効果', points: ['必ず治る'] }] }, src)).toEqual(['効果', '必ず治る']);
+  expect(v.findForeignPhrases({ ...plan, groups: [{ points: ['5'] }] }, src), '1文字は実在扱い').toEqual([]);
+  const c1 = v.checkPlan({ ...plan, title: '朝のスキンケア' }, src);
+  expect(c1.ok).toBe(false);
+  expect(v.planBlockReason(c1)).toBe(v.VISUAL_BLOCK_REASON_FOREIGN);
+  expect(v.checkPlan(plan, src).ok, '直せば描ける（再判定）').toBe(true);
+  // NG表現（決定的・content-verify）
+  const cBanned = v.checkPlan({ ...plan, groups: [{ points: ['必ず治る'] }] }, `${src} 必ず治る`);
+  expect(cBanned.banned.length).toBeGreaterThan(0);
+  expect(v.planBlockReason(cBanned)).toBe(v.VISUAL_BLOCK_REASON_BANNED);
+  expect(v.planBlockReason(v.checkPlan({ ...plan, title: '', groups: [] }, src))).toBe(v.VISUAL_BLOCK_REASON_EMPTY);
+  // ② AI 出力の検証: 型・ビフォーアフター・上限
+  const parsed = v.parseVisualPlans({ visuals: [
+    { type: 'steps', title: '朝の保湿', groups: [{ points: ['a', 'b'] }] },
+    { type: 'beforeafter', title: '前後', groups: [{ points: ['x'] }, { points: ['y'] }] },
+    { type: 'nope', title: 'x', groups: [{ points: ['x'] }] },
+    { type: 'image', title: '冬の保湿', groups: [{ points: ['加湿器'] }], imagePrompt: '冬の部屋' },
+    { type: 'table', title: '', groups: [] },
+  ] });
+  expect(parsed.plans.map((p) => p.type)).toEqual(['steps', 'image']);
+  expect(parsed.plans[1].imagePrompt).toBe('冬の部屋');
+  expect(parsed.rejected.map((r) => r.reason)[0]).toContain('ビフォーアフター');
+  expect(v.parseVisualPlans({ visuals: Array.from({ length: 9 }, (_, i) => ({ type: 'flow', title: `t${i}`, groups: [{ points: ['p'] }] })) }).plans.length, '上限6').toBe(6);
+  // ③ 5種テンプレート: 描画文字列＝プランの文字列（固定記号・番号を除く）・決定的
+  const plans: import('../../src/lib/visuals').VisualPlan[] = [
+    { id: 't', type: 'table', title: '保湿の比較表', groups: [{ heading: '朝', points: ['化粧水', '乳液'] }, { heading: '夜', points: ['クレンジング', '乳液'] }] },
+    { id: 'f', type: 'flow', title: '朝の流れ', groups: [{ points: ['洗顔', '化粧水', '乳液', '日焼け止め', '仕上げ'] }] },
+    { id: 'c', type: 'compare', title: '朝と夜', groups: [{ heading: '朝', points: ['5分以内'] }, { heading: '夜', points: ['クレンジング'] }] },
+    { id: 's', type: 'steps', title: '手順', groups: [{ heading: '基本', points: ['洗顔', '化粧水'] }] },
+    { id: 'k', type: 'concept', title: '保湿', groups: [{ heading: '朝', points: ['洗顔'] }, { heading: '夜', points: ['クレンジング'] }, { heading: '週1', points: ['角質ケア'] }] },
+  ];
+  for (const p of plans) {
+    for (const o of v.VISUAL_ORIENTATIONS) {
+      const a = t.buildVisualElement(p, o);
+      const verified = t.verifyRenderedText(p, a.element);
+      expect(verified, `${p.type}/${o} の文字列が一致`).toMatchObject({ ok: true, missing: [], extra: [] });
+      expect(JSON.stringify(t.buildVisualElement(p, o)), '同じ入力→同じ要素木').toBe(JSON.stringify(a));
+      expect(a.canvas.width).toBe(v.VISUAL_CANVAS_WIDTH[o]);
+      expect(a.canvas.height, '向きの最小高さ').toBeGreaterThanOrEqual(v.minCanvasHeight(o));
+    }
+  }
+  const longPlan = { ...plans[3], groups: [{ points: Array.from({ length: 8 }, (_, i) => String.fromCharCode(0x3042 + i).repeat(120)) }] };
+  expect(t.estimateVisualHeight(longPlan, 'landscape'), '長い要素は行数ぶん高くなる（省略しない・R-72）').toBeGreaterThan(t.estimateVisualHeight(plans[3], 'landscape'));
+  expect(v.wrapText('あいうえおかきくけこ', 4)).toEqual(['あいうえ', 'おかきく', 'けこ']);
+  expect(v.lineCount('', 10)).toBe(1);
+  // 重ね: 画像の上にタイトルと文字。文字列はプランどおり
+  const imgPlan: import('../../src/lib/visuals').VisualPlan = { id: 'i', type: 'image', title: '冬の保湿', groups: [{ heading: '加湿器', points: ['湿度を保つ'] }] };
+  const overlay = t.buildOverlayElement(imgPlan, 'data:image/png;base64,AAAA', { width: 1536, height: 1024 });
+  expect(t.collectElementText(overlay)).toEqual(['冬の保湿', '加湿器', '湿度を保つ']);
+  expect(JSON.stringify(overlay)).toContain('data:image/png;base64,AAAA');
+  // ④ イメージのプロンプト: 既定は文字なし・aiText はそのまま列挙。ガードは後勝ち（サーバで連結）・専用ガードの医療3条項は同文
+  const p0 = v.buildVisualImagePrompt(imgPlan, { aiText: false, extraPrompt: '' });
+  expect(p0).toContain(v.VISUAL_IMAGE_NO_TEXT_RULE);
+  expect(p0).not.toContain('【文字列】');
+  const p1 = v.buildVisualImagePrompt(imgPlan, { aiText: true, extraPrompt: '青を基調' });
+  expect(p1).toContain('【文字列】');
+  expect(p1).toContain('- 冬の保湿');
+  expect(p1).toContain('- 湿度を保つ');
+  expect(p1).toContain('追加の指示: 青を基調');
+  expect(guardImagePrompt(p0).endsWith(IMAGE_GUARD_SUFFIX)).toBe(true);
+  expect(guardImagePromptWithText(p1).endsWith(IMAGE_GUARD_SUFFIX_WITH_TEXT)).toBe(true);
+  const medical = '実在の人物や特定できる顔を描かない。患部・症状の写実的描写や効果効能を示唆する演出をしない。';
+  expect(IMAGE_GUARD_SUFFIX).toContain(medical);
+  expect(IMAGE_GUARD_SUFFIX_WITH_TEXT, '医療の条項は同文（緩和なし）').toContain(medical);
+  expect(IMAGE_GUARD_SUFFIX_WITH_TEXT).toContain('一字一句');
+  // ⑤ 単価・確認日・費用の目安（決定的）・冪等キー
+  expect(IMAGE_PRICING_CHECKED_ON).toBe('2026-09-09');
+  expect(IMAGE_MODEL_IDS.flare).toBe('gpt-image-2.5-flare');
+  const e = estimateImageCost('medium', 'landscape', 200);
+  expect(e.outputTokens).toBe(1584);
+  expect(e.usd).toBeCloseTo((1584 / 1e6) * 30 + (200 / 1e6) * 5, 8);
+  expect(estimateImageCost('low', 'square', 0).usd).toBeCloseTo(0.00816, 6);
+  expect(estimateImageCost('high', 'square', 0).usd).toBeCloseTo(0.1248, 6);
+  expect(estimateImageCost('medium', 'landscape', 200)).toEqual(e);
+  expect(imageCostActual({ output_tokens: 1000, input_tokens: 100, input_tokens_details: { text_tokens: 100, image_tokens: 0 } })).toBeCloseTo(0.03 + 0.0005, 8);
+  expect(imageCostActual(null)).toBeNull();
+  const settings = { ...v.VISUAL_IMAGE_DEFAULT_SETTINGS };
+  expect(v.visualImageIdempotencyKey(imgPlan, settings)).toBe(v.visualImageIdempotencyKey({ ...imgPlan }, { ...settings }));
+  expect(v.visualImageIdempotencyKey(imgPlan, settings)).not.toBe(v.visualImageIdempotencyKey(imgPlan, { ...settings, quality: 'high' }));
+  // ⑥ 出どころ（settings.visual・キー単位）・保存名・件数ラベル・結合
+  const gs = v.buildVisualGallerySettings({ kind: 'render', plan, orientation: 'landscape', sources: [{ scope: 'library', id: '12', title: '記事A' }], width: 1600, height: 900, model: 'og-render', generatedAt: '2026-09-09T00:00:00.000Z' });
+  expect(gs.visual.sourceKeys).toEqual(['library:12']);
+  expect(gs.size).toBe('1600x900');
+  expect(v.visualSaveTitle(plan, 'image-original')).toContain('（元画像）');
+  expect(v.visualCountLabel(3)).toBe('🖼 3');
+  expect(v.joinVisualSources([{ scope: 'library', id: '1', title: 'A' }, { scope: 'library', id: '2', title: 'B' }], ['本文A', '本文B'])).toBe('# A\n\n本文A\n\n---\n\n# B\n\n本文B');
+  expect(v.VISUAL_SOURCE_MAX_ITEMS).toBe(3);
+  expect(v.buildVisualPlanPrompt('本文').prompt).toContain('beforeafter を使わない');
+  // ⑦ サイドバー登録（R-84）・ソース固定（R-108: 純関数は DB を読まない）
+  const ni = await import('../../src/lib/nav-items');
+  const item = ni.ALL_NAV_ITEMS.find((i) => i.href === '/dashboard/visuals');
+  expect(item, 'サイドバーに登録されている').toBeTruthy();
+  expect(item?.addedAt).toBe('2026-09-09');
+  for (const f of ['visuals.ts', 'visual-templates/index.ts', 'model-pricing.ts']) {
+    const srcFile = readFileSync(join(__dirname, `../../src/lib/${f}`), 'utf8');
+    expect(srcFile).not.toMatch(/from '@\/lib\/(db|mandala-server|visuals-server)'/);
+  }
+  const imageRoute = readFileSync(join(__dirname, '../../src/app/api/visuals/image/route.ts'), 'utf8');
+  expect(imageRoute, 'ガードはサーバで後から連結（R-69）').toMatch(/settings\.aiText \? guardImagePromptWithText\(buildVisualImagePrompt\(plan, settings\)\) : guardImagePrompt\(buildVisualImagePrompt\(plan, settings\)\)/);
+  expect(imageRoute).toMatch(/IMAGE_TIMEOUT_MS = 240_000/);
+  expect(imageRoute).toContain('export const maxDuration = 300;');
+  const openaiImage = readFileSync(join(__dirname, '../../src/lib/openai-image.ts'), 'utf8');
+  expect(openaiImage).not.toMatch(/from 'openai'/);
+  expect(openaiImage).not.toMatch(/console\.[a-z]+\([^)]*apiKey/);
+  const gallery = readFileSync(join(__dirname, '../../src/app/api/gallery/route.ts'), 'utf8');
+  expect(gallery, '保存元はオプトイン（既定は従来の image-gen）').toContain("const source = body.source === 'visuals' ? 'visuals' : 'image-gen';");
 });

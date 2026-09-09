@@ -65,6 +65,7 @@ export const navCategories: NavCategory[] = [
     category: 'コンテンツ作成',
     items: [
       { href: '/dashboard/text-analysis', label: 'テキスト分析', icon: '📝', addedAt: '2026-05-06' },
+      { href: '/dashboard/visuals', label: '図解生成', icon: '🖼', addedAt: '2026-09-09' },
       { href: '/dashboard/proofread', label: 'テキスト校正', icon: '🔎', addedAt: '2026-06-17' },
       { href: '/dashboard/scheduling', label: '日程調整', icon: '🗓️', addedAt: '2026-06-17' },
       { href: '/dashboard/write', label: '文章作成', icon: '✍️', addedAt: '2026-03-22' },

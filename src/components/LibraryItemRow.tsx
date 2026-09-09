@@ -141,6 +141,8 @@ interface Props {
   // 291 §3-2: 表示密度。detail（既定＝従来どおり）／compact＝バッジとタイトルのみ（フォルダ・操作ボタンを出さず高さを抑える）。
   // compact のみ対応。成果物タブ（種別＋文字数のバッジ＝選択の口）と展開本文は密度に関わらず出す（R-88 オプトイン）
   density?: ListDensity;
+  // 315: この資料から作った図解の件数（呼び出し側が /api/visuals?mode=counts で導出して渡す）。未指定は出さない
+  visualCount?: number;
 }
 
 export function LibraryItemRow({
@@ -164,6 +166,7 @@ export function LibraryItemRow({
   artifacts,
   linkKind = null,
   density = 'detail',
+  visualCount,
 }: Props) {
   const meta = parseMetadata(item.metadata);
   const subCategory: string | undefined = typeof meta?.subCategory === 'string' ? meta.subCategory : undefined;
@@ -396,6 +399,18 @@ export function LibraryItemRow({
               🔲 {mandalaXOriginLabel(mandalaX)}
             </a>
           )}
+          {/* 315: 図解生成の入口（?scope=library&id=）と「🖼 n」（出どころから導出） */}
+          <a
+            data-library-visual-open={cur.id}
+            href={`/dashboard/visuals?scope=library&id=${encodeURIComponent(String(cur.id))}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            title="この本文から図解（表・フロー・比較・手順・概念図・イメージ）を作る（新しいタブ）"
+            style={{ color: '#0E7490', textDecoration: 'none', whiteSpace: 'nowrap' }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            🖼 図解にする{typeof visualCount === 'number' && visualCount > 0 ? <span data-library-visual-count={visualCount} style={{ marginLeft: 4, padding: '0 6px', borderRadius: 8, background: 'rgba(14,116,144,0.12)', fontWeight: 700 }}>🖼 {visualCount}</span> : null}
+          </a>
         </div>
 
         {/* 2行目: タイトル（★は常時表示） */}

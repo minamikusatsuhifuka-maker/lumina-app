@@ -924,3 +924,36 @@ test('B35: モデル比較の GPT-6 Astra 側（314）— compare:"gpt" で実�
   expect(tag, `HTMLタグが本文に出ないこと（検出: ${tag?.[0] ?? '無し'}）`).toBeNull();
   expectNoPreamble(text, 'B35');
 });
+
+test('B36: 記事→図解（315）— プラン抽出（Gemini）が本文の語句だけで JSON を返しビフォーアフター型が無い。キーがあれば GPT Image 2.5（gpt-image-2.5-flare）で1枚生成→文字を重ねた完成PNGと元画像が返る @gen', async ({ request }) => {
+  test.setTimeout(GEN_TIMEOUT);
+  const text = '朝の保湿は洗顔のあと5分以内に行う。化粧水をなじませてから乳液で蓋をする。夜はクレンジングのあとに同じ手順で保湿する。週に1回は角質ケアを足す。冬は加湿器で室内の湿度を保つ。乾燥が強い日は保湿剤を重ねづけする。';
+  const planRes = await request.post('/api/visuals/plan', { data: { text }, timeout: REQ_TIMEOUT });
+  expect(planRes.status()).toBe(200);
+  const plan = (await planRes.json()) as { plans: { id: string; type: string; title: string; groups: { heading?: string; points: string[] }[] }[]; checks: Record<string, { foreign: string[] }> };
+  expect(plan.plans.length, '候補が返る').toBeGreaterThan(0);
+  expect(plan.plans.every((p) => p.type !== 'beforeafter'), 'ビフォーアフター型が無い').toBe(true);
+  const foreignTotal = plan.plans.reduce((n, p) => n + (plan.checks[p.id]?.foreign.length ?? 0), 0);
+  console.log(`[B36] plans=${plan.plans.length} types=${plan.plans.map((p) => p.type).join(',')} foreign=${foreignTotal}`);
+  const status = (await (await request.get('/api/visuals?mode=status')).json()) as { gptImage: boolean };
+  if (!status.gptImage) {
+    console.log('[B36] OPENAI_API_KEY 未設定＝画像はスキップ');
+    return;
+  }
+  const imgPlan = { id: 'b36', type: 'image', title: '朝の保湿', groups: [{ points: ['乳液で蓋をする'] }], imagePrompt: '洗面台と朝の光' };
+  const t0 = Date.now();
+  const res = await request.post('/api/visuals/image', { data: { plan: imgPlan, sourceText: text, settings: { orientation: 'landscape', quality: 'low', aiText: false, extraPrompt: '', model: 'flare' } }, timeout: REQ_TIMEOUT });
+  const json = (await res.json()) as { originalBase64?: string; finalBase64?: string; width?: number; height?: number; model?: string; costUsd?: number | null; error?: string; unavailable?: boolean };
+  if (res.status() !== 200 && json.unavailable) {
+    console.log(`[B36] GPT Image 2.5 は未提供: ${json.error}`);
+    expect(json.error).toContain('まだ提供されていません');
+    return;
+  }
+  expect(res.status(), `画像生成が 200: ${json.error ?? ''}`).toBe(200);
+  expect(json.model).toBe('gpt-image-2.5-flare');
+  expect((json.originalBase64?.length ?? 0) > 1000, '元画像が返る').toBe(true);
+  expect((json.finalBase64?.length ?? 0) > 1000, '完成画像が返る').toBe(true);
+  expect(json.finalBase64 !== json.originalBase64, '文字を重ねた完成画像は元画像と別').toBe(true);
+  expect(json.width).toBe(1536);
+  console.log(`[B36] GPT Image 2.5 low landscape: ${Date.now() - t0}ms / cost ${json.costUsd ?? 'n/a'}`);
+});

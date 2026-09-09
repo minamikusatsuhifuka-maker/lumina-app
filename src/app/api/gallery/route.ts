@@ -122,6 +122,8 @@ export async function POST(req: NextRequest) {
     const settings =
       body.settings && typeof body.settings === 'object' ? body.settings : {};
     const title = String(body.title ?? '').trim() || prompt.slice(0, 60) || '無題の画像';
+    // 315: 保存元（source）をオプトインで受ける。未指定は従来どおり 'image-gen'（R-88）
+    const source = body.source === 'visuals' ? 'visuals' : 'image-gen';
     const parsed = parseSize((settings as { size?: unknown }).size);
     const width = Number(body.width) || parsed.width;
     const height = Number(body.height) || parsed.height;
@@ -139,7 +141,7 @@ export async function POST(req: NextRequest) {
         (id, owner, blob_url, pathname, prompt, settings, title, source, width, height, bytes)
       VALUES
         (${id}, ${userId}, ${url}, ${pathname}, ${prompt},
-         ${JSON.stringify(settings)}::jsonb, ${title}, 'image-gen',
+         ${JSON.stringify(settings)}::jsonb, ${title}, ${source},
          ${width}, ${height}, ${buffer.length})
       RETURNING id, blob_url, pathname, prompt, settings, title, source,
                 width, height, bytes, created_at

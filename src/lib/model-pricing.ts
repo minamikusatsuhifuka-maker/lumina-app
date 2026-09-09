@@ -9,7 +9,7 @@
 // - 所要時間の目安は実測ベース（library.metadata.elapsedMs の完走分: Gemini 19〜31秒／Opus 119〜286秒）。GPT は未計測＝null。
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-import { CLAUDE_OPUS_MODEL, GEMINI_TEXT_MODEL, OPENAI_GPT_MODEL } from '@/lib/ai-models';
+import { CLAUDE_OPUS_MODEL, GEMINI_TEXT_MODEL, OPENAI_GPT_MODEL, OPENAI_IMAGE_25_FLARE, OPENAI_IMAGE_25_SUNBURST } from '@/lib/ai-models';
 import { jstDateString } from '@/lib/jst';
 
 /** 単価を確認した日（画面に添える） */
@@ -141,4 +141,47 @@ export function estimatedSecondsLabel(modelId: string, depth: string): string {
   const m = Math.floor(s / 60);
   const r = s % 60;
   return r === 0 ? `約${m}分` : `約${m}分${r}秒`;
+}
+
+// ───────────────────────────────────────────────────────────────────────────
+// 315: GPT Image 2.5 の単価（トークン制・2026/9/9 確認）。テキスト入力 $5／画像入力 $8／画像出力 $30（各 1M tokens）
+// 1枚の目安＝出力トークン（品質×サイズ・GPT Image 系の公開値）×$30/1M ＋ プロンプト文字数×$5/1M
+// ───────────────────────────────────────────────────────────────────────────
+
+export const IMAGE_PRICING_CHECKED_ON = '2026-09-09';
+export const IMAGE_UNIT_PRICES = { textInputPerM: 5, imageInputPerM: 8, imageOutputPerM: 30 } as const;
+export const IMAGE_MODEL_IDS = { flare: OPENAI_IMAGE_25_FLARE, sunburst: OPENAI_IMAGE_25_SUNBURST } as const;
+export type ImageQualityKey = 'low' | 'medium' | 'high';
+export type ImageAspectKey = 'square' | 'landscape' | 'portrait';
+/** 画像出力トークン（品質×サイズ）。1024×1024 / 1536×1024 / 1024×1536（GPT Image 系の公開値） */
+export const IMAGE_OUTPUT_TOKENS: Record<ImageQualityKey, Record<ImageAspectKey, number>> = {
+  low: { square: 272, landscape: 408, portrait: 400 },
+  medium: { square: 1056, landscape: 1584, portrait: 1568 },
+  high: { square: 4160, landscape: 6240, portrait: 6208 },
+};
+
+export interface ImageCostEstimate {
+  outputTokens: number;
+  promptTokens: number;
+  usd: number;
+}
+
+/** 1枚の目安（決定的・R-74）。promptChars は日本語 1文字≈1トークンで保守的に */
+export function estimateImageCost(quality: ImageQualityKey, aspect: ImageAspectKey, promptChars: number): ImageCostEstimate {
+  const outputTokens = IMAGE_OUTPUT_TOKENS[quality][aspect];
+  const promptTokens = Math.max(0, Math.floor(promptChars));
+  const usd = (outputTokens / 1_000_000) * IMAGE_UNIT_PRICES.imageOutputPerM + (promptTokens / 1_000_000) * IMAGE_UNIT_PRICES.textInputPerM;
+  return { outputTokens, promptTokens, usd };
+}
+
+/** 実績（API の usage が取れたとき）。取れなければ null＝出さない */
+export function imageCostActual(usage: { input_tokens?: number; output_tokens?: number; input_tokens_details?: { image_tokens?: number; text_tokens?: number } } | null | undefined): number | null {
+  if (!usage || typeof usage.output_tokens !== 'number') return null;
+  const textIn = usage.input_tokens_details?.text_tokens ?? usage.input_tokens ?? 0;
+  const imageIn = usage.input_tokens_details?.image_tokens ?? 0;
+  return (usage.output_tokens / 1_000_000) * IMAGE_UNIT_PRICES.imageOutputPerM + (textIn / 1_000_000) * IMAGE_UNIT_PRICES.textInputPerM + (imageIn / 1_000_000) * IMAGE_UNIT_PRICES.imageInputPerM;
+}
+
+export function imagePricingNote(): string {
+  return `目安・上限ではありません。単価は ${IMAGE_PRICING_CHECKED_ON} 確認（画像出力 $${IMAGE_UNIT_PRICES.imageOutputPerM}/1M tokens）`;
 }

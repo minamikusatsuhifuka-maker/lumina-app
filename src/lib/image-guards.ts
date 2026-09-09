@@ -24,6 +24,18 @@ export function imagePromptRules(subject: string): string {
 export const IMAGE_GUARD_SUFFIX =
   '【厳守】画像内に文字・ロゴ・数字を入れない。実在の人物や特定できる顔を描かない。患部・症状の写実的描写や効果効能を示唆する演出をしない。';
 
+// 315: 「AIに文字も描かせる」（オプトイン）専用のガード。医療の3条項は IMAGE_GUARD_SUFFIX と**同文**のまま、
+// 文字の条項だけ「示した文字列を一字一句そのまま・それ以外の文字は入れない」に置き換える（医療ガードの緩和はしない）。
+// 既定（文字を重ねる方式）は従来の guardImagePrompt をそのまま使う＝既存経路は不変（R-88）。
+export const IMAGE_GUARD_SUFFIX_WITH_TEXT =
+  '【厳守】画像内の文字は、プロンプトに【文字列】として示したものだけを一字一句そのまま描き、それ以外の文字・ロゴ・数字を入れない。実在の人物や特定できる顔を描かない。患部・症状の写実的描写や効果効能を示唆する演出をしない。';
+
+export function guardImagePromptWithText(prompt: string): string {
+  const p = prompt.trim();
+  if (p.includes(IMAGE_GUARD_SUFFIX_WITH_TEXT)) return p;
+  return `${p}\n\n${IMAGE_GUARD_SUFFIX_WITH_TEXT}`;
+}
+
 // 261d: 生成直前のプロンプトへガードを連結する（サーバ側で常時付与＝226承認条件）。
 // 既にガードが含まれていれば二重連結しない（起案済みプロンプトの再送・履歴からの再利用に備える）。
 export function guardImagePrompt(prompt: string): string {

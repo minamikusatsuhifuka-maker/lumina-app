@@ -29,6 +29,10 @@ export const CLAUDE_OPUS_MODEL_LABEL = 'Opus 5';
 // キー（OPENAI_API_KEY）は環境変数から読むだけ（未設定なら比較ダイアログで無効化）。通常DR・バッチ・311の発注には使わない
 export const OPENAI_GPT_MODEL = 'gpt-6-astra';
 export const OPENAI_GPT_MODEL_LABEL = 'GPT-6 Astra';
+// ── 315: GPT Image 2.5（図解生成のイメージ画像）。2026/9/9 リリース・提供はアカウントごとに順次（314 と同じ扱い）
+export const OPENAI_IMAGE_25_FLARE = 'gpt-image-2.5-flare';
+export const OPENAI_IMAGE_25_SUNBURST = 'gpt-image-2.5-sunburst';
+export const OPENAI_IMAGE_25_LABEL = 'GPT Image 2.5';
 /** 1世代前のOpus。比較枠に残して「上位モデルの世代差」も見えるようにする */
 export const CLAUDE_OPUS_PREV_MODEL = 'claude-opus-4-8';
 export const CLAUDE_OPUS_PREV_MODEL_LABEL = 'Opus 4.8';

@@ -153,6 +153,8 @@ function LibraryPageInner() {
   }, [searchParams]);
 
   const [items, setItems] = useState<any[]>([]);
+  // 315: 資料ごとの図解の件数（image_gallery.settings.visual.sourceKeys から導出・/api/visuals?mode=counts）
+  const [visualCounts, setVisualCounts] = useState<Record<string, number>>({});
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [searchScope, setSearchScope] = useState<'current' | 'all'>('current');
@@ -240,6 +242,27 @@ function LibraryPageInner() {
         setLoading(false);
       });
   }, []);
+
+  // 315: 「🖼 n」は保存済みの図解から導出（失敗しても一覧は出す・fire-and-forget）
+  useEffect(() => {
+    const ids = items.map((it) => String(it.id)).filter(Boolean);
+    if (ids.length === 0) return;
+    let cancelled = false;
+    (async () => {
+      const merged: Record<string, number> = {};
+      for (let i = 0; i < ids.length; i += 200) {
+        try {
+          const r = await fetch(`/api/visuals?mode=counts&scope=library&ids=${encodeURIComponent(ids.slice(i, i + 200).join(','))}`);
+          const j = (await r.json().catch(() => ({}))) as { counts?: Record<string, number> };
+          if (r.ok && j.counts) Object.assign(merged, j.counts);
+        } catch {}
+      }
+      if (!cancelled) setVisualCounts(merged);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [items]);
 
   // サイドバーから ?tab=... 付きで再訪したときにも追従させる
   useEffect(() => {
@@ -916,6 +939,7 @@ function LibraryPageInner() {
         clickToExpand
         // 291 §3-2: 表示密度（既定 detail＝従来）
         density={listDensity}
+        visualCount={visualCounts[String(item.id)]}
       />
 
       {editingId === item.id && (
@@ -1501,6 +1525,18 @@ function LibraryPageInner() {
             style={{ padding: '6px 16px', borderRadius: 99, background: '#ccfbf1', color: '#115e59', border: '1px solid rgba(13,148,136,0.6)', cursor: purposeBulkState_.enabled ? 'pointer' : 'not-allowed', fontSize: 13, fontWeight: 700, opacity: purposeBulkState_.enabled ? 1 : 0.6 }}>
             🎯 用途
           </button>
+          {/* 315 §3-1: 選んだ資料（最大3件）をまとめて1つの図解に（R-101: 超過は無効化＋理由） */}
+          <a
+            data-library-visual-bulk
+            aria-disabled={selectedIds.size > 3 ? 'true' : undefined}
+            href={selectedIds.size > 3 ? undefined : `/dashboard/visuals?scope=library&ids=${encodeURIComponent(Array.from(selectedIds).map(String).join(','))}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            title={selectedIds.size > 3 ? `まとめて図解にできるのは3件までです（${selectedIds.size}件選択中。チェックを外して減らしてください）` : '選択した資料の本文をまとめて1つの図解にする（新しいタブ）'}
+            style={{ padding: '6px 16px', borderRadius: 99, background: selectedIds.size > 3 ? 'rgba(255,255,255,0.5)' : '#fff', color: '#0E7490', textDecoration: 'none', fontSize: 12, fontWeight: 700, cursor: selectedIds.size > 3 ? 'not-allowed' : 'pointer', opacity: selectedIds.size > 3 ? 0.6 : 1 }}
+          >
+            🖼 まとめて図解
+          </a>
           <button onClick={generateMergeReport} disabled={merging || selectedIds.size < 2}
             style={{ padding: '6px 16px', borderRadius: 99, background: '#fff', color: '#6c63ff', border: 'none', cursor: merging || selectedIds.size < 2 ? 'not-allowed' : 'pointer', fontSize: 13, fontWeight: 700, opacity: merging || selectedIds.size < 2 ? 0.6 : 1 }}>
             {merging ? '分析中...' : '🔗 AIでまとめる'}

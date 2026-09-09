@@ -6,8 +6,12 @@ export interface GallerySaveInput {
   imageBase64: string;
   prompt: string;
   // settings.model に生成モデル名を入れて記録する（image_gallery のスキーマ変更は不要・171）
-  settings?: { size?: string; quality?: string; model?: string };
+  settings?: { size?: string; quality?: string; model?: string } | Record<string, unknown>;
   title?: string;
+  // 315: 保存元（'visuals'）。未指定は従来どおり image-gen
+  source?: 'image-gen' | 'visuals';
+  width?: number;
+  height?: number;
 }
 
 // 保存後にサーバが返す画像メタ（/api/gallery POST の RETURNING と同形）

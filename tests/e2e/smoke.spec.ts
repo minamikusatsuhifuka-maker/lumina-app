@@ -11025,3 +11025,150 @@ test('C130: 並列比較の確認ダイアログ・独立実行・GPT-6 Astra（
   expect(posts.length - n0).toBe(1);
   expect(posts[posts.length - 1].compare).toBeUndefined();
 });
+
+test('C131: 記事→図解（315）— 📚🗂の行の「🖼 図解にする」で元テキストを受けて開く・貼り付けでも使える・プラン（モック）の「元テキストに無い語句」に赤い印が付き直すまで描けない（編集で再判定）・決定的描画（AIなし・実描画）が PNG を出し文字一致の機械判定と保存（source=visuals・settings.visual）・元テキストの行に「🖼 n」・画像生成の確認ダイアログに費用の目安/枚数/確認日が出て「やめる」でリクエスト0・二重発火で1回・キーの有無で GPT Image 2.5 の無効化（環境で分岐）・未提供（モック）はその枚だけ失敗・「AIに文字も描かせる」で並べて表示と目視確認の1文・まとめて図解は3件まで（R-101）', async ({ page }) => {
+  test.setTimeout(240_000);
+  const marker = `VIS${RUN_ID}`;
+  const body = `朝の保湿は洗顔のあと5分以内に行う。化粧水をなじませてから乳液で蓋をする。夜はクレンジングのあとに同じ手順。週に1回は角質ケアを足す。冬は加湿器で室内の湿度を保つ。識別子 ${marker}`;
+  const libId = await createLibraryItem(api, { title: `${marker} 図解元`, content: body, type: 'deepresearch' });
+  const saveId = await createSave(api, { title: `${marker} 分析元`, content: body });
+  const galleryIds: string[] = [];
+  const status = (await (await api.get('/api/visuals?mode=status')).json()) as { gptImage: boolean; blob: boolean };
+  expect(status.blob, 'Blob が使える（保存の前提）').toBe(true);
+  // プラン抽出は AI をモック（判定はコード側＝本番の純関数で行われる）
+  await page.route('**/api/visuals/plan', (route) =>
+    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ plans: [
+      { id: 'v1', type: 'steps', title: '朝のスキンケア', groups: [{ points: ['洗顔のあと5分以内に行う', '化粧水をなじませて', '乳液で蓋をする'] }] },
+      { id: 'v2', type: 'compare', title: '朝と夜', groups: [{ heading: '朝', points: ['5分以内'] }, { heading: '夜', points: ['クレンジング'] }] },
+      { id: 'v3', type: 'image', title: '冬は加湿器で室内の湿度を保つ', groups: [{ points: ['角質ケア'] }], imagePrompt: '冬の部屋' },
+    ], rejected: ['ビフォーアフター型は候補に出さない'], ranAt: new Date().toISOString() }) }),
+  );
+  try {
+    // ── ① 入口: 📚の行 → 元テキストを受けて開く ──
+    await page.goto('/dashboard/library');
+    const openLink = page.locator(`[data-library-visual-open="${libId}"]`);
+    await expect(openLink).toBeVisible({ timeout: 30000 });
+    expect(await openLink.getAttribute('href')).toBe(`/dashboard/visuals?scope=library&id=${libId}`);
+    await expect(page.locator(`[data-library-visual-open="${libId}"] [data-library-visual-count]`), 'まだ図解は無い').toHaveCount(0);
+    await page.goto(`/dashboard/visuals?scope=library&id=${libId}`);
+    const source = page.locator('[data-vis-source]');
+    await expect(source).toHaveValue(new RegExp(marker), { timeout: 30000 });
+    await expect(page.locator('[data-vis-sources]')).toHaveAttribute('data-vis-sources', '1');
+    // ── ② プラン: 実在しない語句に赤い印 → 直すと描ける（再判定） ──
+    await page.locator('[data-vis-extract]').click();
+    await expect(page.locator('[data-vis-plan]')).toHaveCount(3, { timeout: 15000 });
+    await expect(page.locator('[data-vis-rejected]')).toContainText('ビフォーアフター');
+    const p1 = page.locator('[data-vis-plan="v1"]');
+    await expect(p1).toHaveAttribute('data-vis-plan-ok', '0');
+    await expect(p1.locator('[data-vis-foreign="v1"]'), 'タイトルの言い換えが赤い印').toHaveText('朝のスキンケア');
+    await expect(p1.locator('[data-vis-render="v1"]')).toBeDisabled();
+    await expect(p1.locator('[data-vis-block-reason="v1"]')).toContainText('元テキストに無い語句');
+    await p1.locator('[data-vis-title="v1"]').fill('朝の保湿');
+    await expect(p1, '直すと ok').toHaveAttribute('data-vis-plan-ok', '1');
+    await expect(p1.locator('[data-vis-foreign="v1"]')).toHaveCount(0);
+    await expect(p1.locator('[data-vis-render="v1"]')).toBeEnabled();
+    // NG表現を入れると描けない（決定的）
+    await p1.locator('[data-vis-points="v1-0"]').fill('洗顔のあと5分以内に行う\n必ず治る');
+    await expect(p1).toHaveAttribute('data-vis-plan-ok', '0');
+    await expect(p1.locator('[data-vis-foreign="v1"]').first()).toHaveText('必ず治る');
+    await p1.locator('[data-vis-points="v1-0"]').fill('洗顔のあと5分以内に行う\n化粧水をなじませて\n乳液で蓋をする');
+    await expect(p1).toHaveAttribute('data-vis-plan-ok', '1');
+    // ── ③ 決定的描画（実描画・AIなし）→ PNG・文字一致の機械判定・保存（source=visuals） ──
+    await p1.locator('[data-vis-render="v1"]').click();
+    const r1 = page.locator('[data-vis-result="v1"]');
+    await expect(r1).toBeVisible({ timeout: 60000 });
+    await expect(r1).toHaveAttribute('data-vis-verified', '1');
+    await expect(r1.locator('[data-vis-text-verified]')).toContainText('完全一致');
+    await expect(r1, '保存済み').toHaveAttribute('data-vis-saved', '1', { timeout: 30000 });
+    const g1 = await r1.getAttribute('data-vis-gallery-id');
+    expect(g1).toBeTruthy();
+    galleryIds.push(g1!);
+    const src1 = await r1.locator('[data-vis-result-img="v1"]').getAttribute('src');
+    expect(src1?.startsWith('data:image/png;base64,')).toBe(true);
+    expect((src1?.length ?? 0) > 5000, 'PNG が空でない').toBe(true);
+    const gal = (await (await api.get('/api/gallery?limit=5')).json()) as { images: { id: string; source: string; settings: { visual?: { sourceKeys?: string[]; kind?: string; plan?: { title?: string } } }; width: number; height: number }[] };
+    const row = gal.images.find((im) => im.id === g1)!;
+    expect(row.source).toBe('visuals');
+    expect(row.settings.visual?.sourceKeys).toEqual([`library:${libId}`]);
+    expect(row.settings.visual?.kind).toBe('render');
+    expect(row.settings.visual?.plan?.title).toBe('朝の保湿');
+    expect(row.width).toBe(1600);
+    // compare 型も描ける（別テンプレート）
+    await page.locator('[data-vis-render="v2"]').click();
+    await expect(page.locator('[data-vis-result="v2"]')).toHaveAttribute('data-vis-saved', '1', { timeout: 60000 });
+    galleryIds.push((await page.locator('[data-vis-result="v2"]').getAttribute('data-vis-gallery-id'))!);
+    // ── ④ 元テキストの行に「🖼 n」（出どころから導出） ──
+    await page.goto('/dashboard/library');
+    await expect(page.locator(`[data-library-visual-open="${libId}"] [data-library-visual-count]`)).toHaveAttribute('data-library-visual-count', '2', { timeout: 30000 });
+    // ── ⑤ 🗂の行の入口・貼り付けでも使える ──
+    await page.goto('/dashboard/text-analysis?tab=saved');
+    const taLink = page.locator(`[data-ta-visual-open="${saveId}"]`);
+    await expect(taLink).toBeVisible({ timeout: 30000 });
+    expect(await taLink.getAttribute('href')).toBe(`/dashboard/visuals?scope=text_analysis&id=${saveId}`);
+    await page.goto('/dashboard/visuals');
+    await expect(page.locator('[data-vis-source]')).toHaveValue('');
+    await page.locator('[data-vis-source]').fill(body);
+    await page.locator('[data-vis-extract]').click();
+    await expect(page.locator('[data-vis-plan]')).toHaveCount(3, { timeout: 15000 });
+    // ── ⑥ イメージ: 確認ダイアログ（費用・枚数・確認日）・やめるでリクエスト0・キーの有無で分岐・二重発火・未提供・aiText の並べて表示 ──
+    const imgPosts: unknown[] = [];
+    await page.route('**/api/visuals/image', async (route) => {
+      const b = route.request().postDataJSON() as { settings?: { aiText?: boolean }; plan?: { title?: string } };
+      imgPosts.push(b);
+      await new Promise((r) => setTimeout(r, 300));
+      if (imgPosts.length === 1) {
+        await route.fulfill({ status: 400, contentType: 'application/json', body: JSON.stringify({ error: 'GPT Image 2.5（gpt-image-2.5-flare）はこのアカウントではまだ提供されていません（API 提供は順次）。', unavailable: true }) });
+        return;
+      }
+      const png = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==';
+      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ originalBase64: png, finalBase64: png, width: 1536, height: 1024, model: 'gpt-image-2.5-flare', costUsd: 0.0479, generatedAt: new Date().toISOString(), deduplicated: false }) });
+    });
+    const p3 = page.locator('[data-vis-plan="v3"]');
+    await expect(p3).toHaveAttribute('data-vis-plan-ok', '1');
+    const imgBtn = p3.locator('[data-vis-image="v3"]');
+    if (!status.gptImage) {
+      await expect(imgBtn, 'キー未設定なら無効化＋「未設定」').toBeDisabled();
+      await expect(imgBtn).toHaveAttribute('data-vis-image-unavailable', '1');
+      await expect(imgBtn).toContainText('未設定');
+      await expect(page.locator('[data-vis-render="v1"]'), '決定的描画は動く').toBeEnabled();
+    } else {
+      await expect(imgBtn).toBeEnabled({ timeout: 15000 });
+      await imgBtn.click();
+      const dlg = page.locator('[data-vis-image-dialog]');
+      await expect(dlg).toBeVisible();
+      await expect(dlg.locator('[data-vis-image-dialog-cost]')).toContainText(/約 \$\d+\.\d{2}|\$0\.01 未満/);
+      await expect(dlg.locator('[data-vis-image-dialog-count]')).toHaveText('1');
+      await expect(dlg).toContainText('2026-09-09 確認');
+      await expect(dlg.locator('[data-vis-image-dialog-model]')).toHaveText('gpt-image-2.5-flare');
+      await dlg.locator('[data-vis-image-cancel]').click();
+      await expect(dlg).toHaveCount(0);
+      expect(imgPosts.length, 'やめるではリクエスト0').toBe(0);
+      // 未提供（モック）: その枚だけ失敗
+      await imgBtn.click();
+      await dlg.locator('[data-vis-image-start]').evaluate((el) => { (el as HTMLButtonElement).click(); (el as HTMLButtonElement).click(); });
+      await expect(p3.locator('[data-vis-error="v3"]')).toContainText('まだ提供されていません', { timeout: 15000 });
+      await expect(p3.locator('[data-vis-error="v3"]')).toHaveAttribute('data-vis-error-unavailable', '1');
+      expect(imgPosts.length, '二重発火で1回').toBe(1);
+      await expect(page.locator('[data-vis-plan="v1"]'), '他の候補は影響なし').toHaveAttribute('data-vis-plan-ok', '1');
+      // aiText: 並べて表示と目視確認の1文（2回目の応答は成功のモック）
+      await p3.locator('[data-vis-aitext]').check();
+      await imgBtn.click();
+      await dlg.locator('[data-vis-image-start]').click();
+      const r3 = page.locator('[data-vis-result="v3"]');
+      await expect(r3).toBeVisible({ timeout: 15000 });
+      await expect(r3.locator('[data-vis-aitext-check="v3"]')).toContainText('目視確認');
+      await expect(r3.locator('[data-vis-aitext-check="v3"] li').first()).toHaveText('冬は加湿器で室内の湿度を保つ');
+      await expect(r3.locator('[data-vis-cost-actual]')).toContainText('約 $0.05');
+      await expect(r3, '元画像と完成画像が保存される').toHaveAttribute('data-vis-saved', '1', { timeout: 30000 });
+      galleryIds.push((await r3.getAttribute('data-vis-gallery-id'))!, (await r3.getAttribute('data-vis-original-id'))!);
+      expect((imgPosts[1] as { settings?: { aiText?: boolean } }).settings?.aiText).toBe(true);
+    }
+    // ── ⑦ まとめて図解（上限3・R-101） ──
+    const many = (await (await api.get('/api/visuals?mode=source&scope=library&ids=1,2,3,4')).json()) as { error?: string };
+    expect(many.error).toContain('3件まで');
+  } finally {
+    for (const id of galleryIds) await api.delete(`/api/gallery/${id}`).catch(() => {});
+    await api.delete(LIBRARY_API, { data: { ids: [libId] } }).catch(() => {});
+    await api.patch('/api/text-analysis/saves', { data: { action: 'delete', id: saveId } }).catch(() => {});
+  }
+});
