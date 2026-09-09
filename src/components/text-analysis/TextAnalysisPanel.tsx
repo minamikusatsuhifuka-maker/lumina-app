@@ -39,17 +39,16 @@ import FeatureDraftBanner from '@/components/FeatureDraftBanner';
 import { TextRefinePanel } from '@/components/refine/TextRefinePanel';
 import FullscreenReader from '@/components/text-analysis/FullscreenReader';
 import { useRunKeyHints, useRunShortcut } from '@/lib/shortcuts';
-// 254: クリアして貼付（ボタンとキーで同じ関数を通す）
-import { clearAndPaste, CLEAR_PASTE_MESSAGE } from '@/lib/clear-and-paste';
+// 313改訂: 「📋 クリアして貼付」は院長の実機判断で廃止（クリア→ペーストの2操作で同じ結果）。lib/clear-and-paste は 🔭DR で引き続き使う
 // 255: 「貼り付けたら前の内容を置き換える」（iOSで追加タップを出さずに1操作にする）
 // 270: 「貼り付けで置き換える」設定はこの画面では使わない（3ボタン構成と機能が重複するため）。
 // 設定そのもの・保存値・🔭ディープリサーチでの動作は残す（lib/paste-replace.ts）
 // 259/270: 「📋 ペースト」ボタン（270からは全端末に出す）
 import { PasteButton } from '@/components/TouchPaste';
 import { isAutoStockSaveEnabled } from '@/lib/auto-stock-save';
-// 313: 実行ボタンの配置（狭幅＝下部固定バー／広幅＝テキスト欄と分析タイプの間）。判定は lib の純関数、バーは共通部品
-import StickyActionBar from '@/components/StickyActionBar';
-import { isStickyBarNarrow, isTextEntryTarget, runDisabledReason, shouldShowStickyBar, stickyBarReserve } from '@/lib/sticky-action-bar';
+// 313改訂: 実行ボタンは狭幅・広幅とも**テキスト欄直下の行の先頭**（🚀 → ✕ クリア → 📋 ペースト）。固定バー（共通部品）はこの画面では使わない
+// （院長の実機判断: 追従バーは邪魔・フォーカス中の非表示で押せなくなる）。部品は横展開候補用に残す。無効化の理由は lib の純関数
+import { runDisabledReason } from '@/lib/sticky-action-bar';
 
 // 215: 「全」は高さプリセットではなく FullscreenReader（保存一覧と同じ全画面ビューア）を
 // 開くボタンに変更。panelHeight は触らないため、閉じた後は押下前の S/M/L に自動復帰する
@@ -849,62 +848,13 @@ export default function TextAnalysisPanel({
   // クリア→⌘V の2手を1手に。消えた内容は247と同じ Undo（10秒）で戻せる。
   // ボタンでもキー（⌘⇧V）でもこの関数を通す＝挙動が分かれない。
   const inputRef = useRef<HTMLTextAreaElement>(null);
-  const [pasting, setPasting] = useState(false);
-  const handleClearAndPaste = async () => {
-    if (pasting || loading) return;
-    setPasting(true);
-    try {
-      const result = await clearAndPaste({
-        current: inputText,
-        setText: (next) => {
-          setInputText(next);
-          setAnalysisDone(false);
-        },
-        textareaRef: inputRef,
-        backup: (text) => {
-          setClearedText(text);
-          stopUndoTimer();
-          undoTimerRef.current = window.setTimeout(() => setClearedText(null), 10000);
-        },
-      });
-      const msg = CLEAR_PASTE_MESSAGE[result];
-      showToast(msg.text, msg.kind === 'success' ? 'success' : 'warning');
-    } finally {
-      setPasting(false);
-    }
-  };
+  // 313改訂: クリアして貼付の関数（254/270）は撤去。ペーストは PasteButton の末尾追記（R-76: 読み取り成功→貼付）だけ
 
   // 247: ⌘/Ctrl+Enter=分析実行 / ⌘/Ctrl+Backspace=入力クリア（248で2キー化）。
   // panelRef の可視判定で、タブ切替（display:none）中は発火しない。
   // 「✏️ AIで修正」モーダル表示中も発火しない（refineTarget）
   const panelRef = useRef<HTMLDivElement>(null);
   const canAnalyze = !loading && !!inputText.trim() && selectedTypes.size > 0;
-  // 313: 狭幅（主カラムの幅・ResizeObserver）／キーボード中（テキスト入力にフォーカス）／バーの実測高さ
-  const [narrow, setNarrow] = useState(false);
-  const [editing, setEditing] = useState(false);
-  const [barHeight, setBarHeight] = useState(0);
-  useEffect(() => {
-    const el = panelRef.current;
-    if (!el || typeof ResizeObserver === 'undefined') return;
-    const apply = () => setNarrow(isStickyBarNarrow(el.getBoundingClientRect().width));
-    apply();
-    const ro = new ResizeObserver(apply);
-    ro.observe(el);
-    return () => ro.disconnect();
-  }, []);
-  useEffect(() => {
-    const el = panelRef.current;
-    if (!el) return;
-    const onIn = (e: FocusEvent) => { if (isTextEntryTarget(e.target as HTMLElement | null)) setEditing(true); };
-    const onOut = (e: FocusEvent) => { if (isTextEntryTarget(e.target as HTMLElement | null)) setEditing(false); };
-    el.addEventListener('focusin', onIn);
-    el.addEventListener('focusout', onOut);
-    return () => {
-      el.removeEventListener('focusin', onIn);
-      el.removeEventListener('focusout', onOut);
-    };
-  }, []);
-  const showBar = shouldShowStickyBar(narrow, editing);
   const runReason = runDisabledReason({ loading, hasText: !!inputText.trim(), typeCount: selectedTypes.size });
   useRunShortcut({
     containerRef: panelRef,
@@ -913,9 +863,7 @@ export default function TextAnalysisPanel({
     onRun: () => void handleAnalyze(),
     canClear: !!inputText,
     onClear: handleClearInput,
-    // 254: 入力が空でも「貼るだけ」に使えるので、クリアとは別条件（実行中だけ止める）
-    canClearPaste: !loading,
-    onClearPaste: () => void handleClearAndPaste(),
+    // 313改訂: ⌘⇧V（クリアして貼付）はこの画面では割り当てない（機能ごと廃止）
   });
   const keyHints = useRunKeyHints();
 
@@ -1117,17 +1065,19 @@ export default function TextAnalysisPanel({
       onClick={handleAnalyze}
       disabled={!canAnalyze}
       title={runReason ?? (keyHints ? `分析を実行（${keyHints.run}）` : '分析を実行')}
+      // 313改訂: 行の先頭の主ボタン＝他の2つ（クリア・ペースト）より大きく塗りつぶしで目立たせる
       style={{
-        padding: '10px 24px',
+        padding: '10px 22px',
         borderRadius: 10,
         background: 'var(--accent)',
         color: '#fff',
         border: 'none',
-        fontSize: 13,
-        fontWeight: 600,
+        fontSize: 14,
+        fontWeight: 700,
         cursor: canAnalyze ? 'pointer' : 'not-allowed',
         opacity: canAnalyze ? 1 : 0.5,
         whiteSpace: 'nowrap',
+        boxShadow: canAnalyze ? '0 4px 12px rgba(108,99,255,0.3)' : 'none',
       }}
     >
       {loading
@@ -1137,7 +1087,7 @@ export default function TextAnalysisPanel({
   );
 
   return (
-    <div ref={panelRef} data-sticky-narrow={narrow ? '1' : '0'} data-sticky-reserve={showBar ? stickyBarReserve(barHeight) : 0} style={{ display: 'flex', flexDirection: 'column', gap: 16, paddingBottom: showBar ? stickyBarReserve(barHeight) : 0 }}>
+    <div ref={panelRef} style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
       {/* 自動下書きからの復元バナー */}
       {restoredAt && (
         <FeatureDraftBanner restoredAt={restoredAt} onClear={handleClearDraft} />
@@ -1227,18 +1177,25 @@ export default function TextAnalysisPanel({
           }}
         >
           <span>{inputText.length.toLocaleString()} 文字</span>
-          {/* 270: ✕ クリア → 📋 ペースト → 📋 クリアして貼付 の順に並べる（指示書§3-1の表と同じ順）。
-              スマホの幅（375px前後）では3つが1行に収まらないので折り返させる
-              ——押せない位置に押し出すより、2行になる方が事故が小さい */}
+          {/* 313改訂: 🚀 n件を分析（主ボタン） → ✕ クリア → 📋 ペースト の順（狭幅・広幅とも同じ配置。院長の実機判断）。
+              「📋 クリアして貼付」（254/270）は廃止＝クリア→ペーストの2操作で同じ結果。
+              スマホの幅では折り返させる——押せない位置に押し出すより、2行になる方が事故が小さい */}
           <span
+            data-ta-actions
             style={{
               display: 'inline-flex',
               alignItems: 'center',
               justifyContent: 'flex-end',
               flexWrap: 'wrap',
-              gap: 6,
+              gap: 8,
             }}
           >
+            {runButton}
+            {progress && (
+              <span data-ta-progress style={{ fontSize: 12, color: 'var(--text-muted)' }}>
+                {progress}
+              </span>
+            )}
             {/* 247: クリア直後だけ出る Undo（10秒）。確認ダイアログの代わり */}
             {clearedText !== null && (
               <button
@@ -1295,47 +1252,9 @@ export default function TextAnalysisPanel({
               notify={(text, kind) => showToast(text, kind)}
               showOnFinePointer
             />
-            {/* 254/270: クリア→貼り付けの2手を1手に。全端末に出す（258の端末別の出し分けは270で撤回）。
-                iOSで確認をキャンセルしても本文は消えない（clear-and-paste.ts・R-76） */}
-            <button
-              type="button"
-              data-clear-paste
-              onClick={() => void handleClearAndPaste()}
-              disabled={pasting || loading}
-              title={
-                keyHints
-                  ? `入力をクリアしてクリップボードを貼り付け（${keyHints.clearPaste}）／直後に「↩ 元に戻す」で戻せます`
-                  : '入力をクリアしてクリップボードを貼り付け（読み取れなかったときは入力をそのままにします）'
-              }
-              style={{
-                padding: '4px 10px',
-                fontSize: 12,
-                color: pasting || loading ? 'var(--text-muted)' : 'var(--text-secondary)',
-                background: 'transparent',
-                border: '1px solid var(--border)',
-                borderRadius: 6,
-                opacity: pasting || loading ? 0.5 : 1,
-                cursor: pasting || loading ? 'not-allowed' : 'pointer',
-                whiteSpace: 'nowrap',
-              }}
-            >
-              {pasting ? '⏳ 貼付中...' : `📋 クリアして貼付${keyHints ? ` ${keyHints.clearPaste}` : ''}`}
-            </button>
           </span>
         </div>
       </div>
-
-      {/* 313 §2-2: 広幅ではテキスト欄と分析タイプの間に実行ボタン（院長の要望）。狭幅は固定バーがあるので置かない（二重にしない） */}
-      {!narrow && (
-        <div data-ta-run-inline style={{ display: 'flex', alignItems: 'center', gap: 12, marginTop: -4 }}>
-          {runButton}
-          {progress && (
-            <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>
-              {progress}
-            </span>
-          )}
-        </div>
-      )}
 
       {/* 分析タイプ選択 */}
       <div
@@ -1471,20 +1390,6 @@ export default function TextAnalysisPanel({
           )}
         </div>
       </div>
-
-      {/* 313: 実行ボタンは下端から撤去（広幅＝テキスト欄の直下／狭幅＝下部固定バー。同じボタンを2つ置かない） */}
-      {showBar && (
-        <StickyActionBar
-          show={showBar}
-          anchorRef={panelRef}
-          name="text-analysis"
-          onHeightChange={setBarHeight}
-          left={<span data-sticky-action-bar-summary>{selectedTypes.size}件選択・{inputText.length.toLocaleString()} 文字</span>}
-        >
-          {runButton}
-          {progress && <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>{progress}</span>}
-        </StickyActionBar>
-      )}
 
       {/* 結果グリッド */}
       {results.size > 0 && (

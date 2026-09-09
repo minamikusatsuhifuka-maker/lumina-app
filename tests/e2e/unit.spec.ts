@@ -4444,12 +4444,15 @@ test('U84: テキスト分析の実行ボタン配置（313）— 狭幅は容�
   expect(b.stickyBarPaddingBottom()).toContain('env(safe-area-inset-bottom');
   // ④ ソース固定（R-111）
   const panel = readFileSync(join(__dirname, '../../src/components/text-analysis/TextAnalysisPanel.tsx'), 'utf8');
-  expect(panel.match(/data-kb-run/g)?.length, '実行ボタンは1要素（狭幅はバー・広幅はテキスト欄の直下に同じ要素を置く）').toBe(1);
+  expect(panel.match(/data-kb-run/g)?.length, '実行ボタンは1要素（313改訂: 操作行の先頭に1つ）').toBe(1);
   expect(panel.match(/onClick=\{handleAnalyze\}/g)?.length, 'ハンドラは1つ（複製しない・R-88）').toBe(1);
-  expect(panel).toMatch(/\{!narrow && \(\s*<div data-ta-run-inline/);
-  expect(panel).toMatch(/\{showBar && \(\s*<StickyActionBar/);
+  // 313改訂: 固定バーとクリアして貼付はこの画面から撤去（部品 StickyActionBar と lib/clear-and-paste は残す＝🔭DR・横展開候補用）
+  expect(panel).not.toContain('StickyActionBar');
+  expect(panel).not.toContain('data-clear-paste');
+  expect(panel).not.toContain('clearAndPaste');
+  expect(panel).not.toContain('onClearPaste');
+  expect(panel).toMatch(/<span\s+data-ta-actions[^]*?\{runButton\}/);
   expect(panel).not.toMatch(/\{\/\* 実行ボタン \*\/\}/);
-  expect(panel).toMatch(/setNarrow\(isStickyBarNarrow\(el\.getBoundingClientRect\(\)\.width\)\)/);
   const bar = readFileSync(join(__dirname, '../../src/components/StickyActionBar.tsx'), 'utf8');
   expect(bar).toContain('createPortal(');
   expect(bar).toMatch(/toLayoutPx\(r\.left, z\)/);
