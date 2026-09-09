@@ -9314,8 +9314,8 @@ test('C120: サイドバーのメニュー検索・追加順・新着・合流�
     // 315: 図解生成（2026-09-09・コンテンツ作成）が同日のホーム編集より定義順で先
     expect(addedOrder[0]).toBe('/dashboard/visuals');
     expect(addedOrder[1]).toBe('/dashboard/settings/menu');
-    expect(addedOrder[1]).toBe('/dashboard/mandala');
-    expect(addedOrder[2]).toBe('/dashboard/episodes');
+    expect(addedOrder[2]).toBe('/dashboard/mandala');
+    expect(addedOrder[3]).toBe('/dashboard/episodes');
     expect(addedOrder.length).toBe(standardOrder.length);
     await expect(sidebar.locator('[data-nav-category]'), '追加順ではグループ見出しを出さない').toHaveCount(0);
     await expect(added.locator('a[data-nav-href="/dashboard/mandala"] [data-nav-added-date]')).toHaveText('9/8');
