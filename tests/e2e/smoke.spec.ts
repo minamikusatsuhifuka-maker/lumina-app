@@ -9311,7 +9311,9 @@ test('C120: サイドバーのメニュー検索・追加順・新着・合流�
     await expect(added).toBeVisible();
     const addedOrder = await hrefsIn(added);
     // 306 で「ホーム編集」（2026-09-09）が最新
-    expect(addedOrder[0]).toBe('/dashboard/settings/menu');
+    // 315: 図解生成（2026-09-09・コンテンツ作成）が同日のホーム編集より定義順で先
+    expect(addedOrder[0]).toBe('/dashboard/visuals');
+    expect(addedOrder[1]).toBe('/dashboard/settings/menu');
     expect(addedOrder[1]).toBe('/dashboard/mandala');
     expect(addedOrder[2]).toBe('/dashboard/episodes');
     expect(addedOrder.length).toBe(standardOrder.length);
@@ -9342,7 +9344,7 @@ test('C120: サイドバーのメニュー検索・追加順・新着・合流�
       await drawer.locator('[data-nav-search-clear]').tap();
       await expect(s2).toHaveValue('');
       await drawer.locator('[data-nav-order="added"]').tap();
-      await expect(drawer.locator('[data-nav-added-list] a[data-nav-href]').first()).toHaveAttribute('data-nav-href', '/dashboard/settings/menu');
+      await expect(drawer.locator('[data-nav-added-list] a[data-nav-href]').first()).toHaveAttribute('data-nav-href', '/dashboard/visuals');
       await drawer.locator('[data-nav-order="standard"]').tap();
       await expect(drawer.locator('[data-nav-category="ホーム"]')).toHaveCount(1);
       await p2.evaluate(() => localStorage.removeItem('sidebar_nav_order'));

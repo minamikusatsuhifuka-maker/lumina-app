@@ -245,6 +245,21 @@ export function LibraryItemRow({
   // 282/R-81: 展開の当たり判定はタイトル・メタ情報の領域だけ。ボタン類・リンク・本文は含めず、
   // その中の操作は stopPropagation で上へ伝えない（領域限定と併せた二重の守り）
   const stopCardClick = (e: React.MouseEvent) => e.stopPropagation();
+  // 315: 図解生成の入口（?scope=library&id=）と「🖼 n」（出どころから導出）。操作ボタンの列に置く（展開の当たり判定の外・R-81）
+  const visualLink = (id: string, style: React.CSSProperties) => (
+    <a
+      data-library-visual-open={id}
+      href={`/dashboard/visuals?scope=library&id=${encodeURIComponent(String(id))}`}
+      target="_blank"
+      rel="noopener noreferrer"
+      title="この本文から図解（表・フロー・比較・手順・概念図・イメージ）を作る（新しいタブ）"
+      style={{ ...style, textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 4, color: '#0E7490' }}
+      onClick={stopCardClick}
+    >
+      🖼<span className="xl:hidden"> 図解</span>
+      {typeof visualCount === 'number' && visualCount > 0 ? <span data-library-visual-count={visualCount} style={{ padding: '0 5px', borderRadius: 8, background: 'rgba(14,116,144,0.12)', fontWeight: 700, fontSize: 10 }}>{visualCount}</span> : null}
+    </a>
+  );
   const expandZoneProps: React.HTMLAttributes<HTMLDivElement> & Record<string, unknown> = clickToExpand
     ? {
         className: 'card-expand-zone',
@@ -399,18 +414,6 @@ export function LibraryItemRow({
               🔲 {mandalaXOriginLabel(mandalaX)}
             </a>
           )}
-          {/* 315: 図解生成の入口（?scope=library&id=）と「🖼 n」（出どころから導出） */}
-          <a
-            data-library-visual-open={cur.id}
-            href={`/dashboard/visuals?scope=library&id=${encodeURIComponent(String(cur.id))}`}
-            target="_blank"
-            rel="noopener noreferrer"
-            title="この本文から図解（表・フロー・比較・手順・概念図・イメージ）を作る（新しいタブ）"
-            style={{ color: '#0E7490', textDecoration: 'none', whiteSpace: 'nowrap' }}
-            onClick={(e) => e.stopPropagation()}
-          >
-            🖼 図解にする{typeof visualCount === 'number' && visualCount > 0 ? <span data-library-visual-count={visualCount} style={{ marginLeft: 4, padding: '0 6px', borderRadius: 8, background: 'rgba(14,116,144,0.12)', fontWeight: 700 }}>🖼 {visualCount}</span> : null}
-          </a>
         </div>
 
         {/* 2行目: タイトル（★は常時表示） */}
@@ -556,6 +559,7 @@ export function LibraryItemRow({
               📥<span className="xl:hidden"> MD</span>
             </button>
           )}
+          {visualLink(String(cur.id), compactBtnStyle)}
           {(onFavoriteClick || onFavoriteToggle) && (
             <button
               type="button"
@@ -914,6 +918,7 @@ export function LibraryItemRow({
                 📥 MD
               </button>
             )}
+            {visualLink(String(item.id), btnStyle)}
             {(onFavoriteClick || onFavoriteToggle) && (
               <button
                 type="button"
