@@ -3397,7 +3397,8 @@ test('U73: マンダラ バッジのホバーポップアップ（304）— 上�
   const pageSrc = readFileSync(join(__dirname, '../../src/app/dashboard/mandala/[id]/page.tsx'), 'utf8');
   expect(pageSrc).toContain("fetch(`/api/mandala/links?cellId=${encodeURIComponent(cellId)}`");
   // 308: 📈（from='reaction'）は meta から描くので取得しない。リンク系はそのまま取得
-  expect(pageSrc).toContain("onOpen: (_key, { cell, from }) => { if (from !== 'reaction') void fetchResolved(cell.id); }");
+  // 309: 📝（from='articles'）も記録から描くので取得しない
+  expect(pageSrc).toContain("onOpen: (_key, { cell, from }) => { if (from !== 'reaction' && from !== 'articles') void fetchResolved(cell.id); }");
 });
 
 test('U74: サイドバーのメニュー検索・追加順・新着・合流（303）— 正規化（大小・全半角・カナ/かな・空白）・表示名と元の名前の両方に一致・見出しは一致項目のあるカテゴリだけ・非表示の印・追加順は新しい順で同日は定義順・全項目に実在する addedAt（書き忘れは型とここで止まる）・新着は14日以内で15日目に消える（JST日付差）・合流は純関数で決定的', async () => {
