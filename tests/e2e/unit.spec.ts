@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { renderMarkdown } from '../../src/lib/markdown-renderer';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describeAnthropicError, isFallbackWorthy } from '../../src/lib/anthropic-error';
@@ -4752,4 +4753,9 @@ test('U88: 記事→マンダラ生成（316）— evidence が本文に無い�
   expect(server, 'PATCH で内容差分があれば ai→edited（同じ UPDATE 文・キー単位）').toMatch(/meta = CASE WHEN meta->>'origin' = 'ai' THEN meta \|\| '\{"origin":"edited"\}'::jsonb ELSE meta END/);
   const lib = readFileSync(join(__dirname, '../../src/lib/mandala-generate.ts'), 'utf8');
   expect(lib).not.toMatch(/from '@\/lib\/(db|mandala-server)'/);
+  // R-97: 「> 引用: …」は renderMarkdown で blockquote になり、生の「>」が出ない。連続行は1つにまとまる
+  const html = renderMarkdown(g.cellBodyWithEvidence('本文です。', '洗顔のあと5分以内に行う'));
+  expect(html).toContain('<blockquote>引用: 洗顔のあと5分以内に行う</blockquote>');
+  expect(html).not.toContain('&gt; 引用');
+  expect(renderMarkdown('> 一行目\n> 二行目')).toContain('<blockquote>一行目<br/>二行目</blockquote>');
 });

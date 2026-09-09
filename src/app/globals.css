@@ -440,3 +440,14 @@ a[href*="dashboard"]:hover {
 @media (prefers-reduced-motion: reduce) {
   .lumina-fab-in { animation: none; }
 }
+
+/* 316: Markdown 引用（renderMarkdown の blockquote）。生成マンダラの「引用: …」に使う */
+.markdown-body blockquote, [data-md-view] blockquote {
+  margin: 8px 0;
+  padding: 6px 12px;
+  border-left: 3px solid var(--border-accent, #6c63ff);
+  background: var(--accent-soft, rgba(108,99,255,0.06));
+  color: var(--text-secondary);
+  font-size: 0.95em;
+  border-radius: 0 8px 8px 0;
+}
