@@ -1470,4 +1470,8 @@
   `SaveToLibraryButton`（type=note-article）と `copyRichMarkdownForNote()` の**内側**でも通す（冪等＝二重適用は無害）。
   一段目のプロンプトは `NOTE_COMMON_RULES` に1回だけ（経路ごとに書き分けない）。note 以外（Kindle本文・HP・SNS・
   プレゼン・喩え話）には当てない＝U80 が「整形を呼ぶ API は6経路だけ」を固定する。新しい note 経路を足したら U80 の一覧に足す。
+  310追加: **見出し規約（## と ### の2階層・# 不使用・タイトルは本文に含めない）も同じ二段構え**。一段目は `NOTE_HEADING_RULE`
+  を `NOTE_COMMON_RULES` に1回だけ（①の PERSONA_HEADING_GUARD＝煽り・断定の禁止は別の役割なので残置）、二段目は
+  `enforceNoteHeadingLevels`（h1→##・####以下→###・コードフェンス内は不変・冪等）を1文1行と同じ箇所で
+  `enforceNoteHeadingLevels(formatOneSentencePerLine(x))` の形で呼ぶ。②分割記事化の実出力に h1 が出ていた（B31 で検出）。
 - 初出: 309 / 2026-09-09
