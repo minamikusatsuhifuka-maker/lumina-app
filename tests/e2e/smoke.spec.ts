@@ -10990,7 +10990,8 @@ test('C131: 記事→図解（315）— 📚🗂の行の「🖼 図解にする
     await expect(page.locator('[data-vis-rejected]')).toContainText('ビフォーアフター');
     const p1 = page.locator('[data-vis-plan="v1"]');
     await expect(p1).toHaveAttribute('data-vis-plan-ok', '0');
-    await expect(p1.locator('[data-vis-foreign="v1"]'), 'タイトルの言い換えが赤い印').toHaveText('朝のスキンケア');
+    await expect(p1.locator('[data-vis-foreign="v1"]'), 'タイトルの言い換えが赤い印（無い語を併記）').toContainText('朝のスキンケア');
+    await expect(p1.locator('[data-vis-foreign="v1"]')).toHaveAttribute('data-vis-foreign-tokens', 'スキンケア');
     await expect(p1.locator('[data-vis-render="v1"]')).toBeDisabled();
     await expect(p1.locator('[data-vis-block-reason="v1"]')).toContainText('元テキストに無い語句');
     await p1.locator('[data-vis-title="v1"]').fill('朝の保湿');
@@ -11000,7 +11001,7 @@ test('C131: 記事→図解（315）— 📚🗂の行の「🖼 図解にする
     // NG表現を入れると描けない（決定的）
     await p1.locator('[data-vis-points="v1-0"]').fill('洗顔のあと5分以内に行う\n必ず治る');
     await expect(p1).toHaveAttribute('data-vis-plan-ok', '0');
-    await expect(p1.locator('[data-vis-foreign="v1"]').first()).toHaveText('必ず治る');
+    await expect(p1.locator('[data-vis-foreign="v1"]').first()).toContainText('必ず治る');
     await p1.locator('[data-vis-points="v1-0"]').fill('洗顔のあと5分以内に行う\n化粧水をなじませて\n乳液で蓋をする');
     await expect(p1).toHaveAttribute('data-vis-plan-ok', '1');
     // ── ③ 決定的描画（実描画・AIなし）→ PNG・文字一致の機械判定・保存（source=visuals） ──
