@@ -253,6 +253,9 @@ export default function MandalaChartPage({ params }: { params: Promise<{ id: str
   }, []);
 
   // 304: バッジのホバーポップアップ（共通部品 HoverPopover）。中身は同じキャッシュから描く
+  // 316: 記事から生成（AI 由来の明示・関連性）。ホバー用の描画関数はフックの実行中に呼ばれるため、参照する値はフックより前に宣言する（TDZ・本番実測）
+  const generated = useMemo(() => (chart ? parseGeneratedMeta(chart.meta) : null), [chart]);
+  const relations = useMemo<MandalaRelation[]>(() => (chart ? parseRelations(chart.meta) : []), [chart]);
   const popover = useHoverPopover<{ cell: MandalaCell; from: MandalaPopoverFrom }>(
     ({ cell, from }, api) => {
       // 309: 📝 は記事の記録（API の articles）から描く（取得なし）
@@ -423,9 +426,6 @@ export default function MandalaChartPage({ params }: { params: Promise<{ id: str
   const presetKey = chart ? chartPreset(chart.meta) : null;
   const presetDef = isMandalaPresetKey(presetKey) ? MANDALA_PRESETS[presetKey] : null;
   const ratio = useMemo(() => (chart && shouldShowFreeRatio(chart.meta, chart.cells) ? freeRatio(chart.cells) : null), [chart]);
-  // 316: 記事から生成（AI 由来の明示・関連性・再生成）
-  const generated = useMemo(() => (chart ? parseGeneratedMeta(chart.meta) : null), [chart]);
-  const relations = useMemo<MandalaRelation[]>(() => (chart ? parseRelations(chart.meta) : []), [chart]);
   const regenState = useMemo(() => (chart ? regenerateState(chart.cells) : { enabled: false, reason: null }), [chart]);
   const [regenConfirm, setRegenConfirm] = useState(false);
   const [regenProgress, setRegenProgress] = useState<GenerateProgress | null>(null);
