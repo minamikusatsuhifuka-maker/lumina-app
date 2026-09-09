@@ -12047,6 +12047,7 @@ test('C137: 結果画面の操作行（321）— 🔭DR結果の操作行が共�
     expect(sw.bw, `${label}: 操作行が画面幅に収まる`).toBeLessThanOrEqual(sw.iw + 1);
     return bar;
   };
+  await page.context().grantPermissions(['clipboard-read', 'clipboard-write'], { origin: BASE_URL });
   await prep(page);
   await run(page);
   const bar = await checkBar(page, 'PC');
@@ -12091,14 +12092,20 @@ test('C137: 結果画面の操作行（321）— 🔭DR結果の操作行が共�
   await expect(sendPanel, '外側クリックで閉じる').toHaveCount(0);
   // コピーは従来どおり（原文・R-71）
   await row1.getByRole('button', { name: '📋 コピー' }).click();
-  expect(await page.evaluate(() => navigator.clipboard.readText())).toContain(marker);
+  await expect.poll(() => page.evaluate(() => navigator.clipboard.readText().catch(() => '')), 'コピーは従来どおり本文が入る').toContain(marker);
   // ── WebKit iPhone幅（R-64）: 1段目が折り返し、メニューはそのまま、横スクロール無し ──
   const browser = await webkit.launch();
   const ctx = await browser.newContext({ storageState: STORAGE_STATE, baseURL: BASE_URL, hasTouch: true, isMobile: true, viewport: { width: 390, height: 844 }, serviceWorkers: 'block' });
   const mp = await ctx.newPage();
   try {
-    await prep(mp);
-    await run(mp);
+    // タッチ端末では実行ボタンにキー併記が出ない（waitForRunReady が使えない）ので、自動下書きの復元（R-20）で結果画面を出す
+    await mp.route('**/api/feature-drafts**', (route) => {
+      const url = route.request().url();
+      const isDr = route.request().method() === 'GET' && /feature=deepresearch(&|$)/.test(url);
+      route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(isDr ? { draft: { payload: { topic: `[E2E] 321 ${marker}`, depth: 'standard', report: REPORT, reportModel: null, contextText: '' }, updated_at: new Date().toISOString() } } : (route.request().method() === 'GET' ? { draft: null } : { ok: true })) });
+    });
+    await mp.goto('/dashboard/deepresearch');
+    await expect(mp.locator('[data-dr-result-actions]')).toBeVisible({ timeout: 30000 });
     const mbar = await checkBar(mp, 'iPhone幅');
     const tops = await mbar.locator('[data-result-action-row="1"] button').evaluateAll((els) => Array.from(new Set(els.map((e) => Math.round(e.getBoundingClientRect().top)))));
     expect(tops.length, 'iPhone幅では1段目が2段以上に折り返す').toBeGreaterThanOrEqual(2);

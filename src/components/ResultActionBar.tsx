@@ -12,7 +12,7 @@
 // - 縦書きの根本＝flex の縮小で1文字ずつ折れる事象。globals.css の `button { white-space: nowrap }` で「ボタンは常に横書き」を規約にした
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 
 export interface ResultActionMenu {
   key: string;
@@ -25,7 +25,20 @@ export interface ResultActionMenu {
 
 export function ResultActionMenuButton({ menu }: { menu: ResultActionMenu }) {
   const [open, setOpen] = useState(false);
+  // 狭幅（iPhone）: トリガーが右寄りだとパネルが画面の右へはみ出すので、測って右揃えに切り替える（横スクロールを作らない・R-64）
+  const [alignRight, setAlignRight] = useState(false);
   const rootRef = useRef<HTMLDivElement | null>(null);
+  const panelRef = useRef<HTMLDivElement | null>(null);
+  useLayoutEffect(() => {
+    if (!open) {
+      setAlignRight(false);
+      return;
+    }
+    const el = panelRef.current;
+    if (!el) return;
+    const r = el.getBoundingClientRect();
+    if (r.right > window.innerWidth - 4) setAlignRight(true);
+  }, [open]);
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => {
@@ -56,15 +69,17 @@ export function ResultActionMenuButton({ menu }: { menu: ResultActionMenu }) {
       </button>
       {open && (
         <div
+          ref={panelRef}
           role="menu"
           data-result-menu-panel={menu.key}
+          data-result-menu-align={alignRight ? 'right' : 'left'}
           onClick={(e) => {
             const t = e.target as HTMLElement | null;
             if (!t) return;
             if (t.closest('[data-context-modal]')) return; // 中でさらに開く操作（🧠 AI参照素材の保存パネル）は閉じない
             if (t.closest('button, a')) setOpen(false);
           }}
-          style={{ position: 'absolute', top: 'calc(100% + 4px)', left: 0, zIndex: 60, minWidth: 220, display: 'flex', flexDirection: 'column', alignItems: 'stretch', gap: 4, padding: 6, background: 'var(--bg-primary)', border: '1px solid var(--border)', borderRadius: 10, boxShadow: '0 8px 24px rgba(0,0,0,0.15)' }}
+          style={{ position: 'absolute', top: 'calc(100% + 4px)', ...(alignRight ? { right: 0 } : { left: 0 }), zIndex: 60, minWidth: 220, maxWidth: 'calc(100vw - 16px)', overflowX: 'auto', display: 'flex', flexDirection: 'column', alignItems: 'stretch', gap: 4, padding: 6, background: 'var(--bg-primary)', border: '1px solid var(--border)', borderRadius: 10, boxShadow: '0 8px 24px rgba(0,0,0,0.15)' }}
         >
           {menu.items}
         </div>
