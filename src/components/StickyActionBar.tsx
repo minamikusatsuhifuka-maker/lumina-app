@@ -63,7 +63,7 @@ export function StickyActionBar({
       window.removeEventListener('resize', apply);
       window.removeEventListener('scroll', apply, { capture: true } as EventListenerOptions);
     };
-  }, [show, anchorRef]);
+  }, [show, mounted, anchorRef]);
 
   // 高さ: 実測して呼び出し側（余白）と追従ボタン（CSS 変数）へ。出ていない間は変数を消す＝0px
   useEffect(() => {
@@ -86,7 +86,8 @@ export function StickyActionBar({
       ro?.disconnect();
       document.documentElement.style.removeProperty(STICKY_BAR_HEIGHT_VAR);
     };
-  }, [show, onHeightChange]);
+    // mounted: 初回描画は portal 前（barRef が null）なので、マウント後にもう一度測る（C129 で実測: 余白が 0 のままだった）
+  }, [show, mounted, onHeightChange]);
 
   if (!mounted || !show) return null;
 
