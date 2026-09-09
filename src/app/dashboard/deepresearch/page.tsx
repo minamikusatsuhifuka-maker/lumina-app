@@ -3,7 +3,9 @@ import { useState, useEffect, useRef } from 'react';
 import { ProgressBar } from '@/components/ProgressBar';
 import { VoiceInputButton } from '@/components/VoiceInputButton';
 import { useProgress } from '@/components/useProgress';
-import { SaveToLibraryButton } from '@/components/SaveToLibraryButton';
+import { MemorizeButton, SaveToLibraryButton } from '@/components/SaveToLibraryButton';
+// 321: 結果画面の操作行の共通部品
+import ResultActionBar from '@/components/ResultActionBar';
 // 245: 期間UIは periodStart / periodEnd の1系統に統合したため DateRangePicker は使わない
 //（トピック文字列へ検索条件を追記する方式をやめた。理由はこのファイル内の「調査期間」UI付近を参照）
 import DeepDiveChat from '@/components/DeepDiveChat';
@@ -2427,9 +2429,10 @@ ${contextText}
 
       {report && !loading && (
         <div style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 12, padding: 24 }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-            <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-              <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-secondary)' }}>🔭 リサーチレポート</span>
+          {/* 321: 操作行は共通部品 ResultActionBar（横書き・同じ高さ・主操作だけ塗りつぶし・2段目はメニュー）。中の要素・ハンドラ・data 属性は従来どおり */}
+          <ResultActionBar
+            attrs={{ 'data-dr-result-actions': '' }}
+            primary={
               <SaveToLibraryButton
                 title={followUp ? followUpTitle(topic, followUp.sources.map((x) => x.title)) : (topic || 'ディープリサーチ')}
                 content={report}
@@ -2440,20 +2443,11 @@ ${contextText}
                 metadata={followUp ? { followUp: followUpMetadata({ sources: followUp.sources, prompt: topic, mode: followUp.mode, model: reportModel === 'claude' ? CLAUDE_TEXT_MODEL : GEMINI_TEXT_MODEL, at: followUp.at || new Date().toISOString(), inherit: followUp.inherit }) } : undefined}
                 autoSaveSignal={autoStockSignal}
                 onSaved={setReportSavedId}
+                showMemorize={false}
               />
-              {/* 319 §3-1: この結果を前提資料にさらに追加リサーチ（連鎖）。前提資料は保存済みの行なので、未保存のときは理由を出して無効化 */}
-              <span data-followup-report-entry={reportSavedId ?? ''}>
-                <FollowUpResearchButton
-                  refs={reportSavedId ? [{ scope: 'library', id: reportSavedId }] : []}
-                  dataKey="report"
-                  label="🔭 これを元に追加リサーチ"
-                  defaultMode={depth === 'quick' || depth === 'deep' ? depth : 'standard'}
-                  disabled={!reportSavedId}
-                  disabledReason="先に「📚 保存」でこのレポートを保存してください（保存した行が前提資料になります）"
-                  style={{ padding: '6px 14px', background: 'rgba(14,116,144,0.08)', color: '#0E7490', border: '1px solid rgba(14,116,144,0.3)', borderRadius: 6, cursor: 'pointer', fontSize: 12, fontWeight: 500 }}
-                />
-              </span>
-              {/* 320 §3-1: この結果から図解・画像（保存済みなら行を、未保存なら本文を渡す） */}
+            }
+            main={<>
+              <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-secondary)' }}>🔭 リサーチレポート</span>
               <VisualQuickButton
                 text={report}
                 title={followUp ? followUpTitle(topic, followUp.sources.map((x) => x.title)) : (topic || 'ディープリサーチ')}
@@ -2462,139 +2456,67 @@ ${contextText}
                 dataKey="report"
                 style={{ padding: '6px 14px', background: 'rgba(14,116,144,0.08)', color: '#0E7490', border: '1px solid rgba(14,116,144,0.3)', borderRadius: 6, cursor: 'pointer', fontSize: 12, fontWeight: 500 }}
               />
-            </div>
-            <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                {/* 240: アプリ全体の文字サイズはヘッダーの A A A A で切り替える。
-                    ここはレポート本文だけの微調整として残す（役割が違うので名前で区別する） */}
-                <span style={{ fontSize: 11, color: 'var(--text-muted)' }} title="このレポート本文だけの文字サイズです。アプリ全体はヘッダーの文字サイズ切替で変わります">
-                  レポート本文
-                </span>
-                <button onClick={() => setFontSize(f => Math.max(11, f - 1))} style={{ width: 24, height: 24, borderRadius: 4, border: '1px solid var(--border)', background: 'var(--bg-secondary)', color: 'var(--text-secondary)', cursor: 'pointer', fontSize: 14, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>−</button>
-                <span style={{ fontSize: 12, color: 'var(--text-muted)', fontFamily: 'monospace', minWidth: 20, textAlign: 'center' }}>{fontSize}</span>
-                <button onClick={() => setFontSize(f => Math.min(20, f + 1))} style={{ width: 24, height: 24, borderRadius: 4, border: '1px solid var(--border)', background: 'var(--bg-secondary)', color: 'var(--text-secondary)', cursor: 'pointer', fontSize: 14, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>＋</button>
-              </div>
-              <button onClick={sendToWrite} style={{ padding: '6px 14px', background: 'linear-gradient(135deg, #6c63ff, #8b5cf6)', color: '#fff', border: 'none', borderRadius: 6, cursor: 'pointer', fontSize: 12, fontWeight: 600 }}>
-                ✍️ 文章作成に使う
-              </button>
-              <button onClick={download} disabled={downloadingMd || !report.trim()} style={{ padding: '6px 14px', background: 'var(--bg-secondary)', border: '1px solid var(--border)', color: 'var(--text-secondary)', borderRadius: 6, cursor: downloadingMd ? 'not-allowed' : 'pointer', fontSize: 12, opacity: downloadingMd ? 0.6 : 1 }}>
-                {downloadingMd ? '⏳ タイトル生成中...' : '💾 MDダウンロード'}
-              </button>
-              <button onClick={downloadDocx} disabled={downloadingDocx || !report.trim()} title="院内配布・回覧用に体裁の整った Word(.docx) で書き出します" style={{ padding: '6px 14px', background: 'var(--bg-secondary)', border: '1px solid var(--border)', color: 'var(--text-secondary)', borderRadius: 6, cursor: downloadingDocx || !report.trim() ? 'not-allowed' : 'pointer', fontSize: 12, opacity: downloadingDocx || !report.trim() ? 0.6 : 1 }}>
-                {downloadingDocx ? '⏳ タイトル生成中...' : '📄 Word'}
-              </button>
-              <button onClick={() => setShowRefine(true)} disabled={!report.trim() || loading} title="クイック置換またはAI修正指示で、リサーチ結果をその場で直します" style={{ padding: '6px 14px', background: 'var(--bg-secondary)', border: '1px solid var(--border)', color: 'var(--text-secondary)', borderRadius: 6, cursor: !report.trim() || loading ? 'not-allowed' : 'pointer', fontSize: 12, opacity: !report.trim() || loading ? 0.5 : 1 }}>
-                ✏️ AIで修正
-              </button>
-              <button onClick={() => copyRichMarkdown(report)} style={{ padding: '6px 14px', background: 'var(--bg-secondary)', border: '1px solid var(--border)', color: 'var(--text-secondary)', borderRadius: 6, cursor: 'pointer', fontSize: 12 }}>
+              <span data-followup-report-entry={reportSavedId ?? ''}>
+                <FollowUpResearchButton
+                  refs={reportSavedId ? [{ scope: 'library', id: reportSavedId }] : []}
+                  dataKey="report"
+                  label="🔭 追加リサーチ"
+                  defaultMode={depth === 'quick' || depth === 'deep' ? depth : 'standard'}
+                  disabled={!reportSavedId}
+                  disabledReason="先に「📚 保存」でこのレポートを保存してください（保存した行が前提資料になります）"
+                  style={{ padding: '6px 14px', background: 'rgba(14,116,144,0.08)', color: '#0E7490', border: '1px solid rgba(14,116,144,0.3)', borderRadius: 6, cursor: 'pointer', fontSize: 12, fontWeight: 500 }}
+                />
+              </span>
+              <button onClick={() => copyRichMarkdown(report)} title="本文を Markdown の原文のままコピーします">
                 📋 コピー
               </button>
-              {/* テキスト分析へ送るボタン（要約・詳細まとめ・Genspark資料用まとめ等を実行） */}
-              <button
-                onClick={() => handleSendToTextAnalysis(report, topic)}
-                style={{
-                  padding: '6px 14px',
-                  background: 'rgba(99,102,241,0.1)',
-                  color: '#4f46e5',
-                  border: '1px solid rgba(99,102,241,0.3)',
-                  borderRadius: 6,
-                  cursor: 'pointer',
-                  fontSize: 12,
-                  fontWeight: 500,
-                }}
-                title="リサーチ結果をテキスト分析ページで要約・まとめできます"
-              >
-                📝 テキスト分析へ送る
+              <button onClick={() => setShowRefine(true)} disabled={!report.trim() || loading} title="クイック置換またはAI修正指示で、リサーチ結果をその場で直します">
+                ✏️ AIで修正
               </button>
-              {/* 医療文書スタジオへ送る */}
-              <button
-                onClick={() => handleSendToMedicalStudio(report, topic)}
-                style={{
-                  padding: '6px 14px',
-                  background: 'rgba(16,185,129,0.1)',
-                  color: '#059669',
-                  border: '1px solid rgba(16,185,129,0.3)',
-                  borderRadius: 6,
-                  cursor: 'pointer',
-                  fontSize: 12,
-                  fontWeight: 500,
-                }}
-                title="リサーチ結果を医療文書スタジオで同意書・説明書に活用できます"
-              >
-                🏥 医療文書スタジオへ送る
-              </button>
-              {/* 収益化スタジオへ送る */}
-              <button
-                onClick={() => handleSendToBusinessStudio(report, topic)}
-                style={{
-                  padding: '6px 14px',
-                  background: 'rgba(79,70,229,0.1)',
-                  color: '#4f46e5',
-                  border: '1px solid rgba(79,70,229,0.3)',
-                  borderRadius: 6,
-                  cursor: 'pointer',
-                  fontSize: 12,
-                  fontWeight: 500,
-                }}
-                title="リサーチ結果を収益化スタジオで事業設計の起点として活用できます"
-              >
-                💰 収益化スタジオへ送る
-              </button>
-              {/* nexusブログ記事にする */}
-              <button
-                onClick={() => handleSendToNexusBlog(report, topic)}
-                style={{
-                  padding: '6px 14px',
-                  background: 'rgba(99,102,241,0.1)',
-                  color: '#6366f1',
-                  border: '1px solid rgba(99,102,241,0.3)',
-                  borderRadius: 6,
-                  cursor: 'pointer',
-                  fontSize: 12,
-                  fontWeight: 500,
-                }}
-                title="リサーチ結果をnexusブランドのブログ記事として執筆できます"
-              >
-                🌐 nexusブログ記事にする
-              </button>
-              {/* note 記事にする */}
-              <button
-                onClick={() => handleSendToNoteArticle(report, topic)}
-                style={{
-                  padding: '6px 14px',
-                  background: 'rgba(236,72,153,0.1)',
-                  color: '#ec4899',
-                  border: '1px solid rgba(236,72,153,0.3)',
-                  borderRadius: 6,
-                  cursor: 'pointer',
-                  fontSize: 12,
-                  fontWeight: 500,
-                }}
-                title="リサーチ結果を参考情報として note 記事の下書きを生成します"
-              >
-                ✍️ note 記事にする
-              </button>
-              {/* 261: 発信ハブへの導線（R-34）。ハブ側は保存済みDR記事から選ぶため、本文は渡さない */}
-              <a
-                href="/dashboard/dr-hub"
-                style={{
-                  padding: '6px 14px',
-                  background: 'rgba(224,104,75,0.1)',
-                  color: '#e0684b',
-                  border: '1px solid rgba(224,104,75,0.3)',
-                  borderRadius: 6,
-                  cursor: 'pointer',
-                  fontSize: 12,
-                  fontWeight: 500,
-                  textDecoration: 'none',
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                }}
-                title="保存済みのDR記事から、note記事・X投稿・Kindle本・戦略・画像への展開をまとめて行えます"
-              >
-                🚀 発信ハブで展開する
-              </a>
-              {/* 背景情報として保存（ボタン＋ドロップダウンモーダル） */}
+            </>}
+            aside={<>
+              {/* 240: アプリ全体の文字サイズはヘッダーの A A A A で切り替える。ここはレポート本文だけの微調整として残す（役割が違うので名前で区別する） */}
+              <span style={{ fontSize: 11, color: 'var(--text-muted)' }} title="このレポート本文だけの文字サイズです。アプリ全体はヘッダーの文字サイズ切替で変わります">
+                レポート本文
+              </span>
+              <button onClick={() => setFontSize(f => Math.max(11, f - 1))} title="本文の文字を小さく">−</button>
+              <span style={{ fontSize: 12, color: 'var(--text-muted)', fontFamily: 'monospace', minWidth: 20, textAlign: 'center' }}>{fontSize}</span>
+              <button onClick={() => setFontSize(f => Math.min(20, f + 1))} title="本文の文字を大きく">＋</button>
+            </>}
+            menus={[
+              { key: 'download', label: '⬇ ダウンロード', title: 'Markdown／Word で書き出す', items: (<>
+                <button onClick={download} disabled={downloadingMd || !report.trim()}>
+                  {downloadingMd ? '⏳ タイトル生成中...' : '💾 MD'}
+                </button>
+                <button onClick={downloadDocx} disabled={downloadingDocx || !report.trim()} title="院内配布・回覧用に体裁の整った Word(.docx) で書き出します">
+                  {downloadingDocx ? '⏳ タイトル生成中...' : '📄 Word'}
+                </button>
+              </>) },
+              { key: 'send', label: '➡ 送る', title: '他の画面へ渡す・記事にする・素材として保存', items: (<>
+                {/* テキスト分析へ送るボタン（要約・詳細まとめ・Genspark資料用まとめ等を実行） */}
+                <button onClick={() => handleSendToTextAnalysis(report, topic)} title="リサーチ結果をテキスト分析ページで要約・まとめできます">
+                  📝 テキスト分析へ
+                </button>
+                <button onClick={() => handleSendToMedicalStudio(report, topic)} title="リサーチ結果を医療文書スタジオで同意書・説明書に活用できます">
+                  🏥 医療文書スタジオへ
+                </button>
+                <button onClick={() => handleSendToBusinessStudio(report, topic)} title="リサーチ結果を収益化スタジオで事業設計の起点として活用できます">
+                  💰 収益化スタジオへ
+                </button>
+                <button onClick={() => handleSendToNexusBlog(report, topic)} title="リサーチ結果をnexusブランドのブログ記事として執筆できます">
+                  🌐 nexusブログ記事にする
+                </button>
+                <button onClick={() => handleSendToNoteArticle(report, topic)} title="リサーチ結果を参考情報として note 記事の下書きを生成します">
+                  ✍️ note記事にする
+                </button>
+                {/* 261: 発信ハブへの導線（R-34）。ハブ側は保存済みDR記事から選ぶため、本文は渡さない */}
+                <a href="/dashboard/dr-hub" title="保存済みのDR記事から、note記事・X投稿・Kindle本・戦略・画像への展開をまとめて行えます">
+                  🚀 発信ハブで展開する
+                </a>
+                <button onClick={sendToWrite} title="本文を文章作成の参考資料として渡します">
+                  ✍️ 文章作成に使う
+                </button>
+                {/* 背景情報として保存（ボタン＋ドロップダウンモーダル） */}
               <div
                 data-context-modal
                 style={{ position: 'relative', display: 'inline-block' }}
@@ -2809,8 +2731,10 @@ ${contextText}
                   ✅ AI参照素材に保存しました
                 </span>
               )}
-            </div>
-          </div>
+              </>) },
+            ]}
+            extra={<MemorizeButton title={topic || 'ディープリサーチ'} content={report} groupName="ディープリサーチ" />}
+          />
           {/* 鮮度表示: 出典URLの有無でWeb検索ベースかモデル知識ベースかを可視化 */}
           {(() => {
             const sourceCount = (report.match(/https?:\/\/[^\s)）」】<]+/g) || []).length;

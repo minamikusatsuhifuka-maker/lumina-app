@@ -5227,3 +5227,42 @@ test('U92: 生成結果から直接図解・画像（320）— 相関図は labe
   expect(tplSrc).not.toMatch(/strokeWidth|stroke-width/);
   for (const p of ['lib/presentation-pack.ts', 'lib/followup-research.ts', 'lib/visuals.ts', 'components/visuals/VisualQuickButton.tsx']) expect(read(p), `${p}: sessionStorage を新タブ handoff に使わない`).not.toMatch(/sessionStorage\.setItem/);
 });
+
+
+test('U93: 結果画面の操作行（321）— 縦書きの根本は flex の縮小（writing-mode は無い）：globals.css で「ボタンは常に横書き（nowrap）」・操作行は flex-wrap／🔭DR 結果は共通部品 ResultActionBar（主操作1つだけ塗りつぶし・機能ごとの多色なし）／中の要素のハンドラ・data 属性は不変（ソース固定）／バーのボタンとメニューのラベルは12字以内（R-57）／メニューは Esc・外側クリックで閉じる・トリガーは button', () => {
+  const read = (p: string) => readFileSync(join(__dirname, '../../src', p), 'utf8');
+  const css = read('app/globals.css');
+  expect(css, 'ボタンは常に横書き').toMatch(/button,\s*\na\[role="button"\] \{\s*white-space: nowrap;\s*\}/);
+  expect(css, '操作行の統一（高さ・角丸）').toMatch(/\[data-result-action-bar\] button,\s*\n\[data-result-action-bar\] a \{[\s\S]*?height: 32px !important;[\s\S]*?border-radius: 8px !important;/);
+  expect(css, '主操作だけ塗りつぶし（indigo）').toMatch(/\[data-result-action-bar\] button\[data-save-library\]:not\(:disabled\) \{\s*background: #4f46e5 !important;/);
+  const barCss = css.slice(css.indexOf('[data-result-action-bar]'));
+  expect((barCss.match(/#[0-9a-fA-F]{6}\b/g) ?? []).filter((c) => c.toLowerCase() !== '#4f46e5' && c.toLowerCase() !== '#fff'), '機能ごとの多色を使わない').toEqual([]);
+  expect(css, 'writing-mode の宣言は無い（縦書きの原因は縮小）').not.toMatch(/writing-mode\s*:/);
+  const bar = read('components/ResultActionBar.tsx');
+  expect(bar).not.toMatch(/writingMode|writing-mode/);
+  expect(bar, '1段目・2段目は flex-wrap').toMatch(/flexWrap: 'wrap'/);
+  expect(bar, 'Esc で閉じる').toMatch(/if \(e\.key === 'Escape'\) setOpen\(false\);/);
+  expect(bar, '外側クリックで閉じる').toMatch(/!rootRef\.current\.contains\(t\)\) setOpen\(false\)/);
+  expect(bar, 'トリガーは button（キーボードで開閉）').toMatch(/<button\s+type="button"\s+data-result-menu-trigger=\{menu\.key\}\s+aria-haspopup="menu"\s+aria-expanded=\{open\}/);
+  expect(bar, '中で開く操作（AI参照素材の保存パネル）は閉じない').toMatch(/t\.closest\('\[data-context-modal\]'\)\) return;/);
+  const dr = read('app/dashboard/deepresearch/page.tsx');
+  expect(dr).toMatch(/<ResultActionBar\s+attrs=\{\{ 'data-dr-result-actions': '' \}\}/);
+  expect((dr.match(/<ResultActionBar/g) ?? []).length).toBe(1);
+  // 各操作のハンドラ・data 属性は不変（要素をそのまま置き直しただけ）
+  for (const h of [
+    "onClick={() => copyRichMarkdown(report)}", "onClick={() => setShowRefine(true)}", "onClick={download}", "onClick={downloadDocx}", "onClick={sendToWrite}",
+    "onClick={() => handleSendToTextAnalysis(report, topic)}", "onClick={() => handleSendToMedicalStudio(report, topic)}", "onClick={() => handleSendToBusinessStudio(report, topic)}",
+    "onClick={() => handleSendToNexusBlog(report, topic)}", "onClick={() => handleSendToNoteArticle(report, topic)}", 'href="/dashboard/dr-hub"', "onClick={handleOpenContextModal}", "onClick={handleConfirmSaveContext}",
+    "data-context-modal", 'dataKey="report"', "onSaved={setReportSavedId}", "autoSaveSignal={autoStockSignal}", "onClick={() => setFontSize(f => Math.max(11, f - 1))}", "onClick={() => setFontSize(f => Math.min(20, f + 1))}",
+  ]) expect(dr, `ハンドラ・属性が残る: ${h}`).toContain(h);
+  expect(dr, '🧠 記憶するは2段目に別置き（保存ボタンの隣には出さない）').toMatch(/showMemorize=\{false\}/);
+  expect(dr).toMatch(/extra=\{<MemorizeButton title=/);
+  const save = read('components/SaveToLibraryButton.tsx');
+  expect(save, '主操作の目印').toMatch(/<button\s+data-save-library/);
+  expect(save, 'MemorizeButton は切り出し（既定は従来どおり隣に出す）').toMatch(/\{showMemorize && <MemorizeButton title=\{title\} content=\{content\} groupName=\{groupName\} \/>\}/);
+  // ラベル 12字以内（R-57）: 1段目のボタンとメニューのトリガー
+  const seg = dr.slice(dr.indexOf('<ResultActionBar'), dr.indexOf('extra={<MemorizeButton'));
+  for (const m of seg.matchAll(/label: '([^']+)'/g)) expect(Array.from(m[1]).length + 2, `メニュー「${m[1]} ▾」は12字以内`).toBeLessThanOrEqual(12);
+  for (const l of ['📋 コピー', '✏️ AIで修正', '🔭 追加リサーチ', '🖼 図解・画像を作る', '📚 リサーチ保存に追加', '🧠 記憶する', '⬇ ダウンロード ▾', '➡ 送る ▾']) expect(Array.from(l).length, `「${l}」は12字以内`).toBeLessThanOrEqual(12);
+  expect(dr, '1段目の追加リサーチは短いラベル').toContain('label="🔭 追加リサーチ"');
+});

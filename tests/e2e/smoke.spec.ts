@@ -12002,3 +12002,112 @@ test('C136: 生成結果から直接図解・画像（320）— 🔭DR結果（�
     await api.delete(LIBRARY_API, { data: { ids: [libId] } }).catch(() => {});
   }
 });
+
+
+test('C137: 結果画面の操作行（321）— 🔭DR結果の操作行が共通部品（横書き＝全ボタン writing-mode horizontal-tb・1文字折れ無し／同じ高さ／主操作だけ塗りつぶし）・2段目のメニュー（⬇ ダウンロード／➡ 送る）が開閉しEsc・外側クリックで閉じ、中の要素（MD・Word・送る先8つ・AI参照素材）が従来どおり／🧠 記憶するは2段目／WebKit iPhone幅で折り返して横スクロール無し', async ({ page, request }) => {
+  test.setTimeout(240_000);
+  const marker = `RAB${RUN_ID}`;
+  const REPORT = `# [E2E] ${marker} モックレポート\n\n本文です。出典: 例 https://example.com`;
+  const prep = async (p: import('@playwright/test').Page) => {
+    await stubFeatureDrafts(p);
+    await p.route('**/api/deepresearch', (route) => route.fulfill({ status: 200, contentType: 'text/event-stream', body: `data: ${JSON.stringify({ type: 'text', content: REPORT })}\n\ndata: ${JSON.stringify({ type: 'done', usage: { input_tokens: 1, output_tokens: 1 } })}\n\n` }));
+    for (const pattern of ['**/api/knowledge/**', '**/api/glossary/research-extract', '**/api/deepresearch/insights', '**/api/deepresearch/query-history', '**/api/library/auto-categorize']) {
+      await p.route(pattern, (route) => route.fulfill({ status: 200, contentType: 'application/json', body: '{}' }));
+    }
+    await p.route('**/api/library', async (route) => {
+      if (route.request().method() === 'POST') { await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ id: 'e2e-mock' }) }); return; }
+      await route.fallback();
+    });
+  };
+  const run = async (p: import('@playwright/test').Page) => {
+    await p.goto('/dashboard/deepresearch');
+    await p.evaluate(() => { localStorage.setItem('lumina_auto_stock_save', '1'); localStorage.setItem('lumina_text_scale', '100'); });
+    await p.reload({ waitUntil: 'domcontentloaded' });
+    await waitForRunReady(p);
+    await p.getByPlaceholder(/調査したいテーマを詳しく入力してください/).fill(`[E2E] 321 ${marker}`);
+    await p.locator('button[data-kb-run]').click();
+    await expect(p.locator('[data-dr-result-actions]')).toBeVisible({ timeout: 30000 });
+  };
+  const checkBar = async (p: import('@playwright/test').Page, label: string) => {
+    const bar = p.locator('[data-dr-result-actions]');
+    const rows = bar.locator('[data-result-action-row]');
+    expect(await rows.count(), `${label}: 2段`).toBe(2);
+    // 縦書き無し（computed writing-mode）・1文字折れ無し（各ボタンの高さ＝1行）
+    const info = await bar.locator('button, a').evaluateAll((els) => els.filter((e) => (e as HTMLElement).offsetParent !== null).map((e) => { const cs = getComputedStyle(e); const r = e.getBoundingClientRect(); return { text: (e.textContent ?? '').trim(), wm: cs.writingMode, h: Math.round(r.height), w: Math.round(r.width) }; }));
+    expect(info.length, `${label}: ボタンがある`).toBeGreaterThanOrEqual(8);
+    expect(Array.from(new Set(info.map((i) => i.wm))), `${label}: 全ボタン横書き`).toEqual(['horizontal-tb']);
+    const main = info.filter((i) => !/^[−＋]$/.test(i.text));
+    expect(Array.from(new Set(main.map((i) => i.h))), `${label}: ボタンの高さが揃う（${main.map((i) => `${i.text}:${i.h}`).join(',')}）`).toEqual([32]);
+    for (const i of main) expect(i.w, `${label}: 「${i.text}」が1文字ずつ折れていない`).toBeGreaterThan(i.h);
+    const bg = await bar.locator('button, a').evaluateAll((els) => els.filter((e) => (e as HTMLElement).offsetParent !== null).map((e) => ({ text: (e.textContent ?? '').trim(), bg: getComputedStyle(e).backgroundColor, primary: e.hasAttribute('data-save-library') })));
+    const filled = bg.filter((b) => b.bg === 'rgb(79, 70, 229)');
+    expect(filled.map((b) => b.primary), `${label}: 塗りつぶしは主操作だけ`).toEqual(filled.length ? [true] : []);
+    const sw = await p.evaluate(() => ({ sw: document.documentElement.scrollWidth, iw: window.innerWidth, bw: document.querySelector('[data-dr-result-actions]')!.getBoundingClientRect().right }));
+    expect(sw.sw, `${label}: 横スクロール無し`).toBeLessThanOrEqual(sw.iw + 1);
+    expect(sw.bw, `${label}: 操作行が画面幅に収まる`).toBeLessThanOrEqual(sw.iw + 1);
+    return bar;
+  };
+  await prep(page);
+  await run(page);
+  const bar = await checkBar(page, 'PC');
+  // 1段目: 主操作（保存）＋ 図解・追加リサーチ・コピー・AIで修正 ＋ 右端の文字サイズ
+  const row1 = bar.locator('[data-result-action-row="1"]');
+  await expect(row1.locator('[data-save-library]')).toBeVisible();
+  await expect(row1.locator('[data-vis-quick-open="report"]')).toBeVisible();
+  await expect(row1.locator('[data-followup-open="report"]')).toBeVisible();
+  await expect(row1.getByRole('button', { name: '📋 コピー' })).toBeVisible();
+  await expect(row1.getByRole('button', { name: '✏️ AIで修正' })).toBeVisible();
+  await expect(row1.locator('[data-result-action-aside]')).toContainText('レポート本文');
+  await expect(page.getByRole('button', { name: '✅ 保存済み' }), '自動ストック保存は従来どおり').toBeVisible({ timeout: 30000 });
+  // 2段目: メニュー2つ＋🧠 記憶する
+  const row2 = bar.locator('[data-result-action-row="2"]');
+  await expect(row2.locator('[data-result-menu-trigger="download"]')).toHaveText(/⬇ ダウンロード ▾/);
+  await expect(row2.locator('[data-result-menu-trigger="send"]')).toHaveText(/➡ 送る ▾/);
+  await expect(row2.locator('[data-memorize-button]')).toHaveText('🧠 記憶する');
+  await expect(row1.locator('[data-memorize-button]'), '記憶するは1段目には無い').toHaveCount(0);
+  // メニュー: 開く→中の要素→Esc→外側クリック→キーボード
+  const dl = row2.locator('[data-result-menu="download"]');
+  await expect(page.locator('[data-result-menu-panel="download"]')).toHaveCount(0);
+  await row2.locator('[data-result-menu-trigger="download"]').click();
+  await expect(dl).toHaveAttribute('data-result-menu-open', '1');
+  await expect(page.locator('[data-result-menu-panel="download"]').getByRole('button', { name: /💾 MD/ })).toBeVisible();
+  await expect(page.locator('[data-result-menu-panel="download"]').getByRole('button', { name: /📄 Word/ })).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(dl, 'Esc で閉じる').toHaveAttribute('data-result-menu-open', '0');
+  await row2.locator('[data-result-menu-trigger="send"]').focus();
+  await page.keyboard.press('Enter');
+  const sendPanel = page.locator('[data-result-menu-panel="send"]');
+  await expect(sendPanel, 'キーボードで開く').toBeVisible();
+  for (const name of ['📝 テキスト分析へ', '🏥 医療文書スタジオへ', '💰 収益化スタジオへ', '🌐 nexusブログ記事にする', '✍️ note記事にする', '✍️ 文章作成に使う', '🧠 AI参照素材として保存']) await expect(sendPanel.getByRole('button', { name }), `送る: ${name}`).toBeVisible();
+  await expect(sendPanel.getByRole('link', { name: '🚀 発信ハブで展開する' })).toHaveAttribute('href', '/dashboard/dr-hub');
+  const sendInfo = await sendPanel.locator('button, a').evaluateAll((els) => els.map((e) => getComputedStyle(e).writingMode));
+  expect(Array.from(new Set(sendInfo)), 'メニュー内も横書き').toEqual(['horizontal-tb']);
+  // 中で開く操作（AI参照素材の保存パネル）はメニューを閉じない
+  await sendPanel.getByRole('button', { name: '🧠 AI参照素材として保存' }).click();
+  await expect(sendPanel.getByRole('button', { name: /💾 保存する/ }), 'AI参照素材のパネルが開く').toBeVisible();
+  await expect(sendPanel).toBeVisible();
+  await sendPanel.getByRole('button', { name: 'キャンセル' }).click();
+  await page.mouse.click(5, 5);
+  await expect(sendPanel, '外側クリックで閉じる').toHaveCount(0);
+  // コピーは従来どおり（原文・R-71）
+  await row1.getByRole('button', { name: '📋 コピー' }).click();
+  expect(await page.evaluate(() => navigator.clipboard.readText())).toContain(marker);
+  // ── WebKit iPhone幅（R-64）: 1段目が折り返し、メニューはそのまま、横スクロール無し ──
+  const browser = await webkit.launch();
+  const ctx = await browser.newContext({ storageState: STORAGE_STATE, baseURL: BASE_URL, hasTouch: true, isMobile: true, viewport: { width: 390, height: 844 }, serviceWorkers: 'block' });
+  const mp = await ctx.newPage();
+  try {
+    await prep(mp);
+    await run(mp);
+    const mbar = await checkBar(mp, 'iPhone幅');
+    const tops = await mbar.locator('[data-result-action-row="1"] button').evaluateAll((els) => Array.from(new Set(els.map((e) => Math.round(e.getBoundingClientRect().top)))));
+    expect(tops.length, 'iPhone幅では1段目が2段以上に折り返す').toBeGreaterThanOrEqual(2);
+    await mbar.locator('[data-result-menu-trigger="send"]').tap();
+    await expect(mp.locator('[data-result-menu-panel="send"]')).toBeVisible();
+    const pr = await mp.evaluate(() => document.querySelector('[data-result-menu-panel="send"]')!.getBoundingClientRect().right);
+    expect(pr, 'メニューが画面幅に収まる').toBeLessThanOrEqual(390 + 1);
+  } finally {
+    await ctx.close();
+    await browser.close();
+  }
+});

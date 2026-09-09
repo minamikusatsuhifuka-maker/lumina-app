@@ -21,9 +21,62 @@ type Props = {
   autoSaveSignal?: number;
   /** 319: 保存できた行の id を親へ（オプトイン）。「🔭 これを元に追加リサーチ」が保存済みの行を前提資料にするため */
   onSaved?: (id: string) => void;
+  /** 321: 「🧠 記憶する」を隣に出す（既定 true＝従来どおり）。ResultActionBar は2段目に MemorizeButton を別置きするので false */
+  showMemorize?: boolean;
 };
 
-export function SaveToLibraryButton({ title, content, type, groupName, tags, metadata, autoSaveSignal, onSaved }: Props) {
+/** 321: 「🧠 記憶する」（AIメモリ）。SaveToLibraryButton の内側から切り出し（挙動は不変）。単独でも置ける */
+export function MemorizeButton({ title, content, groupName, style }: { title: string; content: string; groupName: string; style?: React.CSSProperties }) {
+  const [memorizing, setMemorizing] = useState(false);
+  const [memorized, setMemorized] = useState(false);
+  const [toast, setToast] = useState('');
+  const showToast = (msg: string) => {
+    setToast(msg);
+    setTimeout(() => setToast(''), 2500);
+  };
+  return (
+    <span style={{ position: 'relative', display: 'inline-flex' }}>
+      <button
+        data-memorize-button
+        onClick={async () => {
+          if (!content || memorizing) return;
+          setMemorizing(true);
+          try {
+            const res = await fetch('/api/memory/summarize', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ content, title, sourceType: groupName, category: groupName }),
+            });
+            if (res.ok) {
+              setMemorized(true);
+              showToast('🧠 AIメモリに記憶しました！');
+            } else {
+              showToast('❌ メモリ保存に失敗しました');
+            }
+          } catch { showToast('❌ メモリ保存に失敗しました'); }
+          finally { setMemorizing(false); }
+        }}
+        disabled={memorizing || memorized || !content}
+        style={style ?? {
+          padding: '8px 16px',
+          background: memorized ? 'rgba(108,99,255,0.15)' : 'rgba(108,99,255,0.08)',
+          border: `1px solid ${memorized ? 'rgba(108,99,255,0.4)' : 'rgba(108,99,255,0.2)'}`,
+          borderRadius: 8, color: memorized ? '#6c63ff' : '#a89fff', fontSize: 13, fontWeight: 600,
+          cursor: memorizing || memorized || !content ? 'not-allowed' : 'pointer',
+          opacity: !content ? 0.5 : 1,
+          display: 'flex', alignItems: 'center', gap: 6,
+        }}
+      >
+        {memorizing ? '記憶中...' : memorized ? '🧠 記憶済み' : '🧠 記憶する'}
+      </button>
+      {toast && (
+        <span style={{ position: 'absolute', top: '110%', left: 0, whiteSpace: 'nowrap', background: 'var(--bg-primary)', border: '1px solid var(--border)', borderRadius: 8, padding: '6px 10px', fontSize: 12, zIndex: 50, boxShadow: '0 4px 12px rgba(0,0,0,0.15)' }}>{toast}</span>
+      )}
+    </span>
+  );
+}
+
+export function SaveToLibraryButton({ title, content, type, groupName, tags, metadata, autoSaveSignal, onSaved, showMemorize = true }: Props) {
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   // 247: 保存失敗はトーストだけだと消えて分からなくなるので、ボタン自体を ⚠️ にして再試行できる形で残す
@@ -31,8 +84,6 @@ export function SaveToLibraryButton({ title, content, type, groupName, tags, met
   const [showFavoriteOption, setShowFavoriteOption] = useState(false);
   const [savedId, setSavedId] = useState<string | null>(null);
   const [toast, setToast] = useState('');
-  const [memorizing, setMemorizing] = useState(false);
-  const [memorized, setMemorized] = useState(false);
   // 保存済みの本文。これと同じ内容の間は「✅ 保存済み」で押せない＝二重保存を防ぐ。
   // 本文が変われば（AIで修正・再生成）未保存に戻るので、直した版はまた保存できる
   const savedContentRef = useRef<string | null>(null);
@@ -147,6 +198,7 @@ export function SaveToLibraryButton({ title, content, type, groupName, tags, met
       <div style={{ display: 'flex', gap: 8 }}>
         {/* ライブラリ保存ボタン */}
         <button
+          data-save-library
           onClick={() => saveToLibrary(false)}
           // 247: 保存済みの間は押せない＝同じ本文を二重にストックへ入れない
           disabled={saving || !content || saved}
@@ -175,39 +227,8 @@ export function SaveToLibraryButton({ title, content, type, groupName, tags, met
           {saving ? '保存中...' : saved ? '✅ 保存済み' : saveError ? '⚠️ 保存に失敗・再試行' : '📚 リサーチ保存に追加'}
         </button>
 
-        {/* 🧠 記憶するボタン */}
-        <button
-          onClick={async () => {
-            if (!content || memorizing) return;
-            setMemorizing(true);
-            try {
-              const res = await fetch('/api/memory/summarize', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ content, title, sourceType: groupName, category: groupName }),
-              });
-              if (res.ok) {
-                setMemorized(true);
-                showToast('🧠 AIメモリに記憶しました！');
-              } else {
-                showToast('❌ メモリ保存に失敗しました');
-              }
-            } catch { showToast('❌ メモリ保存に失敗しました'); }
-            finally { setMemorizing(false); }
-          }}
-          disabled={memorizing || memorized || !content}
-          style={{
-            padding: '8px 16px',
-            background: memorized ? 'rgba(108,99,255,0.15)' : 'rgba(108,99,255,0.08)',
-            border: `1px solid ${memorized ? 'rgba(108,99,255,0.4)' : 'rgba(108,99,255,0.2)'}`,
-            borderRadius: 8, color: memorized ? '#6c63ff' : '#a89fff', fontSize: 13, fontWeight: 600,
-            cursor: memorizing || memorized || !content ? 'not-allowed' : 'pointer',
-            opacity: !content ? 0.5 : 1,
-            display: 'flex', alignItems: 'center', gap: 6,
-          }}
-        >
-          {memorizing ? '記憶中...' : memorized ? '🧠 記憶済み' : '🧠 記憶する'}
-        </button>
+        {/* 🧠 記憶するボタン（321: 共通部品 MemorizeButton。showMemorize=false のときは呼び出し側が別置き） */}
+        {showMemorize && <MemorizeButton title={title} content={content} groupName={groupName} />}
 
         {/* お気に入りボタン（保存後に表示） */}
         {showFavoriteOption && (

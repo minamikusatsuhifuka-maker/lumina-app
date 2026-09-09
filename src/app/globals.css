@@ -451,3 +451,71 @@ a[href*="dashboard"]:hover {
   font-size: 0.95em;
   border-radius: 0 8px 8px 0;
 }
+
+/* ── 321: ボタンは常に横書き ──
+   flex の置き場で折り返し（flex-wrap）が無いと、ボタンが縮んで日本語ラベルが1文字ずつ折れ「縦書き」に見える（318 の選択バーと同根）。
+   writing-mode ではなく縮小が原因なので、ボタン自体は折らず（nowrap）、置き場側で flex-wrap する規約にする */
+button,
+a[role="button"] {
+  white-space: nowrap;
+}
+
+/* ── 321: 結果画面の操作行（ResultActionBar）。中の要素は各画面の既存要素のまま＝見た目だけをここで揃える ──
+   高さ32・角丸8・同じ文字サイズ。主操作（[data-save-library]）だけ塗りつぶし（indigo）、他は枠線。機能ごとの多色は使わない */
+[data-result-action-bar] button,
+[data-result-action-bar] a {
+  height: 32px !important;
+  min-height: 32px !important;
+  box-sizing: border-box !important;
+  padding: 0 12px !important;
+  border-radius: 8px !important;
+  font-size: 12px !important;
+  font-weight: 600 !important;
+  line-height: 1 !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 4px;
+  white-space: nowrap;
+  background: var(--bg-primary) !important;
+  background-image: none !important;
+  color: var(--text-primary) !important;
+  border: 1px solid var(--border) !important;
+  text-decoration: none !important;
+  cursor: pointer;
+}
+[data-result-action-bar] button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+[data-result-action-bar] button[data-save-library]:not(:disabled) {
+  background: #4f46e5 !important;
+  color: #fff !important;
+  border-color: #4f46e5 !important;
+}
+[data-result-action-bar] [data-result-action-aside] button {
+  width: 24px !important;
+  height: 24px !important;
+  min-height: 24px !important;
+  padding: 0 !important;
+  border-radius: 4px !important;
+  justify-content: center !important;
+}
+[data-result-action-bar] [data-result-menu-panel] button,
+[data-result-action-bar] [data-result-menu-panel] a {
+  width: 100%;
+  justify-content: flex-start !important;
+  border-color: transparent !important;
+}
+[data-result-action-bar] [data-result-menu-panel] button:hover,
+[data-result-action-bar] [data-result-menu-panel] a:hover {
+  background: var(--bg-secondary) !important;
+}
+/* メニュー内の [data-context-modal] のパネル（🧠 AI参照素材として保存）の中は元の見た目のまま */
+[data-result-action-bar] [data-context-modal] > div button {
+  height: auto !important;
+  min-height: 0 !important;
+  width: auto;
+  padding: 6px 12px !important;
+  white-space: normal;
+  border-color: var(--border) !important;
+}
