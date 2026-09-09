@@ -2026,7 +2026,7 @@ test('C46: 🗂テキスト分析の「クリアして貼付」廃止（313改�
   await expect(page.locator('[data-clear-paste]').first()).toBeVisible({ timeout: 30000 });
 });
 
-test('C47: クリップボードを読めないときは入力を一切変更しない（270・権限拒否／iOSのキャンセル相当）', async ({
+test('C47: クリップボードを読めないときは入力を一切変更しない（270／313改訂・📋ペースト・権限拒否／iOSのキャンセル相当）', async ({
   browser,
 }) => {
   // 権限を与えないコンテキスト＝院長が読み取りを許可していない状態。
@@ -2046,11 +2046,12 @@ test('C47: クリップボードを読めないときは入力を一切変更し
     const OLD = `[E2E] ${KB_TOKEN} 権限なしのときの入力`;
     await textarea.fill(OLD);
     await expect(textarea, '「入力がある」という前提が成立していること').toHaveValue(OLD);
-    await page.locator('[data-clear-paste]').filter({ visible: true }).first().click();
+    // 313改訂: 🗂 の「クリアして貼付」は廃止＝「📋 ペースト」で同じ経路（読めなければ何もしない・R-76）
+    await page.locator('[data-paste-button]').filter({ visible: true }).first().click();
 
     // 270の最重要要件: 読めなかったら**何もしない**（254はここでクリアまで実行していた）
     await expect(
-      page.getByText('クリップボードを読み取れませんでした').first(),
+      page.getByText('クリップボードを読めませんでした').first(),
       '読めなかったことを知らせ、代わりの操作を案内すること（黙って終わらせない）',
     ).toBeVisible();
     await expect(textarea, '読めなくても入力が消えないこと').toHaveValue(OLD);
@@ -2059,7 +2060,7 @@ test('C47: クリップボードを読めないときは入力を一切変更し
       '何も消していないのでUndoは出ないこと',
     ).toHaveCount(0);
 
-    // キー（⌘⇧V）でも同じ結末になる（ボタンとキーで挙動が分かれない）
+    // 313改訂: ⌘⇧V はこの画面に割り当てない＝何も起きない
     await textarea.click();
     await page.keyboard.press('ControlOrMeta+Shift+v');
     await expect(textarea, 'キーでも入力が消えないこと').toHaveValue(OLD);
