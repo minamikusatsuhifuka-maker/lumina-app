@@ -109,6 +109,8 @@ test('B5: note記事群（plan→article）が完走しレスポンス形が正�
     const articleJson = await article.json();
     expect(String(articleJson.content).length).toBeGreaterThan(0);
     expect(articleJson.ad_check).toBeTruthy();
+    // 310（R-114）: note-bundle の生成物も1文1行
+    expect(findMultiSentenceLines(String(articleJson.content)), '1文1行').toEqual([]);
   } finally {
     for (const id of ids) await deleteSave(request, id);
   }
@@ -524,6 +526,8 @@ test('B18: Kindle多軸展開（269）— 書き下ろしが構造どおりで�
   expect(/^#\s/m.test(body)).toBe(false);
   expect((body.match(/^##\s/gm) ?? []).length).toBeGreaterThanOrEqual(2);
   expect(body).toContain('書籍');
+  // 310（R-114）: remix の生成物も1文1行
+  expect(findMultiSentenceLines(body), '1文1行').toEqual([]);
 
   // §7: 書籍文脈の残存なし（プロンプト＋機械検証の二段構えの実測）
   expect(data.contextHits).toEqual([]);
@@ -748,4 +752,62 @@ test('B29: モデル比較の Gemini 側（292 §3-5）— compare:"gemini" の�
   expect(tag, `HTMLタグが本文に出ないこと（検出: ${tag?.[0] ?? '無し'}）`).toBeNull();
   // 294 §6: Gemini 側にも同じ定数が入る（害なし）。前置きが出ないこと＝退行なし
   expectNoPreamble(text, 'B29');
+});
+
+test('B31: ②分割記事化（310・R-114）— 1記事分の実出力が1文1行・段落間空行・h1なし（B16 と同じ判定） @gen', async ({ request }) => {
+  test.setTimeout(GEN_TIMEOUT);
+  const drId = await createLibraryItem(request, {
+    title: `310検証用DR記事 ${RUN_ID}`,
+    content:
+      '# 冬の乾燥肌と保湿ケア\n\n角層は水分を保つバリアの役割を持つ。冬は空気の乾燥と暖房で角層の水分が失われやすい。' +
+      '入浴後は早めに保湿剤を塗る・こすらず押さえるようにのばす・熱すぎるお湯を避ける、が基本とされる。' +
+      '室内の加湿や刺激の少ない肌着も助けになる。かゆみが強い場合は皮膚科での相談がすすめられる。',
+    type: 'deepresearch',
+  });
+  try {
+    const res = await request.post('/api/dr-hub/split', {
+      data: {
+        drId,
+        mode: 'article',
+        article: { title: '[E2E] 入浴後の保湿はなぜ早さが効くのか', points: ['角層の水分は入浴後に失われる', '塗り方は押さえるように'], role: '導入', audience: '乾燥肌に悩む一般読者' },
+        series: { index: 1, total: 1 },
+        length: 'short',
+      },
+      timeout: REQ_TIMEOUT,
+    });
+    const data = await res.json().catch(() => ({}));
+    expect(res.status(), JSON.stringify(data).slice(0, 300)).toBe(200);
+    const body = String(data.content ?? '');
+    expect(body.length).toBeGreaterThan(300);
+    expect(/^#\s/m.test(body), '本文にh1（#）が無い').toBe(false);
+    expect(body).toContain('\n\n');
+    expect(findMultiSentenceLines(body), '1文1行').toEqual([]);
+  } finally {
+    const del = await request.delete('/api/library', { data: { id: drId } });
+    expect(del.status()).toBe(200);
+  }
+});
+
+test('B32: 旧 note記事生成（310・R-114）— ストリーミング完了後の本文（画面側・編集欄の生Markdown）が1文1行・段落間空行 @gen', async ({ page }) => {
+  test.setTimeout(GEN_TIMEOUT);
+  await page.route('**/api/feature-drafts**', (route) =>
+    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(route.request().method() === 'GET' ? { draft: null } : { ok: true }) }),
+  );
+  await page.goto('/dashboard/note-article');
+  const theme = page.locator('textarea').first();
+  await expect(theme).toBeVisible({ timeout: 30000 });
+  await theme.fill('[E2E] 入浴後すぐの保湿を習慣にするコツ（短く）');
+  const shortBtn = page.getByRole('button', { name: /短め/ });
+  if ((await shortBtn.count()) > 0) await shortBtn.first().click();
+  await page.locator('[data-note-generate]').click();
+  // ストリーミング完了＝編集欄（生Markdown）が空でなくなり、生成中の表示が消える
+  const editToggle = page.locator('[data-note-edit-toggle]');
+  await expect(editToggle).toBeVisible({ timeout: REQ_TIMEOUT });
+  await editToggle.click();
+  const editor = page.locator('[data-note-editor]');
+  await expect(editor).toBeVisible();
+  await expect.poll(async () => (await editor.inputValue()).length, { timeout: REQ_TIMEOUT }).toBeGreaterThan(300);
+  const body = await editor.inputValue();
+  expect(body).toContain('\n\n');
+  expect(findMultiSentenceLines(body), '1文1行（done で整形）').toEqual([]);
 });

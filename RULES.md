@@ -1465,4 +1465,9 @@
 - 検証: `lib/note-format.ts` の U（U79）で分割規則と冪等性を固定し、@gen（B16/B30）で実AIの出力が `findMultiSentenceLines` 0件。
   新しい note 生成経路を足すとき・既存経路（②分割記事化・275 書籍→記事・旧 note記事生成）に広げるときは、生成直後の
   1箇所で `formatOneSentencePerLine` を呼び、画面の保存・コピーでも同じ関数を通す（表示用 renderMarkdown は使わない・R-71）。
+  310追記: **全経路に適用済み**。生成6経路（①ペルソナ・②分割・275 書籍→記事・269 remix・note-bundle・note-quick）は
+  `checkMedicalAd` の前、旧 note記事生成はストリーミング完了（done）時に画面側で整形（途中経過は変えない）。保険として
+  `SaveToLibraryButton`（type=note-article）と `copyRichMarkdownForNote()` の**内側**でも通す（冪等＝二重適用は無害）。
+  一段目のプロンプトは `NOTE_COMMON_RULES` に1回だけ（経路ごとに書き分けない）。note 以外（Kindle本文・HP・SNS・
+  プレゼン・喩え話）には当てない＝U80 が「整形を呼ぶ API は6経路だけ」を固定する。新しい note 経路を足したら U80 の一覧に足す。
 - 初出: 309 / 2026-09-09

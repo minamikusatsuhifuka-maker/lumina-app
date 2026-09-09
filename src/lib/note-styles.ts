@@ -4,6 +4,8 @@
 // 文体の追加・調整はこのファイルの変更だけで完結させる（プロンプトへの直書き禁止）。
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
+import { ONE_SENTENCE_PER_LINE_RULE } from '@/lib/note-format';
+
 export type NoteStyleKey = 'friendly' | 'expert' | 'balanced' | 'story';
 
 export interface NoteStyle {
@@ -76,6 +78,7 @@ export const NOTE_STYLE_KEYS = Object.keys(NOTE_STYLES) as NoteStyleKey[];
 // 全文体共通の品質規約（既存 note記事生成の規約 + 医療系の数値/出典ルール）。
 // パス2のシステムプロンプトに必ず含める。緩和・省略しない。
 export const NOTE_COMMON_RULES = `# 全文体共通の厳守事項
+${ONE_SENTENCE_PER_LINE_RULE}
 - AIが書いたとわかる無機質な文章は避け、読者と対話するような自然な口調で書く
 - 「ここに体験談を入れてください」のようなプレースホルダは使わず、自然な文章として完結させる
 - HTMLタグは使わない。Markdownのリンク記法（[テキスト](URL)）も使わない。URLは生のURLのみ記載

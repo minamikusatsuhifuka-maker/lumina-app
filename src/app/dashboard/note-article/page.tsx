@@ -15,6 +15,7 @@ import {
   yyyymmdd,
 } from '@/lib/title-generator';
 import { copyRichMarkdown } from '@/lib/rich-copy';
+import { formatOneSentencePerLine } from '@/lib/note-format';
 import { triggerDownload } from '@/lib/download';
 import {
   loadFeatureDraft,
@@ -410,6 +411,9 @@ export default function NoteArticleGenerationPage() {
         }
       }
 
+      // 310（R-114）: ストリーミング完了時に1文1行へ整える（途中経過の表示は変えない）。以降の下書き保存・広告チェックも整形後の本文
+      accumulated = formatOneSentencePerLine(accumulated);
+      setArticle(accumulated);
       setEditedArticle(accumulated);
       setTrafficStats({
         requestBytes,
@@ -968,6 +972,7 @@ export default function NoteArticleGenerationPage() {
         <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
           <button
             data-kb-run
+            data-note-generate
             onClick={generate}
             disabled={loading}
             title={keyHints ? `note 記事の下書きを生成（${keyHints.run}）` : 'note 記事の下書きを生成'}
@@ -1089,6 +1094,7 @@ export default function NoteArticleGenerationPage() {
             </div>
             <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
               <button
+                data-note-edit-toggle
                 onClick={() => setEditMode(v => !v)}
                 style={{
                   padding: '6px 14px',
@@ -1179,7 +1185,8 @@ export default function NoteArticleGenerationPage() {
 
           {editMode ? (
             <textarea
-              value={editedArticle}
+              data-note-editor
+            value={editedArticle}
               onChange={e => setEditedArticle(e.target.value)}
               style={{
                 width: '100%',

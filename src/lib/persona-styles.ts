@@ -9,8 +9,6 @@
 // どのペルソナでも NOTE_COMMON_RULES / MEDICAL_AD_NG_RULES（note系規約）を緩めない。
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-import { ONE_SENTENCE_PER_LINE_RULE } from '@/lib/note-format';
-
 export type PersonaStyleKey =
   | 'expert'
   | 'teen'
@@ -191,7 +189,6 @@ export function personaStructureRules(headingRange: string): string {
 - 画像プレースホルダ（「ここに画像」等）を挿入しない
 
 # 可読性（noteで読みやすく）
-${ONE_SENTENCE_PER_LINE_RULE}
 - 1段落は3〜4行以内。段落の間に必ず空行を入れる
 - 太字は1章あたり1〜2箇所まで（乱用しない）
 - 箇条書きは1記事あたり2〜4箇所程度。全文の箇条書き化は禁止`;

@@ -1,3 +1,4 @@
+import { formatOneSentencePerLine } from '@/lib/note-format';
 import { NextRequest, NextResponse } from 'next/server';
 import { neon } from '@neondatabase/serverless';
 import { requireAuth } from '@/lib/require-auth';
@@ -147,7 +148,10 @@ ${chapterText.slice(0, MAX_SOURCE_CHARS)}${episode.block ? `\n\n${episode.block}
       return NextResponse.json({ error: '記事の生成結果が空でした。もう一度お試しください' }, { status: 502 });
     }
 
-    const { titles, body: articleBody } = parsePersonaArticleOutput(raw);
+    const parsedOut = parsePersonaArticleOutput(raw);
+    const titles = parsedOut.titles;
+    // 310（R-114）: 1文1行の決定的整形はガードの前・冪等
+    const articleBody = formatOneSentencePerLine(parsedOut.body);
 
     // 機械検証（警告のみ・自動修正しない）
     const contextHits = detectBookContext(articleBody);

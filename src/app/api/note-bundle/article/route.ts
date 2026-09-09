@@ -1,3 +1,4 @@
+import { formatOneSentencePerLine } from '@/lib/note-format';
 import { NextResponse } from 'next/server';
 import { requireAuth } from '@/lib/require-auth';
 import { generateWithModel } from '@/lib/ai-client';
@@ -159,10 +160,12 @@ ${materialsSection}
       return NextResponse.json({ error: '記事の生成結果が空でした。もう一度お試しください' }, { status: 502 });
     }
 
-    const adCheck = await checkMedicalAd(content);
+    // 310（R-114）: 1文1行の決定的整形はガードの前・冪等
+    const formatted = formatOneSentencePerLine(content);
+    const adCheck = await checkMedicalAd(formatted);
 
     return NextResponse.json({
-      content,
+      content: formatted,
       ad_check: adCheck,
       style: style.key,
       usedSourceKeys: rows.map((r) => r.key),

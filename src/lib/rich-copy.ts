@@ -8,6 +8,7 @@
 // fail-closed: HTML変換・リッチ書き込みに失敗したらプレーンのみコピーして成功扱いにする。
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
+import { formatOneSentencePerLine } from '@/lib/note-format';
 import { renderMarkdown, sanitizeLatex } from './markdown-renderer';
 import { copyToClipboard } from './copyToClipboard';
 
@@ -118,7 +119,9 @@ export function promoteHeadingsForNote(html: string): string {
 }
 
 /** 発信ハブ①「📋 note用にコピー」専用（適用先を広げるときは266 §1-4の影響確認を行うこと） */
-export async function copyRichMarkdownForNote(markdown: string): Promise<boolean> {
+export async function copyRichMarkdownForNote(markdownRaw: string): Promise<boolean> {
+  // 310（R-114）: note用コピーは内側で1文1行へ整える（整形関数は表示レンダラではない・R-71。冪等）
+  const markdown = formatOneSentencePerLine(markdownRaw);
   const plain = sanitizeLatex(markdown);
   try {
     // 294: note は段落自身が余白を持つため空段落を外す（空段落を足すと note では二重の空きになる）。

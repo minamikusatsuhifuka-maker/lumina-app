@@ -1,5 +1,6 @@
 'use client';
 import { useEffect, useRef, useState } from 'react';
+import { formatOneSentencePerLine } from '@/lib/note-format';
 
 // 保存時の自動カテゴライズ（デフォルト有効）。将来オフにしたい時のためのフラグ（UIには出さない）。
 const AUTO_CATEGORIZE_ENABLED = true;
@@ -43,6 +44,8 @@ export function SaveToLibraryButton({ title, content, type, groupName, tags, met
     if (!content) return;
     setSaving(true);
     setSaveError(false);
+    // 310（R-114）: note記事は保存前に1文1行へ整える（部品の内側＝全画面に効く。冪等なので呼び出し側の整形と重なっても無害）
+    const contentToSave = type === 'note-article' ? formatOneSentencePerLine(content) : content;
     try {
       const res = await fetch('/api/library', {
         method: 'POST',
@@ -50,7 +53,7 @@ export function SaveToLibraryButton({ title, content, type, groupName, tags, met
         body: JSON.stringify({
           type,
           title,
-          content,
+          content: contentToSave,
           metadata: { ...metadata, savedAt: new Date().toISOString() },
           tags: asFavorite ? `${tags || type},お気に入り` : (tags || type),
           group_name: groupName,
