@@ -33,6 +33,7 @@ import {
   type MandalaLinkResolved,
 } from '@/lib/mandala-shared';
 import { presetCellRows, type MandalaPresetKey } from '@/lib/mandala-presets';
+import { MANDALA_RESEARCH_REJECT_RUNNING, canOrderResearch, parseResearchMeta, type MandalaResearchKind, type MandalaResearchRef } from '@/lib/mandala-research';
 
 // ============================================================
 // スキーマ（冪等DDL・プロセス内で1回だけ）
@@ -313,7 +314,7 @@ export type UpdateCellMetaResult =
 export async function updateCellMeta(
   userId: string,
   cellId: string,
-  patch: { tier?: MandalaTier; reaction?: Omit<MandalaReaction, 'recordedAt'> | null },
+  patch: { tier?: MandalaTier; reaction?: Omit<MandalaReaction, 'recordedAt'> | null; research?: Record<string, unknown> | null },
 ): Promise<UpdateCellMetaResult> {
   await ensureMandalaTables();
   const [current] = (await sql`
@@ -332,6 +333,12 @@ export async function updateCellMeta(
       if (patch.reaction === null) remove.push('reaction');
       else set.reaction = { ...patch.reaction, recordedAt: new Date().toISOString() };
     }
+  }
+  // 311: 進行中の印（research）。null＝キーを消す。中身の同一判定はしない（startedAt を進める用途があるため）
+  if (patch.research !== undefined) {
+    if (patch.research === null) {
+      if (cur.meta.research !== undefined) remove.push('research');
+    } else set.research = patch.research;
   }
   if (Object.keys(set).length === 0 && remove.length === 0) return { ok: true, cell: cur, unchanged: true };
   const updated = (await sql`
@@ -719,4 +726,72 @@ export async function listArticlesFromChart(userId: string, chartId: string): Pr
     out.push({ id: String(r.id), title: r.title ?? '', mode, cellId: typeof m.cellId === 'string' ? m.cellId : null, created_at: String(r.created_at) });
   }
   return out;
+}
+
+// ============================================================
+// 311: リサーチ発注の進行中の印（meta.research）と、完了時の自動紐づけ
+// ============================================================
+
+export type StartResearchResult = { ok: true; cell: MandalaCell } | { ok: false; reason: 'not_found' | 'running' | 'empty'; message: string };
+
+/**
+ * §3-2 発注直後の印。同じマス・同じ経路の進行中があれば拒否（R-87 のサーバ側）。失敗・中断（閾値超過）は再発注できる。
+ * jobId/index はバッチ経路のとき（テキスト分析は無し）。startedAt はサーバの現在時刻（表示は JST・R-86）
+ */
+export async function startResearch(
+  userId: string,
+  cellId: string,
+  kind: MandalaResearchKind,
+  extra: { jobId?: number; index?: number } = {},
+): Promise<StartResearchResult> {
+  await ensureMandalaTables();
+  const [row] = (await sql`
+    SELECT id, chart_id, parent_cell_id, depth, position, title, body, meta, created_at, updated_at
+    FROM mandala_cells WHERE id = ${cellId}::uuid AND user_id = ${userId}
+  `) as CellRow[];
+  if (!row) return { ok: false, reason: 'not_found', message: 'マスが見つかりません' };
+  const cur = toCell(row);
+  if (!cur.title.trim() && !cur.body.trim()) return { ok: false, reason: 'empty', message: 'タイトルも本文も空のマスは発注できません' };
+  const existing = parseResearchMeta(cur.meta);
+  if (existing && existing.kind === kind && !canOrderResearch(cur.meta, Date.now())) {
+    return { ok: false, reason: 'running', message: MANDALA_RESEARCH_REJECT_RUNNING };
+  }
+  const research: Record<string, unknown> = { kind, startedAt: new Date().toISOString(), ...(extra.jobId !== undefined ? { jobId: extra.jobId } : {}), ...(extra.index !== undefined ? { index: extra.index } : {}) };
+  const res = await updateCellMeta(userId, cellId, { research });
+  if (!res.ok) return { ok: false, reason: 'not_found', message: 'マスが見つかりません' };
+  return { ok: true, cell: res.cell };
+}
+
+/** 失敗の記録（印は残す＝画面で分かる・再発注できる） */
+export async function markResearchFailed(userId: string, cellId: string, reason: string): Promise<void> {
+  const [row] = (await sql`SELECT meta FROM mandala_cells WHERE id = ${cellId}::uuid AND user_id = ${userId}`) as { meta: Record<string, unknown> | null }[];
+  if (!row) return;
+  const cur = parseResearchMeta(row.meta ?? {});
+  const research: Record<string, unknown> = { ...(cur ?? { kind: 'deepresearch', startedAt: new Date().toISOString() }), failedAt: new Date().toISOString(), reason: reason.slice(0, 300) };
+  await updateCellMeta(userId, cellId, { research });
+}
+
+export type LinkResearchResult = { ok: true; added: boolean } | { ok: false; skipped: 'cell_missing' | 'link_failed'; message: string };
+
+/**
+ * §3-3 完了フック。付帯情報（parseResearchRef で検証済み）があるときだけ動く（R-88）。
+ * 302 の addLinks を**そのまま**通す（別の挿入経路を作らない・一意制約で重複しない）。
+ * cell が無ければ（発注中に削除）紐づけをスキップして保存は残す（孤立リンクを作らない・§5）。
+ * 紐づけに失敗しても保存は成功のまま（R-39）＝失敗は meta.research に残す
+ */
+export async function linkResearchResult(userId: string, ref: MandalaResearchRef, scope: 'library' | 'text_analysis' | 'context', itemKey: string): Promise<LinkResearchResult> {
+  try {
+    const res = await addLinks(userId, ref.cellId, [{ scope, item_key: itemKey }]);
+    if (!res) return { ok: false, skipped: 'cell_missing', message: 'マスが見つからないため紐づけをスキップしました（保存は残ります）' };
+    if (res.failed.length > 0) {
+      await markResearchFailed(userId, ref.cellId, `紐づけに失敗: ${res.failed.join(',')}`).catch(() => {});
+      return { ok: false, skipped: 'link_failed', message: `紐づけに失敗しました（${res.failed.join(',')}）` };
+    }
+    await updateCellMeta(userId, ref.cellId, { research: null }).catch(() => {});
+    return { ok: true, added: res.added.length > 0 };
+  } catch (e) {
+    const message = e instanceof Error ? e.message : '不明なエラー';
+    await markResearchFailed(userId, ref.cellId, `紐づけに失敗: ${message}`).catch(() => {});
+    return { ok: false, skipped: 'link_failed', message };
+  }
 }

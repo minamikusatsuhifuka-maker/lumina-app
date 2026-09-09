@@ -20,6 +20,7 @@
 
 import { CharCountBadge } from '@/components/LibraryItemRow';
 import type { HoverPopoverBindings } from '@/components/HoverPopover';
+import { MANDALA_RESEARCH_STATE_LABELS, researchState } from '@/lib/mandala-research';
 import {
   MANDALA_CENTER,
   MANDALA_POSITION_LABELS,
@@ -57,8 +58,11 @@ function CellCard({
   density,
   onExpand,
   articleCount = 0,
+  nowMs = 0,
 }: {
   slot: MandalaGridSlot;
+  /** 311: 進行状況の判定に使う現在時刻（親が固定） */
+  nowMs?: number;
   /** 309: そのマスから起こした note 記事の数（記事の側の記録から導出）。0 なら出さない */
   articleCount?: number;
   selected: boolean;
@@ -87,6 +91,8 @@ function CellCard({
   const tierCell = cell ?? derivedCell ?? null;
   const tier = cellTier(tierCell);
   const reacted = !!cell && !derived && hasReaction(cell);
+  // 311: 調査の進行状況（meta.research から導出）。now は親が固定して渡す（決定的）
+  const research = cell && !derived ? researchState(cell.meta, nowMs) : 'none';
 
   const activate = () => {
     if (selectMode) {
@@ -215,6 +221,23 @@ function CellCard({
               style={{ fontSize: 10, fontWeight: 700, whiteSpace: 'nowrap', flexShrink: 0, color: '#1D9E75', cursor: b ? 'pointer' : 'default', padding: '0 2px', borderRadius: 4 }}
             >
               📈
+            </span>
+          );
+        })()}
+        {/* 311 §3-5: 調査中／失敗／中断（ホバーで開始時刻・経路・再発注）。印が無ければ出さない */}
+        {research !== 'none' && cell && (() => {
+          const b = popoverBind ? popoverBind(cell, 'research') : undefined;
+          const handlers = b ? (selectMode ? { ...b, onClick: undefined } : b) : {};
+          return (
+            <span
+              data-mandala-cell-research={research}
+              aria-label={`${MANDALA_RESEARCH_STATE_LABELS[research]}。詳細を表示`}
+              role={b ? 'button' : undefined}
+              tabIndex={b ? 0 : undefined}
+              {...handlers}
+              style={{ fontSize: 10, fontWeight: 700, whiteSpace: 'nowrap', flexShrink: 0, color: research === 'running' ? '#0E7490' : '#B45309', cursor: b ? 'pointer' : 'default', padding: '0 2px', borderRadius: 4 }}
+            >
+              {compact ? '🔍' : MANDALA_RESEARCH_STATE_LABELS[research]}
             </span>
           );
         })()}
@@ -369,8 +392,11 @@ export default function MandalaGrid({
   onExpand,
   blockAttrs,
   articleCounts,
+  nowMs,
 }: {
   cells: readonly MandalaCell[];
+  /** 311: 進行状況の判定に使う現在時刻（省略時は印を出さない） */
+  nowMs?: number;
   /** 309: マスごとの起こした記事数（省略時は出さない） */
   articleCounts?: ReadonlyMap<string, number>;
   /** null＝第1階層。第2階層（303）は親マスの id を渡す（中央は導出・押せない） */
@@ -423,6 +449,7 @@ export default function MandalaGrid({
           density={density}
           onExpand={parentCellId && onExpand ? (pos) => onExpand(parentCellId, pos) : undefined}
           articleCount={slot.cell ? articleCounts?.get(slot.cell.id) ?? 0 : 0}
+          nowMs={nowMs}
         />
       ))}
     </div>

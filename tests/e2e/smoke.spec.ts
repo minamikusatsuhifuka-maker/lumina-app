@@ -10361,3 +10361,168 @@ test('C125: マンダラ→note記事（309）— パネルの「📝 無料記�
     await api.delete(`${EPISODES_API}?id=${epId}`).catch(() => {});
   }
 });
+
+test('C126: マンダラ 未調査マスからのリサーチ発注（311）— 見出しの「🔍 未調査 n／調査中 m」が決定的・リンク0件のマスのパネルに「発注」が目立って出る（リンクありは通常）・ダイアログの発注文は純関数の既定で編集できる・テキスト分析は本文があるマスだけ選べる・分析の発注で meta.research が付き「調査中」の印とポップアップ（開始時刻・経路）が出て同じ経路の二重発注は 409（R-87）・保存API（AIなし）に付帯情報を通すと 🔗 が増え印が消える（完了フック＝302の addLinks）・付帯情報なしの保存では何も起きない（R-88）・存在しない cellId は紐づけをスキップし保存は残る（§5）・バッチ登録に付帯情報を載せると印（jobId）が付き二重登録は 409・まとめて発注の対象と上限8（R-101）・失敗の印から再発注できる', async ({
+  page,
+}) => {
+  test.setTimeout(300_000);
+  const marker = `MRS${RUN_ID}`;
+  const libId = await createLibraryItem(api, { title: `${marker} 資料`, content: `本文 ${marker}`, type: 'deepresearch' });
+  const { id: chartId, cells } = await createMandalaChart(api, `${marker} テーマ`);
+  const byPos = (p: number) => cells.find((c) => c.position === p)!;
+  // 0: 本文あり・リンク0（未調査）／1: 本文あり・リンク1／2: タイトルだけ／3〜8: 空。中央は本文あり
+  expect((await saveMandalaCell(api, byPos(4).id, { body: `テーマ本文 ${marker}` })).status()).toBe(200);
+  expect((await saveMandalaCell(api, byPos(0).id, { title: `未調査 ${marker}`, body: `骨子0 ${marker}` })).status()).toBe(200);
+  expect((await saveMandalaCell(api, byPos(1).id, { title: `調査済み ${marker}`, body: `骨子1 ${marker}` })).status()).toBe(200);
+  expect((await saveMandalaCell(api, byPos(2).id, { title: `題だけ ${marker}` })).status()).toBe(200);
+  expect((await addMandalaLinks(api, byPos(1).id, [{ scope: 'library', item_key: libId }])).status()).toBe(200);
+  const cellMeta = async (id: string) => ((await getMandalaChart(api, chartId)).cells.find((c) => c.id === id)!.meta ?? {}) as Record<string, any>;
+  const savedIds: number[] = [];
+  const jobIds: number[] = [];
+  try {
+    // ① 見出しの導出: 未調査 2（0 と 2）／調査中 0
+    await page.goto(`/dashboard/mandala/${chartId}`);
+    const grid = page.locator('[data-mandala-grid][data-mandala-grid-depth="1"]');
+    await expect(grid.locator('[data-mandala-cell]')).toHaveCount(9, { timeout: 30000 });
+    await expect(page.locator('[data-mandala-research-uncovered]')).toHaveAttribute('data-mandala-research-uncovered', '2');
+    await expect(page.locator('[data-mandala-research-uncovered]')).toHaveAttribute('data-mandala-research-running', '0');
+    await expect(page.locator('[data-mandala-research-bulk]')).toBeEnabled();
+    // ② パネル: リンク0件は目立つ／リンクありは通常
+    await grid.locator('[data-mandala-cell="0"]').click();
+    const panel0 = page.locator(`[data-mandala-panel="${byPos(0).id}"]`);
+    await expect(panel0.locator('[data-mandala-research-order]')).toHaveAttribute('data-mandala-research-uncovered', '1', { timeout: 15000 });
+    await panel0.locator('[data-mandala-panel-close]').click();
+    await grid.locator('[data-mandala-cell="1"]').click();
+    const panel1 = page.locator(`[data-mandala-panel="${byPos(1).id}"]`);
+    await expect(panel1.locator('[data-mandala-research-order]')).toHaveAttribute('data-mandala-research-uncovered', '0', { timeout: 15000 });
+    await panel1.locator('[data-mandala-panel-close]').click();
+    // ③ ダイアログ: 発注文（純関数の既定）・編集・分析はタイトルだけのマスでは選べない
+    await grid.locator('[data-mandala-cell="2"]').click();
+    const panel2 = page.locator(`[data-mandala-panel="${byPos(2).id}"]`);
+    await panel2.locator('[data-mandala-research-order]').click();
+    const dlg = page.locator('[data-mandala-research-dialog]');
+    await expect(dlg).toBeVisible();
+    await expect(dlg.locator('[data-mandala-research-kind="text_analysis"]'), 'タイトルだけのマスでは分析を選べない').toBeDisabled();
+    await expect(dlg.locator(`[data-mandala-research-text="${byPos(2).id}"]`)).toHaveValue(new RegExp(`^# テーマ: \\[E2E\\] ${marker} テーマ\\n`));
+    await expect(dlg.locator(`[data-mandala-research-text="${byPos(2).id}"]`)).toHaveValue(/# 指示\n上記のマスの内容を深く調べる/);
+    await dlg.locator('[data-mandala-research-close]').click();
+    await panel2.locator('[data-mandala-panel-close]').click();
+    // ④ 本文ありのマス → 分析を選び、発注文を直して「分析画面へ送る」→ 新しいタブに発注文が渡り、印が付く
+    await grid.locator('[data-mandala-cell="0"]').click();
+    await panel0.locator('[data-mandala-research-order]').click();
+    await expect(dlg).toBeVisible();
+    await dlg.locator('[data-mandala-research-kind="text_analysis"]').click();
+    const ta = dlg.locator(`[data-mandala-research-text="${byPos(0).id}"]`);
+    await ta.fill(`${await ta.inputValue()}\n追記 ${marker}`);
+    const popupPromise = page.waitForEvent('popup');
+    await dlg.locator('[data-mandala-research-submit]').click();
+    const popup = await popupPromise;
+    popup.on('dialog', (d) => void d.accept());
+    await expect(popup).toHaveURL(/\/dashboard\/text-analysis\?from=mandala/);
+    await expect(popup.locator('textarea').first()).toHaveValue(new RegExp(`追記 ${marker}`), { timeout: 30000 });
+    await popup.close();
+    await expect(dlg.locator('[data-mandala-research-summary]')).toBeVisible();
+    await dlg.locator('[data-mandala-research-finish]').click();
+    const meta0 = await cellMeta(byPos(0).id);
+    expect(meta0.research).toMatchObject({ kind: 'text_analysis' });
+    expect(typeof meta0.research.startedAt).toBe('string');
+    // 印とポップアップ・見出し（調査中 1・未調査 1）
+    await expect(grid.locator('[data-mandala-cell="0"] [data-mandala-cell-research]')).toHaveAttribute('data-mandala-cell-research', 'running', { timeout: 30000 });
+    await expect(page.locator('[data-mandala-research-uncovered]')).toHaveAttribute('data-mandala-research-running', '1');
+    await expect(page.locator('[data-mandala-research-uncovered]')).toHaveAttribute('data-mandala-research-uncovered', '1');
+    await grid.locator('[data-mandala-cell="0"] [data-mandala-cell-research]').hover();
+    const pop = page.locator('[data-mandala-research-popover]');
+    await expect(pop).toBeVisible({ timeout: 5000 });
+    await expect(pop).toHaveAttribute('data-mandala-research-state', 'running');
+    await expect(pop).toContainText('テキスト分析');
+    await expect(pop).toContainText(/開始 \d{4}\/\d{1,2}\/\d{1,2}/);
+    await expect(pop.locator('[data-mandala-research-pop-reorder]'), '進行中は再発注できない').toHaveCount(0);
+    await page.mouse.move(5, 5);
+    // 同じ経路の二重発注は 409（別経路は通る）
+    expect((await saveMandalaCell(api, byPos(0).id, { research: { kind: 'text_analysis' } })).status()).toBe(409);
+    expect((await api.patch('/api/mandala/cells', { data: { cellId: byPos(0).id, research: { kind: 'nope' } } })).status(), '不正な経路は 400').toBe(400);
+    // ⑤ 完了フック（AIなし）: 保存APIに付帯情報を通す → 🔗 が増え、印が消える
+    const ref = { source: 'research', chartId, cellId: byPos(0).id, kind: 'text_analysis' };
+    const saved = await api.post('/api/text-analysis/saves', { data: { title: `[E2E] ${marker} 分析結果`, content: `分析本文 ${marker}`, analysisType: 'summary', tags: [], folder: '', mandala: ref } });
+    expect(saved.status()).toBe(200);
+    const savedJson = await saved.json();
+    savedIds.push(Number(savedJson.id));
+    expect(savedJson.mandala).toMatchObject({ cellId: byPos(0).id, ok: true });
+    const links0 = await listMandalaLinks(api, byPos(0).id);
+    expect(links0.map((l) => [l.scope, l.item_key])).toEqual([['text_analysis', String(savedJson.id)]]);
+    expect((await cellMeta(byPos(0).id)).research, '完了で印が消える').toBeUndefined();
+    // 付帯情報なしの保存では何も起きない（R-88）
+    const plain = await api.post('/api/text-analysis/saves', { data: { title: `[E2E] ${marker} 素の保存`, content: `本文 ${marker}`, analysisType: 'summary', tags: [], folder: '' } });
+    expect(plain.status()).toBe(200);
+    const plainJson = await plain.json();
+    savedIds.push(Number(plainJson.id));
+    expect(plainJson.mandala).toBeUndefined();
+    expect((await listMandalaLinks(api, byPos(0).id)).length).toBe(1);
+    // 存在しない cellId → 紐づけをスキップし保存は残る（§5・孤立リンクを作らない）
+    const ghost = await api.post('/api/text-analysis/saves', { data: { title: `[E2E] ${marker} 幽霊`, content: `本文 ${marker}`, analysisType: 'summary', tags: [], folder: '', mandala: { ...ref, cellId: '00000000-0000-4000-8000-000000000000' } } });
+    expect(ghost.status()).toBe(200);
+    const ghostJson = await ghost.json();
+    savedIds.push(Number(ghostJson.id));
+    expect(ghostJson.mandala).toMatchObject({ ok: false });
+    expect((await api.get(`/api/text-analysis/saves?ids=${ghostJson.id}`).then((r) => r.json())).items?.length ?? 0, '保存は残る').toBe(1);
+    // ⑥ バッチ登録に付帯情報を載せる → topics に温存・印（jobId）が付く・同じマスの二重登録は 409。AI は走らせない（run しない）
+    const drRef = { source: 'research', chartId, cellId: byPos(2).id, kind: 'deepresearch' };
+    const job = await api.post('/api/batch-research', { data: { groupName: `[E2E] ${marker} 発注`, topics: [{ topic: `[E2E] ${marker} 発注文`, mode: 'quick', mandala: drRef }], scheduleType: 'browser', autoSave: true } });
+    expect(job.status()).toBe(200);
+    const jobJson = await job.json();
+    jobIds.push(Number(jobJson.job.id));
+    expect(jobJson.job.topics[0].mandala).toEqual(drRef);
+    const meta2 = await cellMeta(byPos(2).id);
+    expect(meta2.research).toMatchObject({ kind: 'deepresearch', jobId: Number(jobJson.job.id), index: 0 });
+    const dup = await api.post('/api/batch-research', { data: { groupName: `[E2E] ${marker} 発注2`, topics: [{ topic: `[E2E] ${marker} 発注文その2`, mode: 'quick', mandala: drRef }], scheduleType: 'browser', autoSave: true } });
+    expect(dup.status(), '同じマス・同じ経路の進行中は登録前に拒否').toBe(409);
+    // 不正な付帯情報は落ちる（従来どおり登録される）
+    const bad = await api.post('/api/batch-research', { data: { groupName: `[E2E] ${marker} 発注3`, topics: [{ topic: `[E2E] ${marker} 発注文その3`, mode: 'quick', mandala: { source: 'research', chartId, cellId: 'x', kind: 'deepresearch' } }], scheduleType: 'browser', autoSave: true } });
+    expect(bad.status()).toBe(200);
+    const badJson = await bad.json();
+    jobIds.push(Number(badJson.job.id));
+    expect(badJson.job.topics[0].mandala).toBeUndefined();
+    // ⑦ まとめて発注: 対象＝埋まっていてリンク0件で進行中でない（いまは 0 だけ。2 は調査中）
+    await page.reload();
+    await expect(grid.locator('[data-mandala-cell]')).toHaveCount(9, { timeout: 30000 });
+    await expect(page.locator('[data-mandala-research-uncovered]')).toHaveAttribute('data-mandala-research-uncovered', '0');
+    await expect(page.locator('[data-mandala-research-bulk]'), '未調査が無ければ無効').toBeDisabled();
+    for (const p of [3, 5, 6, 7, 8]) expect((await saveMandalaCell(api, byPos(p).id, { title: `埋め${p} ${marker}` })).status()).toBe(200);
+    const exp = await expandMandalaCell(api, chartId, byPos(0).id);
+    const kids = (await exp.json()).children as { id: string; position: number }[];
+    for (const k of kids.slice(0, 5)) expect((await saveMandalaCell(api, k.id, { title: `子${k.position} ${marker}` })).status()).toBe(200);
+    await page.reload();
+    await expect(page.locator('[data-mandala-research-uncovered]')).toHaveAttribute('data-mandala-research-uncovered', '10', { timeout: 30000 });
+    await page.locator('[data-mandala-research-bulk]').click();
+    const bulk = page.locator('[data-mandala-research-dialog][data-mandala-research-bulk="1"]');
+    await expect(bulk).toBeVisible();
+    await expect(bulk.locator('[data-mandala-research-row-ok="1"]'), '上限8件が対象に載る').toHaveCount(8);
+    await expect(bulk.locator('[data-mandala-research-kind]'), 'まとめは DR 固定').toHaveCount(0);
+    await expect(bulk.locator('[data-mandala-research-submit]')).toBeEnabled();
+    await expect(bulk.locator('[data-mandala-research-submit]')).toContainText('8件');
+    for (const cb of await bulk.locator('[data-mandala-research-check]').all()) await cb.uncheck();
+    await expect(bulk.locator('[data-mandala-research-submit]')).toBeDisabled();
+    await expect(bulk.locator('[data-mandala-research-reason]')).toContainText('未調査のマスがありません');
+    await bulk.locator('[data-mandala-research-close]').click();
+    // ⑧ 失敗の印から再発注（失敗は本番で作れないので GET をモックして表示だけ判定・284 と同じ流儀）
+    const real = await (await api.get(`${MANDALA_API}/${chartId}`)).json();
+    real.chart.cells = real.chart.cells.map((c: { id: string; meta: Record<string, unknown> }) => (c.id === byPos(1).id ? { ...c, meta: { ...c.meta, research: { kind: 'deepresearch', startedAt: new Date().toISOString(), failedAt: new Date().toISOString(), reason: `理由 ${marker}` } } } : c));
+    await page.route(`**/api/mandala/${chartId}`, (route) => (route.request().method() === 'GET' ? route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(real) }) : route.continue()));
+    await page.reload();
+    await expect(grid.locator('[data-mandala-cell="1"] [data-mandala-cell-research]')).toHaveAttribute('data-mandala-cell-research', 'failed', { timeout: 30000 });
+    await expect(page.locator('[data-mandala-research-uncovered]')).toHaveAttribute('data-mandala-research-failed', '1');
+    await grid.locator('[data-mandala-cell="1"] [data-mandala-cell-research]').hover();
+    await expect(pop).toHaveAttribute('data-mandala-research-state', 'failed', { timeout: 5000 });
+    await expect(pop.locator('[data-mandala-research-pop-reason]')).toContainText(`理由 ${marker}`);
+    await pop.locator('[data-mandala-research-pop-reorder]').click();
+    await expect(dlg).toBeVisible();
+    await expect(dlg.locator(`[data-mandala-research-text="${byPos(1).id}"]`)).toHaveValue(/# このマス（上）: 調査済み/);
+    await dlg.locator('[data-mandala-research-close]').click();
+    await page.unroute(`**/api/mandala/${chartId}`);
+  } finally {
+    for (const id of jobIds) await api.delete(`/api/batch-research?id=${id}`).catch(() => {});
+    for (const id of savedIds) await api.patch('/api/text-analysis/saves', { data: { action: 'delete', id } }).catch(() => {});
+    await deleteMandalaChart(api, chartId);
+    await api.delete(LIBRARY_API, { data: { ids: [libId] } }).catch(() => {});
+  }
+});

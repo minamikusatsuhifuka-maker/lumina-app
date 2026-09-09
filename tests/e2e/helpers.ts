@@ -433,7 +433,8 @@ export async function saveMandalaCell(
   request: APIRequestContext,
   cellId: string,
   // 308: tier（'free'|'paid'）・reaction（4項目＋memo・null＝消す）も同じ PATCH
-  input: { title?: string; body?: string; tier?: string; reaction?: Record<string, unknown> | null },
+  // 311: research（{kind}＝発注の印／null＝消す）も同じ PATCH
+  input: { title?: string; body?: string; tier?: string; reaction?: Record<string, unknown> | null; research?: Record<string, unknown> | null },
 ) {
   return request.patch(MANDALA_CELLS_API, { data: { cellId, ...input } });
 }

@@ -5,6 +5,9 @@ import { sanitizeForDb } from '@/lib/sanitize';
 import { BATCH_TITLE_GROUP_MAX, batchJobSignature, deriveBatchJobTitle, truncateTitle } from '@/lib/batch-title';
 // 284: 終わらないジョブ（running/pending のまま閾値超過）の判定。表示と削除の可否で同じ純関数・同じ閾値を使う
 import { STALE_JOB_THRESHOLD_SECONDS, isStaleBatchJob } from '@/lib/batch-stale';
+// 311: マンダラからの発注（付帯情報 mandala をトピック行にオプトインで温存し、発注の印を付ける）
+import { parseResearchRef, type MandalaResearchRef } from '@/lib/mandala-research';
+import { startResearch } from '@/lib/mandala-server';
 
 // 284: まとめて削除の1リクエストあたりの上限（library / context-saves と同値）
 const BULK_DELETE_LIMIT = 500;
@@ -74,13 +77,18 @@ export async function POST(req: NextRequest) {
 
     const topicsWithStatus = topics
       .filter((t: any) => t && typeof t.topic === 'string' && t.topic.trim())
-      .map((t: any) => ({
-        topic: String(t.topic).trim(),
-        mode: normalizeMode(String(t.mode || 'standard')),
-        status: 'pending',
-        result: null,
-        contextText: null,
-      }));
+      .map((t: any) => {
+        // 311: 付帯情報は検証して形が合うときだけ残す（無ければ従来どおり・R-88）
+        const mandala: MandalaResearchRef | null = parseResearchRef(t?.mandala);
+        return {
+          topic: String(t.topic).trim(),
+          mode: normalizeMode(String(t.mode || 'standard')),
+          status: 'pending',
+          result: null,
+          contextText: null,
+          ...(mandala ? { mandala } : {}),
+        };
+      });
 
     if (topicsWithStatus.length === 0) {
       return NextResponse.json({ error: '有効なトピックがありません' }, { status: 400 });
@@ -136,6 +144,19 @@ export async function POST(req: NextRequest) {
     // 確定してジョブへ載せる——サーバー自動実行（毎朝のcron）でもこの値だけで保存が完結する。
     await sql`ALTER TABLE batch_research_jobs ADD COLUMN IF NOT EXISTS auto_save_library BOOLEAN NOT NULL DEFAULT TRUE`;
 
+    // 311 §3-2: マンダラ経由のトピックは、同じマス・同じ経路の進行中があれば登録前に拒否（R-87 のサーバ側・二重発注）
+    const mandalaTopics = topicsWithStatus.map((t: { mandala?: MandalaResearchRef }, i: number) => ({ i, ref: t.mandala })).filter((x): x is { i: number; ref: MandalaResearchRef } => !!x.ref);
+    if (mandalaTopics.length > 0) {
+      const { canOrderResearch, parseResearchMeta } = await import('@/lib/mandala-research');
+      const ids = mandalaTopics.map((x) => x.ref.cellId);
+      const cells = (await sql`SELECT id::text AS id, meta FROM mandala_cells WHERE user_id = ${userId} AND id = ANY(${ids}::uuid[])`) as { id: string; meta: Record<string, unknown> | null }[];
+      const byId = new Map(cells.map((c) => [c.id, c.meta ?? {}]));
+      const missing = ids.filter((id) => !byId.has(id));
+      if (missing.length > 0) return NextResponse.json({ error: `マンダラのマスが見つかりません（${missing.length}件）` }, { status: 404 });
+      const running = ids.filter((id) => { const m = parseResearchMeta(byId.get(id)); return m?.kind === 'deepresearch' && !canOrderResearch(byId.get(id), Date.now()); });
+      if (running.length > 0) return NextResponse.json({ error: `調査中のマスがあります（${running.length}件）。完了か中断を待ってから再発注してください`, runningCellIds: running }, { status: 409 });
+    }
+
     const rows = await sql`
       INSERT INTO batch_research_jobs
         (user_id, group_name, topics, schedule_type, scheduled_at, notify_email, status, auto_save_library)
@@ -151,6 +172,15 @@ export async function POST(req: NextRequest) {
       )
       RETURNING *
     `;
+
+    // 311: 発注の印（meta.research = {kind, startedAt, jobId, index}・キー単位マージ）。失敗しても登録は成功のまま（R-39）
+    for (const x of mandalaTopics) {
+      try {
+        await startResearch(userId, x.ref.cellId, 'deepresearch', { jobId: Number((rows[0] as { id: number }).id), index: x.i });
+      } catch (e) {
+        console.warn('[batch-research POST] マンダラの発注印に失敗:', e instanceof Error ? e.message : e);
+      }
+    }
 
     return NextResponse.json({ job: rows[0] });
   } catch (e: any) {

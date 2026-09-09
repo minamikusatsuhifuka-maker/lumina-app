@@ -106,8 +106,11 @@ export default function MandalaCellEditor({
   onLinksChanged,
   pathLabel,
   titlePlaceholder,
+  onResearchRequest,
 }: {
   cell: MandalaCell;
+  /** 311: 「🔍 リサーチを発注」（親が発注ダイアログを開く）。省略時はボタンを出さない */
+  onResearchRequest?: (cell: MandalaCell) => void;
   /** 308: 型のチャートの中央に出すプレースホルダ（例: 読者の着地点を1行で）。省略時は従来どおり */
   titlePlaceholder?: string;
   onClose: () => void;
@@ -643,6 +646,22 @@ export default function MandalaCellEditor({
             <CharCountBadge n={draft.body.length} />
             {statusLine}
             <span style={{ flex: 1 }} />
+            {/* 311 §3-2: リサーチを発注（リンク0件のマスで目立たせる。リンクがあっても追加調査できる） */}
+            {onResearchRequest && (cell.title.trim() || cell.body.trim()) && (() => {
+              const uncovered = linksStatus === 'ready' && links.length === 0;
+              return (
+                <button
+                  type="button"
+                  data-mandala-research-order={cell.id}
+                  data-mandala-research-uncovered={uncovered ? '1' : '0'}
+                  onClick={() => onResearchRequest(cell)}
+                  title={uncovered ? 'このマスはまだ調べていません（リンク0件）。ディープリサーチ／テキスト分析を発注し、結果をこのマスに紐づけます' : '追加で調査を発注し、結果をこのマスに紐づけます'}
+                  style={{ ...btn, ...(uncovered ? { background: '#0E7490', borderColor: '#0E7490', color: '#fff' } : { borderColor: '#0E7490', color: '#0E7490' }) }}
+                >
+                  🔍 リサーチを発注
+                </button>
+              );
+            })()}
             {/* 309 §3-1: このマスを無料記事にする（タイトルか本文がある＝保存済みの行で判定。中央も可）。発信ハブ①がマンダラの素材で開く */}
             {(cell.title.trim() || cell.body.trim() || links.some((l) => l.exists)) ? (
               <a

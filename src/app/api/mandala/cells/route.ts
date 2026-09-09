@@ -11,7 +11,8 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { requireAuth } from '@/lib/require-auth';
-import { saveCell, updateCellMeta } from '@/lib/mandala-server';
+import { saveCell, startResearch, updateCellMeta } from '@/lib/mandala-server';
+import { isMandalaResearchKind } from '@/lib/mandala-research';
 import { isMandalaTier, isUuidLike, normalizeReactionInput, type MandalaCell } from '@/lib/mandala-shared';
 
 export const runtime = 'nodejs';
@@ -45,7 +46,13 @@ export async function PATCH(req: NextRequest) {
     reactionPatch = normalizeReactionInput(body.reaction as Record<string, unknown> | null);
     if (!reactionPatch.ok) return fail(400, reactionPatch.error);
   }
-  if (!hasText && !hasTier && !hasReaction) return fail(400, '更新する項目がありません');
+  // 311: research＝{kind} で発注の印を付ける（進行中なら 409）／null で消す（失敗・中断の印を消す）
+  const hasResearch = body.research !== undefined;
+  if (hasResearch && body.research !== null) {
+    const r = body.research as { kind?: unknown } | null;
+    if (!r || typeof r !== 'object' || !isMandalaResearchKind(r.kind)) return fail(400, 'research は {kind} か null で送ってください');
+  }
+  if (!hasText && !hasTier && !hasReaction && !hasResearch) return fail(400, '更新する項目がありません');
 
   try {
     let cell: MandalaCell | null = null;
@@ -64,6 +71,19 @@ export async function PATCH(req: NextRequest) {
       if (!result.ok) return fail(404, 'マスが見つかりません');
       cell = result.cell;
       unchanged = unchanged && result.unchanged;
+    }
+    if (hasResearch) {
+      if (body.research === null) {
+        const result = await updateCellMeta(guard.userId, cellId, { research: null });
+        if (!result.ok) return fail(404, 'マスが見つかりません');
+        cell = result.cell;
+        unchanged = unchanged && result.unchanged;
+      } else {
+        const result = await startResearch(guard.userId, cellId, (body.research as { kind: 'deepresearch' | 'text_analysis' }).kind);
+        if (!result.ok) return fail(result.reason === 'not_found' ? 404 : result.reason === 'running' ? 409 : 400, result.message);
+        cell = result.cell;
+        unchanged = false;
+      }
     }
     return NextResponse.json({ success: true, cell, unchanged });
   } catch (e: unknown) {

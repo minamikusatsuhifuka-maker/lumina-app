@@ -18,6 +18,8 @@ import { useEffect, useRef, useState, type CSSProperties } from 'react';
 import { createPortal } from 'react-dom';
 import { CharCountBadge } from '@/components/LibraryItemRow';
 import { jstDateTimeString, jstShortDate } from '@/lib/jst';
+import { MANDALA_RESEARCH_KIND_LABELS, MANDALA_RESEARCH_STATE_LABELS, parseResearchMeta, researchState } from '@/lib/mandala-research';
+const ACCENT_RESEARCH = '#0E7490';
 import {
   MANDALA_LINK_BULK_LIMIT,
   MANDALA_LINK_SCOPES,
@@ -527,6 +529,30 @@ export function MandalaArticlesPopoverContent({ articles }: { articles: readonly
           <span style={{ fontSize: 10, color: 'var(--text-muted)', flexShrink: 0 }}>{jstShortDate(a.created_at)} ↗</span>
         </a>
       ))}
+    </div>
+  );
+}
+
+/**
+ * 311 §3-5: 🔍 バッジのポップアップ。開始時刻（JST）・経路・状態（調査中／失敗／中断）。失敗・中断からは再発注できる
+ */
+export function MandalaResearchPopoverContent({ cell, nowMs, onReorder, onClear }: { cell: MandalaCell; nowMs: number; onReorder: () => void; onClear: () => void }) {
+  const r = parseResearchMeta(cell.meta);
+  const state = researchState(cell.meta, nowMs);
+  if (!r || state === 'none') return <div data-mandala-research-popover style={{ fontSize: 11, color: 'var(--text-muted)', padding: '2px 4px' }}>調査の記録がありません</div>;
+  return (
+    <div data-mandala-research-popover data-mandala-research-state={state} style={{ display: 'flex', flexDirection: 'column', gap: 4, minWidth: 0 }}>
+      <div style={{ fontSize: 11, fontWeight: 700, color: state === 'running' ? ACCENT_RESEARCH : '#B45309', padding: '2px 4px' }}>{MANDALA_RESEARCH_STATE_LABELS[state]}</div>
+      <div style={{ fontSize: 11, color: 'var(--text-secondary)', padding: '2px 4px' }}>{MANDALA_RESEARCH_KIND_LABELS[r.kind]}・開始 {jstDateTimeString(r.startedAt)}{r.jobId !== undefined ? `・ジョブ #${r.jobId}` : ''}</div>
+      {state === 'failed' && r.reason && <div data-mandala-research-pop-reason style={{ fontSize: 11, color: '#B91C1C', padding: '2px 4px', overflowWrap: 'anywhere' }}>理由: {r.reason}</div>}
+      {state === 'stale' && <div style={{ fontSize: 11, color: 'var(--text-muted)', padding: '2px 4px' }}>6時間以上経過しています。タブを閉じた・通信が切れた等で完了が届いていない可能性があります</div>}
+      {state === 'running' && <div style={{ fontSize: 11, color: 'var(--text-muted)', padding: '2px 4px' }}>完了するとこのマスに 🔗 が付きます</div>}
+      {state !== 'running' && (
+        <div style={{ display: 'flex', gap: 6, marginTop: 2 }}>
+          <button type="button" data-mandala-research-pop-reorder onClick={onReorder} style={{ padding: '4px 8px', fontSize: 11, borderRadius: 6, border: `1px solid ${ACCENT_RESEARCH}`, background: 'transparent', color: ACCENT_RESEARCH, cursor: 'pointer' }}>🔍 再発注</button>
+          <button type="button" data-mandala-research-pop-clear onClick={onClear} style={{ padding: '4px 8px', fontSize: 11, borderRadius: 6, border: '1px solid var(--border)', background: 'transparent', color: 'var(--text-muted)', cursor: 'pointer' }}>印を消す</button>
+        </div>
+      )}
     </div>
   );
 }

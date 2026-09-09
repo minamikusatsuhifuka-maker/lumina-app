@@ -7,6 +7,9 @@ import { GEMINI_TEXT_THINKING_LOW, GEMINI_TEXT_THINKING_MEDIUM, geminiMaxTokens 
 import { NO_LATEX_PROMPT_RULE } from '@/lib/markdown-renderer';
 import { sanitizeForDb } from '@/lib/sanitize';
 import { jstDateString } from '@/lib/jst';
+// 311: 完了フック（付帯情報 mandala があるトピックだけ・302 の addLinks を通す）
+import { parseResearchRef } from '@/lib/mandala-research';
+import { linkResearchResult, markResearchFailed } from '@/lib/mandala-server';
 
 export const maxDuration = 300;
 
@@ -108,6 +111,8 @@ export async function POST(
           status: string;
           result: string | null;
           contextText: string | null;
+          /** 311: マンダラ発注の付帯情報（オプトイン・無ければ従来どおり） */
+          mandala?: unknown;
         }> = job.topics;
 
         // 完了済みインデックスを集計（既存の topics.status から再構築）
@@ -283,7 +288,7 @@ ${researchResult}
               : contextText;
 
             // コンテキストライブラリに保存（バッチタグ付き）
-            await sql`
+            const ctxRows = (await sql`
               INSERT INTO context_saves (user_id, topic, context_text, research_text, tags)
               VALUES (
                 ${job.user_id},
@@ -292,15 +297,29 @@ ${researchResult}
                 ${researchResult},
                 ${[`batch:${jobId}`, `group:${job.group_name}`]}
               )
-            `;
+              RETURNING id
+            `) as { id: number }[];
 
             // 263【3】: 📚リサーチ保存（library）へ本文＋1000字要約を自動保存。
             // - サーバー側で完結（毎朝のcron実行＝ブラウザ無しでも残る——ここが最重要）
             // - ジョブ作成時に確定した auto_save_library（🎛自動ストック保存・既定on）を尊重
             // - 失敗しても topic は成功のまま（R-39: 付加の保存失敗で本体を壊さない。context_saves と画面には残る）
             // - 二重保存防止: topic固有タグ（batch:<jobId>-<index>）の有無で判定（再開・スタック復帰でも増えない）
+            let libraryResearchId: string | null = null;
             if (job.auto_save_library !== false) {
-              await saveTopicToLibrary(sql, job.user_id, jobId, i, savedTopic, researchResult, summaryText);
+              libraryResearchId = await saveTopicToLibrary(sql, job.user_id, jobId, i, savedTopic, researchResult, summaryText, parseResearchRef(item.mandala));
+            }
+
+            // 311 §3-3: 完了→保存の直後に、付帯情報があればそのマスへ紐づける（📚 library 行。自動保存OFFなら 🧠 context 行）。
+            // 紐づけ失敗・マス削除済みでも保存は成功のまま（R-39・§5）。付帯情報が無ければ何もしない（R-88）
+            const mandalaRef = parseResearchRef(item.mandala);
+            if (mandalaRef) {
+              const linked = libraryResearchId
+                ? await linkResearchResult(job.user_id, mandalaRef, 'library', libraryResearchId)
+                : ctxRows[0]?.id
+                  ? await linkResearchResult(job.user_id, mandalaRef, 'context', String(ctxRows[0].id))
+                  : { ok: false as const, skipped: 'link_failed' as const, message: '保存行がありません' };
+              send({ type: 'mandala_linked', index: i, cellId: mandalaRef.cellId, ok: linked.ok, ...(linked.ok ? {} : { reason: linked.message }) });
             }
 
             topics[i] = {
@@ -320,6 +339,9 @@ ${researchResult}
             });
           } catch (err: any) {
             console.error(`[batch-research run] topic ${i} エラー:`, err);
+            // 311: マンダラ経由なら失敗の印を残す（画面で分かる・再発注できる）
+            const failedRef = parseResearchRef(item.mandala);
+            if (failedRef) await markResearchFailed(job.user_id, failedRef.cellId, String(err?.message || err)).catch(() => {});
             topics[i] = {
               ...item,
               status: 'failed',
@@ -421,7 +443,9 @@ async function saveTopicToLibrary(
   title: string,
   researchText: string,
   summaryText: string | null,
-) {
+  mandalaRef: import('@/lib/mandala-research').MandalaResearchRef | null = null,
+): Promise<string | null> {
+  let researchId: string | null = null;
   const rows: Array<{ tagId: string; title: string; content: string; tags: string }> = [
     {
       tagId: `batch:${jobId}-${index}`,
@@ -446,24 +470,33 @@ async function saveTopicToLibrary(
           AND ',' || tags || ',' LIKE ${`%,${r.tagId},%`}
         LIMIT 1
       `) as { id: string }[];
-      if (existing.length > 0) continue; // 二重保存防止（再開時）
+      const isResearchRow = !r.tagId.endsWith('s');
+      if (existing.length > 0) {
+        if (isResearchRow) researchId = existing[0].id;
+        continue; // 二重保存防止（再開時）
+      }
 
+      const id = uuidv4();
       const metadata = {
         from: 'batch-research',
         jobId,
         topicIndex: index,
-        kind: r.tagId.endsWith('s') ? 'summary' : 'research',
+        kind: isResearchRow ? 'research' : 'summary',
         savedAt: new Date().toISOString(),
+        // 311 §5: 出どころ（マンダラ経由のときだけ・309 と同じ mandala キーを source:'research' で区別）
+        ...(mandalaRef ? { mandala: mandalaRef } : {}),
       };
       await sql`
         INSERT INTO library (id, user_id, type, title, content, metadata, tags, group_name, is_favorite, folder_name)
-        VALUES (${uuidv4()}, ${userId}, ${'deepresearch'}, ${sanitizeForDb(r.title)}, ${sanitizeForDb(r.content)},
+        VALUES (${id}, ${userId}, ${'deepresearch'}, ${sanitizeForDb(r.title)}, ${sanitizeForDb(r.content)},
                 ${JSON.stringify(metadata)}, ${r.tags}, ${'ディープリサーチ'}, ${0}, ${null})
       `;
+      if (isResearchRow) researchId = id;
     } catch (e) {
       console.warn(`[batch-research run] library自動保存失敗 (${r.tagId}):`, e);
     }
   }
+  return researchId;
 }
 
 // AI でバッチ保存用タイトルを生成（タイムアウト + フォールバック付き）

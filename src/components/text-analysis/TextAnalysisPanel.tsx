@@ -387,6 +387,8 @@ interface TextAnalysisPanelProps {
   initialText?: string;
   initialTopic?: string;
   onInitialTextConsumed?: () => void;
+  /** 311: マンダラからの発注の付帯情報。保存APIへそのまま渡す（サーバがマスへ紐づける）。無ければ従来どおり */
+  mandala?: Record<string, unknown> | null;
 }
 
 // 自動下書き（feature_result_drafts feature_key='text-analysis'）のpayload
@@ -402,6 +404,7 @@ export default function TextAnalysisPanel({
   initialText,
   initialTopic,
   onInitialTextConsumed,
+  mandala = null,
 }: TextAnalysisPanelProps) {
   const { showToast } = useToast();
 
@@ -669,6 +672,8 @@ export default function TextAnalysisPanel({
           charCount: text.length,
           // 分析した元の入力テキストを一緒に保存（空なら送らない＝APIでNULL扱い）
           inputText: inputText.trim() ? inputText : undefined,
+          // 311: マンダラからの発注なら付帯情報を渡す（保存APIがマスへ紐づける・無ければ送らない）
+          ...(mandala ? { mandala } : {}),
         }),
       });
       if (!res.ok) throw new Error('保存に失敗しました');

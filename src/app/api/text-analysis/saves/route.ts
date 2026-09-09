@@ -10,6 +10,9 @@ import {
 } from '@/lib/custom-folders';
 // 297: 🎯用途カテゴリ（マイフォルダとは別テーブル・別体系）
 import { detachItemFromPurposes, detachItemsFromPurposes, ensurePurposeTables, getPurposeIdsForItems } from '@/lib/purpose-categories';
+// 311: マンダラからの発注の完了フック（付帯情報 mandala があるときだけ・302 の addLinks を通す）
+import { parseResearchRef } from '@/lib/mandala-research';
+import { linkResearchResult } from '@/lib/mandala-server';
 
 export const runtime = 'nodejs';
 
@@ -304,7 +307,15 @@ export async function POST(req: NextRequest) {
          ${isCross}, ${JSON.stringify(sourceIds)}, ${crossPrompt}, ${inputText === null ? null : sanitizeForDb(inputText)})
       RETURNING *
     `;
-    return NextResponse.json({ save: rows[0], ...rows[0] });
+    // 311 §3-3: 保存の直後にマスへ紐づける（scope=text_analysis）。付帯情報が無ければ何もしない（R-88）。
+    // 紐づけ失敗・マス削除済みでも保存は成功のまま（R-39・§5）
+    const mandalaRef = parseResearchRef(body.mandala);
+    let mandala: unknown = undefined;
+    if (mandalaRef) {
+      const linked = await linkResearchResult(userId, mandalaRef, 'text_analysis', String((rows[0] as { id: number }).id));
+      mandala = { cellId: mandalaRef.cellId, ok: linked.ok, ...(linked.ok ? {} : { reason: linked.message }) };
+    }
+    return NextResponse.json({ save: rows[0], ...rows[0], ...(mandala !== undefined ? { mandala } : {}) });
   } catch (error) {
     const message = error instanceof Error ? error.message : '不明なエラー';
     console.error('[text-analysis/saves POST]', message);

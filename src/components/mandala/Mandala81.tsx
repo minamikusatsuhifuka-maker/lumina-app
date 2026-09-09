@@ -37,8 +37,11 @@ export default function Mandala81({
   onExpand,
   narrow,
   articleCounts,
+  nowMs,
 }: {
   cells: readonly MandalaCell[];
+  /** 311: 進行状況の判定に使う現在時刻 */
+  nowMs?: number;
   /** 309: マスごとの起こした記事数 */
   articleCounts?: ReadonlyMap<string, number>;
   selectedCellId: string | null;
@@ -70,6 +73,7 @@ export default function Mandala81({
           onToggleSelect={onToggleSelect}
           popoverBind={popoverBind}
           articleCounts={articleCounts}
+          nowMs={nowMs}
           density="compact"
           blockAttrs={{ 'data-mandala-block': MANDALA_CENTER, 'data-mandala-block-expanded': '1' }}
         />
@@ -91,6 +95,7 @@ export default function Mandala81({
           onToggleSelect={onToggleSelect}
           popoverBind={popoverBind}
           articleCounts={articleCounts}
+          nowMs={nowMs}
           density="compact"
           onExpand={onExpand}
           blockAttrs={{ 'data-mandala-block': position, 'data-mandala-block-expanded': expanded ? '1' : '0' }}

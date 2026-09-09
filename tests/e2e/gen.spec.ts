@@ -813,3 +813,44 @@ test('B32: 旧 note記事生成（310・R-114）— ストリーミング完了�
   expect(body).toContain('\n\n');
   expect(findMultiSentenceLines(body), '1文1行（done で整形）').toEqual([]);
 });
+
+test('B33: マンダラからのリサーチ発注（311）— 付帯情報つきの1トピックをバッチ経路で実行すると、完了時にそのマスへ 📚 が自動で紐づき（302 の addLinks）、印 meta.research が消え、library.metadata に出どころが載る @gen', async ({ request }) => {
+  test.setTimeout(GEN_TIMEOUT);
+  const marker = `MRSG${RUN_ID}`;
+  const { id: chartId, cells } = await createMandalaChart(request, `${marker} 保湿を続ける`);
+  const cell0 = cells.find((c) => c.position === 0)!;
+  expect((await saveMandalaCell(request, cell0.id, { title: '入浴後すぐの保湿', body: '角層の水分は入浴後に失われやすい。5分以内に塗る。' })).status()).toBe(200);
+  let jobId: number | null = null;
+  const createdLibrary: string[] = [];
+  try {
+    const job = await request.post('/api/batch-research', {
+      data: { groupName: `[E2E] ${marker} 発注`, topics: [{ topic: `[E2E] ${marker} 入浴後すぐの保湿剤の塗り方（短く）`, mode: 'quick', mandala: { source: 'research', chartId, cellId: cell0.id, kind: 'deepresearch' } }], scheduleType: 'browser', autoSave: true },
+    });
+    expect(job.status()).toBe(200);
+    jobId = Number((await job.json()).job.id);
+    const run = await request.post(`/api/batch-research/${jobId}/run`, { data: { model: 'gemini' }, timeout: REQ_TIMEOUT });
+    expect(run.status()).toBe(200);
+    const body = await run.text();
+    expect(body).toContain('"type":"topic_done"');
+    expect(body).toContain('"type":"mandala_linked"');
+    expect(body).toMatch(/"type":"mandala_linked","index":0,"cellId":"[0-9a-f-]+","ok":true/);
+    const links = await request.get(`/api/mandala/links?cellId=${cell0.id}`).then((r) => r.json());
+    expect(links.links.length, '完了で 📚 が1件紐づく').toBe(1);
+    expect(links.links[0].scope).toBe('library');
+    createdLibrary.push(links.links[0].item_key);
+    const chart = await request.get(`/api/mandala/${chartId}`).then((r) => r.json());
+    expect(chart.chart.cells.find((c: { id: string }) => c.id === cell0.id).meta.research, '印が消える').toBeUndefined();
+    const lib = await request.get(`/api/library?q=${encodeURIComponent(marker)}`).then((r) => r.json());
+    const row = (Array.isArray(lib) ? lib : []).find((x: { id: string }) => x.id === links.links[0].item_key);
+    expect(row, 'library 行に出どころ（metadata.mandala.source=research）').toBeTruthy();
+    const meta = typeof row.metadata === 'string' ? JSON.parse(row.metadata) : row.metadata;
+    expect(meta.mandala).toMatchObject({ source: 'research', chartId, cellId: cell0.id });
+  } finally {
+    // 要約行（末尾 s）も同じ検索で拾って消す。context_saves はバッチタグで残るが [E2E] 印は無い＝ジョブ削除で履歴は消える
+    const lib = await request.get(`/api/library?q=${encodeURIComponent(marker)}`).then((r) => r.json()).catch(() => []);
+    const ids = new Set<string>([...createdLibrary, ...((Array.isArray(lib) ? lib : []).map((x: { id: string }) => x.id))]);
+    if (ids.size > 0) await request.delete('/api/library', { data: { ids: [...ids] } }).catch(() => {});
+    if (jobId) await request.delete(`/api/batch-research?id=${jobId}`).catch(() => {});
+    await deleteMandalaChart(request, chartId);
+  }
+});

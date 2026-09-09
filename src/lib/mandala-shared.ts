@@ -600,7 +600,7 @@ export function clearStash(cellId: string): void {
 /** ポップアップに出す上限（§2-1）。超えた分は「他 n件 → パネルで見る」の1行に畳む（R-101/R-109） */
 export const MANDALA_POPOVER_MAX = 8;
 
-export type MandalaPopoverFrom = 'links' | 'episode' | 'reaction' | 'articles';
+export type MandalaPopoverFrom = 'links' | 'episode' | 'reaction' | 'articles' | 'research';
 
 /**
  * ポップアップの行を決める。📔 から開いたときは episode を先頭に並べる（安定ソート＝同種内は元の順）。

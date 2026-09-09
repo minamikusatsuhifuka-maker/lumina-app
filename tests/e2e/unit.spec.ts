@@ -45,6 +45,7 @@ import * as mandalaKindle from '../../src/lib/mandala-kindle';
 import * as mandalaPresets from '../../src/lib/mandala-presets';
 import * as mandalaNote from '../../src/lib/mandala-note';
 import * as noteFormat from '../../src/lib/note-format';
+import * as mandalaResearch from '../../src/lib/mandala-research';
 import { KINDLE_TASTES, KINDLE_TASTE_KEYS, KINDLE_TASTE_GUARD, KINDLE_SCORE_AXES } from '../../src/lib/kindle-taste';
 import {
   AUTO_STOCK_KEY,
@@ -3397,8 +3398,8 @@ test('U73: マンダラ バッジのホバーポップアップ（304）— 上�
   const pageSrc = readFileSync(join(__dirname, '../../src/app/dashboard/mandala/[id]/page.tsx'), 'utf8');
   expect(pageSrc).toContain("fetch(`/api/mandala/links?cellId=${encodeURIComponent(cellId)}`");
   // 308: 📈（from='reaction'）は meta から描くので取得しない。リンク系はそのまま取得
-  // 309: 📝（from='articles'）も記録から描くので取得しない
-  expect(pageSrc).toContain("onOpen: (_key, { cell, from }) => { if (from !== 'reaction' && from !== 'articles') void fetchResolved(cell.id); }");
+  // 309/311: 📝📈🔍 は記録・meta から描くので取得しない（取得はリンク系だけ）。文字列の完全一致ではなく形で固定（R-111）
+  expect(pageSrc).toMatch(/onOpen: \(_key, \{ cell, from \}\) => \{ if \(from !== 'reaction'[^}]*\) void fetchResolved\(cell\.id\); \}/);
 });
 
 test('U74: サイドバーのメニュー検索・追加順・新着・合流（303）— 正規化（大小・全半角・カナ/かな・空白）・表示名と元の名前の両方に一致・見出しは一致項目のあるカテゴリだけ・非表示の印・追加順は新しい順で同日は定義順・全項目に実在する addedAt（書き忘れは型とここで止まる）・新着は14日以内で15日目に消える（JST日付差）・合流は純関数で決定的', async () => {
@@ -4097,4 +4098,103 @@ test('U80: 「1文1行」整形の横展開（310・R-114）— ②分割・275 
   expect(usingFormat.sort(), '整形を呼ぶ API は note 記事の6経路（①②275/269/bundle/quick）だけ').toEqual([
     'dr-hub/persona/route.ts', 'dr-hub/split/route.ts', 'kindle/note-remix/route.ts', 'kindle/to-note/route.ts', 'note-bundle/article/route.ts', 'note-quick/article/route.ts',
   ].sort());
+});
+
+test('U81: マンダラ 未調査マスからのリサーチ発注（311）— 発注文はテーマ・このマス・隣接・親・経路の定型1文を決定的に組み立て逆順入力で一致・空マスは拒否理由・テキスト分析は本文があるマスだけ・付帯情報の検証は fail-closed・バッチ行と handoff への写しは薄い・進行状況は meta.research から running/failed/stale（6時間）を導出・未調査＝埋まっていてリンク0件で進行中でない（子マス含む・中央除外）・まとめて発注は上限8で超過は理由（R-101）・完了フックは302の addLinks を通し付帯情報が無ければ何もしない（ソース固定・R-111）・純関数は DB 非依存', async () => {
+  const r = mandalaResearch;
+  const m = await import('../../src/lib/mandala-shared');
+  type Cell = import('../../src/lib/mandala-shared').MandalaCell;
+  const u = (n: number) => `aaaaaaaa-0000-4000-8000-${String(n).padStart(12, '0')}`;
+  const mk = (n: number, position: number, depth: 1 | 2 = 1, parent: string | null = null, title = '', body = '', meta: Record<string, unknown> = {}): Cell => ({ id: u(n), chart_id: u(900), parent_cell_id: parent, depth, position, title, body, meta, created_at: '', updated_at: '' });
+  const center = mk(4, 4, 1, null, '保湿を続ける', 'x'.repeat(500));
+  const c0 = mk(10, 0, 1, null, '導入', '骨子0。');
+  const c1 = mk(11, 1, 1, null, '着地点', '');
+  const c2 = mk(12, 2, 1, null, '', '');
+  const c6 = mk(16, 6, 1, null, '手順', '骨子6。');
+  const k0 = mk(20, 0, 2, c0.id, '節A', '節Aの本文');
+  const k1 = mk(21, 1, 2, c0.id, '節B', '');
+  const cells = [k1, c6, center, c2, c1, c0, k0];
+  const chart = { id: u(900), cells };
+  // ① 発注文（決定的・逆順一致）
+  const o = r.buildResearchOrder(chart, c0.id, 'deepresearch');
+  expect(o.ok).toBe(true);
+  if (!o.ok) throw new Error('unreachable');
+  expect(o.label).toBe('左上');
+  expect(o.theme).toBe('保湿を続ける');
+  expect(o.adjacentTitles, '兄弟のタイトルだけ（空マスは除く・中央は除く）').toEqual(['着地点', '手順']);
+  expect(o.parentTitle).toBeNull();
+  expect(o.text.startsWith(`# テーマ: 保湿を続ける\n${'x'.repeat(300)}…\n\n# このマス（左上）: 導入\n骨子0。\n\n# 文脈\n- 隣接: 着地点／手順\n\n# 指示\n`)).toBe(true);
+  expect(o.text.endsWith(r.MANDALA_RESEARCH_INSTRUCTION.deepresearch)).toBe(true);
+  expect(JSON.stringify(r.buildResearchOrder({ id: u(900), cells: [...cells].reverse() }, c0.id, 'deepresearch'))).toBe(JSON.stringify(o));
+  const ok0 = r.buildResearchOrder(chart, k0.id, 'text_analysis');
+  expect(ok0.ok && ok0.label).toBe('左上 › 左上');
+  expect(ok0.ok && ok0.parentTitle).toBe('導入');
+  expect(ok0.ok && ok0.adjacentTitles).toEqual(['節B']);
+  expect(ok0.ok && ok0.text).toContain('- 親マス: 導入');
+  expect(ok0.ok && ok0.text.endsWith(r.MANDALA_RESEARCH_INSTRUCTION.text_analysis)).toBe(true);
+  // タイトルだけのマスは DR は可（本文なしの注記）・分析は不可
+  const t1 = r.buildResearchOrder(chart, c1.id, 'deepresearch');
+  expect(t1.ok && t1.text).toContain('（本文なし。タイトルを論点として扱う）');
+  expect(r.buildResearchOrder(chart, c1.id, 'text_analysis')).toMatchObject({ ok: false, reason: r.MANDALA_RESEARCH_REJECT_NO_BODY });
+  expect(r.buildResearchOrder(chart, c2.id, 'deepresearch')).toMatchObject({ ok: false, reason: r.MANDALA_RESEARCH_REJECT_EMPTY });
+  expect(r.buildResearchOrder(chart, u(999), 'deepresearch').ok).toBe(false);
+  // ② 付帯情報と写し
+  expect(r.parseResearchRef({ source: 'research', chartId: u(900), cellId: c0.id, kind: 'deepresearch' })).toEqual({ source: 'research', chartId: u(900), cellId: c0.id, kind: 'deepresearch' });
+  expect(r.parseResearchRef({ source: 'mandala', chartId: u(900), cellId: c0.id, kind: 'deepresearch' })).toBeNull();
+  expect(r.parseResearchRef({ source: 'research', chartId: 'x', cellId: c0.id, kind: 'deepresearch' })).toBeNull();
+  expect(r.parseResearchRef({ source: 'research', chartId: u(900), cellId: c0.id, kind: 'other' })).toBeNull();
+  expect(r.parseResearchRef(null)).toBeNull();
+  const topic = r.researchOrderToBatchTopic(o, 'quick');
+  expect(topic).toEqual({ topic: o.text, mode: 'quick', mandala: { source: 'research', chartId: u(900), cellId: c0.id, kind: 'deepresearch' } });
+  expect(r.researchOrderToBatchTopic(o, 'deep', '  直した発注文 ').topic).toBe('直した発注文');
+  expect(r.researchOrderToBatchTopic(o, 'deep', '   ').topic, '空にしたら既定に戻す').toBe(o.text);
+  const handoff = r.researchOrderToTextAnalysisHandoff(o);
+  expect(handoff).toEqual({ text: o.text, topic: '導入', mandala: { source: 'research', chartId: u(900), cellId: c0.id, kind: 'text_analysis' } });
+  expect(r.researchBatchGroupName('保湿', 3)).toBe('🔲 マンダラ『保湿』の調査（3件）');
+  // ③ 進行状況
+  const now = Date.parse('2026-09-09T10:00:00.000Z');
+  const running = { research: { kind: 'deepresearch', startedAt: '2026-09-09T09:00:00.000Z', jobId: 5, index: 0 } };
+  const stale = { research: { kind: 'deepresearch', startedAt: '2026-09-09T03:00:00.000Z' } };
+  const failed = { research: { kind: 'text_analysis', startedAt: '2026-09-09T09:30:00.000Z', failedAt: '2026-09-09T09:40:00.000Z', reason: 'x' } };
+  expect(r.researchState(running, now)).toBe('running');
+  expect(r.researchState(stale, now)).toBe('stale');
+  expect(r.researchState(failed, now)).toBe('failed');
+  expect(r.researchState({}, now)).toBe('none');
+  expect(r.researchState({ research: { kind: 'nope', startedAt: 'x' } }, now), '形が崩れていれば none').toBe('none');
+  expect(r.parseResearchMeta(running)).toMatchObject({ kind: 'deepresearch', jobId: 5, index: 0 });
+  expect(r.canOrderResearch(running, now)).toBe(false);
+  expect(r.canOrderResearch(stale, now)).toBe(true);
+  expect(r.canOrderResearch(failed, now)).toBe(true);
+  expect(r.MANDALA_RESEARCH_STALE_MS).toBe(6 * 60 * 60 * 1000);
+  // ④ 未調査（埋まっていてリンク0件・進行中でない・子マス含む・中央除外）と集計
+  const counts = m.linkCountsByCell([{ id: 1, cell_id: c6.id, scope: 'library', item_key: 'a', created_at: '' }]);
+  const cellsWithState = [k1, { ...c6 }, center, c2, { ...c1, meta: running }, c0, { ...k0, meta: stale }];
+  expect(r.uncoveredCells(cellsWithState, counts, now).map((c) => c.id), '順序は depth→position').toEqual([c0.id, k0.id, k1.id]);
+  expect(r.uncoveredCells([...cellsWithState].reverse(), counts, now).map((c) => c.id)).toEqual([c0.id, k0.id, k1.id]);
+  expect(r.researchSummary(cellsWithState, counts, now)).toEqual({ uncovered: 3, inProgress: 1, failed: 0, stale: 1 });
+  expect(r.bulkOrderState(0).enabled).toBe(false);
+  expect(r.bulkOrderState(8).enabled).toBe(true);
+  expect(r.bulkOrderState(9)).toMatchObject({ enabled: false });
+  expect(r.bulkOrderState(9).reason).toContain('8件まで');
+  expect(r.MANDALA_RESEARCH_BULK_MAX).toBe(8);
+  // ⑤ ソース固定（構文ごと・R-111）
+  const lib = readFileSync(join(__dirname, '../../src/lib/mandala-research.ts'), 'utf8');
+  expect(lib).not.toMatch(/from '@\/lib\/(db|mandala-server)'/);
+  const server = readFileSync(join(__dirname, '../../src/lib/mandala-server.ts'), 'utf8');
+  expect(server, '完了フックは 302 の addLinks を通す').toMatch(/export async function linkResearchResult[^]*?await addLinks\(userId, ref\.cellId, \[\{ scope, item_key: itemKey \}\]\)/);
+  expect(server, 'マスが無ければスキップ').toMatch(/if \(!res\) return \{ ok: false, skipped: 'cell_missing'/);
+  expect(server.match(/INSERT INTO mandala_cell_links/g)?.length, 'リンクの INSERT は addLinks の1箇所だけ').toBe(1);
+  const run = readFileSync(join(__dirname, '../../src/app/api/batch-research/[id]/run/route.ts'), 'utf8');
+  expect(run, '付帯情報があるときだけ（parseResearchRef が null なら何もしない）').toMatch(/const mandalaRef = parseResearchRef\(item\.mandala\);\s*if \(mandalaRef\) \{/);
+  expect(run).toMatch(/await linkResearchResult\(job\.user_id, mandalaRef, 'library', libraryResearchId\)/);
+  expect(run).toMatch(/await linkResearchResult\(job\.user_id, mandalaRef, 'context', String\(ctxRows\[0\]\.id\)\)/);
+  const saves = readFileSync(join(__dirname, '../../src/app/api/text-analysis/saves/route.ts'), 'utf8');
+  expect(saves).toMatch(/const mandalaRef = parseResearchRef\(body\.mandala\);[^]*?if \(mandalaRef\) \{[^]*?linkResearchResult\(userId, mandalaRef, 'text_analysis'/);
+  const create = readFileSync(join(__dirname, '../../src/app/api/batch-research/route.ts'), 'utf8');
+  expect(create, '付帯情報は検証して形が合うときだけ残す').toMatch(/const mandala: MandalaResearchRef \| null = parseResearchRef\(t\?\.mandala\);/);
+  expect(create, '進行中なら登録前に 409').toMatch(/status: 409/);
+  const dialog = readFileSync(join(__dirname, '../../src/components/mandala/MandalaResearchDialog.tsx'), 'utf8');
+  expect(dialog, '費用の目安を捏造しない').not.toMatch(/円|\$[0-9]/);
+  expect(dialog).toMatch(/fetch\('\/api\/batch-research', \{/);
+  expect(dialog).toMatch(/fetch\(`\/api\/batch-research\/\$\{jobId\}\/run`/);
 });

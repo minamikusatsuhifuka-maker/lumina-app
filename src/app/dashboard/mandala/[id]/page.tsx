@@ -23,7 +23,10 @@ import MandalaGrid from '@/components/mandala/MandalaGrid';
 import MandalaCellEditor from '@/components/mandala/MandalaCellEditor';
 import MandalaCompareView from '@/components/mandala/MandalaCompareView';
 import Mandala81 from '@/components/mandala/Mandala81';
-import { MandalaArticlesPopoverContent, MandalaLinkPopoverContent, MandalaReactionPopoverContent } from '@/components/mandala/MandalaLinks';
+import { MandalaArticlesPopoverContent, MandalaLinkPopoverContent, MandalaReactionPopoverContent, MandalaResearchPopoverContent } from '@/components/mandala/MandalaLinks';
+// 311: 未調査マスからのリサーチ発注（1件／まとめ）。発注文は純関数、経路は既存のバッチ／テキスト分析、印は meta.research
+import MandalaResearchDialog from '@/components/mandala/MandalaResearchDialog';
+import { MANDALA_RESEARCH_BULK_MAX, buildResearchOrder, bulkOrderState, researchSummary, uncoveredCells, type MandalaResearchOrderResult } from '@/lib/mandala-research';
 // 309: マンダラ→note記事（入口＝見出しの「有料記事にする」・パネルの「無料記事にする」）。「📝 記事: n件」は記事の側の記録から導出
 import { MANDALA_NOTE_PAID_DISABLED_REASON, articleCountsByCell, canMakePaidNote, mandalaArticlesLabel, type MandalaArticleRef } from '@/lib/mandala-note';
 import { useToast } from '@/components/ui/Toast';
@@ -86,6 +89,9 @@ export default function MandalaChartPage({ params }: { params: Promise<{ id: str
   // 309: このチャートから起こした note 記事（記事の側の記録から導出）
   const [articles, setArticles] = useState<MandalaArticleRef[]>([]);
   const [articlesOpen, setArticlesOpen] = useState(false);
+  // 311: 発注ダイアログ（1件＝cellIds 1つ／まとめ＝未調査の一覧）。進行状況の判定は読み込み時刻で固定（決定的）
+  const [researchDialog, setResearchDialog] = useState<{ cellIds: string[]; bulk: boolean } | null>(null);
+  const [nowMs, setNowMs] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<{ status: number; text: string } | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -125,6 +131,7 @@ export default function MandalaChartPage({ params }: { params: Promise<{ id: str
       setLinks(Array.isArray(json.links) ? json.links : []);
       setBooks(Array.isArray(json.books) ? json.books : []);
       setArticles(Array.isArray(json.articles) ? json.articles : []);
+      setNowMs(Date.now());
     } catch (e: unknown) {
       setError({ status: 0, text: e instanceof Error ? e.message : '読み込みに失敗しました' });
     } finally {
@@ -239,6 +246,18 @@ export default function MandalaChartPage({ params }: { params: Promise<{ id: str
       if (from === 'articles') {
         return <MandalaArticlesPopoverContent articles={articles.filter((a) => a.cellId === cell.id)} />;
       }
+      // 311: 🔍 は meta.research から描く。再発注＝ダイアログ、印を消す＝PATCH research:null
+      if (from === 'research') {
+        const latest = chart?.cells.find((c) => c.id === cell.id) ?? cell;
+        return (
+          <MandalaResearchPopoverContent
+            cell={latest}
+            nowMs={nowMs}
+            onReorder={() => { api.close(); setResearchDialog({ cellIds: [latest.id], bulk: false }); }}
+            onClear={() => { api.close(); void clearResearchMark(latest.id); }}
+          />
+        );
+      }
       // 308: 📈 はマスの meta から描く（取得なし）。押せる要素は「パネルで記録する」だけ
       if (from === 'reaction') {
         const latest = chart?.cells.find((c) => c.id === cell.id) ?? cell;
@@ -265,7 +284,7 @@ export default function MandalaChartPage({ params }: { params: Promise<{ id: str
         />
       );
     },
-    { onOpen: (_key, { cell, from }) => { if (from !== 'reaction' && from !== 'articles') void fetchResolved(cell.id); } },
+    { onOpen: (_key, { cell, from }) => { if (from !== 'reaction' && from !== 'articles' && from !== 'research') void fetchResolved(cell.id); } },
   );
   const popoverBind = useCallback(
     (cell: MandalaCell, from: MandalaPopoverFrom) => popover.bind(popoverKeyOf(cell.id), { cell, from }),
@@ -334,6 +353,27 @@ export default function MandalaChartPage({ params }: { params: Promise<{ id: str
   // 308: 反応記録 n/m と無料比率（純関数・R-74）
   const reaction = useMemo(() => (chart ? reactionSummary(chart.cells) : { withReaction: 0, filled: 0 }), [chart]);
   const articleCounts = useMemo(() => articleCountsByCell(articles), [articles]);
+  // 311 §3-5: 「🔍 未調査 n／調査中 m」と、まとめて発注の対象（埋まっていてリンク0件で進行中でない・子マス含む）
+  const research = useMemo(() => (chart ? researchSummary(chart.cells, linkCounts, nowMs) : { uncovered: 0, inProgress: 0, failed: 0, stale: 0 }), [chart, linkCounts, nowMs]);
+  const uncovered = useMemo(() => (chart ? uncoveredCells(chart.cells, linkCounts, nowMs) : []), [chart, linkCounts, nowMs]);
+  const bulkState = bulkOrderState(Math.min(uncovered.length, MANDALA_RESEARCH_BULK_MAX));
+  const researchOrders: MandalaResearchOrderResult[] = useMemo(() => {
+    if (!chart || !researchDialog) return [];
+    return researchDialog.cellIds.map((id) => buildResearchOrder(chart, id, 'deepresearch'));
+  }, [chart, researchDialog]);
+  const bodyByCell = useMemo(() => new Map((chart?.cells ?? []).map((c) => [c.id, c.body])), [chart]);
+  const clearResearchMark = useCallback(async (cellId: string) => {
+    try {
+      const res = await fetch('/api/mandala/cells', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ cellId, research: null }) });
+      const json = (await res.json().catch(() => ({}))) as { cell?: MandalaCell; error?: string };
+      if (!res.ok || !json.cell) throw new Error(json.error || `印を消せませんでした（${res.status}）`);
+      onSaved(json.cell);
+      showToast('調査の印を消しました', 'success');
+    } catch (e: unknown) {
+      showToast(e instanceof Error ? e.message : '印を消せませんでした', 'error');
+    }
+  }, [onSaved, showToast]);
+  const openResearch = useCallback((cell: MandalaCell) => setResearchDialog({ cellIds: [cell.id], bulk: false }), []);
   const paidNoteEnabled = !!chart && canMakePaidNote(chart.meta, chart.cells);
   const presetKey = chart ? chartPreset(chart.meta) : null;
   const presetDef = isMandalaPresetKey(presetKey) ? MANDALA_PRESETS[presetKey] : null;
@@ -402,6 +442,11 @@ export default function MandalaChartPage({ params }: { params: Promise<{ id: str
               </span>
             </span>
           )}
+          {/* 311 §3-5: 未調査 n／調査中 m（純関数で導出）。まとめて発注は未調査があるときだけ有効（R-101） */}
+          <span data-mandala-research-uncovered={research.uncovered} data-mandala-research-running={research.inProgress} data-mandala-research-failed={research.failed} data-mandala-research-stale={research.stale} title="未調査＝埋まっていてリンク0件・進行中でないマス（子マス含む）／調査中＝発注済みで完了待ち" style={{ fontWeight: 700, color: research.uncovered > 0 ? '#0E7490' : 'var(--text-muted)' }}>
+            🔍 未調査 {research.uncovered}／調査中 {research.inProgress}
+            {research.failed + research.stale > 0 && <span style={{ marginLeft: 6, color: '#B45309' }}>（失敗・中断 {research.failed + research.stale}）</span>}
+          </span>
           {/* 307 §3-4: 起こした本 n件（0件は出さない）。押すと案件の一覧を開き、案件へ飛ぶ */}
           {books.length > 0 && (
             <span style={{ position: 'relative', display: 'inline-block' }}>
@@ -453,6 +498,19 @@ export default function MandalaChartPage({ params }: { params: Promise<{ id: str
             </span>
           )}
           <span style={{ flex: 1 }} />
+          {/* 311 §3-4: 未調査マスをまとめて発注（上限8件・超過はダイアログでチェックを外す） */}
+          {!selectMode && (
+            <button
+              type="button"
+              data-mandala-research-bulk
+              disabled={uncovered.length === 0}
+              onClick={() => setResearchDialog({ cellIds: uncovered.slice(0, MANDALA_RESEARCH_BULK_MAX).map((c) => c.id), bulk: true })}
+              title={uncovered.length === 0 ? bulkState.reason ?? '' : `未調査 ${uncovered.length}件のうち先頭${Math.min(uncovered.length, MANDALA_RESEARCH_BULK_MAX)}件を対象にダイアログを開きます（チェックで外せます）`}
+              style={{ ...btn, borderColor: '#0E7490', color: '#0E7490', opacity: uncovered.length === 0 ? 0.5 : 1, cursor: uncovered.length === 0 ? 'default' : 'pointer' }}
+            >
+              🔍 未調査マスをまとめて発注
+            </button>
+          )}
           {/* 309 §3-1: このマンダラを有料記事にする（型のチャート、または区分のあるマスがあるときだけ。それ以外は無効化＋理由・R-101） */}
           {paidNoteEnabled ? (
             <Link
@@ -572,6 +630,7 @@ export default function MandalaChartPage({ params }: { params: Promise<{ id: str
                 onExpand={(parentCellId, position) => void expandBlock(parentCellId, position)}
                 narrow={narrow}
                 articleCounts={articleCounts}
+                nowMs={nowMs}
               />
             </div>
           ) : (
@@ -586,6 +645,7 @@ export default function MandalaChartPage({ params }: { params: Promise<{ id: str
               onToggleSelect={toggleChecked}
               popoverBind={popoverBind}
               articleCounts={articleCounts}
+              nowMs={nowMs}
             />
           )}
           </div>
@@ -601,6 +661,17 @@ export default function MandalaChartPage({ params }: { params: Promise<{ id: str
               onSaved={onSaved}
               onDirtyChange={onDirtyChange}
               onLinksChanged={onLinksChanged}
+              onResearchRequest={openResearch}
+            />
+          )}
+          {researchDialog && chart && (
+            <MandalaResearchDialog
+              theme={chartDisplayTitle(center?.title)}
+              orders={researchOrders}
+              bulk={researchDialog.bulk}
+              bodyByCell={bodyByCell}
+              onClose={() => setResearchDialog(null)}
+              onDone={() => void load()}
             />
           )}
         </>
