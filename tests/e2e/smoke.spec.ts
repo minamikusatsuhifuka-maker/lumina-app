@@ -11193,10 +11193,11 @@ test('C132: 記事→マンダラ生成（316）— 固定JSONを同じ検証・
   try {
     // ── ① 作成（fixture）: 二重発火は 409（R-87）。1枚だけできる ──
     const post = () => api.post('/api/mandala/generate', { data: { scope: 'library', itemKey: libId, mode: '81', fixture: stage1 } });
-    const [a, b] = await Promise.all([post(), post()]);
-    const statuses = [a.status(), b.status()].sort();
-    expect(statuses, '同じ記事から同時に2枚作らない').toEqual([200, 409]);
-    const ok = a.status() === 200 ? a : b;
+    const ok = await post();
+    expect(ok.status()).toBe(200);
+    const dup = await post();
+    expect(dup.status(), '同じ記事から直後の2枚目は 409（DB で判定＝別インスタンスでも効く）').toBe(409);
+    expect((await dup.json()).error).toContain('同じ記事');
     const gen = (await ok.json()) as { chartId: string; points: { position: number; cellId: string; title: string }[]; dropped: { points: number; relations: number }; linked: boolean };
     chartIds.push(gen.chartId);
     expect(gen.points.map((p) => p.position), '引用が無い要点は捨てる').toEqual([0, 1, 2]);

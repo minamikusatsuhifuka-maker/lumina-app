@@ -9,7 +9,7 @@ import { GEMINI_TEXT_MODEL, GEMINI_TEXT_THINKING_LOW } from '@/lib/ai-models';
 import { robustJsonParse } from '@/lib/ai-json-parser';
 import { fetchVisualSources } from '@/lib/visuals-server';
 import { isVisualSourceScope } from '@/lib/visuals';
-import { addLinks, createChart, getChart, resetGeneratedChart, updateChartMeta, writeGeneratedCells } from '@/lib/mandala-server';
+import { addLinks, createChart, deleteChart, findRecentGeneration, getChart, resetGeneratedChart, updateChartMeta, writeGeneratedCells } from '@/lib/mandala-server';
 import { MANDALA_CENTER, isUuidLike } from '@/lib/mandala-shared';
 import {
   GEN_STAGE1_MAX_TOKENS,
@@ -29,6 +29,8 @@ export const maxDuration = 120;
 
 const running = new Map<string, number>();
 const RUNNING_TTL_MS = 3 * 60 * 1000;
+/** 同じ記事から 60 秒以内の再生成は二重送信とみなす（DB で判定＝別インスタンスにも効く）。再生成（chartId 指定）はその chart 自身なら通す */
+const DEDUPE_WINDOW_MS = 60 * 1000;
 
 export async function POST(req: Request) {
   const guard = await requireAuth();
@@ -44,7 +46,13 @@ export async function POST(req: Request) {
   for (const [k, t] of running) if (now - t > RUNNING_TTL_MS) running.delete(k);
   if (running.has(key)) return NextResponse.json({ error: '同じ記事からの生成がすでに進行中です（二重送信）' }, { status: 409 });
   running.set(key, now);
+  let createdChartId: string | null = null;
   try {
+    // R-87 サーバ側（DB）: 進行中／直近 60 秒以内に同じ記事から生成したチャートがあれば 409（再生成は自分の chart なら通す）
+    const recent = await findRecentGeneration(guard.userId, key, DEDUPE_WINDOW_MS, now);
+    if (recent && recent.chartId !== chartId) {
+      return NextResponse.json({ error: recent.state === 'generating' ? '同じ記事からの生成がすでに進行中です（二重送信）' : '同じ記事から直前に生成したマンダラがあります（1分ほど待ってから再度お試しください）', chartId: recent.chartId }, { status: 409 });
+    }
     const [src] = await fetchVisualSources(guard.userId, body.scope, [itemKey]);
     if (!src) return NextResponse.json({ error: '元記事が見つかりません' }, { status: 404 });
     const article = src.text.slice(0, MANDALA_GENERATE_ARTICLE_MAX_CHARS);
@@ -56,6 +64,14 @@ export async function POST(req: Request) {
       const st = regenerateState(chart.cells);
       if (!st.enabled) return NextResponse.json({ error: st.reason }, { status: 400 });
     }
+    // 進行中の印（DB）。新規はこの時点でチャートを作って印を付ける＝並行する2本目が DB で見える。失敗したら消す
+    let chart = chartId ? await getChart(guard.userId, chartId) : null;
+    if (!chartId) {
+      chart = await createChart(guard.userId);
+      createdChartId = chart.id;
+    }
+    if (!chart) return NextResponse.json({ error: 'マンダラが見つかりません' }, { status: 404 });
+    await updateChartMeta(guard.userId, chart.id, { generating: { key, startedAt: new Date(now).toISOString() } });
     // 第1段階: AI（または fixture）→ 検証
     let raw: unknown;
     if (body.fixture !== undefined) {
@@ -75,9 +91,7 @@ export async function POST(req: Request) {
     }
     const v = validateStage1(raw, article);
     if (!v.ok) return NextResponse.json({ error: v.reason, dropped: v.dropped }, { status: 422 });
-    // 作成（301 の CTE）or 再生成（子・リンク・第1階層を空に）
-    let chart = chartId ? await getChart(guard.userId, chartId) : await createChart(guard.userId);
-    if (!chart) return NextResponse.json({ error: 'マンダラが見つかりません' }, { status: 404 });
+    // 再生成: 検証に成功してから子・リンク・第1階層を空に（R-76）
     if (chartId) {
       await resetGeneratedChart(guard.userId, chartId);
       chart = (await getChart(guard.userId, chartId))!;
@@ -95,9 +109,11 @@ export async function POST(req: Request) {
     await writeGeneratedCells(guard.userId, rows);
     const generatedAt = new Date().toISOString();
     await updateChartMeta(guard.userId, chart.id, {
-      generated: { source: { scope: body.scope, item_key: itemKey, title: src.title }, model: body.fixture !== undefined ? 'fixture' : GEMINI_TEXT_MODEL, mode, generatedAt, dropped: { points: v.dropped.points, items: 0 } },
+      generated: { key, source: { scope: body.scope, item_key: itemKey, title: src.title }, model: body.fixture !== undefined ? 'fixture' : GEMINI_TEXT_MODEL, mode, generatedAt, dropped: { points: v.dropped.points, items: 0 } },
       relations: relationsFromPoints(v.points),
+      generating: null,
     });
+    createdChartId = null; // 成功＝残す
     // 中央マスに元記事をリンク（302・失敗しても作成は残す・R-39）
     let linked = false;
     try {
@@ -112,5 +128,8 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: e instanceof Error ? e.message : '生成に失敗しました' }, { status: 500 });
   } finally {
     running.delete(key);
+    // 失敗（AI・検証・例外）で残った空のチャートは消す。再生成のときは印だけ消す
+    if (createdChartId) await deleteChart(guard.userId, createdChartId).catch(() => {});
+    else if (chartId) await updateChartMeta(guard.userId, chartId, { generating: null }).catch(() => {});
   }
 }

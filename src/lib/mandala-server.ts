@@ -257,6 +257,27 @@ export async function resetGeneratedChart(userId: string, chartId: string): Prom
   await sql`UPDATE mandala_cells SET title = '', body = '', meta = meta - 'origin', updated_at = now() WHERE chart_id = ${chartId}::uuid AND user_id = ${userId} AND depth = 1`;
 }
 
+/**
+ * 316 R-87（サーバ側・DB）: 同じ記事（key）から**進行中**（meta.generating）か**直近に生成済み**（meta.generated.generatedAt）の
+ * チャートがあれば返す。インスタンス内の Map だけでは別インスタンスに届かないため DB で見る
+ */
+export async function findRecentGeneration(userId: string, key: string, windowMs: number, nowMs: number): Promise<{ chartId: string; state: 'generating' | 'generated'; at: string } | null> {
+  await ensureMandalaTables();
+  const rows = (await sql`
+    SELECT id::text AS id, meta FROM mandala_charts
+    WHERE user_id = ${userId} AND (meta->'generating'->>'key' = ${key} OR meta->'generated'->>'key' = ${key})
+    ORDER BY updated_at DESC LIMIT 5
+  `) as { id: string; meta: Record<string, unknown> | null }[];
+  for (const r of rows) {
+    const m = r.meta ?? {};
+    const gg = (m.generating ?? null) as { key?: string; startedAt?: string } | null;
+    if (gg && gg.key === key && typeof gg.startedAt === 'string' && nowMs - Date.parse(gg.startedAt) < windowMs) return { chartId: r.id, state: 'generating', at: gg.startedAt };
+    const gd = (m.generated ?? null) as { key?: string; generatedAt?: string } | null;
+    if (gd && gd.key === key && typeof gd.generatedAt === 'string' && nowMs - Date.parse(gd.generatedAt) < windowMs) return { chartId: r.id, state: 'generated', at: gd.generatedAt };
+  }
+  return null;
+}
+
 /** 要点1つの子マスを消す（その要点だけ再生成するとき）。edited の子があれば呼ばない */
 export async function deleteChildren(userId: string, parentCellId: string): Promise<number> {
   await ensureMandalaTables();
