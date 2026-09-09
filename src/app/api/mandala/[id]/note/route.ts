@@ -7,6 +7,8 @@ import { requireAuth } from '@/lib/require-auth';
 import { getChart, listLinksForChartResolved, fetchMandalaLinkBodies } from '@/lib/mandala-server';
 import { isUuidLike, mandalaOutlineNested, type MandalaLinkResolved } from '@/lib/mandala-shared';
 import { canMakePaidNote, isMandalaNoteMode, mandalaNoteFree, mandalaNotePaid, mandalaNoteToSource, MANDALA_NOTE_PAID_DISABLED_REASON } from '@/lib/mandala-note';
+// 316 §3-5: origin='ai' のマスを含むとき「体験ではありません」の1文を画面に出す
+import { hasAiOrigin } from '@/lib/mandala-generate';
 
 export const runtime = 'nodejs';
 
@@ -38,7 +40,8 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ id: string 
     // プレビューには素材の本文を載せない（画面は骨子と件数だけ描く。本文は生成側で同じ関数が組む）
     const lite = JSON.parse(JSON.stringify(result), (k, v) => (k === 'body' && typeof v === 'string' ? '' : v));
     const sourceText = mandalaNoteToSource(result);
-    return NextResponse.json({ chartId: chart.id, result: lite, sourceChars: sourceText?.content.length ?? 0, paidLineBefore: sourceText?.paidLineBefore ?? null });
+    const included = mode === 'free_cell' ? chart.cells.filter((c) => c.id === cellId || c.parent_cell_id === cellId) : chart.cells;
+    return NextResponse.json({ chartId: chart.id, result: lite, sourceChars: sourceText?.content.length ?? 0, paidLineBefore: sourceText?.paidLineBefore ?? null, aiOrigin: hasAiOrigin(included) });
   } catch (e: unknown) {
     console.error('[mandala note] プレビューに失敗:', e instanceof Error ? e.message : 'unknown');
     return NextResponse.json({ error: 'note記事のプレビューに失敗しました' }, { status: 500 });

@@ -11174,3 +11174,139 @@ test('C131: 記事→図解（315）— 📚🗂の行の「🖼 図解にする
     await api.patch('/api/text-analysis/saves', { data: { action: 'delete', id: saveId } }).catch(() => {});
   }
 });
+
+test('C132: 記事→マンダラ生成（316）— 固定JSONを同じ検証・作成経路に通す（AIなし）: 9マス作成で中央に元記事がリンクされ meta.generated・relations・origin=ai が付く・引用が無い要点と無効な関連は捨てて件数・二重発火で2枚できない（409・R-87）・81 の展開は要点ごとに独立し1つが失敗しても他は展開され失敗した要点は未展開のまま（R-39）・本文末尾の「> 引用」が MarkdownBody で引用として整形される（R-97）・一覧と見出しに「🤖 記事から生成」と元記事リンク・関連性チップ「↔ n」→ポップアップ→相手のマスが開く・マスを保存すると AI が消え origin=edited・「🔁 再生成」が edited ありで無効化＋理由・309／312 の並べて表示に「体験ではありません」・311 の発注が要点から使える', async ({ page }) => {
+  test.setTimeout(240_000);
+  const marker = `MGN${RUN_ID}`;
+  const article = `朝の保湿は洗顔のあと5分以内に行う。化粧水をなじませてから乳液で蓋をする。夜はクレンジングのあとに同じ手順で保湿する。週に1回は角質ケアを足す。冬は加湿器で室内の湿度を保つ。乾燥が強い日は保湿剤を重ねづけする。識別子 ${marker}。`;
+  const libId = await createLibraryItem(api, { title: `${marker} 元記事`, content: article, type: 'deepresearch' });
+  const stage1 = {
+    center: { title: `保湿の基本 ${marker}`.slice(0, 20), body: '朝と夜の保湿の手順をまとめた記事。' },
+    points: [
+      { position: 0, title: '朝の保湿', body: '洗顔後すぐに保湿する。化粧水のあと乳液で蓋をする。', evidence: '洗顔のあと5分以内に行う', relations: [{ to: 1, label: '同じ手順' }, { to: 4, label: '無効' }] },
+      { position: 1, title: '夜の保湿', body: 'クレンジング後に同じ手順で保湿する。', evidence: 'クレンジングのあとに同じ手順で保湿する', relations: [] },
+      { position: 2, title: '角質ケア', body: '週に1回は角質ケアを足す。', evidence: '週に1回は角質ケアを足す', relations: [] },
+      { position: 3, title: '言い換え', body: '加湿器を使う。', evidence: '冬場は加湿器で部屋の湿度を維持する', relations: [] },
+    ],
+  };
+  const chartIds: string[] = [];
+  try {
+    // ── ① 作成（fixture）: 二重発火は 409（R-87）。1枚だけできる ──
+    const post = () => api.post('/api/mandala/generate', { data: { scope: 'library', itemKey: libId, mode: '81', fixture: stage1 } });
+    const [a, b] = await Promise.all([post(), post()]);
+    const statuses = [a.status(), b.status()].sort();
+    expect(statuses, '同じ記事から同時に2枚作らない').toEqual([200, 409]);
+    const ok = a.status() === 200 ? a : b;
+    const gen = (await ok.json()) as { chartId: string; points: { position: number; cellId: string; title: string }[]; dropped: { points: number; relations: number }; linked: boolean };
+    chartIds.push(gen.chartId);
+    expect(gen.points.map((p) => p.position), '引用が無い要点は捨てる').toEqual([0, 1, 2]);
+    expect(gen.dropped.points).toBe(1);
+    expect(gen.dropped.relations, '4 への関連は捨てる').toBe(1);
+    expect(gen.linked, '中央に元記事がリンクされる').toBe(true);
+    const chart = await getMandalaChart(api, gen.chartId);
+    const byPos = (p: number) => chart.cells.find((c) => c.depth === 1 && c.position === p)!;
+    expect(byPos(4).title).toBe(stage1.center.title);
+    expect(byPos(4).meta?.origin).toBe('ai');
+    expect(byPos(0).meta?.origin).toBe('ai');
+    expect(byPos(0).body, '引用は Markdown 引用で末尾').toMatch(/\n\n> 引用: 洗顔のあと5分以内に行う$/);
+    expect(byPos(3).title, '捨てた要点のマスは空').toBe('');
+    const detail = (await (await api.get(`${MANDALA_API}/${gen.chartId}`)).json()) as { chart: { meta: Record<string, unknown> }; links: { cell_id: string; scope: string; item_key: string }[] };
+    expect(detail.chart.meta.generated).toMatchObject({ source: { scope: 'library', item_key: String(libId) }, mode: '81', model: 'fixture', dropped: { points: 1, items: 0 } });
+    expect(detail.chart.meta.relations).toEqual([{ from: 0, to: 1, label: '同じ手順' }]);
+    expect(detail.links.some((l) => l.cell_id === byPos(4).id && l.scope === 'library' && String(l.item_key) === String(libId))).toBe(true);
+    // ── ② 81 の展開: 要点ごとに独立。要点1は fixture が根拠なし＝422 で未展開のまま、他は展開される（R-39） ──
+    const items = { items: [
+      { title: '化粧水', body: '化粧水をなじませる。', evidence: '化粧水をなじませてから乳液で蓋をする' },
+      { title: '乳液', body: '乳液で蓋をする。', evidence: '乳液で蓋をする' },
+      { title: '言い換え', body: '…', evidence: '化粧水を肌に染み込ませる' },
+    ] };
+    const p0 = await api.post('/api/mandala/generate/point', { data: { chartId: gen.chartId, cellId: byPos(0).id, fixture: items } });
+    expect(p0.status()).toBe(200);
+    expect((await p0.json()).created).toBe(2);
+    const p1 = await api.post('/api/mandala/generate/point', { data: { chartId: gen.chartId, cellId: byPos(1).id, fixture: { items: [{ title: 'x', body: 'y', evidence: '本文に無い一節' }] } } });
+    expect(p1.status(), '根拠が無ければ失敗（その要点だけ）').toBe(422);
+    const p2 = await api.post('/api/mandala/generate/point', { data: { chartId: gen.chartId, cellId: byPos(2).id, fixture: items } });
+    expect(p2.status()).toBe(200);
+    const chart2 = await getMandalaChart(api, gen.chartId);
+    const kids = (id: string) => chart2.cells.filter((c) => c.parent_cell_id === id);
+    expect(kids(byPos(0).id).length, '展開した要点は子8').toBe(8);
+    expect(kids(byPos(0).id).filter((c) => c.title).map((c) => c.meta?.origin)).toEqual(['ai', 'ai']);
+    expect(kids(byPos(1).id).length, '失敗した要点は未展開のまま').toBe(0);
+    expect(kids(byPos(2).id).length).toBe(8);
+    const detail2 = (await (await api.get(`${MANDALA_API}/${gen.chartId}`)).json()) as { chart: { meta: { generated: { dropped: { items: number } } } } };
+    expect(detail2.chart.meta.generated.dropped.items, '捨てた小項目の件数が積算される').toBe(2);
+    // ── ③ 表示: 一覧のバッジ・見出しのバッジと元記事リンク・AI の印・関連性チップ→ポップアップ→相手が開く・引用の整形 ──
+    await page.goto('/dashboard/mandala');
+    await expect(page.locator(`[data-mandala-card-generated="81"]`).first()).toBeVisible({ timeout: 30000 });
+    await page.goto(`/dashboard/mandala/${gen.chartId}`);
+    const grid = page.locator('[data-mandala-grid][data-mandala-grid-depth="1"]');
+    await expect(grid.locator('[data-mandala-cell]')).toHaveCount(9, { timeout: 30000 });
+    await expect(page.locator('[data-mandala-generated]')).toHaveAttribute('data-mandala-generated', '81');
+    expect(await page.locator('[data-mandala-generated-source]').getAttribute('href')).toBe(`/dashboard/library?open=${libId}`);
+    await expect(grid.locator('[data-mandala-cell="0"] [data-mandala-cell-origin="ai"]')).toHaveCount(1);
+    await expect(grid.locator('[data-mandala-cell="0"] [data-mandala-cell-relations]')).toHaveAttribute('data-mandala-cell-relations', '1');
+    await expect(grid.locator('[data-mandala-cell="1"] [data-mandala-cell-relations]'), '相手側にも出る（← 向き）').toHaveAttribute('data-mandala-cell-relations', '1');
+    await expect(grid.locator('[data-mandala-cell="2"] [data-mandala-cell-relations]')).toHaveCount(0);
+    await grid.locator('[data-mandala-cell="0"] [data-mandala-cell-relations]').hover();
+    const pop = page.locator(`[data-mandala-relations-popover="${byPos(0).id}"]`);
+    await expect(pop).toBeVisible({ timeout: 5000 });
+    await expect(pop.locator('[data-mandala-relation-open="1"]')).toContainText('同じ手順');
+    await pop.locator('[data-mandala-relation-open="1"]').click();
+    await expect(page.locator(`[data-mandala-panel="${byPos(1).id}"]`), '相手のマスの編集パネルが開く').toBeVisible({ timeout: 10000 });
+    await expect(page.locator(`[data-mandala-panel="${byPos(1).id}"] [data-mandala-origin="ai"]`)).toHaveCount(1);
+    await expect(page.locator(`[data-mandala-panel="${byPos(1).id}"] [data-mandala-regen-point="${byPos(1).id}"]`), '未展開の要点は小項目を再生成できる').toBeEnabled();
+    await expect(page.locator(`[data-mandala-panel="${byPos(1).id}"] [data-mandala-research-order]`), '311 の発注が要点から使える').toBeEnabled({ timeout: 15000 });
+    await page.locator('[data-mandala-panel-close]').click();
+    // 引用の整形（比較ビュー＝MarkdownBody・R-97）: > が生で出ず blockquote になる
+    await page.locator('[data-mandala-select-toggle]').click();
+    await grid.locator('[data-mandala-cell="0"]').click();
+    await grid.locator('[data-mandala-cell="1"]').click();
+    await page.locator('[data-mandala-compare-open]').click();
+    const cmp = page.locator('[data-mandala-compare]');
+    await expect(cmp).toBeVisible();
+    await expect(cmp.locator('blockquote').first()).toContainText('引用: 洗顔のあと5分以内に行う');
+    await expect(cmp, '「>」が生で出ない').not.toContainText('> 引用');
+    await page.locator('[data-mandala-select-toggle]').click();
+    // ── ④ 再生成は edited が無ければ有効。マスを保存すると AI が消え edited になり、再生成が無効化＋理由 ──
+    await expect(page.locator('[data-mandala-regenerate]')).toBeEnabled();
+    expect((await saveMandalaCell(api, byPos(2).id, { title: '角質ケア（院長が編集）' })).status()).toBe(200);
+    const edited = (await getMandalaChart(api, gen.chartId)).cells.find((c) => c.id === byPos(2).id)!;
+    expect(edited.meta?.origin, '内容が変わると edited').toBe('edited');
+    expect((await saveMandalaCell(api, byPos(0).id, { title: '朝の保湿' })).status(), '同じ内容の再送は変えない').toBe(200);
+    expect((await getMandalaChart(api, gen.chartId)).cells.find((c) => c.id === byPos(0).id)!.meta?.origin).toBe('ai');
+    await page.reload();
+    await expect(grid.locator('[data-mandala-cell]')).toHaveCount(9, { timeout: 30000 });
+    await expect(grid.locator('[data-mandala-cell="2"] [data-mandala-cell-origin="ai"]'), 'AI の印が消える').toHaveCount(0);
+    await expect(page.locator('[data-mandala-regenerate]')).toBeDisabled();
+    expect(await page.locator('[data-mandala-regenerate]').getAttribute('title')).toContain('編集したマスがあるため');
+    const regen = await api.post('/api/mandala/generate', { data: { scope: 'library', itemKey: libId, mode: '9', chartId: gen.chartId, fixture: stage1 } });
+    expect(regen.status(), 'API でも edited ありは 400（R-76）').toBe(400);
+    // ── ⑤ 309／312 の並べて表示に「体験ではありません」（origin=ai を含む）。プレビュー API の aiOrigin ──
+    const note = (await (await api.get(`${MANDALA_API}/${gen.chartId}/note?mode=free_cell&cell=${byPos(0).id}`)).json()) as { aiOrigin: boolean };
+    expect(note.aiOrigin).toBe(true);
+    const x = (await (await api.get(`${MANDALA_API}/${gen.chartId}/x?mode=series`)).json()) as { aiOrigin: boolean };
+    expect(x.aiOrigin).toBe(true);
+    await page.goto(`/dashboard/dr-hub?mandala=${gen.chartId}&cell=${byPos(0).id}`);
+    await expect(page.locator('[data-hub-mandala-source]')).toHaveAttribute('data-hub-mandala-ok', '1', { timeout: 30000 });
+    await page.goto(`/dashboard/dr-hub?mandala=${gen.chartId}&mode=series&to=x`);
+    await expect(page.locator('[data-hub-mandala-ai-origin]'), 'X の並べて表示に1文').toContainText('体験ではありません', { timeout: 30000 });
+    // ── ⑥ 9マス: 入口のダイアログ（既定 9・費用の目安・やめるでリクエスト0） ──
+    const posts: unknown[] = [];
+    await page.route('**/api/mandala/generate', (route) => { posts.push(route.request().postDataJSON()); return route.fulfill({ status: 500, contentType: 'application/json', body: '{"error":"mock"}' }); });
+    await page.goto('/dashboard/library');
+    const openBtn = page.locator(`[data-mandala-gen-open="${libId}"]`);
+    await expect(openBtn).toBeVisible({ timeout: 30000 });
+    await openBtn.click();
+    const dlg = page.locator('[data-mandala-gen-dialog]');
+    await expect(dlg).toBeVisible();
+    await expect(dlg.locator('[data-mandala-gen-mode="9"] input'), '3,000字未満の既定は 9').toBeChecked();
+    await expect(dlg.locator('[data-mandala-gen-cost]')).toContainText(/約 \$|\$0\.01 未満/);
+    await expect(dlg).toContainText('2026-09-09 確認');
+    await dlg.locator('[data-mandala-gen-cancel]').click();
+    await expect(dlg).toHaveCount(0);
+    expect(posts.length, 'やめるではリクエスト0').toBe(0);
+  } finally {
+    for (const id of chartIds) await deleteMandalaChart(api, id).catch(() => {});
+    await api.delete(LIBRARY_API, { data: { ids: [libId] } }).catch(() => {});
+  }
+});

@@ -53,6 +53,7 @@ import * as mandalaResearch from '../../src/lib/mandala-research';
 import * as mandalaShared from '../../src/lib/mandala-shared';
 import * as stickyBar from '../../src/lib/sticky-action-bar';
 import * as visuals from '../../src/lib/visuals';
+import * as mandalaGenerate from '../../src/lib/mandala-generate';
 import * as visualTemplates from '../../src/lib/visual-templates';
 import { estimateImageCost, imageCostActual, IMAGE_PRICING_CHECKED_ON, IMAGE_MODEL_IDS } from '../../src/lib/model-pricing';
 import { IMAGE_GUARD_SUFFIX_WITH_TEXT, guardImagePromptWithText } from '../../src/lib/image-guards';
@@ -4661,4 +4662,94 @@ test('U86: 記事→図解（315）— 元テキストに無い語句の検出�
   expect(openaiImage).not.toMatch(/console\.[a-z]+\([^)]*apiKey/);
   const gallery = readFileSync(join(__dirname, '../../src/app/api/gallery/route.ts'), 'utf8');
   expect(gallery, '保存元はオプトイン（既定は従来の image-gen）').toContain("const source = body.source === 'visuals' ? 'visuals' : 'image-gen';");
+});
+
+test('U88: 記事→マンダラ生成（316）— evidence が本文に無い要点／小項目は捨てて件数（空白・改行の正規化だけ・言い換えは通さない）・relations.to が 4／自分／範囲外／捨てた要点なら捨てる・上限超えは切らず捨てる（R-101）・要点2件未満で失敗（fail-closed）・同じ入力→同じ結果・引用は Markdown 引用で末尾・meta の読み書き（generated/relations/origin）・再生成は edited があれば無効化＋理由（R-76）・既定モード（3,000字）・費用の目安・添字→position の写し・maxTokens 下限2048と R-73', () => {
+  const g = mandalaGenerate;
+  const article = '朝の保湿は洗顔のあと5分以内に行う。\n化粧水をなじませてから乳液で蓋をする。夜はクレンジングのあとに同じ手順で保湿する。週に1回は角質ケアを足す。冬は加湿器で室内の湿度を保つ。乾燥が強い日は保湿剤を重ねづけする。';
+  const stage1 = {
+    center: { title: '保湿の基本', body: '朝と夜の保湿の手順。' },
+    points: [
+      { position: 0, title: '朝の保湿', body: '洗顔後すぐに保湿する。化粧水のあと乳液で蓋をする。', evidence: '洗顔のあと5分以内に行う', relations: [{ to: 1, label: '同じ手順' }, { to: 4, label: '中央は不可' }, { to: 0, label: '自分は不可' }, { to: 7, label: '存在しない要点' }] },
+      { position: 1, title: '夜の保湿', body: 'クレンジング後に同じ手順で保湿する。', evidence: '同じ 手順で\n保湿する', relations: [] },
+      { position: 2, title: '角質ケア', body: '週に1回は角質ケアを足す。', evidence: '週に1回は角質ケアを足す', relations: [{ to: 0, label: 'あ'.repeat(16) }] },
+      { position: 3, title: '言い換えの要点', body: '加湿器を使う。', evidence: '冬場は加湿器で部屋の湿度を維持する', relations: [] },
+      { position: 5, title: 'これはとても長い見出しで15字を超えている', body: '本文。', evidence: '乾燥が強い日は保湿剤を重ねづけする', relations: [] },
+      { position: 6, title: '文が多い', body: '一。二。三。四。五。六。七。', evidence: '乾燥が強い日は保湿剤を重ねづけする', relations: [] },
+    ],
+  };
+  const r = g.validateStage1(stage1, article);
+  expect(r.ok).toBe(true);
+  if (!r.ok) throw new Error('unreachable');
+  expect(r.points.map((p) => p.title), '言い換え・上限超え・文数超えは捨てる').toEqual(['朝の保湿', '夜の保湿', '角質ケア']);
+  expect(r.dropped.points).toBe(3);
+  expect(r.dropped.reasons.some((x) => x.includes('引用が記事本文に見つかりません'))).toBe(true);
+  expect(r.points[0].relations, '4・自分・捨てた要点への関連は捨てる').toEqual([{ to: 1, label: '同じ手順' }]);
+  expect(r.points[2].relations, 'ラベル16字は捨てる').toEqual([]);
+  expect(r.dropped.relations).toBe(4);
+  expect(r.points[1].evidence, '空白・改行の違いは通す（正規化のみ）').toBe('同じ 手順で\n保湿する');
+  expect(JSON.stringify(g.validateStage1(stage1, article)), '同じ入力→同じ結果').toBe(JSON.stringify(r));
+  const few = g.validateStage1({ center: { title: 'x', body: '' }, points: [stage1.points[0], stage1.points[3]] }, article);
+  expect(few.ok, '根拠のある要点が1件＝失敗').toBe(false);
+  expect(g.validateStage1({ center: { title: 'あ'.repeat(21), body: '' }, points: stage1.points }, article).ok, '中央20字超は失敗').toBe(false);
+  // position 未指定は 0,1,2,3,5… の順に割り当て
+  const auto = g.validateStage1({ center: { title: 't', body: '' }, points: stage1.points.slice(0, 3).map(({ position: _p, ...rest }) => rest) }, article);
+  expect(auto.ok && auto.points.map((p) => p.position)).toEqual([0, 1, 2]);
+  // 添字→position（プロンプトは添字で書かせる）
+  const remapped = g.remapRelationIndexes({ center: {}, points: [{ title: 'a', relations: [{ to: 1, label: 'x' }] }, { title: 'b' }, { title: 'c', relations: [{ to: 4, label: 'y' }] }] }) as { points: { position: number; relations: { to: number }[] }[] };
+  expect(remapped.points.map((p) => p.position)).toEqual([0, 1, 2]);
+  expect(remapped.points[0].relations[0].to).toBe(1);
+  expect(remapped.points[2].relations[0].to, '添字4＝position 5').toBe(5);
+  // 第2段階
+  const s2 = g.validateStage2({ items: [
+    { title: '化粧水', body: '化粧水をなじませる。', evidence: '化粧水をなじませてから乳液で蓋をする' },
+    { title: '言い換え', body: '…', evidence: '化粧水を肌に染み込ませる' },
+    { title: 'これはとても長い見出しで15字を超えている', body: '…', evidence: '週に1回は角質ケアを足す' },
+    ...Array.from({ length: 9 }, (_, i) => ({ title: `項目${i}`, body: '本文。', evidence: '週に1回は角質ケアを足す' })),
+  ] }, article);
+  expect(s2.ok).toBe(true);
+  if (!s2.ok) throw new Error('unreachable');
+  expect(s2.items.length, '最大8（9件目以降は捨てる）').toBe(8);
+  expect(s2.items.map((i) => i.position)).toEqual([0, 1, 2, 3, 5, 6, 7, 8]);
+  expect(s2.dropped.items).toBe(1 + 1 + 2);
+  expect(g.validateStage2({ items: [{ title: 'x', body: 'y', evidence: '本文に無い' }] }, article).ok).toBe(false);
+  // 引用の書き方・meta・origin・再生成
+  expect(g.cellBodyWithEvidence('本文。', '引用文')).toBe('本文。\n\n> 引用: 引用文');
+  const meta = { generated: { source: { scope: 'library', item_key: '12', title: '記事A' }, model: 'gemini-3.7-flash', mode: '81', generatedAt: '2026-09-09T00:00:00.000Z', dropped: { points: 1, items: 2 } }, relations: [{ from: 0, to: 1, label: '同じ手順' }, { from: 2, to: 0, label: '補足' }] };
+  const gm = g.parseGeneratedMeta(meta)!;
+  expect(gm.mode).toBe('81');
+  expect(gm.dropped).toEqual({ points: 1, items: 2 });
+  expect(g.parseGeneratedMeta({})).toBeNull();
+  expect(g.relationsOf(g.parseRelations(meta), 0)).toEqual([{ position: 1, label: '同じ手順', direction: 'out' }, { position: 2, label: '補足', direction: 'in' }]);
+  expect(g.relationsOf(g.parseRelations(meta), 5)).toEqual([]);
+  expect(g.relationsFromPoints(r.points)).toEqual([{ from: 0, to: 1, label: '同じ手順' }]);
+  const ai = { meta: { origin: 'ai' } };
+  const ed = { meta: { origin: 'edited' } };
+  expect(g.cellOrigin(ai)).toBe('ai');
+  expect(g.cellOrigin({ meta: {} })).toBeNull();
+  expect(g.hasAiOrigin([{ meta: {} }, ai])).toBe(true);
+  expect(g.regenerateState([ai, ai]).enabled).toBe(true);
+  expect(g.regenerateState([ai, ed])).toMatchObject({ enabled: false });
+  expect(g.regenerateState([ai, ed]).reason).toContain('編集');
+  expect(g.generatedSourceHref({ scope: 'library', item_key: '12', title: '' })).toBe('/dashboard/library?open=12');
+  expect(g.generatedBadgeLabel(gm)).toContain('記事から生成');
+  // 既定モード・費用・maxTokens／タイムアウト（R-73）
+  expect(g.defaultGenerateMode(2999)).toBe('9');
+  expect(g.defaultGenerateMode(3000)).toBe('81');
+  expect(g.estimateGenerateCost(3000, '9', '2026-09-09')).toBeCloseTo(((3000 + 1500) / 1e6) * 0.75 + (2500 / 1e6) * 3.75, 8);
+  expect(g.estimateGenerateCost(3000, '81', '2026-09-09')!).toBeGreaterThan(g.estimateGenerateCost(3000, '9', '2026-09-09')!);
+  expect(g.GEN_STAGE1_MAX_TOKENS).toBeGreaterThanOrEqual(2048);
+  expect(g.GEN_STAGE2_MAX_TOKENS).toBeGreaterThanOrEqual(2048);
+  expect(g.GEN_STAGE_TIMEOUT_MS, 'リトライ0・個別タイムアウトは maxDuration の内側').toBeLessThan(g.GEN_MAX_DURATION_S * 1000);
+  expect(g.buildStage1Prompt(article).prompt).toContain('補わない');
+  expect(g.buildStage2Prompt(article, r.points[0]).prompt).toContain('原文そのまま');
+  // ソース固定: ルートの maxDuration とサーバ側 saveCell の origin 書き換え・純関数は DB を読まない
+  for (const f of ['generate/route.ts', 'generate/point/route.ts']) {
+    const src = readFileSync(join(__dirname, `../../src/app/api/mandala/${f}`), 'utf8');
+    expect(src).toContain(`export const maxDuration = ${g.GEN_MAX_DURATION_S};`);
+  }
+  const server = readFileSync(join(__dirname, '../../src/lib/mandala-server.ts'), 'utf8');
+  expect(server, 'PATCH で内容差分があれば ai→edited（同じ UPDATE 文・キー単位）').toMatch(/meta = CASE WHEN meta->>'origin' = 'ai' THEN meta \|\| '\{"origin":"edited"\}'::jsonb ELSE meta END/);
+  const lib = readFileSync(join(__dirname, '../../src/lib/mandala-generate.ts'), 'utf8');
+  expect(lib).not.toMatch(/from '@\/lib\/(db|mandala-server)'/);
 });

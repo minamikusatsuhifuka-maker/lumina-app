@@ -19,6 +19,8 @@
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 import { CharCountBadge } from '@/components/LibraryItemRow';
+// 316: 関連性チップ「↔ n」（chart.meta.relations）と AI 由来の印（cell.meta.origin）
+import { cellOrigin, relationsOf, type MandalaRelation } from '@/lib/mandala-generate';
 import type { HoverPopoverBindings } from '@/components/HoverPopover';
 import { MANDALA_RESEARCH_STATE_LABELS, researchState } from '@/lib/mandala-research';
 import {
@@ -61,6 +63,8 @@ function CellCard({
   articleCount = 0,
   nowMs = 0,
   xPostCount = 0,
+  relations,
+  parentCellIdOfSlot = null,
 }: {
   slot: MandalaGridSlot;
   /** 312: そのマスから起こした X 投稿の数（記録から導出）。0 なら出さない */
@@ -79,6 +83,8 @@ function CellCard({
   density: GridDensity;
   /** 305: 未展開ブロックの空枠（cell が無い第2階層）を押したとき */
   onExpand?: (position: number) => void;
+  relations?: readonly MandalaRelation[];
+  parentCellIdOfSlot?: string | null;
 }) {
   const { cell, position, derived, derivedTitle, derivedCell } = slot;
   const isCenter = position === MANDALA_CENTER;
@@ -97,6 +103,10 @@ function CellCard({
   const reacted = !!cell && !derived && hasReaction(cell);
   // 311: 調査の進行状況（meta.research から導出）。now は親が固定して渡す（決定的）
   const research = cell && !derived ? researchState(cell.meta, nowMs) : 'none';
+  // 316: 関連性（第1階層の位置で引く。81 の外周ブロックの中央＝親にも出す）。AI 由来の印は自マスだけ
+  const relTarget = derived ? derivedCell : cell;
+  const relItems = relTarget && relations && (derived || !parentCellIdOfSlot) ? relationsOf(relations, relTarget.position) : [];
+  const origin = cell && !derived ? cellOrigin(cell) : null;
 
   const activate = () => {
     if (selectMode) {
@@ -212,6 +222,27 @@ function CellCard({
           </span>
         )}
         {!compact && <span style={{ flex: 1 }} />}
+        {/* 316 §3-5: AI 由来の印（origin='ai'）。院長が保存すると消える（edited） */}
+        {origin === 'ai' && (
+          <span data-mandala-cell-origin="ai" aria-label="AIが記事から生成したマス" style={{ fontSize: 9, fontWeight: 700, padding: '0 4px', borderRadius: 4, background: 'rgba(108,99,255,0.14)', color: '#6c63ff', whiteSpace: 'nowrap', flexShrink: 0 }}>AI</span>
+        )}
+        {/* 316 §3-4: 関連性チップ「↔ n」（ホバーで相手と関係の一覧・押すと相手のマスが開く）。線や矢印は描かない */}
+        {relItems.length > 0 && relTarget && (() => {
+          const b = popoverBind ? popoverBind(relTarget, 'relations') : undefined;
+          const handlers = b ? (selectMode ? { ...b, onClick: undefined } : b) : {};
+          return (
+            <span
+              data-mandala-cell-relations={relItems.length}
+              aria-label={`関連する要点${relItems.length}件。一覧を表示`}
+              role={b ? 'button' : undefined}
+              tabIndex={b ? 0 : undefined}
+              {...handlers}
+              style={{ fontSize: 10, fontWeight: 700, whiteSpace: 'nowrap', flexShrink: 0, color: '#6c63ff', cursor: b ? 'pointer' : 'default', padding: '0 2px', borderRadius: 4 }}
+            >
+              ↔{relItems.length}
+            </span>
+          );
+        })()}
         {/* 308 §3-3: 反応記録がある埋まったマスに 📈（ホバーで4項目＋購入率＋一言＋日時）。304 のリンク一覧とは別のバッジ */}
         {reacted && cell && (() => {
           const b = popoverBind ? popoverBind(cell, 'reaction') : undefined;
@@ -414,6 +445,7 @@ export default function MandalaGrid({
   onExpand,
   blockAttrs,
   articleCounts,
+  relations,
   nowMs,
   xPostCounts,
 }: {
@@ -424,6 +456,8 @@ export default function MandalaGrid({
   xPostCounts?: ReadonlyMap<string, number>;
   /** 309: マスごとの起こした記事数（省略時は出さない） */
   articleCounts?: ReadonlyMap<string, number>;
+  /** 316: 関連性（chart.meta.relations）。第1階層のグリッドと 81 の外周中央（親）に「↔ n」 */
+  relations?: readonly MandalaRelation[];
   /** null＝第1階層。第2階層（303）は親マスの id を渡す（中央は導出・押せない） */
   parentCellId?: string | null;
   selectedCellId: string | null;
@@ -474,6 +508,8 @@ export default function MandalaGrid({
           density={density}
           onExpand={parentCellId && onExpand ? (pos) => onExpand(parentCellId, pos) : undefined}
           articleCount={slot.cell ? articleCounts?.get(slot.cell.id) ?? 0 : 0}
+          relations={relations}
+          parentCellIdOfSlot={parentCellId}
           nowMs={nowMs}
           xPostCount={slot.cell ? xPostCounts?.get(slot.cell.id) ?? 0 : 0}
         />

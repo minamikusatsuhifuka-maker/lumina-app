@@ -6,6 +6,7 @@
 // 保存（起こす）はウィザードの既存の確定経路（/api/kindle/wizard/create）＝このプレビューの chapters をそのまま渡す。
 
 import { NextRequest, NextResponse } from 'next/server';
+import { parseGeneratedMeta } from '@/lib/mandala-generate';
 import { requireAuth } from '@/lib/require-auth';
 import { getChart, listLinksForChartResolved } from '@/lib/mandala-server';
 import { centerCell, isUuidLike, mandalaOutlineNested, type MandalaLinkResolved } from '@/lib/mandala-shared';
@@ -61,7 +62,8 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ id: string 
           .filter((m): m is KindleMaterialRow => !!m)
           .map((m) => ({ id: m.id, title: m.title, char_count: m.charCount, created_at: m.createdAt, source: m.source }))
       : [];
-    return NextResponse.json({ chartId: chart.id, updated_at: chart.updated_at, includeEmpty, result, materials: materialRows });
+    // 316 §3-5: 記事から生成したチャートなら出どころ記録に generated を含める（ウィザードが記録へ写す）
+    return NextResponse.json({ chartId: chart.id, updated_at: chart.updated_at, includeEmpty, result, materials: materialRows, generated: parseGeneratedMeta(chart.meta) });
   } catch (e: unknown) {
     console.error('[mandala kindle] プレビューに失敗:', e instanceof Error ? e.message : 'unknown');
     return NextResponse.json({ error: 'Kindle目次のプレビューに失敗しました' }, { status: 500 });

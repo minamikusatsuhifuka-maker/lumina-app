@@ -28,6 +28,7 @@
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 import { useCallback, useEffect, useRef, useState, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent } from 'react';
+import { cellOrigin } from '@/lib/mandala-generate';
 import { createPortal } from 'react-dom';
 import FullscreenReader from '@/components/text-analysis/FullscreenReader';
 import { CharCountBadge } from '@/components/LibraryItemRow';
@@ -113,12 +114,20 @@ export default function MandalaCellEditor({
   titlePlaceholder,
   onResearchRequest,
   researchOrderState,
+  onRegeneratePoint,
+  pointRegenState,
+  aiOriginNotice,
 }: {
   cell: MandalaCell;
   /** 311: 「🔍 リサーチを発注」（親が発注ダイアログを開く）。省略時はボタンを出さない */
   onResearchRequest?: (cell: MandalaCell) => void;
   /** 311是正: 発注の可否（純関数 cellOrderState）。未記入の型マス／中央テーマ無しは無効化＋理由（R-101）。省略時は従来どおり */
   researchOrderState?: { enabled: boolean; reason: string | null };
+  /** 316 §3-6: この要点の小項目だけ再生成（記事から生成したチャートの第1階層だけ渡される） */
+  onRegeneratePoint?: (cell: MandalaCell) => void;
+  pointRegenState?: { enabled: boolean; reason: string | null };
+  /** 316 §3-5: 記事から生成したチャートのとき、パネルに出す注意書き */
+  aiOriginNotice?: string;
   /** 308: 型のチャートの中央に出すプレースホルダ（例: 読者の着地点を1行で）。省略時は従来どおり */
   titlePlaceholder?: string;
   onClose: () => void;
@@ -579,6 +588,12 @@ export default function MandalaCellEditor({
                 })}
               </span>
             )}
+            {/* 316 §3-5: AI 由来の印（origin）。保存して内容が変わると 'edited' に */}
+            {cellOrigin(cell) && (
+              <span data-mandala-origin={cellOrigin(cell)} title={cellOrigin(cell) === 'ai' ? (aiOriginNotice ?? 'AIが記事から生成したマス') : '院長が編集したマス（AI生成から変更）'} style={{ fontSize: 10, fontWeight: 700, padding: '1px 6px', borderRadius: 4, background: cellOrigin(cell) === 'ai' ? 'rgba(108,99,255,0.14)' : 'rgba(29,158,117,0.12)', color: cellOrigin(cell) === 'ai' ? '#6c63ff' : '#1D9E75' }}>
+                {cellOrigin(cell) === 'ai' ? 'AI' : '編集済み'}
+              </span>
+            )}
             {dirtyBadge}
             <button type="button" data-mandala-panel-close onClick={requestClose} title="閉じる（Esc）" style={{ ...btn, padding: '4px 8px' }}>
               ✕
@@ -718,6 +733,12 @@ export default function MandalaCellEditor({
             <CharCountBadge n={draft.body.length} />
             {statusLine}
             <span style={{ flex: 1 }} />
+            {/* 316 §3-6: この要点の小項目だけ再生成（子に edited があれば無効化＋理由） */}
+            {onRegeneratePoint && pointRegenState && (
+              <button type="button" data-mandala-regen-point={cell.id} disabled={!pointRegenState.enabled} title={pointRegenState.reason ?? 'この要点の小項目（8マス）を記事から作り直します'} onClick={() => onRegeneratePoint(cell)} style={{ ...btn, borderColor: '#6c63ff', color: '#6c63ff', opacity: pointRegenState.enabled ? 1 : 0.5, cursor: pointRegenState.enabled ? 'pointer' : 'not-allowed' }}>
+                🔁 小項目を再生成
+              </button>
+            )}
             {/* 311 §3-2: リサーチを発注（リンク0件のマスで目立たせる。リンクがあっても追加調査できる） */}
             {onResearchRequest && (cell.title.trim() || cell.body.trim()) && (() => {
               const orderable = researchOrderState?.enabled ?? true;

@@ -207,6 +207,12 @@ export default function MandalaListPage() {
                         📈 {item.reaction_count}
                       </span>
                     )}
+                    {/* 316 §3-5: 記事から生成（AI 由来）の印 */}
+                    {item.generated && (
+                      <span data-mandala-card-generated={item.generated.mode} title={`記事「${item.generated.title}」から AI が生成（${item.generated.mode}マス）`} style={{ color: '#6c63ff', fontWeight: 700 }}>
+                        🤖 記事から生成
+                      </span>
+                    )}
                     {item.preset && (
                       <span data-mandala-card-preset={item.preset} title="作成時の型" style={{ color: 'var(--text-muted)' }}>
                         {isMandalaPresetKey(item.preset) ? MANDALA_PRESETS[item.preset].label : item.preset}

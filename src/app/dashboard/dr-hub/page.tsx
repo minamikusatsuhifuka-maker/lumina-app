@@ -4,6 +4,7 @@
 // 261b: ②分割記事化（プラン提案→1リクエスト=1記事で生成。シリーズ導線＝10原則ベースのマーケ設計込み）。
 // 生成APIは保存しない（R-38と同方針）。保存は SaveToLibraryButton の明示操作のみ。
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { AI_ORIGIN_NOTICE } from '@/lib/mandala-generate';
 import { MarkdownBody } from '@/components/MarkdownBody';
 import { SaveToLibraryButton } from '@/components/SaveToLibraryButton';
 import FeatureDraftBanner from '@/components/FeatureDraftBanner';
@@ -91,6 +92,8 @@ interface MandalaPreview {
   result: MandalaNoteResult;
   sourceChars: number;
   paidLineBefore: string | null;
+  /** 316: origin='ai' のマスを含む（骨子は記事から生成＝体験ではない） */
+  aiOrigin?: boolean;
 }
 
 // ② 分割プランの1記事分（/api/dr-hub/split mode:'plan' の articles[]）
@@ -482,7 +485,7 @@ export default function DrHubPage() {
           setMandalaError(data?.error || `マンダラの読み込みに失敗しました（${r.status}）`);
           return;
         }
-        setMandalaPreview({ result: data.result as MandalaNoteResult, sourceChars: Number(data.sourceChars ?? 0), paidLineBefore: data.paidLineBefore ?? null });
+        setMandalaPreview({ result: data.result as MandalaNoteResult, sourceChars: Number(data.sourceChars ?? 0), paidLineBefore: data.paidLineBefore ?? null, aiOrigin: data.aiOrigin === true });
       })
       .catch((e: unknown) => {
         if (alive) setMandalaError(e instanceof Error ? e.message : 'マンダラの読み込みに失敗しました');
@@ -2097,6 +2100,7 @@ export default function DrHubPage() {
             <div data-hub-mandala-compare style={{ marginBottom: 12, padding: 12, background: 'var(--bg-primary)', border: '1px solid #6c63ff', borderRadius: 10 }}>
               <div style={{ fontSize: 12, fontWeight: 700, color: '#B45309', marginBottom: 8 }}>
                 👀 公開前に必ず: 骨子（マンダラ）と生成記事を並べて、骨子にない体験・実績・数字が足されていないか確認してください
+                {mandalaPreview?.aiOrigin && <div data-hub-mandala-ai-origin style={{ marginTop: 4 }}>🤖 {AI_ORIGIN_NOTICE}</div>}
               </div>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: 12 }}>
                 <div data-hub-mandala-compare-source style={{ minWidth: 0 }}>

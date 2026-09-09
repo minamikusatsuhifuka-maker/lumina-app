@@ -130,6 +130,8 @@ interface OutlineChapter {
 
 /* 307: プレビューAPIの応答（result は純関数の出力そのまま＝保存にもこの chapters を使う・R-74） */
 interface MandalaPreviewResponse {
+  /** 316: 記事から生成したチャートの出どころ（無ければ null） */
+  generated?: { source: { scope: string; item_key: string; title: string }; mode: '9' | '81' } | null;
   chartId: string;
   updated_at: string;
   includeEmpty: boolean;
@@ -342,7 +344,7 @@ function KindleWizardInner() {
   const [mandalaOpen, setMandalaOpen] = useState<Set<number>>(new Set());
   const mandalaReqRef = useRef(0);
   // 「この目次で進む」で確定した材料。②〜④はこれを使い、④は AI 生成せずこの目次を出す。素材モードへ戻せば捨てる
-  const [mandalaSource, setMandalaSource] = useState<{ chartId: string; chartTitle: string; nonce: string; outline: Outline } | null>(null);
+  const [mandalaSource, setMandalaSource] = useState<{ chartId: string; chartTitle: string; nonce: string; outline: Outline; generated?: { scope: string; item_key: string; title: string; mode: '9' | '81' } | null } | null>(null);
 
   /* ②③ 設定 */
   // 225a: 複数目的（221案ii）。選択順を保持する配列＋④で表示中の目的（タブ）。
@@ -816,6 +818,8 @@ function KindleWizardInner() {
       chartTitle: res.untitledTheme ? '' : res.bookTitle,
       nonce: `mk-${crypto.randomUUID()}`,
       outline,
+      // 316: 出どころ記録に generated を含める
+      generated: mandalaPreview.generated ? { ...mandalaPreview.generated.source, mode: mandalaPreview.generated.mode } : null,
     });
     setError('');
     setStep(2);
@@ -900,6 +904,7 @@ function KindleWizardInner() {
                     cellIds: rebuildMandalaCellIds(normalized.chapters),
                     importedAt,
                     nonce: mandalaSource.nonce,
+                    ...(mandalaSource.generated ? { generated: mandalaSource.generated } : {}),
                   },
                 }
               : {}),

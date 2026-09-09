@@ -311,6 +311,8 @@ export interface MandalaBookSource {
   importedAt: string;
   /** 二重発火の遮断用（R-87）。プレビューごとに1つ */
   nonce: string;
+  /** 316: 記事から生成したチャートのとき（元記事の scope/item_key/title・モード）。無ければ省略 */
+  generated?: { scope: string; item_key: string; title: string; mode: '9' | '81' } | null;
 }
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -338,6 +340,12 @@ export function parseMandalaBookSource(bookMeta: unknown): MandalaBookSource | n
     cellIds: { chapter, section },
     importedAt: r.importedAt,
     nonce: typeof r.nonce === 'string' && NONCE_RE.test(r.nonce) ? r.nonce : '',
+    ...(() => {
+      const g = r.generated as Record<string, unknown> | null | undefined;
+      const src = g && typeof g === 'object' ? ((g.source ?? g) as Record<string, unknown>) : null;
+      if (!src || typeof src.scope !== 'string' || typeof src.item_key !== 'string') return {};
+      return { generated: { scope: src.scope, item_key: src.item_key, title: typeof src.title === 'string' ? src.title : '', mode: (g as Record<string, unknown>).mode === '81' ? '81' as const : '9' as const } };
+    })(),
   };
 }
 

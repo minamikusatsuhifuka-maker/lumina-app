@@ -18,6 +18,9 @@
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 import { use, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
+// 316: 記事から生成（meta.generated／relations／origin）・再生成・関連性ポップアップ
+import { AI_ORIGIN_NOTICE, generatedBadgeLabel, generatedSourceHref, parseGeneratedMeta, parseRelations, regenerateState, relationLabelOf, relationsOf, type MandalaRelation } from '@/lib/mandala-generate';
+import { runMandalaGeneration, type GenerateProgress } from '@/lib/mandala-generate-client';
 import Link from 'next/link';
 import MandalaGrid from '@/components/mandala/MandalaGrid';
 import MandalaCellEditor from '@/components/mandala/MandalaCellEditor';
@@ -272,6 +275,29 @@ export default function MandalaChartPage({ params }: { params: Promise<{ id: str
           />
         );
       }
+      // 316: ↔ は chart.meta.relations から描く（取得なし）。押すと相手のマスの編集パネルが開く
+      if (from === 'relations') {
+        const items = relationsOf(relations, cell.position);
+        return (
+          <div data-mandala-relations-popover={cell.id} style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 12, minWidth: 200 }}>
+            <div style={{ fontWeight: 700, color: '#6c63ff' }}>↔ 関連する要点</div>
+            {items.map((it, i) => {
+              const target = chart?.cells.find((c) => c.depth === 1 && c.position === it.position) ?? null;
+              return (
+                <button
+                  key={`${it.position}-${it.direction}-${i}`}
+                  type="button"
+                  data-mandala-relation-open={it.position}
+                  onClick={() => { if (target) { api.close(); openEditor(target); } }}
+                  style={{ textAlign: 'left', padding: '4px 6px', borderRadius: 6, border: '1px solid var(--border)', background: 'var(--bg-primary)', color: 'var(--text-primary)', cursor: target ? 'pointer' : 'default' }}
+                >
+                  {it.direction === 'out' ? '→' : '←'} {relationLabelOf(it.position)}: {target?.title.trim() || '（空）'}（{it.label}）
+                </button>
+              );
+            })}
+          </div>
+        );
+      }
       // 308: 📈 はマスの meta から描く（取得なし）。押せる要素は「パネルで記録する」だけ
       if (from === 'reaction') {
         const latest = chart?.cells.find((c) => c.id === cell.id) ?? cell;
@@ -397,6 +423,48 @@ export default function MandalaChartPage({ params }: { params: Promise<{ id: str
   const presetKey = chart ? chartPreset(chart.meta) : null;
   const presetDef = isMandalaPresetKey(presetKey) ? MANDALA_PRESETS[presetKey] : null;
   const ratio = useMemo(() => (chart && shouldShowFreeRatio(chart.meta, chart.cells) ? freeRatio(chart.cells) : null), [chart]);
+  // 316: 記事から生成（AI 由来の明示・関連性・再生成）
+  const generated = useMemo(() => (chart ? parseGeneratedMeta(chart.meta) : null), [chart]);
+  const relations = useMemo<MandalaRelation[]>(() => (chart ? parseRelations(chart.meta) : []), [chart]);
+  const regenState = useMemo(() => (chart ? regenerateState(chart.cells) : { enabled: false, reason: null }), [chart]);
+  const [regenConfirm, setRegenConfirm] = useState(false);
+  const [regenProgress, setRegenProgress] = useState<GenerateProgress | null>(null);
+  const regenRef = useRef(false); // R-87
+  const runRegenerate = useCallback(async () => {
+    if (!chart || !generated || regenRef.current) return;
+    regenRef.current = true;
+    setRegenConfirm(false);
+    try {
+      await runMandalaGeneration({ scope: generated.source.scope, itemKey: generated.source.item_key, mode: generated.mode, chartId: chart.id }, setRegenProgress);
+      showToast('作り直しました', 'success');
+    } catch (e) {
+      showToast(e instanceof Error ? e.message : '再生成に失敗しました', 'error');
+      setRegenProgress(null);
+    } finally {
+      regenRef.current = false;
+      void load();
+    }
+  }, [chart, generated, load, showToast]);
+  const pointRegenRef = useRef<Set<string>>(new Set());
+  const regeneratePoint = useCallback(async (cell: MandalaCell) => {
+    if (!chart || pointRegenRef.current.has(cell.id)) return; // R-87
+    pointRegenRef.current.add(cell.id);
+    try {
+      const r = await fetch('/api/mandala/generate/point', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ chartId: chart.id, cellId: cell.id }) });
+      const j = (await r.json().catch(() => ({}))) as { created?: number; error?: string };
+      if (!r.ok) throw new Error(j.error || `HTTP ${r.status}`);
+      showToast(`小項目 ${j.created ?? 0}件を作りました`, 'success');
+    } catch (e) {
+      showToast(e instanceof Error ? e.message : '小項目の再生成に失敗しました', 'error');
+    } finally {
+      pointRegenRef.current.delete(cell.id);
+      void load();
+    }
+  }, [chart, load, showToast]);
+  const pointRegenStateOf = useCallback((cell: MandalaCell) => {
+    if (!chart || !generated || cell.depth !== 1 || cell.position === MANDALA_CENTER || !cell.title.trim()) return null;
+    return regenerateState(chart.cells.filter((c) => c.parent_cell_id === cell.id));
+  }, [chart, generated]);
   const checkedSet = useMemo(() => new Set(checkedIds), [checkedIds]);
 
   return (
@@ -452,6 +520,13 @@ export default function MandalaChartPage({ params }: { params: Promise<{ id: str
             </span>
           )}
           <span data-mandala-chart-updated title="更新日時（日本時間）">更新 {jstDateTimeString(chart.updated_at)}</span>
+          {/* 316 §3-5: AI 由来の明示（記事から生成）と元記事へのリンク（新しいタブ） */}
+          {generated && (
+            <span data-mandala-generated={generated.mode} data-mandala-generated-dropped={generated.dropped.points + generated.dropped.items} title={`記事「${generated.source.title}」から AI（${generated.model}）が生成。捨てた項目: 要点 ${generated.dropped.points}・小項目 ${generated.dropped.items}`} style={{ fontWeight: 700, color: '#6c63ff' }}>
+              {generatedBadgeLabel(generated)}
+              <a data-mandala-generated-source href={generatedSourceHref(generated.source)} target="_blank" rel="noopener noreferrer" style={{ marginLeft: 6, color: '#6c63ff' }}>元記事「{generated.source.title || '（無題）'}」↗</a>
+            </span>
+          )}
           {/* 305 §2-6: 81表示のときだけ追加で出す（9マス分の n/9・📔 n/m は表示モードに関係なく同じ値） */}
           {view === '81' && (
             <span data-mandala-expansion={expansion.childFilled} data-mandala-expansion-blocks={expansion.expandedBlocks} title={`展開済みブロック ${expansion.expandedBlocks}/${MANDALA_DEPTH1_COUNT - 1}・埋まっている子マス ${expansion.childFilled}/${MANDALA_CHILD_TOTAL}`} style={{ fontWeight: 700, color: expansion.childFilled > 0 ? ACCENT : 'var(--text-muted)' }}>
@@ -587,6 +662,21 @@ export default function MandalaChartPage({ params }: { params: Promise<{ id: str
           >
             📕 Kindleの目次にする
           </Link>
+          {/* 316 §3-6: 再生成（edited が1つでもあれば無効化＋理由・R-76）。確認は1回（R-56） */}
+          {generated && !selectMode && (
+            regenProgress && regenProgress.stage !== 'done' ? (
+              <span data-mandala-regenerate-progress={regenProgress.stage} style={{ ...btn, opacity: 0.8, cursor: 'default', display: 'inline-flex', alignItems: 'center' }}>⏳ {regenProgress.message}</span>
+            ) : regenConfirm ? (
+              <span style={{ display: 'inline-flex', gap: 4, alignItems: 'center' }}>
+                <button type="button" data-mandala-regenerate-confirm onClick={() => void runRegenerate()} style={{ ...btn, background: '#6c63ff', color: '#fff', borderColor: '#6c63ff' }}>本当に作り直す（子マス・リンクも消えます）</button>
+                <button type="button" data-mandala-regenerate-cancel onClick={() => setRegenConfirm(false)} style={btn}>やめる</button>
+              </span>
+            ) : (
+              <button type="button" data-mandala-regenerate disabled={!regenState.enabled} title={regenState.reason ?? '記事から作り直します（子マス・リンクを消して二段階をやり直す）'} onClick={() => setRegenConfirm(true)} style={{ ...btn, opacity: regenState.enabled ? 1 : 0.5, cursor: regenState.enabled ? 'pointer' : 'default' }}>
+                🔁 再生成
+              </button>
+            )
+          )}
           {/* 305 §2-1: 9マス／81マスの切替（幅を取らない2択・保存） */}
           <span data-mandala-view-toggle style={{ display: 'inline-flex', gap: 2 }}>
             {(['9', '81'] as MandalaView[]).map((v) => (
@@ -680,6 +770,7 @@ export default function MandalaChartPage({ params }: { params: Promise<{ id: str
                 onExpand={(parentCellId, position) => void expandBlock(parentCellId, position)}
                 narrow={narrow}
                 articleCounts={articleCounts}
+              relations={relations}
                 nowMs={nowMs}
                 xPostCounts={xPostCounts}
               />
@@ -696,6 +787,7 @@ export default function MandalaChartPage({ params }: { params: Promise<{ id: str
               onToggleSelect={toggleChecked}
               popoverBind={popoverBind}
               articleCounts={articleCounts}
+              relations={relations}
               nowMs={nowMs}
               xPostCounts={xPostCounts}
             />
@@ -715,6 +807,9 @@ export default function MandalaChartPage({ params }: { params: Promise<{ id: str
               onLinksChanged={onLinksChanged}
               onResearchRequest={openResearch}
               researchOrderState={selectedOrderState ?? undefined}
+              onRegeneratePoint={generated ? regeneratePoint : undefined}
+              pointRegenState={pointRegenStateOf(selected) ?? undefined}
+              aiOriginNotice={generated ? AI_ORIGIN_NOTICE : undefined}
             />
           )}
           {researchDialog && chart && (

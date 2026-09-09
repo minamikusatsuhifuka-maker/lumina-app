@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useRef, useState } from 'react';
+import MandalaGenerateButton from '@/components/mandala/MandalaGenerateButton';
 import { useRouter } from 'next/navigation';
 import { useToast } from '@/components/ui/Toast';
 import { MAX_KINDLE_SOURCES, makeAnalysisSourceKey } from '@/lib/kindle-limits';
@@ -2867,6 +2868,8 @@ export default function SavedAnalysisList({
                       >
                         🖼 図解にする{(visualCounts[String(record.id)] ?? 0) > 0 ? <span data-ta-visual-count={visualCounts[String(record.id)]} style={{ marginLeft: 4, padding: '0 6px', borderRadius: 8, background: 'rgba(14,116,144,0.12)', fontWeight: 700 }}>🖼 {visualCounts[String(record.id)]}</span> : null}
                       </a>
+                      {/* 316: 記事→マンダラ生成（ダイアログ） */}
+                      <MandalaGenerateButton scope="text_analysis" itemKey={String(record.id)} title={record.auto_title || record.file_name || '(無題)'} charCount={record.char_count ?? 0} label="🔲 マンダラ" style={{ padding: '0 6px', borderRadius: 6, border: '1px solid var(--border)', background: 'transparent', color: '#6c63ff', fontSize: 11, cursor: 'pointer' }} />
                       {record.folder && folderColor && (
                         <span
                           style={{

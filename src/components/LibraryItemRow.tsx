@@ -1,6 +1,8 @@
 'use client';
 
 import { mandalaArticleOriginLabel, parseMandalaArticleSource } from '@/lib/mandala-note';
+// 316: 記事→マンダラ生成の入口（ダイアログつき・操作列に置く・R-81）
+import MandalaGenerateButton from '@/components/mandala/MandalaGenerateButton';
 import { mandalaXOriginLabel, parseMandalaXRef } from '@/lib/mandala-x';
 import { useState } from 'react';
 import { copyRichMarkdown } from '@/lib/rich-copy';
@@ -560,6 +562,7 @@ export function LibraryItemRow({
             </button>
           )}
           {visualLink(String(cur.id), compactBtnStyle)}
+          <MandalaGenerateButton scope="library" itemKey={String(cur.id)} title={cur.title || '(無題)'} charCount={charCountOf(cur)} style={compactBtnStyle} label={<>🔲<span className="xl:hidden"> マンダラ</span></>} />
           {(onFavoriteClick || onFavoriteToggle) && (
             <button
               type="button"
@@ -919,6 +922,7 @@ export function LibraryItemRow({
               </button>
             )}
             {visualLink(String(item.id), btnStyle)}
+            <MandalaGenerateButton scope="library" itemKey={String(item.id)} title={item.title || '(無題)'} charCount={charCountOf(item)} style={btnStyle} label="🔲 マンダラ" />
             {(onFavoriteClick || onFavoriteToggle) && (
               <button
                 type="button"

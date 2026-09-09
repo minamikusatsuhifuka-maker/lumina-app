@@ -98,6 +98,8 @@ export interface MandalaChartSummary {
   reaction_count: number;
   /** 308: 型（meta.preset）。無ければ null */
   preset: string | null;
+  /** 316: 記事から生成（meta.generated）。無ければ null */
+  generated: { title: string; mode: '9' | '81' } | null;
   created_at: string;
   updated_at: string;
 }
@@ -620,7 +622,7 @@ export function clearStash(cellId: string): void {
 /** ポップアップに出す上限（§2-1）。超えた分は「他 n件 → パネルで見る」の1行に畳む（R-101/R-109） */
 export const MANDALA_POPOVER_MAX = 8;
 
-export type MandalaPopoverFrom = 'links' | 'episode' | 'reaction' | 'articles' | 'research' | 'xposts';
+export type MandalaPopoverFrom = 'links' | 'episode' | 'reaction' | 'articles' | 'research' | 'xposts' | 'relations';
 
 /**
  * ポップアップの行を決める。📔 から開いたときは episode を先頭に並べる（安定ソート＝同種内は元の順）。

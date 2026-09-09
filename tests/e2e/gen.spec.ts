@@ -957,3 +957,45 @@ test('B36: 記事→図解（315）— プラン抽出（Gemini）が本文の�
   expect(json.width).toBe(1536);
   console.log(`[B36] GPT Image 2.5 low landscape: ${Date.now() - t0}ms / cost ${json.costUsd ?? 'n/a'}`);
 });
+
+test('B37: 記事→マンダラ生成（316・Gemini）— 実記事1件から 9 マスができ（要点2件以上・全要点に引用が本文に実在）、81 で1つの要点に小項目が付く。捨てた件数を報告 @gen', async ({ request }) => {
+  test.setTimeout(GEN_TIMEOUT);
+  const article = '朝の保湿は洗顔のあと5分以内に行う。化粧水をなじませてから乳液で蓋をする。夜はクレンジングのあとに同じ手順で保湿する。週に1回は角質ケアを足す。冬は加湿器で室内の湿度を保つ。乾燥が強い日は保湿剤を重ねづけする。入浴後はタオルで押さえるように水分を拭き取り、こすらない。熱すぎるお湯は皮脂を落としすぎるので、ぬるめの湯温にする。かゆみが強いときは皮膚科で相談する。';
+  const libId = await createLibraryItem(request, { title: `316検証用の記事 ${RUN_ID}`, content: article, type: 'deepresearch' });
+  let chartId: string | null = null;
+  try {
+    const t0 = Date.now();
+    const res = await request.post('/api/mandala/generate', { data: { scope: 'library', itemKey: libId, mode: '81' }, timeout: REQ_TIMEOUT });
+    const json = (await res.json()) as { chartId?: string; points?: { position: number; cellId: string; title: string }[]; dropped?: { points: number; relations: number; reasons: string[] }; error?: string };
+    expect(res.status(), `第1段階が 200: ${json.error ?? ''}`).toBe(200);
+    chartId = json.chartId!;
+    expect(json.points!.length, '要点2件以上').toBeGreaterThanOrEqual(2);
+    const chart = (await (await request.get(`/api/mandala/${chartId}`)).json()).chart as { cells: { id: string; depth: number; position: number; title: string; body: string; meta: { origin?: string } }[] };
+    const normalize = (s: string) => s.replace(/[\s　]+/g, '');
+    for (const p of json.points!) {
+      const cell = chart.cells.find((c) => c.id === p.cellId)!;
+      expect(cell.meta.origin).toBe('ai');
+      const m = cell.body.match(/> 引用: (.+)$/);
+      expect(m, `要点「${p.title}」に引用がある`).toBeTruthy();
+      expect(normalize(article).includes(normalize(m![1])), `引用が本文に実在: ${m![1]}`).toBe(true);
+    }
+    console.log(`[B37] stage1 ${Date.now() - t0}ms points=${json.points!.length} dropped=${JSON.stringify(json.dropped)}`);
+    const t1 = Date.now();
+    const p = json.points![0];
+    const r2 = await request.post('/api/mandala/generate/point', { data: { chartId, cellId: p.cellId }, timeout: REQ_TIMEOUT });
+    const j2 = (await r2.json()) as { created?: number; dropped?: { items: number }; error?: string };
+    expect(r2.status(), `第2段階が 200: ${j2.error ?? ''}`).toBe(200);
+    expect(j2.created ?? 0, '小項目が1件以上').toBeGreaterThan(0);
+    const chart2 = (await (await request.get(`/api/mandala/${chartId}`)).json()).chart as { cells: { parent_cell_id: string | null; title: string; body: string; meta: { origin?: string } }[] };
+    const kids = chart2.cells.filter((c) => c.parent_cell_id === p.cellId);
+    expect(kids.length).toBe(8);
+    for (const k of kids.filter((c) => c.title)) {
+      const m = k.body.match(/> 引用: (.+)$/);
+      expect(m && normalize(article).includes(normalize(m[1])), '小項目の引用が本文に実在').toBe(true);
+    }
+    console.log(`[B37] stage2 ${Date.now() - t1}ms created=${j2.created} dropped=${JSON.stringify(j2.dropped)}`);
+  } finally {
+    if (chartId) await request.delete(`/api/mandala?id=${chartId}`).catch(() => {});
+    await request.delete(LIBRARY_API, { data: { ids: [libId] } }).catch(() => {});
+  }
+});

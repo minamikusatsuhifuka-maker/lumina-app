@@ -3,6 +3,7 @@
 // 変換は lib/mandala-x.ts の純関数（R-74）。生成側（/api/dr-hub/x-post の mandala オプトイン）も同じ関数で材料を組む
 
 import { NextRequest, NextResponse } from 'next/server';
+import { hasAiOrigin } from '@/lib/mandala-generate';
 import { requireAuth } from '@/lib/require-auth';
 import { getChart, listLinksForChartResolved, fetchMandalaLinkBodies } from '@/lib/mandala-server';
 import { isUuidLike, mandalaOutlineNested, type MandalaLinkResolved } from '@/lib/mandala-shared';
@@ -33,7 +34,9 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ id: string 
     const result = mode === 'cell' ? mandalaXCell(chart, cellId!, links, { bodies, count: sp.get('count') }) : mandalaXSeries(chart, mandalaOutlineNested(chart.cells), links, { bodies });
     const lite = JSON.parse(JSON.stringify(result), (k, v) => (k === 'body' && typeof v === 'string' ? '' : v));
     const sourceChars = result.ok ? (result.mode === 'cell' ? mandalaXToArticle(result)?.content.length ?? 0 : result.posts.reduce((s, _p, i) => s + (mandalaXToArticle(result, i)?.content.length ?? 0), 0)) : 0;
-    return NextResponse.json({ chartId: chart.id, result: lite, sourceChars });
+    // 316 §3-5: origin='ai' のマスを含むとき「体験ではありません」の1文を画面に出す
+    const included = mode === 'cell' ? chart.cells.filter((c) => c.id === cellId) : chart.cells.filter((c) => c.depth === 1);
+    return NextResponse.json({ chartId: chart.id, result: lite, sourceChars, aiOrigin: hasAiOrigin(included) });
   } catch (e: unknown) {
     console.error('[mandala x] プレビューに失敗:', e instanceof Error ? e.message : 'unknown');
     return NextResponse.json({ error: 'X投稿のプレビューに失敗しました' }, { status: 500 });

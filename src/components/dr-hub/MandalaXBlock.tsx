@@ -12,6 +12,7 @@
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 import { useEffect, useRef, useState, type CSSProperties } from 'react';
+import { AI_ORIGIN_NOTICE } from '@/lib/mandala-generate';
 import { MarkdownBody } from '@/components/MarkdownBody';
 import { copyToClipboard } from '@/lib/copyToClipboard';
 import { copyRichMarkdown } from '@/lib/rich-copy';
@@ -55,7 +56,7 @@ export default function MandalaXBlock({
   onClear: () => void;
 }) {
   const [count, setCount] = useState(entry.count);
-  const [preview, setPreview] = useState<{ result: MandalaXResult; sourceChars: number } | null>(null);
+  const [preview, setPreview] = useState<{ result: MandalaXResult; sourceChars: number; aiOrigin?: boolean } | null>(null);
   const [previewError, setPreviewError] = useState('');
   const [busy, setBusy] = useState(false);
   const busyRef = useRef(false); // R-87
@@ -78,7 +79,7 @@ export default function MandalaXBlock({
           setPreviewError(data?.error || `マンダラの読み込みに失敗しました（${r.status}）`);
           return;
         }
-        setPreview({ result: data.result as MandalaXResult, sourceChars: Number(data.sourceChars ?? 0) });
+        setPreview({ result: data.result as MandalaXResult, sourceChars: Number(data.sourceChars ?? 0), aiOrigin: data.aiOrigin === true });
       })
       .catch((e: unknown) => {
         if (alive) setPreviewError(e instanceof Error ? e.message : 'マンダラの読み込みに失敗しました');
@@ -233,6 +234,7 @@ export default function MandalaXBlock({
         <div style={{ marginTop: 10, display: 'flex', flexDirection: 'column', gap: 10 }}>
           <div data-hub-mandala-x-review style={{ fontSize: 12, fontWeight: 700, color: '#B45309' }}>
             👀 公開前に必ず: 気づき（マス）と投稿を並べて、気づきにない体験・実績・数字が足されていないか確認してください。URL は本文に置かず、1つ目のリプライに貼ります
+            {preview?.aiOrigin && <div data-hub-mandala-ai-origin style={{ marginTop: 4 }}>🤖 {AI_ORIGIN_NOTICE}</div>}
           </div>
           {posts.map((p) => (
             <div key={p.index} data-hub-mandala-x-post={p.cellId} data-hub-mandala-x-index={p.index} style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 10, padding: 10 }}>

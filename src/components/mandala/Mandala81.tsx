@@ -37,6 +37,7 @@ export default function Mandala81({
   onExpand,
   narrow,
   articleCounts,
+  relations,
   nowMs,
   xPostCounts,
 }: {
@@ -47,6 +48,7 @@ export default function Mandala81({
   nowMs?: number;
   /** 309: マスごとの起こした記事数 */
   articleCounts?: ReadonlyMap<string, number>;
+  relations?: readonly import('@/lib/mandala-generate').MandalaRelation[];
   selectedCellId: string | null;
   onSelect: (cell: MandalaCell) => void;
   linkCounts: ReadonlyMap<string, MandalaLinkCounts>;
@@ -76,6 +78,7 @@ export default function Mandala81({
           onToggleSelect={onToggleSelect}
           popoverBind={popoverBind}
           articleCounts={articleCounts}
+          relations={relations}
           nowMs={nowMs}
           xPostCounts={xPostCounts}
           density="compact"
@@ -99,6 +102,7 @@ export default function Mandala81({
           onToggleSelect={onToggleSelect}
           popoverBind={popoverBind}
           articleCounts={articleCounts}
+          relations={relations}
           nowMs={nowMs}
           xPostCounts={xPostCounts}
           density="compact"

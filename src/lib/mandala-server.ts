@@ -191,11 +191,14 @@ export async function listCharts(userId: string): Promise<MandalaChartSummary[]>
       (SELECT COUNT(*)::int FROM written w
         WHERE w.chart_id = ch.id AND w.depth = 1 AND w.meta ? 'reaction') AS reaction_count,
       -- 308: 型（meta.preset）。無ければ null
-      ch.meta->>'preset' AS preset
+      ch.meta->>'preset' AS preset,
+      -- 316: 記事から生成（meta.generated）。一覧の「🤖 記事から生成」バッジ用（元記事のタイトルだけ）
+      ch.meta->'generated'->'source'->>'title' AS generated_title,
+      ch.meta->'generated'->>'mode' AS generated_mode
     FROM mandala_charts ch
     WHERE ch.user_id = ${userId}
     ORDER BY ch.updated_at DESC, ch.id
-  `) as { id: string; title: string; filled_count: number; filled_total: number; link_count: number; primary_count: number; child_count: number; reaction_count: number; preset: string | null; created_at: string; updated_at: string }[];
+  `) as { id: string; title: string; filled_count: number; filled_total: number; link_count: number; primary_count: number; child_count: number; reaction_count: number; preset: string | null; generated_title: string | null; generated_mode: string | null; created_at: string; updated_at: string }[];
   return rows.map((r) => ({
     id: String(r.id),
     title: r.title ?? '',
@@ -206,9 +209,59 @@ export async function listCharts(userId: string): Promise<MandalaChartSummary[]>
     child_count: Number(r.child_count ?? 0),
     reaction_count: Number(r.reaction_count ?? 0),
     preset: r.preset ? String(r.preset) : null,
+    generated: r.generated_mode ? { title: r.generated_title ?? '', mode: r.generated_mode === '81' ? '81' : '9' } : null,
     created_at: String(r.created_at),
     updated_at: String(r.updated_at),
   }));
+}
+
+// ============================================================
+// 316: 記事→マンダラ生成のサーバ側（画面を経由せず 301/305/302 の関数と同じ文で書く）
+// ============================================================
+
+/** チャート meta のキー単位マージ（R-113）。null のキーは消す */
+export async function updateChartMeta(userId: string, chartId: string, patch: Record<string, unknown | null>): Promise<boolean> {
+  await ensureMandalaTables();
+  const remove = Object.entries(patch).filter(([, v]) => v === null).map(([k]) => k);
+  const set: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(patch)) if (v !== null && v !== undefined) set[k] = v;
+  const rows = (await sql`
+    UPDATE mandala_charts SET meta = (COALESCE(meta, '{}'::jsonb) - ${remove}::text[]) || ${JSON.stringify(set)}::jsonb, updated_at = now()
+    WHERE id = ${chartId}::uuid AND user_id = ${userId} RETURNING id
+  `) as { id: string }[];
+  return rows.length > 0;
+}
+
+/** 生成したマスを1文で書き込む（title/body と meta.origin='ai'。他の meta キーは残す） */
+export async function writeGeneratedCells(userId: string, rows: readonly { id: string; title: string; body: string }[]): Promise<number> {
+  await ensureMandalaTables();
+  if (rows.length === 0) return 0;
+  const ids = rows.map((r) => r.id);
+  const titles = rows.map((r) => sanitizeForDb(r.title));
+  const bodies = rows.map((r) => sanitizeForDb(r.body));
+  const updated = (await sql`
+    UPDATE mandala_cells c
+    SET title = x.t, body = x.b, meta = c.meta || '{"origin":"ai"}'::jsonb, updated_at = now()
+    FROM unnest(${ids}::uuid[], ${titles}::text[], ${bodies}::text[]) AS x(id, t, b)
+    WHERE c.id = x.id AND c.user_id = ${userId}
+    RETURNING c.id
+  `) as { id: string }[];
+  return updated.length;
+}
+
+/** 再生成の前処理: 子マス（第2階層）とチャートのリンクを消し、第1階層を空に戻す（origin も消す）。edited があるときは呼ばない（R-76） */
+export async function resetGeneratedChart(userId: string, chartId: string): Promise<void> {
+  await ensureMandalaTables();
+  await sql`DELETE FROM mandala_cell_links l USING mandala_cells x WHERE l.cell_id = x.id AND x.chart_id = ${chartId}::uuid AND x.user_id = ${userId}`;
+  await sql`DELETE FROM mandala_cells WHERE chart_id = ${chartId}::uuid AND user_id = ${userId} AND depth = 2`;
+  await sql`UPDATE mandala_cells SET title = '', body = '', meta = meta - 'origin', updated_at = now() WHERE chart_id = ${chartId}::uuid AND user_id = ${userId} AND depth = 1`;
+}
+
+/** 要点1つの子マスを消す（その要点だけ再生成するとき）。edited の子があれば呼ばない */
+export async function deleteChildren(userId: string, parentCellId: string): Promise<number> {
+  await ensureMandalaTables();
+  const rows = (await sql`DELETE FROM mandala_cells WHERE parent_cell_id = ${parentCellId}::uuid AND user_id = ${userId} RETURNING id`) as { id: string }[];
+  return rows.length;
 }
 
 /** §4-3⑥ チャート単位＝全マス本文を返す形。他人のチャート・存在しない id は null */
@@ -307,6 +360,8 @@ export async function saveCell(
       UPDATE mandala_cells
       SET title = CASE WHEN ${hasTitle} THEN ${title} ELSE title END,
           body = CASE WHEN ${hasBody} THEN ${body} ELSE body END,
+          -- 316 §3-5: AI 生成のマス（origin='ai'）は院長が内容を変えた時点で 'edited' に（キー単位・R-113）。他のキーは触らない
+          meta = CASE WHEN meta->>'origin' = 'ai' THEN meta || '{"origin":"edited"}'::jsonb ELSE meta END,
           updated_at = now()
       WHERE id = ${cellId}::uuid AND user_id = ${userId}
         AND ((${hasTitle} AND title IS DISTINCT FROM ${title}) OR (${hasBody} AND body IS DISTINCT FROM ${body}))
