@@ -9451,6 +9451,13 @@ test('C121: マンダラ 81マス表示（305）— 9⇄81の切替と再読込�
     await expect(page.locator('[data-mandala-81]')).toBeVisible({ timeout: 30000 });
     await expect(page.locator('[data-mandala-view="81"]')).toHaveAttribute('aria-pressed', 'true');
 
+    // 305是正②以降: パネルが開いている間はグリッド領域が狭く、81はブロック単位（1ブロックだけ描く）。
+    // 見たいブロックは ‹›／ミニ選択で出す（パネルを閉じれば9ブロックに戻る）
+    const showBlock = async (n: number) => {
+      const pick = page.locator(`[data-mandala-block-pick="${n}"]`);
+      if ((await pick.count()) > 0) await pick.click();
+    };
+
     // ② 外周中央（導出）を押すと親の編集パネル。親を保存すると中央ブロックと外周中央の両方に反映
     await center0.click();
     const panel0 = page.locator(`[data-mandala-panel="${byPos(0).id}"]`);
@@ -9458,15 +9465,21 @@ test('C121: マンダラ 81マス表示（305）— 9⇄81の切替と再読込�
     await panel0.locator('[data-mandala-title-input="panel"]').fill(`親0改 ${marker}`);
     await page.locator('[data-mandala-save="panel"]').click();
     await expect(panel0.locator('[data-mandala-save-status="ok"]')).toBeVisible({ timeout: 30000 });
+    await showBlock(4);
     await expect(centerBlockCell0.locator('[data-mandala-cell-title]')).toHaveText(`親0改 ${marker}`);
+    await showBlock(0);
     await expect(center0.locator('[data-mandala-cell-title]'), '外周中央にも同時に反映（同じデータ）').toHaveText(`親0改 ${marker}`);
     await panel0.locator('[data-mandala-panel-close]').click();
     await expect(panel0).toHaveCount(0);
+    await expect(g81, 'パネルを閉じると9ブロックに戻る').toHaveAttribute('data-mandala-81-mode', 'full', { timeout: 10000 });
+    await expect(center0.locator('[data-mandala-cell-title]')).toHaveText(`親0改 ${marker}`);
 
     // ③ 未展開ブロックの枠を押す → 8マス作成（position 4 なし）→ その枠の編集パネル（見出し「左上 › 上」）
     const slot01 = block0.locator('[data-mandala-cell="1"]');
     await expect(slot01).toHaveAttribute('data-mandala-cell-unexpanded', '1');
     await slot01.click();
+    await expect(page.locator('[data-mandala-panel]'), '作成成功後に編集パネルが開く').toBeVisible({ timeout: 30000 });
+    await showBlock(0);
     await expect(block0, '展開済みになる').toHaveAttribute('data-mandala-block-expanded', '1', { timeout: 30000 });
     let chart = await getMandalaChart(api, chartId);
     const kids0 = chart.cells.filter((c) => c.depth === 2 && c.parent_cell_id === byPos(0).id);
@@ -9497,6 +9510,8 @@ test('C121: マンダラ 81マス表示（305）— 9⇄81の切替と再読込�
     const before = expandPosts;
     const block2slot = page.locator('[data-mandala-block="2"] [data-mandala-cell="0"]');
     await block2slot.evaluate((el) => { (el as HTMLElement).click(); (el as HTMLElement).click(); });
+    await expect(page.locator('[data-mandala-panel]')).toBeVisible({ timeout: 30000 });
+    await showBlock(2);
     await expect(page.locator('[data-mandala-block="2"]')).toHaveAttribute('data-mandala-block-expanded', '1', { timeout: 30000 });
     delayMs = 0;
     expect(expandPosts - before, '2連打でも POST は1回').toBe(1);
