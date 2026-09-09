@@ -11267,7 +11267,10 @@ test('C132: 記事→マンダラ生成（316）— 固定JSONを同じ検証・
     await expect(cmp).toBeVisible();
     await expect(cmp.locator('blockquote').first()).toContainText('引用: 洗顔のあと5分以内に行う');
     await expect(cmp, '「>」が生で出ない').not.toContainText('> 引用');
-    await page.locator('[data-mandala-select-toggle]').click();
+    await cmp.locator('[data-compare-close]').click();
+    await expect(cmp).toHaveCount(0);
+    await page.locator('[data-mandala-select-exit]').click();
+    await expect(page.locator('[data-mandala-select-toggle]')).toBeVisible();
     // ── ④ 再生成は edited が無ければ有効。マスを保存すると AI が消え edited になり、再生成が無効化＋理由 ──
     await expect(page.locator('[data-mandala-regenerate]')).toBeEnabled();
     expect((await saveMandalaCell(api, byPos(2).id, { title: '角質ケア（院長が編集）' })).status()).toBe(200);
@@ -11289,6 +11292,7 @@ test('C132: 記事→マンダラ生成（316）— 固定JSONを同じ検証・
     expect(x.aiOrigin).toBe(true);
     await page.goto(`/dashboard/dr-hub?mandala=${gen.chartId}&cell=${byPos(0).id}`);
     await expect(page.locator('[data-hub-mandala-source]')).toHaveAttribute('data-hub-mandala-ok', '1', { timeout: 30000 });
+    await expect(page.locator('[data-hub-mandala-ai-origin]'), '記事化の並べて表示に1文').toContainText('体験ではありません');
     await page.goto(`/dashboard/dr-hub?mandala=${gen.chartId}&mode=series&to=x`);
     await expect(page.locator('[data-hub-mandala-ai-origin]'), 'X の並べて表示に1文').toContainText('体験ではありません', { timeout: 30000 });
     // ── ⑥ 9マス: 入口のダイアログ（既定 9・費用の目安・やめるでリクエスト0） ──

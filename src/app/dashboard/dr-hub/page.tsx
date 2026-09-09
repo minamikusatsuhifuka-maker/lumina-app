@@ -1152,6 +1152,8 @@ export default function DrHubPage() {
                   ? `${mandalaArticleOriginLabel(mandalaPreview.result.source)}${mandalaEntry.mode === 'paid_chart' ? '（有料記事）' : '（無料記事）'}`
                   : mandalaError ? 'マンダラの素材を読み込めませんでした' : 'マンダラの素材を読み込み中…'}
               </span>
+              {/* 316 §3-5: origin='ai' のマスを含むとき、読み込み直後から「体験ではありません」（並べて表示にも同じ1文） */}
+              {mandalaPreview?.aiOrigin && <span data-hub-mandala-ai-origin style={{ color: '#B45309', fontSize: 12, fontWeight: 700 }}>🤖 {AI_ORIGIN_NOTICE}</span>}
               <a data-hub-mandala-back href={`/dashboard/mandala/${mandalaEntry.chartId}`} target="_blank" rel="noopener noreferrer" style={{ color: '#6c63ff', textDecoration: 'none', fontWeight: 600 }}>
                 チャートを開く ↗
               </a>
@@ -2100,7 +2102,7 @@ export default function DrHubPage() {
             <div data-hub-mandala-compare style={{ marginBottom: 12, padding: 12, background: 'var(--bg-primary)', border: '1px solid #6c63ff', borderRadius: 10 }}>
               <div style={{ fontSize: 12, fontWeight: 700, color: '#B45309', marginBottom: 8 }}>
                 👀 公開前に必ず: 骨子（マンダラ）と生成記事を並べて、骨子にない体験・実績・数字が足されていないか確認してください
-                {mandalaPreview?.aiOrigin && <div data-hub-mandala-ai-origin style={{ marginTop: 4 }}>🤖 {AI_ORIGIN_NOTICE}</div>}
+                {mandalaPreview?.aiOrigin && <div data-hub-mandala-ai-origin-compare style={{ marginTop: 4 }}>🤖 {AI_ORIGIN_NOTICE}</div>}
               </div>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: 12 }}>
                 <div data-hub-mandala-compare-source style={{ minWidth: 0 }}>

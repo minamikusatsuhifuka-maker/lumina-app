@@ -202,6 +202,8 @@ export default function MandalaXBlock({
         <span style={{ flex: 1 }} />
         <button type="button" data-hub-mandala-x-clear onClick={onClear} disabled={busy} style={{ ...btn, fontSize: 11, padding: '4px 10px' }}>✕ 記事から選び直す</button>
       </div>
+      {/* 316 §3-5: origin='ai' のマスを含むとき、読み込み直後から「体験ではありません」を出す（並べて表示にも同じ1文） */}
+      {preview?.aiOrigin && <div data-hub-mandala-ai-origin style={{ color: '#B45309', marginTop: 4, fontSize: 12, fontWeight: 700 }}>🤖 {AI_ORIGIN_NOTICE}</div>}
       {previewError && <div data-hub-mandala-x-error style={{ color: '#B91C1C', marginTop: 4 }}>⚠️ {previewError}</div>}
       {res && !res.ok && <div data-hub-mandala-x-reject style={{ color: '#B91C1C', marginTop: 4 }}>起こせません: {res.reason}</div>}
       {res?.ok && (
@@ -234,7 +236,7 @@ export default function MandalaXBlock({
         <div style={{ marginTop: 10, display: 'flex', flexDirection: 'column', gap: 10 }}>
           <div data-hub-mandala-x-review style={{ fontSize: 12, fontWeight: 700, color: '#B45309' }}>
             👀 公開前に必ず: 気づき（マス）と投稿を並べて、気づきにない体験・実績・数字が足されていないか確認してください。URL は本文に置かず、1つ目のリプライに貼ります
-            {preview?.aiOrigin && <div data-hub-mandala-ai-origin style={{ marginTop: 4 }}>🤖 {AI_ORIGIN_NOTICE}</div>}
+            {preview?.aiOrigin && <div data-hub-mandala-ai-origin-compare style={{ marginTop: 4 }}>🤖 {AI_ORIGIN_NOTICE}</div>}
           </div>
           {posts.map((p) => (
             <div key={p.index} data-hub-mandala-x-post={p.cellId} data-hub-mandala-x-index={p.index} style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 10, padding: 10 }}>
