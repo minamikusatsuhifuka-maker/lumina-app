@@ -269,15 +269,21 @@ export async function saveCell(
   input: { title?: unknown; body?: unknown },
 ): Promise<SaveCellResult> {
   await ensureMandalaTables();
+  // 309: 部分更新＝省略した欄（undefined）は変えない（body だけ送ると title が '' に潰れていた・R-113 309追記）。
+  // パネルは常に両方送るので従来の挙動は不変。null／空文字は「空にする」の明示
+  const hasTitle = input.title !== undefined;
+  const hasBody = input.body !== undefined;
   const normalized = normalizeCellInput(input);
   const title = sanitizeForDb(normalized.title);
   const body = sanitizeForDb(normalized.body);
   const updated = (await sql`
     WITH u AS (
       UPDATE mandala_cells
-      SET title = ${title}, body = ${body}, updated_at = now()
+      SET title = CASE WHEN ${hasTitle} THEN ${title} ELSE title END,
+          body = CASE WHEN ${hasBody} THEN ${body} ELSE body END,
+          updated_at = now()
       WHERE id = ${cellId}::uuid AND user_id = ${userId}
-        AND (title IS DISTINCT FROM ${title} OR body IS DISTINCT FROM ${body})
+        AND ((${hasTitle} AND title IS DISTINCT FROM ${title}) OR (${hasBody} AND body IS DISTINCT FROM ${body}))
       RETURNING id, chart_id, parent_cell_id, depth, position, title, body, meta, created_at, updated_at
     ), bump AS (
       UPDATE mandala_charts SET updated_at = now()

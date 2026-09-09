@@ -10188,7 +10188,8 @@ test('C125: マンダラ→note記事（309）— パネルの「📝 無料記�
     expect(pv.status()).toBe(200);
     const pvJson = await pv.json();
     expect(pvJson.result.ok).toBe(true);
-    expect(pvJson.result.title).toContain(byPos(0).title.slice(0, 4));
+    expect(pvJson.result.title, 'body だけの PATCH で型のタイトルが消えない（部分更新・R-113 309追記）').toBe(byPos(0).title);
+    expect((await getMandalaChart(api, chartId)).cells.find((c) => c.id === byPos(6).id)!.title).toBe(byPos(6).title);
     expect(pvJson.result.memo).toBe(body0);
     expect(pvJson.result.sections.map((s: { title: string }) => s.title)).toEqual([`節A ${marker}`]);
     expect(pvJson.result.counts).toMatchObject({ missingLinks: 1, experiences: 1 });
