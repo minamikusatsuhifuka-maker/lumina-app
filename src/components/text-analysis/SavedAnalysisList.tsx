@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import MandalaGenerateButton from '@/components/mandala/MandalaGenerateButton';
+import SelectionBar from '@/components/SelectionBar';
 import { useRouter } from 'next/navigation';
 import { useToast } from '@/components/ui/Toast';
 import { MAX_KINDLE_SOURCES, makeAnalysisSourceKey } from '@/lib/kindle-limits';
@@ -2295,83 +2296,33 @@ export default function SavedAnalysisList({
       {/* ── 293 §6: 適用中の条件（192のタグ条件チップと同じ形）。個別に外せる・すべて解除 ── */}
       <ActiveConditionChips conditions={activeConditions} onClearAll={clearAllConditions} />
 
-      {/* 一括移動パネル */}
-      {selectedIds.size > 0 && (
-        <div
-          style={{
-            border: '2px solid var(--accent)',
-            background: 'rgba(108,99,255,0.08)',
-            borderRadius: 12,
-            padding: 12,
-            display: 'flex',
-            flexDirection: 'column',
-            gap: 8,
-          }}
+      {/* ── 318: 選択バー（📚🗂🧠共通部品・一覧の上に sticky）。タイプ別一括選択・カテゴリ移動は2段目以降に置く ── */}
+      {selectedIds.size > 0 && (() => { const st = purposeBulkState(selectedIds.size); return (
+        <SelectionBar
+          count={selectedIds.size}
+          attrs={{ 'data-ta-selection-bar': '' }}
+          actions={[
+            // 298: 用途の一括付け外し
+            { key: 'purpose', label: '🎯 用途', tone: 'teal', attrs: { 'data-purpose-bulk-open': '' }, onClick: (e) => setPurposeBulk({ rect: e.currentTarget.getBoundingClientRect() }), disabled: !st.enabled, reason: st.reason, title: '選択した記事に用途カテゴリをまとめて付ける／外す（記事は削除されません）' },
+            // 315 §3-1: 選んだ分析（最大3件）をまとめて1つの図解に（R-101: 超過は無効化＋理由）
+            { key: 'visual', label: '🖼 まとめて図解', attrs: { 'data-ta-visual-bulk': '' }, href: `/dashboard/visuals?scope=text_analysis&ids=${encodeURIComponent(Array.from(selectedIds).map(String).join(','))}`, disabled: selectedIds.size > 3, reason: `まとめて図解にできるのは3件までです（${selectedIds.size}件選択中。チェックを外して減らしてください）`, title: '選択した分析の本文をまとめて1つの図解にする（新しいタブ）' },
+            // 292 §2: 横並び比較（2〜4件。5件目を選んでいる間は無効化して理由を出す＝R-101）
+            { key: 'compare', label: compareState.label, attrs: { 'data-library-compare-open': '' }, onClick: handleCompareSelect, disabled: !compareState.enabled, reason: compareState.reason, busy: comparePreparing, busyLabel: '⏳ 本文を取得中...', title: '選択した保存を横並びで比較します（列数・高さ・同期スクロール・各列から全画面）' },
+            { key: 'cross', label: '🔀 横断分析', hidden: !(selectedIds.size >= 2 && onSelectForCross), onClick: handleCrossSelect, busy: crossPreparing, busyLabel: '⏳ 本文を取得中...', title: `選択した${selectedIds.size}件を横断分析する` },
+            // 231: テキスト分析→Kindle素材化（ana-N名前空間でウィザード①へ）
+            { key: 'kindle', label: '📖 Kindle本にする', onClick: handleKindleSelect, title: `選択した${selectedIds.size}件をKindle本の素材にする` },
+            // 選択項目の一括MDダウンロード（ZIP）
+            { key: 'download', label: '📥 MDダウンロード', onClick: handleBulkDownload, busy: bulkDownloading, busyLabel: '⏳ 生成中...', title: `選択した${selectedIds.size}件を .md にしてZIPでダウンロード` },
+          ]}
+          // 250: 一括削除。不可逆なので色で区別し右端（他の操作と押し間違えない位置）。確認は handleBulkDelete の1回
+          danger={{ key: 'delete', label: '🗑 削除', attrs: { 'data-bulk-delete': '' }, onClick: handleBulkDelete, busy: bulkDeleting, busyLabel: '⏳ 削除中...', title: `選択した${selectedIds.size}件を削除します（確認あり・元に戻せません）` }}
+          onExit={() => setSelectedIds(new Set())}
+          exitAttrs={{ 'data-ta-select-clear': '' }}
         >
-          <div
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: 10,
-              flexWrap: 'wrap',
-            }}
-          >
-            <span
-              style={{
-                fontSize: 13,
-                fontWeight: 700,
-                color: 'var(--accent)',
-              }}
-            >
-              📋 {selectedIds.size}件を選択中
-            </span>
-            <button
-              type="button"
-              onClick={() => setSelectedIds(new Set())}
-              style={{
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: 4,
-                padding: '4px 12px',
-                fontSize: 11,
-                fontWeight: 600,
-                color: 'var(--accent)',
-                background: 'var(--bg-card)',
-                border: '1px solid var(--accent)',
-                borderRadius: 999,
-                cursor: 'pointer',
-              }}
-            >
-              ✕ 選択をすべて解除
-            </button>
-            {/* 298: 用途の一括付け外し。削除（下段の右端・赤）とは段も色も分けて置く（§3-2） */}
-            {(() => { const st = purposeBulkState(selectedIds.size); return (
-              <button
-                type="button"
-                data-purpose-bulk-open
-                onClick={(e) => setPurposeBulk({ rect: e.currentTarget.getBoundingClientRect() })}
-                disabled={!st.enabled}
-                title={st.reason ?? '選択した記事に用途カテゴリをまとめて付ける／外す（記事は削除されません）'}
-                style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '4px 12px', fontSize: 11, fontWeight: 700, color: '#115e59', background: '#ccfbf1', border: '1px solid rgba(13,148,136,0.6)', borderRadius: 999, cursor: st.enabled ? 'pointer' : 'not-allowed', opacity: st.enabled ? 1 : 0.6 }}
-              >
-                🎯 用途
-              </button>
-            ); })()}
-          </div>
           {/* 分析タイプ別一括選択 */}
           {typeStats.length > 0 && (
-            <div style={{ marginTop: 4 }}>
-              <p
-                style={{
-                  fontSize: 11,
-                  fontWeight: 600,
-                  color: 'var(--accent)',
-                  margin: 0,
-                  marginBottom: 6,
-                }}
-              >
-                🏷 タイプ別一括選択
-              </p>
+            <div>
+              <p style={{ fontSize: 11, fontWeight: 600, color: 'var(--accent)', margin: 0, marginBottom: 6 }}>🏷 タイプ別一括選択</p>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
                 {typeStats.map((stat) => {
                   const allSelected = isAllSelectedByType(stat.type);
@@ -2380,35 +2331,11 @@ export default function SavedAnalysisList({
                       key={stat.type}
                       type="button"
                       onClick={() => handleSelectByType(stat.type)}
-                      style={{
-                        display: 'inline-flex',
-                        alignItems: 'center',
-                        gap: 6,
-                        padding: '5px 12px',
-                        borderRadius: 999,
-                        fontSize: 11,
-                        fontWeight: 600,
-                        border: `1px solid ${allSelected ? '#9333ea' : 'var(--border)'}`,
-                        background: allSelected ? '#9333ea' : 'var(--bg-card)',
-                        color: allSelected ? '#fff' : 'var(--text-secondary)',
-                        cursor: 'pointer',
-                        transition: 'all 0.15s',
-                      }}
+                      style={{ display: 'inline-flex', alignItems: 'center', gap: 6, height: 28, boxSizing: 'border-box', padding: '0 12px', borderRadius: 8, fontSize: 11, fontWeight: 600, border: `1px solid ${allSelected ? '#9333ea' : 'var(--border)'}`, background: allSelected ? '#9333ea' : 'var(--bg-card)', color: allSelected ? '#fff' : 'var(--text-secondary)', cursor: 'pointer', whiteSpace: 'nowrap' }}
                     >
                       <span>{allSelected ? '✅' : '☐'}</span>
                       <span>{stat.label}</span>
-                      <span
-                        style={{
-                          padding: '1px 7px',
-                          borderRadius: 999,
-                          fontSize: 10,
-                          fontWeight: 600,
-                          background: allSelected ? 'rgba(255,255,255,0.25)' : 'var(--bg-secondary)',
-                          color: allSelected ? '#fff' : 'var(--text-muted)',
-                        }}
-                      >
-                        {stat.count}
-                      </span>
+                      <span style={{ padding: '1px 7px', borderRadius: 999, fontSize: 10, fontWeight: 600, background: allSelected ? 'rgba(255,255,255,0.25)' : 'var(--bg-secondary)', color: allSelected ? '#fff' : 'var(--text-muted)' }}>{stat.count}</span>
                     </button>
                   );
                 })}
@@ -2416,224 +2343,32 @@ export default function SavedAnalysisList({
               </div>
             </div>
           )}
-
-          <p
-            style={{
-              fontSize: 11,
-              fontWeight: 600,
-              color: 'var(--accent)',
-              margin: 0,
-            }}
-          >
-            📁 カテゴリに移動
-          </p>
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-            {uniqueFolders.map((folder) => (
+          <div>
+            <p style={{ fontSize: 11, fontWeight: 600, color: 'var(--accent)', margin: 0, marginBottom: 6 }}>📁 カテゴリに移動</p>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+              {uniqueFolders.map((folder) => (
+                <button key={folder} type="button" onClick={() => handleBulkMove(folder)} style={{ height: 28, boxSizing: 'border-box', padding: '0 12px', borderRadius: 8, fontSize: 11, fontWeight: 500, border: '1px solid var(--border)', background: 'var(--bg-card)', color: 'var(--text-primary)', cursor: 'pointer', whiteSpace: 'nowrap' }}>
+                  {folder}
+                </button>
+              ))}
               <button
-                key={folder}
                 type="button"
-                onClick={() => handleBulkMove(folder)}
-                style={{
-                  padding: '6px 12px',
-                  borderRadius: 8,
-                  fontSize: 11,
-                  fontWeight: 500,
-                  border: '1px solid var(--border)',
-                  background: 'var(--bg-card)',
-                  color: 'var(--text-primary)',
-                  cursor: 'pointer',
+                onClick={async () => {
+                  const name = prompt('新しいカテゴリ名');
+                  if (!name?.trim()) return;
+                  await handleBulkMove(name.trim());
                 }}
+                style={{ height: 28, boxSizing: 'border-box', padding: '0 12px', borderRadius: 8, fontSize: 11, fontWeight: 500, border: '1px dashed var(--accent)', background: 'transparent', color: 'var(--accent)', cursor: 'pointer', whiteSpace: 'nowrap' }}
               >
-                {folder}
+                + 新規カテゴリ
               </button>
-            ))}
-            <button
-              type="button"
-              onClick={async () => {
-                const name = prompt('新しいカテゴリ名');
-                if (!name?.trim()) return;
-                await handleBulkMove(name.trim());
-              }}
-              style={{
-                padding: '6px 12px',
-                borderRadius: 8,
-                fontSize: 11,
-                fontWeight: 500,
-                border: '1px dashed var(--accent)',
-                background: 'transparent',
-                color: 'var(--accent)',
-                cursor: 'pointer',
-              }}
-            >
-              + 新規カテゴリ
-            </button>
-            <button
-              type="button"
-              onClick={() => handleBulkMove('')}
-              style={{
-                padding: '6px 12px',
-                borderRadius: 8,
-                fontSize: 11,
-                fontWeight: 500,
-                border: '1px solid var(--border)',
-                background: 'transparent',
-                color: 'var(--text-muted)',
-                cursor: 'pointer',
-              }}
-            >
-              未分類に戻す
-            </button>
+              <button type="button" onClick={() => handleBulkMove('')} style={{ height: 28, boxSizing: 'border-box', padding: '0 12px', borderRadius: 8, fontSize: 11, fontWeight: 500, border: '1px solid var(--border)', background: 'transparent', color: 'var(--text-muted)', cursor: 'pointer', whiteSpace: 'nowrap' }}>
+                未分類に戻す
+              </button>
+            </div>
           </div>
-
-          <div
-            style={{
-              display: 'flex',
-              flexWrap: 'wrap',
-              gap: 8,
-              justifyContent: 'center',
-              marginTop: 6,
-            }}
-          >
-            {/* 選択項目の一括MDダウンロード（ZIP） */}
-            <button
-              type="button"
-              onClick={handleBulkDownload}
-              disabled={bulkDownloading || selectedIds.size === 0}
-              style={{
-                padding: '10px 22px',
-                borderRadius: 12,
-                fontSize: 13,
-                fontWeight: 700,
-                border: 'none',
-                background:
-                  bulkDownloading || selectedIds.size === 0
-                    ? 'var(--border)'
-                    : '#0ea5e9',
-                color: '#fff',
-                cursor:
-                  bulkDownloading || selectedIds.size === 0
-                    ? 'not-allowed'
-                    : 'pointer',
-                boxShadow:
-                  bulkDownloading || selectedIds.size === 0
-                    ? 'none'
-                    : '0 4px 12px rgba(14,165,233,0.3)',
-              }}
-            >
-              {bulkDownloading
-                ? '⏳ 生成中...'
-                : `📥 選択した${selectedIds.size}件をMDダウンロード`}
-            </button>
-
-            {/* 292 §2: 選択した保存を横並びで比較（2〜4件。5件目を選んでいる間は無効化して理由を出す＝R-101） */}
-            <button
-              type="button"
-              data-library-compare-open
-              onClick={handleCompareSelect}
-              disabled={!compareState.enabled || comparePreparing}
-              title={compareState.reason ?? '選択した保存を横並びで比較します（列数・高さ・同期スクロール・各列から全画面）'}
-              style={{
-                padding: '10px 22px',
-                borderRadius: 12,
-                fontSize: 13,
-                fontWeight: 700,
-                border: 'none',
-                background: !compareState.enabled || comparePreparing ? 'var(--border)' : '#6c63ff',
-                color: '#fff',
-                cursor: !compareState.enabled || comparePreparing ? 'not-allowed' : 'pointer',
-                boxShadow: !compareState.enabled || comparePreparing ? 'none' : '0 4px 12px rgba(108,99,255,0.3)',
-              }}
-            >
-              {comparePreparing ? '⏳ 本文を取得中...' : compareState.label}
-            </button>
-
-            {selectedIds.size >= 2 && onSelectForCross && (
-              <button
-                type="button"
-                onClick={handleCrossSelect}
-                disabled={crossPreparing}
-                style={{
-                  padding: '10px 22px',
-                  borderRadius: 12,
-                  fontSize: 13,
-                  fontWeight: 700,
-                  border: 'none',
-                  background: crossPreparing ? '#9ca3af' : '#9333ea',
-                  color: '#fff',
-                  cursor: crossPreparing ? 'not-allowed' : 'pointer',
-                  boxShadow: crossPreparing ? 'none' : '0 4px 12px rgba(147,51,234,0.3)',
-                }}
-              >
-                {crossPreparing
-                  ? '⏳ 本文を取得中...'
-                  : `🔀 選択した${selectedIds.size}件を横断分析する`}
-              </button>
-            )}
-
-            {/* 315 §3-1: 選んだ分析（最大3件）をまとめて1つの図解に（R-101: 超過は無効化＋理由） */}
-            {selectedIds.size >= 1 && (
-              <a
-                data-ta-visual-bulk
-                aria-disabled={selectedIds.size > 3 ? 'true' : undefined}
-                href={selectedIds.size > 3 ? undefined : `/dashboard/visuals?scope=text_analysis&ids=${encodeURIComponent(Array.from(selectedIds).map(String).join(','))}`}
-                target="_blank"
-                rel="noopener noreferrer"
-                title={selectedIds.size > 3 ? `まとめて図解にできるのは3件までです（${selectedIds.size}件選択中。チェックを外して減らしてください）` : '選択した分析の本文をまとめて1つの図解にする（新しいタブ）'}
-                style={{ padding: '8px 14px', borderRadius: 8, border: '1px solid #0E7490', background: 'transparent', color: '#0E7490', fontSize: 12, fontWeight: 700, textDecoration: 'none', cursor: selectedIds.size > 3 ? 'not-allowed' : 'pointer', opacity: selectedIds.size > 3 ? 0.5 : 1 }}
-              >
-                🖼 まとめて図解
-              </a>
-            )}
-            {/* 231: テキスト分析→Kindle素材化（ana-N名前空間でウィザード①へ） */}
-            {selectedIds.size >= 1 && (
-              <button
-                type="button"
-                onClick={handleKindleSelect}
-                style={{
-                  padding: '10px 22px',
-                  borderRadius: 12,
-                  fontSize: 13,
-                  fontWeight: 700,
-                  border: 'none',
-                  background: '#ec4899',
-                  color: '#fff',
-                  cursor: 'pointer',
-                  boxShadow: '0 4px 12px rgba(236,72,153,0.3)',
-                }}
-              >
-                📖 選択した{selectedIds.size}件をKindle本にする
-              </button>
-            )}
-
-            {/* 250: 一括削除。不可逆なので色で区別し、列の末尾（他の操作と押し間違えない位置）に置く */}
-            <button
-              type="button"
-              data-bulk-delete
-              onClick={handleBulkDelete}
-              disabled={bulkDeleting || selectedIds.size === 0}
-              style={{
-                padding: '10px 22px',
-                borderRadius: 12,
-                fontSize: 13,
-                fontWeight: 700,
-                border: 'none',
-                background: bulkDeleting || selectedIds.size === 0 ? 'var(--border)' : '#dc2626',
-                color: '#fff',
-                cursor: bulkDeleting || selectedIds.size === 0 ? 'not-allowed' : 'pointer',
-                boxShadow:
-                  bulkDeleting || selectedIds.size === 0
-                    ? 'none'
-                    : '0 4px 12px rgba(220,38,38,0.3)',
-                marginLeft: 'auto',
-              }}
-            >
-              {bulkDeleting
-                ? '⏳ 削除中...'
-                : `🗑 選択した${selectedIds.size}件を削除`}
-            </button>
-          </div>
-        </div>
-      )}
+        </SelectionBar>
+      ); })()}
 
       {/* 292 §2: 横並び比較パネル（291の共通部品。全画面は下の FullscreenReader を共用・MDは同じハンドラ） */}
       {compareEntries && (

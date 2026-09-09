@@ -5,6 +5,7 @@ import PresentationPackPanel from '@/components/library/PresentationPackPanel';
 import { MERGE_SELECTIONS, MERGE_SELECTION_LABEL, MERGE_MODE_LABEL, MERGE_TIMEOUT_MESSAGE, mergeSaveMetadata, mergeTagsOf, mergeTargetState, modesOf, type MergeMode, type MergeRuns, type MergeSelection } from '@/lib/merge-report';
 import { packCountsOf } from '@/lib/presentation-pack';
 import { CharCountBadge } from '@/components/LibraryItemRow';
+import SelectionBar from '@/components/SelectionBar';
 // 252: このファイルの既存コードは item を any で扱っているが、252で足した経路だけは
 // 必要な形だけを持つ軽い型を通す（新しく any を増やさない）
 type LibraryRow = {
@@ -918,6 +919,26 @@ function LibraryPageInner() {
     [compareIds, items, allCards],
   );
   const compareState = libraryCompareState(selectedIds.size);
+  // 230【B-1】: 選択→Kindleウィザード①へhandoff（対象=DR/note記事のみ・読取後削除の冪等キー）。318: 選択バーの共通部品へ渡す（ハンドラは1つ）
+  const handleKindleSelect = () => {     const selected = items.filter((i) => selectedIds.has(i.id));
+    // 231: 対象typeと上限を共有定数へ（library画面のtypeハードコード解消）
+    const eligible = selected.filter((i) => (KINDLE_LIBRARY_TYPES as readonly string[]).includes(i.type));
+    const excluded = selected.length - eligible.length;
+    if (eligible.length === 0) {
+      alert('選択中にKindle素材にできる資料がありません（対象: ディープリサーチ・note記事）');
+      return;
+    }
+    if (excluded > 0 && !confirm(`${excluded}件は対象外（ディープリサーチ・note記事以外）のため除外します。${eligible.length}件で続けますか？`)) return;
+    let take = eligible;
+    if (eligible.length > MAX_KINDLE_SOURCES) {
+      if (!confirm(`Kindle素材は最大${MAX_KINDLE_SOURCES}件です。選択順の先頭${MAX_KINDLE_SOURCES}件（${eligible.length}件中）を渡します。続けますか？`)) return;
+      take = eligible.slice(0, MAX_KINDLE_SOURCES);
+    }
+    try {
+      sessionStorage.setItem('lumina_kindle_selected', JSON.stringify(take.map((i) => i.id)));
+    } catch { /* プライベートモード等で失敗しても遷移は続行（ウィザードで選び直せる） */ }
+    router.push('/dashboard/kindle-wizard');
+  };
   const openCompare = () => {
     if (!compareState.enabled) return;
     hoverPreview.hide();
@@ -1468,6 +1489,32 @@ function LibraryPageInner() {
         </span>
       </div>
 
+      {/* ── 318: 選択バー（📚🗂🧠共通部品・一覧の上に sticky・1件以上選んだときだけ出す。全選択は置かない・296 §2-4） ── */}
+      <SelectionBar
+        count={selectedIds.size}
+        attrs={{ 'data-library-selection-bar': '' }}
+        actions={[
+          // 298: 用途の一括付け外し（削除から離した左側・青緑）
+          { key: 'purpose', label: '🎯 用途', tone: 'teal', attrs: { 'data-purpose-bulk-open': '' }, onClick: (e) => setPurposeBulk({ rect: e.currentTarget.getBoundingClientRect() }), disabled: !purposeBulkState_.enabled, reason: purposeBulkState_.reason, title: '選択した成果物に用途カテゴリをまとめて付ける／外す（記事は削除されません）' },
+          // 315 §3-1: 選んだ資料（最大3件）をまとめて1つの図解に（R-101: 超過は無効化＋理由）
+          { key: 'visual', label: '🖼 まとめて図解', attrs: { 'data-library-visual-bulk': '' }, href: `/dashboard/visuals?scope=library&ids=${encodeURIComponent(Array.from(selectedIds).map(String).join(','))}`, disabled: selectedIds.size > 3, reason: `まとめて図解にできるのは3件までです（${selectedIds.size}件選択中。チェックを外して減らしてください）`, title: '選択した資料の本文をまとめて1つの図解にする（新しいタブ）' },
+          // 317 §3-1: 要約＋詳細／要約のみ／詳細のみ（既定は両方）
+          { key: 'merge-mode', label: '', node: (
+            <select data-merge-mode value={mergeSelection} onChange={(e) => setMergeSelection(e.target.value as MergeSelection)} disabled={merging} title="AIでまとめるの出力（要約 1,000〜2,000字／詳細 5,000〜8,000字）" style={{ height: 32, boxSizing: 'border-box', padding: '0 8px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--bg-card)', color: 'var(--text-primary)', fontSize: 12, fontWeight: 600, cursor: merging ? 'not-allowed' : 'pointer' }}>
+              {MERGE_SELECTIONS.map((sel) => <option key={sel} value={sel}>{MERGE_SELECTION_LABEL[sel]}</option>)}
+            </select>
+          ) },
+          { key: 'merge', label: '🔗 AIでまとめる', tone: 'accent', onClick: generateMergeReport, disabled: selectedIds.size < 2, reason: '2件以上を選ぶとまとめられます', busy: merging, busyLabel: '⏳ 分析中...', title: '選択した資料をAIで1本にまとめる（要約／詳細）' },
+          // 291 §2-1/§2-2: 横並び比較（2〜4件。5件目を選んでいる間は無効化し理由を出す）
+          { key: 'compare', label: compareState.label, attrs: { 'data-library-compare-open': '' }, onClick: openCompare, disabled: !compareState.enabled, reason: compareState.reason, title: '選択した成果物を横並びで比較します（列数・高さ・同期スクロール・全画面）' },
+          { key: 'kindle', label: '📖 Kindle本にする', onClick: handleKindleSelect, title: '選択した資料をKindle本の素材にする（ウィザード①へ）' },
+        ]}
+        // 250: 一括削除。不可逆なので赤で区別し右端（押し間違えない位置）。確認は bulkDeleteSelected の1回（R-56）
+        danger={{ key: 'delete', label: '🗑 削除', attrs: { 'data-bulk-delete': '' }, onClick: bulkDeleteSelected, busy: bulkDeleting, busyLabel: '⏳ 削除中...', title: `選択した${selectedIds.size}件を削除します（確認あり・元に戻せません）` }}
+        onExit={() => setSelectedIds(new Set())}
+        exitAttrs={{ 'data-library-select-clear': '' }}
+      />
+
       {/* ── アイテムリスト（フォルダグルーピング） ── */}
       {loading ? (
         <div style={{ color: 'var(--text-muted)', textAlign: 'center', padding: 40 }}>読み込み中...</div>
@@ -1561,94 +1608,7 @@ function LibraryPageInner() {
       </>
       )}
 
-      {/* ── 選択中のフローティングツールバー（296: 1件以上選んだときだけ出す。全選択は置かない・§2-4） ── */}
-      {selectedIds.size > 0 && (
-        <div style={{
-          position: 'fixed', bottom: 24, left: '50%', transform: 'translateX(-50%)', zIndex: 40,
-          display: 'flex', alignItems: 'center', gap: 12,
-          background: 'linear-gradient(135deg, #6c63ff, #8b5cf6)',
-          color: '#fff', padding: '12px 24px', borderRadius: 99,
-          boxShadow: '0 8px 32px rgba(108,99,255,0.4)',
-        }}>
-          <span style={{ fontSize: 13, fontWeight: 600 }}>{selectedIds.size}件選択中</span>
-          {/* 298: 用途の一括付け外し。削除（右端・赤）から離した左側に青緑で置く（§3-2） */}
-          <button
-            type="button"
-            data-purpose-bulk-open
-            onClick={(e) => setPurposeBulk({ rect: e.currentTarget.getBoundingClientRect() })}
-            disabled={!purposeBulkState_.enabled}
-            title={purposeBulkState_.reason ?? '選択した成果物に用途カテゴリをまとめて付ける／外す（記事は削除されません）'}
-            style={{ padding: '6px 16px', borderRadius: 99, background: '#ccfbf1', color: '#115e59', border: '1px solid rgba(13,148,136,0.6)', cursor: purposeBulkState_.enabled ? 'pointer' : 'not-allowed', fontSize: 13, fontWeight: 700, opacity: purposeBulkState_.enabled ? 1 : 0.6 }}>
-            🎯 用途
-          </button>
-          {/* 315 §3-1: 選んだ資料（最大3件）をまとめて1つの図解に（R-101: 超過は無効化＋理由） */}
-          <a
-            data-library-visual-bulk
-            aria-disabled={selectedIds.size > 3 ? 'true' : undefined}
-            href={selectedIds.size > 3 ? undefined : `/dashboard/visuals?scope=library&ids=${encodeURIComponent(Array.from(selectedIds).map(String).join(','))}`}
-            target="_blank"
-            rel="noopener noreferrer"
-            title={selectedIds.size > 3 ? `まとめて図解にできるのは3件までです（${selectedIds.size}件選択中。チェックを外して減らしてください）` : '選択した資料の本文をまとめて1つの図解にする（新しいタブ）'}
-            style={{ padding: '6px 16px', borderRadius: 99, background: selectedIds.size > 3 ? 'rgba(255,255,255,0.5)' : '#fff', color: '#0E7490', textDecoration: 'none', fontSize: 12, fontWeight: 700, cursor: selectedIds.size > 3 ? 'not-allowed' : 'pointer', opacity: selectedIds.size > 3 ? 0.6 : 1 }}
-          >
-            🖼 まとめて図解
-          </a>
-          {/* 317 §3-1: 要約＋詳細／要約のみ／詳細のみ（既定は両方） */}
-          <select data-merge-mode value={mergeSelection} onChange={(e) => setMergeSelection(e.target.value as MergeSelection)} disabled={merging} title="AIでまとめるの出力（要約 1,000〜2,000字／詳細 5,000〜8,000字）" style={{ padding: '6px 8px', borderRadius: 99, border: 'none', background: 'rgba(255,255,255,0.9)', color: '#4c46b8', fontSize: 12, fontWeight: 700 }}>
-            {MERGE_SELECTIONS.map((sel) => <option key={sel} value={sel}>{MERGE_SELECTION_LABEL[sel]}</option>)}
-          </select>
-          <button onClick={generateMergeReport} disabled={merging || selectedIds.size < 2}
-            style={{ padding: '6px 16px', borderRadius: 99, background: '#fff', color: '#6c63ff', border: 'none', cursor: merging || selectedIds.size < 2 ? 'not-allowed' : 'pointer', fontSize: 13, fontWeight: 700, opacity: merging || selectedIds.size < 2 ? 0.6 : 1 }}>
-            {merging ? '分析中...' : '🔗 AIでまとめる'}
-          </button>
-          {/* 291 §2-1/§2-2: 選択した成果物を横並びで比較（2〜4件）。5件目を選んでいる間は無効化し理由を出す（先頭4件に黙って切らない） */}
-          <button
-            data-library-compare-open
-            onClick={openCompare}
-            disabled={!compareState.enabled}
-            title={compareState.reason ?? '選択した成果物を横並びで比較します（列数・高さ・同期スクロール・全画面）'}
-            style={{ padding: '6px 16px', borderRadius: 99, background: 'rgba(255,255,255,0.15)', color: '#fff', border: '1px solid rgba(255,255,255,0.5)', cursor: compareState.enabled ? 'pointer' : 'not-allowed', fontSize: 13, fontWeight: 700, opacity: compareState.enabled ? 1 : 0.6 }}>
-            {compareState.label}
-          </button>
-          {/* 230【B-1】: 選択→Kindleウィザード①へhandoff（対象=DR/note記事のみ・読取後削除の冪等キー） */}
-          <button
-            onClick={() => {
-              const selected = items.filter((i) => selectedIds.has(i.id));
-              // 231: 対象typeと上限を共有定数へ（library画面のtypeハードコード解消）
-              const eligible = selected.filter((i) => (KINDLE_LIBRARY_TYPES as readonly string[]).includes(i.type));
-              const excluded = selected.length - eligible.length;
-              if (eligible.length === 0) {
-                alert('選択中にKindle素材にできる資料がありません（対象: ディープリサーチ・note記事）');
-                return;
-              }
-              if (excluded > 0 && !confirm(`${excluded}件は対象外（ディープリサーチ・note記事以外）のため除外します。${eligible.length}件で続けますか？`)) return;
-              let take = eligible;
-              if (eligible.length > MAX_KINDLE_SOURCES) {
-                if (!confirm(`Kindle素材は最大${MAX_KINDLE_SOURCES}件です。選択順の先頭${MAX_KINDLE_SOURCES}件（${eligible.length}件中）を渡します。続けますか？`)) return;
-                take = eligible.slice(0, MAX_KINDLE_SOURCES);
-              }
-              try {
-                sessionStorage.setItem('lumina_kindle_selected', JSON.stringify(take.map((i) => i.id)));
-              } catch { /* プライベートモード等で失敗しても遷移は続行（ウィザードで選び直せる） */ }
-              router.push('/dashboard/kindle-wizard');
-            }}
-            style={{ padding: '6px 16px', borderRadius: 99, background: 'rgba(255,255,255,0.15)', color: '#fff', border: '1px solid rgba(255,255,255,0.5)', cursor: 'pointer', fontSize: 13, fontWeight: 700 }}>
-            📖 Kindle本にする
-          </button>
-          {/* 250: 一括削除。不可逆なので赤で区別し、他の操作より右（押し間違えない位置）に置く */}
-          <button
-            data-bulk-delete
-            onClick={bulkDeleteSelected}
-            disabled={bulkDeleting}
-            style={{ padding: '6px 16px', borderRadius: 99, background: bulkDeleting ? 'rgba(255,255,255,0.2)' : '#dc2626', color: '#fff', border: '1px solid rgba(255,255,255,0.5)', cursor: bulkDeleting ? 'not-allowed' : 'pointer', fontSize: 13, fontWeight: 700 }}>
-            {bulkDeleting ? '⏳ 削除中...' : `🗑 ${selectedIds.size}件を削除`}
-          </button>
-          <button data-library-select-clear onClick={() => setSelectedIds(new Set())} title="選択を解除" aria-label="選択を解除"
-            style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,0.7)', cursor: 'pointer', fontSize: 16 }}>
-            ✕
-          </button>
-        </div>
-      )}
+
 
       {/* ── 統合レポートモーダル ── */}
       {showMergeModal && (

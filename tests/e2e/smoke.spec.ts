@@ -430,13 +430,13 @@ async function selectTwoCrossCards(page: import('@playwright/test').Page) {
       )
       .toBe(true);
   }
-  await page.getByRole('button', { name: '🔀 選択した2件を横断分析する' }).click();
+  await page.getByRole('button', { name: '🔀 横断分析' }).click(); // 318: 選択バーの短いラベル（R-57）
 }
 
 test('C18: 横断分析handoff 経路A（テキスト分析ページのタブ内）で本文が渡る', async ({ page }) => {
   await page.goto('/dashboard/text-analysis?tab=saved');
   await selectTwoCrossCards(page);
-  await expect(page.getByText('2件選択中')).toBeVisible();
+  await expect(page.getByText('2件選択中', { exact: true })).toBeVisible(); // 318: 非表示タブの選択バー「☑ 2件選択中」と区別
   // 選択カードに本文先頭が表示される＝本文が渡っている
   // （タイトルは非表示タブの一覧カードにも存在するため visible で絞る）
   await expect(page.getByText(new RegExp(CROSS_BODY_TOKEN)).filter({ visible: true }).first()).toBeVisible();
@@ -448,7 +448,7 @@ test('C19: 横断分析handoff 経路B（保存一覧ページ→sessionStorage�
   await page.goto('/dashboard/saved');
   await selectTwoCrossCards(page);
   await page.waitForURL('**/dashboard/text-analysis?tab=cross');
-  await expect(page.getByText('2件選択中')).toBeVisible();
+  await expect(page.getByText('2件選択中', { exact: true })).toBeVisible();
   await expect(page.getByText(new RegExp(CROSS_BODY_TOKEN)).filter({ visible: true }).first()).toBeVisible();
 });
 
@@ -6206,7 +6206,7 @@ test('C96: リサーチ保存の選択比較（291）— 選択モードの操�
     // 既存の操作（AIでまとめる／Kindle／削除）は同じバーに並んだまま
     await expect(page.getByRole('button', { name: '🔗 AIでまとめる' })).toBeVisible();
     await expect(page.getByRole('button', { name: '📖 Kindle本にする' })).toBeVisible();
-    await expect(page.locator('[data-bulk-delete]')).toContainText('5件を削除');
+    await expect(page.locator('[data-selection-bar]'), '318: 件数は選択バーの左に出る（削除ボタンは「🗑 削除」）').toHaveAttribute('data-selection-bar-count', '5');
     await page.locator(`[data-library-check="${bs[2]}"]`).uncheck();
     await expect(openBtn).toBeEnabled();
 
@@ -6530,7 +6530,7 @@ test('C98: テキスト分析の保存一覧への横展開（292）— 選択�
     await expect(openBtn, '5件目を選んでいる間は無効化（先頭4件に黙って切らない・R-101）').toBeDisabled();
     await expect(openBtn).toHaveAttribute('title', /4件まで/);
     await expect(openBtn).toHaveAttribute('title', /5件選択中/);
-    await expect(panel.locator('[data-bulk-delete]')).toContainText('5件');
+    await expect(panel.locator('[data-selection-bar]')).toHaveAttribute('data-selection-bar-count', '5');
     await expect(panel.getByRole('button', { name: /MDダウンロード/ })).toBeVisible();
     await expect(panel.getByRole('button', { name: /Kindle本にする/ })).toBeVisible();
     await expect(panel.getByText('📁 カテゴリに移動')).toBeVisible();
@@ -6580,7 +6580,7 @@ test('C98: テキスト分析の保存一覧への横展開（292）— 選択�
     await expect(cmp).toHaveCount(0);
     await page.locator('[data-compare-cols-choice]').first().waitFor({ state: 'detached' }).catch(() => {});
     await page.evaluate(() => { localStorage.removeItem('lumina_batch_compare_cols'); localStorage.removeItem('lumina_batch_compare_height'); });
-    await panel.getByRole('button', { name: '✕ 選択をすべて解除' }).click();
+    await panel.getByRole('button', { name: '✕ 選択をやめる' }).click();
 
     // ── ⑤ 保持: 列数2・コンパクトで再読込しても同じ。最後に既定へ戻す ──
     await panel.locator('[data-library-cols-choice="2"]').click();
@@ -6809,9 +6809,9 @@ test('C100: テキスト分析の検索とフィルタ（293）— 「タイト�
     await expect(panel.locator('[data-library-cols-picker]')).toBeVisible();
     await panel.locator(`[data-select-check="${t1}"]`).check();
     await panel.locator(`[data-select-check="${t2}"]`).check();
-    await expect(panel.locator('[data-bulk-delete]')).toContainText('2件');
+    await expect(panel.locator('[data-selection-bar]')).toHaveAttribute('data-selection-bar-count', '2');
     await expect(panel.locator('[data-library-compare-open]')).toBeEnabled();
-    await panel.getByRole('button', { name: '✕ 選択をすべて解除' }).click();
+    await panel.getByRole('button', { name: '✕ 選択をやめる' }).click();
     expect(categorizeCalls, '一括AI分類が自動で呼ばれていない').toBe(0);
   } finally {
     await cleanupE2ESaves(request);
@@ -7129,7 +7129,7 @@ test('C103: 選択は既定で常時チェック（296）— 3画面とも初期
     await expect(page.locator(`[data-library-check="${l1}"]`)).toBeChecked();
     // 1件以上で操作バー。削除の確認は1回・成果物の件数入り（283 §4-3: 削除は成果物単位）
     await page.locator(`[data-library-check="${l2}"]`).check();
-    await expect(page.locator('[data-bulk-delete]')).toContainText('2件を削除');
+    await expect(page.locator('[data-selection-bar]')).toHaveAttribute('data-selection-bar-count', '2');
     dialogs.length = 0;
     await page.locator('[data-bulk-delete]').click();
     await expect.poll(() => dialogs.length, '確認は1回だけ（R-56）').toBe(1);
@@ -7190,7 +7190,7 @@ test('C103: 選択は既定で常時チェック（296）— 3画面とも初期
     await xc1.locator(`[data-ctx-expand-zone="${x1}"]`).click();
     await expect(page.locator(`[data-ctx-expanded-body="${x1}"]`)).toHaveCount(0);
     await page.locator(`[data-ctx-delete-check="${x2}"]`).check();
-    await expect(page.locator('[data-bulk-delete]')).toContainText('選択した2件を削除');
+    await expect(page.locator('[data-selection-bar]')).toHaveAttribute('data-selection-bar-count', '2');
     await expect(page.locator('[data-ctx-compare-open]'), '295の比較も常時の選択から使える').toBeEnabled();
     dialogs.length = 0;
     await page.locator('[data-bulk-delete]').click();
@@ -7581,7 +7581,7 @@ test('C106: 用途カテゴリの一括付け外し（298）— 3画面とも操
     await page.locator('[data-purpose-picker]').locator(`[data-purpose-option="${catA}"] input`).check();
     await page.keyboard.press('Escape');
     await expect(panel.locator(`[data-analysis-card="${t3}"] [data-purpose-badge]`)).toHaveCount(1);
-    await panel.getByRole('button', { name: '✕ 選択をすべて解除' }).click();
+    await panel.getByRole('button', { name: '✕ 選択をやめる' }).click();
 
     // ════ 🧠: 同じ操作で付ける → 外す ════
     await page.goto('/dashboard/context-library');
@@ -11418,5 +11418,114 @@ test('C133: AIでまとめるの二段出力とプレゼン素材パック（317
     page.off('dialog', onDialog);
     await request.delete(LIBRARY_API, { data: { ids: created } }).catch(() => {});
     await cleanupE2ELibrary(request);
+  }
+});
+
+// ============================================================================
+// 318: 選択バー（n件選択中）— 📚🗂🧠で同じ共通部品・一覧の上に sticky・横書き・同じ高さ・折り返し
+// ============================================================================
+test('C134: 選択バー（318）— 📚🗂🧠の3画面で同じ部品が一覧の上に sticky で出て内容に被せない・バー内に縦書きが無い・ボタンの高さが揃う・横スクロールが出ない・🗑削除は赤の枠線・無効は薄く＋理由・WebKit iPhone幅では折り返して横スクロール無し', async ({ page, request }) => {
+  test.setTimeout(240_000);
+  const marker = `SELBAR${RUN_ID}`;
+  const libIds: string[] = [];
+  for (let i = 0; i < 4; i++) libIds.push(await createLibraryItem(request, { title: `選択バー${i} ${marker}`, content: `本文${i} ${marker}` }));
+  const saveIds = [await createSave(request, { title: `選択バーA ${marker}`, content: `本文A ${marker}` }), await createSave(request, { title: `選択バーB ${marker}`, content: `本文B ${marker}` })];
+  const ctxIds = [await createContextSave(request, { topic: `選択バーX ${marker}`, contextText: `素材X ${marker}` }), await createContextSave(request, { topic: `選択バーY ${marker}`, contextText: `素材Y ${marker}` })];
+  const checkBar = async (root: import('@playwright/test').Page | import('@playwright/test').Locator, label: string, firstCard: import('@playwright/test').Locator) => {
+    const bar = root.locator('[data-selection-bar]');
+    await expect(bar, `${label}: 選択バーが出る`).toBeVisible();
+    const style = await bar.evaluate((el) => {
+      const cs = getComputedStyle(el);
+      const modes = Array.from(el.querySelectorAll('*')).map((e) => getComputedStyle(e).writingMode);
+      modes.push(cs.writingMode);
+      return { position: cs.position, modes: Array.from(new Set(modes)), scrollWidth: el.scrollWidth, clientWidth: el.clientWidth };
+    });
+    expect(style.position, `${label}: 一覧の上に sticky`).toBe('sticky');
+    expect(style.modes, `${label}: バー内に縦書きが無い`).toEqual(['horizontal-tb']);
+    expect(style.scrollWidth, `${label}: バーは横スクロールしない`).toBeLessThanOrEqual(style.clientWidth + 1);
+    const boxes = await bar.locator('[data-selection-bar-action], [data-selection-bar-exit], [data-selection-bar-node]').evaluateAll((els) => els.map((e) => e.getBoundingClientRect()).map((r) => ({ top: r.top, height: r.height, bottom: r.bottom })));
+    expect(boxes.length, `${label}: 操作が並ぶ`).toBeGreaterThanOrEqual(3);
+    const heights = Array.from(new Set(boxes.map((b) => Math.round(b.height))));
+    expect(heights, `${label}: ボタンの高さが揃う（${heights.join(',')}）`).toHaveLength(1);
+    const barBox = (await bar.boundingBox())!;
+    const cardBox = (await firstCard.boundingBox())!;
+    expect(cardBox.top, `${label}: 一覧の先頭行がバーの下に見える（被せない）`).toBeGreaterThanOrEqual(barBox.top + barBox.height - 1);
+    const del = bar.locator('[data-bulk-delete]');
+    await expect(del).toHaveText(/🗑 削除/);
+    const delStyle = await del.evaluate((el) => { const cs = getComputedStyle(el); return { bg: cs.backgroundColor, border: cs.borderTopColor, color: cs.color }; });
+    expect(delStyle.bg, `${label}: 削除は塗りつぶさない`).toMatch(/rgba\(0, 0, 0, 0\)|transparent/);
+    expect(delStyle.border, `${label}: 削除は赤の枠線`).toBe('rgb(220, 38, 38)');
+    const pageScroll = await bar.evaluate(() => ({ sw: document.documentElement.scrollWidth, cw: document.documentElement.clientWidth }));
+    expect(pageScroll.sw, `${label}: ページに横スクロールが出ない`).toBeLessThanOrEqual(pageScroll.cw + 1);
+    return bar;
+  };
+  try {
+    // ── 📚 リサーチ保存（4件＝図解は3件まで→無効＋理由） ──
+    await page.goto('/dashboard/library');
+    await page.locator('[data-library-search]').fill(marker);
+    await expect(page.locator(`[data-library-card="${libIds[0]}"]`)).toBeVisible({ timeout: 30000 });
+    for (const id of libIds) await page.locator(`[data-library-card="${id}"] input[type="checkbox"]`).check();
+    const bar = await checkBar(page, '📚', page.locator('[data-library-card]').first());
+    await expect(bar).toHaveAttribute('data-selection-bar-count', '4');
+    const visual = bar.locator('[data-library-visual-bulk]');
+    await expect(visual, '4件では図解は無効（R-101）').toHaveAttribute('aria-disabled', 'true');
+    await expect(visual).toHaveAttribute('title', /3件まで/);
+    expect(await visual.evaluate((el) => getComputedStyle(el).opacity), '無効は薄く').toBe('0.5');
+    for (const key of ['purpose', 'visual', 'merge', 'compare', 'kindle']) await expect(bar.locator(`[data-selection-bar-action="${key}"]`), `📚: ${key} が並ぶ`).toBeVisible();
+    // 順序: 🎯用途 → 🖼まとめて図解 → 🔗AIでまとめる → ⇔比較 → 📖Kindle → 右端に 🗑削除・✕選択をやめる
+    const order = await bar.locator('[data-selection-bar-action], [data-selection-bar-exit]').evaluateAll((els) => els.map((e) => e.getAttribute('data-selection-bar-action') ?? 'exit'));
+    expect(order).toEqual(['purpose', 'visual', 'merge', 'compare', 'kindle', 'delete', 'exit']);
+    // sticky: 一覧を下までスクロールしてもバーは主カラムの上端に残り、幅は主カラムに揃う（サイドバーに被らない）
+    const main = page.locator('main.dashboard-main');
+    await main.evaluate((el) => { el.scrollTop = el.scrollHeight; });
+    await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
+    const after = await bar.evaluate((el) => { const r = el.getBoundingClientRect(); const m = document.querySelector('main.dashboard-main')!.getBoundingClientRect(); return { top: r.top, left: r.left, right: r.right, mainTop: m.top, mainLeft: m.left, mainRight: m.right }; });
+    expect(after.top, 'スクロール後も見える位置に固定').toBeLessThanOrEqual(after.mainTop + 40);
+    expect(after.top).toBeGreaterThanOrEqual(after.mainTop - 1);
+    expect(after.left, '主カラムの中（サイドバーに被らない）').toBeGreaterThanOrEqual(after.mainLeft - 1);
+    expect(after.right).toBeLessThanOrEqual(after.mainRight + 1);
+    await bar.locator('[data-library-select-clear]').click();
+    await expect(page.locator('[data-selection-bar]'), '選択をやめるとバーが消える').toHaveCount(0);
+    // ── 🗂 テキスト分析の保存一覧 ──
+    await page.goto('/dashboard/text-analysis?tab=saved');
+    const panel = page.locator('[data-saved-panel="text-analysis"]');
+    for (const id of saveIds) await panel.locator(`[data-select-check="${id}"]`).check();
+    const bar2 = await checkBar(panel, '🗂', panel.locator('[data-analysis-card]').first());
+    await expect(bar2).toHaveAttribute('data-selection-bar-count', '2');
+    await expect(bar2.getByText('📁 カテゴリに移動'), '2段目にカテゴリ移動が残る').toBeVisible();
+    await bar2.locator('[data-ta-select-clear]').click();
+    await expect(panel.locator('[data-selection-bar]')).toHaveCount(0);
+    // ── 🧠 AI参照素材 ──
+    await page.goto('/dashboard/context-library');
+    for (const id of ctxIds) await page.locator(`[data-ctx-delete-check="${id}"]`).check();
+    const bar3 = await checkBar(page, '🧠', page.locator('[data-ctx-card]').first());
+    await expect(bar3).toHaveAttribute('data-selection-bar-count', '2');
+    await expect(bar3.locator('[data-ctx-compare-open]')).toBeEnabled();
+    await bar3.locator('[data-ctx-select-clear]').click();
+    await expect(page.locator('[data-selection-bar]')).toHaveCount(0);
+    // ── WebKit iPhone幅（R-64）: 折り返して横スクロールが出ない ──
+    const browser = await webkit.launch();
+    const ctx = await browser.newContext({ storageState: STORAGE_STATE, baseURL: BASE_URL, hasTouch: true, isMobile: true, viewport: { width: 390, height: 844 }, serviceWorkers: 'block' });
+    const mp = await ctx.newPage();
+    try {
+      await mp.goto('/dashboard/library');
+      await mp.locator('[data-library-search]').fill(marker);
+      await expect(mp.locator(`[data-library-card="${libIds[0]}"]`)).toBeVisible({ timeout: 30000 });
+      for (const id of libIds.slice(0, 3)) await mp.locator(`[data-library-card="${id}"] input[type="checkbox"]`).check();
+      const mbar = await checkBar(mp, '📚(iPhone幅)', mp.locator('[data-library-card]').first());
+      const tops = await mbar.locator('[data-selection-bar-action], [data-selection-bar-exit], [data-selection-bar-node]').evaluateAll((els) => Array.from(new Set(els.map((e) => Math.round(e.getBoundingClientRect().top)))));
+      expect(tops.length, 'iPhone幅では2段以上に折り返す').toBeGreaterThanOrEqual(2);
+      const vw = await mp.evaluate(() => ({ sw: document.documentElement.scrollWidth, iw: window.innerWidth, bw: document.querySelector('[data-selection-bar]')!.getBoundingClientRect().right }));
+      expect(vw.sw, '横スクロール無し').toBeLessThanOrEqual(vw.iw + 1);
+      expect(vw.bw, 'バーが画面幅に収まる').toBeLessThanOrEqual(vw.iw + 1);
+    } finally {
+      await ctx.close();
+      await browser.close();
+    }
+  } finally {
+    await request.delete(LIBRARY_API, { data: { ids: libIds } }).catch(() => {});
+    await cleanupE2ELibrary(request);
+    await cleanupE2ESaves(request);
+    await cleanupE2EContextSaves(request);
   }
 });

@@ -4947,3 +4947,41 @@ test('U89: AIでまとめるの二段出力とプレゼン素材パック（317�
   const pres = readFileSync(join(__dirname, '../../src/lib/presentation.ts'), 'utf8');
   expect(pres).toContain("'text'");
 });
+
+test('U90: 選択バー（318）はソース固定 — 📚🗂🧠の3画面が同じ SelectionBar を使い、画面専用の選択バー（fixed の楕円・件選択中の直書き）が残っていない・writing-mode を使わない・ラベルは12字以内（R-57）・削除は赤の枠線で塗りつぶさない・各操作は既存ハンドラを渡すだけ', () => {
+  const read = (p: string) => readFileSync(join(__dirname, '../../src', p), 'utf8');
+  const bar = read('components/SelectionBar.tsx');
+  expect(bar).not.toMatch(/writingMode|writing-mode/);
+  expect(bar).toMatch(/position: 'sticky'/);
+  expect(bar).toMatch(/flexWrap: 'wrap'/);
+  expect(bar).toMatch(/danger: \{ background: 'transparent', color: '#dc2626', border: '1px solid #dc2626' \}/);
+  expect(bar).toMatch(/opacity: disabled \? 0\.5 : 1/);
+  expect(bar).toMatch(/title=\{title\}/);
+  const screens = ['app/dashboard/library/page.tsx', 'components/text-analysis/SavedAnalysisList.tsx', 'components/context-library/ContextLibraryPanel.tsx'];
+  for (const p of screens) {
+    const src = read(p);
+    expect(src, `${p}: 共通部品を import`).toMatch(/import SelectionBar from '@\/components\/SelectionBar';/);
+    expect(src.match(/<SelectionBar/g)?.length, `${p}: SelectionBar は1つ`).toBe(1);
+    expect(src, `${p}: 画面専用の「件選択中」直書きが無い`).not.toMatch(/\{selectedIds\.size\}件(を)?選択中<\/span>/);
+    expect(src).not.toMatch(/writingMode|writing-mode/);
+    expect(src, `${p}: 削除は共通部品の danger（赤の枠線）に渡す`).toMatch(/danger=\{\{ key: 'delete', label: '🗑 削除', attrs: \{ 'data-bulk-delete': '' \}/);
+    // ラベルは12字以内（R-57・アイコン込み）
+    for (const m of src.matchAll(/label: '([^']+)'/g)) {
+      const inBar = src.slice(Math.max(0, m.index! - 4000), m.index!).includes('<SelectionBar');
+      if (inBar) expect(Array.from(m[1]).length, `${p}: ラベル「${m[1]}」は12字以内`).toBeLessThanOrEqual(12);
+    }
+  }
+  const lib = read('app/dashboard/library/page.tsx');
+  expect(lib, '📚: 下部固定の楕円バーは撤去').not.toMatch(/position: 'fixed', bottom: 24, left: '50%'/);
+  expect(lib, '📚: Kindle の handoff は1つのハンドラ').toMatch(/const handleKindleSelect = \(\) => \{/);
+  expect(lib.match(/lumina_kindle_selected/g)?.length).toBe(1);
+  expect(lib).toMatch(/onClick: handleKindleSelect/);
+  expect(lib).toMatch(/onClick: generateMergeReport/);
+  expect(lib).toMatch(/onClick: openCompare/);
+  expect(lib).toMatch(/onClick: bulkDeleteSelected/);
+  const sal = read('components/text-analysis/SavedAnalysisList.tsx');
+  for (const h of ['handleCompareSelect', 'handleCrossSelect', 'handleKindleSelect', 'handleBulkDownload', 'handleBulkDelete']) expect(sal, `🗂: ${h} をそのまま渡す`).toMatch(new RegExp(`onClick: ${h}[,\\s]`));
+  const ctx = read('components/context-library/ContextLibraryPanel.tsx');
+  expect(ctx).toMatch(/onClick: handleCompareSelect/);
+  expect(ctx).toMatch(/onClick: bulkDeleteSelected/);
+});

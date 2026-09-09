@@ -3,6 +3,7 @@
 import { useEffect, useState, useMemo, useRef, type CSSProperties } from 'react';
 import FeatureDefaultContextSelector, { FEATURE_OPTIONS } from '@/components/FeatureDefaultContextSelector';
 import { copyRichMarkdown } from '@/lib/rich-copy';
+import SelectionBar from '@/components/SelectionBar';
 import { renderMarkdown, sanitizeLatex } from '@/lib/markdown-renderer';
 import { sanitizeFilename, yyyymmdd } from '@/lib/title-generator';
 import { triggerDownload } from '@/lib/download';
@@ -1353,90 +1354,23 @@ export default function ContextLibraryPanel() {
         </span>
       </div>
 
-      {/* 250/296: 選択中の操作バー（📚リサーチ保存と同じく、1件以上選んだときだけ出す。note素材の選択モード中はチェック自体を出さない） */}
-      {!bundleSelectMode && selectedIds.size > 0 && (
-        <div
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: 10,
-            flexWrap: 'wrap' as const,
-            padding: '10px 16px',
-            marginBottom: 20,
-            borderRadius: 10,
-            border: '1px solid rgba(220,38,38,0.4)',
-            background: 'rgba(220,38,38,0.08)',
-          }}
-        >
-          <span style={{ fontSize: 13, fontWeight: 700, color: '#dc2626' }}>
-            ☑ {selectedIds.size}件を選択中
-          </span>
-          {/* 296 §2-4: 「表示中N件を全選択」は撤去（全選択を置かない）。解除だけ残す */}
-          <button
-            type="button"
-            data-ctx-select-clear
-            onClick={() => setSelectedIds(new Set())}
-            style={{ ...cardActionBtnStyle(), fontSize: 12, padding: '6px 12px' }}
-          >
-            ✕ 選択を解除
-          </button>
-          {/* 298: 用途の一括付け外し。削除（右端・赤）から離した左側に青緑で置く（§3-2） */}
-          {(() => { const st = purposeBulkState(selectedIds.size); return (
-            <button
-              type="button"
-              data-purpose-bulk-open
-              onClick={(e) => setPurposeBulk({ rect: e.currentTarget.getBoundingClientRect() })}
-              disabled={!st.enabled}
-              title={st.reason ?? '選択した素材に用途カテゴリをまとめて付ける／外す（素材は削除されません）'}
-              style={{ ...cardActionBtnStyle(), fontSize: 12, padding: '6px 12px', fontWeight: 700, color: '#115e59', background: '#ccfbf1', border: '1px solid rgba(13,148,136,0.6)', cursor: st.enabled ? 'pointer' : 'not-allowed', opacity: st.enabled ? 1 : 0.6 }}
-            >
-              🎯 用途
-            </button>
-          ); })()}
-          <button
-            type="button"
-            data-bulk-delete
-            onClick={bulkDeleteSelected}
-            disabled={bulkDeleting || selectedIds.size === 0}
-            style={{
-              padding: '6px 16px',
-              borderRadius: 8,
-              border: 'none',
-              background: bulkDeleting || selectedIds.size === 0 ? 'var(--border)' : '#dc2626',
-              color: '#fff',
-              fontSize: 12,
-              fontWeight: 700,
-              cursor: bulkDeleting || selectedIds.size === 0 ? 'not-allowed' : 'pointer',
-              marginLeft: 'auto',
-            }}
-          >
-            {bulkDeleting ? '⏳ 削除中...' : `🗑 選択した${selectedIds.size}件を削除`}
-          </button>
-          {/* 295 §2-4: 同じ選択状態から横並び比較（2〜4件。5件目を選んでいる間は無効化して理由を出す・R-101） */}
-          <button
-            type="button"
-            data-ctx-compare-open
-            onClick={handleCompareSelect}
-            disabled={!compareState.enabled || comparePreparing}
-            title={compareState.reason ?? '選択した素材を横並びで比較します（列数・高さ・同期スクロール・各列から全画面）'}
-            style={{
-              padding: '6px 16px',
-              borderRadius: 8,
-              border: 'none',
-              background: !compareState.enabled || comparePreparing ? 'var(--border)' : '#6c63ff',
-              color: '#fff',
-              fontSize: 12,
-              fontWeight: 700,
-              cursor: !compareState.enabled || comparePreparing ? 'not-allowed' : 'pointer',
-            }}
-          >
-            {comparePreparing ? '⏳ 本文を取得中...' : compareState.label}
-          </button>
-          <span style={{ fontSize: 11, color: 'var(--text-muted)', width: '100%' }}>
-            削除すると元に戻せません。フォルダやカテゴリで絞り込んでから選ぶこともできます。比較は2〜{LIBRARY_COMPARE_MAX}件（列ヘッダーに生成元を表示）。
-          </span>
-        </div>
-      )}
+      {/* 318: 選択バー（📚🗂🧠共通部品・一覧の上に sticky）。1件以上選んだときだけ出す。note素材の選択モード中はチェック自体を出さない */}
+      {!bundleSelectMode && selectedIds.size > 0 && (() => { const st = purposeBulkState(selectedIds.size); return (
+        <SelectionBar
+          count={selectedIds.size}
+          attrs={{ 'data-ctx-selection-bar': '' }}
+          actions={[
+            // 298: 用途の一括付け外し
+            { key: 'purpose', label: '🎯 用途', tone: 'teal', attrs: { 'data-purpose-bulk-open': '' }, onClick: (e) => setPurposeBulk({ rect: e.currentTarget.getBoundingClientRect() }), disabled: !st.enabled, reason: st.reason, title: '選択した素材に用途カテゴリをまとめて付ける／外す（素材は削除されません）' },
+            // 295 §2-4: 同じ選択状態から横並び比較（2〜4件。5件目を選んでいる間は無効化して理由を出す・R-101）
+            { key: 'compare', label: compareState.label, attrs: { 'data-ctx-compare-open': '' }, onClick: handleCompareSelect, disabled: !compareState.enabled, reason: compareState.reason, busy: comparePreparing, busyLabel: '⏳ 本文を取得中...', title: '選択した素材を横並びで比較します（列数・高さ・同期スクロール・各列から全画面）' },
+          ]}
+          danger={{ key: 'delete', label: '🗑 削除', attrs: { 'data-bulk-delete': '' }, onClick: bulkDeleteSelected, busy: bulkDeleting, busyLabel: '⏳ 削除中...', title: `選択した${selectedIds.size}件を削除します（確認あり・元に戻せません）` }}
+          onExit={() => setSelectedIds(new Set())}
+          exitAttrs={{ 'data-ctx-select-clear': '' }}
+          note={`削除すると元に戻せません。フォルダやカテゴリで絞り込んでから選ぶこともできます。比較は2〜${LIBRARY_COMPARE_MAX}件（列ヘッダーに生成元を表示）。`}
+        />
+      ); })()}
 
       {/* 192: 選択中タグのチップ＋AND/ORトグル。タグ2つ以上で AND（すべて含む）/ OR（いずれか含む）
           を切替できる。カテゴリ×タグ×検索(q)は常にANDで組み合わせ（サーバ側絞り込み・全件母数）。 */}
