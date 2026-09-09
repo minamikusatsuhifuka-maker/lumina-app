@@ -10201,7 +10201,9 @@ test('C125: マンダラ→note記事（309）— パネルの「📝 無料記�
     const paidPv = await api.get(`${MANDALA_API}/${chartId}/note?mode=paid_chart`);
     const paidJson = await paidPv.json();
     expect(paidJson.result.ok).toBe(true);
-    expect(paidJson.result.entries.map((e: { tier: string }) => e.tier), '空のマスは除外・型どおりの区分').toEqual(['free', 'paid']);
+    // 型のチャートは周囲8にタイトルがある＝8項目とも埋まっている。区分は型どおり（0〜3,5 無料／6〜8 有料）
+    expect(paidJson.result.entries.map((e: { tier: string }) => e.tier), '型どおりの区分').toEqual(['free', 'free', 'free', 'free', 'free', 'paid', 'paid', 'paid']);
+    expect(paidJson.result.counts.excludedEmpty, '空の子マス（親0の8マスのうち7）が除外').toBe(7);
     expect(paidJson.paidLineBefore).toBe(byPos(6).title);
     // 生成API（①）の mandala 検証。AI に届く前に弾かれる入力だけ叩く（課金なし）
     expect((await api.post('/api/dr-hub/persona', { data: { mandala: { chartId: 'x', mode: 'free_cell' }, mode: 'samples', personaKeys: ['expert', 'teen'] } })).status()).toBe(400);
@@ -10246,7 +10248,8 @@ test('C125: マンダラ→note記事（309）— パネルの「📝 無料記�
     await expect(paidSrc.locator('[data-hub-mandala-paidline]')).toHaveAttribute('data-hub-mandala-paidline', byPos(6).title);
     await expect(paidSrc.locator('[data-hub-mandala-paidline]')).toContainText('有料ライン');
     await expect(paidSrc.locator('[data-hub-mandala-ratio]')).toContainText('無料比率');
-    await expect(paidSrc.locator('[data-hub-mandala-entries]')).toHaveAttribute('data-hub-mandala-entries', '2');
+    await expect(paidSrc.locator('[data-hub-mandala-entries]')).toHaveAttribute('data-hub-mandala-entries', '8');
+    await expect(paidSrc.locator('[data-hub-mandala-excluded]')).toHaveAttribute('data-hub-mandala-excluded', '7');
     // 「✕ DR記事から選び直す」で通常の①に戻る（既定の経路が残っている）
     await page.locator('[data-hub-mandala-clear]').click();
     await expect(page.locator('[data-hub-mandala-source]')).toHaveCount(0);
@@ -10301,11 +10304,14 @@ test('C125: マンダラ→note記事（309）— パネルの「📝 無料記�
     await expect(page.locator('[data-mandala-articles-list] [data-mandala-article]')).toHaveCount(2);
     // 記事側
     await page.goto(`/dashboard/library?open=${articleId}`);
-    const origin = page.locator(`[data-library-mandala-origin="${chartId}"]`).first();
-    await expect(origin).toBeVisible({ timeout: 30000 });
+    // 一覧には無料・有料の2記事が並ぶ。文言で見分ける（無料＝『左上: ○○』から／有料＝全体から）
+    const origins = page.locator(`[data-library-mandala-origin="${chartId}"]`);
+    await expect(origins).toHaveCount(2, { timeout: 30000 });
+    const origin = origins.filter({ hasText: '左上' });
     await expect(origin).toContainText(`マンダラ『[E2E] ${marker} テーマ』の『左上: `);
     await expect(origin).toHaveAttribute('href', `/dashboard/mandala/${chartId}`);
     await expect(origin).toHaveAttribute('target', '_blank');
+    await expect(origins.filter({ hasText: '全体から' })).toContainText(`マンダラ『[E2E] ${marker} テーマ』全体から`);
   } finally {
     for (const id of articleIds) await api.delete(LIBRARY_API, { data: { ids: [id] } }).catch(() => {});
     await deleteMandalaChart(api, chartId);
