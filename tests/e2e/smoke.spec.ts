@@ -1599,7 +1599,7 @@ test('C40: 保存一覧の画面から一括削除できる（確認ダイアロ
   }
   const bulkBtn = panel.locator('[data-bulk-delete]');
   await expect(bulkBtn, '選択すると一括削除ボタンが出ること').toBeVisible();
-  await expect(bulkBtn).toContainText('2件');
+  await expect(panel.locator('[data-selection-bar]'), '318: 件数は選択バーの左（削除ボタンは「🗑 削除」）').toHaveAttribute('data-selection-bar-count', '2');
 
   // ① キャンセルすると1件も消えない（確認が実際に効いていることの検証）
   let dialogMessage = '';
@@ -6940,7 +6940,7 @@ test('C101: AI参照素材の一覧の見え方と選択比較（295）— 列�
     await expect(openBtn, '5件目を選んでいる間は無効化（先頭4件に黙って切らない・R-101）').toBeDisabled();
     await expect(openBtn).toHaveAttribute('title', /4件まで/);
     await expect(openBtn).toHaveAttribute('title', /5件選択中/);
-    await expect(page.locator('[data-bulk-delete]')).toContainText('5件');
+    await expect(page.locator('[data-selection-bar]')).toHaveAttribute('data-selection-bar-count', '5');
     await check(e).uncheck();
     await expect(openBtn).toBeEnabled();
     await openBtn.click();
