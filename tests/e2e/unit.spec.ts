@@ -3758,7 +3758,13 @@ test('U77: マンダラ→Kindle目次（307）— 8マス＋子ありが章8・
   expect(chartPage).toMatch(/data-mandala-books=\{books\.length\}/);
   const server = readFileSync(join(__dirname, '../../src/lib/mandala-server.ts'), 'utf8');
   expect(server, '起こした本は本の側の記録から導出（mandala_charts.meta に書かない・R-107）').toMatch(/FROM kindle_books\s*WHERE user_id = \$\{userId\}\s*AND book_meta->'mandala'->>'source' = 'mandala'/);
-  expect(server).not.toMatch(/UPDATE mandala_charts SET meta/);
+  // 316: チャート meta の書き換えは updateChartMeta（キー単位マージ・R-113）の1箇所だけ。Kindle の経路（307）は書かない（R-107）
+  expect(server.match(/UPDATE mandala_charts SET meta/g)?.length ?? 0, 'チャート meta の UPDATE は updateChartMeta の1箇所').toBe(1);
+  expect(server).toMatch(/UPDATE mandala_charts SET meta = \(COALESCE\(meta, '\{\}'::jsonb\) - \$\{remove\}::text\[\]\) \|\| \$\{JSON\.stringify\(set\)\}::jsonb/);
+  const kindleRoute = readFileSync(join(__dirname, '../../src/app/api/mandala/[id]/kindle/route.ts'), 'utf8');
+  expect(kindleRoute).not.toContain('updateChartMeta');
+  const kindleCreate = readFileSync(join(__dirname, '../../src/app/api/kindle/wizard/create/route.ts'), 'utf8');
+  expect(kindleCreate).not.toContain('updateChartMeta');
 });
 
 test('U78: マンダラ 有料note記事の型・反応記録・無料比率（308）— プリセット定義は1箇所で周囲8のタイトルと tier が定義どおり・中央は空・KB ID のコメント・反応の入力検証（非負整数・100字・全部空＝null・不正は理由）・購入率は purchases÷views で views 未記録なら null（保存しない・R-74）・同一内容の判定（R-87）・反応記録 n/m は埋まったマスだけ・無料比率は中央を除き子マスは親の区分・両方0なら null・meta が空なら区分/反応/比率が何も出ない（§7）・meta はキー単位マージ（`meta - keys || patch`・丸ごと置換なし）・作成の既定は body なし・Kindle 目次は meta を読まない（U77 不変）', async () => {
