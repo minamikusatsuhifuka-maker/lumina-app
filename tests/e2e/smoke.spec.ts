@@ -11918,7 +11918,8 @@ test('C136: 生成結果から直接図解・画像（320）— 🔭DR結果（�
     await expect(c1).toHaveAttribute('data-vis-plan-type', 'correlation');
     await expect(c1).toHaveAttribute('data-vis-plan-ok', '0');
     await expect(c1.locator('[data-vis-block-reason="c1"]')).toContainText(CORRELATION_LABEL_REQUIRED);
-    await expect(c1.locator('[data-vis-foreign="c1"]'), '元テキストに無い相関の語句').toContainText('強い因果');
+    await expect(c1.locator('[data-vis-foreign="c1"]').filter({ hasText: '強い因果' }), '元テキストに無い相関の語句（ラベル無しの辺と併せて赤い印が2つ）').toHaveCount(1);
+    await expect(c1.locator('[data-vis-foreign="c1"]')).toHaveCount(2);
     await expect(c1.locator('[data-vis-render="c1"]')).toBeDisabled();
     await c1.locator('[data-vis-points="c1-0"]').fill('→ 乾燥: 逆相関');
     await c1.locator('[data-vis-points="c1-2"]').fill('→ 乾燥: 乾燥を減らす');
