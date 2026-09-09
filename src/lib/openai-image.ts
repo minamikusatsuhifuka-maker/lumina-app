@@ -2,7 +2,7 @@
 // キーは環境変数を読むだけ（未設定なら呼ばない・値はログに出さない）。未提供（403/404/model 不明）は 314 と同じ判定を共用。
 // リトライは通信エラーだけ 1 回。時間切れ（AbortSignal）と HTTP エラーではリトライしない（R-73）
 import { IMAGE_MODEL_IDS } from '@/lib/model-pricing';
-import { describeOpenAIError, isOpenAIUnavailable } from '@/lib/openai-research';
+import { describeOpenAIError, isOpenAIUnavailable, openAIErrorMessage } from '@/lib/openai-research';
 
 const OPENAI_IMAGES_URL = 'https://api.openai.com/v1/images/generations';
 
@@ -48,7 +48,9 @@ export async function generateGptImage25(args: {
   if (!res.ok) {
     const errBody = await res.json().catch(() => null);
     const unavailable = isOpenAIUnavailable(res.status, errBody);
-    return { ok: false, message: unavailable ? `GPT Image 2.5（${modelId}）はこのアカウントではまだ提供されていません（API 提供は順次）。` : describeOpenAIError(res.status, errBody), unavailable };
+    // R-33: 理由は原文つき（HTTP と OpenAI のメッセージ）。キーの値は含めない
+    const raw = openAIErrorMessage(errBody).slice(0, 200);
+    return { ok: false, message: unavailable ? `GPT Image 2.5（${modelId}）はこのアカウントではまだ提供されていません（API 提供は順次）。／HTTP ${res.status}${raw ? `・原文: ${raw}` : ''}` : describeOpenAIError(res.status, errBody), unavailable };
   }
   const data = (await res.json()) as { data?: { b64_json?: string }[]; usage?: OpenAIImageUsage };
   const b64 = data.data?.[0]?.b64_json;
