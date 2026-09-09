@@ -3894,6 +3894,14 @@ test('U79: マンダラ→note記事（309）— 1文1行の整形は句点「�
   expect(nf.isOneSentencePerLine(out)).toBe(true);
   expect(nf.findMultiSentenceLines(src).map((v) => v.line), '括弧内の句点は違反にならない').toEqual([3, 4]);
   expect(nf.ONE_SENTENCE_PER_LINE_RULE).toContain('1文ごとに改行');
+  // 310追加: 見出し規約の整形（h1→##・####以下→###・コードフェンス内は不変・冪等）と検査
+  const h = '# タイトル\n\n## 大見出し\n\n### 小見出し\n\n#### 深い\n\n##### もっと深い\n\n```\n# コード内\n```\n本文 #ではない\n#タグ（空白なし）';
+  const hOut = nf.enforceNoteHeadingLevels(h);
+  expect(hOut.split('\n')).toEqual(['## タイトル', '', '## 大見出し', '', '### 小見出し', '', '### 深い', '', '### もっと深い', '', '```', '# コード内', '```', '本文 #ではない', '#タグ（空白なし）']);
+  expect(nf.enforceNoteHeadingLevels(hOut), '冪等').toBe(hOut);
+  expect(nf.findBadHeadingLines(h).map((v) => v.line)).toEqual([1, 7, 9]);
+  expect(nf.findBadHeadingLines(hOut)).toEqual([]);
+  expect(nf.NOTE_HEADING_RULE).toContain('#（h1）は使わない');
 
   // ② 変換の材料
   type Cell = import('../../src/lib/mandala-shared').MandalaCell;
@@ -4047,41 +4055,45 @@ test('U80: 「1文1行」整形の横展開（310・R-114）— ②分割・275 
     expect(call, `${label}: 整形はガードの前`).toBeLessThan(guard);
   };
   // 5経路（サーバ）
-  before(read('app/api/dr-hub/split/route.ts'), /const article = formatOneSentencePerLine\(await generateWithModel\(/, /checkMedicalAd\(article\)/, '②分割');
-  before(read('app/api/kindle/to-note/route.ts'), /const content = formatOneSentencePerLine\(await generateWithModel\(/, /checkMedicalAd\(content\)/, '275 書籍→記事');
-  before(read('app/api/kindle/note-remix/route.ts'), /const articleBody = formatOneSentencePerLine\(parsedOut\.body\)/, /checkMedicalAd\(articleBody\)/, '269 remix');
+  // 310追加: 2関数とも（見出し規約 enforceNoteHeadingLevels ∘ 1文1行 formatOneSentencePerLine）
+  before(read('app/api/dr-hub/split/route.ts'), /const article = enforceNoteHeadingLevels\(formatOneSentencePerLine\(await generateWithModel\(/, /checkMedicalAd\(article\)/, '②分割');
+  before(read('app/api/kindle/to-note/route.ts'), /const content = enforceNoteHeadingLevels\(formatOneSentencePerLine\(await generateWithModel\(/, /checkMedicalAd\(content\)/, '275 書籍→記事');
+  before(read('app/api/kindle/note-remix/route.ts'), /const articleBody = enforceNoteHeadingLevels\(formatOneSentencePerLine\(parsedOut\.body\)\)/, /checkMedicalAd\(articleBody\)/, '269 remix');
   const bundle = read('app/api/note-bundle/article/route.ts');
-  before(bundle, /const formatted = formatOneSentencePerLine\(content\)/, /checkMedicalAd\(formatted\)/, 'note-bundle');
+  before(bundle, /const formatted = enforceNoteHeadingLevels\(formatOneSentencePerLine\(content\)\)/, /checkMedicalAd\(formatted\)/, 'note-bundle');
   expect(bundle, 'note-bundle は整形後の本文を返す').toMatch(/content: formatted,/);
   const quick = read('app/api/note-quick/article/route.ts');
-  before(quick, /const content = formatOneSentencePerLine\(gen\.text\)/, /checkMedicalAd\(content\)/, 'note-quick');
+  before(quick, /const content = enforceNoteHeadingLevels\(formatOneSentencePerLine\(gen\.text\)\)/, /checkMedicalAd\(content\)/, 'note-quick');
   expect(quick.search(/formatOneSentencePerLine\(gen\.text\)/), 'note-quick: verifyContent より前').toBeLessThan(quick.search(/verifyContent\(content/));
-  // ①（309）も同じ関数（samples/full）
-  expect(read('app/api/dr-hub/persona/route.ts').match(/formatOneSentencePerLine\(/g)?.length).toBe(2);
+  // ①（309）も同じ2関数（samples/full）
+  const persona = read('app/api/dr-hub/persona/route.ts');
+  expect(persona.match(/enforceNoteHeadingLevels\(formatOneSentencePerLine\(/g)?.length).toBe(2);
   // 旧 note記事生成: 画面の done で整形。途中経過（type==='text'）の setArticle は生の accumulated のまま
   const oldPage = read('app/dashboard/note-article/page.tsx');
-  expect(oldPage).toMatch(/accumulated = formatOneSentencePerLine\(accumulated\);\n\s*setArticle\(accumulated\);\n\s*setEditedArticle\(accumulated\);/);
+  expect(oldPage).toMatch(/accumulated = enforceNoteHeadingLevels\(formatOneSentencePerLine\(accumulated\)\);\n\s*setArticle\(accumulated\);\n\s*setEditedArticle\(accumulated\);/);
   const streamLoop = oldPage.slice(oldPage.indexOf("if (json.type === 'text')"), oldPage.indexOf("} else if (json.type === 'error')"));
-  expect(streamLoop, '途中経過は整形しない').not.toContain('formatOneSentencePerLine');
+  expect(streamLoop, '途中経過は整形しない').not.toMatch(/formatOneSentencePerLine|enforceNoteHeadingLevels/);
   // 共通層
   const saveBtn = read('components/SaveToLibraryButton.tsx');
-  expect(saveBtn).toMatch(/const contentToSave = type === 'note-article' \? formatOneSentencePerLine\(content\) : content;/);
+  expect(saveBtn).toMatch(/const contentToSave = type === 'note-article' \? enforceNoteHeadingLevels\(formatOneSentencePerLine\(content\)\) : content;/);
   expect(saveBtn).toMatch(/content: contentToSave,/);
   const richCopy = read('lib/rich-copy.ts');
-  expect(richCopy).toMatch(/export async function copyRichMarkdownForNote\(markdownRaw: string\)[^]*?const markdown = formatOneSentencePerLine\(markdownRaw\);/);
+  expect(richCopy).toMatch(/export async function copyRichMarkdownForNote\(markdownRaw: string\)[^]*?const markdown = enforceNoteHeadingLevels\(formatOneSentencePerLine\(markdownRaw\)\);/);
   const wordCopy = richCopy.slice(richCopy.indexOf('export async function copyRichMarkdown('), richCopy.indexOf('export function promoteHeadingsForNote'));
-  expect(wordCopy, '共有の copyRichMarkdown（Word体裁）には当てない').not.toContain('formatOneSentencePerLine');
+  expect(wordCopy, '共有の copyRichMarkdown（Word体裁）には当てない').not.toMatch(/formatOneSentencePerLine|enforceNoteHeadingLevels/);
   // 一段目（プロンプト）は共通規約に1回だけ
   expect(read('lib/note-styles.ts').match(/\$\{ONE_SENTENCE_PER_LINE_RULE\}/g)?.length).toBe(1);
+  expect(read('lib/note-styles.ts').match(/\$\{NOTE_HEADING_RULE\}/g)?.length, '見出し規約も共通規約に1回だけ').toBe(1);
+  expect(read('lib/persona-styles.ts'), '①の PERSONA_HEADING_GUARD は残置').toContain('export const PERSONA_HEADING_GUARD');
   expect(read('lib/persona-styles.ts')).not.toMatch(/ONE_SENTENCE_PER_LINE_RULE/);
   // 当ててはいけない側: Kindle本文・HP・SNS・プレゼン・喩え話
   for (const p of ['app/api/kindle/generate-chapter/route.ts', 'app/api/kindle/chapters/route.ts', 'app/api/kindle/outline/route.ts', 'app/api/kindle/wizard/create/route.ts']) {
-    expect(read(p), `${p} に整形なし`).not.toMatch(/note-format|formatOneSentencePerLine/);
+    expect(read(p), `${p} に整形なし`).not.toMatch(/note-format|formatOneSentencePerLine|enforceNoteHeadingLevels/);
   }
   const apiDir = join(__dirname, '../../src/app/api');
   const { readdirSync, statSync } = await import('node:fs');
   const walk = (dir: string): string[] => readdirSync(dir).flatMap((f) => { const full = join(dir, f); return statSync(full).isDirectory() ? walk(full) : [full]; });
-  const usingFormat = walk(apiDir).filter((f) => f.endsWith('.ts') && readFileSync(f, 'utf8').includes('formatOneSentencePerLine')).map((f) => f.slice(apiDir.length + 1));
+  const usingFormat = walk(apiDir).filter((f) => f.endsWith('.ts') && /formatOneSentencePerLine|enforceNoteHeadingLevels/.test(readFileSync(f, 'utf8'))).map((f) => f.slice(apiDir.length + 1));
   expect(usingFormat.sort(), '整形を呼ぶ API は note 記事の6経路（①②275/269/bundle/quick）だけ').toEqual([
     'dr-hub/persona/route.ts', 'dr-hub/split/route.ts', 'kindle/note-remix/route.ts', 'kindle/to-note/route.ts', 'note-bundle/article/route.ts', 'note-quick/article/route.ts',
   ].sort());

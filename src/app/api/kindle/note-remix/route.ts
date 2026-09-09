@@ -1,4 +1,4 @@
-import { formatOneSentencePerLine } from '@/lib/note-format';
+import { enforceNoteHeadingLevels, formatOneSentencePerLine } from '@/lib/note-format';
 import { NextRequest, NextResponse } from 'next/server';
 import { neon } from '@neondatabase/serverless';
 import { requireAuth } from '@/lib/require-auth';
@@ -151,7 +151,7 @@ ${chapterText.slice(0, MAX_SOURCE_CHARS)}${episode.block ? `\n\n${episode.block}
     const parsedOut = parsePersonaArticleOutput(raw);
     const titles = parsedOut.titles;
     // 310（R-114）: 1文1行の決定的整形はガードの前・冪等
-    const articleBody = formatOneSentencePerLine(parsedOut.body);
+    const articleBody = enforceNoteHeadingLevels(formatOneSentencePerLine(parsedOut.body));
 
     // 機械検証（警告のみ・自動修正しない）
     const contextHits = detectBookContext(articleBody);

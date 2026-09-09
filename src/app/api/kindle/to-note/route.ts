@@ -7,7 +7,7 @@ import { checkMedicalAd, MEDICAL_AD_NG_RULES } from '@/lib/medical-ad-check';
 import { getNoteStyle, NOTE_COMMON_RULES } from '@/lib/note-styles';
 import { NOTE_WRITING_DESIGN, KINDLE_TO_NOTE_RULES } from '@/lib/note-writing';
 import { getMyStylePrompt } from '@/lib/my-style-server';
-import { formatOneSentencePerLine } from '@/lib/note-format';
+import { enforceNoteHeadingLevels, formatOneSentencePerLine } from '@/lib/note-format';
 
 export const runtime = 'nodejs';
 export const maxDuration = 300;
@@ -103,7 +103,7 @@ ${summarySection}
 - AI らしい不自然な文章を避け、人間が書いたような自然な文体に`;
 
     // 310（R-114）: 1文1行の決定的整形はガードの前・冪等
-    const content = formatOneSentencePerLine(await generateWithModel(aiModel, prompt, system, 12000, GEMINI_TEXT_THINKING_MEDIUM));
+    const content = enforceNoteHeadingLevels(formatOneSentencePerLine(await generateWithModel(aiModel, prompt, system, 12000, GEMINI_TEXT_THINKING_MEDIUM)));
     if (!content || !content.trim()) {
       return NextResponse.json({ error: '記事の生成結果が空でした。もう一度お試しください' }, { status: 502 });
     }

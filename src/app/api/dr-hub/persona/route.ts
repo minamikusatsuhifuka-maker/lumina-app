@@ -23,7 +23,7 @@ import {
 } from '@/lib/persona-styles';
 import { getPlaybook, PLAYBOOK_VERSION } from '@/lib/knowledge/noteXPlaybook';
 import { loadEpisodePromptBlock } from '@/lib/episodes-server';
-import { formatOneSentencePerLine, findMultiSentenceLines } from '@/lib/note-format';
+import { enforceNoteHeadingLevels, formatOneSentencePerLine, findMultiSentenceLines } from '@/lib/note-format';
 import { getChart, listLinksForChartResolved, fetchMandalaLinkBodies } from '@/lib/mandala-server';
 import { isUuidLike, mandalaOutlineNested, type MandalaLinkResolved } from '@/lib/mandala-shared';
 import {
@@ -221,7 +221,7 @@ ${mandala ? `\n${mandalaPromptBlock(mandala).trim()}\n` : ''}
   for (const k of unique) {
     const s = String(parsed?.samples?.[k] ?? '').trim();
     // 309: 1文1行（決定的・冪等）。サンプルにも同じ整形
-    if (s) samples[k] = formatOneSentencePerLine(s);
+    if (s) samples[k] = enforceNoteHeadingLevels(formatOneSentencePerLine(s));
   }
   // fail-closed: 1件も取れないなら失敗として返す（空のカードを並べない）
   if (Object.keys(samples).length === 0) {
@@ -318,7 +318,7 @@ ${episode.block ? `\n${episode.block}\n` : ''}
   const parsedOut = parsePersonaArticleOutput(raw);
   const titles = parsedOut.titles;
   // 309: 1文1行（決定的・冪等・全出力）。有料モードは有料ラインの目印を1本にそろえる（無ければ最初の有料項目の大見出しの直前へ）
-  let articleBody = formatOneSentencePerLine(parsedOut.body);
+  let articleBody = enforceNoteHeadingLevels(formatOneSentencePerLine(parsedOut.body));
   let paidLine: { inserted: boolean; missing: boolean } | null = null;
   if (mandala?.mode === 'paid_chart') {
     const ensured = ensurePaidLineMarker(articleBody, mandala.firstPaidTitle);

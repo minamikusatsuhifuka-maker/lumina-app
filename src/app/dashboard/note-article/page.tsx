@@ -15,7 +15,7 @@ import {
   yyyymmdd,
 } from '@/lib/title-generator';
 import { copyRichMarkdown } from '@/lib/rich-copy';
-import { formatOneSentencePerLine } from '@/lib/note-format';
+import { enforceNoteHeadingLevels, formatOneSentencePerLine } from '@/lib/note-format';
 import { triggerDownload } from '@/lib/download';
 import {
   loadFeatureDraft,
@@ -412,7 +412,7 @@ export default function NoteArticleGenerationPage() {
       }
 
       // 310（R-114）: ストリーミング完了時に1文1行へ整える（途中経過の表示は変えない）。以降の下書き保存・広告チェックも整形後の本文
-      accumulated = formatOneSentencePerLine(accumulated);
+      accumulated = enforceNoteHeadingLevels(formatOneSentencePerLine(accumulated));
       setArticle(accumulated);
       setEditedArticle(accumulated);
       setTrafficStats({

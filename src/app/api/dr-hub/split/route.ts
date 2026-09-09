@@ -13,7 +13,7 @@ import { getMyStylePrompt } from '@/lib/my-style-server';
 import { PERSONA_STYLES, PERSONA_GUARD, getPersonaStyle } from '@/lib/persona-styles';
 import { getPlaybook, PLAYBOOK_VERSION } from '@/lib/knowledge/noteXPlaybook';
 import { loadEpisodePromptBlock } from '@/lib/episodes-server';
-import { formatOneSentencePerLine } from '@/lib/note-format';
+import { enforceNoteHeadingLevels, formatOneSentencePerLine } from '@/lib/note-format';
 
 export const runtime = 'nodejs';
 export const maxDuration = 300;
@@ -277,7 +277,7 @@ ${episode.block ? `\n${episode.block}\n` : ''}
 - AI らしい不自然な文章を避け、人間が書いたような自然な文体に`;
 
   // 310（R-114）: 1文1行の決定的整形はガード（checkMedicalAd）の前・冪等
-  const article = formatOneSentencePerLine(await generateWithModel(aiModel, prompt, system, 12000, GEMINI_TEXT_THINKING_MEDIUM));
+  const article = enforceNoteHeadingLevels(formatOneSentencePerLine(await generateWithModel(aiModel, prompt, system, 12000, GEMINI_TEXT_THINKING_MEDIUM)));
   if (!article || !article.trim()) {
     return NextResponse.json({ error: '記事の生成結果が空でした。もう一度お試しください' }, { status: 502 });
   }

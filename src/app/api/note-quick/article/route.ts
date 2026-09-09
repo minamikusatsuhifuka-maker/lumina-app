@@ -1,4 +1,4 @@
-import { formatOneSentencePerLine } from '@/lib/note-format';
+import { enforceNoteHeadingLevels, formatOneSentencePerLine } from '@/lib/note-format';
 import { NextResponse } from 'next/server';
 import { requireAuth } from '@/lib/require-auth';
 import { neon } from '@neondatabase/serverless';
@@ -120,7 +120,7 @@ ${NOTE_WRITING_DESIGN}
     // 235: 実際に生成したモデルを画面へ返す（Claude上限時はGeminiへ自動フォールバック）
     const gen = await generateWithModelInfo(aiModel, prompt, system, 12000, GEMINI_TEXT_THINKING_MEDIUM);
     // 310（R-114）: 1文1行の決定的整形はガード（checkMedicalAd・verifyContent）の前・冪等
-    const content = formatOneSentencePerLine(gen.text);
+    const content = enforceNoteHeadingLevels(formatOneSentencePerLine(gen.text));
     const aiInfo = { provider: gen.provider, modelLabel: gen.modelLabel };
     if (!content || !content.trim()) {
       return NextResponse.json({ error: '記事の生成結果が空でした。もう一度お試しください' }, { status: 502 });

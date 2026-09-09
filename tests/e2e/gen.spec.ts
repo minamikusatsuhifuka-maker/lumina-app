@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { RUN_ID, createSave, deleteSave, createLibraryItem, createMandalaChart, saveMandalaCell, deleteMandalaChart, createEpisode, addMandalaLinks } from './helpers';
-import { findMultiSentenceLines } from '../../src/lib/note-format';
+import { findBadHeadingLines, findMultiSentenceLines } from '../../src/lib/note-format';
 import { MANDALA_PAID_LINE_MARKER } from '../../src/lib/mandala-note';
 import { SUMMARY_FOR_NEXT_MAX } from '../../src/lib/presentation';
 
@@ -779,8 +779,9 @@ test('B31: ②分割記事化（310・R-114）— 1記事分の実出力が1文1
     expect(res.status(), JSON.stringify(data).slice(0, 300)).toBe(200);
     const body = String(data.content ?? '');
     expect(body.length).toBeGreaterThan(300);
-    // 310 の対象は体裁（1文1行・段落間空行）だけ。②は見出しの2階層規約（264・①のみ）を持たないため h1 が出ることがある
-    // ＝規約の変更は別便（§3）。ここでは判定せず報告に回す
+    // 310追加: 見出し規約（##/### の2階層・h1 なし）も二段構え（共通規約＋enforceNoteHeadingLevels）で全経路
+    expect(/^#\s/m.test(body), '本文にh1（#）が無い').toBe(false);
+    expect(findBadHeadingLines(body), '見出しは2階層').toEqual([]);
     expect(body).toContain('\n\n');
     expect(findMultiSentenceLines(body), '1文1行').toEqual([]);
   } finally {

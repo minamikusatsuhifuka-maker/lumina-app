@@ -1,4 +1,4 @@
-import { formatOneSentencePerLine } from '@/lib/note-format';
+import { enforceNoteHeadingLevels, formatOneSentencePerLine } from '@/lib/note-format';
 import { NextResponse } from 'next/server';
 import { requireAuth } from '@/lib/require-auth';
 import { generateWithModel } from '@/lib/ai-client';
@@ -161,7 +161,7 @@ ${materialsSection}
     }
 
     // 310（R-114）: 1文1行の決定的整形はガードの前・冪等
-    const formatted = formatOneSentencePerLine(content);
+    const formatted = enforceNoteHeadingLevels(formatOneSentencePerLine(content));
     const adCheck = await checkMedicalAd(formatted);
 
     return NextResponse.json({

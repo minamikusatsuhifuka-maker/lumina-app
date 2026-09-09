@@ -145,3 +145,49 @@ export function isOneSentencePerLine(markdown: string): boolean {
 /** プロンプトに課す文言（①ペルソナ経路の構造規約に並べる。表示側の整形と同じ規則） */
 export const ONE_SENTENCE_PER_LINE_RULE = `- 1文ごとに改行する（句点「。」「！」「？」の直後で改行。1行に2文以上を置かない）
 - 段落の間は空行1行で区切る（括弧内・見出し・箇条書き・引用は分割しない）`;
+
+// ───────────────────────────────────────────────────────────────────────────
+// 310追加: 見出し規約（note は ## と ### の2階層・# は使わない・タイトルは本文に含めない）の決定的な整形（冪等）
+// ───────────────────────────────────────────────────────────────────────────
+
+/** プロンプトに課す文言（共通規約 NOTE_COMMON_RULES に1回だけ並べる） */
+export const NOTE_HEADING_RULE = `- 見出しは大見出し（##）と小見出し（###）の2階層だけを使う。#（h1）は使わない（記事タイトルは本文に含めず、note のタイトル欄に貼る）`;
+
+/**
+ * 行頭「# 」（h1）は「## 」へ降格、「####」以下は「###」へ丸める。コードフェンス内は触らない。同じ入力→同じ出力・冪等
+ */
+export function enforceNoteHeadingLevels(markdown: string): string {
+  const lines = String(markdown ?? '').replace(/\r\n?/g, '\n').split('\n');
+  let inFence = false;
+  return lines
+    .map((raw) => {
+      if (FENCE_RE.test(raw)) {
+        inFence = !inFence;
+        return raw;
+      }
+      if (inFence) return raw;
+      const m = /^(#{1,6})(\s+)(.*)$/.exec(raw);
+      if (!m) return raw;
+      const level = m[1].length;
+      if (level === 1) return `## ${m[3]}`;
+      if (level >= 4) return `### ${m[3]}`;
+      return raw;
+    })
+    .join('\n');
+}
+
+/** 検査: h1 または #### 以下の見出し行（コードフェンス外）を列挙。0件＝規約どおり */
+export function findBadHeadingLines(markdown: string): SentenceLineViolation[] {
+  const lines = String(markdown ?? '').replace(/\r\n?/g, '\n').split('\n');
+  const out: SentenceLineViolation[] = [];
+  let inFence = false;
+  lines.forEach((raw, idx) => {
+    if (FENCE_RE.test(raw)) {
+      inFence = !inFence;
+      return;
+    }
+    if (inFence) return;
+    if (/^#\s/.test(raw) || /^#{4,}\s/.test(raw)) out.push({ line: idx + 1, text: raw.slice(0, 80) });
+  });
+  return out;
+}
