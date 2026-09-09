@@ -10526,3 +10526,130 @@ test('C126: マンダラ 未調査マスからのリサーチ発注（311）— 
     await api.delete(LIBRARY_API, { data: { ids: [libId] } }).catch(() => {});
   }
 });
+
+test('C127: マンダラ→X投稿と反応の書き戻し（312）— パネルの「🐦 X投稿にする」で発信ハブ③がマンダラの素材を受け取った状態で開く（気づき・素材・📔・セルフリプライ候補URL・本数1〜5）・見出しの「Xシリーズにする」は周囲マス2未満で無効化＋理由・シリーズは目次順で空を除外・保存API（AIなし）はマンダラ経由のとき本文のURLと上限超過を保存させない（決定的）・付帯情報なしの保存は不変（R-88）・出どころ（metadata.mandala）から投稿側の「マンダラ『○○』から」と戻りリンク、マスの「🐦 n」と見出しの「🐦 投稿: n本」・反応Xタブで記録でき note 側の項目が消えない（キー単位）・📈ポップアップにX行', async ({
+  page,
+}) => {
+  test.setTimeout(300_000);
+  const marker = `MXP${RUN_ID}`;
+  const { id: chartId, cells } = await createMandalaChart(api, `${marker} テーマ`);
+  const { id: thinId, cells: thinCells } = await createMandalaChart(api, `${marker} 薄い`);
+  const byPos = (p: number) => cells.find((c) => c.position === p)!;
+  expect((await saveMandalaCell(api, byPos(0).id, { title: `気づき0 ${marker}`, body: `本文0 ${marker}\n参考 https://example.com/${marker}` })).status()).toBe(200);
+  expect((await saveMandalaCell(api, byPos(1).id, { title: `気づき1 ${marker}`, body: `本文1 ${marker}` })).status()).toBe(200);
+  expect((await saveMandalaCell(api, thinCells.find((c) => c.position === 0)!.id, { title: `ひとつ ${marker}` })).status()).toBe(200);
+  const cellMeta = async (id: string) => ((await getMandalaChart(api, chartId)).cells.find((c) => c.id === id)!.meta ?? {}) as Record<string, any>;
+  const savedIds: string[] = [];
+  try {
+    // ① 入口: 見出し（2マス以上で有効・未満は無効＋理由）とパネル
+    await page.goto(`/dashboard/mandala/${chartId}`);
+    const grid = page.locator('[data-mandala-grid][data-mandala-grid-depth="1"]');
+    await expect(grid.locator('[data-mandala-cell]')).toHaveCount(9, { timeout: 30000 });
+    await expect(page.locator('[data-mandala-x-series]')).toHaveAttribute('href', `/dashboard/dr-hub?mandala=${chartId}&mode=series&to=x`);
+    await expect(page.locator('[data-mandala-xposts]'), '起こす前は「投稿」を出さない').toHaveCount(0);
+    await grid.locator('[data-mandala-cell="0"]').click();
+    const panel0 = page.locator(`[data-mandala-panel="${byPos(0).id}"]`);
+    await expect(panel0.locator('[data-mandala-x-cell]')).toHaveAttribute('href', `/dashboard/dr-hub?mandala=${chartId}&cell=${byPos(0).id}&to=x`);
+    await expect(panel0.locator('[data-mandala-x-cell]')).toHaveAttribute('target', '_blank');
+    await panel0.locator('[data-mandala-panel-close]').click();
+    await page.goto(`/dashboard/mandala/${thinId}`);
+    await expect(grid.locator('[data-mandala-cell]')).toHaveCount(9, { timeout: 30000 });
+    await expect(page.locator('[data-mandala-x-series]')).toHaveCount(0);
+    await expect(page.locator('[data-mandala-x-series-disabled]')).toHaveAttribute('title', /2つ以上/);
+    // ② 発信ハブ③: マス→投稿群（本数・候補URL）／シリーズ（目次順・除外）
+    await page.goto(`/dashboard/dr-hub?mandala=${chartId}&cell=${byPos(0).id}&to=x`);
+    const xb = page.locator('[data-hub-mandala-x]');
+    await expect(xb).toHaveAttribute('data-hub-mandala-x-ok', '1', { timeout: 30000 });
+    await expect(xb.locator('[data-hub-mandala-x-label]')).toContainText(`『左上: 気づき0 ${marker}』から（投稿群 3本）`);
+    await expect(xb.locator('[data-hub-mandala-x-count]')).toHaveValue('3');
+    await expect(xb.locator('[data-hub-mandala-x-replyurls]'), '本文の URL はセルフリプライ候補').toHaveAttribute('data-hub-mandala-x-replyurls', '1');
+    await xb.locator('[data-hub-mandala-x-count]').selectOption('2');
+    await expect(xb.locator('[data-hub-mandala-x-label]')).toContainText('（投稿群 2本）', { timeout: 15000 });
+    await expect(xb.locator('[data-hub-mandala-x-generate]')).toContainText('2本');
+    await page.goto(`/dashboard/dr-hub?mandala=${chartId}&mode=series&to=x`);
+    await expect(xb).toHaveAttribute('data-hub-mandala-x-ok', '1', { timeout: 30000 });
+    await expect(xb.locator('[data-hub-mandala-x-label]')).toContainText('シリーズ 2本');
+    await expect(xb.locator('[data-hub-mandala-x-posts]')).toHaveAttribute('data-hub-mandala-x-posts', '2');
+    await expect(xb.locator('[data-hub-mandala-x-excluded]')).toHaveAttribute('data-hub-mandala-x-excluded', '6');
+    await page.goto(`/dashboard/dr-hub?mandala=${thinId}&mode=series&to=x`);
+    await expect(xb).toHaveAttribute('data-hub-mandala-x-ok', '0', { timeout: 30000 });
+    await expect(xb.locator('[data-hub-mandala-x-reject]')).toContainText('2つ以上');
+    // ③ 保存API（AIなし）: マンダラ経由は URL・上限をコード側で拒否。付帯情報なしは不変
+    const ref = { source: 'mandala', chartId, mode: 'cell', cellId: byPos(0).id, cellIds: [byPos(0).id], chartTitle: `[E2E] ${marker} テーマ`, cellLabel: '左上', cellTitle: `気づき0 ${marker}`, count: 3, index: 0 };
+    const withUrl = await api.post('/api/dr-hub/x-post/save', { data: { content: `本文 https://example.com/${marker}`, mode: 'single', title: `[E2E] ${marker} URL付き`, mandala: ref } });
+    expect(withUrl.status(), '本文に URL があれば保存させない').toBe(400);
+    expect((await withUrl.json()).error).toContain('URL');
+    const tooLong = await api.post('/api/dr-hub/x-post/save', { data: { content: 'あ'.repeat(25001), mode: 'single', title: `[E2E] ${marker} 長すぎ`, mandala: ref } });
+    expect(tooLong.status(), '上限超過は保存させない').toBe(400);
+    expect((await api.post('/api/dr-hub/x-post/save', { data: { content: '本文', mode: 'single', mandala: { source: 'mandala', chartId: 'x', mode: 'cell' } } })).status(), '不正な出どころは 400').toBe(400);
+    const okSave = await api.post('/api/dr-hub/x-post/save', { data: { content: `気づきの投稿 ${marker}。\n\n---\n\n[1つ目のリプライ（URL用）]\n関連リンク\n👉 https://example.com/${marker}`, mode: 'single', title: `[E2E] ${marker} X投稿`, mandala: ref } });
+    expect(okSave.status(), 'リプライ欄の URL は許す').toBe(200);
+    savedIds.push((await okSave.json()).id as string);
+    const legacy = await api.post('/api/dr-hub/x-post/save', { data: { content: `[E2E] ${marker} 従来の保存 https://example.com/legacy`, mode: 'single', title: `[E2E] ${marker} 従来` } });
+    expect(legacy.status(), '付帯情報なしの保存は従来どおり（URL があっても保存できる）').toBe(200);
+    savedIds.push((await legacy.json()).id as string);
+    const detail = await (await api.get(`${MANDALA_API}/${chartId}`)).json();
+    expect((detail.xposts as { id: string; mode: string; cellId: string }[]).map((p) => [p.id, p.mode, p.cellId])).toEqual([[savedIds[0], 'cell', byPos(0).id]]);
+    // ④ マンダラ側: 🐦 n・見出し・ポップアップ。投稿側: 出どころと戻りリンク
+    await page.goto(`/dashboard/mandala/${chartId}`);
+    await expect(page.locator('[data-mandala-xposts]')).toHaveAttribute('data-mandala-xposts', '1', { timeout: 30000 });
+    await expect(page.locator('[data-mandala-xposts]')).toContainText('投稿: 1本');
+    await expect(grid.locator('[data-mandala-cell="0"] [data-mandala-cell-xposts]')).toHaveAttribute('data-mandala-cell-xposts', '1');
+    await expect(grid.locator('[data-mandala-cell="1"] [data-mandala-cell-xposts]')).toHaveCount(0);
+    await grid.locator('[data-mandala-cell="0"] [data-mandala-cell-xposts]').hover();
+    const pop = page.locator('[data-mandala-xposts-popover]');
+    await expect(pop).toBeVisible({ timeout: 5000 });
+    await expect(pop.locator(`[data-mandala-xpost="${savedIds[0]}"]`)).toHaveAttribute('href', `/dashboard/library?open=${savedIds[0]}`);
+    await page.mouse.move(5, 5);
+    await page.goto(`/dashboard/library?open=${savedIds[0]}`);
+    const origin = page.locator(`[data-library-mandala-origin="${chartId}"][data-library-mandala-x-mode="cell"]`);
+    await expect(origin).toBeVisible({ timeout: 30000 });
+    await expect(origin).toContainText(`マンダラ『[E2E] ${marker} テーマ』の『左上: 気づき0 ${marker}』から`);
+    await expect(origin).toHaveAttribute('href', `/dashboard/mandala/${chartId}`);
+    await expect(origin).toHaveAttribute('target', '_blank');
+    // ⑤ 反応 X タブ: X を書いても note が消えない・note を書いても X が消えない・📈ポップアップに X 行
+    expect((await saveMandalaCell(api, byPos(1).id, { reaction: { views: 10, memo: `note ${marker}` } })).status()).toBe(200);
+    await page.goto(`/dashboard/mandala/${chartId}`);
+    await expect(grid.locator('[data-mandala-cell]')).toHaveCount(9, { timeout: 30000 });
+    await grid.locator('[data-mandala-cell="1"]').click();
+    const panel1 = page.locator(`[data-mandala-panel="${byPos(1).id}"]`);
+    const details = panel1.locator('[data-mandala-reaction]');
+    await expect(details).toHaveAttribute('data-mandala-reaction-saved', '1');
+    await expect(details).toHaveAttribute('data-mandala-reaction-x-saved', '0');
+    await details.locator('[data-mandala-reaction-summary]').click();
+    await details.locator('[data-mandala-reaction-tab="x"]').click();
+    await details.locator('[data-mandala-reaction-x-input="impressions"]').fill('500');
+    await details.locator('[data-mandala-reaction-x-input="shares"]').fill('3');
+    await details.locator('[data-mandala-reaction-x-input="profileClicks"]').fill('2');
+    await details.locator('[data-mandala-reaction-x-memo]').fill(`X ${marker}`);
+    await details.locator('[data-mandala-reaction-save]').click();
+    await expect(details).toHaveAttribute('data-mandala-reaction-x-saved', '1', { timeout: 20000 });
+    const meta1 = await cellMeta(byPos(1).id);
+    expect(meta1.reaction.x).toMatchObject({ impressions: 500, shares: 3, profileClicks: 2, memo: `X ${marker}` });
+    expect(meta1.reaction.views, 'note 側が消えない').toBe(10);
+    expect(meta1.reaction.memo).toBe(`note ${marker}`);
+    // note 側を更新しても X が残る
+    await details.locator('[data-mandala-reaction-tab="note"]').click();
+    await details.locator('[data-mandala-reaction-input="views"]').fill('20');
+    await details.locator('[data-mandala-reaction-save]').click();
+    await expect.poll(async () => (await cellMeta(byPos(1).id)).reaction?.views, { timeout: 20000 }).toBe(20);
+    expect((await cellMeta(byPos(1).id)).reaction.x.impressions, 'X 側が消えない').toBe(500);
+    await panel1.locator('[data-mandala-panel-close]').click();
+    await grid.locator('[data-mandala-cell="1"] [data-mandala-cell-reaction]').hover();
+    const rpop = page.locator('[data-mandala-reaction-popover]');
+    await expect(rpop).toBeVisible({ timeout: 5000 });
+    await expect(rpop.locator('[data-mandala-reaction-pop="views"]')).toContainText('20');
+    await expect(rpop.locator('[data-mandala-reaction-pop-x-key="impressions"]')).toContainText('500');
+    await expect(rpop.locator('[data-mandala-reaction-pop-x-key="profileClicks"]')).toContainText('2');
+    await page.mouse.move(5, 5);
+    // X を全部空で記録すると X だけ消える（note は残る）。不正値は 400
+    expect((await saveMandalaCell(api, byPos(1).id, { reaction: { x: { impressions: '-1' } } })).status()).toBe(400);
+    const cleared = await (await saveMandalaCell(api, byPos(1).id, { reaction: { x: { impressions: '', memo: '' } } })).json();
+    expect(cleared.cell.meta.reaction.x).toBeUndefined();
+    expect(cleared.cell.meta.reaction.views).toBe(20);
+  } finally {
+    if (savedIds.length > 0) await api.delete(LIBRARY_API, { data: { ids: savedIds } }).catch(() => {});
+    await deleteMandalaChart(api, chartId);
+    await deleteMandalaChart(api, thinId);
+  }
+});

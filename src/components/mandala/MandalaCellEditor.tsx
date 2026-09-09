@@ -41,6 +41,10 @@ import {
   MANDALA_REACTION_KEYS,
   MANDALA_REACTION_LABELS,
   MANDALA_REACTION_MEMO_MAX,
+  MANDALA_REACTION_X_KEYS,
+  MANDALA_REACTION_X_LABELS,
+  hasNoteReaction,
+  normalizeReactionXInput,
   MANDALA_STASH_DEBOUNCE_MS,
   MANDALA_TIERS,
   MANDALA_TIER_LABELS,
@@ -61,6 +65,7 @@ import {
   shouldOfferRestore,
   type MandalaCell,
   type MandalaReactionKey,
+  type MandalaReactionXKey,
   type MandalaTier,
   type MandalaLinkResolved,
   type MandalaStash,
@@ -169,6 +174,16 @@ export default function MandalaCellEditor({
   const [reactionSaving, setReactionSaving] = useState(false);
   const reactionSavingRef = useRef(false);
   const [reactionError, setReactionError] = useState('');
+  // 312 §3-5: X の反応（note 側とは別グループ・別タブ）。保存はグループ単位（触らない側は残る・R-113）
+  const [reactionTab, setReactionTab] = useState<'note' | 'x'>('note');
+  const [xDraft, setXDraft] = useState<Record<MandalaReactionXKey, string> & { memo: string }>(() => ({
+    impressions: savedReaction?.x?.impressions != null ? String(savedReaction.x.impressions) : '',
+    likes: savedReaction?.x?.likes != null ? String(savedReaction.x.likes) : '',
+    reposts: savedReaction?.x?.reposts != null ? String(savedReaction.x.reposts) : '',
+    shares: savedReaction?.x?.shares != null ? String(savedReaction.x.shares) : '',
+    profileClicks: savedReaction?.x?.profileClicks != null ? String(savedReaction.x.profileClicks) : '',
+    memo: savedReaction?.x?.memo ?? '',
+  }));
 
   const dirty = draft.title !== base.title || draft.body !== base.body;
   const dirtyRef = useRef(dirty);
@@ -383,7 +398,9 @@ export default function MandalaCellEditor({
   // 308 §3-2: 反応の記録。検証は画面とサーバで同じ純関数（normalizeReactionInput）。全部空＝記録を消す。二重発火は ref（R-87）
   const saveReaction = async () => {
     if (reactionSavingRef.current) return;
-    const check = normalizeReactionInput(reactionDraft);
+    // 312: 開いているタブのグループだけ送る（note 側は項目そのもの、X 側は x:{…}）。全部空ならそのグループを消す（もう一方は残る）
+    const isX = reactionTab === 'x';
+    const check = isX ? normalizeReactionXInput(xDraft) : normalizeReactionInput(reactionDraft);
     if (!check.ok) {
       setReactionError(check.error);
       return;
@@ -392,7 +409,7 @@ export default function MandalaCellEditor({
     setReactionSaving(true);
     setReactionError('');
     try {
-      const { res, json } = await patchCell({ reaction: check.reaction });
+      const { res, json } = await patchCell({ reaction: isX ? { x: { ...xDraft } } : { ...reactionDraft } });
       if (!res.ok || !json.cell) throw new Error(json.error || `記録に失敗しました（${res.status}）`);
       const saved = parseReaction(json.cell.meta);
       onSaved(json.cell);
@@ -575,53 +592,105 @@ export default function MandalaCellEditor({
             <details
               data-mandala-reaction
               data-mandala-reaction-saved={savedReaction ? '1' : '0'}
+              data-mandala-reaction-x-saved={savedReaction?.x ? '1' : '0'}
               open={reactionOpen}
               onToggle={(e) => setReactionOpen((e.currentTarget as HTMLDetailsElement).open)}
               style={{ border: '1px solid var(--border)', borderRadius: 8, padding: '6px 10px', fontSize: 12 }}
             >
               <summary data-mandala-reaction-summary style={{ cursor: 'pointer', fontWeight: 700, color: 'var(--text-secondary)', display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
                 📈 反応
-                {savedReaction ? (
+                {savedReaction && hasNoteReaction(savedReaction) ? (
                   <span data-mandala-reaction-brief style={{ fontWeight: 400, color: 'var(--text-muted)', fontSize: 11 }}>
                     {MANDALA_REACTION_KEYS.filter((k) => typeof savedReaction[k] === 'number').map((k) => `${MANDALA_REACTION_LABELS[k]} ${savedReaction[k]!.toLocaleString()}`).join('・')}
                     {savedRate !== null ? `・購入率 ${formatRate(savedRate)}` : ''}
                     {` — ${jstDateTimeString(savedReaction.recordedAt)}`}
                   </span>
                 ) : (
-                  <span style={{ fontWeight: 400, color: 'var(--text-muted)', fontSize: 11 }}>記録なし（アクセス・スキ・共有・購入＋一言）</span>
+                  <span style={{ fontWeight: 400, color: 'var(--text-muted)', fontSize: 11 }}>note: 記録なし</span>
+                )}
+                {savedReaction?.x ? (
+                  <span data-mandala-reaction-x-brief style={{ fontWeight: 400, color: '#e0684b', fontSize: 11 }}>
+                    🐦 {MANDALA_REACTION_X_KEYS.filter((k) => typeof savedReaction.x![k] === 'number').map((k) => `${MANDALA_REACTION_X_LABELS[k]} ${savedReaction.x![k]!.toLocaleString()}`).join('・')}
+                  </span>
+                ) : (
+                  <span style={{ fontWeight: 400, color: 'var(--text-muted)', fontSize: 11 }}>X: 記録なし</span>
                 )}
               </summary>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 8 }}>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0, 1fr))', gap: 6 }}>
-                  {MANDALA_REACTION_KEYS.map((k) => (
-                    <label key={k} style={{ display: 'flex', flexDirection: 'column', gap: 2, fontSize: 11, color: 'var(--text-muted)', minWidth: 0 }}>
-                      {MANDALA_REACTION_LABELS[k]}
-                      <input
-                        data-mandala-reaction-input={k}
-                        type="number"
-                        inputMode="numeric"
-                        min={0}
-                        step={1}
-                        value={reactionDraft[k]}
-                        onChange={(e) => setReactionDraft((d) => ({ ...d, [k]: e.target.value }))}
-                        style={{ ...inputStyle, padding: '6px 8px', fontSize: 13 }}
-                      />
-                    </label>
+                {/* 312: note / X のタブ（グループを混ぜない） */}
+                <div role="tablist" aria-label="反応の媒体" style={{ display: 'inline-flex', gap: 4 }}>
+                  {(['note', 'x'] as const).map((t) => (
+                    <button key={t} type="button" role="tab" data-mandala-reaction-tab={t} aria-selected={reactionTab === t} onClick={() => { setReactionTab(t); setReactionError(''); }} style={{ ...btn, padding: '2px 10px', fontSize: 11, borderColor: reactionTab === t ? (t === 'x' ? '#e0684b' : '#1D9E75') : 'var(--border)', color: reactionTab === t ? (t === 'x' ? '#e0684b' : '#1D9E75') : 'var(--text-muted)', fontWeight: reactionTab === t ? 700 : 600 }}>
+                      {t === 'note' ? '📝 note' : '🐦 X'}
+                    </button>
                   ))}
                 </div>
-                <input
-                  data-mandala-reaction-memo
-                  type="text"
-                  value={reactionDraft.memo}
-                  maxLength={MANDALA_REACTION_MEMO_MAX}
-                  placeholder={`一言（何を出したか・気づき・${MANDALA_REACTION_MEMO_MAX}字まで）`}
-                  onChange={(e) => setReactionDraft((d) => ({ ...d, memo: e.target.value }))}
-                  style={{ ...inputStyle, padding: '6px 8px', fontSize: 13 }}
-                />
+                {reactionTab === 'note' ? (
+                  <>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0, 1fr))', gap: 6 }}>
+                      {MANDALA_REACTION_KEYS.map((k) => (
+                        <label key={k} style={{ display: 'flex', flexDirection: 'column', gap: 2, fontSize: 11, color: 'var(--text-muted)', minWidth: 0 }}>
+                          {MANDALA_REACTION_LABELS[k]}
+                          <input
+                            data-mandala-reaction-input={k}
+                            type="number"
+                            inputMode="numeric"
+                            min={0}
+                            step={1}
+                            value={reactionDraft[k]}
+                            onChange={(e) => setReactionDraft((d) => ({ ...d, [k]: e.target.value }))}
+                            style={{ ...inputStyle, padding: '6px 8px', fontSize: 13 }}
+                          />
+                        </label>
+                      ))}
+                    </div>
+                    <input
+                      data-mandala-reaction-memo
+                      type="text"
+                      value={reactionDraft.memo}
+                      maxLength={MANDALA_REACTION_MEMO_MAX}
+                      placeholder={`一言（何を出したか・気づき・${MANDALA_REACTION_MEMO_MAX}字まで）`}
+                      onChange={(e) => setReactionDraft((d) => ({ ...d, memo: e.target.value }))}
+                      style={{ ...inputStyle, padding: '6px 8px', fontSize: 13 }}
+                    />
+                  </>
+                ) : (
+                  <>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, minmax(0, 1fr))', gap: 6 }}>
+                      {MANDALA_REACTION_X_KEYS.map((k) => (
+                        <label key={k} style={{ display: 'flex', flexDirection: 'column', gap: 2, fontSize: 11, color: 'var(--text-muted)', minWidth: 0 }}>
+                          {MANDALA_REACTION_X_LABELS[k]}
+                          <input
+                            data-mandala-reaction-x-input={k}
+                            type="number"
+                            inputMode="numeric"
+                            min={0}
+                            step={1}
+                            value={xDraft[k]}
+                            onChange={(e) => setXDraft((d) => ({ ...d, [k]: e.target.value }))}
+                            style={{ ...inputStyle, padding: '6px 8px', fontSize: 13 }}
+                          />
+                        </label>
+                      ))}
+                    </div>
+                    <input
+                      data-mandala-reaction-x-memo
+                      type="text"
+                      value={xDraft.memo}
+                      maxLength={MANDALA_REACTION_MEMO_MAX}
+                      placeholder={`一言（どの投稿か・気づき・${MANDALA_REACTION_MEMO_MAX}字まで）`}
+                      onChange={(e) => setXDraft((d) => ({ ...d, memo: e.target.value }))}
+                      style={{ ...inputStyle, padding: '6px 8px', fontSize: 13 }}
+                    />
+                    <div style={{ fontSize: 10, color: 'var(--text-muted)' }}>共有・URLコピーが最重要シグナル（X-02）。プロフ遷移は手動検証の記録用（自動取得はしません）</div>
+                  </>
+                )}
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                  <span data-mandala-reaction-rate={savedRate === null ? '' : String(savedRate)} style={{ fontSize: 11, color: 'var(--text-muted)' }}>
-                    購入率（購入÷アクセス）: {savedRate === null ? '—' : formatRate(savedRate)}
-                  </span>
+                  {reactionTab === 'note' && (
+                    <span data-mandala-reaction-rate={savedRate === null ? '' : String(savedRate)} style={{ fontSize: 11, color: 'var(--text-muted)' }}>
+                      購入率（購入÷アクセス）: {savedRate === null ? '—' : formatRate(savedRate)}
+                    </span>
+                  )}
                   {reactionError && (
                     <span data-mandala-reaction-error style={{ fontSize: 11, color: '#B91C1C' }}>⚠️ {reactionError}</span>
                   )}
@@ -631,10 +700,10 @@ export default function MandalaCellEditor({
                     data-mandala-reaction-save
                     onClick={() => void saveReaction()}
                     disabled={reactionSaving}
-                    title="この内容で反応を記録する（全部空なら記録を消す）"
-                    style={{ ...btn, borderColor: '#1D9E75', color: '#1D9E75', opacity: reactionSaving ? 0.6 : 1 }}
+                    title={reactionTab === 'x' ? 'X の反応を記録する（全部空なら X の記録だけ消す・note 側は残る）' : 'この内容で反応を記録する（全部空なら note の記録だけ消す・X 側は残る）'}
+                    style={{ ...btn, borderColor: reactionTab === 'x' ? '#e0684b' : '#1D9E75', color: reactionTab === 'x' ? '#e0684b' : '#1D9E75', opacity: reactionSaving ? 0.6 : 1 }}
                   >
-                    {reactionSaving ? '⏳ 記録中…' : '📈 記録する'}
+                    {reactionSaving ? '⏳ 記録中…' : reactionTab === 'x' ? '🐦 記録する' : '📈 記録する'}
                   </button>
                 </div>
               </div>
@@ -662,6 +731,19 @@ export default function MandalaCellEditor({
                 </button>
               );
             })()}
+            {/* 312 §3-1: このマスを X投稿にする（タイトルか本文がある。素材があれば添える）。発信ハブ③がマンダラの素材で開く */}
+            {(cell.title.trim() || cell.body.trim()) && (
+              <a
+                data-mandala-x-cell={cell.id}
+                href={`/dashboard/dr-hub?mandala=${encodeURIComponent(cell.chart_id)}&cell=${encodeURIComponent(cell.id)}&to=x`}
+                target="_blank"
+                rel="noopener noreferrer"
+                title="このマスの気づき（タイトル・本文・素材・体験メモ）から X投稿群（既定3本）を起こす（発信ハブ③が新しいタブで開きます）"
+                style={{ ...btn, textDecoration: 'none', display: 'inline-flex', alignItems: 'center', borderColor: '#e0684b', color: '#e0684b' }}
+              >
+                🐦 X投稿にする
+              </a>
+            )}
             {/* 309 §3-1: このマスを無料記事にする（タイトルか本文がある＝保存済みの行で判定。中央も可）。発信ハブ①がマンダラの素材で開く */}
             {(cell.title.trim() || cell.body.trim() || links.some((l) => l.exists)) ? (
               <a

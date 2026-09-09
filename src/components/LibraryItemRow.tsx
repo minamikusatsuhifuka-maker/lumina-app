@@ -1,6 +1,7 @@
 'use client';
 
 import { mandalaArticleOriginLabel, parseMandalaArticleSource } from '@/lib/mandala-note';
+import { mandalaXOriginLabel, parseMandalaXRef } from '@/lib/mandala-x';
 import { useState } from 'react';
 import { copyRichMarkdown } from '@/lib/rich-copy';
 // 283: 展開した本文は整形表示（R-45）。全画面（FullscreenReader）と同じレンダラ
@@ -198,6 +199,8 @@ export function LibraryItemRow({
   const sourceBookId = typeof meta?.sourceBookId === 'number' ? meta.sourceBookId : undefined;
   // 309 §3-4: マンダラから起こした記事の出どころ（metadata.mandala）。チャートへの戻りリンクは新しいタブ
   const mandalaSrc = parseMandalaArticleSource(meta);
+  // 312: X 投稿（type='x-post'）の出どころ（mode: cell / series）
+  const mandalaX = !mandalaSrc && meta && typeof meta === 'object' ? parseMandalaXRef((meta as Record<string, unknown>).mandala) : null;
 
   const groupName = item.group_name || '未分類';
   const config = CATEGORY_CONFIG[groupName] ?? {
@@ -377,6 +380,20 @@ export function LibraryItemRow({
               onClick={(e) => e.stopPropagation()}
             >
               🔲 {mandalaArticleOriginLabel(mandalaSrc)}
+            </a>
+          )}
+          {mandalaX && (
+            <a
+              data-library-mandala-origin={mandalaX.chartId}
+              data-library-mandala-x-mode={mandalaX.mode}
+              href={`/dashboard/mandala/${mandalaX.chartId}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              title="この投稿の元になったマンダラを開く（新しいタブ）"
+              style={{ color: '#6c63ff', textDecoration: 'none', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+              onClick={(e) => e.stopPropagation()}
+            >
+              🔲 {mandalaXOriginLabel(mandalaX)}
             </a>
           )}
         </div>

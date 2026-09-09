@@ -46,6 +46,7 @@ import * as mandalaPresets from '../../src/lib/mandala-presets';
 import * as mandalaNote from '../../src/lib/mandala-note';
 import * as noteFormat from '../../src/lib/note-format';
 import * as mandalaResearch from '../../src/lib/mandala-research';
+import * as mandalaX from '../../src/lib/mandala-x';
 import { KINDLE_TASTES, KINDLE_TASTE_KEYS, KINDLE_TASTE_GUARD, KINDLE_SCORE_AXES } from '../../src/lib/kindle-taste';
 import {
   AUTO_STOCK_KEY,
@@ -3399,7 +3400,7 @@ test('U73: マンダラ バッジのホバーポップアップ（304）— 上�
   expect(pageSrc).toContain("fetch(`/api/mandala/links?cellId=${encodeURIComponent(cellId)}`");
   // 308: 📈（from='reaction'）は meta から描くので取得しない。リンク系はそのまま取得
   // 309/311: 📝📈🔍 は記録・meta から描くので取得しない（取得はリンク系だけ）。文字列の完全一致ではなく形で固定（R-111）
-  expect(pageSrc).toMatch(/onOpen: \(_key, \{ cell, from \}\) => \{ if \(from !== 'reaction'[^}]*\) void fetchResolved\(cell\.id\); \}/);
+  expect(pageSrc).toMatch(/onOpen: \(_key, \{ cell, from \}\) => \{ if \([^)]*'links'[^)]*'episode'[^)]*\) void fetchResolved\(cell\.id\); \}/);
 });
 
 test('U74: サイドバーのメニュー検索・追加順・新着・合流（303）— 正規化（大小・全半角・カナ/かな・空白）・表示名と元の名前の両方に一致・見出しは一致項目のあるカテゴリだけ・非表示の印・追加順は新しい順で同日は定義順・全項目に実在する addedAt（書き忘れは型とここで止まる）・新着は14日以内で15日目に消える（JST日付差）・合流は純関数で決定的', async () => {
@@ -3846,7 +3847,9 @@ test('U78: マンダラ 有料note記事の型・反応記録・無料比率（3
   expect(server.match(/CREATE TABLE IF NOT EXISTS/g)?.length, 'スキーマ変更なし').toBe(3);
   expect(server).not.toMatch(/ALTER TABLE/);
   const route = readFileSync(join(__dirname, '../../src/app/api/mandala/cells/route.ts'), 'utf8');
-  expect(route).toMatch(/normalizeReactionInput\(body\.reaction/);
+  // 312: note 側は x を除いた入力を、X 側は reaction.x を、それぞれの検証関数へ（グループ単位）
+  expect(route).toMatch(/normalizeReactionInput\(noteRaw\)/);
+  expect(route).toMatch(/normalizeReactionXInput\(\(raw\.x \?\? null\)/);
   expect(route).toMatch(/isMandalaTier\(body\.tier\)/);
   const listPage = readFileSync(join(__dirname, '../../src/app/dashboard/mandala/page.tsx'), 'utf8');
   expect(listPage).toMatch(/useState<'' \| MandalaPresetKey>\(''\)/);
@@ -4197,4 +4200,116 @@ test('U81: マンダラ 未調査マスからのリサーチ発注（311）— �
   expect(dialog, '費用の目安を捏造しない').not.toMatch(/円|\$[0-9]/);
   expect(dialog).toMatch(/fetch\('\/api\/batch-research', \{/);
   expect(dialog).toMatch(/fetch\(`\/api\/batch-research\/\$\{jobId\}\/run`/);
+});
+
+test('U82: マンダラ→X投稿と反応の書き戻し（312）— マス1つ→投稿群（気づき・素材・体験メモ・本数の既定3・1〜5）・チャート→シリーズ（周囲マスが目次順に1マス1投稿・最大8・子マスなし・空は除外・2未満は拒否）・出どころに chartId/cellIds/mode・逆順入力で一致・③への写しは薄い1関数・URL を本文からセルフリプライ欄へ移す（冪等・コード側）・reaction.x はキー単位マージで note 側が消えない（両方空でキー削除）・出どころの検証は fail-closed・ソース固定（③のプロンプト追記はガード優先の後ろ・保存側の URL/上限検査はマンダラ経由だけ・R-111）', async () => {
+  const x = mandalaX;
+  const m = await import('../../src/lib/mandala-shared');
+  type Cell = import('../../src/lib/mandala-shared').MandalaCell;
+  type Link = import('../../src/lib/mandala-shared').MandalaLinkResolved;
+  const u = (n: number) => `aaaaaaaa-0000-4000-8000-${String(n).padStart(12, '0')}`;
+  const mk = (n: number, position: number, depth: 1 | 2 = 1, parent: string | null = null, title = '', body = '', meta: Record<string, unknown> = {}): Cell => ({ id: u(n), chart_id: u(900), parent_cell_id: parent, depth, position, title, body, meta, created_at: '', updated_at: '' });
+  const link = (id: number, cell: Cell, scope: string, item_key: string, exists = true, title = `L${id}`): Link => ({ id, cell_id: cell.id, scope, item_key, created_at: '', note: '', title: exists ? title : null, exists, char_count: exists ? 100 : null, item_created_at: null });
+  const center = mk(4, 4, 1, null, '保湿を続ける', '主題の本文');
+  const c0 = mk(10, 0, 1, null, '気づき0', '本文0 https://example.com/a 参照。');
+  const c1 = mk(11, 1, 1, null, '気づき1', '');
+  const c2 = mk(12, 2, 1, null, '', '');
+  const c6 = mk(16, 6, 1, null, '気づき6', '本文6');
+  const k0 = mk(20, 0, 2, c0.id, '節A', '子の本文');
+  const cells = [k0, c6, center, c2, c1, c0];
+  const chart = { id: u(900), cells };
+  const links: Link[] = [link(1, c0, 'library', u(31), true, '資料A'), link(2, c0, 'episode', '5', true, '記録D'), link(3, c0, 'context', '7', false)];
+  const bodies = new Map([[`library:${u(31)}`, '資料本文 https://example.com/b']]);
+  // ① マス→投稿群
+  const cell = x.mandalaXCell(chart, c0.id, links, { bodies });
+  expect(cell.ok && cell.mode === 'cell').toBe(true);
+  if (!cell.ok || cell.mode !== 'cell') throw new Error('unreachable');
+  expect(cell.count, '既定3').toBe(3);
+  expect(cell.post.title).toBe('気づき0');
+  expect(cell.post.memo).toBe(c0.body);
+  expect(cell.post.refs.map((r) => r.kind)).toEqual(['material', 'experience', 'missing']);
+  expect(cell.post.replyUrls, '本文と素材の URL がセルフリプライ候補').toEqual(['https://example.com/a', 'https://example.com/b']);
+  expect(cell.counts).toEqual({ excludedEmpty: 0, missingLinks: 1, materials: 1, referenceOnly: 0, experiences: 1 });
+  expect(cell.source).toMatchObject({ source: 'mandala', chartId: u(900), mode: 'cell', cellId: c0.id, cellIds: [c0.id], cellLabel: '左上', cellTitle: '気づき0', count: 3 });
+  expect(x.mandalaXCell(chart, c0.id, links, { count: 9 }).ok && (x.mandalaXCell(chart, c0.id, links, { count: 9 }) as { count: number }).count, '上限5に丸める').toBe(5);
+  expect((x.mandalaXCell(chart, c0.id, links, { count: '1' }) as { count: number }).count).toBe(1);
+  expect(x.mandalaXCell(chart, c2.id, links)).toMatchObject({ ok: false, reason: x.MANDALA_X_REJECT_EMPTY });
+  expect(x.mandalaXCell(chart, center.id, links).ok, '中央も可').toBe(true);
+  // ② チャート→シリーズ（目次順・子なし・空除外）
+  const nested = m.mandalaOutlineNested(cells);
+  const series = x.mandalaXSeries(chart, nested, links, { bodies });
+  if (!series.ok || series.mode !== 'series') throw new Error('unreachable');
+  expect(series.posts.map((p) => [p.position, p.title])).toEqual([[0, '気づき0'], [1, '気づき1'], [6, '気づき6']]);
+  expect(series.posts.some((p) => p.cellId === k0.id), '子マスは含めない').toBe(false);
+  expect(series.counts.excludedEmpty).toBe(1);
+  expect(series.theme).toBe('保湿を続ける');
+  expect(series.source).toMatchObject({ mode: 'series', cellIds: [c0.id, c1.id, c6.id], cellId: null, count: 3 });
+  expect(JSON.stringify(x.mandalaXSeries({ id: u(900), cells: [...cells].reverse() }, m.mandalaOutlineNested([...cells].reverse()), [...links].reverse(), { bodies }))).toBe(JSON.stringify(series));
+  expect(JSON.stringify(x.mandalaXCell({ id: u(900), cells: [...cells].reverse() }, c0.id, [...links].reverse(), { bodies }))).toBe(JSON.stringify(cell));
+  const one = [center, c0];
+  expect(x.mandalaXSeries({ id: u(900), cells: one }, m.mandalaOutlineNested(one), []).ok, '2マス未満は拒否').toBe(false);
+  expect(x.canMakeXSeries(one)).toBe(false);
+  expect(x.canMakeXSeries(cells)).toBe(true);
+  expect(x.MANDALA_X_SERIES_MAX).toBe(8);
+  // ③ 写し（③の article）
+  const art = x.mandalaXToArticle(cell)!;
+  expect(art.title).toBe('気づき0');
+  expect(art.content.startsWith('# テーマ: 保湿を続ける\n\n## 気づき（左上）: 気づき0\n本文0 https://example.com/a 参照。')).toBe(true);
+  expect(art.content).toContain('- 体験メモ（📔 エピソード記録）: 記録D');
+  expect(art.content).toContain('### 素材: 資料A\n資料本文');
+  expect(art.content).not.toContain('L3');
+  const s2 = x.mandalaXToArticle(series, 1)!;
+  expect(s2.title).toBe('気づき1');
+  expect(s2.content).toContain('（シリーズ 2/3 本目・1マス＝1投稿）');
+  expect(s2.content).toContain('（本文なし。タイトルを気づきとして扱う）');
+  expect(x.mandalaXToArticle(series, 9)).toBeNull();
+  // ④ URL をリプライ欄へ（冪等）
+  const moved = x.moveUrlsToReply('要点。\nhttps://example.com/a\n次の文 https://example.com/b です。');
+  expect(moved).toEqual({ body: '要点。\n\n次の文  です。', urls: ['https://example.com/a', 'https://example.com/b'] });
+  expect(x.moveUrlsToReply(moved.body)).toEqual({ body: moved.body, urls: [] });
+  expect(x.extractUrls('（https://example.com/c）と「https://example.com/c」')).toEqual(['https://example.com/c']);
+  expect(x.mandalaXPromptBlock('cell', 3)).toContain('1投稿1気づき');
+  expect(x.mandalaXPromptBlock('series', 1, 0, 3)).toContain('シリーズ 1/3 本目');
+  // ⑤ 出どころ（fail-closed）と文言・件数
+  const ref = x.parseMandalaXRef({ ...cell.source, index: 0 })!;
+  expect(ref.mode).toBe('cell');
+  expect(x.parseMandalaXRef({ source: 'mandala', chartId: u(900), mode: 'cell' }), 'cell は cellId 必須').toBeNull();
+  expect(x.parseMandalaXRef({ source: 'mandala', chartId: u(900), mode: 'series', cellIds: [c0.id, 'x'] })?.cellIds).toEqual([c0.id]);
+  expect(x.parseMandalaXRef({ source: 'research', chartId: u(900), mode: 'cell', cellId: c0.id })).toBeNull();
+  expect(x.mandalaXOriginLabel(cell.source)).toBe('マンダラ『保湿を続ける』の『左上: 気づき0』から');
+  expect(x.mandalaXOriginLabel({ ...series.source, index: 1 })).toBe('マンダラ『保湿を続ける』のシリーズ 3本（2本目）');
+  expect([...x.xPostCountsByCell([
+    { id: 'a', title: '', mode: 'cell', cellId: c0.id, cellIds: [c0.id], created_at: '' },
+    { id: 'b', title: '', mode: 'series', cellId: null, cellIds: [c0.id, c1.id], created_at: '' },
+  ]).entries()]).toEqual([[c0.id, 2], [c1.id, 1]]);
+  expect(x.mandalaXPostsLabel(4)).toBe('🐦 投稿: 4本');
+  // ⑥ 反応 X（別グループ・キー単位マージ）
+  const now = '2026-09-09T10:00:00.000Z';
+  const noteOnly = m.mergeReaction(null, { note: { views: 10, memo: 'n' } }, now)!;
+  expect(noteOnly).toEqual({ views: 10, memo: 'n', recordedAt: now });
+  const both = m.mergeReaction(noteOnly, { x: { impressions: 500, shares: 3, profileClicks: 2, memo: 'x' } }, '2026-09-09T11:00:00.000Z')!;
+  expect(both, 'X を書いても note 側が消えない').toMatchObject({ views: 10, memo: 'n', recordedAt: now, x: { impressions: 500, shares: 3, profileClicks: 2, memo: 'x', recordedAt: '2026-09-09T11:00:00.000Z' } });
+  const noteCleared = m.mergeReaction(both, { note: null }, now)!;
+  expect(noteCleared.views, 'note 側だけ消える').toBeUndefined();
+  expect(noteCleared.x?.impressions).toBe(500);
+  expect(m.mergeReaction(noteCleared, { x: null }, now), '両方空ならキー削除').toBeNull();
+  expect(m.mergeReaction(both, {}, now), '何も指定しなければ不変').toEqual(both);
+  expect(m.parseReaction({ reaction: { x: { impressions: 1, likes: -1, recordedAt: 'z' } } })).toEqual({ recordedAt: '', x: { impressions: 1, recordedAt: 'z' } });
+  expect(m.hasReaction({ meta: { reaction: { x: { reposts: 2 } } } })).toBe(true);
+  expect(m.hasNoteReaction(m.parseReaction({ reaction: { x: { reposts: 2 } } }))).toBe(false);
+  expect(m.normalizeReactionXInput({ impressions: '120', likes: '', profileClicks: 4, memo: ' 一言 ' })).toEqual({ ok: true, x: { impressions: 120, profileClicks: 4, memo: '一言' } });
+  expect(m.normalizeReactionXInput({ impressions: '-1' })).toMatchObject({ ok: false });
+  expect(m.normalizeReactionXInput({})).toEqual({ ok: true, x: null });
+  expect(m.MANDALA_REACTION_X_KEYS).toEqual(['impressions', 'likes', 'reposts', 'shares', 'profileClicks']);
+  // ⑦ ソース固定
+  const lib = readFileSync(join(__dirname, '../../src/lib/mandala-x.ts'), 'utf8');
+  expect(lib).not.toMatch(/from '@\/lib\/(db|mandala-server)'/);
+  const route = readFileSync(join(__dirname, '../../src/app/api/dr-hub/x-post/route.ts'), 'utf8');
+  expect(route, 'プロンプト追記はガード優先ブロックの後ろ（R-69）').toMatch(/- 記事にない事実・数値・出典を書かない[^\n]*\n\$\{mandalaMode \? `\\n\$\{mandalaXPromptBlock\(/);
+  expect(route).toMatch(/if \(mandalaMode\) \{\s*const moved = moveUrlsToReply\(result\.single\);/);
+  const save = readFileSync(join(__dirname, '../../src/app/api/dr-hub/x-post/save/route.ts'), 'utf8');
+  expect(save, 'URL・上限の検査はマンダラ経由（付帯情報あり）だけ＝既存の保存は不変').toMatch(/if \(mandalaRef\) \{[^]*?if \(hasUrl\(bodyPart\)\)[^]*?bodyPart\.length > X_HARD_LIMIT/);
+  const server = readFileSync(join(__dirname, '../../src/lib/mandala-server.ts'), 'utf8');
+  expect(server).toMatch(/const merged = mergeReaction\(existing, \{ note: patch\.reaction, x: patch\.reactionX \}/);
+  expect(server).not.toMatch(/set\.reaction = \{ \.\.\.patch\.reaction, recordedAt/);
 });

@@ -16,6 +16,9 @@ import { copyRichMarkdown, copyRichMarkdownForNote } from '@/lib/rich-copy';
 import { formatOneSentencePerLine } from '@/lib/note-format';
 import { isUuidLike } from '@/lib/mandala-shared';
 import { MANDALA_PAID_LINE_MARKER, mandalaArticleOriginLabel, type MandalaNoteMode, type MandalaNoteResult, type MandalaNoteSource } from '@/lib/mandala-note';
+// 312: マンダラ→X投稿（③の中の受け取り側は部品に分離）
+import MandalaXBlock, { type MandalaXEntry } from '@/components/dr-hub/MandalaXBlock';
+import { normalizeXCount } from '@/lib/mandala-x';
 import { PLAYBOOK_VERSION } from '@/lib/knowledge/noteXPlaybook';
 import KindleRemixTab from '@/components/dr-hub/KindleRemixTab';
 import XFanoutTab from '@/components/dr-hub/XFanoutTab';
@@ -222,6 +225,8 @@ export default function DrHubPage() {
   const [episodeIds, setEpisodeIds] = useState<number[]>([]); // 281: 素材にするエピソード（手動選択）
   // 309: マンダラからの入口（URL で受け取る）。あるあいだは DR 記事の代わりにこの素材を①へ渡す
   const [mandalaEntry, setMandalaEntry] = useState<MandalaEntry | null>(null);
+  // 312: ?mandala=<chartId>&cell=<cellId>&to=x（投稿群）／&mode=series&to=x（シリーズ）
+  const [mandalaX, setMandalaX] = useState<MandalaXEntry | null>(null);
   const [mandalaPreview, setMandalaPreview] = useState<MandalaPreview | null>(null);
   const [mandalaError, setMandalaError] = useState('');
 
@@ -451,6 +456,15 @@ export default function DrHubPage() {
     const chartId = sp.get('mandala');
     if (!isUuidLike(chartId)) return;
     const cellId = sp.get('cell');
+    // 312: to=x は③X投稿連動へ（①のマンダラ受け取りには入らない）
+    if (sp.get('to') === 'x') {
+      const xMode = sp.get('mode') === 'series' ? 'series' : 'cell';
+      if (xMode === 'cell' && !isUuidLike(cellId)) return;
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setMandalaX({ chartId, mode: xMode, cellId: xMode === 'cell' ? cellId : null, count: normalizeXCount(sp.get('count')) });
+      setFeature('xpost');
+      return;
+    }
     const mode: MandalaNoteMode = sp.get('mode') === 'paid' ? 'paid_chart' : 'free_cell';
     if (mode === 'free_cell' && !isUuidLike(cellId)) return;
     const entry: MandalaEntry = { chartId, mode, cellId: mode === 'free_cell' ? cellId : null };
@@ -1386,6 +1400,8 @@ export default function DrHubPage() {
           note記事への導線となるX投稿を、単発ポストとスレッド形式の両方で作ります。Xへの自動投稿は行いません（コピーして貼り付ける運用です）。
         </p>
 
+        {/* 312: マンダラから受け取った素材（記事の代わり）。生成・保存・並べて表示は部品の中で完結 */}
+        {mandalaX && <MandalaXBlock entry={mandalaX} xLength={xLengthSel} postType={xTypeSel} onClear={() => setMandalaX(null)} />}
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 10 }}>
           {([
             { kind: 'saved' as const, label: '📚 保存済みのnote記事から' },

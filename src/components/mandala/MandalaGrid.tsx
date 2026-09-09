@@ -59,8 +59,11 @@ function CellCard({
   onExpand,
   articleCount = 0,
   nowMs = 0,
+  xPostCount = 0,
 }: {
   slot: MandalaGridSlot;
+  /** 312: そのマスから起こした X 投稿の数（記録から導出）。0 なら出さない */
+  xPostCount?: number;
   /** 311: 進行状況の判定に使う現在時刻（親が固定） */
   nowMs?: number;
   /** 309: そのマスから起こした note 記事の数（記事の側の記録から導出）。0 なら出さない */
@@ -241,6 +244,23 @@ function CellCard({
             </span>
           );
         })()}
+        {/* 312 §3-4: 起こした X 投稿「🐦 n」（ホバーで一覧・投稿へ）。0件は出さない */}
+        {xPostCount > 0 && cell && !derived && (() => {
+          const b = popoverBind ? popoverBind(cell, 'xposts') : undefined;
+          const handlers = b ? (selectMode ? { ...b, onClick: undefined } : b) : {};
+          return (
+            <span
+              data-mandala-cell-xposts={xPostCount}
+              aria-label={`このマスから起こしたX投稿${xPostCount}本。一覧を表示`}
+              role={b ? 'button' : undefined}
+              tabIndex={b ? 0 : undefined}
+              {...handlers}
+              style={{ fontSize: 10, fontWeight: 700, whiteSpace: 'nowrap', flexShrink: 0, color: '#e0684b', cursor: b ? 'pointer' : 'default', padding: '0 2px', borderRadius: 4 }}
+            >
+              🐦{xPostCount}
+            </span>
+          );
+        })()}
         {/* 309 §3-4: 起こした記事「📝 n」（ホバーで一覧・記事へ）。0件は出さない */}
         {articleCount > 0 && cell && !derived && (() => {
           const b = popoverBind ? popoverBind(cell, 'articles') : undefined;
@@ -393,10 +413,13 @@ export default function MandalaGrid({
   blockAttrs,
   articleCounts,
   nowMs,
+  xPostCounts,
 }: {
   cells: readonly MandalaCell[];
   /** 311: 進行状況の判定に使う現在時刻（省略時は印を出さない） */
   nowMs?: number;
+  /** 312: マスごとの起こした X 投稿数 */
+  xPostCounts?: ReadonlyMap<string, number>;
   /** 309: マスごとの起こした記事数（省略時は出さない） */
   articleCounts?: ReadonlyMap<string, number>;
   /** null＝第1階層。第2階層（303）は親マスの id を渡す（中央は導出・押せない） */
@@ -450,6 +473,7 @@ export default function MandalaGrid({
           onExpand={parentCellId && onExpand ? (pos) => onExpand(parentCellId, pos) : undefined}
           articleCount={slot.cell ? articleCounts?.get(slot.cell.id) ?? 0 : 0}
           nowMs={nowMs}
+          xPostCount={slot.cell ? xPostCounts?.get(slot.cell.id) ?? 0 : 0}
         />
       ))}
     </div>

@@ -22,10 +22,12 @@ import {
   MANDALA_DEPTH1_COUNT,
   isMandalaLinkScope,
   isSameReaction,
+  mergeReaction,
   normalizeCellInput,
   parseReaction,
   type MandalaCell,
   type MandalaReaction,
+  type MandalaReactionX,
   type MandalaTier,
   type MandalaChartDetail,
   type MandalaChartSummary,
@@ -302,6 +304,14 @@ export async function saveCell(
   return { ok: true, cell: toCell(current), unchanged: true };
 }
 
+function MANDALA_HAS_NOTE(r: MandalaReaction): boolean {
+  return ['views', 'likes', 'shares', 'purchases'].some((k) => typeof (r as unknown as Record<string, unknown>)[k] === 'number') || !!r.memo;
+}
+function isSameReactionX(a: MandalaReactionX | null, b: Omit<MandalaReactionX, 'recordedAt'> | null): boolean {
+  if (!a || !b) return (a === null || a === undefined) && (b === null || b === undefined);
+  return (['impressions', 'likes', 'reposts', 'shares', 'profileClicks'] as const).every((k) => (a[k] ?? null) === (b[k] ?? null)) && (a.memo ?? '') === (b.memo ?? '');
+}
+
 export type UpdateCellMetaResult =
   | { ok: true; cell: MandalaCell; unchanged: boolean }
   | { ok: false; reason: 'not_found' };
@@ -314,7 +324,14 @@ export type UpdateCellMetaResult =
 export async function updateCellMeta(
   userId: string,
   cellId: string,
-  patch: { tier?: MandalaTier; reaction?: Omit<MandalaReaction, 'recordedAt'> | null; research?: Record<string, unknown> | null },
+  patch: {
+    tier?: MandalaTier;
+    /** note 側の反応（308）。null＝note 側を消す。undefined＝触らない */
+    reaction?: Omit<MandalaReaction, 'recordedAt' | 'x'> | null;
+    /** 312: X 側の反応。null＝X 側を消す。undefined＝触らない */
+    reactionX?: Omit<MandalaReactionX, 'recordedAt'> | null;
+    research?: Record<string, unknown> | null;
+  },
 ): Promise<UpdateCellMetaResult> {
   await ensureMandalaTables();
   const [current] = (await sql`
@@ -326,12 +343,16 @@ export async function updateCellMeta(
   const set: Record<string, unknown> = {};
   const remove: string[] = [];
   if (patch.tier !== undefined && patch.tier !== cur.meta.tier) set.tier = patch.tier;
-  if (patch.reaction !== undefined) {
+  if (patch.reaction !== undefined || patch.reactionX !== undefined) {
+    // 312: グループ単位のマージ（note 側と X 側を混ぜない・触らないグループは残す）。同一内容なら書かない（R-87 のサーバ側）
     const existing = parseReaction(cur.meta);
-    const existingLite = existing ? { ...existing, recordedAt: undefined } : null;
-    if (!isSameReaction(existingLite, patch.reaction)) {
-      if (patch.reaction === null) remove.push('reaction');
-      else set.reaction = { ...patch.reaction, recordedAt: new Date().toISOString() };
+    const merged = mergeReaction(existing, { note: patch.reaction, x: patch.reactionX }, new Date().toISOString());
+    const sameNote = patch.reaction === undefined || isSameReaction(existing && (MANDALA_HAS_NOTE(existing)) ? { views: existing.views, likes: existing.likes, shares: existing.shares, purchases: existing.purchases, memo: existing.memo } : null, patch.reaction);
+    const sameX = patch.reactionX === undefined || isSameReactionX(existing?.x ?? null, patch.reactionX);
+    if (!(sameNote && sameX)) {
+      if (merged === null) {
+        if (cur.meta.reaction !== undefined) remove.push('reaction');
+      } else set.reaction = merged;
     }
   }
   // 311: 進行中の印（research）。null＝キーを消す。中身の同一判定はしない（startedAt を進める用途があるため）
@@ -704,10 +725,10 @@ export interface MandalaArticleRow {
  * §3-4 「📝 n」「📝 記事: n件」の導出。記事の側の記録（library.metadata.mandala.chartId）から読む（mandala_*.meta には書かない・R-107）。
  * metadata は TEXT（JSON 文字列）なので、まず LIKE で絞ってから JSON として検証する
  */
-export async function listArticlesFromChart(userId: string, chartId: string): Promise<MandalaArticleRow[]> {
+export async function listArticlesFromChart(userId: string, chartId: string, type: 'note-article' | 'x-post' = 'note-article'): Promise<MandalaArticleRow[]> {
   const rows = (await sql`
     SELECT id, title, metadata, created_at FROM library
-    WHERE user_id = ${userId} AND type = 'note-article' AND metadata LIKE ${'%"chartId":"' + chartId + '"%'}
+    WHERE user_id = ${userId} AND type = ${type} AND metadata LIKE ${'%"chartId":"' + chartId + '"%'}
     ORDER BY created_at DESC
     LIMIT 200
   `) as { id: string; title: string | null; metadata: string | null; created_at: string }[];
@@ -794,4 +815,45 @@ export async function linkResearchResult(userId: string, ref: MandalaResearchRef
     await markResearchFailed(userId, ref.cellId, `紐づけに失敗: ${message}`).catch(() => {});
     return { ok: false, skipped: 'link_failed', message };
   }
+}
+
+export interface MandalaXPostDbRow {
+  id: string;
+  title: string;
+  mode: 'cell' | 'series';
+  cellId: string | null;
+  cellIds: string[];
+  created_at: string;
+}
+
+/** 312 §3-4 「🐦 n」「🐦 投稿: n本」の導出（library type='x-post' の metadata.mandala から） */
+export async function listXPostsFromChart(userId: string, chartId: string): Promise<MandalaXPostDbRow[]> {
+  const rows = (await sql`
+    SELECT id, title, metadata, created_at FROM library
+    WHERE user_id = ${userId} AND type = 'x-post' AND metadata LIKE ${'%"chartId":"' + chartId + '"%'}
+    ORDER BY created_at DESC
+    LIMIT 300
+  `) as { id: string; title: string | null; metadata: string | null; created_at: string }[];
+  const out: MandalaXPostDbRow[] = [];
+  for (const r of rows) {
+    let meta: Record<string, unknown> = {};
+    try {
+      meta = r.metadata ? (JSON.parse(r.metadata) as Record<string, unknown>) : {};
+    } catch {
+      continue;
+    }
+    const m = meta.mandala as Record<string, unknown> | undefined;
+    if (!m || m.source !== 'mandala' || m.chartId !== chartId) continue;
+    const mode = m.mode === 'series' ? 'series' : m.mode === 'cell' ? 'cell' : null;
+    if (!mode) continue;
+    out.push({
+      id: String(r.id),
+      title: r.title ?? '',
+      mode,
+      cellId: typeof m.cellId === 'string' ? m.cellId : null,
+      cellIds: Array.isArray(m.cellIds) ? m.cellIds.filter((x): x is string => typeof x === 'string') : [],
+      created_at: String(r.created_at),
+    });
+  }
+  return out;
 }

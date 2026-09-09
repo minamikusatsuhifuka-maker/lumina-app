@@ -14,6 +14,10 @@ import {
   type XLength,
   type XPostWarning,
 } from '@/lib/x-post-rules';
+// 312: マンダラからの入力（article 本文はサーバがマスから組む＝プレビューと同じ純関数）。本文の URL はコード側でリプライ欄へ移す
+import { getChart, listLinksForChartResolved, fetchMandalaLinkBodies } from '@/lib/mandala-server';
+import { isUuidLike as isUuid, mandalaOutlineNested, type MandalaLinkResolved } from '@/lib/mandala-shared';
+import { isMandalaXMode, mandalaXCell, mandalaXPromptBlock, mandalaXSeries, mandalaXToArticle, moveUrlsToReply, normalizeXCount, type MandalaXSource } from '@/lib/mandala-x';
 
 export const runtime = 'nodejs';
 export const maxDuration = 300;
@@ -41,6 +45,39 @@ export async function POST(req: NextRequest) {
     let title = String(inline.title ?? '').trim();
     let content = String(inline.content ?? '').trim();
 
+    // 312: マンダラ経由（drId/articleId の代わり・オプトイン）。素材はサーバが純関数で組む（プレビューと同じ出力）
+    let mandalaSource: MandalaXSource | null = null;
+    let mandalaMode: 'cell' | 'series' | null = null;
+    let mandalaCount = 3;
+    let mandalaIndex = 0;
+    let mandalaTotal = 1;
+    if (body.mandala && typeof body.mandala === 'object') {
+      const m = body.mandala as { chartId?: unknown; mode?: unknown; cellId?: unknown; count?: unknown; index?: unknown };
+      if (!isUuid(m.chartId)) return NextResponse.json({ error: 'mandala.chartId が不正です' }, { status: 400 });
+      if (!isMandalaXMode(m.mode)) return NextResponse.json({ error: 'mandala.mode は cell / series のいずれかです' }, { status: 400 });
+      if (m.mode === 'cell' && !isUuid(m.cellId)) return NextResponse.json({ error: 'mandala.cellId が必要です' }, { status: 400 });
+      const chart = await getChart(userId, m.chartId as string);
+      if (!chart) return NextResponse.json({ error: 'マンダラが見つかりません' }, { status: 404 });
+      let links: MandalaLinkResolved[] = [];
+      try {
+        links = await listLinksForChartResolved(userId, chart.id);
+      } catch {}
+      const bodies = await fetchMandalaLinkBodies(userId, links);
+      const result = m.mode === 'cell'
+        ? mandalaXCell(chart, m.cellId as string, links, { bodies, count: m.count })
+        : mandalaXSeries(chart, mandalaOutlineNested(chart.cells), links, { bodies });
+      if (!result.ok) return NextResponse.json({ error: result.reason }, { status: 400 });
+      mandalaIndex = typeof m.index === 'number' && Number.isInteger(m.index) && m.index >= 0 ? m.index : 0;
+      const article = mandalaXToArticle(result, mandalaIndex);
+      if (!article) return NextResponse.json({ error: 'シリーズの index が範囲外です' }, { status: 400 });
+      title = article.title;
+      content = article.content;
+      mandalaSource = result.source;
+      mandalaMode = result.mode;
+      mandalaCount = result.mode === 'cell' ? result.count : 1;
+      mandalaTotal = result.mode === 'series' ? result.posts.length : 1;
+    }
+
     // 保存済み記事を指定された場合はサーバ側で本文を取得（owner検証必須）
     if (articleId) {
       const sql = neon(process.env.DATABASE_URL!);
@@ -56,7 +93,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: '元になる記事（articleId または article.content）が必要です' }, { status: 400 });
     }
 
-    const tc = Number(body.threadCount);
+    const tc = mandalaMode === 'cell' ? Math.max(2, normalizeXCount(mandalaCount)) : Number(body.threadCount);
     const threadCount = Number.isInteger(tc) && tc >= 2 && tc <= 5 ? tc : 3;
     const xLength: XLength =
       body.xLength === 'short' || body.xLength === 'long' ? body.xLength : 'mini'; // 既定=ミニ講義（v2）
@@ -96,7 +133,7 @@ ${MEDICAL_AD_NG_RULES}
 - 「〜しないと危険」「知らないと損する」型の煽り禁止
 - 効果の数値化禁止（数字は手順・時間・件数・項目数のみ）
 - 記事にない事実・数値・出典を書かない${fanout ? '\n- **元のnote記事に書かれていない医学的主張・治療の推奨を追加しない**（表現の変換で事実を変えない）' : ''}
-
+${mandalaMode ? `\n${mandalaXPromptBlock(mandalaMode, mandalaCount, mandalaIndex, mandalaTotal)}\n` : ''}
 # 構成と体裁（厳守）
 - 構成は Hook → Before → Solution → After → CTA（X-04のv2版）
 - 1行目フックは冒頭30〜40字で読者のスクロールを止める
@@ -118,7 +155,9 @@ ${fanout ? `# この型が素材に合わない場合
 ` : ''}必ず以下のJSON形式のみを返してください（前置き・コードフェンス不要）:
 {"single": "…", "thread": ["…", "…"], "urlReplyLeadin": "…"}`;
 
-    const userMessage = `以下のnote記事「${title}」への導線となるX投稿を作ってください。\n\n--- 記事 ---\n${content.slice(0, MAX_SOURCE_CHARS)}\n--- ここまで ---`;
+    const userMessage = mandalaMode
+      ? `以下は著者本人のマンダラの気づき「${title}」です。この気づきの X投稿を作ってください（記事への導線ではなく、気づきそのものを届ける投稿）。\n\n--- 気づき・素材 ---\n${content.slice(0, MAX_SOURCE_CHARS)}\n--- ここまで ---`
+      : `以下のnote記事「${title}」への導線となるX投稿を作ってください。\n\n--- 記事 ---\n${content.slice(0, MAX_SOURCE_CHARS)}\n--- ここまで ---`;
 
     const generate = async (extraInstruction = '') => {
       const ai = await generateTextWithFallback({
@@ -166,6 +205,18 @@ ${fanout ? `# この型が素材に合わない場合
     // 機械検証②: 警告リスト（表示のみ・自動修正しない＝R-26）
     const warnings: Record<string, XPostWarning[]> = {};
     // 下限検証は単発ポスト（長さプリセットの対象）にのみ適用。スレッド各ポストは対象外
+    // 312: マンダラ経由は本文の URL をコード側でセルフリプライ欄へ移す（二段目・決定的・冪等）
+    const replyUrls: string[] = [];
+    if (mandalaMode) {
+      const moved = moveUrlsToReply(result.single);
+      result.single = moved.body;
+      replyUrls.push(...moved.urls);
+      result.thread = result.thread.map((t) => {
+        const mt = moveUrlsToReply(t);
+        for (const u of mt.urls) if (!replyUrls.includes(u)) replyUrls.push(u);
+        return mt.body;
+      });
+    }
     if (result.single) warnings.single = validateXPost(result.single, { media: 'x', isFirstPost: true, length: xLength });
     result.thread.forEach((t, i) => {
       warnings[`thread-${i}`] = validateXPost(t, { media: 'x', isFirstPost: i === 0 });
@@ -186,6 +237,8 @@ ${fanout ? `# この型が素材に合わない場合
       xLength,
       postType: body.postType && typeof body.postType === 'string' ? body.postType : 'knowhow',
       charLimit: X_HARD_LIMIT,
+      // 312: 出どころとリプライ欄の URL 候補（マンダラ経由のときだけ）
+      ...(mandalaSource ? { mandala: { ...mandalaSource, index: mandalaIndex }, replyUrls } : {}),
       _ai: result._ai,
     });
   } catch (error: unknown) {

@@ -3,6 +3,9 @@ import { neon } from '@neondatabase/serverless';
 import { v4 as uuidv4 } from 'uuid';
 import { requireAuth } from '@/lib/require-auth';
 import { sanitizeForDb } from '@/lib/sanitize';
+// 312: マンダラ経由の保存はコード側の検査（URL は本文に置かない・上限）を通し、出どころを metadata.mandala に載せる
+import { X_HARD_LIMIT, hasUrl } from '@/lib/x-post-rules';
+import { parseMandalaXRef } from '@/lib/mandala-x';
 
 export const runtime = 'nodejs';
 export const maxDuration = 60;
@@ -29,6 +32,20 @@ export async function POST(req: NextRequest) {
     if (!content) {
       return NextResponse.json({ error: '保存する投稿文（content）が必要です' }, { status: 400 });
     }
+    // 312 §3-3: マンダラ経由（付帯情報あり）のときだけ、外部リンク禁止と文字数上限をコード側で検査（保存させない・fail-closed）
+    const mandalaRef = body.mandala !== undefined && body.mandala !== null ? parseMandalaXRef(body.mandala) : null;
+    if (body.mandala !== undefined && body.mandala !== null && !mandalaRef) {
+      return NextResponse.json({ error: 'mandala（出どころ）の形が不正です' }, { status: 400 });
+    }
+    if (mandalaRef) {
+      const bodyPart = content.split('\n\n---\n\n[1つ目のリプライ（URL用）]')[0];
+      if (hasUrl(bodyPart)) {
+        return NextResponse.json({ error: '本文に URL が入っています。URL はセルフリプライ欄へ移してください（インプレッション抑制の回避）' }, { status: 400 });
+      }
+      if (bodyPart.length > X_HARD_LIMIT) {
+        return NextResponse.json({ error: `本文が上限（${X_HARD_LIMIT.toLocaleString()}字）を超えています（${bodyPart.length.toLocaleString()}字）` }, { status: 400 });
+      }
+    }
 
     const sql = neon(process.env.DATABASE_URL!);
 
@@ -51,6 +68,7 @@ export async function POST(req: NextRequest) {
       articleTitle: articleTitle || null,
       sourceDrId: drId || null,
       savedAt: new Date().toISOString(),
+      ...(mandalaRef ? { mandala: { ...mandalaRef, generatedAt: new Date().toISOString() } } : {}),
     };
     const saveTitle = title || `X投稿（${mode === 'thread' ? 'スレッド' : '単発'}）: ${articleTitle || '無題'}`;
 

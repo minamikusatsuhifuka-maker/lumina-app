@@ -600,7 +600,7 @@ export function clearStash(cellId: string): void {
 /** ポップアップに出す上限（§2-1）。超えた分は「他 n件 → パネルで見る」の1行に畳む（R-101/R-109） */
 export const MANDALA_POPOVER_MAX = 8;
 
-export type MandalaPopoverFrom = 'links' | 'episode' | 'reaction' | 'articles' | 'research';
+export type MandalaPopoverFrom = 'links' | 'episode' | 'reaction' | 'articles' | 'research' | 'xposts';
 
 /**
  * ポップアップの行を決める。📔 から開いたときは episode を先頭に並べる（安定ソート＝同種内は元の順）。
@@ -756,6 +756,26 @@ export const MANDALA_REACTION_MEMO_MAX = 100;
 /** 上限（整数の保護のみ。桁あふれで壊れないため） */
 export const MANDALA_REACTION_VALUE_MAX = 1_000_000_000;
 
+/** 312 §3-5: X の反応（308 の note 側とは別グループ・混ぜない）。profileClicks は XP-03 の手動検証の指標（記録先の用意だけ・実装はしない） */
+export const MANDALA_REACTION_X_KEYS = ['impressions', 'likes', 'reposts', 'shares', 'profileClicks'] as const;
+export type MandalaReactionXKey = (typeof MANDALA_REACTION_X_KEYS)[number];
+export const MANDALA_REACTION_X_LABELS: Record<MandalaReactionXKey, string> = {
+  impressions: 'インプ',
+  likes: 'いいね',
+  reposts: 'リポスト',
+  shares: '共有',
+  profileClicks: 'プロフ遷移',
+};
+export interface MandalaReactionX {
+  impressions?: number;
+  likes?: number;
+  reposts?: number;
+  shares?: number;
+  profileClicks?: number;
+  memo?: string;
+  recordedAt: string;
+}
+
 export interface MandalaReaction {
   views?: number;
   likes?: number;
@@ -764,6 +784,8 @@ export interface MandalaReaction {
   memo?: string;
   /** 記録日時（ISO・UTC）。表示は JST（R-86） */
   recordedAt: string;
+  /** 312: X の反応（別グループ）。無ければ undefined */
+  x?: MandalaReactionX;
 }
 
 /** meta.reaction の読み出し。形が崩れていれば null（fail-closed）。数値は非負整数だけ拾う */
@@ -784,7 +806,39 @@ export function parseReaction(meta: Record<string, unknown> | null | undefined):
     out.memo = o.memo.slice(0, MANDALA_REACTION_MEMO_MAX);
     any = true;
   }
+  // 312: X グループ
+  const x = parseReactionX(o.x);
+  if (x) {
+    out.x = x;
+    any = true;
+  }
   return any ? out : null;
+}
+
+/** 312: reaction.x の読み出し（fail-closed・非負整数だけ） */
+export function parseReactionX(v: unknown): MandalaReactionX | null {
+  if (!v || typeof v !== 'object') return null;
+  const o = v as Record<string, unknown>;
+  const out: MandalaReactionX = { recordedAt: typeof o.recordedAt === 'string' ? o.recordedAt : '' };
+  let any = false;
+  for (const k of MANDALA_REACTION_X_KEYS) {
+    const n = o[k];
+    if (typeof n === 'number' && Number.isInteger(n) && n >= 0) {
+      out[k] = n;
+      any = true;
+    }
+  }
+  if (typeof o.memo === 'string' && o.memo.trim()) {
+    out.memo = o.memo.slice(0, MANDALA_REACTION_MEMO_MAX);
+    any = true;
+  }
+  return any ? out : null;
+}
+
+/** note 側の項目（views/likes/shares/purchases/memo）だけを持つか */
+export function hasNoteReaction(r: MandalaReaction | null | undefined): boolean {
+  if (!r) return false;
+  return MANDALA_REACTION_KEYS.some((k) => typeof r[k] === 'number') || !!r.memo;
 }
 
 export function hasReaction(cell: Pick<MandalaCell, 'meta'> | null | undefined): boolean {
@@ -794,6 +848,58 @@ export function hasReaction(cell: Pick<MandalaCell, 'meta'> | null | undefined):
 export type ReactionInputResult =
   | { ok: true; reaction: Omit<MandalaReaction, 'recordedAt'> | null }
   | { ok: false; error: string };
+
+/** 312: X グループの入力検証（画面・API 共用）。全部空なら null（＝X の記録を消す） */
+export function normalizeReactionXInput(input: Record<string, unknown> | null | undefined): { ok: true; x: Omit<MandalaReactionX, 'recordedAt'> | null } | { ok: false; error: string } {
+  const src = input && typeof input === 'object' ? input : {};
+  const out: Omit<MandalaReactionX, 'recordedAt'> = {};
+  let any = false;
+  for (const k of MANDALA_REACTION_X_KEYS) {
+    const raw = src[k];
+    if (raw === undefined || raw === null || raw === '') continue;
+    const n = typeof raw === 'number' ? raw : typeof raw === 'string' && /^\d+$/.test(raw.trim()) ? Number(raw.trim()) : NaN;
+    if (!Number.isInteger(n) || n < 0 || n > MANDALA_REACTION_VALUE_MAX) {
+      return { ok: false, error: `X の${MANDALA_REACTION_X_LABELS[k]}は0以上の整数で入力してください` };
+    }
+    out[k] = n;
+    any = true;
+  }
+  const memoRaw = src.memo;
+  if (memoRaw !== undefined && memoRaw !== null) {
+    if (typeof memoRaw !== 'string') return { ok: false, error: '一言は文字列で入力してください' };
+    const memo = memoRaw.replace(/\r\n?/g, '\n').trim();
+    if (memo.length > MANDALA_REACTION_MEMO_MAX) return { ok: false, error: `一言は${MANDALA_REACTION_MEMO_MAX}字以内で入力してください（${memo.length}字）` };
+    if (memo) {
+      out.memo = memo;
+      any = true;
+    }
+  }
+  return { ok: true, x: any ? out : null };
+}
+
+/**
+ * 312: グループ単位のマージ（R-113 の考え方を reaction キーの中でも守る）。
+ * 入力に含まれるグループだけを置き換え、含まれないグループは既存のまま。両方空になれば null（キーごと消す）
+ */
+export function mergeReaction(
+  existing: MandalaReaction | null,
+  patch: { note?: Omit<MandalaReaction, 'recordedAt' | 'x'> | null; x?: Omit<MandalaReactionX, 'recordedAt'> | null },
+  nowIso: string,
+): MandalaReaction | null {
+  const keepNote = patch.note === undefined;
+  const keepX = patch.x === undefined;
+  const note: Partial<MandalaReaction> = keepNote
+    ? (existing ? { views: existing.views, likes: existing.likes, shares: existing.shares, purchases: existing.purchases, memo: existing.memo, recordedAt: existing.recordedAt } : {})
+    : patch.note
+      ? { ...patch.note, recordedAt: nowIso }
+      : {};
+  const x: MandalaReactionX | undefined = keepX ? existing?.x : patch.x ? { ...patch.x, recordedAt: nowIso } : undefined;
+  const out: MandalaReaction = { recordedAt: typeof note.recordedAt === 'string' && note.recordedAt ? note.recordedAt : (x?.recordedAt ?? nowIso) };
+  for (const k of MANDALA_REACTION_KEYS) if (typeof note[k] === 'number') out[k] = note[k];
+  if (note.memo) out.memo = note.memo;
+  if (x) out.x = x;
+  return hasNoteReaction(out) || !!out.x ? out : null;
+}
 
 /**
  * 記録の入力検証（画面・API 共用・fail-closed）。空欄（undefined / null / ''）は「未記録」、数値は非負整数のみ。

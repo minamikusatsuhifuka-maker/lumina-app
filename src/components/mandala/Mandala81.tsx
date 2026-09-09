@@ -38,8 +38,11 @@ export default function Mandala81({
   narrow,
   articleCounts,
   nowMs,
+  xPostCounts,
 }: {
   cells: readonly MandalaCell[];
+  /** 312: マスごとの起こした X 投稿数 */
+  xPostCounts?: ReadonlyMap<string, number>;
   /** 311: 進行状況の判定に使う現在時刻 */
   nowMs?: number;
   /** 309: マスごとの起こした記事数 */
@@ -74,6 +77,7 @@ export default function Mandala81({
           popoverBind={popoverBind}
           articleCounts={articleCounts}
           nowMs={nowMs}
+          xPostCounts={xPostCounts}
           density="compact"
           blockAttrs={{ 'data-mandala-block': MANDALA_CENTER, 'data-mandala-block-expanded': '1' }}
         />
@@ -96,6 +100,7 @@ export default function Mandala81({
           popoverBind={popoverBind}
           articleCounts={articleCounts}
           nowMs={nowMs}
+          xPostCounts={xPostCounts}
           density="compact"
           onExpand={onExpand}
           blockAttrs={{ 'data-mandala-block': position, 'data-mandala-block-expanded': expanded ? '1' : '0' }}

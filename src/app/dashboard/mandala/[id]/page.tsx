@@ -23,7 +23,9 @@ import MandalaGrid from '@/components/mandala/MandalaGrid';
 import MandalaCellEditor from '@/components/mandala/MandalaCellEditor';
 import MandalaCompareView from '@/components/mandala/MandalaCompareView';
 import Mandala81 from '@/components/mandala/Mandala81';
-import { MandalaArticlesPopoverContent, MandalaLinkPopoverContent, MandalaReactionPopoverContent, MandalaResearchPopoverContent } from '@/components/mandala/MandalaLinks';
+import { MandalaArticlesPopoverContent, MandalaLinkPopoverContent, MandalaReactionPopoverContent, MandalaResearchPopoverContent, MandalaXPostsPopoverContent } from '@/components/mandala/MandalaLinks';
+// 312: マンダラ→X投稿（入口＝パネルの「X投稿にする」・見出しの「Xシリーズにする」）。「🐦 投稿: n本」は投稿の側の記録から導出
+import { MANDALA_X_SERIES_DISABLED_REASON, canMakeXSeries, mandalaXPostsLabel, xPostCountsByCell, type MandalaXPostRow } from '@/lib/mandala-x';
 // 311: 未調査マスからのリサーチ発注（1件／まとめ）。発注文は純関数、経路は既存のバッチ／テキスト分析、印は meta.research
 import MandalaResearchDialog from '@/components/mandala/MandalaResearchDialog';
 import { MANDALA_RESEARCH_BULK_MAX, buildResearchOrder, bulkOrderState, researchSummary, uncoveredCells, type MandalaResearchOrderResult } from '@/lib/mandala-research';
@@ -89,6 +91,9 @@ export default function MandalaChartPage({ params }: { params: Promise<{ id: str
   // 309: このチャートから起こした note 記事（記事の側の記録から導出）
   const [articles, setArticles] = useState<MandalaArticleRef[]>([]);
   const [articlesOpen, setArticlesOpen] = useState(false);
+  // 312: このチャートから起こした X 投稿（投稿の側の記録から導出）
+  const [xposts, setXposts] = useState<MandalaXPostRow[]>([]);
+  const [xpostsOpen, setXpostsOpen] = useState(false);
   // 311: 発注ダイアログ（1件＝cellIds 1つ／まとめ＝未調査の一覧）。進行状況の判定は読み込み時刻で固定（決定的）
   const [researchDialog, setResearchDialog] = useState<{ cellIds: string[]; bulk: boolean } | null>(null);
   const [nowMs, setNowMs] = useState(0);
@@ -122,6 +127,7 @@ export default function MandalaChartPage({ params }: { params: Promise<{ id: str
         links?: MandalaLinkLite[];
         books?: { id: number; title: string; status: string; importedAt: string }[];
         articles?: MandalaArticleRef[];
+        xposts?: MandalaXPostRow[];
         error?: string;
       };
       if (!res.ok || !json.chart) {
@@ -134,6 +140,7 @@ export default function MandalaChartPage({ params }: { params: Promise<{ id: str
       setLinks(Array.isArray(json.links) ? json.links : []);
       setBooks(Array.isArray(json.books) ? json.books : []);
       setArticles(Array.isArray(json.articles) ? json.articles : []);
+      setXposts(Array.isArray(json.xposts) ? json.xposts : []);
       setNowMs(Date.now());
     } catch (e: unknown) {
       setError({ status: 0, text: e instanceof Error ? e.message : '読み込みに失敗しました' });
@@ -249,6 +256,10 @@ export default function MandalaChartPage({ params }: { params: Promise<{ id: str
       if (from === 'articles') {
         return <MandalaArticlesPopoverContent articles={articles.filter((a) => a.cellId === cell.id)} />;
       }
+      // 312: 🐦 は投稿の記録（API の xposts）から描く
+      if (from === 'xposts') {
+        return <MandalaXPostsPopoverContent posts={xposts.filter((p) => (p.mode === 'cell' ? p.cellId === cell.id : p.cellIds.includes(cell.id)))} />;
+      }
       // 311: 🔍 は meta.research から描く。再発注＝ダイアログ、印を消す＝PATCH research:null
       if (from === 'research') {
         const latest = chart?.cells.find((c) => c.id === cell.id) ?? cell;
@@ -287,7 +298,7 @@ export default function MandalaChartPage({ params }: { params: Promise<{ id: str
         />
       );
     },
-    { onOpen: (_key, { cell, from }) => { if (from !== 'reaction' && from !== 'articles' && from !== 'research') void fetchResolved(cell.id); } },
+    { onOpen: (_key, { cell, from }) => { if (from === 'links' || from === 'episode') void fetchResolved(cell.id); } },
   );
   const popoverBind = useCallback(
     (cell: MandalaCell, from: MandalaPopoverFrom) => popover.bind(popoverKeyOf(cell.id), { cell, from }),
@@ -356,6 +367,8 @@ export default function MandalaChartPage({ params }: { params: Promise<{ id: str
   // 308: 反応記録 n/m と無料比率（純関数・R-74）
   const reaction = useMemo(() => (chart ? reactionSummary(chart.cells) : { withReaction: 0, filled: 0 }), [chart]);
   const articleCounts = useMemo(() => articleCountsByCell(articles), [articles]);
+  const xPostCounts = useMemo(() => xPostCountsByCell(xposts), [xposts]);
+  const xSeriesEnabled = !!chart && canMakeXSeries(chart.cells);
   // 311 §3-5: 「🔍 未調査 n／調査中 m」と、まとめて発注の対象（埋まっていてリンク0件で進行中でない・子マス含む）
   const research = useMemo(() => (chart ? researchSummary(chart.cells, linkCounts, nowMs) : { uncovered: 0, inProgress: 0, failed: 0, stale: 0 }), [chart, linkCounts, nowMs]);
   const uncovered = useMemo(() => (chart ? uncoveredCells(chart.cells, linkCounts, nowMs) : []), [chart, linkCounts, nowMs]);
@@ -450,6 +463,19 @@ export default function MandalaChartPage({ params }: { params: Promise<{ id: str
             🔍 未調査 {research.uncovered}／調査中 {research.inProgress}
             {research.failed + research.stale > 0 && <span style={{ marginLeft: 6, color: '#B45309' }}>（失敗・中断 {research.failed + research.stale}）</span>}
           </span>
+          {/* 312 §3-4: 起こした X 投稿 n本（0本は出さない）。押すと一覧を開き、投稿へ飛ぶ */}
+          {xposts.length > 0 && (
+            <span style={{ position: 'relative', display: 'inline-block' }}>
+              <button type="button" data-mandala-xposts={xposts.length} aria-expanded={xpostsOpen} onClick={() => setXpostsOpen((v) => !v)} title="このマンダラから起こした X 投稿" style={{ ...btn, padding: '4px 10px', fontWeight: 700, color: '#e0684b', borderColor: 'rgba(224,104,75,0.4)' }}>
+                {mandalaXPostsLabel(xposts.length)}
+              </button>
+              {xpostsOpen && (
+                <div data-mandala-xposts-list style={{ position: 'absolute', top: '100%', left: 0, marginTop: 4, zIndex: 50, minWidth: 280, maxWidth: 380, padding: 8, background: 'var(--bg-primary)', border: '1px solid var(--border)', borderRadius: 10, boxShadow: '0 8px 24px rgba(0,0,0,0.12)' }}>
+                  <MandalaXPostsPopoverContent posts={xposts} />
+                </div>
+              )}
+            </span>
+          )}
           {/* 307 §3-4: 起こした本 n件（0件は出さない）。押すと案件の一覧を開き、案件へ飛ぶ */}
           {books.length > 0 && (
             <span style={{ position: 'relative', display: 'inline-block' }}>
@@ -513,6 +539,23 @@ export default function MandalaChartPage({ params }: { params: Promise<{ id: str
             >
               🔍 未調査マスをまとめて発注
             </button>
+          )}
+          {/* 312 §3-1: このマンダラを X シリーズにする（埋まっている周囲マスが2つ以上。未満は無効化＋理由・R-101） */}
+          {xSeriesEnabled ? (
+            <Link
+              data-mandala-x-series
+              href={`/dashboard/dr-hub?mandala=${encodeURIComponent(id)}&mode=series&to=x`}
+              target="_blank"
+              rel="noopener noreferrer"
+              title="周囲の埋まっているマスを目次順に 1マス＝1投稿の X シリーズとして起こす（発信ハブ③が新しいタブで開きます）"
+              style={{ ...btn, textDecoration: 'none', display: 'inline-flex', alignItems: 'center', borderColor: '#e0684b', color: '#e0684b' }}
+            >
+              🐦 このマンダラをXシリーズにする
+            </Link>
+          ) : (
+            <span data-mandala-x-series-disabled title={MANDALA_X_SERIES_DISABLED_REASON} aria-disabled="true" style={{ ...btn, opacity: 0.5, cursor: 'default', display: 'inline-flex', alignItems: 'center' }}>
+              🐦 このマンダラをXシリーズにする
+            </span>
           )}
           {/* 309 §3-1: このマンダラを有料記事にする（型のチャート、または区分のあるマスがあるときだけ。それ以外は無効化＋理由・R-101） */}
           {paidNoteEnabled ? (
@@ -634,6 +677,7 @@ export default function MandalaChartPage({ params }: { params: Promise<{ id: str
                 narrow={narrow}
                 articleCounts={articleCounts}
                 nowMs={nowMs}
+                xPostCounts={xPostCounts}
               />
             </div>
           ) : (
@@ -649,6 +693,7 @@ export default function MandalaChartPage({ params }: { params: Promise<{ id: str
               popoverBind={popoverBind}
               articleCounts={articleCounts}
               nowMs={nowMs}
+              xPostCounts={xPostCounts}
             />
           )}
           </div>

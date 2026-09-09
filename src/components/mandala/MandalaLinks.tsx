@@ -36,6 +36,9 @@ import {
   parseReaction,
   purchaseRate,
   type MandalaCell,
+  MANDALA_REACTION_X_KEYS,
+  MANDALA_REACTION_X_LABELS,
+  hasNoteReaction,
 } from '@/lib/mandala-shared';
 
 const ACCENT = '#6c63ff';
@@ -474,6 +477,7 @@ export function MandalaReactionPopoverContent({ cell, onOpenPanel }: { cell: Man
         <div style={{ fontSize: 11, color: 'var(--text-muted)', padding: '2px 4px' }}>記録がありません</div>
       ) : (
         <>
+          {hasNoteReaction(r) && (
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0, 1fr))', gap: 4, padding: '2px 4px' }}>
             {MANDALA_REACTION_KEYS.map((k) => (
               <div key={k} data-mandala-reaction-pop={k} style={{ fontSize: 11, textAlign: 'center' }}>
@@ -482,20 +486,41 @@ export function MandalaReactionPopoverContent({ cell, onOpenPanel }: { cell: Man
               </div>
             ))}
           </div>
+          )}
+          {hasNoteReaction(r) && (
           <div style={{ fontSize: 11, padding: '2px 4px', color: 'var(--text-secondary)' }}>
             購入率:{' '}
             <span data-mandala-reaction-pop-rate={rate === null ? '' : String(rate)} style={{ fontWeight: 700, color: 'var(--text-primary)' }}>
               {rate === null ? '—（アクセス数が未記録）' : formatRate(rate)}
             </span>
           </div>
+          )}
           {r.memo && (
             <div data-mandala-reaction-pop-memo style={{ fontSize: 11, padding: '2px 4px', color: 'var(--text-primary)', overflowWrap: 'anywhere' }}>
               💬 {r.memo}
             </div>
           )}
-          <div data-mandala-reaction-pop-at style={{ fontSize: 10, padding: '2px 4px', color: 'var(--text-muted)' }}>
-            記録 {r.recordedAt ? jstDateTimeString(r.recordedAt) : '（日時不明）'}
-          </div>
+          {hasNoteReaction(r) && (
+            <div data-mandala-reaction-pop-at style={{ fontSize: 10, padding: '2px 4px', color: 'var(--text-muted)' }}>
+              記録 {r.recordedAt ? jstDateTimeString(r.recordedAt) : '（日時不明）'}
+            </div>
+          )}
+          {/* 312 §3-5: X の行（note 側とは別グループ） */}
+          {r.x && (
+            <div data-mandala-reaction-pop-x style={{ borderTop: '1px dashed var(--border)', marginTop: 2, paddingTop: 4 }}>
+              <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--text-muted)', padding: '0 4px' }}>🐦 X</div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, minmax(0, 1fr))', gap: 2, padding: '2px 4px' }}>
+                {MANDALA_REACTION_X_KEYS.map((k) => (
+                  <div key={k} data-mandala-reaction-pop-x-key={k} style={{ fontSize: 10, textAlign: 'center' }}>
+                    <div style={{ color: 'var(--text-muted)', fontSize: 9 }}>{MANDALA_REACTION_X_LABELS[k]}</div>
+                    <div style={{ fontWeight: 700, color: 'var(--text-primary)' }}>{typeof r.x![k] === 'number' ? r.x![k]!.toLocaleString() : '—'}</div>
+                  </div>
+                ))}
+              </div>
+              {r.x.memo && <div data-mandala-reaction-pop-x-memo style={{ fontSize: 11, padding: '2px 4px', overflowWrap: 'anywhere' }}>💬 {r.x.memo}</div>}
+              <div style={{ fontSize: 10, padding: '2px 4px', color: 'var(--text-muted)' }}>記録 {r.x.recordedAt ? jstDateTimeString(r.x.recordedAt) : '（日時不明）'}</div>
+            </div>
+          )}
         </>
       )}
       <button type="button" data-mandala-reaction-pop-edit onClick={onOpenPanel} style={{ marginTop: 2, padding: '4px 8px', fontSize: 11, borderRadius: 6, border: '1px solid var(--border)', background: 'transparent', color: 'var(--text-secondary)', cursor: 'pointer', textAlign: 'left' }}>
@@ -553,6 +578,23 @@ export function MandalaResearchPopoverContent({ cell, nowMs, onReorder, onClear 
           <button type="button" data-mandala-research-pop-clear onClick={onClear} style={{ padding: '4px 8px', fontSize: 11, borderRadius: 6, border: '1px solid var(--border)', background: 'transparent', color: 'var(--text-muted)', cursor: 'pointer' }}>印を消す</button>
         </div>
       )}
+    </div>
+  );
+}
+
+/** 312 §3-4: 🐦 バッジのポップアップ。そのマスから起こした X 投稿（記事の側の記録から導出）。押すと📚リサーチ保存で開く */
+export function MandalaXPostsPopoverContent({ posts }: { posts: readonly { id: string; title: string; mode: 'cell' | 'series'; created_at: string }[] }) {
+  return (
+    <div data-mandala-xposts-popover style={{ display: 'flex', flexDirection: 'column', gap: 4, minWidth: 0 }}>
+      <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-muted)', padding: '2px 4px' }}>🐦 起こした投稿（{posts.length}）</div>
+      {posts.length === 0 && <div style={{ fontSize: 11, color: 'var(--text-muted)', padding: '2px 4px' }}>投稿がありません</div>}
+      {posts.map((p) => (
+        <a key={p.id} data-mandala-xpost={p.id} href={`/dashboard/library?open=${encodeURIComponent(p.id)}`} target="_blank" rel="noopener noreferrer" style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0, padding: '5px 6px', borderRadius: 6, textDecoration: 'none', color: 'inherit', fontSize: 12 }}>
+          <span style={{ fontSize: 10, fontWeight: 700, padding: '0 5px', borderRadius: 4, background: 'rgba(224,104,75,0.14)', color: '#e0684b', flexShrink: 0 }}>{p.mode === 'series' ? 'シリーズ' : '投稿群'}</span>
+          <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.title || '（無題）'}</span>
+          <span style={{ fontSize: 10, color: 'var(--text-muted)', flexShrink: 0 }}>{jstShortDate(p.created_at)} ↗</span>
+        </a>
+      ))}
     </div>
   );
 }

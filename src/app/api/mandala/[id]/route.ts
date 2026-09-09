@@ -4,7 +4,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { requireAuth } from '@/lib/require-auth';
-import { expandCell, getChart, listArticlesFromChart, listBooksFromChart, listLinksForChart, type MandalaArticleRow, type MandalaBookRef } from '@/lib/mandala-server';
+import { expandCell, getChart, listArticlesFromChart, listBooksFromChart, listLinksForChart, listXPostsFromChart, type MandalaArticleRow, type MandalaBookRef, type MandalaXPostDbRow } from '@/lib/mandala-server';
 import { isUuidLike, type MandalaLinkLite } from '@/lib/mandala-shared';
 
 export const runtime = 'nodejs';
@@ -37,7 +37,14 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string
     } catch (e: unknown) {
       console.error('[mandala] 起こした記事の取得に失敗（本体は返す）:', e instanceof Error ? e.message : 'unknown');
     }
-    return NextResponse.json({ chart, links, books, articles });
+    // 312: このチャートから起こした X 投稿（library type='x-post' の metadata.mandala から導出）
+    let xposts: MandalaXPostDbRow[] = [];
+    try {
+      xposts = await listXPostsFromChart(guard.userId, id);
+    } catch (e: unknown) {
+      console.error('[mandala] 起こした X 投稿の取得に失敗（本体は返す）:', e instanceof Error ? e.message : 'unknown');
+    }
+    return NextResponse.json({ chart, links, books, articles, xposts });
   } catch (e: unknown) {
     console.error('[mandala] 取得に失敗:', e instanceof Error ? e.message : 'unknown');
     return NextResponse.json({ error: 'マンダラの取得に失敗しました' }, { status: 500 });

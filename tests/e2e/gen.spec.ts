@@ -854,3 +854,32 @@ test('B33: マンダラからのリサーチ発注（311）— 付帯情報つ�
     await deleteMandalaChart(request, chartId);
   }
 });
+
+test('B34: マンダラ→X投稿（312）— マス1つから投稿群（本数2）が生成され、本文に外部URLが無く上限内・本数が一致・URLはセルフリプライ欄へ・出どころが返る・医療広告ガード（ad 警告の形）は既存のまま @gen', async ({ request }) => {
+  test.setTimeout(GEN_TIMEOUT);
+  const marker = `MXG${RUN_ID}`;
+  const { id: chartId, cells } = await createMandalaChart(request, `${marker} 保湿を続ける`);
+  const cell0 = cells.find((c) => c.position === 0)!;
+  expect((await saveMandalaCell(request, cell0.id, { title: '入浴後すぐの保湿', body: '角層の水分は入浴後に失われやすい。5分以内に塗る。自分で3週間続けて塗り忘れが減った。\n参考 https://example.com/moisture' })).status()).toBe(200);
+  try {
+    const res = await request.post('/api/dr-hub/x-post', {
+      data: { mandala: { chartId, mode: 'cell', cellId: cell0.id, count: 2 }, threadCount: 2, xLength: 'short', postType: 'knowhow' },
+      timeout: REQ_TIMEOUT,
+    });
+    const data = await res.json().catch(() => ({}));
+    expect(res.status(), JSON.stringify(data).slice(0, 300)).toBe(200);
+    const thread: string[] = Array.isArray(data.thread) ? data.thread : [];
+    expect(thread.length, '本数（thread）が一致').toBe(2);
+    for (const t of [String(data.single ?? ''), ...thread]) {
+      expect(t.length).toBeGreaterThan(0);
+      expect(/https?:\/\//.test(t), '本文に外部URLが無い（コード側で移す）').toBe(false);
+      expect(t.length).toBeLessThanOrEqual(25000);
+    }
+    expect(Array.isArray(data.replyUrls)).toBe(true);
+    expect(data.replyUrls, '気づきの URL はセルフリプライ候補へ').toContain('https://example.com/moisture');
+    expect(data.mandala).toMatchObject({ source: 'mandala', chartId, mode: 'cell', cellId: cell0.id, count: 2 });
+    expect(typeof data.warnings).toBe('object');
+  } finally {
+    await deleteMandalaChart(request, chartId);
+  }
+});
