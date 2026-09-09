@@ -58,7 +58,8 @@ export const FLOATING_DEFAULT: FloatingState = { assistant: false, memo: false, 
 const FLOATING_BASE = 24;
 const FLOATING_STEP = 56;
 export function floatingBottom(slot: number): string {
-  return `calc(${FLOATING_BASE + slot * FLOATING_STEP}px + env(safe-area-inset-bottom, 0px))`;
+  // 313: 画面下部の固定アクションバー（StickyActionBar）が出ている間は、その高さ（CSS 変数）だけ上へ逃がす。出ていなければ 0px
+  return `calc(${FLOATING_BASE + slot * FLOATING_STEP}px + env(safe-area-inset-bottom, 0px) + var(--lumina-sticky-bar-h, 0px))`;
 }
 
 // ─────────────────────────────────────────────────────────────

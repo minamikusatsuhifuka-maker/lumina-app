@@ -47,6 +47,9 @@ import { clearAndPaste, CLEAR_PASTE_MESSAGE } from '@/lib/clear-and-paste';
 // 259/270: 「📋 ペースト」ボタン（270からは全端末に出す）
 import { PasteButton } from '@/components/TouchPaste';
 import { isAutoStockSaveEnabled } from '@/lib/auto-stock-save';
+// 313: 実行ボタンの配置（狭幅＝下部固定バー／広幅＝テキスト欄と分析タイプの間）。判定は lib の純関数、バーは共通部品
+import StickyActionBar from '@/components/StickyActionBar';
+import { isStickyBarNarrow, isTextEntryTarget, runDisabledReason, shouldShowStickyBar, stickyBarReserve } from '@/lib/sticky-action-bar';
 
 // 215: 「全」は高さプリセットではなく FullscreenReader（保存一覧と同じ全画面ビューア）を
 // 開くボタンに変更。panelHeight は触らないため、閉じた後は押下前の S/M/L に自動復帰する
@@ -876,6 +879,33 @@ export default function TextAnalysisPanel({
   // 「✏️ AIで修正」モーダル表示中も発火しない（refineTarget）
   const panelRef = useRef<HTMLDivElement>(null);
   const canAnalyze = !loading && !!inputText.trim() && selectedTypes.size > 0;
+  // 313: 狭幅（主カラムの幅・ResizeObserver）／キーボード中（テキスト入力にフォーカス）／バーの実測高さ
+  const [narrow, setNarrow] = useState(false);
+  const [editing, setEditing] = useState(false);
+  const [barHeight, setBarHeight] = useState(0);
+  useEffect(() => {
+    const el = panelRef.current;
+    if (!el || typeof ResizeObserver === 'undefined') return;
+    const apply = () => setNarrow(isStickyBarNarrow(el.getBoundingClientRect().width));
+    apply();
+    const ro = new ResizeObserver(apply);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+  useEffect(() => {
+    const el = panelRef.current;
+    if (!el) return;
+    const onIn = (e: FocusEvent) => { if (isTextEntryTarget(e.target as HTMLElement | null)) setEditing(true); };
+    const onOut = (e: FocusEvent) => { if (isTextEntryTarget(e.target as HTMLElement | null)) setEditing(false); };
+    el.addEventListener('focusin', onIn);
+    el.addEventListener('focusout', onOut);
+    return () => {
+      el.removeEventListener('focusin', onIn);
+      el.removeEventListener('focusout', onOut);
+    };
+  }, []);
+  const showBar = shouldShowStickyBar(narrow, editing);
+  const runReason = runDisabledReason({ loading, hasText: !!inputText.trim(), typeCount: selectedTypes.size });
   useRunShortcut({
     containerRef: panelRef,
     active: !refineTarget,
@@ -1079,8 +1109,35 @@ export default function TextAnalysisPanel({
     );
   };
 
+  // 313: 実行ボタンは**この1要素だけ**（狭幅は固定バー・広幅はテキスト欄の直下に置く）。ハンドラ・活性条件・件数表示は不変（R-88）
+  const runButton = (
+    <button
+      type="button"
+      data-kb-run
+      onClick={handleAnalyze}
+      disabled={!canAnalyze}
+      title={runReason ?? (keyHints ? `分析を実行（${keyHints.run}）` : '分析を実行')}
+      style={{
+        padding: '10px 24px',
+        borderRadius: 10,
+        background: 'var(--accent)',
+        color: '#fff',
+        border: 'none',
+        fontSize: 13,
+        fontWeight: 600,
+        cursor: canAnalyze ? 'pointer' : 'not-allowed',
+        opacity: canAnalyze ? 1 : 0.5,
+        whiteSpace: 'nowrap',
+      }}
+    >
+      {loading
+        ? '⏳ 分析中...'
+        : `🚀 ${selectedTypes.size}件を分析${keyHints ? ` ${keyHints.run}` : ''}`}
+    </button>
+  );
+
   return (
-    <div ref={panelRef} style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+    <div ref={panelRef} data-sticky-narrow={narrow ? '1' : '0'} data-sticky-reserve={showBar ? stickyBarReserve(barHeight) : 0} style={{ display: 'flex', flexDirection: 'column', gap: 16, paddingBottom: showBar ? stickyBarReserve(barHeight) : 0 }}>
       {/* 自動下書きからの復元バナー */}
       {restoredAt && (
         <FeatureDraftBanner restoredAt={restoredAt} onClear={handleClearDraft} />
@@ -1268,8 +1325,21 @@ export default function TextAnalysisPanel({
         </div>
       </div>
 
+      {/* 313 §2-2: 広幅ではテキスト欄と分析タイプの間に実行ボタン（院長の要望）。狭幅は固定バーがあるので置かない（二重にしない） */}
+      {!narrow && (
+        <div data-ta-run-inline style={{ display: 'flex', alignItems: 'center', gap: 12, marginTop: -4 }}>
+          {runButton}
+          {progress && (
+            <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>
+              {progress}
+            </span>
+          )}
+        </div>
+      )}
+
       {/* 分析タイプ選択 */}
       <div
+        data-ta-types
         style={{
           background: 'var(--bg-card)',
           border: '1px solid var(--border)',
@@ -1402,36 +1472,19 @@ export default function TextAnalysisPanel({
         </div>
       </div>
 
-      {/* 実行ボタン */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-        <button
-          type="button"
-          data-kb-run
-          onClick={handleAnalyze}
-          disabled={!canAnalyze}
-          title={keyHints ? `分析を実行（${keyHints.run}）` : '分析を実行'}
-          style={{
-            padding: '10px 24px',
-            borderRadius: 10,
-            background: 'var(--accent)',
-            color: '#fff',
-            border: 'none',
-            fontSize: 13,
-            fontWeight: 600,
-            cursor: canAnalyze ? 'pointer' : 'not-allowed',
-            opacity: canAnalyze ? 1 : 0.5,
-          }}
+      {/* 313: 実行ボタンは下端から撤去（広幅＝テキスト欄の直下／狭幅＝下部固定バー。同じボタンを2つ置かない） */}
+      {showBar && (
+        <StickyActionBar
+          show={showBar}
+          anchorRef={panelRef}
+          name="text-analysis"
+          onHeightChange={setBarHeight}
+          left={<span data-sticky-action-bar-summary>{selectedTypes.size}件選択・{inputText.length.toLocaleString()} 文字</span>}
         >
-          {loading
-            ? '⏳ 分析中...'
-            : `🚀 ${selectedTypes.size}件を分析${keyHints ? ` ${keyHints.run}` : ''}`}
-        </button>
-        {progress && (
-          <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>
-            {progress}
-          </span>
-        )}
-      </div>
+          {runButton}
+          {progress && <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>{progress}</span>}
+        </StickyActionBar>
+      )}
 
       {/* 結果グリッド */}
       {results.size > 0 && (

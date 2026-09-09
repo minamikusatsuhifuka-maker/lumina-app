@@ -48,6 +48,7 @@ import * as noteFormat from '../../src/lib/note-format';
 import * as mandalaResearch from '../../src/lib/mandala-research';
 // 311是正: mandala-shared は mandala-presets（@/ alias）を読むようになった＝動的 import() では解決できない（R-112）
 import * as mandalaShared from '../../src/lib/mandala-shared';
+import * as stickyBar from '../../src/lib/sticky-action-bar';
 import * as mandalaX from '../../src/lib/mandala-x';
 import { KINDLE_TASTES, KINDLE_TASTE_KEYS, KINDLE_TASTE_GUARD, KINDLE_SCORE_AXES } from '../../src/lib/kindle-taste';
 import {
@@ -4394,4 +4395,49 @@ test('U83: マンダラ 311是正 — 未記入＝型由来（meta.tier）でタ
   expect(serverSrc).toMatch(/reason: 'no_theme', message: MANDALA_RESEARCH_REJECT_NO_THEME/);
   const batchSrc = readFileSync(join(__dirname, '../../src/app/api/batch-research/route.ts'), 'utf8');
   expect(batchSrc, 'バッチ登録は INSERT の前に未記入・テーマ無しを 400').toMatch(/placeholders\.length > 0\) return NextResponse\.json\([^]*?status: 400[^]*?INSERT INTO batch_research_jobs/);
+});
+
+test('U84: テキスト分析の実行ボタン配置（313）— 狭幅は容器幅（0 は非表示・640 未満）・キーボード中（テキスト入力にフォーカス）は出さない・無効化の理由は R-101 の順（分析中→本文空→タイプ0）・下余白はバーの実測高さ＋余白・セーフエリアは padding-bottom の env()・ソース固定: 実行ボタンは1要素＝ハンドラ1つ（R-88）・共通部品は body へ portal し R-80 の zoom 補正・追従ボタンは CSS 変数で上へ逃げる', async () => {
+  const b = stickyBar;
+  // ① 狭幅判定は容器の幅（display:none＝0 は「狭幅ではない」＝別タブでは出ない）
+  expect(b.isStickyBarNarrow(0)).toBe(false);
+  expect(b.isStickyBarNarrow(390)).toBe(true);
+  expect(b.isStickyBarNarrow(639)).toBe(true);
+  expect(b.isStickyBarNarrow(640)).toBe(false);
+  expect(b.STICKY_BAR_NARROW_MAX_WIDTH).toBe(640);
+  expect(b.shouldShowStickyBar(true, false)).toBe(true);
+  expect(b.shouldShowStickyBar(true, true), 'キーボード中は出さない').toBe(false);
+  expect(b.shouldShowStickyBar(false, false)).toBe(false);
+  // ② キーボードを呼ぶ要素
+  expect(b.isTextEntryTarget({ tagName: 'TEXTAREA' })).toBe(true);
+  expect(b.isTextEntryTarget({ tagName: 'INPUT', type: 'text' })).toBe(true);
+  expect(b.isTextEntryTarget({ tagName: 'INPUT' })).toBe(true);
+  expect(b.isTextEntryTarget({ tagName: 'INPUT', type: 'checkbox' })).toBe(false);
+  expect(b.isTextEntryTarget({ tagName: 'BUTTON' })).toBe(false);
+  expect(b.isTextEntryTarget({ tagName: 'DIV', isContentEditable: true })).toBe(true);
+  expect(b.isTextEntryTarget(null)).toBe(false);
+  // ③ 無効化の理由（R-101）・余白・セーフエリア
+  expect(b.runDisabledReason({ loading: false, hasText: false, typeCount: 0 })).toBe('分析するテキストを入力してください');
+  expect(b.runDisabledReason({ loading: false, hasText: true, typeCount: 0 })).toBe('分析タイプを1つ以上選択してください');
+  expect(b.runDisabledReason({ loading: true, hasText: true, typeCount: 2 })).toContain('分析中');
+  expect(b.runDisabledReason({ loading: false, hasText: true, typeCount: 2 })).toBeNull();
+  expect(b.stickyBarReserve(0)).toBe(0);
+  expect(b.stickyBarReserve(58.4)).toBe(59 + b.STICKY_BAR_RESERVE_EXTRA);
+  expect(b.stickyBarPaddingBottom()).toContain('env(safe-area-inset-bottom');
+  // ④ ソース固定（R-111）
+  const panel = readFileSync(join(__dirname, '../../src/components/text-analysis/TextAnalysisPanel.tsx'), 'utf8');
+  expect(panel.match(/data-kb-run/g)?.length, '実行ボタンは1要素（狭幅はバー・広幅はテキスト欄の直下に同じ要素を置く）').toBe(1);
+  expect(panel.match(/onClick=\{handleAnalyze\}/g)?.length, 'ハンドラは1つ（複製しない・R-88）').toBe(1);
+  expect(panel).toMatch(/\{!narrow && \(\s*<div data-ta-run-inline/);
+  expect(panel).toMatch(/\{showBar && \(\s*<StickyActionBar/);
+  expect(panel).not.toMatch(/\{\/\* 実行ボタン \*\/\}/);
+  expect(panel).toMatch(/setNarrow\(isStickyBarNarrow\(el\.getBoundingClientRect\(\)\.width\)\)/);
+  const bar = readFileSync(join(__dirname, '../../src/components/StickyActionBar.tsx'), 'utf8');
+  expect(bar).toContain('createPortal(');
+  expect(bar).toMatch(/toLayoutPx\(r\.left, z\)/);
+  expect(bar).toContain('paddingBottom: stickyBarPaddingBottom()');
+  expect(bar).toMatch(/setProperty\(STICKY_BAR_HEIGHT_VAR/);
+  const theme = readFileSync(join(__dirname, '../../src/components/ThemeProvider.tsx'), 'utf8');
+  expect(theme, '追従ボタン（↑ 等）はバーの高さ分だけ上へ逃げる').toMatch(/floatingBottom\(slot: number\): string \{[^]*?var\(--lumina-sticky-bar-h, 0px\)/);
+  expect(b.STICKY_BAR_HEIGHT_VAR).toBe('--lumina-sticky-bar-h');
 });

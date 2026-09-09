@@ -10754,3 +10754,87 @@ test('C128: マンダラ 311是正 — 型プリセットの未記入マス（�
     await deleteMandalaChart(api, chartId);
   }
 });
+
+test('C129: テキスト分析の実行ボタン配置（313）— 広幅: 🚀 がテキスト欄と分析タイプの間にあり下端に無く固定バーは出ない・無効化＋理由（R-101）・件数表示不変／狭幅（WebKit・iPhone幅・R-64）: 分析実行タブだけ下部固定バー・ボタンは同じ1要素（間には置かない）・本文空で無効＋理由・テキスト欄フォーカス中は出ず外すと出る・「↑」と重ならない・padding-bottom に safe-area・結果領域の下余白', async ({ page }) => {
+  test.setTimeout(180_000);
+  // ── 広幅（Chromium・既定ビューポート） ──
+  await stubFeatureDrafts(page);
+  await page.goto('/dashboard/text-analysis');
+  await waitForRunReady(page);
+  const runBtn = page.locator('button[data-kb-run]');
+  await expect(runBtn, '実行ボタンは1要素').toHaveCount(1);
+  await expect(page.locator('[data-sticky-action-bar]'), '広幅では固定バーを出さない').toHaveCount(0);
+  await expect(page.locator('[data-sticky-narrow]')).toHaveAttribute('data-sticky-narrow', '0');
+  await expect(page.locator('[data-ta-run-inline] button[data-kb-run]'), 'テキスト欄の直下のスロットにある').toHaveCount(1);
+  const textarea = page.getByPlaceholder('ここに分析したいテキストを貼り付けてください...');
+  const ta = (await textarea.boundingBox())!;
+  const btn = (await runBtn.boundingBox())!;
+  const types = (await page.locator('[data-ta-types]').boundingBox())!;
+  expect(btn.y, 'テキスト欄より下').toBeGreaterThanOrEqual(ta.y + ta.height);
+  expect(btn.y + btn.height, '分析タイプより上').toBeLessThanOrEqual(types.y + 1);
+  await expect(runBtn, '本文が空なら無効').toBeDisabled();
+  await expect(runBtn).toHaveAttribute('title', /分析するテキストを入力してください/);
+  await textarea.fill(`[E2E] 313 配置の確認 ${RUN_ID}`);
+  await expect(runBtn).toBeEnabled();
+  await expect(runBtn, '件数表示は不変').toHaveText(/🚀 \d+件を分析/);
+
+  // ── 狭幅（WebKit・iPhone幅・hasTouch） ──
+  const browser = await webkit.launch();
+  const ctx = await browser.newContext({ storageState: STORAGE_STATE, baseURL: BASE_URL, hasTouch: true, isMobile: true, viewport: { width: 390, height: 844 }, serviceWorkers: 'block' });
+  const m = await ctx.newPage();
+  try {
+    await stubFeatureDrafts(m);
+    await m.goto('/dashboard/text-analysis');
+    const mta = m.getByPlaceholder('ここに分析したいテキストを貼り付けてください...');
+    await expect(mta).toBeVisible({ timeout: 30000 });
+    await expect(m.locator('[data-paste-button]'), 'ハイドレーション完了の合図').toBeVisible({ timeout: 30000 });
+    await expect(m.locator('[data-sticky-narrow]')).toHaveAttribute('data-sticky-narrow', '1', { timeout: 15000 });
+    const bar = m.locator('[data-sticky-action-bar="text-analysis"]');
+    await expect(bar, '分析実行タブで下部固定バー').toBeVisible({ timeout: 15000 });
+    await expect(m.locator('button[data-kb-run]'), 'ボタンは1要素だけ').toHaveCount(1);
+    await expect(bar.locator('button[data-kb-run]'), 'その1要素はバーの中').toHaveCount(1);
+    await expect(m.locator('[data-ta-run-inline]'), '狭幅ではテキスト欄と分析タイプの間に置かない').toHaveCount(0);
+    const mBtn = bar.locator('button[data-kb-run]');
+    await expect(mBtn, '本文が空なら無効').toBeDisabled();
+    await expect(mBtn).toHaveAttribute('title', /分析するテキストを入力してください/);
+    await expect(mBtn, 'iPhone ではキー併記なし・件数は同じ').toHaveText(/^🚀 \d+件を分析$/);
+    expect(await bar.getAttribute('style'), 'セーフエリア分の余白（padding-bottom に env(safe-area-inset-bottom)）').toMatch(/padding-bottom:\s*calc\([^)]*safe-area-inset-bottom/);
+    // 結果領域の下端がバーに隠れない: 容器の下余白 ≥ バーの実測高さ
+    const barBox = (await bar.boundingBox())!;
+    const reserve = Number(await m.locator('[data-sticky-reserve]').getAttribute('data-sticky-reserve'));
+    expect(reserve, '容器の下余白がバーの高さ以上').toBeGreaterThanOrEqual(Math.floor(barBox.height));
+    expect(await m.locator('[data-sticky-reserve]').evaluate((el) => Number.parseFloat(getComputedStyle(el).paddingBottom))).toBeGreaterThanOrEqual(Math.floor(barBox.height));
+    const vp = m.viewportSize()!;
+    expect(barBox.y + barBox.height, 'バーは画面下端').toBeGreaterThanOrEqual(vp.height - 1);
+    // テキスト欄にフォーカス中は出ない（キーボードの上に残さない）。外すと出る
+    await mta.tap();
+    await expect(bar, 'フォーカス中は出ない').toHaveCount(0);
+    await mta.fill(`[E2E] 313 狭幅 ${RUN_ID}`);
+    await mta.evaluate((el) => (el as HTMLTextAreaElement).blur());
+    await expect(bar, '外すと出る').toBeVisible({ timeout: 10000 });
+    await expect(bar.locator('button[data-kb-run]'), '本文とタイプがあれば押せる（同じ活性条件）').toBeEnabled();
+    // 「↑」と重ならない: 主カラムをスクロールして ↑ を出し、↑ の下端がバーの上端より上
+    await m.evaluate(() => {
+      const main = document.querySelector('main')!;
+      const sp = document.createElement('div');
+      sp.setAttribute('data-e2e-spacer', '1');
+      sp.style.height = '2000px';
+      main.appendChild(sp);
+      main.scrollTo({ top: 600 });
+      window.dispatchEvent(new Event('scroll'));
+    });
+    const up = m.locator('button[aria-label="ページの先頭へ戻る"]');
+    await expect(up).toBeVisible({ timeout: 10000 });
+    const upBox = (await up.boundingBox())!;
+    const barBox2 = (await bar.boundingBox())!;
+    expect(upBox.y + upBox.height, '↑ はバーの上に逃げる').toBeLessThanOrEqual(barBox2.y + 1);
+    // 他のタブでは出ない・戻ると出る
+    await m.getByRole('button', { name: /🗂 保存一覧/ }).tap();
+    await expect(bar, '保存一覧では出ない').toHaveCount(0);
+    await m.getByRole('button', { name: /🚀 分析実行/ }).tap();
+    await expect(bar).toBeVisible({ timeout: 10000 });
+  } finally {
+    await ctx.close();
+    await browser.close();
+  }
+});
