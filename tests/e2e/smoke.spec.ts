@@ -69,6 +69,8 @@ import {
   cleanupE2EKindleBooks,
 } from './helpers';
 import { KINDLE_PURPOSES } from '../../src/lib/kindle-purposes';
+// 319: 追加リサーチ
+import { FOLLOWUP_HANDOFF_KEY, FOLLOWUP_PROMPT_CHIPS, followUpMetadata, followUpTitle } from '../../src/lib/followup-research';
 
 // ============================================================================
 // スモークテスト（残E2Eチェックリスト C系＋B表示系）
@@ -11480,7 +11482,8 @@ test('C134: 選択バー（318）— 📚🗂🧠の3画面で同じ部品が一
     for (const key of ['purpose', 'visual', 'merge', 'compare', 'kindle']) await expect(bar.locator(`[data-selection-bar-action="${key}"]`), `📚: ${key} が並ぶ`).toBeVisible();
     // 順序: 🎯用途 → 🖼まとめて図解 → 🔗AIでまとめる → ⇔比較 → 📖Kindle → 右端に 🗑削除・✕選択をやめる
     const order = await bar.locator('[data-selection-bar-action], [data-selection-bar-exit]').evaluateAll((els) => els.map((e) => e.getAttribute('data-selection-bar-action') ?? 'exit'));
-    expect(order).toEqual(['purpose', 'visual', 'merge', 'compare', 'kindle', 'delete', 'exit']);
+    // 319: 📖Kindle の後ろに 🔭追加リサーチ
+    expect(order).toEqual(['purpose', 'visual', 'merge', 'compare', 'kindle', 'followup', 'delete', 'exit']);
     // sticky: 一覧を下までスクロールしてもバーは主カラムの上端に残り、幅は主カラムに揃う（サイドバーに被らない）
     await expect.poll(() => page.locator('[data-library-card]').count(), '一覧が長い（16件）').toBeGreaterThanOrEqual(16);
     // 置き場（フィルタ行の直下≒y800）が画面外に出るまでスクロールできるよう、判定の間だけ画面を低くする
@@ -11544,5 +11547,258 @@ test('C134: 選択バー（318）— 📚🗂🧠の3画面で同じ部品が一
     await cleanupE2ELibrary(request);
     await cleanupE2ESaves(request);
     await cleanupE2EContextSaves(request);
+  }
+});
+
+
+test('C135: 追加リサーチ（319）— 📚行・選択バー（4件で上限3の理由 R-101）・🗂行・🔭結果の4入口が同じダイアログ／前提資料のタイトル・字数／プロンプト空で無効・チップは文字列を入れるだけ／削除済みは資料なし／「やめる」「Esc」でリクエスト0／開始の二重発火で新タブ1つ（R-87）→ 🔭画面に handoff（R-121）→ 自動実行の送信に followUp・保存に metadata.followUp（of・prompt・mode・model・at）とタイトル既定／これを元に（連鎖の入口）／時間切れは中断で保存なし（R-118）／比較ダイアログに前提資料が渡る／実保存で ☑継承＝和集合・☐で付かない／「🔭 追加: n」→ポップアップ→?open=／結果の行に戻りリンク／連鎖の of は直前だけ', async ({ page, context, request }) => {
+  test.setTimeout(480_000);
+  const marker = `FUP${RUN_ID}`;
+  const lib: string[] = [];
+  for (let i = 0; i < 4; i++) lib.push(await createLibraryItem(request, { title: `元資料${i} ${marker}`, content: `本文${i} ${marker} 売上は${100 + i}億円。`, type: 'deepresearch' }));
+  const libA = lib[0];
+  const titleA = withE2EPrefix(`元資料0 ${marker}`);
+  const libZ = await createLibraryItem(request, { title: `消える資料 ${marker}`, content: `Z ${marker}`, type: 'deepresearch' });
+  const saveC = await createSave(request, { title: `分析C ${marker}`, content: `C本文 ${marker} 3社の比較。` });
+  const purposeA = await createPurpose(request, `用途A ${marker}`);
+  const purposeC = await createPurpose(request, `用途C ${marker}`);
+  const folderF = await createFolder(request, 'library', `フォルダF ${marker}`);
+  expect((await assignPurposes(request, 'library', libA, [purposeA])).ok()).toBe(true);
+  expect((await assignPurposes(request, 'text_analysis', saveC, [purposeC])).ok()).toBe(true);
+  expect((await assignFolders(request, 'library', libA, [folderF])).ok()).toBe(true);
+  const savedIds: string[] = [];
+  try {
+    // ── モック（新しいタブにも効くよう context 単位）。保存先もモックし本番ライブラリに書かない ──
+    await context.route('**/api/feature-drafts**', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(route.request().method() === 'GET' ? { draft: null } : { ok: true }) }));
+    for (const pattern of ['**/api/knowledge/**', '**/api/glossary/research-extract', '**/api/deepresearch/insights', '**/api/deepresearch/query-history', '**/api/library/auto-categorize']) {
+      await context.route(pattern, (route) => route.fulfill({ status: 200, contentType: 'application/json', body: '{}' }));
+    }
+    const drBodies: { topic?: string; depth?: string; followUp?: unknown; compare?: string }[] = [];
+    const sse = (events: object[]) => events.map((e) => `data: ${JSON.stringify(e)}\n\n`).join('');
+    await context.route('**/api/deepresearch', async (route) => {
+      const b = route.request().postDataJSON() as { topic?: string; depth?: string; followUp?: unknown; compare?: string };
+      drBodies.push(b);
+      await new Promise((r) => setTimeout(r, 200));
+      if (/時間切れ/.test(b.topic ?? '')) {
+        await route.fulfill({ status: 200, contentType: 'text/event-stream', body: sse([{ type: 'start' }, { type: 'text', content: '途中まで。' }, { type: 'timeout', message: '時間切れです' }]) });
+        return;
+      }
+      await route.fulfill({ status: 200, contentType: 'text/event-stream', body: sse([{ type: 'start' }, { type: 'text', content: `# 結果\n\n${marker} の追加リサーチ本文。\n\n出典: 例 https://example.com` }, { type: 'done', usage: { input_tokens: 1, output_tokens: 1 } }]) });
+    });
+    const libraryPosts: { title?: string; tags?: string; metadata?: { followUp?: { of?: { scope: string; item_key: string; title: string }[]; prompt?: string; mode?: string; model?: string; at?: string; inherit?: boolean } } }[] = [];
+    await context.route('**/api/library', async (route) => {
+      if (route.request().method() === 'POST') {
+        libraryPosts.push(route.request().postDataJSON());
+        await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ id: `e2e-mock-${libraryPosts.length}` }) });
+        return;
+      }
+      await route.fallback();
+    });
+
+    // ── ① 📚 行の入口: ダイアログ・前提資料のタイトル/字数・空で無効・チップ・目安・Esc／やめる（リクエスト0） ──
+    await page.goto('/dashboard/library');
+    await page.locator('[data-library-search]').fill(marker);
+    await expect(page.locator(`[data-library-card="${libA}"]`)).toBeVisible({ timeout: 30000 });
+    await expect(page.locator(`[data-library-card="${libZ}"]`)).toBeVisible();
+    expect((await request.delete('/api/library', { data: { ids: [libZ] } })).ok(), '画面に出したあとで削除（資料なしの検証）').toBe(true);
+    const dlg = page.locator('[data-followup-dialog]');
+    await page.locator(`[data-library-card="${libA}"] [data-followup-open="${libA}"]`).click();
+    await expect(dlg).toBeVisible();
+    const src = dlg.locator(`[data-followup-source="library:${libA}"]`);
+    await expect(src).toBeVisible({ timeout: 30000 });
+    await expect(src, '元資料のタイトル').toContainText(`元資料0 ${marker}`);
+    expect(Number(await src.getAttribute('data-followup-source-chars')), '字数').toBe(withE2EPrefix(`本文0 ${marker} 売上は100億円。`).length);
+    const start = dlg.locator('[data-followup-start]');
+    await expect(start, 'プロンプト空で開始が無効').toBeDisabled();
+    await expect(dlg.locator('[data-followup-reason]')).toContainText('プロンプトを入力');
+    await dlg.locator('[data-followup-chip="0"]').click();
+    await expect(dlg.locator('[data-followup-prompt]'), 'チップは文字列を入れるだけ').toHaveValue(FOLLOWUP_PROMPT_CHIPS[0]);
+    await expect(start).toBeEnabled();
+    await expect(dlg.locator('[data-followup-cost]'), '費用の目安').toHaveText(/約 \$|\$0\.01 未満/);
+    await expect(dlg.locator('[data-followup-time]'), '所要の目安').toHaveText(/約\d+秒/);
+    await expect(dlg.locator('[data-followup-inherit] input'), '継承は既定オン（R-77）').toBeChecked();
+    await page.keyboard.press('Escape');
+    await expect(dlg).toHaveCount(0);
+    expect(drBodies.length, 'Esc でリクエスト0').toBe(0);
+    await page.locator(`[data-library-card="${libA}"] [data-followup-open="${libA}"]`).click();
+    await expect(dlg).toBeVisible();
+    await dlg.locator('[data-followup-cancel]').click();
+    await expect(dlg).toHaveCount(0);
+    expect(drBodies.length, 'やめるでリクエスト0').toBe(0);
+    // 削除済み → 資料なし（無効＋理由）
+    await page.locator(`[data-library-card="${libZ}"] [data-followup-open="${libZ}"]`).click();
+    await expect(dlg.locator(`[data-followup-source="library:${libZ}"]`)).toHaveAttribute('data-followup-source-missing', '1', { timeout: 30000 });
+    await dlg.locator('[data-followup-prompt]').fill('x');
+    await expect(dlg.locator('[data-followup-start]')).toBeDisabled();
+    await expect(dlg.locator('[data-followup-reason]')).toContainText('資料なし');
+    await page.keyboard.press('Escape');
+    await expect(dlg).toHaveCount(0);
+    // ── 選択バー: 4件で無効＋理由（R-101）、3件で同じダイアログ（3件の前提資料） ──
+    for (const id of lib) await page.locator(`[data-library-card="${id}"] input[type="checkbox"]`).check();
+    const bulk = page.locator('[data-library-followup-bulk]');
+    await expect(bulk).toHaveAttribute('aria-disabled', 'true');
+    await expect(bulk).toHaveAttribute('title', /3件まで（4件選択中/);
+    await page.locator(`[data-library-card="${lib[3]}"] input[type="checkbox"]`).uncheck();
+    await expect(bulk).not.toHaveAttribute('aria-disabled', 'true');
+    await bulk.click();
+    await expect(dlg).toBeVisible();
+    await expect(dlg.locator('[data-followup-source]')).toHaveCount(3, { timeout: 30000 });
+    await expect(dlg.locator('[data-followup-source-missing]')).toHaveCount(0);
+    await dlg.locator('[data-followup-cancel]').click();
+    await page.locator('[data-library-select-clear]').click();
+    expect(drBodies.length).toBe(0);
+
+    // ── ② handoff（新タブ・R-121）→ 🔭画面で自動実行（モック）→ 送信に followUp・保存に metadata.followUp・タイトル既定・これを元に ──
+    await page.locator(`[data-library-card="${libA}"] [data-followup-open="${libA}"]`).click();
+    await expect(dlg.locator(`[data-followup-source="library:${libA}"]`)).toBeVisible({ timeout: 30000 });
+    const promptText = `[E2E] これらの企業の直近の年間売上 ${marker}`;
+    await dlg.locator('[data-followup-prompt]').fill(promptText);
+    await dlg.locator('[data-followup-mode="deep"]').click();
+    const pagesBefore = context.pages().length;
+    // R-87: 消える要素の二重押しは evaluate で同期2回（314）→ 新しいタブは1つ
+    const [popup] = await Promise.all([
+      context.waitForEvent('page'),
+      dlg.locator('[data-followup-start]').evaluate((el) => { (el as HTMLButtonElement).click(); (el as HTMLButtonElement).click(); }),
+    ]);
+    await popup.waitForLoadState();
+    expect(popup.url()).toContain('/dashboard/deepresearch?from=followup');
+    await expect(dlg).toHaveCount(0);
+    await page.waitForTimeout(500);
+    expect(context.pages().length, '二重発火で新タブは1つ').toBe(pagesBefore + 1);
+    const banner = popup.locator('[data-followup-banner="1"]');
+    await expect(banner, '渡した前提資料が画面に出る（R-121）').toBeVisible({ timeout: 30000 });
+    await expect(banner).toContainText(`元資料0 ${marker}`);
+    await expect(banner).toContainText('☑ 用途・マイフォルダを引き継ぐ');
+    await expect.poll(() => drBodies.length, '自動実行は1本').toBe(1);
+    expect(drBodies[0].topic, 'お題＝プロンプト').toBe(promptText);
+    expect(drBodies[0].depth, '分量はダイアログの値').toBe('deep');
+    expect(drBodies[0].followUp, '前提資料はオプトインで送る').toEqual({ sources: [{ scope: 'library', id: libA }] });
+    expect(drBodies[0].compare).toBeUndefined();
+    await expect.poll(() => libraryPosts.length, '完走で自動ストック保存（247）').toBeGreaterThanOrEqual(1);
+    const post = libraryPosts[0];
+    expect(post.title, 'タイトル既定「<プロンプト先頭30字> — <元資料>」').toBe(followUpTitle(promptText, [titleA]));
+    expect(post.tags).toContain('追加リサーチ');
+    const fu = post.metadata?.followUp;
+    expect(fu?.of).toEqual([{ scope: 'library', item_key: libA, title: titleA }]);
+    expect(fu?.prompt).toBe(promptText);
+    expect(fu?.mode).toBe('deep');
+    expect(fu?.model).toBe('gemini-3.7-flash');
+    expect(typeof fu?.at).toBe('string');
+    expect(fu?.inherit).toBe(true);
+    await expect(popup.locator('[data-followup-timeout]')).toHaveCount(0);
+    // これを元に追加リサーチ（連鎖の入口）: 保存済みの行 id を前提資料にする
+    const entry = popup.locator('[data-followup-open="report"]');
+    await expect(entry, '保存済みなら有効').toBeEnabled({ timeout: 30000 });
+    await entry.click();
+    const dlg2 = popup.locator('[data-followup-dialog]');
+    await expect(dlg2).toBeVisible();
+    await expect(dlg2.locator('[data-followup-source="library:e2e-mock-1"]'), '前提資料は保存した行').toBeVisible({ timeout: 30000 });
+    await popup.keyboard.press('Escape');
+    await expect(dlg2).toHaveCount(0);
+    // ── 時間切れ → 中断（保存なし・R-118） ──
+    const postsBefore = libraryPosts.length;
+    const setHandoff = (target: 'normal' | 'compare', prompt: string) =>
+      popup.evaluate(({ key, id, title, target, prompt }) => localStorage.setItem(key, JSON.stringify({ sources: [{ scope: 'library', id, title, chars: 10 }], prompt, mode: 'quick', target, inherit: false, at: new Date().toISOString() })), { key: FOLLOWUP_HANDOFF_KEY, id: libA, title: titleA, target, prompt });
+    await setHandoff('normal', `[E2E] 時間切れ ${marker}`);
+    await popup.goto('/dashboard/deepresearch?from=followup');
+    await expect(popup.locator('[data-followup-timeout]'), '中断の表示').toBeVisible({ timeout: 30000 });
+    await expect(popup.locator('[data-followup-banner="1"]')).toContainText('☐ 引き継がない');
+    expect(await popup.evaluate((k) => localStorage.getItem(k), FOLLOWUP_HANDOFF_KEY), '一回限りキーは読んだら消える').toBeNull();
+    expect(drBodies.filter((b) => /時間切れ/.test(b.topic ?? '')).length).toBe(1);
+    await popup.waitForTimeout(800);
+    expect(libraryPosts.length, '中断では保存しない').toBe(postsBefore);
+    await expect(popup.locator('[data-followup-open="report"]')).toHaveCount(0);
+    // ── 3つのAIで比較: 314 のダイアログに前提資料（件数・字数）が渡る。やめるでリクエスト0 ──
+    await setHandoff('compare', `[E2E] 比較へ ${marker}`);
+    await popup.goto('/dashboard/deepresearch?from=followup');
+    const cmp = popup.locator('[data-compare-dialog]');
+    await expect(cmp).toBeVisible({ timeout: 30000 });
+    await expect(cmp.locator('[data-compare-dialog-followup="1"]')).toHaveAttribute('data-compare-dialog-followup-chars', '10');
+    await expect(cmp).toContainText(`[E2E] 比較へ ${marker}`);
+    const drBefore = drBodies.length;
+    await cmp.locator('[data-compare-dialog-cancel]').click();
+    await expect(cmp).toHaveCount(0);
+    expect(drBodies.length, '比較を「やめる」でリクエスト0').toBe(drBefore);
+    await popup.close();
+
+    // ── ③ 実保存（AI なし・保存API がフック R-115）: ☑継承＝元資料（📚A＋🗂C）の用途・フォルダの和集合／☐で付かない／件数・一覧／連鎖 ──
+    const save = (title: string, of: { scope: 'library' | 'text_analysis'; id: string; title: string }[], inherit: boolean) =>
+      request.post('/api/library', { data: { type: 'deepresearch', title: withE2EPrefix(`${title} ${marker}`), content: withE2EPrefix(`結果本文 ${marker}`), tags: 'ディープリサーチ,追加リサーチ', group_name: 'ディープリサーチ', metadata: { followUp: followUpMetadata({ sources: of, prompt: promptText, mode: 'standard', model: 'gemini-3.7-flash', at: new Date().toISOString(), inherit }) } } });
+    const r1 = await save('追加結果1', [{ scope: 'library', id: libA, title: '元資料0' }, { scope: 'text_analysis', id: String(saveC), title: '分析C' }], true);
+    expect(r1.status()).toBe(200);
+    const j1 = (await r1.json()) as { id: string; inherited?: { purposes: number[]; folders: number[] } };
+    savedIds.push(j1.id);
+    expect([...(j1.inherited?.purposes ?? [])].sort(), '用途は和集合（📚A の用途A ＋ 🗂C の用途C）').toEqual([purposeA, purposeC].sort());
+    expect(j1.inherited?.folders, 'マイフォルダ（stock 体系）').toEqual([folderF]);
+    const r2 = await save('追加結果2', [{ scope: 'library', id: libA, title: '元資料0' }], false);
+    const j2 = (await r2.json()) as { id: string; inherited?: unknown };
+    savedIds.push(j2.id);
+    expect(j2.inherited, '☐ では継承しない').toBeUndefined();
+    const rows = (await (await request.get(`/api/library?q=${encodeURIComponent(marker)}`)).json()) as { id: string; purpose_category_ids: number[]; custom_folder_ids: number[] }[];
+    const row1 = rows.find((r) => r.id === j1.id)!;
+    const row2 = rows.find((r) => r.id === j2.id)!;
+    expect([...row1.purpose_category_ids].sort(), '実テーブルに付いている').toEqual([purposeA, purposeC].sort());
+    expect(row1.custom_folder_ids).toEqual([folderF]);
+    expect(row2.purpose_category_ids).toEqual([]);
+    expect(row2.custom_folder_ids).toEqual([]);
+    const counts = (await (await request.get(`/api/followup-research?mode=counts&scope=library&ids=${libA},${lib[1]}`)).json()) as { counts: Record<string, number> };
+    expect(counts.counts[libA], '「🔭 追加: n」は出どころから導出').toBe(2);
+    expect(counts.counts[lib[1]]).toBeUndefined();
+    const countsTa = (await (await request.get(`/api/followup-research?mode=counts&scope=text_analysis&ids=${saveC}`)).json()) as { counts: Record<string, number> };
+    expect(countsTa.counts[String(saveC)]).toBe(1);
+    const list = (await (await request.get(`/api/followup-research?mode=list&scope=library&id=${libA}`)).json()) as { items: { id: string; prompt: string }[] };
+    expect(list.items.map((i) => i.id).sort()).toEqual([j1.id, j2.id].sort());
+    expect(list.items[0].prompt).toBe(promptText);
+    // 連鎖: 結果1からさらに → of は直前（結果1）だけ。元資料A の件数は増えない
+    const r3 = await save('追加結果3（連鎖）', [{ scope: 'library', id: j1.id, title: '追加結果1' }], false);
+    const j3 = (await r3.json()) as { id: string };
+    savedIds.push(j3.id);
+    const list3 = (await (await request.get(`/api/followup-research?mode=list&scope=library&id=${j1.id}`)).json()) as { items: { id: string }[] };
+    expect(list3.items.map((i) => i.id)).toEqual([j3.id]);
+    const countsAfter = (await (await request.get(`/api/followup-research?mode=counts&scope=library&ids=${libA},${j1.id}`)).json()) as { counts: Record<string, number> };
+    expect(countsAfter.counts[libA], '連鎖は直前だけを指す').toBe(2);
+    expect(countsAfter.counts[j1.id]).toBe(1);
+    // 資料なし・上限超えはサーバも 400（fail-closed）
+    const bad = await request.post('/api/deepresearch', { data: { topic: 'x', depth: 'quick', followUp: { sources: [{ scope: 'library', id: libZ }] } } });
+    expect(bad.status(), '削除済みは 400').toBe(400);
+    expect(((await bad.json()) as { error: string }).error).toContain('資料なし');
+    const badScope = await request.post('/api/deepresearch', { data: { topic: 'x', depth: 'quick', followUp: { sources: [{ scope: 'context', id: '1' }] } } });
+    expect(badScope.status(), '対象外 scope は 400').toBe(400);
+
+    // ── ④ 画面: 元資料の行に「🔭 追加: 2」→ ポップアップ → ?open=（新しいタブ）。結果の行に戻りリンク。🗂 行の入口と「🔭 追加: 1」 ──
+    await page.goto('/dashboard/library');
+    await page.locator('[data-library-search]').fill(marker);
+    const badge = page.locator(`[data-library-card="${libA}"] [data-followup-count]`);
+    await expect(badge).toHaveAttribute('data-followup-count', '2', { timeout: 30000 });
+    await badge.click();
+    const pop = page.locator(`[data-followup-popover="${libA}"]`);
+    await expect(pop).toBeVisible();
+    const item = pop.locator(`[data-followup-popover-item="${j1.id}"]`);
+    await expect(item).toBeVisible({ timeout: 30000 });
+    await expect(item).toHaveAttribute('href', new RegExp(`/dashboard/library\\?open=${j1.id}`));
+    await expect(item).toHaveAttribute('target', '_blank');
+    await expect(item).toContainText(promptText);
+    await page.keyboard.press('Escape');
+    await expect(pop).toHaveCount(0);
+    const origin = page.locator(`[data-library-card="${j1.id}"] [data-library-followup-origin]`);
+    await expect(origin, '結果の行に「🔭 <元資料> を元に」').toContainText('を元に');
+    await expect(origin).toHaveAttribute('href', new RegExp(`/dashboard/library\\?open=${libA}`));
+    await expect(origin).toContainText(promptText.slice(0, 12));
+    await page.goto('/dashboard/text-analysis?tab=saved');
+    const panel = page.locator('[data-saved-panel="text-analysis"]');
+    const card = panel.locator(`[data-analysis-card="${saveC}"]`);
+    await expect(card).toBeVisible({ timeout: 30000 });
+    await expect(card.locator('[data-followup-count]')).toHaveAttribute('data-followup-count', '1', { timeout: 30000 });
+    await card.locator(`[data-followup-open="${saveC}"]`).click();
+    await expect(page.locator(`[data-followup-dialog] [data-followup-source="text_analysis:${saveC}"]`), '🗂 行からも同じダイアログ').toContainText(`分析C ${marker}`, { timeout: 30000 });
+    await page.keyboard.press('Escape');
+    // 4件選択の理由は🗂も同じ（R-101）
+    await expect(page.locator('[data-followup-dialog]')).toHaveCount(0);
+  } finally {
+    await request.delete('/api/library', { data: { ids: [...lib, libZ, ...savedIds] } }).catch(() => {});
+    await deleteSave(request, saveC).catch(() => {});
+    await deletePurpose(request, purposeA).catch(() => {});
+    await deletePurpose(request, purposeC).catch(() => {});
+    await deleteFolder(request, 'library', folderF).catch(() => {});
   }
 });

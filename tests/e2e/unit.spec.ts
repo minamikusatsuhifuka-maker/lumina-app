@@ -1,4 +1,22 @@
 import { test, expect } from '@playwright/test';
+// 319: 追加リサーチ（純関数・静的 import R-112）
+import {
+  FOLLOWUP_CONTEXT_LIMIT,
+  FOLLOWUP_MAX_SOURCES,
+  FOLLOWUP_PROMPT_CHIPS,
+  FOLLOWUP_REJECT_EMPTY_PROMPT,
+  FOLLOWUP_REJECT_MISSING,
+  FOLLOWUP_WRITING_RULES,
+  buildFollowUpOrder,
+  followUpCountsOf,
+  followUpMetadata,
+  followUpOriginLabel,
+  followUpStartState,
+  followUpTitle,
+  parseFollowUp,
+  parseFollowUpHandoff,
+  parseFollowUpRefs,
+} from '../../src/lib/followup-research';
 import { renderMarkdown } from '../../src/lib/markdown-renderer';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -4990,4 +5008,115 @@ test('U90: 選択バー（318）はソース固定 — 📚🗂🧠の3画面が
   const ctx = read('components/context-library/ContextLibraryPanel.tsx');
   expect(ctx).toMatch(/onClick: handleCompareSelect/);
   expect(ctx).toMatch(/onClick: bulkDeleteSelected/);
+});
+
+
+test('U91: 追加リサーチ（319）— 発注文は前提資料→指示→書き方の順で決定的（逆順入力で一致・本文は改変しない）・上限超え／件数超え／空プロンプト／資料なしは無効化＋理由（末尾を切らない R-101）・タイトルは先頭30字＋元資料・metadata.followUp は往復で同じ形（不正は null）・「🔭 追加: n」の導出・ソース固定（DR経路はオプトイン＋中断イベント／保存APIがフック／継承は既存関数で INSERT 無し／client lib は DB 非依存／4入口＋選択バー）', () => {
+  const a = { scope: 'library' as const, id: 'b2', title: '資料B', text: '売上は 123 億円。\n株式会社テスト。' };
+  const b = { scope: 'text_analysis' as const, id: '10', title: '分析A', text: 'まとめ：3社の比較。' };
+  const prompt = 'これらの企業の直近4年の年間売上を調べて';
+  const o1 = buildFollowUpOrder([a, b], prompt);
+  const o2 = buildFollowUpOrder([b, a], prompt);
+  expect(o1.ok && o2.ok).toBe(true);
+  if (!o1.ok || !o2.ok) return;
+  expect(o1.text, '逆順入力で一致（決定的・R-74）').toBe(o2.text);
+  const iSrc = o1.text.indexOf('【前提資料】（2件）');
+  const iInst = o1.text.indexOf('【指示】');
+  const iRule = o1.text.indexOf('【書き方】');
+  expect(iSrc, '前提資料が先頭').toBe(0);
+  expect(iInst).toBeGreaterThan(iSrc);
+  expect(iRule).toBeGreaterThan(iInst);
+  expect(o1.text, '本文はそのまま（数値・固有名詞を改変しない・R-75）').toContain('売上は 123 億円。\n株式会社テスト。');
+  expect(o1.text).toContain('資料B（📚 リサーチ保存・20字）');
+  expect(o1.text).toContain('分析A（🗂 テキスト分析・');
+  expect(o1.text.slice(iInst)).toContain(prompt);
+  for (const r of FOLLOWUP_WRITING_RULES) expect(o1.text).toContain(`- ${r}`);
+  expect(o1.text, '「未確認」の明示を求める').toContain('未確認');
+  expect(o1.sourceChars).toBe(a.text.length + b.text.length);
+  // 上限超え＝末尾を切らず無効化＋理由（R-101）。件数超え・空プロンプトも理由つき
+  const big = { ...a, text: 'あ'.repeat(FOLLOWUP_CONTEXT_LIMIT + 1) };
+  const over = buildFollowUpOrder([big], prompt);
+  expect(over.ok).toBe(false);
+  if (!over.ok) expect(over.reason).toMatch(/上限を超えています.*60,001 字.*60,000 字/);
+  const exact = buildFollowUpOrder([{ ...a, text: 'あ'.repeat(FOLLOWUP_CONTEXT_LIMIT) }], prompt);
+  expect(exact.ok, '上限ちょうどは通る').toBe(true);
+  const many = buildFollowUpOrder([a, b, { ...a, id: 'c' }, { ...a, id: 'd' }], prompt);
+  expect(many.ok).toBe(false);
+  if (!many.ok) expect(many.reason).toContain(`${FOLLOWUP_MAX_SOURCES}件まで`);
+  const empty = buildFollowUpOrder([a], '   ');
+  expect(empty.ok).toBe(false);
+  if (!empty.ok) expect(empty.reason).toBe(FOLLOWUP_REJECT_EMPTY_PROMPT);
+  expect(buildFollowUpOrder([], prompt).ok).toBe(false);
+  // ダイアログの可否（順序固定）: 件数超え → 資料なし → 上限 → 空プロンプト
+  expect(followUpStartState([{ chars: 10 }, { chars: 10 }, { chars: 10 }, { chars: 10 }], prompt).reason).toContain('3件まで');
+  expect(followUpStartState([{ chars: 0, missing: true }], prompt).reason).toBe(FOLLOWUP_REJECT_MISSING);
+  expect(followUpStartState([{ chars: FOLLOWUP_CONTEXT_LIMIT + 1 }], prompt).reason).toContain('上限を超えています');
+  expect(followUpStartState([{ chars: 100 }], '').reason).toBe(FOLLOWUP_REJECT_EMPTY_PROMPT);
+  expect(followUpStartState([{ chars: 100 }], prompt)).toEqual({ enabled: true, reason: null });
+  // チップは文字列（4〜6個）・重複なし
+  expect(FOLLOWUP_PROMPT_CHIPS.length).toBeGreaterThanOrEqual(4);
+  expect(FOLLOWUP_PROMPT_CHIPS.length).toBeLessThanOrEqual(6);
+  expect(new Set(FOLLOWUP_PROMPT_CHIPS).size).toBe(FOLLOWUP_PROMPT_CHIPS.length);
+  // タイトル: 先頭30字 — 元資料
+  expect(followUpTitle('あ'.repeat(40), ['資料B'])).toBe(`${'あ'.repeat(30)} — 資料B`);
+  expect(followUpTitle(prompt, ['資料B', '分析A'])).toBe(`${prompt} — 資料B・分析A`);
+  expect(followUpTitle('', ['X'])).toBe('追加リサーチ — X');
+  // metadata.followUp の往復（キー単位・R-113）。of は scope→id の順・直前の元資料だけ
+  const meta = followUpMetadata({ sources: [b, a], prompt, mode: 'deep', model: 'gemini-3.7-flash', at: '2026-09-10T00:00:00.000Z', inherit: true });
+  expect(meta.of.map((o) => `${o.scope}:${o.item_key}`)).toEqual(['library:b2', 'text_analysis:10']);
+  const parsed = parseFollowUp(JSON.stringify({ followUp: meta, savedAt: 'x' }));
+  expect(parsed).toEqual(meta);
+  expect(parseFollowUp({ followUp: meta })).toEqual(meta);
+  expect(parseFollowUp('{"followUp":{"of":[]}}'), '空の of は無視').toBeNull();
+  expect(parseFollowUp('{"followUp":{"of":[{"scope":"context","item_key":"1"}],"prompt":"p","mode":"quick","model":"m","at":"t"}}'), '対象外 scope は無視').toBeNull();
+  expect(parseFollowUp('{"pack":{"of":["x"]}}')).toBeNull();
+  expect(parseFollowUp('not json')).toBeNull();
+  expect(followUpOriginLabel(meta)).toBe('🔭 資料B・分析A を元に');
+  // 「🔭 追加: n」の導出（scope ごと）
+  const rows = [{ metadata: JSON.stringify({ followUp: meta }) }, { metadata: { followUp: { ...meta, of: [meta.of[0]] } } }, { metadata: '{}' }];
+  expect(followUpCountsOf(rows, 'library')).toEqual({ b2: 2 });
+  expect(followUpCountsOf(rows, 'text_analysis')).toEqual({ '10': 1 });
+  // 参照と handoff の検証は fail-closed
+  expect(parseFollowUpRefs([{ scope: 'library', id: 'x' }, { scope: 'library', id: 'x' }])).toEqual([{ scope: 'library', id: 'x' }]);
+  expect(parseFollowUpRefs([{ scope: 'context', id: 'x' }])).toBeNull();
+  expect(parseFollowUpRefs([])).toBeNull();
+  expect(parseFollowUpHandoff(JSON.stringify({ sources: [{ scope: 'library', id: 'x', title: 't', chars: 5 }], prompt: ' p ', mode: 'bad', target: 'compare' }))).toEqual({ sources: [{ scope: 'library', id: 'x', title: 't', chars: 5 }], prompt: 'p', mode: 'standard', target: 'compare', inherit: true, at: '' });
+  expect(parseFollowUpHandoff(JSON.stringify({ sources: [], prompt: 'p' }))).toBeNull();
+  expect(parseFollowUpHandoff('{')).toBeNull();
+  // ソース固定
+  const read = (p: string) => readFileSync(join(__dirname, '../../src', p), 'utf8');
+  const lib = read('lib/followup-research.ts');
+  expect(lib, 'client lib は DB 非依存（R-108）').not.toMatch(/@\/lib\/db|neondatabase/);
+  const dr = read('app/api/deepresearch/route.ts');
+  expect(dr, 'DR 経路は followUp のオプトイン（R-88）').toMatch(/followUp\?: unknown/);
+  expect(dr, '発注文は純関数で組む').toMatch(/buildFollowUpOrder\(sources, /);
+  expect(dr, '削除済みは資料なしで 400').toMatch(/FOLLOWUP_REJECT_MISSING/);
+  expect(dr, '前提資料はトピックの代わり（後段の規約は共通＝DR経路が後勝ち R-69）').toMatch(/const topicBlock = followUpOrderText \?\? `トピック：\$\{topic\}`/);
+  expect(dr, '時間切れは中断の終端イベント（R-118）').toMatch(/type: 'timeout', message: FOLLOWUP_TIMEOUT_MESSAGE/);
+  expect(dr, 'サーバ個別タイムアウトは比較と同じ定数').toMatch(/reject\(new Error\('followup-timeout'\)\), COMPARE_SERVER_TIMEOUT_MS\)/);
+  expect(read('lib/mandala-research.ts'), '311 は不変（追加リサーチを持ち込まない）').not.toMatch(/followup|followUp/);
+  const libRoute = read('app/api/library/route.ts');
+  expect(libRoute, '保存APIがフック点（R-115）').toMatch(/const followUp = parseFollowUp\(metadata\);\s*if \(followUp\?\.inherit\)/);
+  expect(libRoute).toMatch(/applyFollowUpInheritance\(userId, id, followUp\.of\)/);
+  const server = read('lib/followup-research-server.ts');
+  expect(server, '継承は既存の付与関数だけ（別の INSERT を作らない）').not.toMatch(/INSERT INTO/i);
+  expect(server).toMatch(/setItemPurposes\(userId, 'library', libraryId, purposeIds\)/);
+  expect(server).toMatch(/setItemFolders\(userId, 'library', libraryId, folderIds\)/);
+  expect(server, '前提資料は 315/317 と同じ取得').toMatch(/fetchVisualSources\(userId, scope, ids\)/);
+  const dialog = read('components/deepresearch/FollowUpResearchDialog.tsx');
+  expect(dialog, 'ダイアログは AI を呼ばない（開始は handoff）').not.toMatch(/\/api\/deepresearch/);
+  expect(dialog, '新タブ handoff は localStorage の一回限りキー（R-121）').toMatch(/localStorage\.setItem\(FOLLOWUP_HANDOFF_KEY/);
+  expect(dialog, 'チップは文字列を入れるだけ').toMatch(/onClick=\{\(\) => setPrompt\(chip\)\}/);
+  expect(dialog, '二重発火は ref（R-87）').toMatch(/if \(startedRef\.current \|\| !state\.enabled/);
+  const page = read('app/dashboard/deepresearch/page.tsx');
+  expect(page, '受け側は読んだら消す').toMatch(/localStorage\.removeItem\(FOLLOWUP_HANDOFF_KEY\)/);
+  expect(page, '比較の各列にも followUp を載せる').toMatch(/extraMetadata=\{followUp \? \{ followUp: followUpMetadata/);
+  for (const p of ['components/LibraryItemRow.tsx', 'components/text-analysis/SavedAnalysisList.tsx', 'components/text-analysis/TextAnalysisPanel.tsx', 'app/dashboard/deepresearch/page.tsx']) {
+    expect(read(p), `${p}: 入口は同じ部品`).toMatch(/FollowUpResearchButton/);
+  }
+  for (const p of ['app/dashboard/library/page.tsx', 'components/text-analysis/SavedAnalysisList.tsx']) {
+    const src = read(p);
+    expect(src, `${p}: 選択バーの入口（上限3・R-101）`).toMatch(/key: 'followup', label: '🔭 追加リサーチ'.*disabled: selectedIds\.size > FOLLOWUP_MAX_SOURCES, reason: followUpTooManyReason\(selectedIds\.size\)/);
+    expect(src, `${p}: 選択バーのダイアログは同じ部品`).toMatch(/<FollowUpResearchDialog refs=\{followUpRefs\}/);
+  }
 });

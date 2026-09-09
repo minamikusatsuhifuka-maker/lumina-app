@@ -13,6 +13,9 @@ import {
 // 297: 🎯用途カテゴリ（マイフォルダとは別テーブル・別体系）
 import { detachItemFromPurposes, detachItemsFromPurposes, ensurePurposeTables, getPurposeIdsForItems } from '@/lib/purpose-categories';
 import { hasSavableContent } from '@/lib/merge-report';
+// 319: 追加リサーチの出どころ（metadata.followUp）を受けたときだけ、元資料の用途カテゴリ・マイフォルダを継承する（保存APIがフック点・R-115・R-88）
+import { parseFollowUp } from '@/lib/followup-research';
+import { applyFollowUpInheritance } from '@/lib/followup-research-server';
 
 // 250: 一括削除の1リクエストあたりの上限（text-analysis / context-saves と同値）。
 const BULK_DELETE_LIMIT = 500;
@@ -134,6 +137,18 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: `保存できませんでした: ${message}` }, { status: 500 });
   }
 
+  // 319 §3-4: 出どころ followUp があり ☑継承（inherit）なら、元資料の用途カテゴリ・マイフォルダの和集合を同じ関数で付ける（297・298）。
+  // 失敗しても保存は成功のまま（R-39）。followUp が無い・形が不正なら何もしない（fail-closed・R-113）
+  let inherited: { purposes: number[]; folders: number[] } | null = null;
+  const followUp = parseFollowUp(metadata);
+  if (followUp?.inherit) {
+    try {
+      inherited = await applyFollowUpInheritance(userId, id, followUp.of);
+    } catch (e) {
+      console.error('[library POST] followUp inheritance failed:', e instanceof Error ? e.message : e);
+    }
+  }
+
   // ライブラリ保存後に通知作成（非同期・ノンブロッキング）
   const baseUrl = process.env.NEXTAUTH_URL || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'http://localhost:3000');
   fetch(`${baseUrl}/api/notifications/create`, {
@@ -159,7 +174,7 @@ export async function POST(req: NextRequest) {
     }),
   }).catch(() => {}); // エラーは無視
 
-  return NextResponse.json({ success: true, id });
+  return NextResponse.json({ success: true, id, ...(inherited ? { inherited } : {}) });
 }
 
 export async function PUT(req: NextRequest) {

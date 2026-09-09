@@ -11,6 +11,9 @@ import { describeAnthropicError } from '@/lib/anthropic-error';
 // 314: 3列目 GPT-6 Astra（lib/openai-research）・モデルごとの個別タイムアウト（「中断」）・runId による二重開始の遮断（R-87）
 import { COMPARE_RUN_DEDUPE_TTL_MS, COMPARE_SERVER_TIMEOUT_MS, COMPARE_SIDE_LABEL, COMPARE_SIDE_MODEL_ID, COMPARE_TIMEOUT_MESSAGE, parseCompareSide } from '@/lib/model-compare';
 import { streamOpenAIResearch } from '@/lib/openai-research';
+// 319: 追加リサーチ（前提資料をオプトインで渡す・R-88）。発注文は純関数で決定的に組む（R-74）。時間切れは「中断」（R-118）
+import { FOLLOWUP_REJECT_MISSING, FOLLOWUP_TIMEOUT_MESSAGE, buildFollowUpOrder, parseFollowUpRefs } from '@/lib/followup-research';
+import { fetchFollowUpSources } from '@/lib/followup-research-server';
 
 // R-83: リテラル必須。正本は lib/model-compare.ts の DEEPRESEARCH_MAX_DURATION_S（U59で一致を固定）
 // 314: Vercel Pro（Fluid compute・上限 800 秒）の範囲内で 300→600（実測: Opus は最長 286 秒で完走＝300 では上限直前）
@@ -30,7 +33,7 @@ export async function POST(req: NextRequest) {
   // 認証必須（未ログインは401。AI利用コストの無断消費を防ぐ）
   if (!session) return new Response('Unauthorized', { status: 401 });
   const userId = session ? (session.user as any).id : '';
-  const { topic, depth, periodStart, periodEnd, model = DEFAULT_AI_MODEL, compare, runId } = (await req.json()) as {
+  const { topic, depth, periodStart, periodEnd, model = DEFAULT_AI_MODEL, compare, runId, followUp } = (await req.json()) as {
     topic: string;
     depth?: string;
     periodStart?: string;
@@ -40,6 +43,8 @@ export async function POST(req: NextRequest) {
     compare?: unknown;
     /** 314 R-87: 比較の開始ごとにクライアントが付ける識別子。同じ runId・同じ列の再送は 409 */
     runId?: unknown;
+    /** 319: 追加リサーチ。{ sources: [{scope,id}] } のときだけ前提資料を取り、発注文（前提資料＋指示＋書き方）をトピックの代わりに渡す。未指定＝従来どおり */
+    followUp?: unknown;
   };
 
   // 290: 比較フラグの検証。未指定は従来経路（null）。不正値は 400（黙って従来経路に倒さない）
@@ -53,6 +58,24 @@ export async function POST(req: NextRequest) {
     return new Response(JSON.stringify({ error: '同じ比較がすでに開始されています（二重送信）' }), {
       status: 409, headers: { 'Content-Type': 'application/json' },
     });
+  }
+
+  // 319: 前提資料（オプトイン・R-88）。参照の検証は fail-closed、削除済みは「資料なし」で 400、上限超えは切らずに 400（R-101）
+  let followUpOrderText: string | null = null;
+  if (followUp !== undefined) {
+    const refs = parseFollowUpRefs((followUp as { sources?: unknown } | null)?.sources);
+    if (!refs) {
+      return new Response(JSON.stringify({ error: '前提資料の参照が不正です（scope は library・text_analysis）' }), { status: 400, headers: { 'Content-Type': 'application/json' } });
+    }
+    const { sources, missing } = await fetchFollowUpSources(userId, refs);
+    if (missing.length > 0) {
+      return new Response(JSON.stringify({ error: FOLLOWUP_REJECT_MISSING, missing }), { status: 400, headers: { 'Content-Type': 'application/json' } });
+    }
+    const order = buildFollowUpOrder(sources, typeof topic === 'string' ? topic : '');
+    if (!order.ok) {
+      return new Response(JSON.stringify({ error: order.reason }), { status: 400, headers: { 'Content-Type': 'application/json' } });
+    }
+    followUpOrderText = order.text;
   }
 
   // 対象期間セクション（指定がある場合のみ。未指定時は既存と完全互換）
@@ -124,7 +147,9 @@ export async function POST(req: NextRequest) {
 8. Web検索で確認できなかった事項は、推測や作文で埋めずに「Web検索では確認できなかった」と明記すること
 9. ${NO_LATEX_PROMPT_RULE}${clinicStr}`;
 
-  const userPrompt = `トピック：${topic}${periodSection}
+  // 319: 前提資料があるときは「トピック：」の代わりに発注文（前提資料＋指示＋書き方）を置く。見出し・構成・出力ルール（後段）は共通＝DR経路の規約が後勝ち（R-69）
+  const topicBlock = followUpOrderText ?? `トピック：${topic}`;
+  const userPrompt = `${topicBlock}${periodSection}
 調査深度の指示：${depthPrompts[selectedDepth]}
 
 【必須要件】
@@ -274,18 +299,42 @@ ${outline}
           return;
         }
 
+        // 319: 前提資料つきのときだけ、サーバ側の個別タイムアウト（比較と同じ COMPARE_SERVER_TIMEOUT_MS）で「中断」を終端イベントとして送る（R-118）。
+        // 通常のトピック実行は従来どおり（R-88）
+        let followUpTimer: ReturnType<typeof setTimeout> | null = null;
+        const followUpGate = followUpOrderText
+          ? new Promise<never>((_, reject) => {
+              followUpTimer = setTimeout(() => reject(new Error('followup-timeout')), COMPARE_SERVER_TIMEOUT_MS);
+            })
+          : null;
+        const raceFollowUp = <T,>(p: Promise<T>): Promise<T> => (followUpGate ? Promise.race([p, followUpGate]) : p);
+        const sendFollowUpTimeout = () => {
+          controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'timeout', message: FOLLOWUP_TIMEOUT_MESSAGE })}\n\n`));
+        };
+
         // Gemini: streamWithModel（Google検索グラウンディング有効・出典は本文末尾に自動追記）
         if (model === 'gemini') {
-          const usage = await streamWithModel(
-            'gemini',
-            userPrompt,
-            systemPrompt,
-            controller,
-            encoder,
-            maxTokens,
-            'standard',
-            true, // webSearch: 実検索に基づかない「最新風の古い内容」を防ぐ
-          );
+          let usage: { inputTokens: number; outputTokens: number };
+          try {
+            usage = await raceFollowUp(streamWithModel(
+              'gemini',
+              userPrompt,
+              systemPrompt,
+              controller,
+              encoder,
+              maxTokens,
+              'standard',
+              true, // webSearch: 実検索に基づかない「最新風の古い内容」を防ぐ
+            ));
+          } catch (e) {
+            if (e instanceof Error && e.message === 'followup-timeout') {
+              sendFollowUpTimeout();
+              return;
+            }
+            throw e;
+          } finally {
+            if (followUpTimer) clearTimeout(followUpTimer);
+          }
           await trackUsage({
             userId,
             featureKey: 'deepresearch',
@@ -304,13 +353,24 @@ ${outline}
         // Claude: web_search ツール対応。242: 上限・混雑ならGeminiへ自動フォールバックし、
         // その際は web_search の代わりに googleSearch グラウンディングが有効になる
         // （出典も本文末尾に追記される）。応答は Anthropic 形式のため下流は変更不要。
-        const response = await fetchAnthropic({
-          model: CLAUDE_TEXT_MODEL,
-          max_tokens: maxTokens,
-          tools: [{ type: 'web_search_20250305', name: 'web_search' }],
-          system: systemPrompt,
-          messages: [{ role: 'user', content: userPrompt }],
-        });
+        let response: Awaited<ReturnType<typeof fetchAnthropic>>;
+        try {
+          response = await raceFollowUp(fetchAnthropic({
+            model: CLAUDE_TEXT_MODEL,
+            max_tokens: maxTokens,
+            tools: [{ type: 'web_search_20250305', name: 'web_search' }],
+            system: systemPrompt,
+            messages: [{ role: 'user', content: userPrompt }],
+          }));
+        } catch (e) {
+          if (e instanceof Error && e.message === 'followup-timeout') {
+            sendFollowUpTimeout();
+            return;
+          }
+          throw e;
+        } finally {
+          if (followUpTimer) clearTimeout(followUpTimer);
+        }
 
         if (!response.ok) {
           controller.enqueue(encoder.encode(`data: {"type":"error","message":"APIエラー: ${response.status}"}\n\n`));

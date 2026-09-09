@@ -4,6 +4,9 @@ import { useState, useEffect, useMemo, useRef, Suspense } from 'react';
 import PresentationPackPanel from '@/components/library/PresentationPackPanel';
 import { MERGE_SELECTIONS, MERGE_SELECTION_LABEL, MERGE_MODE_LABEL, MERGE_TIMEOUT_MESSAGE, mergeSaveMetadata, mergeTagsOf, mergeTargetState, modesOf, type MergeMode, type MergeRuns, type MergeSelection } from '@/lib/merge-report';
 import { packCountsOf } from '@/lib/presentation-pack';
+// 319: 追加リサーチ（選択バーの入口＝最大3件・「🔭 追加: n」は /api/followup-research?mode=counts から導出）
+import { FollowUpResearchDialog } from '@/components/deepresearch/FollowUpResearchDialog';
+import { FOLLOWUP_MAX_SOURCES, type FollowUpRef, followUpTooManyReason } from '@/lib/followup-research';
 import { CharCountBadge } from '@/components/LibraryItemRow';
 import SelectionBar from '@/components/SelectionBar';
 // 252: このファイルの既存コードは item を any で扱っているが、252で足した経路だけは
@@ -161,6 +164,10 @@ function LibraryPageInner() {
   const [items, setItems] = useState<any[]>([]);
   // 315: 資料ごとの図解の件数（image_gallery.settings.visual.sourceKeys から導出・/api/visuals?mode=counts）
   const [visualCounts, setVisualCounts] = useState<Record<string, number>>({});
+  // 319: 資料ごとの追加リサーチの件数（library.metadata.followUp.of から導出・/api/followup-research?mode=counts）
+  const [followUpCounts, setFollowUpCounts] = useState<Record<string, number>>({});
+  // 319: 選択バーから開く追加リサーチのダイアログ（null＝閉）
+  const [followUpRefs, setFollowUpRefs] = useState<FollowUpRef[] | null>(null);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [searchScope, setSearchScope] = useState<'current' | 'all'>('current');
@@ -272,6 +279,27 @@ function LibraryPageInner() {
         } catch {}
       }
       if (!cancelled) setVisualCounts(merged);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [items]);
+
+  // 319: 「🔭 追加: n」は保存済みの結果の出どころから導出（失敗しても一覧は出す・fire-and-forget）
+  useEffect(() => {
+    const ids = items.map((it) => String(it.id)).filter(Boolean);
+    if (ids.length === 0) return;
+    let cancelled = false;
+    (async () => {
+      const merged: Record<string, number> = {};
+      for (let i = 0; i < ids.length; i += 200) {
+        try {
+          const r = await fetch(`/api/followup-research?mode=counts&scope=library&ids=${encodeURIComponent(ids.slice(i, i + 200).join(','))}`);
+          const j = (await r.json().catch(() => ({}))) as { counts?: Record<string, number> };
+          if (r.ok && j.counts) Object.assign(merged, j.counts);
+        } catch {}
+      }
+      if (!cancelled) setFollowUpCounts(merged);
     })();
     return () => {
       cancelled = true;
@@ -1017,6 +1045,7 @@ function LibraryPageInner() {
         density={listDensity}
         visualCount={visualCounts[String(item.id)]}
         packCount={packCounts[String(item.id)]}
+        followUpCount={followUpCounts[String(item.id)]}
       />
 
       {editingId === item.id && (
@@ -1509,6 +1538,8 @@ function LibraryPageInner() {
           // 291 §2-1/§2-2: 横並び比較（2〜4件。5件目を選んでいる間は無効化し理由を出す）
           { key: 'compare', label: compareState.label, attrs: { 'data-library-compare-open': '' }, onClick: openCompare, disabled: !compareState.enabled, reason: compareState.reason, title: '選択した成果物を横並びで比較します（列数・高さ・同期スクロール・全画面）' },
           { key: 'kindle', label: '📖 Kindle本にする', onClick: handleKindleSelect, title: '選択した資料をKindle本の素材にする（ウィザード①へ）' },
+          // 319 §3-1: 選んだ資料（最大3件）を前提資料に追加リサーチ（R-101: 超過は無効化＋理由）
+          { key: 'followup', label: '🔭 追加リサーチ', attrs: { 'data-library-followup-bulk': '' }, onClick: () => setFollowUpRefs(Array.from(selectedIds).map((id) => ({ scope: 'library' as const, id: String(id) }))), disabled: selectedIds.size > FOLLOWUP_MAX_SOURCES, reason: followUpTooManyReason(selectedIds.size), title: '選択した資料を前提資料に、プロンプトを指定してディープリサーチを続ける（新しいタブ・結果は📚に保存）' },
         ]}
         // 250: 一括削除。不可逆なので赤で区別し右端（押し間違えない位置）。確認は bulkDeleteSelected の1回（R-56）
         danger={{ key: 'delete', label: '🗑 削除', attrs: { 'data-bulk-delete': '' }, onClick: bulkDeleteSelected, busy: bulkDeleting, busyLabel: '⏳ 削除中...', title: `選択した${selectedIds.size}件を削除します（確認あり・元に戻せません）` }}
@@ -1516,6 +1547,9 @@ function LibraryPageInner() {
         exitAttrs={{ 'data-library-select-clear': '' }}
       />
       )}
+
+      {/* 319: 選択バーからの追加リサーチのダイアログ（行の入口と同じ部品） */}
+      {followUpRefs && <FollowUpResearchDialog refs={followUpRefs} onClose={() => setFollowUpRefs(null)} />}
 
       {/* ── アイテムリスト（フォルダグルーピング） ── */}
       {loading ? (

@@ -3,6 +3,9 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import MandalaGenerateButton from '@/components/mandala/MandalaGenerateButton';
 import SelectionBar from '@/components/SelectionBar';
+// 319: 追加リサーチ（行の入口・選択バーの入口＝最大3件・「🔭 追加: n」）
+import { FollowUpCountBadge, FollowUpResearchButton, FollowUpResearchDialog } from '@/components/deepresearch/FollowUpResearchDialog';
+import { FOLLOWUP_MAX_SOURCES, type FollowUpRef, followUpTooManyReason } from '@/lib/followup-research';
 import { useRouter } from 'next/navigation';
 import { useToast } from '@/components/ui/Toast';
 import { MAX_KINDLE_SOURCES, makeAnalysisSourceKey } from '@/lib/kindle-limits';
@@ -347,6 +350,25 @@ export default function SavedAnalysisList({
       cancelled = true;
     };
   }, [records]);
+  // 319: 「🔭 追加: n」（この分析を元にした追加リサーチの件数・📚の出どころから導出）
+  const [followUpCounts, setFollowUpCounts] = useState<Record<string, number>>({});
+  useEffect(() => {
+    const ids = records.map((r) => String(r.id));
+    if (ids.length === 0) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const r = await fetch(`/api/followup-research?mode=counts&scope=text_analysis&ids=${encodeURIComponent(ids.slice(0, 200).join(','))}`);
+        const j = (await r.json().catch(() => ({}))) as { counts?: Record<string, number> };
+        if (!cancelled && r.ok && j.counts) setFollowUpCounts(j.counts);
+      } catch {}
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [records]);
+  // 319: 選択バーから開く追加リサーチのダイアログ（null＝閉）
+  const [followUpRefs, setFollowUpRefs] = useState<FollowUpRef[] | null>(null);
   const [listLoading, setListLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   // totalCount=フィルタ条件での総件数 / allTotal=全件母数 / serverFolders=全件のカテゴリ集計
@@ -2313,6 +2335,8 @@ export default function SavedAnalysisList({
             { key: 'kindle', label: '📖 Kindle本にする', onClick: handleKindleSelect, title: `選択した${selectedIds.size}件をKindle本の素材にする` },
             // 選択項目の一括MDダウンロード（ZIP）
             { key: 'download', label: '📥 MDダウンロード', onClick: handleBulkDownload, busy: bulkDownloading, busyLabel: '⏳ 生成中...', title: `選択した${selectedIds.size}件を .md にしてZIPでダウンロード` },
+            // 319 §3-1: 選んだ分析（最大3件）を前提資料に追加リサーチ（R-101: 超過は無効化＋理由）
+            { key: 'followup', label: '🔭 追加リサーチ', attrs: { 'data-ta-followup-bulk': '' }, onClick: () => setFollowUpRefs(Array.from(selectedIds).map((id) => ({ scope: 'text_analysis' as const, id: String(id) }))), disabled: selectedIds.size > FOLLOWUP_MAX_SOURCES, reason: followUpTooManyReason(selectedIds.size), title: '選択した分析結果を前提資料に、プロンプトを指定してディープリサーチを続ける（新しいタブ・結果は📚に保存）' },
           ]}
           // 250: 一括削除。不可逆なので色で区別し右端（他の操作と押し間違えない位置）。確認は handleBulkDelete の1回
           danger={{ key: 'delete', label: '🗑 削除', attrs: { 'data-bulk-delete': '' }, onClick: handleBulkDelete, busy: bulkDeleting, busyLabel: '⏳ 削除中...', title: `選択した${selectedIds.size}件を削除します（確認あり・元に戻せません）` }}
@@ -2369,6 +2393,9 @@ export default function SavedAnalysisList({
           </div>
         </SelectionBar>
       ); })()}
+
+      {/* 319: 選択バーからの追加リサーチのダイアログ（行の入口と同じ部品） */}
+      {followUpRefs && <FollowUpResearchDialog refs={followUpRefs} onClose={() => setFollowUpRefs(null)} />}
 
       {/* 292 §2: 横並び比較パネル（291の共通部品。全画面は下の FullscreenReader を共用・MDは同じハンドラ） */}
       {compareEntries && (
@@ -2605,6 +2632,9 @@ export default function SavedAnalysisList({
                       </a>
                       {/* 316: 記事→マンダラ生成（ダイアログ） */}
                       <MandalaGenerateButton scope="text_analysis" itemKey={String(record.id)} title={record.auto_title || record.file_name || '(無題)'} charCount={record.char_count ?? 0} label="🔲 マンダラ" style={{ padding: '0 6px', borderRadius: 6, border: '1px solid var(--border)', background: 'transparent', color: '#6c63ff', fontSize: 11, cursor: 'pointer' }} />
+                      {/* 319: この分析結果を前提資料に追加リサーチ（ダイアログ）と「🔭 追加: n」 */}
+                      <FollowUpResearchButton refs={[{ scope: 'text_analysis', id: String(record.id) }]} dataKey={String(record.id)} label="🔭 追加リサーチ" style={{ padding: '0 6px', borderRadius: 6, border: '1px solid var(--border)', background: 'transparent', color: '#0E7490', fontSize: 11, cursor: 'pointer' }} />
+                      {(followUpCounts[String(record.id)] ?? 0) > 0 && <FollowUpCountBadge scope="text_analysis" id={String(record.id)} count={followUpCounts[String(record.id)]} style={{ padding: '0 6px', borderRadius: 6, border: '1px solid var(--border)', background: 'transparent', fontSize: 11 }} />}
                       {record.folder && folderColor && (
                         <span
                           style={{

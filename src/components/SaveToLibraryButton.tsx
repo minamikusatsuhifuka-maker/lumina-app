@@ -19,9 +19,11 @@ type Props = {
    * content が変わり、重複保存になるため。既定（未指定）は自動保存しない。
    */
   autoSaveSignal?: number;
+  /** 319: 保存できた行の id を親へ（オプトイン）。「🔭 これを元に追加リサーチ」が保存済みの行を前提資料にするため */
+  onSaved?: (id: string) => void;
 };
 
-export function SaveToLibraryButton({ title, content, type, groupName, tags, metadata, autoSaveSignal }: Props) {
+export function SaveToLibraryButton({ title, content, type, groupName, tags, metadata, autoSaveSignal, onSaved }: Props) {
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   // 247: 保存失敗はトーストだけだと消えて分からなくなるので、ボタン自体を ⚠️ にして再試行できる形で残す
@@ -65,6 +67,7 @@ export function SaveToLibraryButton({ title, content, type, groupName, tags, met
         setSaved(true);
         setSavedId(data.id);
         savedContentRef.current = content;
+        if (data?.id) onSaved?.(String(data.id));
         if (asFavorite) {
           showToast('⭐ お気に入りに保存しました！');
           setShowFavoriteOption(false);

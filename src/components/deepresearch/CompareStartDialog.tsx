@@ -32,11 +32,14 @@ type Availability = Record<CompareSide, boolean>;
 export default function CompareStartDialog({
   topic,
   depth,
+  followUp = null,
   onClose,
   onStart,
 }: {
   topic: string;
   depth: string;
+  /** 319: 追加リサーチの前提資料（件数・字数）。費用の入力に加算し、お題の下に表示する。未指定＝従来どおり */
+  followUp?: { count: number; chars: number } | null;
   onClose: () => void;
   /** 選んだモデルで開始（親が実行する）。二重発火はここの ref と親の ref の両方で止める */
   onStart: (sides: CompareSide[]) => void;
@@ -81,7 +84,7 @@ export default function CompareStartDialog({
 
   const startState = compareStartState(selected);
   const canStart = !!availability && startState.enabled;
-  const topicChars = topic.trim().length;
+  const topicChars = topic.trim().length + (followUp ? followUp.chars : 0);
   const estimates = COMPARE_SIDES.map((side) => ({ side, est: estimateCost(COMPARE_SIDE_MODEL_ID[side], depth, topicChars) }));
   const total = estimates.filter((e) => selected.includes(e.side)).reduce((sum, e) => sum + (e.est?.usd ?? 0), 0);
   const toggle = (side: CompareSide, on: boolean) =>
@@ -110,6 +113,7 @@ export default function CompareStartDialog({
         <div style={{ fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.6 }}>
           お題: <strong>{topic}</strong>
           <span data-compare-dialog-depth={depth} style={{ marginLeft: 8 }}>分量: {DEPTH_LABEL[depth] ?? depth}</span>
+          {followUp && <div data-compare-dialog-followup={followUp.count} data-compare-dialog-followup-chars={followUp.chars}>🔭 前提資料 {followUp.count}件・{followUp.chars.toLocaleString()}字を各モデルの入力に含めます（費用の目安に加算済み）</div>}
         </div>
         {loadError && <div data-compare-dialog-error style={{ fontSize: 12, color: '#B91C1C' }}>⚠️ {loadError}</div>}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>

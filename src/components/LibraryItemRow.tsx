@@ -4,6 +4,10 @@ import { mandalaArticleOriginLabel, parseMandalaArticleSource } from '@/lib/mand
 // 316: 記事→マンダラ生成の入口（ダイアログつき・操作列に置く・R-81）
 import MandalaGenerateButton from '@/components/mandala/MandalaGenerateButton';
 import { mandalaXOriginLabel, parseMandalaXRef } from '@/lib/mandala-x';
+// 319: 🔭 追加リサーチの入口（行）・「🔭 追加: n」・結果の行の「🔭 <元資料> を元に」
+import { FollowUpCountBadge, FollowUpResearchButton } from '@/components/deepresearch/FollowUpResearchDialog';
+import { followUpOriginLabel, followUpPromptHead, parseFollowUp } from '@/lib/followup-research';
+import { MANDALA_SCOPE_META } from '@/lib/mandala-shared';
 import { useState } from 'react';
 import { copyRichMarkdown } from '@/lib/rich-copy';
 // 283: 展開した本文は整形表示（R-45）。全画面（FullscreenReader）と同じレンダラ
@@ -147,6 +151,8 @@ interface Props {
   visualCount?: number;
   // 317: このまとめから作ったプレゼン素材の件数（metadata.pack.of から画面側で導出）
   packCount?: number;
+  // 319: この資料を元にした追加リサーチの件数（呼び出し側が /api/followup-research?mode=counts で導出して渡す）。未指定は出さない
+  followUpCount?: number;
 }
 
 export function LibraryItemRow({
@@ -172,8 +178,11 @@ export function LibraryItemRow({
   density = 'detail',
   visualCount,
   packCount,
+  followUpCount,
 }: Props) {
   const meta = parseMetadata(item.metadata);
+  // 319: 追加リサーチの結果なら出どころ（直前の元資料）を出す
+  const followUpMeta = parseFollowUp(item.metadata);
   const subCategory: string | undefined = typeof meta?.subCategory === 'string' ? meta.subCategory : undefined;
   const aiTags: string[] = Array.isArray(meta?.tags)
     ? meta.tags.filter((t: any): t is string => typeof t === 'string' && t.trim().length > 0)
@@ -405,6 +414,19 @@ export function LibraryItemRow({
               🔲 {mandalaArticleOriginLabel(mandalaSrc)}
             </a>
           )}
+          {followUpMeta && (
+            <a
+              data-library-followup-origin={followUpMeta.of.map((o) => `${o.scope}:${o.item_key}`).join(',')}
+              href={(MANDALA_SCOPE_META[followUpMeta.of[0].scope]?.openHref ?? (() => '#'))(followUpMeta.of[0].item_key)}
+              target="_blank"
+              rel="noopener noreferrer"
+              title={`この結果の元資料を開く（新しいタブ）。プロンプト: ${followUpMeta.prompt}`}
+              style={{ color: '#0E7490', textDecoration: 'none', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+              onClick={(e) => e.stopPropagation()}
+            >
+              {followUpOriginLabel(followUpMeta)}「{followUpPromptHead(followUpMeta)}」
+            </a>
+          )}
           {mandalaX && (
             <a
               data-library-mandala-origin={mandalaX.chartId}
@@ -567,6 +589,9 @@ export function LibraryItemRow({
           {visualLink(String(cur.id), compactBtnStyle)}
           {typeof packCount === 'number' && packCount > 0 && <span data-library-pack-count={packCount} title="このまとめから作ったプレゼン素材の件数" style={{ ...compactBtnStyle, cursor: 'default', color: '#6c63ff' }}>🎁 {packCount}</span>}
           <MandalaGenerateButton scope="library" itemKey={String(cur.id)} title={cur.title || '(無題)'} charCount={charCountOf(cur)} style={compactBtnStyle} label={<>🔲<span className="xl:hidden"> マンダラ</span></>} />
+          {/* 319: この結果を前提資料に追加リサーチ（成果物＝行 id 単位・283 §4-3 と同じ） */}
+          <FollowUpResearchButton refs={[{ scope: 'library', id: String(cur.id) }]} dataKey={String(cur.id)} style={{ ...compactBtnStyle, color: '#0E7490' }} label={<>🔭<span className="xl:hidden"> 追加リサーチ</span></>} />
+          {typeof followUpCount === 'number' && followUpCount > 0 && <FollowUpCountBadge scope="library" id={String(cur.id)} count={followUpCount} style={compactBtnStyle} />}
           {(onFavoriteClick || onFavoriteToggle) && (
             <button
               type="button"
@@ -928,6 +953,9 @@ export function LibraryItemRow({
             {visualLink(String(item.id), btnStyle)}
             {typeof packCount === 'number' && packCount > 0 && <span data-library-pack-count={packCount} title="このまとめから作ったプレゼン素材の件数" style={{ ...btnStyle, cursor: 'default', color: '#6c63ff' }}>🎁 {packCount}</span>}
             <MandalaGenerateButton scope="library" itemKey={String(item.id)} title={item.title || '(無題)'} charCount={charCountOf(item)} style={btnStyle} label="🔲 マンダラ" />
+            {/* 319: この結果を前提資料に追加リサーチ */}
+            <FollowUpResearchButton refs={[{ scope: 'library', id: String(item.id) }]} dataKey={String(item.id)} style={{ ...btnStyle, color: '#0E7490' }} label="🔭 追加リサーチ" />
+            {typeof followUpCount === 'number' && followUpCount > 0 && <FollowUpCountBadge scope="library" id={String(item.id)} count={followUpCount} style={btnStyle} />}
             {(onFavoriteClick || onFavoriteToggle) && (
               <button
                 type="button"

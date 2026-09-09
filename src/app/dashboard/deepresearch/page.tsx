@@ -52,6 +52,19 @@ import { setDrMemoContext } from '@/lib/dr-memo-context';
 import ModelCompareView from '@/components/deepresearch/ModelCompareView';
 // 314: 開始前の確認ダイアログ（モデル選択・費用/所要時間の目安）。通常の「開始」には出さない（§3-5）
 import CompareStartDialog from '@/components/deepresearch/CompareStartDialog';
+// 319: 追加リサーチ（前提資料＋院長のプロンプト）。入口ダイアログからの handoff を受けて既存の research()／比較に前提資料をオプトインで渡す（R-88）
+import { FollowUpResearchButton } from '@/components/deepresearch/FollowUpResearchDialog';
+import {
+  FOLLOWUP_FROM_PARAM,
+  FOLLOWUP_HANDOFF_KEY,
+  FOLLOWUP_TIMEOUT_MESSAGE,
+  type FollowUpHandoff,
+  followUpBannerLabel,
+  followUpMetadata,
+  followUpTitle,
+  parseFollowUpHandoff,
+} from '@/lib/followup-research';
+import { CLAUDE_TEXT_MODEL, GEMINI_TEXT_MODEL } from '@/lib/ai-models';
 import {
   COMPARE_BUTTON_LABEL,
   COMPARE_CLIENT_TIMEOUT_MS,
@@ -656,6 +669,33 @@ export default function DeepResearchPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // 319: ?from=followup で来たら localStorage の一回限りキー（R-121）から前提資料・プロンプト・分量・実行先・継承を受け取り、
+  // 通常DRは自動実行、比較は 314 の確認ダイアログを開く（確認はそこで1回・R-56）。壊れていれば何もしない（fail-closed）
+  const followUpHandoffDone = useRef(false);
+  useEffect(() => {
+    if (followUpHandoffDone.current) return;
+    followUpHandoffDone.current = true;
+    try {
+      const params = new URLSearchParams(window.location.search);
+      if (params.get('from') !== FOLLOWUP_FROM_PARAM) return;
+      const raw = localStorage.getItem(FOLLOWUP_HANDOFF_KEY);
+      localStorage.removeItem(FOLLOWUP_HANDOFF_KEY);
+      const h = parseFollowUpHandoff(raw);
+      if (!h) return;
+      followUpRef.current = h;
+      setFollowUp(h);
+      setTopic(h.prompt);
+      setDepth(h.mode);
+      setReportSavedId(null);
+      if (h.target === 'compare') {
+        setCompareDialogOpen(true);
+      } else {
+        research(h.prompt, null, null, h.mode);
+      }
+    } catch {}
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   // 272: 新規行は「一括設定で選んだ値」で入る（初期値は263の5000字＝deep）
   const addBatchTopic = () => setBatchTopics(prev => prev.length < 10 ? [...prev, { topic: '', mode: batchDefaultMode }] : prev);
   /** 272: 文字数の一括設定。既定値を更新し、空行も含む既存の全行に適用する。
@@ -992,6 +1032,21 @@ export default function DeepResearchPage() {
   // R-87: 二重発火は同期的な ref で閉じる（state の disabled では1回目の描画前に2回目が通る）
   const compareLockRef = useRef(false);
   const compareRunning = !!compareRuns && !allCompareSettled(compareRuns);
+
+  // 319: 追加リサーチの前提資料（handoff で受けたとき・null＝通常のトピック実行）。research()／比較の送信ボディと保存の metadata が読む。
+  // state は描画用、ref は送信時の最新値（自動実行が effect から走るため）
+  const [followUp, setFollowUp] = useState<FollowUpHandoff | null>(null);
+  const followUpRef = useRef<FollowUpHandoff | null>(null);
+  // 319: 時間切れ（サーバ側の個別タイムアウト・R-118）＝「中断」。保存しない
+  const [followUpTimedOut, setFollowUpTimedOut] = useState(false);
+  // 319: 表示中のレポートが📚に保存された行 id（SaveToLibraryButton の onSaved）。「🔭 これを元に追加リサーチ」の前提資料になる
+  const [reportSavedId, setReportSavedId] = useState<string | null>(null);
+  const followUpBody = () => (followUpRef.current ? { followUp: { sources: followUpRef.current.sources.map((x) => ({ scope: x.scope, id: x.id })) } } : {});
+  const clearFollowUp = () => {
+    followUpRef.current = null;
+    setFollowUp(null);
+    setFollowUpTimedOut(false);
+  };
 
   // 208: 入力中のお題を追従🗒カテゴリメモへ渡す。画面を離れたら消す（他画面のメモに紐付かない）
   useEffect(() => {
@@ -1544,6 +1599,7 @@ ${contextText}
           model: side === 'gemini' ? 'gemini' : 'claude',
           compare: side, // オプトインのフラグ（R-88）
           runId,
+          ...followUpBody(), // 319: 前提資料（3モデルとも同じ発注文）
         }),
         signal: ctl.signal,
       });
@@ -1653,8 +1709,10 @@ ${contextText}
     }
   };
 
-  const research = async (t?: string, parentId: number | null = null, startDepth: number | null = null) => {
+  // 319: depthOverride は handoff からの自動実行用（setDepth 直後は state がまだ古いため・R-87 と同じ理由で同期値を渡す）
+  const research = async (t?: string, parentId: number | null = null, startDepth: number | null = null, depthOverride?: string) => {
     const q = t || topic;
+    const depthAtRequest = depthOverride ?? depth;
     if (!q.trim()) return;
     setLoading(true);
     startProgress();
@@ -1666,6 +1724,10 @@ ${contextText}
     setCurrentNodeId(null);
     setTrafficStats(null);
     if (startDepth !== null) setCurrentDepth(startDepth);
+    // 319: 新しい実行は未保存・未中断から
+    setFollowUpTimedOut(false);
+    setReportSavedId(null);
+    let timedOut = false;
 
     const timer = setInterval(() => setElapsed(e => e + 1), 1000);
 
@@ -1677,10 +1739,12 @@ ${contextText}
         // 245: 期間はトピック文字列に混ぜず periodStart/periodEnd で渡す。
         // トピックは保存タイトル・履歴・タイトル生成に使われるため、検索条件が混ざると成果物が汚れる。
         topic: q,
-        depth,
+        depth: depthAtRequest,
         periodStart: periodStart || undefined,
         periodEnd: periodEnd || undefined,
         model: modelAtRequest,
+        // 319: 前提資料（オプトイン・R-88）。無ければキー自体を送らない
+        ...followUpBody(),
       });
       const requestBytes = new TextEncoder().encode(reqBody).length;
 
@@ -1691,7 +1755,13 @@ ${contextText}
       });
 
       if (!res.ok || !res.body) {
-        setReport('エラーが発生しました。');
+        // 319: 前提資料の不備（資料なし・上限超え）は理由つきの 400。黙って「エラーが発生しました」にしない
+        let reason = '';
+        try {
+          const j = (await res.json()) as { error?: string };
+          reason = j?.error ?? '';
+        } catch {}
+        setReport(reason ? `エラー: ${reason}` : 'エラーが発生しました。');
         clearInterval(timer);
         setLoading(false);
         return;
@@ -1718,6 +1788,12 @@ ${contextText}
               setReport(accumulated);
             } else if (json.type === 'error') {
               setReport(`エラー: ${json.message}`);
+            } else if (json.type === 'timeout') {
+              // 319/R-118: サーバ側の個別タイムアウト＝「中断」。途中の本文は捨て、保存しない（fail-closed）
+              timedOut = true;
+              accumulated = '';
+              setReport('');
+              setFollowUpTimedOut(true);
             }
           } catch {}
         }
@@ -1733,7 +1809,7 @@ ${contextText}
       // 完了後：知識ツリーノード保存＋関連タイトル案生成＋専門用語抽出＋insights 自動生成
       const finalDepth = startDepth !== null ? startDepth : 0;
       const finalParentId = parentId;
-      if (accumulated.trim() && !accumulated.startsWith('エラー')) {
+      if (!timedOut && accumulated.trim() && !accumulated.startsWith('エラー')) {
         saveNodeAndSuggestTitles(q, accumulated, finalParentId, finalDepth).catch(e => console.error(e));
         extractTermsFromResearch(accumulated, q).catch(e => console.error(e));
         fetchInsights(accumulated, q).catch(e => console.error(e));
@@ -1742,7 +1818,7 @@ ${contextText}
         // 完了した結果を自動下書き保存（画面遷移/アプリ終了後もマウント時に復元できる）
         saveFeatureDraft('deepresearch', {
           topic: q,
-          depth,
+          depth: depthAtRequest,
           report: accumulated,
           reportModel: modelAtRequest,
           contextText: '',
@@ -2150,6 +2226,14 @@ ${contextText}
           </div>
         </div>
 
+        {/* 319: 前提資料のバナー（handoff で来たときだけ）。✕で外すと通常のトピック実行に戻る */}
+        {followUp && (
+          <div data-followup-banner={followUp.sources.length} data-followup-banner-target={followUp.target} style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 12, padding: '8px 12px', borderRadius: 8, background: 'rgba(14,116,144,0.08)', border: '1px solid rgba(14,116,144,0.3)', fontSize: 12, color: '#0E7490' }}>
+            <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis' }} title={followUp.sources.map((x) => x.title).join('／')}>{followUpBannerLabel(followUp.sources)}</span>
+            <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>{followUp.inherit ? '☑ 用途・マイフォルダを引き継ぐ' : '☐ 引き継がない'}</span>
+            <button type="button" data-followup-banner-clear onClick={clearFollowUp} disabled={loading || compareRunning} title="前提資料を外して通常のトピック実行に戻す" style={{ padding: '2px 8px', borderRadius: 6, border: '1px solid var(--border)', background: 'var(--bg-primary)', color: 'var(--text-secondary)', fontSize: 11, cursor: 'pointer' }}>✕ 外す</button>
+          </div>
+        )}
         <div style={{ display: 'flex', gap: 8, marginBottom: 14 }}>
           {[
             { value: 'quick', label: '⚡ クイック', desc: '約1500字' },
@@ -2298,7 +2382,13 @@ ${contextText}
 
       {/* 290: モデル比較パネル（比較ボタンを押したとき／前回の比較を復元したときだけ出る） */}
       {compareDialogOpen && (
-        <CompareStartDialog topic={topic.trim()} depth={depth} onClose={() => setCompareDialogOpen(false)} onStart={(sides) => void runCompare(sides)} />
+        <CompareStartDialog
+          topic={topic.trim()}
+          depth={depth}
+          followUp={followUp ? { count: followUp.sources.length, chars: followUp.sources.reduce((n, x) => n + x.chars, 0) } : null}
+          onClose={() => setCompareDialogOpen(false)}
+          onStart={(sides) => void runCompare(sides)}
+        />
       )}
       {compareRuns && (
         <ModelCompareView
@@ -2308,7 +2398,16 @@ ${contextText}
           restoredAt={compareRestoredAt}
           onClose={closeCompare}
           onRerun={(side) => void rerunCompareSide(side)}
+          // 319: 追加リサーチの比較は各列の保存に followUp を載せ、タイトルは「<プロンプト先頭30字> — <元資料>［モデル］」
+          saveTitleBase={followUp ? followUpTitle(compareTopic, followUp.sources.map((x) => x.title)) : undefined}
+          extraMetadata={followUp ? { followUp: followUpMetadata({ sources: followUp.sources, prompt: compareTopic, mode: followUp.mode, model: 'compare', at: followUp.at || new Date().toISOString(), inherit: followUp.inherit }) } : null}
         />
+      )}
+      {/* 319: 時間切れ＝中断（保存なし）。分量を減らすか前提資料を短くして再実行 */}
+      {followUpTimedOut && !loading && (
+        <div data-followup-timeout style={{ marginBottom: 16, padding: 12, background: 'rgba(180,83,9,0.08)', border: '1px solid rgba(180,83,9,0.35)', borderRadius: 8, fontSize: 13, lineHeight: 1.7, color: '#B45309' }}>
+          ⏱ {FOLLOWUP_TIMEOUT_MESSAGE}
+        </div>
       )}
 
       {loading && (
@@ -2330,13 +2429,28 @@ ${contextText}
             <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
               <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-secondary)' }}>🔭 リサーチレポート</span>
               <SaveToLibraryButton
-                title={topic || 'ディープリサーチ'}
+                title={followUp ? followUpTitle(topic, followUp.sources.map((x) => x.title)) : (topic || 'ディープリサーチ')}
                 content={report}
                 type="deepresearch"
                 groupName="ディープリサーチ"
-                tags="ディープリサーチ"
+                tags={followUp ? 'ディープリサーチ,追加リサーチ' : 'ディープリサーチ'}
+                // 319: 出どころ（直前の元資料・プロンプト・分量・モデル・時刻・継承）。保存API がフックで継承を実行する（R-115）
+                metadata={followUp ? { followUp: followUpMetadata({ sources: followUp.sources, prompt: topic, mode: followUp.mode, model: reportModel === 'claude' ? CLAUDE_TEXT_MODEL : GEMINI_TEXT_MODEL, at: followUp.at || new Date().toISOString(), inherit: followUp.inherit }) } : undefined}
                 autoSaveSignal={autoStockSignal}
+                onSaved={setReportSavedId}
               />
+              {/* 319 §3-1: この結果を前提資料にさらに追加リサーチ（連鎖）。前提資料は保存済みの行なので、未保存のときは理由を出して無効化 */}
+              <span data-followup-report-entry={reportSavedId ?? ''}>
+                <FollowUpResearchButton
+                  refs={reportSavedId ? [{ scope: 'library', id: reportSavedId }] : []}
+                  dataKey="report"
+                  label="🔭 これを元に追加リサーチ"
+                  defaultMode={depth === 'quick' || depth === 'deep' ? depth : 'standard'}
+                  disabled={!reportSavedId}
+                  disabledReason="先に「📚 保存」でこのレポートを保存してください（保存した行が前提資料になります）"
+                  style={{ padding: '6px 14px', background: 'rgba(14,116,144,0.08)', color: '#0E7490', border: '1px solid rgba(14,116,144,0.3)', borderRadius: 6, cursor: 'pointer', fontSize: 12, fontWeight: 500 }}
+                />
+              </span>
             </div>
             <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>

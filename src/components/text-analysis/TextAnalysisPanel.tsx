@@ -38,6 +38,8 @@ import {
 import FeatureDraftBanner from '@/components/FeatureDraftBanner';
 import { TextRefinePanel } from '@/components/refine/TextRefinePanel';
 import FullscreenReader from '@/components/text-analysis/FullscreenReader';
+// 319: 結果カードから追加リサーチ（保存済みの行が前提資料）
+import { FollowUpResearchButton } from '@/components/deepresearch/FollowUpResearchDialog';
 import { useRunKeyHints, useRunShortcut } from '@/lib/shortcuts';
 // 313改訂: 「📋 クリアして貼付」は院長の実機判断で廃止（クリア→ペーストの2操作で同じ結果）。lib/clear-and-paste は 🔭DR で引き続き使う
 // 255: 「貼り付けたら前の内容を置き換える」（iOSで追加タップを出さずに1操作にする）
@@ -75,6 +77,8 @@ interface ResultPanelProps {
   // 247: 保存状態は親が持つ（自動保存＝生成完了時に親が走らせるため、カード内に閉じられない）。
   // 本文が変わったら親が 'idle' に戻す＝修正後はまた保存できる
   saveStatus: SaveStatus;
+  /** 319: 保存済みの行 id（追加リサーチの前提資料）。未保存は null */
+  savedId: number | null;
   onSave: () => void;
   onCopy: () => void;
   onDownloadTxt: () => void;
@@ -92,6 +96,7 @@ function ResultPanel({
   simplifying,
   generatingTitle,
   saveStatus,
+  savedId,
   onSave,
   onCopy,
   onDownloadTxt,
@@ -307,6 +312,15 @@ function ResultPanel({
         >
           {simplifying ? '⏳ 変換中...' : '✨ わかりやすく変換'}
         </button>
+        {/* 319 §3-1: この成果物を前提資料に追加リサーチ。前提資料は保存済みの行なので、未保存のときは理由を出して無効化 */}
+        <FollowUpResearchButton
+          refs={savedId ? [{ scope: 'text_analysis', id: String(savedId) }] : []}
+          dataKey={savedId ? String(savedId) : 'unsaved'}
+          label="🔭 追加リサーチ"
+          disabled={!savedId || saveStatus !== 'saved'}
+          disabledReason="先に「💾 ストック保存」でこの結果を保存してください（保存した行が前提資料になります）"
+          style={btnStyle('neutral')}
+        />
         <button
           type="button"
           onClick={onRefine}
@@ -440,6 +454,8 @@ export default function TextAnalysisPanel({
   const setSaveState = useCallback((type: AnalysisType, status: SaveStatus) => {
     setSaveStates((prev) => new Map(prev).set(type, status));
   }, []);
+  // 319: type ごとの保存済み行 id（追加リサーチの前提資料）。本文が変わって 'idle' に戻るとき（saveState 'saved' でなくなる）は使わない
+  const [savedIds, setSavedIds] = useState<Map<AnalysisType, number>>(new Map());
 
   // 216: type毎のAIタイトルキャッシュ。初回生成したタイトルを保存（saveResult）と
   // ダウンロードで共有し、「保存タイトルとDLファイル名が別物になる」のを防ぐ。
@@ -683,6 +699,8 @@ export default function TextAnalysisPanel({
       const saved = await res.json();
       onSaved?.(saved);
       setSaveState(type, 'saved');
+      const savedRowId = Number(saved?.save?.id ?? saved?.id);
+      if (Number.isFinite(savedRowId)) setSavedIds((prev) => new Map(prev).set(type, savedRowId));
       // 自動保存はカード単位のトーストを出さない（件数分は騒がしいので実行側でまとめて1回出す）
       if (!opts?.silent) showToast(`「${autoTitle}」として保存しました`, 'success');
       return true;
@@ -1458,6 +1476,7 @@ export default function TextAnalysisPanel({
               simplifying={simplifying === type}
               generatingTitle={generatingTitle === type}
               saveStatus={saveStates.get(type) ?? 'idle'}
+              savedId={savedIds.get(type) ?? null}
               onSave={() => void saveResult(type, text)}
               onCopy={() => {
                 // コピー内容にも LaTeX 正規化を適用（$\rightarrow$ 等を残さない）

@@ -3,6 +3,8 @@ import { RUN_ID, createSave, deleteSave, createLibraryItem, createMandalaChart, 
 import { findBadHeadingLines, findMultiSentenceLines } from '../../src/lib/note-format';
 import { MANDALA_PAID_LINE_MARKER } from '../../src/lib/mandala-note';
 import { SUMMARY_FOR_NEXT_MAX } from '../../src/lib/presentation';
+// 319: 追加リサーチ
+import { followUpMetadata, followUpTitle } from '../../src/lib/followup-research';
 
 // ============================================================================
 // 生成完走系（B1/B3〜B7/B9/B10）— 実AI課金が発生するため既定スキップ（@gen）
@@ -1047,5 +1049,54 @@ test('B38: AIでまとめるの二段出力と素材パック（317・実AI）�
     console.log(`[B38] slides ${pk.chars} chars adWarnings=${pk.adWarnings?.length ?? 0}`);
   } finally {
     await request.delete('/api/library', { data: { ids: saved } }).catch(() => {});
+  }
+});
+
+
+test('B39: 追加リサーチ（319・実AI・Gemini）— 実資料1件＋「これらの企業の直近の年間売上を調べて」で1本生成（前提資料をオプトインで渡す）・出典URLあり・架空の社名は「未確認」と明示・前提資料の固有名詞を保つ・保存で metadata.followUp と継承（用途なし＝空）・一覧に出る @gen', async ({ request }) => {
+  test.setTimeout(GEN_TIMEOUT);
+  const article = 'トヨタ自動車、ソニーグループ、任天堂の3社は日本を代表する企業である。加えて、架空の「ルミナ架空商事株式会社（滋賀県草津市・非上場・公開情報なし）」も比較対象に含める。';
+  const libId = await createLibraryItem(request, { title: `319検証用の資料 ${RUN_ID}`, content: article, type: 'deepresearch' });
+  const libTitle = `[E2E]319検証用の資料 ${RUN_ID}`;
+  const saved: string[] = [];
+  try {
+    const t0 = Date.now();
+    const prompt = 'これらの企業の直近の年間売上を調べて';
+    const res = await request.post('/api/deepresearch', { data: { topic: prompt, depth: 'quick', model: 'gemini', followUp: { sources: [{ scope: 'library', id: libId }] } }, timeout: REQ_TIMEOUT });
+    expect(res.status(), `DR が 200: ${res.status()}`).toBe(200);
+    const raw = await res.text();
+    let text = '';
+    let done = false;
+    let timedOut = false;
+    let error = '';
+    for (const line of raw.split('\n')) {
+      if (!line.startsWith('data: ')) continue;
+      try {
+        const j = JSON.parse(line.slice(6)) as { type?: string; content?: string; message?: string };
+        if (j.type === 'text') text += j.content ?? '';
+        else if (j.type === 'done') done = true;
+        else if (j.type === 'timeout') timedOut = true;
+        else if (j.type === 'error') error = j.message ?? 'error';
+      } catch {}
+    }
+    expect(error, 'エラーなし').toBe('');
+    expect(timedOut, '時間切れなし').toBe(false);
+    expect(done, 'done が来る').toBe(true);
+    expect(text.length, '本文がある').toBeGreaterThan(300);
+    expect(text, '出典URLあり').toMatch(/https?:\/\//);
+    expect(text, '前提資料の固有名詞を保つ').toMatch(/トヨタ/);
+    expect(text, '架空の社名は「未確認」と明示（推測で補わない）').toMatch(/未確認/);
+    console.log(`[B39] ${Date.now() - t0}ms chars=${text.length}`);
+    // 保存（画面と同じ形）→ followUp が付き、継承は用途・フォルダなし＝空。一覧（🔭 追加: n）に出る
+    const meta = followUpMetadata({ sources: [{ scope: 'library', id: libId, title: libTitle }], prompt, mode: 'quick', model: 'gemini-3.7-flash', at: new Date().toISOString(), inherit: true });
+    const save = await request.post('/api/library', { data: { type: 'deepresearch', title: followUpTitle(prompt, [libTitle]), content: text, tags: 'ディープリサーチ,追加リサーチ', group_name: 'ディープリサーチ', metadata: { followUp: meta } } });
+    expect(save.status()).toBe(200);
+    const j = (await save.json()) as { id: string; inherited?: { purposes: number[]; folders: number[] } };
+    saved.push(j.id);
+    expect(j.inherited).toEqual({ purposes: [], folders: [] });
+    const list = (await (await request.get(`/api/followup-research?mode=list&scope=library&id=${libId}`)).json()) as { items: { id: string; prompt: string }[] };
+    expect(list.items.map((i) => i.id)).toContain(j.id);
+  } finally {
+    await request.delete('/api/library', { data: { ids: [libId, ...saved] } }).catch(() => {});
   }
 });

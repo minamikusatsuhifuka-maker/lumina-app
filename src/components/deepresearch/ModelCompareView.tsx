@@ -63,9 +63,13 @@ type Props = {
   onClose: () => void;
   /** 314 §3-2: 失敗・中断した列だけをやり直す（そのモデルだけ）。省略時はボタンを出さない */
   onRerun?: (side: CompareSide) => void;
+  /** 319: 保存タイトルの元（追加リサーチは「<プロンプト先頭30字> — <元資料>」）。未指定＝お題 */
+  saveTitleBase?: string;
+  /** 319: 各列の保存 metadata に足す（followUp）。未指定＝従来どおり */
+  extraMetadata?: Record<string, unknown> | null;
 };
 
-export default function ModelCompareView({ topic, runs, startedAt, restoredAt = null, onClose, onRerun }: Props) {
+export default function ModelCompareView({ topic, runs, startedAt, restoredAt = null, onClose, onRerun, saveTitleBase, extraMetadata = null }: Props) {
   const sides = compareRunSides(runs);
   const { fine, mounted } = useFinePointer();
   const [syncScroll, setSyncScroll] = useState(true);
@@ -209,12 +213,12 @@ export default function ModelCompareView({ topic, runs, startedAt, restoredAt = 
                 {savable && (
                   <div data-compare-save={side} style={{ marginTop: 8 }}>
                     <SaveToLibraryButton
-                      title={compareSaveTitle(topic, side)}
+                      title={compareSaveTitle(saveTitleBase ?? topic, side)}
                       content={run.text}
                       type="deepresearch"
                       groupName="ディープリサーチ"
                       tags={compareSaveTags(side)}
-                      metadata={compareSaveMetadata(side, run.stats)}
+                      metadata={{ ...compareSaveMetadata(side, run.stats), ...(extraMetadata ?? {}) }}
                     />
                   </div>
                 )}
