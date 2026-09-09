@@ -1489,7 +1489,8 @@ function LibraryPageInner() {
         </span>
       </div>
 
-      {/* ── 318: 選択バー（📚🗂🧠共通部品・一覧の上に sticky・1件以上選んだときだけ出す。全選択は置かない・296 §2-4） ── */}
+      {/* ── 318: 選択バー（📚🗂🧠共通部品・一覧の上に置き上端を越えたら固定・1件以上選んだときだけ出す。全選択は置かない・296 §2-4） ── */}
+      {selectedIds.size > 0 && (
       <SelectionBar
         count={selectedIds.size}
         attrs={{ 'data-library-selection-bar': '' }}
@@ -1514,6 +1515,7 @@ function LibraryPageInner() {
         onExit={() => setSelectedIds(new Set())}
         exitAttrs={{ 'data-library-select-clear': '' }}
       />
+      )}
 
       {/* ── アイテムリスト（フォルダグルーピング） ── */}
       {loading ? (
