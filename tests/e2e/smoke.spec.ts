@@ -11039,7 +11039,7 @@ test('C131: 記事→図解（315）— 📚🗂の行の「🖼 図解にする
   await page.route('**/api/visuals/plan', (route) =>
     route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ plans: [
       { id: 'v1', type: 'steps', title: '朝のスキンケア', groups: [{ points: ['洗顔のあと5分以内に行う', '化粧水をなじませて', '乳液で蓋をする'] }] },
-      { id: 'v2', type: 'compare', title: '朝と夜', groups: [{ heading: '朝', points: ['5分以内'] }, { heading: '夜', points: ['クレンジング'] }] },
+      { id: 'v2', type: 'compare', title: '同じ手順', groups: [{ heading: '朝', points: ['5分以内'] }, { heading: '夜', points: ['クレンジング'] }] },
       { id: 'v3', type: 'image', title: '冬は加湿器で室内の湿度を保つ', groups: [{ points: ['角質ケア'] }], imagePrompt: '冬の部屋' },
     ], rejected: ['ビフォーアフター型は候補に出さない'], ranAt: new Date().toISOString() }) }),
   );
@@ -11149,7 +11149,7 @@ test('C131: 記事→図解（315）— 📚🗂の行の「🖼 図解にする
       await expect(p3.locator('[data-vis-error="v3"]')).toContainText('まだ提供されていません', { timeout: 15000 });
       await expect(p3.locator('[data-vis-error="v3"]')).toHaveAttribute('data-vis-error-unavailable', '1');
       expect(imgPosts.length, '二重発火で1回').toBe(1);
-      await expect(page.locator('[data-vis-plan="v1"]'), '他の候補は影響なし').toHaveAttribute('data-vis-plan-ok', '1');
+      await expect(page.locator('[data-vis-plan="v2"]'), '他の候補は影響なし').toHaveAttribute('data-vis-plan-ok', '1');
       // aiText: 並べて表示と目視確認の1文（2回目の応答は成功のモック）
       await p3.locator('[data-vis-aitext]').check();
       await imgBtn.click();
