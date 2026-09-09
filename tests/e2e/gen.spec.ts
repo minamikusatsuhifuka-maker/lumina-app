@@ -996,6 +996,6 @@ test('B37: 記事→マンダラ生成（316・Gemini）— 実記事1件から 
     console.log(`[B37] stage2 ${Date.now() - t1}ms created=${j2.created} dropped=${JSON.stringify(j2.dropped)}`);
   } finally {
     if (chartId) await request.delete(`/api/mandala?id=${chartId}`).catch(() => {});
-    await request.delete(LIBRARY_API, { data: { ids: [libId] } }).catch(() => {});
+    await request.delete('/api/library', { data: { ids: [libId] } }).catch(() => {});
   }
 });
