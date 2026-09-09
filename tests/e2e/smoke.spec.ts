@@ -11428,7 +11428,9 @@ test('C134: 選択バー（318）— 📚🗂🧠の3画面で同じ部品が一
   test.setTimeout(240_000);
   const marker = `SELBAR${RUN_ID}`;
   const libIds: string[] = [];
-  for (let i = 0; i < 4; i++) libIds.push(await createLibraryItem(request, { title: `選択バー${i} ${marker}`, content: `本文${i} ${marker}` }));
+  // 一覧を長くして置き場が画面外に出る状態を作る（16件・新しい順なので末尾が先頭行）
+  for (let i = 0; i < 16; i++) libIds.push(await createLibraryItem(request, { title: `選択バー${i} ${marker}`, content: `本文${i} ${marker}` }));
+  const top4 = libIds.slice(12);
   const saveIds = [await createSave(request, { title: `選択バーA ${marker}`, content: `本文A ${marker}` }), await createSave(request, { title: `選択バーB ${marker}`, content: `本文B ${marker}` })];
   const ctxIds = [await createContextSave(request, { topic: `選択バーX ${marker}`, contextText: `素材X ${marker}` }), await createContextSave(request, { topic: `選択バーY ${marker}`, contextText: `素材Y ${marker}` })];
   const checkBar = async (root: import('@playwright/test').Page | import('@playwright/test').Locator, label: string, firstCard: import('@playwright/test').Locator) => {
@@ -11464,9 +11466,9 @@ test('C134: 選択バー（318）— 📚🗂🧠の3画面で同じ部品が一
     // ── 📚 リサーチ保存（4件＝図解は3件まで→無効＋理由） ──
     await page.goto('/dashboard/library');
     await page.locator('[data-library-search]').fill(marker);
-    await expect(page.locator(`[data-library-card="${libIds[0]}"]`)).toBeVisible({ timeout: 30000 });
-    for (const id of libIds) await page.locator(`[data-library-card="${id}"] input[type="checkbox"]`).check();
-    const bar = await checkBar(page, '📚', page.locator(`[data-library-card="${libIds[3]}"]`));
+    await expect(page.locator(`[data-library-card="${libIds[15]}"]`)).toBeVisible({ timeout: 30000 });
+    for (const id of top4) await page.locator(`[data-library-card="${id}"] input[type="checkbox"]`).check();
+    const bar = await checkBar(page, '📚', page.locator(`[data-library-card="${libIds[15]}"]`));
     await expect(bar).toHaveAttribute('data-selection-bar-count', '4');
     const visual = bar.locator('[data-library-visual-bulk]');
     await expect(visual, '4件では図解は無効（R-101）').toHaveAttribute('aria-disabled', 'true');
@@ -11477,6 +11479,9 @@ test('C134: 選択バー（318）— 📚🗂🧠の3画面で同じ部品が一
     const order = await bar.locator('[data-selection-bar-action], [data-selection-bar-exit]').evaluateAll((els) => els.map((e) => e.getAttribute('data-selection-bar-action') ?? 'exit'));
     expect(order).toEqual(['purpose', 'visual', 'merge', 'compare', 'kindle', 'delete', 'exit']);
     // sticky: 一覧を下までスクロールしてもバーは主カラムの上端に残り、幅は主カラムに揃う（サイドバーに被らない）
+    await expect.poll(() => page.locator('[data-library-card]').count(), '一覧が長い（16件）').toBeGreaterThanOrEqual(16);
+    // 置き場（フィルタ行の直下≒y800）が画面外に出るまでスクロールできるよう、判定の間だけ画面を低くする
+    await page.setViewportSize({ width: 1280, height: 400 });
     const main = page.locator('main.dashboard-main');
     await main.evaluate((el) => { el.scrollTop = el.scrollHeight; });
     await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
@@ -11492,6 +11497,7 @@ test('C134: 選択バー（318）— 📚🗂🧠の3画面で同じ部品が一
     await page.evaluate(() => window.scrollTo(0, 0));
     await main.evaluate((el) => { el.scrollTop = 0; });
     await expect(bar, '戻ると in-flow に戻る').toHaveAttribute('data-selection-bar-stuck', '0');
+    await page.setViewportSize({ width: 1280, height: 720 });
     await bar.locator('[data-library-select-clear]').click();
     await expect(page.locator('[data-selection-bar]'), '選択をやめるとバーが消える').toHaveCount(0);
     // ── 🗂 テキスト分析の保存一覧 ──
@@ -11518,9 +11524,9 @@ test('C134: 選択バー（318）— 📚🗂🧠の3画面で同じ部品が一
     try {
       await mp.goto('/dashboard/library');
       await mp.locator('[data-library-search]').fill(marker);
-      await expect(mp.locator(`[data-library-card="${libIds[0]}"]`)).toBeVisible({ timeout: 30000 });
-      for (const id of libIds.slice(0, 3)) await mp.locator(`[data-library-card="${id}"] input[type="checkbox"]`).check();
-      const mbar = await checkBar(mp, '📚(iPhone幅)', mp.locator(`[data-library-card="${libIds[3]}"]`));
+      await expect(mp.locator(`[data-library-card="${libIds[15]}"]`)).toBeVisible({ timeout: 30000 });
+      for (const id of libIds.slice(13)) await mp.locator(`[data-library-card="${id}"] input[type="checkbox"]`).check();
+      const mbar = await checkBar(mp, '📚(iPhone幅)', mp.locator(`[data-library-card="${libIds[15]}"]`));
       const tops = await mbar.locator('[data-selection-bar-action], [data-selection-bar-exit], [data-selection-bar-node]').evaluateAll((els) => Array.from(new Set(els.map((e) => Math.round(e.getBoundingClientRect().top)))));
       expect(tops.length, 'iPhone幅では2段以上に折り返す').toBeGreaterThanOrEqual(2);
       const vw = await mp.evaluate(() => ({ sw: document.documentElement.scrollWidth, iw: window.innerWidth, bw: document.querySelector('[data-selection-bar]')!.getBoundingClientRect().right }));
