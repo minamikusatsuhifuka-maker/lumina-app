@@ -43,6 +43,8 @@ import { cleanChapterBody } from '../../src/lib/kindle-text';
 // 307: 動的 import() では '@/lib/…' のパス解決が効かない（transitive な alias import が Cannot find module）ため静的に読む
 import * as mandalaKindle from '../../src/lib/mandala-kindle';
 import * as mandalaPresets from '../../src/lib/mandala-presets';
+import * as mandalaNote from '../../src/lib/mandala-note';
+import * as noteFormat from '../../src/lib/note-format';
 import { KINDLE_TASTES, KINDLE_TASTE_KEYS, KINDLE_TASTE_GUARD, KINDLE_SCORE_AXES } from '../../src/lib/kindle-taste';
 import {
   AUTO_STOCK_KEY,
@@ -3853,4 +3855,170 @@ test('U78: マンダラ 有料note記事の型・反応記録・無料比率（3
   // Kindle 目次は meta を読まない（U77 の入力形＝MandalaOutlineNode/リンク。meta の語が変換関数に無い）
   const kindle = readFileSync(join(__dirname, '../../src/lib/mandala-kindle.ts'), 'utf8');
   expect(kindle).not.toMatch(/\.meta\b/);
+});
+
+test('U79: マンダラ→note記事（309）— 1文1行の整形は句点「。」「！」「？」の直後で改行し、見出し・箇条書き・引用・括弧内・URL・コードは分割せず、段落の空行を保ち、冪等（整形済みを通しても不変）・検査関数が同じ規則・無料（1マス）はタイトル・本文・素材・子マスが目次順で本文空なら拒否理由・有料（全体）は tier で無料／有料に分かれ有料ラインは最初の paid の直前で tier 無しは無料扱い・空マスの除外と削除済みリンクの件数・出どころに chartId/cellIds/mode・プレビューと投入が同じ出力・有料ラインの目印の補正・出どころの読み出しは fail-closed・①の構造規約に1文1行が入り samples/full の両方を整形する（ソース固定・R-111）', async () => {
+  const nf = noteFormat;
+  const mn = mandalaNote;
+  const m = await import('../../src/lib/mandala-shared');
+  // ① 整形
+  const src = '## 見出し。ここは分割しない\n\n朝は乾燥します。だから保湿します！本当ですか？はい。\n「そうですか。なるほど」と答えた。次の文。\n- 箇条書き。分割しない。\n> 引用。分割しない。\nhttps://example.com/a.b?c=d。分割しない。\n\n```\nコード。分割しない。\n```\n最後の文（補足。ここも）です。';
+  const out = nf.formatOneSentencePerLine(src);
+  expect(out.split('\n')).toEqual([
+    '## 見出し。ここは分割しない',
+    '',
+    '朝は乾燥します。',
+    'だから保湿します！',
+    '本当ですか？',
+    'はい。',
+    '「そうですか。なるほど」と答えた。',
+    '次の文。',
+    '- 箇条書き。分割しない。',
+    '> 引用。分割しない。',
+    'https://example.com/a.b?c=d。分割しない。',
+    '',
+    '```',
+    'コード。分割しない。',
+    '```',
+    '最後の文（補足。ここも）です。',
+  ]);
+  expect(nf.formatOneSentencePerLine(out), '冪等').toBe(out);
+  expect(nf.formatOneSentencePerLine('')).toBe('');
+  expect(nf.formatOneSentencePerLine('文末に閉じ括弧。」続き。')).toBe('文末に閉じ括弧。」\n続き。');
+  expect(nf.formatOneSentencePerLine('強調です。**次**。')).toBe('強調です。\n**次**。');
+  expect(nf.formatOneSentencePerLine('**太字で終わる。**次。')).toBe('**太字で終わる。**\n次。');
+  expect(nf.formatOneSentencePerLine('*斜体。*続き。')).toBe('*斜体。*\n続き。');
+  expect(nf.formatOneSentencePerLine('省略…。続き。')).toBe('省略…。\n続き。');
+  expect(nf.formatOneSentencePerLine('1. 番号付き。分割しない。')).toBe('1. 番号付き。分割しない。');
+  expect(nf.isOneSentencePerLine(out)).toBe(true);
+  expect(nf.findMultiSentenceLines(src).map((v) => v.line), '括弧内の句点は違反にならない').toEqual([3, 4]);
+  expect(nf.ONE_SENTENCE_PER_LINE_RULE).toContain('1文ごとに改行');
+
+  // ② 変換の材料
+  type Cell = import('../../src/lib/mandala-shared').MandalaCell;
+  type Link = import('../../src/lib/mandala-shared').MandalaLinkResolved;
+  const u = (n: number) => `aaaaaaaa-0000-4000-8000-${String(n).padStart(12, '0')}`;
+  const mk = (n: number, position: number, depth: 1 | 2 = 1, parent: string | null = null, title = '', body = '', meta: Record<string, unknown> = {}): Cell => ({ id: u(n), chart_id: u(900), parent_cell_id: parent, depth, position, title, body, meta, created_at: '', updated_at: '' });
+  const link = (id: number, cell: Cell, scope: string, item_key: string, exists = true, title = `L${id}`, char_count = 10): Link => ({ id, cell_id: cell.id, scope, item_key, created_at: '', note: '', title: exists ? title : null, exists, char_count: exists ? char_count : null, item_created_at: null });
+  const center = mk(4, 4, 1, null, 'テーマ', '読者は保湿を続けられる');
+  const c0 = mk(10, 0, 1, null, '導入', '骨子0。', { tier: 'free' });
+  const c1 = mk(11, 1, 1, null, '着地点', '骨子1。', { tier: 'free' });
+  const c2 = mk(12, 2, 1, null, '', '', { tier: 'free' }); // 空＝除外
+  const c3 = mk(13, 3, 1, null, 'タイトルだけ', ''); // tier 無し＝無料扱い
+  const c6 = mk(16, 6, 1, null, '手順', '骨子6。', { tier: 'paid' });
+  const c7 = mk(17, 7, 1, null, '成果物', '骨子7。', { tier: 'paid' });
+  const k0a = mk(20, 0, 2, c0.id, '節A', '節Aの本文。');
+  const k0b = mk(21, 1, 2, c0.id, '', ''); // 空の子＝除外
+  const cells = [c7, k0b, c6, center, c3, c2, c1, c0, k0a];
+  const chart = { id: u(900), meta: { preset: 'paid_note' }, cells };
+  const links: Link[] = [
+    link(1, c0, 'library', u(31), true, '資料A', 100),
+    link(2, c0, 'episode', '5', true, '記録D', 50),
+    link(3, c0, 'library', u(32), false),
+    link(4, k0a, 'context', '7', true, '参照C', 30),
+    link(5, c6, 'text_analysis', '12', true, '分析B', 5000),
+  ];
+  const bodies = new Map([[`library:${u(31)}`, '資料Aの本文'], ['context:7', '参照Cの本文'], ['text_analysis:12', 'x'.repeat(5000)]]);
+  const nested = m.mandalaOutlineNested(cells);
+  // 無料（1マス）
+  const free = mn.mandalaNoteFree(chart, c0.id, nested, links, { bodies });
+  expect(free.ok && free.mode === 'free_cell').toBe(true);
+  if (!free.ok || free.mode !== 'free_cell') throw new Error('unreachable');
+  expect(free.title).toBe('導入');
+  expect(free.memo).toBe('骨子0。');
+  expect(free.sections.map((s) => s.title), '子マスは節として順に・空は除外').toEqual(['節A']);
+  expect(free.refs.map((r) => r.kind)).toEqual(['material', 'experience', 'missing']);
+  expect(free.sections[0].refs[0]).toMatchObject({ kind: 'material', body: '参照Cの本文' });
+  expect(free.counts).toEqual({ excludedEmpty: 1, missingLinks: 1, materials: 2, referenceOnly: 0, experiences: 1 });
+  expect(free.source).toMatchObject({ source: 'mandala', chartId: u(900), mode: 'free_cell', cellId: c0.id, cellIds: [c0.id, k0a.id], cellLabel: '左上', cellTitle: '導入', chartTitle: 'テーマ' });
+  const rejected = mn.mandalaNoteFree(chart, c3.id, nested, links);
+  expect(rejected.ok).toBe(false);
+  expect(!rejected.ok && rejected.reason).toBe(mn.MANDALA_NOTE_REJECT_EMPTY_BODY);
+  expect(mn.mandalaNoteFree(chart, u(999), nested, links).ok).toBe(false);
+  // 中央マスも可
+  expect(mn.mandalaNoteFree(chart, center.id, nested, links).ok).toBe(true);
+  // 上限超過は参照のみ
+  const tight = mn.mandalaNoteFree(chart, c6.id, nested, links, { bodies, materialCharLimit: 100 });
+  expect(tight.ok && tight.mode === 'free_cell' && tight.refs[0].kind).toBe('reference');
+  expect(tight.ok && tight.counts.referenceOnly).toBe(1);
+  // 有料（全体）
+  const paid = mn.mandalaNotePaid(chart, nested, links, { bodies });
+  if (!paid.ok || paid.mode !== 'paid_chart') throw new Error('unreachable');
+  expect(paid.title).toBe('テーマ');
+  expect(paid.after).toBe('読者は保湿を続けられる');
+  expect(paid.entries.map((e) => [e.title, e.tier])).toEqual([['導入', 'free'], ['着地点', 'free'], ['タイトルだけ', 'free'], ['手順', 'paid'], ['成果物', 'paid']]);
+  expect(paid.paidLineIndex, '最初の paid の直前').toBe(3);
+  expect(paid.counts.excludedEmpty, '空の親1＋空の子1').toBe(2);
+  expect(paid.counts.missingLinks).toBe(1);
+  expect(paid.source.cellIds).toEqual([c0.id, k0a.id, c1.id, c3.id, c6.id, c7.id]);
+  expect(paid.source.mode).toBe('paid_chart');
+  expect(paid.ratio, '無料比率は 308 の freeRatio そのまま（tier 無しのマスは数えない）').toEqual(m.freeRatio(cells));
+  expect(paid.ratio.ratio).toBeCloseTo(14 / 22, 5);
+  // tier 無しだけのチャートは paid 無し＝有料ラインを置かない。preset も tier も無ければ有料記事にできない
+  const plainCells = cells.map((c) => ({ ...c, meta: {} }));
+  const plainPaid = mn.mandalaNotePaid({ id: u(900), meta: {}, cells: plainCells }, m.mandalaOutlineNested(plainCells), []);
+  expect(plainPaid.ok && plainPaid.mode === 'paid_chart' && plainPaid.paidLineIndex).toBeNull();
+  expect(mn.canMakePaidNote({}, plainCells)).toBe(false);
+  expect(mn.canMakePaidNote({ preset: 'paid_note' }, plainCells)).toBe(true);
+  expect(mn.canMakePaidNote({}, cells)).toBe(true);
+  const empty = [0, 1, 2, 3, 4, 5, 6, 7, 8].map((p) => mk(100 + p, p));
+  expect(mn.mandalaNotePaid({ id: u(900), meta: {}, cells: empty }, m.mandalaOutlineNested(empty), []).ok).toBe(false);
+  // 写し（①の参照資料ブロック）: 目印・区分・素材の本文・体験メモは参照だけ
+  const text = mn.mandalaNoteToSource(paid)!;
+  expect(text.title).toBe('テーマ');
+  expect(text.content.startsWith('## 読者の着地点（After）\n\n読者は保湿を続けられる')).toBe(true);
+  const markerAt = text.content.indexOf(mn.MANDALA_PAID_LINE_MARKER);
+  expect(markerAt).toBeGreaterThan(0);
+  expect(text.content.indexOf('## 手順【有料】')).toBeGreaterThan(markerAt);
+  expect(text.content.indexOf('## タイトルだけ【無料】')).toBeLessThan(markerAt);
+  expect(text.content).toContain('### 素材: 資料A\n資料Aの本文');
+  expect(text.content).toContain('- 体験メモ（📔 エピソード記録）: 記録D');
+  expect(text.content).not.toContain('L3');
+  expect(text.paidLineBefore).toBe('手順');
+  expect(text.ratioHint).toContain('目安 60〜70%');
+  const freeText = mn.mandalaNoteToSource(free)!;
+  expect(freeText.content.startsWith('## 導入\n\n骨子0。')).toBe(true);
+  expect(freeText.content).toContain('### 節A\n\n節Aの本文。');
+  expect(freeText.paidLineBefore).toBeNull();
+  // プレビューと投入が同じ出力（同じ入力→同じ JSON。入力順を変えても同じ）
+  expect(JSON.stringify(mn.mandalaNotePaid(chart, m.mandalaOutlineNested([...cells].reverse()), [...links].reverse(), { bodies }))).toBe(JSON.stringify(paid));
+  // 有料ラインの目印の補正（無ければ最初の paid 項目の大見出しの直前・2本以上は1本に）
+  const body = '## 導入\n\n文。\n\n## 手順の話\n\n文。';
+  const ensured = mn.ensurePaidLineMarker(body, '手順');
+  expect(ensured).toMatchObject({ inserted: true, missing: false });
+  expect(ensured.body).toBe(`## 導入\n\n文。\n\n${mn.MANDALA_PAID_LINE_MARKER}\n\n## 手順の話\n\n文。`);
+  expect(mn.ensurePaidLineMarker(ensured.body, '手順')).toMatchObject({ inserted: false, missing: false, body: ensured.body });
+  expect(mn.ensurePaidLineMarker(`${mn.MANDALA_PAID_LINE_MARKER}\nA\n${mn.MANDALA_PAID_LINE_MARKER}\nB`, null).body.split('\n').filter((l) => l === mn.MANDALA_PAID_LINE_MARKER).length).toBe(1);
+  expect(mn.ensurePaidLineMarker(body, '無い見出し')).toMatchObject({ inserted: false, missing: true, body });
+  // 出どころの読み出し（fail-closed）と文言
+  const meta = JSON.stringify({ from: 'dr-hub', mandala: { ...paid.source, generatedAt: '2026-09-09T00:00:00.000Z' } });
+  const parsed = mn.parseMandalaArticleSource(meta)!;
+  expect(parsed.chartId).toBe(u(900));
+  expect(parsed.mode).toBe('paid_chart');
+  expect(parsed.cellIds.length).toBe(6);
+  expect(mn.parseMandalaArticleSource(JSON.stringify({ mandala: { source: 'mandala', chartId: 'x', mode: 'free_cell' } }))).toBeNull();
+  expect(mn.parseMandalaArticleSource(JSON.stringify({ mandala: { source: 'mandala', chartId: u(1), mode: 'other' } }))).toBeNull();
+  expect(mn.parseMandalaArticleSource('broken')).toBeNull();
+  expect(mn.parseMandalaArticleSource({ mandala: { ...free.source } })?.cellLabel).toBe('左上');
+  expect(mn.mandalaArticleOriginLabel(free.source)).toBe('マンダラ『テーマ』の『左上: 導入』から');
+  expect(mn.mandalaArticleOriginLabel(paid.source)).toBe('マンダラ『テーマ』全体から');
+  expect(mn.mandalaArticlesLabel(2)).toBe('📝 記事: 2件');
+  expect([...mn.articleCountsByCell([{ id: 'a', title: '', mode: 'free_cell', cellId: c0.id, created_at: '' }, { id: 'b', title: '', mode: 'paid_chart', cellId: null, created_at: '' }, { id: 'c', title: '', mode: 'free_cell', cellId: c0.id, created_at: '' }]).entries()]).toEqual([[c0.id, 2]]);
+
+  // ③ ソース固定（構文ごと・R-111）
+  expect(readFileSync(join(__dirname, '../../src/lib/note-format.ts'), 'utf8')).not.toMatch(/from '@\/lib\/(db|markdown-renderer|rich-copy)'/);
+  const noteLib = readFileSync(join(__dirname, '../../src/lib/mandala-note.ts'), 'utf8');
+  expect(noteLib).not.toMatch(/from '@\/lib\/(db|mandala-server|episodes-server)'/);
+  const styles = readFileSync(join(__dirname, '../../src/lib/persona-styles.ts'), 'utf8');
+  expect(styles, '①の構造規約（可読性）に1文1行').toMatch(/# 可読性（noteで読みやすく）\n\$\{ONE_SENTENCE_PER_LINE_RULE\}/);
+  const route = readFileSync(join(__dirname, '../../src/app/api/dr-hub/persona/route.ts'), 'utf8');
+  expect(route.match(/formatOneSentencePerLine\(/g)?.length, 'samples と full の両方で整形').toBe(2);
+  expect(route, 'ガード優先宣言より後ろに骨子の追記（R-69）').toMatch(/\$\{personaStructureRules\(PERSONA_HEADING_RANGE\[length\]\)\}\n\$\{mandalaPromptBlock\(mandala\)\}/);
+  expect(route).toMatch(/if \(body\.mandala && typeof body\.mandala === 'object'\)/);
+  expect(route).toMatch(/const \{ titles, body: articleBody \} = parsePersonaArticleOutput\(raw\)/.test(route) ? /never/ : /formatOneSentencePerLine\(parsedOut\.body\)/);
+  const hub = readFileSync(join(__dirname, '../../src/app/dashboard/dr-hub/page.tsx'), 'utf8');
+  expect(hub, '保存前とリッチコピー前に同じ整形').toMatch(/content=\{formatOneSentencePerLine\(article\.content\)\}/);
+  expect(hub).toMatch(/handleRichCopy\(formatOneSentencePerLine\(article\.content\), 'persona-note'\)/);
+  const splitRoute = readFileSync(join(__dirname, '../../src/app/api/dr-hub/split/route.ts'), 'utf8');
+  expect(splitRoute, '②には本便で適用しない（後続で判断）').not.toMatch(/formatOneSentencePerLine/);
 });

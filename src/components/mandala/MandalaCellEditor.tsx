@@ -643,6 +643,23 @@ export default function MandalaCellEditor({
             <CharCountBadge n={draft.body.length} />
             {statusLine}
             <span style={{ flex: 1 }} />
+            {/* 309 §3-1: このマスを無料記事にする（タイトルか本文がある＝保存済みの行で判定。中央も可）。発信ハブ①がマンダラの素材で開く */}
+            {(cell.title.trim() || cell.body.trim()) ? (
+              <a
+                data-mandala-note-free={cell.id}
+                href={`/dashboard/dr-hub?mandala=${encodeURIComponent(cell.chart_id)}&cell=${encodeURIComponent(cell.id)}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                title="このマスのタイトル・本文・リンク素材から無料のnote記事を起こす（発信ハブ①が新しいタブで開きます）"
+                style={{ ...btn, textDecoration: 'none', display: 'inline-flex', alignItems: 'center', borderColor: '#1D9E75', color: '#1D9E75' }}
+              >
+                📝 無料記事にする
+              </a>
+            ) : (
+              <span data-mandala-note-free-disabled title="タイトルか本文を保存すると無料記事にできます" style={{ ...btn, opacity: 0.5, cursor: 'default' }}>
+                📝 無料記事にする
+              </span>
+            )}
             <button type="button" data-mandala-fullscreen onClick={() => { setFsEdit(false); setFs(true); }} title="全画面で読む・書く" style={btn}>
               ⛶ 全画面
             </button>

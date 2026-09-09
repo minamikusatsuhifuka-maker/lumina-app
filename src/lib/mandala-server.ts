@@ -643,3 +643,74 @@ export async function listBooksFromChart(userId: string, chartId: string): Promi
     created_at: String(r.created_at),
   }));
 }
+
+// ============================================================
+// 309: note記事の材料（リンク先の本文を所有者検証つきで取る／起こした記事の一覧）
+// ============================================================
+
+/**
+ * 素材リンク（library／text_analysis／context）の本文を取る。鍵は `${scope}:${item_key}`。
+ * 存在しない・他人の行は載らない（呼び出し側は「参照のみ」に落とす）。episode は 281 の体験ブロック経路で別に注入する
+ */
+export async function fetchMandalaLinkBodies(userId: string, links: readonly MandalaLinkResolved[]): Promise<Map<string, string>> {
+  const out = new Map<string, string>();
+  const byScope = new Map<string, string[]>();
+  for (const l of links) {
+    if (!l.exists || l.scope === 'episode') continue;
+    (byScope.get(l.scope) ?? byScope.set(l.scope, []).get(l.scope)!).push(String(l.item_key));
+  }
+  for (const [scope, keysRaw] of byScope) {
+    const keys = [...new Set(keysRaw)];
+    try {
+      if (scope === 'library') {
+        const rows = (await sql`SELECT id::text AS k, content FROM library WHERE user_id = ${userId} AND id::text = ANY(${keys})`) as { k: string; content: string | null }[];
+        for (const r of rows) out.set(`library:${r.k}`, r.content ?? '');
+      } else if (scope === 'text_analysis') {
+        const rows = (await sql`SELECT id::text AS k, content FROM text_analysis_saves WHERE user_id = ${userId} AND id::text = ANY(${keys})`) as { k: string; content: string | null }[];
+        for (const r of rows) out.set(`text_analysis:${r.k}`, r.content ?? '');
+      } else if (scope === 'context') {
+        const rows = (await sql`SELECT id::text AS k, context_text FROM context_saves WHERE user_id = ${userId} AND id::text = ANY(${keys})`) as { k: string; context_text: string | null }[];
+        for (const r of rows) out.set(`context:${r.k}`, r.context_text ?? '');
+      }
+    } catch (e) {
+      console.error('[mandala note] 素材本文の取得に失敗（参照のみに落とす）:', scope, e instanceof Error ? e.message : 'unknown');
+    }
+  }
+  return out;
+}
+
+export interface MandalaArticleRow {
+  id: string;
+  title: string;
+  mode: 'free_cell' | 'paid_chart';
+  cellId: string | null;
+  created_at: string;
+}
+
+/**
+ * §3-4 「📝 n」「📝 記事: n件」の導出。記事の側の記録（library.metadata.mandala.chartId）から読む（mandala_*.meta には書かない・R-107）。
+ * metadata は TEXT（JSON 文字列）なので、まず LIKE で絞ってから JSON として検証する
+ */
+export async function listArticlesFromChart(userId: string, chartId: string): Promise<MandalaArticleRow[]> {
+  const rows = (await sql`
+    SELECT id, title, metadata, created_at FROM library
+    WHERE user_id = ${userId} AND type = 'note-article' AND metadata LIKE ${'%"chartId":"' + chartId + '"%'}
+    ORDER BY created_at DESC
+    LIMIT 200
+  `) as { id: string; title: string | null; metadata: string | null; created_at: string }[];
+  const out: MandalaArticleRow[] = [];
+  for (const r of rows) {
+    let meta: Record<string, unknown> = {};
+    try {
+      meta = r.metadata ? (JSON.parse(r.metadata) as Record<string, unknown>) : {};
+    } catch {
+      continue;
+    }
+    const m = meta.mandala as Record<string, unknown> | undefined;
+    if (!m || m.source !== 'mandala' || m.chartId !== chartId) continue;
+    const mode = m.mode === 'paid_chart' ? 'paid_chart' : m.mode === 'free_cell' ? 'free_cell' : null;
+    if (!mode) continue;
+    out.push({ id: String(r.id), title: r.title ?? '', mode, cellId: typeof m.cellId === 'string' ? m.cellId : null, created_at: String(r.created_at) });
+  }
+  return out;
+}

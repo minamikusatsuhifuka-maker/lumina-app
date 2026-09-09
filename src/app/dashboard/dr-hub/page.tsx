@@ -11,6 +11,11 @@ import { loadFeatureDraft, saveFeatureDraft, clearFeatureDraft } from '@/lib/fea
 import { renderMarkdown } from '@/lib/markdown-renderer';
 import { copyToClipboard } from '@/lib/copyToClipboard';
 import { copyRichMarkdown, copyRichMarkdownForNote } from '@/lib/rich-copy';
+// 309: マンダラ→note記事（①ペルソナ経路のオプトイン入力）。変換は lib/mandala-note.ts（プレビュー＝生成と同じ関数）。
+//   保存前・リッチコピー前は formatOneSentencePerLine（サーバと同じ決定的整形・冪等）を通す
+import { formatOneSentencePerLine } from '@/lib/note-format';
+import { isUuidLike } from '@/lib/mandala-shared';
+import { MANDALA_PAID_LINE_MARKER, mandalaArticleOriginLabel, type MandalaNoteMode, type MandalaNoteResult, type MandalaNoteSource } from '@/lib/mandala-note';
 import { PLAYBOOK_VERSION } from '@/lib/knowledge/noteXPlaybook';
 import KindleRemixTab from '@/components/dr-hub/KindleRemixTab';
 import XFanoutTab from '@/components/dr-hub/XFanoutTab';
@@ -67,6 +72,22 @@ interface PersonaArticle {
   /** 264: noteのタイトル欄に貼る用のタイトル案（本文と分離して生成） */
   titles?: string[];
   adCheck?: AdCheck | null;
+  /** 309: マンダラ経路の出どころ（保存時に metadata.mandala へ）。DR 経路では無い */
+  mandala?: MandalaNoteSource | null;
+  paidLine?: { inserted: boolean; missing: boolean } | null;
+  sentenceViolations?: number;
+}
+
+/** 309: ?mandala=<chartId>&cell=<cellId> ／ ?mandala=<chartId>&mode=paid で受け取る素材の指定 */
+interface MandalaEntry {
+  chartId: string;
+  mode: MandalaNoteMode;
+  cellId: string | null;
+}
+interface MandalaPreview {
+  result: MandalaNoteResult;
+  sourceChars: number;
+  paidLineBefore: string | null;
 }
 
 // ② 分割プランの1記事分（/api/dr-hub/split mode:'plan' の articles[]）
@@ -199,6 +220,10 @@ export default function DrHubPage() {
   const [selectedDrId, setSelectedDrId] = useState('');
   const [feature, setFeature] = useState<Feature>('persona');
   const [episodeIds, setEpisodeIds] = useState<number[]>([]); // 281: 素材にするエピソード（手動選択）
+  // 309: マンダラからの入口（URL で受け取る）。あるあいだは DR 記事の代わりにこの素材を①へ渡す
+  const [mandalaEntry, setMandalaEntry] = useState<MandalaEntry | null>(null);
+  const [mandalaPreview, setMandalaPreview] = useState<MandalaPreview | null>(null);
+  const [mandalaError, setMandalaError] = useState('');
 
   // ── ① ペルソナ別サンプル比較 → 全文生成 ──
   const [personaKeys, setPersonaKeys] = useState<PersonaStyleKey[]>([]);
@@ -414,6 +439,45 @@ export default function DrHubPage() {
     [drItems, selectedDrId],
   );
 
+  // 309 §3-1: マンダラ側の入口。?mandala=<chartId>&cell=<cellId>（無料）／&mode=paid（有料）。
+  // 受け取ったら①タブへ寄せ、プレビュー（純関数の出力）を取って素材の見出し・件数・有料ラインの目印を出す
+  useEffect(() => {
+    let sp: URLSearchParams;
+    try {
+      sp = new URLSearchParams(window.location.search);
+    } catch {
+      return;
+    }
+    const chartId = sp.get('mandala');
+    if (!isUuidLike(chartId)) return;
+    const cellId = sp.get('cell');
+    const mode: MandalaNoteMode = sp.get('mode') === 'paid' ? 'paid_chart' : 'free_cell';
+    if (mode === 'free_cell' && !isUuidLike(cellId)) return;
+    const entry: MandalaEntry = { chartId, mode, cellId: mode === 'free_cell' ? cellId : null };
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setMandalaEntry(entry);
+    setFeature('persona');
+    setSamples(null);
+    setArticle(null);
+    let alive = true;
+    fetch(`/api/mandala/${encodeURIComponent(chartId)}/note?mode=${mode}${entry.cellId ? `&cell=${encodeURIComponent(entry.cellId)}` : ''}`, { cache: 'no-store' })
+      .then(async (r) => {
+        const data = await r.json().catch(() => ({}));
+        if (!alive) return;
+        if (!r.ok || !data?.result) {
+          setMandalaError(data?.error || `マンダラの読み込みに失敗しました（${r.status}）`);
+          return;
+        }
+        setMandalaPreview({ result: data.result as MandalaNoteResult, sourceChars: Number(data.sourceChars ?? 0), paidLineBefore: data.paidLineBefore ?? null });
+      })
+      .catch((e: unknown) => {
+        if (alive) setMandalaError(e instanceof Error ? e.message : 'マンダラの読み込みに失敗しました');
+      });
+    return () => {
+      alive = false;
+    };
+  }, []);
+
   // 復元取得が返ってきた時点で既に操作が始まっていたら復元しない
   const draftGuardRef = useRef(false);
   draftGuardRef.current =
@@ -451,6 +515,10 @@ export default function DrHubPage() {
       const draft = await loadFeatureDraft<DrHubDraftPayload>('dr-hub');
       if (cancelled || !draft?.payload) return;
       if (draftGuardRef.current) return;
+      // 309: マンダラからの入口で開いたときは前回の下書きを復元しない（別の素材の記事が混ざる）
+      try {
+        if (new URLSearchParams(window.location.search).get('mandala')) return;
+      } catch {}
       const p = draft.payload;
       if (!p.samples && !p.article && !p.splitPlan) return;
       if (p.feature) setFeature(p.feature);
@@ -586,8 +654,12 @@ export default function DrHubPage() {
     });
   };
 
+  // 309: マンダラの素材があるときは DR 記事の代わりにそれを渡す（drId は送らない＝サーバ側のオプトイン分岐）
+  const mandalaReady = !!mandalaEntry && !!mandalaPreview && mandalaPreview.result.ok;
+  const sourceBody = () => (mandalaEntry ? { mandala: mandalaEntry } : { drId: selectedDrId });
+  const hasSource = mandalaEntry ? mandalaReady : !!selectedDrId;
   const canGenerateSamples =
-    !!selectedDrId && personaKeys.length >= PERSONA_COMPARE_MIN && personaKeys.length <= PERSONA_COMPARE_MAX;
+    hasSource && personaKeys.length >= PERSONA_COMPARE_MIN && personaKeys.length <= PERSONA_COMPARE_MAX;
 
   const generateSamples = async () => {
     if (!canGenerateSamples || samplesBusy) return;
@@ -600,7 +672,7 @@ export default function DrHubPage() {
       const res = await fetch('/api/dr-hub/persona', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ drId: selectedDrId, mode: 'samples', personaKeys }),
+        body: JSON.stringify({ ...sourceBody(), mode: 'samples', personaKeys }),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data?.error || `サンプル生成に失敗しました（${res.status}）`);
@@ -614,7 +686,7 @@ export default function DrHubPage() {
   };
 
   const generateFull = async (personaKey: PersonaStyleKey) => {
-    if (!selectedDrId || fullBusyKey) return;
+    if (!hasSource || fullBusyKey) return;
     setFullBusyKey(personaKey);
     setError('');
     setRestoredAt(null);
@@ -623,7 +695,7 @@ export default function DrHubPage() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          drId: selectedDrId,
+          ...sourceBody(),
           mode: 'full',
           personaKey,
           length,
@@ -639,6 +711,10 @@ export default function DrHubPage() {
         content: data.content || '',
         titles: Array.isArray(data.titles) ? data.titles : [],
         adCheck: data.ad_check ?? null,
+        // 309: 出どころと有料ラインの状態（マンダラ経路のときだけ返る）
+        mandala: data.mandala ?? null,
+        paidLine: data.paidLine ?? null,
+        sentenceViolations: typeof data.sentenceViolations === 'number' ? data.sentenceViolations : undefined,
       };
       setArticle(next);
       persistDraft({ article: next });
@@ -756,8 +832,8 @@ export default function DrHubPage() {
     const fromTitles = article.titles?.[0]?.trim();
     if (fromTitles) return fromTitles;
     const m = article.content.match(/^#\s+(.+)$/m);
-    return (m?.[1] || `${article.personaLabel}向け: ${selectedDr?.title ?? ''}`).trim();
-  }, [article, selectedDr]);
+    return (m?.[1] || `${article.personaLabel}向け: ${selectedDr?.title ?? (mandalaPreview?.result.ok ? mandalaPreview.result.title : '')}`).trim();
+  }, [article, selectedDr, mandalaPreview]);
 
   // ── ③ このセッションで生成した記事（①・②）を連動元に選べるようにする ──
   const sessionArticleOptions = useMemo(() => {
@@ -1050,7 +1126,60 @@ export default function DrHubPage() {
           </div>
         </div>
 
-        {drLoading && (
+        {/* 309 §3-1: マンダラから受け取った素材（DR 記事の代わり）。骨子の見出し・件数・有料ラインの目印 */}
+        {mandalaEntry && (
+          <div data-hub-mandala-source={mandalaEntry.chartId} data-hub-mandala-mode={mandalaEntry.mode} data-hub-mandala-ok={mandalaReady ? '1' : '0'} style={{ padding: 12, borderRadius: 10, border: '1px solid #6c63ff', background: 'rgba(108,99,255,0.08)', marginBottom: 10, fontSize: 12, color: 'var(--text-primary)', lineHeight: 1.7 }}>
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+              <span data-hub-mandala-label style={{ fontWeight: 700 }}>
+                🔲 {mandalaPreview?.result.ok
+                  ? `${mandalaArticleOriginLabel(mandalaPreview.result.source)}${mandalaEntry.mode === 'paid_chart' ? '（有料記事）' : '（無料記事）'}`
+                  : mandalaError ? 'マンダラの素材を読み込めませんでした' : 'マンダラの素材を読み込み中…'}
+              </span>
+              <a data-hub-mandala-back href={`/dashboard/mandala/${mandalaEntry.chartId}`} target="_blank" rel="noopener noreferrer" style={{ color: '#6c63ff', textDecoration: 'none', fontWeight: 600 }}>
+                チャートを開く ↗
+              </a>
+              <span style={{ flex: 1 }} />
+              <button
+                type="button"
+                data-hub-mandala-clear
+                onClick={() => { setMandalaEntry(null); setMandalaPreview(null); setMandalaError(''); setSamples(null); setArticle(null); }}
+                style={{ padding: '4px 10px', borderRadius: 6, border: '1px solid var(--border)', background: 'var(--bg-primary)', color: 'var(--text-muted)', fontSize: 11, cursor: 'pointer' }}
+              >
+                ✕ DR記事から選び直す
+              </button>
+            </div>
+            {mandalaError && <div data-hub-mandala-error style={{ color: '#B91C1C', marginTop: 4 }}>⚠️ {mandalaError}</div>}
+            {mandalaPreview && !mandalaPreview.result.ok && (
+              <div data-hub-mandala-reject style={{ color: '#B91C1C', marginTop: 4 }}>起こせません: {mandalaPreview.result.reason}</div>
+            )}
+            {mandalaPreview?.result.ok && (
+              <div data-hub-mandala-counts style={{ display: 'flex', gap: 10, flexWrap: 'wrap', color: 'var(--text-secondary)', marginTop: 4, fontSize: 11 }}>
+                {mandalaPreview.result.mode === 'paid_chart' ? (
+                  <span data-hub-mandala-entries={mandalaPreview.result.entries.length}>
+                    項目 {mandalaPreview.result.entries.length}件（無料 {mandalaPreview.result.entries.filter((e) => e.tier === 'free').length}・有料 {mandalaPreview.result.entries.filter((e) => e.tier === 'paid').length}）
+                  </span>
+                ) : (
+                  <span data-hub-mandala-sections={mandalaPreview.result.sections.length}>節 {mandalaPreview.result.sections.length}件</span>
+                )}
+                <span>骨子 {mandalaPreview.sourceChars.toLocaleString()}字</span>
+                <span data-hub-mandala-materials={mandalaPreview.result.counts.materials}>素材 {mandalaPreview.result.counts.materials}件</span>
+                <span data-hub-mandala-experiences={mandalaPreview.result.counts.experiences}>📔 体験メモ {mandalaPreview.result.counts.experiences}件</span>
+                {mandalaPreview.result.counts.excludedEmpty > 0 && <span data-hub-mandala-excluded={mandalaPreview.result.counts.excludedEmpty}>空のため除外 {mandalaPreview.result.counts.excludedEmpty}件</span>}
+                {mandalaPreview.result.counts.missingLinks > 0 && <span data-hub-mandala-missing={mandalaPreview.result.counts.missingLinks} style={{ color: '#B45309' }}>リンク先なし {mandalaPreview.result.counts.missingLinks}件</span>}
+                {mandalaPreview.result.counts.referenceOnly > 0 && <span data-hub-mandala-refonly={mandalaPreview.result.counts.referenceOnly}>参照のみ（上限超過） {mandalaPreview.result.counts.referenceOnly}件</span>}
+                {mandalaPreview.result.mode === 'paid_chart' && (
+                  <span data-hub-mandala-paidline={mandalaPreview.paidLineBefore ?? ''} style={{ fontWeight: 700, color: '#B45309' }}>
+                    {mandalaPreview.paidLineBefore ? `有料ライン: 『${mandalaPreview.paidLineBefore}』の直前に目印を置きます` : '有料の項目が無いため有料ラインの目印は置きません'}
+                  </span>
+                )}
+                {mandalaPreview.result.mode === 'paid_chart' && mandalaPreview.result.ratio.ratio !== null && (
+                  <span data-hub-mandala-ratio>無料比率 {Math.round(mandalaPreview.result.ratio.ratio * 100)}%（目安 60〜70%）</span>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+        {!mandalaEntry && drLoading && (
           <div style={{ color: 'var(--text-muted)', fontSize: 13, padding: 8 }}>読み込み中…</div>
         )}
         {drError && (
@@ -1058,13 +1187,13 @@ export default function DrHubPage() {
             {drError}
           </div>
         )}
-        {!drLoading && !drError && drItems.length === 0 && (
+        {!mandalaEntry && !drLoading && !drError && drItems.length === 0 && (
           <div style={{ color: 'var(--text-muted)', fontSize: 13, padding: 8 }}>
             保存済みのDR記事がありません。先に 🔭 ディープリサーチで調査し、📚 リサーチ保存に保存してください。
           </div>
         )}
 
-        {filteredDr.length > 0 && (
+        {!mandalaEntry && filteredDr.length > 0 && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 6, maxHeight: 300, overflowY: 'auto' }}>
             {filteredDr.map((d) => {
               const selected = d.id === selectedDrId;
@@ -1155,7 +1284,7 @@ export default function DrHubPage() {
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
           <div style={{ fontSize: 12, color: personaKeys.length > 0 ? 'var(--text-secondary)' : 'var(--text-muted)' }}>
             選択中: {personaKeys.length}/{PERSONA_COMPARE_MAX}件
-            {!selectedDrId && '（先にDR記事を選んでください）'}
+            {!hasSource && (mandalaEntry ? '（マンダラの素材を確認してください）' : '（先にDR記事を選んでください）')}
           </div>
           <button
             type="button"
@@ -1867,21 +1996,23 @@ export default function DrHubPage() {
             <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
               <SaveToLibraryButton
                 title={articleTitle}
-                content={article.content}
+                content={formatOneSentencePerLine(article.content)}
                 type="note-article"
                 groupName="note記事"
-                tags="note記事,下書き,発信ハブ"
+                tags={article.mandala ? 'note記事,下書き,発信ハブ,マンダラ' : 'note記事,下書き,発信ハブ'}
                 metadata={{
                   from: 'dr-hub',
-                  sourceDrId: selectedDrId,
-                  sourceDrTitle: selectedDr?.title ?? '',
+                  sourceDrId: article.mandala ? '' : selectedDrId,
+                  sourceDrTitle: article.mandala ? '' : selectedDr?.title ?? '',
                   persona: article.personaKey,
+                  // 309 §5-3: 出どころ（新規行の INSERT なのでキーを足すだけ。既存行の更新は R-113 のキー単位マージ）
+                  ...(article.mandala ? { mandala: { ...article.mandala, generatedAt: new Date().toISOString() } } : {}),
                 }}
               />
               <button
                 type="button"
                 data-copy-note
-                onClick={() => handleRichCopy(article.content, 'persona-note')}
+                onClick={() => handleRichCopy(formatOneSentencePerLine(article.content), 'persona-note')}
                 title="noteエディタに貼ると見出し・太字が保持される形式でコピーします"
                 style={{ padding: '6px 14px', background: `${ACCENT}15`, border: `1px solid ${ACCENT}50`, color: ACCENT, borderRadius: 6, cursor: 'pointer', fontSize: 12, fontWeight: 600 }}
               >
@@ -1937,6 +2068,53 @@ export default function DrHubPage() {
               {article.adCheck.findings.map((f, i) => (
                 <div key={i} style={{ fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.6 }}>・{f}</div>
               ))}
+            </div>
+          )}
+
+          {/* 309 §3-3: 有料ラインの目印の状態と、骨子と並べた目視確認（275 §4-3 と同じ形） */}
+          {article.mandala && article.paidLine?.missing && (
+            <div data-hub-mandala-paidline-missing style={{ padding: 10, background: 'rgba(180,83,9,0.08)', border: '1px solid rgba(180,83,9,0.25)', borderRadius: 8, marginBottom: 12, fontSize: 12, color: '#B45309' }}>
+              ⚠️ 生成物に有料ラインの目印「{MANDALA_PAID_LINE_MARKER}」がありません。noteの編集画面で有料ラインの位置を手で決めてください
+            </div>
+          )}
+          {article.mandala && mandalaPreview?.result.ok && (
+            <div data-hub-mandala-compare style={{ marginBottom: 12, padding: 12, background: 'var(--bg-primary)', border: '1px solid #6c63ff', borderRadius: 10 }}>
+              <div style={{ fontSize: 12, fontWeight: 700, color: '#B45309', marginBottom: 8 }}>
+                👀 公開前に必ず: 骨子（マンダラ）と生成記事を並べて、骨子にない体験・実績・数字が足されていないか確認してください
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: 12 }}>
+                <div data-hub-mandala-compare-source style={{ minWidth: 0 }}>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-muted)', marginBottom: 4 }}>🔲 骨子（マスの本文そのまま）</div>
+                  <div style={{ maxHeight: 420, overflowY: 'auto', padding: 10, border: '1px solid var(--border)', borderRadius: 8 }}>
+                    {mandalaPreview.result.mode === 'free_cell' ? (
+                      <>
+                        <MarkdownBody text={`## ${mandalaPreview.result.title}\n\n${mandalaPreview.result.memo}`} style={{ fontSize: 12, lineHeight: 1.7 }} />
+                        {mandalaPreview.result.sections.map((sct) => (
+                          <MarkdownBody key={sct.cellId} text={`### ${sct.title}\n\n${sct.memo}`} style={{ fontSize: 12, lineHeight: 1.7 }} />
+                        ))}
+                      </>
+                    ) : (
+                      mandalaPreview.result.entries.map((en, i) => (
+                        <div key={en.cellId} data-hub-mandala-compare-entry={en.tier}>
+                          {mandalaPreview.result.ok && mandalaPreview.result.mode === 'paid_chart' && mandalaPreview.result.paidLineIndex === i && (
+                            <div style={{ fontSize: 11, fontWeight: 700, color: '#B45309', margin: '6px 0' }}>{MANDALA_PAID_LINE_MARKER}</div>
+                          )}
+                          <MarkdownBody text={`## ${en.title}【${en.tier === 'paid' ? '有料' : '無料'}】\n\n${en.memo}`} style={{ fontSize: 12, lineHeight: 1.7 }} />
+                          {en.sections.map((sct) => (
+                            <MarkdownBody key={sct.cellId} text={`### ${sct.title}\n\n${sct.memo}`} style={{ fontSize: 12, lineHeight: 1.7 }} />
+                          ))}
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </div>
+                <div data-hub-mandala-compare-article style={{ minWidth: 0 }}>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-muted)', marginBottom: 4 }}>📝 生成記事</div>
+                  <div style={{ maxHeight: 420, overflowY: 'auto', padding: 10, border: '1px solid var(--border)', borderRadius: 8 }}>
+                    <MarkdownBody text={article.content} style={{ fontSize: 12, lineHeight: 1.7 }} />
+                  </div>
+                </div>
+              </div>
             </div>
           )}
 

@@ -502,3 +502,31 @@ export function MandalaReactionPopoverContent({ cell, onOpenPanel }: { cell: Man
     </div>
   );
 }
+
+/**
+ * 309 §3-4: 📝 バッジのポップアップ。そのマスから起こした note 記事（記事の側の記録から導出）。行を押すと📚リサーチ保存で開く（新しいタブ）
+ */
+export function MandalaArticlesPopoverContent({ articles }: { articles: readonly { id: string; title: string; mode: 'free_cell' | 'paid_chart'; created_at: string }[] }) {
+  return (
+    <div data-mandala-articles-popover style={{ display: 'flex', flexDirection: 'column', gap: 4, minWidth: 0 }}>
+      <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-muted)', padding: '2px 4px' }}>📝 起こした記事（{articles.length}）</div>
+      {articles.length === 0 && <div style={{ fontSize: 11, color: 'var(--text-muted)', padding: '2px 4px' }}>記事がありません</div>}
+      {articles.map((a) => (
+        <a
+          key={a.id}
+          data-mandala-article={a.id}
+          href={`/dashboard/library?open=${encodeURIComponent(a.id)}`}
+          target="_blank"
+          rel="noopener noreferrer"
+          style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0, padding: '5px 6px', borderRadius: 6, textDecoration: 'none', color: 'inherit', fontSize: 12 }}
+        >
+          <span style={{ fontSize: 10, fontWeight: 700, padding: '0 5px', borderRadius: 4, background: a.mode === 'paid_chart' ? 'rgba(180,83,9,0.14)' : 'rgba(29,158,117,0.12)', color: a.mode === 'paid_chart' ? '#B45309' : '#1D9E75', flexShrink: 0 }}>
+            {a.mode === 'paid_chart' ? '有料' : '無料'}
+          </span>
+          <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{a.title || '（無題）'}</span>
+          <span style={{ fontSize: 10, color: 'var(--text-muted)', flexShrink: 0 }}>{jstShortDate(a.created_at)} ↗</span>
+        </a>
+      ))}
+    </div>
+  );
+}

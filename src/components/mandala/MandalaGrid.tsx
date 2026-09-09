@@ -56,8 +56,11 @@ function CellCard({
   popoverBind,
   density,
   onExpand,
+  articleCount = 0,
 }: {
   slot: MandalaGridSlot;
+  /** 309: そのマスから起こした note 記事の数（記事の側の記録から導出）。0 なら出さない */
+  articleCount?: number;
   selected: boolean;
   counts: MandalaLinkCounts | undefined;
   selectMode: boolean;
@@ -215,6 +218,23 @@ function CellCard({
             </span>
           );
         })()}
+        {/* 309 §3-4: 起こした記事「📝 n」（ホバーで一覧・記事へ）。0件は出さない */}
+        {articleCount > 0 && cell && !derived && (() => {
+          const b = popoverBind ? popoverBind(cell, 'articles') : undefined;
+          const handlers = b ? (selectMode ? { ...b, onClick: undefined } : b) : {};
+          return (
+            <span
+              data-mandala-cell-articles={articleCount}
+              aria-label={`このマスから起こした記事${articleCount}件。一覧を表示`}
+              role={b ? 'button' : undefined}
+              tabIndex={b ? 0 : undefined}
+              {...handlers}
+              style={{ fontSize: 10, fontWeight: 700, whiteSpace: 'nowrap', flexShrink: 0, color: '#1D9E75', cursor: b ? 'pointer' : 'default', padding: '0 2px', borderRadius: 4 }}
+            >
+              📝{articleCount}
+            </span>
+          );
+        })()}
         {/* 305是正①: コンパクトは優先順（文字数 > 🔗n > 📔n）で先に置く */}
         {compact && cell && !derived && filled && <CharCountBadge n={cell.body.length} unit="字" compact />}
         {compact && cell && !derived && (counts?.total ?? 0) > 0 && (() => {
@@ -348,8 +368,11 @@ export default function MandalaGrid({
   density = 'normal',
   onExpand,
   blockAttrs,
+  articleCounts,
 }: {
   cells: readonly MandalaCell[];
+  /** 309: マスごとの起こした記事数（省略時は出さない） */
+  articleCounts?: ReadonlyMap<string, number>;
   /** null＝第1階層。第2階層（303）は親マスの id を渡す（中央は導出・押せない） */
   parentCellId?: string | null;
   selectedCellId: string | null;
@@ -399,6 +422,7 @@ export default function MandalaGrid({
           popoverBind={popoverBind}
           density={density}
           onExpand={parentCellId && onExpand ? (pos) => onExpand(parentCellId, pos) : undefined}
+          articleCount={slot.cell ? articleCounts?.get(slot.cell.id) ?? 0 : 0}
         />
       ))}
     </div>

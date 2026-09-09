@@ -1,5 +1,7 @@
 import { test, expect } from '@playwright/test';
-import { RUN_ID, createSave, deleteSave, createLibraryItem } from './helpers';
+import { RUN_ID, createSave, deleteSave, createLibraryItem, createMandalaChart, saveMandalaCell, deleteMandalaChart, createEpisode, addMandalaLinks } from './helpers';
+import { findMultiSentenceLines } from '../../src/lib/note-format';
+import { MANDALA_PAID_LINE_MARKER } from '../../src/lib/mandala-note';
 import { SUMMARY_FOR_NEXT_MAX } from '../../src/lib/presentation';
 
 // ============================================================================
@@ -373,12 +375,63 @@ test('B16: ペルソナ別note記事（264）— タイトル案3本と構造化
     expect(body).toContain('\n\n');
     expect(body).not.toContain('【タイトル案】');
     expect(body).not.toContain('【本文】');
+    // 309（院長判断B）: ①の全出力は「1文1行」（プロンプト＋決定的整形の二段構え）。違反0件
+    expect(findMultiSentenceLines(body), '1文1行（句点の後に続きが無い）').toEqual([]);
+    expect(data.sentenceViolations).toBe(0);
 
     // ad_check が併記される（形の検証のみ）
     expect(data.ad_check?.status === 'ok' || data.ad_check?.status === 'warn').toBe(true);
   } finally {
     const del = await request.delete('/api/library', { data: { id: drId } });
     expect(del.status()).toBe(200);
+  }
+});
+
+test('B30: マンダラ→有料note記事（309）— ①ペルソナ経路の mandala オプトインで生成が完走し、生成物に「▼ 有料ライン」の区切り行が1本・1文1行・段落間空行・h1なし・出どころが返る・骨子にない数字を足さない（機械検査は行数と目印まで） @gen', async ({ request }) => {
+  test.setTimeout(GEN_TIMEOUT);
+  const marker = `MNOTE${RUN_ID}`;
+  const epId = await createEpisode(request, { title: `${marker} 記録`, situation: '診察室', details: '入浴後すぐ保湿剤を塗る習慣を自分で3週間続けた。最初の1週間は塗り忘れが多かった。', tags: ['[E2E]'] });
+  const { id: chartId, cells } = await createMandalaChart(request, `${marker} 保湿を続ける`, 'paid_note');
+  const byPos = (p: number) => cells.find((c) => c.position === p)!;
+  try {
+    // 型のタイトルはそのまま、本文（骨子）を短く入れる。区分は型どおり（0〜3,5 無料／6〜8 有料）
+    const bodies: Record<number, string> = {
+      0: '冬になると「保湿しているのに乾く」と感じる人が多い。私も同じだった。',
+      1: '読み終えると、入浴後の保湿を無理なく習慣にできる。',
+      2: '自分で3週間、入浴後すぐの保湿を続けた記録がある。',
+      3: '角層の水分は入浴後に失われやすい。塗るタイミングが効く理由はそこにある。',
+      5: '有料部分では手順とチェック表を渡す。対象は保湿が続かない人。',
+      6: '手順は3つ。タオルで押さえる、5分以内に塗る、塗り残しやすい場所を最後に確認する。',
+      7: 'チェック表のテンプレート。朝晩の欄と、塗り忘れた日の理由欄。',
+      8: '最初の1週間は忘れて当然。続いた日数を数えるところから。',
+    };
+    for (const [p, body] of Object.entries(bodies)) {
+      expect((await saveMandalaCell(request, byPos(Number(p)).id, { body })).status()).toBe(200);
+    }
+    expect((await saveMandalaCell(request, byPos(4).id, { body: '入浴後の保湿を習慣にできている' })).status()).toBe(200);
+    expect((await addMandalaLinks(request, byPos(2).id, [{ scope: 'episode', item_key: epId }])).status()).toBe(200);
+
+    const res = await request.post('/api/dr-hub/persona', {
+      data: { mandala: { chartId, mode: 'paid_chart' }, mode: 'full', personaKey: 'homemaker', length: 'short' },
+      timeout: REQ_TIMEOUT,
+    });
+    const data = await res.json().catch(() => ({}));
+    expect(res.status(), JSON.stringify(data).slice(0, 300)).toBe(200);
+    const body = String(data.content ?? '');
+    expect(body.length).toBeGreaterThan(500);
+    expect(/^#\s/m.test(body), '本文にh1（#）が無い').toBe(false);
+    expect((body.match(/^##\s/gm) ?? []).length).toBeGreaterThanOrEqual(2);
+    expect(body).toContain('\n\n');
+    expect(body.split('\n').filter((l) => l.trim() === MANDALA_PAID_LINE_MARKER).length, '有料ラインの目印が1本').toBe(1);
+    expect(findMultiSentenceLines(body), '1文1行').toEqual([]);
+    expect(data.sentenceViolations).toBe(0);
+    expect(data.mandala).toMatchObject({ source: 'mandala', chartId, mode: 'paid_chart' });
+    expect(Array.isArray(data.titles) && data.titles.length === 3).toBe(true);
+    expect(data.episodeCount, 'マスにリンクした📔が体験ブロックとして入る').toBe(1);
+    expect(data.ad_check?.status === 'ok' || data.ad_check?.status === 'warn').toBe(true);
+  } finally {
+    await deleteMandalaChart(request, chartId);
+    await request.delete(`/api/episodes?id=${epId}`).catch(() => {});
   }
 });
 

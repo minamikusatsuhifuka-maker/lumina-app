@@ -23,7 +23,9 @@ import MandalaGrid from '@/components/mandala/MandalaGrid';
 import MandalaCellEditor from '@/components/mandala/MandalaCellEditor';
 import MandalaCompareView from '@/components/mandala/MandalaCompareView';
 import Mandala81 from '@/components/mandala/Mandala81';
-import { MandalaLinkPopoverContent, MandalaReactionPopoverContent } from '@/components/mandala/MandalaLinks';
+import { MandalaArticlesPopoverContent, MandalaLinkPopoverContent, MandalaReactionPopoverContent } from '@/components/mandala/MandalaLinks';
+// 309: マンダラ→note記事（入口＝見出しの「有料記事にする」・パネルの「無料記事にする」）。「📝 記事: n件」は記事の側の記録から導出
+import { MANDALA_NOTE_PAID_DISABLED_REASON, articleCountsByCell, canMakePaidNote, mandalaArticlesLabel, type MandalaArticleRef } from '@/lib/mandala-note';
 import { useToast } from '@/components/ui/Toast';
 import { useHoverPopover } from '@/components/HoverPopover';
 import { jstDateTimeString } from '@/lib/jst';
@@ -80,6 +82,9 @@ export default function MandalaChartPage({ params }: { params: Promise<{ id: str
   // 307: このチャートから起こした Kindle 案件（本の側の記録から導出）
   const [books, setBooks] = useState<{ id: number; title: string; status: string; importedAt: string }[]>([]);
   const [booksOpen, setBooksOpen] = useState(false);
+  // 309: このチャートから起こした note 記事（記事の側の記録から導出）
+  const [articles, setArticles] = useState<MandalaArticleRef[]>([]);
+  const [articlesOpen, setArticlesOpen] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<{ status: number; text: string } | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -105,6 +110,7 @@ export default function MandalaChartPage({ params }: { params: Promise<{ id: str
         chart?: MandalaChartDetail;
         links?: MandalaLinkLite[];
         books?: { id: number; title: string; status: string; importedAt: string }[];
+        articles?: MandalaArticleRef[];
         error?: string;
       };
       if (!res.ok || !json.chart) {
@@ -115,6 +121,7 @@ export default function MandalaChartPage({ params }: { params: Promise<{ id: str
       setChart(json.chart);
       setLinks(Array.isArray(json.links) ? json.links : []);
       setBooks(Array.isArray(json.books) ? json.books : []);
+      setArticles(Array.isArray(json.articles) ? json.articles : []);
     } catch (e: unknown) {
       setError({ status: 0, text: e instanceof Error ? e.message : '読み込みに失敗しました' });
     } finally {
@@ -213,6 +220,10 @@ export default function MandalaChartPage({ params }: { params: Promise<{ id: str
   // 304: バッジのホバーポップアップ（共通部品 HoverPopover）。中身は同じキャッシュから描く
   const popover = useHoverPopover<{ cell: MandalaCell; from: MandalaPopoverFrom }>(
     ({ cell, from }, api) => {
+      // 309: 📝 は記事の記録（API の articles）から描く（取得なし）
+      if (from === 'articles') {
+        return <MandalaArticlesPopoverContent articles={articles.filter((a) => a.cellId === cell.id)} />;
+      }
       // 308: 📈 はマスの meta から描く（取得なし）。押せる要素は「パネルで記録する」だけ
       if (from === 'reaction') {
         const latest = chart?.cells.find((c) => c.id === cell.id) ?? cell;
@@ -239,7 +250,7 @@ export default function MandalaChartPage({ params }: { params: Promise<{ id: str
         />
       );
     },
-    { onOpen: (_key, { cell, from }) => { if (from !== 'reaction') void fetchResolved(cell.id); } },
+    { onOpen: (_key, { cell, from }) => { if (from !== 'reaction' && from !== 'articles') void fetchResolved(cell.id); } },
   );
   const popoverBind = useCallback(
     (cell: MandalaCell, from: MandalaPopoverFrom) => popover.bind(popoverKeyOf(cell.id), { cell, from }),
@@ -307,6 +318,8 @@ export default function MandalaChartPage({ params }: { params: Promise<{ id: str
   const compareState = mandalaCompareState(compareCells.length);
   // 308: 反応記録 n/m と無料比率（純関数・R-74）
   const reaction = useMemo(() => (chart ? reactionSummary(chart.cells) : { withReaction: 0, filled: 0 }), [chart]);
+  const articleCounts = useMemo(() => articleCountsByCell(articles), [articles]);
+  const paidNoteEnabled = !!chart && canMakePaidNote(chart.meta, chart.cells);
   const presetKey = chart ? chartPreset(chart.meta) : null;
   const presetDef = isMandalaPresetKey(presetKey) ? MANDALA_PRESETS[presetKey] : null;
   const ratio = useMemo(() => (chart && shouldShowFreeRatio(chart.meta, chart.cells) ? freeRatio(chart.cells) : null), [chart]);
@@ -404,7 +417,44 @@ export default function MandalaChartPage({ params }: { params: Promise<{ id: str
               )}
             </span>
           )}
+          {/* 309 §3-4: 起こした記事 n件（0件は出さない）。押すと一覧を開き、記事へ飛ぶ */}
+          {articles.length > 0 && (
+            <span style={{ position: 'relative', display: 'inline-block' }}>
+              <button
+                type="button"
+                data-mandala-articles={articles.length}
+                aria-expanded={articlesOpen}
+                onClick={() => setArticlesOpen((v) => !v)}
+                title="このマンダラから起こした note 記事"
+                style={{ ...btn, padding: '4px 10px', fontWeight: 700, color: '#1D9E75', borderColor: 'rgba(29,158,117,0.4)' }}
+              >
+                {mandalaArticlesLabel(articles.length)}
+              </button>
+              {articlesOpen && (
+                <div data-mandala-articles-list style={{ position: 'absolute', top: '100%', left: 0, marginTop: 4, zIndex: 50, minWidth: 280, maxWidth: 380, padding: 8, background: 'var(--bg-primary)', border: '1px solid var(--border)', borderRadius: 10, boxShadow: '0 8px 24px rgba(0,0,0,0.12)' }}>
+                  <MandalaArticlesPopoverContent articles={articles} />
+                </div>
+              )}
+            </span>
+          )}
           <span style={{ flex: 1 }} />
+          {/* 309 §3-1: このマンダラを有料記事にする（型のチャート、または区分のあるマスがあるときだけ。それ以外は無効化＋理由・R-101） */}
+          {paidNoteEnabled ? (
+            <Link
+              data-mandala-note-paid
+              href={`/dashboard/dr-hub?mandala=${encodeURIComponent(id)}&mode=paid`}
+              target="_blank"
+              rel="noopener noreferrer"
+              title="中央＋周囲8（＋子）を無料／有料の区分つきで発信ハブ①へ渡し、有料のnote記事を起こす（新しいタブ）"
+              style={{ ...btn, textDecoration: 'none', display: 'inline-flex', alignItems: 'center', borderColor: '#B45309', color: '#B45309' }}
+            >
+              📝 このマンダラを有料記事にする
+            </Link>
+          ) : (
+            <span data-mandala-note-paid-disabled title={MANDALA_NOTE_PAID_DISABLED_REASON} aria-disabled="true" style={{ ...btn, opacity: 0.5, cursor: 'default', display: 'inline-flex', alignItems: 'center' }}>
+              📝 このマンダラを有料記事にする
+            </span>
+          )}
           {/* 307 §3-1: ウィザードをこのチャートを選んだ状態で開く（入口はボタン1つ） */}
           <Link
             data-mandala-kindle
@@ -505,6 +555,7 @@ export default function MandalaChartPage({ params }: { params: Promise<{ id: str
                 popoverBind={popoverBind}
                 onExpand={(parentCellId, position) => void expandBlock(parentCellId, position)}
                 narrow={narrow}
+                articleCounts={articleCounts}
               />
             </div>
           ) : (
@@ -518,6 +569,7 @@ export default function MandalaChartPage({ params }: { params: Promise<{ id: str
               checkedIds={checkedSet}
               onToggleSelect={toggleChecked}
               popoverBind={popoverBind}
+              articleCounts={articleCounts}
             />
           )}
           {popover.layer}

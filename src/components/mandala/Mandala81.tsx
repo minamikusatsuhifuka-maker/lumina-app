@@ -36,8 +36,11 @@ export default function Mandala81({
   popoverBind,
   onExpand,
   narrow,
+  articleCounts,
 }: {
   cells: readonly MandalaCell[];
+  /** 309: マスごとの起こした記事数 */
+  articleCounts?: ReadonlyMap<string, number>;
   selectedCellId: string | null;
   onSelect: (cell: MandalaCell) => void;
   linkCounts: ReadonlyMap<string, MandalaLinkCounts>;
@@ -66,6 +69,7 @@ export default function Mandala81({
           checkedIds={checkedIds}
           onToggleSelect={onToggleSelect}
           popoverBind={popoverBind}
+          articleCounts={articleCounts}
           density="compact"
           blockAttrs={{ 'data-mandala-block': MANDALA_CENTER, 'data-mandala-block-expanded': '1' }}
         />
@@ -86,6 +90,7 @@ export default function Mandala81({
           checkedIds={checkedIds}
           onToggleSelect={onToggleSelect}
           popoverBind={popoverBind}
+          articleCounts={articleCounts}
           density="compact"
           onExpand={onExpand}
           blockAttrs={{ 'data-mandala-block': position, 'data-mandala-block-expanded': expanded ? '1' : '0' }}

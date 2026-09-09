@@ -23,6 +23,21 @@ import {
 } from '@/lib/persona-styles';
 import { getPlaybook, PLAYBOOK_VERSION } from '@/lib/knowledge/noteXPlaybook';
 import { loadEpisodePromptBlock } from '@/lib/episodes-server';
+import { formatOneSentencePerLine, findMultiSentenceLines } from '@/lib/note-format';
+import { getChart, listLinksForChartResolved, fetchMandalaLinkBodies } from '@/lib/mandala-server';
+import { isUuidLike, mandalaOutlineNested, type MandalaLinkResolved } from '@/lib/mandala-shared';
+import {
+  MANDALA_NOTE_PAID_DISABLED_REASON,
+  MANDALA_PAID_LINE_MARKER,
+  canMakePaidNote,
+  ensurePaidLineMarker,
+  isMandalaNoteMode,
+  mandalaNoteFree,
+  mandalaNotePaid,
+  mandalaNoteToSource,
+  type MandalaNoteMode,
+  type MandalaNoteSource,
+} from '@/lib/mandala-note';
 
 export const runtime = 'nodejs';
 export const maxDuration = 300;
@@ -33,6 +48,10 @@ export const maxDuration = 300;
 // **どちらもDBに保存しない**（保存は画面の SaveToLibraryButton＝明示操作のみ。R-38と同方針）。
 // 品質規約は note系（NOTE_COMMON_RULES + NOTE_WRITING_DESIGN + MEDICAL_AD_NG_RULES）＋ PERSONA_GUARD。
 // マイ文体は full のみ注入（優先順位: 画面指定＝ペルソナ ＞ マイ文体 ＞ プリセット。my-style.ts の宣言どおり）。
+// 309: 入力のオプトイン `mandala: { chartId, mode:'free_cell'|'paid_chart', cellId? }`（drId の代わり・R-88）。
+//   材料は lib/mandala-note.ts の純関数（プレビューと同じ関数）で「参照資料」ブロックに写す。📔 は 281 の体験ブロックで注入。
+//   プロンプトの追記は KB→ガードの順を崩さず「ガード優先」の後ろに置く（R-69）。有料モードは有料ラインの目印を置く。
+//   全出力（DR 経路・マンダラ経路・samples・full）を formatOneSentencePerLine で「1文1行」に整える（院長判断 B・決定的）。
 
 const SAMPLE_SOURCE_CHARS = 6000; // サンプル生成に渡すDR記事の冒頭（全文を渡すとコスト・時間が無駄）
 const FULL_SOURCE_CHARS = 60000; // 全文生成に渡す上限（DR記事は長大になり得るため防御的に切る）
@@ -55,6 +74,46 @@ export async function POST(req: NextRequest) {
     const body = await req.json().catch(() => ({}));
     const drId = typeof body.drId === 'string' ? body.drId.trim() : '';
     const mode = body.mode === 'full' ? 'full' : 'samples';
+
+    // 309: マンダラ経路（drId の代わり）。既定の DR 経路はこの分岐に入らない＝不変
+    if (body.mandala && typeof body.mandala === 'object') {
+      const m = body.mandala as { chartId?: unknown; mode?: unknown; cellId?: unknown };
+      if (!isUuidLike(m.chartId)) return NextResponse.json({ error: 'mandala.chartId が不正です' }, { status: 400 });
+      if (!isMandalaNoteMode(m.mode)) return NextResponse.json({ error: 'mandala.mode は free_cell / paid_chart のいずれかです' }, { status: 400 });
+      if (m.mode === 'free_cell' && !isUuidLike(m.cellId)) return NextResponse.json({ error: 'mandala.cellId が必要です' }, { status: 400 });
+      const chart = await getChart(userId, m.chartId);
+      if (!chart) return NextResponse.json({ error: 'マンダラが見つかりません' }, { status: 404 });
+      if (m.mode === 'paid_chart' && !canMakePaidNote(chart.meta, chart.cells)) {
+        return NextResponse.json({ error: MANDALA_NOTE_PAID_DISABLED_REASON }, { status: 400 });
+      }
+      let links: MandalaLinkResolved[] = [];
+      try {
+        links = await listLinksForChartResolved(userId, chart.id);
+      } catch (e) {
+        console.error('[dr-hub/persona] マンダラのリンク解決に失敗（リンクなしで続行）:', e instanceof Error ? e.message : 'unknown');
+      }
+      const bodies = await fetchMandalaLinkBodies(userId, links);
+      const nested = mandalaOutlineNested(chart.cells);
+      const result = m.mode === 'free_cell'
+        ? mandalaNoteFree(chart, m.cellId as string, nested, links, { bodies, materialCharLimit: FULL_SOURCE_CHARS })
+        : mandalaNotePaid(chart, nested, links, { bodies, materialCharLimit: FULL_SOURCE_CHARS });
+      if (!result.ok) return NextResponse.json({ error: result.reason }, { status: 400 });
+      const sourceText = mandalaNoteToSource(result)!;
+      // 📔 体験メモ＝マスにリンクした episode を 281 の体験ブロック（R-75 規約つき）で注入。画面で選んだ episodeIds と合わせる
+      const linkedEpisodeIds = links.filter((l) => l.exists && l.scope === 'episode' && result.source.cellIds.includes(l.cell_id)).map((l) => Number(l.item_key));
+      const episodeIds = [...new Set([...(Array.isArray(body.episodeIds) ? body.episodeIds.map(Number) : []), ...linkedEpisodeIds])].filter((n) => Number.isInteger(n) && n > 0);
+      const mandalaCtx: MandalaContext = {
+        mode: m.mode,
+        source: result.source,
+        paidLineBefore: sourceText.paidLineBefore,
+        ratioHint: sourceText.ratioHint,
+        firstPaidTitle: result.mode === 'paid_chart' && result.paidLineIndex !== null ? result.entries[result.paidLineIndex].title : null,
+      };
+      return mode === 'samples'
+        ? await generateSamples(body.personaKeys, sourceText.title, sourceText.content, mandalaCtx)
+        : await generateFullArticle({ ...body, episodeIds }, userId, sourceText.title, sourceText.content, mandalaCtx);
+    }
+
     if (!drId) {
       return NextResponse.json({ error: 'drId（DR記事のID）が必要です' }, { status: 400 });
     }
@@ -78,8 +137,36 @@ export async function POST(req: NextRequest) {
   }
 }
 
+// 309: マンダラ経路のときだけ付ける文脈（既定の DR 経路では undefined＝プロンプト不変）
+interface MandalaContext {
+  mode: MandalaNoteMode;
+  source: MandalaNoteSource;
+  paidLineBefore: string | null;
+  ratioHint: string | null;
+  firstPaidTitle: string | null;
+}
+
+/** 309 §3-3: プロンプト追記。KB → ガード優先宣言 → ペルソナ → …の**後ろ**（ガードの後勝ちを崩さない・R-69）に置く */
+function mandalaPromptBlock(ctx: MandalaContext | undefined): string {
+  if (!ctx) return '';
+  const lines = [
+    '# 骨子（マンダラ）からの執筆（厳守）',
+    '- 参照資料は著者本人が書いた骨子と体験メモである。**骨子と体験メモにある事実の範囲で書く。体験・実績・数字を補わない。不確かなら書かない**',
+    '- 骨子の見出しは章立ての順序の目安。文章は骨子を膨らませて書き、骨子に無い出来事・症例・患者の反応を創作しない',
+  ];
+  if (ctx.mode === 'paid_chart') {
+    lines.push(
+      '- 有料記事として書く: 無料エリアは Why／What とベネフィット（導入・着地点・信頼性・理論・目次/CTA）、有料エリアは How（手順・成果物・結び）',
+      `- 有料ラインの位置は指定どおり: 「${ctx.paidLineBefore ?? '（有料の項目なし）'}」の大見出しの**直前**に、次の1行だけを単独の行として置く: ${MANDALA_PAID_LINE_MARKER}`,
+      '- 有料ラインの直前（無料エリアの末尾）で、有料エリアで得られるものを1〜2文で示す（煽らない・断定しない）',
+    );
+    if (ctx.ratioHint) lines.push(`- ${ctx.ratioHint}`);
+  }
+  return `\n${lines.join('\n')}\n`;
+}
+
 // ── 段階1: 選んだペルソナの冒頭サンプルを1回で生成（読み比べて選ぶための材料） ──
-async function generateSamples(personaKeysRaw: unknown, title: string, content: string) {
+async function generateSamples(personaKeysRaw: unknown, title: string, content: string, mandala?: MandalaContext) {
   const keys = (Array.isArray(personaKeysRaw) ? personaKeysRaw : [])
     .map((k) => String(k))
     .filter((k): k is PersonaStyleKey => k in PERSONA_STYLES);
@@ -105,7 +192,7 @@ ${PERSONA_GUARD}
 
 # 医療広告規制のNG表現（使わない）
 ${MEDICAL_AD_NG_RULES}
-
+${mandala ? `\n${mandalaPromptBlock(mandala).trim()}\n` : ''}
 # サンプルの作り方
 - 各ペルソナとも、記事の冒頭（導入〜本題の入り口）を**500〜800字**で書く
 - ペルソナごとの違いが読み比べて分かるように、語りかけ方・切り口の特徴をはっきり出す
@@ -122,7 +209,9 @@ ${MEDICAL_AD_NG_RULES}
     messages: [
       {
         role: 'user',
-        content: `以下はディープリサーチ記事「${title}」の冒頭です。各ペルソナ向けのnote記事冒頭サンプルを作ってください。\n\n--- DR記事（冒頭抜粋） ---\n${excerpt}\n--- ここまで ---`,
+        content: mandala
+          ? `以下は著者本人が書いた骨子「${title}」です。各ペルソナ向けのnote記事冒頭サンプルを作ってください。\n\n--- 骨子（抜粋） ---\n${excerpt}\n--- ここまで ---`
+          : `以下はディープリサーチ記事「${title}」の冒頭です。各ペルソナ向けのnote記事冒頭サンプルを作ってください。\n\n--- DR記事（冒頭抜粋） ---\n${excerpt}\n--- ここまで ---`,
       },
     ],
   });
@@ -131,7 +220,8 @@ ${MEDICAL_AD_NG_RULES}
   const samples: Record<string, string> = {};
   for (const k of unique) {
     const s = String(parsed?.samples?.[k] ?? '').trim();
-    if (s) samples[k] = s;
+    // 309: 1文1行（決定的・冪等）。サンプルにも同じ整形
+    if (s) samples[k] = formatOneSentencePerLine(s);
   }
   // fail-closed: 1件も取れないなら失敗として返す（空のカードを並べない）
   if (Object.keys(samples).length === 0) {
@@ -141,6 +231,7 @@ ${MEDICAL_AD_NG_RULES}
   return NextResponse.json({
     success: true,
     samples,
+    ...(mandala ? { mandala: mandala.source } : {}),
     _ai: { provider: ai.provider, modelLabel: ai.modelLabel },
   });
 }
@@ -151,6 +242,7 @@ async function generateFullArticle(
   userId: string,
   title: string,
   content: string,
+  mandala?: MandalaContext,
 ) {
   if (typeof body.personaKey !== 'string' || !(body.personaKey in PERSONA_STYLES)) {
     return NextResponse.json({ error: 'personaKey が不正です' }, { status: 400 });
@@ -200,11 +292,11 @@ ${myStyleBlock ? `\n${myStyleBlock}\n` : ''}
 ${NOTE_WRITING_DESIGN}
 
 ${personaStructureRules(PERSONA_HEADING_RANGE[length])}
-
+${mandalaPromptBlock(mandala)}
 # 記事の長さ
 ${config.label}（本文${config.chars}）
 
-# 参照資料（記事の根拠はこの資料の記述のみ）
+# 参照資料（記事の根拠はこの資料の記述のみ${mandala ? '。著者本人の骨子と体験メモ' : ''}）
 ## ${title}
 ${content.slice(0, FULL_SOURCE_CHARS)}
 ${episode.block ? `\n${episode.block}\n` : ''}
@@ -223,7 +315,17 @@ ${episode.block ? `\n${episode.block}\n` : ''}
   }
 
   // 264: タイトル案3本と本文を分離（マーカー欠落時は全文を本文として返す＝fail-open）
-  const { titles, body: articleBody } = parsePersonaArticleOutput(raw);
+  const parsedOut = parsePersonaArticleOutput(raw);
+  const titles = parsedOut.titles;
+  // 309: 1文1行（決定的・冪等・全出力）。有料モードは有料ラインの目印を1本にそろえる（無ければ最初の有料項目の大見出しの直前へ）
+  let articleBody = formatOneSentencePerLine(parsedOut.body);
+  let paidLine: { inserted: boolean; missing: boolean } | null = null;
+  if (mandala?.mode === 'paid_chart') {
+    const ensured = ensurePaidLineMarker(articleBody, mandala.firstPaidTitle);
+    articleBody = ensured.body;
+    paidLine = { inserted: ensured.inserted, missing: ensured.missing };
+  }
+  const sentenceViolations = findMultiSentenceLines(articleBody).length;
 
   const adCheck = await checkMedicalAd(articleBody);
 
@@ -236,5 +338,8 @@ ${episode.block ? `\n${episode.block}\n` : ''}
     personaLabel: persona.label,
     // 281: 何件のエピソードを素材にしたか（画面の表示用。0なら従来どおり）
     episodeCount: episode.count,
+    // 309: 体裁の機械検査（0＝1文1行）と、マンダラ経路の出どころ・有料ラインの状態
+    sentenceViolations,
+    ...(mandala ? { mandala: mandala.source, paidLine } : {}),
   });
 }

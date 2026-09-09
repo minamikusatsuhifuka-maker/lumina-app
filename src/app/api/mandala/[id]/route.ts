@@ -4,7 +4,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { requireAuth } from '@/lib/require-auth';
-import { expandCell, getChart, listBooksFromChart, listLinksForChart, type MandalaBookRef } from '@/lib/mandala-server';
+import { expandCell, getChart, listArticlesFromChart, listBooksFromChart, listLinksForChart, type MandalaArticleRow, type MandalaBookRef } from '@/lib/mandala-server';
 import { isUuidLike, type MandalaLinkLite } from '@/lib/mandala-shared';
 
 export const runtime = 'nodejs';
@@ -30,7 +30,14 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string
     } catch (e: unknown) {
       console.error('[mandala] 起こした本の取得に失敗（本体は返す）:', e instanceof Error ? e.message : 'unknown');
     }
-    return NextResponse.json({ chart, links, books });
+    // 309: このチャートから起こした note 記事（記事の側の記録 library.metadata.mandala から導出）
+    let articles: MandalaArticleRow[] = [];
+    try {
+      articles = await listArticlesFromChart(guard.userId, id);
+    } catch (e: unknown) {
+      console.error('[mandala] 起こした記事の取得に失敗（本体は返す）:', e instanceof Error ? e.message : 'unknown');
+    }
+    return NextResponse.json({ chart, links, books, articles });
   } catch (e: unknown) {
     console.error('[mandala] 取得に失敗:', e instanceof Error ? e.message : 'unknown');
     return NextResponse.json({ error: 'マンダラの取得に失敗しました' }, { status: 500 });

@@ -1,5 +1,6 @@
 'use client';
 
+import { mandalaArticleOriginLabel, parseMandalaArticleSource } from '@/lib/mandala-note';
 import { useState } from 'react';
 import { copyRichMarkdown } from '@/lib/rich-copy';
 // 283: 展開した本文は整形表示（R-45）。全画面（FullscreenReader）と同じレンダラ
@@ -195,6 +196,8 @@ export function LibraryItemRow({
 
   // 229B: Kindle→note展開の相互リンク（metadata.sourceBookId → ?bookId= でウィザード復帰）
   const sourceBookId = typeof meta?.sourceBookId === 'number' ? meta.sourceBookId : undefined;
+  // 309 §3-4: マンダラから起こした記事の出どころ（metadata.mandala）。チャートへの戻りリンクは新しいタブ
+  const mandalaSrc = parseMandalaArticleSource(meta);
 
   const groupName = item.group_name || '未分類';
   const config = CATEGORY_CONFIG[groupName] ?? {
@@ -361,6 +364,19 @@ export function LibraryItemRow({
               onClick={(e) => e.stopPropagation()}
             >
               📖 元の本
+            </a>
+          )}
+          {mandalaSrc && (
+            <a
+              data-library-mandala-origin={mandalaSrc.chartId}
+              href={`/dashboard/mandala/${mandalaSrc.chartId}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              title="この記事の元になったマンダラを開く（新しいタブ）"
+              style={{ color: '#6c63ff', textDecoration: 'none', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+              onClick={(e) => e.stopPropagation()}
+            >
+              🔲 {mandalaArticleOriginLabel(mandalaSrc)}
             </a>
           )}
         </div>
