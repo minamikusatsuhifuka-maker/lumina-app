@@ -268,18 +268,24 @@ export default function MandalaCellEditor({
     return () => window.removeEventListener('keydown', onKey);
   }, [requestClose]);
 
+  // マス保存API（PATCH /api/mandala/cells）の呼び出しは**この1箇所**。title/body（save）・tier・reaction（308）はすべてここを通す（R-91）
+  const patchCell = useCallback(async (payload: Record<string, unknown>) => {
+    const res = await fetch('/api/mandala/cells', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ cellId: cell.id, ...payload }),
+    });
+    const json = (await res.json().catch(() => ({}))) as { cell?: MandalaCell; error?: string; unchanged?: boolean };
+    return { res, json };
+  }, [cell.id]);
+
   const save = useCallback(async () => {
     if (savingRef.current) return; // R-87
     savingRef.current = true;
     setSaving(true);
     const sent = draftRef.current;
     try {
-      const res = await fetch('/api/mandala/cells', {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ cellId: cell.id, title: sent.title, body: sent.body }),
-      });
-      const json = (await res.json().catch(() => ({}))) as { cell?: MandalaCell; error?: string };
+      const { res, json } = await patchCell({ title: sent.title, body: sent.body });
       if (!res.ok || !json.cell) {
         const text = json.error || `保存に失敗しました（${res.status}）`;
         setStatus({ kind: 'error', text, at: new Date().toISOString() });
@@ -306,7 +312,7 @@ export default function MandalaCellEditor({
       savingRef.current = false;
       setSaving(false);
     }
-  }, [cell.id, onSaved, showToast]);
+  }, [cell.id, onSaved, showToast, patchCell]);
 
   // 302 §6-2: 復元／破棄
   const restore = () => {
@@ -359,12 +365,7 @@ export default function MandalaCellEditor({
     tierSavingRef.current = true;
     setTierSaving(true);
     try {
-      const res = await fetch('/api/mandala/cells', {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ cellId: cell.id, tier: next }),
-      });
-      const json = (await res.json().catch(() => ({}))) as { cell?: MandalaCell; error?: string };
+      const { res, json } = await patchCell({ tier: next });
       if (!res.ok || !json.cell) throw new Error(json.error || `区分の変更に失敗しました（${res.status}）`);
       onSaved(json.cell);
       showToast(`区分を「${MANDALA_TIER_LABELS[next]}」にしました`, 'success');
@@ -388,12 +389,7 @@ export default function MandalaCellEditor({
     setReactionSaving(true);
     setReactionError('');
     try {
-      const res = await fetch('/api/mandala/cells', {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ cellId: cell.id, reaction: check.reaction }),
-      });
-      const json = (await res.json().catch(() => ({}))) as { cell?: MandalaCell; error?: string; unchanged?: boolean };
+      const { res, json } = await patchCell({ reaction: check.reaction });
       if (!res.ok || !json.cell) throw new Error(json.error || `記録に失敗しました（${res.status}）`);
       const saved = parseReaction(json.cell.meta);
       onSaved(json.cell);
