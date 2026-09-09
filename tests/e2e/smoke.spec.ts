@@ -10390,11 +10390,11 @@ test('C126: マンダラ 未調査マスからのリサーチ発注（311）— 
     // ② パネル: リンク0件は目立つ／リンクありは通常
     await grid.locator('[data-mandala-cell="0"]').click();
     const panel0 = page.locator(`[data-mandala-panel="${byPos(0).id}"]`);
-    await expect(panel0.locator('[data-mandala-research-order]')).toHaveAttribute('data-mandala-research-uncovered', '1', { timeout: 15000 });
+    await expect(panel0.locator('[data-mandala-research-order]')).toHaveAttribute('data-mandala-research-order-uncovered', '1', { timeout: 15000 });
     await panel0.locator('[data-mandala-panel-close]').click();
     await grid.locator('[data-mandala-cell="1"]').click();
     const panel1 = page.locator(`[data-mandala-panel="${byPos(1).id}"]`);
-    await expect(panel1.locator('[data-mandala-research-order]')).toHaveAttribute('data-mandala-research-uncovered', '0', { timeout: 15000 });
+    await expect(panel1.locator('[data-mandala-research-order]')).toHaveAttribute('data-mandala-research-order-uncovered', '0', { timeout: 15000 });
     await panel1.locator('[data-mandala-panel-close]').click();
     // ③ ダイアログ: 発注文（純関数の既定）・編集・分析はタイトルだけのマスでは選べない
     await grid.locator('[data-mandala-cell="2"]').click();

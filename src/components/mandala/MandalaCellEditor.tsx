@@ -653,7 +653,7 @@ export default function MandalaCellEditor({
                 <button
                   type="button"
                   data-mandala-research-order={cell.id}
-                  data-mandala-research-uncovered={uncovered ? '1' : '0'}
+                  data-mandala-research-order-uncovered={uncovered ? '1' : '0'}
                   onClick={() => onResearchRequest(cell)}
                   title={uncovered ? 'このマスはまだ調べていません（リンク0件）。ディープリサーチ／テキスト分析を発注し、結果をこのマスに紐づけます' : '追加で調査を発注し、結果をこのマスに紐づけます'}
                   style={{ ...btn, ...(uncovered ? { background: '#0E7490', borderColor: '#0E7490', color: '#fff' } : { borderColor: '#0E7490', color: '#0E7490' }) }}
