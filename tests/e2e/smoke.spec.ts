@@ -430,7 +430,7 @@ async function selectTwoCrossCards(page: import('@playwright/test').Page) {
       )
       .toBe(true);
   }
-  await page.getByRole('button', { name: '🔀 横断分析' }).click(); // 318: 選択バーの短いラベル（R-57）
+  await page.locator('[data-selection-bar-action="cross"]').click(); // 318: 選択バーの短いラベル（R-57）。タブの「🔀 横断分析」と区別するため属性で掴む
 }
 
 test('C18: 横断分析handoff 経路A（テキスト分析ページのタブ内）で本文が渡る', async ({ page }) => {
@@ -11440,7 +11440,7 @@ test('C134: 選択バー（318）— 📚🗂🧠の3画面で同じ部品が一
       modes.push(cs.writingMode);
       return { position: cs.position, modes: Array.from(new Set(modes)), scrollWidth: el.scrollWidth, clientWidth: el.clientWidth };
     });
-    expect(style.position, `${label}: 一覧の上に sticky`).toBe('sticky');
+    expect(style.position, `${label}: 一覧の上（置き場の中）では in-flow の sticky。上端を越えたら fixed（R-80）`).toMatch(/^(sticky|fixed)$/);
     expect(style.modes, `${label}: バー内に縦書きが無い`).toEqual(['horizontal-tb']);
     expect(style.scrollWidth, `${label}: バーは横スクロールしない`).toBeLessThanOrEqual(style.clientWidth + 1);
     const boxes = await bar.locator('[data-selection-bar-action], [data-selection-bar-exit], [data-selection-bar-node]').evaluateAll((els) => els.map((e) => e.getBoundingClientRect()).map((r) => ({ top: r.top, height: r.height, bottom: r.bottom })));
@@ -11448,8 +11448,9 @@ test('C134: 選択バー（318）— 📚🗂🧠の3画面で同じ部品が一
     const heights = Array.from(new Set(boxes.map((b) => Math.round(b.height))));
     expect(heights, `${label}: ボタンの高さが揃う（${heights.join(',')}）`).toHaveLength(1);
     const barBox = (await bar.boundingBox())!;
+    await expect(firstCard, `${label}: 先頭行が見える`).toBeVisible();
     const cardBox = (await firstCard.boundingBox())!;
-    expect(cardBox.top, `${label}: 一覧の先頭行がバーの下に見える（被せない）`).toBeGreaterThanOrEqual(barBox.top + barBox.height - 1);
+    expect(cardBox.y, `${label}: 一覧の先頭行がバーの下に見える（被せない）`).toBeGreaterThanOrEqual(barBox.y + barBox.height - 1);
     const del = bar.locator('[data-bulk-delete]');
     await expect(del).toHaveText(/🗑 削除/);
     const delStyle = await del.evaluate((el) => { const cs = getComputedStyle(el); return { bg: cs.backgroundColor, border: cs.borderTopColor, color: cs.color }; });
@@ -11465,7 +11466,7 @@ test('C134: 選択バー（318）— 📚🗂🧠の3画面で同じ部品が一
     await page.locator('[data-library-search]').fill(marker);
     await expect(page.locator(`[data-library-card="${libIds[0]}"]`)).toBeVisible({ timeout: 30000 });
     for (const id of libIds) await page.locator(`[data-library-card="${id}"] input[type="checkbox"]`).check();
-    const bar = await checkBar(page, '📚', page.locator('[data-library-card]').first());
+    const bar = await checkBar(page, '📚', page.locator(`[data-library-card="${libIds[3]}"]`));
     await expect(bar).toHaveAttribute('data-selection-bar-count', '4');
     const visual = bar.locator('[data-library-visual-bulk]');
     await expect(visual, '4件では図解は無効（R-101）').toHaveAttribute('aria-disabled', 'true');
@@ -11479,18 +11480,25 @@ test('C134: 選択バー（318）— 📚🗂🧠の3画面で同じ部品が一
     const main = page.locator('main.dashboard-main');
     await main.evaluate((el) => { el.scrollTop = el.scrollHeight; });
     await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
-    const after = await bar.evaluate((el) => { const r = el.getBoundingClientRect(); const m = document.querySelector('main.dashboard-main')!.getBoundingClientRect(); return { top: r.top, left: r.left, right: r.right, mainTop: m.top, mainLeft: m.left, mainRight: m.right }; });
-    expect(after.top, 'スクロール後も見える位置に固定').toBeLessThanOrEqual(after.mainTop + 40);
-    expect(after.top).toBeGreaterThanOrEqual(after.mainTop - 1);
+    await expect(bar, '置き場の上端が画面外に出たら固定（fixed・R-80）').toHaveAttribute('data-selection-bar-stuck', '1');
+    const after = await bar.evaluate((el) => { const r = el.getBoundingClientRect(); const m = document.querySelector('main.dashboard-main')!.getBoundingClientRect(); const a = el.parentElement!.getBoundingClientRect(); return { top: r.top, left: r.left, right: r.right, mainLeft: m.left, mainRight: m.right, anchorLeft: a.left, anchorRight: a.right, anchorHeight: a.height, barHeight: r.height }; });
+    expect(after.top, 'スクロール後は画面の上端に固定').toBeLessThanOrEqual(1);
+    expect(after.top).toBeGreaterThanOrEqual(-1);
     expect(after.left, '主カラムの中（サイドバーに被らない）').toBeGreaterThanOrEqual(after.mainLeft - 1);
     expect(after.right).toBeLessThanOrEqual(after.mainRight + 1);
+    expect(Math.abs(after.left - after.anchorLeft), '幅は置き場（主カラム）に揃う').toBeLessThanOrEqual(1);
+    expect(Math.abs(after.right - after.anchorRight)).toBeLessThanOrEqual(1);
+    expect(after.anchorHeight, '固定中も置き場の高さが残る（一覧が跳ねない）').toBeGreaterThanOrEqual(after.barHeight - 1);
+    await page.evaluate(() => window.scrollTo(0, 0));
+    await main.evaluate((el) => { el.scrollTop = 0; });
+    await expect(bar, '戻ると in-flow に戻る').toHaveAttribute('data-selection-bar-stuck', '0');
     await bar.locator('[data-library-select-clear]').click();
     await expect(page.locator('[data-selection-bar]'), '選択をやめるとバーが消える').toHaveCount(0);
     // ── 🗂 テキスト分析の保存一覧 ──
     await page.goto('/dashboard/text-analysis?tab=saved');
     const panel = page.locator('[data-saved-panel="text-analysis"]');
     for (const id of saveIds) await panel.locator(`[data-select-check="${id}"]`).check();
-    const bar2 = await checkBar(panel, '🗂', panel.locator('[data-analysis-card]').first());
+    const bar2 = await checkBar(panel, '🗂', panel.locator(`[data-analysis-card="${saveIds[1]}"]`));
     await expect(bar2).toHaveAttribute('data-selection-bar-count', '2');
     await expect(bar2.getByText('📁 カテゴリに移動'), '2段目にカテゴリ移動が残る').toBeVisible();
     await bar2.locator('[data-ta-select-clear]').click();
@@ -11498,7 +11506,7 @@ test('C134: 選択バー（318）— 📚🗂🧠の3画面で同じ部品が一
     // ── 🧠 AI参照素材 ──
     await page.goto('/dashboard/context-library');
     for (const id of ctxIds) await page.locator(`[data-ctx-delete-check="${id}"]`).check();
-    const bar3 = await checkBar(page, '🧠', page.locator('[data-ctx-card]').first());
+    const bar3 = await checkBar(page, '🧠', page.locator(`[data-ctx-card="${ctxIds[1]}"]`));
     await expect(bar3).toHaveAttribute('data-selection-bar-count', '2');
     await expect(bar3.locator('[data-ctx-compare-open]')).toBeEnabled();
     await bar3.locator('[data-ctx-select-clear]').click();
@@ -11512,7 +11520,7 @@ test('C134: 選択バー（318）— 📚🗂🧠の3画面で同じ部品が一
       await mp.locator('[data-library-search]').fill(marker);
       await expect(mp.locator(`[data-library-card="${libIds[0]}"]`)).toBeVisible({ timeout: 30000 });
       for (const id of libIds.slice(0, 3)) await mp.locator(`[data-library-card="${id}"] input[type="checkbox"]`).check();
-      const mbar = await checkBar(mp, '📚(iPhone幅)', mp.locator('[data-library-card]').first());
+      const mbar = await checkBar(mp, '📚(iPhone幅)', mp.locator(`[data-library-card="${libIds[3]}"]`));
       const tops = await mbar.locator('[data-selection-bar-action], [data-selection-bar-exit], [data-selection-bar-node]').evaluateAll((els) => Array.from(new Set(els.map((e) => Math.round(e.getBoundingClientRect().top)))));
       expect(tops.length, 'iPhone幅では2段以上に折り返す').toBeGreaterThanOrEqual(2);
       const vw = await mp.evaluate(() => ({ sw: document.documentElement.scrollWidth, iw: window.innerWidth, bw: document.querySelector('[data-selection-bar]')!.getBoundingClientRect().right }));

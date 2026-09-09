@@ -4953,6 +4953,8 @@ test('U90: 選択バー（318）はソース固定 — 📚🗂🧠の3画面が
   const bar = read('components/SelectionBar.tsx');
   expect(bar).not.toMatch(/writingMode|writing-mode/);
   expect(bar).toMatch(/position: 'sticky'/);
+  expect(bar, '上端を越えたら fixed（main は overflowY:auto の非スクロール容器で sticky が効かない）・R-80 の zoom 補正').toMatch(/position: 'fixed', top, left: stuck\.left, width: stuck\.width/);
+  expect(bar).toMatch(/toLayoutPx\(r\.left, zoom\)/);
   expect(bar).toMatch(/flexWrap: 'wrap'/);
   expect(bar).toMatch(/danger: \{ background: 'transparent', color: '#dc2626', border: '1px solid #dc2626' \}/);
   expect(bar).toMatch(/opacity: disabled \? 0\.5 : 1/);
