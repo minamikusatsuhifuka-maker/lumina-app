@@ -2632,9 +2632,6 @@ export default function SavedAnalysisList({
                       </a>
                       {/* 316: 記事→マンダラ生成（ダイアログ） */}
                       <MandalaGenerateButton scope="text_analysis" itemKey={String(record.id)} title={record.auto_title || record.file_name || '(無題)'} charCount={record.char_count ?? 0} label="🔲 マンダラ" style={{ padding: '0 6px', borderRadius: 6, border: '1px solid var(--border)', background: 'transparent', color: '#6c63ff', fontSize: 11, cursor: 'pointer' }} />
-                      {/* 319: この分析結果を前提資料に追加リサーチ（ダイアログ）と「🔭 追加: n」 */}
-                      <FollowUpResearchButton refs={[{ scope: 'text_analysis', id: String(record.id) }]} dataKey={String(record.id)} label="🔭 追加リサーチ" style={{ padding: '0 6px', borderRadius: 6, border: '1px solid var(--border)', background: 'transparent', color: '#0E7490', fontSize: 11, cursor: 'pointer' }} />
-                      {(followUpCounts[String(record.id)] ?? 0) > 0 && <FollowUpCountBadge scope="text_analysis" id={String(record.id)} count={followUpCounts[String(record.id)]} style={{ padding: '0 6px', borderRadius: 6, border: '1px solid var(--border)', background: 'transparent', fontSize: 11 }} />}
                       {record.folder && folderColor && (
                         <span
                           style={{
@@ -2776,6 +2773,10 @@ export default function SavedAnalysisList({
                           ? '⏳ 準備中...'
                           : '📄 Word'}
                       </button>
+                      {/* 319: この分析結果を前提資料に追加リサーチ（ダイアログ）と「🔭 追加: n」。
+                          展開領域（バッジ行）の外＝操作行に置く（領域を高くしてモバイルのタップ位置を変えない・C112） */}
+                      <FollowUpResearchButton refs={[{ scope: 'text_analysis', id: String(record.id) }]} dataKey={String(record.id)} label="🔭 追加リサーチ" style={{ ...listBtnStyle(), color: '#0E7490' }} />
+                      {(followUpCounts[String(record.id)] ?? 0) > 0 && <FollowUpCountBadge scope="text_analysis" id={String(record.id)} count={followUpCounts[String(record.id)]} style={listBtnStyle()} />}
                       {/* 249: お気に入りと同時にフォルダ分類も決める。既にお気に入りなら
                           分類の変更・追加・解除をこのパネルから行う */}
                       <button

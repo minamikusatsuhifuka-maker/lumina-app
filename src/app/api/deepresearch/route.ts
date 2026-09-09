@@ -315,17 +315,19 @@ ${outline}
         // Gemini: streamWithModel（Google検索グラウンディング有効・出典は本文末尾に自動追記）
         if (model === 'gemini') {
           let usage: { inputTokens: number; outputTokens: number };
+          const geminiCall = streamWithModel(
+            'gemini',
+            userPrompt,
+            systemPrompt,
+            controller,
+            encoder,
+            maxTokens,
+            'standard',
+            true, // webSearch: 実検索に基づかない「最新風の古い内容」を防ぐ
+          );
+          if (followUpGate) void geminiCall.catch(() => {}); // 時間切れ後の遅れた拒否を未処理にしない
           try {
-            usage = await raceFollowUp(streamWithModel(
-              'gemini',
-              userPrompt,
-              systemPrompt,
-              controller,
-              encoder,
-              maxTokens,
-              'standard',
-              true, // webSearch: 実検索に基づかない「最新風の古い内容」を防ぐ
-            ));
+            usage = await raceFollowUp(geminiCall);
           } catch (e) {
             if (e instanceof Error && e.message === 'followup-timeout') {
               sendFollowUpTimeout();
@@ -353,15 +355,18 @@ ${outline}
         // Claude: web_search ツール対応。242: 上限・混雑ならGeminiへ自動フォールバックし、
         // その際は web_search の代わりに googleSearch グラウンディングが有効になる
         // （出典も本文末尾に追記される）。応答は Anthropic 形式のため下流は変更不要。
-        let response: Awaited<ReturnType<typeof fetchAnthropic>>;
+        // 呼び出しは従来どおり options なし（235 のフォールバック維持・U59 で固定）。319 は完了待ちだけを race に掛ける
+        const anthropicCall = fetchAnthropic({
+          model: CLAUDE_TEXT_MODEL,
+          max_tokens: maxTokens,
+          tools: [{ type: 'web_search_20250305', name: 'web_search' }],
+          system: systemPrompt,
+          messages: [{ role: 'user', content: userPrompt }],
+        });
+        if (followUpGate) void anthropicCall.catch(() => {}); // 時間切れ後の遅れた拒否を未処理にしない
+        let response: Awaited<typeof anthropicCall>;
         try {
-          response = await raceFollowUp(fetchAnthropic({
-            model: CLAUDE_TEXT_MODEL,
-            max_tokens: maxTokens,
-            tools: [{ type: 'web_search_20250305', name: 'web_search' }],
-            system: systemPrompt,
-            messages: [{ role: 'user', content: userPrompt }],
-          }));
+          response = await raceFollowUp(anthropicCall);
         } catch (e) {
           if (e instanceof Error && e.message === 'followup-timeout') {
             sendFollowUpTimeout();
