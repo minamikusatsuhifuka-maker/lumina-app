@@ -3933,8 +3933,19 @@ test('U79: マンダラ→note記事（309）— 1文1行の整形は句点「�
   expect(free.counts).toEqual({ excludedEmpty: 1, missingLinks: 1, materials: 2, referenceOnly: 0, experiences: 1 });
   expect(free.source).toMatchObject({ source: 'mandala', chartId: u(900), mode: 'free_cell', cellId: c0.id, cellIds: [c0.id, k0a.id], cellLabel: '左上', cellTitle: '導入', chartTitle: 'テーマ' });
   const rejected = mn.mandalaNoteFree(chart, c3.id, nested, links);
-  expect(rejected.ok).toBe(false);
+  expect(rejected.ok, '本文が空で素材も無いマスは拒否').toBe(false);
   expect(!rejected.ok && rejected.reason).toBe(mn.MANDALA_NOTE_REJECT_EMPTY_BODY);
+  // 309是正①: 本文が空でも有効なリンク素材があれば起こせる（タイトルを切り口に素材だけで）。削除済みだけなら拒否
+  const withLink = mn.mandalaNoteFree(chart, c3.id, nested, [...links, link(9, c3, 'library', u(31), true, '資料A', 100)], { bodies });
+  expect(withLink.ok && withLink.mode === 'free_cell' && withLink.memo).toBe('');
+  expect(withLink.ok && withLink.counts.materials).toBe(1);
+  expect(mn.mandalaNoteToSource(withLink)!.content).toContain('（骨子なし。タイトルを切り口に、素材・体験メモにある事実だけで書く）');
+  expect(mn.mandalaNoteFree(chart, c3.id, nested, [...links, link(9, c3, 'library', u(32), false)]).ok, '削除済みのリンクだけでは拒否').toBe(false);
+  expect(mn.hasUsableLinks(links, c0.id)).toBe(true);
+  expect(mn.hasUsableLinks(links, c3.id)).toBe(false);
+  // 有料の entries も同じ基準: 空のマス（c2）にリンクを付ければ含まれる
+  const paidWithLink = mn.mandalaNotePaid(chart, nested, [...links, link(10, c2, 'episode', '5', true, '記録D', 50)]);
+  expect(paidWithLink.ok && paidWithLink.mode === 'paid_chart' && paidWithLink.entries.some((e) => e.cellId === c2.id)).toBe(true);
   expect(mn.mandalaNoteFree(chart, u(999), nested, links).ok).toBe(false);
   // 中央マスも可
   expect(mn.mandalaNoteFree(chart, center.id, nested, links).ok).toBe(true);

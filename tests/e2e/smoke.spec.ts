@@ -9396,6 +9396,26 @@ test('C121: マンダラ 81マス表示（305）— 9⇄81の切替と再読込�
     await expect(center0).toHaveAttribute('data-mandala-cell-derived', '1');
     await expect(center0).toHaveAttribute('data-mandala-cell-id', byPos(0).id);
     await expect(center0.locator('[data-mandala-cell-title]')).toHaveText(`親0 ${marker}`);
+    // 305是正②: 狭幅判定はグリッド領域の幅。サイドパネル（480px）が開くと領域だけ狭くなる＝ブロック単位に落ち、閉じると9ブロックに戻る
+    const minCellWidth = 48;
+    const widthsOk = async (root: import('@playwright/test').Locator) => {
+      const boxes = await root.locator('[data-mandala-cell]').evaluateAll((els) => els.map((el) => el.getBoundingClientRect().width));
+      expect(boxes.length).toBeGreaterThan(0);
+      expect(Math.min(...boxes), 'マスの幅がしきい値以上').toBeGreaterThanOrEqual(minCellWidth);
+    };
+    await widthsOk(g81);
+    await expect(page.locator('[data-mandala-grid-area]')).toHaveAttribute('data-mandala-narrow', '0');
+    await center0.click();
+    await expect(page.locator(`[data-mandala-panel="${byPos(0).id}"]`)).toBeVisible();
+    await expect(page.locator('[data-mandala-grid-area]'), 'パネルで領域が狭くなる').toHaveAttribute('data-mandala-narrow', '1', { timeout: 10000 });
+    await expect(g81).toHaveAttribute('data-mandala-81-mode', 'block');
+    await expect(g81.locator('[data-mandala-block]')).toHaveCount(1);
+    await widthsOk(g81);
+    await page.locator('[data-mandala-panel-close]').click();
+    await expect(page.locator('[data-mandala-grid-area]'), 'パネルを閉じると領域が戻る').toHaveAttribute('data-mandala-narrow', '0', { timeout: 10000 });
+    await expect(g81).toHaveAttribute('data-mandala-81-mode', 'full');
+    await expect(g81.locator('[data-mandala-block]')).toHaveCount(9);
+    await widthsOk(g81);
     await expect(block0).toHaveAttribute('data-mandala-block-expanded', '0');
     await expect(g81.locator('[data-mandala-block="4"]')).toHaveAttribute('data-mandala-block-expanded', '1');
     const centerBlockCell0 = g81.locator('[data-mandala-block="4"] [data-mandala-cell="0"]');
@@ -10236,10 +10256,17 @@ test('C125: マンダラ→note記事（309）— パネルの「📝 無料記�
     await expect(src.locator('[data-hub-mandala-missing]')).toHaveAttribute('data-hub-mandala-missing', '1');
     await expect(src.locator('[data-hub-mandala-back]')).toHaveAttribute('href', `/dashboard/mandala/${chartId}`);
     await expect(page.locator('[data-hub-mandala-paidline]'), '無料モードには有料ラインを出さない').toHaveCount(0);
-    // 本文が空のマス → 起こせず理由
+    // 本文が空で素材も無いマス → 起こせず理由
     await page.goto(`/dashboard/dr-hub?mandala=${chartId}&cell=${byPos(1).id}`);
     await expect(page.locator('[data-hub-mandala-source]')).toHaveAttribute('data-hub-mandala-ok', '0', { timeout: 30000 });
     await expect(page.locator('[data-hub-mandala-reject]')).toContainText('起こせません');
+    // 309是正①: 本文が空でも素材（📔）があれば起こせる（タイトルを切り口に素材だけで）
+    expect((await addMandalaLinks(api, byPos(2).id, [{ scope: 'episode', item_key: epId }])).status()).toBe(200);
+    await page.goto(`/dashboard/dr-hub?mandala=${chartId}&cell=${byPos(2).id}`);
+    const linkOnly = page.locator('[data-hub-mandala-source]');
+    await expect(linkOnly).toHaveAttribute('data-hub-mandala-ok', '1', { timeout: 30000 });
+    await expect(linkOnly.locator('[data-hub-mandala-experiences]')).toHaveAttribute('data-hub-mandala-experiences', '1');
+    await expect(linkOnly.locator('[data-hub-mandala-label]')).toContainText('右上: ');
     // 有料モードの画面: 有料ラインの目印と無料比率
     await page.goto(`/dashboard/dr-hub?mandala=${chartId}&mode=paid`);
     const paidSrc = page.locator('[data-hub-mandala-source]');

@@ -38,7 +38,7 @@ export function isMandalaNoteMode(v: unknown): v is MandalaNoteMode {
 /** 有料ラインの目印（noteの有料ラインは編集画面で手動設定＝位置の目印だけを出す） */
 export const MANDALA_PAID_LINE_MARKER = '▼ 有料ライン（noteの編集画面でここに設定）▼';
 
-export const MANDALA_NOTE_REJECT_EMPTY_BODY = 'このマスは本文が空です（タイトルだけでは生成の根拠がありません）';
+export const MANDALA_NOTE_REJECT_EMPTY_BODY = 'このマスは本文が空で、素材（リンク）もありません（タイトルだけでは生成の根拠がありません）';
 export const MANDALA_NOTE_REJECT_NO_CELLS = '埋まっているマスがありません（周囲8マスにタイトルか本文を入れてください）';
 export const MANDALA_NOTE_PAID_DISABLED_REASON = '有料記事にできるのは「有料note記事の型」のチャート、または区分（無料／有料）を持つマスがあるチャートだけです';
 
@@ -139,6 +139,16 @@ export function noteRefKey(scope: string, itemKey: string): string {
   return `${scope}:${itemKey}`;
 }
 
+/** 309是正①: 有効なリンク素材（📚🗂🧠📔・削除済みを除く）があるか。本文が空でも素材があれば「タイトルを切り口に素材だけで」起こせる */
+export function hasUsableLinks(links: readonly MandalaLinkResolved[], cellId: string): boolean {
+  return links.some((l) => l.cell_id === cellId && l.exists);
+}
+
+/** 記事の材料になるマスか＝タイトルか本文がある、または有効なリンク素材がある */
+function isNoteSourceCell(cell: MandalaCell, links: readonly MandalaLinkResolved[]): boolean {
+  return isCellFilled(cell) || hasUsableLinks(links, cell.id);
+}
+
 function emptyCounts(): MandalaNoteCounts {
   return { excludedEmpty: 0, missingLinks: 0, materials: 0, referenceOnly: 0, experiences: 0 };
 }
@@ -195,7 +205,7 @@ function sectionsOf(
 ): MandalaNoteSection[] {
   const out: MandalaNoteSection[] = [];
   for (const child of node.children as MandalaOutlineEntry[]) {
-    if (!isCellFilled(child.cell)) {
+    if (!isNoteSourceCell(child.cell, links)) {
       counts.excludedEmpty += 1;
       continue;
     }
@@ -217,7 +227,8 @@ export function mandalaNoteFree(
   const counts = emptyCounts();
   const cell = chart.cells.find((c) => c.id === cellId) ?? null;
   if (!cell) return { ok: false, mode: 'free_cell', reason: 'マスが見つかりません', counts };
-  if (!cell.body.trim()) return { ok: false, mode: 'free_cell', reason: MANDALA_NOTE_REJECT_EMPTY_BODY, counts };
+  // 309是正①: 本文が空でも有効なリンク素材があれば起こせる（タイトルを切り口に素材だけで＝①の DR 経路と同等）
+  if (!cell.body.trim() && !hasUsableLinks(links, cell.id)) return { ok: false, mode: 'free_cell', reason: MANDALA_NOTE_REJECT_EMPTY_BODY, counts };
   const budget = { used: 0, limit: options.materialCharLimit ?? MANDALA_NOTE_DEFAULT_CHAR_LIMIT };
   const taken = new Set<string>();
   const refs = makeRefs(links, cell.id, budget, options.bodies, counts, taken);
@@ -262,8 +273,8 @@ export function mandalaNotePaid(
   const taken = new Set<string>();
   const entries: MandalaNoteEntry[] = [];
   for (const node of nested) {
-    if (!isCellFilled(node.cell)) {
-      counts.excludedEmpty += 1 + node.children.filter((c) => !isCellFilled(c.cell)).length;
+    if (!isNoteSourceCell(node.cell, links)) {
+      counts.excludedEmpty += 1 + node.children.filter((c) => !isNoteSourceCell(c.cell, links)).length;
       continue;
     }
     entries.push({
@@ -336,7 +347,7 @@ export interface MandalaNoteSourceText {
 export function mandalaNoteToSource(result: MandalaNoteResult): MandalaNoteSourceText | null {
   if (!result.ok) return null;
   if (result.mode === 'free_cell') {
-    const parts: string[] = [`## ${result.title}`, result.memo];
+    const parts: string[] = [`## ${result.title}`, result.memo.trim() ? result.memo : '（骨子なし。タイトルを切り口に、素材・体験メモにある事実だけで書く）'];
     const r = refLines(result.refs);
     if (r) parts.push(`素材・体験メモ:\n${r}`);
     for (const s of result.sections) {

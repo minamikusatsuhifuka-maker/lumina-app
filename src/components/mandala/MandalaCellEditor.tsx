@@ -644,7 +644,7 @@ export default function MandalaCellEditor({
             {statusLine}
             <span style={{ flex: 1 }} />
             {/* 309 §3-1: このマスを無料記事にする（タイトルか本文がある＝保存済みの行で判定。中央も可）。発信ハブ①がマンダラの素材で開く */}
-            {(cell.title.trim() || cell.body.trim()) ? (
+            {(cell.title.trim() || cell.body.trim() || links.some((l) => l.exists)) ? (
               <a
                 data-mandala-note-free={cell.id}
                 href={`/dashboard/dr-hub?mandala=${encodeURIComponent(cell.chart_id)}&cell=${encodeURIComponent(cell.id)}`}
@@ -656,7 +656,7 @@ export default function MandalaCellEditor({
                 📝 無料記事にする
               </a>
             ) : (
-              <span data-mandala-note-free-disabled title="タイトルか本文を保存すると無料記事にできます" style={{ ...btn, opacity: 0.5, cursor: 'default' }}>
+              <span data-mandala-note-free-disabled title="タイトルか本文を保存するか、素材をリンクすると無料記事にできます" style={{ ...btn, opacity: 0.5, cursor: 'default' }}>
                 📝 無料記事にする
               </span>
             )}

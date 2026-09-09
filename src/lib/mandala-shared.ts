@@ -637,6 +637,13 @@ export function parseMandalaView(raw: string | null | undefined): MandalaView {
 
 /** 第2階層の子マス数（8ブロック×8） */
 export const MANDALA_CHILD_TOTAL = (MANDALA_DEPTH1_COUNT - 1) * (MANDALA_DEPTH1_COUNT - 1);
+
+/**
+ * 305是正②（309 期）: 81マスをブロック単位に落とす**グリッド領域の幅**（px）。viewport 幅ではなく描画領域で判定する
+ * （サイドパネル 480px が開くと画面は広いのに領域だけ狭くなる）。従来の viewport 900px は、サイドバー 220px と
+ * 余白を引くと領域 ≈640px に相当するので、その値を閾値にする。1ブロック（3マス＋間隔）が ≈200px を割ると読めない
+ */
+export const MANDALA_NARROW_MIN_WIDTH = 640;
 /** 1ブロックの子マス数（中央を除く8） */
 export const MANDALA_CHILD_PER_BLOCK = MANDALA_DEPTH1_COUNT - 1;
 

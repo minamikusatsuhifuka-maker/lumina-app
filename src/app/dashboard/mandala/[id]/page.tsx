@@ -35,6 +35,7 @@ import {
   MANDALA_CENTER,
   MANDALA_CHILD_TOTAL,
   MANDALA_DEPTH1_COUNT,
+  MANDALA_NARROW_MIN_WIDTH,
   MANDALA_UNSAVED_CONFIRM,
   MANDALA_VIEW_STORAGE_KEY,
   type MandalaView,
@@ -97,6 +98,8 @@ export default function MandalaChartPage({ params }: { params: Promise<{ id: str
   // 305: 9マス／81マスの切替（localStorage・303 と同じ仕組み）。狭幅ではブロック単位モード
   const [view, setView] = useState<MandalaView>('9');
   const [narrow, setNarrow] = useState(false);
+  const [gridWidth, setGridWidth] = useState(0);
+  const gridAreaRef = useRef<HTMLDivElement | null>(null);
   const { showToast } = useToast();
   const expandingRef = useRef(false); // R-87: 展開の二重発火は同期的な ref で閉じる
   const [expanding, setExpanding] = useState<string | null>(null);
@@ -141,17 +144,29 @@ export default function MandalaChartPage({ params }: { params: Promise<{ id: str
     mq.addEventListener('change', apply);
     return () => mq.removeEventListener('change', apply);
   }, []);
-  // 305: 表示モードの復元と、狭幅（81をブロック単位に落とす）の判定
+  // 305: 表示モードの復元
   useEffect(() => {
     try {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setView(parseMandalaView(localStorage.getItem(MANDALA_VIEW_STORAGE_KEY)));
     } catch {}
-    const mq = window.matchMedia('(max-width: 900px)');
-    const apply = () => setNarrow(mq.matches);
-    apply();
-    mq.addEventListener('change', apply);
-    return () => mq.removeEventListener('change', apply);
   }, []);
+  // 305是正②: 狭幅（81をブロック単位に落とす）は **グリッド領域の幅**（ResizeObserver）で判定する。
+  // viewport 幅だと、サイドパネル（480px）が開いて領域だけ狭くなった状態（画面は広い）を拾えず9ブロックがつぶれた。
+  // パネルを閉じれば領域が戻り、9ブロックに戻る。9マス表示も同じ領域で描く（つぶれない）
+  useEffect(() => {
+    const el = gridAreaRef.current;
+    if (!el || typeof ResizeObserver === 'undefined') return;
+    const apply = () => {
+      const w = el.clientWidth;
+      setGridWidth(w);
+      setNarrow(w > 0 && w < MANDALA_NARROW_MIN_WIDTH);
+    };
+    apply();
+    const ro = new ResizeObserver(apply);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [loading, error]);
   const applyView = (v: MandalaView) => {
     setView(v);
     try {
@@ -542,6 +557,7 @@ export default function MandalaChartPage({ params }: { params: Promise<{ id: str
               }}
             />
           )}
+          <div ref={gridAreaRef} data-mandala-grid-area data-mandala-grid-width={gridWidth} data-mandala-narrow={narrow ? '1' : '0'} style={{ minWidth: 0 }}>
           {view === '81' ? (
             <div data-mandala-expanding={expanding ?? undefined} style={{ opacity: expanding ? 0.7 : 1 }}>
               <Mandala81
@@ -572,6 +588,7 @@ export default function MandalaChartPage({ params }: { params: Promise<{ id: str
               articleCounts={articleCounts}
             />
           )}
+          </div>
           {popover.layer}
           {selected && !selectMode && (
             <MandalaCellEditor
