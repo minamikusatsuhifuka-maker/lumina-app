@@ -89,6 +89,11 @@ export function isDeepResearchItem(item: LibraryLike): boolean {
   return item.type === 'deepresearch' || item.group_name === 'ディープリサーチ';
 }
 
+/** 317: 推定ペア（286）の対象。DR に加えて AI統合サマリー（type='merge'）の要約＋詳細も同じ形で組む */
+export function isPairableItem(item: LibraryLike): boolean {
+  return isDeepResearchItem(item) || item.type === 'merge';
+}
+
 const BATCH_TAG = /^batch:(\d+)-(\d+)(s?)$/;
 
 /** バッチ保存のトピック固有キー（要約の末尾 s を落として本文と同じキーにする）。無ければ null */
@@ -162,7 +167,7 @@ export function groupLibraryItems<T extends LibraryLike>(items: T[]): LibraryCar
   const estimatedOf = new Map<string, string>(); // itemId -> card key（est:<本文id>）
   const byTitle = new Map<string, T[]>();
   for (const it of rest) {
-    if (!isDeepResearchItem(it)) continue;
+    if (!isPairableItem(it)) continue;
     const title = (it.title ?? '').trim();
     if (!title || !Number.isFinite(createdMs(it))) continue;
     const arr = byTitle.get(title) ?? [];

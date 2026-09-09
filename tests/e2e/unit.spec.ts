@@ -55,6 +55,9 @@ import * as mandalaShared from '../../src/lib/mandala-shared';
 import * as stickyBar from '../../src/lib/sticky-action-bar';
 import * as visuals from '../../src/lib/visuals';
 import * as mandalaGenerate from '../../src/lib/mandala-generate';
+import * as mergeReport from '../../src/lib/merge-report';
+import * as presentationPack from '../../src/lib/presentation-pack';
+import { groupLibraryItems as groupLibraryItems317, isPairableItem } from '../../src/lib/library-groups';
 import * as visualTemplates from '../../src/lib/visual-templates';
 import { estimateImageCost, imageCostActual, IMAGE_PRICING_CHECKED_ON, IMAGE_MODEL_IDS } from '../../src/lib/model-pricing';
 import { IMAGE_GUARD_SUFFIX_WITH_TEXT, guardImagePromptWithText } from '../../src/lib/image-guards';
@@ -4806,4 +4809,128 @@ test('U88: 記事→マンダラ生成（316）— evidence が本文に無い�
   expect(html).toContain('<blockquote>引用: 洗顔のあと5分以内に行う</blockquote>');
   expect(html).not.toContain('&gt; 引用');
   expect(renderMarkdown('> 一行目\n> 二行目')).toContain('<blockquote>一行目<br/>二行目</blockquote>');
+});
+
+test('U89: AIでまとめるの二段出力とプレゼン素材パック（317）— 目標の文字数と maxTokens（下限2048）・タイムアウトはリトライ込みで maxDuration の内側で明示の終端（R-73/R-118・ルート/定数の一致 R-83）・要約＋詳細のタグと metadata・type=merge の要約＋詳細が library-groups でペアになる・素材の既定と目安・用語集の実在検証・引用集の決定的抽出・🎁 n の導出・ページ分割・新テンプレート4種（関連図の円周配置と上限8/12・タイムラインは when を解釈しない・数値は引用と完全一致・1枚サマリーの2向きと埋め込み）の文字一致と決定性・種類の絞り込み', async () => {
+  const m = mergeReport;
+  const p = presentationPack;
+  const v = visuals;
+  const t = visualTemplates;
+  // ① 二段出力の定数
+  expect(m.modesOf('both')).toEqual(['summary', 'detail']);
+  expect(m.modesOf('summary')).toEqual(['summary']);
+  expect(m.MERGE_TARGET.summary).toEqual({ min: 1000, max: 2000 });
+  expect(m.MERGE_TARGET.detail).toEqual({ min: 5000, max: 8000 });
+  expect(m.MERGE_MAX_TOKENS.summary).toBeGreaterThanOrEqual(2048);
+  expect(m.MERGE_MAX_TOKENS.detail).toBeGreaterThanOrEqual(12000);
+  expect(m.mergeTargetState(1500, 'summary')).toEqual({ inRange: true, label: '目標内' });
+  expect(m.mergeTargetState(900, 'summary').inRange).toBe(false);
+  expect(m.mergeTargetState(9000, 'detail').label).toContain('超');
+  expect(m.mergeLengthInstruction('detail')).toContain('5,000〜8,000字');
+  expect(m.MERGE_TIMEOUT_MS * 1, 'リトライ込みの内部タイムアウトは maxDuration の内側').toBeLessThan(m.MERGE_MAX_DURATION_S * 1000);
+  const mergeRoute = readFileSync(join(__dirname, '../../src/app/api/merge/route.ts'), 'utf8');
+  expect(mergeRoute).toContain(`export const maxDuration = ${m.MERGE_MAX_DURATION_S};`);
+  expect(mergeRoute, '時間切れは明示の終端（timedOut・R-118）').toMatch(/if \(e\?\.timedOut\) return NextResponse\.json\(\{ error: e\.message, timedOut: true/);
+  expect(mergeRoute, 'mode 未指定は従来どおり（max_tokens 8000・長さ指示なし）').toContain("max_tokens: mode ? MERGE_MAX_TOKENS[mode] : 8000");
+  expect(m.mergeTagsOf('summary')).toBe('統合レポート,要約');
+  expect(m.mergeTagsOf('detail')).toBe('統合レポート');
+  expect(m.mergeSaveMetadata(['a', 'b'], 'detail')).toEqual({ summaryOf: { sourceIds: ['a', 'b'] }, mergeKind: 'detail' });
+  // ② ペア保存: type='merge' の要約＋詳細（同題・同時刻）が1枚のカード（本文＝詳細・要約）
+  const now = '2026-09-09T12:00:00.000Z';
+  const pair = [
+    { id: 'd1', type: 'merge', title: '統合サマリー: X 他1件', tags: m.mergeTagsOf('detail'), metadata: m.mergeSaveMetadata(['a'], 'detail'), created_at: now, group_name: '統合レポート' },
+    { id: 's1', type: 'merge', title: '統合サマリー: X 他1件', tags: m.mergeTagsOf('summary'), metadata: m.mergeSaveMetadata(['a'], 'summary'), created_at: now, group_name: '統合レポート' },
+  ];
+  expect(isPairableItem(pair[0])).toBe(true);
+  expect(isPairableItem({ id: 'z', type: 'note-article', title: 'x', tags: '', metadata: {}, created_at: now, group_name: 'x' })).toBe(false);
+  const cards = groupLibraryItems317(pair);
+  expect(cards, '1枚のカードに本文と要約').toHaveLength(1);
+  expect(cards[0].artifacts.map((a) => a.kind)).toEqual(['research', 'summary']);
+  expect(cards[0].link).toBe('estimated');
+  // ③ 素材パック: 既定・目安・用語集・引用集・🎁 n・ページ分割
+  expect(p.PACK_DEFAULT_KINDS).toEqual(['relation', 'onepage', 'slides']);
+  expect(p.PACK_KINDS.length).toBe(15);
+  expect(p.packEstimateUsd('citations', 5000)).toBe(0);
+  expect(p.packEstimateUsd('slides', 5000)!).toBeGreaterThan(0);
+  expect(p.packEstimateUsd('image', 5000)!).toBeGreaterThan(p.packEstimateUsd('slides', 5000)!);
+  const src = '角層は水分を保つバリアの役割を持つ。冬は空気の乾燥で角層の水分が失われやすい。加湿器で湿度を40%以上に保つ。';
+  const g = p.validateGlossary({ terms: [
+    { term: '角層', definition: '水分を保つバリア', evidence: '角層は水分を保つバリアの役割を持つ' },
+    { term: '角層', definition: '重複', evidence: '角層は水分を保つバリアの役割を持つ' },
+    { term: '真皮', definition: 'まとめに無い語', evidence: '角層は水分を保つバリアの役割を持つ' },
+    { term: '加湿器', definition: '湿度を保つ', evidence: '加湿器で部屋を潤す' },
+  ] }, src);
+  expect(g.terms.map((x) => x.term), '実在しない語・引用・重複は捨てる').toEqual(['角層']);
+  expect(g.dropped).toBe(3);
+  expect(p.glossaryMarkdown(g.terms)).toContain('| 角層 | 水分を保つバリア | 角層は水分を保つバリアの役割を持つ |');
+  const cites = p.extractCitations([{ title: '資料A', text: '角層は水分を保つ。加湿器で湿度を40%以上に保つ。「こすらない」が基本。短い。' }, { title: '資料B', text: '加湿器で湿度を40%以上に保つ。' }]);
+  expect(cites, '数字か「」を含む文だけ・重複なし・出典つき・決定的').toEqual([
+    { quote: '加湿器で湿度を40%以上に保つ。', source: '資料A' },
+    { quote: '「こすらない」が基本。', source: '資料A' },
+  ]);
+  expect(JSON.stringify(p.extractCitations([{ title: 'A', text: src }]))).toBe(JSON.stringify(p.extractCitations([{ title: 'A', text: src }])));
+  expect(p.citationsMarkdown(cites)).toContain('- 「加湿器で湿度を40%以上に保つ。」（出典: 資料A）');
+  expect(p.packCountsOf([{ id: 'x', metadata: { pack: { of: ['d1', 's1'], kind: 'slides' } } }, { id: 'y', metadata: JSON.stringify({ pack: { of: ['d1'], kind: 'qa' } }) }, { id: 'z', metadata: {} }])).toEqual({ d1: 2, s1: 1 });
+  expect(p.splitIntoSlidePages('## 一\n本文1\n\n## 二\n本文2').map((x) => x.title)).toEqual(['一', '二']);
+  expect(p.packTitle('slides', '統合サマリー: X 他1件')).toBe('スライド構成案: X 他1件');
+  expect(p.packMetadata(['d1'], 'qa', { count: 5 })).toEqual({ pack: { of: ['d1'], kind: 'qa', count: 5 } });
+  expect(p.buildSlidesPrompt('本文').prompt, '公開される種類は医療広告ガードが末尾（後勝ち）').toMatch(/医療広告ガイドライン[^]*$/);
+  expect(p.PACK_PUBLIC_KINDS).toEqual(['slides', 'qa', 'glossary']);
+  // ④ 新テンプレート4種
+  const relation: import('../../src/lib/visuals').VisualPlan = { id: 'r', type: 'relation', title: '保湿の関係', groups: [
+    { heading: '角層', points: ['→ 乾燥: 失われる', '→ 角層: 自己辺', '→ 無いノード: x'] },
+    { heading: '乾燥', points: ['→ 加湿器: 対策', '→ 角層'] },
+    { heading: '加湿器', points: [] },
+  ] };
+  const re = v.relationEdgesOf(relation);
+  expect(re.edges).toEqual([{ from: 0, to: 1, label: '失われる' }, { from: 1, to: 2, label: '対策' }, { from: 1, to: 0, label: '' }]);
+  expect(re.dropped.length, '自己辺・存在しない相手は捨てる').toBe(2);
+  expect(t.expectedStringsOf(relation), '描く文字＝ノード名＋辺ラベル').toEqual(['保湿の関係', '角層', '乾燥', '加湿器', '失われる', '対策']);
+  const many = { ...relation, groups: Array.from({ length: 9 }, (_, i) => ({ heading: `N${i}`, points: Array.from({ length: 3 }, (_, j) => `→ N${(i + j + 1) % 9}: e${i}${j}`) })) };
+  const parsedMany = v.parseVisualPlans({ visuals: [many] }).plans[0];
+  expect(parsedMany.groups.length, 'ノードは上限（parse で切る）').toBeLessThanOrEqual(8);
+  expect(v.relationEdgesOf(many).edges.length, '辺は上限12').toBeLessThanOrEqual(12);
+  const timeline: import('../../src/lib/visuals').VisualPlan = { id: 'tl', type: 'timeline', title: '経緯', groups: [{ heading: '2024年春', points: ['開始'] }, { heading: '翌月', points: ['拡大', '補足あり'] }, { heading: '未定', points: ['予定'] }] };
+  expect(t.expectedStringsOf(timeline)).toEqual(['経緯', '2024年春', '開始', '翌月', '拡大', '補足あり', '未定', '予定']);
+  const figures: import('../../src/lib/visuals').VisualPlan = { id: 'fg', type: 'figures', title: '湿度を保つ', groups: [
+    { heading: '湿度', points: ['40%以上', '加湿器で湿度を40%以上に保つ'] },
+    { heading: '改変された数値', points: ['45%以上', '加湿器で湿度を40%以上に保つ'] },
+    { heading: '引用が本文に無い', points: ['3回', '週に3回の洗顔'] },
+  ] };
+  const issues = v.typedPlanIssues(figures, src);
+  expect(Object.keys(issues), '数値が引用と完全一致しない／引用が本文に無いものを検出').toEqual(['45%以上', '週に3回の洗顔']);
+  expect(v.checkPlan(figures, src).ok).toBe(false);
+  expect(v.checkPlan({ ...figures, groups: [figures.groups[0]] }, src).ok).toBe(true);
+  expect(t.expectedStringsOf(figures)).toEqual(['湿度を保つ', '40%以上', '湿度', '45%以上', '改変された数値', '3回', '引用が本文に無い']);
+  const onepage: import('../../src/lib/visuals').VisualPlan = { id: 'op', type: 'onepage', title: '保湿の要点', groups: [{ heading: '要点', points: ['朝は5分以内', '夜も同じ手順', '週1回の角質ケア'] }, { heading: '一言', points: ['続けることが大切'] }] };
+  expect(t.expectedStringsOf(onepage)).toEqual(['保湿の要点', '朝は5分以内', '夜も同じ手順', '週1回の角質ケア', '続けることが大切']);
+  for (const plan of [relation, timeline, { ...figures, groups: [figures.groups[0]] }, onepage]) {
+    for (const o of v.VISUAL_ORIENTATIONS) {
+      const a = t.buildVisualElement(plan, o);
+      expect(t.verifyRenderedText(plan, a.element), `${plan.type}/${o} の文字一致`).toMatchObject({ ok: true });
+      expect(JSON.stringify(t.buildVisualElement(plan, o)), '同じ入力→同じ要素木').toBe(JSON.stringify(a));
+      expect(a.canvas.height).toBeGreaterThanOrEqual(v.minCanvasHeight(o));
+    }
+  }
+  const withEmbed = t.buildVisualElement({ ...onepage, embedImage: 'data:image/png;base64,AAAA' }, 'portrait');
+  expect(JSON.stringify(withEmbed.element), '埋め込み図あり').toContain('data:image/png;base64,AAAA');
+  expect(t.verifyRenderedText({ ...onepage, embedImage: 'data:image/png;base64,AAAA' }, withEmbed.element).ok).toBe(true);
+  expect(withEmbed.canvas.height, '埋め込みぶん高さは減らない（縦長の最小高さで頭打ちになり得る）').toBeGreaterThanOrEqual(t.buildVisualElement(onepage, 'portrait').canvas.height);
+  expect(t.buildVisualElement({ ...onepage, embedImage: 'data:image/png;base64,AAAA' }, 'landscape').canvas.height).toBeGreaterThan(t.buildVisualElement(onepage, 'landscape').canvas.height);
+  // 関連図の円周配置は決定的（ノード順で角度）: 1番目のノードが上（y 最小）
+  const relEl = JSON.stringify(t.buildVisualElement(relation, 'square').element);
+  expect(relEl).toContain('rotate(');
+  // ⑤ 種類の絞り込み（プラン抽出）
+  const filtered = v.parseVisualPlans({ visuals: [{ type: 'table', title: 't', groups: [{ points: ['a'] }] }, { type: 'relation', title: 'r', groups: [{ heading: 'n', points: [] }] }] }, 'v', ['relation']);
+  expect(filtered.plans.map((x) => x.type)).toEqual(['relation']);
+  expect(filtered.rejected[0].reason).toContain('選んでいない型');
+  expect(v.buildVisualPlanPrompt('本文', { types: ['relation', 'figures'] }).prompt).toContain('type は次の2種のみ');
+  expect(v.VISUAL_TYPES.length).toBe(10);
+  // ⑥ ソース固定: 素材の保存は library に別行（新テーブルなし）・script は API を通さない
+  const packRoute = readFileSync(join(__dirname, '../../src/app/api/pack/route.ts'), 'utf8');
+  expect(packRoute).toContain('INSERT INTO library');
+  expect(packRoute).not.toMatch(/CREATE TABLE/);
+  expect(packRoute).toContain("kind === 'script'");
+  const pres = readFileSync(join(__dirname, '../../src/lib/presentation.ts'), 'utf8');
+  expect(pres).toContain("'text'");
 });

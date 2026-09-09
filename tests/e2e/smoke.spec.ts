@@ -5427,16 +5427,21 @@ test('C87: AI統合サマリー（287）— 生MDが露出しない・見出し/
     expect(clip.html, '太字がHTMLタグで含まれること').toMatch(/<(strong|b)[^>]*>[^<]*太字/);
     expect(clip.plain, 'plain 側は原文のMarkdown').toContain('## 🎯');
 
-    // ── ④ 保存: タイトルは選んだ資料から決定的に、本文はそのまま残る ──
+    // ── ④ 保存: タイトルは選んだ資料から決定的に、本文はそのまま残る（317: 要約＋詳細をペアで保存。モーダルは素材パックの導線のため閉じない） ──
     await page.locator('[data-merge-save]').click();
-    await expect(modal, '保存後にモーダルが閉じること').toHaveCount(0);
+    await expect(page.locator('[data-merge-save]'), '保存済みになる').toContainText('保存済み', { timeout: 30000 });
+    await expect(page.locator('[data-pack-panel]'), '保存後に素材パックの欄が出る').toBeVisible();
+    await page.locator('[data-merge-close]').click();
+    await expect(modal, '閉じるで消える').toHaveCount(0);
     // 保存名は「統合サマリー: <選択の1件目> 他1件」。一覧は新しい順なので1件目は統合B（後に作った方）になる
     const titleRe = new RegExp(`^統合サマリー: \\[E2E\\] 統合[AB] ${marker} 他1件$`);
     await expect.poll(() => dialogs.some((m) => m.includes('リサーチ保存に追加しました') && titleRe.test(m.replace(/^.*（/, '').replace(/）$/, ''))), '保存完了と保存名が知らされること').toBe(true);
-    const rows = (await (await request.get(`${LIBRARY_API}?q=${encodeURIComponent(marker)}`)).json()) as { id: string; title: string; content: string; type: string }[];
-    const saved = rows.find((r) => r.type === 'merge');
-    expect(saved, '統合サマリーの行が保存されていること').toBeTruthy();
-    created.push(saved!.id);
+    const rows = (await (await request.get(`${LIBRARY_API}?q=${encodeURIComponent(marker)}`)).json()) as { id: string; title: string; content: string; type: string; tags?: string }[];
+    const mergeRows = rows.filter((r) => r.type === 'merge');
+    expect(mergeRows.length, '317: 要約＋詳細の2行').toBe(2);
+    const saved = mergeRows.find((r) => !String(r.tags ?? '').includes('要約'));
+    expect(saved, '統合サマリー（詳細＝本文）の行が保存されていること').toBeTruthy();
+    for (const r of mergeRows) created.push(r.id);
     expect(saved!.title, 'タイトルが(無題)でなく決定的な名前').toMatch(titleRe);
     const expectedTitle = saved!.title;
     expect(saved!.content, '本文が空でないこと').toContain(bold);
@@ -11259,5 +11264,159 @@ test('C132: 記事→マンダラ生成（316）— 固定JSONを同じ検証・
   } finally {
     for (const id of chartIds) await deleteMandalaChart(api, id).catch(() => {});
     await api.delete(LIBRARY_API, { data: { ids: [libId] } }).catch(() => {});
+  }
+});
+
+test('C133: AIでまとめるの二段出力とプレゼン素材パック（317）— 要約／詳細が別リクエストで並列に走り片方の時間切れ（中断・R-118）でも他方は表示・文字数と目標外の表示・失敗分だけ再実行・「要約のみ」は1本・ペアとして1操作で保存され library-groups で本文＋要約の1枚に・保存後の素材パック（既定＝関連図/1枚サマリー/スライド構成案）で選んだ種類だけ作られ1件の失敗でも他は完成し失敗分だけ再実行・テキスト系は別行に metadata.pack・引用集は AI なしで実在の文だけ・画像系は 315 の画面へ種類を絞って渡す・プレゼン原稿へ handoff・まとめの行に「🎁 n」', async ({ page, context, request }) => {
+  test.setTimeout(300_000);
+  const marker = `PACK${RUN_ID}`;
+  const a = await createLibraryItem(request, { title: `素材A ${marker}`, content: `保湿の基本 ${marker}。角層は水分を保つバリアの役割を持つ。加湿器で湿度を40%以上に保つ。「こすらない」が基本。` });
+  const b = await createLibraryItem(request, { title: `素材B ${marker}`, content: `夜の保湿 ${marker}。クレンジングのあと5分以内に保湿する。週に1回は角質ケアを足す。` });
+  const created: string[] = [a, b];
+  const summaryText = `## 🎯 エグゼクティブサマリー ${marker}\n\n**要点** は保湿の継続です。\n\n- 角層は水分を保つ\n- 加湿器で湿度を40%以上に保つ\n\n## 💡 主要インサイト\n\n短い要約 ${marker}。`;
+  const detailText = `## 🎯 エグゼクティブサマリー ${marker}\n\n詳細版 ${marker}。\n\n## 📚 各資料の要点\n\n### 素材A\n\n${'角層は水分を保つバリアの役割を持つ。加湿器で湿度を40%以上に保つ。'.repeat(60)}\n\n### 素材B\n\n${'クレンジングのあと5分以内に保湿する。週に1回は角質ケアを足す。'.repeat(60)}\n\n## ✅ アクション推奨事項\n\n- 続ける`;
+  const mergePosts: string[] = [];
+  let detailCalls = 0;
+  await page.route((url) => url.pathname === '/api/merge', async (route) => {
+    const body = route.request().postDataJSON() as { mode?: string };
+    mergePosts.push(String(body.mode));
+    await new Promise((r) => setTimeout(r, 200));
+    if (body.mode === 'detail') {
+      detailCalls += 1;
+      if (detailCalls === 1) {
+        await route.fulfill({ status: 504, contentType: 'application/json', body: JSON.stringify({ error: '時間切れです（260秒）。この本は保存されていません。「再実行」でこの本だけやり直せます。', timedOut: true, mode: 'detail' }) });
+        return;
+      }
+      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ result: detailText, mode: 'detail', chars: detailText.length }) });
+      return;
+    }
+    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ result: summaryText, mode: 'summary', chars: summaryText.length }) });
+  });
+  const packPosts: string[] = [];
+  let qaCalls = 0;
+  await page.route((url) => url.pathname === '/api/pack', async (route) => {
+    const body = route.request().postDataJSON() as { kind?: string };
+    packPosts.push(String(body.kind));
+    if (body.kind === 'citations') {
+      await route.fallback(); // AI なしの実経路
+      return;
+    }
+    if (body.kind === 'qa') {
+      qaCalls += 1;
+      if (qaCalls === 1) {
+        await route.fulfill({ status: 500, contentType: 'application/json', body: JSON.stringify({ error: 'mock 失敗', kind: 'qa' }) });
+        return;
+      }
+    }
+    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ id: `mock-${body.kind}`, title: `mock ${body.kind}`, kind: body.kind, chars: 100 }) });
+  });
+  const dialogs: string[] = [];
+  const onDialog = (d: import('@playwright/test').Dialog) => { dialogs.push(d.message()); void d.accept(); };
+  page.on('dialog', onDialog);
+  try {
+    await page.goto('/dashboard/library');
+    await page.locator('[data-library-search]').fill(marker);
+    await expect(page.locator(`[data-library-card="${a}"]`)).toBeVisible({ timeout: 30000 });
+    await page.locator(`[data-library-card="${a}"] input[type="checkbox"]`).check();
+    await page.locator(`[data-library-card="${b}"] input[type="checkbox"]`).check();
+    // ── ① 「要約のみ」は1本 ──
+    await page.locator('[data-merge-mode]').selectOption('summary');
+    await page.getByRole('button', { name: '🔗 AIでまとめる' }).click();
+    const modal = page.locator('[data-merge-modal]');
+    await expect(modal).toBeVisible();
+    await expect(page.locator('[data-merge-columns]')).toHaveAttribute('data-merge-columns', '1');
+    await expect(page.locator('[data-merge-column="summary"]')).toHaveAttribute('data-merge-status', 'done', { timeout: 15000 });
+    expect(mergePosts, '要約のみ＝1本').toEqual(['summary']);
+    await page.locator('[data-merge-close]').click();
+    // ── ② 両方: 別リクエストで並列。詳細は時間切れ（中断）でも要約は表示。文字数と目標外。再実行は詳細だけ ──
+    await page.locator('[data-merge-mode]').selectOption('both');
+    await page.getByRole('button', { name: '🔗 AIでまとめる' }).click();
+    await expect(page.locator('[data-merge-columns]')).toHaveAttribute('data-merge-columns', '2');
+    await expect(page.locator('[data-merge-column="summary"]')).toHaveAttribute('data-merge-status', 'done', { timeout: 15000 });
+    await expect(page.locator('[data-merge-column="detail"]')).toHaveAttribute('data-merge-status', 'timeout', { timeout: 15000 });
+    expect(mergePosts.slice(1).sort(), '2本が別リクエスト').toEqual(['detail', 'summary']);
+    await expect(page.locator('[data-merge-target="summary"]'), '短い要約は目標外と表示（捨てない）').toHaveAttribute('data-merge-target-in', '0');
+    await expect(page.locator('[data-merge-column="summary"] [data-char-count]')).toBeVisible();
+    await expect(page.locator('[data-merge-error="detail"]')).toContainText('中断');
+    await expect(page.locator('[data-merge-body]'), '要約は整形表示').toContainText('要点');
+    await page.locator('[data-merge-rerun="detail"]').click();
+    await expect(page.locator('[data-merge-column="detail"]')).toHaveAttribute('data-merge-status', 'done', { timeout: 15000 });
+    await expect(page.locator('[data-merge-target="detail"]'), '5,000字以上は目標内').toHaveAttribute('data-merge-target-in', '1');
+    expect(mergePosts.length, '再実行は詳細だけ1本').toBe(4);
+    await expect(page.locator('[data-merge-body-detail]')).toContainText('詳細版');
+    // ── ③ ペアとして1操作で保存 → 2行（同題・要約タグ・metadata.summaryOf）→ 1枚のカード（本文＋要約） ──
+    await page.locator('[data-merge-save]').click();
+    await expect(page.locator('[data-merge-save]')).toContainText('保存済み', { timeout: 30000 });
+    const rows = (await (await request.get(`${LIBRARY_API}?q=${encodeURIComponent(marker)}`)).json()) as { id: string; title: string; type: string; tags?: string; metadata?: Record<string, unknown> | string }[];
+    const mergeRows = rows.filter((r) => r.type === 'merge');
+    expect(mergeRows.length).toBe(2);
+    for (const r of mergeRows) created.push(r.id);
+    const meta = (r: typeof mergeRows[number]) => (typeof r.metadata === 'string' ? JSON.parse(r.metadata) : r.metadata) as { summaryOf?: { sourceIds?: string[] }; mergeKind?: string };
+    const detailRow = mergeRows.find((r) => meta(r).mergeKind === 'detail')!;
+    const summaryRow = mergeRows.find((r) => meta(r).mergeKind === 'summary')!;
+    expect(detailRow.title).toBe(summaryRow.title);
+    expect(String(summaryRow.tags)).toContain('要約');
+    expect(String(detailRow.tags)).not.toContain('要約');
+    expect(meta(detailRow).summaryOf?.sourceIds?.sort()).toEqual([a, b].sort());
+    await expect(page.locator(`[data-library-card="${detailRow.id}"] [data-library-artifact-kind="summary"]`), '本文＋要約が1枚のカード（283/286 のペア）').toHaveCount(1, { timeout: 30000 });
+    // ── ④ 素材パック: 既定のチェック・選んだ種類だけ・失敗分だけ再実行・引用集は AI なしで実在の文 ──
+    const panel = page.locator('[data-pack-panel]');
+    await expect(panel).toBeVisible();
+    for (const k of ['relation', 'onepage', 'slides']) await expect(panel.locator(`[data-pack-check="${k}"]`), `既定: ${k}`).toBeChecked();
+    await expect(panel.locator('[data-pack-check="qa"]')).not.toBeChecked();
+    await expect(panel.locator('[data-pack-cost="citations"]')).toHaveText('無料');
+    for (const k of ['relation', 'onepage', 'slides']) await panel.locator(`[data-pack-check="${k}"]`).uncheck();
+    for (const k of ['citations', 'glossary', 'qa']) await panel.locator(`[data-pack-check="${k}"]`).check();
+    await expect(panel.locator('[data-pack-summary]')).toContainText('3件選択');
+    await panel.locator('[data-pack-run]').click();
+    await expect(panel.locator('[data-pack-status="citations"]')).toContainText('保存しました', { timeout: 30000 });
+    await expect(panel.locator('[data-pack-status="glossary"]')).toContainText('保存しました', { timeout: 30000 });
+    await expect(panel.locator('[data-pack-status="qa"]')).toContainText('mock 失敗', { timeout: 30000 });
+    await expect(panel.locator('[data-pack-progress]')).toHaveAttribute('data-pack-progress', '2/3');
+    expect(packPosts.sort(), '選んだ種類だけ').toEqual(['citations', 'glossary', 'qa']);
+    await panel.locator('[data-pack-retry="qa"]').click();
+    await expect(panel.locator('[data-pack-status="qa"]')).toContainText('保存しました', { timeout: 30000 });
+    await expect(panel.locator('[data-pack-progress]')).toHaveAttribute('data-pack-progress', '3/3');
+    const rows2 = (await (await request.get(`${LIBRARY_API}?q=${encodeURIComponent(marker)}`)).json()) as { id: string; type: string; title: string; content: string; metadata?: Record<string, unknown> | string }[];
+    const cit = rows2.find((r) => r.type === 'pack')!;
+    expect(cit, '引用集が別行で保存される').toBeTruthy();
+    created.push(cit.id);
+    const citMeta = (typeof cit.metadata === 'string' ? JSON.parse(cit.metadata) : cit.metadata) as { pack?: { of?: string[]; kind?: string; count?: number } };
+    expect(citMeta.pack?.kind).toBe('citations');
+    expect(citMeta.pack?.of?.sort()).toEqual([detailRow.id, summaryRow.id].sort());
+    expect(cit.content, '数字を含む文が出典つきで入る').toContain('40%以上に保つ');
+    expect(cit.content).toContain('出典:');
+    expect(cit.content, '実在の文だけ（言い換えを作らない）').not.toContain('mock');
+    // ── ⑤ 画像系は 315 の画面へ種類を絞って渡す（新しいタブ） ──
+    await panel.locator('[data-pack-check="citations"]').uncheck();
+    await panel.locator('[data-pack-check="glossary"]').uncheck();
+    await panel.locator('[data-pack-check="qa"]').uncheck();
+    await panel.locator('[data-pack-check="relation"]').check();
+    const [popup] = await Promise.all([context.waitForEvent('page'), panel.locator('[data-pack-run]').click()]);
+    await popup.waitForLoadState();
+    expect(popup.url()).toContain('/dashboard/visuals?scope=library&ids=');
+    expect(popup.url()).toContain('types=relation');
+    await expect(popup.locator('[data-vis-types]')).toHaveAttribute('data-vis-types', 'relation', { timeout: 30000 });
+    await expect(popup.locator('[data-vis-source]')).toHaveValue(new RegExp(marker), { timeout: 30000 });
+    await popup.close();
+    await expect(panel.locator('[data-pack-status="relation"]')).toContainText('図解画面');
+    // ── ⑥ プレゼン原稿へ handoff（見出しごとのテキストページ） ──
+    await panel.locator('[data-pack-check="relation"]').uncheck();
+    await panel.locator('[data-pack-check="script"]').check();
+    const [popup2] = await Promise.all([context.waitForEvent('page'), panel.locator('[data-pack-run]').click()]);
+    await popup2.waitForLoadState();
+    expect(popup2.url()).toContain('/dashboard/presentation?from=pack');
+    await expect(popup2.locator('[data-pres-page]').first(), 'まとめがページとして読み込まれる').toBeVisible({ timeout: 30000 });
+    expect(await popup2.locator('[data-pres-page]').count()).toBeGreaterThanOrEqual(3);
+    await popup2.close();
+    // ── ⑦ まとめの行に「🎁 n」（実在する素材＝引用集 1） ──
+    await page.locator('[data-merge-close]').click();
+    await page.reload();
+    await page.locator('[data-library-search]').fill(marker);
+    await expect(page.locator(`[data-library-card="${detailRow.id}"] [data-library-pack-count]`)).toHaveAttribute('data-library-pack-count', '1', { timeout: 30000 });
+  } finally {
+    page.off('dialog', onDialog);
+    await request.delete(LIBRARY_API, { data: { ids: created } }).catch(() => {});
+    await cleanupE2ELibrary(request);
   }
 });

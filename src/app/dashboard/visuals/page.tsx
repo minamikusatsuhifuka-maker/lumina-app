@@ -77,6 +77,9 @@ function VisualsInner() {
   const [sourceError, setSourceError] = useState('');
   const [status, setStatus] = useState<{ gptImage: boolean; blob: boolean } | null>(null);
   const [plans, setPlans] = useState<VisualPlan[]>([]);
+  // 317: 素材パックからは種類を絞ってプランを出す（?types=）。1枚サマリーに埋め込む描画済みの図
+  const [restrictTypes, setRestrictTypes] = useState<VisualType[]>([]);
+  const [embedFrom, setEmbedFrom] = useState<Record<string, string>>({});
   const [rejected, setRejected] = useState<string[]>([]);
   const [extracting, setExtracting] = useState(false);
   const [orientation, setOrientation] = useState<VisualOrientation>('landscape');
@@ -107,6 +110,8 @@ function VisualsInner() {
   useEffect(() => {
     const scope = searchParams?.get('scope') ?? '';
     const ids = (searchParams?.get('id') ?? searchParams?.get('ids') ?? '').split(',').map((s) => s.trim()).filter(Boolean);
+    const typesParam = (searchParams?.get('types') ?? '').split(',').map((s) => s.trim()).filter((t): t is VisualType => (VISUAL_TYPES as readonly string[]).includes(t));
+    setRestrictTypes(typesParam);
     if (!scope || ids.length === 0) return;
     let cancelled = false;
     (async () => {
@@ -149,7 +154,7 @@ function VisualsInner() {
     extractRef.current = true;
     setExtracting(true);
     try {
-      const r = await fetch('/api/visuals/plan', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text }) });
+      const r = await fetch('/api/visuals/plan', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text, ...(restrictTypes.length > 0 ? { types: restrictTypes } : {}) }) });
       const j = (await r.json().catch(() => ({}))) as { plans?: VisualPlan[]; rejected?: string[]; error?: string };
       if (!r.ok || !j.plans) throw new Error(j.error || `抽出に失敗しました（${r.status}）`);
       setPlans(j.plans);
@@ -176,7 +181,9 @@ function VisualsInner() {
     setBusy((b) => ({ ...b, [plan.id]: true }));
     setErrors((e) => ({ ...e, [plan.id]: undefined as never }));
     try {
-      const r = await fetch('/api/visuals/render', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ plan, sourceText, orientation }) });
+      const embedId = plan.type === 'onepage' ? embedFrom[plan.id] : undefined;
+      const embedImage = embedId && results[embedId]?.finalBase64 ? `data:image/png;base64,${results[embedId].finalBase64}` : undefined;
+      const r = await fetch('/api/visuals/render', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ plan, sourceText, orientation, ...(embedImage ? { embedImage } : {}) }) });
       const j = (await r.json().catch(() => ({}))) as { imageBase64?: string; width?: number; height?: number; textVerified?: boolean; generatedAt?: string; error?: string };
       if (!r.ok || !j.imageBase64) throw new Error(j.error || `描画に失敗しました（${r.status}）`);
       const res: Result = { kind: 'render', finalBase64: j.imageBase64, width: j.width ?? 0, height: j.height ?? 0, model: 'og-render', textVerified: !!j.textVerified, generatedAt: j.generatedAt ?? new Date().toISOString(), saving: true };
@@ -262,6 +269,7 @@ function VisualsInner() {
       <section data-vis-step1 style={card}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 8 }}>
           <strong style={{ fontSize: 13 }}>STEP1 元テキスト</strong>
+          {restrictTypes.length > 0 && <span data-vis-types={restrictTypes.join(',')} style={{ fontSize: 11, color: '#6c63ff', fontWeight: 700 }}>種類を絞って提案: {restrictTypes.map((t) => VISUAL_TYPE_META[t].label).join('／')}</span>}
           {sources.length > 0 && (
             <span data-vis-sources={sources.length} style={{ fontSize: 11, color: 'var(--text-muted)' }}>
               {sources.map((s) => s.title).join(' ／ ')}（{sources.length}件）
@@ -326,6 +334,15 @@ function VisualsInner() {
                   ))}
                   <button type="button" onClick={() => updatePlan(plan.id, (p) => ({ ...p, groups: [...p.groups, { points: [] }] }))} style={{ ...btn, alignSelf: 'flex-start' }}>＋ グループを足す</button>
                 </div>
+                {plan.type === 'onepage' && (
+                  <label style={{ fontSize: 12, display: 'flex', alignItems: 'center', gap: 6 }}>
+                    埋め込む図（描画済み）
+                    <select data-vis-embed={plan.id} value={embedFrom[plan.id] ?? ''} onChange={(e) => setEmbedFrom((m) => ({ ...m, [plan.id]: e.target.value }))} style={{ ...input, width: 'auto', padding: '4px 8px' }}>
+                      <option value="">（なし）</option>
+                      {plans.filter((p) => p.id !== plan.id && results[p.id]?.finalBase64).map((p) => <option key={p.id} value={p.id}>{VISUAL_TYPE_META[p.type].label}「{p.title}」</option>)}
+                    </select>
+                  </label>
+                )}
                 {isImage && (
                   <input data-vis-image-prompt={plan.id} value={plan.imagePrompt ?? ''} onChange={(e) => updatePlan(plan.id, (p) => ({ ...p, imagePrompt: e.target.value }))} placeholder="絵柄の指示（文字はここに書かない）" style={{ ...input, fontSize: 13 }} />
                 )}

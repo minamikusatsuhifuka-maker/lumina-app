@@ -145,6 +145,8 @@ interface Props {
   density?: ListDensity;
   // 315: この資料から作った図解の件数（呼び出し側が /api/visuals?mode=counts で導出して渡す）。未指定は出さない
   visualCount?: number;
+  // 317: このまとめから作ったプレゼン素材の件数（metadata.pack.of から画面側で導出）
+  packCount?: number;
 }
 
 export function LibraryItemRow({
@@ -169,6 +171,7 @@ export function LibraryItemRow({
   linkKind = null,
   density = 'detail',
   visualCount,
+  packCount,
 }: Props) {
   const meta = parseMetadata(item.metadata);
   const subCategory: string | undefined = typeof meta?.subCategory === 'string' ? meta.subCategory : undefined;
@@ -562,6 +565,7 @@ export function LibraryItemRow({
             </button>
           )}
           {visualLink(String(cur.id), compactBtnStyle)}
+          {typeof packCount === 'number' && packCount > 0 && <span data-library-pack-count={packCount} title="このまとめから作ったプレゼン素材の件数" style={{ ...compactBtnStyle, cursor: 'default', color: '#6c63ff' }}>🎁 {packCount}</span>}
           <MandalaGenerateButton scope="library" itemKey={String(cur.id)} title={cur.title || '(無題)'} charCount={charCountOf(cur)} style={compactBtnStyle} label={<>🔲<span className="xl:hidden"> マンダラ</span></>} />
           {(onFavoriteClick || onFavoriteToggle) && (
             <button
@@ -922,6 +926,7 @@ export function LibraryItemRow({
               </button>
             )}
             {visualLink(String(item.id), btnStyle)}
+            {typeof packCount === 'number' && packCount > 0 && <span data-library-pack-count={packCount} title="このまとめから作ったプレゼン素材の件数" style={{ ...btnStyle, cursor: 'default', color: '#6c63ff' }}>🎁 {packCount}</span>}
             <MandalaGenerateButton scope="library" itemKey={String(item.id)} title={item.title || '(無題)'} charCount={charCountOf(item)} style={btnStyle} label="🔲 マンダラ" />
             {(onFavoriteClick || onFavoriteToggle) && (
               <button

@@ -12,10 +12,10 @@
 import { findBannedExpressions } from '@/lib/content-verify';
 import { IMAGE_MODEL_IDS, type ImageAspectKey, type ImageQualityKey } from '@/lib/model-pricing';
 
-export type VisualType = 'table' | 'flow' | 'compare' | 'steps' | 'concept' | 'image';
-export const VISUAL_TYPES: readonly VisualType[] = ['table', 'flow', 'compare', 'steps', 'concept', 'image'];
+export type VisualType = 'table' | 'flow' | 'compare' | 'steps' | 'concept' | 'relation' | 'timeline' | 'figures' | 'onepage' | 'image';
+export const VISUAL_TYPES: readonly VisualType[] = ['table', 'flow', 'compare', 'steps', 'concept', 'relation', 'timeline', 'figures', 'onepage', 'image'];
 /** 決定的描画の5種（イメージ以外） */
-export const VISUAL_DETERMINISTIC_TYPES: readonly VisualType[] = ['table', 'flow', 'compare', 'steps', 'concept'];
+export const VISUAL_DETERMINISTIC_TYPES: readonly VisualType[] = ['table', 'flow', 'compare', 'steps', 'concept', 'relation', 'timeline', 'figures', 'onepage'];
 /** 候補に出さない型（治療前後・効果対比の文脈で使われるため。プロンプト禁止＋コード側で弾く） */
 export const VISUAL_BANNED_TYPES: readonly string[] = ['beforeafter', 'before_after', 'before-after', 'ビフォーアフター'];
 
@@ -25,8 +25,70 @@ export const VISUAL_TYPE_META: Record<VisualType, { emoji: string; label: string
   compare: { emoji: '⚖️', label: '比較', hint: 'groups＝比較対象（2〜3）・heading が対象名・points が特徴' },
   steps: { emoji: '🪜', label: '手順', hint: 'groups は1つ・points が上から順の手順（3〜8個）' },
   concept: { emoji: '🧭', label: '概念図', hint: 'title が中心・groups＝枝（heading が枝の名前・points が要素）。2〜6枝' },
+  // 317 §3-3: 4種を追加（コード描画・文字はプランどおり）
+  relation: { emoji: '🕸', label: '関連図', hint: 'groups＝ノード（heading がノード名・最大8）。points は「→ 相手ノード名: 関係ラベル」（辺・最大12）。円周配置' },
+  timeline: { emoji: '📅', label: 'タイムライン', hint: 'groups＝出来事（heading が時期の文字列・points[0] が出来事・points[1] は補足）。3〜8件・時期は解釈しない' },
+  figures: { emoji: '🔢', label: '数値ハイライト', hint: 'groups＝数字カード（heading が見出し・points[0] が数値＋単位・points[1] が引用）。数値＋単位は引用と完全一致・3〜6件' },
+  onepage: { emoji: '📄', label: '1枚サマリー', hint: 'title＋要点3（groups[0].points）＋一言（groups[1].points[0]）。描画済みの図を埋め込める' },
   image: { emoji: '🖼', label: 'イメージ', hint: '絵柄は AI・文字はプランの文字列を重ねる。heading／points が重ねる文字' },
 };
+
+/** 317: 関連図の辺の書き方「→ 相手ノード名: ラベル」（ラベル省略可） */
+export const RELATION_EDGE_RE = /^(?:→|->|→)\s*([^:：]+?)\s*(?:[:：]\s*(.+))?$/;
+export const RELATION_MAX_NODES = 8;
+export const RELATION_MAX_EDGES = 12;
+export const TIMELINE_MIN_ITEMS = 3;
+export const TIMELINE_MAX_ITEMS = 8;
+export const FIGURES_MIN = 3;
+export const FIGURES_MAX = 6;
+export const ONEPAGE_POINTS = 3;
+
+export interface RelationEdge {
+  from: number;
+  to: number;
+  label: string;
+}
+/** 関連図の辺を決定的に解く（相手ノードは heading の完全一致・自己辺と重複は捨てる・上限12） */
+export function relationEdgesOf(plan: Pick<VisualPlan, 'groups'>): { edges: RelationEdge[]; dropped: string[] } {
+  const nodes = plan.groups.map((g) => (g.heading ?? '').trim());
+  const edges: RelationEdge[] = [];
+  const dropped: string[] = [];
+  const seen = new Set<string>();
+  plan.groups.forEach((g, from) => {
+    for (const p of g.points) {
+      const m = RELATION_EDGE_RE.exec(p.trim());
+      const target = m ? m[1].trim() : '';
+      const to = nodes.indexOf(target);
+      if (!m || to < 0 || to === from || seen.has(`${from}-${to}`) || edges.length >= RELATION_MAX_EDGES) {
+        dropped.push(p);
+        continue;
+      }
+      seen.add(`${from}-${to}`);
+      edges.push({ from, to, label: (m[2] ?? '').trim() });
+    }
+  });
+  return { edges, dropped };
+}
+
+/**
+ * 317: 型ごとの追加検証（決定的）。返り値は「元テキストに無い扱いにする文字列 → 無い語」。
+ * - figures: points[0]（数値＋単位）が points[1]（引用）に含まれ、引用が本文に含まれること（数字の改変を防ぐ）
+ * - relation: 辺の相手ノードが実在すること（無い辺は描かないので foreign にはしない。数だけ dropped）
+ */
+export function typedPlanIssues(plan: Pick<VisualPlan, 'type' | 'groups'>, sourceText: string): Record<string, string[]> {
+  const out: Record<string, string[]> = {};
+  const src = normalizeForMatch(sourceText);
+  if (plan.type === 'figures') {
+    for (const g of plan.groups) {
+      const value = (g.points[0] ?? '').trim();
+      const evidence = (g.points[1] ?? '').trim();
+      if (!value) continue;
+      if (!evidence || !normalizeForMatch(evidence).includes(normalizeForMatch(value))) out[value] = [`引用と完全一致しない数値: ${value}`];
+      else if (!src.includes(normalizeForMatch(evidence))) out[evidence] = [`引用が本文に無い: ${evidence.slice(0, 20)}`];
+    }
+  }
+  return out;
+}
 
 export const VISUAL_MAX_PLANS = 6;
 export const VISUAL_MAX_GROUPS = 6;
@@ -48,6 +110,8 @@ export interface VisualPlan {
   groups: VisualGroup[];
   /** イメージ型: 絵柄の指示（院長が追記できる。文字はここに書かない） */
   imagePrompt?: string;
+  /** 317: 1枚サマリーに埋め込む描画済みの図（data URI・描画時だけ渡す。保存するプランには含めない） */
+  embedImage?: string;
 }
 
 export function isVisualType(v: unknown): v is VisualType {
@@ -158,17 +222,22 @@ export interface PlanCheck {
   foreign: string[];
   /** 315是正①: 文字列ごとの「元テキストに無い内容語」 */
   foreignTokens: Record<string, string[]>;
+  /** 317: 型ごとの追加検証（数値の完全一致など） */
+  typed: Record<string, string[]>;
   banned: { text: string; matched: string; reason: string }[];
   empty: boolean;
   /** 描ける（実在しない語句なし・NG表現なし・要素あり） */
   ok: boolean;
 }
 export function checkPlan(plan: VisualPlan, sourceText: string): PlanCheck {
-  const foreign = findForeignPhrases(plan, sourceText);
+  const foreignBase = findForeignPhrases(plan, sourceText);
   const foreignTokens = findForeignTokens(plan, sourceText);
+  const typed = typedPlanIssues(plan, sourceText);
+  for (const [k, v] of Object.entries(typed)) foreignTokens[k] = [...(foreignTokens[k] ?? []), ...v];
+  const foreign = [...foreignBase, ...Object.keys(typed).filter((k) => !foreignBase.includes(k))];
   const banned = findBannedLabels(plan);
   const empty = !plan.title.trim() || plan.groups.every((g) => g.points.length === 0 && !g.heading?.trim());
-  return { foreign, foreignTokens, banned, empty, ok: foreign.length === 0 && banned.length === 0 && !empty };
+  return { foreign, foreignTokens, typed, banned, empty, ok: foreign.length === 0 && banned.length === 0 && !empty };
 }
 
 export const VISUAL_BLOCK_REASON_FOREIGN = '元テキストに無い語句があります（赤い印の文字を元テキストの表現に直すと描けます）';
@@ -190,7 +259,7 @@ function clean(v: unknown, max: number): string {
 }
 
 /** AI の JSON → VisualPlan[]。型が不正・禁止（beforeafter）・空は落とす。上限 6 件 */
-export function parseVisualPlans(json: unknown, idPrefix = 'v'): { plans: VisualPlan[]; rejected: { reason: string; raw: unknown }[] } {
+export function parseVisualPlans(json: unknown, idPrefix = 'v', allowedTypes?: readonly VisualType[]): { plans: VisualPlan[]; rejected: { reason: string; raw: unknown }[] } {
   const arr = Array.isArray((json as { visuals?: unknown })?.visuals) ? ((json as { visuals: unknown[] }).visuals) : Array.isArray(json) ? (json as unknown[]) : [];
   const plans: VisualPlan[] = [];
   const rejected: { reason: string; raw: unknown }[] = [];
@@ -203,6 +272,10 @@ export function parseVisualPlans(json: unknown, idPrefix = 'v'): { plans: Visual
     }
     if (!isVisualType(typeRaw)) {
       rejected.push({ reason: `未知の型: ${typeRaw || '(空)'}`, raw });
+      return;
+    }
+    if (allowedTypes && allowedTypes.length > 0 && !allowedTypes.includes(typeRaw)) {
+      rejected.push({ reason: `選んでいない型: ${typeRaw}`, raw });
       return;
     }
     const title = clean(o.title, VISUAL_TITLE_MAX);
@@ -393,18 +466,26 @@ export const VISUAL_NOTE_GUIDE = 'note は画像をアップロードする方�
 // STEP1 プラン抽出のプロンプト（Gemini・JSON）。制約はプロンプト＋コード側（findForeignPhrases）の二段構え
 // ───────────────────────────────────────────────────────────────────────────
 
-export function buildVisualPlanPrompt(sourceText: string, opts: { maxPlans?: number } = {}): { system: string; prompt: string } {
+export function buildVisualPlanPrompt(sourceText: string, opts: { maxPlans?: number; types?: readonly VisualType[] } = {}): { system: string; prompt: string } {
   const max = opts.maxPlans ?? VISUAL_MAX_PLANS;
+  const allowed = opts.types && opts.types.length > 0 ? opts.types : VISUAL_TYPES;
+  const typeLines: Record<VisualType, string> = {
+    table: '- table: 表。groups＝列（heading が列名・points が各行の値）。2〜4列',
+    flow: '- flow: フロー。groups は1つ・points が左から右へ流れる要素（3〜6個・各20字以内）',
+    compare: '- compare: 比較。groups＝比較対象（2〜3）・heading が対象名・points が特徴（各24字以内）',
+    steps: '- steps: 手順。groups は1つ・points が上から順の手順（3〜8個・各40字以内）',
+    concept: '- concept: 概念図。title が中心概念・groups＝枝（heading が枝の名前・points が要素）。2〜6枝',
+    relation: '- relation: 関連図。groups＝ノード（heading がノード名・3〜8個）。points は「→ 相手ノード名: 関係ラベル（15字以内）」の形で他ノードへの辺（全体で最大12本）',
+    timeline: '- timeline: タイムライン。groups＝出来事（3〜8件・時系列順）。heading が時期（本文の表記そのまま）・points[0] が出来事（20字以内）・points[1] は補足（任意）',
+    figures: '- figures: 数値ハイライト。groups＝数字カード（3〜6件）。heading が見出し（15字以内）・points[0] が数値＋単位（本文の表記そのまま・例「約30%」）・points[1] がその数値を含む本文の引用（60字以内・原文そのまま）',
+    onepage: '- onepage: 1枚サマリー。title が主題・groups[0].points が要点3つ（各30字以内）・groups[1].heading は「一言」・groups[1].points[0] が締めの一言（30字以内）',
+    image: '- image: イメージ画像。heading／points は画像に重ねる短い文字（合計4つ以内・各20字以内）。imagePrompt に絵柄の指示（文字は書かない）',
+  };
   const system = 'あなたは医療記事の編集者兼インフォグラフィックデザイナーです。記事の本文から「図解にすると理解が深まる構造」を見つけ、図解の設計データを作ります。図解に入る文字は本文に実際に書かれている語句だけを使います（言い換え・要約・補足・創作は禁止）。';
   const prompt = `以下の本文から、図解の候補を最大${max}個提案してください。
 
-# 型（type はこの6種のみ）
-- table: 表。groups＝列（heading が列名・points が各行の値）。2〜4列
-- flow: フロー。groups は1つ・points が左から右へ流れる要素（3〜6個・各20字以内）
-- compare: 比較。groups＝比較対象（2〜3）・heading が対象名・points が特徴（各24字以内）
-- steps: 手順。groups は1つ・points が上から順の手順（3〜8個・各40字以内）
-- concept: 概念図。title が中心概念・groups＝枝（heading が枝の名前・points が要素）。2〜6枝
-- image: イメージ画像。heading／points は画像に重ねる短い文字（合計4つ以内・各20字以内）。imagePrompt に絵柄の指示（文字は書かない）
+# 型（type は次の${allowed.length}種のみ。これ以外は出さない）
+${allowed.map((t) => typeLines[t]).join('\n')}
 
 # 絶対に守ること
 - title・heading・points の文字列は、**本文にそのまま書かれている語句**だけを使う（本文からの抜き出し。言い換え・要約・数値の丸め・単位の追加を禁止）
@@ -416,6 +497,6 @@ export function buildVisualPlanPrompt(sourceText: string, opts: { maxPlans?: num
 ${sourceText.slice(0, VISUAL_SOURCE_MAX_CHARS)}
 
 # 出力フォーマット（必ずこのJSONのみ。前置き・コードフェンス禁止）
-{ "visuals": [ { "type": "table|flow|compare|steps|concept|image", "title": "本文中の語句", "groups": [ { "heading": "本文中の語句（省略可）", "points": ["本文中の語句", "…"] } ], "imagePrompt": "image のときだけ・絵柄の指示" } ] }`;
+{ "visuals": [ { "type": "${allowed.join('|')}", "title": "本文中の語句", "groups": [ { "heading": "本文中の語句（省略可）", "points": ["本文中の語句", "…"] } ], "imagePrompt": "image のときだけ・絵柄の指示" } ] }`;
   return { system, prompt };
 }

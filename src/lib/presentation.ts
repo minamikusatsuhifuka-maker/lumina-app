@@ -75,7 +75,7 @@ export function audienceOf(key: unknown): PresentationAudience {
 // ── ページ（スライド1枚）────────────────────────────────────────────
 // 'pptx' は第2段階（§2-1）。**画像化はできない**ので imageDataUrl は null のまま、
 // text（本文＋スピーカーノート）だけで生成へ回せるようにしてある。
-export type SlideSourceKind = 'pdf' | 'image' | 'pptx';
+export type SlideSourceKind = 'pdf' | 'image' | 'pptx' | 'text';
 
 export type PageStatus = 'idle' | 'running' | 'done' | 'failed';
 

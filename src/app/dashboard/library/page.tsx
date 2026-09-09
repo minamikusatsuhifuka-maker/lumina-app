@@ -1,5 +1,10 @@
 'use client';
 import { useState, useEffect, useMemo, useRef, Suspense } from 'react';
+// 317: 二段出力（要約＋詳細）・ペア保存・プレゼン素材パック
+import PresentationPackPanel from '@/components/library/PresentationPackPanel';
+import { MERGE_SELECTIONS, MERGE_SELECTION_LABEL, MERGE_MODE_LABEL, MERGE_TIMEOUT_MESSAGE, mergeSaveMetadata, mergeTagsOf, mergeTargetState, modesOf, type MergeMode, type MergeRuns, type MergeSelection } from '@/lib/merge-report';
+import { packCountsOf } from '@/lib/presentation-pack';
+import { CharCountBadge } from '@/components/LibraryItemRow';
 // 252: このファイルの既存コードは item を any で扱っているが、252で足した経路だけは
 // 必要な形だけを持つ軽い型を通す（新しく any を増やさない）
 type LibraryRow = {
@@ -187,6 +192,14 @@ function LibraryPageInner() {
   const [purposeBulk, setPurposeBulk] = useState<{ rect: DOMRect } | null>(null);
   const purposeBulkState_ = purposeBulkState(selectedIds.size);
   const [mergeResult, setMergeResult] = useState('');
+  // 317 §3-1: 二段出力（要約／詳細）の実行状態と選択（既定は両方）。保存後の行 id（素材パックの元）
+  const [mergeSelection, setMergeSelection] = useState<MergeSelection>('both');
+  const [mergeRuns, setMergeRuns] = useState<MergeRuns>({});
+  const [mergeSavedIds, setMergeSavedIds] = useState<string[]>([]);
+  const [mergeSourceIds, setMergeSourceIds] = useState<string[]>([]);
+  const mergeLockRef = useRef(false); // R-87
+  const mergeRunsRef = useRef<MergeRuns>({});
+  const packCounts = useMemo(() => packCountsOf(items), [items]);
   // 287: 生成時に選んでいた資料のタイトル（保存名を決定的に導くため。保存時に選択が変わっていても影響しない）
   const [mergeSourceTitles, setMergeSourceTitles] = useState<string[]>([]);
   const [merging, setMerging] = useState(false);
@@ -270,32 +283,64 @@ function LibraryPageInner() {
   }, [initialTab]);
 
   /* ── アクション ── */
+  // 317 §3-1: 1本（要約 or 詳細）の生成。モードごとに独立（R-39）。時間切れは 'timeout'（サーバの終端イベント・R-118）
+  const runMergeMode = async (mode: MergeMode, payload: { title: string; content: string }[]) => {
+    const update = (patch: Partial<MergeRuns[MergeMode]>) => {
+      mergeRunsRef.current = { ...mergeRunsRef.current, [mode]: { ...(mergeRunsRef.current[mode] ?? { status: 'running', text: '' }), ...patch } as MergeRuns[MergeMode] };
+      setMergeRuns({ ...mergeRunsRef.current });
+    };
+    update({ status: 'running', text: '', error: undefined });
+    try {
+      const res = await fetch('/api/merge', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ items: payload, mode }) });
+      const data = (await res.json().catch(() => ({}))) as { result?: string; error?: string; timedOut?: boolean };
+      if (data.timedOut) {
+        update({ status: 'timeout', error: data.error || MERGE_TIMEOUT_MESSAGE });
+        return;
+      }
+      if (!res.ok || !data.result) {
+        update({ status: 'error', error: data.error || (res.ok ? '空の応答でした' : `HTTP ${res.status}`) });
+        return;
+      }
+      update({ status: 'done', text: data.result });
+    } catch (e) {
+      update({ status: 'error', error: `通信エラー: ${e instanceof Error ? e.message : String(e)}` });
+    }
+  };
+
   const generateMergeReport = async () => {
     const selected = items.filter((item: any) => selectedIds.has(item.id));
     if (selected.length < 2) { alert('2件以上選択してください'); return; }
+    if (mergeLockRef.current) return; // R-87
+    mergeLockRef.current = true;
     setMerging(true);
     setMergeResult('');
+    setMergeSavedIds([]);
+    const modes = modesOf(mergeSelection);
+    mergeRunsRef.current = Object.fromEntries(modes.map((m) => [m, { status: 'running', text: '' }])) as MergeRuns;
+    setMergeRuns({ ...mergeRunsRef.current });
+    setMergeSourceTitles(selected.map((i: any) => String(i.title || '')));
+    setMergeSourceIds(selected.map((i: any) => String(i.id)));
+    setShowMergeModal(true);
     try {
       const payload = selected.map(i => ({ title: i.title || '無題', content: (i.content || '').slice(0, 1000) }));
-      const res = await fetch('/api/merge', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ items: payload }),
-      });
-      const data = await res.json();
-      if (!res.ok || data.error) {
-        alert(`統合レポート生成エラー: ${data.error || '不明なエラー'}`);
-        return;
-      }
-      if (!data.result) {
-        alert('統合レポートが空でした。もう一度お試しください。');
-        return;
-      }
-      setMergeResult(data.result);
-      setMergeSourceTitles(selected.map((i: any) => String(i.title || '')));
-      setShowMergeModal(true);
-    } catch (e: any) {
-      alert(`通信エラー: ${e.message}`);
-    } finally { setMerging(false); }
+      // 並列（1リクエスト1本・届いた順に表示）。片方の失敗で他方を止めない（R-39）
+      await Promise.allSettled(modes.map((m) => runMergeMode(m, payload)));
+      const runs = mergeRunsRef.current;
+      const primary = runs.detail?.status === 'done' ? runs.detail.text : runs.summary?.status === 'done' ? runs.summary.text : '';
+      setMergeResult(primary);
+    } finally {
+      setMerging(false);
+      mergeLockRef.current = false;
+    }
+  };
+
+  const rerunMergeMode = async (mode: MergeMode) => {
+    const selected = items.filter((item: any) => mergeSourceIds.includes(String(item.id)));
+    if (selected.length < 2 || mergeRunsRef.current[mode]?.status === 'running') return;
+    const payload = selected.map(i => ({ title: i.title || '無題', content: (i.content || '').slice(0, 1000) }));
+    await runMergeMode(mode, payload);
+    const runs = mergeRunsRef.current;
+    setMergeResult(runs.detail?.status === 'done' ? runs.detail.text : runs.summary?.status === 'done' ? runs.summary.text : '');
   };
 
   // 287 §3: 保存は fail-closed。
@@ -303,7 +348,9 @@ function LibraryPageInner() {
   // 「(無題) 0文字」のカードが出ていた（DBには本文が入っていても画面には空に見える）。
   // 保存後は一覧を再取得して**保存された行**を表示し、失敗は必ず知らせる。
   const handleSaveMergeReport = async () => {
-    if (!hasSavableContent(mergeResult)) {
+    const runs = mergeRunsRef.current;
+    const ready = (['detail', 'summary'] as MergeMode[]).filter((m) => runs[m]?.status === 'done' && hasSavableContent(runs[m]!.text));
+    if (ready.length === 0) {
       alert('本文が空のため保存できません。もう一度「🔗 AIでまとめる」を実行してください。');
       return;
     }
@@ -311,25 +358,33 @@ function LibraryPageInner() {
     setIsSaving(true);
     try {
       const title = deriveMergeTitle(mergeSourceTitles);
-      const res = await fetch('/api/library', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ title, content: mergeResult, type: MERGE_REPORT_TYPE, tags: MERGE_REPORT_TAGS, group_name: MERGE_REPORT_GROUP }),
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok || !data?.id) {
-        alert(`保存できませんでした: ${data?.error || res.status}`);
-        return;
+      const savedIds: string[] = [];
+      // 317: 要約＋詳細を**同じタイトル**で1操作で保存＝283/286 のペア（詳細＝本文・要約＝タグ「要約」）。出どころは metadata.summaryOf
+      for (const mode of ready) {
+        const res = await fetch('/api/library', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ title, content: runs[mode]!.text, type: MERGE_REPORT_TYPE, tags: mergeTagsOf(mode), group_name: MERGE_REPORT_GROUP, metadata: mergeSaveMetadata(mergeSourceIds, mode) }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok || !data?.id) {
+          alert(`保存できませんでした（${MERGE_MODE_LABEL[mode]}）: ${data?.error || res.status}`);
+          break;
+        }
+        savedIds.push(String(data.id));
+        mergeRunsRef.current = { ...mergeRunsRef.current, [mode]: { ...runs[mode]!, savedId: String(data.id) } };
       }
-      // 一覧はサーバーの行で更新（再取得に失敗したときだけ、送った内容で行を組み立てる）
+      setMergeRuns({ ...mergeRunsRef.current });
+      if (savedIds.length === 0) return;
+      setMergeSavedIds(savedIds);
       const refreshed = await refetchItems();
       if (!refreshed) {
-        setItems(prev => [{
-          id: data.id, title, content: mergeResult, type: MERGE_REPORT_TYPE, tags: MERGE_REPORT_TAGS,
-          group_name: MERGE_REPORT_GROUP, is_favorite: 0, metadata: {}, created_at: new Date().toISOString(), custom_folder_ids: [],
-        }, ...prev]);
+        setItems(prev => [...savedIds.map((id, i) => ({
+          id, title, content: runs[ready[i]]!.text, type: MERGE_REPORT_TYPE, tags: mergeTagsOf(ready[i]),
+          group_name: MERGE_REPORT_GROUP, is_favorite: 0, metadata: mergeSaveMetadata(mergeSourceIds, ready[i]), created_at: new Date().toISOString(), custom_folder_ids: [],
+        })), ...prev]);
       }
-      setShowMergeModal(false);
-      alert(`リサーチ保存に追加しました（${title}）`);
+      // 317: 保存後はモーダルを閉じず、素材パックの導線を出す（保存名は知らせる）
+      alert(`リサーチ保存に追加しました（${title}）${ready.length === 2 ? '・要約と詳細をペアで保存' : ''}`);
     } catch (e: any) {
       alert(`保存中にエラーが発生しました: ${e?.message || e}`);
     } finally { setIsSaving(false); }
@@ -940,6 +995,7 @@ function LibraryPageInner() {
         // 291 §3-2: 表示密度（既定 detail＝従来）
         density={listDensity}
         visualCount={visualCounts[String(item.id)]}
+        packCount={packCounts[String(item.id)]}
       />
 
       {editingId === item.id && (
@@ -1537,6 +1593,10 @@ function LibraryPageInner() {
           >
             🖼 まとめて図解
           </a>
+          {/* 317 §3-1: 要約＋詳細／要約のみ／詳細のみ（既定は両方） */}
+          <select data-merge-mode value={mergeSelection} onChange={(e) => setMergeSelection(e.target.value as MergeSelection)} disabled={merging} title="AIでまとめるの出力（要約 1,000〜2,000字／詳細 5,000〜8,000字）" style={{ padding: '6px 8px', borderRadius: 99, border: 'none', background: 'rgba(255,255,255,0.9)', color: '#4c46b8', fontSize: 12, fontWeight: 700 }}>
+            {MERGE_SELECTIONS.map((sel) => <option key={sel} value={sel}>{MERGE_SELECTION_LABEL[sel]}</option>)}
+          </select>
           <button onClick={generateMergeReport} disabled={merging || selectedIds.size < 2}
             style={{ padding: '6px 16px', borderRadius: 99, background: '#fff', color: '#6c63ff', border: 'none', cursor: merging || selectedIds.size < 2 ? 'not-allowed' : 'pointer', fontSize: 13, fontWeight: 700, opacity: merging || selectedIds.size < 2 ? 0.6 : 1 }}>
             {merging ? '分析中...' : '🔗 AIでまとめる'}
@@ -1591,7 +1651,7 @@ function LibraryPageInner() {
       )}
 
       {/* ── 統合レポートモーダル ── */}
-      {showMergeModal && mergeResult && (
+      {showMergeModal && (
         <div data-merge-modal style={{ position: 'fixed', inset: 0, zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,0.6)' }}
           onClick={() => setShowMergeModal(false)}>
           <div style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 16, width: '90vw', maxWidth: 800, maxHeight: '85vh', display: 'flex', flexDirection: 'column', boxShadow: '0 12px 40px rgba(0,0,0,0.3)' }}
@@ -1602,30 +1662,75 @@ function LibraryPageInner() {
                 <span style={{ fontSize: 15, fontWeight: 700, color: 'var(--text-primary)' }}>🔗 AI統合サマリー</span>
                 <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 10, background: 'rgba(108,99,255,0.1)', color: '#6c63ff' }}>{selectedIds.size}件を分析</span>
               </div>
-              <button onClick={() => setShowMergeModal(false)}
+              <button data-merge-close onClick={() => setShowMergeModal(false)}
                 style={{ width: 28, height: 28, borderRadius: 6, border: '1px solid var(--border)', background: 'var(--bg-secondary)', color: 'var(--text-muted)', cursor: 'pointer', fontSize: 14, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>✕</button>
             </div>
-            {/* コンテンツ（287 / R-45: 読む画面は整形表示。生MD記法を見せない。全画面・カード展開と同じ renderMarkdown） */}
+            {/* コンテンツ（287 / R-45: 読む画面は整形表示。生MD記法を見せない。全画面・カード展開と同じ renderMarkdown）
+                317: 要約と詳細を並べる（届いた順に表示・列ごとに文字数と目標内/外・失敗/中断はその列だけ・再実行） */}
             <div style={{ flex: 1, overflowY: 'auto', padding: 20 }}>
-              <div
-                data-merge-body
-                className="markdown-body"
-                style={{ fontSize: 14, lineHeight: 1.85, color: 'var(--text-primary)' }}
-                dangerouslySetInnerHTML={{ __html: renderMarkdown(mergeResult) }}
-              />
+              <div data-merge-columns={Object.keys(mergeRuns).length} style={{ display: 'grid', gridTemplateColumns: Object.keys(mergeRuns).length >= 2 ? 'repeat(auto-fit, minmax(320px, 1fr))' : '1fr', gap: 16 }}>
+                {(['summary', 'detail'] as MergeMode[]).filter((m) => mergeRuns[m]).map((mode) => {
+                  const run = mergeRuns[mode]!;
+                  const target = run.status === 'done' ? mergeTargetState(run.text.length, mode) : null;
+                  return (
+                    <div key={mode} data-merge-column={mode} data-merge-status={run.status} style={{ minWidth: 0, border: '1px solid var(--border)', borderRadius: 10, overflow: 'hidden' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', background: 'var(--bg-primary)', borderBottom: '1px solid var(--border)', flexWrap: 'wrap' }}>
+                        <span style={{ fontWeight: 700, fontSize: 13 }}>{mode === 'summary' ? '📝 要約（1,000〜2,000字）' : '📖 詳細（5,000〜8,000字）'}</span>
+                        {run.status === 'done' && <CharCountBadge n={run.text.length} />}
+                        {target && <span data-merge-target={mode} data-merge-target-in={target.inRange ? '1' : '0'} style={{ fontSize: 11, fontWeight: 700, color: target.inRange ? '#0d9973' : '#B45309' }}>{target.label}</span>}
+                        {run.status === 'running' && <span data-merge-running={mode} style={{ fontSize: 11, color: 'var(--text-muted)' }}>⏳ 生成中…</span>}
+                        {run.savedId && <span data-merge-saved={mode} style={{ fontSize: 11, color: '#0d9973' }}>✅ 保存済み</span>}
+                        <span style={{ flex: 1 }} />
+                        {run.status === 'done' && (
+                          <button {...(mode === 'summary' ? { 'data-merge-copy': true } : { 'data-merge-copy-detail': true })} onClick={() => copyRichMarkdown(run.text).then((ok) => alert(ok ? 'コピーしました！（Wordに貼ると見出し・太字が保持されます）' : 'コピーできませんでした'))}
+                            style={{ padding: '4px 10px', borderRadius: 6, border: '1px solid var(--border)', background: 'var(--bg-secondary)', color: 'var(--text-secondary)', cursor: 'pointer', fontSize: 11 }}>
+                            📋 コピー
+                          </button>
+                        )}
+                      </div>
+                      {run.status === 'done' ? (
+                        <div
+                          {...(mode === 'summary' || !mergeRuns.summary ? { 'data-merge-body': true } : { 'data-merge-body-detail': true })}
+                          className="markdown-body"
+                          style={{ padding: 14, fontSize: 14, lineHeight: 1.85, color: 'var(--text-primary)', maxHeight: '60vh', overflowY: 'auto' }}
+                          dangerouslySetInnerHTML={{ __html: renderMarkdown(run.text) }}
+                        />
+                      ) : run.status === 'running' ? (
+                        <div style={{ padding: 14, fontSize: 12, color: 'var(--text-muted)' }}>{MERGE_MODE_LABEL[mode]}を生成しています…（もう一方は届き次第表示します）</div>
+                      ) : (
+                        <div data-merge-error={mode} style={{ margin: 12, padding: 12, background: 'rgba(180,83,9,0.08)', border: '1px solid rgba(180,83,9,0.35)', borderRadius: 8, fontSize: 12, color: '#B45309', lineHeight: 1.7 }}>
+                          <div style={{ fontWeight: 700 }}>{run.status === 'timeout' ? '⏸ 中断（時間切れ）' : '❌ 失敗'}</div>
+                          <div style={{ color: 'var(--text-secondary)', whiteSpace: 'pre-wrap' }}>{run.error}</div>
+                          <div style={{ color: 'var(--text-muted)', fontSize: 11, marginTop: 4 }}>この本は保存されません。もう一方には影響しません。</div>
+                          <button type="button" data-merge-rerun={mode} onClick={() => void rerunMergeMode(mode)} style={{ marginTop: 8, padding: '4px 10px', borderRadius: 6, border: '1px solid var(--border)', background: 'var(--bg-secondary)', color: 'var(--text-primary)', cursor: 'pointer', fontSize: 11 }}>🔁 {MERGE_MODE_LABEL[mode]}だけ再実行</button>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+              {/* 317 §3-2: 保存後だけ素材パック（まとめの保存行が元になる） */}
+              {mergeSavedIds.length > 0 && (
+                <PresentationPackPanel
+                  savedIds={mergeSavedIds}
+                  sourceIds={mergeSourceIds}
+                  baseTitle={deriveMergeTitle(mergeSourceTitles)}
+                  sourceChars={(mergeRuns.detail?.text.length ?? 0) + (mergeRuns.summary?.text.length ?? 0)}
+                  detailText={mergeRuns.detail?.text ?? ''}
+                  summaryText={mergeRuns.summary?.text ?? ''}
+                  onSaved={() => void refetchItems()}
+                />
+              )}
             </div>
             {/* フッター */}
             <div style={{ padding: '12px 20px', borderTop: '1px solid var(--border)', display: 'flex', gap: 8 }}>
-              <button data-merge-save onClick={handleSaveMergeReport} disabled={isSaving}
+              <button data-merge-save onClick={handleSaveMergeReport} disabled={isSaving || merging || mergeSavedIds.length > 0}
                 style={{ padding: '8px 16px', borderRadius: 8, border: 'none', background: isSaving ? 'rgba(108,99,255,0.3)' : 'linear-gradient(135deg, #6c63ff, #8b5cf6)', color: '#fff', fontWeight: 700, fontSize: 13, cursor: isSaving ? 'not-allowed' : 'pointer' }}>
-                {isSaving ? '保存中...' : '📚 リサーチ保存に追加'}
+                {isSaving ? '保存中...' : mergeSavedIds.length > 0 ? '✅ 保存済み' : '📚 リサーチ保存に追加'}
               </button>
-              {/* 287 §2-4: Word体裁のリッチコピー（text/html＋text/plain）。copyRichMarkdown の既定動作が
-                  Word貼付を目的にしたものなので、専用ラッパー（R-71）は不要 */}
-              <button data-merge-copy onClick={() => copyRichMarkdown(mergeResult).then((ok) => alert(ok ? 'コピーしました！（Wordに貼ると見出し・太字が保持されます）' : 'コピーできませんでした'))}
-                style={{ padding: '8px 16px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--bg-secondary)', color: 'var(--text-secondary)', cursor: 'pointer', fontSize: 13 }}>
-                📋 コピー
-              </button>
+              {mergeSavedIds.length > 0 && (
+                <span data-merge-pack-hint style={{ fontSize: 11, color: 'var(--text-muted)', alignSelf: 'center' }}>🎁 素材パックは上の欄で選べます</span>
+              )}
             </div>
           </div>
         </div>

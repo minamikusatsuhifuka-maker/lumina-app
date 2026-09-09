@@ -999,3 +999,53 @@ test('B37: 記事→マンダラ生成（316・Gemini）— 実記事1件から 
     await request.delete('/api/library', { data: { ids: [libId] } }).catch(() => {});
   }
 });
+
+test('B38: AIでまとめるの二段出力と素材パック（317・実AI）— 3件から要約（1,000〜2,000字目標）と詳細（5,000〜8,000字目標）が並列で出る（目標外なら表示のみ）・詳細から関連図（types=relation）のプランが出て描ける・スライド構成案が1本保存される @gen', async ({ request }) => {
+  test.setTimeout(GEN_TIMEOUT);
+  const mk = (t: string, body: string) => createLibraryItem(request, { title: `${t} ${RUN_ID}`, content: body });
+  const ids = [
+    await mk('317素材A', '朝の保湿は洗顔のあと5分以内に行う。化粧水をなじませてから乳液で蓋をする。皮膚科では保湿剤の重ねづけを勧めている。乾燥が強い日は入浴後3分以内の保湿が目安とされる。'),
+    await mk('317素材B', '冬は加湿器で室内の湿度を40〜60%に保つ。熱すぎるお湯は皮脂を落としすぎるため、ぬるめ（38〜40度）にする。タオルで押さえるように水分を拭き取り、こすらない。'),
+    await mk('317素材C', '週に1回の角質ケアは、やりすぎるとバリア機能を損なう。かゆみが強いときは皮膚科で相談する。保湿の習慣は2週間続けると肌の水分量が安定してくると説明されることが多い。'),
+  ];
+  const payload = ids.map((id, i) => ({ title: `素材${i} ${RUN_ID}`, content: `保湿の基本 ${i}` }));
+  const saved: string[] = [...ids];
+  try {
+    const t0 = Date.now();
+    const [sRes, dRes] = await Promise.all([
+      request.post('/api/merge', { data: { items: payload, mode: 'summary' }, timeout: REQ_TIMEOUT }),
+      request.post('/api/merge', { data: { items: payload, mode: 'detail' }, timeout: REQ_TIMEOUT }),
+    ]);
+    const s = (await sRes.json()) as { result?: string; error?: string; chars?: number };
+    const d = (await dRes.json()) as { result?: string; error?: string; chars?: number };
+    expect(sRes.status(), `要約が 200: ${s.error ?? ''}`).toBe(200);
+    expect(dRes.status(), `詳細が 200: ${d.error ?? ''}`).toBe(200);
+    console.log(`[B38] merge ${Date.now() - t0}ms summary=${s.chars} detail=${d.chars}`);
+    expect(s.result!.length).toBeGreaterThan(300);
+    expect(d.result!.length, '詳細は要約より長い').toBeGreaterThan(s.result!.length);
+    // 関連図（詳細を元テキストに・種類を絞る）→ 描画（文字一致の機械判定つき）
+    const plan = await request.post('/api/visuals/plan', { data: { text: d.result, types: ['relation'] }, timeout: REQ_TIMEOUT });
+    const pj = (await plan.json()) as { plans: { id: string; type: string; groups: { heading?: string; points: string[] }[] }[]; checks: Record<string, { foreign: string[] }>; error?: string };
+    expect(plan.status(), pj.error ?? '').toBe(200);
+    const rel = pj.plans.find((p) => p.type === 'relation');
+    console.log(`[B38] relation plan: ${rel ? `${rel.groups.length} nodes, foreign=${pj.checks[rel.id]?.foreign.length}` : 'none'}`);
+    if (rel && (pj.checks[rel.id]?.foreign.length ?? 0) === 0) {
+      const r = await request.post('/api/visuals/render', { data: { plan: rel, sourceText: d.result, orientation: 'square' }, timeout: REQ_TIMEOUT });
+      const rj = (await r.json()) as { imageBase64?: string; textVerified?: boolean; error?: string };
+      expect(r.status(), rj.error ?? '').toBe(200);
+      expect(rj.textVerified).toBe(true);
+      expect((rj.imageBase64?.length ?? 0) > 5000).toBe(true);
+    }
+    // スライド構成案（まとめの保存行から）
+    const detailId = await createLibraryItem(request, { title: `統合サマリー: 317 ${RUN_ID}`, content: d.result!, type: 'merge' });
+    saved.push(detailId);
+    const pack = await request.post('/api/pack', { data: { kind: 'slides', ids: [detailId] }, timeout: REQ_TIMEOUT });
+    const pk = (await pack.json()) as { id?: string; chars?: number; error?: string; adWarnings?: string[] };
+    expect(pack.status(), pk.error ?? '').toBe(200);
+    saved.push(pk.id!);
+    expect(pk.chars ?? 0).toBeGreaterThan(300);
+    console.log(`[B38] slides ${pk.chars} chars adWarnings=${pk.adWarnings?.length ?? 0}`);
+  } finally {
+    await request.delete('/api/library', { data: { ids: saved } }).catch(() => {});
+  }
+});

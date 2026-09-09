@@ -10,6 +10,7 @@
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { PRESENTATION_HANDOFF_KEY } from '@/lib/presentation-pack';
 import { MarkdownBody } from '@/components/MarkdownBody';
 import FeatureDraftBanner from '@/components/FeatureDraftBanner';
 import { clearFeatureDraft, loadFeatureDraft, saveFeatureDraft } from '@/lib/feature-drafts';

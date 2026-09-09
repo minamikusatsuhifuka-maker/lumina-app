@@ -19,6 +19,10 @@ export async function POST(req: Request) {
   const read = readPlanBody(body);
   if (!read.ok) return NextResponse.json({ error: read.error }, { status: 400 });
   const { plan, sourceText } = read;
+  // 317: 1枚サマリーに描画済みの図（data URI・PNG）を埋め込む。プランの検証には含めない（文字ではない）
+  if (plan.type === 'onepage' && typeof body.embedImage === 'string' && /^data:image\/png;base64,[A-Za-z0-9+/=]+$/.test(body.embedImage) && body.embedImage.length < 6_000_000) {
+    plan.embedImage = body.embedImage;
+  }
   if (!VISUAL_DETERMINISTIC_TYPES.includes(plan.type)) return NextResponse.json({ error: 'この型はコードで描画しません（イメージは /api/visuals/image）' }, { status: 400 });
   const orientation: VisualOrientation = VISUAL_ORIENTATIONS.includes(body.orientation as VisualOrientation) ? (body.orientation as VisualOrientation) : 'landscape';
   const check = checkPlan(plan as VisualPlan, sourceText);
