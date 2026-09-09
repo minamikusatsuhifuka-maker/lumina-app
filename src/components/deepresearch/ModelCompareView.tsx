@@ -13,6 +13,8 @@
 import { useEffect, useRef, useState } from 'react';
 import { MarkdownBody } from '@/components/MarkdownBody';
 import { SaveToLibraryButton } from '@/components/SaveToLibraryButton';
+// 320: 完了した列から直接「🖼 図解・画像を作る」（列の本文を一回限りキーで渡す）
+import { VisualQuickButton } from '@/components/visuals/VisualQuickButton';
 import { hasSavableContent } from '@/lib/merge-report';
 import {
   type CompareHeightPreset,
@@ -206,6 +208,7 @@ export default function ModelCompareView({ topic, runs, startedAt, restoredAt = 
                       <button type="button" data-compare-dl={i} onClick={() => handleDownload(run.text, side)} style={compareCompactBtnStyle}>
                         📥
                       </button>
+                      <VisualQuickButton text={run.text} title={compareSaveTitle(saveTitleBase ?? topic, side)} saved={null} from="compare" dataKey={side} label="🖼" style={compareCompactBtnStyle} />
                     </span>
                   )}
                 </div>

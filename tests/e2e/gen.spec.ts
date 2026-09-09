@@ -1100,3 +1100,38 @@ test('B39: 追加リサーチ（319・実AI・Gemini）— 実資料1件＋「�
     await request.delete('/api/library', { data: { ids: [libId, ...saved] } }).catch(() => {});
   }
 });
+
+
+test('B40: 生成結果から直接図解・画像（320・実AI）— 種類を絞ったプラン抽出（Gemini・correlation/table/image）が選んだ型だけを返し、相関図の辺はすべてラベルつき・本文に無い語句なし。キーがあれば GPT Image 2.5 で1枚（文字はコードで重ねる＝aiText オフ） @gen', async ({ request }) => {
+  test.setTimeout(GEN_TIMEOUT);
+  const text = '睡眠不足は肌荒れと正の相関がある。湿度と乾燥は逆相関で、加湿器は乾燥を減らす。朝の保湿は洗顔のあと5分以内に行う。化粧水をなじませてから乳液で蓋をする。夜はクレンジングのあとに同じ手順で保湿する。週に1回は角質ケアを足す。';
+  const types = ['correlation', 'table', 'image'];
+  const t0 = Date.now();
+  const planRes = await request.post('/api/visuals/plan', { data: { text, types }, timeout: REQ_TIMEOUT });
+  expect(planRes.status()).toBe(200);
+  const plan = (await planRes.json()) as { plans: { id: string; type: string; title: string; groups: { heading?: string; points: string[] }[] }[]; checks: Record<string, { foreign: string[] }> };
+  expect(plan.plans.length, '候補が返る').toBeGreaterThan(0);
+  expect(plan.plans.every((p) => types.includes(p.type)), '選んだ型だけ').toBe(true);
+  const corr = plan.plans.filter((p) => p.type === 'correlation');
+  for (const c of corr) {
+    for (const g of c.groups) for (const pt of g.points) expect(pt, `相関図の辺はラベルつき: ${pt}`).toMatch(/^(→|->)\s*[^:：]+[:：]\s*\S/);
+  }
+  const foreignTotal = plan.plans.reduce((n, p) => n + (plan.checks[p.id]?.foreign.length ?? 0), 0);
+  console.log(`[B40] ${Date.now() - t0}ms plans=${plan.plans.length} types=${plan.plans.map((p) => p.type).join(',')} correlation=${corr.length} foreign=${foreignTotal}`);
+  const status = (await (await request.get('/api/visuals?mode=status')).json()) as { gptImage: boolean };
+  if (!status.gptImage) {
+    console.log('[B40] OPENAI_API_KEY 未設定＝画像はスキップ');
+    return;
+  }
+  const imgPlan = { id: 'b40', type: 'image', title: '朝の保湿', groups: [{ points: ['乳液で蓋をする'] }], imagePrompt: '洗面台と朝の光' };
+  const t1 = Date.now();
+  const res = await request.post('/api/visuals/image', { data: { plan: imgPlan, sourceText: text, settings: { orientation: 'landscape', quality: 'low', aiText: false, extraPrompt: '', model: 'flare' } }, timeout: REQ_TIMEOUT });
+  const json = (await res.json()) as { originalBase64?: string; finalBase64?: string; model?: string; costUsd?: number | null; error?: string; unavailable?: boolean };
+  if (res.status() !== 200 && json.unavailable) {
+    console.log(`[B40] GPT Image 2.5 は未提供: ${json.error}`);
+    return;
+  }
+  expect(res.status(), `画像生成が 200: ${json.error ?? ''}`).toBe(200);
+  expect((json.finalBase64?.length ?? 0) > 5000 && (json.originalBase64?.length ?? 0) > 5000, '完成画像と元画像が返る').toBe(true);
+  console.log(`[B40] image ${Date.now() - t1}ms model=${json.model} cost=${json.costUsd}`);
+});

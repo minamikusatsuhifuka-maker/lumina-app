@@ -71,6 +71,8 @@ import {
 import { KINDLE_PURPOSES } from '../../src/lib/kindle-purposes';
 // 319: 追加リサーチ
 import { FOLLOWUP_HANDOFF_KEY, FOLLOWUP_PROMPT_CHIPS, followUpMetadata, followUpTitle } from '../../src/lib/followup-research';
+// 320: 生成結果から直接図解・画像
+import { CORRELATION_LABEL_REQUIRED, VISUAL_QUICK_DEFAULT_TYPES } from '../../src/lib/visuals';
 
 // ============================================================================
 // スモークテスト（残E2Eチェックリスト C系＋B表示系）
@@ -11800,5 +11802,202 @@ test('C135: 追加リサーチ（319）— 📚行・選択バー（4件で上�
     await deletePurpose(request, purposeA).catch(() => {});
     await deletePurpose(request, purposeC).catch(() => {});
     await deleteFolder(request, 'library', folderF).catch(() => {});
+  }
+});
+
+
+test('C136: 生成結果から直接図解・画像（320）— 🔭DR結果（未保存）の「🖼 図解・画像を作る」→種類ダイアログ（既定＝関連図・表・画像／やめる・Escで何も起きない／画像は費用・他は無料）→進むで一回限りキー（R-121）＋?types=&autoplan=1 の新タブ→本文が入り STEP1 が1回だけ自動で走り（送信に types）描画・画像生成はリクエスト0→相関図は label 無しの辺と元テキストに無い語句が赤い印→直して実描画（線は一様・文字一致）→保存の出どころは未保存（unsavedSource）／再読込でキーは再利用されない／保存済み ?scope=&id= の自動STEP1・失敗でボタンが戻る／「AIに文字も描かせる」の記憶（初期オフ・再読込後も残る）／⚖比較は完了した列だけに入口／🗂分析の成果物にも同じ入口', async ({ page, context, request }) => {
+  test.setTimeout(480_000);
+  const marker = `VQ${RUN_ID}`;
+  const body = `朝の保湿は洗顔のあと5分以内に行う。化粧水をなじませてから乳液で蓋をする。夜はクレンジングのあとに同じ手順。週に1回は角質ケアを足す。冬は加湿器で室内の湿度を保つ。湿度と乾燥は逆相関で、加湿器は乾燥を減らす。識別子 ${marker}`;
+  const libId = await createLibraryItem(request, { title: `${marker} 図解元`, content: body, type: 'deepresearch' });
+  const galleryIds: string[] = [];
+  const planBodies: { text?: string; types?: string[] }[] = [];
+  let failNextPlan = false;
+  let renderCalls = 0;
+  let imageCalls = 0;
+  const mockPlans = [
+    { id: 'c1', type: 'correlation', title: '湿度と乾燥', groups: [{ heading: '湿度', points: ['→ 乾燥: 逆相関', '→ 加湿器'] }, { heading: '乾燥', points: [] }, { heading: '加湿器', points: ['→ 乾燥: 強い因果'] }] },
+    { id: 't1', type: 'table', title: '同じ手順', groups: [{ heading: '朝', points: ['化粧水', '乳液'] }, { heading: '夜', points: ['クレンジング', '乳液'] }] },
+    { id: 'i1', type: 'image', title: '冬は加湿器で室内の湿度を保つ', groups: [{ points: ['角質ケア'] }], imagePrompt: '冬の部屋' },
+  ];
+  try {
+    // ── モック（新しいタブにも効くよう context 単位） ──
+    await context.route('**/api/visuals/plan', async (route) => {
+      planBodies.push(route.request().postDataJSON());
+      if (failNextPlan) {
+        failNextPlan = false;
+        await route.fulfill({ status: 500, contentType: 'application/json', body: JSON.stringify({ error: 'モックの失敗' }) });
+        return;
+      }
+      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ plans: mockPlans, rejected: [], ranAt: new Date().toISOString() }) });
+    });
+    await context.route('**/api/visuals/render', async (route) => { renderCalls++; await route.fallback(); });
+    await context.route('**/api/visuals/image', async (route) => { imageCalls++; await route.fulfill({ status: 500, contentType: 'application/json', body: '{"error":"E2E では画像を生成しない"}' }); });
+    await context.route('**/api/feature-drafts**', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(route.request().method() === 'GET' ? { draft: null } : { ok: true }) }));
+    for (const pattern of ['**/api/knowledge/**', '**/api/glossary/research-extract', '**/api/deepresearch/insights', '**/api/deepresearch/query-history', '**/api/library/auto-categorize']) {
+      await context.route(pattern, (route) => route.fulfill({ status: 200, contentType: 'application/json', body: '{}' }));
+    }
+    // 保存は失敗させる＝結果は「未保存」のまま（未保存の受け渡しを検証する）。本番ライブラリにも書かない
+    await context.route('**/api/library', async (route) => {
+      if (route.request().method() === 'POST') { await route.fulfill({ status: 500, contentType: 'application/json', body: '{"error":"E2E: 保存しない"}' }); return; }
+      await route.fallback();
+    });
+    const sse = (events: object[]) => events.map((e) => `data: ${JSON.stringify(e)}\n\n`).join('');
+    await context.route('**/api/deepresearch', async (route) => {
+      const b = route.request().postDataJSON() as { compare?: string };
+      await new Promise((r) => setTimeout(r, 200));
+      if (b.compare === 'opus') {
+        await route.fulfill({ status: 200, contentType: 'text/event-stream', body: sse([{ type: 'start' }, { side: 'opus', type: 'meta', model: 'claude-opus-5' }, { side: 'opus', type: 'error', message: 'E2E: この列は失敗' }]) });
+        return;
+      }
+      if (b.compare) {
+        await route.fulfill({ status: 200, contentType: 'text/event-stream', body: sse([{ type: 'start' }, { side: b.compare, type: 'meta', model: 'gemini-3.7-flash' }, { side: b.compare, type: 'text', content: `# 比較\n\n${body}` }, { side: b.compare, type: 'done', usage: { input_tokens: 1, output_tokens: 1 }, elapsedMs: 100 }]) });
+        return;
+      }
+      await route.fulfill({ status: 200, contentType: 'text/event-stream', body: sse([{ type: 'start' }, { type: 'text', content: `# 結果\n\n${body}` }, { type: 'done', usage: { input_tokens: 1, output_tokens: 1 } }]) });
+    });
+
+    // ── ① 🔭DR 結果（未保存）: 入口 → 種類ダイアログ → 進む（新しいタブ） ──
+    await page.goto('/dashboard/deepresearch');
+    await page.evaluate(() => { localStorage.setItem('lumina_auto_stock_save', '0'); });
+    await page.reload({ waitUntil: 'domcontentloaded' });
+    await waitForRunReady(page);
+    const topic = page.getByPlaceholder(/調査したいテーマを詳しく入力してください/);
+    await topic.fill(`[E2E] 320 ${marker}`);
+    await page.locator('button[data-kb-run]').click();
+    const entry = page.locator('[data-vis-quick-open="report"]');
+    await expect(entry, '結果が出たら入口が出る（保存前でも）').toBeEnabled({ timeout: 30000 });
+    await expect(entry).toHaveAttribute('data-vis-quick-saved', 'unsaved');
+    const dlg = page.locator('[data-vis-picker-dialog]');
+    await entry.click();
+    await expect(dlg).toBeVisible();
+    for (const t of ['image', 'table', 'flow', 'compare', 'steps', 'concept', 'relation', 'correlation', 'timeline', 'figures', 'onepage']) {
+      const c = dlg.locator(`[data-vis-picker-check="${t}"]`);
+      if ((VISUAL_QUICK_DEFAULT_TYPES as readonly string[]).includes(t)) await expect(c, `${t} は既定でチェック`).toBeChecked();
+      else await expect(c, `${t} は既定で外れている`).not.toBeChecked();
+    }
+    await expect(dlg.locator('[data-vis-picker-note="image"]'), '画像は費用の目安').toContainText('$');
+    await expect(dlg.locator('[data-vis-picker-note="correlation"]')).toContainText('無料');
+    await expect(dlg.locator('[data-vis-picker-source]')).toHaveAttribute('data-vis-picker-source', 'unsaved');
+    const pagesBefore = context.pages().length;
+    await page.keyboard.press('Escape');
+    await expect(dlg).toHaveCount(0);
+    await entry.click();
+    await dlg.locator('[data-vis-picker-cancel]').click();
+    await expect(dlg).toHaveCount(0);
+    expect(context.pages().length, 'やめる・Esc で何も起きない').toBe(pagesBefore);
+    expect(planBodies.length).toBe(0);
+    await entry.click();
+    await dlg.locator('[data-vis-picker-check="image"]').uncheck();
+    await dlg.locator('[data-vis-picker-check="correlation"]').check();
+    await expect(dlg.locator('[data-vis-picker-reason]')).toContainText('3種類');
+    const [popup] = await Promise.all([
+      context.waitForEvent('page'),
+      dlg.locator('[data-vis-picker-go]').evaluate((el) => { (el as HTMLButtonElement).click(); (el as HTMLButtonElement).click(); }), // R-87
+    ]);
+    await popup.waitForLoadState();
+    expect(popup.url()).toContain('/dashboard/visuals?from=handoff&types=table%2Crelation%2Ccorrelation&autoplan=1');
+    await expect(dlg).toHaveCount(0);
+    await page.waitForTimeout(400);
+    expect(context.pages().length, '二重発火で新タブは1つ').toBe(pagesBefore + 1);
+    // ── ② 315: 本文が入り、STEP1 が自動で1回（送信に types）。描画・画像は自動で走らない ──
+    await expect(popup.locator('[data-vis-source]'), '渡した本文が入る（R-121）').toHaveValue(new RegExp(marker), { timeout: 30000 });
+    await expect(popup.locator('[data-vis-unsaved-source]')).toHaveAttribute('data-vis-unsaved-source', 'deepresearch');
+    await expect(popup.locator('[data-vis-types]')).toHaveAttribute('data-vis-types', 'table,relation,correlation');
+    await expect(popup.locator('[data-vis-plan]')).toHaveCount(3, { timeout: 30000 });
+    await expect(popup.locator('[data-vis-step1]')).toHaveAttribute('data-vis-autoplan', '1');
+    expect(planBodies.length, 'STEP1 は1回だけ').toBe(1);
+    expect(planBodies[0].types).toEqual(['table', 'relation', 'correlation']);
+    expect(planBodies[0].text).toContain(marker);
+    await popup.waitForTimeout(500);
+    expect(renderCalls, '自動で描かない').toBe(0);
+    expect(imageCalls, '自動で生成しない').toBe(0);
+    // ── ③ 相関図: label 無しの辺と元テキストに無い語句が赤い印 → 直すと描ける → 実描画（線は一様・文字一致）→ 出どころは未保存 ──
+    const c1 = popup.locator('[data-vis-plan="c1"]');
+    await expect(c1).toHaveAttribute('data-vis-plan-type', 'correlation');
+    await expect(c1).toHaveAttribute('data-vis-plan-ok', '0');
+    await expect(c1.locator('[data-vis-block-reason="c1"]')).toContainText(CORRELATION_LABEL_REQUIRED);
+    await expect(c1.locator('[data-vis-foreign="c1"]'), '元テキストに無い相関の語句').toContainText('強い因果');
+    await expect(c1.locator('[data-vis-render="c1"]')).toBeDisabled();
+    await c1.locator('[data-vis-points="c1-0"]').fill('→ 乾燥: 逆相関');
+    await c1.locator('[data-vis-points="c1-2"]').fill('→ 乾燥: 乾燥を減らす');
+    await expect(c1, '直すと ok').toHaveAttribute('data-vis-plan-ok', '1');
+    await c1.locator('[data-vis-render="c1"]').click();
+    const r1 = popup.locator('[data-vis-result="c1"]');
+    await expect(r1).toHaveAttribute('data-vis-saved', '1', { timeout: 90000 });
+    await expect(r1).toHaveAttribute('data-vis-verified', '1');
+    expect(renderCalls, '描画は院長の操作で1回').toBe(1);
+    const g1 = (await r1.getAttribute('data-vis-gallery-id'))!;
+    galleryIds.push(g1);
+    const gal = (await (await api.get('/api/gallery?limit=5')).json()) as { images: { id: string; source: string; settings: { visual?: { sourceKeys?: string[]; kind?: string; plan?: { type?: string }; unsavedSource?: { from?: string; title?: string; chars?: number } } } }[] };
+    const row = gal.images.find((im) => im.id === g1)!;
+    expect(row.source).toBe('visuals');
+    expect(row.settings.visual?.plan?.type).toBe('correlation');
+    expect(row.settings.visual?.sourceKeys, '未保存＝行の参照は無い').toEqual([]);
+    expect(row.settings.visual?.unsavedSource?.from, '出どころは未保存の結果').toBe('deepresearch');
+    expect(row.settings.visual?.unsavedSource?.title).toContain(marker);
+    expect(row.settings.visual?.unsavedSource?.chars).toBeGreaterThan(20);
+    // ── ④ 再読込: 一回限りキーは消費済み（本文なし・STEP1 は走らない） ──
+    await popup.reload();
+    await expect(popup.locator('[data-vis-source-error]')).toContainText('渡された本文がありません', { timeout: 30000 });
+    await expect(popup.locator('[data-vis-source]')).toHaveValue('');
+    await popup.waitForTimeout(800);
+    expect(planBodies.length, '再読込で再実行しない').toBe(1);
+    // ── ⑤ 保存済み ?scope=&id=: STEP1 失敗でボタンが戻る → 手動で成功。「AIに文字も描かせる」の記憶 ──
+    failNextPlan = true;
+    await popup.goto(`/dashboard/visuals?scope=library&id=${libId}&types=table%2Cimage&autoplan=1`);
+    await expect(popup.locator('[data-vis-source]')).toHaveValue(new RegExp(marker), { timeout: 30000 });
+    await expect.poll(() => planBodies.length, '保存済み経路でも自動 STEP1').toBe(2);
+    await expect(popup.locator('[data-vis-extract]'), '失敗したらボタンが押せる状態に戻る').toBeEnabled({ timeout: 15000 });
+    await expect(popup.locator('[data-vis-plan]')).toHaveCount(0);
+    await popup.locator('[data-vis-extract]').click();
+    await expect(popup.locator('[data-vis-plan]')).toHaveCount(3, { timeout: 30000 });
+    expect(planBodies.length).toBe(3);
+    expect(planBodies[2].types).toEqual(['table', 'image']);
+    const aiText = popup.locator('[data-vis-aitext]');
+    await expect(aiText, '初期既定はオフ').not.toBeChecked();
+    await aiText.check();
+    await popup.reload();
+    await expect(popup.locator('[data-vis-plan]')).toHaveCount(3, { timeout: 30000 });
+    await expect(popup.locator('[data-vis-aitext]'), '再読込後も残る（端末に記憶）').toBeChecked();
+    await popup.locator('[data-vis-aitext]').uncheck();
+    await popup.reload();
+    await expect(popup.locator('[data-vis-plan]')).toHaveCount(3, { timeout: 30000 });
+    await expect(popup.locator('[data-vis-aitext]')).not.toBeChecked();
+    expect(imageCalls, '画像生成は一度も走らない').toBe(0);
+    await popup.close();
+    // ── ⑥ ⚖ 比較: 完了した列だけに入口（失敗した列には出ない） ──
+    await page.locator('button[data-compare-run]').click();
+    const cdlg = page.locator('[data-compare-dialog]');
+    await expect(cdlg.locator('[data-compare-dialog-check="gemini"]')).toBeChecked({ timeout: 15000 });
+    await expect(cdlg.locator('[data-compare-dialog-check="opus"]')).toBeChecked();
+    await cdlg.locator('[data-compare-dialog-start]').click();
+    await expect(page.locator('[data-compare-model="gemini"] [data-vis-quick-open="gemini"]'), '完了した列に入口').toBeVisible({ timeout: 30000 });
+    await expect(page.locator('[data-compare-error="opus"]')).toBeVisible({ timeout: 30000 });
+    await expect(page.locator('[data-vis-quick-open="opus"]'), '失敗した列には出ない').toHaveCount(0);
+    await page.locator('[data-compare-model="gemini"] [data-vis-quick-open="gemini"]').click();
+    await expect(dlg).toBeVisible();
+    await expect(dlg.locator('[data-vis-picker-source]')).toHaveAttribute('data-vis-picker-source', 'unsaved');
+    await page.keyboard.press('Escape');
+    // ── ⑦ 🗂 分析の成果物: 同じ入口（未保存） ──
+    const analyzeCalls = await mockAnalyze(page, `[E2E] ${marker} モック分析結果。${body}`);
+    await page.goto('/dashboard/text-analysis');
+    await page.evaluate(() => localStorage.setItem('lumina_auto_stock_save', '0'));
+    await page.reload({ waitUntil: 'domcontentloaded' });
+    await waitForRunReady(page);
+    await page.getByPlaceholder('ここに分析したいテキストを貼り付けてください...').fill(body);
+    await page.locator('button[data-kb-run]').click();
+    const taEntry = page.locator('[data-vis-quick-open="unsaved"]').first();
+    await expect(taEntry, '成果物の下に入口').toBeEnabled({ timeout: 60000 });
+    expect(analyzeCalls()).toBeGreaterThan(0);
+    await taEntry.click();
+    await expect(dlg).toBeVisible();
+    await expect(dlg.locator('[data-vis-picker-chars]')).not.toHaveAttribute('data-vis-picker-chars', '0');
+    await dlg.locator('[data-vis-picker-cancel]').click();
+    await expect(dlg).toHaveCount(0);
+  } finally {
+    for (const id of galleryIds) await api.delete(`/api/gallery/${id}`).catch(() => {});
+    await api.delete(LIBRARY_API, { data: { ids: [libId] } }).catch(() => {});
   }
 });

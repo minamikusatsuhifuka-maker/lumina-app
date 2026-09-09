@@ -54,6 +54,8 @@ import ModelCompareView from '@/components/deepresearch/ModelCompareView';
 import CompareStartDialog from '@/components/deepresearch/CompareStartDialog';
 // 319: 追加リサーチ（前提資料＋院長のプロンプト）。入口ダイアログからの handoff を受けて既存の research()／比較に前提資料をオプトインで渡す（R-88）
 import { FollowUpResearchButton } from '@/components/deepresearch/FollowUpResearchDialog';
+// 320: 結果から直接「🖼 図解・画像を作る」（保存前でも可・未保存は一回限りキー）
+import { VisualQuickButton } from '@/components/visuals/VisualQuickButton';
 import {
   FOLLOWUP_FROM_PARAM,
   FOLLOWUP_HANDOFF_KEY,
@@ -2451,6 +2453,15 @@ ${contextText}
                   style={{ padding: '6px 14px', background: 'rgba(14,116,144,0.08)', color: '#0E7490', border: '1px solid rgba(14,116,144,0.3)', borderRadius: 6, cursor: 'pointer', fontSize: 12, fontWeight: 500 }}
                 />
               </span>
+              {/* 320 §3-1: この結果から図解・画像（保存済みなら行を、未保存なら本文を渡す） */}
+              <VisualQuickButton
+                text={report}
+                title={followUp ? followUpTitle(topic, followUp.sources.map((x) => x.title)) : (topic || 'ディープリサーチ')}
+                saved={reportSavedId ? { scope: 'library', id: reportSavedId } : null}
+                from="deepresearch"
+                dataKey="report"
+                style={{ padding: '6px 14px', background: 'rgba(14,116,144,0.08)', color: '#0E7490', border: '1px solid rgba(14,116,144,0.3)', borderRadius: 6, cursor: 'pointer', fontSize: 12, fontWeight: 500 }}
+              />
             </div>
             <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>

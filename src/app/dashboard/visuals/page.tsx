@@ -35,8 +35,10 @@ import {
   type VisualOrientation,
   type VisualPlan,
   type VisualSourceRef,
-  type VisualType,
+  type VisualType, VISUALS_AUTOPLAN_PARAM, VISUALS_FROM_PARAM, VISUALS_HANDOFF_KEY, VISUAL_AI_TEXT_STORAGE_KEY, parseStoredAiText, parseVisualsHandoff, type VisualUnsavedSource,
 } from '@/lib/visuals';
+// 320: 未保存の結果の handoff（一回限りキー・R-121）
+import { readOneTimeHandoff } from '@/lib/one-time-handoff';
 
 type Result = {
   kind: 'render' | 'image';
@@ -90,6 +92,23 @@ function VisualsInner() {
   const [imageDialog, setImageDialog] = useState<string | null>(null);
   const busyRef = useRef<Set<string>>(new Set()); // R-87
   const extractRef = useRef(false);
+  // 320: 未保存の結果（handoff）の出どころ・自動 STEP1（?autoplan=1）は一回だけ（ref・キーは読んだ時点で消費済み）
+  const [unsavedSource, setUnsavedSource] = useState<VisualUnsavedSource | null>(null);
+  const [autoplanWanted, setAutoplanWanted] = useState(false);
+  const autoplanDoneRef = useRef(false);
+  // 320 §3-5: 「AIに文字も描かせる」の前回の選択（端末ごと・初期既定はオフ）
+  useEffect(() => {
+    try {
+      const stored = localStorage.getItem(VISUAL_AI_TEXT_STORAGE_KEY);
+      if (stored !== null) setImageSettings((s) => ({ ...s, aiText: parseStoredAiText(stored) }));
+    } catch {}
+  }, []);
+  const setAiText = (on: boolean) => {
+    setImageSettings((s) => ({ ...s, aiText: on }));
+    try {
+      localStorage.setItem(VISUAL_AI_TEXT_STORAGE_KEY, on ? '1' : '0');
+    } catch {}
+  };
 
   // 使えるモデル（キーの有無だけ）と、?scope=&id= の元テキスト
   useEffect(() => {
@@ -112,6 +131,19 @@ function VisualsInner() {
     const ids = (searchParams?.get('id') ?? searchParams?.get('ids') ?? '').split(',').map((s) => s.trim()).filter(Boolean);
     const typesParam = (searchParams?.get('types') ?? '').split(',').map((s) => s.trim()).filter((t): t is VisualType => (VISUAL_TYPES as readonly string[]).includes(t));
     setRestrictTypes(typesParam);
+    setAutoplanWanted(searchParams?.get(VISUALS_AUTOPLAN_PARAM) === '1');
+    // 320: 未保存の結果は一回限りキーから本文を受ける（読んだら消える＝再読込では空の画面）
+    if (searchParams?.get('from') === VISUALS_FROM_PARAM) {
+      const h = readOneTimeHandoff(VISUALS_HANDOFF_KEY, parseVisualsHandoff);
+      if (h) {
+        setSources([]);
+        setSourceText(h.text);
+        setUnsavedSource({ title: h.title, chars: h.text.length, at: h.at, from: h.from });
+      } else {
+        setSourceError('渡された本文がありません（このタブは一度読み込まれています。元の画面から開き直してください）');
+      }
+      return;
+    }
     if (!scope || ids.length === 0) return;
     let cancelled = false;
     (async () => {
@@ -170,8 +202,18 @@ function VisualsInner() {
     }
   };
 
+  // 320 §3-3: 自動 STEP1＝元テキストが入ったら extract() を1回だけ（R-87）。STEP2/3 は院長の操作のまま（自動で描かない・生成しない）
+  useEffect(() => {
+    if (!autoplanWanted || autoplanDoneRef.current) return;
+    if (sourceText.trim().length < 20) return;
+    autoplanDoneRef.current = true;
+    void extract();
+    // extract は毎描画で作り直される。発火条件は「本文が入った」だけ
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoplanWanted, sourceText]);
+
   const saveToGallery = async (plan: VisualPlan, r: { base64: string; width: number; height: number; model: string; generatedAt: string; kind: 'render' | 'image-final' | 'image-original'; quality?: string; aiText?: boolean; costUsd?: number | null; originalId?: string }) => {
-    const settings = buildVisualGallerySettings({ kind: r.kind, plan, orientation, sources, width: r.width, height: r.height, model: r.model, quality: r.quality, aiText: r.aiText, costUsd: r.costUsd, originalId: r.originalId, generatedAt: r.generatedAt });
+    const settings = buildVisualGallerySettings({ kind: r.kind, plan, orientation, sources, width: r.width, height: r.height, model: r.model, quality: r.quality, aiText: r.aiText, costUsd: r.costUsd, originalId: r.originalId, generatedAt: r.generatedAt, unsavedSource });
     return saveImageToGallery({ imageBase64: r.base64, prompt: `図解: ${plan.title}`, settings, title: visualSaveTitle(plan, r.kind), source: 'visuals', width: r.width, height: r.height });
   };
 
@@ -266,7 +308,7 @@ function VisualsInner() {
       </div>
 
       {/* STEP1 */}
-      <section data-vis-step1 style={card}>
+      <section data-vis-step1 data-vis-autoplan={autoplanWanted ? (autoplanDoneRef.current ? '1' : '0') : undefined} style={card}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 8 }}>
           <strong style={{ fontSize: 13 }}>STEP1 元テキスト</strong>
           {restrictTypes.length > 0 && <span data-vis-types={restrictTypes.join(',')} style={{ fontSize: 11, color: '#6c63ff', fontWeight: 700 }}>種類を絞って提案: {restrictTypes.map((t) => VISUAL_TYPE_META[t].label).join('／')}</span>}
@@ -275,6 +317,7 @@ function VisualsInner() {
               {sources.map((s) => s.title).join(' ／ ')}（{sources.length}件）
             </span>
           )}
+          {unsavedSource && <span data-vis-unsaved-source={unsavedSource.from} style={{ fontSize: 11, color: 'var(--text-muted)' }}>未保存の結果から: {unsavedSource.title || '（無題）'}（{unsavedSource.chars.toLocaleString()}字）</span>}
           {sourceError && <span data-vis-source-error style={{ fontSize: 11, color: '#B91C1C' }}>⚠️ {sourceError}</span>}
         </div>
         <textarea data-vis-source value={sourceText} onChange={(e) => setSourceText(e.target.value)} placeholder="ここに記事・分析結果のテキストを貼り付けるか、📚🗂の行の「🖼 図解にする」から開いてください" rows={8} style={{ ...input, fontSize: 16, resize: 'vertical' }} />
@@ -377,7 +420,7 @@ function VisualsInner() {
                         </select>
                       </label>
                       <label style={{ fontSize: 12, display: 'flex', alignItems: 'center', gap: 4 }} title="既定は文字なしの絵柄を生成し、プランの文字をコードで重ねます（文字は100%一致）。チェックすると AI に文字も描かせます（完成後に目視確認）">
-                        <input type="checkbox" data-vis-aitext checked={imageSettings.aiText} onChange={(e) => setImageSettings((s) => ({ ...s, aiText: e.target.checked }))} />
+                        <input type="checkbox" data-vis-aitext checked={imageSettings.aiText} onChange={(e) => setAiText(e.target.checked)} />
                         AIに文字も描かせる
                       </label>
                       <input data-vis-extra-prompt value={imageSettings.extraPrompt} onChange={(e) => setImageSettings((s) => ({ ...s, extraPrompt: e.target.value }))} placeholder="追記（任意）" style={{ ...input, width: 220, fontSize: 12 }} />

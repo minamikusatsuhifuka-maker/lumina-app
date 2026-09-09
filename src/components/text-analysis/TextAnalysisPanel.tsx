@@ -40,6 +40,8 @@ import { TextRefinePanel } from '@/components/refine/TextRefinePanel';
 import FullscreenReader from '@/components/text-analysis/FullscreenReader';
 // 319: 結果カードから追加リサーチ（保存済みの行が前提資料）
 import { FollowUpResearchButton } from '@/components/deepresearch/FollowUpResearchDialog';
+// 320: 成果物から直接「🖼 図解・画像を作る」
+import { VisualQuickButton } from '@/components/visuals/VisualQuickButton';
 import { useRunKeyHints, useRunShortcut } from '@/lib/shortcuts';
 // 313改訂: 「📋 クリアして貼付」は院長の実機判断で廃止（クリア→ペーストの2操作で同じ結果）。lib/clear-and-paste は 🔭DR で引き続き使う
 // 255: 「貼り付けたら前の内容を置き換える」（iOSで追加タップを出さずに1操作にする）
@@ -319,6 +321,16 @@ function ResultPanel({
           label="🔭 追加リサーチ"
           disabled={!savedId || saveStatus !== 'saved'}
           disabledReason="先に「💾 ストック保存」でこの結果を保存してください（保存した行が前提資料になります）"
+          style={btnStyle('neutral')}
+        />
+        {/* 320 §3-1: 成果物から図解・画像（保存済みなら行・未保存なら本文をそのまま渡す。保存前でも押せる） */}
+        <VisualQuickButton
+          text={text}
+          title={label}
+          saved={savedId && saveStatus === 'saved' ? { scope: 'text_analysis', id: String(savedId) } : null}
+          from="text_analysis"
+          dataKey={savedId && saveStatus === 'saved' ? String(savedId) : 'unsaved'}
+          disabled={!text || isStreaming}
           style={btnStyle('neutral')}
         />
         <button

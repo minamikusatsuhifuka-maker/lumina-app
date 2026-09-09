@@ -12,7 +12,7 @@ import {
   collectPlanStrings,
   lineCount,
   minCanvasHeight,
-  relationEdgesOf,
+  edgesOfPlan,
   type VisualOrientation,
   type VisualPlan,
 } from '@/lib/visuals';
@@ -72,8 +72,8 @@ export function estimateVisualHeight(plan: VisualPlan, orientation: VisualOrient
       rowsH += 28 + maxLines * 40;
     }
     body = 72 + rowsH + 24;
-  } else if (plan.type === 'relation') {
-    // 円周配置: 正方形に近い領域（幅の 0.8）＋ラベル分
+  } else if (plan.type === 'relation' || plan.type === 'correlation') {
+    // 円周配置: 正方形に近い領域（幅の 0.8）＋ラベル分（320: 相関図も同じ配置）
     body = Math.round(width * 0.82) + 40;
   } else if (plan.type === 'timeline') {
     const n = Math.max(1, plan.groups.length);
@@ -262,7 +262,8 @@ function conceptTemplate(plan: VisualPlan, width: number): El[] {
 // ── 317: 関連図（円周配置・ノード順で角度を割当・辺は直線＝回転した細い div・ラベルは中点。力学レイアウトは使わない・R-74） ──
 function relationTemplate(plan: VisualPlan, width: number): El[] {
   const nodes = plan.groups.map((g) => (g.heading ?? '').trim());
-  const { edges } = relationEdgesOf(plan);
+  // 320: 相関図は label 必須の辺だけ（edgesOfPlan）。線は全辺同じ太さ・色・不透明度＝強弱は label の文字で示す（AI の判断を視覚化しない・R-74）
+  const edges = edgesOfPlan(plan);
   const n = Math.max(1, nodes.length);
   const area = Math.round(width * 0.82);
   const inner = width - 56 * 2;
@@ -374,7 +375,7 @@ export function buildVisualElement(plan: VisualPlan, orientation: VisualOrientat
     : plan.type === 'flow' ? flowTemplate(plan, width)
     : plan.type === 'compare' ? compareTemplate(plan, width)
     : plan.type === 'steps' ? stepsTemplate(plan, width)
-    : plan.type === 'relation' ? relationTemplate(plan, width)
+    : plan.type === 'relation' || plan.type === 'correlation' ? relationTemplate(plan, width)
     : plan.type === 'timeline' ? timelineTemplate(plan, width)
     : plan.type === 'figures' ? figuresTemplate(plan, width)
     : plan.type === 'onepage' ? onepageTemplate(plan, width)
@@ -387,8 +388,8 @@ export function buildVisualElement(plan: VisualPlan, orientation: VisualOrientat
  * 数値＝見出し＋数値（引用は描かない）、タイムライン＝時期＋出来事＋補足、1枚サマリー＝タイトル＋要点＋一言。他は全文字列
  */
 export function expectedStringsOf(plan: VisualPlan): string[] {
-  if (plan.type === 'relation') {
-    const { edges } = relationEdgesOf(plan);
+  if (plan.type === 'relation' || plan.type === 'correlation') {
+    const edges = edgesOfPlan(plan);
     return [plan.title.trim(), ...plan.groups.map((g) => (g.heading ?? '').trim()), ...edges.map((e) => e.label)].filter(Boolean);
   }
   if (plan.type === 'figures') return [plan.title.trim(), ...plan.groups.flatMap((g) => [(g.points[0] ?? '').trim(), (g.heading ?? '').trim()])].filter(Boolean);

@@ -12,10 +12,11 @@
 import { findBannedExpressions } from '@/lib/content-verify';
 import { IMAGE_MODEL_IDS, type ImageAspectKey, type ImageQualityKey } from '@/lib/model-pricing';
 
-export type VisualType = 'table' | 'flow' | 'compare' | 'steps' | 'concept' | 'relation' | 'timeline' | 'figures' | 'onepage' | 'image';
-export const VISUAL_TYPES: readonly VisualType[] = ['table', 'flow', 'compare', 'steps', 'concept', 'relation', 'timeline', 'figures', 'onepage', 'image'];
+export type VisualType = 'table' | 'flow' | 'compare' | 'steps' | 'concept' | 'relation' | 'correlation' | 'timeline' | 'figures' | 'onepage' | 'image';
+// 320: 相関図（correlation）＝関連図の派生。辺に「相関の向きと強さ」を**文字**で書く（label 必須・太さ/色では表さない）
+export const VISUAL_TYPES: readonly VisualType[] = ['table', 'flow', 'compare', 'steps', 'concept', 'relation', 'correlation', 'timeline', 'figures', 'onepage', 'image'];
 /** 決定的描画の5種（イメージ以外） */
-export const VISUAL_DETERMINISTIC_TYPES: readonly VisualType[] = ['table', 'flow', 'compare', 'steps', 'concept', 'relation', 'timeline', 'figures', 'onepage'];
+export const VISUAL_DETERMINISTIC_TYPES: readonly VisualType[] = ['table', 'flow', 'compare', 'steps', 'concept', 'relation', 'correlation', 'timeline', 'figures', 'onepage'];
 /** 候補に出さない型（治療前後・効果対比の文脈で使われるため。プロンプト禁止＋コード側で弾く） */
 export const VISUAL_BANNED_TYPES: readonly string[] = ['beforeafter', 'before_after', 'before-after', 'ビフォーアフター'];
 
@@ -27,6 +28,7 @@ export const VISUAL_TYPE_META: Record<VisualType, { emoji: string; label: string
   concept: { emoji: '🧭', label: '概念図', hint: 'title が中心・groups＝枝（heading が枝の名前・points が要素）。2〜6枝' },
   // 317 §3-3: 4種を追加（コード描画・文字はプランどおり）
   relation: { emoji: '🕸', label: '関連図', hint: 'groups＝ノード（heading がノード名・最大8）。points は「→ 相手ノード名: 関係ラベル」（辺・最大12）。円周配置' },
+  correlation: { emoji: '🔀', label: '相関図', hint: 'groups＝要因（heading・最大8）。points は「→ 相手: 相関の向きと強さ（文字・必須）」（辺・最大12）。線は一様・強弱は文字で' },
   timeline: { emoji: '📅', label: 'タイムライン', hint: 'groups＝出来事（heading が時期の文字列・points[0] が出来事・points[1] は補足）。3〜8件・時期は解釈しない' },
   figures: { emoji: '🔢', label: '数値ハイライト', hint: 'groups＝数字カード（heading が見出し・points[0] が数値＋単位・points[1] が引用）。数値＋単位は引用と完全一致・3〜6件' },
   onepage: { emoji: '📄', label: '1枚サマリー', hint: 'title＋要点3（groups[0].points）＋一言（groups[1].points[0]）。描画済みの図を埋め込める' },
@@ -70,6 +72,19 @@ export function relationEdgesOf(plan: Pick<VisualPlan, 'groups'>): { edges: Rela
   return { edges, dropped };
 }
 
+/** 320: 相関図の辺＝関連図と同じ解析で **label 必須**。ラベルの無い辺は描かず、dropped に理由つきで残す（画面は赤い印にする） */
+export const CORRELATION_LABEL_REQUIRED = '相関図の辺には「相関の向きと強さ」の文字が必要';
+export function correlationEdgesOf(plan: Pick<VisualPlan, 'groups'>): { edges: RelationEdge[]; dropped: string[]; unlabeled: string[] } {
+  const base = relationEdgesOf(plan);
+  const edges = base.edges.filter((e) => e.label.trim() !== '');
+  const unlabeled = base.edges.filter((e) => e.label.trim() === '').map((e) => `→ ${(plan.groups[e.to]?.heading ?? '').trim()}`);
+  return { edges, dropped: [...base.dropped, ...unlabeled], unlabeled };
+}
+/** 型に応じた辺（テンプレートと照合が同じ関数を使う） */
+export function edgesOfPlan(plan: Pick<VisualPlan, 'type' | 'groups'>): RelationEdge[] {
+  return plan.type === 'correlation' ? correlationEdgesOf(plan).edges : relationEdgesOf(plan).edges;
+}
+
 /**
  * 317: 型ごとの追加検証（決定的）。返り値は「元テキストに無い扱いにする文字列 → 無い語」。
  * - figures: points[0]（数値＋単位）が points[1]（引用）に含まれ、引用が本文に含まれること（数字の改変を防ぐ）
@@ -86,6 +101,11 @@ export function typedPlanIssues(plan: Pick<VisualPlan, 'type' | 'groups'>, sourc
       if (!evidence || !normalizeForMatch(evidence).includes(normalizeForMatch(value))) out[value] = [`引用と完全一致しない数値: ${value}`];
       else if (!src.includes(normalizeForMatch(evidence))) out[evidence] = [`引用が本文に無い: ${evidence.slice(0, 20)}`];
     }
+  }
+  // 320: 相関図はラベル無しの辺を「描けない」扱い（label 必須）。ラベルの語句の実在は points 文字列の語句単位チェックが担う
+  if (plan.type === 'correlation') {
+    const { unlabeled } = correlationEdgesOf(plan);
+    for (const u of unlabeled) out[u] = [CORRELATION_LABEL_REQUIRED];
   }
   return out;
 }
@@ -396,9 +416,19 @@ export interface VisualGallerySettings {
     /** 完成画像から元画像（AI）への参照（C2PA を残した方） */
     originalId?: string;
     generatedAt: string;
+    /** 320: 未保存の結果から作ったとき（保存済みなら sources。後から行ができても自動では紐づけない） */
+    unsavedSource?: VisualUnsavedSource;
   };
   size: string;
   model: string;
+}
+
+/** 320: 未保存の結果の出どころ（タイトル・字数・時刻・どの画面から） */
+export interface VisualUnsavedSource {
+  title: string;
+  chars: number;
+  at: string;
+  from: VisualHandoffFrom;
 }
 
 export function buildVisualGallerySettings(input: {
@@ -414,6 +444,8 @@ export function buildVisualGallerySettings(input: {
   costUsd?: number | null;
   originalId?: string;
   generatedAt: string;
+  /** 320 */
+  unsavedSource?: VisualUnsavedSource | null;
 }): VisualGallerySettings {
   return {
     visual: {
@@ -428,6 +460,7 @@ export function buildVisualGallerySettings(input: {
       ...(input.aiText !== undefined ? { aiText: input.aiText } : {}),
       ...(input.costUsd !== undefined ? { costUsd: input.costUsd } : {}),
       ...(input.originalId ? { originalId: input.originalId } : {}),
+      ...(input.unsavedSource && input.sources.length === 0 ? { unsavedSource: input.unsavedSource } : {}),
       generatedAt: input.generatedAt,
     },
     size: `${input.width}x${input.height}`,
@@ -476,6 +509,7 @@ export function buildVisualPlanPrompt(sourceText: string, opts: { maxPlans?: num
     steps: '- steps: 手順。groups は1つ・points が上から順の手順（3〜8個・各40字以内）',
     concept: '- concept: 概念図。title が中心概念・groups＝枝（heading が枝の名前・points が要素）。2〜6枝',
     relation: '- relation: 関連図。groups＝ノード（heading がノード名・3〜8個）。points は「→ 相手ノード名: 関係ラベル（15字以内）」の形で他ノードへの辺（全体で最大12本）',
+    correlation: '- correlation: 相関図。groups＝要因（heading が要因名・3〜8個）。points は「→ 相手の要因名: 相関の向きと強さ（本文の表記そのまま・必須・例「正の相関（強）」「逆相関」「因果の可能性」）」（全体で最大12本）。**本文に明記された関係のみ**。推測の相関は出さない',
     timeline: '- timeline: タイムライン。groups＝出来事（3〜8件・時系列順）。heading が時期（本文の表記そのまま）・points[0] が出来事（20字以内）・points[1] は補足（任意）',
     figures: '- figures: 数値ハイライト。groups＝数字カード（3〜6件）。heading が見出し（15字以内）・points[0] が数値＋単位（本文の表記そのまま・例「約30%」）・points[1] がその数値を含む本文の引用（60字以内・原文そのまま）',
     onepage: '- onepage: 1枚サマリー。title が主題・groups[0].points が要点3つ（各30字以内）・groups[1].heading は「一言」・groups[1].points[0] が締めの一言（30字以内）',
@@ -499,4 +533,81 @@ ${sourceText.slice(0, VISUAL_SOURCE_MAX_CHARS)}
 # 出力フォーマット（必ずこのJSONのみ。前置き・コードフェンス禁止）
 { "visuals": [ { "type": "${allowed.join('|')}", "title": "本文中の語句", "groups": [ { "heading": "本文中の語句（省略可）", "points": ["本文中の語句", "…"] } ], "imagePrompt": "image のときだけ・絵柄の指示" } ] }`;
   return { system, prompt };
+}
+
+
+// ───────────────────────────────────────────────────────────────────────────
+// 320: 生成結果から直接（🔭DR・🗂分析・⚖比較の列）→ 種類を選んで 315 を開く。未保存は一回限りキー（R-121）・自動 STEP1（?autoplan=1）
+// ───────────────────────────────────────────────────────────────────────────
+
+export const VISUALS_HANDOFF_KEY = 'visuals-handoff';
+export const VISUALS_FROM_PARAM = 'handoff';
+export const VISUALS_AUTOPLAN_PARAM = 'autoplan';
+export type VisualHandoffFrom = 'deepresearch' | 'text_analysis' | 'compare';
+export function isVisualHandoffFrom(v: unknown): v is VisualHandoffFrom {
+  return v === 'deepresearch' || v === 'text_analysis' || v === 'compare';
+}
+export interface VisualsHandoff {
+  title: string;
+  text: string;
+  from: VisualHandoffFrom;
+  at: string;
+}
+export function parseVisualsHandoff(raw: unknown): VisualsHandoff | null {
+  let o: Record<string, unknown> | null = null;
+  try {
+    o = typeof raw === 'string' ? (JSON.parse(raw) as Record<string, unknown>) : ((raw ?? null) as Record<string, unknown> | null);
+  } catch {
+    return null;
+  }
+  if (!o || typeof o !== 'object') return null;
+  const text = typeof o.text === 'string' ? o.text.trim() : '';
+  if (text.length < 20) return null;
+  if (!isVisualHandoffFrom(o.from)) return null;
+  return { title: typeof o.title === 'string' ? o.title.slice(0, 120) : '', text: text.slice(0, VISUAL_SOURCE_MAX_CHARS), from: o.from, at: typeof o.at === 'string' ? o.at : '' };
+}
+
+/** 種類ダイアログの既定（関連図・表・画像）。相関図は本文に明記された相関があるときだけ成立し空振りしやすいので既定に入れない */
+export const VISUAL_QUICK_DEFAULT_TYPES: readonly VisualType[] = ['relation', 'table', 'image'];
+/** 種類ダイアログの一言（何に向くか）と目安（画像は費用・他はコード描画で無料） */
+export const VISUAL_TYPE_PICKER_NOTE: Record<VisualType, string> = {
+  image: '主題を伝える1枚絵（GPT Image 2.5・文字は重ねる）',
+  table: '項目×値の整理（列と行）',
+  flow: '左から右へ流れる工程・順序',
+  compare: '2〜3つの対象の特徴を並べる',
+  steps: '上から順の手順（3〜8）',
+  concept: '中心概念と枝（分類・構成）',
+  relation: '要素どうしのつながり（円周・辺にラベル）',
+  correlation: '要因どうしの相関（向きと強さを文字で・本文に明記された関係のみ）',
+  timeline: '時期と出来事の並び',
+  figures: '数値の見せ場（引用と完全一致）',
+  onepage: 'タイトル＋要点3＋一言の1枚',
+};
+export const VISUAL_TYPE_PICKER_ORDER: readonly VisualType[] = ['image', 'table', 'flow', 'compare', 'steps', 'concept', 'relation', 'correlation', 'timeline', 'figures', 'onepage'];
+
+export function normalizeVisualTypes(v: readonly unknown[]): VisualType[] {
+  const out: VisualType[] = [];
+  for (const t of VISUAL_TYPE_PICKER_ORDER) if (v.includes(t) && !out.includes(t)) out.push(t);
+  return out;
+}
+
+/** 315 を開く URL（保存済み＝?scope=&id=／未保存＝?from=handoff）。types と autoplan=1 を付ける（決定的） */
+export function visualsHrefFor(input: { saved?: { scope: string; id: string } | null; types: readonly VisualType[]; autoplan?: boolean }): string {
+  const sp = new URLSearchParams();
+  if (input.saved) {
+    sp.set('scope', input.saved.scope);
+    sp.set('id', input.saved.id);
+  } else {
+    sp.set('from', VISUALS_FROM_PARAM);
+  }
+  const types = normalizeVisualTypes(input.types);
+  if (types.length > 0) sp.set('types', types.join(','));
+  if (input.autoplan !== false) sp.set(VISUALS_AUTOPLAN_PARAM, '1');
+  return `/dashboard/visuals?${sp.toString()}`;
+}
+
+/** 320 §3-5: 「AIに文字も描かせる」の前回の選択（端末ごと・初期既定はオフ） */
+export const VISUAL_AI_TEXT_STORAGE_KEY = 'visuals_ai_text';
+export function parseStoredAiText(raw: unknown): boolean {
+  return raw === '1';
 }

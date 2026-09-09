@@ -17,6 +17,9 @@ import {
   parseFollowUpHandoff,
   parseFollowUpRefs,
 } from '../../src/lib/followup-research';
+// 320: 生成結果から直接図解・画像（相関図・handoff・自動STEP1・記憶）
+import * as vis320 from '../../src/lib/visuals';
+import * as tpl320 from '../../src/lib/visual-templates';
 import { renderMarkdown } from '../../src/lib/markdown-renderer';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -4960,7 +4963,7 @@ test('U89: AIでまとめるの二段出力とプレゼン素材パック（317�
   expect(filtered.plans.map((x) => x.type)).toEqual(['relation']);
   expect(filtered.rejected[0].reason).toContain('選んでいない型');
   expect(v.buildVisualPlanPrompt('本文', { types: ['relation', 'figures'] }).prompt).toContain('type は次の2種のみ');
-  expect(v.VISUAL_TYPES.length).toBe(10);
+  expect(v.VISUAL_TYPES.length, '320: 相関図を足して11種').toBe(11);
   // ⑥ ソース固定: 素材の保存は library に別行（新テーブルなし）・script は API を通さない
   const packRoute = readFileSync(join(__dirname, '../../src/app/api/pack/route.ts'), 'utf8');
   expect(packRoute).toContain('INSERT INTO library');
@@ -5119,4 +5122,108 @@ test('U91: 追加リサーチ（319）— 発注文は前提資料→指示→�
     expect(src, `${p}: 選択バーの入口（上限3・R-101）`).toMatch(/key: 'followup', label: '🔭 追加リサーチ'.*disabled: selectedIds\.size > FOLLOWUP_MAX_SOURCES, reason: followUpTooManyReason\(selectedIds\.size\)/);
     expect(src, `${p}: 選択バーのダイアログは同じ部品`).toMatch(/<FollowUpResearchDialog refs=\{followUpRefs\}/);
   }
+});
+
+
+test('U92: 生成結果から直接図解・画像（320）— 相関図は label 必須（欠けた辺は捨てて赤い印・辺は relation と同じ解析）・描画の線は全辺同じ太さ/色/不透明度（強弱は文字）・描画文字列＝タイトル＋要因＋ラベル・抽出プロンプトは「明記された関係のみ」・種類の既定は関連図/表/画像・URL は保存済み ?scope=&id=／未保存 ?from=handoff（types と autoplan=1）・handoff の検証は fail-closed・未保存の出どころは sources が空のときだけ・「AIに文字も描かせる」の記憶は初期オフ・ソース固定（一回限りキーの共通実装／自動STEP1は1回・自動描画なし／3画面の入口）', () => {
+  const v = vis320;
+  const t = tpl320;
+  const src = '湿度と乾燥は逆相関で、加湿器は乾燥を減らす。睡眠不足は肌荒れと正の相関（強）がある。';
+  const plan: import('../../src/lib/visuals').VisualPlan = {
+    id: 'c1', type: 'correlation', title: '湿度と乾燥',
+    groups: [
+      { heading: '湿度', points: ['→ 乾燥: 逆相関', '→ 加湿器'] },
+      { heading: '乾燥', points: [] },
+      { heading: '加湿器', points: ['→ 乾燥: 乾燥を減らす'] },
+    ],
+  };
+  // ① 辺: label 必須。無い辺は捨て（unlabeled）、typedPlanIssues が理由を返す＝描けない
+  const ce = v.correlationEdgesOf(plan);
+  expect(ce.edges.map((e) => [e.from, e.to, e.label])).toEqual([[0, 1, '逆相関'], [2, 1, '乾燥を減らす']]);
+  expect(ce.unlabeled).toEqual(['→ 加湿器']);
+  expect(v.relationEdgesOf(plan).edges.length, '関連図は label 省略可（不変）').toBe(3);
+  expect(v.edgesOfPlan(plan).length).toBe(2);
+  expect(v.edgesOfPlan({ ...plan, type: 'relation' }).length).toBe(3);
+  const issues = v.typedPlanIssues(plan, src);
+  expect(issues['→ 加湿器']).toEqual([v.CORRELATION_LABEL_REQUIRED]);
+  expect(v.checkPlan(plan, src).ok, 'ラベル無しの辺があると描けない').toBe(false);
+  const fixed = { ...plan, groups: [{ heading: '湿度', points: ['→ 乾燥: 逆相関'] }, { heading: '乾燥', points: [] }, { heading: '加湿器', points: ['→ 乾燥: 乾燥を減らす'] }] };
+  expect(v.checkPlan(fixed, src).ok, '直せば描ける').toBe(true);
+  // 元テキストに無い相関の語句は赤い印（語句単位の実在チェックが points に効く＝AI が相関を捏造する経路を塞ぐ）
+  const forged = { ...fixed, groups: [{ heading: '湿度', points: ['→ 乾燥: 強い因果'] }, { heading: '乾燥', points: [] }] };
+  expect(v.findForeignPhrases(forged, src)).toEqual(['→ 乾燥: 強い因果']);
+  expect(v.checkPlan(forged, src).ok).toBe(false);
+  // ② 描画: 線（回転した div）は全辺同じ高さ・色・不透明度＝強弱を視覚化しない。関連図と同じ値
+  const walk = (el: unknown, out: Record<string, unknown>[] = []): Record<string, unknown>[] => {
+    if (!el || typeof el !== 'object') return out;
+    const e = el as { props?: { style?: Record<string, unknown>; children?: unknown } };
+    const st = e.props?.style;
+    if (st && typeof st.transform === 'string' && /rotate\(/.test(st.transform)) out.push(st);
+    const ch = e.props?.children;
+    if (Array.isArray(ch)) ch.forEach((c) => walk(c, out));
+    else if (ch && typeof ch === 'object') walk(ch, out);
+    return out;
+  };
+  const built = t.buildVisualElement(fixed, 'landscape');
+  const lines = walk(built.element);
+  expect(lines.length, '辺の数だけ線がある').toBe(2);
+  const sig = (st: Record<string, unknown>) => JSON.stringify({ h: st.height, bg: st.background, op: st.opacity });
+  expect(new Set(lines.map(sig)).size, '全辺同じ太さ・色・不透明度').toBe(1);
+  const rel = walk(t.buildVisualElement({ ...fixed, type: 'relation' }, 'landscape').element);
+  expect(sig(rel[0]), '関連図と同じ線').toBe(sig(lines[0]));
+  expect(JSON.stringify(t.buildVisualElement(fixed, 'landscape')), '決定的').toBe(JSON.stringify(built));
+  expect(t.expectedStringsOf(fixed), '描画文字列＝タイトル＋要因＋ラベル').toEqual(['湿度と乾燥', '湿度', '乾燥', '加湿器', '逆相関', '乾燥を減らす']);
+  expect(t.estimateVisualHeight(fixed, 'landscape')).toBe(t.estimateVisualHeight({ ...fixed, type: 'relation' }, 'landscape'));
+  // ③ 型の登録・抽出プロンプト
+  expect(v.VISUAL_TYPES).toContain('correlation');
+  expect(v.VISUAL_DETERMINISTIC_TYPES).toContain('correlation');
+  expect(v.isVisualType('correlation')).toBe(true);
+  const pr = v.buildVisualPlanPrompt(src, { types: ['correlation'] }).prompt;
+  expect(pr).toContain('- correlation:');
+  expect(pr).toContain('本文に明記された関係のみ');
+  expect(pr).toContain('推測の相関は出さない');
+  expect(pr, '型を絞ると他の型の行は出ない').not.toContain('- relation:');
+  expect(v.parseVisualPlans({ visuals: [{ type: 'correlation', title: 'x', groups: [{ heading: 'a', points: ['→ b: 正の相関'] }, { heading: 'b', points: [] }] }, { type: 'table', title: 'y', groups: [{ points: ['p'] }] }] }, 'v', ['correlation']).plans.map((p) => p.type), 'allowedTypes で絞る').toEqual(['correlation']);
+  // ④ 種類ダイアログ・URL・handoff
+  expect(v.VISUAL_QUICK_DEFAULT_TYPES).toEqual(['relation', 'table', 'image']);
+  expect(v.VISUAL_TYPE_PICKER_ORDER.length).toBe(v.VISUAL_TYPES.length);
+  for (const ty of v.VISUAL_TYPES) expect(v.VISUAL_TYPE_PICKER_NOTE[ty], `${ty} に一言`).toBeTruthy();
+  expect(v.normalizeVisualTypes(['image', 'table', 'image', 'nope', 'correlation'])).toEqual(['image', 'table', 'correlation']);
+  expect(v.visualsHrefFor({ saved: { scope: 'library', id: 'abc' }, types: ['image', 'relation'] })).toBe('/dashboard/visuals?scope=library&id=abc&types=image%2Crelation&autoplan=1');
+  expect(v.visualsHrefFor({ saved: null, types: ['table'] })).toBe('/dashboard/visuals?from=handoff&types=table&autoplan=1');
+  expect(v.visualsHrefFor({ saved: null, types: [], autoplan: false })).toBe('/dashboard/visuals?from=handoff');
+  const h = v.parseVisualsHandoff(JSON.stringify({ title: 'T', text: `  ${src}  `, from: 'deepresearch', at: '2026-09-10T00:00:00.000Z' }));
+  expect(h).toEqual({ title: 'T', text: src, from: 'deepresearch', at: '2026-09-10T00:00:00.000Z' });
+  expect(v.parseVisualsHandoff(JSON.stringify({ title: 'T', text: '短い', from: 'deepresearch' })), '20字未満は無効').toBeNull();
+  expect(v.parseVisualsHandoff(JSON.stringify({ title: 'T', text: src, from: 'note' })), '出どころ不明は無効').toBeNull();
+  expect(v.parseVisualsHandoff('{')).toBeNull();
+  // ⑤ 未保存の出どころは sources が空のときだけ載る（保存済みなら sources が正）
+  const base = { kind: 'render' as const, plan: fixed, orientation: 'landscape' as const, width: 1, height: 1, model: 'og-render', generatedAt: 'g' };
+  const us = { title: 'T', chars: 30, at: 'a', from: 'compare' as const };
+  expect(v.buildVisualGallerySettings({ ...base, sources: [], unsavedSource: us }).visual.unsavedSource).toEqual(us);
+  expect(v.buildVisualGallerySettings({ ...base, sources: [{ scope: 'library', id: 'x', title: 't' }], unsavedSource: us }).visual.unsavedSource).toBeUndefined();
+  expect(v.buildVisualGallerySettings({ ...base, sources: [] }).visual.unsavedSource).toBeUndefined();
+  // ⑥ 記憶: 初期既定はオフ
+  expect(v.VISUAL_IMAGE_DEFAULT_SETTINGS.aiText).toBe(false);
+  expect(v.parseStoredAiText('1')).toBe(true);
+  expect(v.parseStoredAiText('0')).toBe(false);
+  expect(v.parseStoredAiText(null)).toBe(false);
+  // ⑦ ソース固定
+  const read = (p: string) => readFileSync(join(__dirname, '../../src', p), 'utf8');
+  const page = read('app/dashboard/visuals/page.tsx');
+  expect(page, '一回限りキーは共通実装（R-121）').toMatch(/readOneTimeHandoff\(VISUALS_HANDOFF_KEY, parseVisualsHandoff\)/);
+  expect(page, '自動STEP1は ref で1回（R-87）').toMatch(/if \(!autoplanWanted \|\| autoplanDoneRef\.current\) return;[\s\S]*?autoplanDoneRef\.current = true;\s*void extract\(\);/);
+  expect((page.match(/void render\(/g) ?? []).length, '描画は院長のボタンからだけ（自動で描かない）').toBe(1);
+  expect((page.match(/void generateImage\(/g) ?? []).length, '画像生成は確認ダイアログからだけ').toBe(1);
+  expect(page, '記憶キーへ書く').toMatch(/localStorage\.setItem\(VISUAL_AI_TEXT_STORAGE_KEY, on \? '1' : '0'\)/);
+  const dlg = read('components/visuals/VisualQuickButton.tsx');
+  expect(dlg, '入口は AI も描画も呼ばない').not.toMatch(/\/api\/visuals/);
+  expect(dlg).toMatch(/writeOneTimeHandoff\(VISUALS_HANDOFF_KEY, handoff\)/);
+  expect(dlg).toMatch(/if \(startedRef\.current \|\| !canGo\) return;/);
+  for (const p of ['app/dashboard/deepresearch/page.tsx', 'components/text-analysis/TextAnalysisPanel.tsx', 'components/deepresearch/ModelCompareView.tsx']) expect(read(p), `${p}: 入口は同じ部品`).toMatch(/<VisualQuickButton/);
+  expect(read('components/deepresearch/ModelCompareView.tsx'), '比較は完了した列だけ（run.status === done の中）').toMatch(/run\.status === 'done' && run\.text && \([\s\S]*?<VisualQuickButton/);
+  const tplSrc = read('lib/visual-templates/index.ts');
+  expect(tplSrc, '相関図は関連図のテンプレートを共用（見た目を変えない）').toMatch(/plan\.type === 'relation' \|\| plan\.type === 'correlation' \? relationTemplate/);
+  expect(tplSrc).not.toMatch(/strokeWidth|stroke-width/);
+  for (const p of ['lib/presentation-pack.ts', 'lib/followup-research.ts', 'lib/visuals.ts', 'components/visuals/VisualQuickButton.tsx']) expect(read(p), `${p}: sessionStorage を新タブ handoff に使わない`).not.toMatch(/sessionStorage\.setItem/);
 });
