@@ -51,6 +51,8 @@ export async function POST(req: NextRequest) {
     let mandalaCount = 3;
     let mandalaIndex = 0;
     let mandalaTotal = 1;
+    // 気づき・素材にある URL（セルフリプライ欄の候補・純関数の出力）。生成本文から移した URL と合流させて返す
+    let mandalaReplyUrls: string[] = [];
     if (body.mandala && typeof body.mandala === 'object') {
       const m = body.mandala as { chartId?: unknown; mode?: unknown; cellId?: unknown; count?: unknown; index?: unknown };
       if (!isUuid(m.chartId)) return NextResponse.json({ error: 'mandala.chartId が不正です' }, { status: 400 });
@@ -70,6 +72,7 @@ export async function POST(req: NextRequest) {
       mandalaIndex = typeof m.index === 'number' && Number.isInteger(m.index) && m.index >= 0 ? m.index : 0;
       const article = mandalaXToArticle(result, mandalaIndex);
       if (!article) return NextResponse.json({ error: 'シリーズの index が範囲外です' }, { status: 400 });
+      mandalaReplyUrls = result.mode === 'cell' ? result.post.replyUrls : result.posts[mandalaIndex]?.replyUrls ?? [];
       title = article.title;
       content = article.content;
       mandalaSource = result.source;
@@ -206,11 +209,11 @@ ${fanout ? `# この型が素材に合わない場合
     const warnings: Record<string, XPostWarning[]> = {};
     // 下限検証は単発ポスト（長さプリセットの対象）にのみ適用。スレッド各ポストは対象外
     // 312: マンダラ経由は本文の URL をコード側でセルフリプライ欄へ移す（二段目・決定的・冪等）
-    const replyUrls: string[] = [];
+    const replyUrls: string[] = [...mandalaReplyUrls];
     if (mandalaMode) {
       const moved = moveUrlsToReply(result.single);
       result.single = moved.body;
-      replyUrls.push(...moved.urls);
+      for (const u of moved.urls) if (!replyUrls.includes(u)) replyUrls.push(u);
       result.thread = result.thread.map((t) => {
         const mt = moveUrlsToReply(t);
         for (const u of mt.urls) if (!replyUrls.includes(u)) replyUrls.push(u);
