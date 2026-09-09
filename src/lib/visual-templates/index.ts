@@ -26,7 +26,12 @@ const MUTED = '#5B6B63';
 const LINE = '#C9DACF';
 const FONT = 'NotoSansJP';
 
-const div = (style: Record<string, unknown>, children: unknown): El => ({ type: 'div', props: { style, children } });
+// satori の規則: 子が文字列以外（要素・配列。空配列 [] でも）の div は display: flex/none/contents が必須（無いと描画時に throw）。
+// ヘルパーで機械的に補い、線・点などの装飾 div で落ちないようにする（317・B38 で発覚）
+const div = (style: Record<string, unknown>, children: unknown): El => {
+  const needsDisplay = children !== null && children !== undefined && typeof children !== 'string' && !['flex', 'none', 'contents'].includes(String(style.display ?? ''));
+  return { type: 'div', props: { style: needsDisplay ? { display: 'flex', ...style } : style, children } };
+};
 const text = (s: string, style: Record<string, unknown> = {}): El => div({ display: 'flex', ...style }, s);
 
 /** キャンバス幅ごとの1行の文字数（全角基準・安全側） */
@@ -277,7 +282,7 @@ function relationTemplate(plan: VisualPlan, width: number): El[] {
     const dy = b.y - a.y;
     const len = Math.round(Math.sqrt(dx * dx + dy * dy));
     const angle = Math.round((Math.atan2(dy, dx) * 180) / Math.PI * 100) / 100;
-    return div({ position: 'absolute', left: a.x, top: a.y - 2, width: len, height: 4, background: GREEN, transform: `rotate(${angle}deg)`, transformOrigin: '0 50%', opacity: 0.55 }, []);
+    return div({ display: 'flex', position: 'absolute', left: a.x, top: a.y - 2, width: len, height: 4, background: GREEN, transform: `rotate(${angle}deg)`, transformOrigin: '0 50%', opacity: 0.55 }, []);
   });
   const edgeLabels: El[] = edges.filter((e) => e.label).map((e) => {
     const a = pos[e.from];
@@ -304,7 +309,7 @@ function timelineTemplate(plan: VisualPlan, width: number): El[] {
   return [
     titleBlock(plan, width),
     div({ position: 'relative', width: inner, display: 'flex', flexDirection: 'column' }, [
-      div({ position: 'absolute', left: Math.floor(colW / 2), top: 22, width: inner - colW, height: 4, background: GREEN, borderRadius: 2 }, []),
+      div({ display: 'flex', position: 'absolute', left: Math.floor(colW / 2), top: 22, width: inner - colW, height: 4, background: GREEN, borderRadius: 2 }, []),
       div(
         { display: 'flex', width: inner },
         items.map((g) =>

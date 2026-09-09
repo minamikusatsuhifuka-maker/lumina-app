@@ -4910,6 +4910,19 @@ test('U89: AIでまとめるの二段出力とプレゼン素材パック（317�
       expect(t.verifyRenderedText(plan, a.element), `${plan.type}/${o} の文字一致`).toMatchObject({ ok: true });
       expect(JSON.stringify(t.buildVisualElement(plan, o)), '同じ入力→同じ要素木').toBe(JSON.stringify(a));
       expect(a.canvas.height).toBeGreaterThanOrEqual(v.minCanvasHeight(o));
+      // satori の規則（B38 で発覚・実描画で throw）: 子が文字列以外（空配列 [] でも）の div は display: flex/none/contents 必須。
+      // 関連図の辺・時系列の軸線が該当していた。全要素木を機械検査する
+      const bad: string[] = [];
+      const walk = (el: unknown, path: string) => {
+        if (!el || typeof el !== 'object') return;
+        const node = el as { type?: string; props?: { style?: Record<string, unknown>; children?: unknown } };
+        const ch = node.props?.children;
+        if (node.type === 'div' && ch && typeof ch !== 'string' && !['flex', 'none', 'contents'].includes(String(node.props?.style?.display ?? ''))) bad.push(path);
+        const arr = Array.isArray(ch) ? ch : ch == null ? [] : [ch];
+        arr.forEach((c, i) => walk(c, `${path}/${node.type}[${i}]`));
+      };
+      walk(a.element, '');
+      expect(bad, `${plan.type}/${o}: display 無しで要素の子を持つ div が無い`).toEqual([]);
     }
   }
   const withEmbed = t.buildVisualElement({ ...onepage, embedImage: 'data:image/png;base64,AAAA' }, 'portrait');
