@@ -12,7 +12,6 @@ import { generateWithModel } from '@/lib/ai-client';
 import { GEMINI_TEXT_MODEL, GEMINI_TEXT_THINKING_LOW } from '@/lib/ai-models';
 import { robustJsonParse } from '@/lib/ai-json-parser';
 import { findBannedExpressions } from '@/lib/content-verify';
-import { enforceNoteHeadingLevels } from '@/lib/note-format';
 import { fetchVisualSources } from '@/lib/visuals-server';
 import { MERGE_REPORT_GROUP } from '@/lib/merge-report';
 import {
@@ -81,7 +80,8 @@ export async function POST(req: Request) {
         extra.dropped = dropped;
         extra.count = terms.length;
       } else {
-        content = enforceNoteHeadingLevels(raw.trim());
+        // R-114: note記事の整形（1文1行・見出し段）は note の6経路限定。素材は Gemini の出力（## 見出し指定）をそのまま使う
+        content = raw.trim();
         if (!content) return NextResponse.json({ error: 'AI の出力が空でした', kind }, { status: 502 });
       }
       if (PACK_PUBLIC_KINDS.includes(kind)) {

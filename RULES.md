@@ -223,7 +223,11 @@
   掃除を実行IDつきに分けない理由: 全 fixture が RUN_ID を持つわけではなく（SEED_FOLDER 等）、途中で落ちた実行の
   残骸は「次回の全件掃除で必ず消える」設計（R-55）に依っている。分けると残骸が積もる。運用で直列にする
   （全件は背景1本、その完了通知まで個別を叩かない）。
-- 初出: 232 / 2026-08-07（248・249・305・306で更新）
+  317追記: 6つ目の型——**全件実行の最中に spec ファイルを編集しない**。Playwright はワーカーの再起動（失敗・再試行の後）で
+  spec を読み直すため、編集後に走ったテストは**新しい版**で本番（＝旧実装）を叩き、無関係な失敗（C103 のタイムアウト）が混ざる。
+  全件の結果は「開始時点の spec × 開始時点の本番」でしか意味を持たない。次便の準備（テスト追記）は全件の完了通知の後に書く
+  か、別ファイル（未追跡の下書き）に置いて完了後に移す。
+- 初出: 232 / 2026-08-07（248・249・305・306・317で更新）
 - 追記（312追加指示・是正済み）: C127（反応 X タブ）が 314/316 の本番E2Eで初回失敗→再試行通過。タブ切替直後の fill が再描画で落ち
   `shares` だけ欠けた。各入力の反映を `toHaveValue`（自動リトライ）で確かめてから記録し、保存後の meta は `expect.poll` で読む形に是正（3連続通過を確認）。
 
@@ -1486,6 +1490,8 @@
   を `NOTE_COMMON_RULES` に1回だけ（①の PERSONA_HEADING_GUARD＝煽り・断定の禁止は別の役割なので残置）、二段目は
   `enforceNoteHeadingLevels`（h1→##・####以下→###・コードフェンス内は不変・冪等）を1文1行と同じ箇所で
   `enforceNoteHeadingLevels(formatOneSentencePerLine(x))` の形で呼ぶ。②分割記事化の実出力に h1 が出ていた（B31 で検出）。
+- 追記（317）: note 記事以外の生成（プレゼン素材のスライド構成案・Q&A 等）は `formatOneSentencePerLine`／`enforceNoteHeadingLevels` を
+  呼ばない（U80 の許可リスト＝6経路が守る）。見出し段はプロンプトで指定し、出力をそのまま保存する。
 - 初出: 309 / 2026-09-09
 
 ## R-115: 「生成の完了時に別の物へ自動で紐づける」仕組みは、**サーバー側で保存が完結する点**に完了フックを置く。クライアントで保存する経路には、その保存APIをフック点にして付帯情報（出どころ）を通す。付帯情報が無ければ何もしない（オプトイン）
@@ -1546,3 +1552,23 @@
 - 検証: 描画関数を渡すフックに分岐を足すときは、参照する値をフックの**上**で宣言する（ファイル内の順序を規約にする）。
   本番の E2E でポップアップ系は「出る」までを必ず検証し、出ないときは `page.on('pageerror')` で TDZ／例外を先に疑う。
 - 初出: 316 / 2026-09-09
+
+## R-120: satori（`next/og` の ImageResponse）の要素木では、子が文字列以外（要素・配列。**空配列 `[]` でも**）の `div` に `display: flex`（または none/contents）が必須。装飾の線・点も含めてヘルパーで機械的に補い、単体テストで全要素木を検査する
+- 分類: UI
+- 背景: 317 で関連図の辺（`div({position:'absolute', …}, [])`）と時系列の軸線を display 無しで置いた。ビルド・型検査・
+  `verifyRenderedText` は通り、本番の描画で `Expected <div> to have explicit "display: flex" … if it has more than one
+  child node.` で 500。辺が0本のプランでは起きないため B38 が「初回失敗→再試行通過（flaky）」の形で出た。
+  satori の判定は `children && typeof children !== 'string' && display が flex/none/contents でない` で、子の**個数ではなく型**を見る。
+- 検証: `div` ヘルパーで「子が文字列でなければ display: flex を補う」。U89 で全テンプレ×全向きの要素木を歩き、
+  該当する div が無いことを assert する（実描画に頼らない）。新しいテンプレは必ず辺・線ありのプランでも描く。
+- 初出: 317 / 2026-09-09
+
+## R-121: `window.open(url, '_blank', 'noopener')` で開く新しいタブに **sessionStorage は引き継がれない**。タブ間の handoff は localStorage の一回限りキー（読んだ側が `removeItem`）で渡し、受け側の読み込み effect まで含めて E2E で「渡った内容が画面に出る」まで検証する
+- 分類: UI
+- 背景: 317 の「プレゼン原稿へ渡す」で sessionStorage に置いて noopener の新タブを開いたが、Chromium/WebKit とも noopener の
+  タブは新しいブラウジングコンテキスト群になり sessionStorage が空。さらに受け側（🎤プレゼン原稿）の読み込み effect が
+  import だけで未実装だった（ビルドは通る）。C133 の handoff 検証で初めて露見した。
+  同一タブ遷移（`router.push`）の sessionStorage handoff（Kindle・横断分析）はこの限りではない。
+- 検証: 新タブ handoff は localStorage＋一回限りキー。E2E は `context.waitForEvent('page')` で新タブを掴み、渡した内容が
+  描画される（`[data-pres-page]` 等）までを assert する。「開いた」だけで緑にしない。
+- 初出: 317 / 2026-09-09
