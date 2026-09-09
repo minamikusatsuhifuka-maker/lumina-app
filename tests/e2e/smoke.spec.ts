@@ -11636,10 +11636,10 @@ test('C135: 追加リサーチ（319）— 📚行・選択バー（4件で上�
     // ── 選択バー: 4件で無効＋理由（R-101）、3件で同じダイアログ（3件の前提資料） ──
     for (const id of lib) await page.locator(`[data-library-card="${id}"] input[type="checkbox"]`).check();
     const bulk = page.locator('[data-library-followup-bulk]');
-    await expect(bulk).toHaveAttribute('aria-disabled', 'true');
-    await expect(bulk).toHaveAttribute('title', /3件まで（4件選択中/);
+    await expect(bulk, '4件では無効（R-101・button は disabled）').toBeDisabled();
+    await expect(bulk).toHaveAttribute('title', /3件まで.*4件選択中/);
     await page.locator(`[data-library-card="${lib[3]}"] input[type="checkbox"]`).uncheck();
-    await expect(bulk).not.toHaveAttribute('aria-disabled', 'true');
+    await expect(bulk).toBeEnabled();
     await bulk.click();
     await expect(dlg).toBeVisible();
     await expect(dlg.locator('[data-followup-source]')).toHaveCount(3, { timeout: 30000 });
