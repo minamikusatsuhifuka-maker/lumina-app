@@ -1060,8 +1060,8 @@ export default function DeepResearchPage() {
       <ResultActionBar
         attrs={{ 'data-dr-insight-actions': kind }}
         primary={<SaveToLibraryButton title={title} content={text} type="deepresearch" groupName="ディープリサーチ" tags={tags} showMemorize={false} onSaved={(id) => setInsightSavedIds((m) => ({ ...m, [kind]: id }))} />}
+        keepVisible={<VisualQuickButton text={text} title={title} saved={savedId ? { scope: 'library', id: savedId } : null} from="deepresearch" dataKey={`insight-${kind}`} style={qStyle} />}
         main={<>
-          <VisualQuickButton text={text} title={title} saved={savedId ? { scope: 'library', id: savedId } : null} from="deepresearch" dataKey={`insight-${kind}`} style={qStyle} />
           <VisualQuickButton text={text} title={title} saved={savedId ? { scope: 'library', id: savedId } : null} from="deepresearch" dataKey={`grid9-${kind}`} fixedTypes={['grid9']} label="🔲 9マスシートにする" style={qStyle} />
           <VisualQuickButton text={text} title={title} saved={savedId ? { scope: 'library', id: savedId } : null} from="deepresearch" dataKey={`talk-${kind}`} fixedTypes={['grid9_talk']} label="🎤 プレゼン構成を考える" style={qStyle} />
           <FollowUpResearchButton refs={savedId ? [{ scope: 'library', id: savedId }] : []} dataKey={`insight-${kind}`} label="🔭 追加リサーチ" disabled={!savedId} disabledReason="先に「📚 リサーチ保存に追加」で保存してください（保存した行が前提資料になります）" style={qStyle} />
@@ -2491,16 +2491,17 @@ ${contextText}
                 showMemorize={false}
               />
             }
-            main={<>
-              <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-secondary)' }}>🔭 リサーチレポート</span>
-              <VisualQuickButton
+            keepVisible={<VisualQuickButton
                 text={report}
                 title={followUp ? followUpTitle(topic, followUp.sources.map((x) => x.title)) : (topic || 'ディープリサーチ')}
                 saved={reportSavedId ? { scope: 'library', id: reportSavedId } : null}
                 from="deepresearch"
                 dataKey="report"
                 style={{ padding: '6px 14px', background: 'rgba(14,116,144,0.08)', color: '#0E7490', border: '1px solid rgba(14,116,144,0.3)', borderRadius: 6, cursor: 'pointer', fontSize: 12, fontWeight: 500 }}
-              />
+              />}
+            main={<>
+              <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-secondary)' }}>🔭 リサーチレポート</span>
+              
               <span data-followup-report-entry={reportSavedId ?? ''}>
                 <FollowUpResearchButton
                   refs={reportSavedId ? [{ scope: 'library', id: reportSavedId }] : []}

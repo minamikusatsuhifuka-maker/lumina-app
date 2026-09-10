@@ -3,6 +3,7 @@
 // 316 §3-1: 📚🗂の行から「🔲 マンダラにする」。ダイアログ（9／81・既定は 3,000 字で分岐・費用の目安・確認は1回 R-56）→ 二段階の実行（進行表示）
 import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
+import { useBodyScrollLock } from '@/components/ModalSheet';
 import { GEMINI_TEXT_MODEL_LABEL } from '@/lib/ai-models';
 import { formatUsd, pricingNote } from '@/lib/model-pricing';
 import { defaultGenerateMode, estimateGenerateCost, type MandalaGenerateMode } from '@/lib/mandala-generate';
@@ -17,6 +18,7 @@ export default function MandalaGenerateButton({ scope, itemKey, title, charCount
   const [error, setError] = useState('');
   const busyRef = useRef(false); // R-87
   useEffect(() => setMounted(true), []);
+  useBodyScrollLock(mounted); // 326: 開いている間は背面をスクロールさせない
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape' && !busyRef.current) setOpen(false); };
@@ -48,7 +50,7 @@ export default function MandalaGenerateButton({ scope, itemKey, title, charCount
       </button>
       {mounted && open && createPortal(
         <div data-mandala-gen-dialog role="dialog" aria-label="記事からマンダラを生成" onClick={(e) => { if (e.target === e.currentTarget && !busy) setOpen(false); }} style={{ position: 'fixed', inset: 0, zIndex: 10500, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16, background: 'rgba(0,0,0,0.35)' }}>
-          <div style={{ width: 'min(520px, 100%)', background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 12, padding: 16, display: 'flex', flexDirection: 'column', gap: 10, fontSize: 13, color: 'var(--text-primary)' }}>
+          <div style={{ width: 'min(520px, 100%)', background: 'var(--bg-modal)', border: '1px solid var(--border)', borderRadius: 12, padding: 16, display: 'flex', flexDirection: 'column', gap: 10, fontSize: 13, color: 'var(--text-primary)' }}>
             <div style={{ fontWeight: 700 }}>🔲 記事からマンダラを生成</div>
             <div style={{ fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.7 }}>
               <div>記事: <strong>{title}</strong>（{charCount.toLocaleString()} 字）</div>

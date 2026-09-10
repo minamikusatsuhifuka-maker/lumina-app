@@ -861,7 +861,7 @@ function VisualsInner() {
       {/* 323: 一括生成の確認ダイアログ（R-56: 生成前に1回） */}
       {bulkDialog && (
         <div data-vis-bulk-dialog role="dialog" aria-label="一括生成の確認" onClick={(e) => { if (e.target === e.currentTarget) setBulkDialog(false); }} style={{ position: 'fixed', inset: 0, zIndex: 10000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16, background: 'rgba(0,0,0,0.35)' }}>
-          <div style={{ width: 'min(560px, 100%)', background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 12, padding: 16, display: 'flex', flexDirection: 'column', gap: 10, fontSize: 13 }}>
+          <div style={{ width: 'min(560px, 100%)', background: 'var(--bg-modal)', border: '1px solid var(--border)', borderRadius: 12, padding: 16, display: 'flex', flexDirection: 'column', gap: 10, fontSize: 13 }}>
             <div style={{ fontWeight: 700 }}>🚀 承認した {approvedPlans.length} 件を生成しますか？</div>
             <div style={{ color: 'var(--text-secondary)', lineHeight: 1.7 }}>
               <div data-vis-bulk-dialog-breakdown data-vis-bulk-dialog-renders={bulkEst.renders} data-vis-bulk-dialog-images={bulkEst.images}>{bulkConfirmLabel(bulkEst)}</div>
@@ -881,7 +881,7 @@ function VisualsInner() {
       {/* 画像生成の確認ダイアログ（R-56: 1回） */}
       {dialogPlan && dialogEstimate && (
         <div data-vis-image-dialog role="dialog" aria-label="画像生成の確認" onClick={(e) => { if (e.target === e.currentTarget) setImageDialog(null); }} style={{ position: 'fixed', inset: 0, zIndex: 10000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16, background: 'rgba(0,0,0,0.35)' }}>
-          <div style={{ width: 'min(560px, 100%)', background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 12, padding: 16, display: 'flex', flexDirection: 'column', gap: 10, fontSize: 13 }}>
+          <div style={{ width: 'min(560px, 100%)', background: 'var(--bg-modal)', border: '1px solid var(--border)', borderRadius: 12, padding: 16, display: 'flex', flexDirection: 'column', gap: 10, fontSize: 13 }}>
             <div style={{ fontWeight: 700 }}>🖼 GPT Image 2.5 で画像を生成しますか？</div>
             <div style={{ color: 'var(--text-secondary)', lineHeight: 1.7 }}>
               <div>図解: <strong>{dialogPlan.title}</strong></div>

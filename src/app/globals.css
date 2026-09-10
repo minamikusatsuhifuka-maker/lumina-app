@@ -6,6 +6,7 @@
   --bg-primary: #07080f;
   --bg-secondary: #0d0e1a;
   --bg-card: rgba(255,255,255,0.03);
+  --bg-modal: #141522;
   --bg-card-hover: rgba(255,255,255,0.06);
   --text-primary: #f0f0ff;
   --text-secondary: #a0a0c0;
@@ -41,6 +42,7 @@
 
 /* ─── テーマ変数 ─── */
 [data-theme="dark"] {
+  --bg-modal: #141522;
   --bg-primary: #07080f;
   --bg-secondary: #0d0e1a;
   --bg-card: rgba(255,255,255,0.03);
@@ -63,6 +65,7 @@
 }
 
 [data-theme="midnight"] {
+  --bg-modal: #16162e;
   --bg-primary: #0a0a1a;
   --bg-secondary: #12123a;
   --bg-card: rgba(139,92,246,0.05);
@@ -85,6 +88,7 @@
 }
 
 [data-theme="light"] {
+  --bg-modal: #ffffff;
   --bg-primary: #f0efe8;
   --bg-secondary: #ffffff;
   --bg-card: #ffffff;
@@ -122,6 +126,7 @@
 }
 
 [data-theme="nature"] {
+  --bg-modal: #1d3320;
   --bg-primary: #1a2e1c;
   --bg-secondary: #1f3522;
   --bg-card: rgba(180,230,185,0.06);
@@ -518,4 +523,120 @@ a[role="button"] {
   padding: 6px 12px !important;
   white-space: normal;
   border-color: var(--border) !important;
+}
+/* ─── 326 §2: モーダル（暗幕＋不透明パネル・狭幅は全画面シート） ─── */
+[data-modal-backdrop] {
+  position: fixed;
+  inset: 0;
+  z-index: 10500;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  background: rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(2px);
+}
+[data-modal-panel] {
+  /* パネルは必ず不透明（--bg-modal は全テーマで alpha=1） */
+  background: var(--bg-modal);
+  color: var(--text-primary);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.45);
+  width: min(100%, var(--modal-max, 620px));
+  max-height: calc(100dvh - 32px);
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  font-size: 13px;
+}
+[data-modal-head] {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-modal);
+}
+[data-modal-title] { font-size: 14px; font-weight: 700; min-width: 0; }
+[data-modal-close] { padding: 6px 10px; min-height: 36px; }
+[data-modal-body] { padding: 12px 14px; overflow-y: auto; min-height: 0; display: flex; flex-direction: column; gap: 12px; }
+[data-modal-foot] {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding: 10px 14px calc(10px + env(safe-area-inset-bottom));
+  border-top: 1px solid var(--border);
+  background: var(--bg-modal);
+}
+/* 狭幅（iPhone）＝全画面シート */
+@media (max-width: 640px) {
+  [data-modal-backdrop] { padding: 0; align-items: stretch; }
+  [data-modal-panel] {
+    width: 100%;
+    max-width: 100%;
+    max-height: 100dvh;
+    height: 100dvh;
+    border-radius: 0;
+    border-left: none;
+    border-right: none;
+  }
+  [data-modal-close] { min-height: 44px; min-width: 44px; }
+}
+
+/* ─── 326 §3: 結果画面の操作行（狭幅のアコーディオン） ─── */
+[data-result-more-panel] {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 6px;
+  padding: 8px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg-secondary);
+  min-width: 0;
+}
+[data-result-more-panel] > * { width: 100%; min-width: 0; }
+/* 展開部は縦1列・押しやすい高さ（既存の 32px 固定より後に置き、同じ強さで上書きする） */
+[data-result-action-bar] [data-result-more-panel] > button,
+[data-result-action-bar] [data-result-more-panel] > a,
+[data-result-action-bar] [data-result-more-panel] > span > button,
+[data-result-action-bar] [data-result-more-panel] > span > a,
+[data-result-action-bar] [data-result-more-panel] > div > button {
+  height: auto !important;
+  min-height: 44px !important;
+  width: 100%;
+  justify-content: flex-start !important;
+  text-align: left;
+}
+[data-result-action-bar] [data-result-more-panel] [data-result-menu] { display: flex !important; width: 100%; }
+[data-result-action-bar] [data-result-more-panel] [data-result-menu-trigger] {
+  height: auto !important;
+  min-height: 44px !important;
+  width: 100%;
+  justify-content: flex-start !important;
+}
+[data-result-action-bar] [data-result-more-panel] [data-result-action-aside] button {
+  width: 32px !important;
+  height: 32px !important;
+  min-height: 32px !important;
+}
+[data-result-more-panel] [data-result-more-group] {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-height: 44px;
+  justify-content: center;
+  min-width: 0;
+}
+[data-result-more-panel] [data-result-more-label] { font-size: 11px; color: var(--text-muted); }
+[data-result-action-bar] [data-result-more] { min-height: 44px !important; height: auto !important; }
+/* 狭幅の成果物ヘッダは1行（見出し・モデル・字数が重ならない） */
+@media (max-width: 640px) {
+  [data-result-head] { flex-wrap: nowrap !important; }
+  [data-result-head] > span:first-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex-wrap: nowrap; }
+  [data-result-head] > span:last-child { flex: 0 0 auto; white-space: nowrap; }
 }

@@ -12240,7 +12240,10 @@ test('C138: 関連図の是正・つながり確認・🗂成果物の操作行�
       await expect(mbar).toBeVisible({ timeout: 30000 });
       const minfo = await mbar.locator('button, a').evaluateAll((els) => els.filter((e) => (e as HTMLElement).offsetParent !== null).map((e) => ({ wm: getComputedStyle(e).writingMode, top: Math.round(e.getBoundingClientRect().top), aside: !!e.closest('[data-result-action-aside]') })));
       expect(Array.from(new Set(minfo.map((i) => i.wm)))).toEqual(['horizontal-tb']);
-      expect(new Set(minfo.filter((i) => !i.aside).map((i) => i.top)).size, 'iPhone幅では折り返す').toBeGreaterThanOrEqual(2);
+      // 326: iPhone幅は折り返しではなくアコーディオン（常に見えるのは保存・図解・⋯操作の3つ・残りは展開部で hidden）
+      await expect(mbar).toHaveAttribute('data-result-narrow', '1');
+      expect(minfo.filter((i) => !i.aside).length, '常に見えるのは3つ').toBe(3);
+      expect(new Set(minfo.filter((i) => !i.aside).map((i) => i.top)).size, '1段に収まる').toBe(1);
       const vw = await mp.evaluate(() => ({ sw: document.documentElement.scrollWidth, iw: window.innerWidth, br: document.querySelector('[data-ta-result-actions]')!.getBoundingClientRect().right }));
       expect(vw.sw, '横スクロール無し').toBeLessThanOrEqual(vw.iw + 1);
       expect(vw.br).toBeLessThanOrEqual(vw.iw + 1);
@@ -12639,5 +12642,179 @@ test('C141: プレゼン設計モードとグラフ（325）— 相手・場・�
   } finally {
     if (chartId) await api.delete(`/api/mandala?id=${chartId}`).catch(() => {});
     await cleanupE2ESaves(request);
+  }
+});
+
+test('C142: ダイアログが透けない（326・WebKit iPhone幅・ライト/ダーク）— パネルの背景は alpha=1（テーマのトークン）・パネルの矩形に背面の文字が見えない・狭幅は全画面シート（画面幅いっぱい・縦スクロール・✕が押せる・セーフエリア）・開いている間は背面がスクロールせず閉じると戻る・Esc／暗幕／✕で閉じ「進む」は従来どおり新しいタブ／他のダイアログ（314比較・319追加リサーチ・316マンダラ生成・323一括生成）も alpha=1', async () => {
+  test.setTimeout(240_000);
+  const browser = await webkit.launch();
+  const ctx = await browser.newContext({ storageState: STORAGE_STATE, baseURL: BASE_URL, hasTouch: true, isMobile: true, viewport: { width: 390, height: 844 }, serviceWorkers: 'block' });
+  const page = await ctx.newPage();
+  try {
+    const src = '冬の乾燥は暖房で室内の湿度が下がることが主な原因です。保湿剤は入浴後5分以内に塗ると効果が高いことが知られています。' .repeat(6);
+    for (const theme of ['light', 'dark'] as const) {
+      await page.goto('/dashboard/visuals');
+      await page.evaluate((t) => { localStorage.setItem('lumina_theme', t); }, theme);
+      await page.reload({ waitUntil: 'domcontentloaded' });
+      await expect(page.locator('[data-vis-source]')).toBeVisible({ timeout: 30000 });
+      await page.locator('[data-vis-source]').fill(src);
+      // 一括生成の確認ダイアログは候補が要るので、ここでは 320 の種類ダイアログ（🗂 の入口を使わず図解画面の中で開く経路が無いため）を
+      // 分析画面の成果物から開く。まずは図解画面のダイアログ（画像設定）を確認する
+      await page.goto('/dashboard/text-analysis');
+      await stubFeatureDrafts(page);
+      await page.evaluate((t) => { localStorage.setItem('lumina_theme', t); localStorage.setItem('lumina_auto_stock_save', '0'); }, theme);
+      await page.route('**/api/text-analysis/analyze', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ result: `${src}\n\n読みやすくまとめました。`, model: 'gemini' }) }));
+      await page.reload({ waitUntil: 'domcontentloaded' });
+      const textarea = page.getByPlaceholder('ここに分析したいテキストを貼り付けてください...');
+      await expect(textarea).toBeVisible({ timeout: 30000 });
+      await textarea.fill(src);
+      await page.locator('[data-clear-paste]').waitFor({ state: 'visible', timeout: 30000 });
+      await page.locator('button[data-kb-run]').first().click();
+      const quick = page.locator('[data-vis-quick-open]').first();
+      await expect(quick, `${theme}: 🖼 の入口`).toBeVisible({ timeout: 90000 });
+      // 背面のスクロール位置と高さを控える
+      await page.evaluate(() => window.scrollTo(0, 200));
+      const beforeY = await page.evaluate(() => window.scrollY);
+      await quick.click();
+      const dlg = page.locator('[data-vis-picker-dialog]');
+      await expect(dlg).toBeVisible();
+      const panel = dlg.locator('[data-modal-panel]');
+      const info = await panel.evaluate((el) => {
+        const cs = getComputedStyle(el);
+        const r = el.getBoundingClientRect();
+        const bodyCs = getComputedStyle(document.body);
+        return { bg: cs.backgroundColor, w: Math.round(r.width), h: Math.round(r.height), left: Math.round(r.left), zIndex: getComputedStyle(el.parentElement as HTMLElement).zIndex, bodyOverflow: bodyCs.overflow, vw: window.innerWidth, vh: window.innerHeight };
+      });
+      const alpha = (bg: string) => { const m = bg.match(/rgba?\(([^)]+)\)/); if (!m) return 1; const parts = m[1].split(',').map((x) => Number(x.trim())); return parts.length < 4 ? 1 : parts[3]; };
+      expect(alpha(info.bg), `${theme}: パネルの背景は不透明（${info.bg}）`).toBe(1);
+      expect(info.bg, `${theme}: 背景色が付いている`).not.toBe('rgba(0, 0, 0, 0)');
+      expect(info.w, `${theme}: 狭幅は全画面シート`).toBe(info.vw);
+      expect(info.left).toBe(0);
+      expect(info.h).toBeGreaterThan(info.vh - 4);
+      expect(Number(info.zIndex)).toBeGreaterThan(1000);
+      expect(info.bodyOverflow, `${theme}: 開いている間は背面をスクロールさせない`).toBe('hidden');
+      // パネルの矩形の中に背面のページの文字が見えていない（同じ座標の最前面がパネルの中）
+      const covered = await page.evaluate(() => {
+        const panel = document.querySelector('[data-modal-panel]') as HTMLElement;
+        const r = panel.getBoundingClientRect();
+        const pts = [[r.left + r.width / 2, r.top + 20], [r.left + r.width / 2, r.top + r.height / 2], [r.left + 20, r.top + r.height - 30]];
+        return pts.every(([x, y]) => { const el = document.elementFromPoint(x, y); return !!el && (panel === el || panel.contains(el)); });
+      });
+      expect(covered, `${theme}: パネルの矩形は背面を覆っている`).toBe(true);
+      // 中身は縦スクロールできる・✕ は押せる（44px 以上）
+      const closeBox = await dlg.locator('[data-modal-close]').boundingBox();
+      expect(closeBox!.height, `${theme}: ✕ は押しやすい`).toBeGreaterThanOrEqual(40);
+      const bodyScroll = await dlg.locator('[data-modal-body]').evaluate((el) => ({ scrollable: el.scrollHeight > el.clientHeight + 1, overflowY: getComputedStyle(el).overflowY }));
+      expect(bodyScroll.overflowY).toBe('auto');
+      expect(bodyScroll.scrollable, `${theme}: 種類の一覧は中で縦スクロール`).toBe(true);
+      const footPad = await dlg.locator('[data-modal-foot]').evaluate((el) => getComputedStyle(el).paddingBottom);
+      expect(parseFloat(footPad), `${theme}: 下部にセーフエリア分の余白`).toBeGreaterThanOrEqual(10);
+      // 横スクロールを作らない
+      const overflowX = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+      expect(overflowX, `${theme}: 横スクロールなし`).toBeLessThanOrEqual(1);
+      // ✕ で閉じる → 背面が戻る
+      await dlg.locator('[data-modal-close]').click();
+      await expect(dlg).toHaveCount(0);
+      expect(await page.evaluate(() => getComputedStyle(document.body).overflow), `${theme}: 閉じたら背面のスクロールが戻る`).not.toBe('hidden');
+      expect(await page.evaluate(() => window.scrollY), `${theme}: スクロール位置は変わらない`).toBeCloseTo(beforeY, -1);
+      // Esc・暗幕でも閉じる
+      await quick.click();
+      await expect(dlg).toBeVisible();
+      await page.keyboard.press('Escape');
+      await expect(dlg).toHaveCount(0);
+      await quick.click();
+      await expect(dlg).toBeVisible();
+      await page.locator('[data-modal-backdrop]').click({ position: { x: 5, y: 5 } });
+      await expect(dlg).toHaveCount(0);
+    }
+    // 「進む」は従来どおり新しいタブ（ダイアログの機能は変えていない）
+    await page.locator('[data-vis-quick-open]').first().click();
+    const dlg2 = page.locator('[data-vis-picker-dialog]');
+    await expect(dlg2).toBeVisible();
+    const [popup] = await Promise.all([ctx.waitForEvent('page'), dlg2.locator('[data-vis-picker-go]').click()]);
+    expect(popup.url()).toContain('/dashboard/visuals');
+    await popup.close();
+    // 他のダイアログ（314比較・319追加リサーチ・316マンダラ生成・323一括生成）も同じ不透明トークン（ソース固定）
+    const { readFileSync } = await import('node:fs');
+    const { join } = await import('node:path');
+    for (const p of ['components/deepresearch/CompareStartDialog.tsx', 'components/deepresearch/FollowUpResearchDialog.tsx', 'components/mandala/MandalaGenerateButton.tsx', 'app/dashboard/visuals/page.tsx']) {
+      const src2 = readFileSync(join(__dirname, '../../src', p), 'utf8');
+      expect(src2, `${p}: パネルは不透明トークン`).toContain('var(--bg-modal)');
+      expect(src2.includes("overflowY: 'auto', background: 'var(--bg-card)'"), `${p}: 透けるトークンが残っていない`).toBe(false);
+    }
+    const globals = readFileSync(join(__dirname, '../../src/app/globals.css'), 'utf8');
+    for (const t of [':root', '[data-theme="dark"]', '[data-theme="midnight"]', '[data-theme="light"]', '[data-theme="nature"]']) {
+      const block = globals.slice(globals.indexOf(t + ' {'), globals.indexOf('}', globals.indexOf(t + ' {')));
+      expect(block, `${t} に --bg-modal（不透明）`).toMatch(/--bg-modal: #[0-9a-f]{6};/);
+    }
+  } finally {
+    await ctx.close();
+    await browser.close();
+  }
+});
+
+test('C143: 操作行のアコーディオン（326・WebKit iPhone幅）— 狭幅で常に見えるのは3つ（保存・図解・⋯ 操作）で残りは閉じている／「⋯ 操作 ▾」で9マス・追加リサーチ・コピー・AIで修正・表示の高さ・ダウンロード・送る・記憶する・お気に入りが縦1列（各44px以上・横スクロールなし）／展開してもロケータは1つのまま（同じ要素）／成果物ごとに独立して開閉／広幅は従来の2段', async () => {
+  test.setTimeout(240_000);
+  const browser = await webkit.launch();
+  const ctx = await browser.newContext({ storageState: STORAGE_STATE, baseURL: BASE_URL, hasTouch: true, isMobile: true, viewport: { width: 390, height: 844 }, serviceWorkers: 'block' });
+  const page = await ctx.newPage();
+  try {
+    await stubFeatureDrafts(page);
+    const long = 'かゆみが強いときは掻かずに冷やすとよい。保湿剤は入浴後5分以内に塗る。室内の湿度は50〜60%に保つ。'.repeat(4);
+    await page.route('**/api/text-analysis/analyze', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ result: `${long}\n\nまとめました。`, model: 'gemini' }) }));
+    await page.goto('/dashboard/text-analysis');
+    await page.evaluate(() => { localStorage.setItem('lumina_auto_stock_save', '0'); });
+    await page.reload({ waitUntil: 'domcontentloaded' });
+    const textarea = page.getByPlaceholder('ここに分析したいテキストを貼り付けてください...');
+    await expect(textarea).toBeVisible({ timeout: 30000 });
+    await textarea.fill(long);
+    await page.locator('[data-clear-paste]').waitFor({ state: 'visible', timeout: 30000 });
+    await page.locator('button[data-kb-run]').first().click();
+    const bar = page.locator('[data-ta-result-actions]').first();
+    await expect(bar).toBeVisible({ timeout: 90000 });
+    await expect(bar, '狭幅と判定される').toHaveAttribute('data-result-narrow', '1');
+    // ① 常に見えるのは3つ
+    const visible = async () => bar.locator('button, a').evaluateAll((els) => els.filter((e) => (e as HTMLElement).offsetParent !== null && !(e.closest('[data-result-more-panel]') as HTMLElement | null)).map((e) => (e.textContent ?? '').trim()));
+    const shown = await visible();
+    expect(shown.length, `常に見えるのは3つ（${shown.join('／')}）`).toBe(3);
+    expect(shown[2]).toContain('操作');
+    await expect(bar.locator('[data-result-more-panel]')).toBeHidden();
+    // ② 展開すると縦1列で残りが出る
+    await bar.locator('[data-result-more]').click();
+    const panel = bar.locator('[data-result-more-panel]');
+    await expect(panel).toBeVisible();
+    for (const name of ['🔲 9マスシートにする', '🎤 プレゼン構成を考える', '🔭 追加リサーチ', '📋 コピー', '⬇ ダウンロード', '➡ 送る', '🧠 記憶する']) {
+      await expect(panel.getByText(name, { exact: false }).first(), `${name} が展開部にある`).toBeVisible();
+    }
+    await expect(panel.locator('[data-result-more-label]'), '高さプリセットにラベル').toHaveText('表示の高さ');
+    const rows = await panel.evaluate((el) => Array.from(el.children).map((c) => { const r = c.getBoundingClientRect(); return { h: Math.round(r.height), w: Math.round(r.width), left: Math.round(r.left) }; }));
+    expect(rows.length).toBeGreaterThan(3);
+    for (const r of rows) expect(r.h, '各行は44px以上').toBeGreaterThanOrEqual(44);
+    expect(new Set(rows.map((r) => r.left)).size, '縦1列（左端がそろう）').toBe(1);
+    const overflowX = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+    expect(overflowX, '横スクロールなし').toBeLessThanOrEqual(1);
+    // ③ 展開してもロケータは1つ（同じ要素・ハンドラ不変）
+    await expect(bar.locator('[data-vis-quick-fixed="grid9"]')).toHaveCount(1);
+    await expect(bar.locator('[data-memorize-button]')).toHaveCount(1);
+    await expect(page.locator('[data-ta-result-actions]').first().locator('[data-vis-quick-open]')).toHaveCount(3);
+    // ④ 閉じると隠れる（DOM には残る＝ハンドラを作り直さない）
+    await bar.locator('[data-result-more]').click();
+    await expect(panel).toBeHidden();
+    await expect(bar.locator('[data-vis-quick-fixed="grid9"]'), '閉じていても DOM にある').toHaveCount(1);
+    // ⑤ 成果物ごとに独立（2つ目の成果物があるときだけ）
+    const bars = page.locator('[data-ta-result-actions]');
+    if ((await bars.count()) > 1) {
+      await bars.nth(0).locator('[data-result-more]').click();
+      await expect(bars.nth(0).locator('[data-result-more-panel]')).toBeVisible();
+      await expect(bars.nth(1).locator('[data-result-more-panel]'), '他の成果物は閉じたまま').toBeHidden();
+    }
+    // ⑥ 広幅は従来の2段（アコーディオンを出さない）
+    await page.setViewportSize({ width: 1200, height: 900 });
+    await expect(bar, '広幅').toHaveAttribute('data-result-narrow', '0', { timeout: 15000 });
+    await expect(bar.locator('[data-result-more]')).toHaveCount(0);
+    await expect(bar.locator('[data-result-action-row="2"]')).toBeVisible();
+  } finally {
+    await ctx.close();
+    await browser.close();
   }
 });

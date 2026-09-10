@@ -14,6 +14,7 @@
 
 import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
+import { useBodyScrollLock } from '@/components/ModalSheet';
 import { GEMINI_TEXT_MODEL, GEMINI_TEXT_MODEL_LABEL } from '@/lib/ai-models';
 import { estimateCost, estimatedSecondsLabel, formatUsd, pricingNote } from '@/lib/model-pricing';
 import { useHoverPopover } from '@/components/HoverPopover';
@@ -74,6 +75,7 @@ export function FollowUpResearchDialog({
   const tooMany = refs.length > FOLLOWUP_MAX_SOURCES;
 
   useEffect(() => setMounted(true), []);
+  useBodyScrollLock(mounted); // 326: 開いている間は背面をスクロールさせない
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') onClose();
@@ -145,7 +147,7 @@ export function FollowUpResearchDialog({
       onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
       style={{ position: 'fixed', inset: 0, zIndex: 10500, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16, background: 'rgba(0,0,0,0.35)' }}
     >
-      <div style={{ width: 'min(680px, 100%)', maxHeight: '100dvh', overflowY: 'auto', background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 12, padding: 16, display: 'flex', flexDirection: 'column', gap: 12, boxShadow: '0 12px 40px rgba(0,0,0,0.3)', fontSize: 13, color: 'var(--text-primary)' }}>
+      <div style={{ width: 'min(680px, 100%)', maxHeight: '100dvh', overflowY: 'auto', background: 'var(--bg-modal)', border: '1px solid var(--border)', borderRadius: 12, padding: 16, display: 'flex', flexDirection: 'column', gap: 12, boxShadow: '0 12px 40px rgba(0,0,0,0.3)', fontSize: 13, color: 'var(--text-primary)' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
           <div style={{ fontSize: 14, fontWeight: 700 }}>🔭 これを元に追加リサーチ</div>
           <button type="button" data-followup-close onClick={onClose} style={{ ...btnBase, padding: '4px 8px' }}>✕</button>

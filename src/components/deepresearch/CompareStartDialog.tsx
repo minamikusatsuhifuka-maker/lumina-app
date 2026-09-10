@@ -11,6 +11,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
+import { useBodyScrollLock } from '@/components/ModalSheet';
 import {
   COMPARE_GPT_UNAVAILABLE_REASON,
   COMPARE_SIDES,
@@ -52,6 +53,7 @@ export default function CompareStartDialog({
   const startedRef = useRef(false);
 
   useEffect(() => setMounted(true), []);
+  useBodyScrollLock(mounted); // 326: 開いている間は背面をスクロールさせない
   useEffect(() => {
     let cancelled = false;
     (async () => {
@@ -105,7 +107,7 @@ export default function CompareStartDialog({
       onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
       style={{ position: 'fixed', inset: 0, zIndex: 10000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16, background: 'rgba(0,0,0,0.35)' }}
     >
-      <div style={{ width: 'min(640px, 100%)', maxHeight: '100dvh', overflowY: 'auto', background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 12, padding: 16, display: 'flex', flexDirection: 'column', gap: 12, boxShadow: '0 12px 40px rgba(0,0,0,0.3)' }}>
+      <div style={{ width: 'min(640px, 100%)', maxHeight: '100dvh', overflowY: 'auto', background: 'var(--bg-modal)', border: '1px solid var(--border)', borderRadius: 12, padding: 16, display: 'flex', flexDirection: 'column', gap: 12, boxShadow: '0 12px 40px rgba(0,0,0,0.3)' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
           <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-primary)' }}>⚖ 並列比較を開始しますか？</div>
           <button type="button" data-compare-dialog-close onClick={onClose} style={{ ...btn, padding: '4px 8px' }}>✕</button>

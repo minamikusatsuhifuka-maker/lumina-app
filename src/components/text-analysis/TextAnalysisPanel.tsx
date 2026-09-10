@@ -141,8 +141,8 @@ function ResultPanel({
         gap: 12,
       }}
     >
-      {/* ヘッダー（見出し・モデル・字数） */}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, flexWrap: 'wrap' }}>
+      {/* ヘッダー（見出し・モデル・字数）。326 §3-3: 狭幅は1行にまとめる（globals.css の [data-result-head]） */}
+      <div data-result-head style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, flexWrap: 'wrap' }}>
         <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
           <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--accent)' }}>
             {label}
@@ -199,7 +199,7 @@ function ResultPanel({
                   : '💾 ストック保存'}
         </button>
         }
-        main={<>
+        keepVisible={
         <VisualQuickButton
           text={text}
           title={label}
@@ -209,6 +209,8 @@ function ResultPanel({
           disabled={!text || isStreaming}
           style={btnStyle('neutral')}
         />
+        }
+        main={<>
         {/* 324/325: 9マスシート・プレゼン構成（種類を固定して直接開く・ダイアログなし） */}
         <VisualQuickButton
           text={text}

@@ -10,9 +10,12 @@
 // - メニューは最小実装（HoverPopover は「ホバーで出す」前提なので使わない）: クリックで開閉・Esc・外側クリックで閉じる・
 //   トリガーは button なのでキーボード（Enter/Space）で開閉できる。中の要素を押したら閉じる（ただし [data-context-modal] の中は閉じない）
 // - 縦書きの根本＝flex の縮小で1文字ずつ折れる事象。globals.css の `button { white-space: nowrap }` で「ボタンは常に横書き」を規約にした
+// - 326: 狭幅（容器 640px 未満・313 と同じ判定）は**アコーディオン**。常に見えるのは [主操作][keepVisible][⋯ 操作 ▾] の3つで、
+//   残りは展開部へ縦1列（44px 以上）。展開部は**閉じている間も DOM に置き `hidden`**（ハンドラ・data 属性・活性条件を保つ＝R-88）
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
+import { isStickyBarNarrow } from '@/lib/sticky-action-bar';
 
 export interface ResultActionMenu {
   key: string;
@@ -91,36 +94,91 @@ export function ResultActionMenuButton({ menu }: { menu: ResultActionMenu }) {
 export default function ResultActionBar({
   attrs,
   primary,
+  keepVisible,
   main,
   aside,
+  asideLabel = '表示の高さ',
   menus,
   extra,
 }: {
   attrs?: Record<string, string>;
   /** 主操作（塗りつぶし1つ）。SaveToLibraryButton 等 */
   primary?: ReactNode;
+  /** 326: 狭幅でも1段目に残す枠線ボタン（🖼 図解・画像を作る） */
+  keepVisible?: ReactNode;
   /** 1段目の枠線ボタン */
   main?: ReactNode;
   /** 1段目の右端（文字サイズ等） */
   aside?: ReactNode;
+  /** 326: 狭幅の展開部で aside に付ける見出し（高さプリセット等） */
+  asideLabel?: string;
   /** 2段目のメニュー */
   menus?: ResultActionMenu[];
   /** 2段目のメニュー以外（🧠 記憶する等） */
   extra?: ReactNode;
 }) {
   const row: React.CSSProperties = { display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', minWidth: 0 };
+  // 326: 狭幅は容器の実測で判定（画面幅ではない・313 と同じ 640px）。開閉は成果物ごと・記憶しない（既定は閉じる）
+  const rootRef = useRef<HTMLDivElement | null>(null);
+  const [narrow, setNarrow] = useState(false);
+  const [open, setOpen] = useState(false);
+  useEffect(() => {
+    const el = rootRef.current;
+    if (!el || typeof ResizeObserver === 'undefined') return;
+    const apply = () => setNarrow(isStickyBarNarrow(el.getBoundingClientRect().width));
+    apply();
+    const ro = new ResizeObserver(apply);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+  useEffect(() => {
+    if (!narrow) setOpen(false);
+  }, [narrow]);
+  const hasMore = !!main || !!aside || (menus && menus.length > 0) || !!extra;
+  const rest = (
+    <>
+      {main}
+      {aside && (
+        <span data-result-more-group>
+          {narrow && <span data-result-more-label>{asideLabel}</span>}
+          <span data-result-action-aside style={narrow ? { display: 'inline-flex', alignItems: 'center', gap: 6 } : { marginLeft: 'auto', display: 'inline-flex', alignItems: 'center', gap: 6 }}>{aside}</span>
+        </span>
+      )}
+      {menus?.map((m) => <ResultActionMenuButton key={m.key} menu={m} />)}
+      {extra}
+    </>
+  );
   return (
-    <div data-result-action-bar {...attrs} style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 16, minWidth: 0 }}>
-      <div data-result-action-row="1" style={row}>
-        {primary && <span data-result-action-primary style={{ display: 'inline-flex' }}>{primary}</span>}
-        {main}
-        {aside && <span data-result-action-aside style={{ marginLeft: 'auto', display: 'inline-flex', alignItems: 'center', gap: 6 }}>{aside}</span>}
-      </div>
-      {((menus && menus.length > 0) || extra) && (
-        <div data-result-action-row="2" style={row}>
-          {menus?.map((m) => <ResultActionMenuButton key={m.key} menu={m} />)}
-          {extra}
-        </div>
+    <div ref={rootRef} data-result-action-bar {...attrs} data-result-narrow={narrow ? '1' : '0'} style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 16, minWidth: 0 }}>
+      {narrow ? (
+        <>
+          <div data-result-action-row="1" style={row}>
+            {primary && <span data-result-action-primary style={{ display: 'inline-flex' }}>{primary}</span>}
+            {keepVisible}
+            {hasMore && (
+              <button type="button" data-result-more aria-expanded={open} onClick={() => setOpen((v) => !v)} title="残りの操作を開きます">
+                ⋯ 操作 {open ? '▴' : '▾'}
+              </button>
+            )}
+          </div>
+          {/* 閉じている間も DOM に置く（同じ要素・同じハンドラ＝E2E のロケータが1つのまま） */}
+          <div data-result-more-panel hidden={!open}>{rest}</div>
+        </>
+      ) : (
+        <>
+          <div data-result-action-row="1" style={row}>
+            {primary && <span data-result-action-primary style={{ display: 'inline-flex' }}>{primary}</span>}
+            {keepVisible}
+            {main}
+            {aside && <span data-result-action-aside style={{ marginLeft: 'auto', display: 'inline-flex', alignItems: 'center', gap: 6 }}>{aside}</span>}
+          </div>
+          {((menus && menus.length > 0) || extra) && (
+            <div data-result-action-row="2" style={row}>
+              {menus?.map((m) => <ResultActionMenuButton key={m.key} menu={m} />)}
+              {extra}
+            </div>
+          )}
+        </>
       )}
     </div>
   );
