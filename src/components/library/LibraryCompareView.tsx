@@ -90,7 +90,13 @@ export default function LibraryCompareView<T extends Row>({
   useEffect(() => setMountedPortal(true), []);
   useEffect(() => {
     if (!fullscreen) return;
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return;
+      // 330: 列から開いた全画面リーダー（282）が上に載っている間は、Esc はそちらのもの。
+      //      ここで一緒に閉じると「1件を読んで比較に戻る」ができない
+      if (document.querySelector('[data-kb-scope="reader"]')) return;
+      onClose();
+    };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [fullscreen, onClose]);

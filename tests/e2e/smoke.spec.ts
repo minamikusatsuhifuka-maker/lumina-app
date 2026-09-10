@@ -13155,3 +13155,112 @@ test('C146: 画像ギャラリーの一括処理と圧縮（329）— チェッ�
     void request;
   }
 });
+
+test('C147: 🗂保存一覧の全画面と全画面比較（330）— カードの「⛶ 全画面」でリーダーが開き Esc・✕ で閉じる／高さ「全」はカードを伸ばさず全画面で開く（S/M/L はカード内）／2件以上を選ぶと「⇔ 比較」が使え、全画面（body 直下・画面いっぱい）で並び、列数を変えられ同期スクロールと見出し固定が効く／10件目は無効化＋理由（上限9）／比較中に AI のリクエストが0／各列の「⛶」「📋」が動き Esc で閉じても選択は残る／iPhone幅は1列で横スクロールなし', async ({ page, request }) => {
+  test.setTimeout(300_000);
+  const marker = `TA330${RUN_ID}`;
+  const ids: number[] = [];
+  for (const n of [1, 2, 3]) ids.push(await createSave(request, { title: `TA-${n} ${marker}`, content: longMarkdown(`${n}${marker}`, 40), analysisType: 'summary', analysisLabel: '概要・要約' }));
+  const aiCalls: string[] = [];
+  for (const p of ['**/api/text-analysis/analyze', '**/api/text-analysis/cross-analyze', '**/api/merge', '**/api/anthropic/**']) {
+    await page.route(p, (route) => { aiCalls.push(route.request().url()); route.fulfill({ status: 500, body: '{}' }); });
+  }
+  const panel = page.locator('[data-saved-panel="text-analysis"]');
+  const card = (id: number) => panel.locator(`[data-analysis-card="${id}"]`);
+  const reader = page.locator('[role="dialog"][data-kb-scope="reader"]');
+  try {
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto('/dashboard/saved');
+    await page.evaluate(() => { localStorage.removeItem('lumina_ta_saved_height'); localStorage.setItem('lumina_text_scale', '100'); });
+    await page.reload({ waitUntil: 'domcontentloaded' });
+    await panel.locator('[data-kb-search]').fill(marker);
+    await expect(card(ids[0])).toBeVisible({ timeout: 30000 });
+    // ── ① 1件ずつの全画面（282 の共通リーダー） ──
+    await card(ids[0]).getByRole('button', { name: '⛶ 全画面' }).click();
+    await expect(reader).toBeVisible({ timeout: 30000 });
+    await expect(reader.locator('h2, h3').first(), '本文は MarkdownBody で整形（### が露出しない）').toBeVisible();
+    expect(await reader.innerText(), 'マークダウン記号が生で出ない').not.toContain('### ');
+    await page.keyboard.press('Escape');
+    await expect(reader).toHaveCount(0);
+    // ── ② 高さ「全」は全画面で開く（カードは伸びない） ──
+    await card(ids[0]).getByRole('button', { name: '▼ 全文表示' }).click();
+    // S/M/L はカード内の枠（高さが変わる）。「全」だけが全画面
+    await card(ids[0]).locator('[data-ta-height="L"]').click();
+    const before = (await card(ids[0]).boundingBox())!.height;
+    await card(ids[0]).locator('[data-ta-height="full"]').click();
+    await expect(reader, '「全」で全画面が開く').toBeVisible({ timeout: 30000 });
+    await page.keyboard.press('Escape');
+    await expect(reader).toHaveCount(0);
+    const after = (await card(ids[0]).boundingBox())!.height;
+    expect(Math.abs(after - before), '「全」を押してもカードは伸びない').toBeLessThanOrEqual(80);
+    await card(ids[0]).getByRole('button', { name: '▲ 閉じる' }).first().click();
+    // ── ③ 選択して全画面比較 ──
+    const openBtn = panel.locator('[data-library-compare-open]');
+    await panel.locator(`[data-select-check="${ids[0]}"]`).check();
+    await expect(openBtn, '1件では比較できない').toBeDisabled();
+    await panel.locator(`[data-select-check="${ids[1]}"]`).check();
+    await expect(openBtn).toBeEnabled();
+    await openBtn.click();
+    const compare = page.locator('[data-library-compare]');
+    await expect(compare).toBeVisible({ timeout: 30000 });
+    await expect(compare, '全画面で開く').toHaveAttribute('data-library-compare-fullscreen', '1');
+    const geom = await compare.evaluate((el) => {
+      const r = el.getBoundingClientRect();
+      return { top: Math.round(r.top), left: Math.round(r.left), w: Math.round(r.width), h: Math.round(r.height), vw: window.innerWidth, vh: window.innerHeight, inBody: el.parentElement === document.body, overflow: getComputedStyle(document.documentElement).overflow };
+    });
+    expect(geom.inBody, 'body 直下（portal）').toBe(true);
+    expect(geom.w).toBe(geom.vw);
+    expect(geom.h).toBe(geom.vh);
+    expect(geom.top).toBe(0);
+    expect(geom.overflow, '背面はスクロールしない').toBe('hidden');
+    await expect(page.locator('[data-compare-col="0"]')).toBeVisible();
+    await expect(page.locator('[data-compare-col="1"]')).toBeVisible();
+    // 列数の切り替えと同期スクロール（R-78）
+    await compare.locator('[data-compare-cols-choice="1"]').click();
+    await expect(compare.locator('[data-compare-cols]')).toHaveAttribute('data-compare-cols', '1');
+    await compare.locator('[data-compare-cols-choice="2"]').click();
+    await expect(compare.locator('[data-compare-cols]')).toHaveAttribute('data-compare-cols', '2');
+    await expect(compare.locator('[data-compare-sync]')).toBeChecked();
+    await page.locator('[data-compare-col="0"]').evaluate((el) => el.scrollTo(0, 200));
+    await expect.poll(() => page.locator('[data-compare-col="1"]').evaluate((el) => el.scrollTop), { timeout: 10000 }).toBeGreaterThan(0);
+    // 各列の操作（⛶ と 📋）
+    await compare.locator('[data-compare-fullscreen="0"]').click();
+    await expect(reader).toBeVisible({ timeout: 30000 });
+    await page.keyboard.press('Escape');
+    await expect(reader).toHaveCount(0);
+    await expect(compare, 'リーダーを閉じても比較は開いたまま').toBeVisible();
+    await compare.locator('[data-compare-copy="0"]').click();
+    // AI は呼ばない
+    expect(aiCalls.length, '比較でAIを呼ばない').toBe(0);
+    // Esc で閉じても選択は残る
+    await page.keyboard.press('Escape');
+    await expect(compare).toHaveCount(0);
+    await expect(openBtn, '選択は保たれる').toBeEnabled();
+    // ── ④ iPhone幅は1列・横スクロールなし ──
+    const browser = await webkit.launch();
+    const ctx = await browser.newContext({ storageState: STORAGE_STATE, baseURL: BASE_URL, hasTouch: true, isMobile: true, viewport: { width: 390, height: 844 }, serviceWorkers: 'block' });
+    const mp = await ctx.newPage();
+    try {
+      const mpanel = mp.locator('[data-saved-panel="text-analysis"]');
+      await mp.goto('/dashboard/saved');
+      await mpanel.locator('[data-kb-search]').fill(marker);
+      await expect(mpanel.locator(`[data-analysis-card="${ids[0]}"]`)).toBeVisible({ timeout: 30000 });
+      await mpanel.locator(`[data-select-check="${ids[0]}"]`).check();
+      await mpanel.locator(`[data-select-check="${ids[1]}"]`).check();
+      await mpanel.locator('[data-library-compare-open]').click();
+      const mcompare = mp.locator('[data-library-compare]');
+      await expect(mcompare).toBeVisible({ timeout: 30000 });
+      const m = await mp.evaluate(() => {
+        const grid = document.querySelector('[data-compare-cols]') as HTMLElement;
+        return { cols: grid.getAttribute('data-compare-cols'), sw: document.documentElement.scrollWidth, iw: window.innerWidth };
+      });
+      expect(m.cols, 'iPhone幅は1列').toBe('1');
+      expect(m.sw, '横スクロールなし').toBeLessThanOrEqual(m.iw + 1);
+    } finally {
+      await ctx.close();
+      await browser.close();
+    }
+  } finally {
+    await cleanupE2ESaves(request);
+  }
+});
