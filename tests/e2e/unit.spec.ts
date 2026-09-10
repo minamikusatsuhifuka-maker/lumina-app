@@ -5430,7 +5430,7 @@ test('U95: 図解の提案→承認→一括生成（323）— 「構成」の�
   const read = (p: string) => readFileSync(join(__dirname, '../../src', p), 'utf8');
   const page = read('app/dashboard/visuals/page.tsx');
   expect(page, '編集したら承認が外れる（updatePlan の中）').toMatch(/setPlans\(\(prev\) => prev\.map\(\(p\) => \(p\.id === id \? patch\(p\) : p\)\)\);\s*setApproved\(\(m\) => \{ if \(!\(id in m\)\) return m;/);
-  expect(page, '一括生成は既存の描画／生成をそのまま呼ぶ（R-88）').toMatch(/if \(VISUAL_DETERMINISTIC_TYPES\.includes\(plan\.type\)\) await render\(plan\);\s*else await generateImage\(plan\);/);
+  expect(page, '一括生成は既存の描画／生成をそのまま呼ぶ（R-88）・成否は戻り値').toMatch(/if \(VISUAL_DETERMINISTIC_TYPES\.includes\(plan\.type\)\) return render\(plan\);\s*return generateImage\(plan\);/);
   expect(page, '確認は生成前に1回・二重発火は ref（R-87）').toMatch(/const runBulk = async \(\) => \{\s*if \(bulkRef\.current\) return;/);
   expect(page, '?mode=form で従来モード').toMatch(/const formMode = searchParams\?\.get\(VISUALS_MODE_PARAM\) === VISUALS_MODE_FORM;/);
   expect(page, '承認時刻を出どころへ').toMatch(/approvedAt: approvedRef\.current\[plan\.id\] \?\? null/);
