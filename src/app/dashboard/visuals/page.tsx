@@ -243,8 +243,9 @@ function VisualsInner() {
     return saveImageToGallery({ imageBase64: r.base64, prompt: `図解: ${plan.title}`, settings, title: visualSaveTitle(plan, r.kind), source: 'visuals', width: r.width, height: r.height });
   };
 
-  const render = async (plan: VisualPlan) => {
-    if (busyRef.current.has(plan.id)) return; // R-87
+  // 323: 成否を返す（一括生成の件数は state の ref ではなく戻り値で数える＝await 後の再描画タイミングに依存しない）
+  const render = async (plan: VisualPlan): Promise<boolean> => {
+    if (busyRef.current.has(plan.id)) return false; // R-87
     busyRef.current.add(plan.id);
     setBusy((b) => ({ ...b, [plan.id]: true }));
     setErrors((e) => ({ ...e, [plan.id]: undefined as never }));
@@ -262,16 +263,18 @@ function VisualsInner() {
       } catch (e) {
         setResults((m) => ({ ...m, [plan.id]: { ...m[plan.id], saving: false, saveError: e instanceof Error ? e.message : '保存に失敗しました' } }));
       }
+      return true;
     } catch (e) {
       setErrors((m) => ({ ...m, [plan.id]: { message: e instanceof Error ? e.message : '描画に失敗しました' } }));
+      return false;
     } finally {
       busyRef.current.delete(plan.id);
       setBusy((b) => ({ ...b, [plan.id]: false }));
     }
   };
 
-  const generateImage = async (plan: VisualPlan) => {
-    if (busyRef.current.has(plan.id)) return; // R-87
+  const generateImage = async (plan: VisualPlan): Promise<boolean> => {
+    if (busyRef.current.has(plan.id)) return false; // R-87
     busyRef.current.add(plan.id);
     setImageDialog(null);
     setBusy((b) => ({ ...b, [plan.id]: true }));
@@ -290,8 +293,10 @@ function VisualsInner() {
       } catch (e) {
         setResults((m) => ({ ...m, [plan.id]: { ...m[plan.id], saving: false, saveError: e instanceof Error ? e.message : '保存に失敗しました' } }));
       }
+      return true;
     } catch (e) {
       setErrors((m) => ({ ...m, [plan.id]: { message: e instanceof Error ? e.message : '生成に失敗しました', unavailable: !!(e as { unavailable?: boolean }).unavailable } }));
+      return false;
     } finally {
       busyRef.current.delete(plan.id);
       setBusy((b) => ({ ...b, [plan.id]: false }));
@@ -339,9 +344,9 @@ function VisualsInner() {
   };
   const approvedPlans = plans.filter((p) => p.id in approved);
   const bulkEst = bulkEstimate(approvedPlans, imageSettings, orientation);
-  const runOne = async (plan: VisualPlan) => {
-    if (VISUAL_DETERMINISTIC_TYPES.includes(plan.type)) await render(plan);
-    else await generateImage(plan);
+  const runOne = async (plan: VisualPlan): Promise<boolean> => {
+    if (VISUAL_DETERMINISTIC_TYPES.includes(plan.type)) return render(plan);
+    return generateImage(plan);
   };
   const runBulk = async () => {
     if (bulkRef.current) return; // R-87
@@ -353,22 +358,20 @@ function VisualsInner() {
     try {
       // 1件ずつ独立（R-39）。失敗しても次へ進む。結果は STEP3 に生成順
       for (const p of targets) {
-        await runOne(p);
-        const failedNow = !!errorsRef.current[p.id];
-        setBulk((b) => (b ? { ...b, done: b.done + 1, failed: b.failed + (failedNow ? 1 : 0) } : b));
+        const ok = await runOne(p);
+        setBulk((b) => (b ? { ...b, done: b.done + 1, failed: b.failed + (ok ? 0 : 1) } : b));
       }
     } finally {
       bulkRef.current = false;
       setBulk((b) => (b ? { ...b, running: false } : b));
     }
   };
-  const errorsRef = useRef(errors);
-  errorsRef.current = errors;
   const regenerate = async (plan: VisualPlan) => {
     if (bulkRef.current || busyRef.current.has(plan.id)) return;
-    setBulk((b) => (b ? { ...b, failed: Math.max(0, b.failed - (errors[plan.id] ? 1 : 0)) } : b));
-    await runOne(plan);
-    if (errorsRef.current[plan.id]) setBulk((b) => (b ? { ...b, failed: b.failed + 1 } : b));
+    const wasFailed = !!errors[plan.id];
+    const ok = await runOne(plan);
+    // 失敗→成功で −1、成功→失敗で +1（それ以外は変えない）
+    setBulk((b) => (b ? { ...b, failed: Math.max(0, b.failed + (wasFailed && ok ? -1 : !wasFailed && !ok ? 1 : 0)) } : b));
   };
   const downloadAll = () => {
     const list = (bulk?.order ?? []).map((id) => plans.find((p) => p.id === id)).filter((p): p is VisualPlan => !!p && !!results[p.id]?.finalBase64);
