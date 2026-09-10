@@ -12941,6 +12941,8 @@ test('C144: イメージ画像の生成モードとアスペクト比（327・�
   await page.locator('[data-vis-source]').fill(src);
   await page.locator('[data-vis-extract]').click();
   await expect(page.locator('[data-vis-plan="i1"]')).toBeVisible({ timeout: 15000 });
+  // 提案モードでは画像の設定は「▾ 詳しく直す」の中（323）
+  await page.locator('[data-vis-detail-toggle="i1"]').click();
   for (const m of ['detailed', 'custom', 'captioned']) await page.locator(`[data-vis-plan="i1"] [data-vis-image-mode-check="${m}"]`).check();
   for (const id of ['i1', 'i2']) await page.locator(`[data-vis-plan="${id}"] [data-vis-approve]`).check();
   await page.locator('[data-vis-bulk-generate]').click();
