@@ -12125,7 +12125,8 @@ test('C137: 結果画面の操作行（321）— 🔭DR結果の操作行が共�
 test('C138: 関連図の是正・つながり確認・🗂成果物の操作行（322）— 院長の再現入力（3ノード・2辺）が実描画で200（文字一致・全要素が画面内）／候補に why が表示され図の文字列に入らない／相手ノードが無い辺は赤い印に理由／つながり確認の一覧に根拠の文が出て✓を外した辺は描画リクエストの edgeOff に入り戻すと外れる／根拠なしの件数／🗂 各成果物の操作行が1箇所（横書き・高さ一致・主操作だけ塗りつぶし・メニュー・再分析で入力欄に入る）／WebKit iPhone幅で横スクロール無し', async ({ page, request }) => {
   test.setTimeout(300_000);
   const marker = `REL${RUN_ID}`;
-  const src = `トリプトファンはセロトニンに変換され、セロトニンはメラトニンに変換される。トリプトファンからメラトニンへ。識別子 ${marker}`;
+  // 3ノードが同じ文に揃わないようにする（メラトニン→トリプトファンの組だけ根拠の文が無い＝「根拠なし」の検証用）
+  const src = `トリプトファンはセロトニンに変換される。セロトニンはメラトニンに変換される。識別子 ${marker}`;
   const galleryIds: string[] = [];
   const renderBodies: { plan?: { edgeOff?: string[]; type?: string } }[] = [];
   await page.route('**/api/visuals/render', async (route) => { renderBodies.push(route.request().postDataJSON()); await route.fallback(); });
