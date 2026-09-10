@@ -174,7 +174,7 @@ export function VisualQuickButton({
         data-vis-quick-fixed={fixedTypes ? fixedTypes.join(',') : undefined}
         onClick={(e) => { e.stopPropagation(); if (off) return; if (fixedTypes) goFixed(); else setOpen(true); }}
         disabled={off}
-        title={off ? '本文が表示されると使えます（20字以上）' : 'この結果から図解（表・フロー・関連図・相関図など）やイメージ画像を作る（種類を選んで新しいタブ・自動では描きません）'}
+        title={off ? '本文が表示されると使えます（20字以上）' : fixedTypes ? `この結果から${fixedTypes.map((t) => VISUAL_TYPE_META[t].label).join('・')}の候補を提案します（新しいタブ・自動では描きません）` : 'この結果から図解（表・フロー・関連図・相関図など）やイメージ画像を作る（種類を選んで新しいタブ・自動では描きません）'}
         style={{ ...style, ...(off ? { opacity: 0.5, cursor: 'not-allowed' } : {}) }}
       >
         {label}

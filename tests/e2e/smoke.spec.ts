@@ -12205,7 +12205,9 @@ test('C138: 関連図の是正・つながり確認・🗂成果物の操作行�
     const filled = info.filter((i) => i.bg === 'rgb(79, 70, 229)');
     expect(filled.map((f) => f.primary), '塗りつぶしは主操作（ストック保存）だけ').toEqual([true]);
     await expect(bar.getByRole('button', { name: '💾 ストック保存' })).toBeVisible();
-    await expect(bar.locator('[data-vis-quick-open]')).toBeVisible();
+    await expect(bar.locator('[data-vis-quick-open="unsaved"]'), '🖼 図解・画像を作る').toBeVisible();
+    await expect(bar.locator('[data-vis-quick-fixed="grid9"]'), '325: 🔲 9マスシート').toBeVisible();
+    await expect(bar.locator('[data-vis-quick-fixed="grid9_talk"]'), '325: 🎤 プレゼン構成').toBeVisible();
     await expect(bar.locator('[data-followup-open]')).toBeVisible();
     await expect(bar.getByRole('button', { name: '✏️ AIで修正' })).toBeVisible();
     await expect(bar.locator('[data-memorize-button]')).toHaveText('🧠 記憶する');
