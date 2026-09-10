@@ -473,10 +473,10 @@ function relationTemplate(plan: VisualPlan, width: number): El[] {
   const lines: El[] = lay.edges.map((e) =>
     div({ display: 'flex', position: 'absolute', left: e.box.x, top: e.box.y, width: e.box.w, height: e.box.h, background: GREEN, transform: `rotate(${e.angle}deg)`, opacity: 0.55 }, []),
   );
-  // 矢じり＝CSS の三角（幅0・高さ0・左のボーダーだけ色）。中心回転なので箱の中心を縁の少し手前に置く
+  // 矢じり＝小さな三角（inline SVG の polygon。CSS のボーダー三角は satori で四角に潰れる）。中心回転なので箱の中心を縁の少し手前に置く
   const arrowEls: El[] = lay.arrows.map((a) =>
     div({ display: 'flex', position: 'absolute', left: a.rect.x, top: a.rect.y, width: a.rect.w, height: a.rect.h, transform: `rotate(${a.angle}deg)`, alignItems: 'center', justifyContent: 'center' },
-      div({ display: 'flex', width: 0, height: 0, borderTop: `${REL_ARROW_H / 2}px solid transparent`, borderBottom: `${REL_ARROW_H / 2}px solid transparent`, borderLeft: `${REL_ARROW_W}px solid ${GREEN}` }, [])),
+      { type: 'svg', props: { width: a.rect.w, height: a.rect.h, viewBox: `0 0 ${a.rect.w} ${a.rect.h}`, children: { type: 'polygon', props: { points: `0,0 ${a.rect.w},${a.rect.h / 2} 0,${a.rect.h}`, fill: GREEN } } } } as unknown as El),
   );
   const edgeLabels: El[] = lay.labels.map((l) =>
     div({ position: 'absolute', left: l.rect.x, top: l.rect.y, width: l.rect.w, height: l.rect.h, display: 'flex', justifyContent: 'center', alignItems: 'center' }, div({ display: 'flex', background: '#fff', border: `1px solid ${LINE}`, borderRadius: 8, padding: '2px 8px', fontSize: 20, color: MUTED, lineHeight: 1.3 }, l.text)),

@@ -12461,8 +12461,8 @@ test('C140: DR成果物の操作行・9マスシート・関連図の是正（32
     expect(byPos.get(1)?.title).toBe('活動量低下');
     expect(byPos.get(3)?.title, 'マンダラと同じ配置（左上→上→右上→左）').toBe('筋タンパク質合成の低下');
     expect(byPos.get(0)?.meta?.origin, 'マスの origin は付けない').toBeUndefined();
-    const list = (await (await api.get('/api/mandala')).json()) as { charts: { id: string; origin?: string | null }[] };
-    expect(list.charts.find((c) => c.id === chartId)?.origin).toBe('visual_plan');
+    const list = (await (await api.get('/api/mandala')).json()) as { items: { id: string; origin?: string | null }[] };
+    expect(list.items.find((c) => c.id === chartId)?.origin, '一覧にも出どころ').toBe('visual_plan');
     // ── ③ 🔭DR の3成果物に操作行（本文はその成果物・LaTeX が出ない） ──
     await stubFeatureDrafts(page);
     const REPORT = `# [E2E] ${marker} レポート\n\n本文です。出典: 例 https://example.com`;
