@@ -41,6 +41,8 @@ import {
   VISUALS_MODE_FORM, VISUALS_MODE_PARAM, VISUAL_MAX_PLANS, approvalState, bulkConfirmLabel, bulkEstimate, planEvidenceCount, planStructureText, stripForeign, typeMinRequirement,
   // 324: 辺の既定（根拠なし＝✗）・つながりの要約・9マスシート→マンダラ
   applyEdgeDefaults, relationEdgeSummary,
+  // 327: イメージ画像の生成モード（4種）とアスペクト比
+  IMAGE_BATCH_OVER_REASON, VISUAL_ASPECTS, VISUAL_ASPECT_LABEL, VISUAL_ASPECT_SIZE, VISUAL_IMAGE_MAX_BATCH, VISUAL_IMAGE_MODES, VISUAL_IMAGE_MODE_META, aspectPricingKey, imageBatchCount, imageOverlayLabels, type VisualAspect, type VisualImageMode,
   // 325: プレゼン設計モード（grid9_talk）とグラフ
   TALK_DEFAULT, TALK_MINUTES, TALK_VENUES, TOPIC_OUTSIDE_LABEL, appendTopicToPlan, graphSeriesOf, isGraphType, removeTopicFromPlan, talkMinutes, talkMinutesLabel, talkPlanToSourceText, talkPositionLabel, topicEvidence, type TalkTarget, type TalkTopic,
 } from '@/lib/visuals';
@@ -50,6 +52,8 @@ import { jstDateTimeString } from '@/lib/jst';
 import { readOneTimeHandoff } from '@/lib/one-time-handoff';
 
 type Result = {
+  /** 327: どの生成モードの1枚か（イメージのみ） */
+  mode?: VisualImageMode;
   kind: 'render' | 'image';
   finalBase64: string;
   originalBase64?: string;
@@ -99,6 +103,10 @@ function VisualsInner() {
   const [busy, setBusy] = useState<Record<string, boolean>>({});
   const [errors, setErrors] = useState<Record<string, { message: string; unavailable?: boolean }>>({});
   const [imageDialog, setImageDialog] = useState<string | null>(null);
+  // 327: 生成モードは複数選べる（選んだ数だけ同時に生成）。比は1つ（既定 16:9）
+  const [imageModes, setImageModes] = useState<VisualImageMode[]>(['simple']);
+  const toggleImageMode = (m: VisualImageMode, on: boolean) =>
+    setImageModes((prev) => VISUAL_IMAGE_MODES.filter((x) => (x === m ? on : prev.includes(x))));
   const busyRef = useRef<Set<string>>(new Set()); // R-87
   const extractRef = useRef(false);
   // 320: 未保存の結果（handoff）の出どころ・自動 STEP1（?autoplan=1）は一回だけ（ref・キーは読んだ時点で消費済み）
@@ -291,8 +299,8 @@ function VisualsInner() {
   const approvedRef = useRef<Record<string, string>>({});
   approvedRef.current = approved;
 
-  const saveToGallery = async (plan: VisualPlan, r: { base64: string; width: number; height: number; model: string; generatedAt: string; kind: 'render' | 'image-final' | 'image-original'; quality?: string; aiText?: boolean; costUsd?: number | null; originalId?: string }) => {
-    const settings = buildVisualGallerySettings({ kind: r.kind, plan, orientation, sources, width: r.width, height: r.height, model: r.model, quality: r.quality, aiText: r.aiText, costUsd: r.costUsd, originalId: r.originalId, generatedAt: r.generatedAt, unsavedSource, approvedAt: approvedRef.current[plan.id] ?? null });
+  const saveToGallery = async (plan: VisualPlan, r: { base64: string; width: number; height: number; model: string; generatedAt: string; kind: 'render' | 'image-final' | 'image-original'; quality?: string; aiText?: boolean; costUsd?: number | null; originalId?: string; mode?: VisualImageMode }) => {
+    const settings = buildVisualGallerySettings({ kind: r.kind, plan, orientation, sources, width: r.width, height: r.height, model: r.model, quality: r.quality, aiText: r.aiText, ...(r.mode ? { imageMode: r.mode, aspect: imageSettings.aspect } : {}), costUsd: r.costUsd, originalId: r.originalId, generatedAt: r.generatedAt, unsavedSource, approvedAt: approvedRef.current[plan.id] ?? null });
     return saveImageToGallery({ imageBase64: r.base64, prompt: `図解: ${plan.title}`, settings, title: visualSaveTitle(plan, r.kind), source: 'visuals', width: r.width, height: r.height });
   };
 
@@ -326,34 +334,48 @@ function VisualsInner() {
     }
   };
 
-  const generateImage = async (plan: VisualPlan): Promise<boolean> => {
-    if (busyRef.current.has(plan.id)) return false; // R-87
-    busyRef.current.add(plan.id);
-    setImageDialog(null);
-    setBusy((b) => ({ ...b, [plan.id]: true }));
-    setErrors((e) => ({ ...e, [plan.id]: undefined as never }));
+  /** 327: 1モード＝1枚（独立・R-39）。成否を返す（件数は戻り値で数える・R-126） */
+  const generateImageOne = async (plan: VisualPlan, mode: VisualImageMode): Promise<boolean> => {
+    const key = `${plan.id}::${mode}`;
+    if (busyRef.current.has(key)) return false; // R-87
+    busyRef.current.add(key);
+    setBusy((b) => ({ ...b, [key]: true, [plan.id]: true }));
+    setErrors((e) => { const n = { ...e }; delete n[key]; delete n[plan.id]; return n; });
     try {
-      const r = await fetch('/api/visuals/image', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ plan, sourceText, settings: { ...imageSettings, orientation } }) });
+      const settings = { ...imageSettings, orientation, mode };
+      const r = await fetch('/api/visuals/image', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ plan, sourceText, settings }) });
       const j = (await r.json().catch(() => ({}))) as { originalBase64?: string; finalBase64?: string; width?: number; height?: number; model?: string; costUsd?: number | null; generatedAt?: string; error?: string; unavailable?: boolean };
       if (!r.ok || !j.finalBase64 || !j.originalBase64) throw Object.assign(new Error(j.error || `生成に失敗しました（${r.status}）`), { unavailable: j.unavailable });
-      const res: Result = { kind: 'image', finalBase64: j.finalBase64, originalBase64: j.originalBase64, width: j.width ?? 0, height: j.height ?? 0, model: j.model ?? IMAGE_MODEL_IDS.flare, costUsd: j.costUsd ?? null, aiText: imageSettings.aiText, generatedAt: j.generatedAt ?? new Date().toISOString(), saving: true };
-      setResults((m) => ({ ...m, [plan.id]: res }));
+      const res: Result = { kind: 'image', mode, finalBase64: j.finalBase64, originalBase64: j.originalBase64, width: j.width ?? 0, height: j.height ?? 0, model: j.model ?? IMAGE_MODEL_IDS.flare, costUsd: j.costUsd ?? null, generatedAt: j.generatedAt ?? new Date().toISOString(), aiText: imageSettings.aiText, saving: true };
+      setResults((m) => ({ ...m, [key]: res, ...(imageModes[0] === mode || !m[plan.id] ? { [plan.id]: res } : {}) }));
       try {
         // 元画像（C2PA つき）を先に保存し、完成画像に originalId を載せる
-        const original = await saveToGallery(plan, { base64: j.originalBase64, width: res.width, height: res.height, model: res.model, generatedAt: res.generatedAt, kind: 'image-original', quality: imageSettings.quality, aiText: imageSettings.aiText, costUsd: res.costUsd });
-        const saved = await saveToGallery(plan, { base64: j.finalBase64, width: res.width, height: res.height, model: res.model, generatedAt: res.generatedAt, kind: 'image-final', quality: imageSettings.quality, aiText: imageSettings.aiText, costUsd: res.costUsd, originalId: original.id });
-        setResults((m) => ({ ...m, [plan.id]: { ...m[plan.id], galleryId: saved.id, originalGalleryId: original.id, blobUrl: saved.blob_url, saving: false } }));
+        const original = await saveToGallery(plan, { base64: j.originalBase64, width: res.width, height: res.height, model: res.model, generatedAt: res.generatedAt, kind: 'image-original', quality: imageSettings.quality, aiText: imageSettings.aiText, mode });
+        const saved = await saveToGallery(plan, { base64: j.finalBase64, width: res.width, height: res.height, model: res.model, generatedAt: res.generatedAt, kind: 'image-final', quality: imageSettings.quality, aiText: imageSettings.aiText, costUsd: j.costUsd ?? null, originalId: original.id, mode });
+        setResults((m) => {
+          const done = { ...m[key], galleryId: saved.id, originalGalleryId: original.id, blobUrl: saved.blob_url, saving: false };
+          return { ...m, [key]: done, ...(m[plan.id]?.generatedAt === res.generatedAt && m[plan.id]?.mode === mode ? { [plan.id]: done } : {}) };
+        });
       } catch (e) {
-        setResults((m) => ({ ...m, [plan.id]: { ...m[plan.id], saving: false, saveError: e instanceof Error ? e.message : '保存に失敗しました' } }));
+        setResults((m) => ({ ...m, [key]: { ...m[key], saving: false, saveError: e instanceof Error ? e.message : '保存に失敗しました' } }));
       }
       return true;
     } catch (e) {
-      setErrors((m) => ({ ...m, [plan.id]: { message: e instanceof Error ? e.message : '生成に失敗しました', unavailable: !!(e as { unavailable?: boolean }).unavailable } }));
+      const err = { message: e instanceof Error ? e.message : '生成に失敗しました', unavailable: !!(e as { unavailable?: boolean }).unavailable };
+      setErrors((m) => ({ ...m, [key]: err, [plan.id]: err }));
       return false;
     } finally {
-      busyRef.current.delete(plan.id);
-      setBusy((b) => ({ ...b, [plan.id]: false }));
+      busyRef.current.delete(key);
+      setBusy((b) => ({ ...b, [key]: false, [plan.id]: VISUAL_IMAGE_MODES.some((x) => busyRef.current.has(`${plan.id}::${x}`)) }));
     }
+  };
+  /** 327: 選んだモードの数だけ順に生成（1枚ずつ独立・失敗しても次へ） */
+  const generateImage = async (plan: VisualPlan): Promise<boolean> => {
+    setImageDialog(null);
+    const modes = imageModes.length > 0 ? imageModes : (['simple'] as VisualImageMode[]);
+    let ok = 0;
+    for (const mode of modes) if (await generateImageOne(plan, mode)) ok += 1;
+    return ok === modes.length;
   };
 
   const download = (plan: VisualPlan, r: Result) => {
@@ -416,7 +438,9 @@ function VisualsInner() {
     }
   };
   const approvedPlans = plans.filter((p) => p.id in approved);
-  const bulkEst = bulkEstimate(approvedPlans, imageSettings, orientation);
+  // 327: 一括では「候補 × モード」枚になる。6枚を超えたら理由を出して止める（R-101）
+  const bulkEst = bulkEstimate(approvedPlans, imageSettings, orientation, imageModes.length > 0 ? imageModes : (['simple'] as VisualImageMode[]));
+  const bulkOver = bulkEst.images > VISUAL_IMAGE_MAX_BATCH ? IMAGE_BATCH_OVER_REASON(bulkEst.images) : null;
   const runOne = async (plan: VisualPlan): Promise<boolean> => {
     if (VISUAL_DETERMINISTIC_TYPES.includes(plan.type)) return render(plan);
     return generateImage(plan);
@@ -452,7 +476,11 @@ function VisualsInner() {
   };
 
   const dialogPlan = imageDialog ? plans.find((p) => p.id === imageDialog) ?? null : null;
-  const dialogEstimate = dialogPlan ? estimateImageCost(imageSettings.quality, orientation, buildVisualImagePrompt(dialogPlan, imageSettings).length) : null;
+  // 327: 枚数＝選んだモードの数。費用はモードごとのプロンプト長で足し合わせる（決定的）
+  const dialogModes = imageModes.length > 0 ? imageModes : (['simple'] as VisualImageMode[]);
+  const dialogCount = imageBatchCount(1, dialogModes);
+  const dialogUsd = dialogPlan ? dialogModes.reduce((n, mode) => n + estimateImageCost(imageSettings.quality, aspectPricingKey(imageSettings.aspect), buildVisualImagePrompt(dialogPlan, { ...imageSettings, mode }).length).usd, 0) : 0;
+  const dialogOver = dialogCount > VISUAL_IMAGE_MAX_BATCH ? IMAGE_BATCH_OVER_REASON(dialogCount) : null;
 
   return (
     <div data-visuals-page style={{ maxWidth: 1100, display: 'flex', flexDirection: 'column', gap: 16 }}>
@@ -743,6 +771,29 @@ function VisualsInner() {
                     </button>
                   ) : (
                     <>
+                      {/* 327: 生成モード（複数可・選んだ数だけ生成）とアスペクト比 */}
+                      <span data-vis-image-modes={imageModes.join(',')} style={{ display: 'inline-flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', fontSize: 12 }}>
+                        {VISUAL_IMAGE_MODES.map((m) => (
+                          <label key={m} data-vis-image-mode={m} title={VISUAL_IMAGE_MODE_META[m].hint} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, cursor: 'pointer' }}>
+                            <input type="checkbox" data-vis-image-mode-check={m} checked={imageModes.includes(m)} onChange={(e) => toggleImageMode(m, e.target.checked)} />
+                            {VISUAL_IMAGE_MODE_META[m].emoji} {VISUAL_IMAGE_MODE_META[m].label}
+                          </label>
+                        ))}
+                        {imageModes.includes('custom') && (
+                          <label style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                            下敷き
+                            <select data-vis-image-custom-base value={imageSettings.customBase} onChange={(e) => setImageSettings((x) => ({ ...x, customBase: e.target.value as VisualImageMode }))} style={{ ...input, width: 'auto', padding: '2px 6px' }}>
+                              {VISUAL_IMAGE_MODES.filter((m) => m !== 'custom').map((m) => <option key={m} value={m}>{VISUAL_IMAGE_MODE_META[m].label}</option>)}
+                            </select>
+                          </label>
+                        )}
+                      </span>
+                      <label style={{ fontSize: 12, display: 'flex', alignItems: 'center', gap: 4 }}>
+                        比率
+                        <select data-vis-aspect value={imageSettings.aspect} onChange={(e) => setImageSettings((x) => ({ ...x, aspect: e.target.value as VisualAspect }))} style={{ ...input, width: 'auto', padding: '4px 8px' }}>
+                          {VISUAL_ASPECTS.map((a) => <option key={a} value={a}>{VISUAL_ASPECT_LABEL[a]}</option>)}
+                        </select>
+                      </label>
                       <label style={{ fontSize: 12, display: 'flex', alignItems: 'center', gap: 4 }}>
                         品質
                         <select data-vis-quality value={imageSettings.quality} onChange={(e) => setImageSettings((s) => ({ ...s, quality: e.target.value as 'low' | 'medium' | 'high' }))} style={{ ...input, width: 'auto', padding: '4px 8px' }}>
@@ -753,17 +804,17 @@ function VisualsInner() {
                         <input type="checkbox" data-vis-aitext checked={imageSettings.aiText} onChange={(e) => setAiText(e.target.checked)} />
                         AIに文字も描かせる
                       </label>
-                      <input data-vis-extra-prompt value={imageSettings.extraPrompt} onChange={(e) => setImageSettings((s) => ({ ...s, extraPrompt: e.target.value }))} placeholder="追記（任意）" style={{ ...input, width: 220, fontSize: 12 }} />
+                      <input data-vis-extra-prompt data-vis-extra-active={imageModes.includes('custom') ? '1' : '0'} disabled={!imageModes.includes('custom')} title="「✍️ 追加プロンプト」を選ぶと使えます。書いた指示は絵柄の指示にだけ入り、画像に重ねる文字にはなりません" value={imageSettings.extraPrompt} onChange={(e) => setImageSettings((s) => ({ ...s, extraPrompt: e.target.value }))} placeholder="追記（✍️ 追加プロンプト用・図の文字にはなりません）" style={{ ...input, width: 220, fontSize: 12 }} />
                       <button
                         type="button"
                         data-vis-image={plan.id}
                         data-vis-image-unavailable={imageBlocked ? '1' : undefined}
                         onClick={() => setImageDialog(plan.id)}
-                        disabled={!check.ok || !!busy[plan.id] || !status || !!imageBlocked}
+                        disabled={!check.ok || !!busy[plan.id] || !status || !!imageBlocked || imageModes.length === 0 || imageBatchCount(1, imageModes) > VISUAL_IMAGE_MAX_BATCH}
                         title={imageBlocked ? '未設定（院長が OPENAI_API_KEY を Vercel の環境変数に設定すると使えます）' : reason ?? `GPT Image 2.5（${IMAGE_MODEL_IDS.flare}）で絵柄を生成し、プランの文字を重ねます（確認ダイアログで費用の目安を表示）`}
                         style={{ ...primaryBtn, background: '#e0684b', opacity: !check.ok || busy[plan.id] || !status || imageBlocked ? 0.5 : 1 }}
                       >
-                        {busy[plan.id] ? '⏳ 生成中…' : imageBlocked ? '🖼 GPT Image 2.5（未設定）' : '🖼 画像を生成（GPT Image 2.5）'}
+                        {busy[plan.id] ? '⏳ 生成中…' : imageBlocked ? '🖼 GPT Image 2.5（未設定）' : `🖼 画像を生成（${imageModes.length}枚・GPT Image 2.5）`}
                       </button>
                     </>
                   )}
@@ -793,6 +844,38 @@ function VisualsInner() {
                     </div>
                   </div>
                 )}
+                {/* 327 §2-3: モードごとの結果を横並びで見比べる（各枚に PNG／コピー／保存状態。既定は全部ギャラリーに保存済み） */}
+                {isImage && (() => {
+                  const outs = VISUAL_IMAGE_MODES.map((mode) => ({ mode, r: results[`${plan.id}::${mode}`], err: errors[`${plan.id}::${mode}`], busy: busy[`${plan.id}::${mode}`] })).filter((x) => x.r || x.err || x.busy);
+                  if (outs.length === 0) return null;
+                  return (
+                    <div data-vis-image-outs={plan.id} data-vis-image-outs-count={outs.filter((x) => x.r).length} style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'flex-start' }}>
+                      {outs.map(({ mode, r, err, busy: b }) => (
+                        <div key={mode} data-vis-image-out={`${plan.id}-${mode}`} data-vis-image-out-state={r ? 'done' : err ? 'error' : 'pending'} data-vis-image-out-gallery-id={r?.galleryId} style={{ width: 260, border: '1px solid var(--border)', borderRadius: 10, padding: 8, display: 'flex', flexDirection: 'column', gap: 6 }}>
+                          <div data-vis-image-out-label={mode} style={{ fontSize: 11, fontWeight: 700 }}>{VISUAL_IMAGE_MODE_META[mode].emoji} {VISUAL_IMAGE_MODE_META[mode].label}{mode === 'custom' ? `（下敷き: ${VISUAL_IMAGE_MODE_META[imageSettings.customBase].label}）` : ''}</div>
+                          {r ? (
+                            <>
+                              <img data-vis-image-out-img={`${plan.id}-${mode}`} src={`data:image/png;base64,${r.finalBase64}`} alt={`${plan.title}（${VISUAL_IMAGE_MODE_META[mode].label}）`} style={{ width: '100%', borderRadius: 8, border: '1px solid var(--border)' }} />
+                              <div style={{ fontSize: 10, color: 'var(--text-muted)' }}>{r.width}×{r.height}{r.costUsd != null ? ` ／ ${formatUsd(r.costUsd)}` : ''}</div>
+                              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                                <button type="button" data-vis-image-out-download={`${plan.id}-${mode}`} onClick={() => download(plan, r)} style={{ ...btn, padding: '4px 8px' }}>📥 PNG</button>
+                                <button type="button" data-vis-image-out-copy={`${plan.id}-${mode}`} onClick={() => void copyImage(r)} style={{ ...btn, padding: '4px 8px' }}>📋 コピー</button>
+                                {r.saving ? <span style={{ fontSize: 10 }}>保存中…</span> : r.galleryId ? <a data-vis-image-out-saved={`${plan.id}-${mode}`} href="/dashboard/gallery" target="_blank" rel="noopener noreferrer" style={{ fontSize: 10, color: '#0d9973' }}>✅ 保存済み</a> : r.saveError ? <span style={{ fontSize: 10, color: '#B91C1C' }}>保存失敗</span> : null}
+                              </div>
+                            </>
+                          ) : err ? (
+                            <>
+                              <div data-vis-image-out-error={`${plan.id}-${mode}`} style={{ fontSize: 11, color: '#B91C1C' }}>❌ {err.message}</div>
+                              <button type="button" data-vis-image-out-retry={`${plan.id}-${mode}`} onClick={() => void generateImageOne(plan, mode)} style={{ ...btn, padding: '4px 8px' }}>↻ この1枚を作り直す</button>
+                            </>
+                          ) : (
+                            <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>⏳ 生成中…</div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  );
+                })()}
                 </>)}
               </div>
             );
@@ -867,32 +950,35 @@ function VisualsInner() {
               <div data-vis-bulk-dialog-breakdown data-vis-bulk-dialog-renders={bulkEst.renders} data-vis-bulk-dialog-images={bulkEst.images}>{bulkConfirmLabel(bulkEst)}</div>
               <div>費用の目安: <strong data-vis-bulk-dialog-cost data-vis-bulk-dialog-cost-usd={bulkEst.usd.toFixed(4)}>{formatUsd(bulkEst.usd)}</strong> <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>（{imagePricingNote()}）</span></div>
               <div>所要の目安: 約{bulkEst.seconds}秒（1件ずつ独立に生成・失敗した分だけ再生成できます）</div>
-              {bulkEst.images > 0 && <div>画像の文字: {imageSettings.aiText ? 'AIに描かせる（完成後に目視確認）' : '重ねる（コードで描く＝100%一致）'}／品質 {imageSettings.quality}</div>}
+              {bulkEst.images > 0 && <div>画像の文字: {imageSettings.aiText ? 'AIに描かせる（完成後に目視確認）' : '重ねる（コードで描く＝100%一致）'}／品質 {imageSettings.quality}／比率 {imageSettings.aspect}／モード {(imageModes.length > 0 ? imageModes : (['simple'] as VisualImageMode[])).map((m) => VISUAL_IMAGE_MODE_META[m].label).join('／')}</div>}
+              {bulkOver && <div data-vis-bulk-dialog-over style={{ color: '#B91C1C', fontWeight: 700 }}>⚠️ {bulkOver}</div>}
               <ul style={{ margin: '6px 0 0', paddingLeft: 18 }}>{approvedPlans.map((p) => <li key={p.id}>{VISUAL_TYPE_META[p.type].emoji} {p.title}</li>)}</ul>
             </div>
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
               <button type="button" data-vis-bulk-cancel onClick={() => setBulkDialog(false)} style={btn}>やめる</button>
-              <button type="button" data-vis-bulk-start onClick={() => void runBulk()} style={primaryBtn}>🚀 生成する</button>
+              <button type="button" data-vis-bulk-start onClick={() => void runBulk()} disabled={!!bulkOver} style={{ ...primaryBtn, opacity: bulkOver ? 0.5 : 1 }}>🚀 生成する</button>
             </div>
           </div>
         </div>
       )}
 
       {/* 画像生成の確認ダイアログ（R-56: 1回） */}
-      {dialogPlan && dialogEstimate && (
+      {dialogPlan && (
         <div data-vis-image-dialog role="dialog" aria-label="画像生成の確認" onClick={(e) => { if (e.target === e.currentTarget) setImageDialog(null); }} style={{ position: 'fixed', inset: 0, zIndex: 10000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16, background: 'rgba(0,0,0,0.35)' }}>
           <div style={{ width: 'min(560px, 100%)', background: 'var(--bg-modal)', border: '1px solid var(--border)', borderRadius: 12, padding: 16, display: 'flex', flexDirection: 'column', gap: 10, fontSize: 13 }}>
             <div style={{ fontWeight: 700 }}>🖼 GPT Image 2.5 で画像を生成しますか？</div>
             <div style={{ color: 'var(--text-secondary)', lineHeight: 1.7 }}>
               <div>図解: <strong>{dialogPlan.title}</strong></div>
-              <div>モデル: <span data-vis-image-dialog-model>{IMAGE_MODEL_IDS[imageSettings.model]}</span> ／ 品質 {imageSettings.quality} ／ サイズ {VISUAL_IMAGE_SIZE[orientation]}</div>
+              <div>モデル: <span data-vis-image-dialog-model>{IMAGE_MODEL_IDS[imageSettings.model]}</span> ／ 品質 {imageSettings.quality} ／ 比率 <span data-vis-image-dialog-aspect={imageSettings.aspect}>{imageSettings.aspect}</span>（<span data-vis-image-dialog-size>{VISUAL_ASPECT_SIZE[imageSettings.aspect]}</span>）</div>
+              <div>モード: <span data-vis-image-dialog-modes={dialogModes.join(',')}>{dialogModes.map((m) => VISUAL_IMAGE_MODE_META[m].label).join('／')}</span></div>
               <div>文字: {imageSettings.aiText ? 'AIに描かせる（完成後に目視確認）' : '重ねる（コードで描く＝100%一致）'}</div>
-              <div>枚数: <span data-vis-image-dialog-count>1</span> 枚（元画像と完成画像の2ファイルを保存）</div>
-              <div>費用の目安: <strong data-vis-image-dialog-cost data-vis-image-dialog-cost-usd={dialogEstimate.usd.toFixed(4)}>{formatUsd(dialogEstimate.usd)}</strong> <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>（{imagePricingNote()}）</span></div>
+              <div>枚数: <span data-vis-image-dialog-count>{dialogCount}</span> 枚（1枚につき元画像と完成画像の2ファイルを保存）</div>
+              <div>費用の目安: <strong data-vis-image-dialog-cost data-vis-image-dialog-cost-usd={dialogUsd.toFixed(4)}>{formatUsd(dialogUsd)}</strong> <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>（{imagePricingNote()}）</span></div>
             </div>
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+              {dialogOver && <span data-vis-image-dialog-over style={{ fontSize: 12, color: '#B91C1C', flex: 1 }}>⚠️ {dialogOver}</span>}
               <button type="button" data-vis-image-cancel onClick={() => setImageDialog(null)} style={btn}>やめる</button>
-              <button type="button" data-vis-image-start onClick={() => void generateImage(dialogPlan)} style={{ ...primaryBtn, background: '#e0684b' }}>🖼 生成する</button>
+              <button type="button" data-vis-image-start onClick={() => void generateImage(dialogPlan)} disabled={!!dialogOver} style={{ ...primaryBtn, background: '#e0684b', opacity: dialogOver ? 0.5 : 1 }}>🖼 {dialogCount}枚を生成する</button>
             </div>
           </div>
         </div>

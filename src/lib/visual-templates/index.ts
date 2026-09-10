@@ -819,30 +819,114 @@ export function expectedStringsOf(plan: VisualPlan): string[] {
 }
 
 /** イメージ（AI の絵柄）にプランの文字を重ねる。上にタイトル帯・下に見出し／要素の帯（半透明）。画像は data URI */
-export function buildOverlayElement(plan: VisualPlan, imageDataUrl: string, canvas: VisualCanvas): El {
+// ── 327: 重ねる文字はモードで決まり、置き方は比で決まる（決定的・R-74） ──
+//   横長（w > h）: 上部にタイトル・左側に説明（縦に積む）／正方形・縦長: 上部にタイトル・下部に説明
+export type OverlayPlacement = 'landscape' | 'square' | 'portrait';
+export function overlayPlacement(canvas: VisualCanvas): OverlayPlacement {
+  if (canvas.width === canvas.height) return 'square';
+  return canvas.width > canvas.height ? 'landscape' : 'portrait';
+}
+export interface OverlayBox {
+  key: string;
+  text: string;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  fontSize: number;
+}
+/** 重ねる文字の箱（画面内検査に使う・描画と同じ計算） */
+export function overlayLayout(labels: readonly string[], canvas: VisualCanvas): { title: OverlayBox | null; body: OverlayBox[]; placement: OverlayPlacement } {
+  const placement = overlayPlacement(canvas);
+  const [titleText, ...rest] = labels;
+  const padX = Math.round(canvas.width * 0.035);
+  const padY = Math.round(canvas.height * 0.03);
+  const titleSize = Math.max(18, Math.round(Math.min(canvas.width, canvas.height) / 20));
+  const bodySize = Math.max(14, Math.round(Math.min(canvas.width, canvas.height) / 32));
+  const titleWidth = canvas.width - padX * 2;
+  const title = titleText
+    ? { key: 'title', text: titleText, x: padX, y: padY, width: titleWidth, height: Math.max(titleSize * 1.4, lineCount(titleText, charsPerLine(titleWidth, titleSize, 0)) * titleSize * 1.4), fontSize: titleSize }
+    : null;
+  const body: OverlayBox[] = [];
+  const lineGap = Math.round(bodySize * 0.5);
+  if (placement === 'landscape') {
+    // 左側の縦一列（タイトルの下から）
+    const colWidth = Math.round(canvas.width * 0.42);
+    let y = (title ? title.y + title.height : padY) + padY;
+    for (const [i, t] of rest.entries()) {
+      const lines = lineCount(t, charsPerLine(colWidth, bodySize, 0));
+      const h = Math.round(lines * bodySize * 1.45);
+      body.push({ key: `b${i}`, text: t, x: padX, y, width: colWidth, height: h, fontSize: bodySize });
+      y += h + lineGap;
+    }
+  } else {
+    // 下部に積む（正方形・縦長）
+    const colWidth = canvas.width - padX * 2;
+    const heights = rest.map((t) => Math.round(lineCount(t, charsPerLine(colWidth, bodySize, 0)) * bodySize * 1.45));
+    const total = heights.reduce((n, h) => n + h + lineGap, 0);
+    let y = canvas.height - padY - total;
+    for (const [i, t] of rest.entries()) {
+      body.push({ key: `b${i}`, text: t, x: padX, y, width: colWidth, height: heights[i], fontSize: bodySize });
+      y += heights[i] + lineGap;
+    }
+  }
+  return { title, body, placement };
+}
+
+export function buildOverlayElement(plan: VisualPlan, imageDataUrl: string, canvas: VisualCanvas, labelsInput?: readonly string[]): El {
   const { width, height } = canvas;
-  const labels = plan.groups.flatMap((g) => [...(g.heading ? [g.heading] : []), ...g.points]);
-  return {
-    type: 'div',
-    props: {
-      style: { width, height, display: 'flex', position: 'relative', fontFamily: FONT, color: '#fff' },
-      children: [
-        { type: 'img', props: { src: imageDataUrl, width, height, style: { position: 'absolute', top: 0, left: 0, width, height, objectFit: 'cover' } } },
-        div(
-          { position: 'absolute', top: 0, left: 0, width, display: 'flex', padding: '28px 36px', background: 'rgba(31,42,37,0.72)' },
-          text(plan.title, { fontSize: Math.round(width / 26), fontWeight: 700, lineHeight: 1.35, width: width - 72 }),
-        ),
-        ...(labels.length > 0
-          ? [
-              div(
-                { position: 'absolute', bottom: 0, left: 0, width, display: 'flex', flexDirection: 'column', padding: '20px 36px', background: 'rgba(47,107,79,0.82)', gap: 6 },
-                labels.map((l) => text(l, { fontSize: Math.round(width / 38), lineHeight: 1.4, width: width - 72 })),
-              ),
-            ]
-          : []),
-      ],
-    },
+  const labels = labelsInput ?? [plan.title, ...plan.groups.flatMap((g) => [...(g.heading ? [g.heading] : []), ...g.points])];
+  const { title, body, placement } = overlayLayout(labels, canvas);
+  const children: El[] = [
+    { type: 'img', props: { src: imageDataUrl, width, height, style: { position: 'absolute', top: 0, left: 0, width, height, objectFit: 'cover' } } } as unknown as El,
+  ];
+  if (title) {
+    children.push(
+      div(
+        { position: 'absolute', top: 0, left: 0, width, display: 'flex', padding: `${Math.round(title.y)}px ${Math.round(title.x)}px`, background: 'rgba(31,42,37,0.72)' },
+        text(title.text, { fontSize: title.fontSize, fontWeight: 700, lineHeight: 1.4, width: title.width }),
+      ),
+    );
+  }
+  if (body.length > 0) {
+    const first = body[0];
+    const last = body[body.length - 1];
+    const boxTop = Math.round(first.y);
+    const boxHeight = Math.round(last.y + last.height - first.y);
+    children.push(
+      div(
+        placement === 'landscape'
+          ? { position: 'absolute', top: boxTop, left: 0, width: Math.round(first.width + first.x * 2), display: 'flex', flexDirection: 'column', padding: `${Math.round(first.x * 0.6)}px ${Math.round(first.x)}px`, background: 'rgba(47,107,79,0.82)', gap: Math.round(first.fontSize * 0.5) }
+          : { position: 'absolute', bottom: 0, left: 0, width, display: 'flex', flexDirection: 'column', padding: `${Math.round(first.x * 0.6)}px ${Math.round(first.x)}px`, background: 'rgba(47,107,79,0.82)', gap: Math.round(first.fontSize * 0.5) },
+        body.map((b) => text(b.text, { fontSize: b.fontSize, lineHeight: 1.45, width: b.width })),
+      ),
+    );
+    void boxHeight;
+  }
+  return { type: 'div', props: { style: { width, height, display: 'flex', position: 'relative', fontFamily: FONT, color: '#fff' }, children } };
+}
+
+/** 327: 重ねた文字が「渡した文字列そのもの」か（要素木から集めて照合） */
+export function verifyOverlayText(labels: readonly string[], element: El): { ok: boolean; missing: string[]; extra: string[] } {
+  const rendered = collectElementText(element).filter((s) => !FIXED_MARKS.has(s) && !GRID9_OVERFLOW_RE.test(s));
+  const expected = labels.map((s) => s.trim()).filter((s) => s && !GRID9_OVERFLOW_RE.test(s));
+  const missing = expected.filter((s) => !rendered.includes(s));
+  const extra = rendered.filter((s) => !expected.includes(s));
+  return { ok: missing.length === 0 && extra.length === 0, missing, extra };
+}
+
+/** 327: 重ねた文字が画面内に収まるか（全比で通す・R-125 と同じ考え方） */
+export function verifyOverlayBounds(labels: readonly string[], canvas: VisualCanvas): { ok: boolean; reasons: string[] } {
+  const { title, body } = overlayLayout(labels, canvas);
+  const reasons: string[] = [];
+  const check = (b: OverlayBox) => {
+    if (b.x < 0 || b.y < 0 || b.x + b.width > canvas.width + 1 || b.y + b.height > canvas.height + 1) {
+      reasons.push(`「${b.text.slice(0, 12)}」が画面外（x=${Math.round(b.x)},y=${Math.round(b.y)},w=${Math.round(b.width)},h=${Math.round(b.height)}）`);
+    }
   };
+  if (title) check(title);
+  for (const b of body) check(b);
+  return { ok: reasons.length === 0, reasons };
 }
 
 /** 要素木から文字列を集める（描画される文字＝プランの文字かを機械判定するため） */

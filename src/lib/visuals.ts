@@ -455,6 +455,91 @@ export const VISUAL_IMAGE_QUALITIES: readonly ImageQualityKey[] = ['low', 'mediu
 export const VISUAL_IMAGE_DEFAULT_QUALITY: ImageQualityKey = 'medium';
 export const VISUAL_IMAGE_SIZE: Record<VisualOrientation, string> = { square: '1024x1024', landscape: '1536x1024', portrait: '1024x1536' };
 
+// ───────────────────────────────────────────────────────────────────────────
+// 327: イメージ画像の生成モード（4種・複数同時）とアスペクト比
+//   - API（GPT Image 2.5 flare）は「幅・高さともに16の倍数」なら受ける（2026/9/10 実測）。比ごとの実サイズはここが正本
+//   - 重ねる文字はモードごとに決まる（すべてプランの文字列＝実在チェック済み）。④の追記はプロンプトにだけ入り、図の文字にはならない
+// ───────────────────────────────────────────────────────────────────────────
+
+export const VISUAL_ASPECTS = ['1:1', '16:9', '4:3', '9:16', '3:4'] as const;
+export type VisualAspect = (typeof VISUAL_ASPECTS)[number];
+/** API に渡すサイズ（幅・高さとも16の倍数・比は厳密）。1:1・16:9・4:3 は必須 */
+export const VISUAL_ASPECT_SIZE: Record<VisualAspect, string> = {
+  '1:1': '1024x1024',
+  '16:9': '1536x864',
+  '4:3': '1408x1056',
+  '9:16': '864x1536',
+  '3:4': '1056x1408',
+};
+export const VISUAL_ASPECT_LABEL: Record<VisualAspect, string> = {
+  '1:1': '1:1 正方形（SNS・アイコン）',
+  '16:9': '16:9 横長（スライド）',
+  '4:3': '4:3 横長（資料・印刷）',
+  '9:16': '9:16 縦長（ストーリーズ）',
+  '3:4': '3:4 縦長（縦資料）',
+};
+export const VISUAL_ASPECT_DEFAULT: VisualAspect = '16:9';
+/** API の制約（サイズは16の倍数） */
+export const IMAGE_SIZE_MULTIPLE = 16;
+export function isVisualAspect(v: unknown): v is VisualAspect {
+  return typeof v === 'string' && (VISUAL_ASPECTS as readonly string[]).includes(v);
+}
+export function aspectCanvas(a: VisualAspect): { width: number; height: number } {
+  const [w, h] = VISUAL_ASPECT_SIZE[a].split('x').map(Number);
+  return { width: w, height: h };
+}
+/** 費用の目安に使うバケット（既存の単価表は 正方形／横長／縦長 の3種） */
+export function aspectPricingKey(a: VisualAspect): ImageAspectKey {
+  const { width, height } = aspectCanvas(a);
+  return width === height ? 'square' : width > height ? 'landscape' : 'portrait';
+}
+
+export const VISUAL_IMAGE_MODES = ['simple', 'captioned', 'detailed', 'custom'] as const;
+export type VisualImageMode = (typeof VISUAL_IMAGE_MODES)[number];
+export const VISUAL_IMAGE_MODE_DEFAULT: VisualImageMode = 'simple';
+/** ④ の下敷き（①〜③のどれか）。既定は② */
+export const VISUAL_IMAGE_CUSTOM_BASE_DEFAULT: VisualImageMode = 'captioned';
+export const VISUAL_IMAGE_MODE_META: Record<VisualImageMode, { emoji: string; label: string; hint: string; style: string }> = {
+  simple: { emoji: '⬜️', label: 'シンプル', hint: '文字はタイトルだけ・要素を絞った落ち着いた絵', style: '要素を絞り、主題が一目で伝わる落ち着いた絵にする。背景は単純にし、余白を広く取る。' },
+  captioned: { emoji: '🗒', label: '説明つき', hint: 'タイトル＋見出し（最大4）・見出しに対応するモチーフ', style: '主題に加えて、話の柱ごとのモチーフを画面内に配置する。要素は数を絞り、それぞれが見分けられる大きさで描く。' },
+  detailed: { emoji: '📚', label: '詳しい説明', hint: 'タイトル＋見出し＋要素（最大10行）・情報量の多い図解調', style: '情報量の多い図解調にする。話の柱ごとのモチーフと、その中身を示す小さなモチーフを整理して並べる。全体の構図は上から下へ視線が流れるように保つ。' },
+  custom: { emoji: '✍️', label: '追加プロンプト', hint: '①〜③を下敷きに、書いた指示をそのまま足す', style: '' },
+};
+/** 重ねる文字の上限（R-101: 超えたら切らずに「ほか n 件」） */
+export const OVERLAY_MAX_HEADINGS = 4;
+export const OVERLAY_MAX_LINES = 10;
+/** 1回の生成の上限（候補数 × モード数） */
+export const VISUAL_IMAGE_MAX_BATCH = 6;
+
+/** モードごとに「画像に重ねる文字」を決める（決定的・R-74）。すべてプランの文字列 */
+export function imageOverlayLabels(plan: Pick<VisualPlan, 'title' | 'groups'>, mode: VisualImageMode, customBase: VisualImageMode = VISUAL_IMAGE_CUSTOM_BASE_DEFAULT): string[] {
+  const effective = mode === 'custom' ? (customBase === 'custom' ? VISUAL_IMAGE_CUSTOM_BASE_DEFAULT : customBase) : mode;
+  const title = plan.title.trim();
+  if (effective === 'simple') return title ? [title] : [];
+  const headings = plan.groups.map((g) => (g.heading ?? '').trim()).filter(Boolean);
+  if (effective === 'captioned') {
+    const shown = headings.slice(0, OVERLAY_MAX_HEADINGS);
+    const rest = headings.length - shown.length;
+    return [title, ...shown, ...(rest > 0 ? [grid9OverflowLabel(rest)] : [])].filter(Boolean);
+  }
+  // detailed: 見出し＋要素（最大10行・超過は「ほか n 件」）
+  const lines: string[] = [];
+  for (const g of plan.groups) {
+    const h = (g.heading ?? '').trim();
+    if (h) lines.push(h);
+    for (const p of g.points) if (p.trim()) lines.push(p.trim());
+  }
+  const shown = lines.slice(0, OVERLAY_MAX_LINES);
+  const rest = lines.length - shown.length;
+  return [title, ...shown, ...(rest > 0 ? [grid9OverflowLabel(rest)] : [])].filter(Boolean);
+}
+
+/** 生成する枚数（候補 × 選んだモード）と、上限を超えたときの理由 */
+export function imageBatchCount(planCount: number, modes: readonly VisualImageMode[]): number {
+  return Math.max(0, planCount) * modes.length;
+}
+export const IMAGE_BATCH_OVER_REASON = (n: number) => `1回に生成できるのは ${VISUAL_IMAGE_MAX_BATCH} 枚までです（今回は ${n} 枚）。候補かモードを減らしてください`;
+
 export interface VisualImageSettings {
   orientation: VisualOrientation;
   quality: ImageQualityKey;
@@ -462,8 +547,14 @@ export interface VisualImageSettings {
   aiText: boolean;
   extraPrompt: string;
   model: VisualImageModelKey;
+  /** 327: 生成モード（画面では複数選べる。1リクエスト＝1モード） */
+  mode: VisualImageMode;
+  /** 327: ④追加プロンプトの下敷き（①〜③） */
+  customBase: VisualImageMode;
+  /** 327: アスペクト比（API に渡すサイズは VISUAL_ASPECT_SIZE） */
+  aspect: VisualAspect;
 }
-export const VISUAL_IMAGE_DEFAULT_SETTINGS: VisualImageSettings = { orientation: 'landscape', quality: 'medium', aiText: false, extraPrompt: '', model: 'flare' };
+export const VISUAL_IMAGE_DEFAULT_SETTINGS: VisualImageSettings = { orientation: 'landscape', quality: 'medium', aiText: false, extraPrompt: '', model: 'flare', mode: VISUAL_IMAGE_MODE_DEFAULT, customBase: VISUAL_IMAGE_CUSTOM_BASE_DEFAULT, aspect: VISUAL_ASPECT_DEFAULT };
 
 /** 絵柄の定型指示（文字なし）。ガード（image-guards）はサーバで後から連結する（R-69） */
 export const VISUAL_IMAGE_BASE_PROMPT =
@@ -471,12 +562,18 @@ export const VISUAL_IMAGE_BASE_PROMPT =
 export const VISUAL_IMAGE_NO_TEXT_RULE = '画像内に文字・数字・ロゴ・透かしを一切入れない（文字は後から重ねる）。';
 
 /** 生成プロンプト（ガード連結前）。aiText のときだけプランの文字列を【文字列】として**そのまま**渡す（要約させない） */
-export function buildVisualImagePrompt(plan: VisualPlan, settings: Pick<VisualImageSettings, 'aiText' | 'extraPrompt'>): string {
+export function buildVisualImagePrompt(plan: VisualPlan, settings: Pick<VisualImageSettings, 'aiText' | 'extraPrompt'> & Partial<Pick<VisualImageSettings, 'mode' | 'customBase' | 'aspect'>>): string {
+  // 327: モードの定型指示は決定的（同じ入力で同じ文字列・R-74）。④の追記は**プロンプトにだけ**入り、図の文字にはならない
+  const mode: VisualImageMode = settings.mode ?? VISUAL_IMAGE_MODE_DEFAULT;
+  const customBase: VisualImageMode = settings.customBase ?? VISUAL_IMAGE_CUSTOM_BASE_DEFAULT;
+  const styleOf = mode === 'custom' ? VISUAL_IMAGE_MODE_META[customBase === 'custom' ? VISUAL_IMAGE_CUSTOM_BASE_DEFAULT : customBase].style : VISUAL_IMAGE_MODE_META[mode].style;
   const parts = [VISUAL_IMAGE_BASE_PROMPT, `主題: ${plan.title}`];
+  if (styleOf) parts.push(`絵柄: ${styleOf}`);
+  if (settings.aspect) parts.push(`画面の比率: ${settings.aspect}（この比率いっぱいに構図を取る）`);
   if (plan.imagePrompt?.trim()) parts.push(`絵柄の指示: ${plan.imagePrompt.trim()}`);
-  if (settings.extraPrompt.trim()) parts.push(`追加の指示: ${settings.extraPrompt.trim()}`);
+  if (mode === 'custom' && settings.extraPrompt.trim()) parts.push(`追加の指示: ${settings.extraPrompt.trim()}`);
   if (settings.aiText) {
-    const strings = collectPlanStrings(plan);
+    const strings = imageOverlayLabels(plan, mode, customBase);
     parts.push(`【文字列】次の文字列を、この順に、一字一句そのまま画像内に描く（言い換え・要約・追加は禁止）:\n${strings.map((s) => `- ${s}`).join('\n')}`);
   } else {
     parts.push(VISUAL_IMAGE_NO_TEXT_RULE);
@@ -486,7 +583,7 @@ export function buildVisualImagePrompt(plan: VisualPlan, settings: Pick<VisualIm
 
 /** 冪等キー（同じプラン・同じ設定の再送は同じ画像）。呼び出し側で userId を前置する */
 export function visualImageIdempotencyKey(plan: VisualPlan, settings: VisualImageSettings): string {
-  return JSON.stringify({ t: plan.type, ti: plan.title, g: plan.groups, ip: plan.imagePrompt ?? '', o: settings.orientation, q: settings.quality, a: settings.aiText, e: settings.extraPrompt.trim(), m: settings.model });
+  return JSON.stringify({ t: plan.type, ti: plan.title, g: plan.groups, ip: plan.imagePrompt ?? '', o: settings.orientation, q: settings.quality, a: settings.aiText, md: settings.mode, cb: settings.customBase, as: settings.aspect, e: settings.extraPrompt.trim(), m: settings.model });
 }
 
 // ───────────────────────────────────────────────────────────────────────────
@@ -517,6 +614,9 @@ export interface VisualGallerySettings {
     unsavedSource?: VisualUnsavedSource;
     /** 323: 提案モードで承認した時刻（JST の文字列）。承認を経ずに描いた（従来モード）ときは無い */
     approvedAt?: string;
+    /** 327: どのモードで・どの比で作ったか（キー単位・R-113） */
+    imageMode?: VisualImageMode;
+    aspect?: VisualAspect;
   };
   size: string;
   model: string;
@@ -547,6 +647,9 @@ export function buildVisualGallerySettings(input: {
   unsavedSource?: VisualUnsavedSource | null;
   /** 323 */
   approvedAt?: string | null;
+  /** 327 */
+  imageMode?: VisualImageMode | null;
+  aspect?: VisualAspect | null;
 }): VisualGallerySettings {
   return {
     visual: {
@@ -563,6 +666,8 @@ export function buildVisualGallerySettings(input: {
       ...(input.originalId ? { originalId: input.originalId } : {}),
       ...(input.unsavedSource && input.sources.length === 0 ? { unsavedSource: input.unsavedSource } : {}),
       ...(input.approvedAt ? { approvedAt: input.approvedAt } : {}),
+      ...(input.imageMode ? { imageMode: input.imageMode } : {}),
+      ...(input.aspect ? { aspect: input.aspect } : {}),
       generatedAt: input.generatedAt,
     },
     size: `${input.width}x${input.height}`,
@@ -955,14 +1060,18 @@ export function stripForeign(plan: VisualPlan, check: PlanCheck): { ok: true; pl
 }
 
 /** 一括生成の内訳と目安（コード描画は無料・画像は 315 の単価） */
-export function bulkEstimate(plans: readonly VisualPlan[], settings: Pick<VisualImageSettings, 'quality' | 'aiText' | 'extraPrompt'>, orientation: VisualOrientation): { renders: number; images: number; usd: number; seconds: number } {
+export function bulkEstimate(plans: readonly VisualPlan[], settings: Pick<VisualImageSettings, 'quality' | 'aiText' | 'extraPrompt'> & Partial<Pick<VisualImageSettings, 'customBase' | 'aspect'>>, orientation: VisualOrientation, modes: readonly VisualImageMode[] = [VISUAL_IMAGE_MODE_DEFAULT]): { renders: number; images: number; usd: number; seconds: number } {
   let renders = 0;
   let images = 0;
   let usd = 0;
   for (const p of plans) {
     if (p.type === 'image') {
-      images += 1;
-      usd += estimateImageCost(settings.quality, orientation, buildVisualImagePrompt(p, settings).length).usd;
+      // 327: 1候補につき「選んだモードの数」だけ生成する。比が費用のバケットを決める
+      const bucket = settings.aspect ? aspectPricingKey(settings.aspect) : orientation;
+      for (const mode of modes) {
+        images += 1;
+        usd += estimateImageCost(settings.quality, bucket, buildVisualImagePrompt(p, { ...settings, mode }).length).usd;
+      }
     } else {
       renders += 1;
     }

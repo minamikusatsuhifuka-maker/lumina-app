@@ -4689,11 +4689,15 @@ test('U86: 記事→図解（315）— 元テキストに無い語句の検出�
   const p0 = v.buildVisualImagePrompt(imgPlan, { aiText: false, extraPrompt: '' });
   expect(p0).toContain(v.VISUAL_IMAGE_NO_TEXT_RULE);
   expect(p0).not.toContain('【文字列】');
-  const p1 = v.buildVisualImagePrompt(imgPlan, { aiText: true, extraPrompt: '青を基調' });
+  // 327: 「AIに文字も描かせる」で渡す文字列は**モードの「図に入る文字」**（既定＝① シンプル＝タイトルのみ）。
+  //      追記は ④ 追加プロンプトのときだけプロンプトに入る（図の文字にはならない）
+  const p1 = v.buildVisualImagePrompt(imgPlan, { aiText: true, extraPrompt: '青を基調', mode: 'detailed' });
   expect(p1).toContain('【文字列】');
   expect(p1).toContain('- 冬の保湿');
   expect(p1).toContain('- 湿度を保つ');
-  expect(p1).toContain('追加の指示: 青を基調');
+  expect(p1, '①〜③に追記は入らない').not.toContain('追加の指示: 青を基調');
+  expect(v.buildVisualImagePrompt(imgPlan, { aiText: true, extraPrompt: '青を基調', mode: 'custom', customBase: 'detailed' })).toContain('追加の指示: 青を基調');
+  expect(v.buildVisualImagePrompt(imgPlan, { aiText: true, extraPrompt: '' }), '既定（① シンプル）はタイトルだけ').not.toContain('- 湿度を保つ');
   expect(guardImagePrompt(p0).endsWith(IMAGE_GUARD_SUFFIX)).toBe(true);
   expect(guardImagePromptWithText(p1).endsWith(IMAGE_GUARD_SUFFIX_WITH_TEXT)).toBe(true);
   const medical = '実在の人物や特定できる顔を描かない。患部・症状の写実的描写や効果効能を示唆する演出をしない。';
@@ -5717,4 +5721,100 @@ test('U98: プレゼン設計モードとグラフ（325）— 時間配分は�
   expect(read('app/dashboard/deepresearch/page.tsx'), 'DR の操作行に🎤').toMatch(/fixedTypes=\{\['grid9_talk'\]\} label="🎤 プレゼン構成を考える"/);
   expect(read('components/text-analysis/TextAnalysisPanel.tsx'), '🗂 の操作行に🔲と🎤').toMatch(/fixedTypes=\{\['grid9_talk'\]\}/);
   expect(read('lib/visual-templates/index.ts'), '色で意味を持たせない（凡例は文字）').toMatch(/const SERIES_COLORS/);
+});
+
+test('U99: イメージ画像の生成モードとアスペクト比（327）— 4種の定型プロンプトが決定的（同じ入力で同じ文字列）／重ねる文字はモードごと（①タイトルのみ ②＋見出し最大4 ③＋要素最大10行 ④は下敷き）・上限超過は切らずに「ほか n 件」／④の追記はプロンプトにだけ入り図の文字列に入らない／比は1:1・16:9・4:3 を含み既定は16:9・サイズは幅高さとも16の倍数で比が厳密／比ごとの重ね方は決定的で文字一致と画面内を全比で通る／枚数＝候補×モード・6枚超は理由／冪等キーと出どころにモードと比が入る', () => {
+  const v = vis320;
+  const t = tpl320;
+  const plan: import('../../src/lib/visuals').VisualPlan = {
+    id: 'im1', type: 'image', title: '冬の乾燥ケア',
+    groups: [
+      { heading: '暖房', points: ['湿度が下がる', '加湿器を使う'] },
+      { heading: '入浴', points: ['湯温は38〜40度', '5分以内に保湿'] },
+      { heading: '保湿剤', points: ['ティッシュが張り付く量'] },
+      { heading: '受診', points: ['症状が強いとき'] },
+      { heading: '生活', points: ['こすらない'] },
+    ],
+  };
+  // ① 比の定数（1:1・16:9・4:3 は必須・16の倍数・比が厳密）
+  for (const must of ['1:1', '16:9', '4:3'] as const) expect(v.VISUAL_ASPECTS).toContain(must);
+  expect(v.VISUAL_ASPECT_DEFAULT).toBe('16:9');
+  for (const a of v.VISUAL_ASPECTS) {
+    const { width, height } = v.aspectCanvas(a);
+    expect(width % v.IMAGE_SIZE_MULTIPLE, `${a}: 幅は16の倍数`).toBe(0);
+    expect(height % v.IMAGE_SIZE_MULTIPLE, `${a}: 高さは16の倍数`).toBe(0);
+    const [rw, rh] = a.split(':').map(Number);
+    expect(Math.abs(width / height - rw / rh), `${a}: 比が厳密`).toBeLessThan(0.001);
+  }
+  expect(v.VISUAL_ASPECT_SIZE['1:1']).toBe('1024x1024');
+  expect(v.VISUAL_ASPECT_SIZE['16:9']).toBe('1536x864');
+  expect(v.VISUAL_ASPECT_SIZE['4:3']).toBe('1408x1056');
+  expect(v.aspectPricingKey('16:9')).toBe('landscape');
+  expect(v.aspectPricingKey('1:1')).toBe('square');
+  expect(v.aspectPricingKey('9:16')).toBe('portrait');
+  // ② 重ねる文字はモードごと
+  expect(v.imageOverlayLabels(plan, 'simple'), '①タイトルのみ').toEqual(['冬の乾燥ケア']);
+  const cap = v.imageOverlayLabels(plan, 'captioned');
+  expect(cap[0]).toBe('冬の乾燥ケア');
+  expect(cap.slice(1, 5)).toEqual(['暖房', '入浴', '保湿剤', '受診']);
+  expect(cap[5], '5つ目の見出しは切らずに「ほか n 件」').toMatch(/ほか 1 件/);
+  const det = v.imageOverlayLabels(plan, 'detailed');
+  expect(det[0]).toBe('冬の乾燥ケア');
+  expect(det.length, 'タイトル＋10行＋「ほか n 件」').toBe(12);
+  expect(det.at(-1)).toMatch(/ほか \d+ 件/);
+  expect(v.imageOverlayLabels(plan, 'custom'), '④の既定の下敷きは②').toEqual(cap);
+  expect(v.imageOverlayLabels(plan, 'custom', 'simple'), '④は下敷きを選べる').toEqual(['冬の乾燥ケア']);
+  // ③ プロンプトは決定的・④の追記だけがプロンプトに入る（図の文字には入らない）
+  const base = { aiText: false, extraPrompt: '水彩画ふうに', customBase: 'captioned' as const, aspect: '16:9' as const };
+  const p1 = v.buildVisualImagePrompt(plan, { ...base, mode: 'simple' });
+  expect(p1, '決定的').toBe(v.buildVisualImagePrompt(plan, { ...base, mode: 'simple' }));
+  expect(p1, '①〜③に追記は入らない').not.toContain('水彩画ふうに');
+  expect(v.buildVisualImagePrompt(plan, { ...base, mode: 'captioned' })).not.toBe(p1);
+  const p4 = v.buildVisualImagePrompt(plan, { ...base, mode: 'custom' });
+  expect(p4, '④は追記がプロンプトに入る').toContain('水彩画ふうに');
+  expect(p4).toContain('16:9');
+  expect(v.collectPlanStrings(plan).join('／'), '追記は図の文字列ではない').not.toContain('水彩画ふうに');
+  expect(v.imageOverlayLabels(plan, 'custom').join('／')).not.toContain('水彩画ふうに');
+  for (const m of v.VISUAL_IMAGE_MODES) expect(v.VISUAL_IMAGE_MODE_META[m].label, `${m} に名前`).toBeTruthy();
+  // ④ 比ごとの重ね方（決定的・文字一致・画面内）
+  for (const a of v.VISUAL_ASPECTS) {
+    const canvas = v.aspectCanvas(a);
+    for (const mode of v.VISUAL_IMAGE_MODES) {
+      const labels = v.imageOverlayLabels(plan, mode);
+      const el = t.buildOverlayElement(plan, 'data:image/png;base64,AA==', canvas, labels);
+      const vr = t.verifyOverlayText(labels, el);
+      expect(vr.ok, `${a}/${mode}: 重ねた文字は指定どおり（欠け ${vr.missing.join('／')}／余分 ${vr.extra.join('／')}）`).toBe(true);
+      const vb = t.verifyOverlayBounds(labels, canvas);
+      expect(vb.ok, `${a}/${mode}: ${vb.reasons.join('／')}`).toBe(true);
+      expect(JSON.stringify(t.overlayLayout(labels, canvas)), '同じ入力→同じ配置').toBe(JSON.stringify(t.overlayLayout(labels, canvas)));
+    }
+    expect(t.overlayPlacement(canvas)).toBe(canvas.width === canvas.height ? 'square' : canvas.width > canvas.height ? 'landscape' : 'portrait');
+  }
+  // ⑤ 枚数と上限
+  expect(v.imageBatchCount(1, ['simple', 'detailed', 'custom'])).toBe(3);
+  expect(v.imageBatchCount(3, ['simple', 'captioned'])).toBe(6);
+  expect(v.VISUAL_IMAGE_MAX_BATCH).toBe(6);
+  expect(v.IMAGE_BATCH_OVER_REASON(8)).toContain('6 枚まで');
+  const est = v.bulkEstimate([plan], { quality: 'low', aiText: false, extraPrompt: '', aspect: '16:9' }, 'landscape', ['simple', 'captioned', 'detailed']);
+  expect(est.images, '候補1×モード3＝3枚').toBe(3);
+  expect(est.usd).toBeGreaterThan(0);
+  expect(v.bulkEstimate([plan], { quality: 'low', aiText: false, extraPrompt: '', aspect: '16:9' }, 'landscape', ['simple']).usd, 'モードが減れば安い').toBeLessThan(est.usd);
+  // ⑥ 冪等キーと出どころ
+  const settings = { ...v.VISUAL_IMAGE_DEFAULT_SETTINGS, mode: 'simple' as const };
+  expect(v.visualImageIdempotencyKey(plan, settings)).not.toBe(v.visualImageIdempotencyKey(plan, { ...settings, mode: 'detailed' }));
+  expect(v.visualImageIdempotencyKey(plan, settings)).not.toBe(v.visualImageIdempotencyKey(plan, { ...settings, aspect: '1:1' }));
+  const gs = v.buildVisualGallerySettings({ kind: 'image-final', plan, orientation: 'landscape', sources: [], width: 1536, height: 864, model: 'x', generatedAt: new Date().toISOString(), imageMode: 'detailed', aspect: '16:9' });
+  expect(gs.visual.imageMode).toBe('detailed');
+  expect(gs.visual.aspect).toBe('16:9');
+  // ⑦ ソース固定
+  const read = (p: string) => readFileSync(join(__dirname, '../../src', p), 'utf8');
+  expect(read('app/api/visuals/image/route.ts'), 'サイズは比の定数から').toMatch(/const size = VISUAL_ASPECT_SIZE\[settings\.aspect\];/);
+  expect(read('app/api/visuals/image/route.ts'), '重ねる文字はモードから').toMatch(/imageOverlayLabels\(plan, settings\.mode, settings\.customBase\)/);
+  expect(read('app/api/visuals/image/route.ts'), '画面内は課金の前に判定').toMatch(/verifyOverlayBounds\(overlayLabels, canvas\)/);
+  expect(read('app/api/visuals/image/route.ts'), '重ねた文字の一致を判定').toMatch(/verifyOverlayText\(overlayLabels, element\)/);
+  const page = read('app/dashboard/visuals/page.tsx');
+  expect(page, '1モード＝1リクエスト（独立）').toMatch(/for \(const mode of modes\) if \(await generateImageOne\(plan, mode\)\) ok \+= 1;/);
+  expect(page).toMatch(/data-vis-image-mode-check/);
+  expect(page).toMatch(/data-vis-aspect/);
+  expect(page).toMatch(/data-vis-image-outs/);
 });

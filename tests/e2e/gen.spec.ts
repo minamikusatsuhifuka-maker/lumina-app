@@ -1301,3 +1301,33 @@ test('B46: グラフの抽出（325・実AI・Gemini）— 数値のある実テ
   expect(rendered, '裏の取れたグラフが1つ以上描ける').toBeGreaterThan(0);
   console.log(`[B46] ${Date.now() - t0}ms graphs=${graphs.length} rendered=${rendered}`);
 });
+
+test('B47: イメージ画像の比とモード（327・実AI・GPT Image 2.5・low で2枚）— 16:9 と 1:1 が実サイズで返り、重ねる文字はモードの「図に入る文字」（①タイトルのみ／②＋見出し）で機械判定を通る @gen', async ({ request }) => {
+  test.setTimeout(GEN_TIMEOUT);
+  const text = '冬の乾燥は暖房で室内の湿度が下がることが主な原因である。保湿剤は入浴後5分以内に塗るとよい。加湿器で室内の湿度を50〜60%に保つ。';
+  const plan = { id: 'b47', type: 'image', title: '冬の乾燥', imagePrompt: '冬の室内', groups: [{ heading: '暖房', points: ['室内の湿度が下がる'] }, { heading: '保湿剤', points: ['入浴後5分以内に塗る'] }] };
+  const cases = [
+    { aspect: '16:9', mode: 'simple', size: [1536, 864] },
+    { aspect: '1:1', mode: 'captioned', size: [1024, 1024] },
+  ] as const;
+  for (const c of cases) {
+    const t0 = Date.now();
+    const res = await request.post('/api/visuals/image', { data: { plan, sourceText: text, settings: { quality: 'low', aiText: false, extraPrompt: '', model: 'flare', mode: c.mode, customBase: 'captioned', aspect: c.aspect } }, timeout: REQ_TIMEOUT });
+    const j = (await res.json()) as { finalBase64?: string; originalBase64?: string; width?: number; height?: number; costUsd?: number | null; mode?: string; aspect?: string; overlayLabels?: string[]; error?: string; unavailable?: boolean };
+    if (res.status() === 400 && j.unavailable) {
+      console.log(`[B47] ${c.aspect}/${c.mode}: 未提供のためスキップ（${j.error}）`);
+      continue;
+    }
+    expect(res.status(), `${c.aspect}/${c.mode}: ${j.error ?? ''}`).toBe(200);
+    expect(j.width).toBe(c.size[0]);
+    expect(j.height).toBe(c.size[1]);
+    expect(j.mode).toBe(c.mode);
+    expect(j.aspect).toBe(c.aspect);
+    expect(j.overlayLabels?.[0], '重ねる文字はタイトルから').toBe('冬の乾燥');
+    if (c.mode === 'simple') expect(j.overlayLabels?.length, '① はタイトルのみ').toBe(1);
+    else expect(j.overlayLabels, '② は見出しも').toContain('暖房');
+    expect((j.finalBase64 ?? '').length).toBeGreaterThan(1000);
+    expect((j.originalBase64 ?? '').length).toBeGreaterThan(1000);
+    console.log(`[B47] ${c.aspect}/${c.mode} ${Date.now() - t0}ms ${j.width}x${j.height} cost=${j.costUsd ?? 'n/a'} labels=${(j.overlayLabels ?? []).length}`);
+  }
+});

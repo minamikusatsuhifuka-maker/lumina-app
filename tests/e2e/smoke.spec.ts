@@ -12851,3 +12851,101 @@ test('C143: 操作行のアコーディオン（326・WebKit iPhone幅）— 狭
     await browser.close();
   }
 });
+
+test('C144: イメージ画像の生成モードとアスペクト比（327・モック）— モードを3つ選ぶと確認に「3枚・費用の目安」が出て、1枚ずつ独立に生成され横並びでモード名のラベルつきに並ぶ／1枚失敗しても他は完成し、失敗した枚だけ作り直せる／比を選ぶとリクエストの size が比の定数になる（1:1・16:9・4:3）／④の追記はプロンプトにだけ入る／保存の settings.visual に imageMode と aspect が入る／候補×モードが6枚を超えると理由を出して止まる', async ({ page }) => {
+  test.setTimeout(240_000);
+  const marker = `IM${RUN_ID}`;
+  const src = `冬の乾燥は暖房で室内の湿度が下がることが主な原因です。保湿剤は入浴後5分以内に塗ると効果が高い。湯温は38〜40度が望ましい。加湿器で湿度を50〜60%に保つ。症状が強いときは皮膚科で相談する。識別子 ${marker}`;
+  const png = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==';
+  const posts: { settings?: { mode?: string; aspect?: string; extraPrompt?: string; customBase?: string } }[] = [];
+  const gallery: { settings?: { visual?: { imageMode?: string; aspect?: string } } }[] = [];
+  let failOnce = true;
+  await page.route('**/api/visuals/plan', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ plans: [
+    { id: 'i1', type: 'image', why: '雰囲気を伝える', title: '冬の乾燥', imagePrompt: '冬の室内', groups: [
+      { heading: '暖房', points: ['室内の湿度が下がる'] },
+      { heading: '保湿剤', points: ['入浴後5分以内に塗る'] },
+      { heading: '加湿器', points: ['湿度を50〜60%に保つ'] },
+    ] },
+    { id: 'i2', type: 'image', why: '別の切り口', title: '保湿剤', groups: [{ heading: '入浴', points: ['湯温は38〜40度'] }] },
+  ], rejected: [], ranAt: new Date().toISOString() }) }));
+  await page.route('**/api/visuals/image', async (route) => {
+    const b = route.request().postDataJSON() as { settings?: { mode?: string } };
+    posts.push(b);
+    if (b.settings?.mode === 'detailed' && failOnce) { failOnce = false; await route.fulfill({ status: 500, contentType: 'application/json', body: JSON.stringify({ error: `[E2E] ${marker} わざと失敗` }) }); return; }
+    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ originalBase64: png, finalBase64: png, width: 1536, height: 864, model: 'gpt-image-2.5-flare', costUsd: 0.01, mode: b.settings?.mode, aspect: '16:9', generatedAt: new Date().toISOString() }) });
+  });
+  await page.route('**/api/gallery', async (route) => {
+    if (route.request().method() === 'POST') { gallery.push(route.request().postDataJSON()); await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ id: `g-${gallery.length}`, blob_url: 'https://example.com/x.png' }) }); return; }
+    await route.fallback();
+  });
+  await page.goto('/dashboard/visuals?mode=form');
+  await page.locator('[data-vis-source]').fill(src);
+  await page.locator('[data-vis-extract]').click();
+  const p1 = page.locator('[data-vis-plan="i1"]');
+  await expect(p1).toBeVisible({ timeout: 15000 });
+  // ① 既定は ① シンプル・16:9
+  await expect(p1.locator('[data-vis-image-mode-check="simple"]')).toBeChecked();
+  await expect(p1.locator('[data-vis-aspect]')).toHaveValue('16:9');
+  for (const a of ['1:1', '16:9', '4:3']) await expect(p1.locator(`[data-vis-aspect] option[value="${a}"]`), `${a} が選べる`).toHaveCount(1);
+  // ④の追記欄は ④ を選ぶまで使えない
+  await expect(p1.locator('[data-vis-extra-prompt]')).toBeDisabled();
+  // ② モードを3つ（① ③ ④）にして確認ダイアログ
+  await p1.locator('[data-vis-image-mode-check="detailed"]').check();
+  await p1.locator('[data-vis-image-mode-check="custom"]').check();
+  await expect(p1.locator('[data-vis-extra-prompt]')).toBeEnabled();
+  await p1.locator('[data-vis-extra-prompt]').fill('水彩画ふうに');
+  await p1.locator('[data-vis-aspect]').selectOption('4:3');
+  await p1.locator('[data-vis-image="i1"]').click();
+  const dlg = page.locator('[data-vis-image-dialog]');
+  await expect(dlg).toBeVisible();
+  await expect(dlg.locator('[data-vis-image-dialog-count]'), '枚数＝選んだモードの数').toHaveText('3');
+  await expect(dlg.locator('[data-vis-image-dialog-size]')).toHaveText('1408x1056');
+  await expect(dlg.locator('[data-vis-image-dialog-modes]')).toHaveAttribute('data-vis-image-dialog-modes', 'simple,detailed,custom');
+  const usd = Number(await dlg.locator('[data-vis-image-dialog-cost]').getAttribute('data-vis-image-dialog-cost-usd'));
+  expect(usd, '3枚分の目安').toBeGreaterThan(0);
+  await dlg.locator('[data-vis-image-start]').click();
+  // ③ 1枚ずつ独立（3リクエスト・③だけ失敗）
+  await expect.poll(() => posts.length, { timeout: 60000 }).toBe(3);
+  expect(posts.map((p) => p.settings?.mode)).toEqual(['simple', 'detailed', 'custom']);
+  expect(new Set(posts.map((p) => p.settings?.aspect)), '比は選んだもの').toEqual(new Set(['4:3']));
+  expect(posts.find((p) => p.settings?.mode === 'custom')?.settings?.extraPrompt, '④の追記が渡る').toBe('水彩画ふうに');
+  const outs = p1.locator('[data-vis-image-outs="i1"]');
+  await expect(outs).toBeVisible({ timeout: 30000 });
+  await expect(p1.locator('[data-vis-image-out="i1-simple"]')).toHaveAttribute('data-vis-image-out-state', 'done');
+  await expect(p1.locator('[data-vis-image-out="i1-custom"]')).toHaveAttribute('data-vis-image-out-state', 'done');
+  await expect(p1.locator('[data-vis-image-out="i1-detailed"]'), '失敗した枚だけエラー').toHaveAttribute('data-vis-image-out-state', 'error');
+  await expect(p1.locator('[data-vis-image-out-label="simple"]')).toContainText('シンプル');
+  await expect(p1.locator('[data-vis-image-out-label="detailed"]')).toContainText('詳しい説明');
+  // 横並び（同じ段に並ぶ）
+  const tops = await outs.locator('[data-vis-image-out]').evaluateAll((els) => els.map((e) => Math.round(e.getBoundingClientRect().top)));
+  expect(new Set(tops).size, 'モードごとのカードが横並び').toBe(1);
+  // ④ 失敗した枚だけ作り直す
+  await p1.locator('[data-vis-image-out-retry="i1-detailed"]').click();
+  await expect(p1.locator('[data-vis-image-out="i1-detailed"]')).toHaveAttribute('data-vis-image-out-state', 'done', { timeout: 30000 });
+  expect(posts.length, '作り直しは1枚だけ').toBe(4);
+  expect(posts[3].settings?.mode).toBe('detailed');
+  // ⑤ 保存の出どころにモードと比
+  await expect.poll(() => gallery.length, { timeout: 30000 }).toBeGreaterThanOrEqual(2);
+  const modes = gallery.map((g) => g.settings?.visual?.imageMode).filter(Boolean);
+  expect(modes.length, 'imageMode が入る').toBeGreaterThan(0);
+  expect(new Set(gallery.map((g) => g.settings?.visual?.aspect).filter(Boolean))).toEqual(new Set(['4:3']));
+  // ⑥ 6枚の上限（候補2 × モード4 ＝ 8枚）
+  await p1.locator('[data-vis-image-mode-check="captioned"]').check();
+  await page.locator('[data-vis-plan="i2"] [data-vis-image-mode-check="captioned"]').isVisible().catch(() => {});
+  await p1.locator('[data-vis-image="i1"]').click();
+  await expect(dlg).toBeVisible();
+  await expect(dlg.locator('[data-vis-image-dialog-count]'), '1候補×4モード＝4枚（上限内）').toHaveText('4');
+  await dlg.locator('[data-vis-image-cancel]').click();
+  // 一括（323）では候補2×モード4＝8枚＝上限超過で止まる
+  await page.goto('/dashboard/visuals');
+  await page.locator('[data-vis-source]').fill(src);
+  await page.locator('[data-vis-extract]').click();
+  await expect(page.locator('[data-vis-plan="i1"]')).toBeVisible({ timeout: 15000 });
+  for (const m of ['detailed', 'custom', 'captioned']) await page.locator(`[data-vis-plan="i1"] [data-vis-image-mode-check="${m}"]`).check();
+  for (const id of ['i1', 'i2']) await page.locator(`[data-vis-plan="${id}"] [data-vis-approve]`).check();
+  await page.locator('[data-vis-bulk-generate]').click();
+  const bulk = page.locator('[data-vis-bulk-dialog]');
+  await expect(bulk).toBeVisible();
+  await expect(bulk.locator('[data-vis-bulk-dialog-over]'), '6枚を超えると理由').toContainText('6 枚まで');
+  await expect(bulk.locator('[data-vis-bulk-start]')).toBeDisabled();
+});
