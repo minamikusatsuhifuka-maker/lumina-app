@@ -700,7 +700,7 @@ function VisualsInner() {
             const res = results[id];
             const err = errors[id];
             return (
-              <div key={id} data-vis-out={id} data-vis-out-state={busy[id] ? 'running' : err ? 'error' : res ? 'done' : 'pending'} style={{ border: '1px solid var(--border)', borderRadius: 10, padding: 12, display: 'flex', flexDirection: 'column', gap: 8 }}>
+              <div key={id} data-vis-out={id} data-vis-out-state={busy[id] ? 'running' : err ? 'error' : res ? 'done' : 'pending'} data-vis-out-gallery-id={res?.galleryId} style={{ border: '1px solid var(--border)', borderRadius: 10, padding: 12, display: 'flex', flexDirection: 'column', gap: 8 }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', fontSize: 12 }}>
                   <strong>{i + 1}. {VISUAL_TYPE_META[plan.type].emoji} {VISUAL_TYPE_META[plan.type].label}</strong>
                   <span>{plan.title}</span>

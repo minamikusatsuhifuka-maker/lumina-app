@@ -12361,14 +12361,17 @@ test('C139: 図解の提案→承認→一括生成（323）— 提案モード�
     expect(renderBodies.map((b) => b.plan?.id)).toEqual(['r1', 't1', 'x1', 't1']);
     await expect(step3.locator('[data-vis-out-saved="t1"]')).toBeVisible({ timeout: 60000 });
     await expect(step3.locator('[data-vis-out-saved="x1"]')).toBeVisible({ timeout: 60000 });
-    // 出どころ: approvedAt
-    const g1 = await r1.locator('[data-vis-result="r1"]').getAttribute('data-vis-gallery-id').catch(() => null);
-    const gal = (await (await api.get('/api/gallery?limit=8')).json()) as { images: { id: string; settings: { visual?: { approvedAt?: string; plan?: { id?: string } } } }[] };
-    const rows = gal.images.filter((im) => im.settings.visual?.plan?.id && ['r1', 't1', 'x1'].includes(im.settings.visual.plan.id));
-    for (const im of rows) galleryIds.push(im.id);
-    expect(rows.length).toBeGreaterThanOrEqual(3);
+    // 出どころ: approvedAt（STEP3 の各結果のギャラリー id で厳密に引く＝他テストの同名プランに紛れない）
+    const outIds: string[] = [];
+    for (const id of ['r1', 't1', 'x1']) {
+      await expect(step3.locator(`[data-vis-out="${id}"]`)).toHaveAttribute('data-vis-out-gallery-id', /.+/, { timeout: 60000 });
+      outIds.push((await step3.locator(`[data-vis-out="${id}"]`).getAttribute('data-vis-out-gallery-id'))!);
+    }
+    galleryIds.push(...outIds);
+    const gal = (await (await api.get('/api/gallery?limit=20')).json()) as { images: { id: string; settings: { visual?: { approvedAt?: string; plan?: { id?: string } } } }[] };
+    const rows = gal.images.filter((im) => outIds.includes(im.id));
+    expect(rows.length).toBe(3);
     for (const im of rows) expect(im.settings.visual?.approvedAt, `${im.settings.visual?.plan?.id}: approvedAt（JST・jstDateTimeString の書式）`).toMatch(/^\d{4}\/\d{1,2}\/\d{1,2} \d{1,2}:\d{2}/);
-    void g1;
     // ── ⑤ ?mode=form で従来の画面（承認 UI なし・フォームが最初から開く） ──
     await page.goto('/dashboard/visuals?mode=form');
     await page.locator('[data-vis-source]').fill(src);
@@ -12415,7 +12418,7 @@ test('C140: DR成果物の操作行・9マスシート・関連図の是正（32
     const r1 = page.locator('[data-vis-plan="r1"]');
     await expect(r1).toBeVisible({ timeout: 15000 });
     await expect(r1.locator('[data-vis-evidence-count]'), 'ノード名だけ（架空の要因が1つ無い）').toHaveAttribute('data-vis-evidence-count', '9/10');
-    await expect(r1.locator('[data-vis-edges-summary]'), '辺は9本（架空の要因の辺を含む）・未確認1本').toHaveAttribute('data-vis-edges-summary', '9/1');
+    await expect(r1.locator('[data-vis-edges-summary]'), '辺は9本（架空の要因の辺を含む）・未確認2本（転倒→低栄養・架空の要因→筋力低下）').toHaveAttribute('data-vis-edges-summary', '9/2');
     await expect(r1.locator('[data-vis-card-edge="r1-7-4"]'), '根拠のない辺は既定✗').toHaveAttribute('data-vis-card-edge-on', '0');
     await expect(r1.locator('[data-vis-card-edge="r1-7-4"]')).toContainText('未確認');
     await expect(r1.locator('[data-vis-card-edge="r1-0-1"]')).toHaveAttribute('data-vis-card-edge-on', '1');
