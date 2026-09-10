@@ -12667,13 +12667,14 @@ test('C142: ダイアログが透けない（326・WebKit iPhone幅・ライト/
       // 背面のスクロール位置と高さを控える
       await page.evaluate(() => window.scrollTo(0, 200));
       const beforeY = await page.evaluate(() => window.scrollY);
+      const beforeOverflow = await page.evaluate(() => `${getComputedStyle(document.documentElement).overflow}|${getComputedStyle(document.body).overflow}`);
       await quick.click();
       await expect(dlg).toBeVisible();
       const panel = dlg.locator('[data-modal-panel]');
       const info = await panel.evaluate((el) => {
         const cs = getComputedStyle(el);
         const r = el.getBoundingClientRect();
-        const bodyCs = getComputedStyle(document.body);
+        const bodyCs = getComputedStyle(document.documentElement);
         return { bg: cs.backgroundColor, w: Math.round(r.width), h: Math.round(r.height), left: Math.round(r.left), zIndex: getComputedStyle(el.parentElement as HTMLElement).zIndex, bodyOverflow: bodyCs.overflow, vw: window.innerWidth, vh: window.innerHeight };
       });
       const alpha = (bg: string) => { const m = bg.match(/rgba?\(([^)]+)\)/); if (!m) return 1; const parts = m[1].split(',').map((x) => Number(x.trim())); return parts.length < 4 ? 1 : parts[3]; };
@@ -12684,6 +12685,8 @@ test('C142: ダイアログが透けない（326・WebKit iPhone幅・ライト/
       expect(info.h).toBeGreaterThan(info.vh - 4);
       expect(Number(info.zIndex)).toBeGreaterThan(1000);
       expect(info.bodyOverflow, `${theme}: 開いている間は背面をスクロールさせない`).toBe('hidden');
+      await page.evaluate(() => window.scrollBy(0, 400));
+      expect(await page.evaluate(() => window.scrollY), `${theme}: 開いている間は背面が動かない`).toBe(beforeY);
       // パネルの矩形の中に背面のページの文字が見えていない（同じ座標の最前面がパネルの中）
       const covered = await page.evaluate(() => {
         const panel = document.querySelector('[data-modal-panel]') as HTMLElement;
@@ -12706,7 +12709,7 @@ test('C142: ダイアログが透けない（326・WebKit iPhone幅・ライト/
       // ✕ で閉じる → 背面が戻る
       await dlg.locator('[data-modal-close]').click();
       await expect(dlg).toHaveCount(0);
-      await expect.poll(() => page.evaluate(() => getComputedStyle(document.body).overflow), { message: `${theme}: 閉じたら背面のスクロールが戻る` }).not.toBe('hidden');
+      await expect.poll(() => page.evaluate(() => `${getComputedStyle(document.documentElement).overflow}|${getComputedStyle(document.body).overflow}`), { message: `${theme}: 閉じたら元のスクロール設定に戻る` }).toBe(beforeOverflow);
       expect(Math.abs((await page.evaluate(() => window.scrollY)) - beforeY), `${theme}: スクロール位置がほぼ変わらない`).toBeLessThanOrEqual(24);
       // Esc・暗幕でも閉じる
       await quick.click();

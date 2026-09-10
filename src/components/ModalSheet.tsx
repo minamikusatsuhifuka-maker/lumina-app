@@ -16,18 +16,24 @@ import { createPortal } from 'react-dom';
 
 // 開いているモーダルの数。重なっても最後の1つが閉じたときだけ元に戻す（prev の取り違えを避ける）
 let scrollLockCount = 0;
-let scrollLockPrev = '';
+let scrollLockPrev = { html: '', body: '' };
 
-/** 背面のスクロールを止める（開いている間だけ・閉じたら元に戻す）。他のダイアログからも使う */
+/** 背面のスクロールを止める（開いている間だけ・閉じたら元に戻す）。他のダイアログからも使う。
+ *  iOS/WebKit では実際のスクローラが html 側なので、body だけでは止まらない（両方に掛ける） */
 export function useBodyScrollLock(active = true) {
   useEffect(() => {
     if (!active || typeof document === 'undefined') return;
-    if (scrollLockCount === 0) scrollLockPrev = document.body.style.overflow;
+    const html = document.documentElement;
+    if (scrollLockCount === 0) scrollLockPrev = { html: html.style.overflow, body: document.body.style.overflow };
     scrollLockCount += 1;
+    html.style.overflow = 'hidden';
     document.body.style.overflow = 'hidden';
     return () => {
       scrollLockCount = Math.max(0, scrollLockCount - 1);
-      if (scrollLockCount === 0) document.body.style.overflow = scrollLockPrev;
+      if (scrollLockCount === 0) {
+        html.style.overflow = scrollLockPrev.html;
+        document.body.style.overflow = scrollLockPrev.body;
+      }
     };
   }, [active]);
 }
