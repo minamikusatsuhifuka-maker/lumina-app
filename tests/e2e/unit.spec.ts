@@ -4965,7 +4965,7 @@ test('U89: AIでまとめるの二段出力とプレゼン素材パック（317�
   expect(filtered.plans.map((x) => x.type)).toEqual(['relation']);
   expect(filtered.rejected[0].reason).toContain('選んでいない型');
   expect(v.buildVisualPlanPrompt('本文', { types: ['relation', 'figures'] }).prompt).toContain('type は次の2種のみ');
-  expect(v.VISUAL_TYPES.length, '320: 相関図・324: 9マスシートを足して12種').toBe(12);
+  expect(v.VISUAL_TYPES.length, '320: 相関図・324: 9マスシート・325: プレゼン構成＋グラフ4種を足して17種').toBe(17);
   // ⑥ ソース固定: 素材の保存は library に別行（新テーブルなし）・script は API を通さない
   const packRoute = readFileSync(join(__dirname, '../../src/app/api/pack/route.ts'), 'utf8');
   expect(packRoute).toContain('INSERT INTO library');
@@ -5228,7 +5228,9 @@ test('U92: 生成結果から直接図解・画像（320）— 相関図は labe
   expect(read('components/deepresearch/ModelCompareView.tsx'), '比較は完了した列だけ（run.status === done の中）').toMatch(/run\.status === 'done' && run\.text && \([\s\S]*?<VisualQuickButton/);
   const tplSrc = read('lib/visual-templates/index.ts');
   expect(tplSrc, '相関図は関連図のテンプレートを共用（見た目を変えない）').toMatch(/plan\.type === 'relation' \|\| plan\.type === 'correlation' \? relationTemplate/);
-  expect(tplSrc).not.toMatch(/strokeWidth|stroke-width/);
+  // 325: グラフ（円の区切り線）だけが strokeWidth を使う。関連図・相関図の線は太さ・色・不透明度が一様（強弱は文字）
+  const tplNoGraph = tplSrc.split('// ── 325: グラフ')[0] + (tplSrc.split('/** 325: 折れ線の線分が')[1] ?? '');
+  expect(tplNoGraph).not.toMatch(/strokeWidth|stroke-width/);
   for (const p of ['lib/presentation-pack.ts', 'lib/followup-research.ts', 'lib/visuals.ts', 'components/visuals/VisualQuickButton.tsx']) expect(read(p), `${p}: sessionStorage を新タブ handoff に使わない`).not.toMatch(/sessionStorage\.setItem/);
 });
 
@@ -5351,7 +5353,7 @@ test('U94: 関連図の是正とつながり確認（322）— 院長の再現�
   // ⑦ ソース固定
   const read = (p: string) => readFileSync(join(__dirname, '../../src', p), 'utf8');
   const route = read('app/api/visuals/render/route.ts');
-  expect(route, '文字一致に加えて境界検査（外れたら 500 で理由）').toMatch(/const bounds = verifyRenderedBounds\(plan, orientation\);\s*if \(!bounds\.ok\) return NextResponse\.json\(\{ error: `図の要素が画面外に出ます: \$\{bounds\.reasons\.join\('／'\)\}`, bounds \}, \{ status: 500 \}\);/);
+  expect(route, '文字一致に加えて境界検査（外れたら 500 で理由）').toMatch(/const bounds = verifyRenderedBounds\(drawn, orientation\);\s*if \(!bounds\.ok\) return NextResponse\.json\(\{ error: `図の要素が画面外に出ます: \$\{bounds\.reasons\.join\('／'\)\}`, bounds \}, \{ status: 500 \}\);/);
   const tpl = read('lib/visual-templates/index.ts');
   expect(tpl, '線は中点中心で回転（transformOrigin の宣言に頼らない）').not.toMatch(/transformOrigin:/);
   expect(tpl).toMatch(/left: e\.box\.x, top: e\.box\.y, width: e\.box\.w, height: e\.box\.h, background: GREEN, transform: `rotate\(\$\{e\.angle\}deg\)`/);
@@ -5438,7 +5440,7 @@ test('U95: 図解の提案→承認→一括生成（323）— 「構成」の�
   expect(page, '確認は生成前に1回・二重発火は ref（R-87）').toMatch(/const runBulk = async \(\) => \{\s*if \(bulkRef\.current\) return;/);
   expect(page, '?mode=form で従来モード').toMatch(/const formMode = searchParams\?\.get\(VISUALS_MODE_PARAM\) === VISUALS_MODE_FORM;/);
   expect(page, '承認時刻を出どころへ').toMatch(/approvedAt: approvedRef\.current\[plan\.id\] \?\? null/);
-  expect(page, '構成は決定的な純関数から').toMatch(/構成: \{planStructureText\(plan\)\}/);
+  expect(page, '構成は決定的な純関数から').toMatch(/構成: \{planStructureText\(plan, sourceText\)\}/);
 });
 
 
@@ -5589,4 +5591,130 @@ test('U97: LaTeX 記法の露出を止める（324追加）— stripInlineLatex 
   expect(read('lib/note-format.ts'), '順は stripInlineLatex → 1文1行').toMatch(/export function formatOneSentencePerLine\(markdownInput: string\): string \{\s*\/\/ 324追加[^\n]*\n\s*const markdown = stripInlineLatex\(markdownInput\);/);
   // 当ててはいけない側（Kindle本文）は不変
   for (const p of ['app/api/kindle/generate-chapter/route.ts', 'app/api/kindle/chapters/route.ts']) expect(read(p), `${p} に整形なし`).not.toMatch(/stripInlineLatex|note-format/);
+});
+
+test('U98: プレゼン設計モードとグラフ（325）— 時間配分は決定的（中央0分・8マス等配分・端数は最後）／話題は basis が本文に verbatim で実在するときだけ「根拠あり」・チェックでそのマスの要素に入る（実在チェックが再計算される）／グラフは値⊂引用⊂元文で不一致は捨てて件数・円は合計>100で描かず理由・系列2以上でラベルの並びが違えば描かず理由・軸は0起点（負値のときだけ最小値を明示）・軸/目盛り/凡例/値はすべて文字で verifyRenderedText を通る／grid9_talk はマンダラ・スライド構成案へ（ソース固定）', () => {
+  const v = vis320;
+  const t = tpl320;
+  // ① 時間配分（決定的・R-74）
+  expect(v.talkMinutes(10)).toEqual([1, 1, 1, 1, 1, 1, 1, 3]);
+  expect(v.talkMinutes(40)).toEqual([5, 5, 5, 5, 5, 5, 5, 5]);
+  expect(v.talkMinutes(5).reduce((a, b) => a + b, 0)).toBe(5);
+  expect(v.talkMinutes(20).reduce((a, b) => a + b, 0)).toBe(20);
+  expect(v.talkMinutes(10)).toEqual(v.talkMinutes(10));
+  expect(v.talkMinutesLabel(3)).toBe('約 3 分');
+  expect(v.TALK_DEFAULT).toEqual({ persona: null, venue: '一般向けセミナー', minutes: 10 });
+  expect(v.parseTalkTarget({ persona: 'senior', venue: 'ありえない場', minutes: 7 }), '知らない値は既定に落とす').toEqual({ persona: 'senior', venue: '一般向けセミナー', minutes: 10 });
+  expect(v.parseTalkTarget(undefined)).toEqual(v.TALK_DEFAULT);
+  // ② 話題（basis の実在）
+  const src = '乾燥は冬に強まり、暖房で室内の湿度が下がるためです。保湿剤は入浴後5分以内に塗ると効果が高い。';
+  const talkPlan: import('../../src/lib/visuals').VisualPlan = {
+    id: 'tk1', type: 'grid9_talk', title: '冬の乾燥は暖房と湿度で決まる',
+    groups: [
+      { heading: 'つかみ', points: ['乾燥は冬に強まり'] },
+      { heading: '結論', points: ['保湿剤は入浴後5分以内に塗る'] },
+      { heading: '理由', points: ['暖房で室内の湿度が下がる'] },
+    ],
+    topics: [
+      { topic: '暖房と湿度の関係', position: 0, basis: '暖房で室内の湿度が下がる' },
+      { topic: '入浴後5分の根拠', position: 1, basis: '宇宙飛行士の肌' },
+    ],
+  };
+  expect(v.topicEvidence(src, talkPlan.topics![0])).toBe('暖房で室内の湿度が下がる');
+  expect(v.topicEvidence(src, talkPlan.topics![1]), '本文に無い basis は「元テキスト外」＝既定オフ').toBeNull();
+  expect(v.TOPIC_OUTSIDE_LABEL).toBe('元テキスト外');
+  expect(v.talkGroupIndexOf(0)).toBe(0);
+  expect(v.talkGroupIndexOf(4), '中央は差し込み先にならない').toBe(-1);
+  const added = v.appendTopicToPlan(talkPlan, talkPlan.topics![0]);
+  expect(added.groups[0].points).toContain('暖房と湿度の関係');
+  expect(v.appendTopicToPlan(added, talkPlan.topics![0]).groups[0].points.filter((p) => p === '暖房と湿度の関係').length, '二重に入れない').toBe(1);
+  expect(v.removeTopicFromPlan(added, talkPlan.topics![0]).groups[0].points).not.toContain('暖房と湿度の関係');
+  expect(v.checkPlan(added, src).foreign, 'マスに入れた話題は実在チェックの対象になる（本文に無ければ赤い印）').toContain('暖房と湿度の関係');
+  expect(v.parseTalkTopics([{ topic: 'あ', position: 4, basis: 'x' }, { topic: '', position: 1, basis: 'y' }, { topic: 'よい話題', position: 3, basis: '暖房で室内の湿度が下がる' }]).map((x) => x.topic)).toEqual(['よい話題']);
+  // ③ 構成文・最低要件・マンダラ変換
+  expect(v.planStructureText(talkPlan)).toContain('伝えたいこと');
+  expect(v.typeMinRequirement({ ...talkPlan, groups: [talkPlan.groups[0]] }), '2マス未満は承認できない').toBeTruthy();
+  expect(v.typeMinRequirement(talkPlan)).toBeNull();
+  expect(v.planToMandalaCells(talkPlan).cells.length).toBe(3);
+  const st = v.talkPlanToSourceText(talkPlan, { persona: 'senior', venue: '院内勉強会', minutes: 10 }, '👵 シニア');
+  expect(st).toContain('- 誰に: 👵 シニア');
+  expect(st).toContain('- 時間: 10分');
+  expect(st).toContain('## 1. つかみ（約 1 分）');
+  expect(v.talkPlanToSourceText(talkPlan, { persona: null, venue: '院内勉強会', minutes: 10 }, null), '決定的').toBe(v.talkPlanToSourceText(talkPlan, { persona: null, venue: '院内勉強会', minutes: 10 }, null));
+  // ④ グラフ: 値⊂引用⊂元文
+  const gsrc = '2024年の受診者は120人、2025年は150人でした。内訳は湿疹60人、にきび40人です。';
+  const bar: import('../../src/lib/visuals').VisualPlan = {
+    id: 'g1', type: 'bar', title: '受診者の推移', unit: '人',
+    groups: [{ heading: '受診者', points: ['2024年 | 120 | 2024年の受診者は120人', '2025年 | 150 | 2025年は150人でした', '2026年 | 999 | 2026年は999人でした'] }],
+  };
+  const gs = v.graphSeriesOf(bar, gsrc);
+  expect(gs.series[0].points.map((p) => p.label)).toEqual(['2024年', '2025年']);
+  expect(gs.dropped.length, '引用が元文に無い点は捨てる').toBe(1);
+  expect(v.graphNumberOf('1,250')).toBe(1250);
+  expect(v.graphNumberOf('人数')).toBeNull();
+  // 軸（0起点・負値のときだけ最小値）
+  const ax = v.graphAxis(gs.series);
+  expect(ax.min).toBe(0);
+  expect(ax.zeroBased).toBe(true);
+  expect(ax.max).toBeGreaterThanOrEqual(150);
+  expect(ax.ticks.length).toBe(5);
+  const neg = v.graphAxis([{ name: 'x', points: [{ label: 'a', value: '-5', num: -5, evidence: '' }, { label: 'b', value: '3', num: 3, evidence: '' }] }]);
+  expect(neg.zeroBased).toBe(false);
+  expect(neg.min).toBeLessThan(0);
+  // 円: 合計>100 は描かない
+  const pie: import('../../src/lib/visuals').VisualPlan = {
+    id: 'g2', type: 'pie', title: '内訳',
+    groups: [{ heading: '内訳', points: ['湿疹 | 60 | 湿疹60人', 'にきび | 40 | にきび40人'] }],
+  };
+  expect(Object.keys(v.graphPlanIssues(pie, gsrc)).length, '合計100は描ける').toBe(0);
+  const pieOver = { ...pie, groups: [{ heading: '内訳', points: ['湿疹 | 60 | 湿疹60人', 'にきび | 40 | にきび40人', 'その他 | 120 | 2024年の受診者は120人'] }] } as import('../../src/lib/visuals').VisualPlan;
+  expect(JSON.stringify(v.graphPlanIssues(pieOver, gsrc))).toContain('割合として成立しない');
+  // 系列2以上でラベルの並びが違えば描かない
+  const two: import('../../src/lib/visuals').VisualPlan = {
+    id: 'g3', type: 'line', title: '比較',
+    groups: [
+      { heading: 'A', points: ['2024年 | 120 | 2024年の受診者は120人', '2025年 | 150 | 2025年は150人でした'] },
+      { heading: 'B', points: ['2025年 | 150 | 2025年は150人でした', '2024年 | 120 | 2024年の受診者は120人'] },
+    ],
+  };
+  expect(JSON.stringify(v.graphPlanIssues(two, gsrc))).toContain('ラベルの並び');
+  expect(v.typeMinRequirement({ ...bar, groups: [{ heading: '受診者', points: ['2024年 | 120 | 2024年の受診者は120人'] }] }), '点が2つ未満は承認できない').toBeTruthy();
+  expect(v.planStructureText(bar, gsrc), 'カードの構成文は本文と突き合わせた件数').toContain('捨てた点 1');
+  expect(v.filterGraphPlan(bar, gsrc).groups[0].points.length, '描くのは裏が取れた点だけ').toBe(2);
+  // ⑤ 描画: 文字はすべて元テキスト由来（verifyRenderedText）・画面内（bounds）
+  for (const ty of ['bar', 'hbar', 'line', 'pie'] as const) {
+    const p = v.filterGraphPlan({ ...(ty === 'pie' ? pie : bar), type: ty, id: `r-${ty}` } as import('../../src/lib/visuals').VisualPlan, gsrc);
+    const { element } = t.buildVisualElement(p, 'landscape');
+    const vr = t.verifyRenderedText(p, element);
+    expect(vr.ok, `${ty}: 図の文字はプランの文字列だけ（${vr.extra.join('／')}／欠け ${vr.missing.join('／')}）`).toBe(true);
+    const vb = t.verifyRenderedBounds(p, 'landscape');
+    expect(vb.ok, `${ty}: ${vb.reasons.join('／')}`).toBe(true);
+    expect(t.collectVisualText(p)).toContain(p.title);
+  }
+  {
+    const drawnBar = v.filterGraphPlan({ ...bar, unit: '人' }, gsrc);
+    const { element: barEl } = t.buildVisualElement(drawnBar, 'landscape');
+    expect(JSON.stringify(barEl), '値と目盛りは文字として描く').toContain('120');
+    expect(t.collectVisualText(drawnBar), 'フォントは数字と単位を含む').toContain('人');
+    for (const c of '0123456789.-') expect(t.collectVisualText(drawnBar), `フォントに ${c}`).toContain(c);
+  }
+  // grid9_talk は9マスの型で描く
+  const { element: talkEl } = t.buildVisualElement(talkPlan, 'landscape');
+  expect(t.verifyRenderedText(talkPlan, talkEl).ok).toBe(true);
+  expect(t.collectVisualText(talkPlan)).toContain('つかみ');
+  // ⑥ 種類と入口（ソース固定）
+  expect(v.VISUAL_TYPES).toContain('grid9_talk');
+  for (const ty of ['bar', 'hbar', 'line', 'pie'] as const) expect(v.VISUAL_DETERMINISTIC_TYPES, `${ty} はコード描画`).toContain(ty);
+  expect(v.VISUAL_TYPE_PICKER_ORDER.length).toBe(v.VISUAL_TYPES.length);
+  const read = (p: string) => readFileSync(join(__dirname, '../../src', p), 'utf8');
+  expect(read('lib/visuals.ts'), 'プレゼン設計の指示はターゲットがあるときだけ').toMatch(/const talkSection = opts\.talk/);
+  expect(read('lib/visuals.ts')).toMatch(/構成の異なる案を2〜3つ/);
+  expect(read('app/api/visuals/plan/route.ts'), 'talk はオプトイン（R-88）').toMatch(/body\.talk !== undefined && body\.talk !== null \? parseTalkTarget\(body\.talk\) : null/);
+  expect(read('app/api/visuals/mandala/route.ts'), 'プレゼン構成もマンダラにできる').toMatch(/plan\.type !== 'grid9' && plan\.type !== 'grid9_talk'/);
+  expect(read('app/api/pack/route.ts'), '直接の本文は slides だけ').toMatch(/kind !== 'slides'/);
+  expect(read('app/dashboard/visuals/page.tsx')).toMatch(/data-vis-talk-panel/);
+  expect(read('app/dashboard/visuals/page.tsx')).toMatch(/data-vis-make-slides/);
+  expect(read('app/dashboard/deepresearch/page.tsx'), 'DR の操作行に🎤').toMatch(/fixedTypes=\{\['grid9_talk'\]\} label="🎤 プレゼン構成を考える"/);
+  expect(read('components/text-analysis/TextAnalysisPanel.tsx'), '🗂 の操作行に🔲と🎤').toMatch(/fixedTypes=\{\['grid9_talk'\]\}/);
+  expect(read('lib/visual-templates/index.ts'), '色で意味を持たせない（凡例は文字）').toMatch(/const SERIES_COLORS/);
 });

@@ -209,6 +209,29 @@ function ResultPanel({
           disabled={!text || isStreaming}
           style={btnStyle('neutral')}
         />
+        {/* 324/325: 9マスシート・プレゼン構成（種類を固定して直接開く・ダイアログなし） */}
+        <VisualQuickButton
+          text={text}
+          title={label}
+          saved={savedId && saveStatus === 'saved' ? { scope: 'text_analysis', id: String(savedId) } : null}
+          from="text_analysis"
+          disabled={!text || isStreaming}
+          style={btnStyle('neutral')}
+          dataKey={`grid9-${savedId && saveStatus === 'saved' ? String(savedId) : 'unsaved'}`}
+          fixedTypes={['grid9']}
+          label="🔲 9マスシートにする"
+        />
+        <VisualQuickButton
+          text={text}
+          title={label}
+          saved={savedId && saveStatus === 'saved' ? { scope: 'text_analysis', id: String(savedId) } : null}
+          from="text_analysis"
+          disabled={!text || isStreaming}
+          style={btnStyle('neutral')}
+          dataKey={`talk-${savedId && saveStatus === 'saved' ? String(savedId) : 'unsaved'}`}
+          fixedTypes={['grid9_talk']}
+          label="🎤 プレゼン構成を考える"
+        />
         <FollowUpResearchButton
           refs={savedId ? [{ scope: 'text_analysis', id: String(savedId) }] : []}
           dataKey={savedId ? String(savedId) : 'unsaved'}

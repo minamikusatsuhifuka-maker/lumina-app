@@ -19,6 +19,11 @@ import {
   RELATION_LOOSE_PREFIX,
   grid9OverflowLabel,
   relationNodeOrder,
+  graphAxis,
+  graphSeriesOf,
+  isGraphType,
+  tickLabel,
+  type GraphSeries,
   type VisualOrientation,
   type VisualPlan,
 } from '@/lib/visuals';
@@ -99,7 +104,12 @@ export function estimateVisualHeight(plan: VisualPlan, orientation: VisualOrient
       h += Math.max(...slice.map((g) => 40 + lineCount(g.points[0] ?? '', Math.max(4, Math.floor(colW / 60))) * 72 + lineCount(g.heading ?? '', cpl) * 34 + 40)) + 24;
     }
     body = h;
-  } else if (plan.type === 'grid9') {
+  } else if (isGraphType(plan.type)) {
+    // 325: グラフは固定の高さ（凡例＋描画域＋ラベル）
+    const { series } = graphSeriesOf(plan, '');
+    const n = Math.max(1, ...series.map((s) => s.points.length));
+    body = plan.type === 'hbar' ? 80 + n * 56 + 80 : plan.type === 'pie' ? Math.round(width * 0.45) + 120 : 80 + Math.round(width * 0.4) + 120;
+  } else if (plan.type === 'grid9' || plan.type === 'grid9_talk') {
     // 3行×（見出し＋要素≤5＋ほか）。列幅は inner/3
     const inner = width - 56 * 2;
     const cpl = charsPerLine(Math.floor((inner - 24) / 3), 22, 14);
@@ -443,6 +453,7 @@ function rotatedBounds(box: RelationRect, angleDeg: number): RelationRect {
  * 外れていれば描かない（壊れた PNG を出さない）。関連図・相関図以外は in-flow なので常に ok
  */
 export function verifyRenderedBounds(plan: VisualPlan, orientation: VisualOrientation): { ok: boolean; reasons: string[] } {
+  if (plan.type === 'line') return verifyGraphBounds(plan, orientation);
   if (plan.type !== 'relation' && plan.type !== 'correlation') return { ok: true, reasons: [] };
   return verifyLayoutBounds(relationLayout(plan, VISUAL_CANVAS_WIDTH[orientation]));
 }
@@ -556,6 +567,150 @@ function grid9Template(plan: VisualPlan, width: number): El[] {
   return [titleBlock(plan, width), div({ display: 'flex', flexDirection: 'column', width: inner }, rows)];
 }
 
+
+// ── 325: グラフ（bar／hbar／line／pie）。数値は引用と完全一致（graphSeriesOf が捨てる）・軸は0起点（負値は最小値を明示）・
+//    色は緑の濃淡で意味を持たせない（凡例の文字で示す）。軸・目盛り・凡例・値ラベルはすべて文字＝verifyRenderedText を通る ──
+const SERIES_COLORS = ['#2F6B4F', '#7FB39A', '#C5DDD0'];
+export interface GraphGeom {
+  inner: number;
+  plotW: number;
+  plotH: number;
+  /** 折れ線の線分（画面内検査の対象）。x,y はプロット域の左上基準 */
+  segments: { x: number; y: number; w: number; h: number; angle: number }[];
+}
+export function graphLayout(plan: VisualPlan, width: number): { series: GraphSeries[]; axis: ReturnType<typeof graphAxis>; geom: GraphGeom } {
+  const { series } = graphSeriesOf(plan, '');
+  const axis = graphAxis(series);
+  const inner = width - 56 * 2;
+  const plotW = inner - 120;
+  const plotH = plan.type === 'hbar' ? Math.max(1, ...series.map((s) => s.points.length)) * 56 : Math.round(width * 0.4);
+  const segments: GraphGeom['segments'] = [];
+  if (plan.type === 'line') {
+    const n = Math.max(1, ...series.map((s) => s.points.length));
+    const stepX = n > 1 ? plotW / (n - 1) : 0;
+    const yOf = (v: number) => plotH - ((v - axis.min) / Math.max(1e-9, axis.max - axis.min)) * plotH;
+    for (const s of series) {
+      for (let i = 1; i < s.points.length; i++) {
+        const x1 = Math.round((i - 1) * stepX);
+        const y1 = Math.round(yOf(s.points[i - 1].num));
+        const x2 = Math.round(i * stepX);
+        const y2 = Math.round(yOf(s.points[i].num));
+        const dx = x2 - x1;
+        const dy = y2 - y1;
+        const len = Math.max(1, Math.round(Math.sqrt(dx * dx + dy * dy)));
+        const angle = Math.round(((Math.atan2(dy, dx) * 180) / Math.PI) * 100) / 100;
+        segments.push({ x: Math.round((x1 + x2) / 2 - len / 2), y: Math.round((y1 + y2) / 2 - 2), w: len, h: 4, angle });
+      }
+    }
+  }
+  return { series, axis, geom: { inner, plotW, plotH, segments } };
+}
+function legend(series: readonly GraphSeries[]): El {
+  return div({ display: 'flex', gap: 20, flexWrap: 'wrap', marginBottom: 12 }, series.map((s, i) =>
+    div({ display: 'flex', alignItems: 'center', gap: 8 }, [div({ display: 'flex', width: 18, height: 18, borderRadius: 4, background: SERIES_COLORS[i % SERIES_COLORS.length] }, []), text(s.name, { fontSize: 20, color: INK })]),
+  ));
+}
+function graphTemplate(plan: VisualPlan, width: number): El[] {
+  const { series, axis, geom } = graphLayout(plan, width);
+  const range = Math.max(1e-9, axis.max - axis.min);
+  const meta: El[] = [];
+  if (plan.unit) meta.push(text(plan.unit, { fontSize: 20, color: MUTED }));
+  if (!axis.zeroBased) meta.push(text(`最小 ${tickLabel(axis.min)}`, { fontSize: 20, color: '#B45309' }));
+  const header = div({ display: 'flex', alignItems: 'center', gap: 16, marginBottom: 8 }, [legend(series), ...meta]);
+  if (plan.type === 'pie') {
+    const s = series[0] ?? { name: '', points: [] };
+    const total = s.points.reduce((n, p) => n + p.num, 0);
+    const R = Math.round(width * 0.22);
+    const cx = R + 8;
+    const cy = R + 8;
+    let acc = 0;
+    const slices = s.points.map((p, i) => {
+      const a0 = (acc / Math.max(total, 100)) * 2 * Math.PI - Math.PI / 2;
+      acc += p.num;
+      const a1 = (acc / Math.max(total, 100)) * 2 * Math.PI - Math.PI / 2;
+      const large = a1 - a0 > Math.PI ? 1 : 0;
+      const x0 = cx + R * Math.cos(a0);
+      const y0 = cy + R * Math.sin(a0);
+      const x1 = cx + R * Math.cos(a1);
+      const y1 = cy + R * Math.sin(a1);
+      const d = `M ${cx} ${cy} L ${x0.toFixed(1)} ${y0.toFixed(1)} A ${R} ${R} 0 ${large} 1 ${x1.toFixed(1)} ${y1.toFixed(1)} Z`;
+      return { type: 'path', props: { d, fill: SERIES_COLORS[i % SERIES_COLORS.length], stroke: '#fff', strokeWidth: 2 } };
+    });
+    const svg = { type: 'svg', props: { width: (R + 8) * 2, height: (R + 8) * 2, viewBox: `0 0 ${(R + 8) * 2} ${(R + 8) * 2}`, children: slices } } as unknown as El;
+    const list = div({ display: 'flex', flexDirection: 'column', gap: 8, marginLeft: 32 }, s.points.map((p, i) =>
+      div({ display: 'flex', alignItems: 'center', gap: 10 }, [div({ display: 'flex', width: 18, height: 18, borderRadius: 4, background: SERIES_COLORS[i % SERIES_COLORS.length] }, []), text(p.label, { fontSize: 22, color: INK }), text(p.value, { fontSize: 22, fontWeight: 700, color: GREEN })]),
+    ));
+    return [titleBlock(plan, width), header, div({ display: 'flex', alignItems: 'center' }, [svg, list])];
+  }
+  if (plan.type === 'hbar') {
+    const rows: El[] = [];
+    const n = Math.max(1, ...series.map((s) => s.points.length));
+    for (let i = 0; i < n; i++) {
+      const label = series[0]?.points[i]?.label ?? '';
+      const bars = series.map((s, si) => {
+        const p = s.points[i];
+        if (!p) return div({ display: 'flex', height: 0 }, []);
+        const w = Math.max(2, Math.round(((p.num - axis.min) / range) * geom.plotW));
+        return div({ display: 'flex', alignItems: 'center', gap: 8, height: Math.max(10, Math.floor(44 / series.length)) }, [div({ display: 'flex', width: w, height: Math.max(8, Math.floor(40 / series.length)), background: SERIES_COLORS[si % SERIES_COLORS.length], borderRadius: 4 }, []), text(p.value, { fontSize: 18, color: INK })]);
+      });
+      rows.push(div({ display: 'flex', alignItems: 'center', gap: 12, height: 56 }, [div({ display: 'flex', width: 220, justifyContent: 'flex-end' }, text(label, { fontSize: 20, color: INK, textAlign: 'right' })), div({ display: 'flex', flexDirection: 'column', gap: 2, width: geom.plotW, borderLeft: `2px solid ${LINE}`, paddingLeft: 4 }, bars)]));
+    }
+    const ticks = div({ display: 'flex', marginLeft: 236, width: geom.plotW, justifyContent: 'space-between' }, axis.ticks.map((t) => text(tickLabel(t), { fontSize: 16, color: MUTED })));
+    return [titleBlock(plan, width), header, div({ display: 'flex', flexDirection: 'column' }, rows), ticks];
+  }
+  // bar / line: 縦の描画域（左に目盛り・下にラベル）
+  const yTicks = div({ display: 'flex', flexDirection: 'column', justifyContent: 'space-between', height: geom.plotH, width: 100, paddingRight: 8, alignItems: 'flex-end' }, [...axis.ticks].reverse().map((t) => text(tickLabel(t), { fontSize: 16, color: MUTED })));
+  let plot: El;
+  const n = Math.max(1, ...series.map((s) => s.points.length));
+  if (plan.type === 'bar') {
+    const cols: El[] = [];
+    for (let i = 0; i < n; i++) {
+      const bars = series.map((s, si) => {
+        const p = s.points[i];
+        const h = p ? Math.max(2, Math.round(((p.num - axis.min) / range) * geom.plotH)) : 0;
+        const barW = Math.max(8, Math.floor(Math.min(80, (geom.plotW / n) * 0.7) / series.length));
+        return div({ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'flex-end', height: geom.plotH, width: barW }, [...(p ? [text(p.value, { fontSize: 16, color: INK })] : []), div({ display: 'flex', width: barW, height: h, background: SERIES_COLORS[si % SERIES_COLORS.length], borderRadius: '4px 4px 0 0' }, [])]);
+      });
+      cols.push(div({ display: 'flex', alignItems: 'flex-end', gap: 4, width: Math.floor(geom.plotW / n), justifyContent: 'center' }, bars));
+    }
+    plot = div({ display: 'flex', alignItems: 'flex-end', width: geom.plotW, height: geom.plotH, borderLeft: `2px solid ${LINE}`, borderBottom: `2px solid ${LINE}` }, cols);
+  } else {
+    // 折れ線: 線分は中点中心で回転（R-125）・点は小さな丸・値ラベル
+    const stepX = n > 1 ? geom.plotW / (n - 1) : 0;
+    const yOf = (v: number) => geom.plotH - ((v - axis.min) / range) * geom.plotH;
+    const segEls: El[] = geom.segments.map((sg, k) => div({ display: 'flex', position: 'absolute', left: sg.x, top: sg.y, width: sg.w, height: sg.h, background: SERIES_COLORS[Math.floor(k / Math.max(1, n - 1)) % SERIES_COLORS.length], transform: `rotate(${sg.angle}deg)` }, []));
+    const dots: El[] = series.flatMap((s, si) => s.points.map((p, i) => {
+      const x = Math.round(i * stepX);
+      const y = Math.round(yOf(p.num));
+      return div({ display: 'flex', position: 'absolute', left: x - 7, top: y - 7, width: 14, height: 14, borderRadius: 7, background: SERIES_COLORS[si % SERIES_COLORS.length], border: '2px solid #fff' }, []);
+    }));
+    const values: El[] = series.flatMap((s) => s.points.map((p, i) => {
+      const x = Math.round(i * stepX);
+      const y = Math.round(yOf(p.num));
+      return div({ display: 'flex', position: 'absolute', left: x - 40, top: Math.max(0, y - 34), width: 80, justifyContent: 'center' }, text(p.value, { fontSize: 16, color: INK }));
+    }));
+    plot = div({ position: 'relative', display: 'flex', width: geom.plotW, height: geom.plotH, borderLeft: `2px solid ${LINE}`, borderBottom: `2px solid ${LINE}` }, [...segEls, ...dots, ...values]);
+  }
+  const labels = div({ display: 'flex', marginLeft: 100, width: geom.plotW, justifyContent: plan.type === 'bar' ? 'space-around' : 'space-between', marginTop: 8 }, (series[0]?.points ?? []).map((p) => div({ display: 'flex', width: Math.floor(geom.plotW / n), justifyContent: 'center' }, text(p.label, { fontSize: 18, color: INK, textAlign: 'center' }))));
+  return [titleBlock(plan, width), header, div({ display: 'flex' }, [yTicks, plot]), labels];
+}
+
+/** 325: 折れ線の線分がプロット域に収まるか（画面内検査） */
+export function verifyGraphBounds(plan: VisualPlan, orientation: VisualOrientation): { ok: boolean; reasons: string[] } {
+  if (plan.type !== 'line') return { ok: true, reasons: [] };
+  const { geom } = graphLayout(plan, VISUAL_CANVAS_WIDTH[orientation]);
+  const reasons: string[] = [];
+  for (const sg of geom.segments) {
+    const rad = (sg.angle * Math.PI) / 180;
+    const w = Math.abs(sg.w * Math.cos(rad)) + Math.abs(sg.h * Math.sin(rad));
+    const h = Math.abs(sg.w * Math.sin(rad)) + Math.abs(sg.h * Math.cos(rad));
+    const cx = sg.x + sg.w / 2;
+    const cy = sg.y + sg.h / 2;
+    if (cx - w / 2 < -2 || cy - h / 2 < -2 || cx + w / 2 > geom.plotW + 2 || cy + h / 2 > geom.plotH + 2) reasons.push(`折れ線の線分が描画域の外（x=${Math.round(cx - w / 2)},y=${Math.round(cy - h / 2)}）`);
+  }
+  return { ok: reasons.length === 0, reasons };
+}
+
 // ── 317: タイムライン（横1本の軸に等間隔・when は文字列のまま） ──
 function timelineTemplate(plan: VisualPlan, width: number): El[] {
   const items = plan.groups;
@@ -634,7 +789,8 @@ export function buildVisualElement(plan: VisualPlan, orientation: VisualOrientat
     : plan.type === 'timeline' ? timelineTemplate(plan, width)
     : plan.type === 'figures' ? figuresTemplate(plan, width)
     : plan.type === 'onepage' ? onepageTemplate(plan, width)
-    : plan.type === 'grid9' ? grid9Template(plan, width)
+    : plan.type === 'grid9' || plan.type === 'grid9_talk' ? grid9Template(plan, width)
+    : isGraphType(plan.type) ? graphTemplate(plan, width)
     : conceptTemplate(plan, width);
   return { element: frame(width, height, children), canvas: { width, height } };
 }
@@ -651,7 +807,14 @@ export function expectedStringsOf(plan: VisualPlan): string[] {
   if (plan.type === 'figures') return [plan.title.trim(), ...plan.groups.flatMap((g) => [(g.points[0] ?? '').trim(), (g.heading ?? '').trim()])].filter(Boolean);
   if (plan.type === 'onepage') return [plan.title.trim(), ...(plan.groups[0]?.points ?? []).map((p) => p.trim()), (plan.groups[1]?.points[0] ?? '').trim()].filter(Boolean);
   // 324: 9マスシート＝タイトル＋各マスの見出しと先頭5要素（超過は「ほか n 件」＝固定文言）
-  if (plan.type === 'grid9') return [plan.title.trim(), ...grid9Cells(plan).flatMap((c) => [c.heading, ...c.points.map((p) => p.trim())])].filter(Boolean);
+  if (plan.type === 'grid9' || plan.type === 'grid9_talk') return [plan.title.trim(), ...grid9Cells(plan).flatMap((c) => [c.heading, ...c.points.map((p) => p.trim())])].filter(Boolean);
+  // 325: グラフ＝タイトル・系列名（凡例）・ラベル・値の文字・単位・最小値の明示（目盛りの数字は固定扱い）
+  if (isGraphType(plan.type)) {
+    const { series } = graphSeriesOf(plan, '');
+    const axis = graphAxis(series);
+    // 数字だけの文字列（目盛り・値）は verifyRenderedText の固定扱い（描かれるが照合の対象外）。単位付き・語を含む値は照合する
+    return [plan.title.trim(), ...(plan.unit ? [plan.unit.trim()] : []), ...(axis.zeroBased ? [] : [`最小 ${tickLabel(axis.min)}`]), ...series.flatMap((s) => [s.name, ...s.points.flatMap((p) => [p.label, p.value])])].filter((x) => x && !/^-?\d+(?:\.\d+)?$/.test(x));
+  }
   return collectPlanStrings(plan);
 }
 
@@ -707,7 +870,7 @@ const FIXED_MARKS = new Set(['→', '↓', '✓', '・', RELATION_LOOSE_PREFIX])
 
 /** 描画される文字列 ＝ プランの文字列（順序不問・固定記号と番号を除く）。missing／extra を返す */
 export function verifyRenderedText(plan: VisualPlan, element: El): { ok: boolean; missing: string[]; extra: string[] } {
-  const rendered = collectElementText(element).filter((s) => !FIXED_MARKS.has(s) && !/^\d+$/.test(s) && !GRID9_OVERFLOW_RE.test(s));
+  const rendered = collectElementText(element).filter((s) => !FIXED_MARKS.has(s) && !/^-?\d+(?:\.\d+)?$/.test(s) && !GRID9_OVERFLOW_RE.test(s));
   const expected = expectedStringsOf(plan);
   const missing = expected.filter((s) => !rendered.includes(s));
   const extra = rendered.filter((s) => !expected.includes(s));
@@ -716,5 +879,5 @@ export function verifyRenderedText(plan: VisualPlan, element: El): { ok: boolean
 
 /** フォントサブセット取得用: 描画対象の全文字（固定記号・数字を含む） */
 export function collectVisualText(plan: VisualPlan): string {
-  return Array.from(new Set([...expectedStringsOf(plan), '0123456789→↓✓・'].join(''))).join('');
+  return Array.from(new Set([...expectedStringsOf(plan), '0123456789.-→↓✓・'].join(''))).join('');
 }

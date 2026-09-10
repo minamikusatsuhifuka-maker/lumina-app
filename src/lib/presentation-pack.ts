@@ -70,10 +70,12 @@ export const PACK_MAX_SELECT = PACK_KINDS.length;
 const GUARD_SECTION = `\n\n# 医療広告ガイドライン（必ず守る・この節が最優先）\n以下に該当する表現は使わない。まとめに無い効果・実績・数字・体験を足さない。\n${MEDICAL_AD_NG_RULES}`;
 const COMMON = `記事にある内容だけを使う（まとめに無い事実・数字・評価を補わない）。見出しは「## 」と「### 」の2階層（「# 」は使わない）。強調は **太字**、列挙は「- 」。${NO_LATEX_PROMPT_RULE}`;
 
-export function buildSlidesPrompt(source: string): { system: string; prompt: string } {
+export function buildSlidesPrompt(source: string, talk: { personaLabel: string | null; venue: string; minutes: number } | null = null): { system: string; prompt: string } {
+  // 325: プレゼン構成（9マス）からの直接指定＝誰に・どこで・時間を先に示す（オプトイン）
+  const talkLine = talk ? `\n\n# 発表の条件\n- 誰に: ${talk.personaLabel ?? '一般'}\n- どこで: ${talk.venue}\n- 時間: ${talk.minutes}分（枚数と話者ノートの長さをこの時間に合わせる）` : '';
   return {
     system: 'あなたは医療クリニックのプレゼン資料を設計する編集者です。出力は Markdown のみ。',
-    prompt: `以下のまとめから、プレゼンの**スライド構成案**を作ってください。\n\n# 形式\n- 8〜12枚。1枚1メッセージ\n- 各枚: 「## n. スライドタイトル（1行メッセージ）」→ 要点3つ（「- 」）→ 「### 話者ノート」（2〜4文）\n- 最初の枚は表紙（タイトル・副題）、最後は「まとめ・次の一歩」\n- ${COMMON}\n\n# まとめ\n${source}${GUARD_SECTION}`,
+    prompt: `以下のまとめから、プレゼンの**スライド構成案**を作ってください。${talkLine}\n\n# 形式\n- 8〜12枚。1枚1メッセージ\n- 各枚: 「## n. スライドタイトル（1行メッセージ）」→ 要点3つ（「- 」）→ 「### 話者ノート」（2〜4文）\n- 最初の枚は表紙（タイトル・副題）、最後は「まとめ・次の一歩」\n- ${COMMON}\n\n# まとめ\n${source}${GUARD_SECTION}`,
   };
 }
 export function buildQaPrompt(source: string): { system: string; prompt: string } {

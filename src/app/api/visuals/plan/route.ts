@@ -5,7 +5,9 @@ import { requireAuth } from '@/lib/require-auth';
 import { generateWithModel } from '@/lib/ai-client';
 import { GEMINI_TEXT_THINKING_LOW } from '@/lib/ai-models';
 import { robustJsonParse } from '@/lib/ai-json-parser';
-import { VISUAL_SOURCE_MAX_CHARS, buildVisualPlanPrompt, findBannedLabels, findForeignPhrases, findForeignTokens, isVisualType, parseVisualPlans, type VisualType } from '@/lib/visuals';
+import { VISUAL_SOURCE_MAX_CHARS, buildVisualPlanPrompt, findBannedLabels, findForeignPhrases, findForeignTokens, isVisualType, parseVisualPlans, parseTalkTarget, type VisualType } from '@/lib/visuals';
+// 325: プレゼン設計モード（ターゲット・場・時間）はオプトイン（R-88）
+import { getPersonaStyle } from '@/lib/persona-styles';
 
 export const runtime = 'nodejs';
 export const maxDuration = 120;
@@ -13,13 +15,16 @@ export const maxDuration = 120;
 export async function POST(req: Request) {
   const guard = await requireAuth();
   if (!guard.ok) return guard.response;
-  const body = (await req.json().catch(() => ({}))) as { text?: unknown; types?: unknown };
+  const body = (await req.json().catch(() => ({}))) as { text?: unknown; types?: unknown; talk?: unknown };
   const text = typeof body.text === 'string' ? body.text.trim().slice(0, VISUAL_SOURCE_MAX_CHARS) : '';
   // 317 §3-2: 選んだ種類だけプランを出す（素材パック）。未指定は従来どおり全種
   const types: VisualType[] = Array.isArray(body.types) ? body.types.filter(isVisualType) : [];
   if (text.length < 20) return NextResponse.json({ error: '元テキストが短すぎます（20字以上）' }, { status: 400 });
   try {
-    const { system, prompt } = buildVisualPlanPrompt(text, { types });
+    // 325: talk があるときだけターゲットの文脈をプロンプトに足す（grid9_talk 用）。無ければ従来どおり
+    const talk = body.talk !== undefined && body.talk !== null ? parseTalkTarget(body.talk) : null;
+    const personaLabel = talk?.persona ? (() => { const p = getPersonaStyle(talk.persona); return `${p.emoji} ${p.label}（${p.hint}）`; })() : null;
+    const { system, prompt } = buildVisualPlanPrompt(text, { types, ...(talk ? { talk: { ...talk, personaLabel } } : {}) });
     const raw = await generateWithModel('gemini', prompt, system, 8192, { responseMimeType: 'application/json', ...GEMINI_TEXT_THINKING_LOW });
     let parsed: unknown;
     try {

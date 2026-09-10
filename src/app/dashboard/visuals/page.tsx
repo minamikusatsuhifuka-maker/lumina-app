@@ -41,7 +41,10 @@ import {
   VISUALS_MODE_FORM, VISUALS_MODE_PARAM, VISUAL_MAX_PLANS, approvalState, bulkConfirmLabel, bulkEstimate, planEvidenceCount, planStructureText, stripForeign, typeMinRequirement,
   // 324: 辺の既定（根拠なし＝✗）・つながりの要約・9マスシート→マンダラ
   applyEdgeDefaults, relationEdgeSummary,
+  // 325: プレゼン設計モード（grid9_talk）とグラフ
+  TALK_DEFAULT, TALK_MINUTES, TALK_VENUES, TOPIC_OUTSIDE_LABEL, appendTopicToPlan, graphSeriesOf, isGraphType, removeTopicFromPlan, talkMinutes, talkMinutesLabel, talkPlanToSourceText, talkPositionLabel, topicEvidence, type TalkTarget, type TalkTopic,
 } from '@/lib/visuals';
+import { PERSONA_STYLES, PERSONA_STYLE_KEYS } from '@/lib/persona-styles';
 import { jstDateTimeString } from '@/lib/jst';
 // 320: 未保存の結果の handoff（一回限りキー・R-121）
 import { readOneTimeHandoff } from '@/lib/one-time-handoff';
@@ -116,6 +119,16 @@ function VisualsInner() {
   const [mandalaBusy, setMandalaBusy] = useState<Record<string, boolean>>({});
   const [mandalaError, setMandalaError] = useState<Record<string, string>>({});
   const mandalaRef = useRef<Set<string>>(new Set()); // R-87
+  // 325 §2: プレゼン設計モードのターゲット（誰に・どこで・時間）。既定＝一般向けセミナー・10分（選ばなくても進める）
+  const [talk, setTalk] = useState<TalkTarget>(TALK_DEFAULT);
+  const [talkTouched, setTalkTouched] = useState(false);
+  // 325 §4: 関心を惹く関連話題（プランごと・チェックしたものだけマスの要素に入る）
+  const [topicOn, setTopicOn] = useState<Record<string, boolean>>({});
+  // 325 §6: プレゼン構成→317 スライド構成案
+  const [packBusy, setPackBusy] = useState<Record<string, boolean>>({});
+  const [packMade, setPackMade] = useState<Record<string, string>>({});
+  const [packError, setPackError] = useState<Record<string, string>>({});
+  const packRef = useRef<Set<string>>(new Set()); // R-87
   const unapprove = (id: string) => setApproved((m) => { if (!(id in m)) return m; const n = { ...m }; delete n[id]; return n; });
   // 320 §3-5: 「AIに文字も描かせる」の前回の選択（端末ごと・初期既定はオフ）
   useEffect(() => {
@@ -201,6 +214,36 @@ function VisualsInner() {
       return next;
     });
 
+  // 325: プレゼン構成を求めているとき（種類に grid9_talk がある／ターゲットを触った）だけ talk を送る（オプトイン・R-88）
+  const talkWanted = restrictTypes.includes('grid9_talk') || (restrictTypes.length === 0 && talkTouched);
+  const talkPanelShown = restrictTypes.includes('grid9_talk') || restrictTypes.length === 0;
+  const personaLabelOf = (key: string | null) => (key && PERSONA_STYLES[key as keyof typeof PERSONA_STYLES] ? `${PERSONA_STYLES[key as keyof typeof PERSONA_STYLES].emoji} ${PERSONA_STYLES[key as keyof typeof PERSONA_STYLES].label}` : null);
+  /** 325 §4: 話題のチェック＝そのマスの要素に追記／外す（実在チェックは再計算される） */
+  const toggleTopic = (plan: VisualPlan, topic: TalkTopic, i: number, on: boolean) => {
+    setTopicOn((m) => ({ ...m, [`${plan.id}:${i}`]: on }));
+    updatePlan(plan.id, (p) => (on ? appendTopicToPlan(p, topic) : removeTopicFromPlan(p, topic)));
+  };
+  /** 325 §6: プレゼン構成（9マス）→ 317 の素材パック（スライド構成案・AI 1回） */
+  const makeSlides = async (plan: VisualPlan) => {
+    if (packRef.current.has(plan.id)) return; // R-87
+    packRef.current.add(plan.id);
+    setPackBusy((m) => ({ ...m, [plan.id]: true }));
+    setPackError((m) => { const n = { ...m }; delete n[plan.id]; return n; });
+    try {
+      const body = { kind: 'slides', ids: [], sourceText: talkPlanToSourceText(plan, talk, personaLabelOf(talk.persona)), sourceTitle: plan.title, talk };
+      const r = await fetch('/api/pack', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+      const j = (await r.json().catch(() => ({}))) as { id?: string; itemId?: string; error?: string };
+      const id = j.id ?? j.itemId;
+      if (!r.ok || !id) throw new Error(j.error || `スライド構成案の作成に失敗しました（${r.status}）`);
+      setPackMade((m) => ({ ...m, [plan.id]: id }));
+    } catch (e) {
+      setPackError((m) => ({ ...m, [plan.id]: e instanceof Error ? e.message : String(e) }));
+    } finally {
+      packRef.current.delete(plan.id);
+      setPackBusy((m) => ({ ...m, [plan.id]: false }));
+    }
+  };
+
   const extract = async () => {
     if (extractRef.current) return; // R-87
     const text = sourceText.trim();
@@ -211,11 +254,13 @@ function VisualsInner() {
     extractRef.current = true;
     setExtracting(true);
     try {
-      const r = await fetch('/api/visuals/plan', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text, ...(restrictTypes.length > 0 ? { types: restrictTypes } : {}) }) });
+      const r = await fetch('/api/visuals/plan', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text, ...(restrictTypes.length > 0 ? { types: restrictTypes } : {}), ...(talkWanted ? { talk } : {}) }) });
       const j = (await r.json().catch(() => ({}))) as { plans?: VisualPlan[]; rejected?: string[]; error?: string };
       if (!r.ok || !j.plans) throw new Error(j.error || `抽出に失敗しました（${r.status}）`);
       // 324 §2-2: 根拠のない辺は既定✗（未確認・院長が✓にすれば描ける）
       setPlans(j.plans.map((p) => applyEdgeDefaults(p, text)));
+      // 325 §4: 話題は「根拠が取れたものだけ既定オン」。オンの話題はこの時点でマスの要素に入っていない（チェックで入る）
+      setTopicOn(Object.fromEntries(j.plans.flatMap((p) => (p.topics ?? []).map((t, i) => [`${p.id}:${i}`, false]))));
       setRejected(j.rejected ?? []);
       setResults({});
       setErrors({});
@@ -431,6 +476,37 @@ function VisualsInner() {
           {unsavedSource && <span data-vis-unsaved-source={unsavedSource.from} style={{ fontSize: 11, color: 'var(--text-muted)' }}>未保存の結果から: {unsavedSource.title || '（無題）'}（{unsavedSource.chars.toLocaleString()}字）</span>}
           {sourceError && <span data-vis-source-error style={{ fontSize: 11, color: '#B91C1C' }}>⚠️ {sourceError}</span>}
         </div>
+        {/* 325 §2: プレゼン設計モードのターゲット（任意・既定で進める） */}
+        {talkPanelShown && (
+          <div data-vis-talk-panel style={{ border: '1px solid var(--border)', borderRadius: 10, padding: 10, marginBottom: 8, display: 'flex', flexDirection: 'column', gap: 6 }}>
+            <div style={{ fontSize: 12, fontWeight: 700 }}>🎤 プレゼン構成（9マス）の相手と場</div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', fontSize: 12 }}>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                誰に
+                <select data-vis-talk-persona value={talk.persona ?? ''} onChange={(e) => { setTalkTouched(true); setTalk((t) => ({ ...t, persona: e.target.value || null })); }} style={{ ...input, width: 'auto', padding: '4px 8px' }}>
+                  <option value="">一般（指定なし）</option>
+                  {PERSONA_STYLE_KEYS.map((k) => <option key={k} value={k}>{PERSONA_STYLES[k].emoji} {PERSONA_STYLES[k].label}</option>)}
+                </select>
+              </label>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                どこで
+                <select data-vis-talk-venue value={talk.venue} onChange={(e) => { setTalkTouched(true); setTalk((t) => ({ ...t, venue: e.target.value as TalkTarget['venue'] })); }} style={{ ...input, width: 'auto', padding: '4px 8px' }}>
+                  {TALK_VENUES.map((v) => <option key={v} value={v}>{v}</option>)}
+                </select>
+              </label>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                時間
+                <select data-vis-talk-minutes value={talk.minutes} onChange={(e) => { setTalkTouched(true); setTalk((t) => ({ ...t, minutes: Number(e.target.value) as TalkTarget['minutes'] })); }} style={{ ...input, width: 'auto', padding: '4px 8px' }}>
+                  {TALK_MINUTES.map((m) => <option key={m} value={m}>{m}分</option>)}
+                </select>
+              </label>
+              <span data-vis-talk-summary={`${talk.persona ?? 'general'}|${talk.venue}|${talk.minutes}`} style={{ fontSize: 11, color: 'var(--text-muted)' }}>
+                中央0分・周囲8マスに{talkMinutesLabel(talkMinutes(talk.minutes)[0])}ずつ（端数は最後のマス）
+              </span>
+            </div>
+            <div style={{ fontSize: 11, color: 'var(--text-muted)', lineHeight: 1.6 }}>選ばなくても進めます（既定: 一般向けセミナー・10分）。選び直したら「🧩 図解プランを抽出」で作り直してください。</div>
+          </div>
+        )}
         <textarea data-vis-source value={sourceText} onChange={(e) => setSourceText(e.target.value)} placeholder="ここに記事・分析結果のテキストを貼り付けるか、📚🗂の行の「🖼 図解にする」から開いてください" rows={8} style={{ ...input, fontSize: 16, resize: 'vertical' }} />
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 8, flexWrap: 'wrap' }}>
           <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>{sourceText.length.toLocaleString()} 文字</span>
@@ -487,7 +563,7 @@ function VisualsInner() {
                         {(plan.type === 'relation' || plan.type === 'correlation') && (() => { const sm = relationEdgeSummary(rows); return <span data-vis-edges-summary={`${sm.total}/${sm.unconfirmed}`} style={{ fontSize: 11, color: sm.unconfirmed > 0 ? '#B45309' : 'var(--text-muted)', fontWeight: 700 }}>つながり {sm.total} 本{sm.unconfirmed > 0 ? `（うち未確認 ${sm.unconfirmed} 本）` : ''}</span>; })()}
                         {plan.why && <span data-vis-why={plan.id} title="AI が提案した理由（表示だけ。図には入りません）" style={{ fontSize: 11, color: 'var(--text-muted)' }}>💡 {plan.why}</span>}
                       </div>
-                      <div data-vis-structure={plan.id} style={{ fontSize: 12, lineHeight: 1.7 }}>構成: {planStructureText(plan)}</div>
+                      <div data-vis-structure={plan.id} style={{ fontSize: 12, lineHeight: 1.7 }}>構成: {planStructureText(plan, sourceText)}</div>
                       {rows.length > 0 && (
                         <div data-vis-card-edges={plan.id} style={{ fontSize: 12, lineHeight: 1.7 }}>
                           関連性: {rows.map((r) => <span key={r.key} data-vis-card-edge={`${plan.id}-${r.key}`} data-vis-card-edge-on={r.on ? '1' : '0'} data-vis-card-edge-unconfirmed={r.evidence === null ? '1' : '0'} style={{ display: 'inline-block', marginRight: 8, textDecoration: r.on ? 'none' : 'line-through', color: r.on ? 'inherit' : 'var(--text-muted)' }}>{r.from} → {r.to}{r.label ? `: ${r.label}` : ''}（{r.evidence === null ? (r.on ? '未確認・描く' : '未確認・描かない') : r.on ? '根拠あり' : '描かない'}）</span>)}
@@ -507,18 +583,67 @@ function VisualsInner() {
                       {!ap.reason && minReq && <div data-vis-approve-reason={plan.id} style={{ fontSize: 12, color: '#B91C1C' }}>⚠️ 承認できません（{minReq}）</div>}
                       {stripError[plan.id] && <div data-vis-strip-error={plan.id} style={{ fontSize: 12, color: '#B91C1C' }}>⚠️ {stripError[plan.id]}</div>}
                       {stripped[plan.id] && stripped[plan.id].length > 0 && <div data-vis-stripped={plan.id} style={{ fontSize: 11, color: 'var(--text-muted)' }}>外した語句: {stripped[plan.id].join('／')}</div>}
+                      {/* 325 §3: プレゼン構成の時間配分（決定的・カードのみ・図には入らない） */}
+                      {plan.type === 'grid9_talk' && (() => {
+                        const mins = talkMinutes(talk.minutes);
+                        const cells = plan.groups.filter((g) => (g.heading ?? '').trim()).slice(0, 8);
+                        return (
+                          <div data-vis-talk-plan={plan.id} style={{ fontSize: 12, lineHeight: 1.8 }}>
+                            <div data-vis-talk-target={plan.id} style={{ color: 'var(--text-muted)' }}>誰に: {personaLabelOf(talk.persona) ?? '一般'}／どこで: {talk.venue}／時間: {talk.minutes}分</div>
+                            {cells.map((g, i) => (
+                              <span key={i} data-vis-talk-cell={`${plan.id}-${i}`} data-vis-talk-minutes-cell={mins[i]} style={{ display: 'inline-block', marginRight: 10 }}>{i + 1}. {(g.heading ?? '').trim()}（{talkMinutesLabel(mins[i])}）</span>
+                            ))}
+                          </div>
+                        );
+                      })()}
+                      {/* 325 §4: 関心を惹く関連話題（話題そのものは図に入らない。チェックするとそのマスの要素に入る） */}
+                      {plan.type === 'grid9_talk' && (plan.topics ?? []).length > 0 && (
+                        <div data-vis-topics={plan.id} style={{ fontSize: 12, lineHeight: 1.8 }}>
+                          関心を惹く話題:
+                          {(plan.topics ?? []).map((t, i) => {
+                            const ev = topicEvidence(sourceText, t);
+                            const on = !!topicOn[`${plan.id}:${i}`];
+                            return (
+                              <label key={i} data-vis-topic={`${plan.id}-${i}`} data-vis-topic-evidence={ev ? '1' : '0'} data-vis-topic-on={on ? '1' : '0'} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, marginLeft: 8, cursor: 'pointer' }}>
+                                <input type="checkbox" data-vis-topic-check={`${plan.id}-${i}`} checked={on} onChange={(e) => toggleTopic(plan, t, i, e.target.checked)} />
+                                <span>{t.topic}（{talkPositionLabel(t.position)}・{ev ? `根拠: ${ev}` : TOPIC_OUTSIDE_LABEL}）</span>
+                              </label>
+                            );
+                          })}
+                        </div>
+                      )}
+                      {/* 325 §5: グラフ＝引用と合わない点は捨てて件数を出す */}
+                      {isGraphType(plan.type) && (() => {
+                        const g = graphSeriesOf(plan, sourceText);
+                        return (
+                          <div data-vis-graph={plan.id} data-vis-graph-dropped={g.dropped.length} style={{ fontSize: 12, lineHeight: 1.7, color: g.dropped.length > 0 ? '#B45309' : 'var(--text-muted)' }}>
+                            系列 {g.series.length}・点 {g.series.reduce((n, s) => n + s.points.length, 0)}{plan.unit ? `・単位 ${plan.unit}` : ''}
+                            {g.dropped.length > 0 && <span>／引用と合わないため捨てた点 {g.dropped.length} 件（{g.dropped.slice(0, 3).map((d) => `${d.point}: ${d.reason}`).join('／')}）</span>}
+                          </div>
+                        );
+                      })()}
                       <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
                         <button type="button" data-vis-detail-toggle={plan.id} aria-expanded={!!detailOpen[plan.id]} onClick={() => setDetailOpen((m) => ({ ...m, [plan.id]: !m[plan.id] }))} style={{ ...btn, padding: '4px 10px' }}>
                           {detailOpen[plan.id] ? '▴ 閉じる' : '▾ 詳しく直す'}
                         </button>
                         {/* 324 §3-2(2): 9マスシート→マンダラ（AI なし・プランの文字列をそのまま） */}
-                        {plan.type === 'grid9' && (
+                        {(plan.type === 'grid9' || plan.type === 'grid9_talk') && (
                           <>
                             <button type="button" data-vis-open-mandala={plan.id} onClick={() => void openAsMandala(plan)} disabled={!check.ok || !!minReq || !!mandalaBusy[plan.id]} title={ap.reason ?? minReq ?? 'このプランの文字列をそのままマンダラのチャートに書き込んで開きます（AI は使いません）'} style={{ ...btn, padding: '4px 10px', color: '#6c63ff', opacity: !check.ok || minReq ? 0.5 : 1 }}>
                               {mandalaBusy[plan.id] ? '⏳ 作成中…' : '🔲 マンダラとして開く'}
                             </button>
                             {mandalaMade[plan.id] && <a data-vis-mandala-link={mandalaMade[plan.id]} href={`/dashboard/mandala/${mandalaMade[plan.id]}`} target="_blank" rel="noopener noreferrer" style={{ fontSize: 11, color: '#6c63ff' }}>✅ マンダラを作成しました（開く）</a>}
                             {mandalaError[plan.id] && <span data-vis-mandala-error={plan.id} style={{ fontSize: 11, color: '#B91C1C' }}>❌ {mandalaError[plan.id]}</span>}
+                          </>
+                        )}
+                        {/* 325 §6: プレゼン構成→317 スライド構成案（9マス＋相手・時間を渡す・AI 1回） */}
+                        {plan.type === 'grid9_talk' && (
+                          <>
+                            <button type="button" data-vis-make-slides={plan.id} onClick={() => void makeSlides(plan)} disabled={!check.ok || !!minReq || !!packBusy[plan.id]} title={ap.reason ?? minReq ?? 'この9マスと相手・時間を渡して、スライド構成案（317 の素材パック）を作ります'} style={{ ...btn, padding: '4px 10px', color: '#0d9973', opacity: !check.ok || minReq ? 0.5 : 1 }}>
+                              {packBusy[plan.id] ? '⏳ 作成中…' : '🎁 スライド構成案にする'}
+                            </button>
+                            {packMade[plan.id] && <a data-vis-slides-link={packMade[plan.id]} href={`/dashboard/library?item=${packMade[plan.id]}`} target="_blank" rel="noopener noreferrer" style={{ fontSize: 11, color: '#0d9973' }}>✅ スライド構成案を作成しました（開く）</a>}
+                            {packError[plan.id] && <span data-vis-slides-error={plan.id} style={{ fontSize: 11, color: '#B91C1C' }}>❌ {packError[plan.id]}</span>}
                           </>
                         )}
                         {plan.id in approved && <span style={{ marginLeft: 8, fontSize: 11, color: 'var(--text-muted)' }}>変更すると承認は外れます</span>}

@@ -12523,3 +12523,119 @@ test('C140: DR成果物の操作行・9マスシート・関連図の是正（32
     await cleanupE2ESaves(request);
   }
 });
+
+test('C141: プレゼン設計モードとグラフ（325）— 相手・場・時間を選ぶと抽出にターゲットが渡り（オプトイン）、9マスの案に時間配分（中央0分・8マス等配分・端数は最後）が出る／関連話題はチェックでそのマスの要素に入り実在チェックが再計算される（元テキスト外を入れると赤い印）／プレゼン構成も「マンダラとして開く」（AIなし）と「スライド構成案にする」（9マス＋相手・時間を渡す）／グラフは実描画が200（軸・目盛り・凡例・値は文字）・円は合計>100で400＋理由・系列のラベルの並び違いも400', async ({ page, request }) => {
+  test.setTimeout(360_000);
+  const marker = `TK${RUN_ID}`;
+  const src = `冬の乾燥は暖房で室内の湿度が下がることが主な原因です。保湿剤は入浴後5分以内に塗ると効果が高いことが知られています。2024年の受診者は120人、2025年は150人でした。内訳は湿疹60人、にきび40人です。識別子 ${marker}`;
+  let chartId: string | null = null;
+  const planBodies: { talk?: { persona?: string; venue?: string; minutes?: number } }[] = [];
+  const packBodies: { kind?: string; ids?: string[]; sourceText?: string; sourceTitle?: string; talk?: { minutes?: number } }[] = [];
+  await page.route('**/api/visuals/plan', (route) => {
+    planBodies.push(route.request().postDataJSON());
+    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ plans: [
+      { id: 't1', type: 'grid9_talk', why: '結論から入る構成', title: '冬の乾燥は暖房で室内の湿度が下がる', groups: [
+        { heading: '冬の乾燥', points: ['暖房で室内の湿度が下がる'] },
+        { heading: '保湿剤', points: ['入浴後5分以内に塗る'] },
+        { heading: '受診者', points: ['2024年の受診者は120人'] },
+        { heading: '内訳', points: ['湿疹60人'] },
+        { heading: 'にきび', points: ['にきび40人'] },
+        { heading: '効果', points: ['効果が高い'] },
+        { heading: '湿度', points: ['室内の湿度'] },
+        { heading: '原因', points: ['主な原因'] },
+      ], topics: [
+        { topic: '入浴後5分以内に塗る', position: 0, basis: '保湿剤は入浴後5分以内に塗る' },
+        { topic: '宇宙飛行士の肌', position: 1, basis: '宇宙ステーションでの実験' },
+      ] },
+      { id: 'b1', type: 'bar', why: '推移を比べる', title: '受診者', unit: '人', groups: [
+        { heading: '受診者', points: ['2024年 | 120 | 2024年の受診者は120人', '2025年 | 150 | 2025年は150人でした', '2026年 | 999 | 2026年は999人でした'] },
+      ] },
+    ], rejected: [], ranAt: new Date().toISOString() }) });
+  });
+  await page.route('**/api/pack', (route) => {
+    packBodies.push(route.request().postDataJSON());
+    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ id: `pack-${marker}`, title: 'スライド構成案', kind: 'slides', chars: 100 }) });
+  });
+  try {
+    await page.goto('/dashboard/visuals');
+    // ① ターゲット（誰に・どこで・時間）＝オプトイン
+    const panel = page.locator('[data-vis-talk-panel]');
+    await expect(panel).toBeVisible();
+    await panel.locator('[data-vis-talk-persona]').selectOption('senior');
+    await panel.locator('[data-vis-talk-venue]').selectOption('院内勉強会');
+    await panel.locator('[data-vis-talk-minutes]').selectOption('20');
+    await expect(panel.locator('[data-vis-talk-summary]')).toHaveAttribute('data-vis-talk-summary', 'senior|院内勉強会|20');
+    await page.locator('[data-vis-source]').fill(src);
+    await page.locator('[data-vis-extract]').click();
+    const t1 = page.locator('[data-vis-plan="t1"]');
+    await expect(t1).toBeVisible({ timeout: 15000 });
+    expect(planBodies.at(-1)?.talk, '抽出にターゲットが渡る').toEqual({ persona: 'senior', venue: '院内勉強会', minutes: 20 });
+    // ② 時間配分（20分＝2分×7＋6分・中央は0分＝マスに出ない）
+    await expect(t1.locator('[data-vis-talk-target="t1"]')).toContainText('時間: 20分');
+    const mins = await t1.locator('[data-vis-talk-cell]').evaluateAll((els) => els.map((e) => Number(e.getAttribute('data-vis-talk-minutes-cell'))));
+    expect(mins, '8マスに等配分・端数は最後のマス').toEqual([2, 2, 2, 2, 2, 2, 2, 6]);
+    expect(mins.reduce((a, b) => a + b, 0)).toBe(20);
+    await expect(t1.locator('[data-vis-talk-cell="t1-0"]')).toContainText('約 2 分');
+    await expect(t1.locator('[data-vis-structure="t1"]')).toContainText('伝えたいこと');
+    // ③ 関連話題: 根拠のあるものだけ「根拠」・チェックでマスに入り再判定
+    await expect(t1.locator('[data-vis-topic="t1-0"]')).toHaveAttribute('data-vis-topic-evidence', '1');
+    await expect(t1.locator('[data-vis-topic="t1-1"]'), '本文に無い根拠は「元テキスト外」').toHaveAttribute('data-vis-topic-evidence', '0');
+    await expect(t1.locator('[data-vis-topic="t1-1"]')).toContainText('元テキスト外');
+    await expect(t1.locator('[data-vis-topic-check="t1-0"]'), '既定はオフ').not.toBeChecked();
+    await expect(t1.locator('[data-vis-approve-reason="t1"]')).toHaveCount(0);
+    await t1.locator('[data-vis-topic-check="t1-1"]').check();
+    await expect(t1.locator('[data-vis-approve-reason="t1"]'), '元テキスト外の話題を入れると赤い印').toContainText('宇宙飛行士の肌');
+    await t1.locator('[data-vis-topic-check="t1-1"]').uncheck();
+    await expect(t1.locator('[data-vis-approve-reason="t1"]')).toHaveCount(0);
+    await t1.locator('[data-vis-topic-check="t1-0"]').check();
+    await expect(t1.locator('[data-vis-talk-cell="t1-0"]')).toBeVisible();
+    await expect(t1.locator('[data-vis-approve-reason="t1"]'), '本文にある話題なら赤い印は出ない').toHaveCount(0);
+    // ④ マンダラとして開く（AI なし）
+    const [popup] = await Promise.all([page.context().waitForEvent('page'), t1.locator('[data-vis-open-mandala="t1"]').click()]);
+    await expect(t1.locator('[data-vis-mandala-link]')).toBeVisible({ timeout: 30000 });
+    chartId = (await t1.locator('[data-vis-mandala-link]').getAttribute('data-vis-mandala-link'))!;
+    await popup.waitForLoadState();
+    await popup.close();
+    const chart = (await (await api.get(`/api/mandala/${chartId}`)).json()).chart as { meta: { origin?: string }; cells: { depth: number; position: number; title: string; body: string }[] };
+    expect(chart.meta.origin).toBe('visual_plan');
+    const byPos = new Map(chart.cells.filter((c) => c.depth === 1).map((c) => [c.position, c]));
+    expect(byPos.get(4)?.title, '中央＝伝えたい1つのこと').toBe('冬の乾燥は暖房で室内の湿度が下がる');
+    expect(byPos.get(0)?.title).toBe('冬の乾燥');
+    expect(byPos.get(0)?.body, 'チェックした話題がマスの要素に入っている').toContain('入浴後5分以内に塗る');
+    // ⑤ スライド構成案にする（9マス＋相手・時間を渡す）
+    await t1.locator('[data-vis-make-slides="t1"]').click();
+    await expect(t1.locator('[data-vis-slides-link]')).toBeVisible({ timeout: 30000 });
+    const pb = packBodies.at(-1)!;
+    expect(pb.kind).toBe('slides');
+    expect(pb.ids, '保存行ではなく本文を直接渡す').toEqual([]);
+    expect(pb.talk?.minutes).toBe(20);
+    expect(pb.sourceText).toContain('## 1. 冬の乾燥（約 2 分）');
+    expect(pb.sourceText).toContain('- 時間: 20分');
+    expect(pb.sourceTitle).toContain('冬の乾燥');
+    // ⑥ グラフのカード（引用と合わない点は捨てて件数）
+    const b1 = page.locator('[data-vis-plan="b1"]');
+    await expect(b1.locator('[data-vis-graph="b1"]')).toHaveAttribute('data-vis-graph-dropped', '1');
+    await expect(b1.locator('[data-vis-graph="b1"]')).toContainText('捨てた点');
+    // ⑦ 実描画（棒・横棒・折れ線・円）＝200・文字一致
+    for (const type of ['bar', 'hbar', 'line'] as const) {
+      const res = await api.post('/api/visuals/render', { data: { plan: { id: `g-${type}`, type, title: '受診者', unit: '人', groups: [{ heading: '受診者', points: ['2024年 | 120 | 2024年の受診者は120人', '2025年 | 150 | 2025年は150人でした'] }] }, sourceText: src, orientation: 'landscape' } });
+      const j = (await res.json()) as { textVerified?: boolean; error?: string };
+      expect(res.status(), `${type}: ${j.error ?? ''}`).toBe(200);
+      expect(j.textVerified).toBe(true);
+    }
+    const pieRes = await api.post('/api/visuals/render', { data: { plan: { id: 'g-pie', type: 'pie', title: '内訳', groups: [{ heading: '内訳', points: ['湿疹 | 60 | 湿疹60人', 'にきび | 40 | にきび40人'] }] }, sourceText: src, orientation: 'landscape' } });
+    expect(pieRes.status(), '合計100の円は描ける').toBe(200);
+    const overRes = await api.post('/api/visuals/render', { data: { plan: { id: 'g-pie2', type: 'pie', title: '内訳', groups: [{ heading: '内訳', points: ['湿疹 | 60 | 湿疹60人', 'にきび | 40 | にきび40人', '受診者 | 120 | 2024年の受診者は120人'] }] }, sourceText: src, orientation: 'landscape' } });
+    expect(overRes.status(), '合計>100は描かない').toBe(400);
+    expect(JSON.stringify(await overRes.json())).toContain('割合として成立しない');
+    const alignRes = await api.post('/api/visuals/render', { data: { plan: { id: 'g-line2', type: 'line', title: '受診者', groups: [
+      { heading: '受診者', points: ['2024年 | 120 | 2024年の受診者は120人', '2025年 | 150 | 2025年は150人でした'] },
+      { heading: '内訳', points: ['2025年 | 150 | 2025年は150人でした', '2024年 | 120 | 2024年の受診者は120人'] },
+    ] }, sourceText: src, orientation: 'landscape' } });
+    expect(alignRes.status(), 'ラベルの並びが違えば描かない').toBe(400);
+    expect(JSON.stringify(await alignRes.json())).toContain('ラベルの並び');
+  } finally {
+    if (chartId) await api.delete(`/api/mandala?id=${chartId}`).catch(() => {});
+    await cleanupE2ESaves(request);
+  }
+});

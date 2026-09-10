@@ -17,7 +17,7 @@ export async function POST(req: NextRequest) {
   const read = readPlanBody({ ...body, sourceText: typeof body.sourceText === 'string' && body.sourceText.trim() ? body.sourceText : '（図解プラン）' });
   if (!read.ok) return NextResponse.json({ error: read.error }, { status: 400 });
   const { plan } = read;
-  if (plan.type !== 'grid9') return NextResponse.json({ error: '9マスシートのプランだけをマンダラにできます' }, { status: 400 });
+  if (plan.type !== 'grid9' && plan.type !== 'grid9_talk') return NextResponse.json({ error: '9マスシート／プレゼン構成のプランだけをマンダラにできます' }, { status: 400 });
   const req1 = typeMinRequirement(plan);
   if (req1) return NextResponse.json({ error: req1 }, { status: 400 });
   const conv = planToMandalaCells(plan);

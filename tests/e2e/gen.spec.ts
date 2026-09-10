@@ -1236,3 +1236,60 @@ test('B44: LaTeX 記法の露出（324追加・実AI・Gemini）— 化学式・
   }
   console.log(`[B44] ${Date.now() - t0}ms summary=${j.summary.length} detail=${j.detail.length} advice=${j.advice.length}`);
 });
+
+test('B45: プレゼン構成の抽出（325・実AI・Gemini）— 相手・場・時間を渡すと grid9_talk の案が2つ以上（構成が違う）出て、中央は1文・各マスの要素は3つ以内・why つき。関連話題は根拠つきで最大5件。実描画が 200 @gen', async ({ request }) => {
+  test.setTimeout(GEN_TIMEOUT);
+  const text = '冬になると患者さんの乾燥の訴えが増える。暖房で室内の湿度が下がることが主な原因である。皮膚のバリア機能が落ちると、かゆみが出て掻いてしまい、さらに悪化する。保湿剤は入浴後5分以内に塗ると効果が高い。塗る量はティッシュが張り付く程度が目安である。入浴の湯温は38〜40度が望ましい。加湿器で室内の湿度を50〜60%に保つとよい。市販の保湿剤でも十分だが、症状が強いときは皮膚科で相談してほしい。';
+  const t0 = Date.now();
+  const res = await request.post('/api/visuals/plan', { data: { text, types: ['grid9_talk'], talk: { persona: 'senior', venue: '患者向け説明会', minutes: 10 } }, timeout: REQ_TIMEOUT });
+  expect(res.status()).toBe(200);
+  const j = (await res.json()) as { plans: { id: string; type: string; title: string; why?: string; groups: { heading?: string; points: string[] }[]; topics?: { topic: string; position: number; basis: string }[] }[]; checks: Record<string, { foreign: string[] }> };
+  const talks = j.plans.filter((p) => p.type === 'grid9_talk');
+  expect(talks.length, '構成の異なる案が2つ以上').toBeGreaterThanOrEqual(2);
+  for (const p of talks) {
+    const cells = p.groups.filter((x) => (x.heading ?? '').trim());
+    expect(cells.length, '2マス以上・8マス以内').toBeGreaterThanOrEqual(2);
+    expect(cells.length).toBeLessThanOrEqual(8);
+    for (const c of cells) expect(c.points.length, `${c.heading}: 要素は3つ以内`).toBeLessThanOrEqual(3);
+    expect(p.title.length, '中央は1文').toBeLessThanOrEqual(60);
+    expect((p.topics ?? []).length, '関連話題は5件まで').toBeLessThanOrEqual(5);
+    for (const t of p.topics ?? []) expect(t.topic.length, '話題は20字以内').toBeLessThanOrEqual(20);
+  }
+  expect(new Set(talks.map((p) => p.groups.map((g) => (g.heading ?? '').trim()).join('／'))).size, '案ごとに構成が違う').toBeGreaterThan(1);
+  const clean = talks.find((p) => (j.checks[p.id]?.foreign.length ?? 0) === 0);
+  console.log(`[B45] ${Date.now() - t0}ms plans=${talks.length} topics=${talks.map((p) => (p.topics ?? []).length).join('/')} clean=${clean ? 1 : 0}`);
+  if (clean) {
+    const rr = await request.post('/api/visuals/render', { data: { plan: clean, sourceText: text, orientation: 'landscape' }, timeout: REQ_TIMEOUT });
+    const rj = (await rr.json()) as { textVerified?: boolean; error?: string };
+    expect(rr.status(), `プレゼン構成の描画が 200: ${rj.error ?? ''}`).toBe(200);
+    expect(rj.textVerified).toBe(true);
+  }
+});
+
+test('B46: グラフの抽出（325・実AI・Gemini）— 数値のある実テキストから bar/hbar/line/pie の候補が出て、点は「ラベル | 値 | 引用」で引用は本文にある。裏の取れた点だけで実描画が 200（軸・目盛り・凡例・値は文字） @gen', async ({ request }) => {
+  test.setTimeout(GEN_TIMEOUT);
+  const text = '当院の受診者数は2022年が980人、2023年が1120人、2024年が1350人と増えている。2024年の内訳は、湿疹が540人、にきびが410人、じんましんが400人であった。初診の割合は2022年が35%、2023年が38%、2024年が42%であった。';
+  const t0 = Date.now();
+  const res = await request.post('/api/visuals/plan', { data: { text, types: ['bar', 'hbar', 'line', 'pie'] }, timeout: REQ_TIMEOUT });
+  expect(res.status()).toBe(200);
+  const j = (await res.json()) as { plans: { id: string; type: string; title: string; unit?: string; groups: { heading?: string; points: string[] }[] }[]; checks: Record<string, { foreign: string[] }> };
+  const graphs = j.plans.filter((p) => ['bar', 'hbar', 'line', 'pie'].includes(p.type));
+  expect(graphs.length, 'グラフの候補が出る').toBeGreaterThan(0);
+  const { graphSeriesOf, filterGraphPlan } = await import('../../src/lib/visuals');
+  let rendered = 0;
+  for (const p of graphs) {
+    const gs = graphSeriesOf(p as never, text);
+    console.log(`[B46] ${p.type} "${p.title}" series=${gs.series.length} points=${gs.series.map((s) => s.points.length).join('/')} dropped=${gs.dropped.length}`);
+    if (gs.series.every((s) => s.points.length === 0)) continue;
+    if ((j.checks[p.id]?.foreign.length ?? 0) > 0) continue;
+    const drawn = filterGraphPlan(p as never, text);
+    const rr = await request.post('/api/visuals/render', { data: { plan: drawn, sourceText: text, orientation: 'landscape' }, timeout: REQ_TIMEOUT });
+    const rj = (await rr.json()) as { textVerified?: boolean; error?: string };
+    if (rr.status() === 400 && /割合として成立しない|ラベルの並び/.test(rj.error ?? '')) continue; // 描かない理由が付くのは正しい挙動
+    expect(rr.status(), `${p.type} の描画が 200: ${rj.error ?? ''}`).toBe(200);
+    expect(rj.textVerified).toBe(true);
+    rendered++;
+  }
+  expect(rendered, '裏の取れたグラフが1つ以上描ける').toBeGreaterThan(0);
+  console.log(`[B46] ${Date.now() - t0}ms graphs=${graphs.length} rendered=${rendered}`);
+});

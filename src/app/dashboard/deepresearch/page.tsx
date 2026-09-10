@@ -1063,6 +1063,7 @@ export default function DeepResearchPage() {
         main={<>
           <VisualQuickButton text={text} title={title} saved={savedId ? { scope: 'library', id: savedId } : null} from="deepresearch" dataKey={`insight-${kind}`} style={qStyle} />
           <VisualQuickButton text={text} title={title} saved={savedId ? { scope: 'library', id: savedId } : null} from="deepresearch" dataKey={`grid9-${kind}`} fixedTypes={['grid9']} label="🔲 9マスシートにする" style={qStyle} />
+          <VisualQuickButton text={text} title={title} saved={savedId ? { scope: 'library', id: savedId } : null} from="deepresearch" dataKey={`talk-${kind}`} fixedTypes={['grid9_talk']} label="🎤 プレゼン構成を考える" style={qStyle} />
           <FollowUpResearchButton refs={savedId ? [{ scope: 'library', id: savedId }] : []} dataKey={`insight-${kind}`} label="🔭 追加リサーチ" disabled={!savedId} disabledReason="先に「📚 リサーチ保存に追加」で保存してください（保存した行が前提資料になります）" style={qStyle} />
           <button onClick={() => copyRichMarkdown(text)} title="本文を Markdown の原文のままコピーします">📋 コピー</button>
         </>}

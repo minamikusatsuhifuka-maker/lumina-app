@@ -13,12 +13,13 @@ import { findBannedExpressions } from '@/lib/content-verify';
 import { MANDALA_OUTLINE_POSITIONS } from '@/lib/mandala-shared';
 import { IMAGE_MODEL_IDS, estimateImageCost, type ImageAspectKey, type ImageQualityKey } from '@/lib/model-pricing';
 
-export type VisualType = 'table' | 'flow' | 'compare' | 'steps' | 'concept' | 'relation' | 'correlation' | 'timeline' | 'figures' | 'onepage' | 'grid9' | 'image';
+export type VisualType = 'table' | 'flow' | 'compare' | 'steps' | 'concept' | 'relation' | 'correlation' | 'timeline' | 'figures' | 'onepage' | 'grid9' | 'grid9_talk' | 'bar' | 'hbar' | 'line' | 'pie' | 'image';
 // 320: 相関図（correlation）＝関連図の派生。辺に「相関の向きと強さ」を**文字**で書く（label 必須・太さ/色では表さない）
 // 324: 9マスシート（grid9）＝中央のテーマ＋周囲8カテゴリ（マンダラと同じ配置・「マンダラとして開く」で決定的にチャート化）
-export const VISUAL_TYPES: readonly VisualType[] = ['table', 'flow', 'compare', 'steps', 'concept', 'relation', 'correlation', 'timeline', 'figures', 'onepage', 'grid9', 'image'];
+// 325: プレゼン構成の9マス（grid9_talk）とグラフ4種（bar/hbar/line/pie・数値は引用と完全一致・軸は0起点）
+export const VISUAL_TYPES: readonly VisualType[] = ['table', 'flow', 'compare', 'steps', 'concept', 'relation', 'correlation', 'timeline', 'figures', 'onepage', 'grid9', 'grid9_talk', 'bar', 'hbar', 'line', 'pie', 'image'];
 /** 決定的描画の5種（イメージ以外） */
-export const VISUAL_DETERMINISTIC_TYPES: readonly VisualType[] = ['table', 'flow', 'compare', 'steps', 'concept', 'relation', 'correlation', 'timeline', 'figures', 'onepage', 'grid9'];
+export const VISUAL_DETERMINISTIC_TYPES: readonly VisualType[] = ['table', 'flow', 'compare', 'steps', 'concept', 'relation', 'correlation', 'timeline', 'figures', 'onepage', 'grid9', 'grid9_talk', 'bar', 'hbar', 'line', 'pie'];
 /** 候補に出さない型（治療前後・効果対比の文脈で使われるため。プロンプト禁止＋コード側で弾く） */
 export const VISUAL_BANNED_TYPES: readonly string[] = ['beforeafter', 'before_after', 'before-after', 'ビフォーアフター'];
 
@@ -35,6 +36,11 @@ export const VISUAL_TYPE_META: Record<VisualType, { emoji: string; label: string
   figures: { emoji: '🔢', label: '数値ハイライト', hint: 'groups＝数字カード（heading が見出し・points[0] が数値＋単位・points[1] が引用）。数値＋単位は引用と完全一致・3〜6件' },
   onepage: { emoji: '📄', label: '1枚サマリー', hint: 'title＋要点3（groups[0].points）＋一言（groups[1].points[0]）。描画済みの図を埋め込める' },
   grid9: { emoji: '🔲', label: '9マスシート', hint: 'title＝中央のテーマ・groups[8]＝周囲8マス（heading がカテゴリ名・points が要素2〜5）。マンダラと同じ配置。「マンダラとして開く」で決定的にチャート化' },
+  grid9_talk: { emoji: '🎤', label: 'プレゼン構成', hint: 'title＝この発表で伝えたい1つのこと（1文）・groups[8]＝話の流れ（つかみ→結論→なぜ今→前提→具体例→誤解→明日から→まとめ）。各マスの要素は3つ以内。ターゲット・場・時間で流れが変わる' },
+  bar: { emoji: '📊', label: '棒グラフ', hint: 'groups＝系列（heading が系列名・1〜3）。points は「ラベル | 値 | 引用」（2〜12点）。値は引用の数値と完全一致・軸は0起点' },
+  hbar: { emoji: '📊', label: '横棒グラフ', hint: '棒グラフの横向き。項目名が長いときに' },
+  line: { emoji: '📈', label: '折れ線グラフ', hint: '推移。points は「ラベル（時期） | 値 | 引用」（順番どおり）・軸は0起点' },
+  pie: { emoji: '🥧', label: '円グラフ', hint: '割合。points の値の合計が100以下（%）。系列は1つ' },
   image: { emoji: '🖼', label: 'イメージ', hint: '絵柄は AI・文字はプランの文字列を重ねる。heading／points が重ねる文字' },
 };
 
@@ -139,6 +145,8 @@ export function typedPlanIssues(plan: Pick<VisualPlan, 'type' | 'groups'>, sourc
   }
   // 322: 相手ノードが無い辺は描かず、赤い印と同じ場所に理由（黙って描き落とさない・R-101）
   for (const m of missingTargetsOf(plan)) out[m.point] = [missingTargetReason(m.target)];
+  // 325: グラフ＝円の合計・系列のラベル並び（描かない理由）。点ごとの値／引用の不一致は graphSeriesOf が捨てて件数（R-101）
+  if (isGraphType(plan.type)) for (const [k, v] of Object.entries(graphPlanIssues(plan, sourceText))) out[k] = v;
   return out;
 }
 
@@ -170,6 +178,17 @@ export interface VisualPlan {
   why?: string;
   /** 322: つながり確認で外した辺（edgeKey の配列・描かない。プランには残す＝戻せる） */
   edgeOff?: string[];
+  /** 325: グラフの単位（任意・軸の文字として描く） */
+  unit?: string;
+  /** 325: プレゼン構成の「相手が食いつく話題」（AI・表示のみ。チェックしてマスに追記した文字列だけが図に入る） */
+  topics?: TalkTopic[];
+}
+export interface TalkTopic {
+  topic: string;
+  /** 差し込むマス（0〜8・4以外） */
+  position: number;
+  /** 元テキストのどの内容と結びつくか（AI が引いた一節。verbatim で実在しなければ「元テキスト外」） */
+  basis: string;
 }
 export const VISUAL_WHY_MAX = 40;
 /** 322: edgeOff の検証（"from-to" の形だけ・重複なし） */
@@ -263,6 +282,19 @@ export function planFactStrings(plan: Pick<VisualPlan, 'title' | 'groups'> & { t
     const out: string[] = [];
     if (plan.title?.trim()) out.push(plan.title.trim());
     for (const g of plan.groups) if (g.heading?.trim()) out.push(g.heading.trim());
+    return out;
+  }
+  // 325: グラフは事実＝タイトル・系列名・各点のラベル（値と引用は typedPlanIssues＝引用と完全一致・引用が本文に実在）
+  if (plan.type && isGraphType(plan.type)) {
+    const out: string[] = [];
+    if (plan.title?.trim()) out.push(plan.title.trim());
+    for (const g of plan.groups) {
+      if (g.heading?.trim()) out.push(g.heading.trim());
+      for (const p of g.points) {
+        const pt = parseGraphPoint(p);
+        if (pt?.label) out.push(pt.label);
+      }
+    }
     return out;
   }
   return collectPlanStrings(plan);
@@ -375,7 +407,10 @@ export function parseVisualPlans(json: unknown, idPrefix = 'v', allowedTypes?: r
     const imagePrompt = typeRaw === 'image' ? clean(o.imagePrompt, 300) || undefined : undefined;
     // 322: why は表示だけ（図の文字列にも実在チェックにも入れない）
     const why = clean(o.why, VISUAL_WHY_MAX) || undefined;
-    plans.push({ id: `${idPrefix}${i + 1}`, type: typeRaw, title, groups, ...(imagePrompt ? { imagePrompt } : {}), ...(why ? { why } : {}) });
+    // 325: グラフの単位・プレゼン構成の話題（表示のみ）
+    const unit = isGraphType(typeRaw) ? clean(o.unit, 20) || undefined : undefined;
+    const topics = typeRaw === 'grid9_talk' ? parseTalkTopics(o.topics) : undefined;
+    plans.push({ id: `${idPrefix}${i + 1}`, type: typeRaw, title, groups, ...(imagePrompt ? { imagePrompt } : {}), ...(why ? { why } : {}), ...(unit ? { unit } : {}), ...(topics && topics.length > 0 ? { topics } : {}) });
   });
   return { plans: plans.slice(0, VISUAL_MAX_PLANS), rejected };
 }
@@ -566,7 +601,7 @@ export const VISUAL_NOTE_GUIDE = 'note は画像をアップロードする方�
 // STEP1 プラン抽出のプロンプト（Gemini・JSON）。制約はプロンプト＋コード側（findForeignPhrases）の二段構え
 // ───────────────────────────────────────────────────────────────────────────
 
-export function buildVisualPlanPrompt(sourceText: string, opts: { maxPlans?: number; types?: readonly VisualType[] } = {}): { system: string; prompt: string } {
+export function buildVisualPlanPrompt(sourceText: string, opts: { maxPlans?: number; types?: readonly VisualType[]; talk?: TalkTarget & { personaLabel: string | null } } = {}): { system: string; prompt: string } {
   const max = opts.maxPlans ?? VISUAL_MAX_PLANS;
   const allowed = opts.types && opts.types.length > 0 ? opts.types : VISUAL_TYPES;
   const typeLines: Record<VisualType, string> = {
@@ -581,8 +616,18 @@ export function buildVisualPlanPrompt(sourceText: string, opts: { maxPlans?: num
     figures: '- figures: 数値ハイライト。groups＝数字カード（3〜6件）。heading が見出し（15字以内）・points[0] が数値＋単位（本文の表記そのまま・例「約30%」）・points[1] がその数値を含む本文の引用（60字以内・原文そのまま）',
     onepage: '- onepage: 1枚サマリー。title が主題・groups[0].points が要点3つ（各30字以内）・groups[1].heading は「一言」・groups[1].points[0] が締めの一言（30字以内）',
     grid9: '- grid9: 9マスシート。title が中央のテーマ・groups＝周囲8マス（heading がカテゴリ名・points がそのカテゴリの要素2〜5個・各24字以内）。内容を8つのカテゴリに整理し、カテゴリは重複せず全体を覆う',
+    grid9_talk: '- grid9_talk: プレゼン構成の9マス。title は「この発表で伝えたい1つのこと」を1文で。groups＝話の流れ8マス（順に: つかみ／今日の結論／なぜ今この話か／前提のしくみ／具体例・データ／よくある誤解／明日からできること／まとめと次の一歩。案によって役割を入れ替えてよい）。heading はそのマスの見出し・points は本文中の語句で3つ以内',
+    bar: '- bar: 棒グラフ。groups＝系列（heading が系列名・1〜3）。points は「ラベル | 値 | 引用」の形（2〜12点）。値は本文の表記そのまま（例「約30%」「1,200人」）・引用はその値を含む本文の連続した一節（60字以内・原文そのまま）',
+    hbar: '- hbar: 横棒グラフ。bar と同じ形（項目名が長いとき）',
+    line: '- line: 折れ線グラフ。groups＝系列（1〜3）。points は「ラベル（時期） | 値 | 引用」（時系列順・2〜12点）。値・引用の規則は bar と同じ',
+    pie: '- pie: 円グラフ。groups は1つ。points は「ラベル | 値（%） | 引用」（2〜8点・合計100以下）。値・引用の規則は bar と同じ',
     image: '- image: イメージ画像。heading／points は画像に重ねる短い文字（合計4つ以内・各20字以内）。imagePrompt に絵柄の指示（文字は書かない）',
   };
+  // 325: プレゼン設計モード（grid9_talk）＝ターゲット・場・時間に合わせた「構成の異なる案を2〜3つ」＋関連話題
+  const talkSection = opts.talk
+    ? `- 【プレゼン設計】誰に: ${opts.talk.personaLabel ?? '一般'}／どこで: ${opts.talk.venue}／時間: ${opts.talk.minutes}分。grid9_talk は**構成の異なる案を2〜3つ**（例: 困りごとから入る／結論から入る／時系列で追う）。中央（title）は1文＝この発表で相手に持ち帰ってほしい1つのことだけ。各マスの要素は3つ以内（スライド1枚に載る量）。専門用語は相手に合わせて**本文にある言い換え**を使う（無ければそのまま）。誇張・断定・不安を煽る表現を使わない。各案に topics（この相手が食いつく話題・3〜5件）: { "topic": "20字以内", "position": 差し込むマス（0〜8・4以外）, "basis": "結びつく本文の一節（原文そのまま・40字以内）" }。話題の切り口は自由だが**事実は本文の範囲**（本文に無い事実・数字・事例を作らない）
+`
+    : '';
   const system = 'あなたは医療記事の編集者兼インフォグラフィックデザイナーです。記事の本文から「図解にすると理解が深まる構造」を見つけ、図解の設計データを作ります。図解に入る文字は本文に実際に書かれている語句だけを使います（言い換え・要約・補足・創作は禁止）。';
   const prompt = `以下の本文から、図解の候補を最大${max}個提案してください。
 
@@ -597,12 +642,12 @@ ${allowed.map((t) => typeLines[t]).join('\n')}
 - 各候補に why（この内容にその型が向く理由・40字以内・表示にだけ使う）を付ける
 - 図の文字に LaTeX・数式記法（$…$、\\rightarrow 等）を入れない。矢印は「→」、記号はそのままの文字で書く
 - 同じ型でも**切り口の違う候補を最大2つ**まで出してよい（例: 関連図＝物質の変換の流れ／時間帯と行動の関係）。切り口が同じものを重ねない
-
+${talkSection}
 # 本文
 ${sourceText.slice(0, VISUAL_SOURCE_MAX_CHARS)}
 
 # 出力フォーマット（必ずこのJSONのみ。前置き・コードフェンス禁止）
-{ "visuals": [ { "type": "${allowed.join('|')}", "why": "この内容に向く理由（40字以内）", "title": "本文中の語句", "groups": [ { "heading": "本文中の語句（省略可）", "points": ["本文中の語句", "…"] } ], "imagePrompt": "image のときだけ・絵柄の指示" } ] }`;
+{ "visuals": [ { "type": "${allowed.join('|')}", "why": "この内容に向く理由（40字以内）", "title": "本文中の語句", "groups": [ { "heading": "本文中の語句（省略可）", "points": ["本文中の語句", "…"] } ], "imagePrompt": "image のときだけ・絵柄の指示", "unit": "グラフのときだけ・単位（任意）", "topics": [ { "topic": "grid9_talk のときだけ", "position": 0, "basis": "本文の一節" } ] } ] }`;
   return { system, prompt };
 }
 
@@ -654,8 +699,13 @@ export const VISUAL_TYPE_PICKER_NOTE: Record<VisualType, string> = {
   figures: '数値の見せ場（引用と完全一致）',
   onepage: 'タイトル＋要点3＋一言の1枚',
   grid9: '中央のテーマ＋8カテゴリで思考・情報を整理（マンダラとして開ける）',
+  grid9_talk: 'プレゼンの構成（中央＝伝えたい1つのこと＋話の流れ8マス・ターゲット別）',
+  bar: '項目ごとの量の比較（数値は元テキストの引用どおり・0起点）',
+  hbar: '項目名が長いときの量の比較（横向き）',
+  line: '時期ごとの推移（0起点）',
+  pie: '割合（合計100以下）',
 };
-export const VISUAL_TYPE_PICKER_ORDER: readonly VisualType[] = ['image', 'table', 'flow', 'compare', 'steps', 'concept', 'relation', 'correlation', 'timeline', 'figures', 'onepage', 'grid9'];
+export const VISUAL_TYPE_PICKER_ORDER: readonly VisualType[] = ['image', 'table', 'flow', 'compare', 'steps', 'concept', 'relation', 'correlation', 'timeline', 'figures', 'onepage', 'grid9', 'grid9_talk', 'bar', 'hbar', 'line', 'pie'];
 
 export function normalizeVisualTypes(v: readonly unknown[]): VisualType[] {
   const out: VisualType[] = [];
@@ -766,7 +816,7 @@ function joinNames(list: readonly string[], max = 4): string {
 }
 
 /** 「構成」の説明文（AI ではなくプランから決定的に組む・R-74。同じプランで同じ文） */
-export function planStructureText(plan: Pick<VisualPlan, 'type' | 'title' | 'groups' | 'imagePrompt' | 'edgeOff'>): string {
+export function planStructureText(plan: Pick<VisualPlan, 'type' | 'title' | 'groups' | 'imagePrompt' | 'edgeOff' | 'unit'>, sourceText = ''): string {
   const g = plan.groups;
   const heads = g.map((x) => (x.heading ?? '').trim());
   switch (plan.type) {
@@ -808,6 +858,18 @@ export function planStructureText(plan: Pick<VisualPlan, 'type' | 'title' | 'gro
     case 'grid9': {
       const cells = g.filter((x) => (x.heading ?? '').trim());
       return `中央 ${plan.title.trim() || '（無題）'}・カテゴリ ${cells.length}/${GRID9_CELLS}（${joinNames(cells.map((x) => x.heading ?? ''), 8)}）`;
+    }
+    case 'grid9_talk': {
+      const cells = g.filter((x) => (x.heading ?? '').trim());
+      return `伝えたいこと「${plan.title.trim() || '（無題）'}」・話の流れ ${cells.length}/${GRID9_CELLS}（${joinNames(cells.map((x) => x.heading ?? ''), 8).replace(/／/g, ' → ')}）`;
+    }
+    case 'bar':
+    case 'hbar':
+    case 'line':
+    case 'pie': {
+      const gs = graphSeriesOf(plan as VisualPlan, sourceText);
+      const kind = plan.type === 'pie' ? '円' : plan.type === 'line' ? '折れ線' : plan.type === 'hbar' ? '横棒' : '棒';
+      return `${kind}グラフ・系列 ${gs.series.length}（${joinNames(gs.series.map((s) => s.name))}）・点 ${gs.series[0]?.points.length ?? 0}${plan.unit ? `・単位 ${plan.unit}` : ''}${gs.dropped.length > 0 ? `・捨てた点 ${gs.dropped.length}` : ''}`;
     }
     default:
       return '';
@@ -851,6 +913,17 @@ export function typeMinRequirement(plan: Pick<VisualPlan, 'type' | 'title' | 'gr
     case 'onepage': return pts(0) >= ONEPAGE_POINTS && !!g[1]?.points[0] ? null : `1枚サマリーは要点${ONEPAGE_POINTS}つと一言が必要です`;
     case 'image': return g.some((x) => (x.heading ?? '').trim() || x.points.length > 0) ? null : 'イメージは重ねる文字が1つ以上必要です';
     case 'grid9': return g.filter((x) => (x.heading ?? '').trim()).length >= GRID9_MIN_CELLS ? null : `9マスシートはカテゴリ（マス）が${GRID9_MIN_CELLS}つ以上必要です`;
+    case 'grid9_talk': return g.filter((x) => (x.heading ?? '').trim()).length >= GRID9_MIN_CELLS ? null : `プレゼン構成は話の流れ（マス）が${GRID9_MIN_CELLS}つ以上必要です`;
+    case 'bar':
+    case 'hbar':
+    case 'line':
+    case 'pie': {
+      const gs = graphSeriesOf(plan as VisualPlan, '');
+      if (gs.series.length === 0) return 'グラフは系列（見出し）が1つ以上必要です';
+      if (plan.type === 'pie' && gs.series.length > 1) return '円グラフの系列は1つです';
+      if (gs.series.some((s) => s.points.length < 2)) return `グラフは各系列に${GRAPH_MIN_POINTS}点以上（値と引用が一致する点）が必要です`;
+      return null;
+    }
     default: return null;
   }
 }
@@ -976,4 +1049,224 @@ export function relationNodeOrder(plan: Pick<VisualPlan, 'type' | 'groups' | 'ed
   const rest = Array.from(connected).filter((i) => !best.includes(i)).sort((a, b) => a - b);
   const loose = Array.from({ length: n }, (_, i) => i).filter((i) => !connected.has(i));
   return { circle: [...best, ...rest], loose };
+}
+
+
+// ───────────────────────────────────────────────────────────────────────────
+// 325: グラフ（bar／hbar／line／pie）＝数値は元テキストの引用と完全一致・軸は0起点・色で意味を持たせない
+// 点は「ラベル | 値 | 引用」の1行（既存の編集フォームで直せる）
+// ───────────────────────────────────────────────────────────────────────────
+
+export const GRAPH_TYPES: readonly VisualType[] = ['bar', 'hbar', 'line', 'pie'];
+export function isGraphType(t: unknown): t is 'bar' | 'hbar' | 'line' | 'pie' {
+  return t === 'bar' || t === 'hbar' || t === 'line' || t === 'pie';
+}
+export const GRAPH_MIN_POINTS = 2;
+export const GRAPH_MAX_POINTS = 12;
+export const GRAPH_MAX_SERIES = 3;
+export const PIE_MAX_TOTAL = 100;
+
+export interface GraphPoint {
+  label: string;
+  /** 本文の表記そのまま（例「約30%」「1,200人」） */
+  value: string;
+  /** 数値（value から決定的に読む） */
+  num: number;
+  evidence: string;
+}
+export interface GraphSeries {
+  name: string;
+  points: GraphPoint[];
+}
+
+/** 「ラベル | 値 | 引用」を読む（区切りは | か ｜）。形が違えば null */
+export function parseGraphPoint(line: string): { label: string; value: string; evidence: string } | null {
+  const parts = (line ?? '').split(/\s*[|｜]\s*/).map((x) => x.trim());
+  if (parts.length < 2) return null;
+  const [label, value, evidence = ''] = parts;
+  if (!label || !value) return null;
+  return { label, value, evidence };
+}
+/** 値の文字列から数値を読む（全角→半角・カンマ除去・先頭の「約」等は無視・最初の数値）。無ければ null */
+export function graphNumberOf(value: string): number | null {
+  const s = (value ?? '').normalize('NFKC').replace(/,/g, '');
+  const m = s.match(/-?\d+(?:\.\d+)?/);
+  if (!m) return null;
+  const n = Number(m[0]);
+  return Number.isFinite(n) ? n : null;
+}
+export function graphPointLine(p: { label: string; value: string; evidence: string }): string {
+  return `${p.label} | ${p.value} | ${p.evidence}`;
+}
+
+/**
+ * 系列と点（検証つき・決定的）。値が引用に無い／引用が本文に無い／数値でない点は捨てて理由に残す（R-101）。
+ * sourceText が空なら「引用が本文に実在」は見ない（最低要件の判定・構成文用）
+ */
+export function graphSeriesOf(plan: Pick<VisualPlan, 'groups'>, sourceText: string): { series: GraphSeries[]; dropped: { point: string; reason: string }[] } {
+  const src = sourceText ? normalizeForMatch(sourceText) : null;
+  const series: GraphSeries[] = [];
+  const dropped: { point: string; reason: string }[] = [];
+  for (const g of plan.groups.slice(0, GRAPH_MAX_SERIES)) {
+    const name = (g.heading ?? '').trim();
+    const points: GraphPoint[] = [];
+    for (const line of g.points) {
+      const pt = parseGraphPoint(line);
+      if (!pt) { dropped.push({ point: line, reason: '「ラベル | 値 | 引用」の形ではありません' }); continue; }
+      const num = graphNumberOf(pt.value);
+      if (num === null) { dropped.push({ point: line, reason: `値が数値として読めません: ${pt.value}` }); continue; }
+      if (!pt.evidence) { dropped.push({ point: line, reason: '引用がありません' }); continue; }
+      if (!normalizeForMatch(pt.evidence).includes(normalizeForMatch(pt.value))) { dropped.push({ point: line, reason: `引用と完全一致しない数値: ${pt.value}` }); continue; }
+      if (src && !src.includes(normalizeForMatch(pt.evidence))) { dropped.push({ point: line, reason: `引用が本文に無い: ${pt.evidence.slice(0, 20)}` }); continue; }
+      if (points.length >= GRAPH_MAX_POINTS) { dropped.push({ point: line, reason: `点は${GRAPH_MAX_POINTS}個までです` }); continue; }
+      points.push({ label: pt.label, value: pt.value, num, evidence: pt.evidence });
+    }
+    if (name || points.length > 0) series.push({ name: name || `系列${series.length + 1}`, points });
+  }
+  return { series, dropped };
+}
+
+/** 325: 描くのは引用と本文で裏が取れた点だけ（決定的・R-127 と同じ考え方）。捨てた点はカードに件数で出る */
+export function filterGraphPlan(plan: VisualPlan, sourceText: string): VisualPlan {
+  if (!isGraphType(plan.type)) return plan;
+  const { series } = graphSeriesOf(plan, sourceText);
+  const names = new Set<string>();
+  const groups = plan.groups.slice(0, GRAPH_MAX_SERIES).map((g, i) => {
+    const name = (g.heading ?? '').trim() || `系列${i + 1}`;
+    names.add(name);
+    const s = series.find((x) => x.name === name);
+    return { ...g, points: (s?.points ?? []).map((p) => graphPointLine(p)) };
+  }).filter((g) => g.points.length > 0);
+  return { ...plan, groups };
+}
+
+export const PIE_TOTAL_REASON = (total: number) => `円グラフの合計が100を超えています（${total}）。割合として成立しないため描きません`;
+export const GRAPH_ALIGN_REASON = '系列ごとにラベルの並びが違うため描きません（軸がずれます。同じラベルを同じ順に）';
+/** 描かない理由（円の合計・系列のラベル並び）。キーは赤い印の文字列 */
+export function graphPlanIssues(plan: Pick<VisualPlan, 'type' | 'groups'>, sourceText: string): Record<string, string[]> {
+  const out: Record<string, string[]> = {};
+  const { series } = graphSeriesOf(plan, sourceText);
+  if (plan.type === 'pie' && series[0]) {
+    const total = series[0].points.reduce((n, p) => n + p.num, 0);
+    if (total > PIE_MAX_TOTAL + 1e-9) out[`合計 ${total}`] = [PIE_TOTAL_REASON(total)];
+  }
+  if (series.length >= 2) {
+    const first = series[0].points.map((p) => p.label).join('|');
+    if (series.some((s) => s.points.map((p) => p.label).join('|') !== first)) out['系列のラベル'] = [GRAPH_ALIGN_REASON];
+  }
+  return out;
+}
+
+/** 軸の目盛り（0起点・決定的）。負値を含むときは最小値を明示（切り取りで印象を変えない） */
+export function graphAxis(series: readonly GraphSeries[]): { min: number; max: number; ticks: number[]; zeroBased: boolean } {
+  const values = series.flatMap((s) => s.points.map((p) => p.num));
+  const rawMax = Math.max(0, ...values);
+  const rawMin = Math.min(0, ...values);
+  const nice = (v: number) => {
+    if (v === 0) return 0;
+    const exp = Math.pow(10, Math.floor(Math.log10(Math.abs(v))));
+    const f = Math.abs(v) / exp;
+    const step = f <= 1 ? 1 : f <= 2 ? 2 : f <= 5 ? 5 : 10;
+    return Math.sign(v) * step * exp;
+  };
+  const max = nice(rawMax) || 1;
+  const min = rawMin < 0 ? nice(rawMin) : 0;
+  const ticks: number[] = [];
+  const step = (max - min) / 4;
+  for (let i = 0; i <= 4; i++) ticks.push(Math.round((min + step * i) * 100) / 100);
+  return { min, max, ticks, zeroBased: min === 0 };
+}
+/** 目盛りの文字（整数はそのまま・小数は2桁まで） */
+export function tickLabel(n: number): string {
+  return Number.isInteger(n) ? String(n) : String(Math.round(n * 100) / 100);
+}
+
+// ───────────────────────────────────────────────────────────────────────────
+// 325: プレゼン設計モード（grid9_talk）＝ターゲット・場・時間、時間配分（決定的）、関連話題の根拠
+// ───────────────────────────────────────────────────────────────────────────
+
+export const TALK_VENUES = ['院内勉強会', '患者向け説明会', '同業者向け講演', '一般向けセミナー'] as const;
+export type TalkVenue = (typeof TALK_VENUES)[number];
+export const TALK_MINUTES = [5, 10, 20, 40] as const;
+export type TalkMinutes = (typeof TALK_MINUTES)[number];
+export const TALK_DEFAULT: TalkTarget = { persona: null, venue: '一般向けセミナー', minutes: 10 };
+export interface TalkTarget {
+  /** 317 のペルソナ（PersonaStyleKey）。null＝一般 */
+  persona: string | null;
+  venue: TalkVenue;
+  minutes: TalkMinutes;
+}
+export function parseTalkTarget(v: unknown): TalkTarget {
+  const o = (v ?? {}) as Record<string, unknown>;
+  const persona = typeof o.persona === 'string' && o.persona.trim() ? o.persona.trim().slice(0, 30) : null;
+  const venue = (TALK_VENUES as readonly string[]).includes(String(o.venue)) ? (o.venue as TalkVenue) : TALK_DEFAULT.venue;
+  const minutes = (TALK_MINUTES as readonly number[]).includes(Number(o.minutes)) ? (Number(o.minutes) as TalkMinutes) : TALK_DEFAULT.minutes;
+  return { persona, venue, minutes };
+}
+/** 既定の8マスの役割（案によって入れ替わってよい） */
+export const TALK_ROLES: readonly string[] = ['つかみ（相手の困りごと・意外な事実）', '今日の結論（1文）', 'なぜ今この話か', '前提のしくみ（やさしく）', '具体例・データ', 'よくある誤解', '明日からできること', 'まとめと次の一歩'];
+/** 時間配分（決定的・R-74）: 中央0分・8マスに等配分（1分単位の切り捨て）・端数は最後のマスへ。合計＝選んだ時間 */
+export function talkMinutes(total: number, cells = GRID9_CELLS): number[] {
+  const base = Math.floor(total / cells);
+  const out = Array.from({ length: cells }, () => base);
+  out[cells - 1] += total - base * cells;
+  return out;
+}
+export function talkMinutesLabel(m: number): string {
+  return `約 ${m} 分`;
+}
+/** 話題の検証（AI の basis が元テキストに verbatim で実在するか。無ければ「元テキスト外」＝既定オフ・R-127） */
+export function parseTalkTopics(v: unknown): TalkTopic[] {
+  if (!Array.isArray(v)) return [];
+  const out: TalkTopic[] = [];
+  for (const x of v) {
+    const o = (x ?? {}) as Record<string, unknown>;
+    const topic = typeof o.topic === 'string' ? o.topic.replace(/\s+/g, ' ').trim().slice(0, 20) : '';
+    const pos = Number(o.position);
+    const basis = typeof o.basis === 'string' ? o.basis.replace(/\s+/g, ' ').trim().slice(0, 120) : '';
+    if (!topic || !Number.isInteger(pos) || pos < 0 || pos > 8 || pos === 4) continue;
+    out.push({ topic, position: pos, basis });
+    if (out.length >= 5) break;
+  }
+  return out;
+}
+export function topicEvidence(sourceText: string, topic: TalkTopic): string | null {
+  const b = topic.basis.trim();
+  if (b.length >= 6 && normalizeForMatch(sourceText).includes(normalizeForMatch(b))) return b;
+  return null;
+}
+export const TOPIC_OUTSIDE_LABEL = '元テキスト外';
+/** マスの位置（0〜8）→ groups の添字（planToMandalaCells と同じ並び） */
+export function talkGroupIndexOf(position: number): number {
+  return MANDALA_OUTLINE_POSITIONS.indexOf(position);
+}
+export function talkPositionLabel(position: number): string {
+  return ['左上', '上', '右上', '左', '中央', '右', '左下', '下', '右下'][position] ?? String(position);
+}
+/** 話題をそのマスの要素に追記（承認前＝編集できる。既にあれば増やさない・決定的） */
+export function appendTopicToPlan(plan: VisualPlan, topic: TalkTopic): VisualPlan {
+  const gi = talkGroupIndexOf(topic.position);
+  if (gi < 0 || gi >= plan.groups.length) return plan;
+  const g = plan.groups[gi];
+  if (g.points.includes(topic.topic)) return plan;
+  return { ...plan, groups: plan.groups.map((x, i) => (i === gi ? { ...x, points: [...x.points, topic.topic] } : x)) };
+}
+export function removeTopicFromPlan(plan: VisualPlan, topic: TalkTopic): VisualPlan {
+  const gi = talkGroupIndexOf(topic.position);
+  if (gi < 0 || gi >= plan.groups.length) return plan;
+  return { ...plan, groups: plan.groups.map((x, i) => (i === gi ? { ...x, points: x.points.filter((p) => p !== topic.topic) } : x)) };
+}
+
+/** プレゼン構成のプラン→スライド構成案（317 /api/pack kind=slides）へ渡す本文（決定的） */
+export function talkPlanToSourceText(plan: Pick<VisualPlan, 'title' | 'groups'>, talk: TalkTarget, personaLabel: string | null): string {
+  const mins = talkMinutes(talk.minutes);
+  const cells = plan.groups.filter((g) => (g.heading ?? '').trim()).slice(0, GRID9_CELLS);
+  const lines: string[] = [];
+  lines.push(`# ${plan.title.trim()}`);
+  lines.push('', `- 誰に: ${personaLabel ?? '一般'}`, `- どこで: ${talk.venue}`, `- 時間: ${talk.minutes}分`);
+  cells.forEach((g, i) => {
+    lines.push('', `## ${i + 1}. ${(g.heading ?? '').trim()}（${talkMinutesLabel(mins[i])}）`);
+    for (const p of g.points) lines.push(`- ${p}`);
+  });
+  return lines.join('\n');
 }

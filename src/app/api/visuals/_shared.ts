@@ -19,6 +19,8 @@ export function readPlanBody(body: Record<string, unknown>): { ok: true; plan: V
   if (!sourceText.trim()) return { ok: false, error: '元テキストが必要です（プランの語句が実在するかを判定します）' };
   // 322: つながり確認で外した辺（描かない）。形だけ検証して通す
   const edgeOff = normalizeEdgeOff(raw.edgeOff);
-  const plan: VisualPlan = { id: typeof raw.id === 'string' ? raw.id.slice(0, 40) : 'v', type: raw.type, title, groups, ...(imagePrompt ? { imagePrompt } : {}), ...(edgeOff ? { edgeOff } : {}) };
+  // 325: グラフの単位（任意）
+  const unit = typeof raw.unit === 'string' && raw.unit.trim() ? raw.unit.trim().slice(0, 20) : undefined;
+  const plan: VisualPlan = { id: typeof raw.id === 'string' ? raw.id.slice(0, 40) : 'v', type: raw.type, title, groups, ...(imagePrompt ? { imagePrompt } : {}), ...(edgeOff ? { edgeOff } : {}), ...(unit ? { unit } : {}) };
   return { ok: true, plan, sourceText };
 }

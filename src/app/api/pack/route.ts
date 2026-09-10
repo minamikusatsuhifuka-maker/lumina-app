@@ -14,6 +14,8 @@ import { GEMINI_TEXT_MODEL, GEMINI_TEXT_THINKING_LOW } from '@/lib/ai-models';
 import { robustJsonParse } from '@/lib/ai-json-parser';
 import { findBannedExpressions } from '@/lib/content-verify';
 import { fetchVisualSources } from '@/lib/visuals-server';
+import { parseTalkTarget } from '@/lib/visuals';
+import { getPersonaStyle } from '@/lib/persona-styles';
 import { MERGE_REPORT_GROUP } from '@/lib/merge-report';
 import {
   PACK_PUBLIC_KINDS,
@@ -38,16 +40,19 @@ const PACK_TIMEOUT_MS = 100_000;
 export async function POST(req: Request) {
   const guard = await requireAuth();
   if (!guard.ok) return guard.response;
-  const body = (await req.json().catch(() => ({}))) as { kind?: unknown; ids?: unknown; sourceIds?: unknown; fixture?: unknown };
+  const body = (await req.json().catch(() => ({}))) as { kind?: unknown; ids?: unknown; sourceIds?: unknown; fixture?: unknown; sourceText?: unknown; sourceTitle?: unknown; talk?: unknown };
   const kind = body.kind;
   if (!isPackTextKind(kind) || kind === 'script') return NextResponse.json({ error: 'kind は slides / qa / glossary / citations のいずれかです（script は画面側の handoff）' }, { status: 400 });
   const ids = (Array.isArray(body.ids) ? body.ids : []).map(String).filter(Boolean).slice(0, 3);
-  if (ids.length === 0) return NextResponse.json({ error: 'まとめの保存行 ids が必要です' }, { status: 400 });
+  // 325: プレゼン構成の9マスから直接（オプトイン・R-88）: sourceText＋sourceTitle（＋talk）。ids が無いときだけ
+  const directText = typeof body.sourceText === 'string' ? body.sourceText.trim().slice(0, 60_000) : '';
+  const talk = body.talk !== undefined && body.talk !== null ? parseTalkTarget(body.talk) : null;
+  if (ids.length === 0 && (directText.length < 20 || kind !== 'slides')) return NextResponse.json({ error: 'まとめの保存行 ids が必要です（プレゼン構成からの直接指定は slides だけ）' }, { status: 400 });
   try {
-    const rows = await fetchVisualSources(guard.userId, 'library', ids);
-    if (rows.length === 0) return NextResponse.json({ error: 'まとめの行が見つかりません' }, { status: 404 });
-    const baseTitle = rows[0].title;
-    const source = rows.map((r) => `# ${r.title}\n\n${r.text}`).join('\n\n---\n\n').slice(0, 60_000);
+    const rows = ids.length > 0 ? await fetchVisualSources(guard.userId, 'library', ids) : [];
+    if (ids.length > 0 && rows.length === 0) return NextResponse.json({ error: 'まとめの行が見つかりません' }, { status: 404 });
+    const baseTitle = ids.length > 0 ? rows[0].title : (typeof body.sourceTitle === 'string' && body.sourceTitle.trim() ? body.sourceTitle.trim().slice(0, 120) : 'プレゼン構成');
+    const source = ids.length > 0 ? rows.map((r) => `# ${r.title}\n\n${r.text}`).join('\n\n---\n\n').slice(0, 60_000) : directText;
     let content = '';
     const extra: Record<string, unknown> = {};
     if (kind === 'citations') {
@@ -58,7 +63,8 @@ export async function POST(req: Request) {
       content = citationsMarkdown(items);
       extra.count = items.length;
     } else {
-      const { system, prompt } = kind === 'slides' ? buildSlidesPrompt(source) : kind === 'qa' ? buildQaPrompt(source) : buildGlossaryPrompt(source);
+      const talkLabel = talk ? { ...talk, personaLabel: talk.persona ? (() => { const p = getPersonaStyle(talk.persona); return `${p.emoji} ${p.label}`; })() : null } : null;
+      const { system, prompt } = kind === 'slides' ? buildSlidesPrompt(source, talkLabel) : kind === 'qa' ? buildQaPrompt(source) : buildGlossaryPrompt(source);
       let raw: string;
       if (typeof body.fixture === 'string') raw = body.fixture;
       else if (body.fixture !== undefined) raw = JSON.stringify(body.fixture);
@@ -93,7 +99,7 @@ export async function POST(req: Request) {
     }
     const id = uuidv4();
     const title = packTitle(kind, baseTitle);
-    const metadata = packMetadata(ids, kind, { ...extra, generatedAt: new Date().toISOString() });
+    const metadata = packMetadata(ids, kind, { ...extra, generatedAt: new Date().toISOString(), ...(ids.length === 0 ? { source: 'visual_plan', sourceTitle: baseTitle, ...(talk ? { talk } : {}) } : {}) });
     await sql`INSERT INTO library (id, user_id, type, title, content, metadata, tags, group_name, is_favorite, folder_name)
       VALUES (${id}, ${guard.userId}, ${PACK_TYPE}, ${sanitizeForDb(title)}, ${sanitizeForDb(content)}, ${JSON.stringify(metadata)}, ${packTags(kind)}, ${MERGE_REPORT_GROUP}, 0, NULL)`;
     return NextResponse.json({ id, title, kind, chars: content.length, ...extra });
