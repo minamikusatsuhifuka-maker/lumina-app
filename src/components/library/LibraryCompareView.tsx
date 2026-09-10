@@ -32,6 +32,8 @@ import { LIBRARY_COMPARE_MAX, type LibraryCompareEntry } from '@/lib/library-vie
 import type { LibraryLike } from '@/lib/library-groups';
 import { copyRichMarkdown } from '@/lib/rich-copy';
 import { useFinePointer } from '@/lib/pointer-device';
+import { createPortal } from 'react-dom';
+import { useBodyScrollLock } from '@/components/ModalSheet';
 import {
   CompareColumnShell,
   CompareColumnsPicker,
@@ -52,6 +54,8 @@ type Props<T extends Row> = {
   onExportMd: (item: T) => void;
   /** 292: 列ヘッダーに出す種別の説明文（画面ごとの体系に合わせて呼び出し側が渡す。省略時は📚の文言） */
   kindNote?: string;
+  /** 330: 全画面で並べる（既定）。false で従来の一覧内パネル */
+  fullscreen?: boolean;
 };
 
 export default function LibraryCompareView<T extends Row>({
@@ -60,6 +64,7 @@ export default function LibraryCompareView<T extends Row>({
   onFullscreen,
   onExportMd,
   kindNote = '各列の見出しに種別（本文／要約／詳細／活用アドバイス）を表示しています。',
+  fullscreen = true,
 }: Props<T>) {
   const { fine, mounted } = useFinePointer();
   const [syncScroll, setSyncScroll] = useState(true);
@@ -77,8 +82,19 @@ export default function LibraryCompareView<T extends Row>({
   }, []);
 
   useEffect(() => {
+    if (fullscreen) return; // 330: 全画面のときは画面ごと覆うので移動しない
     rootRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-  }, []);
+  }, [fullscreen]);
+  // 330: 全画面は Esc で閉じ、背面はスクロールさせない（326 の器と同じ振る舞い）
+  const [mountedPortal, setMountedPortal] = useState(false); // R-117
+  useEffect(() => setMountedPortal(true), []);
+  useEffect(() => {
+    if (!fullscreen) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [fullscreen, onClose]);
+  useBodyScrollLock(fullscreen && mountedPortal);
 
   const cols = resolveCompareColumns(entries.length, mounted ? fine : true, colChoice);
   const applyColChoice = (c: CompareColumnChoice) => {
@@ -102,11 +118,16 @@ export default function LibraryCompareView<T extends Row>({
     setTimeout(() => setCopied(null), 1500);
   };
 
-  return (
+  const panel = (
     <div
       ref={rootRef}
       data-library-compare
-      style={{ marginBottom: 16, padding: 14, background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 12 }}
+      data-library-compare-fullscreen={fullscreen ? '1' : '0'}
+      style={
+        fullscreen
+          ? { position: 'fixed', inset: 0, zIndex: 10000, padding: 14, background: 'var(--bg-modal)', display: 'flex', flexDirection: 'column', minHeight: 0, overflowY: 'auto' }
+          : { marginBottom: 16, padding: 14, background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 12 }
+      }
     >
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8, marginBottom: 10 }}>
         <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-primary)' }}>
@@ -192,4 +213,8 @@ export default function LibraryCompareView<T extends Row>({
       )}
     </div>
   );
+  // 330: 全画面は body 直下（親の overflow・transform の影響を受けない・R-117 の mounted ゲート）
+  if (!fullscreen) return panel;
+  if (!mountedPortal) return null;
+  return createPortal(panel, document.body);
 }

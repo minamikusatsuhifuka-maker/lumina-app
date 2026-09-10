@@ -2623,24 +2623,24 @@ test('U61: リサーチ保存の見え方と選択比較（291）— 文字数�
   expect(loadListDensity()).toBe('detail');
   expect(LIST_DENSITY_DEFAULT).toBe('detail');
 
-  // §2-2 比較は2〜4件。5件目を選んでいる間は無効化して理由を出す（先頭4件に黙って切らない）
+  // §2-2 比較は2件以上。330: 全画面化に合わせて上限は9件（10件目を選んでいる間は無効化して理由）
   expect(LIBRARY_COMPARE_MIN).toBe(2);
-  expect(LIBRARY_COMPARE_MAX).toBe(4);
+  expect(LIBRARY_COMPARE_MAX).toBe(9);
   expect(libraryCompareState(0).enabled).toBe(false);
   expect(libraryCompareState(1).enabled).toBe(false);
   expect(libraryCompareState(1).reason).toContain('2件以上');
-  for (const n of [2, 3, 4]) {
+  for (const n of [2, 3, 4, 9]) {
     const st = libraryCompareState(n);
     expect(st.enabled).toBe(true);
     expect(st.reason).toBeNull();
     expect(st.label).toContain(`${n}件`);
   }
-  const five = libraryCompareState(5);
-  expect(five.enabled).toBe(false);
-  expect(five.reason).toContain('4件まで');
-  expect(five.reason).toContain('5件');
+  const ten = libraryCompareState(10);
+  expect(ten.enabled).toBe(false);
+  expect(ten.reason).toContain('9件まで');
+  expect(ten.reason).toContain('10件');
 
-  // §2-4 列は選んだ順・種別は 283/286 のカードまとめから（無ければ行から判定）・無い id は落とす・上限4
+  // §2-4 列は選んだ順・種別は 283/286 のカードまとめから（無ければ行から判定）・無い id は落とす・上限9（330）
   type Row = { id: string; type: string; title: string; tags: string; metadata: unknown; created_at: string; group_name: string };
   const now = '2026-09-03T00:00:00.000Z';
   const rows: Row[] = [
@@ -2655,7 +2655,7 @@ test('U61: リサーチ保存の見え方と選択比較（291）— 文字数�
   expect(entries.map((e) => e.item.id)).toEqual(['s1', 'x1', 'r1']);
   expect(entries.map((e) => e.kind)).toEqual(['summary', 'advice', 'research']);
   expect(entries.map((e) => e.label)).toEqual(['要約', '活用アドバイス', '本文']);
-  expect(libraryCompareEntries(['r1', 's1', 'x1', 'y1', 'z1'], rows, cards).map((e) => e.item.id)).toEqual(['r1', 's1', 'x1', 'y1']);
+  expect(libraryCompareEntries(['r1', 's1', 'x1', 'y1', 'z1'], rows, cards).map((e) => e.item.id), '330: 上限は9件なので5件とも列になる').toEqual(['r1', 's1', 'x1', 'y1', 'z1']);
   expect(libraryCompareEntries([], rows, cards)).toEqual([]);
 });
 

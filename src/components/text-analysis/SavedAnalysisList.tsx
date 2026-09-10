@@ -93,6 +93,7 @@ import {
 
 // 展開ビューの本文表示枠の高さ切替（S/M/L/全）。
 // 値は生成結果カード(TextAnalysisPanel の ResultPanel)の HEIGHT_PRESETS と統一。
+// 330: 「全」はカード内で伸ばさず全画面（FullscreenReader）で開く。枠の高さは S/M/L だけ
 type SavedHeightMode = 'S' | 'M' | 'L' | 'full';
 const SAVED_HEIGHT_VALUES: Record<SavedHeightMode, number> = {
   S: 350,
@@ -248,7 +249,9 @@ export default function SavedAnalysisList({
   useEffect(() => {
     try {
       const saved = localStorage.getItem(SAVED_HEIGHT_KEY) as SavedHeightMode | null;
-      if (saved && saved in SAVED_HEIGHT_VALUES) setHeightMode(saved);
+      // 330: 以前の「全」が記憶に残っていてもカードは伸ばさない（枠は M に戻す・「全」は全画面で開く）
+      if (saved === 'full') setHeightMode('M');
+      else if (saved && saved in SAVED_HEIGHT_VALUES) setHeightMode(saved);
     } catch {
       /* skip */
     }
@@ -2886,7 +2889,9 @@ export default function SavedAnalysisList({
                           <button
                             key={m}
                             type="button"
-                            onClick={() => changeHeight(m)}
+                            data-ta-height={m}
+                            title={m === 'full' ? '全文を全画面で読みます（カードは伸ばしません）' : `本文の表示枠を${m}サイズにします`}
+                            onClick={() => (m === 'full' ? void openReader(record) : changeHeight(m))}
                             style={{
                               padding: '2px 8px',
                               fontSize: 10,

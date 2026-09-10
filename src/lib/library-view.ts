@@ -4,13 +4,12 @@
 //   §3-1 一覧の列数（自動／1〜4・タッチ端末は1列固定・Tailwind完全リテラル・R-98 既定は自動）
 //   §3-2 表示密度（詳細＝従来／コンパクト＝バッジとタイトルのみ・既定は詳細）
 //   §3-3 文字数の段階（閾値はここの CHAR_COUNT_TIERS だけ・同じ文字数は必ず同じ段階）
-//   §2-2 比較に出せる件数（BATCH_COMPARE_MAX＝4 を 285/289 と共有・上限超えは無効化して理由を出す）
+//   §2-2 比較に出せる件数（330: 全画面化に合わせて 9 件・上限超えは無効化して理由を出す）
 //   §2-4 比較の列（選択した成果物＝行）に種別ラベルを付ける
 //
 // グルーピング（lib/library-groups.ts）・保存・削除には触れない（§4-1）。
 // 判断はこの純関数に置き、単体テスト（U61）で機械判定する。
 
-import { BATCH_COMPARE_MAX } from '@/lib/batch-compare';
 import {
   ARTIFACT_LABEL,
   artifactKindOf,
@@ -164,7 +163,11 @@ export function charCountTitle(n: number): string {
 // ───────────────────────────────────────────────────────────────────────────
 
 export const LIBRARY_COMPARE_MIN = 2;
-export const LIBRARY_COMPARE_MAX = BATCH_COMPARE_MAX;
+/**
+ * 330: 全画面で並べるようになったので上限を 9 件へ（302 のマンダラ比較と同じ）。
+ * 271 の一括リサーチの比較（`BATCH_COMPARE_MAX` = 4）は画面が別なので据え置き。
+ */
+export const LIBRARY_COMPARE_MAX = 9;
 
 /**
  * §2-2: 5件目以降を選んでいる状態では比較ボタンを**無効化**する（先頭4件に黙って切らない＝
