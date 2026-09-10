@@ -18,7 +18,7 @@ export default function MandalaGenerateButton({ scope, itemKey, title, charCount
   const [error, setError] = useState('');
   const busyRef = useRef(false); // R-87
   useEffect(() => setMounted(true), []);
-  useBodyScrollLock(mounted); // 326: 開いている間は背面をスクロールさせない
+  useBodyScrollLock(mounted && open); // 326: 開いている間だけ背面をスクロールさせない（この部品は閉じていても常に居る）
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape' && !busyRef.current) setOpen(false); };
