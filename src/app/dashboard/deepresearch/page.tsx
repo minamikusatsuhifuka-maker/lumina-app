@@ -1557,11 +1557,12 @@ ${contextText}
         setInsightsError(data.error ?? `HTTP ${res.status}`);
         return;
       }
+      // 324追加: 表示・保存の前に LaTeX 記法を外す（サーバ側でも外すが、復元・モック・旧データにも効かせる・冪等）
       setInsights({
-        summary: data.summary ?? '',
-        detail: data.detail ?? '',
+        summary: stripInlineLatex(data.summary ?? ''),
+        detail: stripInlineLatex(data.detail ?? ''),
         keywords: Array.isArray(data.keywords) ? data.keywords : [],
-        advice: data.advice ?? '',
+        advice: stripInlineLatex(data.advice ?? ''),
       });
     } catch {
       setInsightsError('通信エラー');
