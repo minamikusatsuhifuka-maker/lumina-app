@@ -4655,7 +4655,7 @@ test('U86: 記事→図解（315）— 元テキストに無い語句の検出�
   expect(parsed.plans.map((p) => p.type)).toEqual(['steps', 'image']);
   expect(parsed.plans[1].imagePrompt).toBe('冬の部屋');
   expect(parsed.rejected.map((r) => r.reason)[0]).toContain('ビフォーアフター');
-  expect(v.parseVisualPlans({ visuals: Array.from({ length: 9 }, (_, i) => ({ type: 'flow', title: `t${i}`, groups: [{ points: ['p'] }] })) }).plans.length, '上限6').toBe(6);
+  expect(v.parseVisualPlans({ visuals: Array.from({ length: 9 }, (_, i) => ({ type: 'flow', title: `t${i}`, groups: [{ points: ['p'] }] })) }).plans.length, '上限8（323）').toBe(8);
   // ③ 5種テンプレート: 描画文字列＝プランの文字列（固定記号・番号を除く）・決定的
   const plans: import('../../src/lib/visuals').VisualPlan[] = [
     { id: 't', type: 'table', title: '保湿の比較表', groups: [{ heading: '朝', points: ['化粧水', '乳液'] }, { heading: '夜', points: ['クレンジング', '乳液'] }] },
@@ -5360,4 +5360,79 @@ test('U94: 関連図の是正とつながり確認（322）— 院長の再現�
   expect(vp).toMatch(/data-vis-why=\{plan\.id\}/);
   expect(vp).toMatch(/relationEdgeRows\(plan, sourceText\)/);
   expect(vp, '✓を外すと edgeOff に入る（プランに残す）').toMatch(/edgeOff: off\.size > 0 \? Array\.from\(off\) : undefined/);
+});
+
+
+test('U95: 図解の提案→承認→一括生成（323）— 「構成」の説明文は種類ごとに決定的（同じプランで同じ文）／実在 k/n／承認は赤い印・NG・最低要件で不可＋理由／「赤い部分を外して承認」は該当断片を決定的に除き（要素は行・見出しはグループ・タイトルは外せない）最低要件を割れば理由／一括の目安（コード描画は無料・画像は単価）／上限8と切り口違いの要求／approvedAt の出どころ／ソース固定（編集で承認が外れる・生成は既存の render/generateImage・?mode=form）', () => {
+  const v = vis320;
+  const src = '朝の保湿は洗顔のあと5分以内に行う。化粧水をなじませてから乳液で蓋をする。夜はクレンジングのあとに同じ手順。トリプトファンはセロトニンに変換される。セロトニンはメラトニンに変換される。';
+  const P = (o: Partial<import('../../src/lib/visuals').VisualPlan> & { type: import('../../src/lib/visuals').VisualType }): import('../../src/lib/visuals').VisualPlan => ({ id: 'x', title: 'T', groups: [], ...o });
+  // ① 構成の説明文（決定的）
+  expect(v.planStructureText(P({ type: 'table', groups: [{ heading: '朝', points: ['化粧水', '乳液'] }, { heading: '夜', points: ['クレンジング', '乳液'] }] }))).toBe('列 朝／夜・行 2 件');
+  expect(v.planStructureText(P({ type: 'flow', groups: [{ points: ['洗顔', '化粧水', '乳液'] }] }))).toBe('洗顔 → 化粧水 → 乳液 の 3 段');
+  expect(v.planStructureText(P({ type: 'compare', groups: [{ heading: '朝', points: ['化粧水'] }, { heading: '夜', points: ['クレンジング', '乳液'] }] }))).toBe('朝 と 夜 を 2 項目で');
+  expect(v.planStructureText(P({ type: 'steps', groups: [{ heading: '基本', points: ['洗顔', '化粧水', '乳液'] }] }))).toBe('3 手順（基本）');
+  expect(v.planStructureText(P({ type: 'concept', title: '保湿', groups: [{ heading: '朝', points: ['洗顔'] }, { heading: '夜', points: ['クレンジング'] }] }))).toBe('中心 保湿・枝 2 本（朝／夜）');
+  const rel = P({ type: 'relation', title: 'トリプトファンからメラトニンへ', groups: [{ heading: 'トリプトファン', points: ['→ セロトニン: 変換'] }, { heading: 'セロトニン', points: ['→ メラトニン: 変換'] }, { heading: 'メラトニン', points: [] }] });
+  expect(v.planStructureText(rel)).toBe('トリプトファン／セロトニン／メラトニン の 3 点を中心に、トリプトファン→セロトニン（変換）／セロトニン→メラトニン（変換） の 2 本のつながり');
+  expect(v.planStructureText({ ...rel, edgeOff: ['1-2'] }), '外した辺は数えない').toContain('の 1 本のつながり');
+  expect(v.planStructureText(P({ type: 'timeline', groups: [{ heading: '朝', points: ['洗顔'] }, { heading: '夜', points: ['保湿'] }, { heading: '週1', points: ['角質ケア'] }] }))).toBe('3 点（朝／夜／週1）');
+  expect(v.planStructureText(P({ type: 'figures', groups: [{ heading: 'a', points: ['5分', '5分以内に行う'] }, { heading: 'b', points: ['週1', 'x'] }, { heading: 'c', points: ['2回', 'y'] }] }))).toBe('3 個の数値（5分／週1／2回）');
+  expect(v.planStructureText(P({ type: 'onepage', groups: [{ points: ['a', 'b', 'c'] }, { heading: '一言', points: ['締め'] }] }))).toBe('要点 3＋一言「締め」');
+  expect(v.planStructureText(P({ type: 'image', imagePrompt: '朝の光', groups: [{ heading: '朝の保湿', points: ['乳液で蓋をする'] }] }))).toBe('絵柄: 朝の光／重ねる文字: 2 行');
+  expect(v.planStructureText(rel)).toBe(v.planStructureText(rel));
+  // ② 実在 k/n と承認可否
+  const okCheck = v.checkPlan(rel, src);
+  expect(v.planEvidenceCount(rel, okCheck)).toEqual({ ok: 6, total: 6 });
+  expect(v.approvalState(okCheck)).toEqual({ enabled: true, reason: null });
+  const bad = P({ type: 'compare', title: '朝と夜', groups: [{ heading: '朝', points: ['化粧水', 'スキンケア'] }, { heading: '夜', points: ['クレンジング'] }] });
+  const badCheck = v.checkPlan(bad, src);
+  expect(v.planEvidenceCount(bad, badCheck)).toEqual({ ok: 5, total: 6 });
+  expect(v.approvalState(badCheck).enabled).toBe(false);
+  expect(v.approvalState(badCheck).reason).toContain('スキンケア');
+  expect(v.approvalState(v.checkPlan(P({ type: 'steps', title: '', groups: [] }), src)).reason).toBe(v.APPROVE_REJECT_EMPTY);
+  // ③ 最低要件
+  expect(v.typeMinRequirement(P({ type: 'compare', groups: [{ heading: '朝', points: ['a'] }] }))).toContain('2つ以上');
+  expect(v.typeMinRequirement(P({ type: 'flow', groups: [{ points: ['a', 'b'] }] }))).toContain('3つ以上');
+  expect(v.typeMinRequirement(P({ type: 'relation', groups: [{ heading: 'A', points: [] }, { heading: 'B', points: [] }] }))).toContain('1本以上');
+  expect(v.typeMinRequirement(rel)).toBeNull();
+  expect(v.typeMinRequirement(P({ type: 'table', groups: [{ heading: 'a', points: ['1'] }, { heading: 'b', points: ['2'] }] }))).toBeNull();
+  // ④ 赤い部分を外して承認（決定的・AIなし）
+  const s1 = v.stripForeign(bad, badCheck);
+  expect(s1.ok).toBe(true);
+  if (s1.ok) {
+    expect(s1.removed).toEqual(['スキンケア']);
+    expect(s1.plan.groups[0].points).toEqual(['化粧水']);
+    expect(v.checkPlan(s1.plan, src).ok, '外せば承認できる').toBe(true);
+    expect(JSON.stringify(v.stripForeign(bad, badCheck))).toBe(JSON.stringify(s1));
+  }
+  const bad2 = P({ type: 'compare', title: '朝と夜', groups: [{ heading: '朝', points: ['化粧水'] }, { heading: '謎の対象', points: ['乳液'] }] });
+  const s2 = v.stripForeign(bad2, v.checkPlan(bad2, src));
+  expect(s2.ok, '見出しごと消すと2対象を割る').toBe(false);
+  if (!s2.ok) expect(s2.reason).toContain('比較は2つ以上');
+  const bad3 = P({ type: 'steps', title: 'スキンケアの手順', groups: [{ points: ['洗顔', '化粧水', '乳液'] }] });
+  const s3 = v.stripForeign(bad3, v.checkPlan(bad3, src));
+  expect(s3.ok, 'タイトルは外せない').toBe(false);
+  if (!s3.ok) expect(s3.reason).toContain('タイトル');
+  // ⑤ 一括の目安・上限・切り口・出どころ
+  const est = v.bulkEstimate([rel, P({ type: 'image', title: '朝の保湿', groups: [{ points: ['乳液で蓋をする'] }], imagePrompt: 'x' })], { quality: 'medium', aiText: false, extraPrompt: '' }, 'landscape');
+  expect(est.renders).toBe(1);
+  expect(est.images).toBe(1);
+  expect(est.usd).toBeGreaterThan(0);
+  expect(v.bulkEstimate([rel], { quality: 'medium', aiText: false, extraPrompt: '' }, 'landscape').usd, 'コード描画は無料').toBe(0);
+  expect(v.bulkConfirmLabel(est)).toBe('コード描画 1 件（無料）・画像 1 枚');
+  expect(v.VISUAL_MAX_PLANS).toBe(8);
+  expect(v.buildVisualPlanPrompt(src).prompt).toContain('切り口の違う候補を最大2つ');
+  const base = { kind: 'render' as const, plan: rel, orientation: 'landscape' as const, sources: [], width: 1, height: 1, model: 'og-render', generatedAt: 'g' };
+  expect(v.buildVisualGallerySettings({ ...base, approvedAt: '2026/09/10 12:00' }).visual.approvedAt).toBe('2026/09/10 12:00');
+  expect(v.buildVisualGallerySettings(base).visual.approvedAt).toBeUndefined();
+  // ⑥ ソース固定
+  const read = (p: string) => readFileSync(join(__dirname, '../../src', p), 'utf8');
+  const page = read('app/dashboard/visuals/page.tsx');
+  expect(page, '編集したら承認が外れる（updatePlan の中）').toMatch(/setPlans\(\(prev\) => prev\.map\(\(p\) => \(p\.id === id \? patch\(p\) : p\)\)\);\s*setApproved\(\(m\) => \{ if \(!\(id in m\)\) return m;/);
+  expect(page, '一括生成は既存の描画／生成をそのまま呼ぶ（R-88）').toMatch(/if \(VISUAL_DETERMINISTIC_TYPES\.includes\(plan\.type\)\) await render\(plan\);\s*else await generateImage\(plan\);/);
+  expect(page, '確認は生成前に1回・二重発火は ref（R-87）').toMatch(/const runBulk = async \(\) => \{\s*if \(bulkRef\.current\) return;/);
+  expect(page, '?mode=form で従来モード').toMatch(/const formMode = searchParams\?\.get\(VISUALS_MODE_PARAM\) === VISUALS_MODE_FORM;/);
+  expect(page, '承認時刻を出どころへ').toMatch(/approvedAt: approvedRef\.current\[plan\.id\] \?\? null/);
+  expect(page, '構成は決定的な純関数から').toMatch(/構成: \{planStructureText\(plan\)\}/);
 });

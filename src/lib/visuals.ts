@@ -10,7 +10,7 @@
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 import { findBannedExpressions } from '@/lib/content-verify';
-import { IMAGE_MODEL_IDS, type ImageAspectKey, type ImageQualityKey } from '@/lib/model-pricing';
+import { IMAGE_MODEL_IDS, estimateImageCost, type ImageAspectKey, type ImageQualityKey } from '@/lib/model-pricing';
 
 export type VisualType = 'table' | 'flow' | 'compare' | 'steps' | 'concept' | 'relation' | 'correlation' | 'timeline' | 'figures' | 'onepage' | 'image';
 // 320: 相関図（correlation）＝関連図の派生。辺に「相関の向きと強さ」を**文字**で書く（label 必須・太さ/色では表さない）
@@ -139,7 +139,8 @@ export function typedPlanIssues(plan: Pick<VisualPlan, 'type' | 'groups'>, sourc
   return out;
 }
 
-export const VISUAL_MAX_PLANS = 6;
+/** 323: 同じ種類で切り口の違う候補を最大2つ→合計8まで */
+export const VISUAL_MAX_PLANS = 8;
 export const VISUAL_MAX_GROUPS = 6;
 export const VISUAL_MAX_POINTS = 8;
 export const VISUAL_TITLE_MAX = 60;
@@ -460,6 +461,8 @@ export interface VisualGallerySettings {
     generatedAt: string;
     /** 320: 未保存の結果から作ったとき（保存済みなら sources。後から行ができても自動では紐づけない） */
     unsavedSource?: VisualUnsavedSource;
+    /** 323: 提案モードで承認した時刻（JST の文字列）。承認を経ずに描いた（従来モード）ときは無い */
+    approvedAt?: string;
   };
   size: string;
   model: string;
@@ -488,6 +491,8 @@ export function buildVisualGallerySettings(input: {
   generatedAt: string;
   /** 320 */
   unsavedSource?: VisualUnsavedSource | null;
+  /** 323 */
+  approvedAt?: string | null;
 }): VisualGallerySettings {
   return {
     visual: {
@@ -503,6 +508,7 @@ export function buildVisualGallerySettings(input: {
       ...(input.costUsd !== undefined ? { costUsd: input.costUsd } : {}),
       ...(input.originalId ? { originalId: input.originalId } : {}),
       ...(input.unsavedSource && input.sources.length === 0 ? { unsavedSource: input.unsavedSource } : {}),
+      ...(input.approvedAt ? { approvedAt: input.approvedAt } : {}),
       generatedAt: input.generatedAt,
     },
     size: `${input.width}x${input.height}`,
@@ -569,6 +575,7 @@ ${allowed.map((t) => typeLines[t]).join('\n')}
 - 効果効能の保証・誇大表現・患者の体験談的表現を図解に入れない
 - 図解に向く構造が本文に無ければ少なくてよい（無理に作らない）
 - 各候補に why（この内容にその型が向く理由・40字以内・表示にだけ使う）を付ける
+- 同じ型でも**切り口の違う候補を最大2つ**まで出してよい（例: 関連図＝物質の変換の流れ／時間帯と行動の関係）。切り口が同じものを重ねない
 
 # 本文
 ${sourceText.slice(0, VISUAL_SOURCE_MAX_CHARS)}
@@ -720,4 +727,147 @@ export function edgesWithoutEvidenceCount(rows: readonly RelationEdgeRow[]): num
 }
 export function edgesWithoutEvidenceLabel(n: number): string | null {
   return n > 0 ? `根拠のない辺が ${n} 本あります（元テキストに両方のノードを含む文が見つかりません。描くかはご判断ください）` : null;
+}
+
+
+// ───────────────────────────────────────────────────────────────────────────
+// 323: 提案モード（候補カード＝決定的な「構成」説明文・実在 k/n・承認・「赤い部分を外して承認」・一括生成の目安）
+// ───────────────────────────────────────────────────────────────────────────
+
+export const VISUALS_MODE_PARAM = 'mode';
+export const VISUALS_MODE_FORM = 'form';
+
+function joinNames(list: readonly string[], max = 4): string {
+  const a = list.map((s) => s.trim()).filter(Boolean);
+  if (a.length <= max) return a.join('／');
+  return `${a.slice(0, max).join('／')} ほか${a.length - max}`;
+}
+
+/** 「構成」の説明文（AI ではなくプランから決定的に組む・R-74。同じプランで同じ文） */
+export function planStructureText(plan: Pick<VisualPlan, 'type' | 'title' | 'groups' | 'imagePrompt' | 'edgeOff'>): string {
+  const g = plan.groups;
+  const heads = g.map((x) => (x.heading ?? '').trim());
+  switch (plan.type) {
+    case 'table': {
+      const rows = Math.max(0, ...g.map((x) => x.points.length));
+      return `列 ${joinNames(heads)}・行 ${rows} 件`;
+    }
+    case 'flow': {
+      const pts = g[0]?.points ?? [];
+      return `${joinNames(pts, 6).replace(/／/g, ' → ')} の ${pts.length} 段`;
+    }
+    case 'compare': {
+      const items = Math.max(0, ...g.map((x) => x.points.length));
+      return `${joinNames(heads).replace(/／/g, ' と ')} を ${items} 項目で`;
+    }
+    case 'steps': {
+      const n = g.reduce((acc, x) => acc + x.points.length, 0);
+      return `${n} 手順${heads.some(Boolean) ? `（${joinNames(heads.filter(Boolean))}）` : ''}`;
+    }
+    case 'concept':
+      return `中心 ${plan.title.trim() || '（無題）'}・枝 ${g.length} 本（${joinNames(heads)}）`;
+    case 'relation':
+    case 'correlation': {
+      const nodes = heads.filter(Boolean);
+      const edges = edgesOfPlan(plan);
+      const edgeText = edges.map((e) => `${heads[e.from]}→${heads[e.to]}${e.label ? `（${e.label}）` : ''}`);
+      return `${joinNames(nodes)} の ${nodes.length} 点を中心に、${edges.length > 0 ? `${joinNames(edgeText, 6)} の ${edges.length} 本のつながり` : 'つながりなし'}`;
+    }
+    case 'timeline':
+      return `${g.length} 点（${joinNames(heads)}）`;
+    case 'figures':
+      return `${g.length} 個の数値（${joinNames(g.map((x) => x.points[0] ?? ''))}）`;
+    case 'onepage':
+      return `要点 ${(g[0]?.points ?? []).length}＋一言${g[1]?.points[0] ? `「${g[1].points[0]}」` : 'なし'}`;
+    case 'image': {
+      const lines = g.reduce((acc, x) => acc + (x.heading ? 1 : 0) + x.points.length, 0);
+      return `絵柄: ${(plan.imagePrompt ?? '').trim() || '（指示なし）'}／重ねる文字: ${lines} 行`;
+    }
+    default:
+      return '';
+  }
+}
+
+/** 「元テキストに実在 k/n」（n＝図に入る文字列の数・k＝実在チェックを通った数） */
+export function planEvidenceCount(plan: VisualPlan, check: Pick<PlanCheck, 'foreign'>): { ok: number; total: number } {
+  const total = new Set(collectPlanStrings(plan)).size;
+  const bad = new Set(check.foreign).size;
+  return { ok: Math.max(0, total - bad), total };
+}
+
+export const APPROVE_REJECT_EMPTY = '承認できません（タイトルと要素を入れてください）';
+export function approvalState(check: PlanCheck): { enabled: boolean; reason: string | null } {
+  if (check.empty) return { enabled: false, reason: APPROVE_REJECT_EMPTY };
+  if (check.foreign.length > 0) return { enabled: false, reason: `承認できません（元テキストに無い語句: ${check.foreign.join('／')}）` };
+  if (check.banned.length > 0) return { enabled: false, reason: `承認できません（医療広告のNG表現: ${check.banned.map((b) => b.matched).join('／')}）` };
+  return { enabled: true, reason: null };
+}
+
+/** 種類ごとの最低要件（外した結果これを割ると承認できない・R-101） */
+export function typeMinRequirement(plan: Pick<VisualPlan, 'type' | 'title' | 'groups' | 'edgeOff'>): string | null {
+  const g = plan.groups;
+  const pts = (i: number) => g[i]?.points.length ?? 0;
+  if (!plan.title.trim()) return 'タイトルが必要です';
+  switch (plan.type) {
+    case 'table': return g.length >= 2 && g.every((x) => x.points.length > 0) ? null : '表は2列以上・各列に値が必要です';
+    case 'flow': return pts(0) >= 3 ? null : 'フローは3つ以上の要素が必要です';
+    case 'compare': return g.length >= 2 && g.every((x) => x.points.length > 0) ? null : '比較は2つ以上の対象と各対象の特徴が必要です';
+    case 'steps': return g.reduce((a, x) => a + x.points.length, 0) >= 3 ? null : '手順は3つ以上必要です';
+    case 'concept': return g.length >= 2 && g.every((x) => (x.heading ?? '').trim()) ? null : '概念図は2本以上の枝（見出し）が必要です';
+    case 'relation':
+    case 'correlation': {
+      const nodes = g.filter((x) => (x.heading ?? '').trim()).length;
+      return nodes >= 2 && edgesOfPlan(plan).length >= 1 ? null : '関連図・相関図は2つ以上のノードと1本以上のつながりが必要です';
+    }
+    case 'timeline': return g.length >= TIMELINE_MIN_ITEMS ? null : `時系列は${TIMELINE_MIN_ITEMS}点以上必要です`;
+    case 'figures': return g.length >= FIGURES_MIN && g.every((x) => x.points.length >= 2) ? null : `数値は${FIGURES_MIN}個以上（数値と引用）必要です`;
+    case 'onepage': return pts(0) >= ONEPAGE_POINTS && !!g[1]?.points[0] ? null : `1枚サマリーは要点${ONEPAGE_POINTS}つと一言が必要です`;
+    case 'image': return g.some((x) => (x.heading ?? '').trim() || x.points.length > 0) ? null : 'イメージは重ねる文字が1つ以上必要です';
+    default: return null;
+  }
+}
+
+/**
+ * 「赤い部分を外して承認」＝実在しない語句・NG表現の断片を**決定的に**除く（AI なし）。
+ * 要素（points）は該当行を消す。見出しが該当ならそのグループごと消す。タイトルが該当なら外せない（直してもらう）
+ */
+export function stripForeign(plan: VisualPlan, check: PlanCheck): { ok: true; plan: VisualPlan; removed: string[] } | { ok: false; reason: string } {
+  const bad = new Set<string>([...check.foreign, ...check.banned.map((b) => b.text)]);
+  if (bad.size === 0) return { ok: true, plan, removed: [] };
+  if (bad.has(plan.title.trim())) return { ok: false, reason: 'タイトルに元テキストに無い語句があるため外せません（タイトルを直してください）' };
+  const removed: string[] = [];
+  const groups = plan.groups
+    .filter((g) => {
+      const h = (g.heading ?? '').trim();
+      if (h && bad.has(h)) {
+        removed.push(h, ...g.points.map((p) => p.trim()).filter(Boolean));
+        return false;
+      }
+      return true;
+    })
+    .map((g) => ({ ...g, points: g.points.filter((p) => { const t = p.trim(); if (bad.has(t)) { removed.push(t); return false; } return true; }) }))
+    .filter((g) => (g.heading ?? '').trim() || g.points.length > 0);
+  const next: VisualPlan = { ...plan, groups };
+  const req = typeMinRequirement(next);
+  if (req) return { ok: false, reason: `外すと最低要件を満たしません（${req}）。「詳しく直す」で直してください` };
+  return { ok: true, plan: next, removed: Array.from(new Set(removed)) };
+}
+
+/** 一括生成の内訳と目安（コード描画は無料・画像は 315 の単価） */
+export function bulkEstimate(plans: readonly VisualPlan[], settings: Pick<VisualImageSettings, 'quality' | 'aiText' | 'extraPrompt'>, orientation: VisualOrientation): { renders: number; images: number; usd: number; seconds: number } {
+  let renders = 0;
+  let images = 0;
+  let usd = 0;
+  for (const p of plans) {
+    if (p.type === 'image') {
+      images += 1;
+      usd += estimateImageCost(settings.quality, orientation, buildVisualImagePrompt(p, settings).length).usd;
+    } else {
+      renders += 1;
+    }
+  }
+  return { renders, images, usd, seconds: renders * 6 + images * 40 };
+}
+export function bulkConfirmLabel(e: { renders: number; images: number }): string {
+  return `コード描画 ${e.renders} 件（無料）・画像 ${e.images} 枚`;
 }

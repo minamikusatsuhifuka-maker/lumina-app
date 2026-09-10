@@ -2,7 +2,8 @@
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // 315: 🖼 図解生成（記事→表・図・画像）
-//   STEP1 元テキスト（📚🗂🧠の ?scope=&id= か貼り付け）→ プラン抽出（Gemini・最大6）
+//   STEP1 元テキスト（📚🗂🧠の ?scope=&id= か貼り付け）→ プラン抽出（Gemini・最大8＝同じ種類で切り口違い最大2）
+//   323: 既定は提案モード（候補カード→承認→「承認した n 件を生成」1ボタン→STEP3）。?mode=form で従来の編集フォーム
 //   STEP2 プランの編集（院長が直した文字列が唯一の正）。元テキストに無い語句・医療広告NGは赤い印＝直すまで描けない（決定的）
 //   STEP3 決定的描画（表・フロー・比較・手順・概念図＝/api/visuals/render）／イメージ（GPT Image 2.5＝/api/visuals/image・確認1回）
 //   保存は既存の /api/gallery（Blob）に source='visuals'・settings.visual（出どころ・プラン・費用の実績）
@@ -36,7 +37,10 @@ import {
   type VisualPlan,
   type VisualSourceRef,
   type VisualType, VISUALS_AUTOPLAN_PARAM, VISUALS_FROM_PARAM, VISUALS_HANDOFF_KEY, VISUAL_AI_TEXT_STORAGE_KEY, parseStoredAiText, parseVisualsHandoff, type VisualUnsavedSource, edgesWithoutEvidenceCount, edgesWithoutEvidenceLabel, relationEdgeRows,
+  // 323: 提案→承認→一括生成
+  VISUALS_MODE_FORM, VISUALS_MODE_PARAM, VISUAL_MAX_PLANS, approvalState, bulkConfirmLabel, bulkEstimate, planEvidenceCount, planStructureText, stripForeign, typeMinRequirement,
 } from '@/lib/visuals';
+import { jstDateTimeString } from '@/lib/jst';
 // 320: 未保存の結果の handoff（一回限りキー・R-121）
 import { readOneTimeHandoff } from '@/lib/one-time-handoff';
 
@@ -96,6 +100,16 @@ function VisualsInner() {
   const [unsavedSource, setUnsavedSource] = useState<VisualUnsavedSource | null>(null);
   const [autoplanWanted, setAutoplanWanted] = useState(false);
   const autoplanDoneRef = useRef(false);
+  // 323: 提案モード（既定）。?mode=form で従来の編集フォーム（既存 E2E の互換）
+  const formMode = searchParams?.get(VISUALS_MODE_PARAM) === VISUALS_MODE_FORM;
+  const [approved, setApproved] = useState<Record<string, string>>({}); // id → 承認時刻（JST）
+  const [detailOpen, setDetailOpen] = useState<Record<string, boolean>>({});
+  const [stripped, setStripped] = useState<Record<string, string[]>>({}); // 「赤い部分を外して承認」で除いた語句
+  const [stripError, setStripError] = useState<Record<string, string>>({});
+  const [bulkDialog, setBulkDialog] = useState(false);
+  const [bulk, setBulk] = useState<{ running: boolean; order: string[]; done: number; failed: number } | null>(null);
+  const bulkRef = useRef(false); // R-87
+  const unapprove = (id: string) => setApproved((m) => { if (!(id in m)) return m; const n = { ...m }; delete n[id]; return n; });
   // 320 §3-5: 「AIに文字も描かせる」の前回の選択（端末ごと・初期既定はオフ）
   useEffect(() => {
     try {
@@ -165,7 +179,11 @@ function VisualsInner() {
   }, [searchParams]);
 
   const checks = useMemo<Record<string, PlanCheck>>(() => Object.fromEntries(plans.map((p) => [p.id, checkPlan(p, sourceText)])), [plans, sourceText]);
-  const updatePlan = useCallback((id: string, patch: (p: VisualPlan) => VisualPlan) => setPlans((prev) => prev.map((p) => (p.id === id ? patch(p) : p))), []);
+  // 323: 承認は「この候補のこの文字列で描いてよい」の意思表示。編集したら承認を外す（再チェックで戻せる）
+  const updatePlan = useCallback((id: string, patch: (p: VisualPlan) => VisualPlan) => {
+    setPlans((prev) => prev.map((p) => (p.id === id ? patch(p) : p)));
+    setApproved((m) => { if (!(id in m)) return m; const n = { ...m }; delete n[id]; return n; });
+  }, []);
   const movePlan = (id: string, dir: -1 | 1) =>
     setPlans((prev) => {
       const i = prev.findIndex((p) => p.id === id);
@@ -193,6 +211,10 @@ function VisualsInner() {
       setRejected(j.rejected ?? []);
       setResults({});
       setErrors({});
+      setApproved({});
+      setStripped({});
+      setStripError({});
+      setBulk(null);
       showToast(j.plans.length > 0 ? `${j.plans.length}件の図解候補を提案しました` : '図解に向く構造が見つかりませんでした', j.plans.length > 0 ? 'success' : 'warning');
     } catch (e) {
       showToast(e instanceof Error ? e.message : '抽出に失敗しました', 'error');
@@ -212,8 +234,12 @@ function VisualsInner() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [autoplanWanted, sourceText]);
 
+  // 323: 一括生成の途中で読む承認時刻（state の closure に頼らない）
+  const approvedRef = useRef<Record<string, string>>({});
+  approvedRef.current = approved;
+
   const saveToGallery = async (plan: VisualPlan, r: { base64: string; width: number; height: number; model: string; generatedAt: string; kind: 'render' | 'image-final' | 'image-original'; quality?: string; aiText?: boolean; costUsd?: number | null; originalId?: string }) => {
-    const settings = buildVisualGallerySettings({ kind: r.kind, plan, orientation, sources, width: r.width, height: r.height, model: r.model, quality: r.quality, aiText: r.aiText, costUsd: r.costUsd, originalId: r.originalId, generatedAt: r.generatedAt, unsavedSource });
+    const settings = buildVisualGallerySettings({ kind: r.kind, plan, orientation, sources, width: r.width, height: r.height, model: r.model, quality: r.quality, aiText: r.aiText, costUsd: r.costUsd, originalId: r.originalId, generatedAt: r.generatedAt, unsavedSource, approvedAt: approvedRef.current[plan.id] ?? null });
     return saveImageToGallery({ imageBase64: r.base64, prompt: `図解: ${plan.title}`, settings, title: visualSaveTitle(plan, r.kind), source: 'visuals', width: r.width, height: r.height });
   };
 
@@ -295,6 +321,60 @@ function VisualsInner() {
     }
   };
 
+  // ── 323: 承認・「赤い部分を外して承認」・一括生成 ──
+  const approve = (id: string, on: boolean) => {
+    if (on) setApproved((m) => ({ ...m, [id]: jstDateTimeString() }));
+    else unapprove(id);
+  };
+  const stripAndApprove = (plan: VisualPlan) => {
+    const r = stripForeign(plan, checks[plan.id]);
+    if (!r.ok) {
+      setStripError((m) => ({ ...m, [plan.id]: r.reason }));
+      return;
+    }
+    setStripError((m) => { const n = { ...m }; delete n[plan.id]; return n; });
+    setStripped((m) => ({ ...m, [plan.id]: r.removed }));
+    setPlans((prev) => prev.map((p) => (p.id === plan.id ? r.plan : p)));
+    setApproved((m) => ({ ...m, [plan.id]: jstDateTimeString() }));
+  };
+  const approvedPlans = plans.filter((p) => p.id in approved);
+  const bulkEst = bulkEstimate(approvedPlans, imageSettings, orientation);
+  const runOne = async (plan: VisualPlan) => {
+    if (VISUAL_DETERMINISTIC_TYPES.includes(plan.type)) await render(plan);
+    else await generateImage(plan);
+  };
+  const runBulk = async () => {
+    if (bulkRef.current) return; // R-87
+    const targets = plans.filter((p) => p.id in approved && checks[p.id]?.ok);
+    if (targets.length === 0) return;
+    bulkRef.current = true;
+    setBulkDialog(false);
+    setBulk({ running: true, order: targets.map((p) => p.id), done: 0, failed: 0 });
+    try {
+      // 1件ずつ独立（R-39）。失敗しても次へ進む。結果は STEP3 に生成順
+      for (const p of targets) {
+        await runOne(p);
+        const failedNow = !!errorsRef.current[p.id];
+        setBulk((b) => (b ? { ...b, done: b.done + 1, failed: b.failed + (failedNow ? 1 : 0) } : b));
+      }
+    } finally {
+      bulkRef.current = false;
+      setBulk((b) => (b ? { ...b, running: false } : b));
+    }
+  };
+  const errorsRef = useRef(errors);
+  errorsRef.current = errors;
+  const regenerate = async (plan: VisualPlan) => {
+    if (bulkRef.current || busyRef.current.has(plan.id)) return;
+    setBulk((b) => (b ? { ...b, failed: Math.max(0, b.failed - (errors[plan.id] ? 1 : 0)) } : b));
+    await runOne(plan);
+    if (errorsRef.current[plan.id]) setBulk((b) => (b ? { ...b, failed: b.failed + 1 } : b));
+  };
+  const downloadAll = () => {
+    const list = (bulk?.order ?? []).map((id) => plans.find((p) => p.id === id)).filter((p): p is VisualPlan => !!p && !!results[p.id]?.finalBase64);
+    list.forEach((p, i) => setTimeout(() => download(p, results[p.id]), i * 400));
+  };
+
   const dialogPlan = imageDialog ? plans.find((p) => p.id === imageDialog) ?? null : null;
   const dialogEstimate = dialogPlan ? estimateImageCost(imageSettings.quality, orientation, buildVisualImagePrompt(dialogPlan, imageSettings).length) : null;
 
@@ -325,7 +405,7 @@ function VisualsInner() {
           <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>{sourceText.length.toLocaleString()} 文字</span>
           <span style={{ flex: 1 }} />
           <button type="button" data-vis-extract onClick={() => void extract()} disabled={extracting || sourceText.trim().length < 20} style={{ ...primaryBtn, opacity: extracting || sourceText.trim().length < 20 ? 0.5 : 1 }}>
-            {extracting ? '⏳ 抽出中…' : '🧩 図解プランを抽出（最大6・AI）'}
+            {extracting ? '⏳ 抽出中…' : `🧩 図解プランを抽出（最大${VISUAL_MAX_PLANS}・AI）`}
           </button>
         </div>
       </section>
@@ -334,8 +414,8 @@ function VisualsInner() {
       {plans.length > 0 && (
         <section data-vis-step2 style={{ ...card, display: 'flex', flexDirection: 'column', gap: 12 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-            <strong style={{ fontSize: 13 }}>STEP2 プランを直す → STEP3 描く</strong>
-            <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>赤い印＝元テキストに無い語句／NG表現。直すと描けます（判定は編集のたびに再計算）</span>
+            <strong style={{ fontSize: 13 }}>{formMode ? 'STEP2 プランを直す → STEP3 描く' : 'STEP2 提案を読んで承認する'}</strong>
+            <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>{formMode ? '赤い印＝元テキストに無い語句／NG表現。直すと描けます（判定は編集のたびに再計算）' : '候補を読み、使うものにチェック（複数可）。赤い印のある候補は承認できません（「赤い部分を外して承認」か「詳しく直す」）。生成は下の1ボタンでまとめて'}</span>
             <span style={{ flex: 1 }} />
             <label style={{ fontSize: 12, display: 'flex', alignItems: 'center', gap: 6 }}>
               向き
@@ -353,14 +433,65 @@ function VisualsInner() {
             const isImage = plan.type === 'image';
             const imageBlocked = isImage && status && !status.gptImage;
             return (
-              <div key={plan.id} data-vis-plan={plan.id} data-vis-plan-type={plan.type} data-vis-plan-ok={check.ok ? '1' : '0'} style={{ border: `1px solid ${check.ok ? 'var(--border)' : 'rgba(185,28,28,0.5)'}`, borderRadius: 10, padding: 12, display: 'flex', flexDirection: 'column', gap: 8 }}>
+              <div key={plan.id} data-vis-plan={plan.id} data-vis-plan-type={plan.type} data-vis-plan-ok={check.ok ? '1' : '0'} data-vis-approved={plan.id in approved ? '1' : '0'} style={{ border: `1px solid ${plan.id in approved ? 'var(--border-accent)' : check.ok ? 'var(--border)' : 'rgba(185,28,28,0.5)'}`, borderRadius: 10, padding: 12, display: 'flex', flexDirection: 'column', gap: 8 }}>
+                {/* 323 §3-1: 提案カード（読める文章）。構成は決定的に組む・関連性は 322 の辺一覧・実在 k/n・why・承認 */}
+                {!formMode && (() => {
+                  const ev = planEvidenceCount(plan, check);
+                  const ap = approvalState(check);
+                  const rows = plan.type === 'relation' || plan.type === 'correlation' ? relationEdgeRows(plan, sourceText) : [];
+                  const noEv = edgesWithoutEvidenceCount(rows);
+                  const minReq = typeMinRequirement(plan);
+                  const canApprove = ap.enabled && !minReq;
+                  return (
+                    <div data-vis-card={plan.id} style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+                        <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontWeight: 700, fontSize: 13, cursor: canApprove ? 'pointer' : 'not-allowed' }} title={ap.reason ?? minReq ?? '承認＝この候補のこの文字列で描いてよい'}>
+                          <input type="checkbox" data-vis-approve={plan.id} checked={plan.id in approved} disabled={!canApprove} onChange={(e) => approve(plan.id, e.target.checked)} />
+                          {plan.id in approved ? '承認済み' : '承認'}
+                        </label>
+                        <span style={{ fontSize: 12, fontWeight: 700 }}>{idx + 1}. {VISUAL_TYPE_META[plan.type].emoji} {VISUAL_TYPE_META[plan.type].label}</span>
+                        <span data-vis-card-title={plan.id} style={{ fontSize: 13, fontWeight: 700 }}>{plan.title || '（無題）'}</span>
+                        <span style={{ flex: 1 }} />
+                        <span data-vis-evidence-count={`${ev.ok}/${ev.total}`} style={{ fontSize: 11, color: ev.ok < ev.total ? '#B91C1C' : '#0d9973', fontWeight: 700 }}>元テキストに実在 {ev.ok}/{ev.total}</span>
+                        {plan.why && <span data-vis-why={plan.id} title="AI が提案した理由（表示だけ。図には入りません）" style={{ fontSize: 11, color: 'var(--text-muted)' }}>💡 {plan.why}</span>}
+                      </div>
+                      <div data-vis-structure={plan.id} style={{ fontSize: 12, lineHeight: 1.7 }}>構成: {planStructureText(plan)}</div>
+                      {rows.length > 0 && (
+                        <div data-vis-card-edges={plan.id} style={{ fontSize: 12, lineHeight: 1.7 }}>
+                          関連性: {rows.map((r) => <span key={r.key} data-vis-card-edge={`${plan.id}-${r.key}`} data-vis-card-edge-on={r.on ? '1' : '0'} style={{ display: 'inline-block', marginRight: 8, textDecoration: r.on ? 'none' : 'line-through', color: r.on ? 'inherit' : 'var(--text-muted)' }}>{r.from} → {r.to}{r.label ? `: ${r.label}` : ''}（{r.on ? (r.evidence === null ? '根拠なし' : '根拠あり') : '描かない'}）</span>)}
+                          {noEv > 0 && <span data-vis-card-noevidence={noEv} style={{ color: '#B45309' }}>根拠のない辺 {noEv} 本</span>}
+                        </div>
+                      )}
+                      {ap.reason && (
+                        <div data-vis-approve-reason={plan.id} style={{ fontSize: 12, color: '#B91C1C', lineHeight: 1.7 }}>
+                          ⚠️ {ap.reason}
+                          {(check.foreign.length > 0 || check.banned.length > 0) && !check.foreign.includes(plan.title.trim()) && (
+                            <button type="button" data-vis-strip-approve={plan.id} onClick={() => stripAndApprove(plan)} style={{ ...btn, marginLeft: 8, padding: '4px 10px' }} title="元テキストに無い語句・NG表現の断片をこの候補から外して（AIなし・決定的）承認します">
+                              ✂️ 赤い部分を外して承認
+                            </button>
+                          )}
+                        </div>
+                      )}
+                      {!ap.reason && minReq && <div data-vis-approve-reason={plan.id} style={{ fontSize: 12, color: '#B91C1C' }}>⚠️ 承認できません（{minReq}）</div>}
+                      {stripError[plan.id] && <div data-vis-strip-error={plan.id} style={{ fontSize: 12, color: '#B91C1C' }}>⚠️ {stripError[plan.id]}</div>}
+                      {stripped[plan.id] && stripped[plan.id].length > 0 && <div data-vis-stripped={plan.id} style={{ fontSize: 11, color: 'var(--text-muted)' }}>外した語句: {stripped[plan.id].join('／')}</div>}
+                      <div>
+                        <button type="button" data-vis-detail-toggle={plan.id} aria-expanded={!!detailOpen[plan.id]} onClick={() => setDetailOpen((m) => ({ ...m, [plan.id]: !m[plan.id] }))} style={{ ...btn, padding: '4px 10px' }}>
+                          {detailOpen[plan.id] ? '▴ 閉じる' : '▾ 詳しく直す'}
+                        </button>
+                        {plan.id in approved && <span style={{ marginLeft: 8, fontSize: 11, color: 'var(--text-muted)' }}>変更すると承認は外れます</span>}
+                      </div>
+                    </div>
+                  );
+                })()}
+                {(formMode || detailOpen[plan.id]) && (<>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
                   <span style={{ fontSize: 12, fontWeight: 700 }}>{idx + 1}.</span>
                   <select data-vis-type={plan.id} value={plan.type} onChange={(e) => updatePlan(plan.id, (p) => ({ ...p, type: e.target.value as VisualType }))} style={{ ...input, width: 'auto', padding: '4px 8px' }}>
                     {VISUAL_TYPES.map((t) => <option key={t} value={t}>{VISUAL_TYPE_META[t].emoji} {VISUAL_TYPE_META[t].label}</option>)}
                   </select>
                   {/* 322 §3-4: AI の「この内容に向く種類の理由」（表示のみ・図には入らない・実在チェックの対象外）。種類の切替は院長 */}
-                  {plan.why && <span data-vis-why={plan.id} title="AI が提案した理由（表示だけ。図には入りません）" style={{ fontSize: 11, color: 'var(--text-muted)', maxWidth: 260, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>💡 {plan.why}</span>}
+                  {formMode && plan.why && <span data-vis-why={plan.id} title="AI が提案した理由（表示だけ。図には入りません）" style={{ fontSize: 11, color: 'var(--text-muted)', maxWidth: 260, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>💡 {plan.why}</span>}
                   <input data-vis-title={plan.id} value={plan.title} onChange={(e) => updatePlan(plan.id, (p) => ({ ...p, title: e.target.value }))} placeholder="タイトル（元テキストの語句）" style={{ ...input, flex: 1, minWidth: 200 }} />
                   <button type="button" onClick={() => movePlan(plan.id, -1)} disabled={idx === 0} style={{ ...btn, padding: '4px 8px' }} title="上へ">↑</button>
                   <button type="button" onClick={() => movePlan(plan.id, 1)} disabled={idx === plans.length - 1} style={{ ...btn, padding: '4px 8px' }} title="下へ">↓</button>
@@ -495,11 +626,89 @@ function VisualsInner() {
                     </div>
                   </div>
                 )}
+                </>)}
               </div>
             );
           })}
+          {/* 323 §3-4: 承認した n 件を生成（確認1回・R-56） */}
+          {!formMode && (
+            <div data-vis-bulk-bar style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', borderTop: '1px solid var(--border)', paddingTop: 10 }}>
+              <button type="button" data-vis-bulk-generate onClick={() => setBulkDialog(true)} disabled={approvedPlans.length === 0 || !!bulk?.running} title={approvedPlans.length === 0 ? '承認した候補がありません（チェックを付けてください）' : '承認した候補をまとめて生成します（確認ダイアログで内訳と費用の目安を表示）'} style={{ ...primaryBtn, opacity: approvedPlans.length === 0 || bulk?.running ? 0.5 : 1 }}>
+                {bulk?.running ? `⏳ 生成中 ${bulk.done}/${bulk.order.length}` : `🚀 承認した ${approvedPlans.length} 件を生成`}
+              </button>
+              <span data-vis-bulk-estimate data-vis-bulk-estimate-usd={bulkEst.usd.toFixed(4)} style={{ fontSize: 11, color: 'var(--text-muted)' }}>{bulkConfirmLabel(bulkEst)}・費用の目安 {formatUsd(bulkEst.usd)}・所要の目安 約{bulkEst.seconds}秒</span>
+            </div>
+          )}
           <div style={{ fontSize: 11, color: 'var(--text-muted)', lineHeight: 1.7 }}>📝 {VISUAL_NOTE_GUIDE}</div>
         </section>
+      )}
+
+      {/* 323: STEP3 結果（提案モード・生成順） */}
+      {!formMode && bulk && (
+        <section data-vis-step3 data-vis-bulk-done={bulk.done} data-vis-bulk-failed={bulk.failed} data-vis-bulk-total={bulk.order.length} data-vis-bulk-running={bulk.running ? '1' : '0'} style={{ ...card, display: 'flex', flexDirection: 'column', gap: 12 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+            <strong style={{ fontSize: 13 }}>STEP3 結果</strong>
+            <span data-vis-bulk-progress style={{ fontSize: 12, color: 'var(--text-secondary)' }}>{bulk.done}/{bulk.order.length} 完了・{bulk.failed} 失敗{bulk.running ? '（生成中…）' : ''}</span>
+            <span style={{ flex: 1 }} />
+            <button type="button" data-vis-download-all onClick={downloadAll} disabled={bulk.running || bulk.order.every((id) => !results[id]?.finalBase64)} style={btn} title="完成した PNG を順にダウンロードします（ZIP にはしません）">📥 まとめてダウンロード</button>
+          </div>
+          {bulk.order.map((id, i) => {
+            const plan = plans.find((p) => p.id === id);
+            if (!plan) return null;
+            const res = results[id];
+            const err = errors[id];
+            return (
+              <div key={id} data-vis-out={id} data-vis-out-state={busy[id] ? 'running' : err ? 'error' : res ? 'done' : 'pending'} style={{ border: '1px solid var(--border)', borderRadius: 10, padding: 12, display: 'flex', flexDirection: 'column', gap: 8 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', fontSize: 12 }}>
+                  <strong>{i + 1}. {VISUAL_TYPE_META[plan.type].emoji} {VISUAL_TYPE_META[plan.type].label}</strong>
+                  <span>{plan.title}</span>
+                  <span style={{ flex: 1 }} />
+                  {busy[id] && <span>⏳ 生成中…</span>}
+                  {err && !busy[id] && (
+                    <>
+                      <span data-vis-out-error={id} style={{ color: '#B91C1C' }}>❌ {err.message}</span>
+                      <button type="button" data-vis-regenerate={id} onClick={() => void regenerate(plan)} disabled={bulk.running} style={btn}>🔁 再生成</button>
+                    </>
+                  )}
+                </div>
+                {res && (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                    <img data-vis-out-img={id} src={`data:image/png;base64,${res.finalBase64}`} alt={plan.title} style={{ maxWidth: '100%', height: 'auto', border: '1px solid var(--border)', borderRadius: 8 }} />
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', fontSize: 11, color: 'var(--text-muted)' }}>
+                      <span>{res.width}×{res.height}</span>
+                      {res.kind === 'render' && res.textVerified && <span style={{ color: '#0d9973', fontWeight: 700 }}>✓ 文字はプランと完全一致</span>}
+                      {res.costUsd != null && <span>費用の実績 {formatUsd(res.costUsd)}</span>}
+                      {res.saving ? <span>保存中…</span> : res.galleryId ? <span data-vis-out-saved={id}>✅ ギャラリーに保存済み</span> : res.saveError ? <span style={{ color: '#B91C1C' }}>保存に失敗: {res.saveError}</span> : null}
+                      <span style={{ flex: 1 }} />
+                      <button type="button" data-vis-out-download={id} onClick={() => download(plan, res)} style={btn}>📥 PNG</button>
+                      <button type="button" data-vis-out-copy={id} onClick={() => void copyImage(res)} style={btn}>📋 コピー</button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </section>
+      )}
+
+      {/* 323: 一括生成の確認ダイアログ（R-56: 生成前に1回） */}
+      {bulkDialog && (
+        <div data-vis-bulk-dialog role="dialog" aria-label="一括生成の確認" onClick={(e) => { if (e.target === e.currentTarget) setBulkDialog(false); }} style={{ position: 'fixed', inset: 0, zIndex: 10000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16, background: 'rgba(0,0,0,0.35)' }}>
+          <div style={{ width: 'min(560px, 100%)', background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 12, padding: 16, display: 'flex', flexDirection: 'column', gap: 10, fontSize: 13 }}>
+            <div style={{ fontWeight: 700 }}>🚀 承認した {approvedPlans.length} 件を生成しますか？</div>
+            <div style={{ color: 'var(--text-secondary)', lineHeight: 1.7 }}>
+              <div data-vis-bulk-dialog-breakdown data-vis-bulk-dialog-renders={bulkEst.renders} data-vis-bulk-dialog-images={bulkEst.images}>{bulkConfirmLabel(bulkEst)}</div>
+              <div>費用の目安: <strong data-vis-bulk-dialog-cost data-vis-bulk-dialog-cost-usd={bulkEst.usd.toFixed(4)}>{formatUsd(bulkEst.usd)}</strong> <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>（{imagePricingNote()}）</span></div>
+              <div>所要の目安: 約{bulkEst.seconds}秒（1件ずつ独立に生成・失敗した分だけ再生成できます）</div>
+              {bulkEst.images > 0 && <div>画像の文字: {imageSettings.aiText ? 'AIに描かせる（完成後に目視確認）' : '重ねる（コードで描く＝100%一致）'}／品質 {imageSettings.quality}</div>}
+              <ul style={{ margin: '6px 0 0', paddingLeft: 18 }}>{approvedPlans.map((p) => <li key={p.id}>{VISUAL_TYPE_META[p.type].emoji} {p.title}</li>)}</ul>
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+              <button type="button" data-vis-bulk-cancel onClick={() => setBulkDialog(false)} style={btn}>やめる</button>
+              <button type="button" data-vis-bulk-start onClick={() => void runBulk()} style={primaryBtn}>🚀 生成する</button>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* 画像生成の確認ダイアログ（R-56: 1回） */}

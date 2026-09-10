@@ -1160,3 +1160,42 @@ test('B41: 図解プランの why（322・実AI・Gemini）— 各候補に「�
     expect(rj.textVerified).toBe(true);
   }
 });
+
+
+test('B42: 図解の複数提示と一括生成（323・実AI）— 種類を絞った抽出（relation/table）で同じ種類の切り口違いが最大2つ・合計8以内・why つき（種類ごとの件数を報告）。承認相当のプランをコード描画2＋画像1（low）で生成できる @gen', async ({ request }) => {
+  test.setTimeout(GEN_TIMEOUT);
+  const text = 'トリプトファンはセロトニンに変換され、セロトニンはメラトニンに変換される。朝の光はセロトニンの分泌を増やし、夜の暗さはメラトニンの分泌を増やす。朝は洗顔のあと化粧水をなじませてから乳液で蓋をする。夜はクレンジングのあとに同じ手順で保湿する。週に1回は角質ケアを足す。';
+  const t0 = Date.now();
+  const res = await request.post('/api/visuals/plan', { data: { text, types: ['relation', 'table'] }, timeout: REQ_TIMEOUT });
+  expect(res.status()).toBe(200);
+  const j = (await res.json()) as { plans: { id: string; type: string; title: string; why?: string; groups: { heading?: string; points: string[] }[] }[]; checks: Record<string, { foreign: string[] }> };
+  expect(j.plans.length).toBeGreaterThan(0);
+  expect(j.plans.length).toBeLessThanOrEqual(8);
+  const perType: Record<string, number> = {};
+  for (const p of j.plans) perType[p.type] = (perType[p.type] ?? 0) + 1;
+  for (const [ty, n] of Object.entries(perType)) expect(n, `${ty} は切り口違いで最大2つ`).toBeLessThanOrEqual(2);
+  console.log(`[B42] ${Date.now() - t0}ms plans=${j.plans.length} perType=${JSON.stringify(perType)} why=${j.plans.map((p) => p.why ?? '-').join(' | ')}`);
+  const okPlans = j.plans.filter((p) => (j.checks[p.id]?.foreign.length ?? 0) === 0 && p.type !== 'image').slice(0, 2);
+  for (const p of okPlans) {
+    const rr = await request.post('/api/visuals/render', { data: { plan: p, sourceText: text, orientation: 'landscape' }, timeout: REQ_TIMEOUT });
+    const rj = (await rr.json()) as { textVerified?: boolean; error?: string };
+    expect(rr.status(), `${p.type}「${p.title}」の描画が 200: ${rj.error ?? ''}`).toBe(200);
+    expect(rj.textVerified).toBe(true);
+  }
+  console.log(`[B42] rendered=${okPlans.map((p) => p.type).join(',')}`);
+  const status = (await (await request.get('/api/visuals?mode=status')).json()) as { gptImage: boolean };
+  if (!status.gptImage) {
+    console.log('[B42] OPENAI_API_KEY 未設定＝画像はスキップ');
+    return;
+  }
+  const t1 = Date.now();
+  const img = await request.post('/api/visuals/image', { data: { plan: { id: 'b42', type: 'image', title: '朝の保湿', groups: [{ points: ['乳液で蓋をする'] }], imagePrompt: '洗面台と朝の光' }, sourceText: text, settings: { orientation: 'landscape', quality: 'low', aiText: false, extraPrompt: '', model: 'flare' } }, timeout: REQ_TIMEOUT });
+  const ij = (await img.json()) as { finalBase64?: string; error?: string; unavailable?: boolean; costUsd?: number | null };
+  if (img.status() !== 200 && ij.unavailable) {
+    console.log(`[B42] GPT Image 2.5 は未提供: ${ij.error}`);
+    return;
+  }
+  expect(img.status(), `画像生成が 200: ${ij.error ?? ''}`).toBe(200);
+  expect((ij.finalBase64?.length ?? 0) > 5000).toBe(true);
+  console.log(`[B42] image ${Date.now() - t1}ms cost=${ij.costUsd}`);
+});

@@ -10994,7 +10994,7 @@ test('C131: 記事→図解（315）— 📚🗂の行の「🖼 図解にする
     await expect(openLink).toBeVisible({ timeout: 30000 });
     expect(await openLink.getAttribute('href')).toBe(`/dashboard/visuals?scope=library&id=${libId}`);
     await expect(page.locator(`[data-library-visual-open="${libId}"] [data-library-visual-count]`), 'まだ図解は無い').toHaveCount(0);
-    await page.goto(`/dashboard/visuals?scope=library&id=${libId}`);
+    await page.goto(`/dashboard/visuals?scope=library&id=${libId}&mode=form`); // 323: 従来モード（互換）
     const source = page.locator('[data-vis-source]');
     await expect(source).toHaveValue(new RegExp(marker), { timeout: 30000 });
     await expect(page.locator('[data-vis-sources]')).toHaveAttribute('data-vis-sources', '1');
@@ -11067,7 +11067,7 @@ test('C131: 記事→図解（315）— 📚🗂の行の「🖼 図解にする
     const taLink = page.locator(`[data-ta-visual-open="${saveId}"]`);
     await expect(taLink).toBeVisible({ timeout: 30000 });
     expect(await taLink.getAttribute('href')).toBe(`/dashboard/visuals?scope=text_analysis&id=${saveId}`);
-    await page.goto('/dashboard/visuals');
+    await page.goto('/dashboard/visuals?mode=form'); // 323: 従来モード（互換）
     await expect(page.locator('[data-vis-source]')).toHaveValue('');
     await page.locator('[data-vis-source]').fill(body);
     await page.locator('[data-vis-extract]').click();
@@ -11917,6 +11917,7 @@ test('C136: 生成結果から直接図解・画像（320）— 🔭DR結果（�
     expect(imageCalls, '自動で生成しない').toBe(0);
     // ── ③ 相関図: label 無しの辺と元テキストに無い語句が赤い印 → 直すと描ける → 実描画（線は一様・文字一致）→ 出どころは未保存 ──
     const c1 = popup.locator('[data-vis-plan="c1"]');
+    await c1.locator('[data-vis-detail-toggle="c1"]').click(); // 323: 提案モードでは編集フォームは「詳しく直す」で開く
     await expect(c1).toHaveAttribute('data-vis-plan-type', 'correlation');
     await expect(c1).toHaveAttribute('data-vis-plan-ok', '0');
     await expect(c1.locator('[data-vis-block-reason="c1"]')).toContainText(CORRELATION_LABEL_REQUIRED);
@@ -11949,7 +11950,7 @@ test('C136: 生成結果から直接図解・画像（320）— 🔭DR結果（�
     expect(planBodies.length, '再読込で再実行しない').toBe(1);
     // ── ⑤ 保存済み ?scope=&id=: STEP1 失敗でボタンが戻る → 手動で成功。「AIに文字も描かせる」の記憶 ──
     failNextPlan = true;
-    await popup.goto(`/dashboard/visuals?scope=library&id=${libId}&types=table%2Cimage&autoplan=1`);
+    await popup.goto(`/dashboard/visuals?scope=library&id=${libId}&types=table%2Cimage&autoplan=1&mode=form`); // 323: 従来モード（互換）
     await expect(popup.locator('[data-vis-source]')).toHaveValue(new RegExp(marker), { timeout: 30000 });
     await expect.poll(() => planBodies.length, '保存済み経路でも自動 STEP1').toBe(2);
     await expect(popup.locator('[data-vis-extract]'), '失敗したらボタンが押せる状態に戻る').toBeEnabled({ timeout: 15000 });
@@ -12142,7 +12143,7 @@ test('C138: 関連図の是正・つながり確認・🗂成果物の操作行�
     expect(rj.textVerified).toBe(true);
     expect((rj.imageBase64?.length ?? 0) > 5000).toBe(true);
     // ── ② 315: why・相手ノードが無い辺の理由・つながり確認 ──
-    await page.goto('/dashboard/visuals');
+    await page.goto('/dashboard/visuals?mode=form'); // 323: 従来モード（互換）
     await page.locator('[data-vis-source]').fill(src);
     await page.locator('[data-vis-extract]').click();
     const p1 = page.locator('[data-vis-plan="r1"]');
@@ -12247,5 +12248,135 @@ test('C138: 関連図の是正・つながり確認・🗂成果物の操作行�
   } finally {
     for (const id of galleryIds) await api.delete(`/api/gallery/${id}`).catch(() => {});
     await cleanupE2ESaves(request);
+  }
+});
+
+
+test('C139: 図解の提案→承認→一括生成（323）— 提案モード（既定）で候補がテキストのカード（種類・タイトル・構成・関連性・実在 k/n・why）／赤い印の候補は承認できず理由→「赤い部分を外して承認」で断片が除かれ承認（外した語句を表示）・最低要件を割ると理由・タイトルの赤は外せない／複数承認・「詳しく直す」で編集すると承認が外れる／承認0で生成ボタン無効／「承認した n 件を生成」→確認1回（内訳・費用）→承認分だけ生成・未承認は生成されない・1件失敗しても他は完成し失敗分だけ再生成・STEP3 に PNG／コピー／保存済み・approvedAt が付く／?mode=form で従来の画面', async ({ page, request }) => {
+  test.setTimeout(300_000);
+  const marker = `PRP${RUN_ID}`;
+  const src = `朝の保湿は洗顔のあと5分以内に行う。化粧水をなじませてから乳液で蓋をする。夜はクレンジングのあとに同じ手順。トリプトファンはセロトニンに変換される。セロトニンはメラトニンに変換される。識別子 ${marker}`;
+  const galleryIds: string[] = [];
+  const renderBodies: { plan?: { id?: string } }[] = [];
+  let failT1Once = true;
+  let imageCalls = 0;
+  await page.route('**/api/visuals/render', async (route) => {
+    const b = route.request().postDataJSON() as { plan?: { id?: string } };
+    renderBodies.push(b);
+    if (b.plan?.id === 't1' && failT1Once) {
+      failT1Once = false;
+      await route.fulfill({ status: 500, contentType: 'application/json', body: JSON.stringify({ error: 'E2E: 1回目だけ失敗' }) });
+      return;
+    }
+    await route.fallback();
+  });
+  await page.route('**/api/visuals/image', async (route) => { imageCalls++; await route.fulfill({ status: 500, contentType: 'application/json', body: '{"error":"E2E では画像を生成しない"}' }); });
+  await page.route('**/api/visuals/plan', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ plans: [
+    { id: 'r1', type: 'relation', why: '物質の変換の順序を線でつなぐと流れが分かる', title: 'トリプトファンからメラトニンへ', groups: [{ heading: 'トリプトファン', points: ['→ セロトニン: 変換'] }, { heading: 'セロトニン', points: ['→ メラトニン: 変換'] }, { heading: 'メラトニン', points: [] }] },
+    { id: 't1', type: 'table', why: '朝と夜の手順を列で並べると比べやすい', title: '同じ手順', groups: [{ heading: '朝', points: ['化粧水', '乳液'] }, { heading: '夜', points: ['クレンジング', '乳液'] }] },
+    { id: 'i1', type: 'image', title: '朝の保湿', groups: [{ points: ['乳液で蓋をする'] }], imagePrompt: '洗面台と朝の光' },
+    { id: 'x1', type: 'compare', title: '朝と夜', groups: [{ heading: '朝', points: ['化粧水', 'スキンケア'] }, { heading: '夜', points: ['クレンジング'] }] },
+    { id: 'y1', type: 'compare', title: '朝と夜', groups: [{ heading: '朝', points: ['化粧水'] }, { heading: '謎の対象', points: ['乳液'] }] },
+    { id: 'z1', type: 'steps', title: 'スキンケアの手順', groups: [{ points: ['洗顔', '化粧水', '乳液'] }] },
+  ], rejected: [], ranAt: new Date().toISOString() }) }));
+  try {
+    await page.goto('/dashboard/visuals');
+    await page.locator('[data-vis-source]').fill(src);
+    await page.locator('[data-vis-extract]').click();
+    await expect(page.locator('[data-vis-card]')).toHaveCount(6, { timeout: 15000 });
+    // ── ① カード（読める文章・決定的な構成・関連性・実在 k/n・why） ──
+    const r1 = page.locator('[data-vis-plan="r1"]');
+    await expect(r1.locator('[data-vis-structure="r1"]')).toHaveText('構成: トリプトファン／セロトニン／メラトニン の 3 点を中心に、トリプトファン→セロトニン（変換）／セロトニン→メラトニン（変換） の 2 本のつながり');
+    await expect(r1.locator('[data-vis-card-edge="r1-0-1"]')).toContainText('根拠あり');
+    await expect(r1.locator('[data-vis-evidence-count]')).toHaveAttribute('data-vis-evidence-count', '6/6');
+    await expect(r1.locator('[data-vis-why="r1"]')).toContainText('物質の変換');
+    await expect(r1.locator('[data-vis-points]'), '編集フォームは閉じている').toHaveCount(0);
+    await expect(page.locator('[data-vis-plan="t1"] [data-vis-structure="t1"]')).toHaveText('構成: 列 朝／夜・行 2 件');
+    await expect(page.locator('[data-vis-plan="i1"] [data-vis-structure="i1"]')).toHaveText('構成: 絵柄: 洗面台と朝の光／重ねる文字: 1 行');
+    // ── ② 承認できない候補と「赤い部分を外して承認」 ──
+    const x1 = page.locator('[data-vis-plan="x1"]');
+    await expect(x1.locator('[data-vis-evidence-count]')).toHaveAttribute('data-vis-evidence-count', '5/6');
+    await expect(x1.locator('[data-vis-approve="x1"]')).toBeDisabled();
+    await expect(x1.locator('[data-vis-approve-reason="x1"]')).toContainText('スキンケア');
+    await x1.locator('[data-vis-strip-approve="x1"]').click();
+    await expect(x1, '外して承認').toHaveAttribute('data-vis-approved', '1');
+    await expect(x1.locator('[data-vis-stripped="x1"]')).toContainText('スキンケア');
+    await expect(x1.locator('[data-vis-evidence-count]')).toHaveAttribute('data-vis-evidence-count', '5/5');
+    const y1 = page.locator('[data-vis-plan="y1"]');
+    await y1.locator('[data-vis-strip-approve="y1"]').click();
+    await expect(y1.locator('[data-vis-strip-error="y1"]'), '最低要件を割ると承認できない').toContainText('比較は2つ以上');
+    await expect(y1).toHaveAttribute('data-vis-approved', '0');
+    const z1 = page.locator('[data-vis-plan="z1"]');
+    await expect(z1.locator('[data-vis-strip-approve="z1"]'), 'タイトルの赤は外せない（ボタン無し）').toHaveCount(0);
+    await expect(z1.locator('[data-vis-approve="z1"]')).toBeDisabled();
+    // ── ③ 複数承認・編集で外れる・0件で無効 ──
+    const bulkBtn = page.locator('[data-vis-bulk-generate]');
+    await r1.locator('[data-vis-approve="r1"]').check();
+    await page.locator('[data-vis-plan="t1"] [data-vis-approve="t1"]').check();
+    await expect(bulkBtn).toHaveText(/承認した 3 件を生成/);
+    await r1.locator('[data-vis-detail-toggle="r1"]').click();
+    await expect(r1.locator('[data-vis-points="r1-0"]')).toBeVisible();
+    await r1.locator('[data-vis-title="r1"]').fill('トリプトファンからメラトニンへ ');
+    await expect(r1, '編集すると承認が外れる').toHaveAttribute('data-vis-approved', '0');
+    await r1.locator('[data-vis-approve="r1"]').check();
+    await expect(r1).toHaveAttribute('data-vis-approved', '1');
+    await x1.locator('[data-vis-approve="x1"]').uncheck();
+    await page.locator('[data-vis-plan="t1"] [data-vis-approve="t1"]').uncheck();
+    await r1.locator('[data-vis-approve="r1"]').uncheck();
+    await expect(bulkBtn, '承認0で無効').toBeDisabled();
+    await r1.locator('[data-vis-approve="r1"]').check();
+    await page.locator('[data-vis-plan="t1"] [data-vis-approve="t1"]').check();
+    await x1.locator('[data-vis-approve="x1"]').check();
+    // ── ④ 一括生成: 確認1回 → 承認分だけ → 1件失敗 → 再生成 ──
+    await bulkBtn.click();
+    const dlg = page.locator('[data-vis-bulk-dialog]');
+    await expect(dlg).toBeVisible();
+    await expect(dlg.locator('[data-vis-bulk-dialog-breakdown]')).toHaveAttribute('data-vis-bulk-dialog-renders', '3');
+    await expect(dlg.locator('[data-vis-bulk-dialog-breakdown]')).toHaveAttribute('data-vis-bulk-dialog-images', '0');
+    await expect(dlg.locator('[data-vis-bulk-dialog-cost]')).toHaveAttribute('data-vis-bulk-dialog-cost-usd', '0.0000');
+    await dlg.locator('[data-vis-bulk-cancel]').click();
+    await expect(dlg).toHaveCount(0);
+    expect(renderBodies.length, 'やめるで生成しない').toBe(0);
+    await bulkBtn.click();
+    await dlg.locator('[data-vis-bulk-start]').evaluate((el) => { (el as HTMLButtonElement).click(); (el as HTMLButtonElement).click(); }); // R-87
+    const step3 = page.locator('[data-vis-step3]');
+    await expect(step3).toBeVisible();
+    await expect(step3).toHaveAttribute('data-vis-bulk-running', '0', { timeout: 120000 });
+    await expect(step3).toHaveAttribute('data-vis-bulk-total', '3');
+    await expect(step3).toHaveAttribute('data-vis-bulk-done', '3');
+    await expect(step3).toHaveAttribute('data-vis-bulk-failed', '1');
+    expect(renderBodies.map((b) => b.plan?.id), '承認した3件だけ・二重発火なし').toEqual(['r1', 't1', 'x1']);
+    expect(imageCalls, '未承認の画像は生成されない').toBe(0);
+    await expect(step3.locator('[data-vis-out="r1"]')).toHaveAttribute('data-vis-out-state', 'done');
+    await expect(step3.locator('[data-vis-out="x1"]')).toHaveAttribute('data-vis-out-state', 'done');
+    await expect(step3.locator('[data-vis-out="t1"]')).toHaveAttribute('data-vis-out-state', 'error');
+    await expect(step3.locator('[data-vis-out-error="t1"]')).toContainText('1回目だけ失敗');
+    await expect(step3.locator('[data-vis-out-saved="r1"]')).toBeVisible({ timeout: 60000 });
+    await expect(step3.locator('[data-vis-out-download="r1"]')).toBeVisible();
+    await expect(step3.locator('[data-vis-out-copy="r1"]')).toBeVisible();
+    await step3.locator('[data-vis-regenerate="t1"]').click();
+    await expect(step3.locator('[data-vis-out="t1"]')).toHaveAttribute('data-vis-out-state', 'done', { timeout: 60000 });
+    await expect(step3).toHaveAttribute('data-vis-bulk-failed', '0');
+    expect(renderBodies.map((b) => b.plan?.id)).toEqual(['r1', 't1', 'x1', 't1']);
+    await expect(step3.locator('[data-vis-out-saved="t1"]')).toBeVisible({ timeout: 60000 });
+    await expect(step3.locator('[data-vis-out-saved="x1"]')).toBeVisible({ timeout: 60000 });
+    // 出どころ: approvedAt
+    const g1 = await r1.locator('[data-vis-result="r1"]').getAttribute('data-vis-gallery-id').catch(() => null);
+    const gal = (await (await api.get('/api/gallery?limit=8')).json()) as { images: { id: string; settings: { visual?: { approvedAt?: string; plan?: { id?: string } } } }[] };
+    const rows = gal.images.filter((im) => im.settings.visual?.plan?.id && ['r1', 't1', 'x1'].includes(im.settings.visual.plan.id));
+    for (const im of rows) galleryIds.push(im.id);
+    expect(rows.length).toBeGreaterThanOrEqual(3);
+    for (const im of rows) expect(im.settings.visual?.approvedAt, `${im.settings.visual?.plan?.id}: approvedAt（JST）`).toMatch(/^\d{4}\/\d{2}\/\d{2} \d{2}:\d{2}/);
+    void g1;
+    // ── ⑤ ?mode=form で従来の画面（承認 UI なし・フォームが最初から開く） ──
+    await page.goto('/dashboard/visuals?mode=form');
+    await page.locator('[data-vis-source]').fill(src);
+    await page.locator('[data-vis-extract]').click();
+    await expect(page.locator('[data-vis-plan="r1"] [data-vis-points="r1-0"]')).toBeVisible({ timeout: 15000 });
+    await expect(page.locator('[data-vis-card]')).toHaveCount(0);
+    await expect(page.locator('[data-vis-bulk-generate]')).toHaveCount(0);
+    await expect(page.locator('[data-vis-render="r1"]')).toBeVisible();
+  } finally {
+    for (const id of galleryIds) await api.delete(`/api/gallery/${id}`).catch(() => {});
   }
 });
