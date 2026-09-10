@@ -305,7 +305,7 @@ export default function GalleryPage() {
       ) : (
         <>
           {/* 329 §2-2: 圧縮したカード（サムネは 16:9 の枠・タイトル1行・メタ1行・アイコン3つ） */}
-          <div data-gallery-grid style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 12 }}>
+          <div data-gallery-grid>
             {visible.map((img) => {
               const on = selected.has(img.id);
               return (
