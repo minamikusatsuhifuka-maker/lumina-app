@@ -6207,9 +6207,9 @@ test('C96: リサーチ保存の選択比較（291）— 選択モードの操�
     await page.locator(`[data-library-check="${bs[1]}"]`).check();
     await expect(openBtn).toContainText('選択した4件を比較');
     await page.locator(`[data-library-check="${bs[2]}"]`).check();
-    await expect(openBtn, '5件目を選んでいる間は無効化（先頭4件に黙って切らない）').toBeDisabled();
-    await expect(openBtn).toHaveAttribute('title', /4件まで/);
-    await expect(openBtn).toHaveAttribute('title', /5件選択中/);
+    // 330: 全画面で並べるようになったので上限は9件（5件はそのまま比較できる。10件目の無効化は U61 で固定）
+    await expect(openBtn, '5件でも比較できる（上限9）').toBeEnabled();
+    await expect(openBtn).toContainText('選択した5件を比較');
     // 既存の操作（AIでまとめる／Kindle／削除）は同じバーに並んだまま
     await expect(page.getByRole('button', { name: '🔗 AIでまとめる' })).toBeVisible();
     await expect(page.getByRole('button', { name: '📖 Kindle本にする' })).toBeVisible();
@@ -6534,9 +6534,9 @@ test('C98: テキスト分析の保存一覧への横展開（292）— 選択�
     await check(d).check();
     await expect(openBtn).toContainText('選択した4件を比較');
     await check(e).check();
-    await expect(openBtn, '5件目を選んでいる間は無効化（先頭4件に黙って切らない・R-101）').toBeDisabled();
-    await expect(openBtn).toHaveAttribute('title', /4件まで/);
-    await expect(openBtn).toHaveAttribute('title', /5件選択中/);
+    // 330: 上限は9件（10件目の無効化と理由は U61 で固定）
+    await expect(openBtn, '5件でも比較できる（上限9）').toBeEnabled();
+    await expect(openBtn).toContainText('選択した5件を比較');
     await expect(panel.locator('[data-selection-bar]')).toHaveAttribute('data-selection-bar-count', '5');
     await expect(panel.getByRole('button', { name: /MDダウンロード/ })).toBeVisible();
     await expect(panel.getByRole('button', { name: /Kindle本にする/ })).toBeVisible();
@@ -6944,9 +6944,9 @@ test('C101: AI参照素材の一覧の見え方と選択比較（295）— 列�
     await check(d).check();
     await expect(openBtn).toContainText('選択した4件を比較');
     await check(e).check();
-    await expect(openBtn, '5件目を選んでいる間は無効化（先頭4件に黙って切らない・R-101）').toBeDisabled();
-    await expect(openBtn).toHaveAttribute('title', /4件まで/);
-    await expect(openBtn).toHaveAttribute('title', /5件選択中/);
+    // 330: 上限は9件（10件目の無効化と理由は U61 で固定）
+    await expect(openBtn, '5件でも比較できる（上限9）').toBeEnabled();
+    await expect(openBtn).toContainText('選択した5件を比較');
     await expect(page.locator('[data-selection-bar]')).toHaveAttribute('data-selection-bar-count', '5');
     await check(e).uncheck();
     await expect(openBtn).toBeEnabled();
