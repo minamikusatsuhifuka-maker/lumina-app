@@ -14,13 +14,21 @@
 import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 
+// 開いているモーダルの数。重なっても最後の1つが閉じたときだけ元に戻す（prev の取り違えを避ける）
+let scrollLockCount = 0;
+let scrollLockPrev = '';
+
 /** 背面のスクロールを止める（開いている間だけ・閉じたら元に戻す）。他のダイアログからも使う */
 export function useBodyScrollLock(active = true) {
   useEffect(() => {
     if (!active || typeof document === 'undefined') return;
-    const prev = document.body.style.overflow;
+    if (scrollLockCount === 0) scrollLockPrev = document.body.style.overflow;
+    scrollLockCount += 1;
     document.body.style.overflow = 'hidden';
-    return () => { document.body.style.overflow = prev; };
+    return () => {
+      scrollLockCount = Math.max(0, scrollLockCount - 1);
+      if (scrollLockCount === 0) document.body.style.overflow = scrollLockPrev;
+    };
   }, [active]);
 }
 

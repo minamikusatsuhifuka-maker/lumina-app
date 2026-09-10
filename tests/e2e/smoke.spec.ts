@@ -12652,6 +12652,7 @@ test('C142: ダイアログが透けない（326・WebKit iPhone幅・ライト/
   const page = await ctx.newPage();
   try {
     const src = '冬の乾燥は暖房で室内の湿度が下がることが主な原因です。保湿剤は入浴後5分以内に塗ると効果が高いことが知られています。'.repeat(6);
+    const dlg = page.locator('[data-vis-picker-dialog]');
     // 成果物は「下書きの復元」で出す（AI は使わない・WebKit モバイルでは実行キーの合図が出ないため）
     await page.route('**/api/feature-drafts**', (route) => {
       const isTa = route.request().method() === 'GET' && /feature=text-analysis(&|$)/.test(route.request().url());
@@ -12667,7 +12668,6 @@ test('C142: ダイアログが透けない（326・WebKit iPhone幅・ライト/
       await page.evaluate(() => window.scrollTo(0, 200));
       const beforeY = await page.evaluate(() => window.scrollY);
       await quick.click();
-      const dlg = page.locator('[data-vis-picker-dialog]');
       await expect(dlg).toBeVisible();
       const panel = dlg.locator('[data-modal-panel]');
       const info = await panel.evaluate((el) => {
@@ -12713,11 +12713,17 @@ test('C142: ダイアログが透けない（326・WebKit iPhone幅・ライト/
       await expect(dlg).toBeVisible();
       await page.keyboard.press('Escape');
       await expect(dlg).toHaveCount(0);
-      await quick.click();
-      await expect(dlg).toBeVisible();
-      await page.locator('[data-modal-backdrop]').click({ position: { x: 5, y: 5 } });
-      await expect(dlg).toHaveCount(0);
     }
+    // 暗幕のクリックで閉じる（全画面シートの狭幅では暗幕が見えないので、広幅にして確認する）
+    await page.setViewportSize({ width: 1100, height: 900 });
+    await page.locator('[data-vis-quick-open]').first().click();
+    await expect(dlg).toBeVisible();
+    const wide = await dlg.locator('[data-modal-panel]').evaluate((el) => { const r = el.getBoundingClientRect(); return { w: Math.round(r.width), vw: window.innerWidth, radius: getComputedStyle(el).borderTopLeftRadius }; });
+    expect(wide.w, '広幅は中央のダイアログ（幅の上限）').toBeLessThan(wide.vw);
+    expect(parseFloat(wide.radius), '広幅は角丸').toBeGreaterThan(0);
+    await page.locator('[data-modal-backdrop]').click({ position: { x: 5, y: 5 } });
+    await expect(dlg).toHaveCount(0);
+    await page.setViewportSize({ width: 390, height: 844 });
     // 「進む」は従来どおり新しいタブ（ダイアログの機能は変えていない）
     await page.locator('[data-vis-quick-open]').first().click();
     const dlg2 = page.locator('[data-vis-picker-dialog]');
