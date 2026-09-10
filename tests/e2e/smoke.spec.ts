@@ -13044,3 +13044,114 @@ test('C145: 種類ダイアログの3層と2列（328・PC＋WebKit iPhone幅）
     await browser.close();
   }
 });
+
+// 329: 画像ギャラリーの一括処理とレイアウト圧縮（改修前のカード高さは本番実測 429px・1280幅で3列）
+const GALLERY_CARD_HEIGHT_BEFORE = 429;
+
+test('C146: 画像ギャラリーの一括処理と圧縮（329）— チェックで複数選び SelectionBar に件数が出る／「n件削除」の確認は1回・件数入りで、やめると1件も消えない／1件だけ失敗させても他は消えて件数が出る（R-39）／二重発火で二重に消えない（R-87）／「n件DL」で n 回のダウンロードが走る／カード1枚の高さが改修前の0.6倍以下・列が増える・タイトルとメタは1行・サムネは contain／拡大は ModalSheet（Esc・✕で閉じ背面はスクロールしない）／WebKit iPhone幅は2列で横スクロールなし', async ({ page, request }) => {
+  test.setTimeout(300_000);
+  const marker = `GAL${RUN_ID}`;
+  const png = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==';
+  const made: string[] = [];
+  const create = async (n: number) => {
+    const r = await api.post('/api/gallery', { data: { imageBase64: png, prompt: `[E2E] ${marker} テスト画像${n}`, title: `[E2E] ${marker} 画像${n}`, source: 'visuals', width: 1536, height: 864, settings: { model: 'gpt-image-2.5-flare', size: '1536x864', quality: 'low', visual: { kind: 'image-final', aspect: '16:9' } } } });
+    const j = (await r.json()) as { image?: { id: string } };
+    expect(r.status(), `テスト画像${n}の作成`).toBe(200);
+    made.push(j.image!.id);
+    return j.image!.id;
+  };
+  try {
+    const ids = [await create(1), await create(2), await create(3)];
+    await page.goto('/dashboard/gallery');
+    for (const id of ids) await expect(page.locator(`[data-gallery-card="${id}"]`)).toBeVisible({ timeout: 30000 });
+    // ── ① レイアウト（圧縮・列・1行・contain） ──
+    const card = page.locator(`[data-gallery-card="${ids[0]}"]`);
+    const geom = await card.evaluate((el) => {
+      const r = el.getBoundingClientRect();
+      const img = el.querySelector('[data-gallery-thumb]') as HTMLElement;
+      const title = el.querySelector('[data-gallery-title]') as HTMLElement;
+      const meta = el.querySelector('[data-gallery-meta]') as HTMLElement;
+      const grid = el.parentElement as HTMLElement;
+      const lefts = new Set(Array.from(grid.children).map((c) => Math.round(c.getBoundingClientRect().left)));
+      const lh = (e: HTMLElement) => Math.round(e.getBoundingClientRect().height / parseFloat(getComputedStyle(e).lineHeight || '16'));
+      return { h: Math.round(r.height), cols: lefts.size, fit: getComputedStyle(img).objectFit, titleLines: lh(title), metaLines: lh(meta), lazy: img.getAttribute('loading') };
+    });
+    expect(geom.h, `カードの高さは改修前（${GALLERY_CARD_HEIGHT_BEFORE}px）の0.6倍以下`).toBeLessThanOrEqual(Math.round(GALLERY_CARD_HEIGHT_BEFORE * 0.6));
+    expect(geom.cols, '列が増える（改修前は3列）').toBeGreaterThanOrEqual(4);
+    expect(geom.fit, 'サムネイルは切らない').toBe('contain');
+    expect(geom.titleLines, 'タイトルは1行').toBeLessThanOrEqual(1);
+    expect(geom.metaLines, 'メタは1行').toBeLessThanOrEqual(1);
+    expect(geom.lazy).toBe('lazy');
+    // ── ② 拡大は ModalSheet ──
+    await page.locator(`[data-gallery-zoom="${ids[0]}"]`).click();
+    const zoom = page.locator('[data-gallery-zoom-dialog]');
+    await expect(zoom).toBeVisible();
+    await expect(zoom.locator('[data-gallery-zoom-img]')).toBeVisible();
+    expect(await page.evaluate(() => getComputedStyle(document.documentElement).overflow), '背面はスクロールしない').toBe('hidden');
+    await page.keyboard.press('Escape');
+    await expect(zoom).toHaveCount(0);
+    await page.locator(`[data-gallery-zoom="${ids[0]}"]`).click();
+    await expect(zoom).toBeVisible();
+    await zoom.locator('[data-gallery-zoom-close]').click();
+    await expect(zoom).toHaveCount(0);
+    // ── ③ 選択と一括ダウンロード ──
+    const bar = page.locator('[data-gallery-selection-bar]');
+    await expect(bar).toHaveCount(0);
+    await page.locator(`[data-gallery-check="${ids[0]}"]`).check();
+    await page.locator(`[data-gallery-check="${ids[1]}"]`).check();
+    await expect(bar).toBeVisible();
+    await expect(bar).toContainText('2');
+    const downloads: string[] = [];
+    page.on('download', (d) => downloads.push(d.suggestedFilename()));
+    await bar.locator('[data-gallery-bulk-download]').click();
+    await expect.poll(() => downloads.length, { timeout: 60000 }).toBe(2);
+    // ── ④ 一括削除: 確認1回・件数入り・やめると消えない ──
+    await bar.locator('[data-gallery-bulk-delete]').click();
+    const dlg = page.locator('[data-gallery-delete-dialog]');
+    await expect(dlg).toBeVisible();
+    await expect(dlg.locator('[data-gallery-delete-count]')).toHaveAttribute('data-gallery-delete-count', '2');
+    await expect(dlg.locator('[data-gallery-delete-count]')).toContainText('2 件');
+    await dlg.locator('[data-gallery-delete-cancel]').click();
+    await expect(dlg).toHaveCount(0);
+    for (const id of ids) await expect(page.locator(`[data-gallery-card="${id}"]`), 'やめると1件も消えない').toBeVisible();
+    // 1件だけ失敗させる（R-39: 他を巻き添えにしない）
+    await page.route(`**/api/gallery/${ids[1]}`, (route) => { if (route.request().method() === 'DELETE') { route.fulfill({ status: 500, contentType: 'application/json', body: JSON.stringify({ error: `[E2E] ${marker} わざと失敗` }) }); return; } route.fallback(); });
+    await bar.locator('[data-gallery-bulk-delete]').click();
+    await expect(dlg).toBeVisible();
+    // 二重発火（R-87）: 続けて2回押しても削除は1回
+    await dlg.locator('[data-gallery-delete-confirm]').evaluate((el) => { (el as HTMLButtonElement).click(); (el as HTMLButtonElement).click(); });
+    await expect(page.locator(`[data-gallery-card="${ids[0]}"]`), '成功分は消える').toHaveCount(0, { timeout: 30000 });
+    await expect(page.locator(`[data-gallery-card="${ids[1]}"]`), '失敗分は残る').toBeVisible();
+    await expect(page.locator(`[data-gallery-card="${ids[2]}"]`), '選んでいない分は残る').toBeVisible();
+    const deleted = await (await api.get(`/api/gallery/${ids[0]}`)).status();
+    expect(deleted, '実データも消えている').toBe(404);
+    expect((await (await api.get(`/api/gallery/${ids[1]}`)).status()), '失敗分は残っている').toBe(200);
+    // ── ⑤ 絞り込み ──
+    await expect(page.locator('[data-gallery-filters]')).toBeVisible();
+    await page.locator('[data-gallery-filter-kind]').selectOption('render');
+    await expect(page.locator(`[data-gallery-card="${ids[1]}"]`), 'イメージは絞り込みで消える').toHaveCount(0);
+    await page.locator('[data-gallery-filter-kind]').selectOption('all');
+    await expect(page.locator(`[data-gallery-card="${ids[1]}"]`)).toBeVisible();
+    // ── ⑥ WebKit iPhone幅は2列・横スクロールなし ──
+    const browser = await webkit.launch();
+    const ctx = await browser.newContext({ storageState: STORAGE_STATE, baseURL: BASE_URL, hasTouch: true, isMobile: true, viewport: { width: 390, height: 844 }, serviceWorkers: 'block' });
+    const mp = await ctx.newPage();
+    try {
+      await mp.goto('/dashboard/gallery');
+      await expect(mp.locator(`[data-gallery-card="${ids[1]}"]`)).toBeVisible({ timeout: 30000 });
+      const m = await mp.evaluate(() => {
+        const grid = document.querySelector('[data-gallery-grid]') as HTMLElement;
+        const lefts = new Set(Array.from(grid.children).map((c) => Math.round(c.getBoundingClientRect().left)));
+        return { cols: lefts.size, sw: document.documentElement.scrollWidth, iw: window.innerWidth };
+      });
+      expect(m.cols, 'iPhone幅は2列').toBe(2);
+      expect(m.sw, '横スクロールなし').toBeLessThanOrEqual(m.iw + 1);
+    } finally {
+      await ctx.close();
+      await browser.close();
+    }
+  } finally {
+    for (const id of made) await api.delete(`/api/gallery/${id}`).catch(() => {});
+    void request;
+  }
+});

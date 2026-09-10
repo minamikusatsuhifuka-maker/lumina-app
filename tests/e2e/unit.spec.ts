@@ -19,6 +19,8 @@ import {
 } from '../../src/lib/followup-research';
 // 320: 生成結果から直接図解・画像（相関図・handoff・自動STEP1・記憶）
 import * as vis320 from '../../src/lib/visuals';
+// 329: 画像ギャラリーの一括処理（純関数）
+import * as galleryBulk from '../../src/lib/gallery-bulk';
 import * as tpl320 from '../../src/lib/visual-templates';
 import { renderMarkdown } from '../../src/lib/markdown-renderer';
 import { readFileSync } from 'node:fs';
@@ -5830,4 +5832,50 @@ test('U100: 種類ダイアログのまとまり（328）— VISUAL_TYPE_GROUPS 
     expect(g.types.length).toBeGreaterThan(0);
   }
   expect(v.VISUAL_TYPE_GROUPS[0].types, '最初は画像（費用がかかるものを先頭に）').toEqual(['image']);
+});
+
+test('U101: 画像ギャラリーの一括処理（329）— 上限50件で理由・削除の確認文は件数入り・成功／失敗の件数の文言・種類と比の判定（settings.visual があればそれ、無ければモデルと幅高さから）・絞り込みは AND で効き選択肢は実データから', () => {
+  const g = galleryBulk;
+  expect(g.GALLERY_SELECT_MAX).toBe(50);
+  expect(g.gallerySelectOver(50)).toBeNull();
+  expect(g.gallerySelectOver(51)).toContain('50 件まで');
+  expect(g.galleryDeleteConfirm(3)).toContain('3 件');
+  expect(g.galleryDeleteConfirm(3)).toContain('元に戻せません');
+  expect(g.galleryBulkResult('削除', 3, 0)).toBe('3 件を削除しました');
+  expect(g.galleryBulkResult('削除', 2, 1)).toBe('2 件を削除し、1 件は失敗しました');
+  expect(g.galleryBulkResult('ダウンロード', 5, 0)).toContain('ダウンロード');
+  // 種類
+  expect(g.galleryKindOf({ settings: { visual: { kind: 'image-final' } } })).toBe('image');
+  expect(g.galleryKindOf({ settings: { visual: { kind: 'render' } } })).toBe('render');
+  expect(g.galleryKindOf({ settings: { model: 'og-render' } })).toBe('render');
+  expect(g.galleryKindOf({ settings: { model: 'gpt-image-2.5-flare' } })).toBe('image');
+  expect(g.galleryKindOf({ settings: null })).toBe('other');
+  // 比
+  expect(g.galleryAspectOf({ settings: { visual: { aspect: '16:9' } } })).toBe('16:9');
+  expect(g.galleryAspectOf({ width: 1536, height: 864, settings: null })).toBe('16:9');
+  expect(g.galleryAspectOf({ width: 1024, height: 1024, settings: null })).toBe('1:1');
+  expect(g.galleryAspectOf({ width: null, height: null, settings: null })).toBe('不明');
+  // 絞り込み（AND）
+  const rows = [
+    { settings: { model: 'gpt-image-2.5-flare', visual: { kind: 'image-final', aspect: '16:9' } }, width: 1536, height: 864 },
+    { settings: { model: 'og-render', visual: { kind: 'render' } }, width: 1200, height: 900 },
+    { settings: { model: 'gpt-image-2.5-flare', visual: { kind: 'image-final', aspect: '1:1' } }, width: 1024, height: 1024 },
+  ];
+  expect(rows.filter((r) => g.galleryMatches(r, { ...g.GALLERY_FILTER_ALL, kind: 'image' })).length).toBe(2);
+  expect(rows.filter((r) => g.galleryMatches(r, { ...g.GALLERY_FILTER_ALL, kind: 'image', aspect: '1:1' })).length).toBe(1);
+  expect(rows.filter((r) => g.galleryMatches(r, { ...g.GALLERY_FILTER_ALL, model: 'og-render' })).length).toBe(1);
+  expect(rows.every((r) => g.galleryMatches(r, g.GALLERY_FILTER_ALL)), '既定はすべて通す').toBe(true);
+  const opts = g.galleryFilterOptions(rows);
+  expect(opts.kinds.sort()).toEqual(['image', 'render']);
+  expect(opts.models).toEqual(['gpt-image-2.5-flare', 'og-render']);
+  expect(opts.aspects).toContain('16:9');
+  expect(g.galleryOriginalIdOf({ settings: { visual: { originalId: 'abc' } } })).toBe('abc');
+  expect(g.galleryOriginalIdOf({ settings: null })).toBeNull();
+  // ソース固定: 選択バーと拡大は共通部品（新しい選択UIを作らない・R-91）
+  const page = readFileSync(join(__dirname, '../../src/app/dashboard/gallery/page.tsx'), 'utf8');
+  expect(page).toMatch(/import SelectionBar from '@\/components\/SelectionBar';/);
+  expect(page).toMatch(/import ModalSheet from '@\/components\/ModalSheet';/);
+  expect(page, 'チェックは常時表示なので全選択のボタンは置かない（R-106）').not.toMatch(/data-gallery-select-all|selectAll|>全選択</);
+  expect(page, 'サムネイルは切らない').toMatch(/objectFit: 'contain'/);
+  expect(page, '削除は1件ずつ独立（R-39）').toMatch(/catch \{\s*\n\s*failed \+= 1;/);
 });

@@ -668,3 +668,8 @@ a[role="button"] {
 @media (max-width: 640px) {
   [data-vis-picker-grid] { grid-template-columns: 1fr; }
 }
+
+/* ─── 329: 画像ギャラリーは狭幅（iPhone）で2列 ─── */
+@media (max-width: 640px) {
+  [data-gallery-grid] { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; gap: 8px !important; }
+}
