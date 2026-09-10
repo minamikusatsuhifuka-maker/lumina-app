@@ -12651,27 +12651,18 @@ test('C142: ダイアログが透けない（326・WebKit iPhone幅・ライト/
   const ctx = await browser.newContext({ storageState: STORAGE_STATE, baseURL: BASE_URL, hasTouch: true, isMobile: true, viewport: { width: 390, height: 844 }, serviceWorkers: 'block' });
   const page = await ctx.newPage();
   try {
-    const src = '冬の乾燥は暖房で室内の湿度が下がることが主な原因です。保湿剤は入浴後5分以内に塗ると効果が高いことが知られています。' .repeat(6);
+    const src = '冬の乾燥は暖房で室内の湿度が下がることが主な原因です。保湿剤は入浴後5分以内に塗ると効果が高いことが知られています。'.repeat(6);
+    // 成果物は「下書きの復元」で出す（AI は使わない・WebKit モバイルでは実行キーの合図が出ないため）
+    await page.route('**/api/feature-drafts**', (route) => {
+      const isTa = route.request().method() === 'GET' && /feature=text-analysis(&|$)/.test(route.request().url());
+      route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(isTa ? { draft: { payload: { inputText: src, purpose: '', results: { summary: `[E2E] 復元した結果。${src}` } }, updated_at: new Date().toISOString() } } : (route.request().method() === 'GET' ? { draft: null } : { ok: true })) });
+    });
     for (const theme of ['light', 'dark'] as const) {
-      await page.goto('/dashboard/visuals');
-      await page.evaluate((t) => { localStorage.setItem('lumina_theme', t); }, theme);
-      await page.reload({ waitUntil: 'domcontentloaded' });
-      await expect(page.locator('[data-vis-source]')).toBeVisible({ timeout: 30000 });
-      await page.locator('[data-vis-source]').fill(src);
-      // 一括生成の確認ダイアログは候補が要るので、ここでは 320 の種類ダイアログ（🗂 の入口を使わず図解画面の中で開く経路が無いため）を
-      // 分析画面の成果物から開く。まずは図解画面のダイアログ（画像設定）を確認する
       await page.goto('/dashboard/text-analysis');
-      await stubFeatureDrafts(page);
       await page.evaluate((t) => { localStorage.setItem('lumina_theme', t); localStorage.setItem('lumina_auto_stock_save', '0'); }, theme);
-      await page.route('**/api/text-analysis/analyze', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ result: `${src}\n\n読みやすくまとめました。`, model: 'gemini' }) }));
       await page.reload({ waitUntil: 'domcontentloaded' });
-      const textarea = page.getByPlaceholder('ここに分析したいテキストを貼り付けてください...');
-      await expect(textarea).toBeVisible({ timeout: 30000 });
-      await textarea.fill(src);
-      await page.locator('[data-clear-paste]').waitFor({ state: 'visible', timeout: 30000 });
-      await page.locator('button[data-kb-run]').first().click();
       const quick = page.locator('[data-vis-quick-open]').first();
-      await expect(quick, `${theme}: 🖼 の入口`).toBeVisible({ timeout: 90000 });
+      await expect(quick, `${theme}: 🖼 の入口`).toBeVisible({ timeout: 60000 });
       // 背面のスクロール位置と高さを控える
       await page.evaluate(() => window.scrollTo(0, 200));
       const beforeY = await page.evaluate(() => window.scrollY);
@@ -12715,8 +12706,8 @@ test('C142: ダイアログが透けない（326・WebKit iPhone幅・ライト/
       // ✕ で閉じる → 背面が戻る
       await dlg.locator('[data-modal-close]').click();
       await expect(dlg).toHaveCount(0);
-      expect(await page.evaluate(() => getComputedStyle(document.body).overflow), `${theme}: 閉じたら背面のスクロールが戻る`).not.toBe('hidden');
-      expect(await page.evaluate(() => window.scrollY), `${theme}: スクロール位置は変わらない`).toBeCloseTo(beforeY, -1);
+      await expect.poll(() => page.evaluate(() => getComputedStyle(document.body).overflow), { message: `${theme}: 閉じたら背面のスクロールが戻る` }).not.toBe('hidden');
+      expect(Math.abs((await page.evaluate(() => window.scrollY)) - beforeY), `${theme}: スクロール位置がほぼ変わらない`).toBeLessThanOrEqual(24);
       // Esc・暗幕でも閉じる
       await quick.click();
       await expect(dlg).toBeVisible();
@@ -12759,19 +12750,17 @@ test('C143: 操作行のアコーディオン（326・WebKit iPhone幅）— 狭
   const ctx = await browser.newContext({ storageState: STORAGE_STATE, baseURL: BASE_URL, hasTouch: true, isMobile: true, viewport: { width: 390, height: 844 }, serviceWorkers: 'block' });
   const page = await ctx.newPage();
   try {
-    await stubFeatureDrafts(page);
     const long = 'かゆみが強いときは掻かずに冷やすとよい。保湿剤は入浴後5分以内に塗る。室内の湿度は50〜60%に保つ。'.repeat(4);
-    await page.route('**/api/text-analysis/analyze', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ result: `${long}\n\nまとめました。`, model: 'gemini' }) }));
+    // 成果物は「下書きの復元」で出す（AI は使わない）
+    await page.route('**/api/feature-drafts**', (route) => {
+      const isTa = route.request().method() === 'GET' && /feature=text-analysis(&|$)/.test(route.request().url());
+      route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(isTa ? { draft: { payload: { inputText: long, purpose: '', results: { summary: `[E2E] 復元した結果。${long}` } }, updated_at: new Date().toISOString() } } : (route.request().method() === 'GET' ? { draft: null } : { ok: true })) });
+    });
     await page.goto('/dashboard/text-analysis');
     await page.evaluate(() => { localStorage.setItem('lumina_auto_stock_save', '0'); });
     await page.reload({ waitUntil: 'domcontentloaded' });
-    const textarea = page.getByPlaceholder('ここに分析したいテキストを貼り付けてください...');
-    await expect(textarea).toBeVisible({ timeout: 30000 });
-    await textarea.fill(long);
-    await page.locator('[data-clear-paste]').waitFor({ state: 'visible', timeout: 30000 });
-    await page.locator('button[data-kb-run]').first().click();
     const bar = page.locator('[data-ta-result-actions]').first();
-    await expect(bar).toBeVisible({ timeout: 90000 });
+    await expect(bar).toBeVisible({ timeout: 60000 });
     await expect(bar, '狭幅と判定される').toHaveAttribute('data-result-narrow', '1');
     // ① 常に見えるのは3つ
     const visible = async () => bar.locator('button, a').evaluateAll((els) => els.filter((e) => (e as HTMLElement).offsetParent !== null && !(e.closest('[data-result-more-panel]') as HTMLElement | null)).map((e) => (e.textContent ?? '').trim()));

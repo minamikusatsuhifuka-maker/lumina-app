@@ -11,7 +11,7 @@
 // - 開いている間は背面をスクロールさせない（閉じたら元に戻す）
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-import { useEffect, useState, type CSSProperties, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 
 /** 背面のスクロールを止める（開いている間だけ・閉じたら元に戻す）。他のダイアログからも使う */
@@ -48,7 +48,10 @@ export default function ModalSheet({
   ariaLabel?: string;
 }) {
   const [mounted, setMounted] = useState(false); // R-117
+  const panelRef = useRef<HTMLDivElement | null>(null);
   useEffect(() => setMounted(true), []);
+  // 開いたらパネルへフォーカスを移す（Esc がどの端末でも効く・読み上げの起点になる）
+  useEffect(() => { if (mounted) panelRef.current?.focus(); }, [mounted]);
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
     window.addEventListener('keydown', onKey);
@@ -66,7 +69,7 @@ export default function ModalSheet({
       aria-label={ariaLabel ?? (typeof title === 'string' ? title : undefined)}
       onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
     >
-      <div data-modal-panel {...panelAttrs} style={panel}>
+      <div ref={panelRef} data-modal-panel {...panelAttrs} tabIndex={-1} onKeyDown={(e) => { if (e.key === 'Escape') onClose(); }} style={{ ...panel, outline: 'none' }}>
         <div data-modal-head>
           <div data-modal-title>{title}</div>
           <button type="button" data-modal-close {...closeAttrs} onClick={onClose} aria-label="閉じる">✕</button>
