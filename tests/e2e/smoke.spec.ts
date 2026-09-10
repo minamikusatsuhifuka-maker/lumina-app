@@ -12035,8 +12035,10 @@ test('C137: 結果画面の操作行（321）— 🔭DR結果の操作行が共�
   const checkBar = async (p: import('@playwright/test').Page, label: string) => {
     const bar = p.locator('[data-dr-result-actions]');
     const rows = bar.locator('[data-result-action-row]');
-    // 326: 狭幅はアコーディオン（1段＋展開部）・広幅は従来の2段。展開してから中身を数える
-    const narrow = (await bar.getAttribute('data-result-narrow')) === '1';
+    // 326是正: 狭幅（画面幅 640px 未満）はアコーディオン（1段＋展開部）・広幅は従来の2段。
+    //   判定は端末の画面幅から決まるので、テスト側もビューポートから期待値を決めて待つ（初期描画との競合を避ける）
+    const narrow = (p.viewportSize()?.width ?? 1280) < 640;
+    await expect(bar).toHaveAttribute('data-result-narrow', narrow ? '1' : '0');
     if (narrow) {
       expect(await rows.count(), `${label}: 狭幅は1段`).toBe(1);
       await bar.locator('[data-result-more]').click();
@@ -12209,8 +12211,9 @@ test('C138: 関連図の是正・つながり確認・🗂成果物の操作行�
     const bar = page.locator('[data-ta-result-actions]').first();
     await expect(bar).toBeVisible({ timeout: 60000 });
     expect(analyzeCalls()).toBeGreaterThan(0);
-    // 326: 容器の実測（🗂 は成果物が複数あると1枚あたり 640px 未満＝アコーディオン）。狭ければ開いてから中身を見る
-    const taNarrow = (await bar.getAttribute('data-result-narrow')) === '1';
+    // 326是正: 判定は画面幅。PC では成果物が複数枚並んでも従来の2段のまま
+    const taNarrow = (page.viewportSize()?.width ?? 1280) < 640;
+    await expect(bar).toHaveAttribute('data-result-narrow', taNarrow ? '1' : '0');
     await expect(page.locator('[data-ta-result-actions]').first().locator('[data-result-action-row]')).toHaveCount(taNarrow ? 1 : 2);
     if (taNarrow) {
       await bar.locator('[data-result-more]').click();
