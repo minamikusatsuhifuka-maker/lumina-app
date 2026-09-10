@@ -10,13 +10,15 @@
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 import { findBannedExpressions } from '@/lib/content-verify';
+import { MANDALA_OUTLINE_POSITIONS } from '@/lib/mandala-shared';
 import { IMAGE_MODEL_IDS, estimateImageCost, type ImageAspectKey, type ImageQualityKey } from '@/lib/model-pricing';
 
-export type VisualType = 'table' | 'flow' | 'compare' | 'steps' | 'concept' | 'relation' | 'correlation' | 'timeline' | 'figures' | 'onepage' | 'image';
+export type VisualType = 'table' | 'flow' | 'compare' | 'steps' | 'concept' | 'relation' | 'correlation' | 'timeline' | 'figures' | 'onepage' | 'grid9' | 'image';
 // 320: 相関図（correlation）＝関連図の派生。辺に「相関の向きと強さ」を**文字**で書く（label 必須・太さ/色では表さない）
-export const VISUAL_TYPES: readonly VisualType[] = ['table', 'flow', 'compare', 'steps', 'concept', 'relation', 'correlation', 'timeline', 'figures', 'onepage', 'image'];
+// 324: 9マスシート（grid9）＝中央のテーマ＋周囲8カテゴリ（マンダラと同じ配置・「マンダラとして開く」で決定的にチャート化）
+export const VISUAL_TYPES: readonly VisualType[] = ['table', 'flow', 'compare', 'steps', 'concept', 'relation', 'correlation', 'timeline', 'figures', 'onepage', 'grid9', 'image'];
 /** 決定的描画の5種（イメージ以外） */
-export const VISUAL_DETERMINISTIC_TYPES: readonly VisualType[] = ['table', 'flow', 'compare', 'steps', 'concept', 'relation', 'correlation', 'timeline', 'figures', 'onepage'];
+export const VISUAL_DETERMINISTIC_TYPES: readonly VisualType[] = ['table', 'flow', 'compare', 'steps', 'concept', 'relation', 'correlation', 'timeline', 'figures', 'onepage', 'grid9'];
 /** 候補に出さない型（治療前後・効果対比の文脈で使われるため。プロンプト禁止＋コード側で弾く） */
 export const VISUAL_BANNED_TYPES: readonly string[] = ['beforeafter', 'before_after', 'before-after', 'ビフォーアフター'];
 
@@ -32,6 +34,7 @@ export const VISUAL_TYPE_META: Record<VisualType, { emoji: string; label: string
   timeline: { emoji: '📅', label: 'タイムライン', hint: 'groups＝出来事（heading が時期の文字列・points[0] が出来事・points[1] は補足）。3〜8件・時期は解釈しない' },
   figures: { emoji: '🔢', label: '数値ハイライト', hint: 'groups＝数字カード（heading が見出し・points[0] が数値＋単位・points[1] が引用）。数値＋単位は引用と完全一致・3〜6件' },
   onepage: { emoji: '📄', label: '1枚サマリー', hint: 'title＋要点3（groups[0].points）＋一言（groups[1].points[0]）。描画済みの図を埋め込める' },
+  grid9: { emoji: '🔲', label: '9マスシート', hint: 'title＝中央のテーマ・groups[8]＝周囲8マス（heading がカテゴリ名・points が要素2〜5）。マンダラと同じ配置。「マンダラとして開く」で決定的にチャート化' },
   image: { emoji: '🖼', label: 'イメージ', hint: '絵柄は AI・文字はプランの文字列を重ねる。heading／points が重ねる文字' },
 };
 
@@ -249,20 +252,35 @@ export function foreignTokensOf(s: string, normalizedSource: string): string[] {
   return out;
 }
 
-export function findForeignPhrases(plan: Pick<VisualPlan, 'title' | 'groups'>, sourceText: string): string[] {
+/**
+ * 324 §2-2: 実在チェック（語句単位）の対象＝「事実そのもの」の文字列。
+ * 関連図・相関図は**ノード名（heading）とタイトル**だけ。辺の行（→ 相手: ラベル）は対象外＝ラベルは活用形で現れることが多く
+ * （招く／招き）、語句単位では落ちてしまう。辺の裏付けは 322 の根拠抽出（両端ノードを含む文）で見る（根拠なし＝既定✗・未確認）
+ */
+export function planFactStrings(plan: Pick<VisualPlan, 'title' | 'groups'> & { type?: VisualType }): string[] {
+  if (plan.type === 'relation' || plan.type === 'correlation') {
+    const out: string[] = [];
+    if (plan.title?.trim()) out.push(plan.title.trim());
+    for (const g of plan.groups) if (g.heading?.trim()) out.push(g.heading.trim());
+    return out;
+  }
+  return collectPlanStrings(plan);
+}
+
+export function findForeignPhrases(plan: Pick<VisualPlan, 'title' | 'groups'> & { type?: VisualType }, sourceText: string): string[] {
   const src = normalizeForMatch(sourceText);
   const out: string[] = [];
-  for (const s of collectPlanStrings(plan)) {
+  for (const s of planFactStrings(plan)) {
     if (foreignTokensOf(s, src).length > 0 && !out.includes(s)) out.push(s);
   }
   return out;
 }
 
 /** 文字列→無い内容語（画面で「どの語が無いか」を示す） */
-export function findForeignTokens(plan: Pick<VisualPlan, 'title' | 'groups'>, sourceText: string): Record<string, string[]> {
+export function findForeignTokens(plan: Pick<VisualPlan, 'title' | 'groups'> & { type?: VisualType }, sourceText: string): Record<string, string[]> {
   const src = normalizeForMatch(sourceText);
   const out: Record<string, string[]> = {};
-  for (const s of collectPlanStrings(plan)) {
+  for (const s of planFactStrings(plan)) {
     const t = foreignTokensOf(s, src);
     if (t.length > 0) out[s] = t;
   }
@@ -556,11 +574,12 @@ export function buildVisualPlanPrompt(sourceText: string, opts: { maxPlans?: num
     compare: '- compare: 比較。groups＝比較対象（2〜3）・heading が対象名・points が特徴（各24字以内）',
     steps: '- steps: 手順。groups は1つ・points が上から順の手順（3〜8個・各40字以内）',
     concept: '- concept: 概念図。title が中心概念・groups＝枝（heading が枝の名前・points が要素）。2〜6枝',
-    relation: '- relation: 関連図。groups＝ノード（heading がノード名・3〜8個）。points は「→ 相手ノード名: 関係ラベル（15字以内）」の形で他ノードへの辺（全体で最大12本）',
+    relation: '- relation: 関連図。groups＝ノード（heading がノード名・3〜8個）。points は「→ 相手ノード名: 関係ラベル（15字以内）」の形で他ノードへの辺（全体で最大12本）。関係は本文に書かれた因果・順序・相関のみ（推測で辺を増やさない）。ラベルは本文の表現に近い短い語（例: 招く／低下させる／促進する）。悪循環・好循環のように環になる場合は環として辺を張る',
     correlation: '- correlation: 相関図。groups＝要因（heading が要因名・3〜8個）。points は「→ 相手の要因名: 相関の向きと強さ（本文の表記そのまま・必須・例「正の相関（強）」「逆相関」「因果の可能性」）」（全体で最大12本）。**本文に明記された関係のみ**。推測の相関は出さない',
     timeline: '- timeline: タイムライン。groups＝出来事（3〜8件・時系列順）。heading が時期（本文の表記そのまま）・points[0] が出来事（20字以内）・points[1] は補足（任意）',
     figures: '- figures: 数値ハイライト。groups＝数字カード（3〜6件）。heading が見出し（15字以内）・points[0] が数値＋単位（本文の表記そのまま・例「約30%」）・points[1] がその数値を含む本文の引用（60字以内・原文そのまま）',
     onepage: '- onepage: 1枚サマリー。title が主題・groups[0].points が要点3つ（各30字以内）・groups[1].heading は「一言」・groups[1].points[0] が締めの一言（30字以内）',
+    grid9: '- grid9: 9マスシート。title が中央のテーマ・groups＝周囲8マス（heading がカテゴリ名・points がそのカテゴリの要素2〜5個・各24字以内）。内容を8つのカテゴリに整理し、カテゴリは重複せず全体を覆う',
     image: '- image: イメージ画像。heading／points は画像に重ねる短い文字（合計4つ以内・各20字以内）。imagePrompt に絵柄の指示（文字は書かない）',
   };
   const system = 'あなたは医療記事の編集者兼インフォグラフィックデザイナーです。記事の本文から「図解にすると理解が深まる構造」を見つけ、図解の設計データを作ります。図解に入る文字は本文に実際に書かれている語句だけを使います（言い換え・要約・補足・創作は禁止）。';
@@ -575,6 +594,7 @@ ${allowed.map((t) => typeLines[t]).join('\n')}
 - 効果効能の保証・誇大表現・患者の体験談的表現を図解に入れない
 - 図解に向く構造が本文に無ければ少なくてよい（無理に作らない）
 - 各候補に why（この内容にその型が向く理由・40字以内・表示にだけ使う）を付ける
+- 図の文字に LaTeX・数式記法（$…$、\\rightarrow 等）を入れない。矢印は「→」、記号はそのままの文字で書く
 - 同じ型でも**切り口の違う候補を最大2つ**まで出してよい（例: 関連図＝物質の変換の流れ／時間帯と行動の関係）。切り口が同じものを重ねない
 
 # 本文
@@ -632,8 +652,9 @@ export const VISUAL_TYPE_PICKER_NOTE: Record<VisualType, string> = {
   timeline: '時期と出来事の並び',
   figures: '数値の見せ場（引用と完全一致）',
   onepage: 'タイトル＋要点3＋一言の1枚',
+  grid9: '中央のテーマ＋8カテゴリで思考・情報を整理（マンダラとして開ける）',
 };
-export const VISUAL_TYPE_PICKER_ORDER: readonly VisualType[] = ['image', 'table', 'flow', 'compare', 'steps', 'concept', 'relation', 'correlation', 'timeline', 'figures', 'onepage'];
+export const VISUAL_TYPE_PICKER_ORDER: readonly VisualType[] = ['image', 'table', 'flow', 'compare', 'steps', 'concept', 'relation', 'correlation', 'timeline', 'figures', 'onepage', 'grid9'];
 
 export function normalizeVisualTypes(v: readonly unknown[]): VisualType[] {
   const out: VisualType[] = [];
@@ -783,6 +804,10 @@ export function planStructureText(plan: Pick<VisualPlan, 'type' | 'title' | 'gro
       const lines = g.reduce((acc, x) => acc + (x.heading ? 1 : 0) + x.points.length, 0);
       return `絵柄: ${(plan.imagePrompt ?? '').trim() || '（指示なし）'}／重ねる文字: ${lines} 行`;
     }
+    case 'grid9': {
+      const cells = g.filter((x) => (x.heading ?? '').trim());
+      return `中央 ${plan.title.trim() || '（無題）'}・カテゴリ ${cells.length}/${GRID9_CELLS}（${joinNames(cells.map((x) => x.heading ?? ''), 8)}）`;
+    }
     default:
       return '';
   }
@@ -790,7 +815,8 @@ export function planStructureText(plan: Pick<VisualPlan, 'type' | 'title' | 'gro
 
 /** 「元テキストに実在 k/n」（n＝図に入る文字列の数・k＝実在チェックを通った数） */
 export function planEvidenceCount(plan: VisualPlan, check: Pick<PlanCheck, 'foreign'>): { ok: number; total: number } {
-  const total = new Set(collectPlanStrings(plan)).size;
+  // 324: 関連図・相関図はノード名だけを数える（辺は根拠で裏付け）
+  const total = new Set(planFactStrings(plan)).size;
   const bad = new Set(check.foreign).size;
   return { ok: Math.max(0, total - bad), total };
 }
@@ -823,6 +849,7 @@ export function typeMinRequirement(plan: Pick<VisualPlan, 'type' | 'title' | 'gr
     case 'figures': return g.length >= FIGURES_MIN && g.every((x) => x.points.length >= 2) ? null : `数値は${FIGURES_MIN}個以上（数値と引用）必要です`;
     case 'onepage': return pts(0) >= ONEPAGE_POINTS && !!g[1]?.points[0] ? null : `1枚サマリーは要点${ONEPAGE_POINTS}つと一言が必要です`;
     case 'image': return g.some((x) => (x.heading ?? '').trim() || x.points.length > 0) ? null : 'イメージは重ねる文字が1つ以上必要です';
+    case 'grid9': return g.filter((x) => (x.heading ?? '').trim()).length >= GRID9_MIN_CELLS ? null : `9マスシートはカテゴリ（マス）が${GRID9_MIN_CELLS}つ以上必要です`;
     default: return null;
   }
 }
@@ -870,4 +897,82 @@ export function bulkEstimate(plans: readonly VisualPlan[], settings: Pick<Visual
 }
 export function bulkConfirmLabel(e: { renders: number; images: number }): string {
   return `コード描画 ${e.renders} 件（無料）・画像 ${e.images} 枚`;
+}
+
+
+// ───────────────────────────────────────────────────────────────────────────
+// 324: 9マスシート（grid9）・関連図の辺の既定（根拠なし＝✗）・環の検出と並べ替え・辺なしノード
+// ───────────────────────────────────────────────────────────────────────────
+
+export const GRID9_CELLS = 8;
+export const GRID9_MIN_CELLS = 2;
+/** 各マスに描く要素の上限（超過は「ほか n 件」・R-101） */
+export const GRID9_MAX_POINTS = 5;
+export function grid9OverflowLabel(n: number): string {
+  return `ほか ${n} 件`;
+}
+export const GRID9_OVERFLOW_RE = /^ほか \d+ 件$/;
+export const RELATION_LOOSE_PREFIX = 'つながり未指定:';
+
+/** 9マスシートのプラン → マンダラの各マス（中央＝title・周囲8＝heading／本文＝要素を改行で・配置は MANDALA_OUTLINE_POSITIONS＝マンダラと同じ）。AI なし・決定的 */
+export function planToMandalaCells(plan: Pick<VisualPlan, 'title' | 'groups'>): { center: { title: string; body: string }; cells: { position: number; title: string; body: string }[] } {
+  const groups = plan.groups.filter((g) => (g.heading ?? '').trim()).slice(0, GRID9_CELLS);
+  return {
+    center: { title: plan.title.trim(), body: '' },
+    cells: groups.map((g, i) => ({ position: MANDALA_OUTLINE_POSITIONS[i], title: (g.heading ?? '').trim(), body: g.points.map((p) => p.trim()).filter(Boolean).join('\n') })),
+  };
+}
+
+/** 324 §2-2: 抽出直後の既定＝根拠のない辺は✗（edgeOff に入れる・院長が✓にすれば描ける）。既存の edgeOff は保つ */
+export function applyEdgeDefaults(plan: VisualPlan, sourceText: string): VisualPlan {
+  if (plan.type !== 'relation' && plan.type !== 'correlation') return plan;
+  const off = new Set(plan.edgeOff ?? []);
+  const nodes = plan.groups.map((g) => (g.heading ?? '').trim());
+  const all = plan.type === 'correlation' ? correlationEdgesOf(plan).edges : relationEdgesOf(plan).edges;
+  for (const e of all) if (edgeEvidence(sourceText, nodes[e.from] ?? '', nodes[e.to] ?? '', e.label) === null) off.add(edgeKey(e.from, e.to));
+  return off.size > 0 ? { ...plan, edgeOff: Array.from(off).sort() } : plan;
+}
+
+/** つながりの要約「n 本（うち未確認 m 本）」（✓✗に関わらず数える） */
+export function relationEdgeSummary(rows: readonly RelationEdgeRow[]): { total: number; unconfirmed: number } {
+  return { total: rows.length, unconfirmed: rows.filter((r) => r.evidence === null).length };
+}
+
+/**
+ * 324 §2-4: ノードの並び（決定的）。辺のあるノードを円周へ、環（from→to を辿って戻る）があれば環の順に。辺の無いノードは loose。
+ * すべてに辺が無ければ従来どおり全ノードを円周に
+ */
+export function relationNodeOrder(plan: Pick<VisualPlan, 'type' | 'groups' | 'edgeOff'>): { circle: number[]; loose: number[] } {
+  const n = plan.groups.length;
+  const edges = edgesOfPlan(plan);
+  if (edges.length === 0) return { circle: Array.from({ length: n }, (_, i) => i), loose: [] };
+  const connected = new Set<number>();
+  for (const e of edges) { connected.add(e.from); connected.add(e.to); }
+  const adj = new Map<number, number[]>();
+  for (const e of edges) adj.set(e.from, [...(adj.get(e.from) ?? []), e.to].sort((a, b) => a - b));
+  // 環の検出: 各始点から DFS（訪問順は index 昇順）。最初に見つかった最長の環を採用（決定的）
+  let best: number[] = [];
+  const findCycle = (start: number) => {
+    const stack: number[] = [start];
+    const onPath = new Set<number>([start]);
+    const dfs = (v: number): number[] | null => {
+      for (const w of adj.get(v) ?? []) {
+        if (w === start) return [...stack];
+        if (onPath.has(w)) continue;
+        stack.push(w); onPath.add(w);
+        const r = dfs(w);
+        if (r) return r;
+        stack.pop(); onPath.delete(w);
+      }
+      return null;
+    };
+    return dfs(start);
+  };
+  for (const s of Array.from(connected).sort((a, b) => a - b)) {
+    const c = findCycle(s);
+    if (c && c.length > best.length) best = c;
+  }
+  const rest = Array.from(connected).filter((i) => !best.includes(i)).sort((a, b) => a - b);
+  const loose = Array.from({ length: n }, (_, i) => i).filter((i) => !connected.has(i));
+  return { circle: [...best, ...rest], loose };
 }

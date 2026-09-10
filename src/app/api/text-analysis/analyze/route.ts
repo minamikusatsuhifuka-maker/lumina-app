@@ -1,4 +1,5 @@
 import { DEFAULT_AI_MODEL } from '@/lib/ai-models';
+import { NO_LATEX_PROMPT_RULE } from '@/lib/markdown-renderer';
 import { NextRequest } from 'next/server';
 import { auth } from '@/lib/auth';
 import {
@@ -78,8 +79,9 @@ export async function POST(req: NextRequest) {
     `矢印は → ← ↔ ⇒ ⇔、四則は × ÷ ・、比較は ≤ ≥ ≠ ≈ ± のようにプレーンな Unicode 記号で書き、` +
     `装飾は Markdown（見出し・太字・箇条書き・表）のみで行ってください。`;
 
+  // 324追加: LaTeX 記法を使わない（一段目・1回）。二段目は保存API（POST saves）の stripInlineLatex
   const systemPromptBase =
-    basePrompt + purposeInstruction + lengthInstruction + gensparkInstruction + formatInstruction;
+    basePrompt + purposeInstruction + lengthInstruction + gensparkInstruction + formatInstruction + `\n\n${NO_LATEX_PROMPT_RULE}`;
 
   // クリニック背景情報を末尾に注入
   const clinicContext = await getClinicSystemPrompt('text_analysis', userId);

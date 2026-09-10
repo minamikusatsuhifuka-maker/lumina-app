@@ -36,6 +36,8 @@ const FENCE_RE = /^\s*(```|~~~)/;
 const URL_RE = /https?:\/\/\S+/;
 
 /** この行は「本文の段落」か（整形の対象）。見出し・箇条書き・引用・表・区切り線・URL 行は対象外 */
+import { convertLatexMacros, sanitizeLatex } from './markdown-renderer';
+
 export function isProseLine(line: string): boolean {
   if (!line.trim()) return false;
   if (HEADING_RE.test(line) || LIST_RE.test(line) || QUOTE_RE.test(line) || TABLE_RE.test(line) || HR_RE.test(line)) return false;
@@ -96,7 +98,37 @@ export function splitSentences(line: string): string[] {
 /**
  * 本文全体を「1文ごとに改行・段落間は空行」に整える。同じ入力→同じ出力、整形済みを通しても不変（冪等）
  */
-export function formatOneSentencePerLine(markdown: string): string {
+// ───────────────────────────────────────────────────────────────────────────
+// 324追加: LaTeX 記法の露出を止める（$\rightarrow$ 等）。生成後の決定的な整形（DB非依存・冪等）
+// - $...$（直後が数字・空白の「金額」は除外）と \( \) \[ \] の中身を、markdown-renderer の変換表
+//   （\rightarrow→→／\leftarrow→←／\to→→／\times→×／\pm→±／\approx→≈／\le \leq→≤／\ge \geq→≥／ギリシャ文字／\%→%／\_→_ …）で置換し、
+//   表に無いものは $ と \ を外して中身だけ残す（convertLatexMacros と同じ規則）
+// - コードブロック（```）とインラインコード（``）の中は触らない
+// - 適用の順は stripInlineLatex → formatOneSentencePerLine → enforceNoteHeadingLevels（note 経路は後ろ2つ）。
+//   formatOneSentencePerLine は先頭で stripInlineLatex を呼ぶ＝310 の6経路には自動で効く（U80 の一覧は不変）
+// ───────────────────────────────────────────────────────────────────────────
+export function stripInlineLatex(markdown: string): string {
+  const raw = markdown ?? '';
+  if (!raw || (raw.indexOf('\\') === -1 && raw.indexOf('$') === -1)) return raw;
+  const stash: string[] = [];
+  let text = raw.replace(/```[\s\S]*?```|`[^`\n]*`/g, (m) => {
+    stash.push(m);
+    // 番兵は sanitizeLatex の内部番兵（NUL＋数字）と衝突しない形にする
+    return `\u0001L${stash.length - 1}L\u0001`;
+  });
+  // 既存の変換（既知マクロ・上付き下付き・書体マクロ）
+  text = sanitizeLatex(text);
+  // 残った $...$（金額を除く）は中身だけ残す（$x=5$ → x=5）。\( \) \[ \] は sanitizeLatex が外している
+  text = text.replace(/\$(?![\s\d])([^$\n]*?)\$/g, (_f, inner: string) => convertLatexMacros(inner));
+  // \% \_ \& \# のエスケープ
+  text = text.replace(/\\([%_&#])/g, '$1');
+  text = text.replace(/\u0001L(\d+)L\u0001/g, (_m, i: string) => stash[Number(i)] ?? '');
+  return text;
+}
+
+export function formatOneSentencePerLine(markdownInput: string): string {
+  // 324追加: 先に LaTeX 記法を外す（冪等）
+  const markdown = stripInlineLatex(markdownInput);
   const lines = String(markdown ?? '').replace(/\r\n?/g, '\n').split('\n');
   const out: string[] = [];
   let inFence = false;

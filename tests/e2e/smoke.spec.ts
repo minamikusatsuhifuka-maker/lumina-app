@@ -11921,8 +11921,9 @@ test('C136: 生成結果から直接図解・画像（320）— 🔭DR結果（�
     await expect(c1).toHaveAttribute('data-vis-plan-type', 'correlation');
     await expect(c1).toHaveAttribute('data-vis-plan-ok', '0');
     await expect(c1.locator('[data-vis-block-reason="c1"]')).toContainText(CORRELATION_LABEL_REQUIRED);
-    await expect(c1.locator('[data-vis-foreign="c1"]').filter({ hasText: '強い因果' }), '元テキストに無い相関の語句（ラベル無しの辺と併せて赤い印が2つ）').toHaveCount(1);
-    await expect(c1.locator('[data-vis-foreign="c1"]')).toHaveCount(2);
+    // 324 §2-2: 辺のラベル（「強い因果」）は語句単位の実在チェックの対象外＝赤い印はラベル無しの辺だけ
+    await expect(c1.locator('[data-vis-foreign="c1"]').filter({ hasText: '強い因果' })).toHaveCount(0);
+    await expect(c1.locator('[data-vis-foreign="c1"]')).toHaveCount(1);
     await expect(c1.locator('[data-vis-render="c1"]')).toBeDisabled();
     await c1.locator('[data-vis-points="c1-0"]').fill('→ 乾燥: 逆相関');
     await c1.locator('[data-vis-points="c1-2"]').fill('→ 乾燥: 乾燥を減らす');
@@ -12288,7 +12289,7 @@ test('C139: 図解の提案→承認→一括生成（323）— 提案モード�
     const r1 = page.locator('[data-vis-plan="r1"]');
     await expect(r1.locator('[data-vis-structure="r1"]')).toHaveText('構成: トリプトファン／セロトニン／メラトニン の 3 点を中心に、トリプトファン→セロトニン（変換）／セロトニン→メラトニン（変換） の 2 本のつながり');
     await expect(r1.locator('[data-vis-card-edge="r1-0-1"]')).toContainText('根拠あり');
-    await expect(r1.locator('[data-vis-evidence-count]')).toHaveAttribute('data-vis-evidence-count', '6/6');
+    await expect(r1.locator('[data-vis-evidence-count]'), '324: 関連図はノード名だけを数える').toHaveAttribute('data-vis-evidence-count', '4/4');
     await expect(r1.locator('[data-vis-why="r1"]')).toContainText('物質の変換');
     await expect(r1.locator('[data-vis-points]'), '編集フォームは閉じている').toHaveCount(0);
     await expect(page.locator('[data-vis-plan="t1"] [data-vis-structure="t1"]')).toHaveText('構成: 列 朝／夜・行 2 件');
@@ -12378,5 +12379,144 @@ test('C139: 図解の提案→承認→一括生成（323）— 提案モード�
     await expect(page.locator('[data-vis-render="r1"]')).toBeVisible();
   } finally {
     for (const id of galleryIds) await api.delete(`/api/gallery/${id}`).catch(() => {});
+  }
+});
+
+
+test('C140: DR成果物の操作行・9マスシート・関連図の是正（324）— 院長の再現（6ノードの悪循環・活用形のラベル）で辺が赤い印で落ちず根拠のある辺は既定✓・未確認は既定✗（カードに「つながり n 本（うち未確認 m 本）」）・「赤い部分を外して承認」で辺が外れない・実描画が200（矢じり・環の順・辺なしノードの下部1行）／9マスシートの候補→「マンダラとして開く」で AI を呼ばずチャートができ中央＝タイトル・周囲＝カテゴリ・本文＝要素・meta.origin と「🖼 図解プランから作成」／🔭DRの3成果物に操作行（横書き・高さ一致・主操作だけ塗りつぶし・その成果物の本文を渡す）／LaTeX 記法（$\\rightarrow$）が表示・保存に出ない', async ({ page, request }) => {
+  test.setTimeout(360_000);
+  const marker = `G9${RUN_ID}`;
+  const src = `筋力低下は活動量低下を招き、活動量低下は総エネルギー消費量の減少を招いて食欲低下につながる。食欲低下は低栄養に陥り、低栄養は筋タンパク質合成の低下を招く。筋タンパク質合成の低下により筋力低下が生じるという悪循環である。筋力低下から歩行困難が生じる。転倒にも注意する。識別子 ${marker}`;
+  const galleryIds: string[] = [];
+  let chartId: string | null = null;
+  const aiCalls: string[] = [];
+  await page.route('**/api/visuals/plan', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ plans: [
+    { id: 'r1', type: 'relation', why: '悪循環の連鎖を環で示す', title: '筋力低下の悪循環', groups: [
+      { heading: '筋力低下', points: ['→ 活動量低下: 招く', '→ 歩行困難: 生じる'] },
+      { heading: '活動量低下', points: ['→ 総エネルギー消費量の減少: 招く'] },
+      { heading: '総エネルギー消費量の減少', points: ['→ 食欲低下: 招く'] },
+      { heading: '食欲低下', points: ['→ 低栄養: 陥る'] },
+      { heading: '低栄養', points: ['→ 筋タンパク質合成の低下: 招く'] },
+      { heading: '筋タンパク質合成の低下', points: ['→ 筋力低下: 生じる'] },
+      { heading: '歩行困難', points: [] },
+      { heading: '転倒', points: ['→ 低栄養: 関係'] },
+      { heading: '架空の要因', points: ['→ 筋力低下: 招く'] },
+    ] },
+    { id: 'g1', type: 'grid9', why: '要因をカテゴリで整理する', title: '筋力低下の悪循環', groups: [
+      { heading: '筋力低下', points: ['歩行困難'] }, { heading: '活動量低下', points: ['総エネルギー消費量の減少'] }, { heading: '食欲低下', points: ['低栄養'] }, { heading: '筋タンパク質合成の低下', points: ['筋力低下'] },
+    ] },
+  ], rejected: [], ranAt: new Date().toISOString() }) }));
+  for (const pattern of ['**/api/mandala/generate**']) await page.route(pattern, (route) => { aiCalls.push(route.request().url()); route.fulfill({ status: 500, body: '{}' }); });
+  try {
+    // ── ① 関連図: 辺は赤い印で落ちない・根拠なしは既定✗・ノードの赤だけ外れる ──
+    await page.goto('/dashboard/visuals');
+    await page.locator('[data-vis-source]').fill(src);
+    await page.locator('[data-vis-extract]').click();
+    const r1 = page.locator('[data-vis-plan="r1"]');
+    await expect(r1).toBeVisible({ timeout: 15000 });
+    await expect(r1.locator('[data-vis-evidence-count]'), 'ノード名だけ（架空の要因が1つ無い）').toHaveAttribute('data-vis-evidence-count', '9/10');
+    await expect(r1.locator('[data-vis-edges-summary]'), '辺は9本（架空の要因の辺を含む）・未確認1本').toHaveAttribute('data-vis-edges-summary', '9/1');
+    await expect(r1.locator('[data-vis-card-edge="r1-7-4"]'), '根拠のない辺は既定✗').toHaveAttribute('data-vis-card-edge-on', '0');
+    await expect(r1.locator('[data-vis-card-edge="r1-7-4"]')).toContainText('未確認');
+    await expect(r1.locator('[data-vis-card-edge="r1-0-1"]')).toHaveAttribute('data-vis-card-edge-on', '1');
+    await expect(r1.locator('[data-vis-approve-reason="r1"]')).toContainText('架空の要因');
+    await expect(r1.locator('[data-vis-approve-reason="r1"]'), 'ラベルは理由に出ない').not.toContainText('招く');
+    await r1.locator('[data-vis-strip-approve="r1"]').click();
+    await expect(r1).toHaveAttribute('data-vis-approved', '1');
+    await expect(r1.locator('[data-vis-stripped="r1"]')).toContainText('架空の要因');
+    await expect(r1.locator('[data-vis-stripped="r1"]'), '辺は「外した語句」に並ばない（ノードごと）').not.toContainText('低栄養: 陥る');
+    await expect(r1.locator('[data-vis-edges-summary]'), '架空の要因の辺だけ減る').toHaveAttribute('data-vis-edges-summary', '8/1');
+    await expect(r1.locator('[data-vis-evidence-count]')).toHaveAttribute('data-vis-evidence-count', '9/9');
+    // 実描画（矢じり・環・下部の1行を含めて 200・境界検査つき）
+    const renderRes = await api.post('/api/visuals/render', { data: { plan: {
+      id: 'repro', type: 'relation', title: '筋力低下の悪循環', edgeOff: ['7-4'], groups: [
+        { heading: '筋力低下', points: ['→ 活動量低下: 招く', '→ 歩行困難: 生じる'] }, { heading: '活動量低下', points: ['→ 総エネルギー消費量の減少: 招く'] }, { heading: '総エネルギー消費量の減少', points: ['→ 食欲低下: 招く'] },
+        { heading: '食欲低下', points: ['→ 低栄養: 陥る'] }, { heading: '低栄養', points: ['→ 筋タンパク質合成の低下: 招く'] }, { heading: '筋タンパク質合成の低下', points: ['→ 筋力低下: 生じる'] }, { heading: '歩行困難', points: [] }, { heading: '転倒', points: ['→ 低栄養: 関係'] },
+      ] }, sourceText: src, orientation: 'landscape' } });
+    const rj = (await renderRes.json()) as { textVerified?: boolean; imageBase64?: string; error?: string };
+    expect(renderRes.status(), `再現入力の描画が 200: ${rj.error ?? ''}`).toBe(200);
+    expect(rj.textVerified).toBe(true);
+    // ── ② 9マスシート → マンダラとして開く（AI なし） ──
+    const g1 = page.locator('[data-vis-plan="g1"]');
+    await expect(g1.locator('[data-vis-structure="g1"]')).toContainText('カテゴリ 4/8');
+    await expect(g1.locator('[data-vis-open-mandala="g1"]')).toBeEnabled();
+    const [popup] = await Promise.all([page.context().waitForEvent('page'), g1.locator('[data-vis-open-mandala="g1"]').click()]);
+    await expect(g1.locator('[data-vis-mandala-link]')).toBeVisible({ timeout: 30000 });
+    chartId = (await g1.locator('[data-vis-mandala-link]').getAttribute('data-vis-mandala-link'))!;
+    expect(aiCalls.length, 'AI（316 の生成）は呼ばない').toBe(0);
+    await popup.waitForLoadState();
+    expect(popup.url()).toContain(`/dashboard/mandala/${chartId}`);
+    await expect(popup.locator('[data-mandala-visual-plan]'), 'チャートに「🖼 図解プランから作成」').toBeVisible({ timeout: 30000 });
+    await popup.close();
+    const chart = (await (await api.get(`/api/mandala/${chartId}`)).json()).chart as { meta: { origin?: string; visualPlan?: { title?: string } }; cells: { depth: number; position: number; title: string; body: string; meta: { origin?: string } }[] };
+    expect(chart.meta.origin).toBe('visual_plan');
+    expect(chart.meta.visualPlan?.title).toBe('筋力低下の悪循環');
+    const byPos = new Map(chart.cells.filter((c) => c.depth === 1).map((c) => [c.position, c]));
+    expect(byPos.get(4)?.title, '中央＝タイトル').toBe('筋力低下の悪循環');
+    expect(byPos.get(0)?.title).toBe('筋力低下');
+    expect(byPos.get(0)?.body, '本文＝要素').toBe('歩行困難');
+    expect(byPos.get(1)?.title).toBe('活動量低下');
+    expect(byPos.get(3)?.title, 'マンダラと同じ配置（左上→上→右上→左）').toBe('筋タンパク質合成の低下');
+    expect(byPos.get(0)?.meta?.origin, 'マスの origin は付けない').toBeUndefined();
+    const list = (await (await api.get('/api/mandala')).json()) as { charts: { id: string; origin?: string | null }[] };
+    expect(list.charts.find((c) => c.id === chartId)?.origin).toBe('visual_plan');
+    // ── ③ 🔭DR の3成果物に操作行（本文はその成果物・LaTeX が出ない） ──
+    await stubFeatureDrafts(page);
+    const REPORT = `# [E2E] ${marker} レポート\n\n本文です。出典: 例 https://example.com`;
+    await page.route('**/api/deepresearch', (route) => route.fulfill({ status: 200, contentType: 'text/event-stream', body: `data: ${JSON.stringify({ type: 'text', content: REPORT })}\n\ndata: ${JSON.stringify({ type: 'done', usage: { input_tokens: 1, output_tokens: 1 } })}\n\n` }));
+    for (const pattern of ['**/api/knowledge/**', '**/api/glossary/research-extract', '**/api/deepresearch/query-history', '**/api/library/auto-categorize']) {
+      await page.route(pattern, (route) => route.fulfill({ status: 200, contentType: 'application/json', body: '{}' }));
+    }
+    await page.route('**/api/deepresearch/insights', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ summary: `要約 ${marker} 筋力低下 $\\rightarrow$ 活動量低下 $\\rightarrow$ 食欲低下。`, detail: `詳細 ${marker} 本文。`, advice: `活用 ${marker} 本文。`, keywords: ['筋力低下'] }) }));
+    const libraryPosts: { title?: string; content?: string; tags?: string }[] = [];
+    await page.route('**/api/library', async (route) => {
+      if (route.request().method() === 'POST') { libraryPosts.push(route.request().postDataJSON()); await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ id: `e2e-mock-${libraryPosts.length}` }) }); return; }
+      await route.fallback();
+    });
+    await page.goto('/dashboard/deepresearch');
+    await page.evaluate(() => { localStorage.setItem('lumina_auto_stock_save', '0'); localStorage.setItem('lumina_text_scale', '100'); });
+    await page.reload({ waitUntil: 'domcontentloaded' });
+    await waitForRunReady(page);
+    await page.getByPlaceholder(/調査したいテーマを詳しく入力してください/).fill(`[E2E] 324 ${marker}`);
+    await page.locator('button[data-kb-run]').click();
+    for (const kind of ['summary', 'detail', 'advice']) {
+      const bar = page.locator(`[data-dr-insight-actions="${kind}"]`);
+      await expect(bar, `${kind} に操作行`).toBeVisible({ timeout: 60000 });
+      const info = await bar.locator('button, a').evaluateAll((els) => els.filter((e) => (e as HTMLElement).offsetParent !== null).map((e) => { const cs = getComputedStyle(e); const r = e.getBoundingClientRect(); return { text: (e.textContent ?? '').trim(), wm: cs.writingMode, h: Math.round(r.height), w: Math.round(r.width), bg: cs.backgroundColor, primary: e.hasAttribute('data-save-library') }; }));
+      expect(Array.from(new Set(info.map((i) => i.wm))), `${kind}: 横書き`).toEqual(['horizontal-tb']);
+      expect(Array.from(new Set(info.map((i) => i.h))), `${kind}: 高さが揃う`).toEqual([32]);
+      expect(info.filter((i) => i.bg === 'rgb(79, 70, 229)').map((i) => i.primary), `${kind}: 塗りつぶしは主操作だけ`).toEqual([true]);
+      await expect(bar.locator(`[data-vis-quick-open="insight-${kind}"]`)).toBeVisible();
+      await expect(bar.locator(`[data-vis-quick-open="grid9-${kind}"]`)).toHaveAttribute('data-vis-quick-fixed', 'grid9');
+      await expect(bar.locator(`[data-followup-open="insight-${kind}"]`)).toBeDisabled();
+      await expect(bar.locator('[data-memorize-button]')).toBeVisible();
+    }
+    await expect(page.locator('[data-dr-result-actions]'), 'レポート本体の操作行は不変').toBeVisible();
+    // 本文はその成果物: 図解ダイアログの字数＝要約の長さ
+    await page.locator('[data-vis-quick-open="insight-summary"]').click();
+    const dlg = page.locator('[data-vis-picker-dialog]');
+    await expect(dlg).toBeVisible();
+    const chars = Number(await dlg.locator('[data-vis-picker-chars]').getAttribute('data-vis-picker-chars'));
+    expect(chars, 'レポート本体ではなく要約の字数').toBeLessThan(REPORT.length + 40);
+    expect(chars).toBeGreaterThan(20);
+    await page.keyboard.press('Escape');
+    // LaTeX: 表示に $\ が無く「→」になっている
+    const summaryText = await page.locator('section', { hasText: '📋 概要・要約' }).first().innerText();
+    expect(summaryText, '表示に LaTeX が出ない').not.toContain('$\\');
+    expect(summaryText).toContain('筋力低下 → 活動量低下');
+    // 保存本文にも出ない（📚 リサーチ保存に追加）
+    await page.locator('[data-dr-insight-actions="summary"] [data-save-library]').click();
+    await expect.poll(() => libraryPosts.length).toBeGreaterThanOrEqual(1);
+    expect(libraryPosts[0].content ?? '').not.toContain('$\\');
+    expect(libraryPosts[0].content ?? '').toContain('→');
+    // 🗂 保存API でも LaTeX が外れる
+    const saveId = await createSave(request, { title: `LaTeX ${marker}`, content: `A $\\rightarrow$ B と $\\alpha$ ${marker}` });
+    const saved = (await (await request.get(`/api/text-analysis/saves?id=${saveId}`)).json()) as { content: string };
+    expect(saved.content).not.toContain('$\\');
+    expect(saved.content).toContain('A → B と α');
+  } finally {
+    if (chartId) await api.delete(`/api/mandala?id=${chartId}`).catch(() => {});
+    for (const id of galleryIds) await api.delete(`/api/gallery/${id}`).catch(() => {});
+    await cleanupE2ESaves(request);
   }
 });

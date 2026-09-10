@@ -13,6 +13,12 @@ import {
   lineCount,
   minCanvasHeight,
   edgesOfPlan,
+  GRID9_CELLS,
+  GRID9_MAX_POINTS,
+  GRID9_OVERFLOW_RE,
+  RELATION_LOOSE_PREFIX,
+  grid9OverflowLabel,
+  relationNodeOrder,
   type VisualOrientation,
   type VisualPlan,
 } from '@/lib/visuals';
@@ -91,6 +97,26 @@ export function estimateVisualHeight(plan: VisualPlan, orientation: VisualOrient
     for (let r = 0; r < rows; r++) {
       const slice = plan.groups.slice(r * cols, r * cols + cols);
       h += Math.max(...slice.map((g) => 40 + lineCount(g.points[0] ?? '', Math.max(4, Math.floor(colW / 60))) * 72 + lineCount(g.heading ?? '', cpl) * 34 + 40)) + 24;
+    }
+    body = h;
+  } else if (plan.type === 'grid9') {
+    // 3行×（見出し＋要素≤5＋ほか）。列幅は inner/3
+    const inner = width - 56 * 2;
+    const cpl = charsPerLine(Math.floor((inner - 24) / 3), 22, 14);
+    let h = 0;
+    for (let row = 0; row < 3; row++) {
+      let rh = 120;
+      for (let col = 0; col < 3; col++) {
+        const pos = row * 3 + col;
+        if (pos === 4) continue;
+        const gi = [0, 1, 2, 3, 5, 6, 7, 8].indexOf(pos);
+        const g = plan.groups.filter((x) => (x.heading ?? '').trim())[gi];
+        if (!g) continue;
+        const pts = g.points.slice(0, GRID9_MAX_POINTS);
+        const lines = lineCount(g.heading ?? '', cpl) + pts.reduce((n, p) => n + lineCount(p, cpl), 0) + (g.points.length > GRID9_MAX_POINTS ? 1 : 0);
+        rh = Math.max(rh, 24 + lines * 32 + 24);
+      }
+      h += rh + 12;
     }
     body = h;
   } else if (plan.type === 'onepage') {
@@ -270,9 +296,13 @@ export interface RelationLayout {
   inner: number;
   area: number;
   boxW: number;
-  nodes: { label: string; rect: RelationRect; cx: number; cy: number }[];
+  nodes: { label: string; rect: RelationRect; cx: number; cy: number; loose: boolean }[];
   edges: { from: number; to: number; label: string; len: number; angle: number; box: RelationRect; endpoints: [{ x: number; y: number }, { x: number; y: number }] }[];
   labels: { text: string; rect: RelationRect; edge: number }[];
+  /** 324 §2-3: 有向の矢じり（関連図だけ・相関図は無向）。相手ノードの箱の縁に置く */
+  arrows: { rect: RelationRect; angle: number; edge: number }[];
+  /** 324 §2-4: 辺の無いノードは下部に1行（箱は描かない） */
+  looseLine: { rect: RelationRect; names: string[] } | null;
 }
 const REL_BOX_W = 200;
 const REL_BOX_MIN_H = 64;
@@ -280,36 +310,62 @@ const REL_LINE_H = 4;
 const REL_LABEL_W = 160;
 const REL_LABEL_H = 32;
 const REL_MARGIN = 24;
+const REL_ARROW_W = 16;
+const REL_ARROW_H = 14;
+const REL_LOOSE_H = 40;
 
 function intersects(a: RelationRect, b: RelationRect): boolean {
   return a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
+}
+/** 中心 c から方向 d へ進んで箱の縁に当たる点（箱は軸に平行） */
+function rectEdgePoint(rect: RelationRect, cx: number, cy: number, dx: number, dy: number): { x: number; y: number } {
+  const hw = rect.w / 2;
+  const hh = rect.h / 2;
+  const tx = dx !== 0 ? hw / Math.abs(dx) : Infinity;
+  const ty = dy !== 0 ? hh / Math.abs(dy) : Infinity;
+  const t = Math.min(tx, ty);
+  return { x: cx + dx * t, y: cy + dy * t };
 }
 
 export function relationLayout(plan: VisualPlan, width: number): RelationLayout {
   const names = plan.groups.map((g) => (g.heading ?? '').trim());
   const edgesIn = edgesOfPlan(plan);
-  const n = Math.max(1, names.length);
+  const order = relationNodeOrder(plan);
+  const circleIdx = order.circle;
+  const looseIdx = order.loose;
+  const n = Math.max(1, circleIdx.length);
   const inner = width - 56 * 2;
-  const area = Math.round(width * 0.82);
+  const areaFull = Math.round(width * 0.82);
+  const looseH = looseIdx.length > 0 ? REL_LOOSE_H + REL_MARGIN : 0;
+  const area = areaFull; // 下部の1行は area の中（円は looseH ぶん上に詰める）
   const boxW = REL_BOX_W;
   const cpl = charsPerLine(boxW, 24, 12);
   const boxH = names.map((nm) => REL_BOX_MIN_H + Math.max(0, lineCount(nm, cpl) - 1) * 32);
   const maxH = Math.max(REL_BOX_MIN_H, ...boxH);
+  const usableH = area - looseH;
   const cx = inner / 2;
-  const cy = area / 2;
-  // 半径: 箱の対角の半分＋余白がキャンバス内に収まる最大値
-  const r = Math.max(0, Math.min(inner, area) / 2 - Math.max(boxW, maxH) / 2 - REL_MARGIN - REL_LABEL_H);
-  const centers = names.map((_, i) => {
-    if (n === 1) return { x: cx, y: cy };
-    if (n === 2) return { x: i === 0 ? cx - r : cx + r, y: cy };
-    const a = -Math.PI / 2 + (2 * Math.PI * i) / n;
-    return { x: Math.round(cx + r * Math.cos(a)), y: Math.round(cy + r * Math.sin(a)) };
+  const cy = usableH / 2;
+  const r = Math.max(0, Math.min(inner, usableH) / 2 - Math.max(boxW, maxH) / 2 - REL_MARGIN - REL_LABEL_H);
+  // 円周上の位置は「並び順」（環の順→残り）で決める。n=1 中央／n=2 左右／n≥3 円周（上から時計回り）
+  const centers = new Map<number, { x: number; y: number }>();
+  circleIdx.forEach((idx, k) => {
+    if (n === 1) centers.set(idx, { x: cx, y: cy });
+    else if (n === 2) centers.set(idx, { x: k === 0 ? cx - r : cx + r, y: cy });
+    else {
+      const a = -Math.PI / 2 + (2 * Math.PI * k) / n;
+      centers.set(idx, { x: Math.round(cx + r * Math.cos(a)), y: Math.round(cy + r * Math.sin(a)) });
+    }
   });
   const nodes = names.map((label, i) => {
     const h = boxH[i] ?? REL_BOX_MIN_H;
-    const x = Math.round(Math.min(Math.max(REL_MARGIN, centers[i].x - boxW / 2), inner - REL_MARGIN - boxW));
-    const y = Math.round(Math.min(Math.max(REL_MARGIN, centers[i].y - h / 2), area - REL_MARGIN - h));
-    return { label, rect: { x, y, w: boxW, h }, cx: x + boxW / 2, cy: y + h / 2 };
+    const c = centers.get(i);
+    if (!c) {
+      // 辺の無いノード（loose）: 箱は描かない。矩形は 0 幅（検査の対象外）
+      return { label, rect: { x: 0, y: 0, w: 0, h: 0 }, cx: 0, cy: 0, loose: true };
+    }
+    const x = Math.round(Math.min(Math.max(REL_MARGIN, c.x - boxW / 2), inner - REL_MARGIN - boxW));
+    const y = Math.round(Math.min(Math.max(REL_MARGIN, c.y - h / 2), usableH - REL_MARGIN - h));
+    return { label, rect: { x, y, w: boxW, h }, cx: x + boxW / 2, cy: y + h / 2, loose: false };
   });
   const edges = edgesIn.map((e) => {
     const a = nodes[e.from];
@@ -320,7 +376,7 @@ export function relationLayout(plan: VisualPlan, width: number): RelationLayout 
     const angle = Math.round(((Math.atan2(dy, dx) * 180) / Math.PI) * 100) / 100;
     const mx = (a.cx + b.cx) / 2;
     const my = (a.cy + b.cy) / 2;
-    // 線の箱は中点を中心に置く（satori は中心で回転する）
+    // 線の箱は中点を中心に置く（satori は中心で回転する・R-125）
     const box = { x: Math.round(mx - len / 2), y: Math.round(my - REL_LINE_H / 2), w: len, h: REL_LINE_H };
     return { from: e.from, to: e.to, label: e.label, len, angle, box, endpoints: [{ x: a.cx, y: a.cy }, { x: b.cx, y: b.cy }] as [{ x: number; y: number }, { x: number; y: number }] };
   });
@@ -329,7 +385,6 @@ export function relationLayout(plan: VisualPlan, width: number): RelationLayout 
     const [a, b] = e.endpoints;
     const mx = (a.x + b.x) / 2;
     const my = (a.y + b.y) / 2;
-    // 法線（単位ベクトル）。ノードと重なるときは法線方向に箱の半分＋余白だけ外側へ（乱数不使用・上側を優先）
     const dx = b.x - a.x;
     const dy = b.y - a.y;
     const L = Math.max(1, Math.sqrt(dx * dx + dy * dy));
@@ -340,16 +395,35 @@ export function relationLayout(plan: VisualPlan, width: number): RelationLayout 
     for (const k of candidates) {
       const shift = k * (maxH / 2 + REL_LABEL_H);
       const cand: RelationRect = { x: Math.round(mx + nx * shift - REL_LABEL_W / 2), y: Math.round(my + ny * shift - REL_LABEL_H / 2), w: REL_LABEL_W, h: REL_LABEL_H };
-      if (!nodes.some((nd) => intersects(cand, nd.rect))) {
+      if (!nodes.some((nd) => !nd.loose && intersects(cand, nd.rect))) {
         rect = cand;
         break;
       }
     }
     rect.x = Math.round(Math.min(Math.max(0, rect.x), inner - rect.w));
-    rect.y = Math.round(Math.min(Math.max(0, rect.y), area - rect.h));
+    rect.y = Math.round(Math.min(Math.max(0, rect.y), usableH - rect.h));
     return [{ text: e.label, rect, edge: idx }];
   });
-  return { inner, area, boxW, nodes, edges, labels };
+  // 矢じり: 関連図（有向）だけ。相手の箱の縁に、線の方向で回転（中心回転）。相関図は無向＝無し
+  const arrows = plan.type === 'relation'
+    ? edges.map((e, idx) => {
+        const [a, b] = e.endpoints;
+        const dx = b.x - a.x;
+        const dy = b.y - a.y;
+        const L = Math.max(1, Math.sqrt(dx * dx + dy * dy));
+        const ux = dx / L;
+        const uy = dy / L;
+        const target = nodes[e.to].rect;
+        const q = rectEdgePoint(target, b.x, b.y, -ux, -uy); // 相手の箱の縁（線側）
+        const cxA = q.x - ux * (REL_ARROW_W / 2);
+        const cyA = q.y - uy * (REL_ARROW_W / 2);
+        return { rect: { x: Math.round(cxA - REL_ARROW_W / 2), y: Math.round(cyA - REL_ARROW_H / 2), w: REL_ARROW_W, h: REL_ARROW_H }, angle: e.angle, edge: idx };
+      })
+    : [];
+  const looseLine = looseIdx.length > 0
+    ? { rect: { x: 0, y: area - REL_LOOSE_H, w: inner, h: REL_LOOSE_H }, names: looseIdx.map((i) => names[i]) }
+    : null;
+  return { inner, area, boxW, nodes, edges, labels, arrows, looseLine };
 }
 
 /** 322: 回転した線の外接矩形（中心回転） */
@@ -365,7 +439,7 @@ function rotatedBounds(box: RelationRect, angleDeg: number): RelationRect {
 }
 
 /**
- * 322: すべての要素（ノード・線・ラベル）がキャンバス（余白込み）に収まるかの機械検査。文字一致（verifyRenderedText）と同じく
+ * 322: すべての要素（ノード・線・ラベル・矢じり・下部の1行）がキャンバス（余白込み）に収まるかの機械検査。文字一致（verifyRenderedText）と同じく
  * 外れていれば描かない（壊れた PNG を出さない）。関連図・相関図以外は in-flow なので常に ok
  */
 export function verifyRenderedBounds(plan: VisualPlan, orientation: VisualOrientation): { ok: boolean; reasons: string[] } {
@@ -377,32 +451,109 @@ export function verifyLayoutBounds(lay: RelationLayout): { ok: boolean; reasons:
   const reasons: string[] = [];
   const inside = (r: RelationRect) => r.x >= -0.5 && r.y >= -0.5 && r.x + r.w <= lay.inner + 0.5 && r.y + r.h <= lay.area + 0.5;
   const fmt = (r: RelationRect) => `x=${Math.round(r.x)},y=${Math.round(r.y)},w=${Math.round(r.w)},h=${Math.round(r.h)}`;
-  for (const nd of lay.nodes) if (!inside(nd.rect)) reasons.push(`ノード「${nd.label}」が画面外（${fmt(nd.rect)}）`);
+  for (const nd of lay.nodes) if (!nd.loose && !inside(nd.rect)) reasons.push(`ノード「${nd.label}」が画面外（${fmt(nd.rect)}）`);
   for (const e of lay.edges) {
     const b = rotatedBounds(e.box, e.angle);
     if (!inside(b)) reasons.push(`辺「${lay.nodes[e.from]?.label}→${lay.nodes[e.to]?.label}」が画面外（${fmt(b)}）`);
   }
   for (const l of lay.labels) if (!inside(l.rect)) reasons.push(`ラベル「${l.text}」が画面外（${fmt(l.rect)}）`);
+  for (const a of lay.arrows) {
+    const b = rotatedBounds(a.rect, a.angle);
+    if (!inside(b)) reasons.push(`矢じり「→${lay.nodes[lay.edges[a.edge]?.to]?.label}」が画面外（${fmt(b)}）`);
+  }
+  if (lay.looseLine && !inside(lay.looseLine.rect)) reasons.push(`つながり未指定の行が画面外（${fmt(lay.looseLine.rect)}）`);
   return { ok: reasons.length === 0, reasons };
 }
 
 function relationTemplate(plan: VisualPlan, width: number): El[] {
   // 320: 相関図は label 必須の辺だけ（edgesOfPlan）。線は全辺同じ太さ・色・不透明度＝強弱は label の文字で示す（AI の判断を視覚化しない・R-74）
   // 322: 幾何は relationLayout（検査と同じ）。線は中点中心で回転・ノードは余白内・辺の無いノードも描く
+  // 324: 矢じり（関連図だけ・有向）・環の順に並べる・辺の無いノードは下部に1行（箱は描かない）
   const lay = relationLayout(plan, width);
   const lines: El[] = lay.edges.map((e) =>
     div({ display: 'flex', position: 'absolute', left: e.box.x, top: e.box.y, width: e.box.w, height: e.box.h, background: GREEN, transform: `rotate(${e.angle}deg)`, opacity: 0.55 }, []),
   );
+  // 矢じり＝CSS の三角（幅0・高さ0・左のボーダーだけ色）。中心回転なので箱の中心を縁の少し手前に置く
+  const arrowEls: El[] = lay.arrows.map((a) =>
+    div({ display: 'flex', position: 'absolute', left: a.rect.x, top: a.rect.y, width: a.rect.w, height: a.rect.h, transform: `rotate(${a.angle}deg)`, alignItems: 'center', justifyContent: 'center' },
+      div({ display: 'flex', width: 0, height: 0, borderTop: `${REL_ARROW_H / 2}px solid transparent`, borderBottom: `${REL_ARROW_H / 2}px solid transparent`, borderLeft: `${REL_ARROW_W}px solid ${GREEN}` }, [])),
+  );
   const edgeLabels: El[] = lay.labels.map((l) =>
     div({ position: 'absolute', left: l.rect.x, top: l.rect.y, width: l.rect.w, height: l.rect.h, display: 'flex', justifyContent: 'center', alignItems: 'center' }, div({ display: 'flex', background: '#fff', border: `1px solid ${LINE}`, borderRadius: 8, padding: '2px 8px', fontSize: 20, color: MUTED, lineHeight: 1.3 }, l.text)),
   );
-  const nodeEls: El[] = lay.nodes.map((nd) =>
+  const nodeEls: El[] = lay.nodes.filter((nd) => !nd.loose).map((nd) =>
     div(
       { position: 'absolute', left: nd.rect.x, top: nd.rect.y, width: nd.rect.w, minHeight: nd.rect.h, display: 'flex', alignItems: 'center', justifyContent: 'center', background: GREEN_SOFT, border: `2px solid ${GREEN}`, borderRadius: 16, padding: '8px 12px', boxSizing: 'border-box' },
       text(nd.label, { fontSize: 24, fontWeight: 700, color: INK, lineHeight: 1.35, textAlign: 'center' }),
     ),
   );
-  return [titleBlock(plan, width), div({ position: 'relative', width: lay.inner, height: lay.area, display: 'flex' }, [...lines, ...edgeLabels, ...nodeEls])];
+  const looseEl: El[] = lay.looseLine
+    ? [div(
+        { position: 'absolute', left: lay.looseLine.rect.x, top: lay.looseLine.rect.y, width: lay.looseLine.rect.w, height: lay.looseLine.rect.h, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', padding: '0 8px' },
+        [
+          text(RELATION_LOOSE_PREFIX, { fontSize: 20, color: MUTED }),
+          ...lay.looseLine.names.flatMap((nm, i) => [
+            ...(i > 0 ? [text('・', { fontSize: 20, color: MUTED })] : []),
+            text(nm, { fontSize: 20, fontWeight: 700, color: INK }),
+          ]),
+        ],
+      )]
+    : [];
+  return [titleBlock(plan, width), div({ position: 'relative', width: lay.inner, height: lay.area, display: 'flex' }, [...lines, ...arrowEls, ...edgeLabels, ...nodeEls, ...looseEl])];
+}
+
+// ── 324: 9マスシート（3×3・マンダラと同じ配置＝左上→上→右上→左→中央→右→左下→下→右下。各マス最大5行・超過は「ほか n 件」） ──
+const GRID9_POSITIONS: readonly number[] = [0, 1, 2, 3, 5, 6, 7, 8];
+export function grid9Cells(plan: VisualPlan): { position: number; heading: string; points: string[]; more: number }[] {
+  const groups = plan.groups.filter((g) => (g.heading ?? '').trim()).slice(0, GRID9_CELLS);
+  return groups.map((g, i) => ({ position: GRID9_POSITIONS[i], heading: (g.heading ?? '').trim(), points: g.points.slice(0, GRID9_MAX_POINTS), more: Math.max(0, g.points.length - GRID9_MAX_POINTS) }));
+}
+function grid9Template(plan: VisualPlan, width: number): El[] {
+  const cells = grid9Cells(plan);
+  const byPos = new Map(cells.map((c) => [c.position, c]));
+  const inner = width - 56 * 2;
+  const gap = 12;
+  const cellW = Math.floor((inner - gap * 2) / 3);
+  const cpl = charsPerLine(cellW, 22, 14);
+  const rowH = (row: number) => {
+    let h = 120;
+    for (let col = 0; col < 3; col++) {
+      const pos = row * 3 + col;
+      const c = byPos.get(pos);
+      if (!c) continue;
+      const lines = lineCount(c.heading, cpl) + c.points.reduce((n, p) => n + lineCount(p, cpl), 0) + (c.more > 0 ? 1 : 0);
+      h = Math.max(h, 24 + lines * 32 + 24);
+    }
+    return h;
+  };
+  const rows: El[] = [0, 1, 2].map((row) =>
+    div(
+      { display: 'flex', width: '100%', gap, marginBottom: gap },
+      [0, 1, 2].map((col) => {
+        const pos = row * 3 + col;
+        if (pos === 4) {
+          return div(
+            { display: 'flex', width: cellW, minHeight: rowH(row), background: GREEN, borderRadius: 16, alignItems: 'center', justifyContent: 'center', padding: 16 },
+            text(plan.title, { fontSize: 30, fontWeight: 700, color: '#fff', lineHeight: 1.35, textAlign: 'center' }),
+          );
+        }
+        const c = byPos.get(pos);
+        if (!c) {
+          // 空マスは薄く（何が埋まっていないか分かる）
+          return div({ display: 'flex', width: cellW, minHeight: rowH(row), background: '#F6F8F7', border: `2px dashed ${LINE}`, borderRadius: 16 }, []);
+        }
+        return div(
+          { display: 'flex', flexDirection: 'column', width: cellW, minHeight: rowH(row), background: GREEN_SOFT, border: `2px solid ${GREEN}`, borderRadius: 16, padding: 14, gap: 6 },
+          [
+            text(c.heading, { fontSize: 24, fontWeight: 700, color: GREEN, lineHeight: 1.35 }),
+            ...c.points.map((p) => text(p, { fontSize: 20, color: INK, lineHeight: 1.4 })),
+            ...(c.more > 0 ? [text(grid9OverflowLabel(c.more), { fontSize: 18, color: MUTED })] : []),
+          ],
+        );
+      }),
+    ),
+  );
+  return [titleBlock(plan, width), div({ display: 'flex', flexDirection: 'column', width: inner }, rows)];
 }
 
 // ── 317: タイムライン（横1本の軸に等間隔・when は文字列のまま） ──
@@ -483,6 +634,7 @@ export function buildVisualElement(plan: VisualPlan, orientation: VisualOrientat
     : plan.type === 'timeline' ? timelineTemplate(plan, width)
     : plan.type === 'figures' ? figuresTemplate(plan, width)
     : plan.type === 'onepage' ? onepageTemplate(plan, width)
+    : plan.type === 'grid9' ? grid9Template(plan, width)
     : conceptTemplate(plan, width);
   return { element: frame(width, height, children), canvas: { width, height } };
 }
@@ -498,6 +650,8 @@ export function expectedStringsOf(plan: VisualPlan): string[] {
   }
   if (plan.type === 'figures') return [plan.title.trim(), ...plan.groups.flatMap((g) => [(g.points[0] ?? '').trim(), (g.heading ?? '').trim()])].filter(Boolean);
   if (plan.type === 'onepage') return [plan.title.trim(), ...(plan.groups[0]?.points ?? []).map((p) => p.trim()), (plan.groups[1]?.points[0] ?? '').trim()].filter(Boolean);
+  // 324: 9マスシート＝タイトル＋各マスの見出しと先頭5要素（超過は「ほか n 件」＝固定文言）
+  if (plan.type === 'grid9') return [plan.title.trim(), ...grid9Cells(plan).flatMap((c) => [c.heading, ...c.points.map((p) => p.trim())])].filter(Boolean);
   return collectPlanStrings(plan);
 }
 
@@ -549,11 +703,11 @@ export function collectElementText(el: unknown, out: string[] = []): string[] {
 }
 
 /** 固定の記号（矢印・チェック・番号・中黒）はプランの文字ではないので除外して照合 */
-const FIXED_MARKS = new Set(['→', '↓', '✓', '・']);
+const FIXED_MARKS = new Set(['→', '↓', '✓', '・', RELATION_LOOSE_PREFIX]);
 
 /** 描画される文字列 ＝ プランの文字列（順序不問・固定記号と番号を除く）。missing／extra を返す */
 export function verifyRenderedText(plan: VisualPlan, element: El): { ok: boolean; missing: string[]; extra: string[] } {
-  const rendered = collectElementText(element).filter((s) => !FIXED_MARKS.has(s) && !/^\d+$/.test(s));
+  const rendered = collectElementText(element).filter((s) => !FIXED_MARKS.has(s) && !/^\d+$/.test(s) && !GRID9_OVERFLOW_RE.test(s));
   const expected = expectedStringsOf(plan);
   const missing = expected.filter((s) => !rendered.includes(s));
   const extra = rendered.filter((s) => !expected.includes(s));

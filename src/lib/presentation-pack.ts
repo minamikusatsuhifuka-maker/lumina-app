@@ -7,6 +7,7 @@
 // /api/pack が保存する（library に別行・metadata.pack・パック用の新テーブルは作らない）。
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
+import { NO_LATEX_PROMPT_RULE } from '@/lib/markdown-renderer';
 import { GEMINI_TEXT_MODEL } from '@/lib/ai-models';
 import { MEDICAL_AD_NG_RULES } from '@/lib/medical-ad-check';
 import { COMPARE_PROMPT_OVERHEAD_CHARS, costOf, estimateImageCost } from '@/lib/model-pricing';
@@ -67,7 +68,7 @@ export const PACK_MAX_SELECT = PACK_KINDS.length;
 // ───────────────────────────────────────────────────────────────────────────
 
 const GUARD_SECTION = `\n\n# 医療広告ガイドライン（必ず守る・この節が最優先）\n以下に該当する表現は使わない。まとめに無い効果・実績・数字・体験を足さない。\n${MEDICAL_AD_NG_RULES}`;
-const COMMON = '記事にある内容だけを使う（まとめに無い事実・数字・評価を補わない）。見出しは「## 」と「### 」の2階層（「# 」は使わない）。強調は **太字**、列挙は「- 」。';
+const COMMON = `記事にある内容だけを使う（まとめに無い事実・数字・評価を補わない）。見出しは「## 」と「### 」の2階層（「# 」は使わない）。強調は **太字**、列挙は「- 」。${NO_LATEX_PROMPT_RULE}`;
 
 export function buildSlidesPrompt(source: string): { system: string; prompt: string } {
   return {

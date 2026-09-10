@@ -4126,6 +4126,8 @@ test('U80: 「1文1行」整形の横展開（310・R-114）— ②分割・275 
   const saveBtn = read('components/SaveToLibraryButton.tsx');
   expect(saveBtn).toMatch(/const contentToSave = type === 'note-article' \? enforceNoteHeadingLevels\(formatOneSentencePerLine\(content\)\) : content;/);
   expect(saveBtn).toMatch(/content: contentToSave,/);
+  // 324追加: LaTeX 記法の除去は formatOneSentencePerLine の先頭＝6経路に自動で効く（一覧は不変）。直接呼ぶのは DR insights／🗂 saves／merge／pack
+  expect(read('lib/note-format.ts')).toMatch(/const markdown = stripInlineLatex\(markdownInput\);/);
   const richCopy = read('lib/rich-copy.ts');
   expect(richCopy).toMatch(/export async function copyRichMarkdownForNote\(markdownRaw: string\)[^]*?const markdown = enforceNoteHeadingLevels\(formatOneSentencePerLine\(markdownRaw\)\);/);
   const wordCopy = richCopy.slice(richCopy.indexOf('export async function copyRichMarkdown('), richCopy.indexOf('export function promoteHeadingsForNote'));
@@ -4963,7 +4965,7 @@ test('U89: AIでまとめるの二段出力とプレゼン素材パック（317�
   expect(filtered.plans.map((x) => x.type)).toEqual(['relation']);
   expect(filtered.rejected[0].reason).toContain('選んでいない型');
   expect(v.buildVisualPlanPrompt('本文', { types: ['relation', 'figures'] }).prompt).toContain('type は次の2種のみ');
-  expect(v.VISUAL_TYPES.length, '320: 相関図を足して11種').toBe(11);
+  expect(v.VISUAL_TYPES.length, '320: 相関図・324: 9マスシートを足して12種').toBe(12);
   // ⑥ ソース固定: 素材の保存は library に別行（新テーブルなし）・script は API を通さない
   const packRoute = readFileSync(join(__dirname, '../../src/app/api/pack/route.ts'), 'utf8');
   expect(packRoute).toContain('INSERT INTO library');
@@ -5150,9 +5152,11 @@ test('U92: 生成結果から直接図解・画像（320）— 相関図は labe
   const fixed = { ...plan, groups: [{ heading: '湿度', points: ['→ 乾燥: 逆相関'] }, { heading: '乾燥', points: [] }, { heading: '加湿器', points: ['→ 乾燥: 乾燥を減らす'] }] };
   expect(v.checkPlan(fixed, src).ok, '直せば描ける').toBe(true);
   // 元テキストに無い相関の語句は赤い印（語句単位の実在チェックが points に効く＝AI が相関を捏造する経路を塞ぐ）
+  // 324 §2-2: 辺のラベルは語句単位の実在チェックの対象外（活用形で落ちるため）。裏付けは根拠抽出＝両端ノードを含む文
   const forged = { ...fixed, groups: [{ heading: '湿度', points: ['→ 乾燥: 強い因果'] }, { heading: '乾燥', points: [] }] };
-  expect(v.findForeignPhrases(forged, src)).toEqual(['→ 乾燥: 強い因果']);
-  expect(v.checkPlan(forged, src).ok).toBe(false);
+  expect(v.findForeignPhrases(forged, src), 'ラベルは赤い印にしない').toEqual([]);
+  expect(v.checkPlan(forged, src).ok).toBe(true);
+  expect(v.relationEdgeRows(forged, src)[0].evidence, '根拠は両端ノードを含む文').toContain('湿度と乾燥');
   // ② 描画: 線（回転した div）は全辺同じ高さ・色・不透明度＝強弱を視覚化しない。関連図と同じ値
   const walk = (el: unknown, out: Record<string, unknown>[] = []): Record<string, unknown>[] => {
     if (!el || typeof el !== 'object') return out;
@@ -5247,10 +5251,10 @@ test('U93: 結果画面の操作行（321）— 縦書きの根本は flex の�
   expect(bar, '中で開く操作（AI参照素材の保存パネル）は閉じない').toMatch(/t\.closest\('\[data-context-modal\]'\)\) return;/);
   const dr = read('app/dashboard/deepresearch/page.tsx');
   expect(dr).toMatch(/<ResultActionBar\s+attrs=\{\{ 'data-dr-result-actions': '' \}\}/);
-  expect((dr.match(/<ResultActionBar/g) ?? []).length).toBe(1);
+  expect((dr.match(/<ResultActionBar\s+attrs=\{\{ 'data-dr-result-actions'/g) ?? []).length, 'レポート本体の操作行は1つ（324 で成果物の操作行が3つ増える）').toBe(1);
   // 各操作のハンドラ・data 属性は不変（要素をそのまま置き直しただけ）
   for (const h of [
-    "onClick={() => copyRichMarkdown(report)}", "onClick={() => setShowRefine(true)}", "onClick={download}", "onClick={downloadDocx}", "onClick={sendToWrite}",
+    "onClick={() => copyRichMarkdown(report)}", "onClick={() => setShowRefine(true)}", "onClick={download}", "onClick={downloadDocx}", "onClick={() => sendToWrite()}",
     "onClick={() => handleSendToTextAnalysis(report, topic)}", "onClick={() => handleSendToMedicalStudio(report, topic)}", "onClick={() => handleSendToBusinessStudio(report, topic)}",
     "onClick={() => handleSendToNexusBlog(report, topic)}", "onClick={() => handleSendToNoteArticle(report, topic)}", 'href="/dashboard/dr-hub"', "onClick={handleOpenContextModal}", "onClick={handleConfirmSaveContext}",
     "data-context-modal", 'dataKey="report"', "onSaved={setReportSavedId}", "autoSaveSignal={autoStockSignal}", "onClick={() => setFontSize(f => Math.max(11, f - 1))}", "onClick={() => setFontSize(f => Math.min(20, f + 1))}",
@@ -5383,7 +5387,7 @@ test('U95: 図解の提案→承認→一括生成（323）— 「構成」の�
   expect(v.planStructureText(rel)).toBe(v.planStructureText(rel));
   // ② 実在 k/n と承認可否
   const okCheck = v.checkPlan(rel, src);
-  expect(v.planEvidenceCount(rel, okCheck)).toEqual({ ok: 6, total: 6 });
+  expect(v.planEvidenceCount(rel, okCheck), '324: 関連図はノード名（＋タイトル）だけを数える').toEqual({ ok: 4, total: 4 });
   expect(v.approvalState(okCheck)).toEqual({ enabled: true, reason: null });
   const bad = P({ type: 'compare', title: '朝と夜', groups: [{ heading: '朝', points: ['化粧水', 'スキンケア'] }, { heading: '夜', points: ['クレンジング'] }] });
   const badCheck = v.checkPlan(bad, src);
@@ -5435,4 +5439,154 @@ test('U95: 図解の提案→承認→一括生成（323）— 「構成」の�
   expect(page, '?mode=form で従来モード').toMatch(/const formMode = searchParams\?\.get\(VISUALS_MODE_PARAM\) === VISUALS_MODE_FORM;/);
   expect(page, '承認時刻を出どころへ').toMatch(/approvedAt: approvedRef\.current\[plan\.id\] \?\? null/);
   expect(page, '構成は決定的な純関数から').toMatch(/構成: \{planStructureText\(plan\)\}/);
+});
+
+
+test('U96: 関連図の是正と9マスシート（324）— 辺の行は語句単位の実在チェックの対象外（院長の再現＝活用形のラベルで落ちない）・根拠なしの辺は抽出直後に既定✗（未確認）・「赤い部分を外して承認」はノード名だけに働く／矢じりは関連図だけ（相手の箱の縁・境界検査の対象）・相関図には無い／環を検出すると環の順に円周・辺なしノードは下部に1行（箱を描かない）・全ノードに辺が無ければ従来どおり円周／grid9 のテンプレート（3×3・マンダラ配置・各マス最大5行・超過は「ほか n 件」・空マス）・最低要件2マス・planToMandalaCells は文字列そのまま（AIなし）／ソース固定', () => {
+  const v = vis320;
+  const t = tpl320;
+  // ① 院長の再現: 6ノードの悪循環＋辺なし1ノード。ラベルは活用形違い（招く／招き）
+  const src = '筋力低下は活動量低下を招き、活動量低下は総エネルギー消費量の減少を招いて食欲低下につながる。食欲低下は低栄養に陥り、低栄養は筋タンパク質合成の低下を招く。筋タンパク質合成の低下により筋力低下が生じるという悪循環である。筋力低下から歩行困難が生じる。転倒にも注意する。';
+  const names = ['筋力低下', '活動量低下', '総エネルギー消費量の減少', '食欲低下', '低栄養', '筋タンパク質合成の低下', '歩行困難', '転倒'];
+  const plan: import('../../src/lib/visuals').VisualPlan = { id: 'r', type: 'relation', title: '筋力低下の悪循環', groups: [
+    { heading: names[0], points: ['→ 活動量低下: 招く', '→ 歩行困難: 生じる'] },
+    { heading: names[1], points: ['→ 総エネルギー消費量の減少: 招く'] },
+    { heading: names[2], points: ['→ 食欲低下: 招く'] },
+    { heading: names[3], points: ['→ 低栄養: 陥る'] },
+    { heading: names[4], points: ['→ 筋タンパク質合成の低下: 招く'] },
+    { heading: names[5], points: ['→ 筋力低下: 生じる'] },
+    { heading: names[6], points: [] },
+    { heading: names[7], points: [] },
+  ] };
+  const check = v.checkPlan(plan, src);
+  expect(check.foreign, '辺の行（ラベル）は赤い印にならない').toEqual([]);
+  expect(check.ok).toBe(true);
+  expect(v.planFactStrings(plan)).toEqual(['筋力低下の悪循環', ...names]);
+  const withDefaults = v.applyEdgeDefaults(plan, src);
+  const rows = v.relationEdgeRows(withDefaults, src);
+  expect(rows.length, '7本すべて残る').toBe(7);
+  expect(rows.filter((r) => r.evidence !== null).length, '根拠のある辺').toBe(7);
+  expect(rows.every((r) => r.on), '根拠がある辺は既定✓').toBe(true);
+  // 根拠のない辺（元テキストに両端を含む文が無い）は既定✗＝未確認
+  const noEv = { ...plan, groups: plan.groups.map((g, i) => (i === 7 ? { ...g, points: ['→ 低栄養: 関係'] } : g)) };
+  const d2 = v.applyEdgeDefaults(noEv, src);
+  expect(d2.edgeOff).toEqual([v.edgeKey(7, 4)]);
+  const rows2 = v.relationEdgeRows(d2, src);
+  expect(rows2.find((r) => r.key === '7-4')?.on).toBe(false);
+  expect(rows2.find((r) => r.key === '7-4')?.evidence).toBeNull();
+  expect(v.relationEdgeSummary(rows2)).toEqual({ total: 8, unconfirmed: 1 });
+  // 「赤い部分を外して承認」はノード名だけ
+  const withBad = { ...plan, groups: [...plan.groups, { heading: '架空のノード', points: ['→ 筋力低下: 招く'] }] };
+  const s1 = v.stripForeign(withBad, v.checkPlan(withBad, src));
+  expect(s1.ok).toBe(true);
+  if (s1.ok) {
+    expect(s1.removed, 'ノードごと消える（辺だけが外れることはない）').toEqual(['架空のノード', '→ 筋力低下: 招く']);
+    expect(v.relationEdgeRows(s1.plan, src).length).toBe(7);
+  }
+  expect(v.planEvidenceCount(plan, check)).toEqual({ ok: 9, total: 9 });
+  // ② 環の検出と順序・辺なしノード・矢じり
+  const order = v.relationNodeOrder(withDefaults);
+  expect(order.circle.slice(0, 6), '環（0→1→2→3→4→5→0）の順に円周').toEqual([0, 1, 2, 3, 4, 5]);
+  expect(order.circle, '環の外の接続ノードは後ろ').toEqual([0, 1, 2, 3, 4, 5, 6]);
+  expect(order.loose, '辺の無いノードは下部').toEqual([7]);
+  const lay = t.relationLayout(withDefaults, 1600);
+  expect(lay.nodes[7].loose).toBe(true);
+  expect(lay.looseLine?.names).toEqual(['転倒']);
+  expect(lay.arrows.length, '関連図は辺の数だけ矢じり').toBe(7);
+  for (const a of lay.arrows) {
+    const e = lay.edges[a.edge];
+    const target = lay.nodes[e.to].rect;
+    const ax = a.rect.x + a.rect.w / 2;
+    const ay = a.rect.y + a.rect.h / 2;
+    const dist = Math.min(Math.abs(ax - target.x), Math.abs(ax - (target.x + target.w)), Math.abs(ay - target.y), Math.abs(ay - (target.y + target.h)));
+    expect(dist, '矢じりは相手の箱の縁の近く').toBeLessThanOrEqual(12);
+  }
+  expect(t.verifyRenderedBounds(withDefaults, 'landscape')).toEqual({ ok: true, reasons: [] });
+  expect(t.verifyRenderedBounds(withDefaults, 'portrait')).toEqual({ ok: true, reasons: [] });
+  const broken = t.relationLayout(withDefaults, 1600);
+  broken.arrows[0].rect = { ...broken.arrows[0].rect, x: 2000 };
+  expect(t.verifyLayoutBounds(broken).reasons[0]).toMatch(/^矢じり「→/);
+  expect(t.relationLayout({ ...withDefaults, type: 'correlation', groups: withDefaults.groups }, 1600).arrows, '相関図は無向＝矢じり無し').toEqual([]);
+  expect(t.expectedStringsOf(withDefaults), '下部の1行のノード名も図の文字列').toContain('転倒');
+  expect(t.verifyRenderedText(withDefaults, t.buildVisualElement(withDefaults, 'landscape').element).ok, '「つながり未指定:」と「・」は固定記号').toBe(true);
+  expect(JSON.stringify(t.buildVisualElement(withDefaults, 'landscape')), '決定的').toBe(JSON.stringify(t.buildVisualElement(withDefaults, 'landscape')));
+  const noEdges: import('../../src/lib/visuals').VisualPlan = { id: 'n', type: 'relation', title: 'T', groups: [{ heading: 'A', points: [] }, { heading: 'B', points: [] }, { heading: 'C', points: [] }] };
+  expect(v.relationNodeOrder(noEdges), '全ノードに辺が無ければ従来どおり円周').toEqual({ circle: [0, 1, 2], loose: [] });
+  expect(t.relationLayout(noEdges, 1600).looseLine).toBeNull();
+  // ③ 9マスシート
+  const g9: import('../../src/lib/visuals').VisualPlan = { id: 'g', type: 'grid9', title: '筋力低下の悪循環', groups: names.slice(0, 6).map((h, i) => ({ heading: h, points: i === 0 ? ['a1', 'a2', 'a3', 'a4', 'a5', 'a6', 'a7'] : ['x'] })) };
+  const cells = t.grid9Cells(g9);
+  expect(cells.map((c) => c.position), 'マンダラと同じ配置（左上→上→右上→左→右→左下）').toEqual([0, 1, 2, 3, 5, 6]);
+  expect(cells[0].points.length, '各マス最大5行').toBe(5);
+  expect(cells[0].more).toBe(2);
+  const el = t.buildVisualElement(g9, 'landscape');
+  const texts = t.collectElementText(el.element);
+  expect(texts).toContain(v.grid9OverflowLabel(2));
+  expect(texts).not.toContain('a6');
+  expect(t.verifyRenderedText(g9, el.element).ok, '「ほか n 件」は固定文言').toBe(true);
+  expect(v.typeMinRequirement({ ...g9, groups: g9.groups.slice(0, 1) })).toContain('2つ以上');
+  expect(v.typeMinRequirement(g9)).toBeNull();
+  expect(v.planStructureText(g9)).toBe('中央 筋力低下の悪循環・カテゴリ 6/8（筋力低下／活動量低下／総エネルギー消費量の減少／食欲低下／低栄養／筋タンパク質合成の低下）');
+  const conv = v.planToMandalaCells(g9);
+  expect(conv.center).toEqual({ title: '筋力低下の悪循環', body: '' });
+  expect(conv.cells[0]).toEqual({ position: 0, title: '筋力低下', body: 'a1\na2\na3\na4\na5\na6\na7' });
+  expect(conv.cells.map((c) => c.position)).toEqual([0, 1, 2, 3, 5, 6]);
+  expect(v.VISUAL_TYPES).toContain('grid9');
+  expect(v.VISUAL_DETERMINISTIC_TYPES).toContain('grid9');
+  expect(v.buildVisualPlanPrompt(src).prompt).toContain('- grid9:');
+  expect(v.buildVisualPlanPrompt(src).prompt).toContain('環になる場合は環として');
+  // ④ ソース固定
+  const read = (p: string) => readFileSync(join(__dirname, '../../src', p), 'utf8');
+  const route = read('app/api/visuals/mandala/route.ts');
+  expect(route, 'マンダラ化は AI を呼ばない（301 の作成＋文字列の書き込み）').not.toMatch(/generateWithModel|fetchAnthropic|callAnthropic/);
+  expect(route).toMatch(/createChart\(guard\.userId, null\)/);
+  expect(route).toMatch(/origin: MANDALA_ORIGIN_VISUAL_PLAN/);
+  const server = read('lib/mandala-server.ts');
+  expect(server, 'プランの書き込みは origin を付けない').toMatch(/export async function writePlanCells[\s\S]*?SET title = x\.t, body = x\.b, updated_at = now\(\)/);
+  const page = read('app/dashboard/visuals/page.tsx');
+  expect(page, '抽出直後に根拠なしの辺を既定✗').toMatch(/setPlans\(j\.plans\.map\(\(p\) => applyEdgeDefaults\(p, text\)\)\);/);
+  const dr = read('app/dashboard/deepresearch/page.tsx');
+  expect((dr.match(/insightBar\('(summary|detail|advice)'/g) ?? []).length, 'DR の3成果物に操作行').toBe(3);
+  expect(dr, '9マスシートの入口は種類固定').toMatch(/fixedTypes=\{\['grid9'\]\} label="🔲 9マスシートにする"/);
+  expect(read('components/visuals/VisualQuickButton.tsx')).toMatch(/data-vis-quick-fixed=/);
+});
+
+test('U97: LaTeX 記法の露出を止める（324追加）— stripInlineLatex の対応表（\\rightarrow→→／\\leftarrow→←／\\to→→／\\times→×／\\pm→±／\\approx→≈／\\le \\leq→≤／\\ge \\geq→≥／ギリシャ文字／\\%→%／\\_→_）・表に無いものは $ と \\ を外して中身だけ・冪等・コードブロックとインラインコードは不変・金額の $ は不変／formatOneSentencePerLine は先頭で適用（310 の6経路に自動で効く）／規約は共通定数1つを各 system に1回／適用経路のソース固定', () => {
+  const nf = noteFormat;
+  const s = nf.stripInlineLatex;
+  expect(s('筋力低下 $\\rightarrow$ 活動量低下 $\\rightarrow$ 食欲低下')).toBe('筋力低下 → 活動量低下 → 食欲低下');
+  expect(s('A $\\leftarrow$ B, C $\\to$ D')).toBe('A ← B, C → D');
+  expect(s('$a \\times b$ と $\\pm 2$ と $\\approx 5$')).toBe('a × b と ± 2 と ≈ 5');
+  expect(s('$x \\le y$ $x \\leq y$ $x \\ge y$ $x \\geq y$')).toBe('x ≤ y x ≤ y x ≥ y x ≥ y');
+  expect(s('$\\alpha$ $\\beta$ $\\gamma$ $\\Delta$')).toBe('α β γ Δ');
+  expect(s('50\\% と snake\\_case')).toBe('50% と snake_case');
+  expect(s('$x = 5$ と $\\foo{bar}$'), '表に無いものは $ と \\ を外して中身だけ').toBe('x = 5 と foobar');
+  expect(s('\\(a \\rightarrow b\\) と \\[c \\to d\\]')).toBe('a → b と c → d');
+  expect(s('価格は $5 と $10 です'), '金額の $ は触らない').toBe('価格は $5 と $10 です');
+  const withCode = '本文 $\\rightarrow$ ここ\n```\nconst a = "$\\rightarrow$";\n```\nそして `$\\times$` はそのまま';
+  const once = s(withCode);
+  expect(once).toContain('本文 → ここ');
+  expect(once, 'コードブロック内は不変').toContain('const a = "$\\rightarrow$";');
+  expect(once, 'インラインコード内は不変').toContain('`$\\times$`');
+  expect(s(once), '冪等').toBe(once);
+  expect(s(''), '空').toBe('');
+  expect(s('LaTeX なしの本文。'), '$ も \\ も無ければそのまま').toBe('LaTeX なしの本文。');
+  expect(nf.formatOneSentencePerLine('A $\\rightarrow$ B。C。'), 'formatOneSentencePerLine の先頭で適用').toBe('A → B。\nC。');
+  // 規約: 共通定数を各 system に1回
+  const read = (p: string) => readFileSync(join(__dirname, '../../src', p), 'utf8');
+  expect(read('lib/markdown-renderer.ts')).toMatch(/矢印は「→」「←」/);
+  expect(read('lib/note-styles.ts').match(/\$\{NO_LATEX_PROMPT_RULE\}/g)?.length, 'NOTE_COMMON_RULES に1回').toBe(1);
+  for (const p of ['app/api/deepresearch/route.ts', 'app/api/deepresearch/insights/route.ts', 'app/api/text-analysis/analyze/route.ts', 'app/api/merge/route.ts', 'lib/presentation-pack.ts']) expect(read(p), `${p}: 規約の定数を使う`).toMatch(/NO_LATEX_PROMPT_RULE/);
+  expect(read('lib/visuals.ts'), '図解のプラン抽出にも1行').toMatch(/図の文字に LaTeX・数式記法/);
+  // 適用経路（二段目）
+  expect(read('app/api/deepresearch/insights/route.ts')).toMatch(/const summary = stripInlineLatex\(/);
+  expect(read('app/api/text-analysis/saves/route.ts')).toMatch(/const content = stripInlineLatex\(body\.content \?\? ''\);/);
+  expect(read('app/api/merge/route.ts')).toMatch(/const result = stripInlineLatex\(/);
+  expect(read('app/api/pack/route.ts')).toMatch(/content = stripInlineLatex\(raw\.trim\(\)\);/);
+  const dr = read('app/dashboard/deepresearch/page.tsx');
+  expect(dr, 'DR は完了時（保存前）に整形').toMatch(/accumulated = stripInlineLatex\(accumulated\);\s*setReport\(accumulated\);/);
+  expect(dr, 'DR の表示前にも整形（復元データにも効く）').toMatch(/const text = stripInlineLatex\(textRaw\);/);
+  expect(read('lib/note-format.ts'), '順は stripInlineLatex → 1文1行').toMatch(/export function formatOneSentencePerLine\(markdownInput: string\): string \{\s*\/\/ 324追加[^\n]*\n\s*const markdown = stripInlineLatex\(markdownInput\);/);
+  // 当ててはいけない側（Kindle本文）は不変
+  for (const p of ['app/api/kindle/generate-chapter/route.ts', 'app/api/kindle/chapters/route.ts']) expect(read(p), `${p} に整形なし`).not.toMatch(/stripInlineLatex|note-format/);
 });

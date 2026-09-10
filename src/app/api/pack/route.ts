@@ -3,6 +3,7 @@
 // - slides／qa: Gemini（Markdown）。glossary: Gemini（JSON）→ term と evidence の実在検証 → 表（Markdown）。citations: 決定的抽出（AIなし）
 // - 公開される種類（slides／qa／glossary）は医療広告ガードをプロンプト末尾（後勝ち・R-69）＋出力の NG 表現を警告として metadata に
 // - 保存は library に別行（type='pack'・metadata.pack={of, kind}）。パック用の新テーブルは作らない
+import { stripInlineLatex } from '@/lib/note-format';
 import { NextResponse } from 'next/server';
 import { v4 as uuidv4 } from 'uuid';
 import { sql } from '@/lib/db';
@@ -76,12 +77,12 @@ export async function POST(req: Request) {
         }
         const { terms, dropped } = validateGlossary(parsed, source);
         if (terms.length === 0) return NextResponse.json({ error: `引用が実在する用語がありません（${dropped}件を捨てました）`, kind, dropped }, { status: 422 });
-        content = glossaryMarkdown(terms);
+        content = stripInlineLatex(glossaryMarkdown(terms));
         extra.dropped = dropped;
         extra.count = terms.length;
       } else {
         // R-114: note記事の整形（1文1行・見出し段）は note の6経路限定。素材は Gemini の出力（## 見出し指定）をそのまま使う
-        content = raw.trim();
+        content = stripInlineLatex(raw.trim());
         if (!content) return NextResponse.json({ error: 'AI の出力が空でした', kind }, { status: 502 });
       }
       if (PACK_PUBLIC_KINDS.includes(kind)) {

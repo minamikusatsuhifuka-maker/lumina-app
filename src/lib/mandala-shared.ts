@@ -100,6 +100,8 @@ export interface MandalaChartSummary {
   preset: string | null;
   /** 316: 記事から生成（meta.generated）。無ければ null */
   generated: { title: string; mode: '9' | '81' } | null;
+  /** 324: 出どころ（meta.origin）。'visual_plan'＝🖼図解プラン（9マスシート）から決定的に作成。無ければ null */
+  origin: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -1034,3 +1036,22 @@ export function shouldShowFreeRatio(chartMeta: Record<string, unknown> | null | 
 export function freeRatioLabel(ratio: number): string {
   return `無料 ${formatRate(ratio)}（目安 ${Math.round(MANDALA_FREE_RATIO_GUIDE.min * 100)}〜${Math.round(MANDALA_FREE_RATIO_GUIDE.max * 100)}%）`;
 }
+
+
+// 324: 図解プラン（9マスシート）から作ったチャートの出どころ（chart.meta.visualPlan・R-113 キー単位）
+export const MANDALA_ORIGIN_VISUAL_PLAN = 'visual_plan';
+export interface MandalaVisualPlanMeta {
+  title: string;
+  at: string;
+  source: { scope: string; item_key: string; title: string } | { unsaved: true; title: string } | null;
+}
+export function parseVisualPlanMeta(meta: Record<string, unknown> | null | undefined): MandalaVisualPlanMeta | null {
+  if (meta?.origin !== MANDALA_ORIGIN_VISUAL_PLAN) return null;
+  const v = (meta?.visualPlan ?? {}) as Record<string, unknown>;
+  const s = (v.source ?? null) as Record<string, unknown> | null;
+  let source: MandalaVisualPlanMeta['source'] = null;
+  if (s && typeof s.scope === 'string' && typeof s.item_key === 'string') source = { scope: s.scope, item_key: s.item_key, title: typeof s.title === 'string' ? s.title : '' };
+  else if (s && s.unsaved === true) source = { unsaved: true, title: typeof s.title === 'string' ? s.title : '' };
+  return { title: typeof v.title === 'string' ? v.title : '', at: typeof v.at === 'string' ? v.at : '', source };
+}
+export const MANDALA_VISUAL_PLAN_BADGE = '🖼 図解プランから作成';

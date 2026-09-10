@@ -139,6 +139,7 @@ export function VisualQuickButton({
   label = '🖼 図解・画像を作る',
   style,
   disabled = false,
+  fixedTypes,
 }: {
   text: string;
   title: string;
@@ -148,16 +149,30 @@ export function VisualQuickButton({
   label?: ReactNode;
   style?: CSSProperties;
   disabled?: boolean;
+  /** 324: 種類を固定して直接開く（例: 9マスシート＝['grid9']）。ダイアログは出さない */
+  fixedTypes?: readonly VisualType[];
 }) {
   const [open, setOpen] = useState(false);
   const off = disabled || text.trim().length < 20;
+  const startedRef = useRef(false);
+  const goFixed = () => {
+    if (!fixedTypes || startedRef.current) return;
+    startedRef.current = true;
+    if (!saved) {
+      const handoff: VisualsHandoff = { title, text: text.trim(), from, at: new Date().toISOString() };
+      if (!writeOneTimeHandoff(VISUALS_HANDOFF_KEY, handoff)) { startedRef.current = false; return; }
+    }
+    window.open(visualsHrefFor({ saved, types: fixedTypes }), '_blank', 'noopener');
+    setTimeout(() => { startedRef.current = false; }, 800);
+  };
   return (
     <>
       <button
         type="button"
         data-vis-quick-open={dataKey}
         data-vis-quick-saved={saved ? `${saved.scope}:${saved.id}` : 'unsaved'}
-        onClick={(e) => { e.stopPropagation(); if (!off) setOpen(true); }}
+        data-vis-quick-fixed={fixedTypes ? fixedTypes.join(',') : undefined}
+        onClick={(e) => { e.stopPropagation(); if (off) return; if (fixedTypes) goFixed(); else setOpen(true); }}
         disabled={off}
         title={off ? '本文が表示されると使えます（20字以上）' : 'この結果から図解（表・フロー・関連図・相関図など）やイメージ画像を作る（種類を選んで新しいタブ・自動では描きません）'}
         style={{ ...style, ...(off ? { opacity: 0.5, cursor: 'not-allowed' } : {}) }}

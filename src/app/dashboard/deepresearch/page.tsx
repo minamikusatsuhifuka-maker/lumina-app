@@ -4,6 +4,7 @@ import { ProgressBar } from '@/components/ProgressBar';
 import { VoiceInputButton } from '@/components/VoiceInputButton';
 import { useProgress } from '@/components/useProgress';
 import { MemorizeButton, SaveToLibraryButton } from '@/components/SaveToLibraryButton';
+import { stripInlineLatex } from '@/lib/note-format';
 // 321: 結果画面の操作行の共通部品
 import ResultActionBar from '@/components/ResultActionBar';
 // 245: 期間UIは periodStart / periodEnd の1系統に統合したため DateRangePicker は使わない
@@ -184,8 +185,10 @@ const processInline = (text: string): string => {
   return text;
 };
 
-const formatReport = (text: string): string => {
-  if (!text) return '';
+const formatReport = (textRaw: string): string => {
+  if (!textRaw) return '';
+  // 324追加: 表示前にも LaTeX 記法を外す（復元した旧データにも効く・冪等）
+  const text = stripInlineLatex(textRaw);
 
   const lines = text.split('\n');
   const html = lines.map(line => {
@@ -1045,7 +1048,41 @@ export default function DeepResearchPage() {
   const [followUpTimedOut, setFollowUpTimedOut] = useState(false);
   // 319: 表示中のレポートが📚に保存された行 id（SaveToLibraryButton の onSaved）。「🔭 これを元に追加リサーチ」の前提資料になる
   const [reportSavedId, setReportSavedId] = useState<string | null>(null);
+  // 324 §3-1: 各成果物（要約／詳細／活用アドバイス）の保存済み id（🔭追加リサーチ・🖼図解の前提資料）
+  const [insightSavedIds, setInsightSavedIds] = useState<Record<string, string>>({});
   const followUpBody = () => (followUpRef.current ? { followUp: { sources: followUpRef.current.sources.map((x) => ({ scope: x.scope, id: x.id })) } } : {});
+  /** 324 §3-1: 成果物（要約／詳細／活用アドバイス）の操作行。本文はその成果物だけを渡す（レポート本体ではない）。ハンドラは既存のまま置き直し */
+  const insightBar = (kind: 'summary' | 'detail' | 'advice', text: string, tags: string, downloading: boolean, setDownloading: (v: boolean) => void) => {
+    const savedId = insightSavedIds[kind] ?? null;
+    const title = topic || 'ディープリサーチ';
+    const qStyle: React.CSSProperties = { padding: '6px 14px', background: 'rgba(14,116,144,0.08)', color: '#0E7490', border: '1px solid rgba(14,116,144,0.3)', borderRadius: 6, cursor: 'pointer', fontSize: 12, fontWeight: 500 };
+    return (
+      <ResultActionBar
+        attrs={{ 'data-dr-insight-actions': kind }}
+        primary={<SaveToLibraryButton title={title} content={text} type="deepresearch" groupName="ディープリサーチ" tags={tags} showMemorize={false} onSaved={(id) => setInsightSavedIds((m) => ({ ...m, [kind]: id }))} />}
+        main={<>
+          <VisualQuickButton text={text} title={title} saved={savedId ? { scope: 'library', id: savedId } : null} from="deepresearch" dataKey={`insight-${kind}`} style={qStyle} />
+          <VisualQuickButton text={text} title={title} saved={savedId ? { scope: 'library', id: savedId } : null} from="deepresearch" dataKey={`grid9-${kind}`} fixedTypes={['grid9']} label="🔲 9マスシートにする" style={qStyle} />
+          <FollowUpResearchButton refs={savedId ? [{ scope: 'library', id: savedId }] : []} dataKey={`insight-${kind}`} label="🔭 追加リサーチ" disabled={!savedId} disabledReason="先に「📚 リサーチ保存に追加」で保存してください（保存した行が前提資料になります）" style={qStyle} />
+          <button onClick={() => copyRichMarkdown(text)} title="本文を Markdown の原文のままコピーします">📋 コピー</button>
+        </>}
+        menus={[
+          { key: `download-${kind}`, label: '⬇ ダウンロード', title: 'Markdown で書き出す', items: (<>
+            <button onClick={() => downloadInsightMd(kind, text, setDownloading)} disabled={downloading}>{downloading ? '⏳ 生成中...' : '📥 MD'}</button>
+          </>) },
+          { key: `send-${kind}`, label: '➡ 送る', title: '他の画面へ渡す・記事にする', items: (<>
+            <button onClick={() => handleSendToTextAnalysis(text, topic)} title="この成果物をテキスト分析ページで要約・まとめできます">📝 テキスト分析へ</button>
+            <button onClick={() => handleSendToMedicalStudio(text, topic)} title="医療文書スタジオで同意書・説明書に活用">🏥 医療文書スタジオへ</button>
+            <button onClick={() => handleSendToBusinessStudio(text, topic)} title="収益化スタジオで事業設計の起点に">💰 収益化スタジオへ</button>
+            <button onClick={() => handleSendToNexusBlog(text, topic)} title="nexusブランドのブログ記事として執筆">🌐 nexusブログ記事にする</button>
+            <button onClick={() => handleSendToNoteArticle(text, topic)} title="参考情報として note 記事の下書きを生成">✍️ note記事にする</button>
+            <button onClick={() => sendToWrite(text)} title="この成果物を文章作成の参考資料として渡します">✍️ 文章作成に使う</button>
+          </>) },
+        ]}
+        extra={<MemorizeButton title={title} content={text} groupName="ディープリサーチ" />}
+      />
+    );
+  };
   const clearFollowUp = () => {
     followUpRef.current = null;
     setFollowUp(null);
@@ -1803,6 +1840,12 @@ ${contextText}
         }
       }
 
+      // 324追加: LaTeX 記法の露出を止める（保存前・画面表示前・決定的・冪等）
+      if (accumulated) {
+        accumulated = stripInlineLatex(accumulated);
+        setReport(accumulated);
+      }
+
       // 通信量を記録
       setTrafficStats({
         requestBytes,
@@ -1841,8 +1884,8 @@ ${contextText}
     }
   };
 
-  const sendToWrite = () => {
-    localStorage.setItem('lumina_research_context', report);
+  const sendToWrite = (text?: string) => {
+    localStorage.setItem('lumina_research_context', typeof text === 'string' ? text : report);
     window.location.href = '/dashboard/write';
   };
 
@@ -2513,7 +2556,7 @@ ${contextText}
                 <a href="/dashboard/dr-hub" title="保存済みのDR記事から、note記事・X投稿・Kindle本・戦略・画像への展開をまとめて行えます">
                   🚀 発信ハブで展開する
                 </a>
-                <button onClick={sendToWrite} title="本文を文章作成の参考資料として渡します">
+                <button onClick={() => sendToWrite()} title="本文を文章作成の参考資料として渡します">
                   ✍️ 文章作成に使う
                 </button>
                 {/* 背景情報として保存（ボタン＋ドロップダウンモーダル） */}
@@ -2894,14 +2937,11 @@ ${contextText}
           {/* 📋 概要・要約カード */}
           {insights && insights.summary && (
             <section style={{ marginTop: 24, padding: 20, background: 'var(--bg-secondary)', borderRadius: 12, border: '1px solid var(--border)' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12, flexWrap: 'wrap' as const, gap: 8 }}>
+              <div style={{ marginBottom: 8 }}>
                 <span style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-secondary)' }}>📋 概要・要約（1000字以内）</span>
-                <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                  <button onClick={() => copyRichMarkdown(insights.summary)} style={{ padding: '5px 12px', background: 'var(--bg-primary)', border: '1px solid var(--border)', color: 'var(--text-secondary)', borderRadius: 6, cursor: 'pointer', fontSize: 12 }}>📋 コピー</button>
-                  <button onClick={() => downloadInsightMd('summary', insights.summary, setDownloadingSummary)} disabled={downloadingSummary} style={{ padding: '5px 12px', background: 'var(--bg-primary)', border: '1px solid var(--border)', color: 'var(--text-secondary)', borderRadius: 6, cursor: downloadingSummary ? 'not-allowed' : 'pointer', fontSize: 12, opacity: downloadingSummary ? 0.6 : 1 }}>{downloadingSummary ? '⏳ 生成中...' : '📥 MD'}</button>
-                  <SaveToLibraryButton title={topic || 'ディープリサーチ'} content={insights.summary} type="deepresearch" groupName="ディープリサーチ" tags="ディープリサーチ,要約" />
-                </div>
               </div>
+              {/* 324 §3-1: 成果物の操作行（321 の共通部品・この成果物の本文だけを渡す） */}
+              {insightBar('summary', insights.summary, 'ディープリサーチ,要約', downloadingSummary, setDownloadingSummary)}
               <div
                 style={{ fontSize: 14, color: 'var(--text-secondary)' }}
                 dangerouslySetInnerHTML={{ __html: formatReport(insights.summary) }}
@@ -2913,14 +2953,11 @@ ${contextText}
           {/* 📖 詳細にまとめるカード */}
           {insights && insights.detail && (
             <section style={{ marginTop: 16, padding: 20, background: 'var(--bg-secondary)', borderRadius: 12, border: '1px solid var(--border)' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12, flexWrap: 'wrap' as const, gap: 8 }}>
+              <div style={{ marginBottom: 8 }}>
                 <span style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-secondary)' }}>📖 詳細にまとめる（2000〜3000字）</span>
-                <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                  <button onClick={() => copyRichMarkdown(insights.detail)} style={{ padding: '5px 12px', background: 'var(--bg-primary)', border: '1px solid var(--border)', color: 'var(--text-secondary)', borderRadius: 6, cursor: 'pointer', fontSize: 12 }}>📋 コピー</button>
-                  <button onClick={() => downloadInsightMd('detail', insights.detail, setDownloadingDetail)} disabled={downloadingDetail} style={{ padding: '5px 12px', background: 'var(--bg-primary)', border: '1px solid var(--border)', color: 'var(--text-secondary)', borderRadius: 6, cursor: downloadingDetail ? 'not-allowed' : 'pointer', fontSize: 12, opacity: downloadingDetail ? 0.6 : 1 }}>{downloadingDetail ? '⏳ 生成中...' : '📥 MD'}</button>
-                  <SaveToLibraryButton title={topic || 'ディープリサーチ'} content={insights.detail} type="deepresearch" groupName="ディープリサーチ" tags="ディープリサーチ,詳細" />
-                </div>
               </div>
+              {/* 324 §3-1: 成果物の操作行（321 の共通部品・この成果物の本文だけを渡す） */}
+              {insightBar('detail', insights.detail, 'ディープリサーチ,詳細', downloadingDetail, setDownloadingDetail)}
               <div
                 style={{ fontSize: 14, color: 'var(--text-secondary)' }}
                 dangerouslySetInnerHTML={{ __html: formatReport(insights.detail) }}
@@ -2949,14 +2986,11 @@ ${contextText}
           {/* 💡 活用アドバイスカード */}
           {insights && insights.advice && (
             <section style={{ marginTop: 16, padding: 20, background: 'var(--bg-secondary)', borderRadius: 12, border: '1px solid var(--border)' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12, flexWrap: 'wrap' as const, gap: 8 }}>
+              <div style={{ marginBottom: 8 }}>
                 <span style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-secondary)' }}>💡 活用アドバイス（2000字以内）</span>
-                <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                  <button onClick={() => copyRichMarkdown(insights.advice)} style={{ padding: '5px 12px', background: 'var(--bg-primary)', border: '1px solid var(--border)', color: 'var(--text-secondary)', borderRadius: 6, cursor: 'pointer', fontSize: 12 }}>📋 コピー</button>
-                  <button onClick={() => downloadInsightMd('advice', insights.advice, setDownloadingAdvice)} disabled={downloadingAdvice} style={{ padding: '5px 12px', background: 'var(--bg-primary)', border: '1px solid var(--border)', color: 'var(--text-secondary)', borderRadius: 6, cursor: downloadingAdvice ? 'not-allowed' : 'pointer', fontSize: 12, opacity: downloadingAdvice ? 0.6 : 1 }}>{downloadingAdvice ? '⏳ 生成中...' : '📥 MD'}</button>
-                  <SaveToLibraryButton title={topic || 'ディープリサーチ'} content={insights.advice} type="deepresearch" groupName="ディープリサーチ" tags="ディープリサーチ,活用アドバイス" />
-                </div>
               </div>
+              {/* 324 §3-1: 成果物の操作行（321 の共通部品・この成果物の本文だけを渡す） */}
+              {insightBar('advice', insights.advice, 'ディープリサーチ,活用アドバイス', downloadingAdvice, setDownloadingAdvice)}
               <div
                 style={{ fontSize: 14, color: 'var(--text-secondary)' }}
                 dangerouslySetInnerHTML={{ __html: formatReport(insights.advice) }}

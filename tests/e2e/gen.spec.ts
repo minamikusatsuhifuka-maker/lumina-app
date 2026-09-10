@@ -1199,3 +1199,40 @@ test('B42: 図解の複数提示と一括生成（323・実AI）— 種類を絞
   expect((ij.finalBase64?.length ?? 0) > 5000).toBe(true);
   console.log(`[B42] image ${Date.now() - t1}ms cost=${ij.costUsd}`);
 });
+
+
+test('B43: 9マスシートの抽出（324・実AI・Gemini）— 実テキストから grid9 の候補が1件以上出て、カテゴリが2つ以上・要素つき。実描画が 200（3×3・空マスあり可） @gen', async ({ request }) => {
+  test.setTimeout(GEN_TIMEOUT);
+  const text = '朝の保湿は洗顔のあと5分以内に行う。化粧水をなじませてから乳液で蓋をする。夜はクレンジングのあとに同じ手順で保湿する。週に1回は角質ケアを足す。冬は加湿器で室内の湿度を保つ。乾燥が強い日は保湿剤を重ねづけする。入浴後はタオルで押さえるように水分を拭き取り、こすらない。熱すぎるお湯は皮脂を落としすぎるので、ぬるめの湯温にする。かゆみが強いときは皮膚科で相談する。日中は日焼け止めを塗り直す。';
+  const t0 = Date.now();
+  const res = await request.post('/api/visuals/plan', { data: { text, types: ['grid9'] }, timeout: REQ_TIMEOUT });
+  expect(res.status()).toBe(200);
+  const j = (await res.json()) as { plans: { id: string; type: string; title: string; groups: { heading?: string; points: string[] }[] }[]; checks: Record<string, { foreign: string[] }> };
+  const g9 = j.plans.filter((p) => p.type === 'grid9');
+  expect(g9.length, '9マスシートの候補が出る').toBeGreaterThan(0);
+  const p = g9[0];
+  const cells = p.groups.filter((x) => (x.heading ?? '').trim());
+  expect(cells.length, 'カテゴリ2つ以上').toBeGreaterThanOrEqual(2);
+  expect(cells.length).toBeLessThanOrEqual(8);
+  console.log(`[B43] ${Date.now() - t0}ms cells=${cells.length} headings=${cells.map((c) => c.heading).join('／')} foreign=${j.checks[p.id]?.foreign.length ?? 0}`);
+  if ((j.checks[p.id]?.foreign.length ?? 0) === 0) {
+    const rr = await request.post('/api/visuals/render', { data: { plan: p, sourceText: text, orientation: 'landscape' }, timeout: REQ_TIMEOUT });
+    const rj = (await rr.json()) as { textVerified?: boolean; error?: string };
+    expect(rr.status(), `9マスシートの描画が 200: ${rj.error ?? ''}`).toBe(200);
+    expect(rj.textVerified).toBe(true);
+  }
+});
+
+test('B44: LaTeX 記法の露出（324追加・実AI・Gemini）— 化学式・矢印を含む短いレポートの insights（要約／詳細／活用アドバイス）に $ と \\ の数式記法が出ない @gen', async ({ request }) => {
+  test.setTimeout(GEN_TIMEOUT);
+  const report = '# 皮膚のバリア機能と乾燥\n\n角質層の水分量が減ると、バリア機能が低下し、かゆみが生じる。かゆみ → 掻破 → 炎症 → さらなるバリア低下、という悪循環が起きる。保湿剤の使用頻度は1日2回以上が望ましい（約70%の患者で改善）。H2O2 のような過酸化物は刺激になりうる。';
+  const t0 = Date.now();
+  const res = await request.post('/api/deepresearch/insights', { data: { topic: '皮膚のバリア機能と乾燥', report }, timeout: REQ_TIMEOUT });
+  expect(res.status()).toBe(200);
+  const j = (await res.json()) as { summary: string; detail: string; advice: string };
+  for (const [k, v] of Object.entries({ summary: j.summary, detail: j.detail, advice: j.advice })) {
+    expect(v, `${k}: 本文がある`).toBeTruthy();
+    expect(v, `${k}: $\\ の数式記法が無い`).not.toMatch(/\$\\|\\\(|\\\[|\\rightarrow|\\times|\\alpha/);
+  }
+  console.log(`[B44] ${Date.now() - t0}ms summary=${j.summary.length} detail=${j.detail.length} advice=${j.advice.length}`);
+});

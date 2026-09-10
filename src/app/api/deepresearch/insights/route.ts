@@ -6,6 +6,8 @@ import type { AIModel } from '@/lib/ai-client';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import { CLAUDE_TEXT_MODEL, GEMINI_TEXT_MODEL, DEFAULT_AI_MODEL } from '@/lib/ai-models';
 import { robustJsonParse } from '@/lib/ai-json-parser';
+import { NO_LATEX_PROMPT_RULE } from '@/lib/markdown-renderer';
+import { stripInlineLatex } from '@/lib/note-format';
 
 export const maxDuration = 300;
 
@@ -25,9 +27,10 @@ type Insights = {
 // （205調査: 旧実装はサイレントに空欄を返しユーザーが失敗に気づけなかった）
 function parseInsights(raw: string): Insights {
   const json = robustJsonParse<Record<string, unknown>>(raw);
-  const summary = typeof json.summary === 'string' ? json.summary : '';
-  const detail = typeof json.detail === 'string' ? json.detail : '';
-  const advice = typeof json.advice === 'string' ? json.advice : '';
+  // 324追加: 生成後の決定的な整形（$\rightarrow$ 等を外す・冪等）
+  const summary = stripInlineLatex(typeof json.summary === 'string' ? json.summary : '');
+  const detail = stripInlineLatex(typeof json.detail === 'string' ? json.detail : '');
+  const advice = stripInlineLatex(typeof json.advice === 'string' ? json.advice : '');
   const keywords = Array.isArray(json.keywords)
     ? json.keywords
         .filter((k: unknown) => typeof k === 'string' && (k as string).trim())
@@ -57,7 +60,8 @@ export async function POST(req: NextRequest) {
     });
   }
 
-  const systemPrompt = `あなたは優秀なリサーチアナリストです。与えられたリサーチレポートを分析し、必ず指示された JSON 形式のみで応答してください。`;
+  // 324追加: LaTeX 記法を使わない（一段目）。二段目は parseInsights の stripInlineLatex
+  const systemPrompt = `あなたは優秀なリサーチアナリストです。与えられたリサーチレポートを分析し、必ず指示された JSON 形式のみで応答してください。${NO_LATEX_PROMPT_RULE}`;
 
   const userPrompt = `以下のリサーチレポートを分析し、JSON 形式で返してください。
 

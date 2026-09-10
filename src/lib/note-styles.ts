@@ -6,6 +6,8 @@
 
 import { NOTE_HEADING_RULE, ONE_SENTENCE_PER_LINE_RULE } from '@/lib/note-format';
 
+import { NO_LATEX_PROMPT_RULE } from './markdown-renderer';
+
 export type NoteStyleKey = 'friendly' | 'expert' | 'balanced' | 'story';
 
 export interface NoteStyle {
@@ -80,6 +82,7 @@ export const NOTE_STYLE_KEYS = Object.keys(NOTE_STYLES) as NoteStyleKey[];
 export const NOTE_COMMON_RULES = `# 全文体共通の厳守事項
 ${ONE_SENTENCE_PER_LINE_RULE}
 ${NOTE_HEADING_RULE}
+- ${NO_LATEX_PROMPT_RULE}
 - AIが書いたとわかる無機質な文章は避け、読者と対話するような自然な口調で書く
 - 「ここに体験談を入れてください」のようなプレースホルダは使わず、自然な文章として完結させる
 - HTMLタグは使わない。Markdownのリンク記法（[テキスト](URL)）も使わない。URLは生のURLのみ記載

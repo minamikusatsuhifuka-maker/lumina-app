@@ -39,6 +39,8 @@ import {
   type VisualType, VISUALS_AUTOPLAN_PARAM, VISUALS_FROM_PARAM, VISUALS_HANDOFF_KEY, VISUAL_AI_TEXT_STORAGE_KEY, parseStoredAiText, parseVisualsHandoff, type VisualUnsavedSource, edgesWithoutEvidenceCount, edgesWithoutEvidenceLabel, relationEdgeRows,
   // 323: 提案→承認→一括生成
   VISUALS_MODE_FORM, VISUALS_MODE_PARAM, VISUAL_MAX_PLANS, approvalState, bulkConfirmLabel, bulkEstimate, planEvidenceCount, planStructureText, stripForeign, typeMinRequirement,
+  // 324: 辺の既定（根拠なし＝✗）・つながりの要約・9マスシート→マンダラ
+  applyEdgeDefaults, relationEdgeSummary,
 } from '@/lib/visuals';
 import { jstDateTimeString } from '@/lib/jst';
 // 320: 未保存の結果の handoff（一回限りキー・R-121）
@@ -109,6 +111,11 @@ function VisualsInner() {
   const [bulkDialog, setBulkDialog] = useState(false);
   const [bulk, setBulk] = useState<{ running: boolean; order: string[]; done: number; failed: number } | null>(null);
   const bulkRef = useRef(false); // R-87
+  // 324 §3-2(2): 9マスシート→マンダラ（作成したチャート id・進行）
+  const [mandalaMade, setMandalaMade] = useState<Record<string, string>>({});
+  const [mandalaBusy, setMandalaBusy] = useState<Record<string, boolean>>({});
+  const [mandalaError, setMandalaError] = useState<Record<string, string>>({});
+  const mandalaRef = useRef<Set<string>>(new Set()); // R-87
   const unapprove = (id: string) => setApproved((m) => { if (!(id in m)) return m; const n = { ...m }; delete n[id]; return n; });
   // 320 §3-5: 「AIに文字も描かせる」の前回の選択（端末ごと・初期既定はオフ）
   useEffect(() => {
@@ -207,7 +214,8 @@ function VisualsInner() {
       const r = await fetch('/api/visuals/plan', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text, ...(restrictTypes.length > 0 ? { types: restrictTypes } : {}) }) });
       const j = (await r.json().catch(() => ({}))) as { plans?: VisualPlan[]; rejected?: string[]; error?: string };
       if (!r.ok || !j.plans) throw new Error(j.error || `抽出に失敗しました（${r.status}）`);
-      setPlans(j.plans);
+      // 324 §2-2: 根拠のない辺は既定✗（未確認・院長が✓にすれば描ける）
+      setPlans(j.plans.map((p) => applyEdgeDefaults(p, text)));
       setRejected(j.rejected ?? []);
       setResults({});
       setErrors({});
@@ -342,6 +350,26 @@ function VisualsInner() {
     setPlans((prev) => prev.map((p) => (p.id === plan.id ? r.plan : p)));
     setApproved((m) => ({ ...m, [plan.id]: jstDateTimeString() }));
   };
+  /** 324: 9マスシートをマンダラとして開く（AI なし・プランの文字列をそのまま・新しいタブ） */
+  const openAsMandala = async (plan: VisualPlan) => {
+    if (mandalaRef.current.has(plan.id)) return; // R-87
+    mandalaRef.current.add(plan.id);
+    setMandalaBusy((m) => ({ ...m, [plan.id]: true }));
+    setMandalaError((m) => { const n = { ...m }; delete n[plan.id]; return n; });
+    try {
+      const source = sources.length > 0 ? { scope: sources[0].scope, item_key: sources[0].id, title: sources[0].title } : unsavedSource ? { title: unsavedSource.title } : null;
+      const r = await fetch('/api/visuals/mandala', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ plan, sourceText, source }) });
+      const j = (await r.json().catch(() => ({}))) as { chartId?: string; error?: string };
+      if (!r.ok || !j.chartId) throw new Error(j.error || `マンダラの作成に失敗しました（${r.status}）`);
+      setMandalaMade((m) => ({ ...m, [plan.id]: j.chartId! }));
+      window.open(`/dashboard/mandala/${j.chartId}`, '_blank', 'noopener');
+    } catch (e) {
+      setMandalaError((m) => ({ ...m, [plan.id]: e instanceof Error ? e.message : String(e) }));
+    } finally {
+      mandalaRef.current.delete(plan.id);
+      setMandalaBusy((m) => ({ ...m, [plan.id]: false }));
+    }
+  };
   const approvedPlans = plans.filter((p) => p.id in approved);
   const bulkEst = bulkEstimate(approvedPlans, imageSettings, orientation);
   const runOne = async (plan: VisualPlan): Promise<boolean> => {
@@ -455,13 +483,14 @@ function VisualsInner() {
                         <span style={{ fontSize: 12, fontWeight: 700 }}>{idx + 1}. {VISUAL_TYPE_META[plan.type].emoji} {VISUAL_TYPE_META[plan.type].label}</span>
                         <span data-vis-card-title={plan.id} style={{ fontSize: 13, fontWeight: 700 }}>{plan.title || '（無題）'}</span>
                         <span style={{ flex: 1 }} />
-                        <span data-vis-evidence-count={`${ev.ok}/${ev.total}`} style={{ fontSize: 11, color: ev.ok < ev.total ? '#B91C1C' : '#0d9973', fontWeight: 700 }}>元テキストに実在 {ev.ok}/{ev.total}</span>
+                        <span data-vis-evidence-count={`${ev.ok}/${ev.total}`} style={{ fontSize: 11, color: ev.ok < ev.total ? '#B91C1C' : '#0d9973', fontWeight: 700 }}>元テキストに実在 {ev.ok}/{ev.total}{rows.length > 0 || plan.type === 'relation' || plan.type === 'correlation' ? '（ノード）' : ''}</span>
+                        {(plan.type === 'relation' || plan.type === 'correlation') && (() => { const sm = relationEdgeSummary(rows); return <span data-vis-edges-summary={`${sm.total}/${sm.unconfirmed}`} style={{ fontSize: 11, color: sm.unconfirmed > 0 ? '#B45309' : 'var(--text-muted)', fontWeight: 700 }}>つながり {sm.total} 本{sm.unconfirmed > 0 ? `（うち未確認 ${sm.unconfirmed} 本）` : ''}</span>; })()}
                         {plan.why && <span data-vis-why={plan.id} title="AI が提案した理由（表示だけ。図には入りません）" style={{ fontSize: 11, color: 'var(--text-muted)' }}>💡 {plan.why}</span>}
                       </div>
                       <div data-vis-structure={plan.id} style={{ fontSize: 12, lineHeight: 1.7 }}>構成: {planStructureText(plan)}</div>
                       {rows.length > 0 && (
                         <div data-vis-card-edges={plan.id} style={{ fontSize: 12, lineHeight: 1.7 }}>
-                          関連性: {rows.map((r) => <span key={r.key} data-vis-card-edge={`${plan.id}-${r.key}`} data-vis-card-edge-on={r.on ? '1' : '0'} style={{ display: 'inline-block', marginRight: 8, textDecoration: r.on ? 'none' : 'line-through', color: r.on ? 'inherit' : 'var(--text-muted)' }}>{r.from} → {r.to}{r.label ? `: ${r.label}` : ''}（{r.on ? (r.evidence === null ? '根拠なし' : '根拠あり') : '描かない'}）</span>)}
+                          関連性: {rows.map((r) => <span key={r.key} data-vis-card-edge={`${plan.id}-${r.key}`} data-vis-card-edge-on={r.on ? '1' : '0'} data-vis-card-edge-unconfirmed={r.evidence === null ? '1' : '0'} style={{ display: 'inline-block', marginRight: 8, textDecoration: r.on ? 'none' : 'line-through', color: r.on ? 'inherit' : 'var(--text-muted)' }}>{r.from} → {r.to}{r.label ? `: ${r.label}` : ''}（{r.evidence === null ? (r.on ? '未確認・描く' : '未確認・描かない') : r.on ? '根拠あり' : '描かない'}）</span>)}
                           {noEv > 0 && <span data-vis-card-noevidence={noEv} style={{ color: '#B45309' }}>根拠のない辺 {noEv} 本</span>}
                         </div>
                       )}
@@ -478,10 +507,20 @@ function VisualsInner() {
                       {!ap.reason && minReq && <div data-vis-approve-reason={plan.id} style={{ fontSize: 12, color: '#B91C1C' }}>⚠️ 承認できません（{minReq}）</div>}
                       {stripError[plan.id] && <div data-vis-strip-error={plan.id} style={{ fontSize: 12, color: '#B91C1C' }}>⚠️ {stripError[plan.id]}</div>}
                       {stripped[plan.id] && stripped[plan.id].length > 0 && <div data-vis-stripped={plan.id} style={{ fontSize: 11, color: 'var(--text-muted)' }}>外した語句: {stripped[plan.id].join('／')}</div>}
-                      <div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
                         <button type="button" data-vis-detail-toggle={plan.id} aria-expanded={!!detailOpen[plan.id]} onClick={() => setDetailOpen((m) => ({ ...m, [plan.id]: !m[plan.id] }))} style={{ ...btn, padding: '4px 10px' }}>
                           {detailOpen[plan.id] ? '▴ 閉じる' : '▾ 詳しく直す'}
                         </button>
+                        {/* 324 §3-2(2): 9マスシート→マンダラ（AI なし・プランの文字列をそのまま） */}
+                        {plan.type === 'grid9' && (
+                          <>
+                            <button type="button" data-vis-open-mandala={plan.id} onClick={() => void openAsMandala(plan)} disabled={!check.ok || !!minReq || !!mandalaBusy[plan.id]} title={ap.reason ?? minReq ?? 'このプランの文字列をそのままマンダラのチャートに書き込んで開きます（AI は使いません）'} style={{ ...btn, padding: '4px 10px', color: '#6c63ff', opacity: !check.ok || minReq ? 0.5 : 1 }}>
+                              {mandalaBusy[plan.id] ? '⏳ 作成中…' : '🔲 マンダラとして開く'}
+                            </button>
+                            {mandalaMade[plan.id] && <a data-vis-mandala-link={mandalaMade[plan.id]} href={`/dashboard/mandala/${mandalaMade[plan.id]}`} target="_blank" rel="noopener noreferrer" style={{ fontSize: 11, color: '#6c63ff' }}>✅ マンダラを作成しました（開く）</a>}
+                            {mandalaError[plan.id] && <span data-vis-mandala-error={plan.id} style={{ fontSize: 11, color: '#B91C1C' }}>❌ {mandalaError[plan.id]}</span>}
+                          </>
+                        )}
                         {plan.id in approved && <span style={{ marginLeft: 8, fontSize: 11, color: 'var(--text-muted)' }}>変更すると承認は外れます</span>}
                       </div>
                     </div>
@@ -534,7 +573,7 @@ function VisualsInner() {
                             <span style={{ fontWeight: 700 }}>{r.from} → {r.to}</span>
                             {r.label && <span style={{ marginLeft: 6, color: '#6c63ff' }}>{r.label}</span>}
                             <span data-vis-edge-evidence-text style={{ display: 'block', fontSize: 11, color: r.evidence === null ? '#B45309' : 'var(--text-muted)', marginTop: 2 }}>
-                              {r.evidence === null ? '根拠なし' : `根拠: ${r.evidence}`}
+                              {r.evidence === null ? '未確認（元テキストに両方のノードを含む文が無い・既定では描かない）' : `根拠: ${r.evidence}`}
                             </span>
                           </span>
                         </label>

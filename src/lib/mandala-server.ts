@@ -194,11 +194,13 @@ export async function listCharts(userId: string): Promise<MandalaChartSummary[]>
       ch.meta->>'preset' AS preset,
       -- 316: 記事から生成（meta.generated）。一覧の「🤖 記事から生成」バッジ用（元記事のタイトルだけ）
       ch.meta->'generated'->'source'->>'title' AS generated_title,
-      ch.meta->'generated'->>'mode' AS generated_mode
+      ch.meta->'generated'->>'mode' AS generated_mode,
+      -- 324: 図解プランから作成（meta.origin='visual_plan'）
+      ch.meta->>'origin' AS origin
     FROM mandala_charts ch
     WHERE ch.user_id = ${userId}
     ORDER BY ch.updated_at DESC, ch.id
-  `) as { id: string; title: string; filled_count: number; filled_total: number; link_count: number; primary_count: number; child_count: number; reaction_count: number; preset: string | null; generated_title: string | null; generated_mode: string | null; created_at: string; updated_at: string }[];
+  `) as { id: string; title: string; filled_count: number; filled_total: number; link_count: number; primary_count: number; child_count: number; reaction_count: number; preset: string | null; origin: string | null; generated_title: string | null; generated_mode: string | null; created_at: string; updated_at: string }[];
   return rows.map((r) => ({
     id: String(r.id),
     title: r.title ?? '',
@@ -210,6 +212,7 @@ export async function listCharts(userId: string): Promise<MandalaChartSummary[]>
     reaction_count: Number(r.reaction_count ?? 0),
     preset: r.preset ? String(r.preset) : null,
     generated: r.generated_mode ? { title: r.generated_title ?? '', mode: r.generated_mode === '81' ? '81' : '9' } : null,
+    origin: r.origin ? String(r.origin) : null,
     created_at: String(r.created_at),
     updated_at: String(r.updated_at),
   }));
@@ -242,6 +245,23 @@ export async function writeGeneratedCells(userId: string, rows: readonly { id: s
   const updated = (await sql`
     UPDATE mandala_cells c
     SET title = x.t, body = x.b, meta = c.meta || '{"origin":"ai"}'::jsonb, updated_at = now()
+    FROM unnest(${ids}::uuid[], ${titles}::text[], ${bodies}::text[]) AS x(id, t, b)
+    WHERE c.id = x.id AND c.user_id = ${userId}
+    RETURNING c.id
+  `) as { id: string }[];
+  return updated.length;
+}
+
+/** 324: 図解プラン（9マスシート）の文字列をそのまま書く（AI なし・origin は付けない＝院長が承認した文字列は手書き扱い） */
+export async function writePlanCells(userId: string, rows: readonly { id: string; title: string; body: string }[]): Promise<number> {
+  await ensureMandalaTables();
+  if (rows.length === 0) return 0;
+  const ids = rows.map((r) => r.id);
+  const titles = rows.map((r) => sanitizeForDb(r.title));
+  const bodies = rows.map((r) => sanitizeForDb(r.body));
+  const updated = (await sql`
+    UPDATE mandala_cells c
+    SET title = x.t, body = x.b, updated_at = now()
     FROM unnest(${ids}::uuid[], ${titles}::text[], ${bodies}::text[]) AS x(id, t, b)
     WHERE c.id = x.id AND c.user_id = ${userId}
     RETURNING c.id

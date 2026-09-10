@@ -20,6 +20,8 @@
 import { use, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 // 316: 記事から生成（meta.generated／relations／origin）・再生成・関連性ポップアップ
 import { AI_ORIGIN_NOTICE, generatedBadgeLabel, generatedSourceHref, parseGeneratedMeta, parseRelations, regenerateState, relationLabelOf, relationsOf, type MandalaRelation } from '@/lib/mandala-generate';
+// 324: 図解プラン（9マスシート）から作成した印と元記事へのリンク
+import { MANDALA_VISUAL_PLAN_BADGE, parseVisualPlanMeta } from '@/lib/mandala-shared';
 import { runMandalaGeneration, type GenerateProgress } from '@/lib/mandala-generate-client';
 import Link from 'next/link';
 import MandalaGrid from '@/components/mandala/MandalaGrid';
@@ -255,6 +257,7 @@ export default function MandalaChartPage({ params }: { params: Promise<{ id: str
   // 304: バッジのホバーポップアップ（共通部品 HoverPopover）。中身は同じキャッシュから描く
   // 316: 記事から生成（AI 由来の明示・関連性）。ホバー用の描画関数はフックの実行中に呼ばれるため、参照する値はフックより前に宣言する（TDZ・本番実測）
   const generated = useMemo(() => (chart ? parseGeneratedMeta(chart.meta) : null), [chart]);
+  const visualPlan = useMemo(() => (chart ? parseVisualPlanMeta(chart.meta) : null), [chart]);
   const relations = useMemo<MandalaRelation[]>(() => (chart ? parseRelations(chart.meta) : []), [chart]);
   const popover = useHoverPopover<{ cell: MandalaCell; from: MandalaPopoverFrom }>(
     ({ cell, from }, api) => {
@@ -525,6 +528,16 @@ export default function MandalaChartPage({ params }: { params: Promise<{ id: str
             <span data-mandala-generated={generated.mode} data-mandala-generated-dropped={generated.dropped.points + generated.dropped.items} title={`記事「${generated.source.title}」から AI（${generated.model}）が生成。捨てた項目: 要点 ${generated.dropped.points}・小項目 ${generated.dropped.items}`} style={{ fontWeight: 700, color: '#6c63ff' }}>
               {generatedBadgeLabel(generated)}
               <a data-mandala-generated-source href={generatedSourceHref(generated.source)} target="_blank" rel="noopener noreferrer" style={{ marginLeft: 6, color: '#6c63ff' }}>元記事「{generated.source.title || '（無題）'}」↗</a>
+            </span>
+          )}
+          {/* 324 §3-2: 図解プラン（9マスシート）から作成（AI なし）と元記事へのリンク */}
+          {visualPlan && (
+            <span data-mandala-visual-plan title={`🖼図解生成の9マスシート「${visualPlan.title}」のプランをそのまま書き込んだチャート（AI は使っていません）`} style={{ color: '#0E7490', fontWeight: 700 }}>
+              {MANDALA_VISUAL_PLAN_BADGE}
+              {visualPlan.source && 'scope' in visualPlan.source && (
+                <a data-mandala-visual-plan-source href={generatedSourceHref(visualPlan.source)} target="_blank" rel="noopener noreferrer" style={{ marginLeft: 6, color: '#0E7490' }}>元記事「{visualPlan.source.title || '（無題）'}」</a>
+              )}
+              {visualPlan.source && 'unsaved' in visualPlan.source && <span style={{ marginLeft: 6, color: 'var(--text-muted)', fontWeight: 400 }}>（未保存の結果「{visualPlan.source.title || '（無題）'}」から）</span>}
             </span>
           )}
           {/* 305 §2-6: 81表示のときだけ追加で出す（9マス分の n/9・📔 n/m は表示モードに関係なく同じ値） */}

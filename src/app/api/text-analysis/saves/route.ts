@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { stripInlineLatex } from '@/lib/note-format';
 import { auth } from '@/lib/auth';
 import { sql } from '@/lib/db';
 import { sanitizeForDb } from '@/lib/sanitize';
@@ -283,7 +284,8 @@ export async function POST(req: NextRequest) {
     // title/categoryは横断分析用、autoTitle/fileName/folderはレガシー互換
     const titleInput = body.title || body.autoTitle || body.fileName || '無題';
     const folder = body.category ?? body.folder ?? '';
-    const content = body.content ?? '';
+    // 324追加: LaTeX 記法の露出を止める（保存前の決定的な整形・冪等）
+    const content = stripInlineLatex(body.content ?? '');
     const tags: string[] = Array.isArray(body.tags) ? body.tags : [];
     const isCross = body.isCrossAnalysis === true;
     const sourceIds = Array.isArray(body.sourceIds) ? body.sourceIds : [];
@@ -392,7 +394,7 @@ export async function PATCH(req: NextRequest) {
     } else if (action === 'update') {
       // タイトル + 本文の編集（input_text は対象外＝元入力は記録のため改変しない）
       const title = (body.title ?? '').trim();
-      const content = (body.content ?? '').trim();
+      const content = stripInlineLatex((body.content ?? '').trim());
       if (!title || !content) {
         return NextResponse.json(
           { error: 'タイトルと本文は空にできません' },

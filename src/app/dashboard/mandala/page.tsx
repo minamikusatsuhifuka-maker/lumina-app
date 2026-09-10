@@ -213,6 +213,12 @@ export default function MandalaListPage() {
                         🤖 記事から生成
                       </span>
                     )}
+                    {/* 324 §3-2: 図解プラン（9マスシート）から決定的に作成した印（AI なし） */}
+                    {item.origin === 'visual_plan' && (
+                      <span data-mandala-card-visual-plan title="🖼図解生成の9マスシートのプランをそのまま書き込んだチャート（AI は使っていません）" style={{ color: '#0E7490', fontWeight: 700 }}>
+                        🖼 図解プランから作成
+                      </span>
+                    )}
                     {item.preset && (
                       <span data-mandala-card-preset={item.preset} title="作成時の型" style={{ color: 'var(--text-muted)' }}>
                         {isMandalaPresetKey(item.preset) ? MANDALA_PRESETS[item.preset].label : item.preset}

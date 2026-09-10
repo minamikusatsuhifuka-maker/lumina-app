@@ -1,4 +1,6 @@
 import { anthropicFetch } from '@/lib/anthropic-compat';
+import { stripInlineLatex } from '@/lib/note-format';
+import { NO_LATEX_PROMPT_RULE } from '@/lib/markdown-renderer';
 import { CLAUDE_TEXT_MODEL } from '@/lib/ai-models';
 import { NextRequest, NextResponse } from 'next/server';
 import { requireAuth } from '@/lib/require-auth';
@@ -63,6 +65,7 @@ export async function POST(req: NextRequest) {
       // 287 §2-5: 見出しは ## で揃える（# を複数並べると h1 が複数になり、Wordでは「見出し1」が乱立する）。
       // 出力は Markdown のまま（構造の指定として）。画面は renderMarkdown で整形し、コピーは Word体裁のリッチコピーにする。
       system: `あなたは優秀なリサーチアナリストです。
+${NO_LATEX_PROMPT_RULE}
 複数の調査・分析結果を横断的に分析し、以下の構造でレポートを生成してください。
 必ず各セクションを明確に分けて出力してください。
 見出しは必ず「## 」（見出しレベル2）で書き、「# 」（レベル1）は使わないでください。小見出しが必要なら「### 」を使ってください。
@@ -94,10 +97,11 @@ export async function POST(req: NextRequest) {
       new Promise<never>((_, reject) => setTimeout(() => reject(Object.assign(new Error(MERGE_TIMEOUT_MESSAGE), { timedOut: true })), MERGE_TIMEOUT_MS)),
     ]);
 
-    const result = (data.content || [])
+    // 324追加: LaTeX 記法の露出を止める（決定的・冪等）
+    const result = stripInlineLatex((data.content || [])
       .filter((b: any) => b.type === 'text')
       .map((b: any) => b.text)
-      .join('\n');
+      .join('\n'));
 
     if (!result) {
       return NextResponse.json({ error: '統合レポートの生成に失敗しました（空の応答）' }, { status: 502 });
