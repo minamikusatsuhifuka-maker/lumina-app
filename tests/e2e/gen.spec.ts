@@ -1135,3 +1135,28 @@ test('B40: 生成結果から直接図解・画像（320・実AI）— 種類を
   expect((json.finalBase64?.length ?? 0) > 5000 && (json.originalBase64?.length ?? 0) > 5000, '完成画像と元画像が返る').toBe(true);
   console.log(`[B40] image ${Date.now() - t1}ms model=${json.model} cost=${json.costUsd}`);
 });
+
+
+test('B41: 図解プランの why（322・実AI・Gemini）— 各候補に「この内容に向く理由」（40字以内）が付き、図の文字列（実在チェック）には入らない。関連図の候補があれば実描画が 200（境界検査つき） @gen', async ({ request }) => {
+  test.setTimeout(GEN_TIMEOUT);
+  const text = 'トリプトファンはセロトニンに変換され、セロトニンはメラトニンに変換される。メラトニンは睡眠を促す。朝の光はセロトニンの分泌を増やし、夜の暗さはメラトニンの分泌を増やす。';
+  const t0 = Date.now();
+  const res = await request.post('/api/visuals/plan', { data: { text, types: ['relation', 'flow'] }, timeout: REQ_TIMEOUT });
+  expect(res.status()).toBe(200);
+  const j = (await res.json()) as { plans: { id: string; type: string; title: string; why?: string; groups: { heading?: string; points: string[] }[] }[]; checks: Record<string, { foreign: string[] }> };
+  expect(j.plans.length).toBeGreaterThan(0);
+  const withWhy = j.plans.filter((p) => typeof p.why === 'string' && p.why.trim());
+  expect(withWhy.length, 'why が付く候補がある').toBeGreaterThan(0);
+  for (const p of withWhy) {
+    expect(Array.from(p.why!).length, 'why は40字以内').toBeLessThanOrEqual(40);
+    expect([p.title, ...p.groups.flatMap((g) => [g.heading ?? '', ...g.points])], 'why は図の文字列に入らない').not.toContain(p.why);
+  }
+  console.log(`[B41] ${Date.now() - t0}ms plans=${j.plans.map((p) => `${p.type}:${p.why ?? '-'}`).join(' | ')}`);
+  const rel = j.plans.find((p) => p.type === 'relation');
+  if (rel && (j.checks[rel.id]?.foreign.length ?? 0) === 0) {
+    const rr = await request.post('/api/visuals/render', { data: { plan: rel, sourceText: text, orientation: 'landscape' }, timeout: REQ_TIMEOUT });
+    const rj = (await rr.json()) as { textVerified?: boolean; error?: string };
+    expect(rr.status(), `関連図の実描画が 200: ${rj.error ?? ''}`).toBe(200);
+    expect(rj.textVerified).toBe(true);
+  }
+});

@@ -73,6 +73,8 @@ import { KINDLE_PURPOSES } from '../../src/lib/kindle-purposes';
 import { FOLLOWUP_HANDOFF_KEY, FOLLOWUP_PROMPT_CHIPS, followUpMetadata, followUpTitle } from '../../src/lib/followup-research';
 // 320: 生成結果から直接図解・画像
 import { CORRELATION_LABEL_REQUIRED, VISUAL_QUICK_DEFAULT_TYPES } from '../../src/lib/visuals';
+// 322: 関連図の是正・つながり確認・🗂の操作行
+import { missingTargetReason } from '../../src/lib/visuals';
 
 // ============================================================================
 // スモークテスト（残E2Eチェックリスト C系＋B表示系）
@@ -12116,5 +12118,133 @@ test('C137: 結果画面の操作行（321）— 🔭DR結果の操作行が共�
   } finally {
     await ctx.close();
     await browser.close();
+  }
+});
+
+
+test('C138: 関連図の是正・つながり確認・🗂成果物の操作行（322）— 院長の再現入力（3ノード・2辺）が実描画で200（文字一致・全要素が画面内）／候補に why が表示され図の文字列に入らない／相手ノードが無い辺は赤い印に理由／つながり確認の一覧に根拠の文が出て✓を外した辺は描画リクエストの edgeOff に入り戻すと外れる／根拠なしの件数／🗂 各成果物の操作行が1箇所（横書き・高さ一致・主操作だけ塗りつぶし・メニュー・再分析で入力欄に入る）／WebKit iPhone幅で横スクロール無し', async ({ page, request }) => {
+  test.setTimeout(300_000);
+  const marker = `REL${RUN_ID}`;
+  const src = `トリプトファンはセロトニンに変換され、セロトニンはメラトニンに変換される。トリプトファンからメラトニンへ。識別子 ${marker}`;
+  const galleryIds: string[] = [];
+  const renderBodies: { plan?: { edgeOff?: string[]; type?: string } }[] = [];
+  await page.route('**/api/visuals/render', async (route) => { renderBodies.push(route.request().postDataJSON()); await route.fallback(); });
+  await page.route('**/api/visuals/plan', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ plans: [
+    { id: 'r1', type: 'relation', why: '物質の変換の順序を線でつなぐと流れが分かる', title: 'トリプトファンからメラトニンへ', groups: [{ heading: 'トリプトファン', points: ['→ セロトニン: 変換', '→ セロトニン２: 変換'] }, { heading: 'セロトニン', points: ['→ メラトニン: 変換'] }, { heading: 'メラトニン', points: [] }] },
+  ], rejected: [], ranAt: new Date().toISOString() }) }));
+  try {
+    // ── ① 院長の再現入力は API でも 200（境界検査つき） ──
+    const repro = { id: 'repro', type: 'relation', title: 'トリプトファンからメラトニンへ', groups: [{ heading: 'トリプトファン', points: ['→ セロトニン: 変換'] }, { heading: 'セロトニン', points: ['→ メラトニン: 変換'] }, { heading: 'メラトニン', points: [] }] };
+    const rr = await api.post('/api/visuals/render', { data: { plan: repro, sourceText: src, orientation: 'landscape' } });
+    const rj = (await rr.json()) as { textVerified?: boolean; imageBase64?: string; error?: string };
+    expect(rr.status(), `再現入力の描画が 200: ${rj.error ?? ''}`).toBe(200);
+    expect(rj.textVerified).toBe(true);
+    expect((rj.imageBase64?.length ?? 0) > 5000).toBe(true);
+    // ── ② 315: why・相手ノードが無い辺の理由・つながり確認 ──
+    await page.goto('/dashboard/visuals');
+    await page.locator('[data-vis-source]').fill(src);
+    await page.locator('[data-vis-extract]').click();
+    const p1 = page.locator('[data-vis-plan="r1"]');
+    await expect(p1).toBeVisible({ timeout: 15000 });
+    await expect(p1.locator('[data-vis-why="r1"]'), 'why は表示される').toContainText('物質の変換');
+    await expect(p1, '相手が無い辺があるので描けない').toHaveAttribute('data-vis-plan-ok', '0');
+    await expect(p1.locator('[data-vis-block-reason="r1"]')).toContainText(missingTargetReason('セロトニン２'));
+    const edges = p1.locator('[data-vis-edges="r1"]');
+    await expect(edges).toHaveAttribute('data-vis-edges-count', '2');
+    await expect(edges.locator('[data-vis-edge="r1-0-1"] [data-vis-edge-evidence-text]'), '根拠の文が元テキストから抜かれる').toContainText('トリプトファンはセロトニンに変換され');
+    await expect(edges.locator('[data-vis-edge="r1-0-1"]')).toHaveAttribute('data-vis-edge-evidence', '1');
+    await expect(edges).toHaveAttribute('data-vis-edges-noevidence', '0');
+    // 相手が無い辺を消す → 描ける
+    await p1.locator('[data-vis-points="r1-0"]').fill('→ セロトニン: 変換');
+    await expect(p1).toHaveAttribute('data-vis-plan-ok', '1');
+    // 根拠なしの件数: 元テキストに無いつながりを足す
+    await p1.locator('[data-vis-points="r1-2"]').fill('→ トリプトファン: 戻る');
+    await expect(edges).toHaveAttribute('data-vis-edges-count', '3');
+    await expect(edges.locator('[data-vis-edge="r1-2-0"]')).toHaveAttribute('data-vis-edge-evidence', '0');
+    await expect(edges.locator('[data-vis-edges-warn="r1"]')).toContainText('根拠のない辺が 1 本');
+    await p1.locator('[data-vis-points="r1-2"]').fill('');
+    await expect(edges).toHaveAttribute('data-vis-edges-count', '2');
+    // ✓を外す → 描画リクエストの edgeOff に入る（実描画・200）
+    await edges.locator('[data-vis-edge-check="r1-1-2"]').uncheck();
+    await expect(edges.locator('[data-vis-edge="r1-1-2"]')).toHaveAttribute('data-vis-edge-on', '0');
+    await p1.locator('[data-vis-render="r1"]').click();
+    const r1 = page.locator('[data-vis-result="r1"]');
+    await expect(r1).toHaveAttribute('data-vis-saved', '1', { timeout: 90000 });
+    await expect(r1).toHaveAttribute('data-vis-verified', '1');
+    galleryIds.push((await r1.getAttribute('data-vis-gallery-id'))!);
+    expect(renderBodies.length).toBe(1);
+    expect(renderBodies[0].plan?.edgeOff, '外した辺は描かない').toEqual(['1-2']);
+    // 戻す → edgeOff 無し
+    await edges.locator('[data-vis-edge-check="r1-1-2"]').check();
+    await expect(edges.locator('[data-vis-edge="r1-1-2"]')).toHaveAttribute('data-vis-edge-on', '1');
+    await p1.locator('[data-vis-render="r1"]').click();
+    await expect.poll(() => renderBodies.length).toBe(2);
+    expect(renderBodies[1].plan?.edgeOff, '戻すと描く').toBeUndefined();
+    await expect(r1).toHaveAttribute('data-vis-saved', '1', { timeout: 90000 });
+    galleryIds.push((await r1.getAttribute('data-vis-gallery-id'))!);
+    // ── ③ 🗂 成果物の操作行（ResultActionBar・321 と同じ判定） ──
+    const analyzeCalls = await mockAnalyze(page, `[E2E] ${marker} モック分析結果。${src}`);
+    await stubFeatureDrafts(page);
+    await page.goto('/dashboard/text-analysis');
+    await page.evaluate(() => localStorage.setItem('lumina_auto_stock_save', '0'));
+    await page.reload({ waitUntil: 'domcontentloaded' });
+    await waitForRunReady(page);
+    await page.getByPlaceholder('ここに分析したいテキストを貼り付けてください...').fill(src);
+    await page.locator('button[data-kb-run]').click();
+    const bar = page.locator('[data-ta-result-actions]').first();
+    await expect(bar).toBeVisible({ timeout: 60000 });
+    expect(analyzeCalls()).toBeGreaterThan(0);
+    await expect(page.locator('[data-ta-result-actions]').first().locator('[data-result-action-row]')).toHaveCount(2);
+    const info = await bar.locator('button, a').evaluateAll((els) => els.filter((e) => (e as HTMLElement).offsetParent !== null).map((e) => { const cs = getComputedStyle(e); const r = e.getBoundingClientRect(); return { text: (e.textContent ?? '').trim(), wm: cs.writingMode, h: Math.round(r.height), w: Math.round(r.width), bg: cs.backgroundColor, primary: e.hasAttribute('data-save-library'), aside: !!e.closest('[data-result-action-aside]') }; }));
+    expect(Array.from(new Set(info.map((i) => i.wm))), '全ボタン横書き').toEqual(['horizontal-tb']);
+    expect(Array.from(new Set(info.filter((i) => !i.aside).map((i) => i.h))), '高さが揃う').toEqual([32]);
+    for (const i of info.filter((x) => !x.aside)) expect(i.w, `「${i.text}」が1文字ずつ折れていない`).toBeGreaterThan(i.h);
+    const filled = info.filter((i) => i.bg === 'rgb(79, 70, 229)');
+    expect(filled.map((f) => f.primary), '塗りつぶしは主操作（ストック保存）だけ').toEqual([true]);
+    await expect(bar.getByRole('button', { name: '💾 ストック保存' })).toBeVisible();
+    await expect(bar.locator('[data-vis-quick-open]')).toBeVisible();
+    await expect(bar.locator('[data-followup-open]')).toBeVisible();
+    await expect(bar.getByRole('button', { name: '✏️ AIで修正' })).toBeVisible();
+    await expect(bar.locator('[data-memorize-button]')).toHaveText('🧠 記憶する');
+    await expect(bar.locator('[data-ta-favorite]'), '未保存では⭐は無効').toBeDisabled();
+    await bar.locator('[data-result-menu-trigger="download"]').click();
+    const dl = page.locator('[data-result-menu-panel="download"]');
+    for (const name of ['⬇ テキスト', '📥 MD', '📄 Word']) await expect(dl.getByRole('button', { name }), `ダウンロード: ${name}`).toBeVisible();
+    await page.keyboard.press('Escape');
+    await expect(dl).toHaveCount(0);
+    await bar.locator('[data-result-menu-trigger="send"]').click();
+    const send = page.locator('[data-result-menu-panel="send"]');
+    for (const name of ['🔁 テキスト分析へ（再分析）', '✍️ 文章作成に使う', '🧠 AI参照素材として保存', '✨ わかりやすく変換']) await expect(send.getByRole('button', { name }), `送る: ${name}`).toBeVisible();
+    await expect(send.getByRole('link', { name: '🚀 発信ハブで展開する' })).toHaveAttribute('href', '/dashboard/dr-hub');
+    await send.getByRole('button', { name: '🔁 テキスト分析へ（再分析）' }).click();
+    await expect(send).toHaveCount(0);
+    await expect(page.getByPlaceholder('ここに分析したいテキストを貼り付けてください...'), '再分析＝結果が入力欄に入る').toHaveValue(new RegExp(`モック分析結果`));
+    const sw = await page.evaluate(() => ({ sw: document.documentElement.scrollWidth, iw: window.innerWidth }));
+    expect(sw.sw).toBeLessThanOrEqual(sw.iw + 1);
+    // ── ④ WebKit iPhone幅: 下書き復元で成果物を出し、折り返して横スクロール無し ──
+    const browser = await webkit.launch();
+    const ctx = await browser.newContext({ storageState: STORAGE_STATE, baseURL: BASE_URL, hasTouch: true, isMobile: true, viewport: { width: 390, height: 844 }, serviceWorkers: 'block' });
+    const mp = await ctx.newPage();
+    try {
+      await mp.route('**/api/feature-drafts**', (route) => {
+        const isTa = route.request().method() === 'GET' && /feature=text-analysis(&|$)/.test(route.request().url());
+        route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(isTa ? { draft: { payload: { inputText: src, purpose: '', results: { summary: `[E2E] ${marker} 復元した結果。${src}` } }, updated_at: new Date().toISOString() } } : (route.request().method() === 'GET' ? { draft: null } : { ok: true })) });
+      });
+      await mp.goto('/dashboard/text-analysis');
+      const mbar = mp.locator('[data-ta-result-actions]').first();
+      await expect(mbar).toBeVisible({ timeout: 30000 });
+      const minfo = await mbar.locator('button, a').evaluateAll((els) => els.filter((e) => (e as HTMLElement).offsetParent !== null).map((e) => ({ wm: getComputedStyle(e).writingMode, top: Math.round(e.getBoundingClientRect().top), aside: !!e.closest('[data-result-action-aside]') })));
+      expect(Array.from(new Set(minfo.map((i) => i.wm)))).toEqual(['horizontal-tb']);
+      expect(new Set(minfo.filter((i) => !i.aside).map((i) => i.top)).size, 'iPhone幅では折り返す').toBeGreaterThanOrEqual(2);
+      const vw = await mp.evaluate(() => ({ sw: document.documentElement.scrollWidth, iw: window.innerWidth, br: document.querySelector('[data-ta-result-actions]')!.getBoundingClientRect().right }));
+      expect(vw.sw, '横スクロール無し').toBeLessThanOrEqual(vw.iw + 1);
+      expect(vw.br).toBeLessThanOrEqual(vw.iw + 1);
+    } finally {
+      await ctx.close();
+      await browser.close();
+    }
+  } finally {
+    for (const id of galleryIds) await api.delete(`/api/gallery/${id}`).catch(() => {});
+    await cleanupE2ESaves(request);
   }
 });

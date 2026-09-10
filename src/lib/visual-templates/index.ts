@@ -260,45 +260,149 @@ function conceptTemplate(plan: VisualPlan, width: number): El[] {
 }
 
 // ── 317: 関連図（円周配置・ノード順で角度を割当・辺は直線＝回転した細い div・ラベルは中点。力学レイアウトは使わない・R-74） ──
-function relationTemplate(plan: VisualPlan, width: number): El[] {
-  const nodes = plan.groups.map((g) => (g.heading ?? '').trim());
-  // 320: 相関図は label 必須の辺だけ（edgesOfPlan）。線は全辺同じ太さ・色・不透明度＝強弱は label の文字で示す（AI の判断を視覚化しない・R-74）
-  const edges = edgesOfPlan(plan);
-  const n = Math.max(1, nodes.length);
-  const area = Math.round(width * 0.82);
+// ── 322: 関連図・相関図のレイアウト（純関数・決定的・R-74）。描画と機械検査（verifyRenderedBounds）が同じ幾何を使う ──
+//
+// 是正の経緯: satori は transform-origin を無視して**要素の中心**で回転するため、始点を左端に置いた線（transformOrigin '0 50%'）が
+// 中心回転で画面外へ飛んでいた（院長の実測: 1ノード＋右上へ伸びる線＋宙に浮いたラベル）。線は「中点を中心に置いて回転」に改める。
+// ノードは n=1 中央／n=2 左右／n≥3 円周（半径は箱がキャンバスの余白に収まる値）。ラベルは辺の中点、ノードと重なれば外側へ決定的にずらす。
+export interface RelationRect { x: number; y: number; w: number; h: number }
+export interface RelationLayout {
+  inner: number;
+  area: number;
+  boxW: number;
+  nodes: { label: string; rect: RelationRect; cx: number; cy: number }[];
+  edges: { from: number; to: number; label: string; len: number; angle: number; box: RelationRect; endpoints: [{ x: number; y: number }, { x: number; y: number }] }[];
+  labels: { text: string; rect: RelationRect; edge: number }[];
+}
+const REL_BOX_W = 200;
+const REL_BOX_MIN_H = 64;
+const REL_LINE_H = 4;
+const REL_LABEL_W = 160;
+const REL_LABEL_H = 32;
+const REL_MARGIN = 24;
+
+function intersects(a: RelationRect, b: RelationRect): boolean {
+  return a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
+}
+
+export function relationLayout(plan: VisualPlan, width: number): RelationLayout {
+  const names = plan.groups.map((g) => (g.heading ?? '').trim());
+  const edgesIn = edgesOfPlan(plan);
+  const n = Math.max(1, names.length);
   const inner = width - 56 * 2;
+  const area = Math.round(width * 0.82);
+  const boxW = REL_BOX_W;
+  const cpl = charsPerLine(boxW, 24, 12);
+  const boxH = names.map((nm) => REL_BOX_MIN_H + Math.max(0, lineCount(nm, cpl) - 1) * 32);
+  const maxH = Math.max(REL_BOX_MIN_H, ...boxH);
   const cx = inner / 2;
   const cy = area / 2;
-  const r = Math.min(inner, area) / 2 - 110;
-  const boxW = 200;
-  const boxH = 64;
-  const pos = nodes.map((_, i) => {
+  // 半径: 箱の対角の半分＋余白がキャンバス内に収まる最大値
+  const r = Math.max(0, Math.min(inner, area) / 2 - Math.max(boxW, maxH) / 2 - REL_MARGIN - REL_LABEL_H);
+  const centers = names.map((_, i) => {
+    if (n === 1) return { x: cx, y: cy };
+    if (n === 2) return { x: i === 0 ? cx - r : cx + r, y: cy };
     const a = -Math.PI / 2 + (2 * Math.PI * i) / n;
     return { x: Math.round(cx + r * Math.cos(a)), y: Math.round(cy + r * Math.sin(a)) };
   });
-  const lines: El[] = edges.map((e) => {
-    const a = pos[e.from];
-    const b = pos[e.to];
+  const nodes = names.map((label, i) => {
+    const h = boxH[i] ?? REL_BOX_MIN_H;
+    const x = Math.round(Math.min(Math.max(REL_MARGIN, centers[i].x - boxW / 2), inner - REL_MARGIN - boxW));
+    const y = Math.round(Math.min(Math.max(REL_MARGIN, centers[i].y - h / 2), area - REL_MARGIN - h));
+    return { label, rect: { x, y, w: boxW, h }, cx: x + boxW / 2, cy: y + h / 2 };
+  });
+  const edges = edgesIn.map((e) => {
+    const a = nodes[e.from];
+    const b = nodes[e.to];
+    const dx = b.cx - a.cx;
+    const dy = b.cy - a.cy;
+    const len = Math.max(1, Math.round(Math.sqrt(dx * dx + dy * dy)));
+    const angle = Math.round(((Math.atan2(dy, dx) * 180) / Math.PI) * 100) / 100;
+    const mx = (a.cx + b.cx) / 2;
+    const my = (a.cy + b.cy) / 2;
+    // 線の箱は中点を中心に置く（satori は中心で回転する）
+    const box = { x: Math.round(mx - len / 2), y: Math.round(my - REL_LINE_H / 2), w: len, h: REL_LINE_H };
+    return { from: e.from, to: e.to, label: e.label, len, angle, box, endpoints: [{ x: a.cx, y: a.cy }, { x: b.cx, y: b.cy }] as [{ x: number; y: number }, { x: number; y: number }] };
+  });
+  const labels = edges.flatMap((e, idx) => {
+    if (!e.label) return [];
+    const [a, b] = e.endpoints;
+    const mx = (a.x + b.x) / 2;
+    const my = (a.y + b.y) / 2;
+    // 法線（単位ベクトル）。ノードと重なるときは法線方向に箱の半分＋余白だけ外側へ（乱数不使用・上側を優先）
     const dx = b.x - a.x;
     const dy = b.y - a.y;
-    const len = Math.round(Math.sqrt(dx * dx + dy * dy));
-    const angle = Math.round((Math.atan2(dy, dx) * 180) / Math.PI * 100) / 100;
-    return div({ display: 'flex', position: 'absolute', left: a.x, top: a.y - 2, width: len, height: 4, background: GREEN, transform: `rotate(${angle}deg)`, transformOrigin: '0 50%', opacity: 0.55 }, []);
+    const L = Math.max(1, Math.sqrt(dx * dx + dy * dy));
+    const nx = -dy / L;
+    const ny = dx / L;
+    const candidates = [0, 1, -1, 2, -2];
+    let rect: RelationRect = { x: Math.round(mx - REL_LABEL_W / 2), y: Math.round(my - REL_LABEL_H / 2), w: REL_LABEL_W, h: REL_LABEL_H };
+    for (const k of candidates) {
+      const shift = k * (maxH / 2 + REL_LABEL_H);
+      const cand: RelationRect = { x: Math.round(mx + nx * shift - REL_LABEL_W / 2), y: Math.round(my + ny * shift - REL_LABEL_H / 2), w: REL_LABEL_W, h: REL_LABEL_H };
+      if (!nodes.some((nd) => intersects(cand, nd.rect))) {
+        rect = cand;
+        break;
+      }
+    }
+    rect.x = Math.round(Math.min(Math.max(0, rect.x), inner - rect.w));
+    rect.y = Math.round(Math.min(Math.max(0, rect.y), area - rect.h));
+    return [{ text: e.label, rect, edge: idx }];
   });
-  const edgeLabels: El[] = edges.filter((e) => e.label).map((e) => {
-    const a = pos[e.from];
-    const b = pos[e.to];
-    const mx = Math.round((a.x + b.x) / 2);
-    const my = Math.round((a.y + b.y) / 2);
-    return div({ position: 'absolute', left: mx - 80, top: my - 16, width: 160, display: 'flex', justifyContent: 'center' }, div({ display: 'flex', background: '#fff', border: `1px solid ${LINE}`, borderRadius: 8, padding: '2px 8px', fontSize: 20, color: MUTED }, e.label));
-  });
-  const nodeEls: El[] = nodes.map((label, i) =>
+  return { inner, area, boxW, nodes, edges, labels };
+}
+
+/** 322: 回転した線の外接矩形（中心回転） */
+function rotatedBounds(box: RelationRect, angleDeg: number): RelationRect {
+  const rad = (angleDeg * Math.PI) / 180;
+  const c = Math.abs(Math.cos(rad));
+  const s = Math.abs(Math.sin(rad));
+  const w = box.w * c + box.h * s;
+  const h = box.w * s + box.h * c;
+  const cx = box.x + box.w / 2;
+  const cy = box.y + box.h / 2;
+  return { x: cx - w / 2, y: cy - h / 2, w, h };
+}
+
+/**
+ * 322: すべての要素（ノード・線・ラベル）がキャンバス（余白込み）に収まるかの機械検査。文字一致（verifyRenderedText）と同じく
+ * 外れていれば描かない（壊れた PNG を出さない）。関連図・相関図以外は in-flow なので常に ok
+ */
+export function verifyRenderedBounds(plan: VisualPlan, orientation: VisualOrientation): { ok: boolean; reasons: string[] } {
+  if (plan.type !== 'relation' && plan.type !== 'correlation') return { ok: true, reasons: [] };
+  return verifyLayoutBounds(relationLayout(plan, VISUAL_CANVAS_WIDTH[orientation]));
+}
+/** レイアウト（幾何）だけの検査。単体テストで外れた座標を作って理由を固定する */
+export function verifyLayoutBounds(lay: RelationLayout): { ok: boolean; reasons: string[] } {
+  const reasons: string[] = [];
+  const inside = (r: RelationRect) => r.x >= -0.5 && r.y >= -0.5 && r.x + r.w <= lay.inner + 0.5 && r.y + r.h <= lay.area + 0.5;
+  const fmt = (r: RelationRect) => `x=${Math.round(r.x)},y=${Math.round(r.y)},w=${Math.round(r.w)},h=${Math.round(r.h)}`;
+  for (const nd of lay.nodes) if (!inside(nd.rect)) reasons.push(`ノード「${nd.label}」が画面外（${fmt(nd.rect)}）`);
+  for (const e of lay.edges) {
+    const b = rotatedBounds(e.box, e.angle);
+    if (!inside(b)) reasons.push(`辺「${lay.nodes[e.from]?.label}→${lay.nodes[e.to]?.label}」が画面外（${fmt(b)}）`);
+  }
+  for (const l of lay.labels) if (!inside(l.rect)) reasons.push(`ラベル「${l.text}」が画面外（${fmt(l.rect)}）`);
+  return { ok: reasons.length === 0, reasons };
+}
+
+function relationTemplate(plan: VisualPlan, width: number): El[] {
+  // 320: 相関図は label 必須の辺だけ（edgesOfPlan）。線は全辺同じ太さ・色・不透明度＝強弱は label の文字で示す（AI の判断を視覚化しない・R-74）
+  // 322: 幾何は relationLayout（検査と同じ）。線は中点中心で回転・ノードは余白内・辺の無いノードも描く
+  const lay = relationLayout(plan, width);
+  const lines: El[] = lay.edges.map((e) =>
+    div({ display: 'flex', position: 'absolute', left: e.box.x, top: e.box.y, width: e.box.w, height: e.box.h, background: GREEN, transform: `rotate(${e.angle}deg)`, opacity: 0.55 }, []),
+  );
+  const edgeLabels: El[] = lay.labels.map((l) =>
+    div({ position: 'absolute', left: l.rect.x, top: l.rect.y, width: l.rect.w, height: l.rect.h, display: 'flex', justifyContent: 'center', alignItems: 'center' }, div({ display: 'flex', background: '#fff', border: `1px solid ${LINE}`, borderRadius: 8, padding: '2px 8px', fontSize: 20, color: MUTED, lineHeight: 1.3 }, l.text)),
+  );
+  const nodeEls: El[] = lay.nodes.map((nd) =>
     div(
-      { position: 'absolute', left: pos[i].x - boxW / 2, top: pos[i].y - boxH / 2, width: boxW, minHeight: boxH, display: 'flex', alignItems: 'center', justifyContent: 'center', background: GREEN_SOFT, border: `2px solid ${GREEN}`, borderRadius: 16, padding: '8px 12px' },
-      text(label, { fontSize: 24, fontWeight: 700, color: INK, lineHeight: 1.35, textAlign: 'center' }),
+      { position: 'absolute', left: nd.rect.x, top: nd.rect.y, width: nd.rect.w, minHeight: nd.rect.h, display: 'flex', alignItems: 'center', justifyContent: 'center', background: GREEN_SOFT, border: `2px solid ${GREEN}`, borderRadius: 16, padding: '8px 12px', boxSizing: 'border-box' },
+      text(nd.label, { fontSize: 24, fontWeight: 700, color: INK, lineHeight: 1.35, textAlign: 'center' }),
     ),
   );
-  return [titleBlock(plan, width), div({ position: 'relative', width: inner, height: area, display: 'flex' }, [...lines, ...edgeLabels, ...nodeEls])];
+  return [titleBlock(plan, width), div({ position: 'relative', width: lay.inner, height: lay.area, display: 'flex' }, [...lines, ...edgeLabels, ...nodeEls])];
 }
 
 // ── 317: タイムライン（横1本の軸に等間隔・when は文字列のまま） ──

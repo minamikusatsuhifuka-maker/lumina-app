@@ -6,7 +6,7 @@ import { requireAuth } from '@/lib/require-auth';
 import { fetchJpFontsWithFallback } from '@/lib/og-fonts';
 import { missingGlyphMessage } from '@/lib/font-coverage';
 import { VISUAL_DETERMINISTIC_TYPES, VISUAL_ORIENTATIONS, checkPlan, planBlockReason, type VisualOrientation, type VisualPlan } from '@/lib/visuals';
-import { buildVisualElement, collectVisualText, verifyRenderedText } from '@/lib/visual-templates';
+import { buildVisualElement, collectVisualText, verifyRenderedBounds, verifyRenderedText } from '@/lib/visual-templates';
 import { readPlanBody } from '../_shared';
 
 export const runtime = 'nodejs';
@@ -32,6 +32,9 @@ export async function POST(req: Request) {
     const { element, canvas } = buildVisualElement(plan, orientation);
     const verified = verifyRenderedText(plan, element);
     if (!verified.ok) return NextResponse.json({ error: '描画する文字列がプランと一致しません', verified }, { status: 500 });
+    // 322: 全要素がキャンバス内（関連図・相関図）。外れていれば壊れた PNG を出さない（要素名と座標を理由に）
+    const bounds = verifyRenderedBounds(plan, orientation);
+    if (!bounds.ok) return NextResponse.json({ error: `図の要素が画面外に出ます: ${bounds.reasons.join('／')}`, bounds }, { status: 500 });
     // 315是正②: 欠字はフォールバック（Math → Symbols 2 → Sans）で補い、それでも無い文字があれば描かない（文字はプランどおりにしか描かない）
     const { fonts, missing, fallback } = await fetchJpFontsWithFallback(collectVisualText(plan));
     if (missing.length > 0) return NextResponse.json({ error: missingGlyphMessage(missing), missingGlyphs: missing }, { status: 400 });

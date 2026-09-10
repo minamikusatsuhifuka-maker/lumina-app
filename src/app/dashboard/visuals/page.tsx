@@ -35,7 +35,7 @@ import {
   type VisualOrientation,
   type VisualPlan,
   type VisualSourceRef,
-  type VisualType, VISUALS_AUTOPLAN_PARAM, VISUALS_FROM_PARAM, VISUALS_HANDOFF_KEY, VISUAL_AI_TEXT_STORAGE_KEY, parseStoredAiText, parseVisualsHandoff, type VisualUnsavedSource,
+  type VisualType, VISUALS_AUTOPLAN_PARAM, VISUALS_FROM_PARAM, VISUALS_HANDOFF_KEY, VISUAL_AI_TEXT_STORAGE_KEY, parseStoredAiText, parseVisualsHandoff, type VisualUnsavedSource, edgesWithoutEvidenceCount, edgesWithoutEvidenceLabel, relationEdgeRows,
 } from '@/lib/visuals';
 // 320: 未保存の結果の handoff（一回限りキー・R-121）
 import { readOneTimeHandoff } from '@/lib/one-time-handoff';
@@ -359,12 +359,17 @@ function VisualsInner() {
                   <select data-vis-type={plan.id} value={plan.type} onChange={(e) => updatePlan(plan.id, (p) => ({ ...p, type: e.target.value as VisualType }))} style={{ ...input, width: 'auto', padding: '4px 8px' }}>
                     {VISUAL_TYPES.map((t) => <option key={t} value={t}>{VISUAL_TYPE_META[t].emoji} {VISUAL_TYPE_META[t].label}</option>)}
                   </select>
+                  {/* 322 §3-4: AI の「この内容に向く種類の理由」（表示のみ・図には入らない・実在チェックの対象外）。種類の切替は院長 */}
+                  {plan.why && <span data-vis-why={plan.id} title="AI が提案した理由（表示だけ。図には入りません）" style={{ fontSize: 11, color: 'var(--text-muted)', maxWidth: 260, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>💡 {plan.why}</span>}
                   <input data-vis-title={plan.id} value={plan.title} onChange={(e) => updatePlan(plan.id, (p) => ({ ...p, title: e.target.value }))} placeholder="タイトル（元テキストの語句）" style={{ ...input, flex: 1, minWidth: 200 }} />
                   <button type="button" onClick={() => movePlan(plan.id, -1)} disabled={idx === 0} style={{ ...btn, padding: '4px 8px' }} title="上へ">↑</button>
                   <button type="button" onClick={() => movePlan(plan.id, 1)} disabled={idx === plans.length - 1} style={{ ...btn, padding: '4px 8px' }} title="下へ">↓</button>
                   <button type="button" data-vis-remove={plan.id} onClick={() => setPlans((prev) => prev.filter((p) => p.id !== plan.id))} style={{ ...btn, padding: '4px 8px', color: '#B91C1C' }} title="この候補を消す">🗑</button>
                 </div>
-                <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>{VISUAL_TYPE_META[plan.type].hint}</div>
+                <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>
+                  {VISUAL_TYPE_META[plan.type].hint}
+                  {isImage && <span data-vis-image-note>（種類を「イメージ」に切り替えると、見出し／要素がそのまま画像に重ねる文字になります。新しい変換は行いません）</span>}
+                </div>
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 8 }}>
                   {plan.groups.map((g, gi) => (
                     <div key={gi} data-vis-group={`${plan.id}-${gi}`} style={{ border: '1px dashed var(--border)', borderRadius: 8, padding: 8, display: 'flex', flexDirection: 'column', gap: 6 }}>
@@ -377,6 +382,33 @@ function VisualsInner() {
                   ))}
                   <button type="button" onClick={() => updatePlan(plan.id, (p) => ({ ...p, groups: [...p.groups, { points: [] }] }))} style={{ ...btn, alignSelf: 'flex-start' }}>＋ グループを足す</button>
                 </div>
+                {/* 322 §3-3: つながり確認（関連図・相関図）＝辺の一覧・根拠（元テキストから決定的に抽出・AIなし）・✓を外した辺は描かない（プランには残す） */}
+                {(plan.type === 'relation' || plan.type === 'correlation') && (() => {
+                  const rows = relationEdgeRows(plan, sourceText);
+                  const noEv = edgesWithoutEvidenceCount(rows);
+                  return (
+                    <div data-vis-edges={plan.id} data-vis-edges-count={rows.length} data-vis-edges-noevidence={noEv} style={{ border: '1px dashed var(--border)', borderRadius: 8, padding: 8, display: 'flex', flexDirection: 'column', gap: 6, fontSize: 12 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                        <strong>🔗 つながり確認</strong>
+                        <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>辺の一覧（✓の辺だけ描きます。根拠は元テキストから両方のノードを含む文を抜いたもの）</span>
+                      </div>
+                      {rows.length === 0 && <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>辺がありません（要素欄に「→ 相手ノード名: 関係ラベル」を書くと増えます）</div>}
+                      {rows.map((r) => (
+                        <label key={r.key} data-vis-edge={`${plan.id}-${r.key}`} data-vis-edge-on={r.on ? '1' : '0'} data-vis-edge-evidence={r.evidence === null ? '0' : '1'} style={{ display: 'grid', gridTemplateColumns: 'auto 1fr', gap: 8, alignItems: 'start', padding: '4px 6px', borderRadius: 6, background: r.on ? 'transparent' : 'rgba(0,0,0,0.04)', opacity: r.on ? 1 : 0.6 }}>
+                          <input type="checkbox" data-vis-edge-check={`${plan.id}-${r.key}`} checked={r.on} onChange={(e) => updatePlan(plan.id, (p) => { const off = new Set(p.edgeOff ?? []); if (e.target.checked) off.delete(r.key); else off.add(r.key); return { ...p, edgeOff: off.size > 0 ? Array.from(off) : undefined }; })} style={{ marginTop: 3 }} />
+                          <span style={{ minWidth: 0 }}>
+                            <span style={{ fontWeight: 700 }}>{r.from} → {r.to}</span>
+                            {r.label && <span style={{ marginLeft: 6, color: '#6c63ff' }}>{r.label}</span>}
+                            <span data-vis-edge-evidence-text style={{ display: 'block', fontSize: 11, color: r.evidence === null ? '#B45309' : 'var(--text-muted)', marginTop: 2 }}>
+                              {r.evidence === null ? '根拠なし' : `根拠: ${r.evidence}`}
+                            </span>
+                          </span>
+                        </label>
+                      ))}
+                      {edgesWithoutEvidenceLabel(noEv) && <div data-vis-edges-warn={plan.id} style={{ fontSize: 11, color: '#B45309' }}>⚠️ {edgesWithoutEvidenceLabel(noEv)}</div>}
+                    </div>
+                  );
+                })()}
                 {plan.type === 'onepage' && (
                   <label style={{ fontSize: 12, display: 'flex', alignItems: 'center', gap: 6 }}>
                     埋め込む図（描画済み）

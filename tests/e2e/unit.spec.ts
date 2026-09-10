@@ -5266,3 +5266,98 @@ test('U93: 結果画面の操作行（321）— 縦書きの根本は flex の�
   for (const l of ['📋 コピー', '✏️ AIで修正', '🔭 追加リサーチ', '🖼 図解・画像を作る', '📚 リサーチ保存に追加', '🧠 記憶する', '⬇ ダウンロード ▾', '➡ 送る ▾']) expect(Array.from(l).length, `「${l}」は12字以内`).toBeLessThanOrEqual(12);
   expect(dr, '1段目の追加リサーチは短いラベル').toContain('label="🔭 追加リサーチ"');
 });
+
+
+test('U94: 関連図の是正とつながり確認（322）— 院長の再現入力（3ノード・2辺・3つ目は要素欄空）で全ノード・辺・ラベルが余白内／線の箱は中点中心（satori は中心回転）／n=1 中央・n=2 左右・n=8 円周・長い名前は折り返し・全要素が画面内（verifyRenderedBounds）／外れた座標は理由（要素名と座標）／相手ノードが無い辺は描かず理由・表記ゆれは寄せる／edgeOff の辺は描かない（プランには残る）／根拠の決定的抽出と根拠なしの件数／why は40字で表示だけ（図の文字列に入らない）／同じ入力→同じ要素木／ソース固定（描画ルートの境界検査・🗂の操作行は ResultActionBar・ハンドラ不変）', () => {
+  const v = vis320;
+  const t = tpl320;
+  const src = 'トリプトファンはセロトニンに変換され、セロトニンはメラトニンに変換される。トリプトファンからメラトニンへ。';
+  const plan: import('../../src/lib/visuals').VisualPlan = { id: 'r', type: 'relation', title: 'トリプトファンからメラトニンへ', groups: [{ heading: 'トリプトファン', points: ['→ セロトニン: 変換'] }, { heading: 'セロトニン', points: ['→ メラトニン: 変換'] }, { heading: 'メラトニン', points: [] }] };
+  // ① 院長の再現入力: 3ノード（辺の無いノードも）・2辺・ラベル2つ、すべて余白内。線の箱は中点中心
+  const lay = t.relationLayout(plan, 1600);
+  expect(lay.nodes.map((n) => n.label)).toEqual(['トリプトファン', 'セロトニン', 'メラトニン']);
+  expect(lay.edges.length).toBe(2);
+  expect(lay.labels.map((l) => l.text)).toEqual(['変換', '変換']);
+  for (const e of lay.edges) {
+    const [a, b] = e.endpoints;
+    expect(Math.abs(e.box.x + e.box.w / 2 - (a.x + b.x) / 2), '線の箱の中心＝辺の中点（x）').toBeLessThanOrEqual(1);
+    expect(Math.abs(e.box.y + e.box.h / 2 - (a.y + b.y) / 2), '線の箱の中心＝辺の中点（y）').toBeLessThanOrEqual(1);
+  }
+  expect(t.verifyRenderedBounds(plan, 'landscape')).toEqual({ ok: true, reasons: [] });
+  expect(t.verifyRenderedBounds(plan, 'portrait')).toEqual({ ok: true, reasons: [] });
+  expect(t.verifyRenderedBounds(plan, 'square')).toEqual({ ok: true, reasons: [] });
+  expect(t.verifyRenderedText(plan, t.buildVisualElement(plan, 'landscape').element).ok).toBe(true);
+  // ② n=1 中央・n=2 左右・n=8 円周・長い名前は折り返し（箱が高くなる）
+  const mk = (names: string[]): import('../../src/lib/visuals').VisualPlan => ({ id: 'n', type: 'relation', title: 'T', groups: names.map((h, i) => ({ heading: h, points: i + 1 < names.length ? [`→ ${names[i + 1]}: 関係`] : [] })) });
+  const l1 = t.relationLayout(mk(['A']), 1600);
+  expect(Math.abs(l1.nodes[0].cx - l1.inner / 2)).toBeLessThanOrEqual(1);
+  expect(Math.abs(l1.nodes[0].cy - l1.area / 2)).toBeLessThanOrEqual(1);
+  const l2 = t.relationLayout(mk(['A', 'B']), 1600);
+  expect(l2.nodes[0].cx, 'n=2 は左右').toBeLessThan(l2.inner / 2);
+  expect(l2.nodes[1].cx).toBeGreaterThan(l2.inner / 2);
+  expect(Math.abs(l2.nodes[0].cy - l2.nodes[1].cy)).toBeLessThanOrEqual(1);
+  const l8 = t.relationLayout(mk(['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H']), 900);
+  expect(l8.nodes.length).toBe(8);
+  const longName = 'とても長いノードの名前で折り返しが必要になる例です';
+  const lLong = t.relationLayout(mk([longName, 'B', 'C']), 900);
+  expect(lLong.nodes[0].rect.h, '長い名前は折り返して箱が高くなる（R-72）').toBeGreaterThan(64);
+  for (const pl of [mk(['A']), mk(['A', 'B']), mk(['A', 'B', 'C']), mk(['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H']), mk([longName, 'B', 'C'])]) {
+    for (const o of ['landscape', 'square', 'portrait'] as const) expect(t.verifyRenderedBounds(pl, o), `${pl.groups.length}ノード・${o}`).toEqual({ ok: true, reasons: [] });
+  }
+  // 外れた座標は理由（要素名と座標）
+  const broken = t.relationLayout(plan, 1600);
+  broken.nodes[0].rect = { ...broken.nodes[0].rect, x: -40 };
+  const nb = t.verifyLayoutBounds(broken);
+  expect(nb.ok).toBe(false);
+  expect(nb.reasons[0]).toMatch(/ノード「トリプトファン」が画面外（x=-40/);
+  // ③ 相手ノードが無い辺は描かず理由。表記ゆれ（全角・空白）は寄せる
+  const miss = { ...plan, groups: [{ heading: 'トリプトファン', points: ['→ セロトニン２: 変換'] }, { heading: 'セロトニン', points: [] }] };
+  expect(v.relationEdgesOf(miss).edges).toEqual([]);
+  expect(v.relationEdgesOf(miss).missing).toEqual([{ point: '→ セロトニン２: 変換', from: 0, target: 'セロトニン２' }]);
+  expect(v.typedPlanIssues(miss, src)['→ セロトニン２: 変換']).toEqual([v.missingTargetReason('セロトニン２')]);
+  expect(v.checkPlan(miss, src).ok, '相手が無い辺があると描けない（赤い印）').toBe(false);
+  const yure = { ...plan, groups: [{ heading: 'セロ トニン', points: ['→ ｾﾛﾄﾆﾝ: x'] }, { heading: 'ｾﾛﾄﾆﾝ', points: ['→ セロトニン: y'] }, { heading: 'セロトニン', points: [] }] };
+  // 3つの見出しは正規化すると同じ名前（最初に一致した見出しへ）。self を除く辺が成立する
+  expect(v.relationEdgesOf({ groups: [{ heading: 'セロ トニン', points: [] }, { heading: 'トリプトファン', points: ['→ ｾﾛﾄﾆﾝ: x'] }] }).edges).toEqual([{ from: 1, to: 0, label: 'x' }]);
+  expect(v.relationEdgesOf(yure).missing).toEqual([]);
+  // ④ edgeOff: 外した辺は描かない・一覧には残る（on=false）・根拠の抽出
+  const off = { ...plan, edgeOff: [v.edgeKey(1, 2)] };
+  expect(v.edgesOfPlan(off).map((e) => v.edgeKey(e.from, e.to))).toEqual(['0-1']);
+  expect(t.relationLayout(off, 1600).edges.length).toBe(1);
+  expect(t.expectedStringsOf(off), '外した辺のラベルは描画文字列に入らない').toEqual(['トリプトファンからメラトニンへ', 'トリプトファン', 'セロトニン', 'メラトニン', '変換']);
+  const rows = v.relationEdgeRows(off, src);
+  expect(rows.map((r) => [r.key, r.from, r.to, r.label, r.on])).toEqual([['0-1', 'トリプトファン', 'セロトニン', '変換', true], ['1-2', 'セロトニン', 'メラトニン', '変換', false]]);
+  expect(rows[0].evidence).toBe('トリプトファンはセロトニンに変換され、セロトニンはメラトニンに変換される。');
+  expect(v.edgeEvidence('AとBは無関係。', 'A', 'C', '')).toBeNull();
+  expect(v.edgeEvidence('湿度が下がると乾燥する。湿度と乾燥は逆相関。', '湿度', '乾燥', '逆相関'), 'ラベル込みの文を優先').toBe('湿度と乾燥は逆相関。');
+  expect(v.edgesWithoutEvidenceCount(v.relationEdgeRows({ ...plan, groups: [{ heading: 'A', points: ['→ B: x'] }, { heading: 'B', points: [] }] }, 'A だけの文。'))).toBe(1);
+  expect(v.edgesWithoutEvidenceLabel(2)).toContain('根拠のない辺が 2 本');
+  expect(v.edgesWithoutEvidenceLabel(0)).toBeNull();
+  expect(v.normalizeEdgeOff(['0-1', 'x', '0-1', '2-3'])).toEqual(['0-1', '2-3']);
+  expect(v.normalizeEdgeOff([])).toBeUndefined();
+  // ⑤ why: 40字で表示だけ（図の文字列・実在チェックに入らない）
+  const parsed = v.parseVisualPlans({ visuals: [{ type: 'relation', why: 'あ'.repeat(60), title: 'トリプトファンからメラトニンへ', groups: [{ heading: 'トリプトファン', points: ['→ セロトニン: 変換'] }, { heading: 'セロトニン', points: [] }] }] });
+  expect(parsed.plans[0].why?.length).toBe(v.VISUAL_WHY_MAX);
+  expect(v.collectPlanStrings(parsed.plans[0])).not.toContain(parsed.plans[0].why!);
+  expect(t.expectedStringsOf(parsed.plans[0])).not.toContain(parsed.plans[0].why!);
+  expect(v.checkPlan(parsed.plans[0], src).ok, 'why は実在チェックの対象外').toBe(true);
+  expect(v.buildVisualPlanPrompt(src).prompt).toContain('"why"');
+  // ⑥ 決定的
+  expect(JSON.stringify(t.buildVisualElement(plan, 'landscape'))).toBe(JSON.stringify(t.buildVisualElement(plan, 'landscape')));
+  // ⑦ ソース固定
+  const read = (p: string) => readFileSync(join(__dirname, '../../src', p), 'utf8');
+  const route = read('app/api/visuals/render/route.ts');
+  expect(route, '文字一致に加えて境界検査（外れたら 500 で理由）').toMatch(/const bounds = verifyRenderedBounds\(plan, orientation\);\s*if \(!bounds\.ok\) return NextResponse\.json\(\{ error: `図の要素が画面外に出ます: \$\{bounds\.reasons\.join\('／'\)\}`, bounds \}, \{ status: 500 \}\);/);
+  const tpl = read('lib/visual-templates/index.ts');
+  expect(tpl, '線は中点中心で回転（transformOrigin の宣言に頼らない）').not.toMatch(/transformOrigin:/);
+  expect(tpl).toMatch(/left: e\.box\.x, top: e\.box\.y, width: e\.box\.w, height: e\.box\.h, background: GREEN, transform: `rotate\(\$\{e\.angle\}deg\)`/);
+  const ta = read('components/text-analysis/TextAnalysisPanel.tsx');
+  expect((ta.match(/<ResultActionBar/g) ?? []).length, '🗂 成果物の操作行は共通部品1箇所').toBe(1);
+  expect(ta, '従来の下部の操作行は無い').not.toContain('{/* アクション */}');
+  for (const h of ['onClick={onSave}', 'onClick={onCopy}', 'onClick={onDownloadTxt}', 'onClick={onDownloadMd}', 'onClick={onDownloadDocx}', 'onClick={onSimplify}', 'onClick={onRefine}', '<VisualQuickButton', '<FollowUpResearchButton', 'data-save-library']) expect(ta, `ハンドラ・要素が残る: ${h}`).toContain(h);
+  expect(ta, '再分析は入力欄へ入れるだけ（新しい生成経路なし）').toMatch(/const reanalyzeFrom = \(text: string\) => \{\s*setInputText\(text\);/);
+  const vp = read('app/dashboard/visuals/page.tsx');
+  expect(vp).toMatch(/data-vis-why=\{plan\.id\}/);
+  expect(vp).toMatch(/relationEdgeRows\(plan, sourceText\)/);
+  expect(vp, '✓を外すと edgeOff に入る（プランに残す）').toMatch(/edgeOff: off\.size > 0 \? Array\.from\(off\) : undefined/);
+});

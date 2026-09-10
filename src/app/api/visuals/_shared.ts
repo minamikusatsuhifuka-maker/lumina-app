@@ -1,5 +1,5 @@
 // 315: 図解 API 共通の入力検証（プラン・元テキスト）。fail-closed
-import { VISUAL_LABEL_MAX, VISUAL_MAX_GROUPS, VISUAL_MAX_POINTS, VISUAL_SOURCE_MAX_CHARS, VISUAL_TITLE_MAX, isVisualType, type VisualPlan } from '@/lib/visuals';
+import { VISUAL_LABEL_MAX, VISUAL_MAX_GROUPS, VISUAL_MAX_POINTS, VISUAL_SOURCE_MAX_CHARS, VISUAL_TITLE_MAX, isVisualType, type VisualPlan, normalizeEdgeOff } from '@/lib/visuals';
 
 export function readPlanBody(body: Record<string, unknown>): { ok: true; plan: VisualPlan; sourceText: string } | { ok: false; error: string } {
   const raw = (body.plan ?? {}) as Record<string, unknown>;
@@ -17,6 +17,8 @@ export function readPlanBody(body: Record<string, unknown>): { ok: true; plan: V
   const imagePrompt = typeof raw.imagePrompt === 'string' ? raw.imagePrompt.trim().slice(0, 300) : undefined;
   const sourceText = typeof body.sourceText === 'string' ? body.sourceText.slice(0, VISUAL_SOURCE_MAX_CHARS) : '';
   if (!sourceText.trim()) return { ok: false, error: '元テキストが必要です（プランの語句が実在するかを判定します）' };
-  const plan: VisualPlan = { id: typeof raw.id === 'string' ? raw.id.slice(0, 40) : 'v', type: raw.type, title, groups, ...(imagePrompt ? { imagePrompt } : {}) };
+  // 322: つながり確認で外した辺（描かない）。形だけ検証して通す
+  const edgeOff = normalizeEdgeOff(raw.edgeOff);
+  const plan: VisualPlan = { id: typeof raw.id === 'string' ? raw.id.slice(0, 40) : 'v', type: raw.type, title, groups, ...(imagePrompt ? { imagePrompt } : {}), ...(edgeOff ? { edgeOff } : {}) };
   return { ok: true, plan, sourceText };
 }

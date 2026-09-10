@@ -42,6 +42,9 @@ import FullscreenReader from '@/components/text-analysis/FullscreenReader';
 import { FollowUpResearchButton } from '@/components/deepresearch/FollowUpResearchDialog';
 // 320: 成果物から直接「🖼 図解・画像を作る」
 import { VisualQuickButton } from '@/components/visuals/VisualQuickButton';
+// 322: 成果物の操作行を共通部品に統一（321・中の要素とハンドラは不変）
+import ResultActionBar from '@/components/ResultActionBar';
+import { MemorizeButton } from '@/components/SaveToLibraryButton';
 import { useRunKeyHints, useRunShortcut } from '@/lib/shortcuts';
 // 313改訂: 「📋 クリアして貼付」は院長の実機判断で廃止（クリア→ペーストの2操作で同じ結果）。lib/clear-and-paste は 🔭DR で引き続き使う
 // 255: 「貼り付けたら前の内容を置き換える」（iOSで追加タップを出さずに1操作にする）
@@ -88,9 +91,17 @@ interface ResultPanelProps {
   onDownloadDocx: () => void;
   onSimplify: () => void;
   onRefine: () => void;
+  /** 322: ➡ 送る（再分析＝入力欄にこの本文を入れて分析タイプを選び直す／文章作成に使う／AI参照素材として保存）・⭐ お気に入り（保存済みの行） */
+  onReanalyze: () => void;
+  onSendToWrite: () => void;
+  onSaveContext: () => void;
+  onFavorite: () => void;
+  favoriteDone: boolean;
+  contextSaving: boolean;
 }
 
 function ResultPanel({
+  type,
   label,
   text,
   model,
@@ -106,6 +117,12 @@ function ResultPanel({
   onDownloadDocx,
   onSimplify,
   onRefine,
+  onReanalyze,
+  onSendToWrite,
+  onSaveContext,
+  onFavorite,
+  favoriteDone,
+  contextSaving,
 }: ResultPanelProps) {
   const [panelHeight, setPanelHeight] = useState(350);
   // 215: 全画面ビューア（保存一覧の FullscreenReader 流用）の開閉
@@ -124,7 +141,7 @@ function ResultPanel({
         gap: 12,
       }}
     >
-      {/* ヘッダー */}
+      {/* ヘッダー（見出し・モデル・字数） */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, flexWrap: 'wrap' }}>
         <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
           <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--accent)' }}>
@@ -137,53 +154,155 @@ function ResultPanel({
         </span>
       </div>
 
-      {/* 高さプリセット */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-        <span style={{ fontSize: 10, color: 'var(--text-muted)', marginRight: 4 }}>
-          高さ:
-        </span>
-        {HEIGHT_PRESETS.map(({ label: l, h }) => (
-          <button
-            key={l}
-            type="button"
-            onClick={() => setPanelHeight(h)}
-            style={{
-              padding: '2px 8px',
-              fontSize: 10,
-              borderRadius: 4,
-              border: '1px solid',
-              borderColor:
-                panelHeight === h ? 'var(--accent)' : 'var(--border)',
-              background: panelHeight === h ? 'var(--accent)' : 'transparent',
-              color:
-                panelHeight === h ? '#fff' : 'var(--text-muted)',
-              cursor: 'pointer',
-              transition: 'all 0.15s',
-            }}
-          >
-            {l}
-          </button>
-        ))}
-        {/* 215: 「全」＝全画面ビューア（S/M/L と違い高さは変えない＝閉じたら元の高さのまま） */}
+      {/* 322 §3-2: 操作行は共通部品 ResultActionBar（321）。従来の下部9ボタンを上部1箇所に集約。中の要素・ハンドラ・活性条件は不変。
+          右端＝高さプリセット（S/M/L/全）。2段目＝⬇ダウンロード／➡送る／🧠記憶する／⭐お気に入り */}
+      <ResultActionBar
+        attrs={{ 'data-ta-result-actions': type }}
+        primary={
         <button
           type="button"
-          onClick={() => setReaderOpen(true)}
-          disabled={!text}
-          style={{
-            padding: '2px 8px',
-            fontSize: 10,
-            borderRadius: 4,
-            border: '1px solid var(--border)',
-            background: 'transparent',
-            color: 'var(--text-muted)',
-            cursor: text ? 'pointer' : 'default',
-            opacity: text ? 1 : 0.5,
-            transition: 'all 0.15s',
-          }}
+          data-save-library
+          onClick={onSave}
+          // 247: 保存済みの間は押せない＝同じ本文を二重にストックへ入れない。
+          // 本文を直すと親が 'idle' に戻すので、修正後はまた保存できる（従来の意図は維持）
+          disabled={!text || generatingTitle || saveStatus === 'saving' || saveStatus === 'saved'}
+          title={
+            saveStatus === 'saved'
+              ? 'この内容はストックに保存済みです（本文を修正するとまた保存できます）'
+              : saveStatus === 'error'
+                ? '保存に失敗しました。押すと再試行します（結果は画面に残っています）'
+                : 'ストック（🗂保存一覧）に保存します'
+          }
+          style={
+            saveStatus === 'saved'
+              ? // 緑系（v36「分析終了」バッジと配色を統一）
+                {
+                  ...btnStyle('primary'),
+                  background: '#f0fdf4',
+                  color: '#16a34a',
+                  border: '1px solid #bbf7d0',
+                  cursor: 'default',
+                }
+              : saveStatus === 'error'
+                ? btnStyle('warning')
+                : btnStyle('primary')
+          }
         >
-          全
+          {generatingTitle
+            ? '⏳ タイトル生成中...'
+            : saveStatus === 'saving'
+              ? '⏳ 保存中...'
+              : saveStatus === 'saved'
+                ? '✅ 保存済み'
+                : saveStatus === 'error'
+                  ? '⚠️ 保存に失敗・再試行'
+                  : '💾 ストック保存'}
         </button>
-      </div>
+        }
+        main={<>
+        <VisualQuickButton
+          text={text}
+          title={label}
+          saved={savedId && saveStatus === 'saved' ? { scope: 'text_analysis', id: String(savedId) } : null}
+          from="text_analysis"
+          dataKey={savedId && saveStatus === 'saved' ? String(savedId) : 'unsaved'}
+          disabled={!text || isStreaming}
+          style={btnStyle('neutral')}
+        />
+        <FollowUpResearchButton
+          refs={savedId ? [{ scope: 'text_analysis', id: String(savedId) }] : []}
+          dataKey={savedId ? String(savedId) : 'unsaved'}
+          label="🔭 追加リサーチ"
+          disabled={!savedId || saveStatus !== 'saved'}
+          disabledReason="先に「💾 ストック保存」でこの結果を保存してください（保存した行が前提資料になります）"
+          style={btnStyle('neutral')}
+        />
+        <button
+          type="button"
+          onClick={onCopy}
+          disabled={!text}
+          style={btnStyle('neutral')}
+        >
+          📋 コピー
+        </button>
+        <button
+          type="button"
+          onClick={onRefine}
+          disabled={!text || isStreaming}
+          style={btnStyle('neutral')}
+          title="クイック置換またはAI修正指示で、この結果テキストをその場で直します"
+        >
+          ✏️ AIで修正
+        </button>
+        </>}
+        aside={<>
+          <span style={{ fontSize: 10, color: 'var(--text-muted)', marginRight: 4 }}>高さ:</span>
+          {HEIGHT_PRESETS.map(({ label: l, h }) => (
+            <button key={l} type="button" data-ta-height={l} onClick={() => setPanelHeight(h)} title={`本文の高さ ${l}`} style={{ color: panelHeight === h ? 'var(--accent)' : undefined, fontWeight: panelHeight === h ? 700 : undefined }}>
+              {l}
+            </button>
+          ))}
+          {/* 215: 「全」＝全画面ビューア（S/M/L と違い高さは変えない＝閉じたら元の高さのまま） */}
+          <button type="button" onClick={() => setReaderOpen(true)} disabled={!text} title="全画面で読む">全</button>
+        </>}
+        menus={[
+          { key: 'download', label: '⬇ ダウンロード', title: 'テキスト／Markdown／Word で書き出す', items: (<>
+        <button
+          type="button"
+          onClick={onDownloadTxt}
+          disabled={!text || generatingTitle}
+          style={btnStyle('neutral')}
+        >
+          {generatingTitle ? '⏳ タイトル生成中...' : '⬇ テキスト'}
+        </button>
+        <button
+          type="button"
+          onClick={onDownloadMd}
+          disabled={!text || generatingTitle}
+          style={btnStyle('neutral')}
+        >
+          {generatingTitle ? '⏳ タイトル生成中...' : '📥 MD'}
+        </button>
+        <button
+          type="button"
+          onClick={onDownloadDocx}
+          disabled={!text || generatingTitle}
+          style={btnStyle('neutral')}
+          title="院内配布・回覧用に体裁の整った Word(.docx) で書き出します"
+        >
+          {generatingTitle ? '⏳ タイトル生成中...' : '📄 Word'}
+        </button>
+          </>) },
+          { key: 'send', label: '➡ 送る', title: '再分析・他の画面へ渡す・素材として保存・わかりやすく変換', items: (<>
+            <button type="button" data-ta-reanalyze onClick={onReanalyze} disabled={!text || isStreaming} title="この結果を入力欄に入れて、分析タイプ（概要・要約／詳細 など）を選び直して分析します">
+              🔁 テキスト分析へ（再分析）
+            </button>
+            <a href="/dashboard/dr-hub" title="保存済みの記事から、note記事・X投稿・Kindle本・戦略・画像への展開をまとめて行えます">
+              🚀 発信ハブで展開する
+            </a>
+            <button type="button" data-ta-send-write onClick={onSendToWrite} disabled={!text} title="この結果を文章作成の参考資料として渡します">
+              ✍️ 文章作成に使う
+            </button>
+            <button type="button" data-ta-save-context onClick={onSaveContext} disabled={!text || contextSaving} title="この結果をAI参照素材（🧠）として保存し、各スタジオでAIに読み込ませられます">
+              {contextSaving ? '💾 保存中...' : '🧠 AI参照素材として保存'}
+            </button>
+        <button
+          type="button"
+          onClick={onSimplify}
+          disabled={!text || simplifying}
+          style={btnStyle('success')}
+        >
+          {simplifying ? '⏳ 変換中...' : '✨ わかりやすく変換'}
+        </button>
+          </>) },
+        ]}
+        extra={<>
+          <MemorizeButton title={label} content={text} groupName="テキスト分析" />
+          <button type="button" data-ta-favorite onClick={onFavorite} disabled={!savedId || saveStatus !== 'saved' || favoriteDone} title={savedId && saveStatus === 'saved' ? '保存した行をお気に入り（⭐）にします' : '先に「💾 ストック保存」で保存すると付けられます'}>
+            {favoriteDone ? '⭐ お気に入り済み' : '⭐ お気に入りに追加'}
+          </button>
+        </>}
+      />
 
       {/* 本文 */}
       <div
@@ -223,125 +342,6 @@ function ResultPanel({
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 8, fontSize: 11, color: 'var(--text-muted)' }}>
         <span>📝 {currentLength.toLocaleString()} 文字</span>
         {model && <ModelBadge model={model} size="sm" />}
-      </div>
-
-      {/* アクション */}
-      <div
-        style={{
-          display: 'flex',
-          flexWrap: 'wrap',
-          gap: 6,
-          borderTop: '1px solid var(--border)',
-          paddingTop: 10,
-        }}
-      >
-        <button
-          type="button"
-          onClick={onCopy}
-          disabled={!text}
-          style={btnStyle('neutral')}
-        >
-          📋 コピー
-        </button>
-        <button
-          type="button"
-          onClick={onDownloadTxt}
-          disabled={!text || generatingTitle}
-          style={btnStyle('neutral')}
-        >
-          {generatingTitle ? '⏳ タイトル生成中...' : '⬇ テキスト'}
-        </button>
-        <button
-          type="button"
-          onClick={onDownloadMd}
-          disabled={!text || generatingTitle}
-          style={btnStyle('neutral')}
-        >
-          {generatingTitle ? '⏳ タイトル生成中...' : '📥 MD'}
-        </button>
-        <button
-          type="button"
-          onClick={onDownloadDocx}
-          disabled={!text || generatingTitle}
-          style={btnStyle('neutral')}
-          title="院内配布・回覧用に体裁の整った Word(.docx) で書き出します"
-        >
-          {generatingTitle ? '⏳ タイトル生成中...' : '📄 Word'}
-        </button>
-        <button
-          type="button"
-          onClick={onSave}
-          // 247: 保存済みの間は押せない＝同じ本文を二重にストックへ入れない。
-          // 本文を直すと親が 'idle' に戻すので、修正後はまた保存できる（従来の意図は維持）
-          disabled={!text || generatingTitle || saveStatus === 'saving' || saveStatus === 'saved'}
-          title={
-            saveStatus === 'saved'
-              ? 'この内容はストックに保存済みです（本文を修正するとまた保存できます）'
-              : saveStatus === 'error'
-                ? '保存に失敗しました。押すと再試行します（結果は画面に残っています）'
-                : 'ストック（🗂保存一覧）に保存します'
-          }
-          style={
-            saveStatus === 'saved'
-              ? // 緑系（v36「分析終了」バッジと配色を統一）
-                {
-                  ...btnStyle('primary'),
-                  background: '#f0fdf4',
-                  color: '#16a34a',
-                  border: '1px solid #bbf7d0',
-                  cursor: 'default',
-                }
-              : saveStatus === 'error'
-                ? btnStyle('warning')
-                : btnStyle('primary')
-          }
-        >
-          {generatingTitle
-            ? '⏳ タイトル生成中...'
-            : saveStatus === 'saving'
-              ? '⏳ 保存中...'
-              : saveStatus === 'saved'
-                ? '✅ 保存済み'
-                : saveStatus === 'error'
-                  ? '⚠️ 保存に失敗・再試行'
-                  : '💾 ストック保存'}
-        </button>
-        <button
-          type="button"
-          onClick={onSimplify}
-          disabled={!text || simplifying}
-          style={btnStyle('success')}
-        >
-          {simplifying ? '⏳ 変換中...' : '✨ わかりやすく変換'}
-        </button>
-        {/* 319 §3-1: この成果物を前提資料に追加リサーチ。前提資料は保存済みの行なので、未保存のときは理由を出して無効化 */}
-        <FollowUpResearchButton
-          refs={savedId ? [{ scope: 'text_analysis', id: String(savedId) }] : []}
-          dataKey={savedId ? String(savedId) : 'unsaved'}
-          label="🔭 追加リサーチ"
-          disabled={!savedId || saveStatus !== 'saved'}
-          disabledReason="先に「💾 ストック保存」でこの結果を保存してください（保存した行が前提資料になります）"
-          style={btnStyle('neutral')}
-        />
-        {/* 320 §3-1: 成果物から図解・画像（保存済みなら行・未保存なら本文をそのまま渡す。保存前でも押せる） */}
-        <VisualQuickButton
-          text={text}
-          title={label}
-          saved={savedId && saveStatus === 'saved' ? { scope: 'text_analysis', id: String(savedId) } : null}
-          from="text_analysis"
-          dataKey={savedId && saveStatus === 'saved' ? String(savedId) : 'unsaved'}
-          disabled={!text || isStreaming}
-          style={btnStyle('neutral')}
-        />
-        <button
-          type="button"
-          onClick={onRefine}
-          disabled={!text || isStreaming}
-          style={btnStyle('neutral')}
-          title="クイック置換またはAI修正指示で、この結果テキストをその場で直します"
-        >
-          ✏️ AIで修正
-        </button>
       </div>
 
       {/* 215: 全画面ビューア（保存一覧と同じ FullscreenReader 流用・portal描画のためカード内配置でOK）。
@@ -676,6 +676,49 @@ export default function TextAnalysisPanel({
     }
   };
 
+  // 322 §3-2: ➡ 送る の中身（既存の仕組みだけ・新しい生成経路なし）
+  const [favoriteDone, setFavoriteDone] = useState<Set<AnalysisType>>(new Set());
+  const [contextSavingType, setContextSavingType] = useState<AnalysisType | null>(null);
+  /** 再分析＝この本文を入力欄に入れて、分析タイプを選び直してもらう（上へスクロール） */
+  const reanalyzeFrom = (text: string) => {
+    setInputText(text);
+    try { window.scrollTo({ top: 0, behavior: 'smooth' }); } catch {}
+    showToast('結果を入力欄に入れました。分析タイプを選んで実行してください', 'success');
+  };
+  /** 文章作成に使う（🔭DR の sendToWrite と同じ受け渡し） */
+  const sendToWrite = (text: string) => {
+    try { localStorage.setItem('lumina_research_context', text); } catch {}
+    window.location.href = '/dashboard/write';
+  };
+  /** AI参照素材として保存（🧠 context_saves・既存 API） */
+  const saveAsContext = async (type: AnalysisType, text: string) => {
+    if (!text || contextSavingType) return;
+    const label = ANALYSIS_OPTIONS.find((o) => o.value === type)?.label ?? type;
+    setContextSavingType(type);
+    try {
+      const res = await fetch('/api/context-saves', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ topic: `${label}: ${text.slice(0, 40).replace(/\s+/g, ' ')}`, contextText: text, tags: ['テキスト分析'] }) });
+      if (!res.ok) throw new Error('保存に失敗しました');
+      showToast('🧠 AI参照素材として保存しました', 'success');
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : '保存に失敗しました', 'error');
+    } finally {
+      setContextSavingType(null);
+    }
+  };
+  /** ⭐ 保存済みの行をお気に入りに（saves API の toggle_favorite・保存済みのときだけ） */
+  const favoriteSaved = async (type: AnalysisType) => {
+    const id = savedIds.get(type);
+    if (!id || favoriteDone.has(type)) return;
+    try {
+      const res = await fetch('/api/text-analysis/saves', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'toggle_favorite', id }) });
+      if (!res.ok) throw new Error('お気に入りに追加できませんでした');
+      setFavoriteDone((prev) => new Set(prev).add(type));
+      showToast('⭐ お気に入りに追加しました', 'success');
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : 'お気に入りに追加できませんでした', 'error');
+    }
+  };
+
   const saveResult = async (
     type: AnalysisType,
     text: string,
@@ -713,6 +756,7 @@ export default function TextAnalysisPanel({
       setSaveState(type, 'saved');
       const savedRowId = Number(saved?.save?.id ?? saved?.id);
       if (Number.isFinite(savedRowId)) setSavedIds((prev) => new Map(prev).set(type, savedRowId));
+      setFavoriteDone((prev) => { const n = new Set(prev); n.delete(type); return n; }); // 322: 新しい行なので⭐は付け直せる
       // 自動保存はカード単位のトーストを出さない（件数分は騒がしいので実行側でまとめて1回出す）
       if (!opts?.silent) showToast(`「${autoTitle}」として保存しました`, 'success');
       return true;
@@ -1490,6 +1534,13 @@ export default function TextAnalysisPanel({
               saveStatus={saveStates.get(type) ?? 'idle'}
               savedId={savedIds.get(type) ?? null}
               onSave={() => void saveResult(type, text)}
+              // 322: ➡ 送る・⭐（新しい生成経路は作らない）
+              onReanalyze={() => reanalyzeFrom(text)}
+              onSendToWrite={() => sendToWrite(text)}
+              onSaveContext={() => void saveAsContext(type, text)}
+              onFavorite={() => void favoriteSaved(type)}
+              favoriteDone={favoriteDone.has(type)}
+              contextSaving={contextSavingType === type}
               onCopy={() => {
                 // コピー内容にも LaTeX 正規化を適用（$\rightarrow$ 等を残さない）
                 copyRichMarkdown(sanitizeLatex(text));

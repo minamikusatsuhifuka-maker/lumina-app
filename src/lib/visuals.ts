@@ -51,38 +51,65 @@ export interface RelationEdge {
   label: string;
 }
 /** 関連図の辺を決定的に解く（相手ノードは heading の完全一致・自己辺と重複は捨てる・上限12） */
-export function relationEdgesOf(plan: Pick<VisualPlan, 'groups'>): { edges: RelationEdge[]; dropped: string[] } {
-  const nodes = plan.groups.map((g) => (g.heading ?? '').trim());
+/** 322: 辺の識別子（つながり確認で外した辺＝plan.edgeOff に持つ） */
+export function edgeKey(from: number, to: number): string {
+  return `${from}-${to}`;
+}
+/** 322: 相手ノードが無い辺の理由（R-101: 黙って描き落とさない） */
+export function missingTargetReason(target: string): string {
+  return `相手ノード『${target}』がありません（見出し名と同じ表記にすると描けます）`;
+}
+/** 322: 相手ノード名の照合は NFKC＋空白・記号除去で寄せる（表記ゆれ）。それでも無ければ missing に残す */
+export function relationEdgesOf(plan: Pick<VisualPlan, 'groups'>): { edges: RelationEdge[]; dropped: string[]; missing: { point: string; from: number; target: string }[] } {
+  const nodes = plan.groups.map((g) => normalizeForMatch(g.heading ?? ''));
   const edges: RelationEdge[] = [];
   const dropped: string[] = [];
+  const missing: { point: string; from: number; target: string }[] = [];
   const seen = new Set<string>();
   plan.groups.forEach((g, from) => {
     for (const p of g.points) {
       const m = RELATION_EDGE_RE.exec(p.trim());
-      const target = m ? m[1].trim() : '';
-      const to = nodes.indexOf(target);
-      if (!m || to < 0 || to === from || seen.has(`${from}-${to}`) || edges.length >= RELATION_MAX_EDGES) {
+      if (!m) {
         dropped.push(p);
         continue;
       }
-      seen.add(`${from}-${to}`);
+      const target = m[1].trim();
+      const key = normalizeForMatch(target);
+      const to = key ? nodes.indexOf(key) : -1;
+      if (to < 0) {
+        dropped.push(p);
+        missing.push({ point: p, from, target });
+        continue;
+      }
+      if (to === from || seen.has(edgeKey(from, to)) || edges.length >= RELATION_MAX_EDGES) {
+        dropped.push(p);
+        continue;
+      }
+      seen.add(edgeKey(from, to));
       edges.push({ from, to, label: (m[2] ?? '').trim() });
     }
   });
-  return { edges, dropped };
+  return { edges, dropped, missing };
 }
 
 /** 320: 相関図の辺＝関連図と同じ解析で **label 必須**。ラベルの無い辺は描かず、dropped に理由つきで残す（画面は赤い印にする） */
 export const CORRELATION_LABEL_REQUIRED = '相関図の辺には「相関の向きと強さ」の文字が必要';
-export function correlationEdgesOf(plan: Pick<VisualPlan, 'groups'>): { edges: RelationEdge[]; dropped: string[]; unlabeled: string[] } {
+export function correlationEdgesOf(plan: Pick<VisualPlan, 'groups'>): { edges: RelationEdge[]; dropped: string[]; unlabeled: string[]; missing: { point: string; from: number; target: string }[] } {
   const base = relationEdgesOf(plan);
   const edges = base.edges.filter((e) => e.label.trim() !== '');
   const unlabeled = base.edges.filter((e) => e.label.trim() === '').map((e) => `→ ${(plan.groups[e.to]?.heading ?? '').trim()}`);
-  return { edges, dropped: [...base.dropped, ...unlabeled], unlabeled };
+  return { edges, dropped: [...base.dropped, ...unlabeled], unlabeled, missing: base.missing };
 }
-/** 型に応じた辺（テンプレートと照合が同じ関数を使う） */
-export function edgesOfPlan(plan: Pick<VisualPlan, 'type' | 'groups'>): RelationEdge[] {
-  return plan.type === 'correlation' ? correlationEdgesOf(plan).edges : relationEdgesOf(plan).edges;
+/** 型に応じた辺（テンプレートと照合が同じ関数を使う）。322: つながり確認で外した辺（plan.edgeOff）は描かない */
+export function edgesOfPlan(plan: Pick<VisualPlan, 'type' | 'groups'> & { edgeOff?: string[] }): RelationEdge[] {
+  const all = plan.type === 'correlation' ? correlationEdgesOf(plan).edges : relationEdgesOf(plan).edges;
+  const off = new Set(plan.edgeOff ?? []);
+  return off.size === 0 ? all : all.filter((e) => !off.has(edgeKey(e.from, e.to)));
+}
+/** 322: 型に応じた「相手ノードが無い辺」（関連図・相関図） */
+export function missingTargetsOf(plan: Pick<VisualPlan, 'type' | 'groups'>): { point: string; from: number; target: string }[] {
+  if (plan.type !== 'relation' && plan.type !== 'correlation') return [];
+  return relationEdgesOf(plan).missing;
 }
 
 /**
@@ -107,6 +134,8 @@ export function typedPlanIssues(plan: Pick<VisualPlan, 'type' | 'groups'>, sourc
     const { unlabeled } = correlationEdgesOf(plan);
     for (const u of unlabeled) out[u] = [CORRELATION_LABEL_REQUIRED];
   }
+  // 322: 相手ノードが無い辺は描かず、赤い印と同じ場所に理由（黙って描き落とさない・R-101）
+  for (const m of missingTargetsOf(plan)) out[m.point] = [missingTargetReason(m.target)];
   return out;
 }
 
@@ -132,6 +161,17 @@ export interface VisualPlan {
   imagePrompt?: string;
   /** 317: 1枚サマリーに埋め込む描画済みの図（data URI・描画時だけ渡す。保存するプランには含めない） */
   embedImage?: string;
+  /** 322: AI が付ける「この内容に向く種類の理由」（40字以内・表示のみ・図には入れない・実在チェックの対象外） */
+  why?: string;
+  /** 322: つながり確認で外した辺（edgeKey の配列・描かない。プランには残す＝戻せる） */
+  edgeOff?: string[];
+}
+export const VISUAL_WHY_MAX = 40;
+/** 322: edgeOff の検証（"from-to" の形だけ・重複なし） */
+export function normalizeEdgeOff(v: unknown): string[] | undefined {
+  if (!Array.isArray(v)) return undefined;
+  const out = Array.from(new Set(v.filter((x): x is string => typeof x === 'string' && /^\d{1,2}-\d{1,2}$/.test(x))));
+  return out.length > 0 ? out : undefined;
 }
 
 export function isVisualType(v: unknown): v is VisualType {
@@ -313,7 +353,9 @@ export function parseVisualPlans(json: unknown, idPrefix = 'v', allowedTypes?: r
       return;
     }
     const imagePrompt = typeRaw === 'image' ? clean(o.imagePrompt, 300) || undefined : undefined;
-    plans.push({ id: `${idPrefix}${i + 1}`, type: typeRaw, title, groups, ...(imagePrompt ? { imagePrompt } : {}) });
+    // 322: why は表示だけ（図の文字列にも実在チェックにも入れない）
+    const why = clean(o.why, VISUAL_WHY_MAX) || undefined;
+    plans.push({ id: `${idPrefix}${i + 1}`, type: typeRaw, title, groups, ...(imagePrompt ? { imagePrompt } : {}), ...(why ? { why } : {}) });
   });
   return { plans: plans.slice(0, VISUAL_MAX_PLANS), rejected };
 }
@@ -526,12 +568,13 @@ ${allowed.map((t) => typeLines[t]).join('\n')}
 - ビフォーアフター（治療前後・効果の対比・症状の変化）の図解は**提案しない**。type に beforeafter を使わない
 - 効果効能の保証・誇大表現・患者の体験談的表現を図解に入れない
 - 図解に向く構造が本文に無ければ少なくてよい（無理に作らない）
+- 各候補に why（この内容にその型が向く理由・40字以内・表示にだけ使う）を付ける
 
 # 本文
 ${sourceText.slice(0, VISUAL_SOURCE_MAX_CHARS)}
 
 # 出力フォーマット（必ずこのJSONのみ。前置き・コードフェンス禁止）
-{ "visuals": [ { "type": "${allowed.join('|')}", "title": "本文中の語句", "groups": [ { "heading": "本文中の語句（省略可）", "points": ["本文中の語句", "…"] } ], "imagePrompt": "image のときだけ・絵柄の指示" } ] }`;
+{ "visuals": [ { "type": "${allowed.join('|')}", "why": "この内容に向く理由（40字以内）", "title": "本文中の語句", "groups": [ { "heading": "本文中の語句（省略可）", "points": ["本文中の語句", "…"] } ], "imagePrompt": "image のときだけ・絵柄の指示" } ] }`;
   return { system, prompt };
 }
 
@@ -610,4 +653,71 @@ export function visualsHrefFor(input: { saved?: { scope: string; id: string } | 
 export const VISUAL_AI_TEXT_STORAGE_KEY = 'visuals_ai_text';
 export function parseStoredAiText(raw: unknown): boolean {
   return raw === '1';
+}
+
+
+// ───────────────────────────────────────────────────────────────────────────
+// 322: 「つながり確認」（関連図・相関図）＝辺の一覧と根拠の決定的抽出（AI なし）
+// ───────────────────────────────────────────────────────────────────────────
+
+export interface RelationEdgeRow {
+  key: string;
+  from: string;
+  to: string;
+  label: string;
+  /** 元テキストから from・to（・ラベル）の語句を含む文を決定的に抜く。無ければ null（描くかは院長の判断） */
+  evidence: string | null;
+  /** ✓（plan.edgeOff に無い） */
+  on: boolean;
+}
+export const EDGE_EVIDENCE_MAX = 120;
+
+/** 文に分ける（317 の extractCitations と同じ切り方・決定的） */
+export function splitSentences(text: string): string[] {
+  return (text ?? '')
+    .replace(/\r\n?/g, '\n')
+    .split(/(?<=[。！？!?])\s*|\n+/)
+    .map((x) => x.replace(/^[#>\-*\s]+/, '').trim())
+    .filter(Boolean);
+}
+
+/** from・to（・ラベルの内容語）を含む最初の文。ラベル込みで見つからなければ from・to だけで探す */
+export function edgeEvidence(sourceText: string, from: string, to: string, label: string): string | null {
+  const sentences = splitSentences(sourceText);
+  const nf = normalizeForMatch(from);
+  const nt = normalizeForMatch(to);
+  if (!nf || !nt) return null;
+  const labelTokens = tokenizeContentWords(label);
+  const pick = (needLabel: boolean) => sentences.find((s) => {
+    const ns = normalizeForMatch(s);
+    if (!ns.includes(nf) || !ns.includes(nt)) return false;
+    return !needLabel || labelTokens.length === 0 || labelTokens.some((t) => ns.includes(t));
+  });
+  const hit = (labelTokens.length > 0 ? pick(true) : undefined) ?? pick(false);
+  if (!hit) return null;
+  return hit.length > EDGE_EVIDENCE_MAX ? `${hit.slice(0, EDGE_EVIDENCE_MAX)}…` : hit;
+}
+
+/** 辺の一覧（編集のたびに再計算・決定的）。相手ノードが無い辺は含めない（赤い印側に理由が出る） */
+export function relationEdgeRows(plan: Pick<VisualPlan, 'type' | 'groups' | 'edgeOff'>, sourceText: string): RelationEdgeRow[] {
+  if (plan.type !== 'relation' && plan.type !== 'correlation') return [];
+  const nodes = plan.groups.map((g) => (g.heading ?? '').trim());
+  const all = plan.type === 'correlation' ? correlationEdgesOf(plan).edges : relationEdgesOf(plan).edges;
+  const off = new Set(plan.edgeOff ?? []);
+  return all.map((e) => ({
+    key: edgeKey(e.from, e.to),
+    from: nodes[e.from] ?? '',
+    to: nodes[e.to] ?? '',
+    label: e.label,
+    evidence: edgeEvidence(sourceText, nodes[e.from] ?? '', nodes[e.to] ?? '', e.label),
+    on: !off.has(edgeKey(e.from, e.to)),
+  }));
+}
+
+/** 「根拠のない辺が n 本あります」（✓の辺だけ数える。描画は止めない＝院長の判断） */
+export function edgesWithoutEvidenceCount(rows: readonly RelationEdgeRow[]): number {
+  return rows.filter((r) => r.on && r.evidence === null).length;
+}
+export function edgesWithoutEvidenceLabel(n: number): string | null {
+  return n > 0 ? `根拠のない辺が ${n} 本あります（元テキストに両方のノードを含む文が見つかりません。描くかはご判断ください）` : null;
 }
