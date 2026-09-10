@@ -144,7 +144,8 @@ export function typedPlanIssues(plan: Pick<VisualPlan, 'type' | 'groups'>, sourc
 
 /** 323: 同じ種類で切り口の違う候補を最大2つ→合計8まで */
 export const VISUAL_MAX_PLANS = 8;
-export const VISUAL_MAX_GROUPS = 6;
+// 324: 関連図は最大8ノード・9マスシートは8マス＝グループ上限を 6→8 に（表・比較などは型ごとの上限が別に効く）
+export const VISUAL_MAX_GROUPS = 8;
 export const VISUAL_MAX_POINTS = 8;
 export const VISUAL_TITLE_MAX = 60;
 export const VISUAL_LABEL_MAX = 80;
