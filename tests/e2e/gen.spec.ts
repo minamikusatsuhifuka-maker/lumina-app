@@ -1275,17 +1275,25 @@ test('B46: グラフの抽出（325・実AI・Gemini）— 数値のある実テ
   const j = (await res.json()) as { plans: { id: string; type: string; title: string; unit?: string; groups: { heading?: string; points: string[] }[] }[]; checks: Record<string, { foreign: string[] }> };
   const graphs = j.plans.filter((p) => ['bar', 'hbar', 'line', 'pie'].includes(p.type));
   expect(graphs.length, 'グラフの候補が出る').toBeGreaterThan(0);
-  const { graphSeriesOf, filterGraphPlan } = await import('../../src/lib/visuals');
+  // 判定は本便のルール（値 ⊂ 引用 ⊂ 元テキスト）をこの場で書く（純関数の実装は U98 が固定する）
+  const norm = (x: string) => x.normalize('NFKC').replace(/\s+/g, '');
+  const survives = (line: string) => {
+    const [label, value, evidence] = line.split(/[|｜]/).map((x) => (x ?? '').trim());
+    if (!label || !value || !evidence) return false;
+    if (!/-?[0-9]/.test(norm(value))) return false;
+    return norm(evidence).includes(norm(value)) && norm(text).includes(norm(evidence));
+  };
   let rendered = 0;
   for (const p of graphs) {
-    const gs = graphSeriesOf(p as never, text);
-    console.log(`[B46] ${p.type} "${p.title}" series=${gs.series.length} points=${gs.series.map((s) => s.points.length).join('/')} dropped=${gs.dropped.length}`);
-    if (gs.series.every((s) => s.points.length === 0)) continue;
+    const kept = p.groups.map((g) => ({ ...g, points: g.points.filter(survives) })).filter((g) => g.points.length > 0);
+    const dropped = p.groups.reduce((n, g) => n + g.points.filter((x) => !survives(x)).length, 0);
+    console.log(`[B46] ${p.type} "${p.title}" series=${kept.length} points=${kept.map((g) => g.points.length).join('/')} dropped=${dropped}`);
+    for (const g of kept) for (const line of g.points) expect(line.split(/[|｜]/).length, '点は「ラベル | 値 | 引用」').toBeGreaterThanOrEqual(3);
+    if (kept.length === 0) continue;
     if ((j.checks[p.id]?.foreign.length ?? 0) > 0) continue;
-    const drawn = filterGraphPlan(p as never, text);
-    const rr = await request.post('/api/visuals/render', { data: { plan: drawn, sourceText: text, orientation: 'landscape' }, timeout: REQ_TIMEOUT });
+    const rr = await request.post('/api/visuals/render', { data: { plan: { ...p, groups: kept }, sourceText: text, orientation: 'landscape' }, timeout: REQ_TIMEOUT });
     const rj = (await rr.json()) as { textVerified?: boolean; error?: string };
-    if (rr.status() === 400 && /割合として成立しない|ラベルの並び/.test(rj.error ?? '')) continue; // 描かない理由が付くのは正しい挙動
+    if (rr.status() === 400 && /割合として成立しない|ラベルの並び|点が2つ/.test(rj.error ?? '')) continue; // 描かない理由が付くのは正しい挙動
     expect(rr.status(), `${p.type} の描画が 200: ${rj.error ?? ''}`).toBe(200);
     expect(rj.textVerified).toBe(true);
     rendered++;
