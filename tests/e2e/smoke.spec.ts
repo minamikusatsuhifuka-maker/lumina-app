@@ -12951,3 +12951,96 @@ test('C144: イメージ画像の生成モードとアスペクト比（327・�
   await expect(bulk.locator('[data-vis-bulk-dialog-over]'), '6枚を超えると理由').toContainText('6 枚まで');
   await expect(bulk.locator('[data-vis-bulk-start]')).toBeDisabled();
 });
+
+test('C145: 種類ダイアログの3層と2列（328・PC＋WebKit iPhone幅）— PC幅では一覧が2列以上で並び、下部の「進む」が scrollIntoView なしで押せる／スクロールするのは本文だけ（パネル自体は動かない）・パネルの高さは 85vh 前後／狭幅は1列でフッターが見えセーフエリアの余白がある／17種類すべてが選べて選択件数と画像の目安がフッターに出る', async ({ page }) => {
+  test.setTimeout(240_000);
+  const long = 'かゆみが強いときは掻かずに冷やすとよい。保湿剤は入浴後5分以内に塗る。室内の湿度は50〜60%に保つ。'.repeat(4);
+  await page.route('**/api/feature-drafts**', (route) => {
+    const isTa = route.request().method() === 'GET' && /feature=text-analysis(&|$)/.test(route.request().url());
+    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(isTa ? { draft: { payload: { inputText: long, purpose: '', results: { summary: `[E2E] 復元した結果。${long}` } }, updated_at: new Date().toISOString() } } : (route.request().method() === 'GET' ? { draft: null } : { ok: true })) });
+  });
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await page.goto('/dashboard/text-analysis');
+  const quick = page.locator('[data-vis-quick-open]').first();
+  await expect(quick).toBeVisible({ timeout: 60000 });
+  await quick.click();
+  const dlg = page.locator('[data-vis-picker-dialog]');
+  await expect(dlg).toBeVisible();
+  // ① 種類は全部そろい、2列以上で並ぶ
+  const types = dlg.locator('[data-vis-picker-type]');
+  await expect(types).toHaveCount(17);
+  const cols = await dlg.locator('[data-vis-picker-grid]').first().evaluate((el) => getComputedStyle(el).gridTemplateColumns.split(' ').length);
+  expect(cols, 'PC幅は2列以上').toBeGreaterThanOrEqual(2);
+  const lefts = await dlg.locator('[data-vis-picker-grid]').nth(1).locator('[data-vis-picker-type]').evaluateAll((els) => els.map((e) => Math.round(e.getBoundingClientRect().left)));
+  expect(new Set(lefts).size, '同じ段に複数枚が並ぶ').toBeGreaterThanOrEqual(2);
+  await expect(dlg.locator('[data-vis-picker-group]').first()).toBeVisible();
+  // ② フッターの主ボタンは常に見えていて、スクロールせずに押せる
+  const geom = await page.evaluate(() => {
+    const panel = document.querySelector('[data-modal-panel]') as HTMLElement;
+    const body = document.querySelector('[data-modal-body]') as HTMLElement;
+    const go = document.querySelector('[data-vis-picker-go]') as HTMLElement;
+    const gr = go.getBoundingClientRect();
+    return {
+      vh: window.innerHeight,
+      panelH: Math.round(panel.getBoundingClientRect().height),
+      panelScrolls: panel.scrollHeight > panel.clientHeight + 1,
+      bodyScrolls: body.scrollHeight > body.clientHeight + 1,
+      goInView: gr.top >= 0 && gr.bottom <= window.innerHeight,
+      goTop: gr.top,
+    };
+  });
+  expect(geom.goInView, '「進む」は最初から画面内').toBe(true);
+  expect(geom.panelScrolls, 'パネル自体はスクロールしない').toBe(false);
+  expect(geom.bodyScrolls, 'スクロールするのは本文だけ').toBe(true);
+  expect(geom.panelH, '高さは 85vh 前後').toBeLessThanOrEqual(Math.round(geom.vh * 0.86));
+  // 本文をいちばん下まで送っても「進む」の位置は変わらない（＝固定されている）
+  await dlg.locator('[data-modal-body]').evaluate((el) => el.scrollTo(0, el.scrollHeight));
+  const goTopAfter = await dlg.locator('[data-vis-picker-go]').evaluate((el) => el.getBoundingClientRect().top);
+  expect(Math.abs(goTopAfter - geom.goTop), 'フッターは動かない').toBeLessThanOrEqual(1);
+  // ③ 17種類すべて選べる（scrollIntoView なしのクリックで最後の種類まで届く）
+  for (const t of ['image', 'table', 'grid9_talk', 'pie']) {
+    const box = dlg.locator(`[data-vis-picker-check="${t}"]`);
+    await box.check();
+    await expect(box).toBeChecked();
+  }
+  await expect(dlg.locator('[data-vis-picker-selected]')).toBeVisible();
+  await expect(dlg.locator('[data-vis-picker-reason]'), '画像を含むと目安が出る').toContainText('画像 1 枚');
+  await dlg.locator('[data-vis-picker-check="image"]').uncheck();
+  await expect(dlg.locator('[data-vis-picker-reason]')).toContainText('画像なし');
+  // クリックできる（scrollIntoView を挟まずに押せる）
+  await dlg.locator('[data-vis-picker-go]').click({ trial: true });
+  await page.keyboard.press('Escape');
+  await expect(dlg).toHaveCount(0);
+  // ④ 狭幅（iPhone）は1列・フッターが見える・セーフエリアの余白
+  const browser = await webkit.launch();
+  const ctx = await browser.newContext({ storageState: STORAGE_STATE, baseURL: BASE_URL, hasTouch: true, isMobile: true, viewport: { width: 390, height: 844 }, serviceWorkers: 'block' });
+  const mp = await ctx.newPage();
+  try {
+    await mp.route('**/api/feature-drafts**', (route) => {
+      const isTa = route.request().method() === 'GET' && /feature=text-analysis(&|$)/.test(route.request().url());
+      route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(isTa ? { draft: { payload: { inputText: long, purpose: '', results: { summary: `[E2E] 復元した結果。${long}` } }, updated_at: new Date().toISOString() } } : (route.request().method() === 'GET' ? { draft: null } : { ok: true })) });
+    });
+    await mp.goto('/dashboard/text-analysis');
+    const mq = mp.locator('[data-vis-quick-open]').first();
+    await expect(mq).toBeVisible({ timeout: 60000 });
+    await mq.click();
+    const mdlg = mp.locator('[data-vis-picker-dialog]');
+    await expect(mdlg).toBeVisible();
+    const mcols = await mdlg.locator('[data-vis-picker-grid]').nth(1).evaluate((el) => getComputedStyle(el).gridTemplateColumns.split(' ').length);
+    expect(mcols, '狭幅は1列').toBe(1);
+    const m = await mp.evaluate(() => {
+      const go = document.querySelector('[data-vis-picker-go]') as HTMLElement;
+      const foot = document.querySelector('[data-modal-foot]') as HTMLElement;
+      const body = document.querySelector('[data-modal-body]') as HTMLElement;
+      const gr = go.getBoundingClientRect();
+      return { goInView: gr.top >= 0 && gr.bottom <= window.innerHeight, pad: getComputedStyle(foot).paddingBottom, bodyScrolls: body.scrollHeight > body.clientHeight + 1 };
+    });
+    expect(m.goInView, '狭幅でも「進む」が見えている').toBe(true);
+    expect(parseFloat(m.pad), 'セーフエリア分の余白').toBeGreaterThanOrEqual(10);
+    expect(m.bodyScrolls, '本文がスクロールする').toBe(true);
+    await mdlg.locator('[data-vis-picker-go]').click({ trial: true });
+  } finally {
+    await ctx.close();
+    await browser.close();
+  }
+});

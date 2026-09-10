@@ -812,6 +812,16 @@ export const VISUAL_TYPE_PICKER_NOTE: Record<VisualType, string> = {
 };
 export const VISUAL_TYPE_PICKER_ORDER: readonly VisualType[] = ['image', 'table', 'flow', 'compare', 'steps', 'concept', 'relation', 'correlation', 'timeline', 'figures', 'onepage', 'grid9', 'grid9_talk', 'bar', 'hbar', 'line', 'pie'];
 
+/** 328: 種類ダイアログの並び（まとまりごと・小見出し付き）。すべての型がちょうど1回ずつ入る */
+export const VISUAL_TYPE_GROUPS: readonly { label: string; types: readonly VisualType[] }[] = [
+  { label: 'イメージ画像', types: ['image'] },
+  { label: '整理して見せる', types: ['table', 'flow', 'compare', 'steps'] },
+  { label: '関係を示す', types: ['concept', 'relation', 'correlation'] },
+  { label: '流れ・数字・まとめ', types: ['timeline', 'figures', 'onepage'] },
+  { label: '9マス（マンダラ・プレゼン）', types: ['grid9', 'grid9_talk'] },
+  { label: 'グラフ', types: ['bar', 'hbar', 'line', 'pie'] },
+];
+
 export function normalizeVisualTypes(v: readonly unknown[]): VisualType[] {
   const out: VisualType[] = [];
   for (const t of VISUAL_TYPE_PICKER_ORDER) if (v.includes(t) && !out.includes(t)) out.push(t);

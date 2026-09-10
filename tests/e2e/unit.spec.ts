@@ -5818,3 +5818,16 @@ test('U99: イメージ画像の生成モードとアスペクト比（327）—
   expect(page).toMatch(/data-vis-aspect/);
   expect(page).toMatch(/data-vis-image-outs/);
 });
+
+test('U100: 種類ダイアログのまとまり（328）— VISUAL_TYPE_GROUPS にすべての型がちょうど1回ずつ入り、並びは picker の順と矛盾しない・各まとまりに名前がある', () => {
+  const v = vis320;
+  const flat = v.VISUAL_TYPE_GROUPS.flatMap((g) => g.types);
+  expect(flat.length, 'すべての型が1回ずつ').toBe(v.VISUAL_TYPES.length);
+  expect(new Set(flat).size).toBe(v.VISUAL_TYPES.length);
+  for (const t of v.VISUAL_TYPES) expect(flat, `${t} がどこかのまとまりに入る`).toContain(t);
+  for (const g of v.VISUAL_TYPE_GROUPS) {
+    expect(g.label.length, 'まとまりに名前').toBeGreaterThan(0);
+    expect(g.types.length).toBeGreaterThan(0);
+  }
+  expect(v.VISUAL_TYPE_GROUPS[0].types, '最初は画像（費用がかかるものを先頭に）').toEqual(['image']);
+});

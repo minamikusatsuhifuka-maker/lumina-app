@@ -544,13 +544,15 @@ a[role="button"] {
   border-radius: 12px;
   box-shadow: 0 12px 40px rgba(0, 0, 0, 0.45);
   width: min(100%, var(--modal-max, 620px));
-  max-height: calc(100dvh - 32px);
+  /* 328: 高さの上限は 85vh 前後。ヘッダ／本文／フッターの3層で、**本文だけ**がスクロールする */
+  max-height: min(85vh, calc(100dvh - 32px));
   display: flex;
   flex-direction: column;
   min-height: 0;
   font-size: 13px;
 }
 [data-modal-head] {
+  flex: 0 0 auto;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -561,8 +563,13 @@ a[role="button"] {
 }
 [data-modal-title] { font-size: 14px; font-weight: 700; min-width: 0; }
 [data-modal-close] { padding: 6px 10px; min-height: 36px; }
-[data-modal-body] { padding: 12px 14px; overflow-y: auto; min-height: 0; display: flex; flex-direction: column; gap: 12px; }
+[data-modal-body] { flex: 1 1 auto; padding: 12px 14px; overflow-y: auto; overscroll-behavior: contain; min-height: 0; display: flex; flex-direction: column; gap: 12px; }
 [data-modal-foot] {
+  /* 下部のボタン行は常に見える（本文がどれだけ長くても押せる） */
+  flex: 0 0 auto;
+  position: sticky;
+  bottom: 0;
+  z-index: 1;
   display: flex;
   align-items: center;
   justify-content: flex-end;
@@ -639,4 +646,25 @@ a[role="button"] {
   [data-result-head] { flex-wrap: nowrap !important; }
   [data-result-head] > span:first-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex-wrap: nowrap; }
   [data-result-head] > span:last-child { flex: 0 0 auto; white-space: nowrap; }
+}
+
+/* ─── 328: 種類ダイアログの一覧は幅に応じて多列（狭幅は1列）。カードは高さを揃え、説明は2行まで ─── */
+[data-vis-picker-grid] {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 8px;
+  align-items: stretch;
+}
+[data-vis-picker-grid] > label {
+  height: 100%;
+  align-content: center;
+}
+[data-vis-picker-note-text] {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+@media (max-width: 640px) {
+  [data-vis-picker-grid] { grid-template-columns: 1fr; }
 }

@@ -18,8 +18,8 @@ import {
   VISUALS_HANDOFF_KEY,
   VISUAL_QUICK_DEFAULT_TYPES,
   VISUAL_TYPE_META,
+  VISUAL_TYPE_GROUPS,
   VISUAL_TYPE_PICKER_NOTE,
-  VISUAL_TYPE_PICKER_ORDER,
   type VisualHandoffFrom,
   type VisualType,
   type VisualsHandoff,
@@ -77,7 +77,12 @@ export function VisualTypePickerDialog({
       closeAttrs={{ 'data-vis-picker-close': '' }}
       footer={
         <>
-          <span data-vis-picker-reason style={{ fontSize: 11, color: canGo ? 'var(--text-muted)' : '#B45309', flex: 1, minWidth: 0 }}>{reason ?? `${types.length}種類のプランを提案します`}</span>
+          <span data-vis-picker-reason style={{ fontSize: 11, color: canGo ? 'var(--text-muted)' : '#B45309', flex: 1, minWidth: 0 }}>
+            {reason ?? `${types.length}種類のプランを提案します`}
+            <span data-vis-picker-selected={types.length} style={{ display: 'block', color: 'var(--text-muted)' }}>
+              選択 {types.length} 件{types.includes('image') ? ` ／ 画像 1 枚・約 ${formatUsd(IMAGE_ESTIMATE.usd)}` : ' ／ 画像なし（コード描画は無料）'}
+            </span>
+          </span>
           <button type="button" data-vis-picker-cancel onClick={onClose} style={btnBase}>やめる</button>
           <button type="button" data-vis-picker-go onClick={go} disabled={!canGo} title={reason ?? undefined} style={{ ...btnBase, background: 'var(--accent)', color: '#fff', border: 'none', fontWeight: 700, opacity: canGo ? 1 : 0.5, cursor: canGo ? 'pointer' : 'not-allowed' }}>
             進む
@@ -88,24 +93,30 @@ export function VisualTypePickerDialog({
       <div data-vis-picker-source={saved ? `${saved.scope}:${saved.id}` : 'unsaved'} data-vis-picker-chars={chars} style={{ fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.6 }}>
         元テキスト: <strong>{title || '（無題）'}</strong>（{chars.toLocaleString()}字・{saved ? '保存済みの行を渡します' : '未保存＝本文をそのまま渡します'}）
       </div>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-        {VISUAL_TYPE_PICKER_ORDER.map((t) => {
-          const meta = VISUAL_TYPE_META[t];
-          const checked = types.includes(t);
-          return (
-            <label key={t} data-vis-picker-type={t} style={{ display: 'grid', gridTemplateColumns: 'auto 1fr auto', gap: 10, alignItems: 'center', padding: '8px 10px', minHeight: 44, borderRadius: 8, border: `1px solid ${checked ? 'var(--border-accent)' : 'var(--border)'}`, cursor: 'pointer' }}>
-              <input type="checkbox" data-vis-picker-check={t} checked={checked} onChange={(e) => toggle(t, e.target.checked)} />
-              <span style={{ minWidth: 0 }}>
-                <span style={{ fontWeight: 700 }}>{meta.emoji} {meta.label}</span>
-                <span style={{ display: 'block', fontSize: 11, color: 'var(--text-muted)' }}>{VISUAL_TYPE_PICKER_NOTE[t]}</span>
-              </span>
-              <span data-vis-picker-note={t} style={{ fontSize: 11, color: t === 'image' ? '#B45309' : 'var(--text-muted)', whiteSpace: 'nowrap' }}>
-                {t === 'image' ? `1枚 ${formatUsd(IMAGE_ESTIMATE.usd)}（目安）` : 'コード描画・無料'}
-              </span>
-            </label>
-          );
-        })}
-      </div>
+      {/* 328: まとまりごとの小見出し＋多列グリッド（狭幅は1列）。カードは高さを揃え、説明は2行まで */}
+      {VISUAL_TYPE_GROUPS.map((group) => (
+        <div key={group.label} data-vis-picker-group={group.label} style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+          <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-muted)' }}>{group.label}</div>
+          <div data-vis-picker-grid>
+            {group.types.map((t) => {
+              const meta = VISUAL_TYPE_META[t];
+              const checked = types.includes(t);
+              return (
+                <label key={t} data-vis-picker-type={t} style={{ display: 'grid', gridTemplateColumns: 'auto 1fr', gap: 8, alignItems: 'center', padding: '8px 10px', minHeight: 44, borderRadius: 8, border: `1px solid ${checked ? 'var(--border-accent)' : 'var(--border)'}`, cursor: 'pointer' }}>
+                  <input type="checkbox" data-vis-picker-check={t} checked={checked} onChange={(e) => toggle(t, e.target.checked)} />
+                  <span style={{ minWidth: 0 }}>
+                    <span style={{ fontWeight: 700 }}>{meta.emoji} {meta.label}</span>
+                    <span data-vis-picker-note-text style={{ fontSize: 11, color: 'var(--text-muted)', lineHeight: 1.4 }}>{VISUAL_TYPE_PICKER_NOTE[t]}</span>
+                    <span data-vis-picker-note={t} style={{ display: 'block', fontSize: 11, color: t === 'image' ? '#B45309' : 'var(--text-muted)', whiteSpace: 'nowrap' }}>
+                      {t === 'image' ? `1枚 ${formatUsd(IMAGE_ESTIMATE.usd)}（目安）` : 'コード描画・無料'}
+                    </span>
+                  </span>
+                </label>
+              );
+            })}
+          </div>
+        </div>
+      ))}
       <div style={{ fontSize: 11, color: 'var(--text-muted)', lineHeight: 1.6 }}>
         進むと🖼図解生成の画面が新しいタブで開き、選んだ種類のプラン（候補）だけを自動で1回提案します。赤い印の確認と描画・画像生成はその画面で行います（自動では描きません）。
       </div>
