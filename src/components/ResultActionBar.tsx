@@ -10,12 +10,12 @@
 // - メニューは最小実装（HoverPopover は「ホバーで出す」前提なので使わない）: クリックで開閉・Esc・外側クリックで閉じる・
 //   トリガーは button なのでキーボード（Enter/Space）で開閉できる。中の要素を押したら閉じる（ただし [data-context-modal] の中は閉じない）
 // - 縦書きの根本＝flex の縮小で1文字ずつ折れる事象。globals.css の `button { white-space: nowrap }` で「ボタンは常に横書き」を規約にした
-// - 326: 狭幅（容器 640px 未満・313 と同じ判定）は**アコーディオン**。常に見えるのは [主操作][keepVisible][⋯ 操作 ▾] の3つで、
+// - 326是正: 狭幅（**画面幅** 640px 未満）は**アコーディオン**。常に見えるのは [主操作][keepVisible][⋯ 操作 ▾] の3つで、
 //   残りは展開部へ縦1列（44px 以上）。展開部は**閉じている間も DOM に置き `hidden`**（ハンドラ・data 属性・活性条件を保つ＝R-88）
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
-import { isStickyBarNarrow } from '@/lib/sticky-action-bar';
+import { STICKY_BAR_NARROW_MAX_WIDTH } from '@/lib/sticky-action-bar';
 
 export interface ResultActionMenu {
   key: string;
@@ -118,18 +118,19 @@ export default function ResultActionBar({
   extra?: ReactNode;
 }) {
   const row: React.CSSProperties = { display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', minWidth: 0 };
-  // 326: 狭幅は容器の実測で判定（画面幅ではない・313 と同じ 640px）。開閉は成果物ごと・記憶しない（既定は閉じる）
+  // 326是正: 狭幅は**画面幅**で判定する（しきい値は 313 と同じ 640px）。開閉は成果物ごと・記憶しない（既定は閉じる）。
+  //   アコーディオンは iPhone で操作行が4段になる問題への対処。PC で成果物が複数枚並んで1枚が細いだけなら畳まない
+  //   （81マスのブロック表示のように「要素が実際に狭くなる」判定は容器幅のまま＝313・322 は不変）
   const rootRef = useRef<HTMLDivElement | null>(null);
   const [narrow, setNarrow] = useState(false);
   const [open, setOpen] = useState(false);
   useEffect(() => {
-    const el = rootRef.current;
-    if (!el || typeof ResizeObserver === 'undefined') return;
-    const apply = () => setNarrow(isStickyBarNarrow(el.getBoundingClientRect().width));
+    if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return;
+    const mq = window.matchMedia(`(max-width: ${STICKY_BAR_NARROW_MAX_WIDTH - 0.02}px)`);
+    const apply = () => setNarrow(mq.matches);
     apply();
-    const ro = new ResizeObserver(apply);
-    ro.observe(el);
-    return () => ro.disconnect();
+    mq.addEventListener('change', apply);
+    return () => mq.removeEventListener('change', apply);
   }, []);
   useEffect(() => {
     if (!narrow) setOpen(false);

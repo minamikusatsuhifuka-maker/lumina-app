@@ -12822,17 +12822,27 @@ test('C143: 操作行のアコーディオン（326・WebKit iPhone幅）— 狭
     await expect(panel).toBeHidden();
     await expect(bar.locator('[data-vis-quick-fixed="grid9"]'), '閉じていても DOM にある').toHaveCount(1);
     // ⑤ 成果物ごとに独立（2つ目の成果物があるときだけ）
-    const bars = page.locator('[data-ta-result-actions]');
-    if ((await bars.count()) > 1) {
-      await bars.nth(0).locator('[data-result-more]').click();
-      await expect(bars.nth(0).locator('[data-result-more-panel]')).toBeVisible();
-      await expect(bars.nth(1).locator('[data-result-more-panel]'), '他の成果物は閉じたまま').toBeHidden();
+    const allBars = page.locator('[data-ta-result-actions]');
+    if ((await allBars.count()) > 1) {
+      await allBars.nth(0).locator('[data-result-more]').click();
+      await expect(allBars.nth(0).locator('[data-result-more-panel]')).toBeVisible();
+      await expect(allBars.nth(1).locator('[data-result-more-panel]'), '他の成果物は閉じたまま').toBeHidden();
     }
-    // ⑥ 広幅は従来の2段（アコーディオンを出さない）
+    // ⑥ 広幅は従来の2段（アコーディオンを出さない）。326是正: 判定は画面幅なので、
+    //    成果物が複数枚並んで1枚が 640px 未満になっても PC ではアコーディオンにしない
     await page.setViewportSize({ width: 1200, height: 900 });
     await expect(bar, '広幅').toHaveAttribute('data-result-narrow', '0', { timeout: 15000 });
     await expect(bar.locator('[data-result-more]')).toHaveCount(0);
     await expect(bar.locator('[data-result-action-row="2"]')).toBeVisible();
+    const bars = page.locator('[data-ta-result-actions]');
+    const n = await bars.count();
+    for (let i = 0; i < n; i++) {
+      const b = bars.nth(i);
+      await expect(b, `PC幅の${i + 1}枚目はアコーディオンにしない`).toHaveAttribute('data-result-narrow', '0');
+      expect(await b.locator('[data-result-action-row]').count(), `PC幅の${i + 1}枚目は2段`).toBe(2);
+      const w = (await b.boundingBox())!.width;
+      if (n > 1) expect(w, '1枚あたりは細くなっている（それでも畳まない）').toBeLessThan(1200);
+    }
   } finally {
     await ctx.close();
     await browser.close();
