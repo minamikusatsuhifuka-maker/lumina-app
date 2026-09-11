@@ -13322,6 +13322,8 @@ test('C148: トピック候補カードのはみ出し（331）— 🔭DR結果�
           titleAttr: title?.getAttribute('title') ?? '',
           reasonAttr: reason?.getAttribute('title') ?? '',
           titleClipped: title ? title.scrollHeight > title.clientHeight + 1 : false,
+          // 文字そのもののはみ出し（ink overflow）。矩形は親に制限されるので scrollWidth で見る＝331 の症状そのもの
+          textOverflowPx: Math.max(0, ...[title, reason].filter(Boolean).map((t) => t!.scrollWidth - t!.clientWidth)),
           badgeWidth: badge ? badge.getBoundingClientRect().width : 0,
           badgeText: (badge?.textContent ?? '').trim(),
           whiteSpace: getComputedStyle(c).whiteSpace,
@@ -13338,6 +13340,7 @@ test('C148: トピック候補カードのはみ出し（331）— 🔭DR結果�
       expect(c.overflowRight, `${label}: ${i + 1}枚目が右にはみ出さない`).toBeLessThanOrEqual(1);
       expect(c.overflowLeft, `${label}: ${i + 1}枚目が左にはみ出さない`).toBeLessThanOrEqual(1);
       expect(c.overflowBottom, `${label}: ${i + 1}枚目が下にはみ出さない`).toBeLessThanOrEqual(1);
+      expect(c.textOverflowPx, `${label}: ${i + 1}枚目の文字が枠からはみ出さない`).toBeLessThanOrEqual(1);
       // 2. タイトル・説明は2行以内（省略記号は clamp・全文は title 属性＝R-110）
       expect(c.titleLines, `${label}: ${i + 1}枚目のタイトルは2行以内`).toBeLessThanOrEqual(2);
       expect(c.reasonLines, `${label}: ${i + 1}枚目の説明は2行以内`).toBeLessThanOrEqual(2);
