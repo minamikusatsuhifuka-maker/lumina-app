@@ -135,6 +135,7 @@ export function RelatedTopicCard({
           </span>
         )}
         <span
+          data-related-topic-level=""
           style={{
             fontSize: 10,
             padding: '2px 6px',

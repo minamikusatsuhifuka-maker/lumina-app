@@ -13307,7 +13307,7 @@ test('C148: トピック候補カードのはみ出し（331）— 🔭DR結果�
         const cr = c.getBoundingClientRect();
         const title = c.querySelector<HTMLElement>('[data-related-topic-title]');
         const reason = c.querySelector<HTMLElement>('[data-related-topic-reason]');
-        const badge = c.querySelector<HTMLElement>('span');
+        const badge = c.querySelector<HTMLElement>('[data-related-topic-level]');
         const kids = [...c.querySelectorAll<HTMLElement>('*')].map((k) => {
           const r = k.getBoundingClientRect();
           return { right: r.right, bottom: r.bottom, left: r.left, top: r.top };
@@ -13385,6 +13385,12 @@ test('C148: トピック候補カードのはみ出し（331）— 🔭DR結果�
   await expect(page.locator('[data-related-topic-card][data-selected="1"]'), '選択できる').toHaveCount(1);
   await checkCards(page, 'PC（選択モード）', 9);
   await page.getByRole('button', { name: '✕ キャンセル' }).click();
+
+  // ── 同じ部品を使う ✍️note（同症状の2箇所目） ──
+  await page.route('**/api/note', (route) => route.fulfill({ status: 200, contentType: 'text/event-stream', body: `data: ${JSON.stringify({ type: 'text', content: REPORT })}\n\n` }));
+  await page.goto(`/dashboard/note?q=${encodeURIComponent(`[E2E] 331 ${marker}`)}`);
+  await expect(page.locator('[data-related-topic-grid]')).toBeVisible({ timeout: 60000 });
+  await checkCards(page, 'PC（✍️note）', 9);
 
   // ── WebKit iPhone幅: 1列・横スクロール無し ──
   const browser = await webkit.launch();
