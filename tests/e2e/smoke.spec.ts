@@ -13400,9 +13400,8 @@ test('C148: トピック候補カードのはみ出し（331）— 🔭DR結果�
     await prep(mp);
     await mp.goto('/dashboard/deepresearch');
     await mp.evaluate(() => { localStorage.setItem('lumina_auto_stock_save', '0'); localStorage.setItem('lumina_text_scale', '100'); });
-    await mp.reload({ waitUntil: 'domcontentloaded' });
-    await mp.getByPlaceholder(/調査したいテーマを詳しく入力してください/).fill(`[E2E] 331 ${marker}`);
-    await mp.locator('button[data-kb-run]').click();
+    // タッチ端末では実行ボタンのタップが不安定なので ?q= の自動リサーチで結果を出す（判定はカードの見た目）
+    await mp.goto(`/dashboard/deepresearch?q=${encodeURIComponent(`[E2E] 331 ${marker}`)}`);
     await expect(mp.locator('[data-related-topic-grid]')).toBeVisible({ timeout: 60000 });
     const m = await checkCards(mp, 'iPhone幅', 9);
     const lefts = Array.from(new Set(m.cards.map((c) => Math.round(c.rect.left))));
