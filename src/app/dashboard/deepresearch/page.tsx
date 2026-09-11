@@ -59,6 +59,8 @@ import CompareStartDialog from '@/components/deepresearch/CompareStartDialog';
 import { FollowUpResearchButton } from '@/components/deepresearch/FollowUpResearchDialog';
 // 320: 結果から直接「🖼 図解・画像を作る」（保存前でも可・未保存は一回限りキー）
 import { VisualQuickButton } from '@/components/visuals/VisualQuickButton';
+// 331: トピック候補カード（🔭DR・✍️note 共通・はみ出し対策）
+import { RelatedTopicGrid, RelatedTopicCard } from '@/components/RelatedTopicCards';
 import {
   FOLLOWUP_FROM_PARAM,
   FOLLOWUP_HANDOFF_KEY,
@@ -3201,79 +3203,32 @@ ${contextText}
                   🤖 AIが関連トピックを分析中...
                 </div>
               ) : (
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 8 }}>
+                <RelatedTopicGrid>
                   {suggestedTitles.map((item, i) => {
-                    const lvColor =
-                      item.level === 'プロ' ? { bg: 'rgba(239,68,68,0.18)', color: '#ef4444' } :
-                      item.level === '専門' ? { bg: 'rgba(245,158,11,0.18)', color: '#f59e0b' } :
-                      item.level === '応用' ? { bg: 'rgba(234,179,8,0.18)', color: '#ca8a04' } :
-                      item.level === '基礎' ? { bg: 'rgba(29,158,117,0.18)', color: '#1D9E75' } :
-                      { bg: 'rgba(59,130,246,0.18)', color: '#3b82f6' };
                     const isSelected = selectedRelatedTopics.has(item.title);
-                    const handleClick = batchRelatedMode
-                      ? () => {
-                          setSelectedRelatedTopics(prev => {
-                            const next = new Set(prev);
-                            if (next.has(item.title)) next.delete(item.title);
-                            else next.add(item.title);
-                            return next;
-                          });
-                        }
-                      : () => handleTitleClick(item.title);
                     return (
-                      <button
+                      <RelatedTopicCard
                         key={i}
-                        onClick={handleClick}
+                        topic={item}
+                        selectable={batchRelatedMode}
+                        selected={batchRelatedMode && isSelected}
                         disabled={isBatchingRelated}
-                        style={{
-                          textAlign: 'left' as const,
-                          padding: 12,
-                          background: batchRelatedMode && isSelected ? 'rgba(139,92,246,0.12)' : 'var(--bg-primary)',
-                          border: batchRelatedMode && isSelected ? '2px solid #8b5cf6' : '1px solid var(--border)',
-                          borderRadius: 8,
-                          cursor: isBatchingRelated ? 'not-allowed' : 'pointer',
-                          transition: 'all 0.15s ease',
-                          opacity: isBatchingRelated ? 0.6 : 1,
-                        }}
-                        onMouseEnter={e => {
-                          if (isBatchingRelated) return;
-                          e.currentTarget.style.borderColor = batchRelatedMode && isSelected ? '#8b5cf6' : 'var(--accent)';
-                          e.currentTarget.style.transform = 'translateY(-1px)';
-                        }}
-                        onMouseLeave={e => {
-                          e.currentTarget.style.borderColor = batchRelatedMode && isSelected ? '#8b5cf6' : 'var(--border)';
-                          e.currentTarget.style.transform = 'translateY(0)';
-                        }}
-                      >
-                        <div style={{ display: 'flex', gap: 6, alignItems: 'flex-start' }}>
-                          {batchRelatedMode && (
-                            <span style={{
-                              fontSize: 14, width: 18, height: 18,
-                              display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-                              borderRadius: 4,
-                              border: isSelected ? '2px solid #8b5cf6' : '2px solid var(--border)',
-                              background: isSelected ? '#8b5cf6' : 'transparent',
-                              color: '#fff', fontWeight: 700, flexShrink: 0, marginTop: 1,
-                            }}>
-                              {isSelected ? '✓' : ''}
-                            </span>
-                          )}
-                          <span style={{ fontSize: 10, padding: '2px 6px', borderRadius: 6, background: lvColor.bg, color: lvColor.color, fontWeight: 700, flexShrink: 0 }}>
-                            {item.level}
-                          </span>
-                          <div style={{ flex: 1, minWidth: 0 }}>
-                            <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 3 }}>
-                              {item.title}
-                            </div>
-                            <div style={{ fontSize: 11, color: 'var(--text-muted)', lineHeight: 1.5 }}>
-                              {item.reason}
-                            </div>
-                          </div>
-                        </div>
-                      </button>
+                        onClick={
+                          batchRelatedMode
+                            ? () => {
+                                setSelectedRelatedTopics(prev => {
+                                  const next = new Set(prev);
+                                  if (next.has(item.title)) next.delete(item.title);
+                                  else next.add(item.title);
+                                  return next;
+                                });
+                              }
+                            : () => handleTitleClick(item.title)
+                        }
+                      />
                     );
                   })}
-                </div>
+                </RelatedTopicGrid>
               )}
 
               {currentNodeId && !batchRelatedMode && (

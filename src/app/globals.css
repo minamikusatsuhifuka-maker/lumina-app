@@ -465,6 +465,18 @@ a[role="button"] {
   white-space: nowrap;
 }
 
+/* ── 331: 「カード型ボタン」（中に div/p などのブロックを持つボタン）は R-124 の nowrap を継承しない ──
+   nowrap のままだと中の文章が1行に伸び、ボタンの min-content が grid のトラック（minmax の 1fr）を超えて
+   隣のカードに重なる（院長の実測: 🔭DR「次に調べると理解が深まるトピック」の9枚）。
+   ラベルだけのボタン（テキスト・span）は従来どおり nowrap（R-124）。 */
+button:has(div),
+button:has(p),
+a[role="button"]:has(div),
+a[role="button"]:has(p) {
+  /* white-space だけを戻す（min-width は触らない＝操作行など flex 内のボタンを縮ませない） */
+  white-space: normal;
+}
+
 /* ── 321: 結果画面の操作行（ResultActionBar）。中の要素は各画面の既存要素のまま＝見た目だけをここで揃える ──
    高さ32・角丸8・同じ文字サイズ。主操作（[data-save-library]）だけ塗りつぶし（indigo）、他は枠線。機能ごとの多色は使わない */
 [data-result-action-bar] button,

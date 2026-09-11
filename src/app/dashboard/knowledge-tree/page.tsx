@@ -246,11 +246,12 @@ export default function KnowledgeTreePage() {
                             color: 'var(--text-primary)',
                           }}
                         >
-                          <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-                            <span style={{ fontSize: 9, padding: '1px 5px', borderRadius: 5, background: lvColor.bg, color: lvColor.color, fontWeight: 700, flexShrink: 0 }}>
+                          {/* 331: バッジは縮まない・テキスト側だけが縮む（min-width:0＋省略記号・全文は title＝R-110） */}
+                          <div style={{ display: 'flex', gap: 6, alignItems: 'center', minWidth: 0 }}>
+                            <span style={{ fontSize: 9, padding: '1px 5px', borderRadius: 5, background: lvColor.bg, color: lvColor.color, fontWeight: 700, flex: '0 0 auto', whiteSpace: 'nowrap' as const }}>
                               {t.level}
                             </span>
-                            <span style={{ fontSize: 11, color: 'var(--text-primary)' }}>{t.title}</span>
+                            <span title={t.title} style={{ fontSize: 11, color: 'var(--text-primary)', flex: '1 1 auto', minWidth: 0, overflow: 'hidden' as const, textOverflow: 'ellipsis' as const, whiteSpace: 'nowrap' as const }}>{t.title}</span>
                           </div>
                         </a>
                       );

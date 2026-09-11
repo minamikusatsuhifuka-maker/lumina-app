@@ -2,6 +2,8 @@
 import { useState, useEffect } from 'react';
 import { SaveToLibraryButton } from '@/components/SaveToLibraryButton';
 import { DateRangePicker, DateRange, getDateCondition } from '@/components/DateRangePicker';
+// 331: トピック候補カード（🔭DR・✍️note 共通・はみ出し対策）
+import { RelatedTopicGrid, RelatedTopicCard } from '@/components/RelatedTopicCards';
 
 type SuggestedTitle = { title: string; reason: string; category: string; level: string };
 
@@ -370,44 +372,11 @@ export default function NotePage() {
               🤖 AIが関連トピックを分析中...
             </div>
           ) : (
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 8 }}>
-              {suggestedTitles.map((item, i) => {
-                const lvColor =
-                  item.level === 'プロ' ? { bg: 'rgba(239,68,68,0.18)', color: '#ef4444' } :
-                  item.level === '専門' ? { bg: 'rgba(245,158,11,0.18)', color: '#f59e0b' } :
-                  item.level === '応用' ? { bg: 'rgba(234,179,8,0.18)', color: '#ca8a04' } :
-                  item.level === '基礎' ? { bg: 'rgba(29,158,117,0.18)', color: '#1D9E75' } :
-                  { bg: 'rgba(59,130,246,0.18)', color: '#3b82f6' };
-                return (
-                  <button
-                    key={i}
-                    onClick={() => handleTitleClick(item.title)}
-                    style={{
-                      textAlign: 'left' as const,
-                      padding: 12,
-                      background: 'var(--bg-primary)',
-                      border: '1px solid var(--border)',
-                      borderRadius: 8,
-                      cursor: 'pointer',
-                    }}
-                  >
-                    <div style={{ display: 'flex', gap: 6, alignItems: 'flex-start' }}>
-                      <span style={{ fontSize: 10, padding: '2px 6px', borderRadius: 6, background: lvColor.bg, color: lvColor.color, fontWeight: 700, flexShrink: 0 }}>
-                        {item.level}
-                      </span>
-                      <div style={{ flex: 1, minWidth: 0 }}>
-                        <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 3 }}>
-                          {item.title}
-                        </div>
-                        <div style={{ fontSize: 11, color: 'var(--text-muted)', lineHeight: 1.5 }}>
-                          {item.reason}
-                        </div>
-                      </div>
-                    </div>
-                  </button>
-                );
-              })}
-            </div>
+            <RelatedTopicGrid>
+              {suggestedTitles.map((item, i) => (
+                <RelatedTopicCard key={i} topic={item} onClick={() => handleTitleClick(item.title)} />
+              ))}
+            </RelatedTopicGrid>
           )}
           {currentNodeId && (
             <div style={{ marginTop: 10, textAlign: 'right' as const }}>

@@ -13264,3 +13264,146 @@ test('C147: 🗂保存一覧の全画面と全画面比較（330）— カード
     await cleanupE2ESaves(request);
   }
 });
+
+// ── 331: トピック候補カードの文字はみ出し ──
+// 原因は 321（R-124）の `button { white-space: nowrap }` がカード型ボタンにも効き、
+// 文章が1行に伸びて grid のトラック（minmax の 1fr）を超え、隣のカードに重なっていたこと。
+test('C148: トピック候補カードのはみ出し（331）— 🔭DR結果の「次に調べると理解が深まるトピック」9枚で、中の要素がカードの矩形に収まる／タイトル・説明は2行以内で省略記号＋全文は title／バッジは縮まずテキスト側だけが縮む／同じ行のカードは同じ高さ／カード同士が重ならない／WebKit iPhone幅は1列で横スクロール無し／✍️note でも同じ', async ({ page }) => {
+  test.setTimeout(240_000);
+  const marker = `RTC${RUN_ID}`;
+  const REPORT = `# [E2E] ${marker} モックレポート\n\n本文です。出典: 例 https://example.com`;
+  // 院長の実測と同じ「9枚・長い日本語のタイトルと説明」を作る（短い文字列でははみ出しが再現しない）
+  const TOPICS = Array.from({ length: 9 }, (_, i) => ({
+    title: `${i + 1}. 医療広告ガイドラインにおける自由診療の費用表示と体験談の取り扱いの実務`,
+    reason: `この話題を押さえると、${i + 1}つ目の観点として本文の主張の前提が確認でき、次の意思決定の材料がそろうためです。`,
+    category: 'マーケティング',
+    level: ['入門', '基礎', '応用', '専門', 'プロ'][i % 5],
+  }));
+  const prep = async (p: import('@playwright/test').Page) => {
+    await stubFeatureDrafts(p);
+    await p.route('**/api/deepresearch', (route) => route.fulfill({ status: 200, contentType: 'text/event-stream', body: `data: ${JSON.stringify({ type: 'text', content: REPORT })}\n\ndata: ${JSON.stringify({ type: 'done', usage: { input_tokens: 1, output_tokens: 1 } })}\n\n` }));
+    await p.route('**/api/knowledge/suggest-titles', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ titles: TOPICS }) }));
+    await p.route('**/api/knowledge/nodes', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ node: { id: 1 }, nodes: [] }) }));
+    for (const pattern of ['**/api/glossary/research-extract', '**/api/deepresearch/insights', '**/api/deepresearch/query-history', '**/api/library/auto-categorize']) {
+      await p.route(pattern, (route) => route.fulfill({ status: 200, contentType: 'application/json', body: '{}' }));
+    }
+    await p.route('**/api/library', async (route) => {
+      if (route.request().method() === 'POST') { await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ id: 'e2e-mock' }) }); return; }
+      await route.fallback();
+    });
+  };
+  // カードの実測（中の要素の矩形・行数・重なり）
+  const measure = (p: import('@playwright/test').Page) => p.evaluate(() => {
+    const cards = [...document.querySelectorAll<HTMLElement>('[data-related-topic-card]')];
+    const lines = (el: HTMLElement | null) => {
+      if (!el) return 0;
+      const lh = parseFloat(getComputedStyle(el).lineHeight) || 0;
+      return lh > 0 ? Math.round(el.getBoundingClientRect().height / lh) : 0;
+    };
+    return {
+      scrollWidth: document.documentElement.scrollWidth,
+      innerWidth: window.innerWidth,
+      cards: cards.map((c) => {
+        const cr = c.getBoundingClientRect();
+        const title = c.querySelector<HTMLElement>('[data-related-topic-title]');
+        const reason = c.querySelector<HTMLElement>('[data-related-topic-reason]');
+        const badge = c.querySelector<HTMLElement>('span');
+        const kids = [...c.querySelectorAll<HTMLElement>('*')].map((k) => {
+          const r = k.getBoundingClientRect();
+          return { right: r.right, bottom: r.bottom, left: r.left, top: r.top };
+        });
+        return {
+          rect: { left: cr.left, top: cr.top, right: cr.right, bottom: cr.bottom, width: cr.width, height: cr.height },
+          overflowRight: Math.max(0, ...kids.map((k) => k.right - cr.right)),
+          overflowBottom: Math.max(0, ...kids.map((k) => k.bottom - cr.bottom)),
+          overflowLeft: Math.max(0, ...kids.map((k) => cr.left - k.left)),
+          titleLines: lines(title),
+          reasonLines: lines(reason),
+          titleAttr: title?.getAttribute('title') ?? '',
+          reasonAttr: reason?.getAttribute('title') ?? '',
+          titleClipped: title ? title.scrollHeight > title.clientHeight + 1 : false,
+          badgeWidth: badge ? badge.getBoundingClientRect().width : 0,
+          badgeText: (badge?.textContent ?? '').trim(),
+          whiteSpace: getComputedStyle(c).whiteSpace,
+        };
+      }),
+    };
+  });
+  const checkCards = async (p: import('@playwright/test').Page, label: string, expected: number) => {
+    await expect(p.locator('[data-related-topic-card]'), `${label}: カードが ${expected} 枚`).toHaveCount(expected);
+    const m = await measure(p);
+    expect(m.cards.length, `${label}: 実測できた`).toBe(expected);
+    for (const [i, c] of m.cards.entries()) {
+      // 1. 中の要素がカードの矩形に収まる（はみ出し＝隣に重なる、の直接判定）
+      expect(c.overflowRight, `${label}: ${i + 1}枚目が右にはみ出さない`).toBeLessThanOrEqual(1);
+      expect(c.overflowLeft, `${label}: ${i + 1}枚目が左にはみ出さない`).toBeLessThanOrEqual(1);
+      expect(c.overflowBottom, `${label}: ${i + 1}枚目が下にはみ出さない`).toBeLessThanOrEqual(1);
+      // 2. タイトル・説明は2行以内（省略記号は clamp・全文は title 属性＝R-110）
+      expect(c.titleLines, `${label}: ${i + 1}枚目のタイトルは2行以内`).toBeLessThanOrEqual(2);
+      expect(c.reasonLines, `${label}: ${i + 1}枚目の説明は2行以内`).toBeLessThanOrEqual(2);
+      expect(c.titleAttr, `${label}: ${i + 1}枚目のタイトル全文が title にある`).toContain('医療広告ガイドライン');
+      expect(c.reasonAttr.length, `${label}: ${i + 1}枚目の説明全文が title にある`).toBeGreaterThan(10);
+      // 3. バッジは縮まない（1文字ずつ折れていない＝幅が文字数なりにある）
+      expect(c.badgeWidth, `${label}: ${i + 1}枚目のバッジ（${c.badgeText}）が縮んでいない`).toBeGreaterThanOrEqual(20);
+      expect(c.whiteSpace, `${label}: ${i + 1}枚目は nowrap を継承していない`).not.toBe('nowrap');
+    }
+    // 4. 同じ行のカードは同じ高さ
+    const rows = new Map<number, number[]>();
+    for (const c of m.cards) {
+      const key = Math.round(c.rect.top);
+      rows.set(key, [...(rows.get(key) ?? []), Math.round(c.rect.height)]);
+    }
+    for (const [top, hs] of rows) expect(Array.from(new Set(hs)), `${label}: top=${top} の行の高さが揃う`).toHaveLength(1);
+    // 5. カード同士が重ならない
+    for (let i = 0; i < m.cards.length; i++) {
+      for (let j = i + 1; j < m.cards.length; j++) {
+        const a = m.cards[i].rect, b = m.cards[j].rect;
+        const overlap = a.left < b.right - 1 && b.left < a.right - 1 && a.top < b.bottom - 1 && b.top < a.bottom - 1;
+        expect(overlap, `${label}: ${i + 1}枚目と${j + 1}枚目が重ならない`).toBe(false);
+      }
+    }
+    // 6. 横スクロール無し
+    expect(m.scrollWidth, `${label}: 横スクロール無し`).toBeLessThanOrEqual(m.innerWidth + 1);
+    return m;
+  };
+
+  // ── PC: 🔭ディープリサーチ ──
+  await prep(page);
+  await page.goto('/dashboard/deepresearch');
+  await page.evaluate(() => { localStorage.setItem('lumina_auto_stock_save', '0'); localStorage.setItem('lumina_text_scale', '100'); });
+  await page.reload({ waitUntil: 'domcontentloaded' });
+  await waitForRunReady(page);
+  await page.getByPlaceholder(/調査したいテーマを詳しく入力してください/).fill(`[E2E] 331 ${marker}`);
+  await page.locator('button[data-kb-run]').click();
+  await expect(page.locator('[data-related-topic-grid]')).toBeVisible({ timeout: 60000 });
+  const pc = await checkCards(page, 'PC', 9);
+  expect(Math.max(...pc.cards.map((c) => c.rect.right)), 'PC: グリッドが画面幅に収まる').toBeLessThanOrEqual(pc.innerWidth + 1);
+  expect(pc.cards.some((c) => c.titleClipped || c.reasonLines === 2), 'PC: 長文は省略されている').toBe(true);
+  // 選択モード（⚡ まとめて調べる）でもチェックが入って崩れない
+  await page.getByRole('button', { name: '⚡ まとめて調べる' }).click();
+  await page.locator('[data-related-topic-card]').first().click();
+  await expect(page.locator('[data-related-topic-card][data-selected="1"]'), '選択できる').toHaveCount(1);
+  await checkCards(page, 'PC（選択モード）', 9);
+  await page.getByRole('button', { name: '✕ キャンセル' }).click();
+
+  // ── WebKit iPhone幅: 1列・横スクロール無し ──
+  const browser = await webkit.launch();
+  const ctx = await browser.newContext({ storageState: STORAGE_STATE, baseURL: BASE_URL, hasTouch: true, isMobile: true, viewport: { width: 390, height: 844 }, serviceWorkers: 'block' });
+  const mp = await ctx.newPage();
+  try {
+    await prep(mp);
+    await mp.goto('/dashboard/deepresearch');
+    await mp.evaluate(() => { localStorage.setItem('lumina_auto_stock_save', '0'); localStorage.setItem('lumina_text_scale', '100'); });
+    await mp.reload({ waitUntil: 'domcontentloaded' });
+    await mp.getByPlaceholder(/調査したいテーマを詳しく入力してください/).fill(`[E2E] 331 ${marker}`);
+    await mp.locator('button[data-kb-run]').click();
+    await expect(mp.locator('[data-related-topic-grid]')).toBeVisible({ timeout: 60000 });
+    const m = await checkCards(mp, 'iPhone幅', 9);
+    const lefts = Array.from(new Set(m.cards.map((c) => Math.round(c.rect.left))));
+    expect(lefts, 'iPhone幅は1列（左端が揃う）').toHaveLength(1);
+    expect(Array.from(new Set(m.cards.map((c) => Math.round(c.rect.top)))), 'iPhone幅は9段').toHaveLength(9);
+  } finally {
+    await ctx.close();
+    await browser.close();
+  }
+});
