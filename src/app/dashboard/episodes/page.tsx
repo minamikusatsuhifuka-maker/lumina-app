@@ -18,7 +18,9 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import FeatureDraftBanner from '@/components/FeatureDraftBanner';
 import { PasteButton } from '@/components/TouchPaste';
 import { useToast } from '@/components/ui/Toast';
-import { CLEAR_PASTE_MESSAGE, clearAndPaste } from '@/lib/clear-and-paste';
+import { clearPasteMessage, clearAndPaste } from '@/lib/clear-and-paste';
+// 332【B】: 案内文は端末で出し分ける（⌘V／長押しして「ペースト」）。判定は入力手段で決定的に（R-74）
+import { hasFinePointer } from '@/lib/pointer-device';
 import { clearFeatureDraft, loadFeatureDraft, saveFeatureDraft } from '@/lib/feature-drafts';
 import { jstShortDate } from '@/lib/jst';
 import {
@@ -87,7 +89,7 @@ function EpisodeTextField({
     try {
       // 270: 読めて中身があったときだけクリアして貼る（R-76）
       const result = await clearAndPaste({ current: value, setText: onChange, textareaRef: ref, backup });
-      const msg = CLEAR_PASTE_MESSAGE[result];
+      const msg = clearPasteMessage(result, hasFinePointer());
       notify(msg.text, msg.kind === 'success' ? 'success' : 'warning');
     } finally {
       setPasting(false);

@@ -35,11 +35,11 @@ import FeatureDraftBanner from '@/components/FeatureDraftBanner';
 import { TextRefinePanel } from '@/components/refine/TextRefinePanel';
 import { useRunKeyHints, useRunShortcut } from '@/lib/shortcuts';
 // 254: クリアして貼付（テキスト分析と同じ関数・同じ操作感）
-import { clearAndPaste, CLEAR_PASTE_MESSAGE } from '@/lib/clear-and-paste';
+import { clearAndPaste, clearPasteMessage } from '@/lib/clear-and-paste';
 // 255: 「貼り付けたら前の内容を置き換える」（iOSで追加タップを出さずに1操作にする）
 import { applyReplacePaste, usePasteReplace } from '@/lib/paste-replace';
 // 258: 「📋 クリアして貼付」を出すかの判定（iOSは押すと確認が何段も出るので出さない）
-import { useFinePointer } from '@/lib/pointer-device';
+import { hasFinePointer, useFinePointer } from '@/lib/pointer-device';
 // 259: iOSの「クリア」と「ペースト」を別操作にする2部品（テキスト分析と同じ部品）
 import { PasteButton } from '@/components/TouchPaste';
 import { isAutoStockSaveEnabled } from '@/lib/auto-stock-save';
@@ -2062,7 +2062,8 @@ ${contextText}
       // 成功時は入力欄を見れば分かるので出さず、貼れなかったときだけ知らせる。
       // 270: 貼れなかったとき（読み取り失敗・空）は**トピックを消さない**ようになった（R-76）。
       // この画面のボタン構成（デスクトップ＝クリアして貼付／スマホ＝ペースト）は270でも変えていない
-      const msg = CLEAR_PASTE_MESSAGE[result];
+      // 332【B】: iPhoneには「⌘V」ではなく「入力欄を長押しして『ペースト』」と出す（R-74）
+      const msg = clearPasteMessage(result, hasFinePointer());
       if (msg.kind !== 'success') alert(msg.text);
     } finally {
       setPasting(false);

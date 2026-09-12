@@ -13415,3 +13415,322 @@ test('C148: トピック候補カードのはみ出し（331）— 🔭DR結果�
     await browser.close();
   }
 });
+
+// ============================================================================
+// 332: 🗂テキスト分析の上部整理・警告の重なり解消・入力欄の高さ
+// 院長の実測（iPhone・2026/9/12 18:27）:
+//   ① 警告帯が「クリアして貼付」「分析」に重なって押せない
+//   ② 警告の文言が iPhone なのに「⌘V で置き換えられます」のまま
+//   ③ 上部（タイトル・説明・タブ・復元バナー・ラベル）が縦に長い
+//   ④ 分析対象テキスト欄の高さを変えられない
+// 改修前の実測値は本番（https://www.xlumina.jp）で測った値を定数に置く（倍率で判定するため）。
+// ============================================================================
+
+/** 332【C】改修前の「上部」の高さ(px)＝共通ヘッダの下端からテキスト欄の上端まで（本番実測・2026/9/12） */
+const HEAD_BEFORE_WIDE = 203; // Chromium 1280×900・復元バナー無し
+const HEAD_BEFORE_NARROW = 216.5; // WebKit 390×844・復元バナー無し
+const HEAD_BEFORE_WIDE_BANNER = 291; // 同・復元バナーあり
+const HEAD_BEFORE_NARROW_BANNER = 336; // 同・復元バナーあり
+/** 332【C】改修前の復元バナーの高さ(px)（狭幅は2行に折り返していた） */
+const DRAFT_BANNER_BEFORE_WIDE = 50;
+const DRAFT_BANNER_BEFORE_NARROW = 81.5;
+/** 上部は改修前の 0.6 倍以下にする */
+const HEAD_RATIO = 0.6;
+
+/** 332: 自動下書きを「復元した」状態に固定する（復元バナーを出すため。DBには通さない・R-12） */
+async function stubRestoredDraft(page: import('@playwright/test').Page) {
+  await page.route('**/api/feature-drafts**', (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify(
+        route.request().method() === 'GET'
+          ? {
+              draft: {
+                updated_at: '2026-09-12T03:17:00.000Z',
+                payload: {
+                  inputText: `[E2E] 332 復元された本文 ${RUN_ID}`,
+                  purpose: '',
+                  results: { summary: `[E2E] 332 復元された結果 ${RUN_ID}` },
+                  models: {},
+                },
+              },
+            }
+          : { ok: true },
+      ),
+    }),
+  );
+}
+
+/** 332: 「上部」の高さと、上部に積まれているブロックの数を測る（どの端末でも同じ定義） */
+async function measureHead(page: import('@playwright/test').Page) {
+  return page.evaluate(() => {
+    const q = (s: string) => document.querySelector(s) as HTMLElement | null;
+    const ta = document.querySelector<HTMLTextAreaElement>(
+      'textarea[placeholder^="ここに分析したいテキスト"]',
+    )!;
+    const main = document.querySelector('main')!;
+    // 共通ヘッダ（🔤文字サイズ・☀️テーマ・🔔通知・モデル切替）は本便の対象外なので、
+    // その下端＝ページ本体の先頭から測る
+    const pageTop = main.firstElementChild!.getBoundingClientRect().bottom;
+    const banner = q('[data-draft-banner]');
+    const blocks = [q('.ta-head'), q('[data-ta-tabs]'), banner, q('[data-ta-label-row]')].filter(
+      (el): el is HTMLElement => !!el,
+    );
+    const h = (el: HTMLElement | null) => (el ? +el.getBoundingClientRect().height.toFixed(1) : null);
+    return {
+      head: +(ta.getBoundingClientRect().top - pageTop).toFixed(1),
+      blocks: blocks.length,
+      // 「1行」の判定用（そのブロックの中で最も高い子＝折り返していれば2倍近くになる）
+      titleH: h(q('.ta-head')),
+      tabsH: h(q('[data-ta-tabs]')),
+      bannerH: h(banner),
+      labelRowH: h(q('[data-ta-label-row]')),
+      descDisplay: q('.ta-head-desc') ? getComputedStyle(q('.ta-head-desc')!).display : null,
+      pageScrollsX: document.documentElement.scrollWidth > window.innerWidth + 1,
+      taRows: ta.rows,
+      taHeight: +ta.getBoundingClientRect().height.toFixed(1),
+      taResize: getComputedStyle(ta).resize,
+    };
+  });
+}
+
+test('C149: 警告は操作行に重ねない・端末で文言を出し分ける（332【A】【B】）— 警告は操作行の**下**にある in-flow の帯で交差面積0・出ている間も🚀分析／✕クリア／📋クリアして貼付が押せる・✕で閉じられる・操作行の上下に16px以上の余白・タッチ端末は「入力欄を長押しして「ペースト」」／PCは「⌘V」（hasTouch で分岐・決定的）・読めなくても本文は無傷（R-76）', async ({
+  page,
+  browser,
+}) => {
+  test.setTimeout(180_000);
+
+  // ── ① PC（Chromium・カーソルのある端末）: 文言は ⌘V ──
+  await stubFeatureDrafts(page);
+  await page.goto('/dashboard/text-analysis');
+  await waitForRunReady(page);
+  const textarea = page.getByPlaceholder('ここに分析したいテキストを貼り付けてください...');
+  const OLD = `[E2E] 332 PC の本文 ${RUN_ID}`;
+  await textarea.fill(OLD);
+  // 権限を与えていない＝読み取りに失敗する（iPhoneで「許可しない」を選んだのと同じ経路）
+  await page.locator('[data-clear-paste]').filter({ visible: true }).first().click();
+  const notice = page.locator('[data-ta-paste-notice]');
+  await expect(notice).toBeVisible({ timeout: 15000 });
+  await expect(notice, 'PCには ⌘V の案内').toContainText('⌘V で置き換えられます');
+  await expect(notice, 'PCに長押しの案内は出さない').not.toContainText('長押し');
+  await expect(textarea, '読めなくても本文は無傷（R-76）').toHaveValue(OLD);
+  await expect(notice, '警告として出る').toHaveAttribute('data-ta-paste-notice-kind', 'warning');
+  // ✕ で閉じられる
+  await page.locator('[data-ta-paste-notice-close]').click();
+  await expect(notice, '✕ で閉じられる').toHaveCount(0);
+
+  // ── ② iPhone相当（WebKit・hasTouch・390px）: 重なり・押せること・文言 ──
+  const wk = await webkit.launch();
+  const ctx = await wk.newContext({
+    storageState: STORAGE_STATE,
+    baseURL: BASE_URL,
+    hasTouch: true,
+    isMobile: true,
+    viewport: { width: 390, height: 844 },
+    serviceWorkers: 'block',
+  });
+  const m = await ctx.newPage();
+  try {
+    await stubFeatureDrafts(m);
+    await m.goto('/dashboard/text-analysis');
+    const mta = m.getByPlaceholder('ここに分析したいテキストを貼り付けてください...');
+    await expect(mta).toBeVisible({ timeout: 30000 });
+    const mPaste = m.locator('[data-clear-paste]');
+    await expect(mPaste, 'ハイドレーション完了の合図').toBeVisible({ timeout: 30000 });
+
+    // 332【A】: 操作行の上下に 16px 以上の余白
+    const gaps = await m.locator('[data-ta-action-row]').evaluate((el) => {
+      const cs = getComputedStyle(el);
+      return { top: parseFloat(cs.marginTop), bottom: parseFloat(cs.marginBottom) };
+    });
+    expect(gaps.top, '操作行の上に16px以上').toBeGreaterThanOrEqual(16);
+    expect(gaps.bottom, '操作行の下に16px以上').toBeGreaterThanOrEqual(16);
+
+    const MOLD = `[E2E] 332 iPhone の本文 ${RUN_ID}`;
+    await mta.fill(MOLD);
+    // WebKit は clipboard-read の権限付与に対応していない＝必ず読み取りに失敗する（C52と同じ前提）
+    await mPaste.click();
+    const mNotice = m.locator('[data-ta-paste-notice]');
+    await expect(mNotice).toBeVisible({ timeout: 15000 });
+
+    // 332【B】: タッチ端末の文言（⌘V を出さない）
+    await expect(mNotice, 'iPhone には長押しの案内').toContainText(
+      '入力欄を長押しして「ペースト」で置き換えられます',
+    );
+    await expect(mNotice, 'iPhone に ⌘V は出さない').not.toContainText('⌘V');
+    await expect(mta, '読めなくても本文は無傷（R-76）').toHaveValue(MOLD);
+
+    // 332【A】: 固定表示ではなく in-flow（position: absolute/fixed で操作行の上に載せない）
+    expect(
+      await mNotice.evaluate((el) => getComputedStyle(el).position),
+      '警告を浮かせない',
+    ).toBe('static');
+
+    // 332【A】: 警告の矩形と操作行の矩形が重ならない（交差面積0）・警告は操作行の下
+    const geom = await m.evaluate(() => {
+      const n = document.querySelector('[data-ta-paste-notice]')!.getBoundingClientRect();
+      const row = document.querySelector('[data-ta-action-row]')!.getBoundingClientRect();
+      const ix = Math.max(0, Math.min(n.right, row.right) - Math.max(n.left, row.left));
+      const iy = Math.max(0, Math.min(n.bottom, row.bottom) - Math.max(n.top, row.top));
+      return { area: ix * iy, noticeTop: n.top, rowBottom: row.bottom };
+    });
+    expect(geom.area, '警告と操作行の交差面積は0').toBe(0);
+    expect(geom.noticeTop, '警告は操作行の下にある').toBeGreaterThanOrEqual(geom.rowBottom);
+
+    // 332【A】: 警告が出ている間も3つのボタンが押せる（click が成功する＝何にも覆われていない）
+    const mRun = m.locator('[data-ta-actions] button[data-kb-run]');
+    const mClear = m.getByRole('button', { name: /✕ クリア/ }).first();
+    await mRun.click({ trial: true, timeout: 5000 });
+    await mPaste.click({ trial: true, timeout: 5000 });
+    await mClear.click({ trial: true, timeout: 5000 });
+    // 実際に押しても本文が壊れない（クリア→Undo）
+    await mClear.click();
+    await expect(mta).toHaveValue('');
+    await m.getByRole('button', { name: '↩ 元に戻す' }).click();
+    await expect(mta).toHaveValue(MOLD);
+
+    // ✕ で閉じられる
+    await m.locator('[data-ta-paste-notice-close]').click();
+    await expect(mNotice, '✕ で閉じられる').toHaveCount(0);
+
+    // 313再改訂の廃止事項は維持（固定バーを作らない＝操作行を画面の下端に寄せない）
+    await expect(m.locator('[data-sticky-action-bar]')).toHaveCount(0);
+  } finally {
+    await ctx.close();
+    await wk.close();
+  }
+});
+
+test('C150: 上部の整理と入力欄の高さ（332【C】【D】）— 上部が改修前の0.6倍以下（広幅・WebKit iPhone幅とも）・タイトルと説明が1行（狭幅は説明を省き title へ）・復元バナーが1行で現行の半分以下・「分析対象テキスト ✅分析終了」が1行・狭幅は3ブロック以内／S・M・L・自動で高さが変わり再読込後も保持（既定M）・自動は画面の60%を超えない・操作行はテキスト欄の直下のまま・PCは resize: vertical', async ({
+  page,
+}) => {
+  test.setTimeout(180_000);
+
+  // ── ① 広幅（Chromium）: 上部の高さ・1行化 ──
+  await stubFeatureDrafts(page);
+  await page.goto('/dashboard/text-analysis');
+  await waitForRunReady(page);
+  const wide = await measureHead(page);
+  expect(wide.head, `上部は改修前(${HEAD_BEFORE_WIDE}px)の0.6倍以下`).toBeLessThanOrEqual(
+    HEAD_BEFORE_WIDE * HEAD_RATIO,
+  );
+  expect(wide.blocks, '復元バナー無しでは3ブロック（タイトル行・タブ・ラベル行）').toBe(3);
+  expect(wide.titleH!, 'タイトルと説明が1行に収まる').toBeLessThanOrEqual(32);
+  expect(wide.descDisplay, '広幅では説明を出す').not.toBe('none');
+  expect(wide.labelRowH!, '「分析対象テキスト ✅分析終了」が1行').toBeLessThanOrEqual(28);
+  // 既定は M（約12行）・PCはドラッグでも変えられる
+  expect(wide.taRows, '既定は M（約12行）').toBe(12);
+  expect(wide.taResize, 'PCでは resize: vertical').toBe('vertical');
+
+  // ── ② 復元バナー（1行・現行の半分以下）──
+  await stubRestoredDraft(page);
+  await page.reload({ waitUntil: 'domcontentloaded' });
+  await expect(page.locator('[data-draft-banner]')).toBeVisible({ timeout: 30000 });
+  const wideBanner = await measureHead(page);
+  expect(wideBanner.bannerH!, `復元バナーは現行(${DRAFT_BANNER_BEFORE_WIDE}px)の半分以下`).toBeLessThanOrEqual(
+    DRAFT_BANNER_BEFORE_WIDE / 2,
+  );
+  expect(wideBanner.head, `バナーありでも改修前(${HEAD_BEFORE_WIDE_BANNER}px)の0.6倍以下`).toBeLessThanOrEqual(
+    HEAD_BEFORE_WIDE_BANNER * HEAD_RATIO,
+  );
+  // バナーの「✕ クリア」で閉じられる（閉じると上部が1ブロック減る）
+  await page.locator('[data-draft-banner] button').click();
+  await expect(page.locator('[data-draft-banner]')).toHaveCount(0);
+
+  // ── ③ 高さの切替（S／M／L／自動）と記憶 ──
+  await stubFeatureDrafts(page);
+  await page.goto('/dashboard/text-analysis');
+  await waitForRunReady(page);
+  const ta = page.getByPlaceholder('ここに分析したいテキストを貼り付けてください...');
+  const rowsOf = () => ta.evaluate((e: HTMLTextAreaElement) => e.rows);
+  const heightOf = () => ta.evaluate((e) => e.getBoundingClientRect().height);
+  // 既定（M）から始める＝前のテストが残した保存値に左右されない
+  await page.locator('[data-ta-height-choice="M"]').click();
+  expect(await rowsOf(), '既定は M（約12行）').toBe(12);
+  const mHeight = await heightOf();
+  await page.locator('[data-ta-height-choice="S"]').click();
+  const sHeight = await heightOf();
+  expect(await rowsOf(), 'S は約6行').toBe(6);
+  expect(sHeight, 'S は M より低い').toBeLessThan(mHeight);
+  await page.locator('[data-ta-height-choice="L"]').click();
+  expect(await rowsOf(), 'L は約24行').toBe(24);
+  expect(await heightOf(), 'L は M より高い').toBeGreaterThan(mHeight);
+  // 高さを変えても操作行はテキスト欄の直下のまま（順序が変わらない）
+  const order = await page.evaluate(() => {
+    const t = document.querySelector('textarea[placeholder^="ここに分析したいテキスト"]')!.getBoundingClientRect();
+    const row = document.querySelector('[data-ta-action-row]')!.getBoundingClientRect();
+    const types = document.querySelector('[data-ta-types]')!.getBoundingClientRect();
+    return { taBottom: t.bottom, rowTop: row.top, rowBottom: row.bottom, typesTop: types.top };
+  });
+  expect(order.rowTop, '操作行はテキスト欄の下').toBeGreaterThanOrEqual(order.taBottom);
+  expect(order.rowBottom, '操作行は分析タイプより上').toBeLessThanOrEqual(order.typesTop + 1);
+  // 再読込後も保持される
+  await page.reload({ waitUntil: 'domcontentloaded' });
+  await waitForRunReady(page);
+  expect(await rowsOf(), '再読込後も L のまま').toBe(24);
+  await expect(page.locator('[data-ta-height-choice="L"]')).toHaveAttribute('aria-pressed', 'true');
+  // 自動: 長文でも画面の60%を超えない
+  await page.locator('[data-ta-height-choice="auto"]').click();
+  await ta.fill(Array.from({ length: 200 }, (_, i) => `[E2E] 332 自動の行 ${i}`).join('\n'));
+  const auto = await page.evaluate(() => ({
+    h: document.querySelector('textarea[placeholder^="ここに分析したいテキスト"]')!.getBoundingClientRect().height,
+    cap: window.innerHeight * 0.6,
+  }));
+  expect(auto.h, '自動でも画面の60%を超えない').toBeLessThanOrEqual(auto.cap + 1);
+  // 後片付け（既定に戻す）
+  await page.locator('[data-ta-height-choice="M"]').click();
+
+  // ── ④ 狭幅（WebKit・iPhone幅・R-64）──
+  const wk = await webkit.launch();
+  const ctx = await wk.newContext({
+    storageState: STORAGE_STATE,
+    baseURL: BASE_URL,
+    hasTouch: true,
+    isMobile: true,
+    viewport: { width: 390, height: 844 },
+    serviceWorkers: 'block',
+  });
+  const m = await ctx.newPage();
+  try {
+    await stubFeatureDrafts(m);
+    await m.goto('/dashboard/text-analysis');
+    await expect(m.locator('[data-clear-paste]')).toBeVisible({ timeout: 30000 });
+    const narrow = await measureHead(m);
+    expect(narrow.head, `狭幅の上部も改修前(${HEAD_BEFORE_NARROW}px)の0.6倍以下`).toBeLessThanOrEqual(
+      HEAD_BEFORE_NARROW * HEAD_RATIO,
+    );
+    expect(narrow.blocks, '狭幅の上部は3ブロック以内').toBeLessThanOrEqual(3);
+    expect(narrow.descDisplay, '狭幅では説明を出さない（title に逃がす）').toBe('none');
+    await expect(m.locator('.ta-head'), '省いた説明は title で読める（R-110）').toHaveAttribute(
+      'title',
+      /テキストを複数の観点で同時に分析/,
+    );
+    expect(narrow.titleH!, 'タイトルは1行').toBeLessThanOrEqual(32);
+    expect(narrow.labelRowH!, 'ラベル行は1行').toBeLessThanOrEqual(28);
+    expect(narrow.pageScrollsX, '横スクロールしない（タブ自体は中で横スクロールする）').toBe(false);
+    expect(narrow.taRows, '狭幅でも既定は M').toBe(12);
+    // 高さの切替は狭幅でも押せる（iOS では resize のドラッグが効かないためプリセットが主）
+    await m.locator('[data-ta-height-choice="S"]').tap();
+    expect(await m.locator('textarea[placeholder^="ここに分析したいテキスト"]').evaluate((e: HTMLTextAreaElement) => e.rows)).toBe(6);
+    await m.locator('[data-ta-height-choice="M"]').tap();
+
+    // 復元バナーも狭幅で1行
+    await stubRestoredDraft(m);
+    await m.reload({ waitUntil: 'domcontentloaded' });
+    await expect(m.locator('[data-draft-banner]')).toBeVisible({ timeout: 30000 });
+    const narrowBanner = await measureHead(m);
+    expect(
+      narrowBanner.bannerH!,
+      `狭幅の復元バナーは現行(${DRAFT_BANNER_BEFORE_NARROW}px)の半分以下＝1行`,
+    ).toBeLessThanOrEqual(DRAFT_BANNER_BEFORE_NARROW / 2);
+    expect(
+      narrowBanner.head,
+      `バナーありでも改修前(${HEAD_BEFORE_NARROW_BANNER}px)の0.6倍以下`,
+    ).toBeLessThanOrEqual(HEAD_BEFORE_NARROW_BANNER * HEAD_RATIO);
+    expect(narrowBanner.blocks, 'バナーを含めても4ブロック（タイトル・タブ・バナー・ラベル）').toBe(4);
+  } finally {
+    await ctx.close();
+    await wk.close();
+  }
+});

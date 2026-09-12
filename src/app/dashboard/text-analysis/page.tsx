@@ -12,6 +12,9 @@ import NoteBundleDock from '@/components/note-bundle/NoteBundleDock';
 
 type TabType = 'analyze' | 'saved' | 'cross' | 'url';
 
+// 332【C】: 狭幅では出さず `title` に載せる（文言はここが唯一の正）
+const PAGE_DESCRIPTION = 'テキストを複数の観点で同時に分析・保存・カテゴリ管理ができます';
+
 export default function TextAnalysisPage() {
   return (
     <Suspense
@@ -122,32 +125,27 @@ function TextAnalysisPageInner() {
   const handleSaved = () => reloadRecords();
 
   return (
-    <div>
-      <div style={{ marginBottom: 24 }}>
-        <h1
-          style={{
-            fontSize: 26,
-            fontWeight: 700,
-            color: 'var(--text-primary)',
-            marginBottom: 4,
-          }}
-        >
-          📝 テキスト分析・カテゴライズ
-        </h1>
-        <p style={{ color: 'var(--text-muted)', fontSize: 13 }}>
-          テキストを複数の観点で同時に分析・保存・カテゴリ管理ができます
-        </p>
+    <div data-ta-page>
+      {/* 332【C】: 上部の整理。タイトルと説明を1行にまとめ、狭幅では説明を省いて `title` に逃がす
+          （省略の判断は画面幅なので CSS 側に置く・R-131。全文は300の即時ツールチップが出す・R-110）。
+          🔤文字サイズ・☀️テーマ・🔔通知・モデル切替は共通ヘッダ（dashboard/layout.tsx）で、本便では触らない */}
+      <style>{`
+        .ta-head { display: flex; align-items: baseline; gap: 8px; min-width: 0; margin-bottom: 8px; }
+        .ta-head h1 { font-size: 17px; font-weight: 700; line-height: 1.2; margin: 0; color: var(--text-primary); white-space: nowrap; }
+        .ta-head-desc { margin: 0; font-size: 12px; line-height: 1.2; color: var(--text-muted); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        /* 狭幅では説明を出さない（タイトルの title に同じ文言が入っている） */
+        @media (max-width: 720px) { .ta-head-desc { display: none; } }
+        /* タブは折り返さず横スクロール（折り返すと帯が倍になり、上部がまた伸びる） */
+        .ta-tabs { display: flex; gap: 4px; margin-bottom: 8px; border-bottom: 1px solid var(--border); flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; }
+        .ta-tabs::-webkit-scrollbar { display: none; }
+      `}</style>
+      <div className="ta-head" title={PAGE_DESCRIPTION}>
+        <h1>📝 テキスト分析・カテゴライズ</h1>
+        <p className="ta-head-desc">{PAGE_DESCRIPTION}</p>
       </div>
 
       {/* タブ */}
-      <div
-        style={{
-          display: 'flex',
-          gap: 4,
-          marginBottom: 20,
-          borderBottom: '1px solid var(--border)',
-        }}
-      >
+      <div className="ta-tabs" data-ta-tabs>
         {[
           { key: 'analyze' as const, label: '🚀 分析実行', count: undefined, color: 'var(--accent)' },
           { key: 'saved' as const, label: '🗂 保存一覧', count: savedTotal, color: 'var(--accent)' },
@@ -161,15 +159,18 @@ function TextAnalysisPageInner() {
               type="button"
               onClick={() => setTab(t.key)}
               style={{
-                padding: '10px 18px',
+                // 332【C】: 高さを詰める（上下の余白と文字を1段小さく）。並び・文言・色は不変
+                padding: '6px 12px',
                 background: 'transparent',
                 border: 'none',
                 borderBottom: `2px solid ${active ? t.color : 'transparent'}`,
                 color: active ? t.color : 'var(--text-muted)',
-                fontSize: 13,
+                fontSize: 12,
+                lineHeight: 1.3,
                 fontWeight: active ? 600 : 500,
                 cursor: 'pointer',
                 marginBottom: -1,
+                flexShrink: 0,
               }}
             >
               {t.label}

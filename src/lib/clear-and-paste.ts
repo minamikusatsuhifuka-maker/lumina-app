@@ -98,11 +98,20 @@ export async function clearAndPaste(
   return 'pasted';
 }
 
-/** 結果に対する画面の案内文（3画面で同じ文言にする） */
-export const CLEAR_PASTE_MESSAGE: Record<
-  ClearAndPasteResult,
-  { text: string; kind: 'success' | 'warning' | 'info' }
-> = {
+export interface ClearPasteMessage {
+  text: string;
+  kind: 'success' | 'warning' | 'info';
+}
+
+// ── 332: 代わりの操作は端末で違う（院長の実測・iPhone・2026/9/12）───────────
+// 270の文言は「⌘V で置き換えられます」1本で、iPhoneにもMac向けの案内が出ていた。
+// iOSには⌘Vが無く、置き換えは**入力欄を長押し→「ペースト」**しかない（255〜270で確認済み。
+// これはOSが描くUIで、アプリ側からは起こせない＝新しい貼り付け方法は試さない・R-76）。
+// 分岐は端末名（UA）ではなく**入力手段**で決める（lib/pointer-device.ts・R-74: 決定的）。
+// ここは純関数にして、判定結果（カーソルがあるか）は呼び出し側から渡す＝単体テストで機械判定できる。
+
+/** カーソルのある端末（Mac・PC）向けの案内 */
+const MESSAGE_FINE: Record<ClearAndPasteResult, ClearPasteMessage> = {
   pasted: { text: 'クリアして貼り付けました', kind: 'success' },
   // 270: 「消していない」ことを最初に伝える（消えたかどうかが利用者の一番の関心事のため）
   denied: {
@@ -111,3 +120,24 @@ export const CLEAR_PASTE_MESSAGE: Record<
   },
   empty: { text: 'クリップボードが空でした。入力はそのままです', kind: 'warning' },
 };
+
+/** カーソルの無い端末（iPhone・iPad）向けの案内 */
+const MESSAGE_COARSE: Record<ClearAndPasteResult, ClearPasteMessage> = {
+  pasted: MESSAGE_FINE.pasted,
+  denied: {
+    text: 'クリップボードを読み取れませんでした。入力はそのままです（「✕ クリア」→ 入力欄を長押しして「ペースト」で置き換えられます）',
+    kind: 'warning',
+  },
+  empty: MESSAGE_FINE.empty,
+};
+
+/**
+ * 結果に対する画面の案内文（5画面で同じ文言にする）。
+ * @param finePointer カーソルのある端末か（`hasFinePointer()` / `useFinePointer()` の値を渡す）
+ */
+export function clearPasteMessage(
+  result: ClearAndPasteResult,
+  finePointer: boolean,
+): ClearPasteMessage {
+  return (finePointer ? MESSAGE_FINE : MESSAGE_COARSE)[result];
+}

@@ -52,7 +52,21 @@ import { useRunKeyHints, useRunShortcut } from '@/lib/shortcuts';
 // 設定そのもの・保存値・🔭ディープリサーチでの動作は残す（lib/paste-replace.ts）
 // 259/270: 「📋 ペースト」ボタン（270からは全端末に出す）
 // 313再改訂（院長判断 2026/9/9 23:44）: 「📋 クリアして貼付」を復元（254/270・R-76）。「📋 ペースト」（末尾追記）は🗂から外す
-import { clearAndPaste, CLEAR_PASTE_MESSAGE } from '@/lib/clear-and-paste';
+import { clearAndPaste, clearPasteMessage } from '@/lib/clear-and-paste';
+// 332【B】: 案内文の出し分けは端末名（UA）ではなく入力手段で決める（R-74: 決定的）
+import { useFinePointer } from '@/lib/pointer-device';
+// 332【D】: 分析対象テキスト欄の高さ（S／M／L／自動）と、その記憶
+import {
+  TA_HEIGHT_CHOICES,
+  TA_HEIGHT_DEFAULT,
+  TA_HEIGHT_LABEL,
+  TA_HEIGHT_TITLE,
+  autoHeightPx,
+  loadTextareaHeight,
+  saveTextareaHeight,
+  textareaHeightStyle,
+  type TextareaHeightChoice,
+} from '@/lib/textarea-height';
 import { isAutoStockSaveEnabled } from '@/lib/auto-stock-save';
 // 313改訂: 実行ボタンは狭幅・広幅とも**テキスト欄直下の行の先頭**（🚀 → ✕ クリア → 📋 ペースト）。固定バー（共通部品）はこの画面では使わない
 // （院長の実機判断: 追従バーは邪魔・フォーカス中の非表示で押せなくなる）。部品は横展開候補用に残す。無効化の理由は lib の純関数
@@ -928,6 +942,25 @@ export default function TextAnalysisPanel({
   // 254/270/313再改訂: クリアして貼付（ボタンとキー ⌘⇧V で同じ関数を通す）。
   // 読み取りに成功してからクリア→貼付（R-76）。読めなければ入力はそのまま・Undo も出さない
   const [pasting, setPasting] = useState(false);
+  // 332【A】: 「クリアして貼付」の案内。トースト（fixed・画面右下）ではなく**操作行の直下**に
+  // 差し込む＝ボタンの上に載らない（出ると下の要素が押し下がるだけ）。✕ で閉じられる。
+  // 成功だけ数秒で自動的に消す（覆わないので消える前提にできる）。警告は自分で閉じるまで残す
+  const [pasteNotice, setPasteNotice] = useState<
+    { text: string; kind: 'success' | 'warning' } | null
+  >(null);
+  const noticeTimerRef = useRef<number | null>(null);
+  useEffect(() => {
+    if (noticeTimerRef.current !== null) window.clearTimeout(noticeTimerRef.current);
+    noticeTimerRef.current = null;
+    if (pasteNotice?.kind !== 'success') return;
+    noticeTimerRef.current = window.setTimeout(() => setPasteNotice(null), 3000);
+    return () => {
+      if (noticeTimerRef.current !== null) window.clearTimeout(noticeTimerRef.current);
+      noticeTimerRef.current = null;
+    };
+  }, [pasteNotice]);
+  // 332【B】: カーソルのある端末か（SSR中は fine 扱い＝デスクトップは現状維持）
+  const { fine: finePointer } = useFinePointer();
   const handleClearAndPaste = async () => {
     if (pasting || loading) return;
     setPasting(true);
@@ -945,8 +978,11 @@ export default function TextAnalysisPanel({
           undoTimerRef.current = window.setTimeout(() => setClearedText(null), 10000);
         },
       });
-      const msg = CLEAR_PASTE_MESSAGE[result];
-      showToast(msg.text, msg.kind === 'success' ? 'success' : 'warning');
+      // 332【A】: 案内は**操作行の下に差し込む**（トーストは画面右下の固定表示で、
+      // iPhone幅では操作行に重なってボタンが押せなくなっていた）。
+      // 332【B】: 文言は端末で出し分ける（⌘V／長押しして「ペースト」）
+      const msg = clearPasteMessage(result, finePointer);
+      setPasteNotice({ text: msg.text, kind: msg.kind === 'success' ? 'success' : 'warning' });
     } finally {
       setPasting(false);
     }
@@ -975,6 +1011,33 @@ export default function TextAnalysisPanel({
   // ボタンでもキー（⌘⇧V）でもこの関数を通す＝挙動が分かれない。
   const inputRef = useRef<HTMLTextAreaElement>(null);
   // 313再改訂: クリアして貼付（254/270）を復元＝上の handleClearAndPaste（R-76: 読み取り成功→クリア→貼付）。末尾追記の「📋 ペースト」は🗂に置かない
+
+  // ── 332【D】: 分析対象テキスト欄の高さ（S／M／L／自動）──────────────
+  // 既定は M（約12行）。選択は端末に記憶（313/320と同じ localStorage）。
+  // SSRとの描画差異を作らないため、保存値の読み出しはマウント後に行う（既定で描いてから差し替える）
+  const [inputHeight, setInputHeight] = useState<TextareaHeightChoice>(TA_HEIGHT_DEFAULT);
+  useEffect(() => {
+    setInputHeight(loadTextareaHeight());
+  }, []);
+  const heightStyle = textareaHeightStyle(inputHeight);
+  const changeInputHeight = (next: TextareaHeightChoice) => {
+    setInputHeight(next);
+    saveTextareaHeight(next);
+  };
+  // 「自動」だけは内容に合わせて伸ばす（上限は画面の60%＝ここを超えたら中でスクロールする）。
+  // S／M／L は rows 属性に任せる＝ブラウザが行の高さから計算する（🔤文字サイズにも追随する）
+  useEffect(() => {
+    const el = inputRef.current;
+    if (!el) return;
+    if (!heightStyle.auto) {
+      el.style.height = '';
+      el.style.maxHeight = '';
+      return;
+    }
+    el.style.height = 'auto';
+    el.style.maxHeight = `${autoHeightPx(Number.MAX_SAFE_INTEGER, window.innerHeight)}px`;
+    el.style.height = `${autoHeightPx(el.scrollHeight, window.innerHeight)}px`;
+  }, [heightStyle.auto, inputText]);
 
   // 247: ⌘/Ctrl+Enter=分析実行 / ⌘/Ctrl+Backspace=入力クリア（248で2キー化）。
   // panelRef の可視判定で、タブ切替（display:none）中は発火しない。
@@ -1227,46 +1290,102 @@ export default function TextAnalysisPanel({
           background: 'var(--bg-card)',
           border: '1px solid var(--border)',
           borderRadius: 12,
-          padding: 16,
+          // 332【C】: 上部の圧縮。左右は据え置き、上だけ詰める
+          padding: '10px 16px 16px',
         }}
       >
+        {/* 332【C】: 「分析対象テキスト ✅分析終了」を1行に（左＝ラベルと状態バッジ・右＝高さの切替） */}
         <div
+          data-ta-label-row
           style={{
             display: 'flex',
             alignItems: 'center',
+            justifyContent: 'space-between',
             gap: 8,
-            marginBottom: 8,
+            marginBottom: 6,
+            // 1行に収めるため折り返さない（入りきらないときはラベル側が縮む）
+            flexWrap: 'nowrap',
+            minWidth: 0,
           }}
         >
-          <label
+          <span
             style={{
-              fontSize: 12,
-              fontWeight: 600,
-              color: 'var(--text-secondary)',
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 6,
+              minWidth: 0,
+              overflow: 'hidden',
             }}
           >
-            分析対象テキスト
-          </label>
-          {loading && (
-            <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>
-              🔄 分析中...
-            </span>
-          )}
-          {!loading && analysisDone && (
-            <span
+            <label
               style={{
-                fontSize: 12,
-                fontWeight: 700,
-                color: '#16a34a',
-                background: '#f0fdf4',
-                border: '1px solid #bbf7d0',
-                borderRadius: 999,
-                padding: '2px 10px',
+                fontSize: 11,
+                fontWeight: 600,
+                lineHeight: 1.3,
+                color: 'var(--text-secondary)',
+                whiteSpace: 'nowrap',
               }}
             >
-              ✅ 分析終了
-            </span>
-          )}
+              分析対象テキスト
+            </label>
+            {loading && (
+              <span style={{ fontSize: 11, lineHeight: 1.3, color: 'var(--text-secondary)', whiteSpace: 'nowrap' }}>
+                🔄 分析中...
+              </span>
+            )}
+            {!loading && analysisDone && (
+              <span
+                data-ta-done-badge
+                style={{
+                  fontSize: 10,
+                  lineHeight: 1.3,
+                  fontWeight: 700,
+                  color: '#16a34a',
+                  background: '#f0fdf4',
+                  border: '1px solid #bbf7d0',
+                  borderRadius: 999,
+                  padding: '1px 8px',
+                  whiteSpace: 'nowrap',
+                  flexShrink: 0,
+                }}
+              >
+                ✅ 分析終了
+              </span>
+            )}
+          </span>
+          {/* 332【D】: 高さの切替。選んだ値は端末に記憶する（既定 M） */}
+          <span
+            data-ta-height
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 3, flexShrink: 0 }}
+          >
+            {TA_HEIGHT_CHOICES.map((c) => {
+              const on = inputHeight === c;
+              return (
+                <button
+                  key={c}
+                  type="button"
+                  data-ta-height-choice={c}
+                  aria-pressed={on}
+                  onClick={() => changeInputHeight(c)}
+                  title={TA_HEIGHT_TITLE[c]}
+                  style={{
+                    padding: '1px 6px',
+                    fontSize: 10,
+                    lineHeight: 1.3,
+                    fontWeight: on ? 700 : 500,
+                    color: on ? '#fff' : 'var(--text-muted)',
+                    background: on ? 'var(--accent)' : 'transparent',
+                    border: `1px solid ${on ? 'var(--accent)' : 'var(--border)'}`,
+                    borderRadius: 6,
+                    cursor: 'pointer',
+                    whiteSpace: 'nowrap',
+                  }}
+                >
+                  {TA_HEIGHT_LABEL[c]}
+                </button>
+              );
+            })}
+          </span>
         </div>
         <textarea
           ref={inputRef}
@@ -1278,7 +1397,8 @@ export default function TextAnalysisPanel({
             setAnalysisDone(false); // 入力変更で古い完了表示を消す
           }}
           placeholder="ここに分析したいテキストを貼り付けてください..."
-          rows={8}
+          // 332【D】: 高さはプリセット（S/M/L/自動）。rows はブラウザに行数で計算させる
+          rows={heightStyle.rows}
           style={{
             width: '100%',
             background: 'var(--input-bg)',
@@ -1287,11 +1407,14 @@ export default function TextAnalysisPanel({
             padding: 10,
             color: 'var(--text-primary)',
             fontSize: 16, // スマホ(iOS Safari)の自動ズーム防止のため16px以上
-            resize: 'vertical',
+            // PCはドラッグでも変えられる（iOSでは効かないのでプリセットが主）。
+            // 「自動」は次の入力で高さを入れ直すためドラッグを受け付けない
+            resize: heightStyle.resize,
             fontFamily: 'inherit',
           }}
         />
         <div
+          data-ta-action-row
           style={{
             display: 'flex',
             justifyContent: 'space-between',
@@ -1299,7 +1422,10 @@ export default function TextAnalysisPanel({
             // 270: 3ボタンになったので、狭い画面では文字数表示ごと折り返させる
             flexWrap: 'wrap',
             gap: 6,
-            marginTop: 6,
+            // 332【A】: 操作行の上下に余白（16px以上）。警告・iOSの「ペースト」確認が
+            // 近づいてもボタンが埋もれないようにする
+            marginTop: 16,
+            marginBottom: 16,
             fontSize: 11,
             color: 'var(--text-muted)',
           }}
@@ -1395,6 +1521,54 @@ export default function TextAnalysisPanel({
             </button>
           </span>
         </div>
+
+        {/* 332【A】: 「クリアして貼付」の案内は**操作行の下**（in-flow）。
+            position: absolute/fixed を使わないので、出てもボタンの上に載らない＝常に押せる。
+            出ると下の要素が押し下がるだけ（レイアウトが動く）。✕ で閉じられる */}
+        {pasteNotice && (
+          <div
+            data-ta-paste-notice
+            data-ta-paste-notice-kind={pasteNotice.kind}
+            role="status"
+            style={{
+              display: 'flex',
+              alignItems: 'flex-start',
+              gap: 8,
+              padding: '8px 10px',
+              borderRadius: 8,
+              fontSize: 12,
+              lineHeight: 1.5,
+              background:
+                pasteNotice.kind === 'success' ? 'rgba(29,158,117,0.12)' : 'rgba(239,159,39,0.12)',
+              border: `1px solid ${pasteNotice.kind === 'success' ? '#1D9E75' : '#EF9F27'}40`,
+              color: pasteNotice.kind === 'success' ? '#1D9E75' : '#B45309',
+            }}
+          >
+            <span style={{ flexShrink: 0 }}>{pasteNotice.kind === 'success' ? '✅' : '⚠️'}</span>
+            <span style={{ minWidth: 0, flex: 1 }}>{pasteNotice.text}</span>
+            <button
+              type="button"
+              data-ta-paste-notice-close
+              onClick={() => setPasteNotice(null)}
+              title="この案内を閉じます"
+              aria-label="案内を閉じる"
+              style={{
+                flexShrink: 0,
+                padding: '0 6px',
+                fontSize: 12,
+                lineHeight: 1.5,
+                color: 'inherit',
+                background: 'transparent',
+                border: '1px solid currentColor',
+                borderRadius: 6,
+                opacity: 0.7,
+                cursor: 'pointer',
+              }}
+            >
+              ✕
+            </button>
+          </div>
+        )}
       </div>
 
       {/* 分析タイプ選択 */}

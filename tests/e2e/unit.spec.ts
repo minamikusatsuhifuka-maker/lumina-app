@@ -21,6 +21,9 @@ import {
 import * as vis320 from '../../src/lib/visuals';
 // 329: 画像ギャラリーの一括処理（純関数）
 import * as galleryBulk from '../../src/lib/gallery-bulk';
+// 332: 端末別の案内文と、入力欄の高さ（純関数）
+import * as cp332 from '../../src/lib/clear-and-paste';
+import * as th332 from '../../src/lib/textarea-height';
 import * as tpl320 from '../../src/lib/visual-templates';
 import { renderMarkdown } from '../../src/lib/markdown-renderer';
 import { readFileSync } from 'node:fs';
@@ -5878,4 +5881,62 @@ test('U101: 画像ギャラリーの一括処理（329）— 上限50件で理�
   expect(page, 'チェックは常時表示なので全選択のボタンは置かない（R-106）').not.toMatch(/data-gallery-select-all|selectAll|>全選択</);
   expect(page, 'サムネイルは切らない').toMatch(/objectFit: 'contain'/);
   expect(page, '削除は1件ずつ独立（R-39）').toMatch(/catch \{\s*\n\s*failed \+= 1;/);
+});
+
+// 332: 端末別の案内文（【B】）と、入力欄の高さ（【D】）の純関数
+test('U102: 警告の文言と入力欄の高さ（332）— 案内文はカーソルの有無だけで決まり（PCは⌘V／タッチは長押しして「ペースト」・成功と空は共通・決定的）／高さは S=6・M=12・L=24 行で既定は M・保存値は壊れていれば既定に倒す・自動は画面の60%を上限に内容の高さ（S/M/L は resize: vertical、自動は none）／警告は操作行に重ねない実装（in-flow・fixed を使わない）', () => {
+  // ── 【B】案内文（同じ入力なら必ず同じ文字列＝R-74）──
+  for (const fine of [true, false]) {
+    expect(cp332.clearPasteMessage('pasted', fine).kind).toBe('success');
+    expect(cp332.clearPasteMessage('pasted', fine).text).toBe('クリアして貼り付けました');
+    expect(cp332.clearPasteMessage('empty', fine).text).toBe('クリップボードが空でした。入力はそのままです');
+    expect(cp332.clearPasteMessage('denied', fine).kind).toBe('warning');
+    // 2回呼んでも同じ（乱数・時刻に依存しない）
+    expect(cp332.clearPasteMessage('denied', fine)).toEqual(cp332.clearPasteMessage('denied', fine));
+  }
+  const pc = cp332.clearPasteMessage('denied', true).text;
+  const touch = cp332.clearPasteMessage('denied', false).text;
+  expect(pc, 'どちらも「入力はそのままです」が先（消えていないことが一番の関心事・270）').toContain('入力はそのままです');
+  expect(touch).toContain('入力はそのままです');
+  expect(pc, 'PCは ⌘V').toContain('⌘V で置き換えられます');
+  expect(pc, 'PCに長押しの案内は出さない').not.toContain('長押し');
+  expect(touch, 'タッチ端末は長押し→「ペースト」（255〜270の結論と揃える）').toContain('入力欄を長押しして「ペースト」で置き換えられます');
+  expect(touch, 'iPhoneに ⌘V は出さない').not.toContain('⌘V');
+
+  // ── 【D】高さ ──
+  expect(th332.TA_HEIGHT_DEFAULT, '既定は M').toBe('M');
+  expect(th332.TA_HEIGHT_CHOICES).toEqual(['S', 'M', 'L', 'auto']);
+  expect(th332.TA_HEIGHT_ROWS).toEqual({ S: 6, M: 12, L: 24 });
+  expect(th332.TA_AUTO_MAX_RATIO, '自動の上限は画面の60%').toBe(0.6);
+  expect(th332.textareaHeightStyle('S')).toEqual({ rows: 6, resize: 'vertical', auto: false });
+  expect(th332.textareaHeightStyle('M')).toEqual({ rows: 12, resize: 'vertical', auto: false });
+  expect(th332.textareaHeightStyle('L')).toEqual({ rows: 24, resize: 'vertical', auto: false });
+  expect(th332.textareaHeightStyle('auto').auto, '自動は内容に合わせる').toBe(true);
+  expect(th332.textareaHeightStyle('auto').resize, '自動はドラッグを受け付けない（次の入力で上書きされるため）').toBe('none');
+  // 保存値の検証
+  expect(th332.isTextareaHeightChoice('L')).toBe(true);
+  expect(th332.isTextareaHeightChoice('XL')).toBe(false);
+  expect(th332.isTextareaHeightChoice(null)).toBe(false);
+  // ラベルは短く（R-57: 12文字以内）・説明は title に入る（R-110）
+  for (const c of th332.TA_HEIGHT_CHOICES) {
+    expect(th332.TA_HEIGHT_LABEL[c].length).toBeLessThanOrEqual(12);
+    expect(th332.TA_HEIGHT_TITLE[c].length).toBeGreaterThan(0);
+  }
+  // 自動の高さ（内容と上限の小さい方・負にならない）
+  expect(th332.autoHeightPx(300, 1000), '上限（600）より低ければ内容どおり').toBe(300);
+  expect(th332.autoHeightPx(900, 1000), '上限（600）で止まる').toBe(600);
+  expect(th332.autoHeightPx(0, 844)).toBe(0);
+  expect(th332.autoHeightPx(-50, 844)).toBe(0);
+
+  // ── 【A】警告は操作行に重ねない（実装のソース固定）──
+  const panel = readFileSync(join(__dirname, '../../src/components/text-analysis/TextAnalysisPanel.tsx'), 'utf8');
+  expect(panel, '案内はトースト（fixed・画面右下）ではなく画面内の帯で出す').toMatch(/data-ta-paste-notice/);
+  expect(panel, '案内に showToast を使わない（操作行に重なる原因）').not.toMatch(/showToast\(msg\.text/);
+  expect(panel, '案内を浮かせない（absolute/fixed を使わない）').not.toMatch(/data-ta-paste-notice[\s\S]{0,600}position: '(absolute|fixed)'/);
+  expect(panel, '操作行の上下に16px以上の余白').toMatch(/marginTop: 16,\s*\n\s*marginBottom: 16,/);
+  expect(panel, '端末判定は入力手段で決定的に（R-74）').toMatch(/useFinePointer/);
+  expect(panel, '高さは lib の純関数を通す（R-91）').toMatch(/from '@\/lib\/textarea-height'/);
+  const banner = readFileSync(join(__dirname, '../../src/components/FeatureDraftBanner.tsx'), 'utf8');
+  expect(banner, '復元バナーは折り返さない＝1行（狭幅で2行になり帯が倍になっていた）').toMatch(/flexWrap: 'nowrap'/);
+  expect(banner, '省いた文言は title で読める（R-110）').toMatch(/title=\{text\}/);
 });
