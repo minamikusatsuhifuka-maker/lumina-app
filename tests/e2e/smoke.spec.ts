@@ -13959,11 +13959,13 @@ test('C151: 案内を下部の操作要素に重ねない（333・R-133の横展
 // 高さは本文を読むたびに触る操作なので、畳むと毎回2タップかかる。
 // ============================================================================
 
-test('C152: 成果物の高さプリセット（334・WebKit iPhone幅）— 狭幅でも M・L・⛶ 全画面が「⋯ 操作」を開かずに押せる（44px以上・他と重ならない・横スクロールなし）／「⋯ 操作」の中に高さが無い／S が画面に無い／記憶に S が入っていると M に読み替えられ保存値も M に書き換わる／M・L の切替が再読込後も保持される／⛶ 全画面で全画面リーダーが開く／🗂保存一覧の展開ビューも同じ（S 無し・44px以上）／入力欄（332）のプリセットは S/M/L/自動 のまま／広幅は右端のまま', async () => {
+test('C152: 成果物の高さプリセット（334・WebKit iPhone幅）— 狭幅でも M・L・⛶ 全画面が「⋯ 操作」を開かずに押せる（44px以上・他と重ならない・横スクロールなし）／「⋯ 操作」の中に高さが無い／S が画面に無い／記憶に S が入っていると M に読み替えられ保存値も M に書き換わる／M・L の切替が再読込後も保持される／⛶ 全画面で全画面リーダーが開く／🗂保存一覧の展開ビューも同じ（S 無し・44px以上）／入力欄（332）のプリセットは S/M/L/自動 のまま／広幅は右端のまま', async ({ request }) => {
   test.setTimeout(240_000);
   const wk = await webkit.launch();
   const ctx = await wk.newContext({ storageState: STORAGE_STATE, baseURL: BASE_URL, hasTouch: true, isMobile: true, viewport: { width: 390, height: 844 }, serviceWorkers: 'block' });
   const page = await ctx.newPage();
+  // ⑥で使う保存済みの行は**この場で作る**（一覧の1枚目が他のテストの都合で変わると落ちるため・R-12）
+  let savedId: number | null = null;
   try {
     const long = 'かゆみが強いときは掻かずに冷やすとよい。保湿剤は入浴後5分以内に塗る。室内の湿度は50〜60%に保つ。'.repeat(6);
     // 成果物は「下書きの復元」で出す（AI は使わない）
@@ -14049,8 +14051,12 @@ test('C152: 成果物の高さプリセット（334・WebKit iPhone幅）— 狭
     expect(choices, '入力欄は S/M/L/自動 のまま').toEqual(['S', 'M', 'L', 'auto']);
 
     // ── ⑥ 🗂保存一覧の展開ビューも S 無し・44px以上 ──
+    const marker = `TA334${RUN_ID}`;
+    savedId = await createSave(request, { title: `TA-334 ${marker}`, content: longMarkdown(marker, 40), analysisType: 'summary', analysisLabel: '概要・要約' });
     await page.goto('/dashboard/saved');
-    const firstCard = page.locator('[data-saved-panel="text-analysis"] [data-analysis-card]').first();
+    const savedPanel = page.locator('[data-saved-panel="text-analysis"]');
+    await savedPanel.locator('[data-kb-search]').fill(marker);
+    const firstCard = savedPanel.locator(`[data-analysis-card="${savedId}"]`);
     await expect(firstCard).toBeVisible({ timeout: 30000 });
     await firstCard.getByRole('button', { name: '▼ 全文表示' }).click();
     const row = firstCard.locator('[data-ta-height-row]');
@@ -14077,6 +14083,7 @@ test('C152: 成果物の高さプリセット（334・WebKit iPhone幅）— 狭
     expect(wide.sameRow, '広幅は1段目の中').toBe(true);
     expect(wide.atRight, '広幅は右端のまま').toBe(true);
   } finally {
+    if (savedId) await deleteSave(request, savedId);
     await ctx.close();
     await wk.close();
   }
