@@ -1,7 +1,9 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useToast } from '@/components/ui/Toast';
+// 333: 案内は画面内（in-flow）の帯で出す＝下部の操作要素に重ねない（R-133）。
+// 呼び出し方は共通トーストと同じ showToast(message, type) なので、各所の呼び出しは無変更
+import InlineNotice, { useInlineNotice } from '@/components/ui/InlineNotice';
 import SelectionBar from '@/components/SelectionBar';
 import ModalSheet from '@/components/ModalSheet';
 import {
@@ -53,7 +55,7 @@ function formatBytes(bytes: number | null): string {
 }
 
 export default function GalleryPage() {
-  const { showToast } = useToast();
+  const { notice, showToast, clearNotice } = useInlineNotice();
   const [images, setImages] = useState<GalleryImage[]>([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -230,6 +232,15 @@ export default function GalleryPage() {
         画像生成で作った画像のストック。院内掲示・SNS用に貯めて、いつでも再取得できます。
         {total > 0 && `（${total}件）`}
       </p>
+
+      {/* 333: 操作の結果はここ（一覧の先頭）に出す。浮かせないのでカードのボタンを覆わない（R-133） */}
+      <InlineNotice
+        notice={notice}
+        onClose={clearNotice}
+        marker="gallery"
+        scrollIntoView
+        style={{ marginBottom: 12 }}
+      />
 
       {/* 329 §2-4: 絞り込み（種類・モデル・比）。並びは新しい順のまま */}
       {images.length > 0 && (

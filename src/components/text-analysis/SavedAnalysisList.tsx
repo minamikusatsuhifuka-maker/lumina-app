@@ -7,7 +7,9 @@ import SelectionBar from '@/components/SelectionBar';
 import { FollowUpCountBadge, FollowUpResearchButton, FollowUpResearchDialog } from '@/components/deepresearch/FollowUpResearchDialog';
 import { FOLLOWUP_MAX_SOURCES, type FollowUpRef, followUpTooManyReason } from '@/lib/followup-research';
 import { useRouter } from 'next/navigation';
-import { useToast } from '@/components/ui/Toast';
+// 333: 案内は画面内（in-flow）の帯で出す＝下部の操作要素に重ねない（R-133）。
+// 呼び出し方は共通トーストと同じ showToast(message, type) なので、各所の呼び出しは無変更
+import InlineNotice, { useInlineNotice } from '@/components/ui/InlineNotice';
 import { MAX_KINDLE_SOURCES, makeAnalysisSourceKey } from '@/lib/kindle-limits';
 import { copyToClipboard } from '@/lib/copyToClipboard';
 import { confirmBulkDelete } from '@/lib/bulk-delete-confirm';
@@ -198,7 +200,7 @@ export default function SavedAnalysisList({
   onAllTotalChange,
   reloadKey,
 }: Props) {
-  const { showToast } = useToast();
+  const { notice, showToast, clearNotice } = useInlineNotice();
   // 204 第1層: ツールチップ/placeholderへのキー併記（設定OFF・モバイルでは非表示）
   const showKbHints = useShortcutHints();
   // 179/180: note記事まとめの横断選択（🧠AI参照素材側と共有ストア）。選択モード中は
@@ -1485,6 +1487,10 @@ export default function SavedAnalysisList({
           .category-grid { grid-template-columns: 1fr 1fr; }
         }
       `}</style>
+      {/* 333: 操作の結果・入力の不備はここ（一覧の先頭）に出す。浮かせないのでカードや
+          ページングのボタンを覆わない（R-133）。従来は共通トースト＝画面右下の固定表示だった */}
+      <InlineNotice notice={notice} onClose={clearNotice} marker="ta-saved" scrollIntoView />
+
       {/* 188: note記事群生成の入口を一覧最上部の目に入る位置へ（🧠側と見た目を統一） */}
       <div>
         <BundleSelectToggleButton />

@@ -1,6 +1,20 @@
 'use client';
 
 import { useState, useEffect, createContext, useContext, useCallback } from 'react';
+import { FLOATING_COLUMN_CLEARANCE } from '@/components/ThemeProvider';
+
+// ── 333【R-133の横展開】: トーストを画面下部の操作要素に重ねない ──────────────
+// 332で「警告・案内は操作要素に重ねない」を R-133 として台帳に入れたが、共通トーストは
+// `bottom:24; right:24` の固定のままだった。iPhone幅（390）で実測すると:
+//   ・スクロール後は「↑ トップへ戻る」（追従ボタン列・right:16/52px幅・z:9998）と **1738px² 重なる**
+//     ——トーストの方が z が低いので、案内が追従ボタンの下に潜って読めなくなる
+//   ・下部固定バー（StickyActionBar）が出ている画面では、その上に載る
+// 対処は313と同じ方式＝**座標を直接いじらず、相手が publish した CSS 変数のぶんだけ逃がす**:
+//   縦 … `--lumina-sticky-bar-h`（StickyActionBar が実測して documentElement に書く）
+//   横 … 追従ボタン列は幅が定数なので ThemeProvider が公開する FLOATING_COLUMN_CLEARANCE のぶん左へ
+// さらに、**アクションの無いトーストはクリックを奪わない**（pointer-events: none）＝
+// 下にある要素の `click()` が必ず通る。アクション（↩ 元に戻す）付きだけが受け取る。
+// 幅は画面からはみ出さないよう上限を置く（390px幅で 416px になり左右が切れていた）。
 
 type ToastType = 'success' | 'error' | 'info' | 'warning';
 
@@ -52,7 +66,23 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
   return (
     <ToastContext.Provider value={{ showToast }}>
       {children}
-      <div style={{ position: 'fixed', bottom: 24, right: 24, zIndex: 200, display: 'flex', flexDirection: 'column', gap: 8, pointerEvents: 'none' }}>
+      <div
+        data-toast-layer
+        style={{
+          position: 'fixed',
+          // 313の方式: 下部固定バーが出ている間はその高さだけ上へ逃がす（出ていなければ 0px）
+          bottom: 'calc(24px + env(safe-area-inset-bottom, 0px) + var(--lumina-sticky-bar-h, 0px))',
+          // 追従ボタン列（↑ 📖 📝 🗒 💬）の外側に置く＝列と横に重ならない
+          right: FLOATING_COLUMN_CLEARANCE,
+          maxWidth: `calc(100vw - ${FLOATING_COLUMN_CLEARANCE + 16}px)`,
+          zIndex: 200,
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'flex-end',
+          gap: 8,
+          pointerEvents: 'none',
+        }}
+      >
         {toasts.map(toast => (
           <div
             key={toast.id}
@@ -65,7 +95,10 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
               border: `1px solid ${TEXT_COLORS[toast.type]}30`,
               fontSize: 13, fontWeight: 500,
               boxShadow: '0 4px 16px rgba(0,0,0,0.15)',
-              pointerEvents: 'auto',
+              // 333: アクション（↩ 元に戻す）の無いトーストはクリックを奪わない＝
+              // 下にある要素の click() が必ず通る（R-133: 操作を塞がない）
+              pointerEvents: toast.action ? 'auto' : 'none',
+              maxWidth: '100%',
             }}
           >
             <span>{ICONS[toast.type]}</span>

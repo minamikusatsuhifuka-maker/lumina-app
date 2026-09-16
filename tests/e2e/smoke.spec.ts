@@ -13510,14 +13510,14 @@ test('C149: 警告は操作行に重ねない・端末で文言を出し分け�
   await textarea.fill(OLD);
   // 権限を与えていない＝読み取りに失敗する（iPhoneで「許可しない」を選んだのと同じ経路）
   await page.locator('[data-clear-paste]').filter({ visible: true }).first().click();
-  const notice = page.locator('[data-ta-paste-notice]');
+  const notice = page.locator('[data-inline-notice="ta-paste"]');
   await expect(notice).toBeVisible({ timeout: 15000 });
   await expect(notice, 'PCには ⌘V の案内').toContainText('⌘V で置き換えられます');
   await expect(notice, 'PCに長押しの案内は出さない').not.toContainText('長押し');
   await expect(textarea, '読めなくても本文は無傷（R-76）').toHaveValue(OLD);
-  await expect(notice, '警告として出る').toHaveAttribute('data-ta-paste-notice-kind', 'warning');
+  await expect(notice, '警告として出る').toHaveAttribute('data-inline-notice-kind', 'warning');
   // ✕ で閉じられる
-  await page.locator('[data-ta-paste-notice-close]').click();
+  await page.locator('[data-inline-notice-close]').click();
   await expect(notice, '✕ で閉じられる').toHaveCount(0);
 
   // ── ② iPhone相当（WebKit・hasTouch・390px）: 重なり・押せること・文言 ──
@@ -13551,7 +13551,7 @@ test('C149: 警告は操作行に重ねない・端末で文言を出し分け�
     await mta.fill(MOLD);
     // WebKit は clipboard-read の権限付与に対応していない＝必ず読み取りに失敗する（C52と同じ前提）
     await mPaste.click();
-    const mNotice = m.locator('[data-ta-paste-notice]');
+    const mNotice = m.locator('[data-inline-notice="ta-paste"]');
     await expect(mNotice).toBeVisible({ timeout: 15000 });
 
     // 332【B】: タッチ端末の文言（⌘V を出さない）
@@ -13569,7 +13569,7 @@ test('C149: 警告は操作行に重ねない・端末で文言を出し分け�
 
     // 332【A】: 警告の矩形と操作行の矩形が重ならない（交差面積0）・警告は操作行の下
     const geom = await m.evaluate(() => {
-      const n = document.querySelector('[data-ta-paste-notice]')!.getBoundingClientRect();
+      const n = document.querySelector('[data-inline-notice=\'ta-paste\']')!.getBoundingClientRect();
       const row = document.querySelector('[data-ta-action-row]')!.getBoundingClientRect();
       const ix = Math.max(0, Math.min(n.right, row.right) - Math.max(n.left, row.left));
       const iy = Math.max(0, Math.min(n.bottom, row.bottom) - Math.max(n.top, row.top));
@@ -13591,7 +13591,7 @@ test('C149: 警告は操作行に重ねない・端末で文言を出し分け�
     await expect(mta).toHaveValue(MOLD);
 
     // ✕ で閉じられる
-    await m.locator('[data-ta-paste-notice-close]').click();
+    await m.locator('[data-inline-notice-close]').click();
     await expect(mNotice, '✕ で閉じられる').toHaveCount(0);
 
     // 313再改訂の廃止事項は維持（固定バーを作らない＝操作行を画面の下端に寄せない）
@@ -13730,6 +13730,215 @@ test('C150: 上部の整理と入力欄の高さ（332【C】【D】）— 上�
     ).toBeLessThanOrEqual(HEAD_BEFORE_NARROW_BANNER * HEAD_RATIO);
     expect(narrowBanner.blocks, 'バナーを含めても4ブロック（タイトル・タブ・バナー・ラベル）').toBe(4);
   } finally {
+    await ctx.close();
+    await wk.close();
+  }
+});
+
+// ============================================================================
+// 333: R-133 の横展開 — 共通トーストが下部の操作要素に重なる3画面を塞ぐ
+//
+// 332の調査の続きで、iPhone幅（WebKit 390×844）で実測したところ:
+//   ・共通トーストは `bottom:24; right:24; z:200`。スクロール後に出る「↑ トップへ戻る」
+//     （追従ボタン列・right:16/52px・z:9998）と **1738px² 重なる**（案内がボタンの下に潜って読めない）
+//   ・📚画像ギャラリーでは、トーストがカードの 🗑 / 🔍 の上に載る
+//   ・マンダラ詳細では、トーストが下段のマス（クリックできる）の上に載る。
+//     さらにマス編集パネル（z:9000・狭幅は全画面）を開いている間は、**トーストがパネルの裏で見えない**
+//   ・トーストの幅に上限が無く、390px幅では 416px になって左右がはみ出していた
+//   ※ 選択バー（318・SelectionBar）は**一覧の上**に出る部品で、下部には無い（332の報告を訂正）
+//
+// 対処（R-133）:
+//   ・共通トースト: 313と同じ方式で逃がす（縦＝`--lumina-sticky-bar-h`／横＝追従ボタン列の幅）＋
+//     アクションの無いトーストは pointer-events: none ＝下の要素の click() を塞がない＋幅の上限
+//   ・3画面: 案内そのものを in-flow の帯（InlineNotice）へ移す＝浮かせないので何も覆わない
+// ============================================================================
+
+/** 333: 帯（または部品）が、指定した操作要素のどれとも重なっていないことを機械判定する */
+async function noticeOverlap(
+  page: import('@playwright/test').Page,
+  noticeSel: string,
+  actionSel: string,
+) {
+  return page.evaluate(
+    ({ noticeSel, actionSel }) => {
+      const n = document.querySelector(noticeSel);
+      if (!n) return { found: false, position: null, worst: null, who: null, fitsScreen: null };
+      const nr = n.getBoundingClientRect();
+      let worst = 0;
+      let who: string | null = null;
+      for (const a of document.querySelectorAll(actionSel)) {
+        if (n.contains(a) || a.contains(n)) continue;
+        const r = a.getBoundingClientRect();
+        if (r.width === 0 || r.height === 0) continue;
+        const ix = Math.max(0, Math.min(nr.right, r.right) - Math.max(nr.left, r.left));
+        const iy = Math.max(0, Math.min(nr.bottom, r.bottom) - Math.max(nr.top, r.top));
+        if (ix * iy > worst) {
+          worst = ix * iy;
+          who = (a.getAttribute('aria-label') || a.textContent || a.tagName).trim().slice(0, 20);
+        }
+      }
+      return {
+        found: true,
+        position: getComputedStyle(n).position,
+        worst: Math.round(worst),
+        who,
+        fitsScreen: nr.left >= 0 && nr.right <= window.innerWidth + 1,
+      };
+    },
+    { noticeSel, actionSel },
+  );
+}
+
+test('C151: 案内を下部の操作要素に重ねない（333・R-133の横展開・WebKit iPhone幅）— 📚画像ギャラリー／🗂保存一覧／マンダラ詳細（マス編集パネル含む）の案内が in-flow の帯で出て操作要素との交差0・帯が出ている間もボタンが click() できる・✕で閉じられる・この3画面は固定トーストを出さない／共通トーストは追従ボタン列（↑）の外側へ逃げ（交差0）、アクション無しのトーストはクリックを奪わず、画面幅からはみ出さない', async ({
+  request,
+}) => {
+  test.setTimeout(240_000);
+  const wk = await webkit.launch();
+  const ctx = await wk.newContext({
+    storageState: STORAGE_STATE,
+    baseURL: BASE_URL,
+    hasTouch: true,
+    isMobile: true,
+    viewport: { width: 390, height: 844 },
+    serviceWorkers: 'block',
+  });
+  const page = await ctx.newPage();
+  let chartId: string | null = null;
+  try {
+    // ── ① 🗂保存一覧: 一覧の取得に失敗したときの案内（AIも書き込みも使わない経路）──
+    await page.route('**/api/text-analysis/saves**', (route) =>
+      route.request().method() === 'GET'
+        ? route.fulfill({ status: 500, contentType: 'application/json', body: '{"error":"[E2E] 333"}' })
+        : route.continue(),
+    );
+    await page.goto('/dashboard/text-analysis?tab=saved');
+    const savedNotice = page.locator('[data-inline-notice="ta-saved"]');
+    await expect(savedNotice, '一覧の先頭に案内が出る').toBeVisible({ timeout: 30000 });
+    await expect(savedNotice).toContainText('一覧の取得に失敗しました');
+    await expect(page.locator('[data-toast-layer] > *'), '🗂保存一覧は固定トーストを出さない').toHaveCount(0);
+    const savedGeom = await noticeOverlap(page, '[data-inline-notice="ta-saved"]', 'button, a, select, [role="button"]');
+    expect(savedGeom.position, '浮かせない（in-flow）').toBe('static');
+    expect(savedGeom.worst, `操作要素と交差しない（最大の相手: ${savedGeom.who}）`).toBe(0);
+    expect(savedGeom.fitsScreen, '画面幅からはみ出さない').toBe(true);
+    // 帯が出ている間もタブ（操作要素）が押せる
+    await page.getByRole('button', { name: /🔀 横断分析/ }).click({ trial: true, timeout: 5000 });
+    await page.locator('[data-inline-notice-close]').first().click();
+    await expect(savedNotice, '✕ で閉じられる').toHaveCount(0);
+    await page.unroute('**/api/text-analysis/saves**');
+
+    // ── ② 📚画像ギャラリー: 「もっと見る」の失敗（1ページ目は差し替え＝本物の画像に触らない）──
+    await page.route('**/api/gallery?**', (route) => {
+      const offset = new URL(route.request().url()).searchParams.get('offset');
+      if (offset === '0') {
+        return route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            images: [
+              {
+                id: 'e2e-333',
+                url: 'data:image/gif;base64,R0lGODlhAQABAAAAACw=',
+                created_at: new Date().toISOString(),
+                width: 16,
+                height: 16,
+                bytes: 10,
+                settings: null,
+              },
+            ],
+            total_count: 99,
+          }),
+        });
+      }
+      return route.fulfill({ status: 500, contentType: 'application/json', body: '{"error":"[E2E] 333"}' });
+    });
+    await page.goto('/dashboard/gallery');
+    const more = page.getByRole('button', { name: /もっと見る/ });
+    await expect(more).toBeVisible({ timeout: 30000 });
+    await more.click();
+    const galleryNotice = page.locator('[data-inline-notice="gallery"]');
+    await expect(galleryNotice).toBeVisible({ timeout: 15000 });
+    await expect(galleryNotice).toContainText('ギャラリーの取得に失敗しました');
+    await expect(page.locator('[data-toast-layer] > *'), '📚ギャラリーは固定トーストを出さない').toHaveCount(0);
+    const galleryGeom = await noticeOverlap(page, '[data-inline-notice="gallery"]', 'button, a, select, [role="button"]');
+    expect(galleryGeom.position).toBe('static');
+    expect(galleryGeom.worst, `操作要素と交差しない（最大の相手: ${galleryGeom.who}）`).toBe(0);
+    expect(galleryGeom.fitsScreen).toBe(true);
+    await more.click({ trial: true, timeout: 5000 });
+    await page.locator('[data-inline-notice-close]').first().click();
+    await expect(galleryNotice, '✕ で閉じられる').toHaveCount(0);
+    await page.unroute('**/api/gallery?**');
+
+    // ── ③ マンダラ詳細: マス編集パネルの保存失敗（パネルは z:9000 でトーストを完全に隠していた）──
+    const created = await createMandalaChart(request, `333 帯の確認 ${RUN_ID}`);
+    chartId = created.id;
+    // 保存は必ず失敗させる（DBを汚さずエラーの経路だけを見る）
+    await page.route('**/api/mandala/cells**', (route) =>
+      route.request().method() === 'GET'
+        ? route.continue()
+        : route.fulfill({ status: 500, contentType: 'application/json', body: '{"error":"[E2E] 333 保存できません"}' }),
+    );
+    await page.goto(`/dashboard/mandala/${chartId}`);
+    await expect(page.locator('[data-mandala-cell]').first()).toBeVisible({ timeout: 30000 });
+    await page.locator('[data-mandala-cell]').first().click();
+    const panel = page.locator('[data-mandala-panel]');
+    await expect(panel).toBeVisible({ timeout: 15000 });
+    await panel.locator('textarea, input[type="text"]').first().fill(`[E2E] 333 保存の確認 ${RUN_ID}`);
+    await panel.getByRole('button', { name: /保存/ }).first().click();
+    const cellNotice = page.locator('[data-inline-notice="mandala-cell"]');
+    await expect(cellNotice, 'パネルの中に案内が出る（トーストはパネルの裏で見えなかった）').toBeVisible({
+      timeout: 15000,
+    });
+    await expect(page.locator('[data-toast-layer] > *'), 'マンダラ詳細は固定トーストを出さない').toHaveCount(0);
+    const cellGeom = await noticeOverlap(page, '[data-inline-notice="mandala-cell"]', '[data-mandala-panel] button');
+    expect(cellGeom.position).toBe('static');
+    expect(cellGeom.worst, `パネルの操作と交差しない（最大の相手: ${cellGeom.who}）`).toBe(0);
+    expect(cellGeom.fitsScreen).toBe(true);
+    await panel.getByRole('button', { name: /保存/ }).first().click({ trial: true, timeout: 5000 });
+    await page.locator('[data-mandala-panel] [data-inline-notice-close]').click();
+    await expect(cellNotice, '✕ で閉じられる').toHaveCount(0);
+    await page.locator('[data-mandala-panel-close]').click();
+    await page.unroute('**/api/mandala/cells**');
+
+    // ── ④ 共通トースト（残る21ファイル）: 追従ボタン列の外へ逃げ、クリックを奪わず、はみ出さない ──
+    // ↑ を出すためにスクロールしてから、トースト置き場に同じ形の帯を1枚入れて実測する
+    await page.evaluate(() => {
+      document.querySelector('main')?.scrollTo(0, 900);
+      window.scrollTo(0, 900);
+    });
+    await expect(page.getByRole('button', { name: 'ページの先頭へ戻る' })).toBeVisible({ timeout: 15000 });
+    const toastGeom = await page.evaluate(() => {
+      const layer = document.querySelector('[data-toast-layer]')!;
+      const cs = getComputedStyle(layer);
+      const probe = document.createElement('div');
+      probe.setAttribute('data-toast-probe', '1');
+      // 実装と同じ形（アクション無し＝クリックを奪わない）
+      probe.style.cssText =
+        'display:flex;align-items:center;gap:8px;padding:10px 16px;border-radius:12px;font-size:13px;pointer-events:none;max-width:100%;';
+      probe.textContent = '✅ 保存しました（長い案内文でも画面からはみ出さないことの確認）';
+      layer.appendChild(probe);
+      const r = probe.getBoundingClientRect();
+      const fab = [...document.querySelectorAll('button')].find(
+        (b) => b.getAttribute('aria-label') === 'ページの先頭へ戻る',
+      )!;
+      const fr = fab.getBoundingClientRect();
+      const ix = Math.max(0, Math.min(r.right, fr.right) - Math.max(r.left, fr.left));
+      const iy = Math.max(0, Math.min(r.bottom, fr.bottom) - Math.max(r.top, fr.top));
+      const under = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+      const out = {
+        pointerEvents: cs.pointerEvents,
+        overlapWithFab: Math.round(ix * iy),
+        fitsScreen: r.left >= 0 && r.right <= window.innerWidth + 1,
+        blocksClick: !!(under && (under === probe || probe.contains(under))),
+      };
+      probe.remove();
+      return out;
+    });
+    expect(toastGeom.overlapWithFab, 'トーストは「↑ トップへ戻る」と重ならない（改修前は 1738px²）').toBe(0);
+    expect(toastGeom.fitsScreen, 'トーストが画面幅からはみ出さない（改修前は 416px）').toBe(true);
+    expect(toastGeom.blocksClick, 'アクション無しのトーストはクリックを奪わない').toBe(false);
+    expect(toastGeom.pointerEvents, '置き場そのものもクリックを受けない').toBe('none');
+  } finally {
+    if (chartId) await deleteMandalaChart(request, chartId);
     await ctx.close();
     await wk.close();
   }

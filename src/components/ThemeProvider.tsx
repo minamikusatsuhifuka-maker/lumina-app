@@ -57,6 +57,11 @@ export const FLOATING_DEFAULT: FloatingState = { assistant: false, memo: false, 
 /** 追従ボタンの縦位置（下端からの段数）。セーフエリア分を足してiPhoneのホームバーに被らせない */
 const FLOATING_BASE = 24;
 const FLOATING_STEP = 56;
+/** 追従ボタン列の右端の余白と幅（↑ は52px・他は48px）。列の外側を測りたい側（トースト）はこれを使う＝数値を二重に書かない */
+export const FLOATING_RIGHT = 16;
+export const FLOATING_WIDTH = 52;
+/** 追従ボタン列を横に避けるために空ける幅（列の右余白＋幅＋隙間）。333: 共通トーストがこの列に重ならないようにする（R-133） */
+export const FLOATING_COLUMN_CLEARANCE = FLOATING_RIGHT + FLOATING_WIDTH + 8;
 export function floatingBottom(slot: number): string {
   // 313: 画面下部の固定アクションバー（StickyActionBar）が出ている間は、その高さ（CSS 変数）だけ上へ逃がす。出ていなければ 0px
   return `calc(${FLOATING_BASE + slot * FLOATING_STEP}px + env(safe-area-inset-bottom, 0px) + var(--lumina-sticky-bar-h, 0px))`;

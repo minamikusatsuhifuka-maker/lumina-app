@@ -53,6 +53,8 @@ import { useRunKeyHints, useRunShortcut } from '@/lib/shortcuts';
 // 259/270: 「📋 ペースト」ボタン（270からは全端末に出す）
 // 313再改訂（院長判断 2026/9/9 23:44）: 「📋 クリアして貼付」を復元（254/270・R-76）。「📋 ペースト」（末尾追記）は🗂から外す
 import { clearAndPaste, clearPasteMessage } from '@/lib/clear-and-paste';
+// 333: 操作行の下に差し込む案内の帯（332で作ったものを共通部品に切り出し・R-91/R-133）
+import InlineNotice, { useInlineNotice } from '@/components/ui/InlineNotice';
 // 332【B】: 案内文の出し分けは端末名（UA）ではなく入力手段で決める（R-74: 決定的）
 import { useFinePointer } from '@/lib/pointer-device';
 // 332【D】: 分析対象テキスト欄の高さ（S／M／L／自動）と、その記憶
@@ -944,21 +946,13 @@ export default function TextAnalysisPanel({
   const [pasting, setPasting] = useState(false);
   // 332【A】: 「クリアして貼付」の案内。トースト（fixed・画面右下）ではなく**操作行の直下**に
   // 差し込む＝ボタンの上に載らない（出ると下の要素が押し下がるだけ）。✕ で閉じられる。
-  // 成功だけ数秒で自動的に消す（覆わないので消える前提にできる）。警告は自分で閉じるまで残す
-  const [pasteNotice, setPasteNotice] = useState<
-    { text: string; kind: 'success' | 'warning' } | null
-  >(null);
-  const noticeTimerRef = useRef<number | null>(null);
-  useEffect(() => {
-    if (noticeTimerRef.current !== null) window.clearTimeout(noticeTimerRef.current);
-    noticeTimerRef.current = null;
-    if (pasteNotice?.kind !== 'success') return;
-    noticeTimerRef.current = window.setTimeout(() => setPasteNotice(null), 3000);
-    return () => {
-      if (noticeTimerRef.current !== null) window.clearTimeout(noticeTimerRef.current);
-      noticeTimerRef.current = null;
-    };
-  }, [pasteNotice]);
+  // 成功だけ数秒で自動的に消す（覆わないので消える前提にできる）。警告は自分で閉じるまで残す。
+  // 333: 帯そのものは共通部品（InlineNotice）へ切り出した（📚🗂マンダラでも同じものを使う・R-91）
+  const {
+    notice: pasteNotice,
+    showToast: showPasteNotice,
+    clearNotice: clearPasteNotice,
+  } = useInlineNotice();
   // 332【B】: カーソルのある端末か（SSR中は fine 扱い＝デスクトップは現状維持）
   const { fine: finePointer } = useFinePointer();
   const handleClearAndPaste = async () => {
@@ -982,7 +976,7 @@ export default function TextAnalysisPanel({
       // iPhone幅では操作行に重なってボタンが押せなくなっていた）。
       // 332【B】: 文言は端末で出し分ける（⌘V／長押しして「ペースト」）
       const msg = clearPasteMessage(result, finePointer);
-      setPasteNotice({ text: msg.text, kind: msg.kind === 'success' ? 'success' : 'warning' });
+      showPasteNotice(msg.text, msg.kind === 'success' ? 'success' : 'warning');
     } finally {
       setPasting(false);
     }
@@ -1525,50 +1519,12 @@ export default function TextAnalysisPanel({
         {/* 332【A】: 「クリアして貼付」の案内は**操作行の下**（in-flow）。
             position: absolute/fixed を使わないので、出てもボタンの上に載らない＝常に押せる。
             出ると下の要素が押し下がるだけ（レイアウトが動く）。✕ で閉じられる */}
-        {pasteNotice && (
-          <div
-            data-ta-paste-notice
-            data-ta-paste-notice-kind={pasteNotice.kind}
-            role="status"
-            style={{
-              display: 'flex',
-              alignItems: 'flex-start',
-              gap: 8,
-              padding: '8px 10px',
-              borderRadius: 8,
-              fontSize: 12,
-              lineHeight: 1.5,
-              background:
-                pasteNotice.kind === 'success' ? 'rgba(29,158,117,0.12)' : 'rgba(239,159,39,0.12)',
-              border: `1px solid ${pasteNotice.kind === 'success' ? '#1D9E75' : '#EF9F27'}40`,
-              color: pasteNotice.kind === 'success' ? '#1D9E75' : '#B45309',
-            }}
-          >
-            <span style={{ flexShrink: 0 }}>{pasteNotice.kind === 'success' ? '✅' : '⚠️'}</span>
-            <span style={{ minWidth: 0, flex: 1 }}>{pasteNotice.text}</span>
-            <button
-              type="button"
-              data-ta-paste-notice-close
-              onClick={() => setPasteNotice(null)}
-              title="この案内を閉じます"
-              aria-label="案内を閉じる"
-              style={{
-                flexShrink: 0,
-                padding: '0 6px',
-                fontSize: 12,
-                lineHeight: 1.5,
-                color: 'inherit',
-                background: 'transparent',
-                border: '1px solid currentColor',
-                borderRadius: 6,
-                opacity: 0.7,
-                cursor: 'pointer',
-              }}
-            >
-              ✕
-            </button>
-          </div>
-        )}
+        <InlineNotice
+          notice={pasteNotice}
+          onClose={clearPasteNotice}
+          marker="ta-paste"
+          style={{ marginBottom: 0 }}
+        />
       </div>
 
       {/* 分析タイプ選択 */}

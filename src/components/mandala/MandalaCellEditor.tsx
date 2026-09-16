@@ -32,7 +32,9 @@ import { cellOrigin } from '@/lib/mandala-generate';
 import { createPortal } from 'react-dom';
 import FullscreenReader from '@/components/text-analysis/FullscreenReader';
 import { CharCountBadge } from '@/components/LibraryItemRow';
-import { useToast } from '@/components/ui/Toast';
+// 333: 案内は画面内（in-flow）の帯で出す。このパネルは z=9000 の固定パネルで、
+// 共通トースト（z=200）は**パネルの裏に隠れて見えなかった**（狭幅では全画面を覆う）
+import InlineNotice, { useInlineNotice } from '@/components/ui/InlineNotice';
 import { formatJst, jstDateTimeString } from '@/lib/jst';
 import { useRunKeyHints } from '@/lib/shortcuts';
 import {
@@ -140,7 +142,7 @@ export default function MandalaCellEditor({
   /** 302: リンクの付け外し後の一覧（解決済み）を親へ返す。親はグリッドの件数を更新する */
   onLinksChanged?: (cellId: string, links: MandalaLinkResolved[]) => void;
 }) {
-  const { showToast } = useToast();
+  const { notice, showToast, clearNotice } = useInlineNotice();
   // 302 §6-4: 保存ボタンのキー併記（⌘↵ / Ctrl+↵）。表記は RUN_KEY_LABELS と同じ値（キーボードの無い端末では出さない）
   const keyHints = useRunKeyHints();
   const saveLabel = keyHints ? `💾 保存 ${keyHints.run}` : '💾 保存';
@@ -602,6 +604,8 @@ export default function MandalaCellEditor({
 
           {/* 本体 */}
           <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', gap: 8, padding: 14 }}>
+            {/* 333: 保存・リンク操作の結果はパネルの中に出す（トーストはこのパネルの裏に隠れる・R-133） */}
+            <InlineNotice notice={notice} onClose={clearNotice} marker="mandala-cell" />
             {restoreBanner}
             {titleInput('panel')}
             {bodyInput('panel', { flex: 1, minHeight: 120 })}

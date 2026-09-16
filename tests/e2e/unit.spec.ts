@@ -24,6 +24,8 @@ import * as galleryBulk from '../../src/lib/gallery-bulk';
 // 332: 端末別の案内文と、入力欄の高さ（純関数）
 import * as cp332 from '../../src/lib/clear-and-paste';
 import * as th332 from '../../src/lib/textarea-height';
+// 333: in-flow の案内帯（R-133 の横展開）
+import * as inl333 from '../../src/lib/inline-notice';
 import * as tpl320 from '../../src/lib/visual-templates';
 import { renderMarkdown } from '../../src/lib/markdown-renderer';
 import { readFileSync } from 'node:fs';
@@ -107,7 +109,7 @@ import {
   parseNavLabels,
 } from '../../src/lib/nav-labels';
 import { ALL_NAV_ITEMS, navCategories, DEFAULT_HOME_HREFS, resolveHomeHrefs } from '../../src/lib/nav-items';
-import { CLEAR_PASTE_MESSAGE, clearAndPaste, type ClearAndPasteResult } from '../../src/lib/clear-and-paste';
+import { clearAndPaste, clearPasteMessage, type ClearAndPasteResult } from '../../src/lib/clear-and-paste';
 import { applyReplacePaste, resolvePasteReplaceEnabled } from '../../src/lib/paste-replace';
 import {
   ARTIFACT_LABEL,
@@ -738,11 +740,23 @@ test('U21: クリアして貼付 — 3つの結末すべてに案内があり、
   // 254の 'cleared-manual'（読めなくてもクリアだけ実行する）と 'noop' は廃止
   // ——**貼るものが手に入らないときは入力欄に触らない**ようにしたため（R-76）
   const results: ClearAndPasteResult[] = ['pasted', 'denied', 'empty'];
+  // 332: 案内は端末で出し分けるようになり、定数 Record から純関数（clearPasteMessage）に変わった。
+  // ここはカーソルのある端末（Mac・PC）の文言で判定する（端末別の出し分けそのものは U102）
+  const CLEAR_PASTE_MESSAGE = Object.fromEntries(
+    results.map((r) => [r, clearPasteMessage(r, true)]),
+  ) as Record<ClearAndPasteResult, ReturnType<typeof clearPasteMessage>>;
+  // 結末は3つだけ（増やすときはここと画面の案内を必ず揃える）。
+  // どの結末にも、どちらの端末向けにも案内があること（未定義の結末を画面に出さない）
   for (const r of results) {
-    expect(CLEAR_PASTE_MESSAGE, `${r} の案内が定義されていること`).toHaveProperty(r);
+    for (const fine of [true, false]) {
+      const m = clearPasteMessage(r, fine);
+      expect(m?.text?.length, `${r}（fine=${fine}）の案内があること`).toBeGreaterThan(0);
+      expect(['success', 'warning', 'info'], `${r} の種別`).toContain(m.kind);
+    }
+    expect(clearPasteMessage(r, true).kind, `${r} の種別は端末で変えない`).toBe(
+      clearPasteMessage(r, false).kind,
+    );
   }
-  // 結末は3つだけ（増やすときはここと画面の案内を必ず揃える）
-  expect(Object.keys(CLEAR_PASTE_MESSAGE).sort()).toEqual(['denied', 'empty', 'pasted']);
 
   // 貼れなかった2経路は成功に見せない（偽の成功を返さない・fail-closed）
   expect(CLEAR_PASTE_MESSAGE.denied.kind).not.toBe('success');
@@ -5930,13 +5944,71 @@ test('U102: 警告の文言と入力欄の高さ（332）— 案内文はカー�
 
   // ── 【A】警告は操作行に重ねない（実装のソース固定）──
   const panel = readFileSync(join(__dirname, '../../src/components/text-analysis/TextAnalysisPanel.tsx'), 'utf8');
-  expect(panel, '案内はトースト（fixed・画面右下）ではなく画面内の帯で出す').toMatch(/data-ta-paste-notice/);
+  expect(panel, '案内はトースト（fixed・画面右下）ではなく画面内の帯で出す（333で共通部品へ）').toMatch(/marker="ta-paste"/);
+  expect(panel, '帯は共通部品（新しく作らない・R-91）').toMatch(/from '@\/components\/ui\/InlineNotice'/);
   expect(panel, '案内に showToast を使わない（操作行に重なる原因）').not.toMatch(/showToast\(msg\.text/);
-  expect(panel, '案内を浮かせない（absolute/fixed を使わない）').not.toMatch(/data-ta-paste-notice[\s\S]{0,600}position: '(absolute|fixed)'/);
   expect(panel, '操作行の上下に16px以上の余白').toMatch(/marginTop: 16,\s*\n\s*marginBottom: 16,/);
   expect(panel, '端末判定は入力手段で決定的に（R-74）').toMatch(/useFinePointer/);
   expect(panel, '高さは lib の純関数を通す（R-91）').toMatch(/from '@\/lib\/textarea-height'/);
   const banner = readFileSync(join(__dirname, '../../src/components/FeatureDraftBanner.tsx'), 'utf8');
   expect(banner, '復元バナーは折り返さない＝1行（狭幅で2行になり帯が倍になっていた）').toMatch(/flexWrap: 'nowrap'/);
   expect(banner, '省いた文言は title で読める（R-110）').toMatch(/title=\{text\}/);
+});
+
+// 333: in-flow の案内帯（R-133 の横展開）の純関数と、共通トーストの逃がし方のソース固定
+test('U103: 案内を操作要素に重ねない（333）— 帯の自動消去は成功だけ（警告・エラー・情報は自分で閉じるまで残す）・色とアイコンは4種そろい決定的／共通トーストは313と同じ CSS 変数で縦に逃げ、追従ボタン列の幅だけ横に逃げ、アクション無しはクリックを奪わず幅の上限がある／3画面＋マス編集パネルは固定トーストではなく共通部品 InlineNotice を使う', () => {
+  // ── 自動で消すかどうか（R-133: 覆っていないときだけ消してよい）──
+  expect(inl333.inlineNoticeAutoDismissMs('success')).toBe(inl333.INLINE_NOTICE_SUCCESS_MS);
+  for (const k of ['warning', 'error', 'info'] as const) {
+    expect(inl333.inlineNoticeAutoDismissMs(k), `${k} は自分で閉じるまで残す`).toBeNull();
+  }
+  // 色・アイコンは4種そろっていて、同じ入力なら同じ値（R-74）
+  for (const k of ['success', 'warning', 'error', 'info'] as const) {
+    expect(inl333.INLINE_NOTICE_ICON[k].length).toBeGreaterThan(0);
+    expect(inl333.INLINE_NOTICE_COLOR[k]).toMatch(/^#[0-9a-fA-F]{6}$/);
+    expect(inl333.INLINE_NOTICE_BG[k]).toMatch(/^rgba\(/);
+    expect(inl333.inlineNoticeAutoDismissMs(k)).toBe(inl333.inlineNoticeAutoDismissMs(k));
+  }
+
+  // ── 共通トースト: 座標を直接いじらず、相手が公開した値のぶんだけ逃がす（313と同じ方式）──
+  const toast = readFileSync(join(__dirname, '../../src/components/ui/Toast.tsx'), 'utf8');
+  expect(toast, '縦は StickyActionBar が書く CSS 変数で逃げる').toMatch(/var\(--lumina-sticky-bar-h, 0px\)/);
+  expect(toast, '横は追従ボタン列の幅（ThemeProvider が公開する定数）で逃げる').toMatch(/FLOATING_COLUMN_CLEARANCE/);
+  expect(toast, '右端の数値を直接書かない').not.toMatch(/right: 24,/);
+  expect(toast, 'アクション無しのトーストはクリックを奪わない').toMatch(/pointerEvents: toast\.action \? 'auto' : 'none'/);
+  expect(toast, '幅の上限がある（390px幅で画面外へ出ていた）').toMatch(/maxWidth:/);
+  expect(toast, 'E2Eの目印').toMatch(/data-toast-layer/);
+  const theme = readFileSync(join(__dirname, '../../src/components/ThemeProvider.tsx'), 'utf8');
+  expect(theme, '追従ボタン列の幅は1箇所に置く（二重に書かない・R-91）').toMatch(
+    /FLOATING_COLUMN_CLEARANCE = FLOATING_RIGHT \+ FLOATING_WIDTH \+ 8/,
+  );
+
+  // ── 重なりうる画面は帯（共通部品）に寄せた。新しい帯を作っていない（R-91）──
+  // 本便の対象3画面（＋マス編集パネル）は、案内を丸ごと帯へ移した＝固定トーストを出さない
+  const screens: [string, string][] = [
+    ['src/app/dashboard/gallery/page.tsx', 'gallery'],
+    ['src/components/text-analysis/SavedAnalysisList.tsx', 'ta-saved'],
+    ['src/app/dashboard/mandala/[id]/page.tsx', 'mandala'],
+    ['src/components/mandala/MandalaCellEditor.tsx', 'mandala-cell'],
+  ];
+  for (const [file, marker] of screens) {
+    const src = readFileSync(join(__dirname, '../../', file), 'utf8');
+    expect(src, `${file}: 共通部品を使う`).toMatch(/from '@\/components\/ui\/InlineNotice'/);
+    expect(src, `${file}: 目印 ${marker}`).toContain(`marker="${marker}"`);
+    expect(src, `${file}: 固定トーストは使わない`).not.toMatch(/from '@\/components\/ui\/Toast'/);
+  }
+  // 🗂分析実行タブ（332）は「クリアして貼付」の案内だけを帯にした画面。
+  // 保存・お気に入りなどの結果は共通トーストのまま＝本便では触らない（トースト側の逃がしで足りる）
+  const taPanel = readFileSync(
+    join(__dirname, '../../src/components/text-analysis/TextAnalysisPanel.tsx'),
+    'utf8',
+  );
+  expect(taPanel, '操作行の案内は帯（332）').toMatch(/from '@\/components\/ui\/InlineNotice'/);
+  expect(taPanel, '目印 ta-paste').toContain('marker="ta-paste"');
+  // 下部に固定要素を持たない画面は現状のまま＝トーストを使い続ける（本便で触らない）
+  const keepToast = ['src/app/dashboard/memo/page.tsx', 'src/app/dashboard/proofread/page.tsx'];
+  for (const file of keepToast) {
+    const src = readFileSync(join(__dirname, '../../', file), 'utf8');
+    expect(src, `${file}: 変更しない`).toMatch(/from '@\/components\/ui\/Toast'/);
+  }
 });

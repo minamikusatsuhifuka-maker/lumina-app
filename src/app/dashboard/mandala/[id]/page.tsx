@@ -36,7 +36,9 @@ import MandalaResearchDialog from '@/components/mandala/MandalaResearchDialog';
 import { MANDALA_RESEARCH_BULK_MAX, buildResearchOrder, bulkOrderState, cellOrderState, hasResearchTheme, researchSummary, uncoveredCells, type MandalaResearchOrderResult } from '@/lib/mandala-research';
 // 309: マンダラ→note記事（入口＝見出しの「有料記事にする」・パネルの「無料記事にする」）。「📝 記事: n件」は記事の側の記録から導出
 import { MANDALA_NOTE_PAID_DISABLED_REASON, articleCountsByCell, canMakePaidNote, mandalaArticlesLabel, type MandalaArticleRef } from '@/lib/mandala-note';
-import { useToast } from '@/components/ui/Toast';
+// 333: 案内は画面内（in-flow）の帯で出す＝下部の操作要素に重ねない（R-133）。
+// 呼び出し方は共通トーストと同じ showToast(message, type) なので、各所の呼び出しは無変更
+import InlineNotice, { useInlineNotice } from '@/components/ui/InlineNotice';
 import { useHoverPopover } from '@/components/HoverPopover';
 import { jstDateTimeString } from '@/lib/jst';
 import { mandalaBooksLabel } from '@/lib/mandala-kindle';
@@ -116,7 +118,7 @@ export default function MandalaChartPage({ params }: { params: Promise<{ id: str
   const [narrow, setNarrow] = useState(false);
   const [gridWidth, setGridWidth] = useState(0);
   const gridAreaRef = useRef<HTMLDivElement | null>(null);
-  const { showToast } = useToast();
+  const { notice, showToast, clearNotice } = useInlineNotice();
   const expandingRef = useRef(false); // R-87: 展開の二重発火は同期的な ref で閉じる
   const [expanding, setExpanding] = useState<string | null>(null);
 
@@ -477,6 +479,10 @@ export default function MandalaChartPage({ params }: { params: Promise<{ id: str
           ← マンダラ一覧へ
         </Link>
       </div>
+      {/* 333: マスの操作の結果はここ（見出しの直下）に出す。浮かせないのでマスを覆わない（R-133）。
+          従来は共通トースト＝画面右下の固定表示で、iPhone幅では下段のマスに重なっていた */}
+      <InlineNotice notice={notice} onClose={clearNotice} marker="mandala" scrollIntoView style={{ marginBottom: 10 }} />
+
       <div style={{ display: 'flex', alignItems: 'baseline', gap: 12, flexWrap: 'wrap', marginBottom: 4 }}>
         <h1 style={{ fontSize: 22, fontWeight: 700, margin: 0 }}>🔲 マンダラ</h1>
         {chart && (
