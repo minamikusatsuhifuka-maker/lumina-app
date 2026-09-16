@@ -92,18 +92,20 @@ import {
   useCustomFolders,
   type FolderFilter,
 } from '@/components/custom-folders/useCustomFolders';
+// 334: 成果物の高さ（M 既定／L／⛶ 全画面）。生成結果カードと同じ記憶を共有する（R-91）
+import {
+  RESULT_HEIGHT_BUTTONS,
+  RESULT_HEIGHT_DEFAULT,
+  RESULT_HEIGHT_VALUES,
+  loadResultHeight,
+  resultHeightLabel,
+  resultHeightTitle,
+  saveResultHeight,
+  type ResultHeightMode,
+} from '@/lib/result-height';
 
-// 展開ビューの本文表示枠の高さ切替（S/M/L/全）。
-// 値は生成結果カード(TextAnalysisPanel の ResultPanel)の HEIGHT_PRESETS と統一。
-// 330: 「全」はカード内で伸ばさず全画面（FullscreenReader）で開く。枠の高さは S/M/L だけ
-type SavedHeightMode = 'S' | 'M' | 'L' | 'full';
-const SAVED_HEIGHT_VALUES: Record<SavedHeightMode, number> = {
-  S: 350,
-  M: 550,
-  L: 800,
-  full: 0, // 0 = 高さ制限なし（全文表示）
-};
-const SAVED_HEIGHT_KEY = 'ta_saved_height';
+// 展開ビューの本文表示枠の高さ切替。値・既定・記憶・'S' の読み替えは lib/result-height.ts に集約（334・R-91）。
+// 330: 「全」はカード内で伸ばさず全画面（FullscreenReader）で開く。334: S は廃止（M 既定／L／⛶ 全画面）
 
 export interface AnalysisRecord {
   id: number;
@@ -247,24 +249,12 @@ export default function SavedAnalysisList({
   // 「▼ 全文表示」ボタンとカードのクリック展開（299）で**同じ状態**を切り替える（新しい展開処理は書かない）
   const [expandedIds, setExpandedIds] = useState<Set<number>>(new Set());
   // 展開ビュー本文枠の高さ（保存一覧全体で共通・localStorage記憶）。デフォルトはMで流用元と統一
-  const [heightMode, setHeightMode] = useState<SavedHeightMode>('M');
-  useEffect(() => {
-    try {
-      const saved = localStorage.getItem(SAVED_HEIGHT_KEY) as SavedHeightMode | null;
-      // 330: 以前の「全」が記憶に残っていてもカードは伸ばさない（枠は M に戻す・「全」は全画面で開く）
-      if (saved === 'full') setHeightMode('M');
-      else if (saved && saved in SAVED_HEIGHT_VALUES) setHeightMode(saved);
-    } catch {
-      /* skip */
-    }
-  }, []);
-  const changeHeight = (m: SavedHeightMode) => {
+  const [heightMode, setHeightMode] = useState<ResultHeightMode>(RESULT_HEIGHT_DEFAULT);
+  // 330の「全」も 334の 'S' も、記憶に残っていれば起動時に M へ読み替える（保存値も書き換える）
+  useEffect(() => setHeightMode(loadResultHeight()), []);
+  const changeHeight = (m: ResultHeightMode) => {
     setHeightMode(m);
-    try {
-      localStorage.setItem(SAVED_HEIGHT_KEY, m);
-    } catch {
-      /* skip */
-    }
+    saveResultHeight(m);
   };
   const [searchTerm, setSearchTerm] = useState('');
   // 293 §3-1: 検索範囲（すべて＝タイトル・ファイル名・本文／タイトルのみ）。既定は従来どおり「すべて」・保持
@@ -2872,13 +2862,15 @@ export default function SavedAnalysisList({
                     {expanded ? (
                       // 299/R-81: 展開後の本文は展開領域の外側（文字を選べる・クリックで閉じない）。E2Eの目印
                       <div data-ta-expanded-body={record.id}>
-                      {/* 本文表示枠の高さ切替（S/M/L/全）。生成結果カードと同じ仕様・見た目 */}
+                      {/* 334: 本文表示枠の高さ切替（M 既定／L／⛶ 全画面）。生成結果カードと同じ仕様・見た目 */}
                       <div
+                        data-ta-height-row
                         style={{
                           display: 'flex',
                           alignItems: 'center',
                           gap: 4,
                           marginBottom: 6,
+                          flexWrap: 'nowrap',
                         }}
                         onClick={(e) => e.stopPropagation()}
                       >
@@ -2891,18 +2883,17 @@ export default function SavedAnalysisList({
                         >
                           高さ:
                         </span>
-                        {(['S', 'M', 'L', 'full'] as SavedHeightMode[]).map((m) => (
+                        {RESULT_HEIGHT_BUTTONS.map((m) => (
                           <button
                             key={m}
                             type="button"
                             data-ta-height={m}
-                            title={m === 'full' ? '全文を全画面で読みます（カードは伸ばしません）' : `本文の表示枠を${m}サイズにします`}
+                            aria-pressed={m !== 'full' && heightMode === m}
+                            title={resultHeightTitle(m)}
                             onClick={() => (m === 'full' ? void openReader(record) : changeHeight(m))}
+                            // 334: 大きさ（狭幅で44px以上）は globals.css の [data-ta-height-row] が持つ。
+                            // インラインで padding/font-size を書くとメディアクエリで勝てない（R-131）
                             style={{
-                              padding: '2px 8px',
-                              fontSize: 10,
-                              borderRadius: 4,
-                              border: '1px solid',
                               borderColor:
                                 heightMode === m ? 'var(--accent)' : 'var(--border)',
                               background:
@@ -2912,7 +2903,7 @@ export default function SavedAnalysisList({
                               transition: 'all 0.15s',
                             }}
                           >
-                            {m === 'full' ? '全' : m}
+                            {resultHeightLabel(m)}
                           </button>
                         ))}
                       </div>
@@ -2922,13 +2913,9 @@ export default function SavedAnalysisList({
                           background: 'rgba(255,255,255,0.02)',
                           borderRadius: 6,
                           border: '1px solid var(--border)',
-                          // 「全」(full=0)は高さ制限なしで全文表示、S/M/Lは枠内スクロール
-                          ...(heightMode === 'full'
-                            ? {}
-                            : {
-                                maxHeight: SAVED_HEIGHT_VALUES[heightMode],
-                                overflowY: 'auto',
-                              }),
+                          // 330/334: 枠は必ず M か L（「⛶ 全画面」は枠を伸ばさず全画面リーダーで開く）
+                          maxHeight: RESULT_HEIGHT_VALUES[heightMode],
+                          overflowY: 'auto',
                           fontSize: 12,
                           color: 'var(--text-primary)',
                           position: 'relative',

@@ -653,6 +653,35 @@ a[role="button"]:has(p) {
 }
 [data-result-more-panel] [data-result-more-label] { font-size: 11px; color: var(--text-muted); }
 [data-result-action-bar] [data-result-more] { min-height: 44px !important; height: auto !important; }
+
+/* ─── 334: 成果物の高さプリセット（M／L／⛶ 全画面）は狭幅でも畳まない ───
+   本文を読むたびに触る操作なので「⋯ 操作」に入れると毎回2タップかかる（院長の実測 2026/9/13）。
+   1段目に出す以上、指で押せる大きさ（44px 以上）にする。24px 固定の aside 既定より後ろに置いて上書きする */
+[data-result-action-bar][data-result-narrow='1'] [data-result-action-aside][data-result-aside-pinned] button {
+  width: auto !important;
+  height: auto !important;
+  min-height: 44px !important;
+  padding: 0 12px !important;
+  border-radius: 8px !important;
+  justify-content: center !important;
+}
+/* 🗂保存一覧の展開ビューの高さ行。大きさは CSS 側が持つ（インライン style だと下のMQで勝てない・R-131） */
+[data-ta-height-row] button {
+  padding: 2px 8px;
+  font-size: 10px;
+  border-radius: 4px;
+  border: 1px solid;
+  min-height: 0;
+}
+@media (max-width: 640px) {
+  [data-ta-height-row] { gap: 6px; }
+  [data-ta-height-row] button {
+    min-height: 44px;
+    padding: 0 12px;
+    font-size: 12px;
+    border-radius: 8px;
+  }
+}
 /* 狭幅の成果物ヘッダは1行（見出し・モデル・字数が重ならない） */
 @media (max-width: 640px) {
   [data-result-head] { flex-wrap: nowrap !important; }

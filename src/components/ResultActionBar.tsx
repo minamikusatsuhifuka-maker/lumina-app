@@ -98,6 +98,7 @@ export default function ResultActionBar({
   main,
   aside,
   asideLabel = '表示の高さ',
+  asidePinned = false,
   menus,
   extra,
 }: {
@@ -112,6 +113,10 @@ export default function ResultActionBar({
   aside?: ReactNode;
   /** 326: 狭幅の展開部で aside に付ける見出し（高さプリセット等） */
   asideLabel?: string;
+  /** 334: aside を狭幅でも1段目に出したまま（「⋯ 操作」に畳まない）。
+   *  高さプリセットは本文を読むたびに触る操作なので、畳むと毎回2タップかかる（院長の実測 2026/9/13）。
+   *  畳まないのは**そういう操作だけ**にする（🔭DR の本文文字サイズは従来どおり展開部）*/
+  asidePinned?: boolean;
   /** 2段目のメニュー */
   menus?: ResultActionMenu[];
   /** 2段目のメニュー以外（🧠 記憶する等） */
@@ -135,11 +140,13 @@ export default function ResultActionBar({
   useEffect(() => {
     if (!narrow) setOpen(false);
   }, [narrow]);
-  const hasMore = !!main || !!aside || (menus && menus.length > 0) || !!extra;
+  // 334: 1段目に固定した aside は「残りの操作」に数えない（二重に置かない・⋯ が空にならないようにする）
+  const asideInMore = !!aside && !asidePinned;
+  const hasMore = !!main || asideInMore || (menus && menus.length > 0) || !!extra;
   const rest = (
     <>
       {main}
-      {aside && (
+      {asideInMore && (
         <span data-result-more-group>
           {narrow && <span data-result-more-label>{asideLabel}</span>}
           <span data-result-action-aside style={narrow ? { display: 'inline-flex', alignItems: 'center', gap: 6 } : { marginLeft: 'auto', display: 'inline-flex', alignItems: 'center', gap: 6 }}>{aside}</span>
@@ -160,6 +167,17 @@ export default function ResultActionBar({
               <button type="button" data-result-more aria-expanded={open} onClick={() => setOpen((v) => !v)} title="残りの操作を開きます">
                 ⋯ 操作 {open ? '▴' : '▾'}
               </button>
+            )}
+            {/* 334: 高さプリセットは狭幅でも常に押せる位置（1段目の右端）。
+                折り返してもひとまとまりで動くよう nowrap の1かたまりにする */}
+            {asidePinned && aside && (
+              <span
+                data-result-action-aside
+                data-result-aside-pinned="1"
+                style={{ marginLeft: 'auto', display: 'inline-flex', alignItems: 'center', gap: 6, flexWrap: 'nowrap', minWidth: 0 }}
+              >
+                {aside}
+              </span>
             )}
           </div>
           {/* 閉じている間も DOM に置く（同じ要素・同じハンドラ＝E2E のロケータが1つのまま） */}

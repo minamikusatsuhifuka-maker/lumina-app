@@ -70,17 +70,24 @@ import {
   type TextareaHeightChoice,
 } from '@/lib/textarea-height';
 import { isAutoStockSaveEnabled } from '@/lib/auto-stock-save';
+// 334: 成果物の高さ（M 既定／L／⛶ 全画面）。S は廃止・記憶は保存一覧と共通（R-91）
+import {
+  RESULT_HEIGHT_BUTTONS,
+  RESULT_HEIGHT_DEFAULT,
+  RESULT_HEIGHT_VALUES,
+  loadResultHeight,
+  resultHeightLabel,
+  resultHeightTitle,
+  saveResultHeight,
+  type ResultHeightMode,
+} from '@/lib/result-height';
 // 313改訂: 実行ボタンは狭幅・広幅とも**テキスト欄直下の行の先頭**（🚀 → ✕ クリア → 📋 ペースト）。固定バー（共通部品）はこの画面では使わない
 // （院長の実機判断: 追従バーは邪魔・フォーカス中の非表示で押せなくなる）。部品は横展開候補用に残す。無効化の理由は lib の純関数
 import { runDisabledReason } from '@/lib/sticky-action-bar';
 
-// 215: 「全」は高さプリセットではなく FullscreenReader（保存一覧と同じ全画面ビューア）を
-// 開くボタンに変更。panelHeight は触らないため、閉じた後は押下前の S/M/L に自動復帰する
-const HEIGHT_PRESETS = [
-  { label: 'S', h: 350 },
-  { label: 'M', h: 550 },
-  { label: 'L', h: 800 },
-];
+// 215: 「⛶ 全画面」は高さプリセットではなく FullscreenReader（保存一覧と同じ全画面ビューア）を
+// 開くボタン。panelHeight は触らないため、閉じた後は押下前の M/L に自動復帰する。
+// 334: S を廃止し、値・既定・記憶を lib/result-height.ts に集約（保存一覧と同じ記憶を共有する・R-91）
 
 // 247: 結果カードの保存状態。親（TextAnalysisPanel）が type ごとに持つ
 type SaveStatus = 'idle' | 'saving' | 'saved' | 'error';
@@ -140,7 +147,14 @@ function ResultPanel({
   favoriteDone,
   contextSaving,
 }: ResultPanelProps) {
-  const [panelHeight, setPanelHeight] = useState(350);
+  // 334: 既定は M（従来は 350＝S が既定だった）。端末の記憶は保存一覧と共通のキーから読む
+  const [heightMode, setHeightMode] = useState<ResultHeightMode>(RESULT_HEIGHT_DEFAULT);
+  useEffect(() => setHeightMode(loadResultHeight()), []);
+  const changeHeight = (m: ResultHeightMode) => {
+    setHeightMode(m);
+    saveResultHeight(m);
+  };
+  const panelHeight = RESULT_HEIGHT_VALUES[heightMode];
   // 215: 全画面ビューア（保存一覧の FullscreenReader 流用）の開閉
   const [readerOpen, setReaderOpen] = useState(false);
   const currentLength = text.length;
@@ -276,15 +290,24 @@ function ResultPanel({
           ✏️ AIで修正
         </button>
         </>}
+        asidePinned
         aside={<>
           <span style={{ fontSize: 10, color: 'var(--text-muted)', marginRight: 4 }}>高さ:</span>
-          {HEIGHT_PRESETS.map(({ label: l, h }) => (
-            <button key={l} type="button" data-ta-height={l} onClick={() => setPanelHeight(h)} title={`本文の高さ ${l}`} style={{ color: panelHeight === h ? 'var(--accent)' : undefined, fontWeight: panelHeight === h ? 700 : undefined }}>
-              {l}
+          {/* 334: M（既定）／L／⛶ 全画面。狭幅でも「⋯ 操作」に畳まない（asidePinned） */}
+          {RESULT_HEIGHT_BUTTONS.map((b) => (
+            <button
+              key={b}
+              type="button"
+              data-ta-height={b}
+              aria-pressed={b !== 'full' && heightMode === b}
+              onClick={() => (b === 'full' ? setReaderOpen(true) : changeHeight(b))}
+              disabled={b === 'full' && !text}
+              title={resultHeightTitle(b)}
+              style={{ color: b !== 'full' && heightMode === b ? 'var(--accent)' : undefined, fontWeight: b !== 'full' && heightMode === b ? 700 : undefined }}
+            >
+              {resultHeightLabel(b)}
             </button>
           ))}
-          {/* 215: 「全」＝全画面ビューア（S/M/L と違い高さは変えない＝閉じたら元の高さのまま） */}
-          <button type="button" onClick={() => setReaderOpen(true)} disabled={!text} title="全画面で読む">全</button>
         </>}
         menus={[
           { key: 'download', label: '⬇ ダウンロード', title: 'テキスト／Markdown／Word で書き出す', items: (<>
@@ -347,6 +370,7 @@ function ResultPanel({
 
       {/* 本文 */}
       <div
+        data-ta-result-body={type}
         style={{
           overflowY: 'auto',
           resize: 'vertical',

@@ -12778,7 +12778,7 @@ test('C142: ダイアログが透けない（326・WebKit iPhone幅・ライト/
   }
 });
 
-test('C143: 操作行のアコーディオン（326・WebKit iPhone幅）— 狭幅で常に見えるのは3つ（保存・図解・⋯ 操作）で残りは閉じている／「⋯ 操作 ▾」で9マス・追加リサーチ・コピー・AIで修正・表示の高さ・ダウンロード・送る・記憶する・お気に入りが縦1列（各44px以上・横スクロールなし）／展開してもロケータは1つのまま（同じ要素）／成果物ごとに独立して開閉／広幅は従来の2段', async () => {
+test('C143: 操作行のアコーディオン（326・334改訂・WebKit iPhone幅）— 狭幅で常に見えるのは保存・図解・⋯ 操作＋高さプリセット（334で畳まなくなった）で残りは閉じている／「⋯ 操作 ▾」で9マス・追加リサーチ・コピー・AIで修正・ダウンロード・送る・記憶する・お気に入りが縦1列（各44px以上・横スクロールなし）で高さプリセットは中に無い／展開してもロケータは1つのまま（同じ要素）／成果物ごとに独立して開閉／広幅は従来の2段', async () => {
   test.setTimeout(240_000);
   const browser = await webkit.launch();
   const ctx = await browser.newContext({ storageState: STORAGE_STATE, baseURL: BASE_URL, hasTouch: true, isMobile: true, viewport: { width: 390, height: 844 }, serviceWorkers: 'block' });
@@ -12796,11 +12796,13 @@ test('C143: 操作行のアコーディオン（326・WebKit iPhone幅）— 狭
     const bar = page.locator('[data-ta-result-actions]').first();
     await expect(bar).toBeVisible({ timeout: 60000 });
     await expect(bar, '狭幅と判定される').toHaveAttribute('data-result-narrow', '1');
-    // ① 常に見えるのは3つ
+    // ① 常に見えるのは 保存・図解・⋯ 操作 の3つ＋高さプリセット3つ（334: 高さは畳まない）
     const visible = async () => bar.locator('button, a').evaluateAll((els) => els.filter((e) => (e as HTMLElement).offsetParent !== null && !(e.closest('[data-result-more-panel]') as HTMLElement | null)).map((e) => (e.textContent ?? '').trim()));
     const shown = await visible();
-    expect(shown.length, `常に見えるのは3つ（${shown.join('／')}）`).toBe(3);
-    expect(shown[2]).toContain('操作');
+    const heights = shown.filter((t) => ['M', 'L', '⛶ 全画面'].includes(t));
+    expect(heights.sort(), `高さプリセットが常に見える（${shown.join('／')}）`).toEqual(['L', 'M', '⛶ 全画面']);
+    expect(shown.filter((t) => !heights.includes(t)).length, `高さ以外で常に見えるのは3つ（${shown.join('／')}）`).toBe(3);
+    expect(shown.some((t) => t.includes('操作')), '⋯ 操作 がある').toBe(true);
     await expect(bar.locator('[data-result-more-panel]')).toBeHidden();
     // ② 展開すると縦1列で残りが出る
     await bar.locator('[data-result-more]').click();
@@ -12809,7 +12811,9 @@ test('C143: 操作行のアコーディオン（326・WebKit iPhone幅）— 狭
     for (const name of ['🔲 9マスシートにする', '🎤 プレゼン構成を考える', '🔭 追加リサーチ', '📋 コピー', '⬇ ダウンロード', '➡ 送る', '🧠 記憶する']) {
       await expect(panel.getByText(name, { exact: false }).first(), `${name} が展開部にある`).toBeVisible();
     }
-    await expect(panel.locator('[data-result-more-label]'), '高さプリセットにラベル').toHaveText('表示の高さ');
+    // 334: 高さプリセットは展開部に**無い**（二重に置かない）
+    await expect(panel.locator('[data-ta-height]'), '高さプリセットは ⋯ 操作 の中に無い').toHaveCount(0);
+    await expect(panel.locator('[data-result-more-label]'), '高さを出していたラベルも消える').toHaveCount(0);
     const rows = await panel.evaluate((el) => Array.from(el.children).map((c) => { const r = c.getBoundingClientRect(); return { h: Math.round(r.height), w: Math.round(r.width), left: Math.round(r.left) }; }));
     expect(rows.length).toBeGreaterThan(3);
     for (const r of rows) expect(r.h, '各行は44px以上').toBeGreaterThanOrEqual(44);
@@ -13171,7 +13175,7 @@ test('C147: 🗂保存一覧の全画面と全画面比較（330）— カード
   try {
     await page.setViewportSize({ width: 1280, height: 900 });
     await page.goto('/dashboard/saved');
-    await page.evaluate(() => { localStorage.removeItem('lumina_ta_saved_height'); localStorage.setItem('lumina_text_scale', '100'); });
+    await page.evaluate(() => { localStorage.removeItem('ta_saved_height'); localStorage.setItem('lumina_text_scale', '100'); });
     await page.reload({ waitUntil: 'domcontentloaded' });
     await panel.locator('[data-kb-search]').fill(marker);
     await expect(card(ids[0])).toBeVisible({ timeout: 30000 });
@@ -13939,6 +13943,138 @@ test('C151: 案内を下部の操作要素に重ねない（333・R-133の横展
     expect(toastGeom.pointerEvents, '置き場そのものもクリックを受けない').toBe('none');
   } finally {
     if (chartId) await deleteMandalaChart(request, chartId);
+    await ctx.close();
+    await wk.close();
+  }
+});
+
+// ============================================================================
+// 334: 成果物の高さプリセットを常時表示にし、S を廃止
+//
+// 院長の実測（iPhone・2026/9/13 16:17）:
+//   「携帯で使うとき、サイズの S M L 全画面表示ボタンは折りたたまないでほしい。既定は M。S は使わないので消す」
+// 326で狭幅の操作行をアコーディオンにしたとき、高さプリセットを「⋯ 操作」の中に入れた。
+// 高さは本文を読むたびに触る操作なので、畳むと毎回2タップかかる。
+// ============================================================================
+
+test('C152: 成果物の高さプリセット（334・WebKit iPhone幅）— 狭幅でも M・L・⛶ 全画面が「⋯ 操作」を開かずに押せる（44px以上・他と重ならない・横スクロールなし）／「⋯ 操作」の中に高さが無い／S が画面に無い／記憶に S が入っていると M に読み替えられ保存値も M に書き換わる／M・L の切替が再読込後も保持される／⛶ 全画面で全画面リーダーが開く／🗂保存一覧の展開ビューも同じ（S 無し・44px以上）／入力欄（332）のプリセットは S/M/L/自動 のまま／広幅は右端のまま', async () => {
+  test.setTimeout(240_000);
+  const wk = await webkit.launch();
+  const ctx = await wk.newContext({ storageState: STORAGE_STATE, baseURL: BASE_URL, hasTouch: true, isMobile: true, viewport: { width: 390, height: 844 }, serviceWorkers: 'block' });
+  const page = await ctx.newPage();
+  try {
+    const long = 'かゆみが強いときは掻かずに冷やすとよい。保湿剤は入浴後5分以内に塗る。室内の湿度は50〜60%に保つ。'.repeat(6);
+    // 成果物は「下書きの復元」で出す（AI は使わない）
+    await page.route('**/api/feature-drafts**', (route) => {
+      const isTa = route.request().method() === 'GET' && /feature=text-analysis(&|$)/.test(route.request().url());
+      route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(isTa ? { draft: { payload: { inputText: long, purpose: '', results: { summary: `[E2E] 334 の確認。${long}` } }, updated_at: new Date().toISOString() } } : (route.request().method() === 'GET' ? { draft: null } : { ok: true })) });
+    });
+    await page.goto('/dashboard/text-analysis');
+    // ── ① 記憶に 'S'（334で廃止）が入っている状態で開く ──
+    await page.evaluate(() => {
+      localStorage.setItem('lumina_auto_stock_save', '0');
+      localStorage.setItem('ta_saved_height', 'S');
+    });
+    await page.reload({ waitUntil: 'domcontentloaded' });
+    const bar = page.locator('[data-ta-result-actions]').first();
+    await expect(bar).toBeVisible({ timeout: 60000 });
+    await expect(bar, '狭幅と判定される').toHaveAttribute('data-result-narrow', '1');
+    // 'S' → M へ読み替え、**保存値も書き換わる**（読むたびに読み替える形にしない）
+    await expect
+      .poll(async () => page.evaluate(() => localStorage.getItem('ta_saved_height')), { timeout: 15000 })
+      .toBe('M');
+    await expect(bar.locator('[data-ta-height="M"]'), '既定は M').toHaveAttribute('aria-pressed', 'true');
+
+    // ── ② 高さプリセットは「⋯ 操作」を開かずに押せる ──
+    await expect(bar.locator('[data-result-more-panel]'), '⋯ 操作 は閉じている').toBeHidden();
+    const geom = await bar.evaluate((el) => {
+      const btns = [...el.querySelectorAll('[data-ta-height]')] as HTMLElement[];
+      const others = [...el.querySelectorAll('button, a')].filter((b) => !b.hasAttribute('data-ta-height')) as HTMLElement[];
+      let worst = 0;
+      for (const b of btns) {
+        const r = b.getBoundingClientRect();
+        for (const o of others) {
+          const q = o.getBoundingClientRect();
+          if (q.width === 0 || q.height === 0) continue;
+          const ix = Math.max(0, Math.min(r.right, q.right) - Math.max(r.left, q.left));
+          const iy = Math.max(0, Math.min(r.bottom, q.bottom) - Math.max(r.top, q.top));
+          worst = Math.max(worst, ix * iy);
+        }
+      }
+      return {
+        labels: btns.map((b) => (b.textContent ?? '').trim()),
+        minH: Math.min(...btns.map((b) => Math.round(b.getBoundingClientRect().height))),
+        inMorePanel: btns.filter((b) => b.closest('[data-result-more-panel]')).length,
+        overlap: Math.round(worst),
+        fitsScreen: btns.every((b) => { const r = b.getBoundingClientRect(); return r.left >= 0 && r.right <= window.innerWidth + 1; }),
+      };
+    });
+    expect(geom.labels, 'M・L・⛶ 全画面の3つ（S は無い）').toEqual(['M', 'L', '⛶ 全画面']);
+    expect(geom.inMorePanel, '「⋯ 操作」の中に無い').toBe(0);
+    expect(geom.minH, '押しやすい高さ（44px以上）').toBeGreaterThanOrEqual(44);
+    expect(geom.overlap, '他のボタンと重ならない（R-133）').toBe(0);
+    expect(geom.fitsScreen, '画面幅に収まる').toBe(true);
+    const overflowX = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+    expect(overflowX, '横スクロールなし').toBeLessThanOrEqual(1);
+    // 画面のどこにも「高さの S」は無い（⋯ を開いても）
+    await bar.locator('[data-result-more]').click();
+    await expect(page.locator('[data-ta-height="S"]'), 'S は存在しない').toHaveCount(0);
+    await bar.locator('[data-result-more]').click();
+
+    // ── ③ M / L の切替と、再読込後の保持 ──
+    const body = page.locator('[data-ta-result-body]').first();
+    const mH = (await body.boundingBox())!.height;
+    await bar.locator('[data-ta-height="L"]').click();
+    await expect(bar.locator('[data-ta-height="L"]')).toHaveAttribute('aria-pressed', 'true');
+    const lH = (await body.boundingBox())!.height;
+    expect(lH, 'L のほうが高い').toBeGreaterThan(mH);
+    expect(await page.evaluate(() => localStorage.getItem('ta_saved_height')), '記憶される').toBe('L');
+    await page.reload({ waitUntil: 'domcontentloaded' });
+    const bar2 = page.locator('[data-ta-result-actions]').first();
+    await expect(bar2).toBeVisible({ timeout: 60000 });
+    await expect(bar2.locator('[data-ta-height="L"]'), '再読込後も L').toHaveAttribute('aria-pressed', 'true');
+
+    // ── ④ ⛶ 全画面で全画面リーダーが開く（330の挙動） ──
+    await bar2.locator('[data-ta-height="full"]').click();
+    const reader = page.locator('[role="dialog"][data-kb-scope="reader"]');
+    await expect(reader, '全画面リーダーが開く').toBeVisible({ timeout: 15000 });
+    await page.keyboard.press('Escape');
+    await expect(reader).toHaveCount(0);
+    await expect(bar2.locator('[data-ta-height="L"]'), '⛶ を押しても枠の高さは変わらない').toHaveAttribute('aria-pressed', 'true');
+
+    // ── ⑤ 入力欄（332）のプリセットは S/M/L/自動 のまま（別物・変更しない） ──
+    const choices = await page.locator('[data-ta-height-choice]').evaluateAll((els) => els.map((e) => e.getAttribute('data-ta-height-choice')));
+    expect(choices, '入力欄は S/M/L/自動 のまま').toEqual(['S', 'M', 'L', 'auto']);
+
+    // ── ⑥ 🗂保存一覧の展開ビューも S 無し・44px以上 ──
+    await page.goto('/dashboard/saved');
+    const firstCard = page.locator('[data-saved-panel="text-analysis"] [data-analysis-card]').first();
+    await expect(firstCard).toBeVisible({ timeout: 30000 });
+    await firstCard.getByRole('button', { name: '▼ 全文表示' }).click();
+    const row = firstCard.locator('[data-ta-height-row]');
+    await expect(row).toBeVisible({ timeout: 15000 });
+    const savedGeom = await row.evaluate((el) => {
+      const btns = [...el.querySelectorAll('[data-ta-height]')] as HTMLElement[];
+      return { labels: btns.map((b) => (b.textContent ?? '').trim()), minH: Math.min(...btns.map((b) => Math.round(b.getBoundingClientRect().height))) };
+    });
+    expect(savedGeom.labels, '保存一覧も M・L・⛶ 全画面').toEqual(['M', 'L', '⛶ 全画面']);
+    expect(savedGeom.minH, '押しやすい高さ（44px以上）').toBeGreaterThanOrEqual(44);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth), '横スクロールなし').toBeLessThanOrEqual(1);
+
+    // ── ⑦ 広幅は従来どおり操作行の右端（アコーディオンにしない） ──
+    await page.setViewportSize({ width: 1200, height: 900 });
+    await page.goto('/dashboard/text-analysis');
+    const bar3 = page.locator('[data-ta-result-actions]').first();
+    await expect(bar3).toBeVisible({ timeout: 60000 });
+    await expect(bar3, '広幅').toHaveAttribute('data-result-narrow', '0');
+    const wide = await bar3.evaluate((el) => {
+      const aside = el.querySelector('[data-result-action-aside]')!.getBoundingClientRect();
+      const row1 = el.querySelector('[data-result-action-row="1"]')!.getBoundingClientRect();
+      return { sameRow: Math.abs(aside.top - row1.top) < row1.height, atRight: row1.right - aside.right < 24 };
+    });
+    expect(wide.sameRow, '広幅は1段目の中').toBe(true);
+    expect(wide.atRight, '広幅は右端のまま').toBe(true);
+  } finally {
     await ctx.close();
     await wk.close();
   }

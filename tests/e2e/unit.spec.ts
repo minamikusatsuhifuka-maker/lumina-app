@@ -26,6 +26,8 @@ import * as cp332 from '../../src/lib/clear-and-paste';
 import * as th332 from '../../src/lib/textarea-height';
 // 333: in-flow の案内帯（R-133 の横展開）
 import * as inl333 from '../../src/lib/inline-notice';
+// 334: 成果物の高さ（S 廃止・既定M・記憶の読み替え）
+import * as rh334 from '../../src/lib/result-height';
 import * as tpl320 from '../../src/lib/visual-templates';
 import { renderMarkdown } from '../../src/lib/markdown-renderer';
 import { readFileSync } from 'node:fs';
@@ -6011,4 +6013,58 @@ test('U103: 案内を操作要素に重ねない（333）— 帯の自動消去�
     const src = readFileSync(join(__dirname, '../../', file), 'utf8');
     expect(src, `${file}: 変更しない`).toMatch(/from '@\/components\/ui\/Toast'/);
   }
+});
+
+// 334: 成果物の高さプリセット（S 廃止・既定M・'S'/'full' の読み替え）と、常時表示にしたことのソース固定
+test('U104: 成果物の高さ（334）— プリセットは M・L・⛶ 全画面の3つで S が無い／既定は M／記憶は M・L だけで、\'S\'（334で廃止）・\'full\'（330で振替）・壊れた値・未設定はすべて M に倒れる（fail-closed）／読み替えが必要かを決定的に判定できる／値は M<L で 350（旧S）を使わない／画面は共通 lib を通し、狭幅でも「⋯ 操作」に畳まない（asidePinned）／入力欄（332）の S/M/L/自動 は別物として残る', () => {
+  // ── プリセットの並びと S の不在 ──
+  expect(rh334.RESULT_HEIGHT_BUTTONS).toEqual(['M', 'L', 'full']);
+  expect(rh334.RESULT_HEIGHT_BUTTONS, 'S は廃止').not.toContain('S');
+  expect(rh334.RESULT_HEIGHT_DEFAULT, '既定は M').toBe('M');
+  expect(Object.keys(rh334.RESULT_HEIGHT_VALUES).sort()).toEqual(['L', 'M']);
+  expect(rh334.RESULT_HEIGHT_VALUES.L, 'L のほうが高い').toBeGreaterThan(rh334.RESULT_HEIGHT_VALUES.M);
+  expect(Object.values(rh334.RESULT_HEIGHT_VALUES), '旧 S（350px）は使わない').not.toContain(350);
+
+  // ── 読み替え（fail-closed・決定的 R-74）──
+  expect(rh334.normalizeResultHeight('M')).toBe('M');
+  expect(rh334.normalizeResultHeight('L')).toBe('L');
+  for (const raw of ['S', 'full', '', 'XL', '350', 'null', null, undefined]) {
+    expect(rh334.normalizeResultHeight(raw), `${String(raw)} は M に倒す`).toBe('M');
+    expect(rh334.normalizeResultHeight(raw), '同じ入力なら同じ結果').toBe(rh334.normalizeResultHeight(raw));
+  }
+  // 書き換えが必要なのは「値があって、そのままでは使えない」ときだけ（未設定を毎回書きに行かない）
+  expect(rh334.needsResultHeightMigration('S'), "'S' は保存値も書き換える").toBe(true);
+  expect(rh334.needsResultHeightMigration('full')).toBe(true);
+  expect(rh334.needsResultHeightMigration('XL')).toBe(true);
+  expect(rh334.needsResultHeightMigration('M')).toBe(false);
+  expect(rh334.needsResultHeightMigration('L')).toBe(false);
+  expect(rh334.needsResultHeightMigration(null), '未設定は書かない').toBe(false);
+  expect(rh334.needsResultHeightMigration(undefined)).toBe(false);
+
+  // ── ラベル・説明（R-57 12文字以内／R-110 省略しないで読める）──
+  for (const b of rh334.RESULT_HEIGHT_BUTTONS) {
+    expect([...rh334.resultHeightLabel(b)].length, `${b} のラベルは12文字以内`).toBeLessThanOrEqual(12);
+    expect(rh334.resultHeightTitle(b).length, `${b} の説明がある`).toBeGreaterThan(0);
+  }
+  expect(rh334.resultHeightLabel('full')).toBe('⛶ 全画面');
+
+  // ── 画面は共通 lib を通す（新しく値を書かない・R-91）──
+  const panel = readFileSync(join(__dirname, '../../src/components/text-analysis/TextAnalysisPanel.tsx'), 'utf8');
+  const saved = readFileSync(join(__dirname, '../../src/components/text-analysis/SavedAnalysisList.tsx'), 'utf8');
+  for (const [name, src] of [['TextAnalysisPanel', panel], ['SavedAnalysisList', saved]] as const) {
+    expect(src, `${name}: 共通 lib を通す`).toMatch(/from '@\/lib\/result-height'/);
+    expect(src, `${name}: 高さの値を自前で持たない（R-91）`).not.toMatch(/HEIGHT_PRESETS\s*=|SAVED_HEIGHT_VALUES|SAVED_HEIGHT_KEY/);
+    expect(src, `${name}: 高さの S を残さない（未使用コードにしない）`).not.toMatch(/'S'\s*[:,\]]|data-ta-height="S"|\{ label: 'S'/);
+    expect(src, `${name}: 記憶のキーを直接書かない`).not.toMatch(/'ta_saved_height'/);
+  }
+  expect(panel, '狭幅でも「⋯ 操作」に畳まない').toMatch(/asidePinned/);
+  const bar = readFileSync(join(__dirname, '../../src/components/ResultActionBar.tsx'), 'utf8');
+  expect(bar, '固定した aside は「残りの操作」に数えない（二重に置かない）').toMatch(/const asideInMore = !!aside && !asidePinned/);
+  expect(bar, '固定した aside は1段目に出す目印').toMatch(/data-result-aside-pinned/);
+  const css = readFileSync(join(__dirname, '../../src/app/globals.css'), 'utf8');
+  expect(css, '狭幅の高さプリセットは44px以上').toMatch(/data-result-aside-pinned\][\s\S]{0,200}min-height: 44px/);
+  expect(css, '保存一覧の高さ行も狭幅で44px以上').toMatch(/data-ta-height-row\][\s\S]{0,400}min-height: 44px/);
+
+  // ── 入力欄（332）は別物＝S/M/L/自動 のまま（334では変更しない）──
+  expect(th332.TA_HEIGHT_CHOICES, '入力欄は S/M/L/自動 のまま').toEqual(['S', 'M', 'L', 'auto']);
 });
