@@ -2,6 +2,8 @@ import { test, expect, request as pwRequest, webkit, APIRequestContext } from '@
 import { BASE_URL, STORAGE_STATE } from '../../playwright.config';
 // 335: モデルIDとラベルは実装と同じ定数から見る（モデル移行のたびにテストを直さない・R-91）
 import { GEMINI_TEXT_MODEL, GEMINI_TEXT_MODEL_LABEL } from '../../src/lib/ai-models';
+import { COMPARE_BUTTON_LABEL } from '../../src/lib/model-compare';
+import { PRICING_CHECKED_ON } from '../../src/lib/model-pricing';
 import {
   SAVES_API,
   RUN_ID,
@@ -5782,7 +5784,7 @@ test('C92: Gemini と Claude Opus 5 の並列比較（290）— 2本のリクエ
   const col = (i: number) => page.locator(`[data-compare-col="${i}"]`);
   const sideCol = (s: string) => page.locator(`[data-compare-model="${s}"]`);
 
-  await expect(compareBtn, 'ボタンにモデル名が分かる表記（§5-1・314で3モデル）').toContainText(/Gemini 3\.7 Flash／Claude Opus 5／GPT-6 Astra/);
+  await expect(compareBtn, 'ボタンにモデル名が分かる表記（§5-1・314で3モデル）').toContainText(COMPARE_BUTTON_LABEL.replace(/^⚖ /, ''));
   await expect(compareBtn, '未入力では押せない').toBeDisabled();
   await topic.fill('[E2E] 比較の検証');
   await expect(topic, '入力がstateに入っている前提').toHaveValue('[E2E] 比較の検証');
@@ -10871,7 +10873,7 @@ test('C130: 並列比較の確認ダイアログ・独立実行・GPT-6 Astra（
   await expect(dlg.locator('[data-compare-dialog-cost="gemini"]')).toContainText(/約 \$\d+\.\d{2}|\$0\.01 未満/);
   await expect(dlg.locator('[data-compare-dialog-cost="opus"]')).toContainText(/約 \$\d+\.\d{2}/);
   await expect(dlg.locator('[data-compare-dialog-total]')).toContainText(/約 \$\d+\.\d{2}/);
-  await expect(dlg, '確認日を添える').toContainText('2026-09-09 確認');
+  await expect(dlg, '確認日を添える').toContainText(`${PRICING_CHECKED_ON} 確認`);
   await expect(dlg.locator('[data-compare-dialog-time="gemini"]')).toContainText(/約\d+秒/);
   await expect(dlg.locator('[data-compare-dialog-time="gpt"]')).toHaveText('未計測');
   await expect(dlg.locator('[data-compare-dialog-saves]')).toHaveAttribute('data-compare-dialog-saves', '2');
@@ -11102,7 +11104,7 @@ test('C131: 記事→図解（315）— 📚🗂の行の「🖼 図解にする
       await expect(dlg).toBeVisible();
       await expect(dlg.locator('[data-vis-image-dialog-cost]')).toContainText(/約 \$\d+\.\d{2}|\$0\.01 未満/);
       await expect(dlg.locator('[data-vis-image-dialog-count]')).toHaveText('1');
-      await expect(dlg).toContainText('2026-09-09 確認');
+      await expect(dlg).toContainText(`${PRICING_CHECKED_ON} 確認`);
       await expect(dlg.locator('[data-vis-image-dialog-model]')).toHaveText('gpt-image-2.5-flare');
       await dlg.locator('[data-vis-image-cancel]').click();
       await expect(dlg).toHaveCount(0);
@@ -11268,7 +11270,7 @@ test('C132: 記事→マンダラ生成（316）— 固定JSONを同じ検証・
     await expect(dlg).toBeVisible();
     await expect(dlg.locator('[data-mandala-gen-mode="9"] input'), '3,000字未満の既定は 9').toBeChecked();
     await expect(dlg.locator('[data-mandala-gen-cost]')).toContainText(/約 \$|\$0\.01 未満/);
-    await expect(dlg).toContainText('2026-09-09 確認');
+    await expect(dlg).toContainText(`${PRICING_CHECKED_ON} 確認`);
     await dlg.locator('[data-mandala-gen-cancel]').click();
     await expect(dlg).toHaveCount(0);
     expect(posts.length, 'やめるではリクエスト0').toBe(0);
