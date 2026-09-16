@@ -6130,7 +6130,12 @@ test('U105: 既定モデルは Gemini 3.8 Flash（335）— モデルIDとラベ
 
   // ── 表示は同じ定数から（R-74）──
   const dr = readFileSync(join(root, 'app/dashboard/deepresearch/page.tsx'), 'utf8');
-  expect(dr, '比較ボタンの説明もモデル名を定数から描く').toMatch(/\$\{GEMINI_TEXT_MODEL_LABEL\}/);
+  // 比較ボタンの表記も説明文も、既存の COMPARE_SIDE_LABEL（中で GEMINI_TEXT_MODEL_LABEL を使う）から描く。
+  // ここで自前に組み立て直すと opus が「Claude Opus 5」から「Opus 5」に変わる事故が起きる（335で一度踏んだ）
+  expect(dr, '比較ボタンの説明もモデル名を定数から描く').toMatch(/\$\{COMPARE_SIDE_LABEL\.gemini\}/);
+  const mc = readFileSync(join(root, 'lib/model-compare.ts'), 'utf8');
+  expect(mc, '列ヘッダーのモデル名は ai-models の定数から').toMatch(/gemini: GEMINI_TEXT_MODEL_LABEL/);
+  expect(mc, 'Opus は「Claude 」を前置きした表記のまま').toMatch(/opus: `Claude \$\{CLAUDE_OPUS_MODEL_LABEL\}`/);
   const pref = readFileSync(join(root, 'lib/model-preference.ts'), 'utf8');
   expect(pref, 'モデル名のラベルは定数から').toMatch(/GEMINI_TEXT_MODEL_LABEL/);
 });
