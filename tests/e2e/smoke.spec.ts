@@ -3,7 +3,7 @@ import { BASE_URL, STORAGE_STATE } from '../../playwright.config';
 // 335: モデルIDとラベルは実装と同じ定数から見る（モデル移行のたびにテストを直さない・R-91）
 import { GEMINI_TEXT_MODEL, GEMINI_TEXT_MODEL_LABEL } from '../../src/lib/ai-models';
 import { COMPARE_BUTTON_LABEL } from '../../src/lib/model-compare';
-import { PRICING_CHECKED_ON } from '../../src/lib/model-pricing';
+import { IMAGE_PRICING_CHECKED_ON, PRICING_CHECKED_ON } from '../../src/lib/model-pricing';
 import {
   SAVES_API,
   RUN_ID,
@@ -11104,7 +11104,7 @@ test('C131: 記事→図解（315）— 📚🗂の行の「🖼 図解にする
       await expect(dlg).toBeVisible();
       await expect(dlg.locator('[data-vis-image-dialog-cost]')).toContainText(/約 \$\d+\.\d{2}|\$0\.01 未満/);
       await expect(dlg.locator('[data-vis-image-dialog-count]')).toHaveText('1');
-      await expect(dlg).toContainText(`${PRICING_CHECKED_ON} 確認`);
+      await expect(dlg).toContainText(`${IMAGE_PRICING_CHECKED_ON} 確認`);
       await expect(dlg.locator('[data-vis-image-dialog-model]')).toHaveText('gpt-image-2.5-flare');
       await dlg.locator('[data-vis-image-cancel]').click();
       await expect(dlg).toHaveCount(0);
