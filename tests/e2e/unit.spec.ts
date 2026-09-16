@@ -49,7 +49,10 @@ import {
 } from '../../src/lib/dr-memo';
 import { FLOATING_BUTTONS, FLOATING_DEFAULT, FLOATING_ORDER } from '../../src/components/ThemeProvider';
 import { anthropicFailureAction } from '../../src/lib/anthropic-compat';
-import { CLAUDE_OPUS_MODEL, GEMINI_TEXT_MODEL } from '../../src/lib/ai-models';
+import { CLAUDE_OPUS_MODEL, GEMINI_TEXT_MODEL, GEMINI_TEXT_MODEL_LABEL } from '../../src/lib/ai-models';
+// 335: 既定モデルの切り替え（3.7 Flash → 3.8 Flash）
+import * as am335 from '../../src/lib/ai-models';
+import { readdirSync, statSync } from 'node:fs';
 import {
   COMPARE_BUTTON_LABEL,
   COMPARE_CLIENT_TIMEOUT_MS,
@@ -2455,7 +2458,7 @@ test('U59: モデル比較（290）— compare の検証・保存名にモデル
 
   // 保存名（§5-6）: モデル名を角括弧で付ける＝同題でも2モデルで別のタイトルになる。決定的（R-74）
   expect(compareSaveTitle('肌老化の原因', 'opus')).toBe('肌老化の原因［Claude Opus 5］');
-  expect(compareSaveTitle('肌老化の原因', 'gemini')).toBe('肌老化の原因［Gemini 3.7 Flash］');
+  expect(compareSaveTitle('肌老化の原因', 'gemini')).toBe(`肌老化の原因［${GEMINI_TEXT_MODEL_LABEL}］`);
   expect(compareSaveTitle('肌老化の原因', 'gemini')).not.toBe(compareSaveTitle('肌老化の原因', 'opus'));
   expect(compareSaveTitle('  前  後\n改行 ', 'opus')).toBe('前 後 改行［Claude Opus 5］');
   expect(compareSaveTitle('', 'opus')).toBe('ディープリサーチ［Claude Opus 5］');
@@ -2492,7 +2495,7 @@ test('U59: モデル比較（290）— compare の検証・保存名にモデル
   expect(meta.chars).toBe(4120);
   expect(meta.inputTokens).toBe(12);
   expect(meta.outputTokens).toBe(34);
-  expect(compareSaveMetadata('gemini')).toEqual({ compare: true, model: GEMINI_TEXT_MODEL, modelLabel: 'Gemini 3.7 Flash' });
+  expect(compareSaveMetadata('gemini')).toEqual({ compare: true, model: GEMINI_TEXT_MODEL, modelLabel: GEMINI_TEXT_MODEL_LABEL });
 
   // 使用量の表記（§6-3）
   expect(formatElapsed(0)).toBe('0秒');
@@ -4519,17 +4522,18 @@ test('U85: 並列比較の確認ダイアログ・費用/所要時間の目安�
   const p = modelPricing;
   const o = openaiResearch;
   // ① 単価の有効期日（JST）と確認日
-  expect(p.PRICING_CHECKED_ON).toBe('2026-09-09');
-  expect(p.unitPriceOn('gemini-3.7-flash', '2026-12-31')).toMatchObject({ inputPerM: 0.75, outputPerM: 3.75 });
-  expect(p.unitPriceOn('gemini-3.7-flash', '2027-01-01')).toMatchObject({ inputPerM: 1.5, outputPerM: 7.5 });
+  // 335: 3.8 Flash へ移行した日に単価を再確認した（値は 3.7 と同額）
+  expect(p.PRICING_CHECKED_ON).toBe('2026-09-16');
+  expect(p.unitPriceOn(GEMINI_TEXT_MODEL, '2026-12-31')).toMatchObject({ inputPerM: 0.75, outputPerM: 3.75 });
+  expect(p.unitPriceOn(GEMINI_TEXT_MODEL, '2027-01-01')).toMatchObject({ inputPerM: 1.5, outputPerM: 7.5 });
   expect(p.unitPriceOn('claude-opus-5', '2026-09-09')).toMatchObject({ inputPerM: 5, outputPerM: 25, reasoningInOutput: true });
   expect(p.unitPriceOn('gpt-6-astra', '2026-09-09')).toMatchObject({ inputPerM: 10, outputPerM: 50, reasoningInOutput: true });
   expect(p.unitPriceOn('nope', '2026-09-09')).toBeNull();
-  expect(p.pricingNote('2026-09-09')).toContain('2026-09-09');
+  expect(p.pricingNote('2026-09-09')).toContain(p.PRICING_CHECKED_ON);
   expect(p.pricingNote('2026-09-09')).toContain('上限ではありません');
   // ② 推定: 入力＝お題＋定型、出力＝分量の目標。Opus/GPT は出力2倍。同じ入力→同じ金額（決定的）
-  const g = p.estimateCost('gemini-3.7-flash', 'standard', 100, '2026-09-09')!;
-  expect(g.inputTokens).toBe(100 + p.COMPARE_INPUT_OVERHEAD_TOKENS['gemini-3.7-flash']);
+  const g = p.estimateCost(GEMINI_TEXT_MODEL, 'standard', 100, '2026-09-09')!;
+  expect(g.inputTokens).toBe(100 + p.COMPARE_INPUT_OVERHEAD_TOKENS[GEMINI_TEXT_MODEL]);
   expect(p.estimateCost('gpt-6-astra', 'quick', 100, '2026-09-09')!.inputTokens, 'Web 検索の結果が入力に数えられる（B35 実測 22,963 tok）').toBe(100 + 23000);
   expect(g.outputTokens).toBe(3000);
   expect(g.usd).toBeCloseTo((1600 / 1e6) * 0.75 + (3000 / 1e6) * 3.75, 8);
@@ -4537,7 +4541,7 @@ test('U85: 並列比較の確認ダイアログ・費用/所要時間の目安�
   expect(op.outputTokens, '思考分を2倍').toBe(6000);
   expect(p.estimateCost('gpt-6-astra', 'deep', 0, '2026-09-09')!.outputTokens).toBe(10000);
   expect(p.estimateCost('claude-opus-5', 'quick', 100, '2026-09-09')!.usd).toBe(p.estimateCost('claude-opus-5', 'quick', 100, '2026-09-09')!.usd);
-  expect(p.estimateCost('gemini-3.7-flash', 'standard', 100, '2027-01-01')!.usd, '単価の切り替えで金額が変わる').toBeCloseTo(g.usd * 2, 8);
+  expect(p.estimateCost(GEMINI_TEXT_MODEL, 'standard', 100, '2027-01-01')!.usd, '単価の切り替えで金額が変わる').toBeCloseTo(g.usd * 2, 8);
   expect(p.costOf('claude-opus-5', 6755, 3692, '2026-09-09')).toBeCloseTo(0.033775 + 0.0923, 6);
   expect(p.formatUsd(0.004)).toBe('$0.01 未満');
   expect(p.formatUsd(0.126)).toBe('約 $0.13');
@@ -4545,7 +4549,7 @@ test('U85: 並列比較の確認ダイアログ・費用/所要時間の目安�
   expect(p.estimatedSeconds('gpt-6-astra', 'standard')).toBeNull();
   expect(p.estimatedSecondsLabel('gpt-6-astra', 'quick'), 'quick は B35 の実測').toBe('約40秒');
   expect(p.estimatedSecondsLabel('gpt-6-astra', 'standard')).toBe('未計測');
-  expect(p.estimatedSecondsLabel('gemini-3.7-flash', 'standard')).toBe('約25秒');
+  expect(p.estimatedSecondsLabel(GEMINI_TEXT_MODEL, 'standard')).toBe('約25秒');
   expect(p.estimatedSecondsLabel('claude-opus-5', 'deep')).toBe('約5分');
   expect(p.isLikelyToTimeout('claude-opus-5', 'deep', 300), '300秒なら deep の目安（300）は 90%（270）超＝見込み超え').toBe(true);
   expect(p.isLikelyToTimeout('claude-opus-5', 'deep', m.DEEPRESEARCH_MAX_DURATION_S), '600秒なら内側').toBe(false);
@@ -4819,7 +4823,7 @@ test('U88: 記事→マンダラ生成（316）— evidence が本文に無い�
   expect(g.validateStage2({ items: [{ title: 'x', body: 'y', evidence: '本文に無い' }] }, article).ok).toBe(false);
   // 引用の書き方・meta・origin・再生成
   expect(g.cellBodyWithEvidence('本文。', '引用文')).toBe('本文。\n\n> 引用: 引用文');
-  const meta = { generated: { source: { scope: 'library', item_key: '12', title: '記事A' }, model: 'gemini-3.7-flash', mode: '81', generatedAt: '2026-09-09T00:00:00.000Z', dropped: { points: 1, items: 2 } }, relations: [{ from: 0, to: 1, label: '同じ手順' }, { from: 2, to: 0, label: '補足' }] };
+  const meta = { generated: { source: { scope: 'library', item_key: '12', title: '記事A' }, model: GEMINI_TEXT_MODEL, mode: '81', generatedAt: '2026-09-09T00:00:00.000Z', dropped: { points: 1, items: 2 } }, relations: [{ from: 0, to: 1, label: '同じ手順' }, { from: 2, to: 0, label: '補足' }] };
   const gm = g.parseGeneratedMeta(meta)!;
   expect(gm.mode).toBe('81');
   expect(gm.dropped).toEqual({ points: 1, items: 2 });
@@ -5092,7 +5096,7 @@ test('U91: 追加リサーチ（319）— 発注文は前提資料→指示→�
   expect(followUpTitle(prompt, ['資料B', '分析A'])).toBe(`${prompt} — 資料B・分析A`);
   expect(followUpTitle('', ['X'])).toBe('追加リサーチ — X');
   // metadata.followUp の往復（キー単位・R-113）。of は scope→id の順・直前の元資料だけ
-  const meta = followUpMetadata({ sources: [b, a], prompt, mode: 'deep', model: 'gemini-3.7-flash', at: '2026-09-10T00:00:00.000Z', inherit: true });
+  const meta = followUpMetadata({ sources: [b, a], prompt, mode: 'deep', model: GEMINI_TEXT_MODEL, at: '2026-09-10T00:00:00.000Z', inherit: true });
   expect(meta.of.map((o) => `${o.scope}:${o.item_key}`)).toEqual(['library:b2', 'text_analysis:10']);
   const parsed = parseFollowUp(JSON.stringify({ followUp: meta, savedAt: 'x' }));
   expect(parsed).toEqual(meta);
@@ -6067,4 +6071,66 @@ test('U104: 成果物の高さ（334）— プリセットは M・L・⛶ 全画
 
   // ── 入力欄（332）は別物＝S/M/L/自動 のまま（334では変更しない）──
   expect(th332.TA_HEIGHT_CHOICES, '入力欄は S/M/L/自動 のまま').toEqual(['S', 'M', 'L', 'auto']);
+});
+
+// 335: 既定モデルを Gemini 3.8 Flash へ。モデルIDは1箇所・表示も同じ定数から・旧IDが残っていないこと
+test('U105: 既定モデルは Gemini 3.8 Flash（335）— モデルIDとラベルは lib/ai-models.ts の1箇所から来る／src 配下に \'gemini-3.7-flash\' と \'Gemini 3.7 Flash\' の直書きが残っていない／画面のバッジ・セレクタも同じ定数から描く（R-74）／Gemini 3 系で使えない thinking_budget・candidate_count をどこからも渡していない／使える思考レベルは low・medium の2つ（minimal は 3.7 と同じく非対応）／単価は 3.7 と同額で確認日が更新されている／Opus 5・GPT-6 Astra・GPT Image 2.5 は不変', () => {
+  // ── モデルIDとラベル（正本は1箇所）──
+  expect(am335.GEMINI_TEXT_MODEL).toBe('gemini-3.8-flash');
+  expect(am335.GEMINI_TEXT_MODEL_LABEL).toBe('Gemini 3.8 Flash');
+  expect(am335.DEFAULT_AI_MODEL, '既定のプロバイダは Gemini のまま（244）').toBe('gemini');
+  // 本便で触らないモデル（314・327）
+  expect(am335.CLAUDE_OPUS_MODEL).toBe('claude-opus-5');
+  expect(am335.CLAUDE_TEXT_MODEL).toBe('claude-sonnet-5');
+  expect(am335.OPENAI_GPT_MODEL).toBe('gpt-6-astra');
+  expect(am335.OPENAI_IMAGE_25_FLARE).toBe('gpt-image-2.5-flare');
+  expect(am335.OPENAI_IMAGE_25_SUNBURST).toBe('gpt-image-2.5-sunburst');
+
+  // ── src 配下を全部見る: 旧IDと旧ラベルの直書きが残っていないこと ──
+  const root = join(__dirname, '../../src');
+  const files: string[] = [];
+  const walk = (dir: string) => {
+    for (const name of readdirSync(dir)) {
+      const full = join(dir, name);
+      if (statSync(full).isDirectory()) walk(full);
+      else if (/\.(ts|tsx|css)$/.test(name)) files.push(full);
+    }
+  };
+  walk(root);
+  expect(files.length, 'src を走査できている').toBeGreaterThan(100);
+  const offenders: string[] = [];
+  const thinkingOffenders: string[] = [];
+  for (const f of files) {
+    const src = readFileSync(f, 'utf8');
+    const rel = f.slice(root.length + 1);
+    // ai-models.ts のコメントは移行の経緯として 3.7 に触れてよい（定数の値そのものは上で固定済み）
+    const code = src.replace(/\/\*[\s\S]*?\*\/|\/\/.*$/gm, '');
+    if (/gemini-3\.7-flash|gemini-3\.6-flash|Gemini 3\.7 Flash|Gemini 3\.6 Flash/.test(code)) offenders.push(rel);
+    // Gemini 3 系は thinking_budget（旧API）と candidate_count が使えない。どちらも渡さない
+    if (/thinkingBudget\s*:|thinking_budget|candidateCount\s*:|candidate_count/.test(code)) thinkingOffenders.push(rel);
+  }
+  expect(offenders, '旧モデルIDと旧ラベルの直書きが無い（あれば定数へ）').toEqual([]);
+  expect(thinkingOffenders, 'thinking_budget・candidate_count を渡していない').toEqual([]);
+
+  // ── 思考レベル（3.8 でも minimal は非対応。使うのは low / medium）──
+  expect(am335.GEMINI_TEXT_THINKING_LOW).toEqual({ thinkingConfig: { thinkingLevel: 'low' } });
+  expect(am335.GEMINI_TEXT_THINKING_MEDIUM).toEqual({ thinkingConfig: { thinkingLevel: 'medium' } });
+  // コメントは 241/335 の経緯として minimal に触れてよい（実際に渡していないことだけを見る）
+  const models = readFileSync(join(root, 'lib/ai-models.ts'), 'utf8').replace(/\/\*[\s\S]*?\*\/|\/\/.*$/gm, '');
+  expect(models, 'minimal を渡さない').not.toMatch(/thinkingLevel: 'minimal'/);
+  // 小枠の思考予備枠は据え置き（3.8 の low は 0 になりうるので減らす方向の変更は不要）
+  expect(am335.GEMINI_THINKING_RESERVE).toBe(1024);
+  expect(am335.geminiMaxTokens(256)).toBe(256 + am335.GEMINI_THINKING_RESERVE);
+
+  // ── 単価（3.7 と同額・確認日は移行日）──
+  expect(modelPricing.PRICING_CHECKED_ON).toBe('2026-09-16');
+  expect(modelPricing.unitPriceOn(am335.GEMINI_TEXT_MODEL, '2026-12-31')).toMatchObject({ inputPerM: 0.75, outputPerM: 3.75 });
+  expect(modelPricing.unitPriceOn(am335.GEMINI_TEXT_MODEL, '2027-01-01')).toMatchObject({ inputPerM: 1.5, outputPerM: 7.5 });
+  expect(modelPricing.unitPriceOn('gemini-3.7-flash', '2026-12-31'), '旧IDの単価は引けない（表と実体が同じ定数）').toBeNull();
+
+  // ── 表示は同じ定数から（R-74）──
+  const dr = readFileSync(join(root, 'app/dashboard/deepresearch/page.tsx'), 'utf8');
+  expect(dr, '比較ボタンの説明もモデル名を定数から描く').toMatch(/\$\{GEMINI_TEXT_MODEL_LABEL\}/);
+  const pref = readFileSync(join(root, 'lib/model-preference.ts'), 'utf8');
+  expect(pref, 'モデル名のラベルは定数から').toMatch(/GEMINI_TEXT_MODEL_LABEL/);
 });

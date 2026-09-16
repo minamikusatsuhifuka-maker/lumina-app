@@ -1,6 +1,8 @@
 import { test, expect } from '@playwright/test';
 import { RUN_ID, createSave, deleteSave, createLibraryItem, createMandalaChart, saveMandalaCell, deleteMandalaChart, createEpisode, addMandalaLinks } from './helpers';
 import { findBadHeadingLines, findMultiSentenceLines } from '../../src/lib/note-format';
+// 335: モデルIDは実装と同じ定数から見る（R-91）
+import { GEMINI_TEXT_MODEL } from '../../src/lib/ai-models';
 import { MANDALA_PAID_LINE_MARKER } from '../../src/lib/mandala-note';
 import { SUMMARY_FOR_NEXT_MAX } from '../../src/lib/presentation';
 // 319: 追加リサーチ
@@ -1088,7 +1090,7 @@ test('B39: 追加リサーチ（319・実AI・Gemini）— 実資料1件＋「�
     expect(text, '架空の社名は「未確認」と明示（推測で補わない）').toMatch(/未確認/);
     console.log(`[B39] ${Date.now() - t0}ms chars=${text.length}`);
     // 保存（画面と同じ形）→ followUp が付き、継承は用途・フォルダなし＝空。一覧（🔭 追加: n）に出る
-    const meta = followUpMetadata({ sources: [{ scope: 'library', id: libId, title: libTitle }], prompt, mode: 'quick', model: 'gemini-3.7-flash', at: new Date().toISOString(), inherit: true });
+    const meta = followUpMetadata({ sources: [{ scope: 'library', id: libId, title: libTitle }], prompt, mode: 'quick', model: GEMINI_TEXT_MODEL, at: new Date().toISOString(), inherit: true });
     const save = await request.post('/api/library', { data: { type: 'deepresearch', title: followUpTitle(prompt, [libTitle]), content: text, tags: 'ディープリサーチ,追加リサーチ', group_name: 'ディープリサーチ', metadata: { followUp: meta } } });
     expect(save.status()).toBe(200);
     const j = (await save.json()) as { id: string; inherited?: { purposes: number[]; folders: number[] } };

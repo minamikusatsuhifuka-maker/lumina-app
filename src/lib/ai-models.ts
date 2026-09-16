@@ -37,18 +37,20 @@ export const OPENAI_IMAGE_25_LABEL = 'GPT Image 2.5';
 export const CLAUDE_OPUS_PREV_MODEL = 'claude-opus-4-8';
 export const CLAUDE_OPUS_PREV_MODEL_LABEL = 'Opus 4.8';
 
-// 241: 3.6 Flash → 3.7 Flash。ListModels（v1beta）と generateContent の疎通で実在確認済み。
-export const GEMINI_TEXT_MODEL = 'gemini-3.7-flash';
+// 335: 3.7 Flash → 3.8 Flash（院長の指示 2026/9/13）。ListModels（v1beta）と generateContent の
+// 疎通で実在確認済み（2026-09-16・入力 1,048,576 / 出力 65,536・単価は 3.7 と同額 $0.75/$3.75）。
+// モデルIDの正本はここ1箇所。API 呼び出しも画面のバッジもこの定数から描く（表示と実体を分けない・R-74）。
+export const GEMINI_TEXT_MODEL = 'gemini-3.8-flash';
 
 // UI表示用ラベル（チップ・セレクタ・画面説明文で共通使用）
-export const GEMINI_TEXT_MODEL_LABEL = 'Gemini 3.7 Flash';
+export const GEMINI_TEXT_MODEL_LABEL = 'Gemini 3.8 Flash';
 
 // Gemini 3.x は思考(thinking)が既定ONで、思考トークンが maxOutputTokens の枠を消費する
 // （枠が小さいと本文が空になる。166で経験済み・178で実測再確認）。
 // 旧SDK @google/generative-ai v0.24 は thinkingConfig の型を持たないが、
 // generationConfig はRESTへそのまま素通しされるため下記オブジェクトの spread で制御できる（実測済み）。
 //
-// ⚠️ 241で判明した 3.7 の仕様変更（実測）:
+// ⚠️ 241で判明した 3.7 の仕様変更（実測）。**335で 3.8 でも同じであることを再実測した**:
 //   - `thinkingLevel: 'minimal'` は **400 INVALID_ARGUMENT**（"Thinking level MINIMAL is not
 //     supported for this model"）。3.7 で使えるのは low / medium / high の3段階のみ。
 //     'off' / 'none' も無効値で400。
@@ -57,19 +59,29 @@ export const GEMINI_TEXT_MODEL_LABEL = 'Gemini 3.7 Flash';
 //   - つまり 3.7 には「思考を0にする手段が無い」。low でも thoughts は 0〜250 変動する。
 //     小さい枠のまま 3.6/minimal 相当のつもりで呼ぶと MAX_TOKENS で本文が切れる（実測再現）。
 //     枠を切る側は必ず geminiMaxTokens() で思考分を上乗せすること。
+// 335の実測（gemini-3.8-flash・2026-09-16）:
+//   - `thinkingLevel: 'minimal'` は 3.7 と同じく **400**（"Thinking level MINIMAL is not supported"）。
+//     使えるのは low / medium / high の3段階のまま＝241の作りをそのまま使える。
+//   - 3.8 の low は、分類のような小タスクで **thoughts が 0 になることがある**（3.7 の low は 104〜168 を消費）。
+//     小枠の経路が 3.7 より通りやすくなった側の変化なので、geminiMaxTokens() の予備枠はそのままで安全。
+//   - 長文（3,000字級・medium）では thoughts 744（3.7 は 1207）。**「3.8 は思考トークンを多く使う」は
+//     長文経路では再現しなかった**（短いお題では 3.7 の約2倍になる＝小枠ほど予備枠が効く）。
 // 使い分け:
-//   low     … 機械的な小タスク（分類・タイトル・短文）＋通常タスクの既定＝3.7の実質最小
+//   low     … 機械的な小タスク（分類・タイトル・短文）＋通常タスクの既定＝実質最小
 //   medium  … 長文リサーチ・記事生成など品質優先箇所で明示指定
+// 335: この2段階は 241 で経路ごとに決めた既存の設計で、本便は**モデルIDだけを替える**（プロンプト・枠・
+//   思考レベルは触らない・R-88）。全経路を medium に倒すと、分類・タイトルのような小タスクでも毎回
+//   思考トークンを払うことになり（3.8 の low は 0 になりうる）、実費と所要時間が理由なく増える。
 export const GEMINI_TEXT_THINKING_LOW = { thinkingConfig: { thinkingLevel: 'low' } };
 export const GEMINI_TEXT_THINKING_MEDIUM = { thinkingConfig: { thinkingLevel: 'medium' } };
 
-/** 思考トークンの実測上限（241: low で最大247・medium で294を観測）に余裕を持たせた予備枠 */
+/** 思考トークンの実測上限（241: low で最大247・medium で294を観測。335の 3.8 でも小タスクは 0〜370）に余裕を持たせた予備枠 */
 export const GEMINI_THINKING_RESERVE = 1024;
 
 /**
  * Gemini の maxOutputTokens に思考分を上乗せする（241）。
  * 呼び出し側が指定する枠は「本文に使いたい量」なので、思考で食われる分をここで足す。
- * 3.7 は思考を0にできないため、小枠（〜1000）の呼び出しでは特に必須。
+ * 3.7 は思考を0にできず、3.8 も low で 0 になるとは限らないため、小枠（〜1000）の呼び出しでは必須。
  */
 export function geminiMaxTokens(maxTokens: number): number {
   return maxTokens + GEMINI_THINKING_RESERVE;

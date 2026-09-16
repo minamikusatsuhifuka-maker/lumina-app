@@ -71,7 +71,7 @@ import {
   followUpTitle,
   parseFollowUpHandoff,
 } from '@/lib/followup-research';
-import { CLAUDE_TEXT_MODEL, GEMINI_TEXT_MODEL } from '@/lib/ai-models';
+import { CLAUDE_OPUS_MODEL_LABEL, CLAUDE_TEXT_MODEL, GEMINI_TEXT_MODEL, GEMINI_TEXT_MODEL_LABEL, OPENAI_GPT_MODEL_LABEL } from '@/lib/ai-models';
 import {
   COMPARE_BUTTON_LABEL,
   COMPARE_CLIENT_TIMEOUT_MS,
@@ -2400,7 +2400,8 @@ ${contextText}
             data-compare-run
             onClick={() => setCompareDialogOpen(true)}
             disabled={loading || compareRunning || !topic.trim()}
-            title="同じお題を複数のAI（Gemini 3.7 Flash／Claude Opus 5／GPT-6 Astra）で同時に調べ、横並びで見比べます。押すと確認ダイアログでモデルの選択と費用・所要時間の目安を表示します（モデルごとに1本のリクエスト・失敗しても Gemini へ切り替えません・選んだモデル分の利用料がかかります）"
+            /* 335: モデル名は定数から描く（表示と実体を別々に持たない・R-74）。3.7 のまま残っていた */
+            title={`同じお題を複数のAI（${GEMINI_TEXT_MODEL_LABEL}／${CLAUDE_OPUS_MODEL_LABEL}／${OPENAI_GPT_MODEL_LABEL}）で同時に調べ、横並びで見比べます。押すと確認ダイアログでモデルの選択と費用・所要時間の目安を表示します（モデルごとに1本のリクエスト・失敗しても Gemini へ切り替えません・選んだモデル分の利用料がかかります）`}
             style={{ padding: '10px 16px', background: 'var(--bg-primary)', color: 'var(--text-secondary)', border: '1px solid var(--border-accent)', borderRadius: 8, fontWeight: 700, fontSize: 13, cursor: loading || compareRunning || !topic.trim() ? 'not-allowed' : 'pointer', opacity: loading || compareRunning || !topic.trim() ? 0.6 : 1 }}
           >
             {compareRunning ? '⚖ 比較中...' : COMPARE_BUTTON_LABEL}

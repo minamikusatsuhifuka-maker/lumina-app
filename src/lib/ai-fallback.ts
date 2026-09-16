@@ -28,7 +28,7 @@ export type AIProvider = 'claude' | 'gemini';
 
 export interface AIProviderInfo {
   provider: AIProvider;
-  /** UI表示用のモデル名（例: 'Gemini 3.7 Flash'） */
+  /** UI表示用のモデル名（GEMINI_TEXT_MODEL_LABEL / CLAUDE_TEXT_MODEL_LABEL の値） */
   modelLabel: string;
   /** claude→gemini に切り替わった場合のみ、その理由 */
   fallbackReason?: string;

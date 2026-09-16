@@ -1,5 +1,7 @@
 import { test, expect, request as pwRequest, webkit, APIRequestContext } from '@playwright/test';
 import { BASE_URL, STORAGE_STATE } from '../../playwright.config';
+// 335: モデルIDとラベルは実装と同じ定数から見る（モデル移行のたびにテストを直さない・R-91）
+import { GEMINI_TEXT_MODEL, GEMINI_TEXT_MODEL_LABEL } from '../../src/lib/ai-models';
 import {
   SAVES_API,
   RUN_ID,
@@ -3765,7 +3767,7 @@ test('C73: プレゼン発表原稿（275）— 複数同時読み込み・PDF�
         summaryForNext: `ようてん${n}`,
         inferredTheme,
         adCheck: { status: 'ok', findings: [] },
-        _ai: { provider: 'gemini', modelLabel: 'Gemini 3.7 Flash' },
+        _ai: { provider: 'gemini', modelLabel: GEMINI_TEXT_MODEL_LABEL },
       }),
     });
   });
@@ -3961,7 +3963,7 @@ test('C74: 喩え話・比喩（276）— 分野の既定と出し分け・上�
           skipScale: audience === 'junior',
         }),
         adCheck: { status: 'ok', findings: [] },
-        _ai: { provider: 'gemini', modelLabel: 'Gemini 3.7 Flash' },
+        _ai: { provider: 'gemini', modelLabel: GEMINI_TEXT_MODEL_LABEL },
       }),
     });
   });
@@ -4137,7 +4139,7 @@ test('C76: 比喩の読み比べはタッチ端末では1列（276§8-3・271の
           field: body.field,
           items: metaphorMockItems(String(body.audience)),
           adCheck: null,
-          _ai: { provider: 'gemini', modelLabel: 'Gemini 3.7 Flash' },
+          _ai: { provider: 'gemini', modelLabel: GEMINI_TEXT_MODEL_LABEL },
         }),
       });
     });
@@ -4639,7 +4641,7 @@ test('C81: エピソード記録（281）— 参考例と記録欄の分離・�
           '休憩のときに決まってしていたことはありましたか？',
           'やめたくなった場面はどんなときでしたか？',
         ],
-        _ai: { provider: 'gemini', modelLabel: 'Gemini 3.7 Flash' },
+        _ai: { provider: 'gemini', modelLabel: GEMINI_TEXT_MODEL_LABEL },
       }),
     });
   });
@@ -5749,10 +5751,10 @@ test('C92: Gemini と Claude Opus 5 の並列比較（290）— 2本のリクエ
         contentType: 'text/event-stream',
         body: sse([
           { type: 'start' },
-          { side, type: 'meta', model: side === 'gemini' ? 'gemini-3.7-flash' : 'claude-opus-5' },
+          { side, type: 'meta', model: side === 'gemini' ? GEMINI_TEXT_MODEL : 'claude-opus-5' },
           // 実サーバーと同じ形: Gemini 側は streamWithModel の 'delta'、Opus 側は 'text'
           ...chunks.map((c) => (side === 'gemini' ? { side, type: 'delta', text: c } : { side, type: 'text', content: c })),
-          { side, type: 'done', model: side === 'gemini' ? 'gemini-3.7-flash' : 'claude-opus-5', elapsedMs: 12345, usage: { input_tokens: 1000, output_tokens: 2000 } },
+          { side, type: 'done', model: side === 'gemini' ? GEMINI_TEXT_MODEL : 'claude-opus-5', elapsedMs: 12345, usage: { input_tokens: 1000, output_tokens: 2000 } },
         ]),
       });
       return;
@@ -5804,7 +5806,7 @@ test('C92: Gemini と Claude Opus 5 の並列比較（290）— 2本のリクエ
   expect(posts.filter((p) => !p.compare).length, '比較ボタンで通常経路は走らない').toBe(0);
 
   // 列ヘッダーにモデル名（§5-3）
-  await expect(page.locator('[data-compare-model-label="gemini"]')).toContainText('Gemini 3.7 Flash');
+  await expect(page.locator('[data-compare-model-label="gemini"]')).toContainText(GEMINI_TEXT_MODEL_LABEL);
   await expect(page.locator('[data-compare-model-label="opus"]')).toContainText('Claude Opus 5');
   await expect(page.locator('[data-compare-model-label="opus"]'), 'モデルIDも併記').toContainText('claude-opus-5');
   await expect(page.locator('[data-compare-status-label="gemini"]')).toContainText('完了');
@@ -10826,7 +10828,7 @@ test('C130: 並列比較の確認ダイアログ・独立実行・GPT-6 Astra（
       await route.fulfill({ status: 200, contentType: 'text/event-stream', body: sse([{ type: 'start' }, { type: 'text', content: '## 通常\n\n通常経路の本文です。' }, { type: 'done', usage: { input_tokens: 1, output_tokens: 1 } }]) });
       return;
     }
-    const modelId = side === 'gemini' ? 'gemini-3.7-flash' : side === 'opus' ? 'claude-opus-5' : 'gpt-6-astra';
+    const modelId = side === 'gemini' ? GEMINI_TEXT_MODEL : side === 'opus' ? 'claude-opus-5' : 'gpt-6-astra';
     if (side === 'opus' && /時間切れ/.test(b.topic ?? '') && posts.filter((p) => p.compare === 'opus' && /時間切れ/.test(p.topic ?? '')).length === 1) {
       // 1回目の Opus は時間切れ（サーバの個別タイムアウト）。再実行（2回目）は完走する
       await route.fulfill({ status: 200, contentType: 'text/event-stream', body: sse([{ type: 'start' }, { side, type: 'meta', model: modelId }, { side, type: 'text', content: '途中まで。' }, { side, type: 'timeout', message: '時間切れです（上限 600秒）。この列は保存されていません。「再実行」でこの列だけやり直せます。', elapsedMs: 580000 }]) });
@@ -10932,7 +10934,7 @@ test('C130: 並列比較の確認ダイアログ・独立実行・GPT-6 Astra（
   await expect(page.locator('[data-compare-save="gemini"]')).toHaveCount(1);
   await page.locator('[data-compare-save="gemini"]').getByRole('button', { name: '📚 リサーチ保存に追加' }).click();
   await expect.poll(() => libraryPosts.length).toBe(1);
-  expect(libraryPosts[0].title).toBe('[E2E] 314 時間切れ［Gemini 3.7 Flash］');
+  expect(libraryPosts[0].title).toBe(`[E2E] 314 時間切れ［${GEMINI_TEXT_MODEL_LABEL}］`);
   const before = posts.length;
   const rerun = page.locator('[data-compare-rerun="opus"]');
   await expect(rerun).toBeVisible();
@@ -11686,7 +11688,7 @@ test('C135: 追加リサーチ（319）— 📚行・選択バー（4件で上�
     expect(fu?.of).toEqual([{ scope: 'library', item_key: libA, title: titleA }]);
     expect(fu?.prompt).toBe(promptText);
     expect(fu?.mode).toBe('deep');
-    expect(fu?.model).toBe('gemini-3.7-flash');
+    expect(fu?.model).toBe(GEMINI_TEXT_MODEL);
     expect(typeof fu?.at).toBe('string');
     expect(fu?.inherit).toBe(true);
     await expect(popup.locator('[data-followup-timeout]')).toHaveCount(0);
@@ -11727,7 +11729,7 @@ test('C135: 追加リサーチ（319）— 📚行・選択バー（4件で上�
 
     // ── ③ 実保存（AI なし・保存API がフック R-115）: ☑継承＝元資料（📚A＋🗂C）の用途・フォルダの和集合／☐で付かない／件数・一覧／連鎖 ──
     const save = (title: string, of: { scope: 'library' | 'text_analysis'; id: string; title: string }[], inherit: boolean) =>
-      request.post('/api/library', { data: { type: 'deepresearch', title: withE2EPrefix(`${title} ${marker}`), content: withE2EPrefix(`結果本文 ${marker}`), tags: 'ディープリサーチ,追加リサーチ', group_name: 'ディープリサーチ', metadata: { followUp: followUpMetadata({ sources: of, prompt: promptText, mode: 'standard', model: 'gemini-3.7-flash', at: new Date().toISOString(), inherit }) } } });
+      request.post('/api/library', { data: { type: 'deepresearch', title: withE2EPrefix(`${title} ${marker}`), content: withE2EPrefix(`結果本文 ${marker}`), tags: 'ディープリサーチ,追加リサーチ', group_name: 'ディープリサーチ', metadata: { followUp: followUpMetadata({ sources: of, prompt: promptText, mode: 'standard', model: GEMINI_TEXT_MODEL, at: new Date().toISOString(), inherit }) } } });
     const r1 = await save('追加結果1', [{ scope: 'library', id: libA, title: '元資料0' }, { scope: 'text_analysis', id: String(saveC), title: '分析C' }], true);
     expect(r1.status()).toBe(200);
     const j1 = (await r1.json()) as { id: string; inherited?: { purposes: number[]; folders: number[] } };
@@ -11854,7 +11856,7 @@ test('C136: 生成結果から直接図解・画像（320）— 🔭DR結果（�
         return;
       }
       if (b.compare) {
-        await route.fulfill({ status: 200, contentType: 'text/event-stream', body: sse([{ type: 'start' }, { side: b.compare, type: 'meta', model: 'gemini-3.7-flash' }, { side: b.compare, type: 'text', content: `# 比較\n\n${body}` }, { side: b.compare, type: 'done', usage: { input_tokens: 1, output_tokens: 1 }, elapsedMs: 100 }]) });
+        await route.fulfill({ status: 200, contentType: 'text/event-stream', body: sse([{ type: 'start' }, { side: b.compare, type: 'meta', model: GEMINI_TEXT_MODEL }, { side: b.compare, type: 'text', content: `# 比較\n\n${body}` }, { side: b.compare, type: 'done', usage: { input_tokens: 1, output_tokens: 1 }, elapsedMs: 100 }]) });
         return;
       }
       await route.fulfill({ status: 200, contentType: 'text/event-stream', body: sse([{ type: 'start' }, { type: 'text', content: `# 結果\n\n${body}` }, { type: 'done', usage: { input_tokens: 1, output_tokens: 1 } }]) });

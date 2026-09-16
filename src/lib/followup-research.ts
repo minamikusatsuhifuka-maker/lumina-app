@@ -9,7 +9,7 @@
 // - 出どころは library.metadata.followUp（キー単位・R-113）。連鎖は of に**直前だけ**を持つ（辿れば分かる・ツリー表示は範囲外）
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-/** 前提資料の本文の合計上限（字）。309（マンダラ→note の素材）と同値。Gemini 3.7 Flash の入力 $0.75/1M で約 $0.05 増 */
+/** 前提資料の本文の合計上限（字）。309（マンダラ→note の素材）と同値。Gemini Flash の入力 $0.75/1M で約 $0.05 増 */
 export const FOLLOWUP_CONTEXT_LIMIT = 60_000;
 /** 前提資料の件数上限（R-101・図解の VISUAL_SOURCE_MAX_ITEMS と同値） */
 export const FOLLOWUP_MAX_SOURCES = 3;
