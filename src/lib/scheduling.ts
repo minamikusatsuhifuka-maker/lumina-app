@@ -120,6 +120,12 @@ export async function ensureSchedulingTables(sql: Sql): Promise<void> {
   await sql`ALTER TABLE scheduling_events ADD COLUMN IF NOT EXISTS time_slots JSONB`;
   await sql`ALTER TABLE scheduling_participants ADD COLUMN IF NOT EXISTS selected_slot JSONB`;
 
+  // 109 ②A: 参加者メールの保存時暗号化（段階移行）。nullable で追加＝既存行・平文列・UNIQUE は非破壊。
+  // 同じ DDL を src/db/migrations/add_scheduling_email_encryption.sql にも置く（手動適用でも同じ結果・R-10）。
+  await sql`ALTER TABLE scheduling_participants ADD COLUMN IF NOT EXISTS email_enc TEXT`;
+  await sql`ALTER TABLE scheduling_participants ADD COLUMN IF NOT EXISTS email_hash TEXT`;
+  await sql`CREATE INDEX IF NOT EXISTS idx_scheduling_participants_event_hash ON scheduling_participants (event_id, email_hash)`;
+
   // 参加者ごとのNG日
   await sql`CREATE TABLE IF NOT EXISTS scheduling_ng_dates (
     id SERIAL PRIMARY KEY,
@@ -266,6 +272,7 @@ export interface ParticipantRow {
 }
 
 // event_id + email で参加者を取得（本人のみ。存在しなければ null）
+// @deprecated 109: 検索は email_hash 優先の `findParticipantByEmail`（lib/scheduling/db.ts）を使う。互換のため残す。
 export async function loadParticipant(
   sql: Sql,
   eventId: string,

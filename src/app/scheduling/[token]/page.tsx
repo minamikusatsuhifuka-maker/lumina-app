@@ -1,6 +1,7 @@
 import { notFound } from 'next/navigation';
 import { neon } from '@neondatabase/serverless';
-import { ensureSchedulingTables, loadEventByToken, parseCandidateDates, parseTimeSlots } from '@/lib/scheduling';
+import { ensureSchedulingTables, parseCandidateDates, parseTimeSlots } from '@/lib/scheduling';
+import { getEventByPublicToken } from '@/lib/scheduling/db';
 import PublicSchedulingFlow from './PublicSchedulingFlow';
 
 export const runtime = 'nodejs';
@@ -22,7 +23,7 @@ export default async function SchedulingPublicPage({
 
   const sql = neon(process.env.DATABASE_URL!);
   await ensureSchedulingTables(sql);
-  const event = await loadEventByToken(sql, token);
+  const event = await getEventByPublicToken(sql, token); // 109: オーナー情報を含まない公開用ローダ
 
   // 存在しない token は 404（推測対策）
   if (!event) notFound();

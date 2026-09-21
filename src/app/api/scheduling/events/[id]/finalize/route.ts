@@ -10,6 +10,12 @@ import {
   isValidSlotDateTime,
   type SchedulingStatus,
 } from '@/lib/scheduling';
+import {
+  listVerifiedRecipients,
+  recordNotification,
+  setChosenDate,
+  transitionStatus,
+} from '@/lib/scheduling/db';
 import { sendEmail, renderEmailLayout, escapeHtml } from '@/lib/email';
 
 export const runtime = 'nodejs';
@@ -29,6 +35,7 @@ function slotLabelJa(dt: string): string {
 
 // ⑥ 確定・全員通知（要auth・オーナーのみ）。
 // 確定日をセット → 検証済み参加者にメール → 記録 → notified。
+// 109: 宛先は listVerifiedRecipients（email_enc を復号・無い行は平文）。状態遷移は transitionStatus（許可遷移のみ）。
 export async function POST(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
@@ -94,17 +101,14 @@ export async function POST(
   }
 
   // 確定をセット（status→finalized）
-  await sql`
-    UPDATE scheduling_events
-    SET finalized_date = ${finalizedTs}, status = 'finalized', updated_at = now()
-    WHERE id = ${id} AND owner_user_id = ${userId}
-  `;
+  await setChosenDate(sql, { eventId: id, ownerUserId: userId, finalizedTs });
+  const toFinalized = await transitionStatus(sql, { eventId: id, ownerUserId: userId, from: current, to: 'finalized' });
+  if (!toFinalized.ok) {
+    return NextResponse.json({ error: '状態が変わったため確定できませんでした。画面を更新してください' }, { status: 409 });
+  }
 
   // 宛先＝DBの検証済み参加者のみ（外部入力をそのまま使わない）
-  const participants = await sql`
-    SELECT id, email FROM scheduling_participants
-    WHERE event_id = ${id} AND email_verified_at IS NOT NULL
-  `;
+  const participants = await listVerifiedRecipients(sql, id);
 
   const safeTitle = escapeHtml(event.title);
   const safeDate = finalizedLabel;
@@ -125,10 +129,7 @@ export async function POST(
       text: `日程調整「${event.title}」の開催日が ${safeDate} に確定しました。`,
       html,
     });
-    await sql`
-      INSERT INTO scheduling_notifications (event_id, participant_id, kind, status)
-      VALUES (${id}, ${p.id}, 'finalized', ${r.ok ? 'sent' : 'failed'})
-    `;
+    await recordNotification(sql, { eventId: id, participantId: p.id, kind: 'finalized', ok: r.ok });
     if (r.ok) sent++;
     else failed++;
   }
@@ -144,21 +145,14 @@ export async function POST(
         text: `面談「${event.title}」の日程が ${safeDate} に確定しました。`,
         html,
       });
-      await sql`
-        INSERT INTO scheduling_notifications (event_id, participant_id, kind, status)
-        VALUES (${id}, ${null}, 'finalized', ${r.ok ? 'sent' : 'failed'})
-      `;
+      await recordNotification(sql, { eventId: id, participantId: null, kind: 'finalized', ok: r.ok });
       if (r.ok) sent++;
       else failed++;
     }
   }
 
   // 送信失敗があっても finalized は維持。全処理後 notified に。
-  await sql`
-    UPDATE scheduling_events
-    SET status = 'notified', updated_at = now()
-    WHERE id = ${id} AND owner_user_id = ${userId}
-  `;
+  await transitionStatus(sql, { eventId: id, ownerUserId: userId, from: 'finalized', to: 'notified' });
 
   return NextResponse.json({
     ok: true,

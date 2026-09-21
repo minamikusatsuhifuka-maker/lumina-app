@@ -32,6 +32,8 @@ import * as tpl320 from '../../src/lib/visual-templates';
 import { renderMarkdown } from '../../src/lib/markdown-renderer';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
+// 109: 日程調整 参加者メールの保存時暗号化（純関数・静的 import R-112）
+import * as crypto109 from '../../src/lib/crypto';
 import { describeAnthropicError, isFallbackWorthy } from '../../src/lib/anthropic-error';
 // 290: モデル比較
 // 208: 追従カテゴリメモ
@@ -6138,4 +6140,123 @@ test('U105: 既定モデルは Gemini 3.8 Flash（335）— モデルIDとラベ
   expect(mc, 'Opus は「Claude 」を前置きした表記のまま').toMatch(/opus: `Claude \$\{CLAUDE_OPUS_MODEL_LABEL\}`/);
   const pref = readFileSync(join(root, 'lib/model-preference.ts'), 'utf8');
   expect(pref, 'モデル名のラベルは定数から').toMatch(/GEMINI_TEXT_MODEL_LABEL/);
+});
+
+
+test('U106: 参加者メール暗号化（109）— AES-256-GCM の往復・改竄検出・鍵未設定は明確なエラー（平文へ倒さない）／hash は正規化 email の sha256／AI 経路（compute）は listResponsesAnonymized だけを読み SELECT に email が無い／二重書き・復号・状態遷移の配線がデータ層経由／公開画面はデータ層を import しない（R-108）', () => {
+  const root = join(__dirname, '../../src');
+  const key = crypto109.parseEncryptionKey('00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff');
+  expect(key.length).toBe(32);
+
+  // ── 往復・レコード毎IV ──
+  const enc1 = crypto109.encryptString('Taro@Example.com', key);
+  const enc2 = crypto109.encryptString('Taro@Example.com', key);
+  expect(enc1).not.toBe(enc2); // IV が毎回違う
+  expect(crypto109.looksEncrypted(enc1)).toBe(true);
+  expect(crypto109.looksEncrypted('taro@example.com')).toBe(false);
+  expect(enc1.split('.')[0]).toBe(crypto109.ENC_FORMAT_VERSION);
+  expect(crypto109.decryptString(enc1, key)).toBe('Taro@Example.com');
+  expect(crypto109.decryptString(enc2, key)).toBe('Taro@Example.com');
+  expect(crypto109.decryptString(crypto109.encryptString('', key), key)).toBe('');
+  expect(crypto109.decryptString(crypto109.encryptString('日本語のメモ✉︎', key), key)).toBe('日本語のメモ✉︎');
+
+  // ── 改竄・鍵違いは例外 ──
+  const parts = enc1.split('.');
+  const tampered = [parts[0], parts[1], parts[2], parts[3].slice(0, -2) + (parts[3].endsWith('AA') ? 'BB' : 'AA')].join('.');
+  expect(() => crypto109.decryptString(tampered, key)).toThrow();
+  const otherKey = crypto109.parseEncryptionKey('ff'.repeat(32));
+  expect(() => crypto109.decryptString(enc1, otherKey)).toThrow();
+  expect(() => crypto109.decryptString('v0.a.b.c', key)).toThrow(/形式/);
+  expect(() => crypto109.decryptString('taro@example.com', key)).toThrow(/形式/);
+
+  // ── 鍵の検証（未設定・短い・hex以外）──
+  expect(() => crypto109.parseEncryptionKey(undefined)).toThrow(crypto109.EncryptionKeyError);
+  expect(() => crypto109.parseEncryptionKey('')).toThrow(/未設定/);
+  expect(() => crypto109.parseEncryptionKey('abcd')).toThrow(/形式/);
+  expect(() => crypto109.parseEncryptionKey('zz'.repeat(32))).toThrow(/形式/);
+  const saved = process.env[crypto109.ENCRYPTION_KEY_ENV];
+  try {
+    delete process.env[crypto109.ENCRYPTION_KEY_ENV];
+    expect(crypto109.isEncryptionConfigured()).toBe(false);
+    expect(() => crypto109.encryptString('x')).toThrow(crypto109.EncryptionKeyError); // 平文へ倒さない
+    process.env[crypto109.ENCRYPTION_KEY_ENV] = 'ab'.repeat(32);
+    expect(crypto109.isEncryptionConfigured()).toBe(true);
+    expect(crypto109.decryptString(crypto109.encryptString('y'))).toBe('y');
+  } finally {
+    if (saved === undefined) delete process.env[crypto109.ENCRYPTION_KEY_ENV];
+    else process.env[crypto109.ENCRYPTION_KEY_ENV] = saved;
+  }
+
+  // ── hash は正規化（trim+lowercase）した sha256 hex ──
+  expect(crypto109.normalizeEmail('  Taro@Example.COM ')).toBe('taro@example.com');
+  expect(crypto109.normalizeEmail(null)).toBe('');
+  expect(crypto109.hashEmail('  Taro@Example.COM ')).toBe(crypto109.hashEmail('taro@example.com'));
+  expect(crypto109.hashEmail('taro@example.com')).toMatch(/^[0-9a-f]{64}$/);
+  expect(crypto109.hashEmail('taro@example.com')).not.toBe(crypto109.hashEmail('jiro@example.com'));
+
+  // ── ソース固定（R-111: 構文ごと当てる）──
+  const db = readFileSync(join(root, 'lib/scheduling/db.ts'), 'utf8');
+  expect(db, 'データ層は server-only').toMatch(/^import 'server-only';/m);
+  // AI 用の SELECT に email 系の列が無い（関数本体を切り出して判定）
+  const anonBody = db.slice(db.indexOf('export async function listResponsesAnonymized'), db.indexOf('export function aggregateNgCounts'));
+  expect(anonBody).toMatch(/SELECT p\.id AS pid,/);
+  expect(anonBody, 'AI 用クエリに email/name を含めない').not.toMatch(/\b(email|email_enc|email_hash|name)\b/);
+  // 二重書き: upsert の INSERT が enc/hash を書き、COALESCE で既存値を守る
+  expect(db).toMatch(/INSERT INTO scheduling_participants \(event_id, email, email_enc, email_hash\)/);
+  expect(db).toMatch(/SET email_enc = COALESCE\(scheduling_participants\.email_enc, EXCLUDED\.email_enc\)/);
+  // 検索は hash 優先＋平文フォールバック
+  expect(db).toMatch(/email_hash = \$\{hashEmail\(email\)\} OR \(email_hash IS NULL AND email = \$\{email\}\)/);
+  // 状態遷移は WHERE status = from で楽観ロック
+  expect(db).toMatch(/WHERE id = \$\{args\.eventId\} AND status = \$\{args\.from\}/);
+
+  const compute = readFileSync(join(root, 'app/api/scheduling/events/[id]/compute/route.ts'), 'utf8');
+  expect(compute).toMatch(/^import \{[^}]*\blistResponsesAnonymized\b[^}]*\} from '@\/lib\/scheduling\/db';/m);
+  expect(compute, 'compute は participants 表を直接読まない').not.toMatch(/FROM scheduling_participants/);
+  expect(compute, 'compute の SQL に email 列が無い').not.toMatch(/SELECT[^`]*\bemail\b/);
+
+  const finalize = readFileSync(join(root, 'app/api/scheduling/events/[id]/finalize/route.ts'), 'utf8');
+  expect(finalize).toMatch(/^import \{[^}]*\blistVerifiedRecipients\b[^}]*\} from '@\/lib\/scheduling\/db';/m);
+  expect(finalize, '宛先は復号済み一覧から').not.toMatch(/SELECT id, email FROM scheduling_participants/);
+
+  const detail = readFileSync(join(root, 'app/api/scheduling/events/[id]/route.ts'), 'utf8');
+  expect(detail).toMatch(/^import \{ listParticipantsForOwner \} from '@\/lib\/scheduling\/db';/m);
+  expect(detail, '所有者一覧は復号関数から').not.toMatch(/p\.email,/);
+
+  const register = readFileSync(join(root, 'app/api/scheduling/public/register/route.ts'), 'utf8');
+  expect(register).toMatch(/^import \{[^}]*\bupsertParticipant\b[^}]*\} from '@\/lib\/scheduling\/db';/m);
+  expect(register, '登録は平文だけの INSERT を残さない').not.toMatch(/INSERT INTO scheduling_participants/);
+  for (const rel of ['verify', 'me', 'ng-dates', 'select-slot']) {
+    const src = readFileSync(join(root, `app/api/scheduling/public/${rel}/route.ts`), 'utf8');
+    expect(src, `${rel}: 参加者検索はデータ層（hash 優先）`).toMatch(/findParticipantByEmail\(sql, token, email\)/);
+    expect(src, `${rel}: 旧 loadParticipant を呼ばない`).not.toMatch(/\bloadParticipant\(/);
+  }
+
+  // ensure と手動 SQL が同じ DDL（R-10）
+  const sched = readFileSync(join(root, 'lib/scheduling.ts'), 'utf8');
+  const mig = readFileSync(join(root, 'db/migrations/add_scheduling_email_encryption.sql'), 'utf8');
+  for (const ddl of [
+    'ALTER TABLE scheduling_participants ADD COLUMN IF NOT EXISTS email_enc TEXT',
+    'ALTER TABLE scheduling_participants ADD COLUMN IF NOT EXISTS email_hash TEXT',
+    'CREATE INDEX IF NOT EXISTS idx_scheduling_participants_event_hash ON scheduling_participants (event_id, email_hash)',
+  ]) {
+    expect(sched, `ensure に ${ddl}`).toContain(`await sql\`${ddl}\``);
+    expect(mig, `migration に ${ddl}`).toContain(`${ddl};`);
+  }
+  expect(mig, '平文 NULL 化（④）は実行文として入れない').not.toMatch(/^\s*UPDATE scheduling_participants SET email = NULL/m);
+  expect(mig, 'results 表は作らない（compute_result に永続化済み）').not.toMatch(/^\s*CREATE TABLE[^;]*scheduling_results/m);
+
+  // 公開画面（client）はデータ層・crypto を import しない（R-108）
+  const flow = readFileSync(join(root, 'app/scheduling/[token]/PublicSchedulingFlow.tsx'), 'utf8');
+  expect(flow).not.toMatch(/from '@\/lib\/scheduling\/db'/);
+  expect(flow).not.toMatch(/from '@\/lib\/crypto'/);
+  const ownerPage = readFileSync(join(root, 'app/dashboard/scheduling/[id]/page.tsx'), 'utf8');
+  expect(ownerPage).not.toMatch(/from '@\/lib\/scheduling\/db'/);
+  expect(ownerPage).not.toMatch(/from '@\/lib\/crypto'/);
+
+  // バックフィルは冪等（COALESCE で既存値を守る）・鍵が無くても hash は埋める
+  const bf = readFileSync(join(root, 'lib/scheduling/backfill.ts'), 'utf8');
+  expect(bf).toMatch(/SET email_hash = COALESCE\(email_hash, \$\{hash\}\)/);
+  expect(bf).toMatch(/email_enc = COALESCE\(email_enc, \$\{enc\}\)/);
+  expect(bf, 'スクリプトから直接 import できるよう相対 import').toMatch(/from '\.\.\/crypto\.ts'/);
+  expect(bf).not.toMatch(/^import 'server-only'/m);
 });

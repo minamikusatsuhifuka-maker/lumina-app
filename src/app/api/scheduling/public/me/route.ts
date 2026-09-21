@@ -1,11 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { neon } from '@neondatabase/serverless';
-import {
-  ensureSchedulingTables,
-  loadEventByToken,
-  loadParticipant,
-  isValidEmail,
-} from '@/lib/scheduling';
+import { ensureSchedulingTables, isValidEmail } from '@/lib/scheduling';
+import { getEventByPublicToken, findParticipantByEmail, listOwnNgDates } from '@/lib/scheduling/db';
 import { rateLimit, getClientIp } from '@/lib/rate-limit';
 
 export const runtime = 'nodejs';
@@ -32,12 +28,12 @@ export async function POST(req: NextRequest) {
     }
 
     await ensureSchedulingTables(sql);
-    const event = await loadEventByToken(sql, token);
+    const event = await getEventByPublicToken(sql, token);
     if (!event) {
       return NextResponse.json({ error: 'not found' }, { status: 404 });
     }
 
-    const p = await loadParticipant(sql, token, email);
+    const p = await findParticipantByEmail(sql, token, email);
     const registered = !!p;
     const verified = !!p?.email_verified_at;
     const responded = !!p?.responded_at;
@@ -45,15 +41,7 @@ export async function POST(req: NextRequest) {
     // NG日は「本人確認済み」のときのみ返す（自分の participant_id 分のみ）
     let ngDates: string[] = [];
     if (p && verified) {
-      const rows = await sql`
-        SELECT ng_date FROM scheduling_ng_dates
-        WHERE participant_id = ${p.id}
-        ORDER BY ng_date ASC
-      `;
-      ngDates = rows.map((r: Record<string, unknown>) => {
-        const v = r.ng_date;
-        return typeof v === 'string' ? v.slice(0, 10) : new Date(v as string).toISOString().slice(0, 10);
-      });
+      ngDates = await listOwnNgDates(sql, p.id);
     }
 
     return NextResponse.json({

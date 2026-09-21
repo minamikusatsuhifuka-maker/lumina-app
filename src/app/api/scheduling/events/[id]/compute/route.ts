@@ -8,6 +8,12 @@ import {
   parseCandidateDates,
   type SchedulingStatus,
 } from '@/lib/scheduling';
+import {
+  listResponsesAnonymized,
+  aggregateNgCounts,
+  saveResult,
+  transitionStatus,
+} from '@/lib/scheduling/db';
 import { generateWithModel } from '@/lib/ai-client';
 import { safeJsonParse } from '@/lib/ai-json-parser';
 import { notify } from '@/lib/notify';
@@ -25,6 +31,7 @@ interface RankedDay {
 
 // ⑤ AI日程算出（要auth・オーナーのみ）。
 // 集合演算で「全員参加可能な日」を抽出し、AIでランク・理由を付ける（AI障害時は素の集合演算にフォールバック）。
+// 109: AI へ渡す材料は listResponsesAnonymized（匿名ID＋NG日のみ）から組む。メール等の PII はこのルートで読まない。
 export async function POST(
   _req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
@@ -60,26 +67,10 @@ export async function POST(
     return NextResponse.json({ error: '候補日が設定されていません' }, { status: 400 });
   }
 
-  // 本人確認済み参加者の人数と、NG日の集計（本人確認済み分のみ）
-  const verifiedRows = await sql`
-    SELECT COUNT(*)::int AS c
-    FROM scheduling_participants
-    WHERE event_id = ${id} AND email_verified_at IS NOT NULL
-  `;
-  const verifiedCount = Number(verifiedRows[0]?.c ?? 0);
-
-  const ngRows = await sql`
-    SELECT n.ng_date, COUNT(DISTINCT n.participant_id)::int AS ng_count
-    FROM scheduling_ng_dates n
-    JOIN scheduling_participants p ON p.id = n.participant_id
-    WHERE n.event_id = ${id} AND p.email_verified_at IS NOT NULL
-    GROUP BY n.ng_date
-  `;
-  const ngMap = new Map<string, number>();
-  for (const r of ngRows) {
-    const d = typeof r.ng_date === 'string' ? r.ng_date.slice(0, 10) : new Date(r.ng_date).toISOString().slice(0, 10);
-    ngMap.set(d, Number(r.ng_count));
-  }
+  // 本人確認済み参加者の人数と、NG日の集計（本人確認済み分のみ・PII なし）
+  const anonymized = await listResponsesAnonymized(sql, id);
+  const verifiedCount = anonymized.verifiedCount;
+  const ngMap = aggregateNgCounts(anonymized.responses);
 
   // 集合演算: 候補日ごとに 参加可能数 = 検証済み人数 - NG数。降順ランク。
   const base: RankedDay[] = candidateDates
@@ -152,14 +143,11 @@ JSONのみを返す（前置き・コードフェンス不要）。形式:
     computedAt: new Date().toISOString(),
   };
 
-  await sql`
-    UPDATE scheduling_events
-    SET candidate_dates = ${JSON.stringify(orderedDates)}::jsonb,
-        compute_result = ${JSON.stringify(computeResult)}::jsonb,
-        status = 'ready',
-        updated_at = now()
-    WHERE id = ${id} AND owner_user_id = ${userId}
-  `;
+  await saveResult(sql, { eventId: id, ownerUserId: userId, result: computeResult, orderedDates });
+  const moved = await transitionStatus(sql, { eventId: id, ownerUserId: userId, from: 'collecting', to: 'ready' });
+  if (!moved.ok) {
+    return NextResponse.json({ error: '状態が変わったため算出結果を確定できませんでした。画面を更新してください' }, { status: 409 });
+  }
 
   // オーナーに通知（fire-and-forget）
   await notify({

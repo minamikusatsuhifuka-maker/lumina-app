@@ -2,12 +2,11 @@ import { NextRequest, NextResponse } from 'next/server';
 import { neon } from '@neondatabase/serverless';
 import {
   ensureSchedulingTables,
-  loadEventByToken,
-  loadParticipant,
   parseCandidateDates,
   isValidEmail,
   isValidDateStr,
 } from '@/lib/scheduling';
+import { getEventByPublicToken, findParticipantByEmail, saveResponse } from '@/lib/scheduling/db';
 import { rateLimit, getClientIp } from '@/lib/rate-limit';
 
 export const runtime = 'nodejs';
@@ -34,12 +33,12 @@ export async function POST(req: NextRequest) {
     }
 
     await ensureSchedulingTables(sql);
-    const event = await loadEventByToken(sql, token);
+    const event = await getEventByPublicToken(sql, token);
     if (!event || event.status !== 'collecting') {
       return NextResponse.json({ error: '受付は終了しています' }, { status: 403 });
     }
 
-    const p = await loadParticipant(sql, token, email);
+    const p = await findParticipantByEmail(sql, token, email);
     if (!p) {
       return NextResponse.json({ error: 'まず確認コードで本人確認をしてください' }, { status: 400 });
     }
@@ -59,21 +58,9 @@ export async function POST(req: NextRequest) {
     }
 
     // 本人のNG日を入れ替え（全削除 → 再INSERT）。participant_id で本人分のみ操作。
-    await sql`DELETE FROM scheduling_ng_dates WHERE participant_id = ${p.id}`;
-    for (const d of requested) {
-      await sql`
-        INSERT INTO scheduling_ng_dates (event_id, participant_id, ng_date)
-        VALUES (${token}, ${p.id}, ${d})
-        ON CONFLICT (participant_id, ng_date) DO NOTHING
-      `;
-    }
-    await sql`
-      UPDATE scheduling_participants
-      SET responded_at = now()
-      WHERE id = ${p.id}
-    `;
+    const count = await saveResponse(sql, token, p.id, requested);
 
-    return NextResponse.json({ ok: true, responded: true, count: requested.length });
+    return NextResponse.json({ ok: true, responded: true, count });
   } catch (e) {
     console.error('[scheduling/public/ng-dates]', e);
     return NextResponse.json({ error: '保存に失敗しました' }, { status: 500 });

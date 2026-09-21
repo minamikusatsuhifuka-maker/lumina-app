@@ -2,12 +2,12 @@ import { NextRequest, NextResponse } from 'next/server';
 import { neon } from '@neondatabase/serverless';
 import {
   ensureSchedulingTables,
-  loadEventByToken,
   generateOtpCode,
   hashOtp,
   isValidEmail,
   OTP_TTL_MS,
 } from '@/lib/scheduling';
+import { getEventByPublicToken, upsertParticipant, setParticipantOtp } from '@/lib/scheduling/db';
 import { rateLimit, getClientIp } from '@/lib/rate-limit';
 import { sendEmail, renderEmailLayout, escapeHtml } from '@/lib/email';
 
@@ -16,6 +16,7 @@ export const runtime = 'nodejs';
 // 公開API（認証なし）。メール登録 → OTP生成・本人宛送信。
 // 受付は status=collecting のイベントのみ。rate-limit 必須。
 // 存在有無を漏らさない汎用レスポンス（列挙・踏み台対策）。
+// 109: 参加者の保存は lib/scheduling/db.ts の upsertParticipant（平文＋email_enc/email_hash の二重書き）。
 const GENERIC_OK = {
   ok: true,
   message: '確認コードをメールに送信しました。届かない場合は迷惑メールもご確認ください。',
@@ -40,7 +41,7 @@ export async function POST(req: NextRequest) {
     }
 
     await ensureSchedulingTables(sql);
-    const event = await loadEventByToken(sql, token);
+    const event = await getEventByPublicToken(sql, token);
     // 存在しない/collecting以外でも汎用文言（情報を漏らさない）。ただしメールは送らない。
     if (!event || event.status !== 'collecting') {
       return NextResponse.json(GENERIC_OK);
@@ -56,25 +57,14 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: '本日の送信上限に達しました。明日以降に再度お試しください' }, { status: 429 });
     }
 
-    // 参加者を UPSERT（UNIQUE(event_id,email)）。本人のみ作成。
-    await sql`
-      INSERT INTO scheduling_participants (event_id, email)
-      VALUES (${token}, ${email})
-      ON CONFLICT (event_id, email) DO NOTHING
-    `;
+    // 参加者を UPSERT（UNIQUE(event_id,email)）。本人のみ作成。平文と enc/hash の二重書き。
+    const participant = await upsertParticipant(sql, token, email);
 
     // OTP生成 → ハッシュ保存（平文保存しない）、期限・試行回数リセット
     const code = generateOtpCode();
     const otpHash = hashOtp(code);
     const expiresAt = new Date(Date.now() + OTP_TTL_MS).toISOString();
-    await sql`
-      UPDATE scheduling_participants
-      SET otp_hash = ${otpHash},
-          otp_expires_at = ${expiresAt},
-          otp_attempts = 0,
-          otp_last_sent_at = now()
-      WHERE event_id = ${token} AND email = ${email}
-    `;
+    await setParticipantOtp(sql, participant.id, otpHash, expiresAt);
 
     // 本人（入力されたアドレス）にのみ送信。任意アドレスへの踏み台にしない。
     const safeTitle = escapeHtml(event.title);

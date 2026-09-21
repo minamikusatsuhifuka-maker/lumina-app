@@ -2,12 +2,16 @@ import { NextRequest, NextResponse } from 'next/server';
 import { neon } from '@neondatabase/serverless';
 import {
   ensureSchedulingTables,
-  loadEventByToken,
-  loadParticipant,
   parseTimeSlots,
   isValidSlot,
   isValidEmail,
 } from '@/lib/scheduling';
+import {
+  getEventByPublicToken,
+  getEventOwnerUserId,
+  findParticipantByEmail,
+  saveSlotResponse,
+} from '@/lib/scheduling/db';
 import { rateLimit, getClientIp } from '@/lib/rate-limit';
 import { notify } from '@/lib/notify';
 
@@ -35,7 +39,7 @@ export async function POST(req: NextRequest) {
     }
 
     await ensureSchedulingTables(sql);
-    const event = await loadEventByToken(sql, token);
+    const event = await getEventByPublicToken(sql, token);
     if (!event || event.status !== 'collecting') {
       return NextResponse.json({ error: '受付は終了しています' }, { status: 403 });
     }
@@ -43,7 +47,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'この調整では枠選択はできません' }, { status: 400 });
     }
 
-    const p = await loadParticipant(sql, token, email);
+    const p = await findParticipantByEmail(sql, token, email);
     if (!p) {
       return NextResponse.json({ error: 'まず確認コードで本人確認をしてください' }, { status: 400 });
     }
@@ -58,15 +62,12 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: '提示された枠から選んでください' }, { status: 400 });
     }
 
-    await sql`
-      UPDATE scheduling_participants
-      SET selected_slot = ${JSON.stringify(match)}::jsonb, responded_at = now()
-      WHERE id = ${p.id}
-    `;
+    await saveSlotResponse(sql, p.id, match);
 
-    // オーナーに通知（fire-and-forget）
-    await notify({
-      userId: event.owner_user_id,
+    // オーナーに通知（fire-and-forget）。owner は公開レスポンスに載せず通知のためだけに引く。
+    const ownerUserId = await getEventOwnerUserId(sql, token);
+    if (ownerUserId) await notify({
+      userId: ownerUserId,
       title: '🗓️ 面談枠が選択されました',
       message: `「${event.title}」: ${match.start.replace('T', ' ')} が選択されました`,
       href: `/dashboard/scheduling/${token}`,

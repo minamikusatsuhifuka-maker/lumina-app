@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
 import { neon } from '@neondatabase/serverless';
 import { ensureSchedulingTables, parseTimeSlots } from '@/lib/scheduling';
+import { listParticipantsForOwner } from '@/lib/scheduling/db';
 
 export const runtime = 'nodejs';
 
@@ -30,19 +31,8 @@ export async function GET(
   }
 
   // 参加者（NG日も配列で同梱。1対1の選択枠 selected_slot も）
-  const participants = await sql`
-    SELECT
-      p.id, p.email, p.name, p.email_verified_at, p.responded_at, p.selected_slot, p.created_at,
-      COALESCE(
-        ARRAY_AGG(n.ng_date ORDER BY n.ng_date) FILTER (WHERE n.ng_date IS NOT NULL),
-        ARRAY[]::date[]
-      ) AS ng_dates
-    FROM scheduling_participants p
-    LEFT JOIN scheduling_ng_dates n ON n.participant_id = p.id
-    WHERE p.event_id = ${id}
-    GROUP BY p.id
-    ORDER BY p.created_at ASC
-  `;
+  // 109: email は email_enc を復号して返す（無い行は平文フォールバック）。所有者本人のイベントのみ。
+  const participants = await listParticipantsForOwner(sql, id);
 
   // NG日の集計（日付ごとに何人がNGか）
   const ngSummary = await sql`

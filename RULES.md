@@ -1108,7 +1108,11 @@
   日時整形が残っていないこと。表示のE2Eは**ブラウザのタイムゾーンをUTCにした context** で
   JST表示を判定する（端末TZに依存していないことまで見る・C78が雛形）。
   外部API（GA4・Search Console）へ渡す日付範囲は「表示」ではないので対象外——混ぜて直さない。
-- 初出: 277 / 2026-08-31
+- 109追記（DB の DATE 列）: Neon ドライバは `DATE` を**ローカル深夜の JS Date** に変換するため、`toISOString().slice(0,10)` は
+  JST 環境で**前日**になる（Vercel＝UTC では出ないので本番では気づけず、ローカル検証で初めて落ちる型）。
+  日付だけの列は SQL 側で `ng_date::text`（配列は `ARRAY_AGG(col::text)` ＋ `ARRAY[]::text[]`）にして**文字列で受ける**。
+  やむを得ず Date で受けたら `getFullYear/getMonth/getDate`（ローカル成分）で組み、`toISOString` を使わない。
+- 初出: 277 / 2026-08-31（109で更新）
 
 ## R-87: 非同期処理を始めるボタンの二重発火は、state の `disabled` では止まらない。**同期的なref**で閉じる
 - 分類: UI
