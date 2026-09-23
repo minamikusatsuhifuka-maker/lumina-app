@@ -238,7 +238,6 @@ export default function GalleryPage() {
         notice={notice}
         onClose={clearNotice}
         marker="gallery"
-        scrollIntoView
         style={{ marginBottom: 12 }}
       />
 

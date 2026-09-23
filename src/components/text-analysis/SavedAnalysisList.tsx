@@ -286,6 +286,8 @@ export default function SavedAnalysisList({
   const [editingValue, setEditingValue] = useState('');
   const [isRenaming, setIsRenaming] = useState(false);
   const [copiedId, setCopiedId] = useState<number | null>(null);
+  // 338/R-137: コピーの失敗は押したカードの中に1行で出す（一覧の先頭の帯は使わない＝スクロール位置が動かない）
+  const [copyError, setCopyError] = useState<{ id: number; text: string } | null>(null);
   // 保存済み分析の編集（タイトル+本文。同時編集は1件のみ）
   const [editingId, setEditingId] = useState<number | null>(null);
   const [editTitle, setEditTitle] = useState('');
@@ -704,20 +706,22 @@ export default function SavedAnalysisList({
   };
 
   const handleCopy = async (record: AnalysisRecord) => {
+    // 338/R-137: 成功は押したボタン自身（✅ コピー済み・約2秒）で知らせ、一覧の先頭の帯（showToast）は出さない。
+    // 帯は挿入で上側の高さが変わり、333 の scrollIntoView と併せて読んでいた位置を見失わせていた（院長の実測 2026/9/24）
+    setCopyError(null);
     // 194: 本文は遅延取得（一覧APIは本文を返さない）
     const text = await fetchContent(record.id);
     if (text === null) {
-      showToast('本文の取得に失敗しました', 'error');
+      setCopyError({ id: record.id, text: '本文の取得に失敗しました。通信状態を確認してもう一度押してください' });
       return;
     }
     // コピー内容にも LaTeX 正規化を適用（$\rightarrow$ 等を残さない）
     const success = await copyRichMarkdown(text);
     if (success) {
       setCopiedId(record.id);
-      showToast('コピーしました', 'success');
       setTimeout(() => setCopiedId((curr) => (curr === record.id ? null : curr)), 2000);
     } else {
-      showToast('コピーできませんでした。手動で選択してコピーしてください。', 'error');
+      setCopyError({ id: record.id, text: 'コピーできませんでした。本文を開いて選択し、手動でコピーしてください' });
     }
   };
 
@@ -1479,7 +1483,7 @@ export default function SavedAnalysisList({
       `}</style>
       {/* 333: 操作の結果・入力の不備はここ（一覧の先頭）に出す。浮かせないのでカードや
           ページングのボタンを覆わない（R-133）。従来は共通トースト＝画面右下の固定表示だった */}
-      <InlineNotice notice={notice} onClose={clearNotice} marker="ta-saved" scrollIntoView />
+      <InlineNotice notice={notice} onClose={clearNotice} marker="ta-saved" />
 
       {/* 188: note記事群生成の入口を一覧最上部の目に入る位置へ（🧠側と見た目を統一） */}
       <div>
@@ -2705,6 +2709,12 @@ export default function SavedAnalysisList({
                       </span>
                     </div>
                     </div>
+                    {/* 338/R-137: コピーの失敗だけ、このカードの中に in-flow の1行（R-133: 操作要素に重ねない）。成功は帯を出さない */}
+                    {copyError?.id === record.id && (
+                      <div data-ta-copy-error={record.id} onClick={stopCardClick} style={{ marginBottom: 8 }}>
+                        <InlineNotice notice={{ text: copyError.text, kind: 'error' }} onClose={() => setCopyError(null)} marker="ta-copy-error" />
+                      </div>
+                    )}
                     {/* ── アクションバー（タイトル直下に配置）。292: 密度=コンパクトでは出さない（高さを抑える） ── */}
                     {listDensity === 'detail' && (
                     <div

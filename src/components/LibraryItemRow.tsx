@@ -10,6 +10,7 @@ import { followUpOriginLabel, followUpPromptHead, parseFollowUp } from '@/lib/fo
 import { MANDALA_SCOPE_META } from '@/lib/mandala-shared';
 import { useState } from 'react';
 import { copyRichMarkdown } from '@/lib/rich-copy';
+import InlineNotice from '@/components/ui/InlineNotice';
 // 283: 展開した本文は整形表示（R-45）。全画面（FullscreenReader）と同じレンダラ
 import { renderMarkdown, sanitizeLatex } from '@/lib/markdown-renderer';
 import type { LibraryArtifactKind, LibraryLinkKind } from '@/lib/library-groups';
@@ -245,16 +246,33 @@ export function LibraryItemRow({
       })
     : '';
 
+  // 338/R-137: 成功は押したボタン自身（コピー済・約2秒）で知らせる。失敗はこのカードの中に1行（帯・トーストは使わない）
+  const [copyError, setCopyError] = useState<string | null>(null);
   const handleCopy = async () => {
-    if (!content) return;
+    setCopyError(null);
+    if (!content) {
+      setCopyError('本文がまだ読み込まれていません。本文を開いてからもう一度押してください');
+      return;
+    }
+    let ok = false;
     try {
-      await copyRichMarkdown(content);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1500);
+      ok = await copyRichMarkdown(content);
     } catch (e) {
       console.error(e);
+      ok = false;
+    }
+    if (ok) {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } else {
+      setCopyError('コピーできませんでした。本文を開いて選択し、手動でコピーしてください');
     }
   };
+  const copyErrorNode = copyError ? (
+    <div data-library-copy-error={item.id} onClick={(e) => e.stopPropagation()}>
+      <InlineNotice notice={{ text: copyError, kind: 'error' }} onClose={() => setCopyError(null)} marker="library-copy-error" />
+    </div>
+  ) : null;
 
   // 282/R-81: 展開の当たり判定はタイトル・メタ情報の領域だけ。ボタン類・リンク・本文は含めず、
   // その中の操作は stopPropagation で上へ伝えない（領域限定と併せた二重の守り）
@@ -561,6 +579,7 @@ export function LibraryItemRow({
           </div>
         )}
 
+        {copyErrorNode}
         {/* 操作ボタン: ホバー時オーバーレイ表示（タッチ端末は常時表示）。283: 成果物タブがあれば選択中の成果物に対して動く。
             291 §3-2: 密度=コンパクトでは出さない（高さを抑える。操作は詳細に切り替えるか、クリック展開→本文内から） */}
         {density === 'detail' && (
@@ -927,6 +946,7 @@ export function LibraryItemRow({
 
           </div>
 
+          {copyErrorNode}
           {/* ── アクションバー（タイトル直下に配置） ── */}
           <div
             onClick={stopCardClick}

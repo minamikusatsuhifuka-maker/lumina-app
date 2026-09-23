@@ -11,6 +11,7 @@ import { markdownToReadableText } from '@/lib/markdownToText';
 import FullscreenReader from '@/components/text-analysis/FullscreenReader';
 import { KEY_HINT, useShortcutHints } from '@/lib/shortcuts';
 import { cardActionBtnStyle } from '@/components/text-analysis/cardActionButtonStyle';
+import InlineNotice from '@/components/ui/InlineNotice';
 import { confirmBulkDelete } from '@/lib/bulk-delete-confirm';
 // 256: カードにカーソルを当てたときの本文プレビュー
 import { useHoverPreview } from '@/components/HoverPreview';
@@ -160,6 +161,8 @@ export default function ContextLibraryPanel() {
   // 197: 「⋯ その他」メニュー（全画面/テキスト/MD/Word/編集/削除を格納）を開いているカードのid
   const [moreMenuId, setMoreMenuId] = useState<number | null>(null);
   const [copiedId, setCopiedId] = useState<number | null>(null);
+  // 338/R-137: コピーの失敗は押したカードの中に1行で出す（固定トーストも帯も使わない）
+  const [copyError, setCopyError] = useState<{ id: number; text: string } | null>(null);
   // テキスト/MD ダウンロード中のID（本文取得中の同時押し防止。txt/MD共用）
   const [downloadingId, setDownloadingId] = useState<number | null>(null);
   // カード編集（タイトル=topic + 本文=context_text。同時編集は1件のみ）
@@ -463,13 +466,21 @@ export default function ContextLibraryPanel() {
   // 絞り込みはサーバ側で全件を母数に実施済み（items がそのまま表示対象）
 
   const handleCopy = async (item: ContextSave) => {
+    // 338/R-137: 成功は押したボタン自身（✅ コピー済み・約2秒）で知らせる。失敗はそのカードの中に1行
+    setCopyError(null);
     try {
       const text = await ensureFullText(item);
       // コピー内容にも LaTeX 正規化を適用（テキスト分析側と挙動を揃える）
-      await copyRichMarkdown(sanitizeLatex(text));
+      const ok = await copyRichMarkdown(sanitizeLatex(text));
+      if (!ok) {
+        setCopyError({ id: item.id, text: 'コピーできませんでした。本文を開いて選択し、手動でコピーしてください' });
+        return;
+      }
       setCopiedId(item.id);
       setTimeout(() => setCopiedId(null), 2000);
-    } catch {}
+    } catch (err) {
+      setCopyError({ id: item.id, text: err instanceof Error ? err.message : 'コピーできませんでした' });
+    }
   };
 
   // 一時トースト表示の共通ヘルパー
@@ -1680,6 +1691,12 @@ export default function ContextLibraryPanel() {
                 </div>
               )}
 
+              {/* 338/R-137: コピーの失敗だけ、このカードの中に in-flow の1行（R-133） */}
+              {copyError?.id === item.id && (
+                <div data-ctx-copy-error={item.id} onClick={stopCardClick} style={{ marginBottom: 8 }}>
+                  <InlineNotice notice={{ text: copyError.text, kind: 'error' }} onClose={() => setCopyError(null)} marker="ctx-copy-error" />
+                </div>
+              )}
               {/* ── 共通操作バー（197: アクション列整理）──
                   常時表示は ▼全文表示 / 📋コピー / ☆お気に入り のみ。
                   使用頻度の低い ⛶全画面 / ⬇テキスト / 📥MD / 📄Word / ✏編集 / 🗑削除 は

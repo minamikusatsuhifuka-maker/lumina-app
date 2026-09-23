@@ -6,6 +6,9 @@
 //   📚画像ギャラリー・🗂保存一覧・マンダラ詳細でも同じものを使う。
 // - `position` は static のまま＝**何も覆わない**。出ると下の要素が押し下がるだけ。
 // - ✕ で閉じられる。成功だけ数秒で自動的に消す（lib/inline-notice.ts の判断）。
+// - 338/R-137: 出てもスクロール位置を変えない。333 で付けていた「出たときに画面内へ寄せる」動きは、長い一覧の途中で
+//   📋 コピーを押すと画面が一覧の先頭へ飛ぶ原因になった（院長の実測 2026/9/24）。操作の結果は押した場所で知らせ、
+//   帯は「見に行けば読める」だけの存在にする（focus() も呼ばない）。
 // - `useInlineNotice()` は共通トーストの `showToast(message, type)` と**同じ呼び出し方**を返すので、
 //   画面側は呼び出し箇所を書き換えずに置き換えられる（R-88: ハンドラを複製しない）。
 
@@ -53,29 +56,18 @@ export default function InlineNotice({
   notice,
   onClose,
   marker,
-  /** 出たときに画面内へ寄せる（長い一覧の途中で操作したときに見落とさないため） */
-  scrollIntoView = false,
   style,
 }: {
   notice: InlineNoticeState | null;
   onClose: () => void;
   /** E2E・CSS の目印（画面ごとに変える。既定は共通の目印だけ） */
   marker?: string;
-  scrollIntoView?: boolean;
   style?: React.CSSProperties;
 }) {
-  const ref = useRef<HTMLDivElement>(null);
-  const text = notice?.text ?? null;
-  useEffect(() => {
-    if (!scrollIntoView || !text) return;
-    ref.current?.scrollIntoView({ block: 'nearest' });
-  }, [scrollIntoView, text]);
-
   if (!notice) return null;
   const color = INLINE_NOTICE_COLOR[notice.kind];
   return (
     <div
-      ref={ref}
       data-inline-notice={marker ?? '1'}
       data-inline-notice-kind={notice.kind}
       role="status"

@@ -5396,7 +5396,8 @@ test('U94: 関連図の是正とつながり確認（322）— 院長の再現�
   const ta = read('components/text-analysis/TextAnalysisPanel.tsx');
   expect((ta.match(/<ResultActionBar/g) ?? []).length, '🗂 成果物の操作行は共通部品1箇所').toBe(1);
   expect(ta, '従来の下部の操作行は無い').not.toContain('{/* アクション */}');
-  for (const h of ['onClick={onSave}', 'onClick={onCopy}', 'onClick={onDownloadTxt}', 'onClick={onDownloadMd}', 'onClick={onDownloadDocx}', 'onClick={onSimplify}', 'onClick={onRefine}', '<VisualQuickButton', '<FollowUpResearchButton', 'data-save-library']) expect(ta, `ハンドラ・要素が残る: ${h}`).toContain(h);
+  // 338: コピーは成否をボタン自身で示すため handleCopyClick 経由（onCopy は中で呼ばれる）
+  for (const h of ['onClick={onSave}', 'onClick={() => void handleCopyClick()}', 'ok = await onCopy()', 'onClick={onDownloadTxt}', 'onClick={onDownloadMd}', 'onClick={onDownloadDocx}', 'onClick={onSimplify}', 'onClick={onRefine}', '<VisualQuickButton', '<FollowUpResearchButton', 'data-save-library']) expect(ta, `ハンドラ・要素が残る: ${h}`).toContain(h);
   expect(ta, '再分析は入力欄へ入れるだけ（新しい生成経路なし）').toMatch(/const reanalyzeFrom = \(text: string\) => \{\s*setInputText\(text\);/);
   const vp = read('app/dashboard/visuals/page.tsx');
   expect(vp).toMatch(/data-vis-why=\{plan\.id\}/);
@@ -6524,7 +6525,7 @@ test('U110: 📋 コピーの常時表示（337・R-136）— 🗂保存一覧�
   expect((saved.match(/'📋 コピー'/g) ?? []).length, '🗂: 本文コピーの表記はバッジ行・📥元の入力テキスト・全画面リーダーの3箇所だけ（詳細の操作バーに残さない＝二重に置かない）').toBe(3);
   const detailBar = saved.slice(saved.indexOf("{listDensity === 'detail' && (\n                    <div"), saved.indexOf('{expanded ? ('));
   expect(detailBar, '🗂: 詳細の操作バーに handleCopy のボタンが残っていない').not.toMatch(/onClick=\{\(\) => handleCopy\(record\)\}/);
-  expect(saved, '🗂: コピー処理は共通の copyRichMarkdown').toMatch(/const handleCopy = async \(record: AnalysisRecord\) => \{[\s\S]{0,400}copyRichMarkdown\(text\)/);
+  expect(saved, '🗂: コピー処理は共通の copyRichMarkdown').toMatch(/const handleCopy = async \(record: AnalysisRecord\) => \{[\s\S]{0,900}copyRichMarkdown\(text\)/);
   // 📚 compact variant: 密度=コンパクトでバッジ行にコピー
   const lir = read('src/components/LibraryItemRow.tsx');
   expect(lir, '📚: コンパクト密度のバッジ行にコピー（data-library-copy）').toMatch(/\{density === 'compact' && \(\s*<button[\s\S]{0,200}data-library-copy=\{cur\.id\}[\s\S]{0,200}void handleCopy\(\)/);
@@ -6537,7 +6538,7 @@ test('U110: 📋 コピーの常時表示（337・R-136）— 🗂保存一覧�
   const panel = read('src/components/text-analysis/TextAnalysisPanel.tsx');
   const keep = panel.slice(panel.indexOf('keepVisible={'), panel.indexOf('main={<>'));
   const main = panel.slice(panel.indexOf('main={<>'), panel.indexOf('aside={'));
-  expect(keep, '成果物: 📋 コピーは keepVisible の中').toMatch(/data-ta-copy[\s\S]{0,120}onClick=\{onCopy\}/);
+  expect(keep, '成果物: 📋 コピーは keepVisible の中（338: 成否をボタンで示す handleCopyClick 経由）').toMatch(/data-ta-copy[\s\S]{0,120}onClick=\{\(\) => void handleCopyClick\(\)\}/);
   expect(keep, '成果物: 表記').toContain('📋 コピー');
   expect(main, '成果物: main（⋯ 操作に畳まれる側）にコピーは無い').not.toContain('📋 コピー');
   const bar = read('src/components/ResultActionBar.tsx');
@@ -6548,4 +6549,55 @@ test('U110: 📋 コピーの常時表示（337・R-136）— 🗂保存一覧�
   // 台帳
   const rules = read('RULES.md');
   expect(rules, 'R-136 が台帳にある').toMatch(/^## R-136: .*コピー/m);
+});
+
+// ───────────────────────────────────────────────────────────────────────────
+// 338: コピーで画面が動かない（R-137）— ソース固定
+// ───────────────────────────────────────────────────────────────────────────
+test('U111: コピーで画面が動かない（338・R-137）— InlineNotice は scrollIntoView／focus() を呼ばず呼び出し側にも prop が無い／🗂保存一覧のコピーは成功で帯（showToast）を出さず失敗はカード内の1行／🧠・📚・🗂成果物も同じ（成功はボタン自身・約2秒・失敗はその中の1行）／既存のコピー処理（copyRichMarkdown）はそのまま／RULES に R-137', () => {
+  const read = (rel: string) => readFileSync(join(__dirname, '../../', rel), 'utf8');
+  // 帯の部品: スクロール位置を動かさない
+  const inl = read('src/components/ui/InlineNotice.tsx');
+  expect(inl, '帯は scrollIntoView を呼ばない').not.toMatch(/scrollIntoView/);
+  expect(inl, '帯は focus() を呼ばない').not.toMatch(/\.focus\(/);
+  for (const rel of ['src/components/text-analysis/SavedAnalysisList.tsx', 'src/app/dashboard/gallery/page.tsx', 'src/app/dashboard/mandala/[id]/page.tsx']) {
+    const src = read(rel);
+    const tags = src.match(/<InlineNotice[\s\S]*?\/>/g) ?? [];
+    expect(tags.length, `${rel}: 帯を使っている`).toBeGreaterThan(0);
+    for (const t of tags) expect(t, `${rel}: 帯に scrollIntoView を渡さない`).not.toMatch(/scrollIntoView/);
+  }
+  // 🗂 保存一覧
+  const saved = read('src/components/text-analysis/SavedAnalysisList.tsx');
+  const savedCopy = saved.slice(saved.indexOf('const handleCopy = async (record: AnalysisRecord)'), saved.indexOf('// 個別レコードを .md ファイルとしてダウンロード'));
+  expect(savedCopy.length).toBeGreaterThan(100);
+  expect(savedCopy, '🗂: コピーの成功・失敗で一覧の先頭の帯（showToast）を出さない').not.toMatch(/showToast\(/);
+  expect(savedCopy, '🗂: 成功はボタン自身（copiedId・約2秒）').toMatch(/setCopiedId\(record\.id\)[\s\S]{0,200}2000\)/);
+  expect(savedCopy, '🗂: 失敗はカード内の1行（setCopyError）').toMatch(/setCopyError\(\{ id: record\.id/);
+  expect(savedCopy, '🗂: 既存のコピー処理のまま（R-71）').toMatch(/copyRichMarkdown\(text\)/);
+  expect(saved, '🗂: 失敗の1行はカードの中（in-flow・帯の部品）').toMatch(/data-ta-copy-error=\{record\.id\}[\s\S]{0,300}<InlineNotice[^>]*kind: 'error'/);
+  // 🧠
+  const clp = read('src/components/context-library/ContextLibraryPanel.tsx');
+  const clpCopy = clp.slice(clp.indexOf('const handleCopy = async (item: ContextSave)'), clp.indexOf('// 一時トースト表示の共通ヘルパー'));
+  expect(clpCopy, '🧠: 成否を見て（ok）成功はボタン自身').toMatch(/const ok = await copyRichMarkdown\([\s\S]{0,300}setCopiedId\(item\.id\)[\s\S]{0,120}2000\)/);
+  expect(clpCopy, '🧠: 固定トーストを出さない').not.toMatch(/flashToast\(/);
+  expect(clpCopy, '🧠: 失敗はカード内の1行').toMatch(/setCopyError\(\{ id: item\.id/);
+  expect(clp, '🧠: 失敗の1行はカードの中').toMatch(/data-ctx-copy-error=\{item\.id\}[\s\S]{0,300}<InlineNotice[^>]*kind: 'error'/);
+  // 📚
+  const lir = read('src/components/LibraryItemRow.tsx');
+  const lirCopy = lir.slice(lir.indexOf('const handleCopy = async () =>'), lir.indexOf('const copyErrorNode'));
+  expect(lirCopy, '📚: 成否を見て（ok）成功はボタン自身・約2秒').toMatch(/ok = await copyRichMarkdown\(content\)[\s\S]{0,300}setCopied\(true\)[\s\S]{0,80}2000\)/);
+  expect(lirCopy, '📚: 失敗はカード内の1行').toMatch(/setCopyError\('コピーできませんでした/);
+  expect((lir.match(/\{copyErrorNode\}/g) ?? []).length, '📚: compact／default の両方に失敗の1行の置き場').toBe(2);
+  expect(lir, '📚: 失敗の1行は帯の部品').toMatch(/data-library-copy-error=\{item\.id\}[\s\S]{0,200}<InlineNotice[^>]*kind: 'error'/);
+  // 🗂 成果物
+  const panel = read('src/components/text-analysis/TextAnalysisPanel.tsx');
+  const parentCopy = panel.slice(panel.indexOf('onCopy={() => copyRichMarkdown('), panel.indexOf('onDownloadTxt={() => downloadTxt('));
+  expect(parentCopy.length, '親の onCopy は成否を返すだけ').toBeGreaterThan(10);
+  expect(parentCopy, '成果物: コピーで固定トーストを出さない').not.toMatch(/showToast\(/);
+  expect(panel, '成果物: onCopy は成否を返す型').toMatch(/onCopy: \(\) => Promise<boolean> \| boolean;/);
+  expect(panel, '成果物: 成功はボタン自身（copied・約2秒）').toMatch(/const handleCopyClick = async \(\) => \{[\s\S]{0,400}setCopied\(true\);\s*window\.setTimeout\(\(\) => setCopied\(false\), 2000\)/);
+  expect(panel, '成果物: 失敗はこの成果物の中の1行').toMatch(/data-ta-copy-error=\{type\}[\s\S]{0,200}<InlineNotice[^>]*kind: 'error'/);
+  expect((panel.match(/\{copied \? '✅ コピー済み' : '📋 コピー'\}/g) ?? []).length, '成果物: 操作行と全画面リーダーの両方のボタンが結果を示す').toBe(2);
+  // 台帳
+  expect(read('RULES.md'), 'R-137 が台帳にある').toMatch(/^## R-137: .*押した場所で知らせる/m);
 });

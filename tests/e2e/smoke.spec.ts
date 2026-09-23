@@ -14400,3 +14400,153 @@ test('C155: 📋 コピーの常時表示（337・R-136）— 🗂保存一覧�
     await wk.close();
   }
 });
+
+// ───────────────────────────────────────────────────────────────────────────
+// 338: コピーを押しても画面が動かない（R-137）
+// ───────────────────────────────────────────────────────────────────────────
+test('C156: コピーで画面が動かない（338・R-137・PC幅＋WebKit iPhone幅）— 🗂保存一覧・📚リサーチ保存・🧠AI参照素材・🗂成果物の4か所で、長い一覧を途中までスクロールした状態で 📋 コピー を押しても window.scrollY と主カラムの scrollTop が変わらない（誤差2px）／URL が変わらない・カードが開かない／ボタンが約2秒「✅ コピー済み」になって戻る／先頭の帯・固定トーストが出ない／クリップボードに原文が入る', async ({ page, request, context }) => {
+  test.setTimeout(300_000);
+  const marker = `SC338${RUN_ID}`;
+  const raw = (i: number) => `## 見出し${i} ${marker}\n\n**太字の要点${i}** と本文。\n\n- 箇条書きA\n- 箇条書きB\n\n${'保湿は入浴後5分以内に。'.repeat(8)}`;
+  const N = 14;
+  const now = new Date().toISOString();
+  const tIds: number[] = [];
+  const lIds: string[] = [];
+  const xIds: number[] = [];
+  for (let i = 0; i < N; i++) {
+    tIds.push(await createSave(request, { title: `SC-T${i} ${marker}`, content: raw(i), analysisType: 'summary', analysisLabel: '概要・要約' }));
+    lIds.push(await postLibraryRow(request, { type: 'deepresearch', title: withE2EPrefix(`SC-L${i} ${marker}`), content: raw(i), metadata: { savedAt: now }, tags: 'ディープリサーチ', group_name: 'ディープリサーチ' }));
+    xIds.push(await createContextSave(request, { topic: `SC-X${i} ${marker}`, contextText: raw(i) }));
+  }
+  // クリップボードは書き込み API を差し替えて捕捉（C155 と同じ。WebKit は権限付与を受け付けない）
+  const clipStub = () => {
+    const w = window as unknown as { __clip: string[] };
+    w.__clip = [];
+    const push = (t: string) => { w.__clip.push(t); };
+    const clip = navigator.clipboard as unknown as Record<string, unknown>;
+    try {
+      Object.defineProperty(navigator, 'clipboard', {
+        configurable: true,
+        value: {
+          ...clip,
+          writeText: async (t: string) => push(String(t)),
+          write: async (items: { types: string[]; getType: (t: string) => Promise<Blob> }[]) => {
+            for (const it of items) if (it.types.includes('text/plain')) push(await (await it.getType('text/plain')).text());
+          },
+        },
+      });
+    } catch {}
+  };
+  type Pg = import('@playwright/test').Page;
+  const readClip = (pg: Pg) => pg.evaluate(() => ((window as unknown as { __clip?: string[] }).__clip ?? []).join('\n---\n'));
+  const scrollState = (pg: Pg) => pg.evaluate(() => {
+    const main = document.querySelector('main.dashboard-main') as HTMLElement | null;
+    return { y: Math.round(window.scrollY), main: Math.round(main?.scrollTop ?? 0), url: location.href };
+  });
+  /** 途中までスクロールした状態でコピーを押し、位置・URL・展開・ボタン表示・帯を判定する */
+  const checkCopy = async (pg: Pg, label: string, btn: import('@playwright/test').Locator, opts: { expanded: import('@playwright/test').Locator; notices: string; expectClip: string; restLabel: RegExp }) => {
+    await expect(btn, `${label}: 📋 コピーが見える`).toBeVisible({ timeout: 30000 });
+    // 対象を画面の中央に置く（＝一覧の途中まで進めた状態）
+    await btn.evaluate((el) => el.scrollIntoView({ block: 'center', behavior: 'instant' as ScrollBehavior }));
+    await pg.waitForTimeout(300);
+    const before = await scrollState(pg);
+    expect(before.y + before.main, `${label}: 途中までスクロールできている（y=${before.y} main=${before.main}）`).toBeGreaterThan(40);
+    await pg.evaluate(() => { (window as unknown as { __clip: string[] }).__clip = []; });
+    await btn.click();
+    await expect(btn, `${label}: ボタン自身が「コピー済み」になる`).toHaveText(/コピー済/, { timeout: 10000 });
+    await pg.waitForTimeout(300);
+    const after = await scrollState(pg);
+    expect(Math.abs(after.y - before.y), `${label}: window.scrollY が動かない（${before.y}→${after.y}）`).toBeLessThanOrEqual(2);
+    expect(Math.abs(after.main - before.main), `${label}: 主カラムの scrollTop が動かない（${before.main}→${after.main}）`).toBeLessThanOrEqual(2);
+    expect(after.url, `${label}: URL が変わらない`).toBe(before.url);
+    await expect(opts.expanded, `${label}: カードが開かない`).toHaveCount(0);
+    await expect(pg.locator(opts.notices), `${label}: 先頭の帯・固定トーストを出さない`).toHaveCount(0);
+    await expect.poll(() => readClip(pg), { timeout: 10000, message: `${label}: クリップボードに原文` }).toContain(opts.expectClip);
+    await expect(btn, `${label}: 約2秒で元に戻る`).toHaveText(opts.restLabel, { timeout: 6000 });
+    const settled = await scrollState(pg);
+    expect(Math.abs(settled.main - before.main) + Math.abs(settled.y - before.y), `${label}: 戻った後も位置が動かない`).toBeLessThanOrEqual(2);
+  };
+  const runAll = async (pg: Pg, tag: string) => {
+    // ── 🗂 保存一覧（詳細密度・一覧の途中のカード）──
+    await pg.goto('/dashboard/saved');
+    const panel = pg.locator('[data-saved-panel="text-analysis"]');
+    await panel.locator('[data-kb-search]').fill(marker);
+    await expect(panel.locator(`[data-analysis-card="${tIds[0]}"]`)).toBeVisible({ timeout: 30000 });
+    await panel.locator('[data-library-density-choice="detail"]').click();
+    const tTarget = tIds[N - 4];
+    await checkCopy(pg, `${tag} 🗂`, panel.locator(`[data-ta-copy="${tTarget}"]`), {
+      expanded: panel.locator(`[data-ta-expanded-body="${tTarget}"]`),
+      notices: '[data-inline-notice="ta-saved"], [data-toast-layer] > *',
+      expectClip: `**太字の要点${N - 4}**`,
+      restLabel: /^📋 コピー$/,
+    });
+    // ── 📚 リサーチ保存（コンパクト密度＝バッジ行のコピー）──
+    await pg.goto('/dashboard/library');
+    await pg.locator('[data-library-search]').fill(marker);
+    await expect(pg.locator(`[data-library-card="${lIds[0]}"]`)).toBeVisible({ timeout: 30000 });
+    await pg.locator('[data-library-density-choice="compact"]').click();
+    await expect(pg.locator('[data-library-grid]')).toHaveAttribute('data-library-density', 'compact');
+    const lTarget = lIds[N - 4];
+    await checkCopy(pg, `${tag} 📚`, pg.locator(`[data-library-copy="${lTarget}"]`), {
+      expanded: pg.locator(`[data-library-card="${lTarget}"] .markdown-body`),
+      notices: '[data-inline-notice="gallery"], [data-toast-layer] > *',
+      expectClip: `**太字の要点${N - 4}**`,
+      restLabel: /^📋 コピー$/,
+    });
+    await pg.locator('[data-library-density-choice="detail"]').click();
+    // ── 🧠 AI参照素材（コンパクト）──
+    await pg.goto('/dashboard/context-library');
+    await pg.locator('[data-kb-search]').fill(marker);
+    await expect(pg.locator(`[data-ctx-card="${xIds[0]}"]`)).toBeVisible({ timeout: 30000 });
+    await pg.locator('[data-library-density-choice="compact"]').click();
+    await expect(pg.locator('[data-library-grid]')).toHaveAttribute('data-library-density', 'compact');
+    const xTarget = xIds[N - 4];
+    await checkCopy(pg, `${tag} 🧠`, pg.locator(`[data-ctx-copy="${xTarget}"]`), {
+      expanded: pg.locator(`[data-ctx-expanded-body="${xTarget}"]`),
+      notices: '[data-toast-layer] > *',
+      expectClip: `**太字の要点${N - 4}**`,
+      restLabel: /^📋 コピー$/,
+    });
+    await pg.locator('[data-library-density-choice="detail"]').click();
+    // ── 🗂 成果物（下書きの復元で2枚出す・AI は使わない）──
+    const long = `[E2E] 338 ${marker}\n\n**太字の成果物**\n\n` + 'かゆみが強いときは掻かずに冷やすとよい。保湿剤は入浴後5分以内に塗る。'.repeat(40);
+    await pg.route('**/api/feature-drafts**', (route) => {
+      const isTa = route.request().method() === 'GET' && /feature=text-analysis(&|$)/.test(route.request().url());
+      route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(isTa ? { draft: { payload: { inputText: long, purpose: '', results: { summary: long, detail: long } }, updated_at: new Date().toISOString() } } : (route.request().method() === 'GET' ? { draft: null } : { ok: true })) });
+    });
+    await pg.goto('/dashboard/text-analysis');
+    await pg.evaluate(() => { localStorage.setItem('lumina_auto_stock_save', '0'); });
+    await pg.reload({ waitUntil: 'domcontentloaded' });
+    const bars = pg.locator('[data-ta-result-actions]');
+    await expect(bars.first()).toBeVisible({ timeout: 60000 });
+    const bar = bars.last();
+    await checkCopy(pg, `${tag} 🗂成果物`, bar.locator('[data-ta-copy]'), {
+      expanded: pg.locator('[data-ta-copy-error]'),
+      notices: '[data-toast-layer] > *',
+      expectClip: '**太字の成果物**',
+      restLabel: /^📋 コピー$/,
+    });
+    await pg.unroute('**/api/feature-drafts**');
+  };
+  try {
+    // ── PC 幅 ──
+    await context.addInitScript(clipStub);
+    await runAll(page, 'PC');
+    // ── WebKit iPhone 幅 ──
+    const wk = await webkit.launch();
+    const ctx = await wk.newContext({ storageState: STORAGE_STATE, baseURL: BASE_URL, hasTouch: true, isMobile: true, viewport: { width: 390, height: 844 }, serviceWorkers: 'block' });
+    await ctx.addInitScript(clipStub);
+    const mp = await ctx.newPage();
+    try {
+      await runAll(mp, 'iPhone');
+    } finally {
+      await ctx.close();
+      await wk.close();
+    }
+  } finally {
+    await request.delete(LIBRARY_API, { data: { ids: lIds } }).catch(() => {});
+    await cleanupE2ELibrary(request);
+    await cleanupE2ESaves(request);
+    await cleanupE2EContextSaves(request);
+  }
+});

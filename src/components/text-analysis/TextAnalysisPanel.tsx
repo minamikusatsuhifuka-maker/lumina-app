@@ -108,7 +108,8 @@ interface ResultPanelProps {
   /** 319: 保存済みの行 id（追加リサーチの前提資料）。未保存は null */
   savedId: number | null;
   onSave: () => void;
-  onCopy: () => void;
+  /** 338: コピーの成否を返す（成功は押したボタンで知らせ、失敗はこの成果物の中に1行・R-137） */
+  onCopy: () => Promise<boolean> | boolean;
   onDownloadTxt: () => void;
   onDownloadMd: () => void;
   onDownloadDocx: () => void;
@@ -158,6 +159,25 @@ function ResultPanel({
   // 215: 全画面ビューア（保存一覧の FullscreenReader 流用）の開閉
   const [readerOpen, setReaderOpen] = useState(false);
   const currentLength = text.length;
+  // 338/R-137: コピーの結果は押したボタン自身で知らせる（✅ コピー済み・約2秒）。固定トーストは出さない。
+  // 失敗だけこの成果物の中に in-flow の1行（R-133）
+  const [copied, setCopied] = useState(false);
+  const [copyError, setCopyError] = useState<string | null>(null);
+  const handleCopyClick = async () => {
+    setCopyError(null);
+    let ok = false;
+    try {
+      ok = await onCopy();
+    } catch {
+      ok = false;
+    }
+    if (ok) {
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 2000);
+    } else {
+      setCopyError('コピーできませんでした。本文を選択して手動でコピーしてください');
+    }
+  };
 
   return (
     <div
@@ -245,12 +265,12 @@ function ResultPanel({
         <button
           type="button"
           data-ta-copy
-          onClick={onCopy}
+          onClick={() => void handleCopyClick()}
           disabled={!text}
           style={btnStyle('neutral')}
           title="この結果の本文（原文）をコピーします"
         >
-          📋 コピー
+          {copied ? '✅ コピー済み' : '📋 コピー'}
         </button>
         </>}
         main={<>
@@ -373,6 +393,12 @@ function ResultPanel({
         </>}
       />
 
+      {/* 338/R-137: コピーの失敗だけ、この成果物の中に in-flow の1行（操作行の下・本文の上。R-133） */}
+      {copyError && (
+        <div data-ta-copy-error={type}>
+          <InlineNotice notice={{ text: copyError, kind: 'error' }} onClose={() => setCopyError(null)} marker="ta-result-copy-error" />
+        </div>
+      )}
       {/* 本文 */}
       <div
         data-ta-result-body={type}
@@ -424,8 +450,8 @@ function ResultPanel({
         onClose={() => setReaderOpen(false)}
         actions={
           <>
-            <button type="button" onClick={onCopy} style={btnStyle('neutral')}>
-              📋 コピー
+            <button type="button" onClick={() => void handleCopyClick()} style={btnStyle('neutral')}>
+              {copied ? '✅ コピー済み' : '📋 コピー'}
             </button>
             <button
               type="button"
@@ -1725,11 +1751,9 @@ export default function TextAnalysisPanel({
               onFavorite={() => void favoriteSaved(type)}
               favoriteDone={favoriteDone.has(type)}
               contextSaving={contextSavingType === type}
-              onCopy={() => {
-                // コピー内容にも LaTeX 正規化を適用（$\rightarrow$ 等を残さない）
-                copyRichMarkdown(sanitizeLatex(text));
-                showToast('コピーしました', 'success');
-              }}
+              // 338/R-137: 成否を返すだけ（トーストは出さない。結果は ResultPanel のボタン自身が示す）
+              // コピー内容にも LaTeX 正規化を適用（$\rightarrow$ 等を残さない）
+              onCopy={() => copyRichMarkdown(sanitizeLatex(text))}
               onDownloadTxt={() => downloadTxt(type, text)}
               onDownloadMd={() => downloadMd(type, text)}
               onDownloadDocx={() => downloadDocx(type, text)}

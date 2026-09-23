@@ -481,7 +481,7 @@ export default function MandalaChartPage({ params }: { params: Promise<{ id: str
       </div>
       {/* 333: マスの操作の結果はここ（見出しの直下）に出す。浮かせないのでマスを覆わない（R-133）。
           従来は共通トースト＝画面右下の固定表示で、iPhone幅では下段のマスに重なっていた */}
-      <InlineNotice notice={notice} onClose={clearNotice} marker="mandala" scrollIntoView style={{ marginBottom: 10 }} />
+      <InlineNotice notice={notice} onClose={clearNotice} marker="mandala" style={{ marginBottom: 10 }} />
 
       <div style={{ display: 'flex', alignItems: 'baseline', gap: 12, flexWrap: 'wrap', marginBottom: 4 }}>
         <h1 style={{ fontSize: 22, fontWeight: 700, margin: 0 }}>🔲 マンダラ</h1>
