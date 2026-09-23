@@ -9,6 +9,8 @@ import { checkMedicalAd, MEDICAL_AD_NG_RULES } from '@/lib/medical-ad-check';
 import { NOTE_COMMON_RULES } from '@/lib/note-styles';
 import { NOTE_WRITING_DESIGN } from '@/lib/note-writing';
 import { getMyStylePrompt } from '@/lib/my-style-server';
+import { humanizeText } from '@/lib/humanize-server';
+import { humanizeDeadline } from '@/lib/humanize';
 import {
   PERSONA_STYLES,
   PERSONA_GUARD,
@@ -69,6 +71,7 @@ export async function POST(req: NextRequest) {
   const guard = await requireAuth();
   if (!guard.ok) return guard.response;
   const { userId } = guard;
+  const startedAt = Date.now(); // 336: 整える工程の締切（R-73・maxDuration と整合）
 
   try {
     const body = await req.json().catch(() => ({}));
@@ -111,7 +114,7 @@ export async function POST(req: NextRequest) {
       };
       return mode === 'samples'
         ? await generateSamples(body.personaKeys, sourceText.title, sourceText.content, mandalaCtx)
-        : await generateFullArticle({ ...body, episodeIds }, userId, sourceText.title, sourceText.content, mandalaCtx);
+        : await generateFullArticle({ ...body, episodeIds }, userId, sourceText.title, sourceText.content, mandalaCtx, startedAt);
     }
 
     if (!drId) {
@@ -129,7 +132,7 @@ export async function POST(req: NextRequest) {
 
     return mode === 'samples'
       ? await generateSamples(body.personaKeys, dr.title, content)
-      : await generateFullArticle(body, userId, dr.title, content);
+      : await generateFullArticle(body, userId, dr.title, content, undefined, startedAt);
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : '不明なエラー';
     console.error('[dr-hub/persona] error:', message);
@@ -238,11 +241,12 @@ ${mandala ? `\n${mandalaPromptBlock(mandala).trim()}\n` : ''}
 
 // ── 段階2: 選ばれた1ペルソナで記事全文を生成（保存しない） ──
 async function generateFullArticle(
-  body: { personaKey?: unknown; length?: unknown; model?: unknown; episodeIds?: unknown },
+  body: { personaKey?: unknown; length?: unknown; model?: unknown; episodeIds?: unknown; humanize?: unknown },
   userId: string,
   title: string,
   content: string,
   mandala?: MandalaContext,
+  startedAt: number = Date.now(),
 ) {
   if (typeof body.personaKey !== 'string' || !(body.personaKey in PERSONA_STYLES)) {
     return NextResponse.json({ error: 'personaKey が不正です' }, { status: 400 });
@@ -318,7 +322,10 @@ ${episode.block ? `\n${episode.block}\n` : ''}
   const parsedOut = parsePersonaArticleOutput(raw);
   const titles = parsedOut.titles;
   // 309: 1文1行（決定的・冪等・全出力）。有料モードは有料ラインの目印を1本にそろえる（無ければ最初の有料項目の大見出しの直前へ）
-  let articleBody = enforceNoteHeadingLevels(formatOneSentencePerLine(parsedOut.body));
+  // 336: ✍️ 人間らしく整える（opt-in・生成の後）→ 事実の機械検査（humanizeText 内・数字が変われば整える前を採用）
+  //      → 1文1行・見出し規約（309/310）→ checkMedicalAd（後勝ち・R-69）
+  const hz = await humanizeText({ text: parsedOut.body, kind: 'note', userId, enabled: body.humanize === true, deadlineAt: humanizeDeadline(startedAt, maxDuration) });
+  let articleBody = enforceNoteHeadingLevels(formatOneSentencePerLine(hz.text));
   let paidLine: { inserted: boolean; missing: boolean } | null = null;
   if (mandala?.mode === 'paid_chart') {
     const ensured = ensurePaidLineMarker(articleBody, mandala.firstPaidTitle);
@@ -334,6 +341,7 @@ ${episode.block ? `\n${episode.block}\n` : ''}
     content: articleBody,
     titles,
     ad_check: adCheck,
+    humanize: hz.info, // 336
     personaKey: persona.key,
     personaLabel: persona.label,
     // 281: 何件のエピソードを素材にしたか（画面の表示用。0なら従来どおり）

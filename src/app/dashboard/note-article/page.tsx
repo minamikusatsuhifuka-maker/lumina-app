@@ -16,6 +16,8 @@ import {
 } from '@/lib/title-generator';
 import { copyRichMarkdown } from '@/lib/rich-copy';
 import { enforceNoteHeadingLevels, formatOneSentencePerLine } from '@/lib/note-format';
+import { HumanizeBadge, HumanizeToggle, useHumanizeSetting } from '@/components/HumanizeControls';
+import { humanizeMetadata, type HumanizeInfo } from '@/lib/humanize';
 import { triggerDownload } from '@/lib/download';
 import {
   loadFeatureDraft,
@@ -145,6 +147,10 @@ export default function NoteArticleGenerationPage() {
   // 228: 仕上げパネルの状態と医療広告チェック（経路Aと同方式の表示）
   const [enhance, setEnhance] = useState<NoteEnhanceState>(emptyNoteEnhance());
   const [adCheck, setAdCheck] = useState<AdCheckResult | null>(null);
+  // 336: ✍️ 人間らしく整える（ストリーミング完了後にサーバで整える。途中経過は生のまま）
+  const [humanizeInfo, setHumanizeInfo] = useState<HumanizeInfo | null>(null);
+  const [humanizing, setHumanizing] = useState(false);
+  const { enabled: humanizeOn } = useHumanizeSetting();
   // 228c: 🗣もっと自然に（マイ文体への言い換え提案。169の差分ペア方式・✅/✕の個別判断）
   const [naturalizing, setNaturalizing] = useState(false);
   const [natEdits, setNatEdits] = useState<Array<{ before: string; after: string; reason: string; status?: 'applied' | 'rejected' | 'stale' }> | null>(null);
@@ -198,6 +204,7 @@ export default function NoteArticleGenerationPage() {
     setReportModel(null);
     setEnhance(emptyNoteEnhance());
     setAdCheck(null);
+    setHumanizeInfo(null);
     setNatEdits(null);
     setNatNotice('');
     clearFeatureDraft('note-article');
@@ -337,6 +344,7 @@ export default function NoteArticleGenerationPage() {
     setTrafficStats(null);
     setEnhance(emptyNoteEnhance());
     setAdCheck(null);
+    setHumanizeInfo(null);
     setNatEdits(null);
     setNatNotice('');
 
@@ -369,6 +377,7 @@ export default function NoteArticleGenerationPage() {
         length,
         model: modelAtRequest,
         selectedPatterns: selectedPatternsForPrompt,
+        humanize: humanizeOn, // 336
       });
       const requestBytes = new TextEncoder().encode(reqBody).length;
 
@@ -404,6 +413,14 @@ export default function NoteArticleGenerationPage() {
             if (json.type === 'text') {
               accumulated += json.content;
               setArticle(accumulated);
+            } else if (json.type === 'humanizing') {
+              // 336: サーバがストリーミング完了後に整えている（途中経過は生のまま）
+              setHumanizing(true);
+            } else if (json.type === 'humanized') {
+              // 336: 整えた本文（採用しなかったときは生成本文のまま）と記録。1文1行は下の done で従来どおり
+              if (typeof json.content === 'string' && json.content.trim()) accumulated = json.content;
+              setHumanizeInfo(json.humanize ?? null);
+              setHumanizing(false);
             } else if (json.type === 'error') {
               setErrorMsg(`エラー: ${json.message}`);
             }
@@ -454,6 +471,7 @@ export default function NoteArticleGenerationPage() {
     } finally {
       clearInterval(timer);
       setLoading(false);
+      setHumanizing(false);
       completeProgress();
     }
   };
@@ -955,6 +973,11 @@ export default function NoteArticleGenerationPage() {
           </div>
         </div>
 
+        {/* 336: ✍️ 人間らしく整える（既定オン・端末に記憶） */}
+        <div style={{ marginBottom: 14 }}>
+          <HumanizeToggle />
+        </div>
+
         {errorMsg && (
           <div style={{
             marginBottom: 12,
@@ -998,6 +1021,7 @@ export default function NoteArticleGenerationPage() {
           <div style={{ width: 40, height: 40, border: '3px solid var(--border-accent)', borderTopColor: 'var(--accent)', borderRadius: '50%', animation: 'spin 0.8s linear infinite', margin: '0 auto 16px' }} />
           <div style={{ color: 'var(--text-secondary)', fontWeight: 600, marginBottom: 6 }}>note 記事の下書きを執筆中...（混雑時は自動でリトライします）</div>
           <div style={{ color: 'var(--text-muted)', fontSize: 13 }}>{elapsed}秒経過 / 生成には30〜150秒かかります</div>
+          {humanizing && <div data-humanize-status="busy" style={{ color: 'var(--text-secondary)', fontSize: 13, marginTop: 8 }}>✍️ 整えています…</div>}
         </div>
       )}
 
@@ -1016,6 +1040,19 @@ export default function NoteArticleGenerationPage() {
           }}>
             ⚠️ これは下書きです。あなたの独自の経験・視点を加えて編集してから投稿してください
           </div>
+
+          {/* 336: ✍️ 整えの結果（整える前を見る・再試行） */}
+          <HumanizeBadge
+            info={humanizeInfo}
+            content={currentContent}
+            kind="note"
+            onApply={(c, info) => {
+              const f = enforceNoteHeadingLevels(formatOneSentencePerLine(c));
+              setArticle(f);
+              setEditedArticle(f);
+              setHumanizeInfo(info);
+            }}
+          />
 
           {/* 228: 医療広告チェック結果（note-bundle と同方式で併記） */}
           {adCheck && adCheck.status === 'warn' && adCheck.findings.length > 0 && (
@@ -1089,6 +1126,7 @@ export default function NoteArticleGenerationPage() {
                   buzzRefCount: buzzReferences.length,
                   hasDeepResearch: !!deepResearch,
                   enhance,
+                  ...(humanizeInfo ? { humanize: humanizeMetadata(humanizeInfo) } : {}), // 336
                 }}
               />
             </div>

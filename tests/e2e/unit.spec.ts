@@ -28,6 +28,8 @@ import * as th332 from '../../src/lib/textarea-height';
 import * as inl333 from '../../src/lib/inline-notice';
 // 334: 成果物の高さ（S 廃止・既定M・記憶の読み替え）
 import * as rh334 from '../../src/lib/result-height';
+// 336: 人間らしく整える（純関数・定数）
+import * as hz336 from '../../src/lib/humanize';
 import * as tpl320 from '../../src/lib/visual-templates';
 import { renderMarkdown } from '../../src/lib/markdown-renderer';
 import { readFileSync } from 'node:fs';
@@ -4113,7 +4115,9 @@ test('U79: マンダラ→note記事（309）— 1文1行の整形は句点「�
   expect(route.match(/formatOneSentencePerLine\(/g)?.length, 'samples と full の両方で整形').toBe(2);
   expect(route, 'ガード優先宣言より後ろに骨子の追記（R-69）').toMatch(/\$\{personaStructureRules\(PERSONA_HEADING_RANGE\[length\]\)\}\n\$\{mandalaPromptBlock\(mandala\)\}/);
   expect(route).toMatch(/if \(body\.mandala && typeof body\.mandala === 'object'\)/);
-  expect(route).toMatch(/const \{ titles, body: articleBody \} = parsePersonaArticleOutput\(raw\)/.test(route) ? /never/ : /formatOneSentencePerLine\(parsedOut\.body\)/);
+  // 336: full の本文は parsedOut.body → humanizeText（整える）→ formatOneSentencePerLine(hz.text)。整形の対象が本文であることは変わらない
+  expect(route).toMatch(/humanizeText\(\{ text: parsedOut\.body, kind: 'note'/);
+  expect(route).toMatch(/const \{ titles, body: articleBody \} = parsePersonaArticleOutput\(raw\)/.test(route) ? /never/ : /formatOneSentencePerLine\(hz\.text\)/);
   const hub = readFileSync(join(__dirname, '../../src/app/dashboard/dr-hub/page.tsx'), 'utf8');
   expect(hub, '保存前とリッチコピー前に同じ整形').toMatch(/content=\{formatOneSentencePerLine\(article\.content\)\}/);
   expect(hub).toMatch(/handleRichCopy\(formatOneSentencePerLine\(article\.content\), 'persona-note'\)/);
@@ -4131,15 +4135,16 @@ test('U80: 「1文1行」整形の横展開（310・R-114）— ②分割・275 
   };
   // 5経路（サーバ）
   // 310追加: 2関数とも（見出し規約 enforceNoteHeadingLevels ∘ 1文1行 formatOneSentencePerLine）
-  before(read('app/api/dr-hub/split/route.ts'), /const article = enforceNoteHeadingLevels\(formatOneSentencePerLine\(await generateWithModel\(/, /checkMedicalAd\(article\)/, '②分割');
-  before(read('app/api/kindle/to-note/route.ts'), /const content = enforceNoteHeadingLevels\(formatOneSentencePerLine\(await generateWithModel\(/, /checkMedicalAd\(content\)/, '275 書籍→記事');
-  before(read('app/api/kindle/note-remix/route.ts'), /const articleBody = enforceNoteHeadingLevels\(formatOneSentencePerLine\(parsedOut\.body\)\)/, /checkMedicalAd\(articleBody\)/, '269 remix');
+  // 336: 生成→整える（hz）→整形→ガード。整形の入力は hz.text（整える前の本文ではない）
+  before(read('app/api/dr-hub/split/route.ts'), /const article = enforceNoteHeadingLevels\(formatOneSentencePerLine\(hz\.text\)\)/, /checkMedicalAd\(article\)/, '②分割');
+  before(read('app/api/kindle/to-note/route.ts'), /const content = enforceNoteHeadingLevels\(formatOneSentencePerLine\(hz\.text\)\)/, /checkMedicalAd\(content\)/, '275 書籍→記事');
+  before(read('app/api/kindle/note-remix/route.ts'), /const articleBody = enforceNoteHeadingLevels\(formatOneSentencePerLine\(hz\.text\)\)/, /checkMedicalAd\(articleBody\)/, '269 remix');
   const bundle = read('app/api/note-bundle/article/route.ts');
-  before(bundle, /const formatted = enforceNoteHeadingLevels\(formatOneSentencePerLine\(content\)\)/, /checkMedicalAd\(formatted\)/, 'note-bundle');
+  before(bundle, /const formatted = enforceNoteHeadingLevels\(formatOneSentencePerLine\(hz\.text\)\)/, /checkMedicalAd\(formatted\)/, 'note-bundle');
   expect(bundle, 'note-bundle は整形後の本文を返す').toMatch(/content: formatted,/);
   const quick = read('app/api/note-quick/article/route.ts');
-  before(quick, /const content = enforceNoteHeadingLevels\(formatOneSentencePerLine\(gen\.text\)\)/, /checkMedicalAd\(content\)/, 'note-quick');
-  expect(quick.search(/formatOneSentencePerLine\(gen\.text\)/), 'note-quick: verifyContent より前').toBeLessThan(quick.search(/verifyContent\(content/));
+  before(quick, /const content = enforceNoteHeadingLevels\(formatOneSentencePerLine\(hz\.text\)\)/, /checkMedicalAd\(content\)/, 'note-quick');
+  expect(quick.search(/formatOneSentencePerLine\(hz\.text\)/), 'note-quick: verifyContent より前').toBeLessThan(quick.search(/verifyContent\(content/));
   // ①（309）も同じ2関数（samples/full）
   const persona = read('app/api/dr-hub/persona/route.ts');
   expect(persona.match(/enforceNoteHeadingLevels\(formatOneSentencePerLine\(/g)?.length).toBe(2);
@@ -6259,4 +6264,243 @@ test('U106: 参加者メール暗号化（109）— AES-256-GCM の往復・改�
   expect(bf).toMatch(/email_enc = COALESCE\(email_enc, \$\{enc\}\)/);
   expect(bf, 'スクリプトから直接 import できるよう相対 import').toMatch(/from '\.\.\/crypto\.ts'/);
   expect(bf).not.toMatch(/^import 'server-only'/m);
+});
+
+test('U107: 人間らしく整える（336）— 定数と順序: HUMANIZE_EDITOR_PROMPT が §6 の原文を含み、補則（HUMANIZE_SAFETY_ADDENDUM）が system でその後ろに連結される（後勝ち）・本文は user・呼ぶ経路（note 7・Kindle 1）と呼ばない経路が定数で固定され、各経路で「整える（humanizeText）→ 整形 → checkMedicalAd」の順（ソース固定・R-111）・Kindle は整える工程あり・1文1行なし（U80 の方式）・ストリーミング2経路は完了後に整えて終端 humanized を送る（R-118）・タイムアウトは maxDuration と整合（R-73）', () => {
+  const h = hz336;
+  const read = (p: string) => readFileSync(join(__dirname, '../../src', p), 'utf8');
+  // ── §6 原文（先頭・削除すべき表現10種・出力形式）と補則（後勝ち） ──
+  expect(h.HUMANIZE_EDITOR_PROMPT.startsWith('役割\nあなたはプロの編集者です。')).toBe(true);
+  for (const line of ['1. 過剰に重要視する表現', '6. 否定の比較表現', '10. チャットボット的な締め', '口調を調整する（サンプルがある場合）', '修正後の最終テキストのみを出力する。解説、コメント、変更点の説明は不要。']) {
+    expect(h.HUMANIZE_EDITOR_PROMPT, `原文に「${line}」`).toContain(line);
+  }
+  expect(h.HUMANIZE_EDITOR_PROMPT, '[ここに貼り付けてください] は使わない（本文は user）').not.toContain('ここに貼り付けてください');
+  for (const rule of ['新たに加えない', '数字と単位は値を変えない', '不安を煽る表現を加えない', '新しい主張・効果の断定は加えない', '▼ 有料ライン ▼', '番号付きの手順', 'LaTeX']) {
+    expect(h.HUMANIZE_SAFETY_ADDENDUM, `補則に「${rule}」`).toContain(rule);
+  }
+  const sys = h.buildHumanizeSystem();
+  expect(sys.indexOf(h.HUMANIZE_EDITOR_PROMPT), '原文が先').toBe(0);
+  expect(sys.indexOf(h.HUMANIZE_SAFETY_ADDENDUM), '補則は原文の後ろ（後勝ち）').toBeGreaterThan(h.HUMANIZE_EDITOR_PROMPT.length);
+  expect(h.buildHumanizeSystem('文体ブロック')).toContain(`${h.HUMANIZE_STYLE_SAMPLE_HEADING}\n文体ブロック`);
+  expect(h.buildHumanizeSystem('', true).endsWith(h.HUMANIZE_NUMBER_RETRY_NOTE), '数字の再指示は最後尾').toBe(true);
+  expect(h.buildHumanizeSystem(), '通常は再指示なし').not.toContain(h.HUMANIZE_NUMBER_RETRY_NOTE);
+  // system に規則・user に本文（サーバ側）
+  const server = read('lib/humanize-server.ts');
+  expect(server).toMatch(/system: buildHumanizeSystem\(styleBlock, strengthenNumbers\),\s*messages: \[\{ role: 'user', content: chunk \}\]/);
+  expect(server, 'モデルは既定（335）・思考 medium').toMatch(/thinking: GEMINI_TEXT_THINKING_MEDIUM/);
+  expect(server, 'マイ文体は getMyStylePrompt（院長自身の文章のみ）').toContain("getMyStylePrompt(opts.userId)");
+  expect(server, 'LaTeX 除去は整えた後に決定的に').toMatch(/return \{ text: stripInlineLatex\(outcome\.text\), info \};/);
+
+  // ── 経路の固定（U80 の方式） ──
+  expect([...h.HUMANIZE_ROUTES_NOTE].sort()).toEqual([
+    'app/api/dr-hub/persona/route.ts', 'app/api/dr-hub/split/route.ts', 'app/api/kindle/note-remix/route.ts', 'app/api/kindle/to-note/route.ts',
+    'app/api/note-article/route.ts', 'app/api/note-bundle/article/route.ts', 'app/api/note-quick/article/route.ts',
+  ].sort());
+  expect([...h.HUMANIZE_ROUTES_KINDLE]).toEqual(['app/api/kindle/generate-chapter/route.ts']);
+  const orderOf = (src: string, label: string, formatRe: RegExp, guardRe: RegExp) => {
+    const hzAt = src.search(/await humanizeText\(\{/);
+    const fmtAt = src.search(formatRe);
+    const guardAt = src.search(guardRe);
+    expect(hzAt, `${label}: 整える工程がある`).toBeGreaterThanOrEqual(0);
+    expect(fmtAt, `${label}: 整形がある`).toBeGreaterThanOrEqual(0);
+    expect(guardAt, `${label}: ガードがある`).toBeGreaterThanOrEqual(0);
+    expect(hzAt, `${label}: 整える → 整形`).toBeLessThan(fmtAt);
+    expect(fmtAt, `${label}: 整形 → ガード（後勝ち）`).toBeLessThan(guardAt);
+    expect(src, `${label}: opt-in（humanize === true）`).toMatch(/enabled: body\.humanize === true|enabled: true|enabled: humanize/);
+    expect(src, `${label}: 締切は maxDuration から（R-73）`).toContain('humanizeDeadline(startedAt, maxDuration)');
+  };
+  orderOf(read('app/api/dr-hub/persona/route.ts'), '①', /enforceNoteHeadingLevels\(formatOneSentencePerLine\(hz\.text\)\)/, /checkMedicalAd\(articleBody\)/);
+  orderOf(read('app/api/dr-hub/split/route.ts'), '②', /enforceNoteHeadingLevels\(formatOneSentencePerLine\(hz\.text\)\)/, /checkMedicalAd\(article\)/);
+  orderOf(read('app/api/kindle/to-note/route.ts'), '275', /enforceNoteHeadingLevels\(formatOneSentencePerLine\(hz\.text\)\)/, /checkMedicalAd\(content\)/);
+  orderOf(read('app/api/kindle/note-remix/route.ts'), '269', /enforceNoteHeadingLevels\(formatOneSentencePerLine\(hz\.text\)\)/, /checkMedicalAd\(articleBody\)/);
+  orderOf(read('app/api/note-bundle/article/route.ts'), 'bundle', /enforceNoteHeadingLevels\(formatOneSentencePerLine\(hz\.text\)\)/, /checkMedicalAd\(formatted\)/);
+  orderOf(read('app/api/note-quick/article/route.ts'), 'quick', /enforceNoteHeadingLevels\(formatOneSentencePerLine\(hz\.text\)\)/, /checkMedicalAd\(content\)/);
+  // 旧 note記事生成（SSE）: ストリーミング完了後に整え、humanized → done の順で終端を送る。1文1行は画面側の done
+  const na = read('app/api/note-article/route.ts');
+  expect(na.search(/await streamWithModel\(/), 'ストリーミングが先').toBeLessThan(na.search(/await humanizeText\(/));
+  expect(na.search(/type: 'humanized'/), 'humanized が done より前').toBeLessThan(na.search(/type: 'done'/));
+  expect(na).toMatch(/type: 'humanizing'/);
+  expect(na, '1文1行は当てない（画面側の done）').not.toMatch(/formatOneSentencePerLine|enforceNoteHeadingLevels/);
+  // Kindle（両モード）: 整える工程あり・1文1行なし・医療ガード後勝ち・book_meta.humanize はキー単位（R-113）
+  const gc = read('app/api/kindle/generate-chapter/route.ts');
+  expect(gc.match(/await humanizeText\(\{ text: (write\.text|fullText), kind: 'kindle'/g)?.length, '旧モードとウィザードの両方').toBe(2);
+  expect(gc, 'Kindle 本文に 1文1行・見出し規約を当てない（310 不変）').not.toMatch(/note-format|formatOneSentencePerLine|enforceNoteHeadingLevels/);
+  expect(gc.search(/await humanizeText\(\{ text: fullText/), 'ウィザード: 整える → cleanChapterBody → 保存').toBeLessThan(gc.search(/sanitizeForDb\(cleanChapterBody\(fullText/));
+  expect(gc).toMatch(/const adCheck = await checkMedicalAd\(fullText\);/);
+  expect(gc).toMatch(/jsonb_set\(COALESCE\(book_meta, '\{\}'::jsonb\), '\{humanize\}'/);
+  expect(gc, 'book_meta には before を持たない').toMatch(/const \{ before: _before, usage: _usage, \.\.\.record \} = humanizeRecord;/);
+  expect(gc.match(/type: 'humanized'/g)?.length, '終端イベント humanized は両モードで送る（R-118）').toBe(2);
+  // 呼ばない経路
+  for (const p of h.HUMANIZE_ROUTES_NEVER) {
+    expect(read(p), `${p} は整える工程を呼ばない`).not.toMatch(/humanize/i);
+  }
+  // 呼ぶ経路の全体像＝定数と一致（api 配下で humanizeText を呼ぶファイルの集合）
+  const apiDir = join(__dirname, '../../src/app/api');
+  const walk = (dir: string): string[] => readdirSync(dir).flatMap((f) => { const full = join(dir, f); return statSync(full).isDirectory() ? walk(full) : [full]; });
+  const callers = walk(apiDir).filter((f) => f.endsWith('.ts') && /humanizeText\(/.test(readFileSync(f, 'utf8'))).map((f) => `app/api/${f.slice(apiDir.length + 1)}`);
+  expect(callers.sort()).toEqual([...h.HUMANIZE_ROUTES_NOTE, ...h.HUMANIZE_ROUTES_KINDLE, 'app/api/humanize/route.ts'].sort());
+  // ── タイムアウト（R-73・R-118）: 1回×試行 ＋ 余白 ＜ maxDuration ──
+  expect(h.HUMANIZE_ATTEMPT_TIMEOUT_MS * h.HUMANIZE_MAX_ATTEMPTS + h.HUMANIZE_ROUTE_MARGIN_MS + h.HUMANIZE_TAIL_RESERVE_MS).toBeLessThanOrEqual(h.HUMANIZE_API_MAX_DURATION_S * 1000);
+  expect(read('app/api/humanize/route.ts')).toMatch(/export const maxDuration = 300;/);
+  expect(h.HUMANIZE_API_MAX_DURATION_S).toBe(300);
+  const t0 = 1_000_000;
+  const deadline = h.humanizeDeadline(t0, 300);
+  expect(deadline).toBe(t0 + 300_000 - h.HUMANIZE_ROUTE_MARGIN_MS);
+  expect(h.humanizeAttemptBudget(deadline, t0), '開始直後は1回の上限').toBe(h.HUMANIZE_ATTEMPT_TIMEOUT_MS);
+  expect(h.humanizeAttemptBudget(deadline, deadline - 60_000), '残り少なければ切り詰める').toBe(60_000 - h.HUMANIZE_TAIL_RESERVE_MS);
+  expect(h.humanizeAttemptBudget(deadline, deadline - 20_000), '足りなければ呼ばない（0）').toBe(0);
+  expect(h.humanizeAttemptBudget(undefined, t0)).toBe(h.HUMANIZE_ATTEMPT_TIMEOUT_MS);
+  expect(h.humanizeMaxTokens(3600)).toBeGreaterThanOrEqual(8000);
+  expect(h.humanizeMaxTokens(100_000)).toBe(32_000);
+  // 画面: ☑ は既定オン（'0' のときだけオフ）・保存は humanizeMetadata（before は容量で判断）
+  const ctrl = read('components/HumanizeControls.tsx');
+  expect(ctrl).toMatch(/localStorage\.getItem\(HUMANIZE_STORAGE_KEY\) !== '0'/);
+  expect(ctrl).toContain("fetch('/api/humanize'");
+  for (const p of ['app/dashboard/dr-hub/page.tsx', 'app/dashboard/note-article/page.tsx', 'app/dashboard/note-quick/page.tsx', 'components/note-bundle/NoteBundleModal.tsx', 'components/dr-hub/KindleRemixTab.tsx', 'components/kindle/KindleToNoteModal.tsx', 'app/dashboard/kindle-wizard/page.tsx', 'app/dashboard/kindle/page.tsx']) {
+    const src = read(p);
+    expect(src, `${p}: ☑ がある`).toContain('<HumanizeToggle');
+    expect(src, `${p}: バッジがある`).toContain('<HumanizeBadge');
+    expect(src, `${p}: 送るのは ☑ の値`).toMatch(/humanize: humanize(On|Ref\.current)/);
+  }
+  for (const p of ['app/dashboard/dr-hub/page.tsx', 'app/dashboard/note-article/page.tsx', 'components/note-bundle/NoteBundleModal.tsx', 'components/dr-hub/KindleRemixTab.tsx', 'components/kindle/KindleToNoteModal.tsx']) {
+    expect(read(p), `${p}: 保存の metadata.humanize は humanizeMetadata 経由（R-113）`).toContain('humanizeMetadata(');
+  }
+  expect(read('app/api/kindle/to-note/save/route.ts')).toContain('parseHumanizeMetadata(body.humanize)');
+});
+
+test('U108: 人間らしく整える（336）— 事実の機械検査は決定的: 新しい数字・消えた数字（全角半角・カンマ・小数点は正規化して同一扱い）・行頭の番号付きリスト記号と見出しの番号は数字とみなさない・新しいカタカナ語/英字語（4文字以上）と体験の言い回しは警告のみ・findAiTells は固定一覧で数える（同じ入力→同じ出力・自動削除しない）・長い本文は見出しで分けて上限以下の断片にする', () => {
+  const h = hz336;
+  // 数字の正規化
+  expect(h.normalizeNumberText('１，０００円と３．５％')).toBe('1000円と3.5%');
+  expect(h.extractNumbers('1,000円・1000円・１０００円').sort()).toEqual(['1000']);
+  expect(h.extractNumbers('1. まず\n2. つぎに\n## 3. 見出し\n本文に5分').sort(), '番号付きリスト・見出し番号は対象外').toEqual(['5']);
+  expect(h.extractNumbers('`code 99` と https://x.test/2024 と [link](https://y.test/7) は対象外。本文は 2回').sort()).toEqual(['2']);
+  // 新しい数字・消えた数字
+  expect(h.diffNumbers('入浴後5分以内に塗る。1日2回。', '入浴後５分以内に塗る。１日２回。'), '全角化は同一').toEqual({ added: [], removed: [] });
+  expect(h.diffNumbers('約1,000人が対象。', '約1000人が対象。'), 'カンマの有無は同一').toEqual({ added: [], removed: [] });
+  expect(h.diffNumbers('入浴後5分以内に塗る。', '入浴後10分以内に塗る。')).toEqual({ added: ['10'], removed: ['5'] });
+  expect(h.diffNumbers('入浴後に塗る。', '入浴後5分以内に塗る。').added).toEqual(['5']);
+  expect(h.diffNumbers('入浴後5分以内に塗る。', '入浴後すぐに塗る。').removed).toEqual(['5']);
+  expect(h.checkHumanizeFacts('入浴後5分以内に塗る。', '入浴後10分以内に塗る。').numbersOk).toBe(false);
+  expect(h.checkHumanizeFacts('入浴後5分以内に塗る。', '入浴のあと、5分以内に塗ります。').numbersOk).toBe(true);
+  // 警告のみ（採用は止めない）
+  const warned = h.checkHumanizeFacts('保湿剤を塗る。', 'セラミド配合のクリームを塗る。GLYCERIN も良い。当院では朝に塗ることを勧めています。');
+  expect(warned.numbersOk).toBe(true);
+  expect(warned.warnings.some((w) => w.startsWith('新しい固有名詞の疑い') && w.includes('セラミド') && w.includes('GLYCERIN'))).toBe(true);
+  expect(warned.warnings.some((w) => w.startsWith('新しい体験の疑い') && w.includes('当院で'))).toBe(true);
+  expect(h.findNewTerms('セラミドを塗る。', 'セラミドを塗る。'), '前にもある語は出さない').toEqual([]);
+  expect(h.findNewTerms('保湿剤', 'コツはケア'), '3文字以下のカタカナは対象外（4文字以上）').toEqual([]);
+  expect(h.findNewExperience('当院では朝に塗る。', '当院では朝に塗る。私の患者さんも同じ。')).toEqual(['私の患者']);
+  // 長さの健全性
+  expect(h.isLengthSane('あ'.repeat(1000), 'い'.repeat(600))).toBe(true);
+  expect(h.isLengthSane('あ'.repeat(1000), 'い'.repeat(400))).toBe(false);
+  expect(h.isLengthSane('あ'.repeat(1000), 'い'.repeat(2100))).toBe(false);
+  // findAiTells（固定一覧・決定的）
+  const sample = '非常に重要です。極めて重要。成長の観点から、必見の完全ガイド。第一に、第二に。これは治療ではなく、ケアである。お役に立てれば幸いです。';
+  const r1 = h.findAiTells(sample);
+  const r2 = h.findAiTells(sample);
+  expect(r1).toEqual(r2);
+  expect(r1.count).toBe(9);
+  expect(r1.hits.find((x) => x.label === '〜ではなく、〜である')?.count).toBe(1);
+  expect(h.findAiTells('').count).toBe(0);
+  expect(h.findAiTells('今日は保湿の話。').count).toBe(0);
+  expect(h.AI_TELL_PHRASES.length, '院長が足せる固定一覧（定数1箇所）').toBeGreaterThanOrEqual(20);
+  expect(new Set(h.AI_TELL_PHRASES).size, '重複なし').toBe(h.AI_TELL_PHRASES.length);
+  // 表示文
+  expect(h.humanizeStatusLine({ applied: true, tellsBefore: 14, tellsAfter: 2 })).toBe('✍️ 整え済み・AIらしい言い回し 14 → 2');
+  expect(h.humanizeStatusLine({ applied: false, reason: 'numbers', tellsBefore: 3, tellsAfter: 3 })).toBe('✍️ 整えませんでした（数字が変わったため）');
+  expect(h.humanizeStatusLine({ applied: false, reason: 'timeout', tellsBefore: 3, tellsAfter: 3 })).toBe('✍️ 整えられませんでした（時間切れ）');
+  expect(h.humanizeStatusLine({ applied: false, reason: 'off', tellsBefore: 3, tellsAfter: 3 })).toBe('✍️ 整えていません（設定オフ）');
+  expect(h.humanizeCanRetry({ applied: false, reason: 'timeout' })).toBe(true);
+  expect(h.humanizeCanRetry({ applied: false, reason: 'numbers' }), '数字の検査は再試行しても同じ').toBe(false);
+  expect(h.humanizeCanRetry({ applied: true })).toBe(false);
+  // 分割（見出しで分ける・上限以下なら1つ・同じ入力→同じ出力）
+  const para = 'あ'.repeat(3000);
+  const long = `## 一\n${para}\n\n## 二\n${para}\n\n### 三\n${para}\n\n## 四\n${para}`;
+  const parts = h.splitForHumanize(long, 8000);
+  expect(parts.length).toBeGreaterThanOrEqual(2);
+  for (const p of parts) expect(p.length).toBeLessThanOrEqual(8000);
+  expect(parts.join('\n\n')).toBe(long);
+  expect(parts[0].startsWith('## 一')).toBe(true);
+  expect(h.splitForHumanize(long, 8000)).toEqual(parts);
+  expect(h.splitForHumanize('短い本文', 8000)).toEqual(['短い本文']);
+  const noHeading = Array.from({ length: 5 }, (_, i) => `段落${i}` + 'い'.repeat(2500)).join('\n\n');
+  const p2 = h.splitForHumanize(noHeading, 8000);
+  expect(p2.length).toBeGreaterThanOrEqual(2);
+  expect(p2.join('\n\n')).toBe(noHeading);
+  // 保存の形（before は容量で判断・不正な形は無視）
+  const info: hz336.HumanizeInfo = { applied: true, tellsBefore: 5, tellsAfter: 1, warnings: [], before: 'x'.repeat(100), model: 'm', at: 't', usage: { input: 1, output: 2 }, detail: 'd' };
+  const meta = h.humanizeMetadata(info)!;
+  expect(meta.before).toBe('x'.repeat(100));
+  expect('usage' in meta, 'usage は保存しない').toBe(false);
+  expect(h.humanizeMetadata({ ...info, before: 'x'.repeat(h.HUMANIZE_BEFORE_MAX_CHARS + 1) })!.before, '上限超は before を落とす').toBeUndefined();
+  expect(h.humanizeMetadata({ ...info, applied: false, reason: 'numbers' })!.before, '採用しなかったときは before を持たない').toBeUndefined();
+  expect(h.humanizeMetadata(null)).toBeNull();
+  expect(h.parseHumanizeMetadata({ applied: true, tellsBefore: 2, tellsAfter: 1, warnings: ['w'], model: 'm', at: 't' })?.warnings).toEqual(['w']);
+  expect(h.parseHumanizeMetadata({ applied: 'yes' })).toBeNull();
+  expect(h.parseHumanizeMetadata('x')).toBeNull();
+  expect(h.parseHumanizeMetadata({ applied: false, reason: 'bogus', tellsBefore: 1, tellsAfter: 1 })?.reason).toBeUndefined();
+});
+
+test('U109: 人間らしく整える（336）— 採用判定の流れ: 整える → 数字の検査 → 当たれば1回だけ強めて整え直す → それでも当たれば整える前を採用（fail-closed・R-39）／固有名詞・体験の疑いは警告だけで採用／時間切れ・空・長さの異常は整える前のまま理由つき／長い本文は断片ごとに整えてつなぐ（AI呼び出しは差し込み＝決定的にテストできる）', async () => {
+  const h = hz336;
+  const before = '## 保湿の基本\n\n入浴後5分以内に保湿剤を塗ることが非常に重要です。1日2回、朝と夜に塗り直しましょう。お役に立てれば幸いです。';
+  // 1) 数字を保てば採用・件数が減る
+  const calls: Array<{ strengthenNumbers: boolean; attempt: number }> = [];
+  const ok = await h.humanizeWithChecks(before, async (_chunk, o) => {
+    calls.push({ strengthenNumbers: o.strengthenNumbers, attempt: o.attempt });
+    return '## 保湿の基本\n\n入浴後は5分以内に保湿剤を塗ってほしい。1日2回、朝と夜に塗り直すのが私の勧めです。';
+  });
+  expect(ok.applied).toBe(true);
+  expect(ok.attempts).toBe(1);
+  expect(ok.tellsBefore).toBe(2);
+  expect(ok.tellsAfter).toBe(0);
+  expect(ok.warnings).toEqual([]);
+  expect(calls).toEqual([{ strengthenNumbers: false, attempt: 1 }]);
+  // 2) 数字が変わる → 1回だけ強めて整え直し → 直れば採用（attempts=2）
+  const fixed = await h.humanizeWithChecks(before, async (_c, o) =>
+    o.strengthenNumbers
+      ? '## 保湿の基本\n\n入浴後は5分以内に保湿剤を塗ってほしい。1日2回、朝と夜に塗り直すのが私の勧めです。'
+      : '## 保湿の基本\n\n入浴後は10分以内に保湿剤を塗ってほしい。1日2回、朝と夜に塗り直すのが私の勧めです。',
+  );
+  expect(fixed.applied).toBe(true);
+  expect(fixed.attempts).toBe(2);
+  // 3) それでも当たれば整える前を採用（本文は不変・理由 numbers）
+  const calls3: boolean[] = [];
+  const fell = await h.humanizeWithChecks(before, async (_c, o) => {
+    calls3.push(o.strengthenNumbers);
+    return '## 保湿の基本\n\n入浴後は10分以内に保湿剤を塗ってほしい。1日3回、朝と昼と夜に塗り直すのが私の勧めです。';
+  });
+  expect(fell.applied).toBe(false);
+  expect(fell.reason).toBe('numbers');
+  expect(fell.text).toBe(before);
+  expect(fell.attempts).toBe(2);
+  expect(calls3, '強めるのは2回目だけ・3回目は無い').toEqual([false, true]);
+  expect(fell.tellsAfter, '採用しなかったときは前後同じ件数').toBe(fell.tellsBefore);
+  // 4) 固有名詞・体験の疑いは警告だけで採用
+  const warned = await h.humanizeWithChecks(before, async () => '## 保湿の基本\n\n入浴後は5分以内にヒルドイドを塗ってほしい。1日2回、朝と夜に塗り直す。当院ではそう案内しています。');
+  expect(warned.applied).toBe(true);
+  expect(warned.warnings.length).toBe(2);
+  // 5) 時間切れ・エラー・空・長さ
+  const to = await h.humanizeWithChecks(before, async () => { throw new h.HumanizeTimeoutError(); });
+  expect(to).toMatchObject({ applied: false, reason: 'timeout', text: before });
+  const abort = await h.humanizeWithChecks(before, async () => { const e = new Error('x'); e.name = 'AbortError'; throw e; });
+  expect(abort.reason).toBe('timeout');
+  const err = await h.humanizeWithChecks(before, async () => { throw new Error('boom'); });
+  expect(err).toMatchObject({ applied: false, reason: 'error', text: before, detail: 'boom' });
+  const empty = await h.humanizeWithChecks(before, async () => '   ');
+  expect(empty).toMatchObject({ applied: false, reason: 'empty', text: before });
+  const short = await h.humanizeWithChecks(before, async () => '5分。1日2回。');
+  expect(short).toMatchObject({ applied: false, reason: 'length', text: before });
+  expect((await h.humanizeWithChecks('', async () => 'x')).reason).toBe('empty');
+  // 6) 長い本文は断片ごと（chunkIndex が進む）・つないだ結果で検査
+  const longBefore = Array.from({ length: 3 }, (_, i) => `## 節${i + 1}\n\n${'保湿は大切です。'.repeat(400)}${i + 1}回塗る。`).join('\n\n');
+  expect(longBefore.length).toBeGreaterThan(h.HUMANIZE_CHUNK_CHARS);
+  const seen: number[] = [];
+  const chunked = await h.humanizeWithChecks(longBefore, async (chunk, o) => { seen.push(o.chunkIndex); return chunk.replace(/大切です/g, '欠かせません'); });
+  expect(chunked.applied).toBe(true);
+  expect(chunked.chunks).toBeGreaterThanOrEqual(2);
+  expect(seen).toEqual(Array.from({ length: chunked.chunks }, (_, i) => i));
+  expect(chunked.text).toContain('3回塗る');
+  expect(chunked.text).not.toContain('大切です');
 });

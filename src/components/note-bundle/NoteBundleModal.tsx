@@ -19,6 +19,8 @@ import { renderMarkdown, sanitizeLatex } from '@/lib/markdown-renderer';
 import { sanitizeFilename, yyyymmdd } from '@/lib/title-generator';
 import { triggerDownload } from '@/lib/download';
 import { SaveToLibraryButton } from '@/components/SaveToLibraryButton';
+import { HumanizeBadge, HumanizeToggle, useHumanizeSetting } from '@/components/HumanizeControls';
+import { humanizeMetadata, type HumanizeInfo } from '@/lib/humanize';
 import { getSavedModel, getModelIcon, getModelLabel } from '@/lib/model-preference';
 import {
   BUNDLE_SOURCE_META,
@@ -75,6 +77,7 @@ interface ArticleResult {
   status: 'pending' | 'running' | 'done' | 'error' | 'cancelled';
   content: string;
   adCheck: { status: 'ok' | 'warn'; findings: string[] } | null;
+  humanize?: HumanizeInfo | null; // 336
   error: string;
   // 228: 仕上げ（まとめ・画像配置）の状態。生成画像はギャラリーへ即保存されるため
   // モーダルを閉じても画像自体は消えない（本文と同じく手動library保存でmetadataに残る）
@@ -147,6 +150,10 @@ export default function NoteBundleModal({
   lengthRef.current = length;
   const modelRef = useRef<'claude' | 'gemini'>(DEFAULT_AI_MODEL);
   modelRef.current = model;
+  // 336: ✍️ 人間らしく整える（キューの閉包から読むため ref にも写す）
+  const { enabled: humanizeOn } = useHumanizeSetting();
+  const humanizeRef = useRef(true);
+  humanizeRef.current = humanizeOn;
 
   // 開くたびに状態をリセットしてプラン提案を取得
   useEffect(() => {
@@ -327,11 +334,12 @@ export default function NoteBundleModal({
           patternIds: r.patternIds,
           length: lengthRef.current,
           model: modelRef.current,
+          humanize: humanizeRef.current, // 336
         }),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.error || `生成に失敗しました（HTTP ${res.status}）`);
-      return { status: 'done', content: data.content ?? '', adCheck: data.ad_check ?? null, error: '' };
+      return { status: 'done', content: data.content ?? '', adCheck: data.ad_check ?? null, humanize: data.humanize ?? null, error: '' };
     } catch (e) {
       // 中断（⏹中止・モーダルclose）はエラーでなく「中止」としてカードに反映（固まらせない）
       if (e instanceof DOMException && e.name === 'AbortError') {
@@ -766,6 +774,7 @@ export default function NoteBundleModal({
                       <option key={l.value} value={l.value}>{l.label}</option>
                     ))}
                   </select>
+                  <HumanizeToggle hint={false} />
                   <button
                     type="button"
                     onClick={startGenerate}
@@ -903,6 +912,8 @@ export default function NoteBundleModal({
 
                 {r.status === 'done' && (
                   <div>
+                    {/* 336: ✍️ 整えの結果 */}
+                    <HumanizeBadge info={r.humanize} content={r.content} kind="note" onApply={(c, info) => patchResult(r.localId, { content: c, humanize: info })} />
                     {/* 医療広告チェック結果（seo/article と同方式で併記） */}
                     {r.adCheck && r.adCheck.status === 'warn' && r.adCheck.findings.length > 0 && (
                       <div style={{ marginBottom: 8, padding: '8px 12px', background: 'rgba(239,68,68,0.06)', border: '1px solid rgba(239,68,68,0.25)', borderRadius: 8, fontSize: 11, color: '#ef4444', lineHeight: 1.6 }}>
@@ -969,6 +980,7 @@ export default function NoteBundleModal({
                           length,
                           from: 'note-bundle',
                           enhance: r.enhance,
+                          ...(r.humanize ? { humanize: humanizeMetadata(r.humanize) } : {}), // 336
                         }}
                       />
                       <button
@@ -1079,6 +1091,7 @@ export default function NoteBundleModal({
                 length,
                 from: 'note-bundle',
                 enhance: readerResult.enhance,
+                ...(readerResult.humanize ? { humanize: humanizeMetadata(readerResult.humanize) } : {}), // 336
               }}
             />
           </>

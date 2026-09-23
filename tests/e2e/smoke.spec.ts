@@ -2,6 +2,7 @@ import { test, expect, request as pwRequest, webkit, APIRequestContext } from '@
 import { BASE_URL, STORAGE_STATE } from '../../playwright.config';
 // 335: モデルIDとラベルは実装と同じ定数から見る（モデル移行のたびにテストを直さない・R-91）
 import { GEMINI_TEXT_MODEL, GEMINI_TEXT_MODEL_LABEL } from '../../src/lib/ai-models';
+import { HUMANIZE_STORAGE_KEY } from '../../src/lib/humanize';
 import { COMPARE_BUTTON_LABEL } from '../../src/lib/model-compare';
 import { IMAGE_PRICING_CHECKED_ON, PRICING_CHECKED_ON } from '../../src/lib/model-pricing';
 import {
@@ -14089,4 +14090,135 @@ test('C152: 成果物の高さプリセット（334・WebKit iPhone幅）— 狭
     await ctx.close();
     await wk.close();
   }
+});
+
+test('C153: ✍️ 人間らしく整える（336・APIモック）— 発信ハブ①の ☑ が既定オン・外すと再読込後も保持され生成リクエストの humanize が ☑ の値で載る／生成後に「✍️ 整え済み・AIらしい言い回し 14 → 2」・警告が1行・「整える前を見る」で整える前の本文（整形表示）が出て戻せる／整えなかったとき（設定オフ・数字の検査）は理由が1行出て「整える前を見る」「再試行」は出ない', async ({ page }) => {
+  await stubFeatureDrafts(page); // R-12
+  const BODY_MD = '整えた後のリード文です。E2EAFTERBODY336\n\n## 保湿の基本を見直す\n\n順番が大切です。';
+  const posted: Array<Record<string, unknown>> = [];
+  let mode: 'applied' | 'numbers' = 'applied';
+  await page.route('**/api/library?type=deepresearch', (route) =>
+    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([{ id: 'e2e-dr-336', title: '[E2E] 336モックDR記事', content: 'モック本文', created_at: '2026-09-23' }]) }),
+  );
+  await page.route('**/api/dr-hub/persona', async (route) => {
+    const body = route.request().postDataJSON() as { mode?: string; humanize?: unknown };
+    if (body.mode === 'samples') {
+      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ success: true, samples: { expert: '## 専門家向け\n\nE2EMARKER336' } }) });
+      return;
+    }
+    posted.push(body);
+    const humanize =
+      body.humanize !== true
+        ? { applied: false, reason: 'off', tellsBefore: 3, tellsAfter: 3, warnings: [], model: 'm', at: 't' }
+        : mode === 'applied'
+          ? { applied: true, tellsBefore: 14, tellsAfter: 2, warnings: ['新しい固有名詞の疑い: セラミド'], before: '## 整える前\n\n非常に重要です。E2EBEFORE336', model: 'm', at: 't' }
+          : { applied: false, reason: 'numbers', tellsBefore: 3, tellsAfter: 3, warnings: [], before: '整える前', model: 'm', at: 't' };
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ success: true, content: BODY_MD, titles: ['案1', '案2', '案3'], ad_check: { status: 'ok', findings: [] }, personaKey: 'expert', personaLabel: '専門家向け', humanize }),
+    });
+  });
+  const openAndSample = async () => {
+    await page.goto('/dashboard/dr-hub');
+    await page.getByText('[E2E] 336モックDR記事').click();
+    await page.getByText('専門家向け', { exact: false }).first().click();
+    await page.getByRole('button', { name: /サンプルを生成して読み比べる/ }).click();
+    await expect(page.getByText('E2EMARKER336')).toBeVisible();
+  };
+  const toggle = () => page.locator('[data-humanize-toggle]').first();
+  const generateFull = () => page.getByRole('button', { name: 'このペルソナで記事全文を生成' }).first().click();
+
+  // 1) 既定オン → 生成に humanize:true が載り、バッジ・警告・整える前
+  await openAndSample();
+  await expect(toggle()).toBeChecked();
+  await generateFull();
+  const badge = page.locator('[data-humanize-badge]').first();
+  await expect(badge).toContainText('✍️ 整え済み・AIらしい言い回し 14 → 2');
+  expect(posted[0].humanize, '☑オン → humanize:true').toBe(true);
+  await expect(page.locator('[data-humanize-warning]').first()).toContainText('セラミド');
+  await page.locator('[data-humanize-before-toggle]').first().click();
+  const before = page.locator('[data-humanize-before]').first();
+  await expect(before).toContainText('E2EBEFORE336');
+  expect(await before.innerText(), '整える前も整形表示（生の ## が出ない・R-97）').not.toContain('##');
+  await page.locator('[data-humanize-before-toggle]').first().click();
+  await expect(page.locator('[data-humanize-before]')).toHaveCount(0);
+  // 本文は整えた後（保存されるのも整えた版）
+  await expect(page.locator('.markdown-body').last()).toContainText('E2EAFTERBODY336');
+
+  // 2) ☑ を外す → 再読込後も保持 → humanize:false → 理由「設定オフ」・整える前/再試行は出ない
+  await toggle().uncheck();
+  await openAndSample();
+  await expect(toggle(), '再読込後も保持').not.toBeChecked();
+  await generateFull();
+  await expect(page.locator('[data-humanize-status]').first()).toHaveText(/整えていません（設定オフ）/);
+  expect(posted[1].humanize, '☑オフ → humanize:false').toBe(false);
+  await expect(page.locator('[data-humanize-before-toggle]')).toHaveCount(0);
+  await expect(page.locator('[data-humanize-retry]')).toHaveCount(0);
+
+  // 3) ☑ を戻す → 数字の検査に当たった応答 → 理由が1行・整える前を見るは出ない（採用しなかった＝本文は整える前）
+  await toggle().check();
+  mode = 'numbers';
+  await openAndSample();
+  await expect(toggle()).toBeChecked();
+  await generateFull();
+  await expect(page.locator('[data-humanize-status]').first()).toHaveText(/整えませんでした（数字が変わったため）/);
+  expect(posted[2].humanize).toBe(true);
+  await expect(page.locator('[data-humanize-before-toggle]')).toHaveCount(0);
+  await expect(page.locator('[data-humanize-retry]'), '数字の検査は再試行しても同じ＝出さない').toHaveCount(0);
+  // 後片付け: 端末の記憶を既定（オン）に戻す
+  await page.evaluate((k) => localStorage.removeItem(k), HUMANIZE_STORAGE_KEY);
+});
+
+test('C154: ✍️ 人間らしく整える 時間切れ（336・R-118・APIモック）— 整える工程が時間切れの応答（applied:false・reason:timeout）でも本文は整える前のまま出て「✍️ 整えられませんでした（時間切れ）」と「🔄 再試行」が出る／再試行は /api/humanize に現在の本文と kind:note を送り、戻った本文と記録で本文とバッジが置き換わる（整える前を見るが出る）', async ({ page }) => {
+  await stubFeatureDrafts(page); // R-12
+  const BODY_MD = '生成本文のリード文です。E2ERAW336\n\n## 保湿の基本\n\n順番が大切です。';
+  const retryPosted: Array<Record<string, unknown>> = [];
+  await page.route('**/api/library?type=deepresearch', (route) =>
+    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([{ id: 'e2e-dr-336b', title: '[E2E] 336モックDR記事', content: 'モック本文', created_at: '2026-09-23' }]) }),
+  );
+  await page.route('**/api/dr-hub/persona', async (route) => {
+    const body = route.request().postDataJSON() as { mode?: string };
+    if (body.mode === 'samples') {
+      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ success: true, samples: { expert: 'E2EMARKER336' } }) });
+      return;
+    }
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        success: true, content: BODY_MD, titles: ['案1'], ad_check: { status: 'ok', findings: [] }, personaKey: 'expert', personaLabel: '専門家向け',
+        humanize: { applied: false, reason: 'timeout', tellsBefore: 3, tellsAfter: 3, warnings: [], before: BODY_MD, model: 'm', at: 't' },
+      }),
+    });
+  });
+  await page.route('**/api/humanize', async (route) => {
+    retryPosted.push(route.request().postDataJSON() as Record<string, unknown>);
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ content: '整えた後のリード文です。E2ERETRIED336\n\n## 保湿の基本\n\n順番が大切だと思います。', humanize: { applied: true, tellsBefore: 3, tellsAfter: 1, warnings: [], before: BODY_MD, model: 'm', at: 't' } }),
+    });
+  });
+  await page.goto('/dashboard/dr-hub');
+  await page.getByText('[E2E] 336モックDR記事').click();
+  await page.getByText('専門家向け', { exact: false }).first().click();
+  await page.getByRole('button', { name: /サンプルを生成して読み比べる/ }).click();
+  await expect(page.getByText('E2EMARKER336')).toBeVisible();
+  await expect(page.locator('[data-humanize-toggle]').first()).toBeChecked();
+  await page.getByRole('button', { name: 'このペルソナで記事全文を生成' }).first().click();
+  // 時間切れ: 本文は整える前のまま・理由1行・再試行
+  await expect(page.locator('.markdown-body').last()).toContainText('E2ERAW336');
+  await expect(page.locator('[data-humanize-status]').first()).toHaveText(/整えられませんでした（時間切れ）/);
+  await expect(page.locator('[data-humanize-before-toggle]'), '採用していないので「整える前を見る」は無い').toHaveCount(0);
+  const retry = page.locator('[data-humanize-retry]').first();
+  await expect(retry).toBeVisible();
+  await retry.click();
+  await expect(page.locator('[data-humanize-badge]').first()).toContainText('AIらしい言い回し 3 → 1');
+  expect(retryPosted.length).toBe(1);
+  expect(retryPosted[0].kind).toBe('note');
+  expect(String(retryPosted[0].content), '再試行は現在の本文を送る').toContain('E2ERAW336');
+  await expect(page.locator('.markdown-body').last(), '戻った本文で置き換わる').toContainText('E2ERETRIED336');
+  await expect(page.locator('[data-humanize-before-toggle]').first()).toBeVisible();
+  await expect(page.locator('[data-humanize-retry]')).toHaveCount(0);
 });

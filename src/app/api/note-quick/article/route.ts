@@ -8,6 +8,8 @@ import { checkMedicalAd, MEDICAL_AD_NG_RULES } from '@/lib/medical-ad-check';
 import { getNoteStyle, NOTE_COMMON_RULES } from '@/lib/note-styles';
 import { NOTE_WRITING_DESIGN } from '@/lib/note-writing';
 import { getMyStylePrompt } from '@/lib/my-style-server';
+import { humanizeText } from '@/lib/humanize-server';
+import { humanizeDeadline } from '@/lib/humanize';
 import { verifyContent } from '@/lib/content-verify';
 
 export const runtime = 'nodejs';
@@ -31,6 +33,7 @@ export async function POST(req: Request) {
   const guard = await requireAuth();
   if (!guard.ok) return guard.response;
   const userId = guard.userId;
+  const startedAt = Date.now(); // 336
 
   try {
     const body = (await req.json().catch(() => ({}))) as {
@@ -39,6 +42,7 @@ export async function POST(req: Request) {
       style?: unknown;
       length?: unknown;
       model?: unknown;
+      humanize?: unknown; // 336
     };
     const memo = (Array.isArray(body.memo) ? body.memo : [])
       .map((m) => String(m).trim())
@@ -119,8 +123,9 @@ ${NOTE_WRITING_DESIGN}
 
     // 235: 実際に生成したモデルを画面へ返す（Claude上限時はGeminiへ自動フォールバック）
     const gen = await generateWithModelInfo(aiModel, prompt, system, 12000, GEMINI_TEXT_THINKING_MEDIUM);
-    // 310（R-114）: 1文1行の決定的整形はガード（checkMedicalAd・verifyContent）の前・冪等
-    const content = enforceNoteHeadingLevels(formatOneSentencePerLine(gen.text));
+    // 336: ✍️ 人間らしく整える（opt-in）→ 事実の検査 → 310（R-114）1文1行の決定的整形はガード（checkMedicalAd・verifyContent）の前・冪等
+    const hz = await humanizeText({ text: gen.text, kind: 'note', userId, enabled: body.humanize === true, deadlineAt: humanizeDeadline(startedAt, maxDuration) });
+    const content = enforceNoteHeadingLevels(formatOneSentencePerLine(hz.text));
     const aiInfo = { provider: gen.provider, modelLabel: gen.modelLabel };
     if (!content || !content.trim()) {
       return NextResponse.json({ error: '記事の生成結果が空でした。もう一度お試しください' }, { status: 502 });
@@ -133,7 +138,7 @@ ${NOTE_WRITING_DESIGN}
     // 素材なし（メモのみ）のときは素材照合をスキップし、禁止表現だけ返る。
     const verify = verifyContent(content, [materialText, memo.join('\n')]);
 
-    return NextResponse.json({ content, title, ad_check: adCheck, verify, style: style.key, _ai: aiInfo });
+    return NextResponse.json({ content, title, ad_check: adCheck, humanize: hz.info, verify, style: style.key, _ai: aiInfo });
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : '不明なエラー';
     console.error('[note-quick/article] error:', message);

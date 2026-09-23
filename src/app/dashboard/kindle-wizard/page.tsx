@@ -9,6 +9,8 @@ import { useSearchParams, useRouter } from 'next/navigation';
 import { LibraryItemRow, CharCountBadge } from '@/components/LibraryItemRow';
 // 307: マンダラから目次を起こす（入口①）。変換は lib/mandala-kindle.ts の純関数、プレビューは /api/mandala/[id]/kindle
 import { MarkdownBody } from '@/components/MarkdownBody';
+import { HumanizeBadge, HumanizeToggle, useHumanizeSetting } from '@/components/HumanizeControls';
+import { parseHumanizeMetadata, type HumanizeInfo } from '@/lib/humanize';
 import { jstDateTimeString } from '@/lib/jst';
 import { chartDisplayTitle, isUuidLike, type MandalaChartSummary } from '@/lib/mandala-shared';
 import {
@@ -387,6 +389,12 @@ function KindleWizardInner() {
   /* 235: 実際に生成したモデル（Claude上限時はGeminiへ自動フォールバック）。
      無言で品質が変わる状態を作らないため、切り替わったら画面に明示する。 */
   const [aiProvider, setAiProvider] = useState<{ provider: string; modelLabel: string } | null>(null);
+  // 336: ✍️ 人間らしく整える（☑は端末に記憶。生成直後の記録は before 込みでこのセッションに持ち、永続は book_meta.humanize）
+  const { enabled: humanizeOn } = useHumanizeSetting();
+  const humanizeRef = useRef(true);
+  humanizeRef.current = humanizeOn;
+  const [humanizingId, setHumanizingId] = useState<number | null>(null);
+  const [humanizeLive, setHumanizeLive] = useState<Record<number, HumanizeInfo>>({});
 
   /* ⑤ 採点（236A: 診断。224の校正＝個別修正とは役割が別） */
   const [scoreBusyId, setScoreBusyId] = useState<number | null>(null);
@@ -942,7 +950,7 @@ function KindleWizardInner() {
       const res = await fetch('/api/kindle/generate-chapter', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ bookId, chapterId: ch.id }),
+        body: JSON.stringify({ bookId, chapterId: ch.id, humanize: humanizeRef.current }), // 336
         signal: controller.signal,
       });
       if (!res.ok || !res.body) {
@@ -972,6 +980,12 @@ function KindleWizardInner() {
             if (ev.type === 'delta') setLiveChars((c) => c + String(ev.text || '').length);
             // 235: Claudeが流し始めてからGeminiに切り替わった場合、途中まで出た分の重複を捨てる
             else if (ev.type === 'reset') setLiveChars(0);
+            // 336: 整えている間の表示と、整えた記録（before 込み・このセッションのみ）
+            else if (ev.type === 'humanizing') setHumanizingId(ch.id);
+            else if (ev.type === 'humanized') {
+              setHumanizingId(null);
+              if (ev.humanize) setHumanizeLive((m) => ({ ...m, [ch.id]: ev.humanize as HumanizeInfo }));
+            }
             else if (ev.type === 'done') {
               done = true;
               if (ev.ai?.provider) setAiProvider(ev.ai as { provider: string; modelLabel: string });
@@ -988,6 +1002,7 @@ function KindleWizardInner() {
     } finally {
       abortRef.current = null;
       setCurrentChapterId(null);
+      setHumanizingId(null);
     }
   };
 
@@ -2349,6 +2364,10 @@ function KindleWizardInner() {
             <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 4 }}>
               {completedCount}/{chapters.length}章 完了 ・ 合計 {(book?.currentWordCount ?? 0).toLocaleString()}字
             </div>
+            {/* 336: ✍️ 人間らしく整える（章ごと・1文1行は当てない） */}
+            <div style={{ marginTop: 8 }}>
+              <HumanizeToggle />
+            </div>
           </div>
 
           {genError && (
@@ -2370,7 +2389,7 @@ function KindleWizardInner() {
                     <span style={{ flex: 1, minWidth: 0, fontSize: 13, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.title}</span>
                     <span style={{ fontSize: 11, color: 'var(--text-muted)', flexShrink: 0 }}>
                       {currentChapterId === c.id
-                        ? `${liveChars.toLocaleString()}字 生成中...`
+                        ? humanizingId === c.id ? '✍️ 整えています…' : `${liveChars.toLocaleString()}字 生成中...`
                         : c.status === 'completed'
                           ? `${(c.content || '').length.toLocaleString()}字`
                           : `目標${(c.targetWordCount ?? 3500).toLocaleString()}字`}
@@ -2398,6 +2417,26 @@ function KindleWizardInner() {
                         🔍 提案{entry.issues.length}件{pending > 0 ? `（未処理${pending}）` : ''} {expandedIssuesId === c.id ? '▲' : '▼'}
                       </button>
                     )}
+                    {/* 336: ✍️ 整えの記録（生成直後は before 込み・再読込後は book_meta.humanize から） */}
+                    {(() => {
+                      const hzInfo = humanizeLive[c.id] ?? parseHumanizeMetadata((book?.bookMeta as { humanize?: Record<string, unknown> } | undefined)?.humanize?.[String(c.id)]);
+                      if (!hzInfo) return null;
+                      return (
+                        <HumanizeBadge
+                          info={hzInfo}
+                          content={c.content ?? ''}
+                          kind="kindle"
+                          style={{ flexBasis: '100%', marginBottom: 0 }}
+                          onApply={async (content, info) => {
+                            // 再試行の結果は章本文として保存（PATCH）してから読み直す
+                            const res = await fetch('/api/kindle/chapters', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: c.id, content }) });
+                            if (!res.ok) return;
+                            setHumanizeLive((m) => ({ ...m, [c.id]: info }));
+                            if (bookId) await loadBook(bookId);
+                          }}
+                        />
+                      );
+                    })()}
                     {chErr && !proofreading && (
                       <button onClick={() => retryChapterProofread(c.id)} style={{ ...smallBtn, color: '#f59e0b', borderColor: 'rgba(245,158,11,0.4)' }} title={chErr}>
                         ⚠️ 校正失敗・🔄 再試行

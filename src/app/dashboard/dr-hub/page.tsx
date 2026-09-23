@@ -14,7 +14,7 @@ import { copyToClipboard } from '@/lib/copyToClipboard';
 import { copyRichMarkdown, copyRichMarkdownForNote } from '@/lib/rich-copy';
 // 309: マンダラ→note記事（①ペルソナ経路のオプトイン入力）。変換は lib/mandala-note.ts（プレビュー＝生成と同じ関数）。
 //   保存前・リッチコピー前は formatOneSentencePerLine（サーバと同じ決定的整形・冪等）を通す
-import { formatOneSentencePerLine } from '@/lib/note-format';
+import { enforceNoteHeadingLevels, formatOneSentencePerLine } from '@/lib/note-format';
 import { isUuidLike } from '@/lib/mandala-shared';
 import { MANDALA_PAID_LINE_MARKER, mandalaArticleOriginLabel, type MandalaNoteMode, type MandalaNoteResult, type MandalaNoteSource } from '@/lib/mandala-note';
 // 312: マンダラ→X投稿（③の中の受け取り側は部品に分離）
@@ -45,6 +45,8 @@ import {
   type ArticleReaction,
 } from '@/lib/monetization-roadmap';
 import { getSavedModel } from '@/lib/model-preference';
+import { HumanizeBadge, HumanizeToggle, useHumanizeSetting } from '@/components/HumanizeControls';
+import { humanizeMetadata, type HumanizeInfo } from '@/lib/humanize';
 import { EyecatchModal, type EyecatchKind } from '@/components/eyecatch/EyecatchModal';
 import NoteEnhancePanel from '@/components/note-enhance/NoteEnhancePanel';
 import { emptyNoteEnhance, normalizeNoteEnhance, type NoteEnhanceState } from '@/lib/note-enhance';
@@ -80,6 +82,8 @@ interface PersonaArticle {
   mandala?: MandalaNoteSource | null;
   paidLine?: { inserted: boolean; missing: boolean } | null;
   sentenceViolations?: number;
+  /** 336: ✍️ 整えの記録（before 込み・保存時は humanizeMetadata で容量判断） */
+  humanize?: HumanizeInfo | null;
 }
 
 /** 309: ?mandala=<chartId>&cell=<cellId> ／ ?mandala=<chartId>&mode=paid で受け取る素材の指定 */
@@ -116,6 +120,7 @@ interface SplitPlan {
 interface SplitArticleResult {
   content: string;
   adCheck?: AdCheck | null;
+  humanize?: HumanizeInfo | null; // 336
 }
 
 type Length = 'short' | 'medium' | 'long';
@@ -244,6 +249,8 @@ export default function DrHubPage() {
   // ── ② 分割記事化 ──
   const [splitCount, setSplitCount] = useState<number | 'auto'>('auto');
   const [splitPersona, setSplitPersona] = useState<PersonaStyleKey | ''>('');
+  // 336: ✍️ 人間らしく整える（既定オン・端末に記憶）
+  const { enabled: humanizeOn } = useHumanizeSetting();
   const [splitPlan, setSplitPlan] = useState<SplitPlan | null>(null);
   const [planBusy, setPlanBusy] = useState(false);
   const [seriesKey, setSeriesKey] = useState('');
@@ -718,6 +725,7 @@ export default function DrHubPage() {
           length,
           model: getSavedModel(),
           ...(episodeIds.length > 0 ? { episodeIds } : {}), // 281（未選択なら従来どおり・R-88）
+          humanize: humanizeOn, // 336
         }),
       });
       const data = await res.json().catch(() => ({}));
@@ -732,6 +740,7 @@ export default function DrHubPage() {
         mandala: data.mandala ?? null,
         paidLine: data.paidLine ?? null,
         sentenceViolations: typeof data.sentenceViolations === 'number' ? data.sentenceViolations : undefined,
+        humanize: data.humanize ?? null, // 336
       };
       setArticle(next);
       persistDraft({ article: next });
@@ -809,13 +818,14 @@ export default function DrHubPage() {
           personaKey: splitPersona || undefined,
           length,
           model: getSavedModel(),
+          humanize: humanizeOn, // 336
         }),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data?.error || `第${index}記事の生成に失敗しました（${res.status}）`);
       const next = {
         ...splitArticlesRef.current,
-        [index]: { content: data.content || '', adCheck: data.ad_check ?? null },
+        [index]: { content: data.content || '', adCheck: data.ad_check ?? null, humanize: data.humanize ?? null },
       };
       splitArticlesRef.current = next;
       setSplitArticles(next);
@@ -1373,6 +1383,7 @@ export default function DrHubPage() {
               ))}
             </select>
           </label>
+          <HumanizeToggle />
         </div>
 
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
@@ -1971,6 +1982,7 @@ export default function DrHubPage() {
                 ))}
               </select>
             </label>
+            <HumanizeToggle />
           </div>
           {/* 2〜4列の横並び比較（狭い画面では折り返す） */}
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 12 }}>
@@ -2026,6 +2038,7 @@ export default function DrHubPage() {
                   sourceDrId: article.mandala ? '' : selectedDrId,
                   sourceDrTitle: article.mandala ? '' : selectedDr?.title ?? '',
                   persona: article.personaKey,
+                  ...(article.humanize ? { humanize: humanizeMetadata(article.humanize) } : {}), // 336
                   // 309 §5-3: 出どころ（新規行の INSERT なのでキーを足すだけ。既存行の更新は R-113 のキー単位マージ）
                   ...(article.mandala ? { mandala: { ...article.mandala, generatedAt: new Date().toISOString() } } : {}),
                 }}
@@ -2091,6 +2104,18 @@ export default function DrHubPage() {
               ))}
             </div>
           )}
+
+          {/* 336: ✍️ 整えの結果（並べて確認の欄の並び・警告は1行ずつ・再試行は /api/humanize） */}
+          <HumanizeBadge
+            info={article.humanize}
+            content={article.content}
+            kind="note"
+            onApply={(content, info) => {
+              const next: PersonaArticle = { ...article, content: enforceNoteHeadingLevels(formatOneSentencePerLine(content)), humanize: info };
+              setArticle(next);
+              persistDraft({ article: next });
+            }}
+          />
 
           {/* 309 §3-3: 有料ラインの目印の状態と、骨子と並べた目視確認（275 §4-3 と同じ形） */}
           {article.mandala && article.paidLine?.missing && (
@@ -2217,6 +2242,20 @@ export default function DrHubPage() {
                       {a.bridge && (
                         <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>↪ 導線設計: {a.bridge}</div>
                       )}
+                      {result && (
+                        <HumanizeBadge
+                          info={result.humanize}
+                          content={result.content}
+                          kind="note"
+                          style={{ marginTop: 6, marginBottom: 0 }}
+                          onApply={(content, info) => {
+                            const next = { ...splitArticlesRef.current, [index]: { ...result, content: enforceNoteHeadingLevels(formatOneSentencePerLine(content)), humanize: info } };
+                            splitArticlesRef.current = next;
+                            setSplitArticles(next);
+                            persistDraft({ splitArticles: next });
+                          }}
+                        />
+                      )}
                       {a.principles.length > 0 && (
                         <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', marginTop: 6 }}>
                           {a.principles.map((p, j) => (
@@ -2258,6 +2297,7 @@ export default function DrHubPage() {
                               seriesKey,
                               seriesIndex: index,
                               seriesTotal: splitPlan.articles.length,
+                              ...(result.humanize ? { humanize: humanizeMetadata(result.humanize) } : {}), // 336
                               persona: splitPersona || null,
                             }}
                           />

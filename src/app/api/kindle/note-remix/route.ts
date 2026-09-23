@@ -7,6 +7,8 @@ import { GEMINI_TEXT_THINKING_MEDIUM, DEFAULT_AI_MODEL } from '@/lib/ai-models';
 import { checkMedicalAd, MEDICAL_AD_NG_RULES } from '@/lib/medical-ad-check';
 import { NOTE_COMMON_RULES } from '@/lib/note-styles';
 import { getMyStylePrompt } from '@/lib/my-style-server';
+import { humanizeText } from '@/lib/humanize-server';
+import { humanizeDeadline } from '@/lib/humanize';
 import { getPlaybook, PLAYBOOK_VERSION } from '@/lib/knowledge/noteXPlaybook';
 import { loadEpisodePromptBlock } from '@/lib/episodes-server';
 import {
@@ -45,6 +47,7 @@ export async function POST(req: NextRequest) {
   const guard = await requireAuth();
   if (!guard.ok) return guard.response;
   const { userId } = guard;
+  const startedAt = Date.now(); // 336
 
   try {
     const body = await req.json().catch(() => ({}));
@@ -150,8 +153,9 @@ ${chapterText.slice(0, MAX_SOURCE_CHARS)}${episode.block ? `\n\n${episode.block}
 
     const parsedOut = parsePersonaArticleOutput(raw);
     const titles = parsedOut.titles;
-    // 310（R-114）: 1文1行の決定的整形はガードの前・冪等
-    const articleBody = enforceNoteHeadingLevels(formatOneSentencePerLine(parsedOut.body));
+    // 336: ✍️ 人間らしく整える（opt-in）→ 事実の検査 → 310（R-114）1文1行の決定的整形はガードの前・冪等
+    const hz = await humanizeText({ text: parsedOut.body, kind: 'note', userId, enabled: body.humanize === true, deadlineAt: humanizeDeadline(startedAt, maxDuration) });
+    const articleBody = enforceNoteHeadingLevels(formatOneSentencePerLine(hz.text));
 
     // 機械検証（警告のみ・自動修正しない）
     const contextHits = detectBookContext(articleBody);
@@ -163,6 +167,7 @@ ${chapterText.slice(0, MAX_SOURCE_CHARS)}${episode.block ? `\n\n${episode.block}
       content: articleBody,
       titles,
       ad_check: adCheck,
+      humanize: hz.info, // 336
       contextHits,
       overlapRatio: Math.round(overlapRatio * 1000) / 1000,
       overlapWarn: overlapRatio >= KDP_OVERLAP_WARN,

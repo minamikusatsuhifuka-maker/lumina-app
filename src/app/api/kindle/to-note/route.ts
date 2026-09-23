@@ -7,6 +7,8 @@ import { checkMedicalAd, MEDICAL_AD_NG_RULES } from '@/lib/medical-ad-check';
 import { getNoteStyle, NOTE_COMMON_RULES } from '@/lib/note-styles';
 import { NOTE_WRITING_DESIGN, KINDLE_TO_NOTE_RULES } from '@/lib/note-writing';
 import { getMyStylePrompt } from '@/lib/my-style-server';
+import { humanizeText } from '@/lib/humanize-server';
+import { humanizeDeadline } from '@/lib/humanize';
 import { enforceNoteHeadingLevels, formatOneSentencePerLine } from '@/lib/note-format';
 
 export const runtime = 'nodejs';
@@ -29,6 +31,7 @@ export async function POST(req: Request) {
   const guard = await requireAuth();
   if (!guard.ok) return guard.response;
   const userId = guard.userId;
+  const startedAt = Date.now(); // 336
 
   try {
     const body = (await req.json().catch(() => ({}))) as {
@@ -37,6 +40,7 @@ export async function POST(req: Request) {
       style?: unknown;
       length?: unknown;
       model?: unknown;
+      humanize?: unknown; // 336
     };
     const bookId = Number(body.bookId);
     const chapterId = Number(body.chapterId);
@@ -102,8 +106,10 @@ ${summarySection}
 - 根拠は素材の記述のみ。素材に無い出典・数値・固有の研究名を新たに書かない
 - AI らしい不自然な文章を避け、人間が書いたような自然な文体に`;
 
-    // 310（R-114）: 1文1行の決定的整形はガードの前・冪等
-    const content = enforceNoteHeadingLevels(formatOneSentencePerLine(await generateWithModel(aiModel, prompt, system, 12000, GEMINI_TEXT_THINKING_MEDIUM)));
+    const raw = await generateWithModel(aiModel, prompt, system, 12000, GEMINI_TEXT_THINKING_MEDIUM);
+    // 336: ✍️ 人間らしく整える（opt-in）→ 事実の検査 → 310（R-114）1文1行の決定的整形はガードの前・冪等
+    const hz = await humanizeText({ text: raw, kind: 'note', userId, enabled: body.humanize === true, deadlineAt: humanizeDeadline(startedAt, maxDuration) });
+    const content = enforceNoteHeadingLevels(formatOneSentencePerLine(hz.text));
     if (!content || !content.trim()) {
       return NextResponse.json({ error: '記事の生成結果が空でした。もう一度お試しください' }, { status: 502 });
     }
@@ -118,6 +124,7 @@ ${summarySection}
       content,
       title: articleTitle,
       ad_check: adCheck,
+      humanize: hz.info, // 336
       style: style.key,
       chapterNumber: chapter.chapter_number,
     });

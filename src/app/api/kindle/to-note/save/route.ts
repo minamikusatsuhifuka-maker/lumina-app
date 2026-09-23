@@ -3,6 +3,7 @@ import { randomUUID } from 'crypto';
 import { requireAuth } from '@/lib/require-auth';
 import { neon } from '@neondatabase/serverless';
 import { sanitizeForDb } from '@/lib/sanitize';
+import { parseHumanizeMetadata } from '@/lib/humanize';
 
 export const runtime = 'nodejs';
 
@@ -26,6 +27,7 @@ export async function POST(req: Request) {
       title?: unknown;
       content?: unknown;
       style?: unknown;
+      humanize?: unknown; // 336
     };
     const bookId = Number(body.bookId);
     const chapterId = Number(body.chapterId);
@@ -49,6 +51,8 @@ export async function POST(req: Request) {
       sourceChapterId: chapterId,
       sourceChapterNumber: Number(body.chapterNumber) || null,
       style: typeof body.style === 'string' ? body.style : undefined,
+      // 336: ✍️ 整えの記録（形を検証して不正なら載せない・R-113）
+      humanize: parseHumanizeMetadata(body.humanize) ?? undefined,
       savedAt: new Date().toISOString(),
     });
     await sql`

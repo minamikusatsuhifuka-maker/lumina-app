@@ -1,6 +1,7 @@
 import { test, expect } from '@playwright/test';
 import { RUN_ID, createSave, deleteSave, createLibraryItem, createMandalaChart, saveMandalaCell, deleteMandalaChart, createEpisode, addMandalaLinks } from './helpers';
 import { findBadHeadingLines, findMultiSentenceLines } from '../../src/lib/note-format';
+import { diffNumbers } from '../../src/lib/humanize';
 // 335: モデルIDは実装と同じ定数から見る（R-91）
 import { GEMINI_TEXT_MODEL } from '../../src/lib/ai-models';
 import { MANDALA_PAID_LINE_MARKER } from '../../src/lib/mandala-note';
@@ -1332,4 +1333,73 @@ test('B47: イメージ画像の比とモード（327・実AI・GPT Image 2.5・
     expect((j.originalBase64 ?? '').length).toBeGreaterThan(1000);
     console.log(`[B47] ${c.aspect}/${c.mode} ${Date.now() - t0}ms ${j.width}x${j.height} cost=${j.costUsd ?? 'n/a'} labels=${(j.overlayLabels ?? []).length}`);
   }
+});
+
+test('B48: 人間らしく整える（336）— note 1件（おまかせ・メモ経路・humanize:true）: 整えた版が採用され tellsAfter ≤ tellsBefore・数字が保たれる（before と content で新しい数字/消えた数字が0）・1文1行と見出し規約が保たれる・医療広告ガードが後勝ちで併記される @gen', async ({ request }) => {
+  test.setTimeout(GEN_TIMEOUT);
+  const started = Date.now();
+  const res = await request.post('/api/note-quick/article', {
+    data: {
+      memo: ['[E2E] 入浴後は5分以内に保湿剤を塗る', '1日2回、朝と夜に塗り直す', '42度以上の熱いお湯は避ける', 'かゆみが続くときは皮膚科で相談する'],
+      style: 'balanced',
+      length: 'short',
+      humanize: true,
+    },
+    timeout: REQ_TIMEOUT,
+  });
+  const data = await res.json().catch(() => ({}));
+  expect(res.status(), JSON.stringify(data).slice(0, 300)).toBe(200);
+  const body = String(data.content ?? '');
+  expect(body.length).toBeGreaterThan(300);
+  const hz = data.humanize as { applied: boolean; reason?: string; tellsBefore: number; tellsAfter: number; warnings: string[]; before?: string; elapsedMs?: number; attempts?: number; usage?: { input: number; output: number } };
+  expect(hz, 'humanize の記録が返る').toBeTruthy();
+  console.log(`[B48] applied=${hz.applied} reason=${hz.reason ?? '-'} tells ${hz.tellsBefore}→${hz.tellsAfter} attempts=${hz.attempts} elapsed=${hz.elapsedMs}ms usage=${JSON.stringify(hz.usage)} total=${Date.now() - started}ms warnings=${JSON.stringify(hz.warnings)}`);
+  expect(hz.applied, `整えた版が採用される（reason=${hz.reason ?? '-'}）`).toBe(true);
+  expect(hz.tellsAfter).toBeLessThanOrEqual(hz.tellsBefore);
+  if (hz.tellsBefore > 0) expect(hz.tellsAfter, 'AIらしい言い回しが減る').toBeLessThan(hz.tellsBefore);
+  // 数字が保たれる（決定的な検査を、返ってきた before と保存される content で再実行）
+  expect(typeof hz.before).toBe('string');
+  expect(diffNumbers(String(hz.before), body)).toEqual({ added: [], removed: [] });
+  for (const n of ['5', '2', '42']) expect(body, `メモの数字 ${n} が残る`).toMatch(new RegExp(n));
+  // 1文1行・見出し規約（310）は整えた後にも当たる
+  expect(/^#\s/m.test(body), '本文にh1（#）が無い').toBe(false);
+  expect(findBadHeadingLines(body), '見出しは2階層').toEqual([]);
+  expect(findMultiSentenceLines(body), '1文1行').toEqual([]);
+  // 医療広告ガードは後勝ちで併記
+  expect(data.ad_check?.status === 'ok' || data.ad_check?.status === 'warn').toBe(true);
+});
+
+test('B49: 人間らしく整える（336）— Kindle 1章（旧「Kindle書籍生成」経路・SSE・humanize:true）: 終端 humanized が done より前に届き、整えた版が採用され tellsAfter ≤ tellsBefore・数字が保たれる・1文1行は当たっていない（Kindle 本文・310 不変）・医療ガードが併記される @gen', async ({ request }) => {
+  test.setTimeout(GEN_TIMEOUT);
+  const started = Date.now();
+  const res = await request.post('/api/kindle/generate-chapter', {
+    data: {
+      chapter: { number: 1, title: '[E2E] 入浴後の保湿を習慣にする', summary: '入浴後5分以内の保湿と、1日2回の塗り直しを習慣にする方法。', keyMessages: ['入浴後5分以内に塗る', '1日2回塗り直す'], emotionalHook: '続かないのは意志の問題ではない' },
+      bookMeta: { title: '[E2E] 乾燥肌と暮らす', targetAudience: '乾燥肌に悩む大人', genre: '健康・美容' },
+      language: 'ja',
+      targetWordCount: 1200,
+      humanize: true,
+    },
+    timeout: REQ_TIMEOUT,
+  });
+  expect(res.status()).toBe(200);
+  const text = await res.text();
+  const events = text.split('\n').filter((l) => l.startsWith('data: ')).map((l) => { try { return JSON.parse(l.slice(6)); } catch { return null; } }).filter(Boolean) as Array<{ type: string; [k: string]: unknown }>;
+  const types = events.map((e) => e.type);
+  expect(types, 'error で終わっていない').not.toContain('error');
+  const hzAt = types.indexOf('humanized');
+  const doneAt = types.indexOf('done');
+  expect(hzAt, 'humanized が届く').toBeGreaterThanOrEqual(0);
+  expect(doneAt, 'done が届く').toBeGreaterThan(hzAt);
+  expect(types.indexOf('humanizing'), 'humanizing → humanized の順').toBeLessThan(hzAt);
+  const ev = events[hzAt] as { content: string; humanize: { applied: boolean; reason?: string; tellsBefore: number; tellsAfter: number; before?: string; elapsedMs?: number; attempts?: number; usage?: unknown; adCheck?: { status: string } } };
+  const hz = ev.humanize;
+  console.log(`[B49] applied=${hz.applied} reason=${hz.reason ?? '-'} tells ${hz.tellsBefore}→${hz.tellsAfter} attempts=${hz.attempts} elapsed=${hz.elapsedMs}ms usage=${JSON.stringify(hz.usage)} total=${Date.now() - started}ms chars=${String(ev.content).length}`);
+  expect(hz.applied, `整えた版が採用される（reason=${hz.reason ?? '-'}）`).toBe(true);
+  expect(hz.tellsAfter).toBeLessThanOrEqual(hz.tellsBefore);
+  if (hz.tellsBefore > 0) expect(hz.tellsAfter).toBeLessThan(hz.tellsBefore);
+  expect(diffNumbers(String(hz.before), String(ev.content))).toEqual({ added: [], removed: [] });
+  // Kindle 本文には 1文1行を当てない＝句点の後に続く文がある行が残る
+  expect(findMultiSentenceLines(String(ev.content)).length, '1文1行が当たっていない').toBeGreaterThan(0);
+  expect(hz.adCheck?.status === 'ok' || hz.adCheck?.status === 'warn', '医療ガードが併記').toBe(true);
 });

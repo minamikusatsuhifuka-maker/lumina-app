@@ -10,6 +10,8 @@ import { NOTE_COMMON_RULES } from '@/lib/note-styles';
 import { NOTE_WRITING_DESIGN } from '@/lib/note-writing';
 import { KINDLE_PROOFREAD_PRINCIPLES } from '@/lib/kindle-proofread';
 import { getMyStylePrompt } from '@/lib/my-style-server';
+import { humanizeText } from '@/lib/humanize-server';
+import { humanizeDeadline } from '@/lib/humanize';
 import { PERSONA_STYLES, PERSONA_GUARD, getPersonaStyle } from '@/lib/persona-styles';
 import { getPlaybook, PLAYBOOK_VERSION } from '@/lib/knowledge/noteXPlaybook';
 import { loadEpisodePromptBlock } from '@/lib/episodes-server';
@@ -53,6 +55,7 @@ export async function POST(req: NextRequest) {
   const guard = await requireAuth();
   if (!guard.ok) return guard.response;
   const { userId } = guard;
+  const startedAt = Date.now(); // 336
 
   try {
     const body = await req.json().catch(() => ({}));
@@ -73,7 +76,7 @@ export async function POST(req: NextRequest) {
 
     return mode === 'plan'
       ? await generatePlan(body, dr.title, content)
-      : await generateArticle(body, userId, dr.title, content);
+      : await generateArticle(body, userId, dr.title, content, startedAt);
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : '不明なエラー';
     console.error('[dr-hub/split] error:', message);
@@ -196,10 +199,12 @@ async function generateArticle(
     length?: unknown;
     model?: unknown;
     episodeIds?: unknown; // 281
+    humanize?: unknown; // 336
   },
   userId: string,
   title: string,
   content: string,
+  startedAt: number = Date.now(),
 ) {
   const a = (body.article ?? {}) as Record<string, unknown>;
   const articleTitle = String(a.title ?? '').trim();
@@ -276,8 +281,10 @@ ${episode.block ? `\n${episode.block}\n` : ''}
 - 根拠は参照資料の記述のみ。資料に無い出典・数値・固有の研究名を新たに書かない${episode.block ? '\n- 実体験エピソードは「記録どおり」に使う。記録にない出来事・数字・感情を足さない（R-75）' : ''}
 - AI らしい不自然な文章を避け、人間が書いたような自然な文体に`;
 
-  // 310（R-114）: 1文1行の決定的整形はガード（checkMedicalAd）の前・冪等
-  const article = enforceNoteHeadingLevels(formatOneSentencePerLine(await generateWithModel(aiModel, prompt, system, 12000, GEMINI_TEXT_THINKING_MEDIUM)));
+  const raw = await generateWithModel(aiModel, prompt, system, 12000, GEMINI_TEXT_THINKING_MEDIUM);
+  // 336: ✍️ 人間らしく整える（opt-in）→ 事実の検査（humanizeText 内）→ 310（R-114）1文1行の決定的整形 → ガード（checkMedicalAd）の前・冪等
+  const hz = await humanizeText({ text: raw, kind: 'note', userId, enabled: body.humanize === true, deadlineAt: humanizeDeadline(startedAt, maxDuration) });
+  const article = enforceNoteHeadingLevels(formatOneSentencePerLine(hz.text));
   if (!article || !article.trim()) {
     return NextResponse.json({ error: '記事の生成結果が空でした。もう一度お試しください' }, { status: 502 });
   }
@@ -288,6 +295,7 @@ ${episode.block ? `\n${episode.block}\n` : ''}
     success: true,
     content: article,
     ad_check: adCheck,
+    humanize: hz.info, // 336
     index: seriesValid ? index : null,
   });
 }

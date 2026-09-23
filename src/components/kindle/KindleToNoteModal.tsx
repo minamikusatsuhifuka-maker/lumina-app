@@ -12,6 +12,8 @@ import { createPortal } from 'react-dom';
 import { renderMarkdown, sanitizeLatex } from '@/lib/markdown-renderer';
 import { copyRichMarkdown } from '@/lib/rich-copy';
 import { getSavedModel, getModelIcon, getModelLabel } from '@/lib/model-preference';
+import { HumanizeBadge, HumanizeToggle, useHumanizeSetting } from '@/components/HumanizeControls';
+import { humanizeMetadata, type HumanizeInfo } from '@/lib/humanize';
 import {
   NOTE_STYLES,
   NOTE_STYLE_KEYS,
@@ -44,6 +46,7 @@ interface ArticleCard {
   title: string;
   content: string;
   adCheck: { status: 'ok' | 'warn'; findings: string[] } | null;
+  humanize?: HumanizeInfo | null; // 336
   error: string;
   savedId: string | null;
   saving: boolean;
@@ -82,6 +85,7 @@ export default function KindleToNoteModal({
   const [checked, setChecked] = useState<Set<number>>(new Set());
   const [style, setStyle] = useState<NoteStyleKey>('balanced');
   const [length, setLength] = useState<Length>('medium');
+  const { enabled: humanizeOn } = useHumanizeSetting(); // 336
   const [cards, setCards] = useState<ArticleCard[]>([]);
   const [generating, setGenerating] = useState(false);
   const [copiedId, setCopiedId] = useState<number | null>(null);
@@ -144,7 +148,7 @@ export default function KindleToNoteModal({
         const res = await fetch('/api/kindle/to-note', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ bookId, chapterId: c.id, style, length, model }),
+          body: JSON.stringify({ bookId, chapterId: c.id, style, length, model, humanize: humanizeOn }),
         });
         const data = await res.json().catch(() => ({}));
         if (cancelledRef.current) break;
@@ -154,6 +158,7 @@ export default function KindleToNoteModal({
           title: data.title || c.title,
           content: data.content || '',
           adCheck: data.ad_check ?? null,
+          humanize: data.humanize ?? null, // 336
         });
       } catch (e) {
         patchCard(c.id, { status: 'error', error: e instanceof Error ? e.message : String(e) });
@@ -168,11 +173,11 @@ export default function KindleToNoteModal({
       const res = await fetch('/api/kindle/to-note', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ bookId, chapterId: card.chapterId, style, length, model }),
+        body: JSON.stringify({ bookId, chapterId: card.chapterId, style, length, model, humanize: humanizeOn }),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.error || `生成に失敗しました（HTTP ${res.status}）`);
-      patchCard(card.chapterId, { status: 'done', title: data.title || card.chapterTitle, content: data.content || '', adCheck: data.ad_check ?? null });
+      patchCard(card.chapterId, { status: 'done', title: data.title || card.chapterTitle, content: data.content || '', adCheck: data.ad_check ?? null, humanize: data.humanize ?? null });
     } catch (e) {
       patchCard(card.chapterId, { status: 'error', error: e instanceof Error ? e.message : String(e) });
     }
@@ -192,6 +197,7 @@ export default function KindleToNoteModal({
           title: card.title,
           content: card.content,
           style,
+          ...(card.humanize ? { humanize: humanizeMetadata(card.humanize) } : {}), // 336: metadata.humanize（キー単位・R-113）
         }),
       });
       const data = await res.json().catch(() => ({}));
@@ -302,6 +308,7 @@ export default function KindleToNoteModal({
                   <option key={l.value} value={l.value}>{l.label}</option>
                 ))}
               </select>
+              <HumanizeToggle hint={false} />
               <button
                 type="button"
                 onClick={startGenerate}
@@ -353,6 +360,8 @@ export default function KindleToNoteModal({
 
                 {card.status === 'done' && (
                   <div>
+                    {/* 336: ✍️ 整えの結果 */}
+                    <HumanizeBadge info={card.humanize} content={card.content} kind="note" onApply={(c, info) => patchCard(card.chapterId, { content: c, humanize: info })} />
                     {card.adCheck && card.adCheck.status === 'warn' && card.adCheck.findings.length > 0 && (
                       <div style={{ marginBottom: 8, padding: '8px 12px', background: 'rgba(239,68,68,0.06)', border: '1px solid rgba(239,68,68,0.25)', borderRadius: 8, fontSize: 11, color: '#ef4444', lineHeight: 1.6 }}>
                         🚨 医療広告チェック: 要確認

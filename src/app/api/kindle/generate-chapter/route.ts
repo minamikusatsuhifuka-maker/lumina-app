@@ -16,6 +16,9 @@ import { getKindlePurpose, KINDLE_COMMON_RULES, KINDLE_LAYOUT_RULES } from '@/li
 import { getKindleStyle } from '@/lib/kindle-styles';
 import { cleanChapterBody } from '@/lib/kindle-text';
 import { sanitizeForDb } from '@/lib/sanitize';
+import { humanizeText } from '@/lib/humanize-server';
+import { humanizeDeadline, type HumanizeInfo } from '@/lib/humanize';
+import { checkMedicalAd } from '@/lib/medical-ad-check';
 
 export const maxDuration = 300;
 
@@ -25,7 +28,10 @@ export async function POST(req: NextRequest) {
 
   // 235: 生成は ai-fallback（Claude→Gemini）に集約したため、Anthropicキーの有無で門前払いしない
   // （Geminiだけでも動く状態を保つ。両方失敗したときに初めてエラーになる＝fail-closed）
-  const { chapter, bookMeta, language, targetWordCount, bookId, chapterId } = await req.json();
+  const startedAt = Date.now(); // 336: 整える工程の締切（R-73・R-118）
+  const { chapter, bookMeta, language, targetWordCount, bookId, chapterId, humanize } = await req.json();
+  // 336: ✍️ 人間らしく整える（opt-in・既定は従来どおり）。Kindle 本文には 1文1行・見出し規約を当てない（310 不変）
+  const humanizeOn = humanize === true;
 
   // 222: bookId+chapterId 指定時はウィザード駆動モード（DBから章・素材・目的・文体・
   // 前章文脈を取得して生成し、完了時にサーバ側で章を保存＝status駆動レジュームの土台）。
@@ -33,7 +39,7 @@ export async function POST(req: NextRequest) {
   if (bookId && chapterId) {
     const userId = (session as any).user?.id;
     if (!userId) return new Response('Unauthorized', { status: 401 });
-    return wizardGenerateChapter(userId, Number(bookId), Number(chapterId));
+    return wizardGenerateChapter(userId, Number(bookId), Number(chapterId), humanizeOn, startedAt);
   }
 
   const langInstruction = language === 'en'
@@ -105,6 +111,14 @@ JSON形式で出力：
             onReset: () => controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'reset' })}\n\n`)),
           },
         );
+        // 336: ストリーミング完了後に整える（旧「Kindle書籍生成」）。整えた本文は 'humanized' で送り、画面側が保存する。
+        // 時間切れ・失敗・数字の検査に当たったときは生成本文のまま（記事は失わない・R-39）。終端は必ず送る（R-118）
+        if (humanizeOn && write.text.trim()) {
+          controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'humanizing' })}\n\n`));
+          const hz = await humanizeText({ text: write.text, kind: 'kindle', userId: (session as any).user?.id ?? '', enabled: true, deadlineAt: humanizeDeadline(startedAt, maxDuration) });
+          const adCheck = await checkMedicalAd(hz.text); // 後勝ち（R-69）
+          controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'humanized', content: hz.text, humanize: { ...hz.info, adCheck } })}\n\n`));
+        }
         controller.enqueue(
           encoder.encode(`data: ${JSON.stringify({ type: 'done', ai: { provider: write.provider, modelLabel: write.modelLabel } })}\n\n`),
         );
@@ -126,7 +140,7 @@ JSON形式で出力：
 // ── 222: ウィザード駆動モード ──
 // 生成中は章statusを変えない（300秒killで中断しても 'pending' のまま＝安全に再キュー可能）。
 // 成功時のみ content 保存＋status='completed'、生成エラー時は status='failed'。
-async function wizardGenerateChapter(userId: string, bookId: number, chapterId: number) {
+async function wizardGenerateChapter(userId: string, bookId: number, chapterId: number, humanizeOn = false, startedAt = Date.now()) {
   const sql = neon(process.env.DATABASE_URL!);
 
   // 書籍（owner検証）・対象章・全章を取得
@@ -220,6 +234,17 @@ ${materialsBlock}`;
         );
         let fullText = ai.text;
 
+        // 336: ✍️ 人間らしく整える（opt-in）→ 事実の機械検査（humanizeText 内）→ LaTeX 除去 → 医療ガード（後勝ち）→ 保存。
+        // 1文1行・見出し規約は当てない（Kindle 本文・310 不変）。時間切れ・数字の検査に当たれば生成本文のまま（R-39）
+        let humanizeRecord: (HumanizeInfo & { adCheck?: { status: string; findings: string[] } }) | null = null;
+        if (humanizeOn && fullText.trim()) {
+          controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'humanizing' })}\n\n`));
+          const hz = await humanizeText({ text: fullText, kind: 'kindle', userId, enabled: true, deadlineAt: humanizeDeadline(startedAt, maxDuration) });
+          fullText = hz.text;
+          const adCheck = await checkMedicalAd(fullText);
+          humanizeRecord = { ...hz.info, adCheck };
+        }
+
         // 防御的二重ガード: プロンプト指示をすり抜けた冒頭の章見出しH1を除去してから保存
         // 237: NUL・孤立サロゲートが混ざるとINSERT/UPDATEが例外になり、生成できた本文まで失われる（R-39）
         fullText = sanitizeForDb(cleanChapterBody(fullText, target.chapter_number, target.title));
@@ -243,6 +268,28 @@ ${materialsBlock}`;
             updated_at = NOW()
           WHERE id = ${bookId}
         `;
+
+        // 336: 整えた記録を book_meta.humanize.<章ID> にキー単位でマージ（R-113・before は容量の観点で持たない＝「整える前を見る」は生成直後のみ）。
+        // 記録の失敗は本文の保存を妨げない（R-39）
+        if (humanizeRecord) {
+          const { before: _before, usage: _usage, ...record } = humanizeRecord;
+          void _before;
+          void _usage;
+          try {
+            await sql`
+              UPDATE kindle_books SET book_meta =
+                jsonb_set(
+                  jsonb_set(COALESCE(book_meta, '{}'::jsonb), '{humanize}', COALESCE(book_meta->'humanize', '{}'::jsonb), true),
+                  ${['humanize', String(chapterId)]}::text[], ${JSON.stringify(record)}::jsonb, true
+                ),
+                updated_at = NOW()
+              WHERE id = ${bookId}
+            `;
+          } catch (e) {
+            console.error('[generate-chapter] humanize 記録の保存に失敗（本文は保存済み）:', e instanceof Error ? e.message : 'unknown');
+          }
+          controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'humanized', content: fullText, humanize: humanizeRecord })}\n\n`));
+        }
 
         controller.enqueue(
           encoder.encode(

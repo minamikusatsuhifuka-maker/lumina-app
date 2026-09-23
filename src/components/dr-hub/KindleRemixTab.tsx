@@ -9,6 +9,8 @@ import { renderMarkdown } from '@/lib/markdown-renderer';
 import { copyToClipboard } from '@/lib/copyToClipboard';
 import { copyRichMarkdownForNote } from '@/lib/rich-copy';
 import { getSavedModel } from '@/lib/model-preference';
+import { HumanizeBadge, HumanizeToggle, useHumanizeSetting } from '@/components/HumanizeControls';
+import { humanizeMetadata, type HumanizeInfo } from '@/lib/humanize';
 import { loadFeatureDraft, saveFeatureDraft, clearFeatureDraft } from '@/lib/feature-drafts';
 import FeatureDraftBanner from '@/components/FeatureDraftBanner';
 import EpisodePicker from '@/components/EpisodePicker';
@@ -57,6 +59,7 @@ interface RemixCandidate {
   titles: string[];
   content: string;
   adCheck?: AdCheck | null;
+  humanize?: HumanizeInfo | null; // 336
   contextHits: BookContextHit[];
   overlapRatio: number;
   overlapWarn: boolean;
@@ -89,6 +92,7 @@ export default function KindleRemixTab() {
   const [openId, setOpenId] = useState<string | null>(null);
   const [copied, setCopied] = useState<string | null>(null);
   const [restoredAt, setRestoredAt] = useState<string | null>(null);
+  const { enabled: humanizeOn } = useHumanizeSetting(); // 336
 
   const candidatesRef = useRef(candidates);
   candidatesRef.current = candidates;
@@ -200,6 +204,7 @@ export default function KindleRemixTab() {
           model: getSavedModel(),
           // 281: 選んだときだけ送る（未選択なら従来どおり・R-88）
           ...(episodeIds.length > 0 ? { episodeIds } : {}),
+          humanize: humanizeOn, // 336
         }),
       });
       const data = await res.json().catch(() => ({}));
@@ -219,6 +224,7 @@ export default function KindleRemixTab() {
         titles: Array.isArray(data.titles) ? data.titles : [],
         content: data.content || '',
         adCheck: data.ad_check ?? null,
+        humanize: data.humanize ?? null, // 336
         contextHits: Array.isArray(data.contextHits) ? data.contextHits : [],
         overlapRatio: Number(data.overlapRatio) || 0,
         overlapWarn: !!data.overlapWarn,
@@ -389,6 +395,7 @@ export default function KindleRemixTab() {
             <input type="checkbox" data-remix-kdp checked={kdpSelect} onChange={(e) => setKdp(e.target.checked)} />
             この書籍はKDPセレクト登録済み（一致度の警告を強調）
           </label>
+          <HumanizeToggle hint={false} />
         </div>
 
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
@@ -450,6 +457,7 @@ export default function KindleRemixTab() {
                           chapterId: c.chapterId ?? null,
                           persona: c.personaKey,
                           angle: c.angleKey,
+                          ...(c.humanize ? { humanize: humanizeMetadata(c.humanize) } : {}), // 336
                         }}
                       />
                       <button type="button" onClick={() => handleNoteCopy(c.content, `note-${c.localId}`)} style={{ padding: '6px 12px', background: `${ACCENT}15`, border: `1px solid ${ACCENT}50`, color: ACCENT, borderRadius: 6, cursor: 'pointer', fontSize: 12, fontWeight: 600 }}>
@@ -467,6 +475,19 @@ export default function KindleRemixTab() {
                     </div>
                   </div>
 
+                  {/* 336: ✍️ 整えの結果 */}
+                  <HumanizeBadge
+                    info={c.humanize}
+                    content={c.content}
+                    kind="note"
+                    style={{ marginTop: 8 }}
+                    onApply={(content, info) => {
+                      const next = candidatesRef.current.map((x) => (x.localId === c.localId ? { ...x, content, humanize: info } : x));
+                      candidatesRef.current = next;
+                      setCandidates(next);
+                      persist(next);
+                    }}
+                  />
                   {/* 機械検証の警告（表示のみ・自動修正しない） */}
                   {(c.contextHits.length > 0 || c.overlapWarn || similarTo.length > 0 || (c.adCheck?.status === 'warn')) && (
                     <div data-remix-warnings style={{ padding: 10, background: 'rgba(180,83,9,0.08)', border: '1px solid rgba(180,83,9,0.25)', borderRadius: 8, marginTop: 10, fontSize: 11, color: '#B45309', lineHeight: 1.7 }}>

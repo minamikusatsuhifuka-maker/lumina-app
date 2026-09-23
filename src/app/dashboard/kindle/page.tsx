@@ -2,6 +2,8 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { MarkdownBody } from '@/components/MarkdownBody';
+import { HumanizeBadge, HumanizeToggle, useHumanizeSetting } from '@/components/HumanizeControls';
+import type { HumanizeInfo } from '@/lib/humanize';
 import ContextSelector, {
   buildContextText,
   type ContextItem,
@@ -77,6 +79,10 @@ export default function KindlePage() {
   const [streamingText, setStreamingText] = useState('');
   const [activeTab, setActiveTab] = useState<'chat' | 'chapters' | 'preview' | 'export'>('chat');
   const [generatingChapterId, setGeneratingChapterId] = useState<number | null>(null);
+  // 336: ✍️ 人間らしく整える（旧画面は永続の記録を持たない＝このセッションのみ表示）
+  const { enabled: humanizeOn } = useHumanizeSetting();
+  const [humanizingId, setHumanizingId] = useState<number | null>(null);
+  const [humanizeLive, setHumanizeLive] = useState<Record<number, HumanizeInfo>>({});
   const [evaluatingChapterId, setEvaluatingChapterId] = useState<number | null>(null);
   const [exportData, setExportData] = useState<any>(null);
   const [isExporting, setIsExporting] = useState(false);
@@ -296,6 +302,7 @@ export default function KindlePage() {
           bookMeta: currentBook.bookMeta,
           language: currentBook.language,
           targetWordCount: chapter.targetWordCount ?? chapter.target_word_count,
+          humanize: humanizeOn, // 336
         }),
       });
       if (!res.body) throw new Error('レスポンスボディなし');
@@ -317,6 +324,13 @@ export default function KindlePage() {
             const event = JSON.parse(line.slice(6));
             if (event.type === 'research_done') researchData = event.research;
             else if (event.type === 'delta') content += event.text;
+            // 336: 整えている間の表示と、整えた本文（採用しなかったときは生成本文のまま）
+            else if (event.type === 'humanizing') setHumanizingId(chapter.id ?? null);
+            else if (event.type === 'humanized') {
+              if (typeof event.content === 'string' && event.content.trim()) content = event.content;
+              if (event.humanize && chapter.id) setHumanizeLive((m) => ({ ...m, [chapter.id as number]: event.humanize as HumanizeInfo }));
+              setHumanizingId(null);
+            }
             else if (event.type === 'done') {
               await fetch('/api/kindle/chapters', {
                 method: 'PATCH',
@@ -335,6 +349,7 @@ export default function KindlePage() {
       alert(`生成エラー: ${err?.message || err}`);
     } finally {
       setGeneratingChapterId(null);
+      setHumanizingId(null);
     }
   };
 
@@ -786,7 +801,10 @@ export default function KindlePage() {
           {activeTab === 'chapters' && (
             <div style={{ flex: 1, overflowY: 'auto' as const, padding: 20, background: 'var(--bg-primary)' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16, flexWrap: 'wrap' as const, gap: 8 }}>
-                <h3 style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-primary)' }}>📝 章管理・本文生成</h3>
+                <div style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' as const }}>
+                  <h3 style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-primary)' }}>📝 章管理・本文生成</h3>
+                  <HumanizeToggle hint={false} />
+                </div>
                 <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
                   <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>
                     {(currentBook.currentWordCount ?? 0).toLocaleString()} / {(currentBook.targetWordCount ?? 0).toLocaleString()}字
@@ -951,6 +969,8 @@ export default function KindlePage() {
                               目標: {targetCount.toLocaleString()}字
                               {ch.content && ` / 現在: ${ch.content.length.toLocaleString()}字`}
                             </p>
+                            {ch.id && humanizingId === ch.id && <div data-humanize-status="busy" style={{ fontSize: 11, color: 'var(--text-muted)' }}>✍️ 整えています…</div>}
+                            {ch.id && humanizeLive[ch.id] && <HumanizeBadge info={humanizeLive[ch.id]} style={{ marginTop: 4 }} />}
                           </div>
                           <div style={{ display: 'flex', flexDirection: 'column' as const, gap: 6, flexShrink: 0 }}>
                             <button

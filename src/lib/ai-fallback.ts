@@ -41,6 +41,10 @@ export interface TextAIRequest {
   maxTokens: number;
   /** 242: Claudeのweb_searchツール相当。GeminiのgoogleSearchグラウンディングを有効化する */
   webSearch?: boolean;
+  /** 336: 個別タイムアウト用（AbortController の signal。未指定なら従来どおり） */
+  signal?: AbortSignal;
+  /** 336: 思考レベルの明示（GEMINI_TEXT_THINKING_*）。未指定なら枠から自動（thinkingFor） */
+  thinking?: Record<string, unknown>;
 }
 
 /** 242: usage も必要な呼び出し向け（trackUsage・Anthropic互換シム） */
@@ -110,10 +114,11 @@ export async function callGeminiRaw(req: TextAIRequest): Promise<GeminiRawResult
         // 241: 3.7 は思考を0にできないため、本文枠に思考分を上乗せする
         generationConfig: {
           maxOutputTokens: geminiMaxTokens(req.maxTokens),
-          ...thinkingFor(req.maxTokens),
+          ...(req.thinking ?? thinkingFor(req.maxTokens)),
         },
         ...(req.webSearch ? { tools: [{ googleSearch: {} }] } : {}),
       }),
+      ...(req.signal ? { signal: req.signal } : {}),
     },
   );
   const data = await res.json();

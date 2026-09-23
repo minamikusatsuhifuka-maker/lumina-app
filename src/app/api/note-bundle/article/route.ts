@@ -12,6 +12,8 @@ import {
 } from '@/lib/note-bundle';
 import { fetchBundleMaterials, fetchBuzzPatterns } from '@/lib/note-bundle-server';
 import { getMyStylePrompt } from '@/lib/my-style-server';
+import { humanizeText } from '@/lib/humanize-server';
+import { humanizeDeadline } from '@/lib/humanize';
 import {
   NOTE_WRITING_DESIGN,
   buildPatternsSection,
@@ -44,6 +46,7 @@ export async function POST(req: Request) {
   const guard = await requireAuth();
   if (!guard.ok) return guard.response;
   const userId = guard.userId;
+  const startedAt = Date.now(); // 336
 
   try {
     const body = (await req.json()) as {
@@ -55,6 +58,7 @@ export async function POST(req: Request) {
       length?: unknown;
       model?: unknown;
       patternIds?: unknown;
+      humanize?: unknown; // 336
     };
 
     const title = typeof body.title === 'string' ? body.title.trim() : '';
@@ -160,13 +164,15 @@ ${materialsSection}
       return NextResponse.json({ error: '記事の生成結果が空でした。もう一度お試しください' }, { status: 502 });
     }
 
-    // 310（R-114）: 1文1行の決定的整形はガードの前・冪等
-    const formatted = enforceNoteHeadingLevels(formatOneSentencePerLine(content));
+    // 336: ✍️ 人間らしく整える（opt-in）→ 事実の検査 → 310（R-114）1文1行の決定的整形はガードの前・冪等
+    const hz = await humanizeText({ text: content, kind: 'note', userId, enabled: body.humanize === true, deadlineAt: humanizeDeadline(startedAt, maxDuration) });
+    const formatted = enforceNoteHeadingLevels(formatOneSentencePerLine(hz.text));
     const adCheck = await checkMedicalAd(formatted);
 
     return NextResponse.json({
       content: formatted,
       ad_check: adCheck,
+      humanize: hz.info, // 336
       style: style.key,
       usedSourceKeys: rows.map((r) => r.key),
     });

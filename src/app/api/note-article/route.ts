@@ -7,6 +7,8 @@ import { MEDICAL_AD_NG_RULES } from '@/lib/medical-ad-check';
 import { NOTE_COMMON_RULES } from '@/lib/note-styles';
 import { NOTE_WRITING_DESIGN } from '@/lib/note-writing';
 import { getMyStylePrompt } from '@/lib/my-style-server';
+import { humanizeText } from '@/lib/humanize-server';
+import { humanizeDeadline } from '@/lib/humanize';
 
 export const runtime = 'nodejs';
 export const maxDuration = 300;
@@ -28,6 +30,7 @@ export async function POST(req: NextRequest) {
     });
   }
   const userId = (session.user as any).id ?? '';
+  const startedAt = Date.now(); // 336: 整える工程の締切（R-73・R-118）
 
   const {
     theme,
@@ -38,6 +41,7 @@ export async function POST(req: NextRequest) {
     length = 'medium',
     model = DEFAULT_AI_MODEL,
     selectedPatterns = [],
+    humanize = false, // 336: 画面の ☑（opt-in）
   } = (await req.json()) as {
     theme: string;
     buzzReferences?: string[];
@@ -46,6 +50,7 @@ export async function POST(req: NextRequest) {
     personalNotes?: string;
     length?: Length;
     model?: AIModel;
+    humanize?: boolean;
     selectedPatterns?: Array<{
       title?: string;
       category?: string;
@@ -163,16 +168,48 @@ ${myStyleSection}${buzzSection}${researchSection}${toneSection}${personalSection
       try {
         controller.enqueue(encoder.encode('data: {"type":"start"}\n\n'));
 
+        // 336: 整える工程のために、流した本文（type:'text'）をサーバ側でも溜める（途中経過の配信は変えない）
+        let accumulated = '';
+        const decoder = new TextDecoder();
+        const tap = {
+          enqueue: (chunk: Uint8Array) => {
+            controller.enqueue(chunk);
+            for (const line of decoder.decode(chunk).split('\n')) {
+              if (!line.startsWith('data: ')) continue;
+              try {
+                const j = JSON.parse(line.slice(6));
+                if (j?.type === 'text' && typeof j.content === 'string') accumulated += j.content;
+              } catch {
+                /* 途中経過の断片は無視（本文は画面側にも溜まる） */
+              }
+            }
+          },
+          close: () => controller.close(),
+          error: (e: unknown) => controller.error(e),
+          get desiredSize() {
+            return controller.desiredSize;
+          },
+        } as unknown as ReadableStreamDefaultController;
+
         // 投資予測・バズり分析と同じく streamWithModel（standard format）
         const usage = await streamWithModel(
           model,
           userPrompt,
           systemPrompt,
-          controller,
+          tap,
           encoder,
           config.maxTokens,
           'standard',
         );
+
+        // 336: ストリーミング完了後に ✍️ 人間らしく整える（途中経過は生のまま・310 と同じ位置関係）。
+        // 時間切れ・失敗・数字の検査に当たったときは整える前の本文をそのまま返す（記事は失わない・R-39）。
+        // 終端イベント 'humanized' は必ず送る（R-118）。1文1行・見出し規約は画面側の done で従来どおり
+        if (humanize && accumulated.trim()) {
+          controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'humanizing' })}\n\n`));
+          const hz = await humanizeText({ text: accumulated, kind: 'note', userId, enabled: true, deadlineAt: humanizeDeadline(startedAt, maxDuration) });
+          controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'humanized', content: hz.text, humanize: hz.info })}\n\n`));
+        }
 
         await trackUsage({
           userId,

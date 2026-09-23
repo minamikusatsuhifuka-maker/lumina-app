@@ -9,6 +9,9 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { getSavedModel } from '@/lib/model-preference';
+import { HumanizeBadge, HumanizeToggle, useHumanizeSetting } from '@/components/HumanizeControls';
+import { humanizeMetadata, type HumanizeInfo } from '@/lib/humanize';
+import { enforceNoteHeadingLevels, formatOneSentencePerLine } from '@/lib/note-format';
 import { loadFeatureDraft, saveFeatureDraft } from '@/lib/feature-drafts';
 import { saveImageToGallery } from '@/lib/gallery-client';
 import NoteEnhancePanel from '@/components/note-enhance/NoteEnhancePanel';
@@ -76,6 +79,8 @@ export default function NoteQuickPage() {
     verify: ContentVerifyResult | null;
     // 235: 実際に生成したモデル（Claude上限時はGeminiへ自動フォールバック）
     ai: { provider: string; modelLabel: string } | null;
+    // 336: ✍️ 整えの記録
+    humanize?: HumanizeInfo | null;
   } | null>(null);
   const [enhance, setEnhance] = useState<NoteEnhanceState>(emptyNoteEnhance());
   const [error, setError] = useState('');
@@ -115,6 +120,7 @@ export default function NoteQuickPage() {
     setSteps((prev) => ({ ...prev, [key]: { status, note } }));
 
   const canRun = lane === 'source' ? !!selected : memoText.trim().length > 0;
+  const { enabled: humanizeOn } = useHumanizeSetting(); // 336
 
   const runOmakase = async () => {
     if (!canRun || running) return;
@@ -141,13 +147,14 @@ export default function NoteQuickPage() {
           style: settings.style,
           length: settings.length,
           model: getSavedModel(),
+          humanize: humanizeOn, // 336
         }),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok || !data.content) throw new Error(data.error || `記事生成に失敗 (${res.status})`);
       content = data.content;
       title = data.title || 'note記事';
-      setResult({ title, content, adCheck: data.ad_check ?? null, verify: data.verify ?? null, ai: data._ai ?? null });
+      setResult({ title, content, adCheck: data.ad_check ?? null, verify: data.verify ?? null, ai: data._ai ?? null, humanize: data.humanize ?? null });
       setStep('article', 'done', `${String(content.length)}字`);
     } catch (e) {
       setStep('article', 'error', e instanceof Error ? e.message : String(e));
@@ -414,6 +421,7 @@ export default function NoteQuickPage() {
                 <input type="checkbox" checked={settings.autoHookImage} onChange={(e) => setSettings((s) => ({ ...s, autoHookImage: e.target.checked }))} />
                 🖼 冒頭AI画像も自動生成（約$0.02〜/枚）
               </label>
+              <HumanizeToggle hint={false} />
               <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>マイ文体（設定&gt;🗣）が保存済みなら自動で効きます</span>
             </div>
           )}
@@ -464,6 +472,13 @@ export default function NoteQuickPage() {
               <span style={{ color: 'var(--text-muted)' }}> — Claudeが利用上限のため自動で切り替えました。文体の傾向が普段と異なる場合があります。</span>
             </div>
           )}
+          {/* 336: ✍️ 整えの結果 */}
+          <HumanizeBadge
+            info={result.humanize}
+            content={result.content}
+            kind="note"
+            onApply={(c, info) => setResult((r) => (r ? { ...r, content: enforceNoteHeadingLevels(formatOneSentencePerLine(c)), humanize: info } : r))}
+          />
           {result.adCheck && result.adCheck.status === 'warn' && result.adCheck.findings.length > 0 && (
             <div style={{ marginBottom: 12, padding: '8px 12px', background: 'rgba(239,68,68,0.06)', border: '1px solid rgba(239,68,68,0.25)', borderRadius: 8, fontSize: 11, color: '#ef4444', lineHeight: 1.6 }}>
               🚨 医療広告チェック: 要確認
