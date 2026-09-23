@@ -14103,7 +14103,7 @@ test('C153: ✍️ 人間らしく整える（336・APIモック）— 発信ハ
   await page.route('**/api/dr-hub/persona', async (route) => {
     const body = route.request().postDataJSON() as { mode?: string; humanize?: unknown };
     if (body.mode === 'samples') {
-      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ success: true, samples: { expert: '## 専門家向け\n\nE2EMARKER336' } }) });
+      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ success: true, samples: { expert: '## 専門家向け\n\nE2EMARKER336', teen: 'やさしい説明。E2EMARKER336T' } }) });
       return;
     }
     posted.push(body);
@@ -14123,8 +14123,9 @@ test('C153: ✍️ 人間らしく整える（336・APIモック）— 発信ハ
     await page.goto('/dashboard/dr-hub');
     await page.getByText('[E2E] 336モックDR記事').click();
     await page.getByText('専門家向け', { exact: false }).first().click();
+    await page.getByText('中学生でも分かる').click(); // サンプルは2ペルソナ以上（PERSONA_COMPARE_MIN・264 と同じ）
     await page.getByRole('button', { name: /サンプルを生成して読み比べる/ }).click();
-    await expect(page.getByText('E2EMARKER336')).toBeVisible();
+    await expect(page.getByText('E2EMARKER336', { exact: true })).toBeVisible();
   };
   const toggle = () => page.locator('[data-humanize-toggle]').first();
   const generateFull = () => page.getByRole('button', { name: 'このペルソナで記事全文を生成' }).first().click();
@@ -14180,7 +14181,7 @@ test('C154: ✍️ 人間らしく整える 時間切れ（336・R-118・APIモ�
   await page.route('**/api/dr-hub/persona', async (route) => {
     const body = route.request().postDataJSON() as { mode?: string };
     if (body.mode === 'samples') {
-      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ success: true, samples: { expert: 'E2EMARKER336' } }) });
+      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ success: true, samples: { expert: 'E2EMARKER336', teen: 'E2EMARKER336T' } }) });
       return;
     }
     await route.fulfill({
@@ -14203,8 +14204,9 @@ test('C154: ✍️ 人間らしく整える 時間切れ（336・R-118・APIモ�
   await page.goto('/dashboard/dr-hub');
   await page.getByText('[E2E] 336モックDR記事').click();
   await page.getByText('専門家向け', { exact: false }).first().click();
+  await page.getByText('中学生でも分かる').click(); // 2ペルソナ以上（PERSONA_COMPARE_MIN）
   await page.getByRole('button', { name: /サンプルを生成して読み比べる/ }).click();
-  await expect(page.getByText('E2EMARKER336')).toBeVisible();
+  await expect(page.getByText('E2EMARKER336', { exact: true })).toBeVisible();
   await expect(page.locator('[data-humanize-toggle]').first()).toBeChecked();
   await page.getByRole('button', { name: 'このペルソナで記事全文を生成' }).first().click();
   // 時間切れ: 本文は整える前のまま・理由1行・再試行
