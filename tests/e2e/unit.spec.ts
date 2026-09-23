@@ -6504,3 +6504,48 @@ test('U109: 人間らしく整える（336）— 採用判定の流れ: 整え�
   expect(chunked.text).toContain('3回塗る');
   expect(chunked.text).not.toContain('大切です');
 });
+
+// ───────────────────────────────────────────────────────────────────────────
+// 337: 📋 コピーの常時表示（R-136）— ソース固定
+// ───────────────────────────────────────────────────────────────────────────
+test('U110: 📋 コピーの常時表示（337・R-136）— 🗂保存一覧のコピーは密度の分岐の外（バッジ行）にあり詳細の操作バーには残さない（同じカードに2つ置かない）／📚（compact variant）・🧠 はコンパクトでもバッジ行にコピーがある／🗂成果物のコピーは keepVisible（狭幅でも「⋯ 操作」に畳まない）で main には無い／狭幅の 44px は CSS 側／3画面とも既存のコピー処理（copyRichMarkdown＝原文・R-71）を呼び新しく書かない／RULES に R-136', () => {
+  const read = (rel: string) => readFileSync(join(__dirname, '../../', rel), 'utf8');
+  // 🗂 保存一覧: バッジ行（data-ta-badges 〜 data-ta-title）にコピーがあり、listDensity の分岐に包まれていない
+  const saved = read('src/components/text-analysis/SavedAnalysisList.tsx');
+  const badgeRow = saved.slice(saved.indexOf('data-ta-badges'), saved.indexOf('<div data-ta-title'));
+  expect(badgeRow.length, 'バッジ行が特定できる').toBeGreaterThan(100);
+  expect(badgeRow, '🗂: バッジ行に 📋 コピー（data-ta-copy）がある').toMatch(/data-ta-copy=\{record\.id\}/);
+  expect(badgeRow, '🗂: 既存の handleCopy を呼ぶ（新しく書かない・R-71）').toMatch(/void handleCopy\(record\)/);
+  // バッジ行そのものには 📂マイフォルダ（詳細のみ）の密度分岐がある（292）ので、コピーのブロックだけを切り出して見る
+  const copyBlock = badgeRow.slice(badgeRow.indexOf('{/* 337/R-136'), badgeRow.indexOf('</button>', badgeRow.indexOf('data-ta-copy=')) + 9);
+  expect(copyBlock.length, 'コピーのブロックが特定できる').toBeGreaterThan(100);
+  expect(copyBlock, '🗂: バッジ行のコピーは密度で消さない').not.toMatch(/listDensity/);
+  expect(badgeRow.slice(Math.max(0, badgeRow.indexOf('{/* 337/R-136') - 120), badgeRow.indexOf('{/* 337/R-136')), '🗂: コピーの直前に密度の分岐が無い').not.toMatch(/listDensity === '\w+' && \($/);
+  expect((saved.match(/'📋 コピー'/g) ?? []).length, '🗂: 本文コピーの表記はバッジ行・📥元の入力テキスト・全画面リーダーの3箇所だけ（詳細の操作バーに残さない＝二重に置かない）').toBe(3);
+  const detailBar = saved.slice(saved.indexOf("{listDensity === 'detail' && (\n                    <div"), saved.indexOf('{expanded ? ('));
+  expect(detailBar, '🗂: 詳細の操作バーに handleCopy のボタンが残っていない').not.toMatch(/onClick=\{\(\) => handleCopy\(record\)\}/);
+  expect(saved, '🗂: コピー処理は共通の copyRichMarkdown').toMatch(/const handleCopy = async \(record: AnalysisRecord\) => \{[\s\S]{0,400}copyRichMarkdown\(text\)/);
+  // 📚 compact variant: 密度=コンパクトでバッジ行にコピー
+  const lir = read('src/components/LibraryItemRow.tsx');
+  expect(lir, '📚: コンパクト密度のバッジ行にコピー（data-library-copy）').toMatch(/\{density === 'compact' && \(\s*<button[\s\S]{0,200}data-library-copy=\{cur\.id\}[\s\S]{0,200}void handleCopy\(\)/);
+  expect(lir, '📚: 既存のコピー処理（copyRichMarkdown）').toMatch(/const handleCopy = async \(\) => \{[\s\S]{0,200}copyRichMarkdown\(content\)/);
+  // 🧠: コンパクトでバッジ行にコピー
+  const clp = read('src/components/context-library/ContextLibraryPanel.tsx');
+  expect(clp, '🧠: コンパクトのバッジ行にコピー（data-ctx-copy）').toMatch(/\{compact && \(\s*<button[\s\S]{0,200}data-ctx-copy=\{item\.id\}[\s\S]{0,200}void handleCopy\(item\)/);
+  expect(clp, '🧠: 既存のコピー処理（copyRichMarkdown）').toMatch(/const handleCopy = async \(item: ContextSave\) => \{[\s\S]{0,300}copyRichMarkdown\(/);
+  // 🗂 成果物（TextAnalysisPanel）: コピーは keepVisible（狭幅でも畳まない）・main には無い
+  const panel = read('src/components/text-analysis/TextAnalysisPanel.tsx');
+  const keep = panel.slice(panel.indexOf('keepVisible={'), panel.indexOf('main={<>'));
+  const main = panel.slice(panel.indexOf('main={<>'), panel.indexOf('aside={'));
+  expect(keep, '成果物: 📋 コピーは keepVisible の中').toMatch(/data-ta-copy[\s\S]{0,120}onClick=\{onCopy\}/);
+  expect(keep, '成果物: 表記').toContain('📋 コピー');
+  expect(main, '成果物: main（⋯ 操作に畳まれる側）にコピーは無い').not.toContain('📋 コピー');
+  const bar = read('src/components/ResultActionBar.tsx');
+  expect(bar, '部品: keepVisible は狭幅の1段目に出る').toMatch(/\{primary && [\s\S]{0,200}\{keepVisible\}\s*\{hasMore &&/);
+  // 狭幅の大きさは CSS 側（R-131）
+  const css = read('src/app/globals.css');
+  expect(css, '狭幅の 📋 コピーは 44px 以上').toMatch(/\[data-result-narrow='1'\] \[data-result-action-row='1'\] button\[data-ta-copy\] \{[^}]*min-height: 44px/);
+  // 台帳
+  const rules = read('RULES.md');
+  expect(rules, 'R-136 が台帳にある').toMatch(/^## R-136: .*コピー/m);
+});

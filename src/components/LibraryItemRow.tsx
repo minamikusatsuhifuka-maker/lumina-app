@@ -441,6 +441,22 @@ export function LibraryItemRow({
               🔲 {mandalaXOriginLabel(mandalaX)}
             </a>
           )}
+          {/* 337/R-136: 密度=コンパクトは操作列を出さない（291）ため、📋 コピーだけはバッジ行に常時置く。
+              詳細では従来の操作列（ホバー表示）にあるので二重に置かない。中身は既存 handleCopy（原文・R-71） */}
+          {density === 'compact' && (
+            <button
+              type="button"
+              data-library-copy={cur.id}
+              onClick={(e) => {
+                e.stopPropagation();
+                void handleCopy();
+              }}
+              style={compactBtnStyle}
+              title={hasArtifacts ? `${kindLabel}（原文）をコピー` : '本文（原文）をコピー'}
+            >
+              📋 {copied ? 'コピー済' : 'コピー'}
+            </button>
+          )}
         </div>
 
         {/* 2行目: タイトル（★は常時表示） */}

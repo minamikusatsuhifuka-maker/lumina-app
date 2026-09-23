@@ -2631,6 +2631,30 @@ export default function SavedAnalysisList({
                       </a>
                       {/* 316: 記事→マンダラ生成（ダイアログ） */}
                       <MandalaGenerateButton scope="text_analysis" itemKey={String(record.id)} title={record.auto_title || record.file_name || '(無題)'} charCount={record.char_count ?? 0} label="🔲 マンダラ" style={{ padding: '0 6px', borderRadius: 6, border: '1px solid var(--border)', background: 'transparent', color: '#6c63ff', fontSize: 11, cursor: 'pointer' }} />
+                      {/* 337/R-136: 📋 コピーは密度（詳細／コンパクト）・展開の有無に関わらず常時この行に置く。
+                          292 でコンパクトが操作バーごと隠したため、院長の PC（コンパクト）でコピーが消えていた。
+                          コピーする中身は原文（既存 handleCopy＝本文を遅延取得して copyRichMarkdown・R-71）。
+                          R-81: バッジ行は展開領域の中なので stopPropagation で展開を走らせない（領域側の button 判定と二重の守り） */}
+                      <button
+                        type="button"
+                        data-ta-copy={record.id}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          void handleCopy(record);
+                        }}
+                        title="この分析の本文（原文）をコピーします（展開しなくても押せます）"
+                        style={{
+                          padding: '0 6px',
+                          borderRadius: 6,
+                          border: `1px solid ${copiedId === record.id ? 'rgba(34,197,94,0.4)' : 'var(--border)'}`,
+                          background: copiedId === record.id ? 'rgba(34,197,94,0.12)' : 'transparent',
+                          color: copiedId === record.id ? '#16a34a' : 'var(--text-secondary)',
+                          fontSize: 11,
+                          cursor: 'pointer',
+                        }}
+                      >
+                        {copiedId === record.id ? '✅ コピー済み' : '📋 コピー'}
+                      </button>
                       {record.folder && folderColor && (
                         <span
                           style={{
@@ -2709,24 +2733,7 @@ export default function SavedAnalysisList({
                       >
                         ⛶ 全画面
                       </button>
-                      <button
-                        type="button"
-                        onClick={() => handleCopy(record)}
-                        style={{
-                          ...listBtnStyle(),
-                          background:
-                            copiedId === record.id
-                              ? 'rgba(34,197,94,0.12)'
-                              : listBtnStyle().background,
-                          borderColor:
-                            copiedId === record.id
-                              ? 'rgba(34,197,94,0.4)'
-                              : 'var(--border)',
-                          color: copiedId === record.id ? '#16a34a' : 'var(--text-secondary)',
-                        }}
-                      >
-                        {copiedId === record.id ? '✅ コピー済み' : '📋 コピー'}
-                      </button>
+                      {/* 337: 📋 コピーはバッジ行（上）へ移した＝同じカードに2つ置かない */}
                       <button
                         type="button"
                         onClick={() => handleDownloadTxt(record)}

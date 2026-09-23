@@ -665,6 +665,11 @@ a[role="button"]:has(p) {
   border-radius: 8px !important;
   justify-content: center !important;
 }
+/* ─── 337: 📋 コピーも狭幅で畳まない（R-134/R-136）。1段目に出す以上 44px 以上にする ─── */
+[data-result-action-bar][data-result-narrow='1'] [data-result-action-row='1'] button[data-ta-copy] {
+  height: auto !important;
+  min-height: 44px !important;
+}
 /* 🗂保存一覧の展開ビューの高さ行。大きさは CSS 側が持つ（インライン style だと下のMQで勝てない・R-131） */
 [data-ta-height-row] button {
   padding: 2px 8px;

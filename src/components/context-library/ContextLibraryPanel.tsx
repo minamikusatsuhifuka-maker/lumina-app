@@ -1622,6 +1622,30 @@ export default function ContextLibraryPanel() {
                         ))}
                       </span>
                     )}
+                    {/* 337/R-136: コンパクトは操作バーを出さない（295）ため、📋 コピーだけはバッジ行に常時置く。
+                        詳細では下の操作バーにあるので二重に置かない。中身は既存 handleCopy（原文・R-71）。
+                        R-81: 展開領域の中なので stopPropagation で展開を走らせない */}
+                    {compact && (
+                      <button
+                        type="button"
+                        data-ctx-copy={item.id}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          void handleCopy(item);
+                        }}
+                        title="この素材の本文（原文）をコピーします（展開しなくても押せます）"
+                        style={{
+                          ...cardActionBtnStyle(),
+                          padding: '2px 8px',
+                          fontSize: 10,
+                          ...(copiedId === item.id
+                            ? { background: 'rgba(34,197,94,0.12)', borderColor: 'rgba(34,197,94,0.4)', color: '#16a34a' }
+                            : {}),
+                        }}
+                      >
+                        {copiedId === item.id ? '✅ コピー済み' : '📋 コピー'}
+                      </button>
+                    )}
                   </div>
                   <div data-ctx-title style={{ fontSize: 16, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 4 }}>
                     {item.topic}

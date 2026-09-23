@@ -229,7 +229,7 @@ function ResultPanel({
                   : '💾 ストック保存'}
         </button>
         }
-        keepVisible={
+        keepVisible={<>
         <VisualQuickButton
           text={text}
           title={label}
@@ -239,7 +239,20 @@ function ResultPanel({
           disabled={!text || isStreaming}
           style={btnStyle('neutral')}
         />
-        }
+        {/* 337/R-136: 📋 コピーは狭幅でも「⋯ 操作」に畳まない（R-134: 1回の閲覧で何度も押す操作）。
+            1段目＝[保存][図解・画像][📋 コピー][⋯ 操作]。コピーする中身は原文（既存 onCopy・R-71）。
+            狭幅の大きさ（44px 以上）は globals.css の [data-ta-copy] が持つ（R-131） */}
+        <button
+          type="button"
+          data-ta-copy
+          onClick={onCopy}
+          disabled={!text}
+          style={btnStyle('neutral')}
+          title="この結果の本文（原文）をコピーします"
+        >
+          📋 コピー
+        </button>
+        </>}
         main={<>
         {/* 324/325: 9マスシート・プレゼン構成（種類を固定して直接開く・ダイアログなし） */}
         <VisualQuickButton
@@ -272,14 +285,6 @@ function ResultPanel({
           disabledReason="先に「💾 ストック保存」でこの結果を保存してください（保存した行が前提資料になります）"
           style={btnStyle('neutral')}
         />
-        <button
-          type="button"
-          onClick={onCopy}
-          disabled={!text}
-          style={btnStyle('neutral')}
-        >
-          📋 コピー
-        </button>
         <button
           type="button"
           onClick={onRefine}

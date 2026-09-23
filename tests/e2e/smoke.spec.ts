@@ -6523,10 +6523,12 @@ test('C98: テキスト分析の保存一覧への横展開（292）— 選択�
     const hCompact = (await card(d).boundingBox())!.height;
     expect(hCompact, `コンパクト(${hCompact}) < 詳細(${hDetail})`).toBeLessThan(hDetail);
     await expect(card(d).getByRole('button', { name: '⛶ 全画面' }), 'コンパクトでは操作ボタンを出さない').toHaveCount(0);
+    await expect(card(d).locator('[data-ta-copy]'), '337/R-136: ただし 📋 コピーはコンパクトでも残る').toHaveCount(1);
     await expect(check(d)).toBeVisible();
     await expect(badge(d)).toBeVisible();
     await panel.locator('[data-library-density-choice="detail"]').click();
     await expect(card(d).getByRole('button', { name: '⛶ 全画面' })).toHaveCount(1);
+    await expect(card(d).locator('[data-ta-copy]'), '詳細でもコピーは1つ（二重に置かない）').toHaveCount(1);
     await expect(card(d).locator(`[data-favorite-button="${d}"]`), '☆（249の分類パネル）の口は不変').toBeVisible();
 
     // ── ④ 選択して比較: 2件から・4件まで・5件目は無効化＋理由。既存の一括操作は同じパネルに残る ──
@@ -12783,7 +12785,7 @@ test('C142: ダイアログが透けない（326・WebKit iPhone幅・ライト/
   }
 });
 
-test('C143: 操作行のアコーディオン（326・334改訂・WebKit iPhone幅）— 狭幅で常に見えるのは保存・図解・⋯ 操作＋高さプリセット（334で畳まなくなった）で残りは閉じている／「⋯ 操作 ▾」で9マス・追加リサーチ・コピー・AIで修正・ダウンロード・送る・記憶する・お気に入りが縦1列（各44px以上・横スクロールなし）で高さプリセットは中に無い／展開してもロケータは1つのまま（同じ要素）／成果物ごとに独立して開閉／広幅は従来の2段', async () => {
+test('C143: 操作行のアコーディオン（326・334改訂・337改訂・WebKit iPhone幅）— 狭幅で常に見えるのは保存・図解・📋 コピー（337で畳まなくなった）・⋯ 操作＋高さプリセット（334で畳まなくなった）で残りは閉じている／「⋯ 操作 ▾」で9マス・追加リサーチ・AIで修正・ダウンロード・送る・記憶する・お気に入りが縦1列（各44px以上・横スクロールなし）で高さプリセットは中に無い／展開してもロケータは1つのまま（同じ要素）／成果物ごとに独立して開閉／広幅は従来の2段', async () => {
   test.setTimeout(240_000);
   const browser = await webkit.launch();
   const ctx = await browser.newContext({ storageState: STORAGE_STATE, baseURL: BASE_URL, hasTouch: true, isMobile: true, viewport: { width: 390, height: 844 }, serviceWorkers: 'block' });
@@ -12801,23 +12803,25 @@ test('C143: 操作行のアコーディオン（326・334改訂・WebKit iPhone�
     const bar = page.locator('[data-ta-result-actions]').first();
     await expect(bar).toBeVisible({ timeout: 60000 });
     await expect(bar, '狭幅と判定される').toHaveAttribute('data-result-narrow', '1');
-    // ① 常に見えるのは 保存・図解・⋯ 操作 の3つ＋高さプリセット3つ（334: 高さは畳まない）
+    // ① 常に見えるのは 保存・図解・📋 コピー・⋯ 操作 の4つ＋高さプリセット3つ（334: 高さは畳まない／337: コピーも畳まない・R-136）
     const visible = async () => bar.locator('button, a').evaluateAll((els) => els.filter((e) => (e as HTMLElement).offsetParent !== null && !(e.closest('[data-result-more-panel]') as HTMLElement | null)).map((e) => (e.textContent ?? '').trim()));
     const shown = await visible();
     const heights = shown.filter((t) => ['M', 'L', '⛶ 全画面'].includes(t));
     expect(heights.sort(), `高さプリセットが常に見える（${shown.join('／')}）`).toEqual(['L', 'M', '⛶ 全画面']);
-    expect(shown.filter((t) => !heights.includes(t)).length, `高さ以外で常に見えるのは3つ（${shown.join('／')}）`).toBe(3);
+    expect(shown.filter((t) => !heights.includes(t)).length, `高さ以外で常に見えるのは4つ（${shown.join('／')}）`).toBe(4);
     expect(shown.some((t) => t.includes('操作')), '⋯ 操作 がある').toBe(true);
+    expect(shown, '📋 コピーが1段目にある（337）').toContain('📋 コピー');
     await expect(bar.locator('[data-result-more-panel]')).toBeHidden();
     // ② 展開すると縦1列で残りが出る
     await bar.locator('[data-result-more]').click();
     const panel = bar.locator('[data-result-more-panel]');
     await expect(panel).toBeVisible();
-    for (const name of ['🔲 9マスシートにする', '🎤 プレゼン構成を考える', '🔭 追加リサーチ', '📋 コピー', '⬇ ダウンロード', '➡ 送る', '🧠 記憶する']) {
+    for (const name of ['🔲 9マスシートにする', '🎤 プレゼン構成を考える', '🔭 追加リサーチ', '⬇ ダウンロード', '➡ 送る', '🧠 記憶する']) {
       await expect(panel.getByText(name, { exact: false }).first(), `${name} が展開部にある`).toBeVisible();
     }
-    // 334: 高さプリセットは展開部に**無い**（二重に置かない）
+    // 334: 高さプリセットは展開部に**無い**（二重に置かない）／337: コピーも展開部に無い
     await expect(panel.locator('[data-ta-height]'), '高さプリセットは ⋯ 操作 の中に無い').toHaveCount(0);
+    await expect(panel.locator('[data-ta-copy]'), '📋 コピーは ⋯ 操作 の中に無い（337）').toHaveCount(0);
     await expect(panel.locator('[data-result-more-label]'), '高さを出していたラベルも消える').toHaveCount(0);
     const rows = await panel.evaluate((el) => Array.from(el.children).map((c) => { const r = c.getBoundingClientRect(); return { h: Math.round(r.height), w: Math.round(r.width), left: Math.round(r.left) }; }));
     expect(rows.length).toBeGreaterThan(3);
@@ -14223,4 +14227,157 @@ test('C154: ✍️ 人間らしく整える 時間切れ（336・R-118・APIモ�
   await expect(page.locator('.markdown-body').last(), '戻った本文で置き換わる').toContainText('E2ERETRIED336');
   await expect(page.locator('[data-humanize-before-toggle]').first()).toBeVisible();
   await expect(page.locator('[data-humanize-retry]')).toHaveCount(0);
+});
+
+// ───────────────────────────────────────────────────────────────────────────
+// 337: 🗂📚🧠 のカードと 🗂 成果物で 📋 コピーが常時押せる（R-136）
+// ───────────────────────────────────────────────────────────────────────────
+test('C155: 📋 コピーの常時表示（337・R-136）— 🗂保存一覧はコンパクト密度でも展開せずに 📋 コピー が押せクリップボードに原文（MD記法のまま）が入る・詳細でも1つだけ／📚（ディープリサーチ・コンパクト密度）・🧠（コンパクト）も同様／WebKit iPhone幅の 🗂 成果物では 📋 コピー が「⋯ 操作」の外・44px 以上・他と交差0・横スクロールなしで押せ原文が入る／C152（高さプリセット）・C143（アコーディオン）に退行なし', async ({ page, request, context }) => {
+  test.setTimeout(240_000);
+  const marker = `CP337${RUN_ID}`;
+  const raw = `## 見出し ${marker}\n\n**太字の要点**と *斜体* を含む本文。\n\n- 箇条書き1\n- 箇条書き2`;
+  const now = new Date().toISOString();
+  const t1 = await createSave(request, { title: `CP-T1 ${marker}`, content: raw, analysisType: 'summary', analysisLabel: '概要・要約' });
+  const l1 = await postLibraryRow(request, { type: 'deepresearch', title: withE2EPrefix(`CP-L1 ${marker}`), content: raw, metadata: { savedAt: now }, tags: 'ディープリサーチ', group_name: 'ディープリサーチ' });
+  const x1 = await createContextSave(request, { topic: `CP-X1 ${marker}`, contextText: raw });
+  await context.grantPermissions(['clipboard-read', 'clipboard-write'], { origin: BASE_URL });
+  const clearClip = () => page.evaluate(() => navigator.clipboard.writeText('（空）').catch(() => {}));
+  const readClip = () => page.evaluate(() => navigator.clipboard.readText().catch(() => ''));
+  try {
+    // ════ 🗂 保存一覧（コンパクト密度・展開しない） ════
+    await page.goto('/dashboard/saved');
+    const panel = page.locator('[data-saved-panel="text-analysis"]');
+    await panel.locator('[data-kb-search]').fill(marker);
+    const tCard = panel.locator(`[data-analysis-card="${t1}"]`);
+    await expect(tCard).toBeVisible({ timeout: 30000 });
+    await panel.locator('[data-library-density-choice="compact"]').click();
+    await expect(panel.locator('[data-library-grid]')).toHaveAttribute('data-library-density', 'compact');
+    await expect(tCard.getByRole('button', { name: '⛶ 全画面' }), 'コンパクト: 操作バーは出ない（292のまま）').toHaveCount(0);
+    const tCopy = tCard.locator(`[data-ta-copy="${t1}"]`);
+    await expect(tCopy, '🗂: コンパクトでも 📋 コピーが見える').toBeVisible();
+    await expect(tCopy).toHaveText('📋 コピー');
+    await clearClip();
+    await tCopy.click();
+    await expect(tCard.locator(`[data-ta-expanded-body="${t1}"]`), '🗂: コピーで本文は展開しない（R-81）').toHaveCount(0);
+    await expect(tCopy, '押した印').toHaveText(/コピー済み/);
+    await expect.poll(readClip, { timeout: 15000, message: '🗂: クリップボードに原文（MD記法のまま・R-71）' }).toContain(`## 見出し ${marker}`);
+    expect(await readClip(), '🗂: 太字の記法がそのまま（表示用の変換を流用しない）').toContain('**太字の要点**');
+    // 詳細に戻してもコピーは1つ（バッジ行）＝二重に置かない
+    await panel.locator('[data-library-density-choice="detail"]').click();
+    await expect(tCard.getByRole('button', { name: '⛶ 全画面' })).toHaveCount(1);
+    await expect(tCard.getByRole('button', { name: /📋 コピー|✅ コピー済み/ }), '🗂 詳細: コピーは1つ').toHaveCount(1);
+    await expect(tCard.locator(`[data-ta-copy="${t1}"]`)).toBeVisible();
+    await panel.locator('[data-library-density-choice="compact"]').click();
+    await panel.locator('[data-library-density-choice="detail"]').click();
+
+    // ════ 📚 リサーチ保存（ディープリサーチ＝compact variant・コンパクト密度） ════
+    await page.goto('/dashboard/library');
+    await page.locator('[data-library-search]').fill(marker);
+    const lCard = page.locator(`[data-library-card="${l1}"]`);
+    await expect(lCard).toBeVisible({ timeout: 30000 });
+    await page.locator('[data-library-density-choice="compact"]').click();
+    await expect(page.locator('[data-library-grid]')).toHaveAttribute('data-library-density', 'compact');
+    const lCopy = lCard.locator(`[data-library-copy="${l1}"]`);
+    await expect(lCopy, '📚: コンパクトでも 📋 コピーが見える').toBeVisible();
+    await clearClip();
+    await lCopy.click();
+    await expect(lCopy).toHaveText(/コピー済/);
+    await expect.poll(readClip, { timeout: 15000, message: '📚: クリップボードに原文' }).toContain(`## 見出し ${marker}`);
+    expect(await readClip()).toContain('**太字の要点**');
+    await page.locator('[data-library-density-choice="detail"]').click();
+    await expect(lCard.locator(`[data-library-copy="${l1}"]`), '📚 詳細: バッジ行のコピーは出さない（操作列に従来どおり）').toHaveCount(0);
+
+    // ════ 🧠 AI参照素材（コンパクト） ════
+    await page.goto('/dashboard/context-library');
+    await page.locator('[data-kb-search]').fill(marker);
+    const xCard = page.locator(`[data-ctx-card="${x1}"]`);
+    await expect(xCard).toBeVisible({ timeout: 30000 });
+    await page.locator('[data-library-density-choice="compact"]').click();
+    await expect(page.locator('[data-library-grid]')).toHaveAttribute('data-library-density', 'compact');
+    await expect(xCard.locator(`[data-ctx-expand-button="${x1}"]`), 'コンパクト: 操作バーは出ない（295のまま）').toHaveCount(0);
+    const xCopy = xCard.locator(`[data-ctx-copy="${x1}"]`);
+    await expect(xCopy, '🧠: コンパクトでも 📋 コピーが見える').toBeVisible();
+    await clearClip();
+    await xCopy.click();
+    await expect(xCopy).toHaveText(/コピー済み/);
+    await expect.poll(readClip, { timeout: 15000, message: '🧠: クリップボードに原文' }).toContain(`## 見出し ${marker}`);
+    expect(await readClip()).toContain('**太字の要点**');
+    await expect(xCard.locator(`[data-ctx-expanded-body="${x1}"]`), '🧠: コピーで本文は展開しない').toHaveCount(0);
+    await page.locator('[data-library-density-choice="detail"]').click();
+    await expect(xCard.locator(`[data-ctx-copy="${x1}"]`), '🧠 詳細: バッジ行のコピーは出さない（操作バーに従来どおり）').toHaveCount(0);
+    await expect(xCard.getByRole('button', { name: /📋 コピー|✅ コピー済み/ }), '🧠 詳細: 操作バーのコピーは1つ').toHaveCount(1);
+  } finally {
+    await request.delete(LIBRARY_API, { data: { ids: [l1] } }).catch(() => {});
+    await cleanupE2ELibrary(request);
+    await cleanupE2ESaves(request);
+    await cleanupE2EContextSaves(request);
+  }
+
+  // ════ WebKit iPhone幅: 🗂 成果物の 📋 コピー は「⋯ 操作」の外で押せる ════
+  const wk = await webkit.launch();
+  const ctx = await wk.newContext({ storageState: STORAGE_STATE, baseURL: BASE_URL, hasTouch: true, isMobile: true, viewport: { width: 390, height: 844 }, serviceWorkers: 'block' });
+  await ctx.grantPermissions(['clipboard-read', 'clipboard-write'], { origin: BASE_URL });
+  const mp = await ctx.newPage();
+  try {
+    const long = `[E2E] 337 の確認。## 見出し${marker}\n\n**太字**のまま。` + 'かゆみが強いときは掻かずに冷やすとよい。保湿剤は入浴後5分以内に塗る。'.repeat(6);
+    await mp.route('**/api/feature-drafts**', (route) => {
+      const isTa = route.request().method() === 'GET' && /feature=text-analysis(&|$)/.test(route.request().url());
+      route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(isTa ? { draft: { payload: { inputText: long, purpose: '', results: { summary: long } }, updated_at: new Date().toISOString() } } : (route.request().method() === 'GET' ? { draft: null } : { ok: true })) });
+    });
+    await mp.goto('/dashboard/text-analysis');
+    await mp.evaluate(() => { localStorage.setItem('lumina_auto_stock_save', '0'); });
+    await mp.reload({ waitUntil: 'domcontentloaded' });
+    const bar = mp.locator('[data-ta-result-actions]').first();
+    await expect(bar).toBeVisible({ timeout: 60000 });
+    await expect(bar, '狭幅と判定される').toHaveAttribute('data-result-narrow', '1');
+    await expect(bar.locator('[data-result-more-panel]'), '⋯ 操作 は閉じている').toBeHidden();
+    const geom = await bar.evaluate((el) => {
+      const b = el.querySelector('[data-ta-copy]') as HTMLElement | null;
+      if (!b) return null;
+      const r = b.getBoundingClientRect();
+      const others = [...el.querySelectorAll('button, a')].filter((o) => o !== b) as HTMLElement[];
+      let worst = 0;
+      for (const o of others) {
+        const q = o.getBoundingClientRect();
+        if (q.width === 0 || q.height === 0) continue;
+        const ix = Math.max(0, Math.min(r.right, q.right) - Math.max(r.left, q.left));
+        const iy = Math.max(0, Math.min(r.bottom, q.bottom) - Math.max(r.top, q.top));
+        worst = Math.max(worst, ix * iy);
+      }
+      const row1 = el.querySelector('[data-result-action-row="1"]');
+      return { h: Math.round(r.height), inMore: !!b.closest('[data-result-more-panel]'), inRow1: !!(row1 && row1.contains(b)), overlap: Math.round(worst), fits: r.left >= 0 && r.right <= window.innerWidth + 1, visible: b.offsetParent !== null };
+    });
+    expect(geom, '📋 コピーがある').not.toBeNull();
+    expect(geom!.visible, '見えている').toBe(true);
+    expect(geom!.inMore, '「⋯ 操作」の中に無い（R-134/R-136）').toBe(false);
+    expect(geom!.inRow1, '1段目にある').toBe(true);
+    expect(geom!.h, '押しやすい高さ（44px以上）').toBeGreaterThanOrEqual(44);
+    expect(geom!.overlap, '他のボタンと重ならない（R-133）').toBe(0);
+    expect(geom!.fits, '画面幅に収まる').toBe(true);
+    const overflowX = await mp.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+    expect(overflowX, '横スクロールなし').toBeLessThanOrEqual(1);
+    // 1段目の並び: [保存][図解・画像][📋 コピー][⋯ 操作]（高さプリセットは右端）
+    const order = await bar.locator('[data-result-action-row="1"] button, [data-result-action-row="1"] a').evaluateAll((els) => els.filter((e) => (e as HTMLElement).offsetParent !== null).map((e) => (e.textContent ?? '').trim()));
+    const iSave = order.findIndex((t) => t.includes('ストック保存') || t.includes('保存'));
+    const iVis = order.findIndex((t) => t.includes('図解'));
+    const iCopy = order.indexOf('📋 コピー');
+    const iMore = order.findIndex((t) => t.includes('操作'));
+    expect(iSave >= 0 && iVis > iSave && iCopy > iVis && iMore > iCopy, `並びは 保存→図解→コピー→⋯ 操作（${order.join('／')}）`).toBe(true);
+    // 押すと原文が入る（⋯ 操作 を開かずに）
+    await mp.evaluate(() => navigator.clipboard.writeText('（空）').catch(() => {}));
+    await bar.locator('[data-ta-copy]').click();
+    await expect(bar.locator('[data-result-more-panel]'), '押しても ⋯ 操作 は開かない').toBeHidden();
+    await expect.poll(() => mp.evaluate(() => navigator.clipboard.readText().catch(() => '')), { timeout: 15000, message: '成果物: クリップボードに原文' }).toContain('**太字**');
+    // 退行: 高さプリセットは1段目のまま（C152）・⋯ 操作 の中にコピーも高さも無い（C143）
+    await expect(bar.locator('[data-ta-height="M"]')).toBeVisible();
+    await bar.locator('[data-result-more]').click();
+    const more = bar.locator('[data-result-more-panel]');
+    await expect(more).toBeVisible();
+    await expect(more.locator('[data-ta-copy]')).toHaveCount(0);
+    await expect(more.locator('[data-ta-height]')).toHaveCount(0);
+    await expect(more.getByText('🔭 追加リサーチ', { exact: false }).first(), '残りの操作は従来どおり展開部').toBeVisible();
+  } finally {
+    await ctx.close();
+    await wk.close();
+  }
 });
