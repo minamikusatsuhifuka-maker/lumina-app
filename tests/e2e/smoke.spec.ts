@@ -14265,7 +14265,8 @@ test('C155: 📋 コピーの常時表示（337・R-136）— 🗂保存一覧�
     // 詳細に戻してもコピーは1つ（バッジ行）＝二重に置かない
     await panel.locator('[data-library-density-choice="detail"]').click();
     await expect(tCard.getByRole('button', { name: '⛶ 全画面' })).toHaveCount(1);
-    await expect(tCard.getByRole('button', { name: /📋 コピー|✅ コピー済み/ }), '🗂 詳細: コピーは1つ').toHaveCount(1);
+    // 展開領域（role=button の div）は accessible name にバッジ行の文字を含むので、実体の <button> だけを数える
+    await expect(tCard.locator('button', { hasText: /📋 コピー|✅ コピー済み/ }), '🗂 詳細: コピーは1つ').toHaveCount(1);
     await expect(tCard.locator(`[data-ta-copy="${t1}"]`)).toBeVisible();
     await panel.locator('[data-library-density-choice="compact"]').click();
     await panel.locator('[data-library-density-choice="detail"]').click();
@@ -14305,7 +14306,7 @@ test('C155: 📋 コピーの常時表示（337・R-136）— 🗂保存一覧�
     await expect(xCard.locator(`[data-ctx-expanded-body="${x1}"]`), '🧠: コピーで本文は展開しない').toHaveCount(0);
     await page.locator('[data-library-density-choice="detail"]').click();
     await expect(xCard.locator(`[data-ctx-copy="${x1}"]`), '🧠 詳細: バッジ行のコピーは出さない（操作バーに従来どおり）').toHaveCount(0);
-    await expect(xCard.getByRole('button', { name: /📋 コピー|✅ コピー済み/ }), '🧠 詳細: 操作バーのコピーは1つ').toHaveCount(1);
+    await expect(xCard.locator('button', { hasText: /📋 コピー|✅ コピー済み/ }), '🧠 詳細: 操作バーのコピーは1つ').toHaveCount(1);
   } finally {
     await request.delete(LIBRARY_API, { data: { ids: [l1] } }).catch(() => {});
     await cleanupE2ELibrary(request);
@@ -14316,7 +14317,26 @@ test('C155: 📋 コピーの常時表示（337・R-136）— 🗂保存一覧�
   // ════ WebKit iPhone幅: 🗂 成果物の 📋 コピー は「⋯ 操作」の外で押せる ════
   const wk = await webkit.launch();
   const ctx = await wk.newContext({ storageState: STORAGE_STATE, baseURL: BASE_URL, hasTouch: true, isMobile: true, viewport: { width: 390, height: 844 }, serviceWorkers: 'block' });
-  await ctx.grantPermissions(['clipboard-read', 'clipboard-write'], { origin: BASE_URL });
+  // WebKit は clipboard-read/write の権限付与を受け付けないので、書き込み API を差し替えて「何が書かれたか」を捕捉する
+  // （copyRichMarkdown は ClipboardItem で text/plain＋text/html を書く。plain は原文＝R-71）
+  await ctx.addInitScript(() => {
+    const w = window as unknown as { __clip: string[] };
+    w.__clip = [];
+    const push = (t: string) => { w.__clip.push(t); };
+    const clip = navigator.clipboard as unknown as Record<string, unknown>;
+    try {
+      Object.defineProperty(navigator, 'clipboard', {
+        configurable: true,
+        value: {
+          ...clip,
+          writeText: async (t: string) => push(String(t)),
+          write: async (items: { types: string[]; getType: (t: string) => Promise<Blob> }[]) => {
+            for (const it of items) if (it.types.includes('text/plain')) push(await (await it.getType('text/plain')).text());
+          },
+        },
+      });
+    } catch {}
+  });
   const mp = await ctx.newPage();
   try {
     const long = `[E2E] 337 の確認。## 見出し${marker}\n\n**太字**のまま。` + 'かゆみが強いときは掻かずに冷やすとよい。保湿剤は入浴後5分以内に塗る。'.repeat(6);
@@ -14364,10 +14384,9 @@ test('C155: 📋 コピーの常時表示（337・R-136）— 🗂保存一覧�
     const iMore = order.findIndex((t) => t.includes('操作'));
     expect(iSave >= 0 && iVis > iSave && iCopy > iVis && iMore > iCopy, `並びは 保存→図解→コピー→⋯ 操作（${order.join('／')}）`).toBe(true);
     // 押すと原文が入る（⋯ 操作 を開かずに）
-    await mp.evaluate(() => navigator.clipboard.writeText('（空）').catch(() => {}));
     await bar.locator('[data-ta-copy]').click();
     await expect(bar.locator('[data-result-more-panel]'), '押しても ⋯ 操作 は開かない').toBeHidden();
-    await expect.poll(() => mp.evaluate(() => navigator.clipboard.readText().catch(() => '')), { timeout: 15000, message: '成果物: クリップボードに原文' }).toContain('**太字**');
+    await expect.poll(() => mp.evaluate(() => ((window as unknown as { __clip?: string[] }).__clip ?? []).join('\n---\n')), { timeout: 15000, message: '成果物: クリップボードに原文' }).toContain('**太字**');
     // 退行: 高さプリセットは1段目のまま（C152）・⋯ 操作 の中にコピーも高さも無い（C143）
     await expect(bar.locator('[data-ta-height="M"]')).toBeVisible();
     await bar.locator('[data-result-more]').click();
