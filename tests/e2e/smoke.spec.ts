@@ -14791,18 +14791,34 @@ test('C157: カードの ⬇ MD（339・R-136/R-137）— 🗂保存一覧・�
         const iy = Math.max(0, Math.min(r.bottom, q.bottom) - Math.max(r.top, q.top));
         worst = Math.max(worst, ix * iy);
       }
-      return { top: Math.round(r.top), left: Math.round(r.left), w: Math.round(r.width), h: Math.round(r.height), overlap: Math.round(worst), fits: r.left >= 0 && r.right <= window.innerWidth + 1 };
+      const main = document.querySelector('main.dashboard-main') as HTMLElement | null;
+      const sy = Math.round(window.scrollY);
+      const my = Math.round(main?.scrollTop ?? 0);
+      // 「行が変わったか」は文書座標（docTop）で見る。viewport 座標はスクロールでも動く
+      return { top: Math.round(r.top), docTop: Math.round(r.top) + sy + my, left: Math.round(r.left), w: Math.round(r.width), h: Math.round(r.height), overlap: Math.round(worst), fits: r.left >= 0 && r.right <= window.innerWidth + 1, sy, my };
     }, sel);
     const hScroll = () => mp.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
     const mdSel = `[data-ta-md="${t2}"]`;
-    const mdBefore = await rectOf(mdSel);
+    // 位置が落ち着くまで待つ（開いた直後は件数・図解数が後から届く）
+    const settledTa = async (sel: string) => {
+      let prev = await rectOf(sel);
+      for (let n = 0; n < 20; n++) {
+        await mp.waitForTimeout(200);
+        const cur = await rectOf(sel);
+        if (cur && prev && cur.docTop === prev.docTop && cur.w === prev.w) return cur;
+        prev = cur;
+      }
+      return prev;
+    };
+    const mdBefore = await settledTa(mdSel);
     const waitDl = mp.waitForEvent('download', { timeout: 30000 });
     await card.locator(mdSel).click();
     expect((await waitDl).suggestedFilename(), '狭幅でも .md が落ちる').toMatch(/\.md$/);
     await expect(card.locator(mdSel), '成功表示に変わる（✅ MD）').toHaveText(/^✅ MD$/, { timeout: 10000 });
     const mdAfter = await rectOf(mdSel);
-    console.log(`[C157] 成功表示の幅 ⬇ MD: w ${mdBefore!.w}→${mdAfter!.w} top ${mdBefore!.top}→${mdAfter!.top} h=${mdAfter!.h}`);
-    expect(Math.abs(mdAfter!.top - mdBefore!.top), `⬇ MD: 成功表示で次の行へ移らない（top ${mdBefore!.top}→${mdAfter!.top} / 幅 ${mdBefore!.w}→${mdAfter!.w}）`).toBeLessThanOrEqual(2);
+    console.log(`[C157] 成功表示の幅 ⬇ MD: w ${mdBefore!.w}→${mdAfter!.w} docTop ${mdBefore!.docTop}→${mdAfter!.docTop} top ${mdBefore!.top}→${mdAfter!.top} scroll ${mdBefore!.sy}/${mdBefore!.my}→${mdAfter!.sy}/${mdAfter!.my} h=${mdAfter!.h}`);
+    expect(Math.abs(mdAfter!.docTop - mdBefore!.docTop), `⬇ MD: 成功表示で次の行へ移らない（docTop ${mdBefore!.docTop}→${mdAfter!.docTop} / 幅 ${mdBefore!.w}→${mdAfter!.w}）`).toBeLessThanOrEqual(2);
+    expect(Math.abs(mdAfter!.sy - mdBefore!.sy) + Math.abs(mdAfter!.my - mdBefore!.my), `⬇ MD: 押してもスクロール位置が動かない（R-137・${mdBefore!.sy}/${mdBefore!.my}→${mdAfter!.sy}/${mdAfter!.my}）`).toBeLessThanOrEqual(2);
     expect(mdAfter!.overlap, '⬇ MD: 成功表示でも他と重ならない（R-133）').toBe(0);
     expect(mdAfter!.fits, '⬇ MD: 成功表示でも画面幅に収まる').toBe(true);
     expect(await hScroll(), '⬇ MD: 成功表示でも横スクロールなし').toBeLessThanOrEqual(1);
@@ -14810,12 +14826,13 @@ test('C157: カードの ⬇ MD（339・R-136/R-137）— 🗂保存一覧・�
     await expect(card.locator(mdSel), '約2秒で戻る').toHaveText(/^⬇ MD$/, { timeout: 8000 });
     // 📋 コピー（338）も同じ判定
     const cpSel = `[data-ta-copy="${t2}"]`;
-    const cpBefore = await rectOf(cpSel);
+    const cpBefore = await settledTa(cpSel);
     await card.locator(cpSel).click();
     await expect(card.locator(cpSel), 'コピーの成功表示に変わる').toHaveText(/^✅ コピー$/, { timeout: 10000 });
     const cpAfter = await rectOf(cpSel);
-    console.log(`[C157] 成功表示の幅 📋 コピー: w ${cpBefore!.w}→${cpAfter!.w} top ${cpBefore!.top}→${cpAfter!.top} h=${cpAfter!.h}`);
-    expect(Math.abs(cpAfter!.top - cpBefore!.top), `📋 コピー: 成功表示で次の行へ移らない（top ${cpBefore!.top}→${cpAfter!.top} / 幅 ${cpBefore!.w}→${cpAfter!.w}）`).toBeLessThanOrEqual(2);
+    console.log(`[C157] 成功表示の幅 📋 コピー: w ${cpBefore!.w}→${cpAfter!.w} docTop ${cpBefore!.docTop}→${cpAfter!.docTop} top ${cpBefore!.top}→${cpAfter!.top} scroll ${cpBefore!.sy}/${cpBefore!.my}→${cpAfter!.sy}/${cpAfter!.my} h=${cpAfter!.h}`);
+    expect(Math.abs(cpAfter!.docTop - cpBefore!.docTop), `📋 コピー: 成功表示で次の行へ移らない（docTop ${cpBefore!.docTop}→${cpAfter!.docTop} / 幅 ${cpBefore!.w}→${cpAfter!.w}）`).toBeLessThanOrEqual(2);
+    expect(Math.abs(cpAfter!.sy - cpBefore!.sy) + Math.abs(cpAfter!.my - cpBefore!.my), `📋 コピー: 押してもスクロール位置が動かない（R-137・${cpBefore!.sy}/${cpBefore!.my}→${cpAfter!.sy}/${cpAfter!.my}）`).toBeLessThanOrEqual(2);
     expect(cpAfter!.overlap, '📋 コピー: 成功表示でも他と重ならない（R-133）').toBe(0);
     expect(cpAfter!.fits, '📋 コピー: 成功表示でも画面幅に収まる').toBe(true);
     expect(await hScroll(), '📋 コピー: 成功表示でも横スクロールなし').toBeLessThanOrEqual(1);
@@ -14833,17 +14850,32 @@ test('C157: カードの ⬇ MD（339・R-136/R-137）— 🗂保存一覧・�
         const iy = Math.max(0, Math.min(r.bottom, q.bottom) - Math.max(r.top, q.top));
         worst = Math.max(worst, ix * iy);
       }
-      return { top: Math.round(r.top), w: Math.round(r.width), h: Math.round(r.height), overlap: Math.round(worst), fits: r.left >= 0 && r.right <= window.innerWidth + 1 };
+      const main = document.querySelector('main.dashboard-main') as HTMLElement | null;
+      const sy = Math.round(window.scrollY);
+      const my = Math.round(main?.scrollTop ?? 0);
+      return { top: Math.round(r.top), docTop: Math.round(r.top) + sy + my, w: Math.round(r.width), h: Math.round(r.height), overlap: Math.round(worst), fits: r.left >= 0 && r.right <= window.innerWidth + 1, sy, my };
     }, sel);
+    /** 位置が落ち着くまで待つ（画面を開いた直後は件数・フォルダ・図解数が後から届いてレイアウトが動く） */
+    const settled = async (cardLoc: import('@playwright/test').Locator, sel: string) => {
+      let prev = await rectIn(cardLoc, sel);
+      for (let n = 0; n < 20; n++) {
+        await mp.waitForTimeout(200);
+        const cur = await rectIn(cardLoc, sel);
+        if (cur && prev && cur.docTop === prev.docTop && cur.w === prev.w) return cur;
+        prev = cur;
+      }
+      return prev;
+    };
     /** 押す前後で行が変わらない・交差0・画面幅に収まる・横スクロールなし（成功表示の幅の判定） */
     const checkSuccessWidth = async (label: string, cardLoc: import('@playwright/test').Locator, sel: string, press: () => Promise<void>, done: RegExp) => {
-      const b4 = await rectIn(cardLoc, sel);
+      const b4 = await settled(cardLoc, sel);
       expect(b4, `${label}: ボタンがある`).not.toBeNull();
       await press();
       await expect(cardLoc.locator(sel), `${label}: 成功表示に変わる`).toHaveText(done, { timeout: 15000 });
       const af = await rectIn(cardLoc, sel);
-      console.log(`[C157] 成功表示の幅 ${label}: w ${b4!.w}→${af!.w} top ${b4!.top}→${af!.top} h=${af!.h}`);
-      expect(Math.abs(af!.top - b4!.top), `${label}: 成功表示で次の行へ移らない（top ${b4!.top}→${af!.top} / 幅 ${b4!.w}→${af!.w}）`).toBeLessThanOrEqual(2);
+      console.log(`[C157] 成功表示の幅 ${label}: w ${b4!.w}→${af!.w} docTop ${b4!.docTop}→${af!.docTop} top ${b4!.top}→${af!.top} scroll ${b4!.sy}/${b4!.my}→${af!.sy}/${af!.my} h=${af!.h}`);
+      expect(Math.abs(af!.docTop - b4!.docTop), `${label}: 成功表示で次の行へ移らない（docTop ${b4!.docTop}→${af!.docTop} / 幅 ${b4!.w}→${af!.w}）`).toBeLessThanOrEqual(2);
+      expect(Math.abs(af!.sy - b4!.sy) + Math.abs(af!.my - b4!.my), `${label}: 押してもスクロール位置が動かない（R-137・${b4!.sy}/${b4!.my}→${af!.sy}/${af!.my}）`).toBeLessThanOrEqual(2);
       expect(af!.overlap, `${label}: 成功表示でも他と重ならない（R-133）`).toBe(0);
       expect(af!.fits, `${label}: 成功表示でも画面幅に収まる`).toBe(true);
       expect(await hScroll(), `${label}: 成功表示でも横スクロールなし`).toBeLessThanOrEqual(1);
