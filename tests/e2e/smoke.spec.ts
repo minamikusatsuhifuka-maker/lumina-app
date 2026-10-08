@@ -5,6 +5,10 @@ import { GEMINI_TEXT_MODEL, GEMINI_TEXT_MODEL_LABEL } from '../../src/lib/ai-mod
 import { HUMANIZE_STORAGE_KEY } from '../../src/lib/humanize';
 import { COMPARE_BUTTON_LABEL } from '../../src/lib/model-compare';
 import { IMAGE_PRICING_CHECKED_ON, PRICING_CHECKED_ON } from '../../src/lib/model-pricing';
+// 303: サイドバーの「新」は実装と同じ判定・同じ追加日から見る（テストに日付を直書きしない・R-138）
+import { ALL_NAV_ITEMS, ITEM_BY_HREF } from '../../src/lib/nav-items';
+import { NAV_NEW_LABEL, formatAddedTitle, isNewMenu } from '../../src/lib/nav-search';
+import { jstDateString } from '../../src/lib/jst';
 import {
   SAVES_API,
   RUN_ID,
@@ -7725,13 +7729,15 @@ test('C108: テキスト分析のクリック展開（299 §2）— タイトル
     await expect(page.locator('[data-purpose-picker]')).toHaveCount(0);
     await expect(body1, '操作ボタンで展開状態が変わらない（開いたまま）').toBeVisible();
     // ⑤ バッジ行のクリックで閉じる → もう一度開く（同じ状態）
-    await c1.locator('[data-ta-badges]').click();
+    // 339: バッジ行に [⬇ MD] が増えて行の中央がボタンになったため、行の中の
+    // 「ボタンではない所」（種別バッジ）を押す。ボタンを押しても展開しないのは ⑦ で見ている（R-81）
+    await c1.locator('[data-ta-type-label]').click();
     await expect(body1, 'バッジ行のクリックで閉じる').toHaveCount(0);
     await expect(zone1).toHaveAttribute('aria-expanded', 'false');
     await c1.locator(`[data-purpose-button="${t1}"]`).click();
     await page.keyboard.press('Escape');
     await expect(body1, '操作ボタンで展開しない（閉じたまま）').toHaveCount(0);
-    await c1.locator('[data-ta-badges]').click();
+    await c1.locator('[data-ta-type-label]').click();
     await expect(body1, 'バッジ行のクリックで開く').toBeVisible();
     // ⑥ 複数同時展開（Set＝排他にしない）: t2 を Enter で開いても t1 は開いたまま
     await c2.locator(`[data-ta-expand-zone="${t2}"]`).focus();
@@ -7744,6 +7750,13 @@ test('C108: テキスト分析のクリック展開（299 §2）— タイトル
     await page.keyboard.press('Space');
     await expect(body2, 'Space で閉じる').toHaveCount(0);
     expect(Math.abs((await page.evaluate(() => window.scrollY)) - yBefore), 'Space で画面がスクロールしない').toBeLessThanOrEqual(2);
+    // ⑥-2 339: バッジ行のボタン（📋 コピー・⬇ MD）を押しても展開状態は変わらない（R-81）
+    await c2.locator(`[data-ta-copy="${t2}"]`).click();
+    await expect(body2, 'バッジ行の 📋 コピーで展開しない').toHaveCount(0);
+    const waitMd = page.waitForEvent('download', { timeout: 30000 });
+    await c2.locator(`[data-ta-md="${t2}"]`).click();
+    await waitMd;
+    await expect(body2, 'バッジ行の ⬇ MD で展開しない').toHaveCount(0);
     // ⑦ ▼全文表示ボタン（既存）と同じ状態: ボタンで閉じられる／開ける
     await c1.getByRole('button', { name: /▲ 閉じる/ }).first().click();
     await expect(body1, '▲ 閉じる（既存ボタン）で閉じる').toHaveCount(0);
@@ -8144,7 +8157,9 @@ test('C112: 即時ツールチップはタッチ端末では付けない（300 �
     const zone = panel.locator(`[data-ta-expand-zone="${t1}"]`);
     await expect(zone).toBeVisible({ timeout: 30000 });
     await expect(page.locator('[data-instant-tip]'), 'タッチ端末では吹き出し要素自体を付けない').toHaveCount(0);
-    await zone.tap();
+    // 339: バッジ行に [⬇ MD] が増えて領域の中央がボタンになったため、領域の中の
+    // 「ボタンではない所」（左上＝種別バッジのあたり）をタップする（R-81: ボタンでは展開しない）
+    await zone.tap({ position: { x: 8, y: 8 } });
     await page.waitForTimeout(300);
     await expect(page.locator('[data-instant-tip]'), 'タップしても出ない・出っぱなしにならない').toHaveCount(0);
     await expect(zone, 'title はそのまま（外さない）').toHaveAttribute('title', /クリックで本文を/);
@@ -9178,10 +9193,26 @@ test('C120: サイドバーのメニュー検索・追加順・新着・合流�
     const infoOrder = await hrefsIn(infoSection);
     expect(infoOrder.indexOf('/dashboard/mandala'), '🔲マンダラは📔エピソード記録の直下').toBe(infoOrder.indexOf('/dashboard/episodes') + 1);
     const standardOrder = await hrefsIn(sidebar);
-    // 新着: 追加から14日以内（マンダラ 2026-09-08）に「新」が付き、title に追加日
-    const newMark = sidebar.locator('[data-nav-new="/dashboard/mandala"]');
-    await expect(newMark).toHaveText('新');
-    expect(await newMark.getAttribute('title')).toMatch(/^追加: 2026\/9\/8$/);
+    // 新着: 追加から NAV_NEW_DAYS 日以内の項目に「新」が付き、title に追加日。
+    // R-138: どの項目が新着かは日が経てば変わるので、項目名・日付をテストに直書きせず
+    // 実装と同じ定義（ALL_NAV_ITEMS の addedAt）と同じ判定（isNewMenu）から導く
+    const todayYmd = jstDateString(new Date());
+    const expectedNew = ALL_NAV_ITEMS.filter((i) => isNewMenu(i.addedAt, todayYmd)).map((i) => i.href);
+    const shownNew = await sidebar.locator('[data-nav-new]').evaluateAll((els) => els.map((e) => e.getAttribute('data-nav-new') ?? ''));
+    expect(
+      shownNew.filter((h) => !expectedNew.includes(h)),
+      `「新」が付くのは追加から14日以内の項目だけ（今日=${todayYmd} 期待=${expectedNew.join('／') || 'なし'}）`,
+    ).toEqual([]);
+    if (shownNew.length > 0) {
+      const href = shownNew[0];
+      const newMark = sidebar.locator(`[data-nav-new="${href}"]`);
+      await expect(newMark).toHaveText(NAV_NEW_LABEL);
+      expect(await newMark.getAttribute('title')).toBe(formatAddedTitle(ITEM_BY_HREF.get(href)!.addedAt));
+    } else {
+      // 14日以内の項目がサイドバーに出ているのに印が無い＝退行。出ていないなら0件で正しい
+      const shownHrefs = (await hrefsIn(sidebar)).filter((h): h is string => !!h);
+      expect(shownHrefs.filter((h) => expectedNew.includes(h)), `14日以内の項目が出ているなら「新」が付く（今日=${todayYmd}）`).toEqual([]);
+    }
     await expect(sidebar.locator('[data-nav-new="/dashboard/deepresearch"]'), '古い項目には付かない').toHaveCount(0);
 
     // ② 検索: 部分一致・見出しは一致分だけ・全角半角/カナかな
@@ -12271,11 +12302,14 @@ test('C138: 関連図の是正・つながり確認・🗂成果物の操作行�
       await mp.goto('/dashboard/text-analysis');
       const mbar = mp.locator('[data-ta-result-actions]').first();
       await expect(mbar).toBeVisible({ timeout: 30000 });
-      const minfo = await mbar.locator('button, a').evaluateAll((els) => els.filter((e) => (e as HTMLElement).offsetParent !== null).map((e) => ({ wm: getComputedStyle(e).writingMode, top: Math.round(e.getBoundingClientRect().top), aside: !!e.closest('[data-result-action-aside]') })));
+      const minfo = await mbar.locator('button, a').evaluateAll((els) => els.filter((e) => (e as HTMLElement).offsetParent !== null).map((e) => ({ wm: getComputedStyle(e).writingMode, top: Math.round(e.getBoundingClientRect().top), aside: !!e.closest('[data-result-action-aside]'), text: (e.textContent ?? '').trim() })));
       expect(Array.from(new Set(minfo.map((i) => i.wm)))).toEqual(['horizontal-tb']);
-      // 326: iPhone幅は折り返しではなくアコーディオン（常に見えるのは保存・図解・⋯操作の3つ・残りは展開部で hidden）
+      // 326: iPhone幅は折り返しではなくアコーディオン。常に見えるのは 保存・図解・📋 コピー・⋯ 操作 の4つ
+      //（337/R-136 で 📋 コピーを畳まなくなったため 3→4。高さプリセットは aside・334。残りは展開部で hidden）
       await expect(mbar).toHaveAttribute('data-result-narrow', '1');
-      expect(minfo.filter((i) => !i.aside).length, '常に見えるのは3つ').toBe(3);
+      const mainBtns = minfo.filter((i) => !i.aside);
+      expect(mainBtns.length, `常に見えるのは4つ（${mainBtns.map((i) => i.text).join('／')}）`).toBe(4);
+      expect(mainBtns.map((i) => i.text), '📋 コピーが1段目にある（337）').toContain('📋 コピー');
       expect(new Set(minfo.filter((i) => !i.aside).map((i) => i.top)).size, '4段には積み上がらない（従来は4段）').toBeLessThanOrEqual(2);
       const vw = await mp.evaluate(() => ({ sw: document.documentElement.scrollWidth, iw: window.innerWidth, br: document.querySelector('[data-ta-result-actions]')!.getBoundingClientRect().right }));
       expect(vw.sw, '横スクロール無し').toBeLessThanOrEqual(vw.iw + 1);
@@ -14260,14 +14294,14 @@ test('C155: 📋 コピーの常時表示（337・R-136）— 🗂保存一覧�
     await clearClip();
     await tCopy.click();
     await expect(tCard.locator(`[data-ta-expanded-body="${t1}"]`), '🗂: コピーで本文は展開しない（R-81）').toHaveCount(0);
-    await expect(tCopy, '押した印').toHaveText(/コピー済み/);
+    await expect(tCopy, '押した印（339追補: 文字数を変えずアイコンだけ替える）').toHaveText(/^✅ コピー$/);
     await expect.poll(readClip, { timeout: 15000, message: '🗂: クリップボードに原文（MD記法のまま・R-71）' }).toContain(`## 見出し ${marker}`);
     expect(await readClip(), '🗂: 太字の記法がそのまま（表示用の変換を流用しない）').toContain('**太字の要点**');
     // 詳細に戻してもコピーは1つ（バッジ行）＝二重に置かない
     await panel.locator('[data-library-density-choice="detail"]').click();
     await expect(tCard.getByRole('button', { name: '⛶ 全画面' })).toHaveCount(1);
     // 展開領域（role=button の div）は accessible name にバッジ行の文字を含むので、実体の <button> だけを数える
-    await expect(tCard.locator('button', { hasText: /📋 コピー|✅ コピー済み/ }), '🗂 詳細: コピーは1つ').toHaveCount(1);
+    await expect(tCard.locator('button', { hasText: /📋 コピー|✅ コピー/ }), '🗂 詳細: コピーは1つ').toHaveCount(1);
     await expect(tCard.locator(`[data-ta-copy="${t1}"]`)).toBeVisible();
     await panel.locator('[data-library-density-choice="compact"]').click();
     await panel.locator('[data-library-density-choice="detail"]').click();
@@ -14283,7 +14317,7 @@ test('C155: 📋 コピーの常時表示（337・R-136）— 🗂保存一覧�
     await expect(lCopy, '📚: コンパクトでも 📋 コピーが見える').toBeVisible();
     await clearClip();
     await lCopy.click();
-    await expect(lCopy).toHaveText(/コピー済/);
+    await expect(lCopy, '押した印（339追補）').toHaveText(/^✅ コピー$/);
     await expect.poll(readClip, { timeout: 15000, message: '📚: クリップボードに原文' }).toContain(`## 見出し ${marker}`);
     expect(await readClip()).toContain('**太字の要点**');
     await page.locator('[data-library-density-choice="detail"]').click();
@@ -14301,13 +14335,13 @@ test('C155: 📋 コピーの常時表示（337・R-136）— 🗂保存一覧�
     await expect(xCopy, '🧠: コンパクトでも 📋 コピーが見える').toBeVisible();
     await clearClip();
     await xCopy.click();
-    await expect(xCopy).toHaveText(/コピー済み/);
+    await expect(xCopy, '押した印（339追補）').toHaveText(/^✅ コピー$/);
     await expect.poll(readClip, { timeout: 15000, message: '🧠: クリップボードに原文' }).toContain(`## 見出し ${marker}`);
     expect(await readClip()).toContain('**太字の要点**');
     await expect(xCard.locator(`[data-ctx-expanded-body="${x1}"]`), '🧠: コピーで本文は展開しない').toHaveCount(0);
     await page.locator('[data-library-density-choice="detail"]').click();
     await expect(xCard.locator(`[data-ctx-copy="${x1}"]`), '🧠 詳細: バッジ行のコピーは出さない（操作バーに従来どおり）').toHaveCount(0);
-    await expect(xCard.locator('button', { hasText: /📋 コピー|✅ コピー済み/ }), '🧠 詳細: 操作バーのコピーは1つ').toHaveCount(1);
+    await expect(xCard.locator('button', { hasText: /📋 コピー|✅ コピー/ }), '🧠 詳細: 操作バーのコピーは1つ').toHaveCount(1);
   } finally {
     await request.delete(LIBRARY_API, { data: { ids: [l1] } }).catch(() => {});
     await cleanupE2ELibrary(request);
@@ -14454,7 +14488,7 @@ test('C156: コピーで画面が動かない（338・R-137・PC幅＋WebKit iPh
     expect(before.y + before.main, `${label}: 途中までスクロールできている（y=${before.y} main=${before.main}）`).toBeGreaterThan(40);
     await pg.evaluate(() => { (window as unknown as { __clip: string[] }).__clip = []; });
     await btn.click();
-    await expect(btn, `${label}: ボタン自身が「コピー済み」になる`).toHaveText(/コピー済/, { timeout: 10000 });
+    await expect(btn, `${label}: ボタン自身が成功の印（✅）になる`).toHaveText(/^✅ コピー(済み)?$/, { timeout: 10000 });
     await pg.waitForTimeout(300);
     const after = await scrollState(pg);
     expect(Math.abs(after.y - before.y), `${label}: window.scrollY が動かない（${before.y}→${after.y}）`).toBeLessThanOrEqual(2);
@@ -14608,7 +14642,7 @@ test('C157: カードの ⬇ MD（339・R-136/R-137）— 🗂保存一覧・�
     expect(after.url, `${label}: URL が変わらない`).toBe(before.url);
     await expect(opts.expanded, `${label}: カードが開かない（R-81）`).toHaveCount(0);
     await expect(pg.locator(opts.notices), `${label}: 先頭の帯・固定トーストを出さない`).toHaveCount(0);
-    await expect(btn, `${label}: ボタン自身が「保存しました」になる`).toHaveText(/保存しました/, { timeout: 10000 });
+    await expect(btn, `${label}: ボタン自身が成功の印（✅ MD）になる`).toHaveText(/^✅ MD$/, { timeout: 10000 });
     await expect(btn, `${label}: 約2秒で元に戻る`).toHaveText(/⬇ MD/, { timeout: 8000 });
   };
   try {
@@ -14688,6 +14722,8 @@ test('C157: カードの ⬇ MD（339・R-136/R-137）— 🗂保存一覧・�
   // ════ WebKit iPhone幅: バッジ行の ⬇ MD は44px以上・他と交差0・横スクロールなし ════
   const marker2 = `MD339W${RUN_ID}`;
   const t2 = await createSave(request, { title: `MD-W ${marker2}`, content: raw, analysisType: 'summary', analysisLabel: '概要・要約' });
+  const x2 = await createContextSave(request, { topic: `MD-WX ${marker2}`, contextText: raw });
+  const l2 = await postLibraryRow(request, { type: 'deepresearch', title: withE2EPrefix(`MD-WL ${marker2}`), content: raw, metadata: { savedAt: now }, tags: 'ディープリサーチ', group_name: 'ディープリサーチ' });
   const wk = await webkit.launch();
   const ctx = await wk.newContext({ storageState: STORAGE_STATE, baseURL: BASE_URL, hasTouch: true, isMobile: true, viewport: { width: 390, height: 844 }, serviceWorkers: 'block', acceptDownloads: true });
   // 339追補: 📋 コピーの成功表示も同じ判定に掛けるため、WebKit でも書き込み API を差し替えて成否を作る（C155 と同じ）
@@ -14763,7 +14799,7 @@ test('C157: カードの ⬇ MD（339・R-136/R-137）— 🗂保存一覧・�
     const waitDl = mp.waitForEvent('download', { timeout: 30000 });
     await card.locator(mdSel).click();
     expect((await waitDl).suggestedFilename(), '狭幅でも .md が落ちる').toMatch(/\.md$/);
-    await expect(card.locator(mdSel), '成功表示に変わる').toHaveText(/保存しました|✅/, { timeout: 10000 });
+    await expect(card.locator(mdSel), '成功表示に変わる（✅ MD）').toHaveText(/^✅ MD$/, { timeout: 10000 });
     const mdAfter = await rectOf(mdSel);
     console.log(`[C157] 成功表示の幅 ⬇ MD: w ${mdBefore!.w}→${mdAfter!.w} top ${mdBefore!.top}→${mdAfter!.top} h=${mdAfter!.h}`);
     expect(Math.abs(mdAfter!.top - mdBefore!.top), `⬇ MD: 成功表示で次の行へ移らない（top ${mdBefore!.top}→${mdAfter!.top} / 幅 ${mdBefore!.w}→${mdAfter!.w}）`).toBeLessThanOrEqual(2);
@@ -14771,21 +14807,83 @@ test('C157: カードの ⬇ MD（339・R-136/R-137）— 🗂保存一覧・�
     expect(mdAfter!.fits, '⬇ MD: 成功表示でも画面幅に収まる').toBe(true);
     expect(await hScroll(), '⬇ MD: 成功表示でも横スクロールなし').toBeLessThanOrEqual(1);
     await expect(card.locator(`[data-ta-expanded-body="${t2}"]`), '狭幅でもカードが開かない').toHaveCount(0);
-    await expect(card.locator(mdSel), '約2秒で戻る').toHaveText(/MD/, { timeout: 8000 });
+    await expect(card.locator(mdSel), '約2秒で戻る').toHaveText(/^⬇ MD$/, { timeout: 8000 });
     // 📋 コピー（338）も同じ判定
     const cpSel = `[data-ta-copy="${t2}"]`;
     const cpBefore = await rectOf(cpSel);
     await card.locator(cpSel).click();
-    await expect(card.locator(cpSel), 'コピーの成功表示に変わる').toHaveText(/コピー済|✅/, { timeout: 10000 });
+    await expect(card.locator(cpSel), 'コピーの成功表示に変わる').toHaveText(/^✅ コピー$/, { timeout: 10000 });
     const cpAfter = await rectOf(cpSel);
     console.log(`[C157] 成功表示の幅 📋 コピー: w ${cpBefore!.w}→${cpAfter!.w} top ${cpBefore!.top}→${cpAfter!.top} h=${cpAfter!.h}`);
     expect(Math.abs(cpAfter!.top - cpBefore!.top), `📋 コピー: 成功表示で次の行へ移らない（top ${cpBefore!.top}→${cpAfter!.top} / 幅 ${cpBefore!.w}→${cpAfter!.w}）`).toBeLessThanOrEqual(2);
     expect(cpAfter!.overlap, '📋 コピー: 成功表示でも他と重ならない（R-133）').toBe(0);
     expect(cpAfter!.fits, '📋 コピー: 成功表示でも画面幅に収まる').toBe(true);
     expect(await hScroll(), '📋 コピー: 成功表示でも横スクロールなし').toBeLessThanOrEqual(1);
+    // 339追補§1: 🧠・📚 のカードでも同じ判定（行の構成が違うので画面ごとに見る）
+    const rectIn = (cardLoc: import('@playwright/test').Locator, sel: string) => cardLoc.evaluate((el, s2) => {
+      const b = el.querySelector(s2) as HTMLElement | null;
+      if (!b) return null;
+      const r = b.getBoundingClientRect();
+      const others = [...el.querySelectorAll('button, a')].filter((o) => o !== b) as HTMLElement[];
+      let worst = 0;
+      for (const o of others) {
+        const q = o.getBoundingClientRect();
+        if (q.width === 0 || q.height === 0) continue;
+        const ix = Math.max(0, Math.min(r.right, q.right) - Math.max(r.left, q.left));
+        const iy = Math.max(0, Math.min(r.bottom, q.bottom) - Math.max(r.top, q.top));
+        worst = Math.max(worst, ix * iy);
+      }
+      return { top: Math.round(r.top), w: Math.round(r.width), h: Math.round(r.height), overlap: Math.round(worst), fits: r.left >= 0 && r.right <= window.innerWidth + 1 };
+    }, sel);
+    /** 押す前後で行が変わらない・交差0・画面幅に収まる・横スクロールなし（成功表示の幅の判定） */
+    const checkSuccessWidth = async (label: string, cardLoc: import('@playwright/test').Locator, sel: string, press: () => Promise<void>, done: RegExp) => {
+      const b4 = await rectIn(cardLoc, sel);
+      expect(b4, `${label}: ボタンがある`).not.toBeNull();
+      await press();
+      await expect(cardLoc.locator(sel), `${label}: 成功表示に変わる`).toHaveText(done, { timeout: 15000 });
+      const af = await rectIn(cardLoc, sel);
+      console.log(`[C157] 成功表示の幅 ${label}: w ${b4!.w}→${af!.w} top ${b4!.top}→${af!.top} h=${af!.h}`);
+      expect(Math.abs(af!.top - b4!.top), `${label}: 成功表示で次の行へ移らない（top ${b4!.top}→${af!.top} / 幅 ${b4!.w}→${af!.w}）`).toBeLessThanOrEqual(2);
+      expect(af!.overlap, `${label}: 成功表示でも他と重ならない（R-133）`).toBe(0);
+      expect(af!.fits, `${label}: 成功表示でも画面幅に収まる`).toBe(true);
+      expect(await hScroll(), `${label}: 成功表示でも横スクロールなし`).toBeLessThanOrEqual(1);
+    };
+    // 🧠 AI参照素材（コンパクト）
+    await mp.goto('/dashboard/context-library');
+    await mp.locator('[data-kb-search]').fill(marker2);
+    const xCardW = mp.locator(`[data-ctx-card="${x2}"]`);
+    await expect(xCardW).toBeVisible({ timeout: 30000 });
+    await mp.locator('[data-library-density-choice="compact"]').click();
+    await checkSuccessWidth('🧠 ⬇ MD', xCardW, `[data-ctx-md="${x2}"]`, async () => {
+      const w = mp.waitForEvent('download', { timeout: 30000 });
+      await xCardW.locator(`[data-ctx-md="${x2}"]`).click();
+      await w;
+    }, /^✅ MD$/);
+    await expect(xCardW.locator(`[data-ctx-md="${x2}"]`), '🧠: 約2秒で戻る').toHaveText(/^⬇ MD$/, { timeout: 8000 });
+    await checkSuccessWidth('🧠 📋 コピー', xCardW, `[data-ctx-copy="${x2}"]`, async () => {
+      await xCardW.locator(`[data-ctx-copy="${x2}"]`).click();
+    }, /^✅ コピー$/);
+    // 📚 リサーチ保存（コンパクト）
+    await mp.goto('/dashboard/library');
+    await mp.locator('[data-library-search]').fill(marker2);
+    const lCardW = mp.locator(`[data-library-card="${l2}"]`);
+    await expect(lCardW).toBeVisible({ timeout: 30000 });
+    await mp.locator('[data-library-density-choice="compact"]').click();
+    await checkSuccessWidth('📚 ⬇ MD', lCardW, `[data-library-md="${l2}"]`, async () => {
+      const w = mp.waitForEvent('download', { timeout: 30000 });
+      await lCardW.locator(`[data-library-md="${l2}"]`).click();
+      await w;
+    }, /^✅ MD$/);
+    await expect(lCardW.locator(`[data-library-md="${l2}"]`), '📚: 約2秒で戻る').toHaveText(/^⬇ MD$/, { timeout: 8000 });
+    await checkSuccessWidth('📚 📋 コピー', lCardW, `[data-library-copy="${l2}"]`, async () => {
+      await lCardW.locator(`[data-library-copy="${l2}"]`).click();
+    }, /^✅ コピー$/);
   } finally {
     await ctx.close();
     await wk.close();
+    await request.delete(LIBRARY_API, { data: { ids: [l2] } }).catch(() => {});
+    await cleanupE2ELibrary(request);
     await cleanupE2ESaves(request);
+    await cleanupE2EContextSaves(request);
   }
 });

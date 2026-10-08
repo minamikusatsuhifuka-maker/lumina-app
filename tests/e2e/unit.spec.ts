@@ -6660,7 +6660,7 @@ test('U112: カードの ⬇ MD（339）— ファイル名の共通規則（禁
   const clp = read('src/components/context-library/ContextLibraryPanel.tsx');
   const clpBadges = clp.slice(clp.indexOf('data-ctx-badges'), clp.indexOf('<div data-ctx-title'));
   expect(clpBadges, '🧠: バッジ行に ⬇ MD がある').toMatch(/data-ctx-md=\{item\.id\}/);
-  const clpCompactEnd = clpBadges.indexOf(')}', clpBadges.indexOf("'✅ コピー済み' : '📋 コピー'"));
+  const clpCompactEnd = clpBadges.indexOf(')}', clpBadges.indexOf("'✅ コピー' : '📋 コピー'"));
   expect(clpCompactEnd, '🧠: コピーの分岐（compact 限定）がある').toBeGreaterThan(0);
   expect(clpBadges.indexOf('data-ctx-md'), '🧠: ⬇ MD は compact の分岐の外（常時）').toBeGreaterThan(clpCompactEnd);
   expect(clpBadges, '🧠: 既存の書き出し処理を呼ぶ＋押した場所で知らせる').toMatch(/handleDownloadMd\(item, \{ inline: true \}\)/);
@@ -6690,7 +6690,15 @@ test('U112: カードの ⬇ MD（339）— ファイル名の共通規則（禁
   // 📚 default variant（ホバーに頼らない操作バー）にも ⬇ MD がある＝variant をまたいで押せる
   expect((lir.match(/data-library-md=/g) ?? []).length, '📚: compact／default の両方に ⬇ MD').toBe(2);
 
-  // ⑦ 台帳
+  // ⑦ 339追補§1: カードのバッジ行は成功表示でも文字数を変えない（行が折り返して押した場所が動かない）
+  expect(saved, '🗂: コピーの成功表示は同じ文字数').toMatch(/\? '✅ コピー' : '📋 コピー'/);
+  expect(saved, '🗂: MD は準備中・保存済みも同じ文字数').toMatch(/'⏳ MD' : mdDoneId === record\.id \? '✅ MD' : '⬇ MD'/);
+  expect(clp, '🧠: コピーの成功表示は同じ文字数').toMatch(/\? '✅ コピー' : '📋 コピー'/);
+  expect(clp, '🧠: MD は準備中・保存済みも同じ文字数').toMatch(/'⏳ MD' : mdDoneId === item\.id \? '✅ MD' : '⬇ MD'/);
+  expect(lirBadges, '📚: コピーの成功表示は同じ文字数').toMatch(/\{copied \? '✅ コピー' : '📋 コピー'\}/);
+  expect((lir.match(/\{mdDone \? '✅ MD' : '⬇ MD'\}/g) ?? []).length, '📚: compact／default の両方で同じ文字数').toBe(2);
+
+  // ⑧ 台帳
   expect(read('RULES.md'), 'R-136 に 339（⬇ MD）が入っている').toMatch(/^## R-136:[\s\S]{0,2000}339/m);
   expect(read('RULES.md'), 'R-138（テストは実装と同じ定数を参照する）がある').toMatch(/^## R-138: .*定数/m);
 });

@@ -2673,7 +2673,8 @@ export default function SavedAnalysisList({
                           cursor: 'pointer',
                         }}
                       >
-                        {copiedId === record.id ? '✅ コピー済み' : '📋 コピー'}
+                        {/* 339追補§1: 成功表示で幅が変わると行が折り返して押した場所が動く。文字数を変えずアイコンだけ替える */}
+                        {copiedId === record.id ? '✅ コピー' : '📋 コピー'}
                       </button>
                       {/* 339/R-136: ⬇ MD も密度（詳細／コンパクト）・展開の有無に関わらず常時この行に置く。
                           中身は既存 handleDownloadMd（本文を遅延取得して「# タイトル + 生成AI行 + 原文」・R-71/R-91）。
@@ -2699,7 +2700,8 @@ export default function SavedAnalysisList({
                           opacity: downloadingId === record.id ? 0.6 : 1,
                         }}
                       >
-                        {downloadingId === record.id ? '⏳ 準備中...' : mdDoneId === record.id ? '✅ 保存しました' : '⬇ MD'}
+                        {/* 339追補§1: 準備中・保存済みも同じ文字数（⏳ MD／✅ MD）＝行が動かない */}
+                        {downloadingId === record.id ? '⏳ MD' : mdDoneId === record.id ? '✅ MD' : '⬇ MD'}
                       </button>
                       {record.folder && folderColor && (
                         <span

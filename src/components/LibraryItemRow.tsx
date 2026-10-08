@@ -495,7 +495,8 @@ export function LibraryItemRow({
               style={compactBtnStyle}
               title={hasArtifacts ? `${kindLabel}（原文）をコピー` : '本文（原文）をコピー'}
             >
-              📋 {copied ? 'コピー済' : 'コピー'}
+              {/* 339追補§1: 成功表示で幅が変わると行が折り返して押した場所が動く。文字数を変えずアイコンだけ替える */}
+              {copied ? '✅ コピー' : '📋 コピー'}
             </button>
           )}
           {/* 339/R-136: ⬇ MD は密度（詳細／コンパクト）・展開の有無に関わらず常時この行に置く。
@@ -514,7 +515,8 @@ export function LibraryItemRow({
               }}
               title={hasArtifacts ? `${kindLabel}（原文）を Markdown ファイルでダウンロード（展開しなくても押せます）` : '本文（原文）を Markdown ファイルでダウンロード（展開しなくても押せます）'}
             >
-              {mdDone ? '✅ 保存しました' : '⬇ MD'}
+              {/* 339追補§1: 同じ文字数（✅ MD）＝押した場所が動かない */}
+              {mdDone ? '✅ MD' : '⬇ MD'}
             </button>
           )}
         </div>
@@ -1032,7 +1034,8 @@ export function LibraryItemRow({
                 }}
                 title="本文（原文）を Markdown ファイルでダウンロード"
               >
-                {mdDone ? '✅ 保存しました' : '⬇ MD'}
+                {/* 339追補§1: 同じ文字数（✅ MD）＝押した場所が動かない */}
+                {mdDone ? '✅ MD' : '⬇ MD'}
               </button>
             )}
             {visualLink(String(item.id), btnStyle)}

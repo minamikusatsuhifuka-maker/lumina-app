@@ -1666,7 +1666,8 @@ export default function ContextLibraryPanel() {
                             : {}),
                         }}
                       >
-                        {copiedId === item.id ? '✅ コピー済み' : '📋 コピー'}
+                        {/* 339追補§1: 成功表示で幅が変わると行が折り返して押した場所が動く。文字数を変えずアイコンだけ替える */}
+                        {copiedId === item.id ? '✅ コピー' : '📋 コピー'}
                       </button>
                     )}
                     {/* 339/R-136: ⬇ MD は密度（詳細／コンパクト）・展開の有無に関わらず常時この行に置く。
@@ -1691,7 +1692,8 @@ export default function ContextLibraryPanel() {
                           : {}),
                       }}
                     >
-                      {downloadingId === item.id ? '⏳ 準備中...' : mdDoneId === item.id ? '✅ 保存しました' : '⬇ MD'}
+                      {/* 339追補§1: 準備中・保存済みも同じ文字数（⏳ MD／✅ MD）＝行が動かない */}
+                      {downloadingId === item.id ? '⏳ MD' : mdDoneId === item.id ? '✅ MD' : '⬇ MD'}
                     </button>
                   </div>
                   <div data-ctx-title style={{ fontSize: 16, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 4 }}>
