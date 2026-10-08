@@ -6701,4 +6701,9 @@ test('U112: カードの ⬇ MD（339）— ファイル名の共通規則（禁
   // ⑧ 台帳
   expect(read('RULES.md'), 'R-136 に 339（⬇ MD）が入っている').toMatch(/^## R-136:[\s\S]{0,2000}339/m);
   expect(read('RULES.md'), 'R-138（テストは実装と同じ定数を参照する）がある').toMatch(/^## R-138: .*定数/m);
+  expect(read('RULES.md'), 'R-139（テストは押す要素を名指しする）がある').toMatch(/^## R-139: .*名指し/m);
+  // 339追補: バッジ行・展開領域を「中央」「座標」で押していない（R-139）
+  const smoke = read('tests/e2e/smoke.spec.ts');
+  expect(smoke, 'バッジ行そのものをクリックしていない').not.toMatch(/locator\('\[data-(ta|ctx|library)-badges\]'\)\.(click|tap)\(/);
+  expect(smoke, '展開領域を座標で押していない').not.toMatch(/expand-zone[^\n]*\.(click|tap)\(\{ position/);
 });

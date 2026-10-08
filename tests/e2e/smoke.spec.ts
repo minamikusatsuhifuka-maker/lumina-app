@@ -7729,8 +7729,8 @@ test('C108: テキスト分析のクリック展開（299 §2）— タイトル
     await expect(page.locator('[data-purpose-picker]')).toHaveCount(0);
     await expect(body1, '操作ボタンで展開状態が変わらない（開いたまま）').toBeVisible();
     // ⑤ バッジ行のクリックで閉じる → もう一度開く（同じ状態）
-    // 339: バッジ行に [⬇ MD] が増えて行の中央がボタンになったため、行の中の
-    // 「ボタンではない所」（種別バッジ）を押す。ボタンを押しても展開しないのは ⑦ で見ている（R-81）
+    // 339: バッジ行に [⬇ MD] が増えて行の中央がボタンになったため、押す要素を名指しする
+    //（R-139: 入れ物の中央で押さない。種別バッジ＝ボタンでない要素）。ボタンを押しても展開しないのは ⑥-2（R-81）
     await c1.locator('[data-ta-type-label]').click();
     await expect(body1, 'バッジ行のクリックで閉じる').toHaveCount(0);
     await expect(zone1).toHaveAttribute('aria-expanded', 'false');
@@ -8157,9 +8157,9 @@ test('C112: 即時ツールチップはタッチ端末では付けない（300 �
     const zone = panel.locator(`[data-ta-expand-zone="${t1}"]`);
     await expect(zone).toBeVisible({ timeout: 30000 });
     await expect(page.locator('[data-instant-tip]'), 'タッチ端末では吹き出し要素自体を付けない').toHaveCount(0);
-    // 339: バッジ行に [⬇ MD] が増えて領域の中央がボタンになったため、領域の中の
-    // 「ボタンではない所」（左上＝種別バッジのあたり）をタップする（R-81: ボタンでは展開しない）
-    await zone.tap({ position: { x: 8, y: 8 } });
+    // 339: バッジ行に [⬇ MD] が増えて領域の中央がボタンになったため、押す要素を名指しする
+    //（R-139: 入れ物の中央・座標で押さない。種別バッジ＝ボタンでない要素。R-81: ボタンでは展開しない）
+    await zone.locator('[data-ta-type-label]').tap();
     await page.waitForTimeout(300);
     await expect(page.locator('[data-instant-tip]'), 'タップしても出ない・出っぱなしにならない').toHaveCount(0);
     await expect(zone, 'title はそのまま（外さない）').toHaveAttribute('title', /クリックで本文を/);
