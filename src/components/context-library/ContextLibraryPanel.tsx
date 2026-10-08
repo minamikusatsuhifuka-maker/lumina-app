@@ -5,7 +5,7 @@ import FeatureDefaultContextSelector, { FEATURE_OPTIONS } from '@/components/Fea
 import { copyRichMarkdown } from '@/lib/rich-copy';
 import SelectionBar from '@/components/SelectionBar';
 import { renderMarkdown, sanitizeLatex } from '@/lib/markdown-renderer';
-import { sanitizeFilename, yyyymmdd } from '@/lib/title-generator';
+import { exportFileName, sanitizeFilename, yyyymmdd } from '@/lib/title-generator';
 import { triggerDownload } from '@/lib/download';
 import { markdownToReadableText } from '@/lib/markdownToText';
 import FullscreenReader from '@/components/text-analysis/FullscreenReader';
@@ -165,6 +165,9 @@ export default function ContextLibraryPanel() {
   const [copyError, setCopyError] = useState<{ id: number; text: string } | null>(null);
   // テキスト/MD ダウンロード中のID（本文取得中の同時押し防止。txt/MD共用）
   const [downloadingId, setDownloadingId] = useState<number | null>(null);
+  // 339/R-137: バッジ行の ⬇ MD は押したボタン自身で知らせる（成功=約2秒「✅ 保存しました」／失敗=カード内に1行）
+  const [mdDoneId, setMdDoneId] = useState<number | null>(null);
+  const [mdError, setMdError] = useState<{ id: number; text: string } | null>(null);
   // カード編集（タイトル=topic + 本文=context_text。同時編集は1件のみ）
   const [editingId, setEditingId] = useState<number | null>(null);
   const [editTitle, setEditTitle] = useState('');
@@ -515,22 +518,31 @@ export default function ContextLibraryPanel() {
 
   // .md ダウンロード（テキスト分析 handleDownloadMd 流用。context_saves 対象）。
   // 216: カードの表示タイトル（topic）をそのまま使用（AI再生成しない）。
-  const handleDownloadMd = async (item: ContextSave) => {
+  // 339: opts.inline = バッジ行の ⬇ MD から押された。成功・失敗は押した場所で知らせ、
+  // 固定トーストは出さない（R-137）。処理（本文の遅延取得・MD整形・ファイル名規則）は従来のまま共有（R-91）
+  const handleDownloadMd = async (item: ContextSave, opts?: { inline?: boolean }) => {
     if (downloadingId !== null) return; // 同時押し防止（txtと共用）
     setDownloadingId(item.id);
+    if (opts?.inline) setMdError(null);
     try {
       const text = await ensureFullText(item);
       const title = item.topic || 'AI参照素材';
-      const safeTitle = sanitizeFilename(title);
       const mdContent = `# ${title}\n\n${sanitizeLatex(text)}`;
+      // 339: ファイル名は共通規則（禁止文字を除く・60字で切る・_YYYYMMDD.md）
       triggerDownload(
-        `${safeTitle}_${yyyymmdd()}.md`,
+        exportFileName(title, 'md'),
         mdContent,
         'text/markdown;charset=utf-8',
       );
-      flashToast('✅ MDファイルをダウンロードしました');
+      if (opts?.inline) {
+        setMdDoneId(item.id);
+        setTimeout(() => setMdDoneId((curr) => (curr === item.id ? null : curr)), 2000);
+      } else {
+        flashToast('✅ MDファイルをダウンロードしました');
+      }
     } catch {
-      flashToast('❌ ダウンロードに失敗しました');
+      if (opts?.inline) setMdError({ id: item.id, text: 'ダウンロードに失敗しました。通信状態を確認してもう一度押してください' });
+      else flashToast('❌ ダウンロードに失敗しました');
     } finally {
       setDownloadingId(null);
     }
@@ -1657,6 +1669,30 @@ export default function ContextLibraryPanel() {
                         {copiedId === item.id ? '✅ コピー済み' : '📋 コピー'}
                       </button>
                     )}
+                    {/* 339/R-136: ⬇ MD は密度（詳細／コンパクト）・展開の有無に関わらず常時この行に置く。
+                        中身は既存 handleDownloadMd（本文を遅延取得して「# タイトル + 原文」・R-71/R-91）。
+                        成功・失敗は押した場所で知らせる（inline: true・R-137）。「⋯」メニューからは外す＝同じカードに2つ置かない */}
+                    <button
+                      type="button"
+                      data-ctx-md={item.id}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        void handleDownloadMd(item, { inline: true });
+                      }}
+                      disabled={downloadingId === item.id}
+                      title="この素材の本文（原文）を Markdown ファイルでダウンロードします（展開しなくても押せます）"
+                      style={{
+                        ...cardActionBtnStyle(),
+                        padding: '2px 8px',
+                        fontSize: 10,
+                        ...(downloadingId === item.id ? { cursor: 'not-allowed', opacity: 0.6 } : {}),
+                        ...(mdDoneId === item.id
+                          ? { background: 'rgba(34,197,94,0.12)', borderColor: 'rgba(34,197,94,0.4)', color: '#16a34a' }
+                          : {}),
+                      }}
+                    >
+                      {downloadingId === item.id ? '⏳ 準備中...' : mdDoneId === item.id ? '✅ 保存しました' : '⬇ MD'}
+                    </button>
                   </div>
                   <div data-ctx-title style={{ fontSize: 16, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 4 }}>
                     {item.topic}
@@ -1697,9 +1733,16 @@ export default function ContextLibraryPanel() {
                   <InlineNotice notice={{ text: copyError.text, kind: 'error' }} onClose={() => setCopyError(null)} marker="ctx-copy-error" />
                 </div>
               )}
+              {/* 339/R-137: ⬇ MD も失敗だけ、このカードの中に in-flow の1行（成功はボタン自身の表示） */}
+              {mdError?.id === item.id && (
+                <div data-ctx-md-error={item.id} onClick={stopCardClick} style={{ marginBottom: 8 }}>
+                  <InlineNotice notice={{ text: mdError.text, kind: 'error' }} onClose={() => setMdError(null)} marker="ctx-md-error" />
+                </div>
+              )}
               {/* ── 共通操作バー（197: アクション列整理）──
                   常時表示は ▼全文表示 / 📋コピー / ☆お気に入り のみ。
-                  使用頻度の低い ⛶全画面 / ⬇テキスト / 📥MD / 📄Word / ✏編集 / 🗑削除 は
+                  使用頻度の低い ⛶全画面 / ⬇テキスト / 📄Word / ✏編集 / 🗑削除 は
+                  （339: ⬇ MD はバッジ行に常時置くのでここには入れない）
                   「⋯ その他」メニューに格納（各操作のハンドラ・挙動は無変更）。
                   モバイル幅でも1行に収まる本数に抑える。 */}
               {/* 295 §2-2: コンパクトでは操作バーを出さない（292 と同じ判断。本文はカードのクリック展開（274）で開ける） */}
@@ -1754,7 +1797,7 @@ export default function ContextLibraryPanel() {
                 <div data-ctx-more-menu style={{ position: 'relative', marginLeft: 'auto' }}>
                   <button
                     onClick={() => setMoreMenuId(moreMenuId === item.id ? null : item.id)}
-                    title="その他の操作（全画面・テキスト・MD・Word・編集・削除）"
+                    title="その他の操作（全画面・テキスト・Word・編集・削除）"
                     aria-label="その他の操作"
                     aria-haspopup="menu"
                     aria-expanded={moreMenuId === item.id}
@@ -1813,17 +1856,7 @@ export default function ContextLibraryPanel() {
                       >
                         {downloadingId === item.id ? '⏳ 準備中...' : '⬇ テキスト'}
                       </button>
-                      <button
-                        role="menuitem"
-                        onClick={() => { setMoreMenuId(null); handleDownloadMd(item); }}
-                        disabled={downloadingId === item.id}
-                        style={{
-                          ...moreMenuItemStyle,
-                          ...(downloadingId === item.id ? { cursor: 'not-allowed', opacity: 0.6 } : {}),
-                        }}
-                      >
-                        {downloadingId === item.id ? '⏳ 準備中...' : '📥 MD'}
-                      </button>
+                      {/* 339: 📥 MD はバッジ行の [⬇ MD] へ移した＝同じカードに2つ置かない（R-136: よく使う操作を ⋯ に埋めない） */}
                       <button
                         role="menuitem"
                         onClick={() => { setMoreMenuId(null); handleDownloadDocx(item); }}

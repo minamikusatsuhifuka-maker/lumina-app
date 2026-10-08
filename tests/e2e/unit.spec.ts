@@ -30,6 +30,8 @@ import * as inl333 from '../../src/lib/inline-notice';
 import * as rh334 from '../../src/lib/result-height';
 // 336: 人間らしく整える（純関数・定数）
 import * as hz336 from '../../src/lib/humanize';
+// 339: 書き出しファイル名の共通規則（純関数）
+import { exportFileName, sanitizeFilename, yyyymmdd } from '../../src/lib/title-generator';
 import * as tpl320 from '../../src/lib/visual-templates';
 import { renderMarkdown } from '../../src/lib/markdown-renderer';
 import { readFileSync } from 'node:fs';
@@ -6600,4 +6602,81 @@ test('U111: コピーで画面が動かない（338・R-137）— InlineNotice �
   expect((panel.match(/\{copied \? '✅ コピー済み' : '📋 コピー'\}/g) ?? []).length, '成果物: 操作行と全画面リーダーの両方のボタンが結果を示す').toBe(2);
   // 台帳
   expect(read('RULES.md'), 'R-137 が台帳にある').toMatch(/^## R-137: .*押した場所で知らせる/m);
+});
+
+
+// ───────────────────────────────────────────────────────────────────────────
+// 339: 保存一覧のカードに ⬇ MD（R-136 の横展開）— 純関数＋ソース固定
+// ───────────────────────────────────────────────────────────────────────────
+test('U112: カードの ⬇ MD（339）— ファイル名の共通規則（禁止文字 / \\ : * ? " < > | を除く・60字で切る・_YYYYMMDD.md）／🗂📚🧠 のバッジ行に密度の分岐の外で ⬇ MD がある／詳細の操作バー・⋯ メニューには残っていない（同じカードに2つ置かない）／成功はボタン自身・失敗はカード内の1行（R-137）／既存の書き出し処理を呼ぶ（R-91）／狭幅44pxは CSS 側（R-131）／RULES に 339', () => {
+  const read = (rel: string) => readFileSync(join(__dirname, '../../', rel), 'utf8');
+  const date = yyyymmdd();
+  // ① ファイル名の規則
+  expect(exportFileName('かゆみの要点', 'md'), '規則は タイトル_YYYYMMDD.md').toBe(`かゆみの要点_${date}.md`);
+  const dirty = 'ア/イ\\ウ:エ*オ?カ"キ<ク>ケ|コ';
+  const dirtyName = exportFileName(dirty, 'md');
+  expect(dirtyName, '禁止文字が残らない').toBe(`アイウエオカキクケコ_${date}.md`);
+  for (const ch of ['/', '\\', ':', '*', '?', '"', '<', '>', '|']) expect(dirtyName.includes(ch), `禁止文字 ${ch} が無い`).toBe(false);
+  const long = 'あ'.repeat(120);
+  const longName = exportFileName(long, 'md');
+  expect(longName.replace(`_${date}.md`, '').length, '長いタイトルは60字で切る').toBe(60);
+  expect(exportFileName('   ', 'md'), '空になるときも名前が付く').toBe(`untitled_${date}.md`);
+  expect(exportFileName('見出し', 'txt'), '拡張子は引数').toBe(`見出し_${date}.txt`);
+  expect(sanitizeFilename('ア/イ'), '禁止文字の除去は既存の関数（新しく書かない・R-91）').toBe('アイ');
+
+  // ② 🗂 保存一覧: バッジ行に常時（密度の分岐の外）・詳細の操作バーには無い
+  const saved = read('src/components/text-analysis/SavedAnalysisList.tsx');
+  const badges = saved.slice(saved.indexOf('data-ta-badges'), saved.indexOf('<div data-ta-title'));
+  expect(badges, '🗂: バッジ行に ⬇ MD がある').toMatch(/data-ta-md=\{record\.id\}/);
+  expect(badges, '🗂: バッジ行の ⬇ MD は密度の分岐の中に無い').not.toMatch(/listDensity === 'detail'[\s\S]{0,400}data-ta-md/);
+  expect(badges, '🗂: 既存の書き出し処理を呼ぶ（R-91）＋押した場所で知らせる（R-137）').toMatch(/handleDownloadMd\(record, \{ inline: true \}\)/);
+  expect(badges, '🗂: 展開を走らせない（R-81）').toMatch(/data-ta-md=\{record\.id\}[\s\S]{0,200}e\.stopPropagation\(\)/);
+  expect((saved.match(/data-ta-md=/g) ?? []).length, '🗂: ⬇ MD は1枚のカードに1つ').toBe(1);
+  const taBar = saved.slice(saved.indexOf('アクションバー（タイトル直下に配置）'), saved.indexOf('data-purpose-button={record.id}'));
+  expect(taBar, '🗂 詳細: 操作バーに 📥 MD のボタンは残っていない（移した旨のコメントだけ）').not.toMatch(/'📥 MD'/);
+  expect(taBar, '🗂 詳細: テキスト・Word は従来どおり').toMatch(/⬇ テキスト[\s\S]{0,800}📄 Word/);
+  expect(saved, '🗂: 失敗の1行はカードの中（in-flow・帯の部品）').toMatch(/data-ta-md-error=\{record\.id\}[\s\S]{0,300}<InlineNotice[^>]*kind: 'error'/);
+  expect(saved, '🗂: 成功はボタン自身（約2秒）').toMatch(/setMdDoneId\(record\.id\)[\s\S]{0,200}2000\)/);
+  expect(saved, '🗂: ファイル名は共通規則').toMatch(/triggerDownload\(exportFileName\(title, 'md'\)/);
+
+  // ③ 📚 リサーチ保存: バッジ行に常時・詳細の操作列には無い
+  const lir = read('src/components/LibraryItemRow.tsx');
+  const lirBadges = lir.slice(lir.indexOf('data-library-badges'), lir.indexOf('2行目: タイトル'));
+  expect(lirBadges, '📚: バッジ行に ⬇ MD がある').toMatch(/data-library-md=\{cur\.id\}/);
+  // バッジ行の ⬇ MD が「密度の分岐の外」にあること＝コピー（compact 限定）の分岐が閉じた後に出てくる
+  const lirCompactEnd = lirBadges.indexOf(')}', lirBadges.indexOf("📋 {copied ?"));
+  expect(lirCompactEnd, '📚: コピーの分岐（compact 限定）がある').toBeGreaterThan(0);
+  expect(lirBadges.indexOf('data-library-md'), '📚: ⬇ MD は密度の分岐の外（onExportMd があれば常時）').toBeGreaterThan(lirCompactEnd);
+  expect(lirBadges, '📚: 置く条件は書き出しの口があるかどうかだけ').toMatch(/\{onExportMd && \(\s*<button\s*type="button"\s*data-library-md/);
+  expect(lirBadges, '📚: 展開を走らせない（R-81）').toMatch(/data-library-md=\{cur\.id\}[\s\S]{0,200}e\.stopPropagation\(\)/);
+  expect(lir, '📚: 既存の書き出し処理（親の onExportMd）を呼ぶ（R-91）').toMatch(/onExportMd\(target\);/);
+  expect(lir, '📚: 詳細の操作列に 📥 MD は残っていない').not.toMatch(/title="Markdownをダウンロード"/);
+  expect((lir.match(/\{mdErrorNode\}/g) ?? []).length, '📚: compact／default の両方に失敗の1行の置き場').toBe(2);
+  expect(lir, '📚: 失敗の1行は帯の部品').toMatch(/data-library-md-error=\{item\.id\}[\s\S]{0,200}<InlineNotice[^>]*kind: 'error'/);
+  const libPage = read('src/app/dashboard/library/page.tsx');
+  expect(libPage, '📚: ファイル名は共通規則（🗂🧠 と同じ）').toMatch(/triggerDownload\(exportFileName\(item\.title \|\| '無題', 'md'\)/);
+
+  // ④ 🧠 AI参照素材: バッジ行に常時・⋯ メニューには無い
+  const clp = read('src/components/context-library/ContextLibraryPanel.tsx');
+  const clpBadges = clp.slice(clp.indexOf('data-ctx-badges'), clp.indexOf('<div data-ctx-title'));
+  expect(clpBadges, '🧠: バッジ行に ⬇ MD がある').toMatch(/data-ctx-md=\{item\.id\}/);
+  const clpCompactEnd = clpBadges.indexOf(')}', clpBadges.indexOf("'✅ コピー済み' : '📋 コピー'"));
+  expect(clpCompactEnd, '🧠: コピーの分岐（compact 限定）がある').toBeGreaterThan(0);
+  expect(clpBadges.indexOf('data-ctx-md'), '🧠: ⬇ MD は compact の分岐の外（常時）').toBeGreaterThan(clpCompactEnd);
+  expect(clpBadges, '🧠: 既存の書き出し処理を呼ぶ＋押した場所で知らせる').toMatch(/handleDownloadMd\(item, \{ inline: true \}\)/);
+  // ⋯ メニューの JSX（外側のクリック判定に同じ印が出てくるので、最後の出現＝JSX 側から切る）
+  const clpMore = clp.slice(clp.lastIndexOf('data-ctx-more-menu'), clp.lastIndexOf('🗑 削除'));
+  expect(clpMore, '🧠: ⋯ メニューに 📥 MD のボタンは残っていない（R-136: よく使う操作を ⋯ に埋めない）').not.toMatch(/'📥 MD'/);
+  expect(clpMore, '🧠: テキスト・Word は従来どおり ⋯ の中').toMatch(/⬇ テキスト[\s\S]{0,900}📄 Word/);
+  expect(clp, '🧠: 失敗の1行はカードの中').toMatch(/data-ctx-md-error=\{item\.id\}[\s\S]{0,300}<InlineNotice[^>]*kind: 'error'/);
+  expect(clp, '🧠: ファイル名は共通規則').toMatch(/exportFileName\(title, 'md'\)/);
+
+  // ⑤ 狭幅の大きさは CSS 側（R-131: インライン style には !important で勝つ）
+  const css = read('src/app/globals.css');
+  const mq = css.slice(css.indexOf('339: カードのバッジ行に常時置く操作'));
+  expect(mq.slice(0, 700), '狭幅でバッジ行の ⬇ MD は 44px 以上').toMatch(/@media \(max-width: 640px\) \{[\s\S]{0,600}button\[data-ta-md\][\s\S]{0,400}min-height: 44px/);
+  for (const sel of ['button[data-library-md]', 'button[data-ctx-md]', 'button[data-ta-copy]']) expect(mq.slice(0, 700), `${sel} も同じ規則`).toContain(sel);
+
+  // ⑥ 台帳
+  expect(read('RULES.md'), 'R-136 に 339（⬇ MD）が入っている').toMatch(/^## R-136:[\s\S]{0,2000}339/m);
 });

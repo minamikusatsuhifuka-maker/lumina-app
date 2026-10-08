@@ -4940,8 +4940,9 @@ test('C83: リサーチ保存の全画面表示（282）— ⛶で共通リー�
     await card.locator('button[title="本文をコピー"]').click();
     expect(await page.evaluate(() => navigator.clipboard.readText()), 'カードの📋が本文を含むこと').toContain(heading);
     const dl = page.waitForEvent('download');
-    await card.locator('button[title="Markdownをダウンロード"]').click();
-    expect((await dl).suggestedFilename(), '📥でMDが落ちること').toMatch(/\.md$/);
+    // 339: MD はバッジ行の [⬇ MD]（密度に関わらず常時）。詳細の操作列からは外した
+    await card.locator(`[data-library-md="${itemId}"]`).click();
+    expect((await dl).suggestedFilename(), '⬇ MD でMDが落ちること').toMatch(/\.md$/);
     await page.locator(`[data-favorite-button="${itemId}"]`).click();
     const picker = page.locator('[data-folder-picker]');
     await expect(picker, '☆から分類パネルが開くこと').toBeVisible();
@@ -14548,5 +14549,185 @@ test('C156: コピーで画面が動かない（338・R-137・PC幅＋WebKit iPh
     await cleanupE2ELibrary(request);
     await cleanupE2ESaves(request);
     await cleanupE2EContextSaves(request);
+  }
+});
+
+// ───────────────────────────────────────────────────────────────────────────
+// 339: 🗂📚🧠 のカードから ⬇ MD でダウンロード（R-136 の横展開）
+// ───────────────────────────────────────────────────────────────────────────
+test('C157: カードの ⬇ MD（339・R-136/R-137）— 🗂保存一覧・📚リサーチ保存・🧠AI参照素材のカードでコンパクト・詳細の両方とも展開せずに ⬇ MD が押せ .md が落ちる／ファイル名に禁止文字が無く60字以内＋_YYYYMMDD／中身が原文（MD記法のまま）／押しても scrollY・主カラムの scrollTop・URL が変わらずカードが開かない・先頭の帯やトーストが出ない／同じカードに2つ置かない／WebKit iPhone幅は44px以上・交差0・横スクロールなし', async ({ page, request }) => {
+  test.setTimeout(300_000);
+  const { readFileSync } = await import('node:fs');
+  const marker = `MD339${RUN_ID}`;
+  // タイトルに禁止文字（/ \ : * ? " < > |）と長い文字列を入れて、ファイル名の規則を実物で見る
+  const dirtyTitle = `MD-T ${marker}/\\:*?"<>|` + 'あ'.repeat(70);
+  const raw = `## 見出し ${marker}\n\n**太字の要点**と *斜体* を含む本文。\n\n- 箇条書き1\n- 箇条書き2\n\n${'保湿は入浴後5分以内に。'.repeat(10)}`;
+  const now = new Date().toISOString();
+  const t1 = await createSave(request, { title: dirtyTitle, content: raw, analysisType: 'summary', analysisLabel: '概要・要約' });
+  const l1 = await postLibraryRow(request, { type: 'deepresearch', title: withE2EPrefix(`MD-L ${marker}/\\:*?"<>|`), content: raw, metadata: { savedAt: now }, tags: 'ディープリサーチ', group_name: 'ディープリサーチ' });
+  const x1 = await createContextSave(request, { topic: `MD-X ${marker}/\\:*?"<>|`, contextText: raw });
+  type Pg = import('@playwright/test').Page;
+  const FORBIDDEN = ['/', '\\', ':', '*', '?', '"', '<', '>', '|'];
+  const scrollState = (pg: Pg) => pg.evaluate(() => {
+    const main = document.querySelector('main.dashboard-main') as HTMLElement | null;
+    return { y: Math.round(window.scrollY), main: Math.round(main?.scrollTop ?? 0), url: location.href };
+  });
+  /** 展開せずに ⬇ MD を押し、落ちたファイルと画面の動かなさを判定する */
+  const checkMd = async (
+    pg: Pg,
+    label: string,
+    btn: import('@playwright/test').Locator,
+    opts: { expanded: import('@playwright/test').Locator; notices: string },
+  ) => {
+    await expect(btn, `${label}: ⬇ MD が見える`).toBeVisible({ timeout: 30000 });
+    await expect(btn, `${label}: 押す前のラベル`).toHaveText(/⬇ MD/);
+    // 対象を画面の中央に置く（＝一覧の途中まで進めた状態・R-137）
+    await btn.evaluate((el) => el.scrollIntoView({ block: 'center', behavior: 'instant' as ScrollBehavior }));
+    await pg.waitForTimeout(300);
+    const before = await scrollState(pg);
+    const waitDl = pg.waitForEvent('download', { timeout: 30000 });
+    await btn.click();
+    const dl = await waitDl;
+    const name = dl.suggestedFilename();
+    expect(name, `${label}: .md が落ちる（${name}）`).toMatch(/\.md$/);
+    for (const ch of FORBIDDEN) expect(name.includes(ch), `${label}: ファイル名に ${ch} が無い`).toBe(false);
+    expect(name, `${label}: 末尾は _YYYYMMDD.md`).toMatch(/_\d{8}\.md$/);
+    const base = name.replace(/_\d{8}\.md$/, '');
+    expect(base.length, `${label}: タイトル部は60字以内（${base.length}字）`).toBeLessThanOrEqual(60);
+    const file = await dl.path();
+    expect(file, `${label}: ファイルが取れる`).not.toBeNull();
+    const text = readFileSync(file!, 'utf8');
+    expect(text, `${label}: 中身は原文（MD記法のまま・R-71）`).toContain(`## 見出し ${marker}`);
+    expect(text, `${label}: 太字の記法がそのまま`).toContain('**太字の要点**');
+    expect(text, `${label}: 箇条書きもそのまま`).toContain('- 箇条書き1');
+    expect(text.startsWith('# '), `${label}: 先頭は「# タイトル」（既存の形）`).toBe(true);
+    // 押した場所で知らせる（R-137）: 画面は動かない・カードは開かない・帯は出ない
+    const after = await scrollState(pg);
+    expect(Math.abs(after.y - before.y), `${label}: window.scrollY が動かない（${before.y}→${after.y}）`).toBeLessThanOrEqual(2);
+    expect(Math.abs(after.main - before.main), `${label}: 主カラムの scrollTop が動かない（${before.main}→${after.main}）`).toBeLessThanOrEqual(2);
+    expect(after.url, `${label}: URL が変わらない`).toBe(before.url);
+    await expect(opts.expanded, `${label}: カードが開かない（R-81）`).toHaveCount(0);
+    await expect(pg.locator(opts.notices), `${label}: 先頭の帯・固定トーストを出さない`).toHaveCount(0);
+    await expect(btn, `${label}: ボタン自身が「保存しました」になる`).toHaveText(/保存しました/, { timeout: 10000 });
+    await expect(btn, `${label}: 約2秒で元に戻る`).toHaveText(/⬇ MD/, { timeout: 8000 });
+  };
+  try {
+    // ════ 🗂 保存一覧（コンパクト → 詳細）════
+    await page.goto('/dashboard/saved');
+    const panel = page.locator('[data-saved-panel="text-analysis"]');
+    await panel.locator('[data-kb-search]').fill(marker);
+    const tCard = panel.locator(`[data-analysis-card="${t1}"]`);
+    await expect(tCard).toBeVisible({ timeout: 30000 });
+    await panel.locator('[data-library-density-choice="compact"]').click();
+    await expect(panel.locator('[data-library-grid]')).toHaveAttribute('data-library-density', 'compact');
+    await checkMd(page, '🗂 コンパクト', tCard.locator(`[data-ta-md="${t1}"]`), {
+      expanded: tCard.locator(`[data-ta-expanded-body="${t1}"]`),
+      notices: '[data-inline-notice="ta-saved"], [data-toast-layer] > *',
+    });
+    await panel.locator('[data-library-density-choice="detail"]').click();
+    await expect(tCard.locator(`[data-ta-md="${t1}"]`), '🗂 詳細: ⬇ MD は1つだけ（同じカードに2つ置かない）').toHaveCount(1);
+    await expect(tCard.locator('button', { hasText: /📥 MD/ }), '🗂 詳細: 操作バーの 📥 MD は消えている').toHaveCount(0);
+    await checkMd(page, '🗂 詳細', tCard.locator(`[data-ta-md="${t1}"]`), {
+      expanded: tCard.locator(`[data-ta-expanded-body="${t1}"]`),
+      notices: '[data-inline-notice="ta-saved"], [data-toast-layer] > *',
+    });
+    // 退行: テキスト・Word は従来どおり詳細の操作バーに残る
+    await expect(tCard.locator('button', { hasText: /⬇ テキスト/ })).toHaveCount(1);
+    await expect(tCard.locator('button', { hasText: /📄 Word/ })).toHaveCount(1);
+
+    // ════ 📚 リサーチ保存（コンパクト → 詳細）════
+    await page.goto('/dashboard/library');
+    await page.locator('[data-library-search]').fill(marker);
+    const lCard = page.locator(`[data-library-card="${l1}"]`);
+    await expect(lCard).toBeVisible({ timeout: 30000 });
+    await page.locator('[data-library-density-choice="compact"]').click();
+    await expect(page.locator('[data-library-grid]')).toHaveAttribute('data-library-density', 'compact');
+    await checkMd(page, '📚 コンパクト', lCard.locator(`[data-library-md="${l1}"]`), {
+      expanded: lCard.locator('.markdown-body'),
+      notices: '[data-inline-notice="gallery"], [data-toast-layer] > *',
+    });
+    await page.locator('[data-library-density-choice="detail"]').click();
+    await expect(lCard.locator(`[data-library-md="${l1}"]`), '📚 詳細: ⬇ MD は1つだけ').toHaveCount(1);
+    await checkMd(page, '📚 詳細', lCard.locator(`[data-library-md="${l1}"]`), {
+      expanded: lCard.locator('.markdown-body'),
+      notices: '[data-inline-notice="gallery"], [data-toast-layer] > *',
+    });
+
+    // ════ 🧠 AI参照素材（コンパクト → 詳細）════
+    await page.goto('/dashboard/context-library');
+    await page.locator('[data-kb-search]').fill(marker);
+    const xCard = page.locator(`[data-ctx-card="${x1}"]`);
+    await expect(xCard).toBeVisible({ timeout: 30000 });
+    await page.locator('[data-library-density-choice="compact"]').click();
+    await expect(page.locator('[data-library-grid]')).toHaveAttribute('data-library-density', 'compact');
+    await checkMd(page, '🧠 コンパクト', xCard.locator(`[data-ctx-md="${x1}"]`), {
+      expanded: xCard.locator(`[data-ctx-expanded-body="${x1}"]`),
+      notices: '[data-toast-layer] > *',
+    });
+    await page.locator('[data-library-density-choice="detail"]').click();
+    await expect(xCard.locator(`[data-ctx-md="${x1}"]`), '🧠 詳細: ⬇ MD は1つだけ').toHaveCount(1);
+    await checkMd(page, '🧠 詳細', xCard.locator(`[data-ctx-md="${x1}"]`), {
+      expanded: xCard.locator(`[data-ctx-expanded-body="${x1}"]`),
+      notices: '[data-toast-layer] > *',
+    });
+    // 退行: ⋯ メニューからは MD が消え、テキスト・Word は残る
+    await xCard.locator('[data-ctx-more-menu] button').first().click();
+    const menu = xCard.locator('[data-ctx-more-menu] [role="menu"]');
+    await expect(menu).toBeVisible();
+    await expect(menu.getByRole('menuitem', { name: /📥 MD/ }), '🧠: ⋯ の中に MD は無い').toHaveCount(0);
+    await expect(menu.getByRole('menuitem', { name: /⬇ テキスト/ })).toBeVisible();
+    await expect(menu.getByRole('menuitem', { name: /📄 Word/ })).toBeVisible();
+    await page.keyboard.press('Escape');
+  } finally {
+    await request.delete(LIBRARY_API, { data: { ids: [l1] } }).catch(() => {});
+    await cleanupE2ELibrary(request);
+    await cleanupE2ESaves(request);
+    await cleanupE2EContextSaves(request);
+  }
+
+  // ════ WebKit iPhone幅: バッジ行の ⬇ MD は44px以上・他と交差0・横スクロールなし ════
+  const marker2 = `MD339W${RUN_ID}`;
+  const t2 = await createSave(request, { title: `MD-W ${marker2}`, content: raw, analysisType: 'summary', analysisLabel: '概要・要約' });
+  const wk = await webkit.launch();
+  const ctx = await wk.newContext({ storageState: STORAGE_STATE, baseURL: BASE_URL, hasTouch: true, isMobile: true, viewport: { width: 390, height: 844 }, serviceWorkers: 'block', acceptDownloads: true });
+  const mp = await ctx.newPage();
+  try {
+    await mp.goto('/dashboard/saved');
+    const panel = mp.locator('[data-saved-panel="text-analysis"]');
+    await panel.locator('[data-kb-search]').fill(marker2);
+    const card = panel.locator(`[data-analysis-card="${t2}"]`);
+    await expect(card).toBeVisible({ timeout: 30000 });
+    await panel.locator('[data-library-density-choice="compact"]').click();
+    const geom = await card.evaluate((el, id) => {
+      const b = el.querySelector(`[data-ta-md="${id}"]`) as HTMLElement | null;
+      if (!b) return null;
+      const r = b.getBoundingClientRect();
+      const others = [...el.querySelectorAll('button, a')].filter((o) => o !== b) as HTMLElement[];
+      let worst = 0;
+      for (const o of others) {
+        const q = o.getBoundingClientRect();
+        if (q.width === 0 || q.height === 0) continue;
+        const ix = Math.max(0, Math.min(r.right, q.right) - Math.max(r.left, q.left));
+        const iy = Math.max(0, Math.min(r.bottom, q.bottom) - Math.max(r.top, q.top));
+        worst = Math.max(worst, ix * iy);
+      }
+      return { h: Math.round(r.height), overlap: Math.round(worst), fits: r.left >= 0 && r.right <= window.innerWidth + 1, visible: b.offsetParent !== null };
+    }, String(t2));
+    expect(geom, '狭幅でも ⬇ MD がある').not.toBeNull();
+    expect(geom!.visible, '見えている').toBe(true);
+    expect(geom!.h, '押しやすい高さ（44px以上）').toBeGreaterThanOrEqual(44);
+    expect(geom!.overlap, '他の操作要素と重ならない（R-133）').toBe(0);
+    expect(geom!.fits, '画面幅に収まる（折り返して横に溢れない）').toBe(true);
+    const overflowX = await mp.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+    expect(overflowX, '横スクロールなし').toBeLessThanOrEqual(1);
+    // 狭幅でも押せて .md が落ちる
+    const waitDl = mp.waitForEvent('download', { timeout: 30000 });
+    await card.locator(`[data-ta-md="${t2}"]`).click();
+    expect((await waitDl).suggestedFilename(), '狭幅でも .md が落ちる').toMatch(/\.md$/);
+    await expect(card.locator(`[data-ta-expanded-body="${t2}"]`), '狭幅でもカードが開かない').toHaveCount(0);
+  } finally {
+    await ctx.close();
+    await wk.close();
+    await cleanupE2ESaves(request);
   }
 });

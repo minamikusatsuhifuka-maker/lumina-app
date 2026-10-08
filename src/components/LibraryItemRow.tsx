@@ -274,6 +274,29 @@ export function LibraryItemRow({
     </div>
   ) : null;
 
+  // 339/R-136: ⬇ MD も密度・展開に関わらず常時出す。書き出しの中身・ファイル名は呼び出し側の
+  // onExportMd（親の downloadMd）をそのまま呼ぶ＝新しく書かない（R-91）。
+  // 成功は押したボタン自身（約2秒「✅ 保存しました」）、失敗だけカードの中に1行（R-137）
+  const [mdDone, setMdDone] = useState(false);
+  const [mdError, setMdError] = useState<string | null>(null);
+  // 対象の行は item と同じ型（このファイルの行の型は Props のまま）
+  const handleExportMd = (target: typeof item) => {
+    setMdError(null);
+    if (!onExportMd) return;
+    if (!(target.content || '')) {
+      setMdError('本文がまだ読み込まれていません。本文を開いてからもう一度押してください');
+      return;
+    }
+    onExportMd(target);
+    setMdDone(true);
+    setTimeout(() => setMdDone(false), 2000);
+  };
+  const mdErrorNode = mdError ? (
+    <div data-library-md-error={item.id} onClick={(e) => e.stopPropagation()}>
+      <InlineNotice notice={{ text: mdError, kind: 'error' }} onClose={() => setMdError(null)} marker="library-md-error" />
+    </div>
+  ) : null;
+
   // 282/R-81: 展開の当たり判定はタイトル・メタ情報の領域だけ。ボタン類・リンク・本文は含めず、
   // その中の操作は stopPropagation で上へ伝えない（領域限定と併せた二重の守り）
   const stopCardClick = (e: React.MouseEvent) => e.stopPropagation();
@@ -475,6 +498,25 @@ export function LibraryItemRow({
               📋 {copied ? 'コピー済' : 'コピー'}
             </button>
           )}
+          {/* 339/R-136: ⬇ MD は密度（詳細／コンパクト）・展開の有無に関わらず常時この行に置く。
+              詳細の操作列（ホバー表示）からは外す＝同じカードに2つ置かない */}
+          {onExportMd && (
+            <button
+              type="button"
+              data-library-md={cur.id}
+              onClick={(e) => {
+                e.stopPropagation();
+                handleExportMd(cur);
+              }}
+              style={{
+                ...compactBtnStyle,
+                ...(mdDone ? { background: 'rgba(34,197,94,0.12)', borderColor: 'rgba(34,197,94,0.4)', color: '#16a34a' } : {}),
+              }}
+              title={hasArtifacts ? `${kindLabel}（原文）を Markdown ファイルでダウンロード（展開しなくても押せます）` : '本文（原文）を Markdown ファイルでダウンロード（展開しなくても押せます）'}
+            >
+              {mdDone ? '✅ 保存しました' : '⬇ MD'}
+            </button>
+          )}
         </div>
 
         {/* 2行目: タイトル（★は常時表示） */}
@@ -580,6 +622,7 @@ export function LibraryItemRow({
         )}
 
         {copyErrorNode}
+        {mdErrorNode}
         {/* 操作ボタン: ホバー時オーバーレイ表示（タッチ端末は常時表示）。283: 成果物タブがあれば選択中の成果物に対して動く。
             291 §3-2: 密度=コンパクトでは出さない（高さを抑える。操作は詳細に切り替えるか、クリック展開→本文内から） */}
         {density === 'detail' && (
@@ -616,11 +659,7 @@ export function LibraryItemRow({
               <span className="xl:hidden">{copied ? ' コピー済' : ' コピー'}</span>
             </button>
           )}
-          {onExportMd && (
-            <button type="button" onClick={() => onExportMd(cur)} style={compactBtnStyle} title="Markdownをダウンロード">
-              📥<span className="xl:hidden"> MD</span>
-            </button>
-          )}
+          {/* 339: 📥 MD はバッジ行の [⬇ MD] へ移した＝同じカードに2つ置かない（337 の 📋 コピーと同じ扱い） */}
           {visualLink(String(cur.id), compactBtnStyle)}
           {typeof packCount === 'number' && packCount > 0 && <span data-library-pack-count={packCount} title="このまとめから作ったプレゼン素材の件数" style={{ ...compactBtnStyle, cursor: 'default', color: '#6c63ff' }}>🎁 {packCount}</span>}
           <MandalaGenerateButton scope="library" itemKey={String(cur.id)} title={cur.title || '(無題)'} charCount={charCountOf(cur)} style={compactBtnStyle} label={<>🔲<span className="xl:hidden"> マンダラ</span></>} />
@@ -947,6 +986,7 @@ export function LibraryItemRow({
           </div>
 
           {copyErrorNode}
+          {mdErrorNode}
           {/* ── アクションバー（タイトル直下に配置） ── */}
           <div
             onClick={stopCardClick}
@@ -982,8 +1022,17 @@ export function LibraryItemRow({
               📋 {copied ? 'コピー済' : 'コピー'}
             </button>
             {onExportMd && (
-              <button type="button" onClick={() => onExportMd(item)} style={btnStyle}>
-                📥 MD
+              <button
+                type="button"
+                data-library-md={item.id}
+                onClick={() => handleExportMd(item)}
+                style={{
+                  ...btnStyle,
+                  ...(mdDone ? { background: 'rgba(34,197,94,0.12)', borderColor: 'rgba(34,197,94,0.4)', color: '#16a34a' } : {}),
+                }}
+                title="本文（原文）を Markdown ファイルでダウンロード"
+              >
+                {mdDone ? '✅ 保存しました' : '⬇ MD'}
               </button>
             )}
             {visualLink(String(item.id), btnStyle)}

@@ -15,7 +15,7 @@ import { copyToClipboard } from '@/lib/copyToClipboard';
 import { confirmBulkDelete } from '@/lib/bulk-delete-confirm';
 import { copyRichMarkdown } from '@/lib/rich-copy';
 import { sanitizeLatex } from '@/lib/markdown-renderer';
-import { sanitizeFilename, yyyymmdd } from '@/lib/title-generator';
+import { exportFileName, sanitizeFilename, yyyymmdd } from '@/lib/title-generator';
 import { triggerDownload } from '@/lib/download';
 import { markdownToReadableText } from '@/lib/markdownToText';
 import FullscreenReader from '@/components/text-analysis/FullscreenReader';
@@ -295,6 +295,9 @@ export default function SavedAnalysisList({
   const [editSaving, setEditSaving] = useState(false);
   // MDダウンロード中のID（本文取得中の同時押し防止）
   const [downloadingId, setDownloadingId] = useState<number | null>(null);
+  // 339/R-137: カードの ⬇ MD は押したボタン自身で知らせる（成功=約2秒「✅ 保存しました」／失敗=カード内に1行）
+  const [mdDoneId, setMdDoneId] = useState<number | null>(null);
+  const [mdError, setMdError] = useState<{ id: number; text: string } | null>(null);
   // 選択項目の一括MDダウンロード（ZIP）中フラグ（二度押し防止）
   const [bulkDownloading, setBulkDownloading] = useState(false);
 
@@ -727,30 +730,43 @@ export default function SavedAnalysisList({
 
   // 個別レコードを .md ファイルとしてダウンロード（216: 一覧カードの表示タイトルを
   // そのまま使用。AI再生成はしない＝表示と同じファイル名になる。モデル表記付き）
-  const handleDownloadMd = async (record: AnalysisRecord) => {
+  // 339: opts.inline = カードのバッジ行（⬇ MD）から押された。成功・失敗は押した場所で知らせ、
+  // 一覧の先頭の帯（showToast）は出さない＝スクロール位置を動かさない（R-137）。
+  // 処理（本文の遅延取得・MD整形・ファイル名規則）は従来のまま共有する（R-91）
+  const handleDownloadMd = async (record: AnalysisRecord, opts?: { inline?: boolean }) => {
     if (downloadingId !== null) return; // 同時押し防止
     setDownloadingId(record.id);
+    if (opts?.inline) setMdError(null);
+    const fail = (text: string) => {
+      if (opts?.inline) setMdError({ id: record.id, text });
+      else showToast(text, 'error');
+    };
     try {
       // 194: 本文は遅延取得（一覧APIは本文を返さない）
       const content = await fetchContent(record.id);
       if (content === null) {
-        showToast('本文の取得に失敗しました', 'error');
+        fail('本文の取得に失敗しました。通信状態を確認してもう一度押してください');
         return;
       }
       const label =
         record.analysis_label || record.analysis_type || '分析結果';
       const title = record.auto_title || record.file_name || label;
-      const safeTitle = sanitizeFilename(title);
       // モデル情報があれば生成AI行を追加（旧データは undefined → 出力なし）
       const modelLine = record.model
         ? `> 生成AI: ${getModelIcon(record.model)} ${getModelLabel(record.model)}\n\n---\n\n`
         : '';
       const mdContent = `# ${title}\n\n${modelLine}${sanitizeLatex(content)}`;
 
-      triggerDownload(`${safeTitle}_${yyyymmdd()}.md`, mdContent, 'text/markdown;charset=utf-8');
-      showToast('MDファイルをダウンロードしました', 'success');
+      // 339: ファイル名は共通規則（禁止文字を除く・60字で切る・_YYYYMMDD.md）
+      triggerDownload(exportFileName(title, 'md'), mdContent, 'text/markdown;charset=utf-8');
+      if (opts?.inline) {
+        setMdDoneId(record.id);
+        setTimeout(() => setMdDoneId((curr) => (curr === record.id ? null : curr)), 2000);
+      } else {
+        showToast('MDファイルをダウンロードしました', 'success');
+      }
     } catch {
-      showToast('ダウンロードに失敗しました', 'error');
+      fail('ダウンロードに失敗しました。もう一度押してください');
     } finally {
       setDownloadingId(null);
     }
@@ -2659,6 +2675,32 @@ export default function SavedAnalysisList({
                       >
                         {copiedId === record.id ? '✅ コピー済み' : '📋 コピー'}
                       </button>
+                      {/* 339/R-136: ⬇ MD も密度（詳細／コンパクト）・展開の有無に関わらず常時この行に置く。
+                          中身は既存 handleDownloadMd（本文を遅延取得して「# タイトル + 生成AI行 + 原文」・R-71/R-91）。
+                          成功・失敗は押した場所で知らせる（inline: true＝一覧の先頭の帯を出さない・R-137）。
+                          詳細の操作バーからは外す＝同じカードに2つ置かない（337 と同じ扱い） */}
+                      <button
+                        type="button"
+                        data-ta-md={record.id}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          void handleDownloadMd(record, { inline: true });
+                        }}
+                        disabled={downloadingId === record.id}
+                        title="この分析の本文（原文）を Markdown ファイルでダウンロードします（展開しなくても押せます）"
+                        style={{
+                          padding: '0 6px',
+                          borderRadius: 6,
+                          border: `1px solid ${mdDoneId === record.id ? 'rgba(34,197,94,0.4)' : 'var(--border)'}`,
+                          background: mdDoneId === record.id ? 'rgba(34,197,94,0.12)' : 'transparent',
+                          color: mdDoneId === record.id ? '#16a34a' : 'var(--text-secondary)',
+                          fontSize: 11,
+                          cursor: downloadingId === record.id ? 'not-allowed' : 'pointer',
+                          opacity: downloadingId === record.id ? 0.6 : 1,
+                        }}
+                      >
+                        {downloadingId === record.id ? '⏳ 準備中...' : mdDoneId === record.id ? '✅ 保存しました' : '⬇ MD'}
+                      </button>
                       {record.folder && folderColor && (
                         <span
                           style={{
@@ -2715,6 +2757,12 @@ export default function SavedAnalysisList({
                         <InlineNotice notice={{ text: copyError.text, kind: 'error' }} onClose={() => setCopyError(null)} marker="ta-copy-error" />
                       </div>
                     )}
+                    {/* 339/R-137: ⬇ MD も失敗だけ、このカードの中に in-flow の1行（成功はボタン自身の表示） */}
+                    {mdError?.id === record.id && (
+                      <div data-ta-md-error={record.id} onClick={stopCardClick} style={{ marginBottom: 8 }}>
+                        <InlineNotice notice={{ text: mdError.text, kind: 'error' }} onClose={() => setMdError(null)} marker="ta-md-error" />
+                      </div>
+                    )}
                     {/* ── アクションバー（タイトル直下に配置）。292: 密度=コンパクトでは出さない（高さを抑える） ── */}
                     {listDensity === 'detail' && (
                     <div
@@ -2759,21 +2807,7 @@ export default function SavedAnalysisList({
                           ? '⏳ 準備中...'
                           : '⬇ テキスト'}
                       </button>
-                      <button
-                        type="button"
-                        onClick={() => handleDownloadMd(record)}
-                        disabled={downloadingId === record.id}
-                        style={{
-                          ...listBtnStyle(),
-                          cursor:
-                            downloadingId === record.id ? 'not-allowed' : 'pointer',
-                          opacity: downloadingId === record.id ? 0.6 : 1,
-                        }}
-                      >
-                        {downloadingId === record.id
-                          ? '⏳ 準備中...'
-                          : '📥 MD'}
-                      </button>
+                      {/* 339: 📥 MD はバッジ行（上）の [⬇ MD] へ移した＝同じカードに2つ置かない（337 の 📋 コピーと同じ扱い） */}
                       <button
                         type="button"
                         onClick={() => handleDownloadDocx(record)}

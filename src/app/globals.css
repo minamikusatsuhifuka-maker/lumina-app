@@ -670,6 +670,22 @@ a[role="button"]:has(p) {
   height: auto !important;
   min-height: 44px !important;
 }
+/* ─── 339: カードのバッジ行に常時置く操作（📋 コピー・⬇ MD）は、狭幅では指で押せる大きさにする（R-133/R-134） ───
+   対象は3画面のカードのバッジ行だけ（🗂成果物の操作行は上の規則が持つ）。
+   インライン style の padding / font-size / border-radius には !important で勝つ（R-131） */
+@media (max-width: 640px) {
+  [data-ta-badges] button[data-ta-copy],
+  [data-ta-badges] button[data-ta-md],
+  [data-library-badges] button[data-library-copy],
+  [data-library-badges] button[data-library-md],
+  [data-ctx-badges] button[data-ctx-copy],
+  [data-ctx-badges] button[data-ctx-md] {
+    min-height: 44px;
+    padding: 0 12px !important;
+    font-size: 12px !important;
+    border-radius: 8px !important;
+  }
+}
 /* 🗂保存一覧の展開ビューの高さ行。大きさは CSS 側が持つ（インライン style だと下のMQで勝てない・R-131） */
 [data-ta-height-row] button {
   padding: 2px 8px;

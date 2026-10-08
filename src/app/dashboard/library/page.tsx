@@ -43,6 +43,7 @@ import {
   type FolderFilter,
 } from '@/components/custom-folders/useCustomFolders';
 import { triggerDownload } from '@/lib/download';
+import { exportFileName } from '@/lib/title-generator';
 import { KINDLE_LIBRARY_TYPES, MAX_KINDLE_SOURCES } from '@/lib/kindle-limits';
 import { LibraryItemRow, type LibraryArtifactView } from '@/components/LibraryItemRow';
 // 283: 同一リサーチの本文・要約を1枚のカードにまとめる判定（表示側のみ・DB無変更）
@@ -526,7 +527,8 @@ function LibraryPageInner() {
   };
   const downloadMd = (item: any) => {
     const text = `# ${item.title}\n\n> 作成日: ${new Date(item.created_at).toLocaleDateString('ja-JP')}\n\n${item.content || ''}`;
-    triggerDownload(`${item.title.slice(0, 30)}.md`, text, 'text/plain');
+    // 339: ファイル名は 🗂🧠 と同じ共通規則（禁止文字を除く・60字で切る・_YYYYMMDD.md）
+    triggerDownload(exportFileName(item.title || '無題', 'md'), text, 'text/markdown;charset=utf-8');
   };
 
   /* ── フォルダ操作 ── */
