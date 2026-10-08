@@ -1,7 +1,7 @@
 import { test, expect } from '@playwright/test';
 import { RUN_ID, createSave, deleteSave, createLibraryItem, createMandalaChart, saveMandalaCell, deleteMandalaChart, createEpisode, addMandalaLinks } from './helpers';
 import { findBadHeadingLines, findMultiSentenceLines } from '../../src/lib/note-format';
-import { diffNumbers } from '../../src/lib/humanize';
+import { diffNumbers, findAiTells } from '../../src/lib/humanize';
 // 335: モデルIDは実装と同じ定数から見る（R-91）
 import { GEMINI_TEXT_MODEL } from '../../src/lib/ai-models';
 import { MANDALA_PAID_LINE_MARKER } from '../../src/lib/mandala-note';
@@ -1403,4 +1403,44 @@ test('B49: 人間らしく整える（336）— Kindle 1章（旧「Kindle書籍
   // Kindle 本文には 1文1行を当てない＝句点の後に続く文がある行が残る
   expect(findMultiSentenceLines(String(ev.content)).length, '1文1行が当たっていない').toBeGreaterThan(0);
   expect(hz.adCheck?.status === 'ok' || hz.adCheck?.status === 'warn', '医療ガードが併記').toBe(true);
+});
+
+// 339追補§3: B48/B49 は生成文まかせで「元から1〜2件のときは減らない」ことがあり判定を緩めた（336・a23ed32）。
+// 緩めた分の穴を、AIっぽい言い回しを**多く含む固定の入力**で塞ぐ（入力が毎回同じなので「減る（<）」を厳しく固定できる）。
+// 数字を1つも含まない入力にして、整える工程が数字を足したら（＝事実が変わったら）採用されないことも同時に見る。
+const HUMANIZE_FIXED_INPUT = [
+  '## 乾燥肌のケアは非常に重要です',
+  '',
+  '第一に、毎日の保湿は継続的な成長の観点から極めて重要であり、スキンケアの重要なポイントと見なされています。',
+  '第二に、入浴後の保湿は肌のバリア機能の回復を促進し、健やかな肌を実現すると言われています。',
+  '第三に、ダイナミックな季節の変化に合わせたケアは必見であり、乾燥対策の完全ガイドとして知られています。',
+  '保湿剤は、べたつくのではなく、軽い質感である。',
+  '乾燥への備えは、冬だけでなく、夏でもある。',
+  '日々のケアは見直される必要があります。',
+  '参考になれば幸いです。今後もご注目ください。',
+].join('\n');
+
+test('B50: 人間らしく整える（336・339追補）— AIっぽい言い回しを多く含む「固定の入力」を /api/humanize に渡すと、整えた版が採用され AIらしさの件数が必ず減る（<）／件数の数え方は実装の findAiTells と同じ／数字を含まない入力に数字が足されない @gen', async ({ request }) => {
+  test.setTimeout(GEN_TIMEOUT);
+  const started = Date.now();
+  const before = findAiTells(HUMANIZE_FIXED_INPUT);
+  expect(before.count, `固定の入力は AIらしい言い回しを多く含む（${before.hits.map((h) => `${h.label}×${h.count}`).join('／')}）`).toBeGreaterThanOrEqual(3);
+  const res = await request.post('/api/humanize', {
+    data: { content: HUMANIZE_FIXED_INPUT, kind: 'note' },
+    timeout: REQ_TIMEOUT,
+  });
+  const data = await res.json().catch(() => ({}));
+  expect(res.status(), JSON.stringify(data).slice(0, 300)).toBe(200);
+  const content = String(data.content ?? '');
+  const hz = data.humanize as { applied: boolean; reason?: string; tellsBefore: number; tellsAfter: number; warnings: string[]; before?: string; elapsedMs?: number; attempts?: number; usage?: { input: number; output: number } };
+  expect(hz, 'humanize の記録が返る').toBeTruthy();
+  console.log(`[B50] applied=${hz.applied} reason=${hz.reason ?? '-'} tells ${hz.tellsBefore}→${hz.tellsAfter} attempts=${hz.attempts} elapsed=${hz.elapsedMs}ms usage=${JSON.stringify(hz.usage)} total=${Date.now() - started}ms warnings=${JSON.stringify(hz.warnings)}`);
+  // 件数はテスト側で数え直して一致を見る（テストに件数のリテラルを置かない・R-138）
+  expect(hz.tellsBefore, '整える前の件数は実装の数え方と一致').toBe(before.count);
+  expect(hz.applied, `整えた版が採用される（reason=${hz.reason ?? '-'}）`).toBe(true);
+  expect(hz.tellsAfter, 'AIらしい言い回しが減る（固定の入力なので < を求める）').toBeLessThan(hz.tellsBefore);
+  expect(findAiTells(content).count, '返ってきた件数は整えた本文を数え直した値と一致').toBe(hz.tellsAfter);
+  // 数字を1つも含まない入力なので、増減どちらも0でなければ事実が変わっている
+  expect(diffNumbers(HUMANIZE_FIXED_INPUT, content), '数字の追加・欠落なし').toEqual({ added: [], removed: [] });
+  expect(content.length, '本文が失われていない（R-39）').toBeGreaterThan(100);
 });

@@ -2213,6 +2213,7 @@ export default function ContextLibraryPanel() {
               </button>
               <button
                 type="button"
+                data-ctx-reader-md
                 onClick={() => handleDownloadMd(readerItem)}
                 disabled={downloadingId === readerItem.id}
                 style={{

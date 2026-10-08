@@ -14690,6 +14690,25 @@ test('C157: カードの ⬇ MD（339・R-136/R-137）— 🗂保存一覧・�
   const t2 = await createSave(request, { title: `MD-W ${marker2}`, content: raw, analysisType: 'summary', analysisLabel: '概要・要約' });
   const wk = await webkit.launch();
   const ctx = await wk.newContext({ storageState: STORAGE_STATE, baseURL: BASE_URL, hasTouch: true, isMobile: true, viewport: { width: 390, height: 844 }, serviceWorkers: 'block', acceptDownloads: true });
+  // 339追補: 📋 コピーの成功表示も同じ判定に掛けるため、WebKit でも書き込み API を差し替えて成否を作る（C155 と同じ）
+  await ctx.addInitScript(() => {
+    const w = window as unknown as { __clip: string[] };
+    w.__clip = [];
+    const push = (t: string) => { w.__clip.push(t); };
+    const clip = navigator.clipboard as unknown as Record<string, unknown>;
+    try {
+      Object.defineProperty(navigator, 'clipboard', {
+        configurable: true,
+        value: {
+          ...clip,
+          writeText: async (t: string) => push(String(t)),
+          write: async (items: { types: string[]; getType: (t: string) => Promise<Blob> }[]) => {
+            for (const it of items) if (it.types.includes('text/plain')) push(await (await it.getType('text/plain')).text());
+          },
+        },
+      });
+    } catch {}
+  });
   const mp = await ctx.newPage();
   try {
     await mp.goto('/dashboard/saved');
@@ -14721,10 +14740,49 @@ test('C157: カードの ⬇ MD（339・R-136/R-137）— 🗂保存一覧・�
     const overflowX = await mp.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
     expect(overflowX, '横スクロールなし').toBeLessThanOrEqual(1);
     // 狭幅でも押せて .md が落ちる
+    // 339追補§1: 成功表示（「✅ 保存しました」）に変わっても、押したボタンが次の行へ移らない
+    //（押す前と押した直後で行位置が同じ）・横スクロールが出ない・他と重ならない（R-133）
+    const rectOf = (sel: string) => card.evaluate((el, s2) => {
+      const b = el.querySelector(s2) as HTMLElement | null;
+      if (!b) return null;
+      const r = b.getBoundingClientRect();
+      const others = [...el.querySelectorAll('button, a')].filter((o) => o !== b) as HTMLElement[];
+      let worst = 0;
+      for (const o of others) {
+        const q = o.getBoundingClientRect();
+        if (q.width === 0 || q.height === 0) continue;
+        const ix = Math.max(0, Math.min(r.right, q.right) - Math.max(r.left, q.left));
+        const iy = Math.max(0, Math.min(r.bottom, q.bottom) - Math.max(r.top, q.top));
+        worst = Math.max(worst, ix * iy);
+      }
+      return { top: Math.round(r.top), left: Math.round(r.left), w: Math.round(r.width), h: Math.round(r.height), overlap: Math.round(worst), fits: r.left >= 0 && r.right <= window.innerWidth + 1 };
+    }, sel);
+    const hScroll = () => mp.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+    const mdSel = `[data-ta-md="${t2}"]`;
+    const mdBefore = await rectOf(mdSel);
     const waitDl = mp.waitForEvent('download', { timeout: 30000 });
-    await card.locator(`[data-ta-md="${t2}"]`).click();
+    await card.locator(mdSel).click();
     expect((await waitDl).suggestedFilename(), '狭幅でも .md が落ちる').toMatch(/\.md$/);
+    await expect(card.locator(mdSel), '成功表示に変わる').toHaveText(/保存しました|✅/, { timeout: 10000 });
+    const mdAfter = await rectOf(mdSel);
+    console.log(`[C157] 成功表示の幅 ⬇ MD: w ${mdBefore!.w}→${mdAfter!.w} top ${mdBefore!.top}→${mdAfter!.top} h=${mdAfter!.h}`);
+    expect(Math.abs(mdAfter!.top - mdBefore!.top), `⬇ MD: 成功表示で次の行へ移らない（top ${mdBefore!.top}→${mdAfter!.top} / 幅 ${mdBefore!.w}→${mdAfter!.w}）`).toBeLessThanOrEqual(2);
+    expect(mdAfter!.overlap, '⬇ MD: 成功表示でも他と重ならない（R-133）').toBe(0);
+    expect(mdAfter!.fits, '⬇ MD: 成功表示でも画面幅に収まる').toBe(true);
+    expect(await hScroll(), '⬇ MD: 成功表示でも横スクロールなし').toBeLessThanOrEqual(1);
     await expect(card.locator(`[data-ta-expanded-body="${t2}"]`), '狭幅でもカードが開かない').toHaveCount(0);
+    await expect(card.locator(mdSel), '約2秒で戻る').toHaveText(/MD/, { timeout: 8000 });
+    // 📋 コピー（338）も同じ判定
+    const cpSel = `[data-ta-copy="${t2}"]`;
+    const cpBefore = await rectOf(cpSel);
+    await card.locator(cpSel).click();
+    await expect(card.locator(cpSel), 'コピーの成功表示に変わる').toHaveText(/コピー済|✅/, { timeout: 10000 });
+    const cpAfter = await rectOf(cpSel);
+    console.log(`[C157] 成功表示の幅 📋 コピー: w ${cpBefore!.w}→${cpAfter!.w} top ${cpBefore!.top}→${cpAfter!.top} h=${cpAfter!.h}`);
+    expect(Math.abs(cpAfter!.top - cpBefore!.top), `📋 コピー: 成功表示で次の行へ移らない（top ${cpBefore!.top}→${cpAfter!.top} / 幅 ${cpBefore!.w}→${cpAfter!.w}）`).toBeLessThanOrEqual(2);
+    expect(cpAfter!.overlap, '📋 コピー: 成功表示でも他と重ならない（R-133）').toBe(0);
+    expect(cpAfter!.fits, '📋 コピー: 成功表示でも画面幅に収まる').toBe(true);
+    expect(await hScroll(), '📋 コピー: 成功表示でも横スクロールなし').toBeLessThanOrEqual(1);
   } finally {
     await ctx.close();
     await wk.close();

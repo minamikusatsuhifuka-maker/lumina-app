@@ -3280,6 +3280,7 @@ export default function SavedAnalysisList({
               </button>
               <button
                 type="button"
+                data-ta-reader-md
                 onClick={() => handleDownloadMd(readerRecord.record)}
                 disabled={downloadingId === readerRecord.record.id}
                 style={{

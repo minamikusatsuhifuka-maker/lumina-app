@@ -6677,6 +6677,20 @@ test('U112: カードの ⬇ MD（339）— ファイル名の共通規則（禁
   expect(mq.slice(0, 700), '狭幅でバッジ行の ⬇ MD は 44px 以上').toMatch(/@media \(max-width: 640px\) \{[\s\S]{0,600}button\[data-ta-md\][\s\S]{0,400}min-height: 44px/);
   for (const sel of ['button[data-library-md]', 'button[data-ctx-md]', 'button[data-ta-copy]']) expect(mq.slice(0, 700), `${sel} も同じ規則`).toContain(sel);
 
-  // ⑥ 台帳
+  // ⑥ 339追補§2: MD を押せる場所が減っていない（カードのバッジ行＋全画面リーダー＋横並び比較）
+  expect(saved, '🗂: 全画面リーダーの MD が残っている').toMatch(/data-ta-reader-md[\s\S]{0,200}handleDownloadMd\(readerRecord\.record\)/);
+  expect(saved, '🗂: 横並び比較に MD の口が残っている').toMatch(/onExportMd=\{\(item\) => void handleDownloadMd\(compareRecordOf\(item\)\)\}/);
+  expect(clp, '🧠: 全画面リーダーの MD が残っている').toMatch(/data-ctx-reader-md[\s\S]{0,200}handleDownloadMd\(readerItem\)/);
+  expect(clp, '🧠: 横並び比較に MD の口が残っている').toMatch(/onExportMd=\{\(row\) => void handleDownloadMd\(compareItemOf\(row\)\)\}/);
+  expect(libPage, '📚: 全画面リーダーの MD が残っている').toMatch(/data-library-reader-md[\s\S]{0,120}downloadMd\(readerItem\)/);
+  expect(libPage, '📚: 横並び比較に MD の口が残っている').toMatch(/<LibraryCompareView[\s\S]{0,400}onExportMd=\{downloadMd\}/);
+  const cmp = read('src/components/library/LibraryCompareView.tsx');
+  expect(cmp, '比較表示の各列に MD のボタンがある（3画面で共有）').toMatch(/data-compare-dl=\{i\}[\s\S]{0,200}onExportMd\(e\.item\)/);
+  expect(saved, '🗂: 選択した複数件の一括 MD（ZIP）も残っている').toMatch(/bulkDownloading/);
+  // 📚 default variant（ホバーに頼らない操作バー）にも ⬇ MD がある＝variant をまたいで押せる
+  expect((lir.match(/data-library-md=/g) ?? []).length, '📚: compact／default の両方に ⬇ MD').toBe(2);
+
+  // ⑦ 台帳
   expect(read('RULES.md'), 'R-136 に 339（⬇ MD）が入っている').toMatch(/^## R-136:[\s\S]{0,2000}339/m);
+  expect(read('RULES.md'), 'R-138（テストは実装と同じ定数を参照する）がある').toMatch(/^## R-138: .*定数/m);
 });
